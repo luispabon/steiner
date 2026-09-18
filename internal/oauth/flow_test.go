@@ -42,21 +42,26 @@ func TestRunAuthCodeFlowSuccess(t *testing.T) {
 		// redirect_uri (which carries the actual bound port) then simulates the
 		// browser redirect by calling the callback endpoint.
 		OpenBrowser: func(authURL string) error {
+			// Parse synchronously so a setup error fails the flow immediately
+			// instead of becoming a five-second context timeout.
+			u, err := url.Parse(authURL)
+			if err != nil {
+				return err
+			}
+			state := u.Query().Get("state")
+			redirectURI := u.Query().Get("redirect_uri")
+			ru, err := url.Parse(redirectURI)
+			if err != nil {
+				return err
+			}
+			callbackURL := fmt.Sprintf("http://localhost:%s/callback?code=test_code&state=%s", ru.Port(), state)
+			// The listener is already bound, so no delay is needed; the GET
+			// blocks until the callback server serves it. Report request
+			// failures from this goroutine with t.Errorf.
 			go func() {
-				time.Sleep(1 * time.Millisecond)
-				u, err := url.Parse(authURL)
-				if err != nil {
-					return
-				}
-				state := u.Query().Get("state")
-				redirectURI := u.Query().Get("redirect_uri")
-				ru, err := url.Parse(redirectURI)
-				if err != nil {
-					return
-				}
-				callbackURL := fmt.Sprintf("http://localhost:%s/callback?code=test_code&state=%s", ru.Port(), state)
 				resp, err := http.Get(callbackURL) //nolint:noctx
 				if err != nil {
+					t.Errorf("callback request: %v", err)
 					return
 				}
 				_ = resp.Body.Close()
@@ -306,9 +311,18 @@ func TestOpenBrowser(t *testing.T) {
 		t.Errorf("openBrowser() error = %v", err)
 	}
 
-	for i := 0; i < 200; i++ {
-		time.Sleep(10 * time.Millisecond)
-		if _, err := os.Stat(markerPath); err == nil {
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline.C:
+			t.Fatal("marker file not created within 2 seconds")
+		case <-ticker.C:
+		}
+		_, err := os.Stat(markerPath)
+		if err == nil {
 			data, err := os.ReadFile(markerPath)
 			if err != nil {
 				t.Fatalf("ReadFile() error = %v", err)
@@ -318,8 +332,10 @@ func TestOpenBrowser(t *testing.T) {
 			}
 			return
 		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("Stat(marker) error = %v, want not-exist", err)
+		}
 	}
-	t.Errorf("marker file not created after 2 seconds")
 }
 
 func TestOpenBrowserEmptyPath(t *testing.T) {

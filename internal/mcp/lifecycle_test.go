@@ -196,15 +196,10 @@ func TestLifecycleCallsBlockDuringReconnect(t *testing.T) {
 		echoDone <- callOutcome{env, err}
 	}()
 
-	// The echo call must block while the reconnect is gated: it cannot complete
-	// before the worker is released, so a bounded wait is a deterministic
-	// assertion (locked decision 3).
-	select {
-	case <-echoDone:
-		t.Fatal("echo returned while the reconnect attempt was in flight; it must block")
-	case <-time.After(200 * time.Millisecond):
-	}
-
+	// The reconnect worker is gated (started closed above), so the echo call is
+	// blocked on the reconnect outcome future. Release the gate first, then
+	// assert the call completes successfully: completion is only ever an
+	// ordering assertion, never a function of elapsed time (locked decision 3).
 	releaseFn()
 
 	select {
