@@ -1,11 +1,19 @@
 package lsp
 
 import (
+	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"go.lsp.dev/protocol"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 func TestResultCache_IdenticalCallHitsCache(t *testing.T) {
@@ -109,79 +117,167 @@ func TestResultCache_FileMutationCausesMiss(t *testing.T) {
 }
 
 func TestResultCache_ProvisionalNotCached_Navigate(t *testing.T) {
-	// Test 3a: A provisional result (Incomplete=true) is NOT cached.
+	// Test 3a: A provisional result (Incomplete=true) from Manager.Definitions
+	// is NOT cached. Force incomplete=true by starting a begin progress event
+	// that never completes before ReadyTimeout fires.
 
-	cache := newResultCache(512)
+	fs := newFakeServer()
+	fs.definitionResult = &protocol.Location{
+		URI: "file:///test.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 5},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	cfg := config.LSPConfig{
+		MaxResults:       100,
+		RequestTimeout:   config.MustDuration("2s"),
+		ReadyTimeout:     config.MustDuration("50ms"),
+		ReadyGracePeriod: config.MustDuration("10ms"),
+		Servers: map[string]config.LSPServerConfig{
+			"go": {Enabled: true, FileExtensions: []string{".go"}},
+		},
+	}
+	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	t.Cleanup(func() { _ = m.Close() })
+
+	root := resolveRoot(testFile, tmpdir, nil)
+	ent := &entry{state: ServerState{Status: ServerStatusReady}, session: sess, readiness: newReadiness()}
+	m.sessions = map[sessionKey]*entry{{server: "go", root: root}: ent}
+	go m.trackReadiness(ent, sess, ent.readiness)
+
+	// Fire a begin event so the grace period timer is stopped, then never
+	// send the matching end: ReadyTimeout fires with an incomplete cycle.
+	begin, _ := json.Marshal(protocol.WorkDoneProgressBegin{Kind: "begin", Title: "Loading"})
+	if err := fs.client.Progress(ctx, &protocol.ProgressParams{
+		Token: protocol.String("token1"),
+		Value: protocol.LSPAny(begin),
+	}); err != nil {
+		t.Fatalf("send begin: %v", err)
+	}
+
+	result, err := m.Definitions(ctx, testFile, 1, 1)
+	if err != nil {
+		t.Fatalf("Definitions: %v", err)
+	}
+	if !result.Incomplete {
+		t.Fatalf("Definitions result.Incomplete = false, want true (readiness gate should have timed out)")
+	}
+
 	key := cacheKey{
-		server:      "test-server",
-		root:        "/root",
+		server:      "go",
+		root:        root,
 		method:      "definitions",
-		file:        "/root/main.go",
-		line:        10,
-		column:      5,
-		fileHash:    "abc123",
+		file:        testFile,
+		line:        1,
+		column:      1,
+		fileHash:    hashFileContent(testFile),
 		includeDecl: false,
 	}
-
-	// Do NOT store provisional result (test verifies this by checking miss on repeat).
-	// In real code, Definitions checks !incomplete before storing.
-	// Here we just verify that if someone tries to get a key that was never stored,
-	// it returns a miss.
-
-	_, hit := cache.get(key)
-	if hit {
-		t.Error("expected cache miss for unstored key")
+	if _, hit := m.resultCache.get(key); hit {
+		t.Error("provisional (incomplete) Definitions result was cached, want not cached")
 	}
 
-	// Store a non-provisional result
-	completeResult := &Result{
-		Locations:  []Location{{File: "/root/main.go", Line: 5, Column: 1}},
-		Incomplete: false,
-		Truncated:  false,
+	// A repeated call must hit the server again, not a cache entry.
+	if _, err := m.Definitions(ctx, testFile, 1, 1); err != nil {
+		t.Fatalf("Definitions (second call): %v", err)
 	}
-	cache.put(key, completeResult)
-
-	// Verify it's cached
-	_, hit = cache.get(key)
-	if !hit {
-		t.Error("expected cache hit after storing complete result")
+	defCount := 0
+	for _, method := range fs.recorded() {
+		if method == "textDocument/definition" {
+			defCount++
+		}
+	}
+	if defCount != 2 {
+		t.Errorf("textDocument/definition called %d times, want 2 (provisional result must not short-circuit via cache)", defCount)
 	}
 }
 
 func TestResultCache_ProvisionalNotCached_Diagnostics(t *testing.T) {
-	// Test 3b: A provisional diagnostics result (WindowExpired=true) is NOT cached.
+	// Test 3b: A provisional diagnostics result (WindowExpired=true) from
+	// Manager.Diagnostics is NOT cached. Force WindowExpired=true by letting
+	// the collection window elapse with no publication for the file.
 
-	cache := newResultCache(512)
+	fs := newFakeServer()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	cfg := config.LSPConfig{
+		MaxResults:        100,
+		RequestTimeout:    config.MustDuration("2s"),
+		DiagnosticsWindow: config.MustDuration("50ms"),
+		Servers: map[string]config.LSPServerConfig{
+			"go": {Enabled: true, FileExtensions: []string{".go"}},
+		},
+	}
+	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	t.Cleanup(func() { _ = m.Close() })
+
+	root := resolveRoot(testFile, tmpdir, nil)
+	ent := &entry{state: ServerState{Status: ServerStatusReady}, session: sess}
+	m.sessions = map[sessionKey]*entry{{server: "go", root: root}: ent}
+
+	result, err := m.Diagnostics(ctx, testFile)
+	if err != nil {
+		t.Fatalf("Diagnostics: %v", err)
+	}
+	if !result.WindowExpired {
+		t.Fatalf("Diagnostics result.WindowExpired = false, want true (no publication was sent)")
+	}
+
 	key := cacheKey{
-		server:      "test-server",
-		root:        "/root",
+		server:      "go",
+		root:        root,
 		method:      "diagnostics",
-		file:        "/root/main.go",
+		file:        testFile,
 		line:        0,
 		column:      0,
-		fileHash:    "abc123",
+		fileHash:    hashFileContent(testFile),
 		includeDecl: false,
 	}
-
-	// Do NOT store provisional result (test is that it's not in cache).
-	_, hit := cache.get(key)
-	if hit {
-		t.Error("expected cache miss for unstored key")
+	if _, hit := m.resultCache.get(key); hit {
+		t.Error("provisional (WindowExpired) Diagnostics result was cached, want not cached")
 	}
 
-	// Store a complete result
-	completeResult := &DiagResult{
-		Items:         []Diagnostic{{Line: 1, Column: 1, Message: "error"}},
-		Truncated:     false,
-		WindowExpired: false,
-		Total:         1,
+	// A repeated call must re-collect from the server, not hit a cache entry.
+	if _, err := m.Diagnostics(ctx, testFile); err != nil {
+		t.Fatalf("Diagnostics (second call): %v", err)
 	}
-	cache.put(key, completeResult)
-
-	// Verify it's cached
-	_, hit = cache.get(key)
-	if !hit {
-		t.Error("expected cache hit after storing complete result")
+	openCount := 0
+	for _, method := range fs.recorded() {
+		if method == "textDocument/didOpen" {
+			openCount++
+		}
+	}
+	if openCount != 2 {
+		t.Errorf("textDocument/didOpen called %d times, want 2 (provisional result must not short-circuit via cache)", openCount)
 	}
 }
 
@@ -501,13 +597,21 @@ func TestHashFileContent(t *testing.T) {
 
 	t.Run("hashFileContent is deterministic", func(t *testing.T) {
 		content := []byte("package main\n\nfunc main() {}\n")
-		hash1 := fmt.Sprintf("%x", sha256.Sum256(content))
+		want := fmt.Sprintf("%x", sha256.Sum256(content))
 
-		// Create a mock hash of the same content
-		hash2 := fmt.Sprintf("%x", sha256.Sum256(content))
+		file := filepath.Join(t.TempDir(), "main.go")
+		if err := os.WriteFile(file, content, 0o644); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
 
+		hash1 := hashFileContent(file)
+		hash2 := hashFileContent(file)
+
+		if hash1 != want {
+			t.Errorf("hashFileContent: got %q, want %q", hash1, want)
+		}
 		if hash1 != hash2 {
-			t.Error("hash is not deterministic")
+			t.Error("hashFileContent is not deterministic across repeated calls")
 		}
 	})
 }

@@ -11,6 +11,7 @@ func TestCacheDirFor(t *testing.T) {
 	tests := []struct {
 		name        string
 		configDir   string
+		useFallback bool
 		root        string
 		wantExist   bool
 		wantPerms   bool
@@ -26,7 +27,7 @@ func TestCacheDirFor(t *testing.T) {
 		},
 		{
 			name:        "creates cache dir with 0o700 in default user cache dir",
-			configDir:   "",
+			useFallback: true,
 			root:        "/workspace/project1",
 			wantExist:   true,
 			wantPerms:   true,
@@ -52,10 +53,13 @@ func TestCacheDirFor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// For testing, override the user cache dir if needed.
-			if tt.configDir == "" {
-				tmpCache := t.TempDir()
-				tt.configDir = tmpCache
+			if tt.useFallback {
+				// Leave configDir empty so cacheDirFor exercises the
+				// os.UserCacheDir fallback; isolate it from the developer's
+				// real cache dir via XDG_CACHE_HOME.
+				t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			} else if tt.configDir == "" {
+				tt.configDir = t.TempDir()
 			}
 
 			got, err := cacheDirFor(tt.configDir, tt.root)
@@ -66,7 +70,7 @@ func TestCacheDirFor(t *testing.T) {
 			if tt.wantExist {
 				info, err := os.Stat(got)
 				if err != nil {
-					t.Errorf("cache dir stat: %v", err)
+					t.Fatalf("cache dir stat: %v", err)
 				}
 				if !info.IsDir() {
 					t.Errorf("cache path is not a directory: %v", got)
@@ -76,7 +80,7 @@ func TestCacheDirFor(t *testing.T) {
 			if tt.wantPerms {
 				info, err := os.Stat(got)
 				if err != nil {
-					t.Errorf("cache dir stat for perms: %v", err)
+					t.Fatalf("cache dir stat for perms: %v", err)
 				}
 				if info.Mode().Perm() != 0o700 {
 					t.Errorf("cache dir perms = %o, want 0o700", info.Mode().Perm())
@@ -95,7 +99,7 @@ func TestCacheDirFor(t *testing.T) {
 				// Verify the directory still exists (wasn't deleted).
 				info, err := os.Stat(got2)
 				if err != nil {
-					t.Errorf("cache dir stat after second call: %v", err)
+					t.Fatalf("cache dir stat after second call: %v", err)
 				}
 				if !info.IsDir() {
 					t.Errorf("cache path is not a directory after second call: %v", got2)
@@ -128,7 +132,7 @@ func TestCacheDirDifferentRootsAreDifferent(t *testing.T) {
 	for _, dir := range []string{dir1, dir2} {
 		info, err := os.Stat(dir)
 		if err != nil {
-			t.Errorf("stat cache dir %q: %v", dir, err)
+			t.Fatalf("stat cache dir %q: %v", dir, err)
 		}
 		if info.Mode().Perm() != 0o700 {
 			t.Errorf("cache dir perms = %o, want 0o700", info.Mode().Perm())

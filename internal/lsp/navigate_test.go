@@ -259,14 +259,56 @@ func TestDefinitionsInvalidPosition(t *testing.T) {
 }
 
 func TestRequestTimeout(t *testing.T) {
-	// Note: We can't easily test timeout without a real server process, so we skip this for now.
-	// In practice, this would be tested with a fake server that blocks indefinitely.
-	t.Skip("request timeout test requires complex setup")
+	// Verify that a stalled Definition request is bounded by RequestTimeout and
+	// returns before the test's overall deadline, rather than blocking forever.
+	fs := newFakeServer()
+	fs.definitionResult = &protocol.Location{
+		URI: "file:///test.go",
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 0, Character: 5},
+		},
+	}
+	fs.stallDefinition()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+	m.cfg.RequestTimeout = config.MustDuration("100ms")
+
+	start := time.Now()
+	_, err = m.Definitions(ctx, testFile, 1, 1)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("Definitions: got nil error, want a request-timeout error for a stalled server")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Definitions error: got %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed >= testTimeout {
+		t.Errorf("Definitions took %v, want well under the %v test timeout (request timeout should have fired first)", elapsed, testTimeout)
+	}
 }
 
 func TestConcurrentDefinitionsNonInterleaving(t *testing.T) {
-	// Most critical test: verify that two concurrent withDocument calls against the same session
-	// do not interleave their open/request/close cycles when protected by cycleMu.
+	// Most critical test: verify that two concurrent Manager.Definitions calls
+	// against the same session do not interleave their open/request/close
+	// cycles. Manager.Definitions itself is responsible for acquiring
+	// entry.cycleMu, so this test drives the production method directly rather
+	// than reimplementing its locking.
 	fs := newFakeServer()
 
 	fs.definitionResult = &protocol.Location{
@@ -279,6 +321,14 @@ func TestConcurrentDefinitionsNonInterleaving(t *testing.T) {
 
 	// Make the Definition request block until we release it.
 	fs.stallDefinition()
+
+	// didOpen is signaled once per open, in the exact order the server
+	// receives them, so the test can deterministically observe when the
+	// first cycle has opened the document without sleeping.
+	openSignal := make(chan struct{}, 2)
+	fs.onDidOpen = func(context.Context, *protocol.DidOpenTextDocumentParams) {
+		openSignal <- struct{}{}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -304,47 +354,34 @@ func TestConcurrentDefinitionsNonInterleaving(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	// Create an entry with cycleMu to test concurrency.
-	ent := &entry{
-		state:     ServerState{Status: ServerStatusReady},
-		session:   sess,
-		readiness: newReadiness(),
-	}
-	ent.readiness.markReady()
+	m := symbolTestManager(t, sess, tmpdir, testFile)
 
 	var wg sync.WaitGroup
 	var err1, err2 error
 
-	// Launch two concurrent withDocument calls on the same entry.
-	// They should serialize at the cycleMu level, not interleave.
+	// Launch two concurrent Manager.Definitions calls against the same
+	// session. They should serialize at the cycleMu level, not interleave.
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		ent.cycleMu.Lock()
-		defer ent.cycleMu.Unlock()
-		err1 = withDocument(ctx, sess, testFile, func() error {
-			_, err := sess.Definition(ctx, testFile, 1, 1)
-			return err
-		})
+		_, err1 = m.Definitions(ctx, testFile, 1, 1)
 	}()
 	go func() {
 		defer wg.Done()
-		ent.cycleMu.Lock()
-		defer ent.cycleMu.Unlock()
-		err2 = withDocument(ctx, sess, testFile, func() error {
-			_, err := sess.Definition(ctx, testFile, 1, 1)
-			return err
-		})
+		_, err2 = m.Definitions(ctx, testFile, 1, 1)
 	}()
 
-	// Give both goroutines time to reach their withDocument calls.
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the first cycle's didOpen. Because the definition request is
+	// stalled, the second goroutine cannot have opened its document yet: it
+	// is still blocked acquiring cycleMu behind the first cycle.
+	select {
+	case <-openSignal:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for the first didOpen")
+	}
 
-	// At this point, one should have completed (didOpen/definition/didClose cycle),
-	// and the second should be waiting on cycleMu.
 	methodsSoFar := recorder.recorded()
 
-	// Count how many opens we've seen so far - should be exactly 1 (first call).
 	openCount := 0
 	for _, m := range methodsSoFar {
 		if m == "textDocument/didOpen" {
@@ -352,25 +389,24 @@ func TestConcurrentDefinitionsNonInterleaving(t *testing.T) {
 		}
 	}
 
-	// If cycleMu isn't held, both opens happen immediately. This would be a bug.
-	if openCount > 2 {
-		t.Errorf("Too many didOpen calls recorded: %d (concurrency bug: opens interleaved)", openCount)
+	// Exactly one open must be visible here. Two would mean the second cycle
+	// started before the first released cycleMu (opens interleaved).
+	if openCount != 1 {
+		t.Errorf("didOpen calls recorded before releasing the stall: got %d, want exactly 1 (concurrency bug: opens interleaved)", openCount)
 	}
 
 	// Release the stalled definition response.
 	fs.releaseHolds()
 
-	// Wait for both calls to complete.
+	// Wait for both calls to complete. withDocument's DidClose runs
+	// synchronously before Definitions returns, so no further wait is needed.
 	wg.Wait()
 
-	// Give DidClose a chance to be recorded (increased for -race).
-	time.Sleep(300 * time.Millisecond)
-
 	if err1 != nil {
-		t.Logf("Definitions call 1: %v (might be timeout related)", err1)
+		t.Errorf("Definitions call 1: %v", err1)
 	}
 	if err2 != nil {
-		t.Logf("Definitions call 2: %v (might be timeout related)", err2)
+		t.Errorf("Definitions call 2: %v", err2)
 	}
 
 	// Check the full sequence for non-interleaving.
