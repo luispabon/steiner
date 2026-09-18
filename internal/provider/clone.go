@@ -1,6 +1,9 @@
 package provider
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"slices"
+)
 
 // CloneMessages deep-copies provider messages for safe reuse across packages.
 func CloneMessages(messages []Message) []Message {
@@ -11,6 +14,7 @@ func CloneMessages(messages []Message) []Message {
 	copy(cloned, messages)
 	for i := range cloned {
 		cloned[i].ToolCalls = CloneToolCalls(cloned[i].ToolCalls)
+		cloned[i].Images = slices.Clone(cloned[i].Images)
 		cloned[i].ProviderMetadata = CloneMessageMetadata(cloned[i].ProviderMetadata)
 	}
 	return cloned

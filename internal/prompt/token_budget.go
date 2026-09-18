@@ -47,33 +47,7 @@ func (m ModelTokenBudget) Normalized() ModelTokenBudget {
 
 // FitRequest estimates whether a normal chat request fits within the model budget.
 func (m ModelTokenBudget) FitRequest(ctx context.Context, request provider.ChatRequest) (RequestTokenBudget, error) {
-	if err := ctx.Err(); err != nil {
-		return RequestTokenBudget{}, err
-	}
-	m = m.Normalized()
-
-	estimate, err := provider.EstimateChatRequestTokenEstimate(ctx, request)
-	if err != nil {
-		return RequestTokenBudget{}, err
-	}
-
-	estimatedPromptTokens := estimate.Tokens
-	completionReserve := m.completionReserveForRequest(request)
-	total := estimatedPromptTokens + completionReserve + m.SafetyMarginTokens
-	hardLimit := hardPromptLimit(m.ContextSize, m.SafetyMarginTokens)
-	return RequestTokenBudget{
-		RawEstimatedPromptTokens: estimate.RawTokens,
-		EstimatedPromptTokens:    estimatedPromptTokens,
-		PromptUsage:              promptUsage(estimatedPromptTokens, m.ContextSize),
-		CompactionThreshold:      normalPromptCompactionThreshold,
-		HardLimitTokens:          hardLimit,
-		ShouldCompact:            shouldCompactPrompt(estimatedPromptTokens, m.ContextSize, m.SafetyMarginTokens),
-		ReservedCompletionTokens: completionReserve,
-		SafetyMarginTokens:       m.SafetyMarginTokens,
-		TotalTokens:              total,
-		ContextSize:              m.ContextSize,
-		Fits:                     m.ContextSize <= 0 || estimatedPromptTokens <= hardLimit,
-	}, nil
+	return m.fit(ctx, request, m.completionReserveForRequest(request))
 }
 
 // FitCompactionRequest estimates whether a compaction request fits within the model budget.

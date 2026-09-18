@@ -272,3 +272,23 @@ func TestResolveModelMetadataCatalogMissFallsThroughToModelsDev(t *testing.T) {
 		t.Fatalf("ContextWindow source = %q, want %q", got, want)
 	}
 }
+
+func TestCatalogSourceEffortsDeepCopy(t *testing.T) {
+	catalog := fakeModelCatalog{
+		"router\x00model": {SupportedEfforts: []string{"low", "high"}},
+	}
+	s := catalogSource{catalog: catalog}
+	ref := modelRef{ProviderAlias: "router", BackendModelID: "model"}
+	res := s.resolve(context.Background(), ref, fieldSet(fieldEfforts))
+
+	if len(res.facts.ReasoningEfforts.Value) != 2 {
+		t.Fatalf("efforts len = %d, want 2", len(res.facts.ReasoningEfforts.Value))
+	}
+
+	res.facts.ReasoningEfforts.Value[0] = "mutated"
+
+	res2 := s.resolve(context.Background(), ref, fieldSet(fieldEfforts))
+	if res2.facts.ReasoningEfforts.Value[0] != "low" {
+		t.Errorf("catalog source was mutated: efforts[0] = %q, want low", res2.facts.ReasoningEfforts.Value[0])
+	}
+}

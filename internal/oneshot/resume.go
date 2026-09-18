@@ -130,7 +130,7 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 		previousPhase = phase
 	}
 
-	o.finalizeRun(ctx, &manifest, planningPath)
+	o.finalizeRun(ctx, store, &manifest, planningPath)
 
 	return manifest, nil
 }

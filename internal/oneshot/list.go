@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -34,6 +35,7 @@ func ListRuns(projectRoot string) ([]ResumableRun, error) {
 }
 
 // ListResumableRuns returns resumable runs discovered under the oneshot state directory.
+// Corrupt or unreadable entries are skipped with a warning rather than failing the entire listing.
 func ListResumableRuns(projectRoot string) ([]ResumableRun, error) {
 	stateDir := filepath.Join(projectRoot, steinerDirName, oneshotStateDirName)
 	entries, err := os.ReadDir(stateDir)
@@ -53,7 +55,8 @@ func ListResumableRuns(projectRoot string) ([]ResumableRun, error) {
 		manifestPath := filepath.Join(stateDir, entry.Name(), "run.json")
 		manifest, err := readManifestFile(manifestPath)
 		if err != nil {
-			return nil, err
+			slog.Warn("skipping corrupt run manifest", "path", manifestPath, "error", err)
+			continue
 		}
 
 		resumePhase, ok := firstIncompletePhase(manifest)
@@ -64,7 +67,8 @@ func ListResumableRuns(projectRoot string) ([]ResumableRun, error) {
 		identity := RunIdentity{ID: manifest.RunID, Slug: manifest.Slug}
 		lockState, err := resumableRunLockState(identity.LockPath(projectRoot))
 		if err != nil {
-			return nil, err
+			slog.Warn("skipping run with unreadable lock file", "run_id", identity.ID, "error", err)
+			continue
 		}
 		if lockState == lockStateLive {
 			continue

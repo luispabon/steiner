@@ -137,7 +137,7 @@ func TestModelReferenceValidationAndOverrides(t *testing.T) {
 		})
 	}
 
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if err := applyCLIOverrides(&cfg, CLIOverrides{Model: "local/raw-model"}); err != nil {
 		t.Fatalf("applyCLIOverrides() error = %v", err)
 	}

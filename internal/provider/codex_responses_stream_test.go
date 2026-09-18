@@ -211,6 +211,30 @@ func TestResponsesStreamNoReasoning(t *testing.T) {
 	}
 }
 
+func TestResponsesStreamReasoningCompletedOnly(t *testing.T) {
+	// F386: reasoning only in completed payload, no reasoning deltas
+	body := strings.NewReader(
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"answer\"}\n\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"reasoning\",\"id\":\"rs_456\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"thinking in completed\"}]}],\"usage\":{}}}\n\n" +
+			"data: [DONE]\n\n",
+	)
+
+	chunks, err := collectResponsesStreamChunks(t, body)
+	if err != nil {
+		t.Fatalf("decodeResponsesStreamWithHandler() error = %v", err)
+	}
+	final := chunks[len(chunks)-1]
+	if final.Delta.ReasoningContent != "thinking in completed" {
+		t.Fatalf("final ReasoningContent = %q, want %q", final.Delta.ReasoningContent, "thinking in completed")
+	}
+	if final.Delta.ProviderMetadata == nil || final.Delta.ProviderMetadata.Codex == nil {
+		t.Fatal("expected ProviderMetadata.Codex to be set")
+	}
+	if final.Delta.ProviderMetadata.Codex.ReasoningID != "rs_456" {
+		t.Fatalf("ReasoningID = %q, want %q", final.Delta.ProviderMetadata.Codex.ReasoningID, "rs_456")
+	}
+}
+
 func collectResponsesStreamChunks(t *testing.T, body io.Reader) ([]ChatChunk, error) {
 	t.Helper()
 

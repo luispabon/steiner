@@ -40,6 +40,8 @@ type CompactionOutcome struct {
 	PromptText         string
 	// Usage is the summarizer response token accounting.
 	Usage *provider.UsageStats
+	// StageCount is the number of compaction stages (1 or 2) executed in this outcome.
+	StageCount int
 }
 
 type summarizeCompactor struct{}
@@ -98,7 +100,11 @@ func (s summarizeCompactionStages) run(
 	}
 	if !normalOutcome.Applied {
 		emergencyCandidate := makeCompactionCandidate(candidate, emergencySource, emergencyRetained)
-		return s.runStageAndFit(ctx, req, state, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+		outcome, err := s.runStageAndFit(ctx, req, state, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+		if err == nil {
+			outcome.StageCount = 1
+		}
+		return outcome, err
 	}
 
 	normalFit, err := s.fitRunner(ctx, req, normalOutcome.State)
@@ -106,6 +112,7 @@ func (s summarizeCompactionStages) run(
 		return CompactionOutcome{}, err
 	}
 	normalOutcome.Fit = normalFit
+	normalOutcome.StageCount = 1
 	if !needsEmergencyCompaction(normalFit) {
 		return normalOutcome, nil
 	}
@@ -117,7 +124,11 @@ func (s summarizeCompactionStages) run(
 	}
 	emergencySource, emergencyRetained = compactionSourceAndRetention(emergencySource, emergencyRetentionBase, emergencyCompactionRetainTurns)
 	emergencyCandidate := makeCompactionCandidate(normalOutcome.Candidate, emergencySource, emergencyRetained)
-	return s.runStageAndFit(ctx, req, normalOutcome.State, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+	outcome, err := s.runStageAndFit(ctx, req, normalOutcome.State, turn, emergencyCandidate, emergencySource, emergencyRetained, prompt.CompactionModeEmergency, compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency))
+	if err == nil {
+		outcome.StageCount = 2
+	}
+	return outcome, err
 }
 
 // runStageAndFit runs a single compaction stage, verifies it applied, and
@@ -278,7 +289,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 
 	*state = outcome.State
 	if compactionCount != nil {
-		(*compactionCount)++
+		*compactionCount += outcome.StageCount
 		emitCompactionDiagnostics(req.Events, turn, *compactionCount, currentFit, outcome.Fit, outcome.Mode, outcome.SummaryTokenBudget, outcome.RetainedMessages, outcome.Candidate, outcome.SummaryText, outcome.PromptText, outcome.Usage)
 	}
 	skipped[compactionCandidateKey(candidate)] = true

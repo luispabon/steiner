@@ -131,6 +131,7 @@ func (e *semanticTokenEstimator) countMessage(message Message) int {
 	total += e.countText(message.Name)
 	total += e.countText(message.ToolCallID)
 	total += e.countText(message.Content)
+	total += e.countText(message.ReasoningContent)
 	for _, call := range message.ToolCalls {
 		total += e.countToolCall(call)
 	}
@@ -290,6 +291,7 @@ func defaultTokenizerForModel(model string) (tokenizer.Codec, error) {
 }
 
 func encodingNameForModel(model string) tokenizer.Encoding {
+	model = strings.TrimSpace(model)
 	switch {
 	case strings.HasPrefix(model, "gpt-5"),
 		strings.HasPrefix(model, "gpt-4.5"),

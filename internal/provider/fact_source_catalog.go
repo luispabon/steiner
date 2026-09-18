@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"slices"
 
 	"github.com/luispabon/steiner/internal/config"
 )
@@ -56,7 +57,7 @@ func (s catalogSource) resolve(_ context.Context, ref modelRef, want fieldSet) s
 		facts.MaxOutputTokens = Fact[int]{Value: model.MaxOutputTokens, Known: true, Source: FactSourceCatalog, Confidence: "high"}
 	}
 	if want&fieldSet(fieldEfforts) != 0 && len(model.SupportedEfforts) > 0 {
-		facts.ReasoningEfforts = Fact[[]string]{Value: model.SupportedEfforts, Known: true, Source: FactSourceCatalog, Confidence: "high"}
+		facts.ReasoningEfforts = Fact[[]string]{Value: slices.Clone(model.SupportedEfforts), Known: true, Source: FactSourceCatalog, Confidence: "high"}
 	}
 	return sourceResult{facts: facts}
 }

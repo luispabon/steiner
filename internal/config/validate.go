@@ -120,7 +120,7 @@ func validateLimitsConfig(problems *[]string, cfg LimitsConfig) {
 	if cfg.MaxTokens < 1 {
 		*problems = append(*problems, "limits.max_tokens must be at least 1")
 	}
-	if cfg.ToolTimeoutDefault.IsZero() {
+	if cfg.ToolTimeoutDefault.Duration() <= 0 {
 		*problems = append(*problems, "limits.tool_timeout_default must be greater than zero")
 	}
 	if cfg.ToolOutputMaxBytes < 1 {
@@ -136,7 +136,7 @@ func validateLimitsConfig(problems *[]string, cfg LimitsConfig) {
 			*problems = append(*problems, "limits.tool_timeouts contains an empty tool name")
 			continue
 		}
-		if timeout.IsZero() {
+		if timeout.Duration() <= 0 {
 			*problems = append(*problems, fmt.Sprintf("limits.tool_timeouts[%q] must be greater than zero", name))
 		}
 	}

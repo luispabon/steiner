@@ -288,6 +288,57 @@ func TestModelTokenBudgetFitRequestTriggersHardLimitPadBeforeThreshold(t *testin
 	}
 }
 
+func TestFitRequestAndFitCompactionRequestUseSameFormula(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	request := provider.ChatRequest{
+		Model: "gpt-4o",
+		Messages: []provider.Message{
+			{Role: provider.MessageRoleSystem, Content: "system instructions"},
+			{Role: provider.MessageRoleUser, Content: "user request"},
+		},
+	}
+
+	promptTokens, err := provider.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+
+	// Case: prompt fits under hard limit, but completion reserve would push total over context size.
+	// Old FitRequest formula: prompt <= hardLimit (would be true)
+	// Correct formula: total <= contextSize (should be false)
+	hardLimit := promptTokens - 1
+	completionReserve := 10
+	safetyMargin := 5
+	contextSize := hardLimit + safetyMargin + completionReserve - 1
+
+	budget := ModelTokenBudget{
+		ContextSize:         contextSize,
+		MaxCompletionTokens: completionReserve,
+		SafetyMarginTokens:  safetyMargin,
+		SummaryMaxTokens:    completionReserve,
+	}
+
+	normalFit, err := budget.FitRequest(ctx, request)
+	if err != nil {
+		t.Fatalf("FitRequest() error = %v", err)
+	}
+
+	compactionRequest := request
+	compactionFit, err := budget.FitCompactionRequest(ctx, compactionRequest)
+	if err != nil {
+		t.Fatalf("FitCompactionRequest() error = %v", err)
+	}
+
+	if normalFit.Fits != compactionFit.Fits {
+		t.Fatalf("FitRequest.Fits = %v, FitCompactionRequest.Fits = %v, want same", normalFit.Fits, compactionFit.Fits)
+	}
+	if normalFit.Fits {
+		t.Fatalf("Both FitRequest and FitCompactionRequest should report not fit when completion reserve + safety margin exceed context size")
+	}
+}
+
 func TestModelTokenBudgetCarriesRawAndCalibratedPromptTokens(t *testing.T) {
 	ctx := context.Background()
 	request := provider.ChatRequest{

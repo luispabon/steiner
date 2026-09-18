@@ -77,12 +77,12 @@ func TestBuildWebSearchPreview(t *testing.T) {
 				Language: "json",
 				Contents: `[
   {
-    "title": "Foo",
-    "url": "https://foo.com"
+    "url": "https://foo.com",
+    "title": "Foo"
   },
   {
-    "title": "Bar",
-    "url": "https://bar.com"
+    "url": "https://bar.com",
+    "title": "Bar"
   }
 ]`,
 				Returned: 2,

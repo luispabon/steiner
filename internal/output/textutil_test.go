@@ -1,6 +1,7 @@
 package output
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -17,8 +18,8 @@ func TestTruncateWithEllipsis(t *testing.T) {
 		{"hello world", 20, "hello world"},
 
 		// Boundary cases
-		{"hello world", 0, "hello world"},
-		{"hello world", -1, "hello world"},
+		{"hello world", 0, ""},
+		{"hello world", -1, ""},
 		{"hello world", 1, "h"},
 		{"hello world", 3, "hel"},
 		{"hello world", 4, "h..."},
@@ -31,7 +32,7 @@ func TestTruncateWithEllipsis(t *testing.T) {
 		// Empty and short strings
 		{"", 10, ""},
 		{"a", 1, "a"},
-		{"a", 0, "a"},
+		{"a", 0, ""},
 		{"ab", 3, "ab"},
 		{"abc", 3, "abc"},
 		{"abcd", 3, "abc"},
@@ -140,6 +141,58 @@ func TestTruncateWithEllipsisPreservesContent(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			result := TruncateWithEllipsis(tt.input, tt.maxLen)
 			tt.checkFn(t, result)
+		})
+	}
+}
+
+func TestTruncateWithEllipsisUTF8(t *testing.T) {
+	tests := []struct {
+		input  string
+		maxLen int
+		want   string
+	}{
+		// Multi-byte UTF-8 characters (each 日 is 3 bytes, 1 rune)
+		// maxLen=5: (5-3 for "...")=2 chars + "..." = 5 total
+		{"日本語テスト", 5, "日本..."},
+		// maxLen=3: no ellipsis, just 3 chars
+		{"日本語テスト", 3, "日本語"},
+		// maxLen=5: (5-3)=2 chars + "..."
+		{"こんにちは世界", 5, "こん..."},
+
+		// Emoji (most are 4 bytes, 1 rune in Go)
+		// maxLen=10: "Hello 👋 " is 9 runes, fits without truncation
+		{"Hello 👋 World", 10, "Hello 👋..."},
+		// maxLen=3: no ellipsis
+		{"👋👋👋👋👋", 3, "👋👋👋"},
+		// maxLen=5: fits without truncation
+		{"👋👋👋👋👋", 5, "👋👋👋👋👋"},
+
+		// Mixed ASCII and multi-byte
+		// "Hello 世界" is 8 runes, fits at maxLen=8
+		{"Hello 世界", 8, "Hello 世界"},
+		// "Hello 世界" is 8 runes, maxLen=6: 3 runes + "..."
+		{"Hello 世界", 6, "Hel..."},
+		// "Test 日本 World" is 14 runes; at maxLen=8: 5 runes + "..."
+		{"Test 日本 World", 8, "Test ..."},
+
+		// Truncation with many repeated runes
+		// 100 日 chars, maxLen=100, fits without truncation
+		{strings.Repeat("日", 100), 100, strings.Repeat("日", 100)},
+		// 100 日 chars, maxLen=75: (75-3)=72 + "..."
+		{strings.Repeat("日", 100), 75, strings.Repeat("日", 72) + "..."},
+
+		// Edge case: string exactly at limit
+		{"Café", 4, "Café"},
+		// maxLen=3: no ellipsis
+		{"Café", 3, "Caf"},
+	}
+
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			result := TruncateWithEllipsis(tt.input, tt.maxLen)
+			if result != tt.want {
+				t.Fatalf("TruncateWithEllipsis(%q, %d) = %q, want %q", tt.input, tt.maxLen, result, tt.want)
+			}
 		})
 	}
 }

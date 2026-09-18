@@ -137,7 +137,7 @@ func TestWorktreesPruneSingle(t *testing.T) {
 	}
 
 	// Get the worktrees to extract the relID for pruning.
-	worktrees, err := delegation.ListCodeWorktrees(repo)
+	worktrees, err := delegation.ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("list worktrees before prune: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestWorktreesPruneSingle(t *testing.T) {
 	}
 
 	// Verify only test-agent-2 remains.
-	remainingWorktrees, err := delegation.ListCodeWorktrees(repo)
+	remainingWorktrees, err := delegation.ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("list worktrees after prune: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestWorktreesPruneAll(t *testing.T) {
 	}
 
 	// Verify no worktrees remain.
-	worktrees, err := delegation.ListCodeWorktrees(repo)
+	worktrees, err := delegation.ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("list worktrees after prune-all: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestWorktreesFlagValidation_ListAndPrune(t *testing.T) {
 	}
 
 	// Verify no action was taken (no worktrees exist).
-	worktrees, err := delegation.ListCodeWorktrees(repo)
+	worktrees, err := delegation.ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("list worktrees: %v", err)
 	}

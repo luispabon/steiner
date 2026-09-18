@@ -480,3 +480,103 @@ func TestEstimateMessageTokensImageTokensAreAdditive(t *testing.T) {
 			imageDiff, textOnlyTokens, withImageTokens)
 	}
 }
+
+func TestEstimateMessageTokensCountsReasoningContent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reasoning := "Let me think through this step by step. First I need to understand the problem."
+	msg := Message{
+		Role:             MessageRoleAssistant,
+		Content:          "The answer is 42",
+		ReasoningContent: reasoning,
+	}
+	count, err := EstimateMessageTokens(ctx, "gpt-4o", msg)
+	if err != nil {
+		t.Fatalf("EstimateMessageTokens() error = %v", err)
+	}
+
+	// Get count without reasoning to compare
+	msgWithoutReasoning := Message{
+		Role:    MessageRoleAssistant,
+		Content: "The answer is 42",
+	}
+	countWithoutReasoning, err := EstimateMessageTokens(ctx, "gpt-4o", msgWithoutReasoning)
+	if err != nil {
+		t.Fatalf("EstimateMessageTokens() error = %v", err)
+	}
+
+	// F412: ReasoningContent should add tokens
+	diff := count - countWithoutReasoning
+	if diff <= 0 {
+		t.Fatalf("reasoning content token diff = %d, want > 0 (reasoning should add tokens)", diff)
+	}
+	// reasoning text is about 16 tokens, should have some positive count
+	if diff < 5 {
+		t.Fatalf("reasoning content token diff = %d, want >= 5", diff)
+	}
+}
+
+func TestEncodingNameForModel_TrimWhitespace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		model    string
+		wantEnc  tokenizer.Encoding
+		wantName string
+	}{
+		{
+			model:    "gpt-4o",
+			wantEnc:  tokenizer.O200kBase,
+			wantName: "o200k_base",
+		},
+		{
+			// F413: whitespace-padded model should match correctly
+			model:    "  gpt-4o  ",
+			wantEnc:  tokenizer.O200kBase,
+			wantName: "o200k_base",
+		},
+		{
+			model:    "gpt-4",
+			wantEnc:  tokenizer.Cl100kBase,
+			wantName: "cl100k_base",
+		},
+		{
+			// F413: whitespace-padded gpt-4 should match cl100k_base
+			model:    "  gpt-4  ",
+			wantEnc:  tokenizer.Cl100kBase,
+			wantName: "cl100k_base",
+		},
+		{
+			model:    "o1",
+			wantEnc:  tokenizer.O200kBase,
+			wantName: "o200k_base",
+		},
+		{
+			// F413: whitespace-padded o1 should match o200k_base
+			model:    "\to1\t",
+			wantEnc:  tokenizer.O200kBase,
+			wantName: "o200k_base",
+		},
+		{
+			model:    "unknown-model",
+			wantEnc:  tokenizer.Cl100kBase,
+			wantName: "cl100k_base",
+		},
+		{
+			// F413: whitespace-padded unknown should default to cl100k_base
+			model:    "  unknown-model  ",
+			wantEnc:  tokenizer.Cl100kBase,
+			wantName: "cl100k_base",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run("model_"+strings.TrimSpace(tt.model), func(t *testing.T) {
+			enc := encodingNameForModel(tt.model)
+			if enc != tt.wantEnc {
+				t.Fatalf("encodingNameForModel(%q) = %v, want %v", tt.model, enc, tt.wantEnc)
+			}
+		})
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 )
 
 // errorClass buckets a provider call error into a small, aggregable set of
@@ -29,17 +30,18 @@ const (
 // body cannot turn the provider stream into unbounded content.
 const maxErrorLength = 200
 
-// boundedError returns err's message truncated to maxErrorLength. Empty for a
+// boundedError returns err's message truncated to maxErrorLength runes. Empty for a
 // nil error.
 func boundedError(err error) string {
 	if err == nil {
 		return ""
 	}
 	s := err.Error()
-	if len(s) > maxErrorLength {
-		return s[:maxErrorLength]
+	if utf8.RuneCountInString(s) <= maxErrorLength {
+		return s
 	}
-	return s
+	runes := []rune(s)
+	return string(runes[:maxErrorLength])
 }
 
 // classifyErrorClass buckets err for the provider diagnostics stream. ctx is

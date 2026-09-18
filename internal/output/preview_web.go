@@ -70,7 +70,7 @@ type jsonImagePayload struct {
 }
 
 func buildWebSearchPreview(result string) ToolPreview {
-	var results []map[string]string
+	var results []webSearchItem
 	if err := json.Unmarshal([]byte(result), &results); err != nil {
 		return plainToolPreview()
 	}
@@ -87,4 +87,10 @@ func buildWebSearchPreview(result string) ToolPreview {
 		Contents: string(indented),
 		Returned: len(results),
 	}
+}
+
+type webSearchItem struct {
+	URL         string `json:"url"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
 }

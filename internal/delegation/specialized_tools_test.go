@@ -721,7 +721,7 @@ func TestSpecializedHandler_RegisterFailureCleansCodeWorktree(t *testing.T) {
 	if !errors.Is(err, ErrAgentAlreadyActive) {
 		t.Fatalf("handler error = %v, want ErrAgentAlreadyActive", err)
 	}
-	worktrees, err := ListCodeWorktrees(repo)
+	worktrees, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("list worktrees: %v", err)
 	}

@@ -374,7 +374,7 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 	if got, want := len(compactionCounts), 1; got != want {
 		t.Fatalf("compaction counts = %v, want %d entries", compactionCounts, want)
 	}
-	if got, want := compactionCounts[0], 1; got != want {
+	if got, want := compactionCounts[0], 2; got != want {
 		t.Fatalf("first compaction count = %d, want %d", got, want)
 	}
 	if got, want := budgetCount, 2; got != want {

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // fakeTimeoutError implements net.Error with Timeout() true, the shape a
@@ -147,14 +149,45 @@ func TestBoundedError(t *testing.T) {
 		}
 	})
 
-	t.Run("long error is truncated", func(t *testing.T) {
+	t.Run("long ASCII error is truncated", func(t *testing.T) {
 		long := ""
 		for i := 0; i < 500; i++ {
 			long += "x"
 		}
 		got := boundedError(errors.New(long))
-		if len(got) != maxErrorLength {
-			t.Errorf("len(boundedError()) = %d, want %d", len(got), maxErrorLength)
+		if utf8.RuneCountInString(got) != maxErrorLength {
+			t.Errorf("rune count of boundedError() = %d, want %d", utf8.RuneCountInString(got), maxErrorLength)
+		}
+	})
+
+	t.Run("multi-byte UTF-8 error is truncated to rune limit", func(t *testing.T) {
+		// Create an error with 300 multi-byte characters (日 is 3 bytes)
+		long := strings.Repeat("日", 300)
+		got := boundedError(errors.New(long))
+		runeCnt := utf8.RuneCountInString(got)
+		if runeCnt != maxErrorLength {
+			t.Errorf("rune count of multi-byte error = %d, want %d", runeCnt, maxErrorLength)
+		}
+		// Verify output is valid UTF-8
+		if !utf8.ValidString(got) {
+			t.Errorf("boundedError produced invalid UTF-8")
+		}
+		// Verify we got the right prefix (first 200 日 characters)
+		expected := strings.Repeat("日", maxErrorLength)
+		if got != expected {
+			t.Errorf("boundedError() = %q, want %q", got, expected)
+		}
+	})
+
+	t.Run("mixed ASCII and multi-byte error is truncated correctly", func(t *testing.T) {
+		// Create a mixed string: "Error: " + many 日
+		mixed := "Error: " + strings.Repeat("日", 300)
+		got := boundedError(errors.New(mixed))
+		if utf8.RuneCountInString(got) != maxErrorLength {
+			t.Errorf("rune count = %d, want %d", utf8.RuneCountInString(got), maxErrorLength)
+		}
+		if !utf8.ValidString(got) {
+			t.Errorf("boundedError produced invalid UTF-8")
 		}
 	})
 }

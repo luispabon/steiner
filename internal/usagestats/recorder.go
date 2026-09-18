@@ -158,8 +158,11 @@ func (r *Recorder) Record(obs Observation) {
 	r.telemetry.record(obs, at)
 }
 
-// Window sums all buckets whose hour falls within [now-d, now] and returns
-// a Report with one Row per (ProviderAlias, ProviderType, BackendModelID) group.
+// Window sums all buckets whose hour intersects the interval [now-d, now] and
+// returns a Report with one Row per (ProviderAlias, ProviderType, BackendModelID)
+// group. It uses hour-granularity buckets and may include up to one hour of
+// extra data at the lower boundary (e.g. a 1-hour query at 10:30 includes all
+// of the 09:00 bucket, not just data from 09:30-10:30).
 func (r *Recorder) Window(d time.Duration) Report {
 	now := r.now().UTC()
 	cutoff := now.Add(-d)

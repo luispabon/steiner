@@ -59,6 +59,10 @@ const anthropicAdvisorCacheTTL = "1h"
 // earlier one's cached entry.
 const anthropicAdvisorBreakpointSpacing = 15
 
+// anthropicMaxCacheBreakpoints is the maximum number of cache_control
+// breakpoints allowed per request by the Anthropic API.
+const anthropicMaxCacheBreakpoints = 4
+
 type anthropicTool struct {
 	Name         string                 `json:"name"`
 	Description  string                 `json:"description,omitempty"`
@@ -212,14 +216,14 @@ func assignCacheBreakpoints(wire *anthropicRequest) {
 	}
 
 	// Mark the last content block of the final message.
-	if len(wire.Messages[len(wire.Messages)-1].Content) > 0 && numBreakpoints < 4 {
+	if len(wire.Messages[len(wire.Messages)-1].Content) > 0 && numBreakpoints < anthropicMaxCacheBreakpoints {
 		wire.Messages[len(wire.Messages)-1].Content[len(wire.Messages[len(wire.Messages)-1].Content)-1].CacheControl = cacheControl
 		numBreakpoints++
 	}
 
 	// Find second-to-last user message and mark its last content block (avoid duplicating if it's the same as final message).
 	userMsgIndices := lastNUserMsgIndices(wire.Messages, 2)
-	if len(userMsgIndices) < 2 || numBreakpoints >= 4 {
+	if len(userMsgIndices) < 2 || numBreakpoints >= anthropicMaxCacheBreakpoints {
 		return
 	}
 	secondLastUserMsgIdx := userMsgIndices[0]
@@ -247,10 +251,10 @@ func assignAdvisorCacheBreakpoints(wire *anthropicRequest) {
 
 	// distanceFromEnd counts content blocks walking backward from the last
 	// block of the tail (distance 0). Breakpoints land at distance 0, 15,
-	// 30, 45, ... until the 4-breakpoint budget is spent.
+	// 30, 45, ... until the anthropicMaxCacheBreakpoints budget is spent.
 	distanceFromEnd := 0
-	for i := len(tail) - 1; i >= 0 && numBreakpoints < 4; i-- {
-		for j := len(tail[i].Content) - 1; j >= 0 && numBreakpoints < 4; j-- {
+	for i := len(tail) - 1; i >= 0 && numBreakpoints < anthropicMaxCacheBreakpoints; i-- {
+		for j := len(tail[i].Content) - 1; j >= 0 && numBreakpoints < anthropicMaxCacheBreakpoints; j-- {
 			if distanceFromEnd%anthropicAdvisorBreakpointSpacing == 0 {
 				tail[i].Content[j].CacheControl = cacheControl
 				numBreakpoints++

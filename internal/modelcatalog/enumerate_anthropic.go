@@ -15,6 +15,7 @@ const (
 	anthropicVersion       = "2023-06-01"
 	anthropicLargePageSize = 1000
 	anthropicSmallPageSize = 20
+	anthropicMaxPages      = 500
 )
 
 // AnthropicEnumerator discovers models from Anthropic's models endpoint.
@@ -72,7 +73,8 @@ func (e *AnthropicEnumerator) enumeratePages(ctx context.Context, ep Endpoint, e
 	models := make([]DiscoveredModel, 0)
 	cursor := ""
 	var etag string
-	for {
+	seen := make(map[string]bool)
+	for page := 0; page < anthropicMaxPages; page++ {
 		response, pageETag, status, err := e.enumeratePage(ctx, ep, endpoint, pageSize, cursor)
 		if err != nil {
 			return nil, "", err
@@ -87,8 +89,13 @@ func (e *AnthropicEnumerator) enumeratePages(ctx context.Context, ep Endpoint, e
 		if !response.HasMore || response.LastID == "" {
 			return models, etag, nil
 		}
+		if seen[response.LastID] {
+			return nil, "", fmt.Errorf("enumerate models: cursor repeated, possible infinite loop detected")
+		}
+		seen[response.LastID] = true
 		cursor = response.LastID
 	}
+	return nil, "", fmt.Errorf("enumerate models: pagination cap exceeded after %d pages", anthropicMaxPages)
 }
 
 func (e *AnthropicEnumerator) enumeratePage(ctx context.Context, ep Endpoint, endpoint string, pageSize int, cursor string) (anthropicListResponse, string, int, error) {

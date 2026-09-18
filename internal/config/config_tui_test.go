@@ -7,7 +7,7 @@ import "testing"
 // never move silently.
 func TestDefaultTUIFPS(t *testing.T) {
 	t.Parallel()
-	if got := defaultConfig().TUI.FPS; got != 60 {
+	if got := defaultConfig(nil).TUI.FPS; got != 60 {
 		t.Errorf("default tui.fps = %d, want 60", got)
 	}
 }

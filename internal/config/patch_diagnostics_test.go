@@ -6,8 +6,7 @@ import (
 )
 
 func TestDefaultConfigDiagnostics(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", "")
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.Diagnostics.Enabled {
 		t.Error("Diagnostics.Enabled = true, want false")
 	}
@@ -27,9 +26,33 @@ func TestDefaultConfigDiagnostics(t *testing.T) {
 }
 
 func TestDefaultDiagnosticsDirHonoursXDGStateHome(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", "/state")
-	if got, want := defaultDiagnosticsDir(), filepath.Join("/state", "steiner", "diagnostics"); got != want {
-		t.Errorf("defaultDiagnosticsDir() = %q, want %q", got, want)
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "with XDG_STATE_HOME set",
+			env:  map[string]string{"XDG_STATE_HOME": "/state"},
+			want: filepath.Join("/state", "steiner", "diagnostics"),
+		},
+		{
+			name: "with empty environment",
+			env:  map[string]string{},
+			want: filepath.Join("~", ".local", "state", "steiner", "diagnostics"),
+		},
+		{
+			name: "with nil environment",
+			env:  nil,
+			want: filepath.Join("~", ".local", "state", "steiner", "diagnostics"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := defaultDiagnosticsDir(tt.env); got != tt.want {
+				t.Errorf("defaultDiagnosticsDir(%v) = %q, want %q", tt.env, got, tt.want)
+			}
+		})
 	}
 }
 

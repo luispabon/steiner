@@ -64,7 +64,7 @@ func newWorktreesCommand(_ *cliFlags) *cobra.Command {
 }
 
 func runWorktreesList(cmd *cobra.Command, projectRoot string) error {
-	worktrees, err := delegation.ListCodeWorktrees(projectRoot)
+	worktrees, err := delegation.ListCodeWorktrees(cmd.Context(), projectRoot)
 	if err != nil {
 		return fmt.Errorf("list code worktrees: %w", err)
 	}

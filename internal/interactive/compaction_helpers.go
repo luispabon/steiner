@@ -20,11 +20,19 @@ func (s *Session) compactRunner(conversation []agent.Message, steering string) f
 func (s *Session) setCompactedConversation(conversation []agent.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.conversation = cloneMessages(conversation)
-	s.lineage = agent.ConversationLineage{
-		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: cloneMessages(conversation)}},
-		NextGenerationID: 2,
+
+	prefix, rest := splitSummaryPrefix(conversation)
+	s.lineage = s.lineage.WithNewGeneration(prefix, rest)
+	s.conversation = s.lineage.FullMessages()
+}
+
+func splitSummaryPrefix(messages []agent.Message) (prefix, rest []agent.Message) {
+	for i, msg := range messages {
+		if msg.Role != agent.MessageRoleSummary {
+			return messages[:i], messages[i:]
+		}
 	}
+	return messages, nil
 }
 
 func (s *Session) runManualCompaction(ctx context.Context, model string, run func(context.Context) ([]agent.Message, error)) (result []agent.Message, err error) {

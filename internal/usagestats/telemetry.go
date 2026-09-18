@@ -116,8 +116,9 @@ func sourceName(s Source) string {
 // string. Callers decoding a legacySchemaVersion file (which predates the
 // Source field and always decodes ent.Source as "") must not call this —
 // use SourceUnknown directly, since "" here would otherwise misattribute
-// pre-upgrade aggregate history as SourceParent. An unrecognized non-empty
-// string (which should not occur from this package's own writer) also falls
+// pre-upgrade aggregate history as SourceParent. "unknown" strings are
+// recognized and mapped to SourceUnknown. An unrecognized non-empty
+// string (which should not occur from this package's own writer) falls
 // back to SourceParent, matching the zero-value "unspecified" convention.
 func parseSourceName(s string) Source {
 	switch s {
@@ -125,6 +126,10 @@ func parseSourceName(s string) Source {
 		return SourceSubAgent
 	case "advisor":
 		return SourceAdvisor
+	case "parent":
+		return SourceParent
+	case "unknown":
+		return SourceUnknown
 	default:
 		return SourceParent
 	}

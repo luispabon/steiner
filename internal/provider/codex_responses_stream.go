@@ -160,6 +160,15 @@ func handleResponsesCompleted(state *responsesStreamState, response responsesRes
 		state.toolCalls = append(state.toolCalls, resp.Message.ToolCalls...)
 		state.sawToolCall = true
 	}
+	if resp.Message.ReasoningContent != "" && !state.sawThinking {
+		state.thinking.WriteString(resp.Message.ReasoningContent)
+		state.sawThinking = true
+	}
+	if resp.Message.ProviderMetadata != nil && resp.Message.ProviderMetadata.Codex != nil {
+		if resp.Message.ProviderMetadata.Codex.ReasoningID != "" && state.reasoningID == "" {
+			state.reasoningID = resp.Message.ProviderMetadata.Codex.ReasoningID
+		}
+	}
 	state.usage = resp.Usage
 	state.finishReason = resp.FinishReason
 	return true, nil

@@ -36,7 +36,8 @@ func DefaultCachePath() string {
 // so a failing check is not retried until the next interval.
 func CheckCached(ctx context.Context, cachePath string, interval time.Duration, currentVersion, owner, repo, token, channel string) (latestVersion string, needsUpdate bool, err error) {
 	if cached, ok := loadCheckCache(cachePath); ok {
-		if cached.CurrentVersion == currentVersion && cached.Channel == channel && time.Since(cached.CheckedAt) < interval {
+		now := time.Now()
+		if cached.CurrentVersion == currentVersion && cached.Channel == channel && !cached.CheckedAt.After(now) && time.Since(cached.CheckedAt) < interval {
 			return cached.LatestVersion, cached.NeedsUpdate, nil
 		}
 	}
