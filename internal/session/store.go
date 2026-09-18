@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -36,12 +37,22 @@ func NewStore(dir string) (*Store, error) {
 	return store, nil
 }
 
+func safeSessionPath(dir, id string) (string, error) {
+	if id == "" || id == "." || id == ".." || filepath.Base(id) != id || strings.ContainsAny(id, `/\`) {
+		return "", fmt.Errorf("invalid session id %q", id)
+	}
+	return filepath.Join(dir, id+sessionExt), nil
+}
+
 // Save writes a session to disk atomically and updates the index.
 func (s *Store) Save(session Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	sessionPath := filepath.Join(s.dir, session.ID+sessionExt)
+	sessionPath, err := safeSessionPath(s.dir, session.ID)
+	if err != nil {
+		return fmt.Errorf("validate session id: %w", err)
+	}
 	if err := s.writeAtomic(sessionPath, session); err != nil {
 		return fmt.Errorf("write session: %w", err)
 	}
@@ -62,7 +73,10 @@ func (s *Store) Load(id string) (Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	sessionPath := filepath.Join(s.dir, id+sessionExt)
+	sessionPath, err := safeSessionPath(s.dir, id)
+	if err != nil {
+		return Session{}, fmt.Errorf("validate session id: %w", err)
+	}
 	data, err := os.ReadFile(sessionPath)
 	if err != nil {
 		return Session{}, fmt.Errorf("read session: %w", err)
@@ -127,7 +141,10 @@ func (s *Store) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	sessionPath := filepath.Join(s.dir, id+sessionExt)
+	sessionPath, err := safeSessionPath(s.dir, id)
+	if err != nil {
+		return fmt.Errorf("validate session id: %w", err)
+	}
 	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete session file: %w", err)
 	}
