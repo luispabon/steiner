@@ -7,7 +7,7 @@ import (
 )
 
 func TestDefaultSubAgentMaxTurns(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.SubAgent.MaxTurns != 30 {
 		t.Errorf("SubAgent.MaxTurns = %d, want 30", cfg.SubAgent.MaxTurns)
 	}
@@ -17,14 +17,14 @@ func TestDefaultSubAgentMaxTurns(t *testing.T) {
 }
 
 func TestDefaultSubAgentOrchestrationLevel(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.SubAgent.OrchestrationLevel != OrchestrationLevelStandard {
 		t.Errorf("SubAgent.OrchestrationLevel = %q, want %q", cfg.SubAgent.OrchestrationLevel, OrchestrationLevelStandard)
 	}
 }
 
 func TestDefaultModesExecutionMode(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.Modes.Default != ExecutionModeBuild {
 		t.Errorf("Modes.Default = %q, want %q", cfg.Modes.Default, ExecutionModeBuild)
 	}
@@ -63,14 +63,14 @@ func TestApplyMCPDefaultsTransport(t *testing.T) {
 }
 
 func TestDefaultConfigMCPEnabled(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if !cfg.MCP.Enabled {
 		t.Errorf("DefaultConfig().MCP.Enabled = false, want true")
 	}
 }
 
 func TestDefaultLimitsModelCallTimeout(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	wantNanos := (10 * time.Minute).Nanoseconds()
 	if cfg.Limits.ModelCallTimeout.Duration() != wantNanos {
 		t.Errorf("Limits.ModelCallTimeout = %v nanoseconds, want %v", cfg.Limits.ModelCallTimeout.Duration(), wantNanos)
@@ -86,7 +86,7 @@ func TestApplyAdvisorPatchMaxUsesPerSubAgent(t *testing.T) {
 	}{
 		{
 			name:    "default value",
-			initial: defaultConfig().Advisor,
+			initial: defaultConfig(nil).Advisor,
 			patch:   advisorPatch{},
 			want: AdvisorConfig{
 				Enabled:            false,
@@ -136,14 +136,14 @@ func TestApplyAdvisorPatchMaxUsesPerSubAgent(t *testing.T) {
 }
 
 func TestDefaultConfigLSPEnabled(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.LSP.Enabled {
 		t.Errorf("DefaultConfig().LSP.Enabled = true, want false")
 	}
 }
 
 func TestDefaultConfigLSPIdleTimeout(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.LSP.IdleTimeout != MustDuration("5m") {
 		t.Errorf("DefaultConfig().LSP.IdleTimeout = %v, want %v", cfg.LSP.IdleTimeout, MustDuration("5m"))
 	}
@@ -154,7 +154,7 @@ func TestDefaultConfigLSPIdleTimeout(t *testing.T) {
 // one of these values means re-running internal/lsp/calibrate_manual_test.go
 // and updating that section.
 func TestDefaultConfigLSPCalibratedTimeouts(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 
 	tests := []struct {
 		name string
@@ -177,7 +177,7 @@ func TestDefaultConfigLSPCalibratedTimeouts(t *testing.T) {
 }
 
 func TestDefaultConfigLSPMaxResults(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.LSP.MaxResults != 200 {
 		t.Errorf("DefaultConfig().LSP.MaxResults = %d, want 200", cfg.LSP.MaxResults)
 	}

@@ -37,6 +37,7 @@ func applyLoggingPatch(dst *LoggingConfig, patch *loggingPatch) {
 	setIfPresent(&dst.File, patch.File)
 	setIfPresent(&dst.ThinkingChunk, patch.ThinkingChunk)
 	setIfPresent(&dst.AssistantChunk, patch.AssistantChunk)
+	setIfPresent(&dst.CompactionLogFile, patch.CompactionLogFile)
 }
 
 func applyContextManagementPatch(dst *ContextManagementConfig, patch *contextManagementPatch) {

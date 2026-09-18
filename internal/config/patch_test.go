@@ -1033,7 +1033,7 @@ func TestModelsPatchRoundTripsDiscoveryEnabled(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseConfigPatch() error = %v", err)
 			}
-			cfg := defaultConfig()
+			cfg := defaultConfig(nil)
 			applyPatch(&cfg, patch)
 			if cfg.Models.DiscoveryEnabled != tt.want {
 				t.Fatalf("Models.DiscoveryEnabled = %v, want %v", cfg.Models.DiscoveryEnabled, tt.want)
@@ -1065,7 +1065,7 @@ func TestModelDefinitionPatchPreservesSupportedEffortsNilAndEmpty(t *testing.T) 
 			if err != nil {
 				t.Fatalf("parseConfigPatch() error = %v", err)
 			}
-			cfg := defaultConfig()
+			cfg := defaultConfig(nil)
 			applyPatch(&cfg, patch)
 			got := cfg.Models.Definitions["custom"].Advanced.Reasoning.SupportedEfforts
 			if !reflect.DeepEqual(got, tt.want) {

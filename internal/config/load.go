@@ -38,9 +38,8 @@ func loadEnvironment(env map[string]string) map[string]string {
 
 // Load loads configuration from files, environment variables, and CLI overrides.
 func Load(opts LoadOptions) (Config, error) {
-	cfg := defaultConfig()
-
 	env := loadEnvironment(opts.Env)
+	cfg := defaultConfig(env)
 
 	homeDir, err := resolveHomeDir(opts.HomeDir, env)
 	if err != nil {

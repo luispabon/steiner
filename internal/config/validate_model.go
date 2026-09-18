@@ -74,19 +74,19 @@ func appendRetryProblems(problems *[]string, path string, retry RetryConfig) {
 	if retry.MaxAttempts < 1 {
 		*problems = append(*problems, fmt.Sprintf("%s.max_attempts must be at least 1", path))
 	}
-	if retry.InitialBackoff.IsZero() {
+	if retry.InitialBackoff.Duration() <= 0 {
 		*problems = append(*problems, fmt.Sprintf("%s.initial_backoff must be greater than zero", path))
 	}
-	if retry.MaxBackoff.IsZero() {
+	if retry.MaxBackoff.Duration() <= 0 {
 		*problems = append(*problems, fmt.Sprintf("%s.max_backoff must be greater than zero", path))
 	}
-	if retry.RetryAfterMax.IsZero() {
+	if retry.RetryAfterMax.Duration() <= 0 {
 		*problems = append(*problems, fmt.Sprintf("%s.retry_after_max must be greater than zero", path))
 	}
-	if !retry.InitialBackoff.IsZero() && !retry.MaxBackoff.IsZero() && retry.MaxBackoff.Duration() < retry.InitialBackoff.Duration() {
+	if retry.InitialBackoff.Duration() > 0 && retry.MaxBackoff.Duration() > 0 && retry.MaxBackoff.Duration() < retry.InitialBackoff.Duration() {
 		*problems = append(*problems, fmt.Sprintf("%s.max_backoff must be greater than or equal to %s.initial_backoff", path, path))
 	}
-	if !retry.InitialBackoff.IsZero() && !retry.RetryAfterMax.IsZero() && retry.RetryAfterMax.Duration() < retry.InitialBackoff.Duration() {
+	if retry.InitialBackoff.Duration() > 0 && retry.RetryAfterMax.Duration() > 0 && retry.RetryAfterMax.Duration() < retry.InitialBackoff.Duration() {
 		*problems = append(*problems, fmt.Sprintf("%s.retry_after_max must be greater than or equal to %s.initial_backoff", path, path))
 	}
 }

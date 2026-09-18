@@ -6,9 +6,9 @@ import (
 )
 
 func TestDefaultConfigCaveHumanFalse(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.CaveHuman {
-		t.Fatal("defaultConfig().CaveHuman = true, want false")
+		t.Fatal("defaultConfig(nil).CaveHuman = true, want false")
 	}
 }
 
@@ -64,9 +64,9 @@ func TestLoadCaveHuman(t *testing.T) {
 }
 
 func TestApplyCaveHumanPatch(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	if cfg.CaveHuman {
-		t.Fatal("defaultConfig().CaveHuman should be false before patch")
+		t.Fatal("defaultConfig(nil).CaveHuman should be false before patch")
 	}
 
 	v := true

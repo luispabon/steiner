@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"path/filepath"
 )
 
@@ -10,8 +9,8 @@ import (
 // not derived from logging.file, so they live under XDG_STATE_HOME (the same
 // base internal/usagestats uses for its store). The "~" form is expanded by
 // normalizePaths once the home directory is resolved.
-func defaultDiagnosticsDir() string {
-	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
+func defaultDiagnosticsDir(env map[string]string) string {
+	if xdg := env["XDG_STATE_HOME"]; xdg != "" {
 		return filepath.Join(xdg, "steiner", "diagnostics")
 	}
 	return filepath.Join("~", ".local", "state", "steiner", "diagnostics")
@@ -57,7 +56,7 @@ func advisorTimeout() *Duration {
 	return &timeout
 }
 
-func defaultConfig() Config {
+func defaultConfig(env map[string]string) Config {
 	defaultProvider := ProviderConfig{
 		Type:    ProviderTypeOpenAICompat,
 		BaseURL: "http://localhost:11434/v1",
@@ -136,7 +135,7 @@ func defaultConfig() Config {
 		},
 		Diagnostics: DiagnosticsConfig{
 			Enabled:       false,
-			Dir:           defaultDiagnosticsDir(),
+			Dir:           defaultDiagnosticsDir(env),
 			RetentionDays: 30,
 		},
 		ContextManagement: ContextManagementConfig{

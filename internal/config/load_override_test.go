@@ -3,7 +3,7 @@ package config
 import "testing"
 
 func TestApplyCLIOverrides(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(nil)
 	cfg.Logging.Level = "info"
 	cfg.Sandbox.Enabled = true
 
