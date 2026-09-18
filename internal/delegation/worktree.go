@@ -66,6 +66,10 @@ func providerRelativeWorktreePath(projectRoot, worktreePath string) string {
 // between concurrent provisioning and pruning.
 var worktreeMu sync.Mutex
 
+// removeAll wraps os.RemoveAll so tests can inject stale-checkout cleanup
+// failures without affecting git worktree removal.
+var removeAll = os.RemoveAll
+
 // CodeWorktree describes the provisioned checkout for a delegation run.
 type CodeWorktree struct {
 	Path   string
@@ -386,25 +390,30 @@ func pruneCodeWorktreeLocked(ctx context.Context, projectRoot, relID string) (bo
 		return false, err
 	}
 
+	// Git removal succeeded, so the worktree is considered removed. The
+	// remaining stale path/admin/branch cleanup is best-effort: attempt each
+	// step even if an earlier one fails, aggregate the errors, and still report
+	// removed=true.
+	var cleanupErrs []error
+
 	// Remove stale checkout path.
-	if err := os.RemoveAll(worktreePath); err != nil {
-		return false, fmt.Errorf("remove worktree path: %w", err)
+	if err := removeAll(worktreePath); err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove worktree path: %w", err))
 	}
 
 	// Remove stale admin dir under the common .git dir.
 	if err := removeWorktreeAdminDirForRelID(ctx, projectRoot, relID); err != nil {
-		return false, err
+		cleanupErrs = append(cleanupErrs, err)
 	}
 
 	// Delete the branch ref if it exists and is non-empty.
 	if foundEntry.Branch != "" {
-		err := runGit(ctx, projectRoot, "branch", "-D", foundEntry.Branch)
-		if err != nil && !isGitBranchNotFound(err) {
-			return false, err
+		if err := runGit(ctx, projectRoot, "branch", "-D", foundEntry.Branch); err != nil && !isGitBranchNotFound(err) {
+			cleanupErrs = append(cleanupErrs, err)
 		}
 	}
 
-	return true, nil
+	return true, errors.Join(cleanupErrs...)
 }
 
 // PruneAllCodeWorktrees prunes all delegation-owned code worktrees under projectRoot/.steiner/worktrees,
