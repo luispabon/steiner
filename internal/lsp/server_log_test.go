@@ -70,14 +70,12 @@ func TestNewLSPServerLogWriter(t *testing.T) {
 		}
 	})
 
-	t.Run("upgrades existing file without changing parent", func(t *testing.T) {
+	t.Run("unconditionally secures existing directory", func(t *testing.T) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "server.log")
-		if err := os.Chmod(dir, 0o755); err != nil {
-			t.Fatalf("chmod dir: %v", err)
-		}
-		if err := os.WriteFile(path, nil, 0o644); err != nil {
-			t.Fatalf("create log file: %v", err)
+		logDir := filepath.Join(dir, "logs")
+		path := filepath.Join(logDir, "server.log")
+		if err := os.Mkdir(logDir, 0o755); err != nil {
+			t.Fatalf("mkdir logs: %v", err)
 		}
 
 		w, err := NewServerLogWriter(path)
@@ -86,19 +84,20 @@ func TestNewLSPServerLogWriter(t *testing.T) {
 		}
 		defer w.Close() //nolint:errcheck
 
-		info, err := os.Stat(path)
+		info, err := os.Stat(logDir)
+		if err != nil {
+			t.Fatalf("stat logs dir: %v", err)
+		}
+		if info.Mode().Perm() != 0o700 {
+			t.Errorf("logs dir mode = 0o%o, want 0o700", info.Mode().Perm())
+		}
+
+		info, err = os.Stat(path)
 		if err != nil {
 			t.Fatalf("stat file: %v", err)
 		}
 		if info.Mode().Perm() != 0o600 {
 			t.Errorf("file mode = 0o%o, want 0o600", info.Mode().Perm())
-		}
-		info, err = os.Stat(dir)
-		if err != nil {
-			t.Fatalf("stat parent: %v", err)
-		}
-		if info.Mode().Perm() != 0o755 {
-			t.Errorf("parent mode = 0o%o, want unchanged 0o755", info.Mode().Perm())
 		}
 	})
 

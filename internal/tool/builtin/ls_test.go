@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -108,6 +109,43 @@ func TestLSTool(t *testing.T) {
 		}
 		if lineCount := countResultLines(result.Output); lineCount != 0 {
 			t.Errorf("line count = %d, want 0", lineCount)
+		}
+	})
+
+	t.Run("recursive respects excluder", func(t *testing.T) {
+		excludedTmpDir := t.TempDir()
+		secret := filepath.Join(excludedTmpDir, "secret")
+		if err := os.Mkdir(secret, 0o755); err != nil {
+			t.Fatalf("mkdir secret: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(secret, "key.txt"), []byte("secret"), 0o644); err != nil {
+			t.Fatalf("write secret/key.txt: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(excludedTmpDir, "public.txt"), []byte("public"), 0o644); err != nil {
+			t.Fatalf("write public.txt: %v", err)
+		}
+
+		excludedPolicy := tool.NewPathPolicy(excludedTmpDir, config.PathsConfig{})
+		excludedExcluder := tool.NewPathExcluder([]string{"secret"}, nil)
+		excludedEnv := Env{WorkDir: excludedTmpDir, PathPolicy: &excludedPolicy, Excluder: &excludedExcluder}
+		excludedToolDef := NewLSTool(excludedEnv)
+
+		resultI, err := excludedToolDef.Handler(ctx, map[string]any{
+			"path":      ".",
+			"recursive": true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*Result)
+		if !ok {
+			t.Fatalf("result type = %T, want *Result", resultI)
+		}
+		if strings.Contains(result.Output, "secret") {
+			t.Fatalf("Output contains excluded path: %q", result.Output)
+		}
+		if !strings.Contains(result.Output, "public.txt") {
+			t.Fatalf("Output missing visible file public.txt: %q", result.Output)
 		}
 	})
 
