@@ -176,35 +176,46 @@ func TestApprovalCoordinatorDuplicateSameToolIdentityDoesNotAdvanceTail(t *testi
 
 func TestApprovalCoordinatorConcurrentBeginAndSubmit(t *testing.T) {
 	coord := &ApprovalCoordinator{}
-	started := make(chan chan SubmitApproval, 2)
+	started := make(chan struct {
+		identity string
+		ch       chan SubmitApproval
+	}, 2)
 	for _, name := range []string{"a", "b"} {
-		go func() { started <- coord.Begin(name, name, "", "", "") }()
+		n := name
+		go func() {
+			started <- struct {
+				identity string
+				ch       chan SubmitApproval
+			}{identity: n, ch: coord.Begin(n, n, "", "", "")}
+		}()
 	}
-	channels := []chan SubmitApproval{<-started, <-started}
+	channelA := <-started
+	channelB := <-started
+	if channelA.identity == "b" {
+		channelA, channelB = channelB, channelA
+	}
+
 	coord.Submit(SubmitApproval{Identity: "a", Decision: "first"})
-	var first chan SubmitApproval
 	select {
-	case <-channels[0]:
-		first = channels[0]
-	case <-channels[1]:
-		first = channels[1]
+	case got := <-channelA.ch:
+		if got.Decision != "first" {
+			t.Fatalf("channel a decision = %q, want first", got.Decision)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("first response timed out")
 	}
-	coord.Finish(first)
+	coord.Finish(channelA.ch)
+
 	coord.Submit(SubmitApproval{Identity: "b", Decision: "second"})
-	var second chan SubmitApproval
-	if first == channels[0] {
-		second = channels[1]
-	} else {
-		second = channels[0]
-	}
 	select {
-	case <-second:
+	case got := <-channelB.ch:
+		if got.Decision != "second" {
+			t.Fatalf("channel b decision = %q, want second", got.Decision)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("second response timed out")
 	}
-	coord.Finish(second)
+	coord.Finish(channelB.ch)
 }
 
 func TestApprovalCoordinatorSubmitFinishRace(t *testing.T) {

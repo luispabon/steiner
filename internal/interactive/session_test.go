@@ -54,6 +54,15 @@ func testNewSession(t *testing.T, deps Dependencies) *Session {
 	return s
 }
 
+// mustEventPayload extracts a typed payload from an event, failing the test if the type doesn't match.
+func mustEventPayload[T any](t *testing.T, ev output.Event) T {
+	payload, ok := ev.Payload.(T)
+	if !ok {
+		t.Fatalf("event payload type = %T, want %T", ev.Payload, *new(T))
+	}
+	return payload
+}
+
 func TestNewSession(t *testing.T) {
 	t.Parallel()
 	s, err := NewSession(Dependencies{})
@@ -883,10 +892,9 @@ func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 	for _, event := range events {
 		if event.Type == output.EventTypeStopReason {
 			found = true
-			if payload, ok := event.Payload.(output.StopReasonEvent); ok {
-				if payload.Reason != "Error: run failed" {
-					t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: run failed")
-				}
+			payload := mustEventPayload[output.StopReasonEvent](t, event)
+			if payload.Reason != "Error: run failed" {
+				t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: run failed")
 			}
 			break
 		}
@@ -936,10 +944,9 @@ func TestSubmitPromptSavesSessionOnRunError(t *testing.T) {
 	for _, event := range events {
 		if event.Type == output.EventTypeStopReason {
 			found = true
-			if payload, ok := event.Payload.(output.StopReasonEvent); ok {
-				if payload.Reason != "Error: boom" {
-					t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: boom")
-				}
+			payload := mustEventPayload[output.StopReasonEvent](t, event)
+			if payload.Reason != "Error: boom" {
+				t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: boom")
 			}
 			break
 		}
@@ -981,10 +988,9 @@ func TestSubmitPromptRecordsHistory(t *testing.T) {
 	for _, event := range events {
 		if event.Type == output.EventTypeHistoryLoaded {
 			foundHistory = true
-			if payload, ok := event.Payload.(output.HistoryLoadedEvent); ok {
-				if len(payload.Prompts) != 2 || payload.Prompts[0] != "prev" || payload.Prompts[1] != "hello" {
-					t.Fatalf("history prompts = %v, want [prev hello]", payload.Prompts)
-				}
+			payload := mustEventPayload[output.HistoryLoadedEvent](t, event)
+			if len(payload.Prompts) != 2 || payload.Prompts[0] != "prev" || payload.Prompts[1] != "hello" {
+				t.Fatalf("history prompts = %v, want [prev hello]", payload.Prompts)
 			}
 			break
 		}
@@ -1304,10 +1310,9 @@ func TestSessionRunLoadsHistory(t *testing.T) {
 	for _, event := range events {
 		if event.Type == output.EventTypeHistoryLoaded {
 			found = true
-			if payload, ok := event.Payload.(output.HistoryLoadedEvent); ok {
-				if len(payload.Prompts) != 2 || payload.Prompts[0] != "prompt-1" || payload.Prompts[1] != "prompt-2" {
-					t.Fatalf("history prompts = %v, want [prompt-1 prompt-2]", payload.Prompts)
-				}
+			payload := mustEventPayload[output.HistoryLoadedEvent](t, event)
+			if len(payload.Prompts) != 2 || payload.Prompts[0] != "prompt-1" || payload.Prompts[1] != "prompt-2" {
+				t.Fatalf("history prompts = %v, want [prompt-1 prompt-2]", payload.Prompts)
 			}
 			break
 		}
@@ -1375,10 +1380,9 @@ func TestSessionRunLoadsEmptyHistory(t *testing.T) {
 	for _, event := range events {
 		if event.Type == output.EventTypeHistoryLoaded {
 			found = true
-			if payload, ok := event.Payload.(output.HistoryLoadedEvent); ok {
-				if len(payload.Prompts) != 0 {
-					t.Fatalf("history prompts = %v, want empty", payload.Prompts)
-				}
+			payload := mustEventPayload[output.HistoryLoadedEvent](t, event)
+			if len(payload.Prompts) != 0 {
+				t.Fatalf("history prompts = %v, want empty", payload.Prompts)
 			}
 			break
 		}
