@@ -87,21 +87,38 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 // (on top of an otherwise read-only project mount) for git plumbing to work:
 // the repo's .git directory, or — for a linked worktree, where .git is a
 // pointer file — the worktree-specific gitdir and its shared common dir.
-// Returns nil (no binds) whenever a path can't be resolved or doesn't exist;
-// bwrap hard-fails the whole invocation if a bind source is missing, so
-// binds are only ever emitted for paths confirmed to exist.
+// Returns nil (no binds) whenever a path can't be resolved, doesn't exist, or
+// fails a sanity check appropriate to a real git layout; bwrap hard-fails the
+// whole invocation if a bind source is missing, so binds are only ever
+// emitted for paths confirmed to exist and to have been resolved through any
+// symlinks along the way.
 func gitWritableBinds(root string) []string {
 	gitPath := filepath.Join(root, ".git")
-	info, err := os.Stat(gitPath)
+	fi, err := os.Lstat(gitPath)
 	if err != nil {
 		return nil
 	}
-	if info.IsDir() {
+
+	// Real git never makes .git itself a symlink — it's either an ordinary
+	// directory (plain repo) or a regular pointer file (linked worktree).
+	// Reject a symlinked .git outright rather than deciding whether to bind
+	// the symlink path or its resolved target: the bind's destination is
+	// always gitPath (the call site binds it onto itself), so resolving and
+	// binding the target instead would expose that target writable at its
+	// own real location too, which is strictly worse. There's no legitimate
+	// case for .git-as-symlink, so it fails closed here.
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+	if fi.IsDir() {
 		return []string{gitPath}
 	}
+	if !fi.Mode().IsRegular() {
+		return nil
+	}
 
-	// .git is a file: linked worktree, pointing at the real gitdir via
-	// "gitdir: <path>".
+	// .git is a regular file: linked worktree, pointing at the real gitdir
+	// via "gitdir: <path>".
 	data, err := os.ReadFile(gitPath)
 	if err != nil {
 		return nil
@@ -115,22 +132,36 @@ func gitWritableBinds(root string) []string {
 	if !filepath.IsAbs(gitDir) {
 		gitDir = filepath.Join(root, gitDir)
 	}
-	if _, err := os.Stat(gitDir); err != nil {
+	resolvedGitDir, err := filepath.EvalSymlinks(gitDir)
+	if err != nil {
 		return nil
 	}
-	binds := []string{gitPath, gitDir}
+
+	// A real worktree gitdir always lives at
+	// <main-repo>/.git/worktrees/<name>; anything else (e.g. a "gitdir:"
+	// line pointing straight at an attacker-chosen directory like /etc)
+	// doesn't have that shape and is rejected rather than trusted.
+	if filepath.Base(filepath.Dir(resolvedGitDir)) != "worktrees" {
+		return nil
+	}
+
+	binds := []string{gitPath, resolvedGitDir}
 
 	// The worktree gitdir holds only worktree-local state (HEAD, index,
 	// logs); refs, objects, and config live in the common dir it points to
-	// via "commondir". Branch/commit operations need that writable too.
-	if commonData, readErr := os.ReadFile(filepath.Join(gitDir, "commondir")); readErr == nil {
+	// via "commondir". Branch/commit operations need that writable too. Git
+	// always records this as "../..", i.e. two levels up from
+	// .git/worktrees/<name> — verify the resolved commondir actually lands
+	// there rather than trusting whatever the file says.
+	if commonData, readErr := os.ReadFile(filepath.Join(resolvedGitDir, "commondir")); readErr == nil {
 		commonDir := strings.TrimSpace(string(commonData))
 		if !filepath.IsAbs(commonDir) {
-			commonDir = filepath.Join(gitDir, commonDir)
+			commonDir = filepath.Join(resolvedGitDir, commonDir)
 		}
-		if resolved, absErr := filepath.Abs(commonDir); absErr == nil {
-			if _, statErr := os.Stat(resolved); statErr == nil && resolved != gitDir {
-				binds = append(binds, resolved)
+		if resolvedCommonDir, err := filepath.EvalSymlinks(commonDir); err == nil {
+			expectedCommonDir := filepath.Dir(filepath.Dir(resolvedGitDir))
+			if resolvedCommonDir == expectedCommonDir && resolvedCommonDir != resolvedGitDir {
+				binds = append(binds, resolvedCommonDir)
 			}
 		}
 	}
