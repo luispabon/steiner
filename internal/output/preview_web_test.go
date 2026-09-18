@@ -12,12 +12,16 @@ func TestBuildFetchURLPreview(t *testing.T) {
 	}{
 		{
 			name:   "successful fetch",
-			result: `{"url":"https://example.com","content":"# Hello\nWorld\n"}`,
+			result: `{"url":"https://example.com","content":"# Hello\nWorld\n","status_code":200,"content_length":14,"title":"Example","description":"Example page"}`,
 			want: ToolPreview{
-				Kind:     ToolPreviewKindFetchURL,
-				Path:     "https://example.com",
-				Language: "markdown",
-				Contents: "# Hello\nWorld\n",
+				Kind:             ToolPreviewKindFetchURL,
+				Path:             "https://example.com",
+				Language:         "markdown",
+				Contents:         "# Hello\nWorld\n",
+				StatusCode:       200,
+				ContentLength:    14,
+				FetchTitle:       "Example",
+				FetchDescription: "Example page",
 			},
 		},
 		{
@@ -55,7 +59,7 @@ func TestBuildFetchURLPreview(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := buildFetchURLPreview(tt.result)
-			if got.Kind != tt.want.Kind || got.Path != tt.want.Path || got.Language != tt.want.Language || got.Contents != tt.want.Contents {
+			if got.Kind != tt.want.Kind || got.Path != tt.want.Path || got.Language != tt.want.Language || got.Contents != tt.want.Contents || got.StatusCode != tt.want.StatusCode || got.ContentLength != tt.want.ContentLength || got.FetchTitle != tt.want.FetchTitle || got.FetchDescription != tt.want.FetchDescription {
 				t.Errorf("buildFetchURLPreview(%q) = %+v, want %+v", tt.result, got, tt.want)
 			}
 		})

@@ -503,7 +503,7 @@ func TestNewFileAnnotationEvent(t *testing.T) {
 					}
 				}
 				if !found {
-					t.Logf("notes = %v", notes)
+					t.Errorf("expected 'previous_turn=3' note, got %v", notes)
 				}
 			},
 		},

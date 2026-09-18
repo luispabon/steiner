@@ -121,6 +121,10 @@ func TestTruncateWithEllipsisPreservesContent(t *testing.T) {
 			input:  "a b c d e f",
 			maxLen: 10,
 			checkFn: func(t *testing.T, result string) {
+				expected := "a b c d..."
+				if result != expected {
+					t.Errorf("result = %q, want %q", result, expected)
+				}
 				if len(result) > 10 {
 					t.Errorf("result length %d exceeds maxLen 10", len(result))
 				}
