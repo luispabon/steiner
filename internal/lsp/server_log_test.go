@@ -51,8 +51,8 @@ func TestNewLSPServerLogWriter(t *testing.T) {
 		}
 		defer w.Close() //nolint:errcheck
 
-		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-			t.Error("expected log file to exist on disk")
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Errorf("expected log file to exist on disk: %v", statErr)
 		}
 	})
 
@@ -65,8 +65,8 @@ func TestNewLSPServerLogWriter(t *testing.T) {
 		}
 		defer w.Close() //nolint:errcheck
 
-		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-			t.Error("expected log file to exist in nested directory")
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Errorf("expected log file to exist in nested directory: %v", statErr)
 		}
 	})
 

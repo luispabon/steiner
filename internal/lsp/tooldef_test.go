@@ -224,9 +224,13 @@ func TestReferencesIncludeDeclarationDefault(t *testing.T) {
 
 	defaultVal, ok := decl["default"]
 	if !ok {
-		t.Errorf("include_declaration schema missing default")
+		t.Fatalf("include_declaration schema missing default")
 	}
-	if v, ok := defaultVal.(bool); ok && !v {
+	v, ok := defaultVal.(bool)
+	if !ok {
+		t.Fatalf("include_declaration default is %T, want bool", defaultVal)
+	}
+	if !v {
 		t.Errorf("include_declaration default = %v, want true", v)
 	}
 }
@@ -985,7 +989,7 @@ func TestImplementationsToolSymbolEcho(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	testFile := filepath.Join(tmpdir, "test.go")
-	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+	if err := os.WriteFile(testFile, []byte("package main\n\nfunc TestFunc() {}\n"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
@@ -1007,7 +1011,7 @@ func TestImplementationsToolSymbolEcho(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected string result, got %T", result)
 	}
-	if !strings.Contains(msg, "TestFunc") {
+	if !strings.Contains(msg, "resolved") || !strings.Contains(msg, "TestFunc") {
 		t.Errorf("symbol echo missing from output: %q", msg)
 	}
 }
@@ -1150,7 +1154,7 @@ func TestTypeDefinitionsToolSymbolEcho(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	testFile := filepath.Join(tmpdir, "test.go")
-	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+	if err := os.WriteFile(testFile, []byte("package main\n\ntype TestType struct{}\n"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
@@ -1172,7 +1176,7 @@ func TestTypeDefinitionsToolSymbolEcho(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected string result, got %T", result)
 	}
-	if !strings.Contains(msg, "TestType") {
+	if !strings.Contains(msg, "resolved") || !strings.Contains(msg, "TestType") {
 		t.Errorf("symbol echo missing from output: %q", msg)
 	}
 }
