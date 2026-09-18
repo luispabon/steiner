@@ -107,6 +107,25 @@ func TestMutateLSPDiagnosticsExcludesDeletedIncludesCreated(t *testing.T) {
 	}
 }
 
+func TestMutateDiagnosticsFilesDeduplicatesSortsAndDropsEmpty(t *testing.T) {
+	got := mutateDiagnosticsFiles(&MutateResult{
+		Created:  []string{"b.txt", "", "a.txt", "b.txt"},
+		Modified: []string{"c.txt", "a.txt", ""},
+		Moved: []MoveResult{
+			{From: "old.txt", To: ""},
+			{From: "other.txt", To: "b.txt"},
+			{From: "third.txt", To: "d.txt"},
+		},
+	})
+	want := []string{"a.txt", "b.txt", "c.txt", "d.txt"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("mutateDiagnosticsFiles() = %v, want %v", got, want)
+	}
+	if slices.Contains(got, "") {
+		t.Fatalf("mutateDiagnosticsFiles() = %v, must not contain empty paths", got)
+	}
+}
+
 func TestMutateLSPDiagnosticsMoveIncludesToExcludesFrom(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "old.txt"), []byte("move me\n"), 0o644); err != nil {
