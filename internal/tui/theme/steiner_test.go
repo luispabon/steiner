@@ -32,9 +32,10 @@ func TestBuildGlamourStyleSheet_rendersBold(t *testing.T) {
 	if !strings.Contains(out, "bold text") {
 		t.Errorf("rendered output lost text: %q", out)
 	}
-	// Verify ANSI escape sequences are present (bold formatting requires them)
-	if !strings.ContainsRune(out, '\x1b') {
-		t.Errorf("rendered output missing ANSI escapes for bold formatting: %q", out)
+	// The bold SGR parameter (;1m) must immediately precede the text; presence of
+	// unrelated ANSI (e.g. the accent color code) is not sufficient to prove Bold is set.
+	if !strings.Contains(out, ";1mbold text") {
+		t.Errorf("rendered output missing bold SGR code before text: %q", out)
 	}
 }
 
@@ -55,9 +56,14 @@ func TestBuildGlamourStyleSheet_rendersHeading(t *testing.T) {
 	if !strings.Contains(out, "Heading") {
 		t.Errorf("rendered output lost text: %q", out)
 	}
-	// Verify ANSI escape sequences are present (heading styling requires them)
-	if !strings.ContainsRune(out, '\x1b') {
-		t.Errorf("rendered output missing ANSI escapes for heading styling: %q", out)
+	// Presence of any ANSI is not sufficient (the heading color/background alone would
+	// still emit escapes); require the bold SGR parameter directly before the text.
+	// Note: glamour's ANSI256 rendering of this heading's indexed color already emits
+	// ";1m" as part of the color code itself, so this check does not fully isolate the
+	// Heading.Bold field in this style — it still catches a regression that drops the
+	// heading's styling entirely.
+	if !strings.Contains(out, ";1mHeading") {
+		t.Errorf("rendered output missing bold SGR code before text: %q", out)
 	}
 }
 

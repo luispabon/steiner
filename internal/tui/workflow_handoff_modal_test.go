@@ -152,9 +152,14 @@ func TestWorkflowHandoffModalBoldLabels(t *testing.T) {
 		t.Errorf("stripped modal should contain 'Planning folder:' label")
 	}
 
-	// Verify that bold ANSI escape sequences are present in the rendered output
-	if !strings.ContainsRune(rendered, '\x1b') {
-		t.Errorf("modal should contain ANSI escape sequences for bold labels, got: %q", rendered)
+	// Verify the bold SGR code (\x1b[1m) immediately precedes each label; the modal
+	// always emits unrelated ANSI (borders, colors), so presence of any ANSI byte is
+	// not sufficient to prove Bold is applied to these labels specifically.
+	if !strings.Contains(rendered, "\x1b[1mModel:") {
+		t.Errorf("modal should render 'Model:' label with bold SGR code, got: %q", rendered)
+	}
+	if !strings.Contains(rendered, "\x1b[1mPlanning folder:") {
+		t.Errorf("modal should render 'Planning folder:' label with bold SGR code, got: %q", rendered)
 	}
 }
 
