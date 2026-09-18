@@ -25,7 +25,7 @@ func saveFetchedContent(workDir, content, contentType string, truncated bool, ma
 		return nil, fmt.Errorf("save fetched content: %w", err)
 	}
 
-	if err := os.WriteFile(absPath, []byte(content), 0o644); err != nil {
+	if err := writeFileAtomic(absPath, []byte(content), 0o644); err != nil {
 		return nil, fmt.Errorf("save fetched content: %w", err)
 	}
 
