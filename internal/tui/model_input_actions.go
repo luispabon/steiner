@@ -592,7 +592,7 @@ func oneshotAllowedAction(value string) bool {
 	switch {
 	case trimmed == "/exit", trimmed == "/thinking":
 		return true
-	case strings.HasPrefix(trimmed, "/accent"):
+	case trimmed == "/accent", strings.HasPrefix(trimmed, "/accent "):
 		return true
 	default:
 		return false

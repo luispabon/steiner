@@ -157,27 +157,41 @@ func (b *contentBuffer) buildGrepResultLines(tc *toolCallSegment, summary string
 }
 
 func (b *contentBuffer) buildGrepFileLines(tc *toolCallSegment) []string {
+	preview := tc.preview
+	if len(preview.GrepFiles) == 1 && preview.GrepFiles[0].Path == "No matches found" {
+		preview.GrepFiles = nil
+		preview.Returned = 0
+	}
 	summary := "files with matches"
-	if tc.preview.Path != "" {
-		summary = tc.preview.Path + " · " + summary
+	if preview.Path != "" {
+		summary = preview.Path + " · " + summary
 	}
-	if tc.preview.Returned > 0 {
-		summary += fmt.Sprintf(" · %d files", tc.preview.Returned)
+	if preview.Returned > 0 {
+		summary += fmt.Sprintf(" · %d files", preview.Returned)
 	}
-	return b.buildGrepResultLines(tc, summary, func(file output.ToolPreviewGrepFile) []string {
+	renderTarget := *tc
+	renderTarget.preview = preview
+	return b.buildGrepResultLines(&renderTarget, summary, func(file output.ToolPreviewGrepFile) []string {
 		return []string{b.toolTagStyle("grep").Render(file.Path)}
 	})
 }
 
 func (b *contentBuffer) buildGrepCountLines(tc *toolCallSegment) []string {
+	preview := tc.preview
+	if len(preview.GrepFiles) == 1 && preview.GrepFiles[0].Path == "No matches found" {
+		preview.GrepFiles = nil
+		preview.Returned = 0
+	}
 	summary := "match counts"
-	if tc.preview.Path != "" {
-		summary = tc.preview.Path + " · " + summary
+	if preview.Path != "" {
+		summary = preview.Path + " · " + summary
 	}
-	if tc.preview.Returned > 0 {
-		summary += fmt.Sprintf(" · %d matches", tc.preview.Returned)
+	if preview.Returned > 0 {
+		summary += fmt.Sprintf(" · %d matches", preview.Returned)
 	}
-	return b.buildGrepResultLines(tc, summary, func(file output.ToolPreviewGrepFile) []string {
+	renderTarget := *tc
+	renderTarget.preview = preview
+	return b.buildGrepResultLines(&renderTarget, summary, func(file output.ToolPreviewGrepFile) []string {
 		return []string{b.toolTagStyle("grep").Render(fmt.Sprintf("%s:%d", file.Path, file.Count))}
 	})
 }

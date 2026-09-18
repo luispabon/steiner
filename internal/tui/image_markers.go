@@ -31,8 +31,8 @@ type imageMarker struct {
 
 var imageMarkerPattern = regexp.MustCompile(`\[Image \d+\]`)
 
-// partialMarkerPattern matches incomplete marker fragments that should be cleaned up.
-var partialMarkerPattern = regexp.MustCompile(`\[Image\s*\d*\]?`)
+// Require an image number before treating a fragment as an incomplete marker.
+var partialMarkerPattern = regexp.MustCompile(`\[Image\s+\d+\]?`)
 
 func nextMarkerLabel(markers []imageMarker) string {
 	return fmt.Sprintf("[Image %d]", len(markers)+1)
