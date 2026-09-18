@@ -13,6 +13,9 @@ import (
 // WrapFn wraps a server command before launch, e.g. inside the sandbox.
 type WrapFn func(*exec.Cmd) *exec.Cmd
 
+// ReleaseFn releases resources owned by a wrapped server command.
+type ReleaseFn func(*exec.Cmd)
+
 // TransportSpec specifies how to spawn and initialize a language server.
 type TransportSpec struct {
 	Command string
@@ -26,6 +29,8 @@ type TransportSpec struct {
 	Stderr                io.Writer
 	// Wrap transforms the command before launch, e.g. inside the sandbox.
 	Wrap WrapFn
+	// Release releases resources owned by the wrapped command.
+	Release ReleaseFn
 }
 
 // childProcess abstracts process lifecycle so session construction is testable
@@ -44,6 +49,8 @@ func newTransport(handshakeCtx, processCtx context.Context, spec TransportSpec) 
 	if spec.Wrap != nil {
 		cmd = spec.Wrap(cmd)
 	}
+	release := onceRelease(spec.Release, cmd)
+	defer release()
 	if spec.Stderr != nil {
 		cmd.Stderr = spec.Stderr
 	} else {
@@ -60,8 +67,10 @@ func newTransport(handshakeCtx, processCtx context.Context, spec TransportSpec) 
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start server: %w", err)
+	startErr := cmd.Start()
+	release()
+	if startErr != nil {
+		return nil, fmt.Errorf("start server: %w", startErr)
 	}
 	proc := newExecProcess(cmd)
 
@@ -73,6 +82,17 @@ func newTransport(handshakeCtx, processCtx context.Context, spec TransportSpec) 
 		return nil, err
 	}
 	return s, nil
+}
+
+func onceRelease(releaseFn ReleaseFn, cmd *exec.Cmd) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			if releaseFn != nil {
+				releaseFn(cmd)
+			}
+		})
+	}
 }
 
 // execProcess is the childProcess backed by a spawned command.

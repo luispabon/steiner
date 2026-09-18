@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -28,6 +29,7 @@ type Manager struct {
 	cfg       config.LSPConfig
 	workspace string
 	wrap      WrapFn
+	release   ReleaseFn
 	warnFn    func(string)
 	stderr    io.Writer
 
@@ -86,7 +88,22 @@ type entry struct {
 // wrap is optional and transforms the command before launch (e.g. sandbox wrapping).
 // warnFn is called on recoverable errors (e.g. spawn failure).
 // workspace is the default workspace root when no markers are found.
-func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, warnFn func(string), stderr io.Writer) *Manager {
+func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, args ...any) *Manager {
+	var release ReleaseFn
+	var warnFn func(string)
+	var stderr io.Writer
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case ReleaseFn:
+			release = v
+		case func(*exec.Cmd):
+			release = v
+		case func(string):
+			warnFn = v
+		case io.Writer:
+			stderr = v
+		}
+	}
 	mgrCtx, mgrCancel := context.WithCancel(context.Background())
 	spawnCtx, spawnCancel := context.WithCancel(context.Background())
 
@@ -94,6 +111,7 @@ func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, warnFn func
 		cfg:         cfg,
 		workspace:   workspace,
 		wrap:        wrap,
+		release:     release,
 		warnFn:      warnFn,
 		stderr:      stderr,
 		mgrCtx:      mgrCtx,
@@ -306,6 +324,7 @@ func (m *Manager) spawnServer(_ context.Context, _ string, srv config.LSPServerC
 		InitializationOptions: srv.InitializationOptions,
 		Stderr:                m.stderr,
 		Wrap:                  m.wrap,
+		Release:               m.release,
 	}
 
 	sess, err := newTransport(handshakeCtx, m.mgrCtx, spec)

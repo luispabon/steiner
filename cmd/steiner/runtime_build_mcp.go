@@ -25,8 +25,10 @@ import (
 // until armed, then switches to full snapshots with origins.
 func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandbox, asyncMCP bool, events output.EventSink, stderr io.Writer) (*mcp.Manager, *mcpStateProducer) {
 	var wrap func(*exec.Cmd) *exec.Cmd
+	var release func(*exec.Cmd)
 	if sb != nil {
 		wrap = func(c *exec.Cmd) *exec.Cmd { return sb.WrapCommandMode(c, true) }
+		release = sb.ReleaseCommandResources
 	}
 	diagnose := func(severity string) func(string) {
 		return func(msg string) {
@@ -44,7 +46,7 @@ func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandb
 		producer = &mcpStateProducer{}
 		onStateChange = producer.stateChanged
 	}
-	mgr := mcp.Connect(ctx, cfg.MCP, cfg.Limits, wrap, planMode, diagnose("warning"), diagnose("info"), stderr, onStateChange)
+	mgr := mcp.Connect(ctx, cfg.MCP, cfg.Limits, wrap, release, planMode, diagnose("warning"), diagnose("info"), stderr, onStateChange)
 	if !asyncMCP {
 		// Block until every enabled server resolves (connected or failed) so
 		// the registry below freezes the complete tool list. Connects run in
@@ -62,8 +64,10 @@ func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandb
 // session_health diagnostic channel as MCP.
 func connectRuntimeLSP(cfg config.Config, sb *sandbox.Sandbox, workDir string, events output.EventSink, stderr io.Writer) *lsp.Manager {
 	var wrap func(*exec.Cmd) *exec.Cmd
+	var release func(*exec.Cmd)
 	if sb != nil {
 		wrap = func(c *exec.Cmd) *exec.Cmd { return sb.WrapCommandMode(c, true) }
+		release = sb.ReleaseCommandResources
 	}
 	warnFn := func(msg string) {
 		events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
@@ -72,7 +76,7 @@ func connectRuntimeLSP(cfg config.Config, sb *sandbox.Sandbox, workDir string, e
 			Notes:    []string{msg},
 		}))
 	}
-	return lsp.NewManager(cfg.LSP, workDir, wrap, warnFn, stderr)
+	return lsp.NewManager(cfg.LSP, workDir, wrap, release, warnFn, stderr)
 }
 
 func buildLSPServerLogWriter(path string) (io.WriteCloser, error) {

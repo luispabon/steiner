@@ -31,13 +31,20 @@ import (
 // appears in spec.Env, since bwrap applies --unsetenv after receiving the
 // process environment.
 func buildCommand(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, stderr io.Writer) *exec.Cmd {
+	cmd, _ := buildCommandTracked(ctx, spec, wrap, stderr)
+	return cmd
+}
+
+func buildCommandTracked(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, stderr io.Writer) (*exec.Cmd, *exec.Cmd) {
 	cmd := exec.CommandContext(ctx, spec.Command, spec.Args...)
+	wrapped := cmd
 
 	cmd.Env = os.Environ()
 	cmd.Stderr = stderr
 
 	if wrap != nil {
 		cmd = wrap(cmd)
+		wrapped = cmd
 		// The sandbox wrapper returns a fresh exec.Cmd built from a struct
 		// literal, so it has no context. exec.Start rejects a non-nil Cancel on
 		// such a command ("exec: command with a non-nil Cancel was not created
@@ -66,7 +73,7 @@ func buildCommand(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *ex
 	// applied before the wrap would silently do nothing.
 	applyProcessGroup(cmd)
 
-	return cmd
+	return cmd, wrapped
 }
 
 // sortedEnvPairs renders m as KEY=VALUE pairs in sorted key order, so the

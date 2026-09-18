@@ -58,6 +58,8 @@ func (s *BashSession) Start() error {
 	if s.CommandWrapper != nil {
 		cmd = s.CommandWrapper(cmd)
 	}
+	release := onceRelease(s.ReleaseCommandResources, cmd)
+	defer release()
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -78,9 +80,7 @@ func (s *BashSession) Start() error {
 	}
 
 	startErr := cmd.Start()
-	if s.ReleaseCommandResources != nil {
-		s.ReleaseCommandResources(cmd)
-	}
+	release()
 	if startErr != nil {
 		_ = stdinPipe.Close()
 		_ = stdoutPipe.Close()
@@ -94,6 +94,17 @@ func (s *BashSession) Start() error {
 	s.stderrR = bufio.NewReader(stderrPipe)
 	s.started = true
 	return nil
+}
+
+func onceRelease(releaseFn func(*exec.Cmd), cmd *exec.Cmd) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			if releaseFn != nil {
+				releaseFn(cmd)
+			}
+		})
+	}
 }
 
 // Execute runs a shell command string and returns stdout, stderr, exitCode, and any session error.
@@ -247,6 +258,8 @@ func (s *BashSession) restartLocked(_ context.Context) error {
 	if s.CommandWrapper != nil {
 		cmd = s.CommandWrapper(cmd)
 	}
+	release := onceRelease(s.ReleaseCommandResources, cmd)
+	defer release()
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -263,11 +276,13 @@ func (s *BashSession) restartLocked(_ context.Context) error {
 		_ = stdoutPipe.Close()
 		return fmt.Errorf("bash session: restart stderr pipe: %w", err)
 	}
-	if err := cmd.Start(); err != nil {
+	startErr := cmd.Start()
+	release()
+	if startErr != nil {
 		_ = stdinPipe.Close()
 		_ = stdoutPipe.Close()
 		_ = stderrPipe.Close()
-		return fmt.Errorf("bash session: restart start: %w", err)
+		return fmt.Errorf("bash session: restart start: %w", startErr)
 	}
 
 	s.cmd = cmd

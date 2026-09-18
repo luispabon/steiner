@@ -22,6 +22,9 @@ import (
 // WrapFn wraps a server command before launch, e.g. inside the sandbox.
 type WrapFn func(*exec.Cmd) *exec.Cmd
 
+// ReleaseFn releases resources owned by a wrapped server command.
+type ReleaseFn func(*exec.Cmd)
+
 // shutdownGrace bounds how long Close waits for each session to tear down. It
 // must exceed the stdio transport's TerminateDuration (5s) plus a margin, so a
 // server that needs the full SIGTERM wait still finishes inside the grace;
@@ -89,7 +92,31 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 //
 // Connect never returns an error for a server failure; a failed server is
 // simply marked failed.
-func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConfig, wrap WrapFn, planMode bool, warnFn, infoFn func(string), stderr io.Writer, onStateChange func()) *Manager {
+func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConfig, wrap WrapFn, args ...any) *Manager {
+	var release ReleaseFn
+	var planMode bool
+	var warnFn, infoFn func(string)
+	var stderr io.Writer
+	var onStateChange func()
+	if len(args) == 5 {
+		planMode, _ = args[0].(bool)
+		warnFn, _ = args[1].(func(string))
+		infoFn, _ = args[2].(func(string))
+		stderr, _ = args[3].(io.Writer)
+		onStateChange, _ = args[4].(func())
+	} else {
+		if v, ok := args[0].(ReleaseFn); ok {
+			release = v
+		}
+		if v, ok := args[0].(func(*exec.Cmd)); ok {
+			release = v
+		}
+		planMode, _ = args[1].(bool)
+		warnFn, _ = args[2].(func(string))
+		infoFn, _ = args[3].(func(string))
+		stderr, _ = args[4].(io.Writer)
+		onStateChange, _ = args[5].(func())
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	m := &Manager{
 		planMode: planMode,
@@ -162,7 +189,7 @@ func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConf
 			Headers:   srv.Headers,
 		}
 		m.connectWG.Add(1)
-		go m.connectServer(spec, srv, transport, limits, wrap, warnFn, infoFn, stderr, onStateChange)
+		go m.connectServer(spec, srv, transport, limits, wrap, release, warnFn, infoFn, stderr, onStateChange)
 	}
 
 	return m
@@ -173,7 +200,7 @@ func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConf
 // the final state under the manager mutex and reports the transition. limits is
 // captured into each tool definition so per-call output bounds and timeouts
 // apply (D19).
-func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, transport string, limits config.LimitsConfig, wrap WrapFn, warnFn, infoFn func(string), stderr io.Writer, onStateChange func()) {
+func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, transport string, limits config.LimitsConfig, wrap WrapFn, release ReleaseFn, warnFn, infoFn func(string), stderr io.Writer, onStateChange func()) {
 	defer m.connectWG.Done()
 
 	timeout := time.Duration(srv.ConnectTimeout.Duration())
@@ -185,7 +212,7 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 	// timeout-bounded one, because the stdio transport binds the server process
 	// to the context it was started with: cancelling it after a successful
 	// connect would kill the session.
-	session, err := ConnectSession(m.ctx, spec, wrap, stderr, timeout, SessionOptions{
+	session, err := connectSession(m.ctx, spec, wrap, release, stderr, timeout, SessionOptions{
 		ManagerCtx: m.ctx,
 		OnStatus: func(status ServerStatus, reconnectErr error) {
 			// Reconnect lifecycle: connected→reconnecting→connected/unavailable.
