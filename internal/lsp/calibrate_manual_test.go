@@ -393,9 +393,12 @@ func spawnWithoutProgress(ctx context.Context, command, root string, env []strin
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		_ = stdin.Close()
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
 		return nil, fmt.Errorf("start server: %w", err)
 	}
 	proc := newExecProcess(cmd)

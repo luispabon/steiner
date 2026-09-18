@@ -78,6 +78,7 @@ func TestWireCacheDiagnosticIsGatedAndTracksSharedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("diagnostics.New() error = %v", err)
 	}
+	t.Cleanup(func() { _ = writer.Close() })
 	emitWireCacheDiagnostic(context.Background(), prov, req, false, &advisorDiagnosticContext{state: state, writer: writer})
 	if prov.fingerprints != 1 {
 		t.Fatalf("fingerprints with enabled diagnostics = %d, want 1", prov.fingerprints)

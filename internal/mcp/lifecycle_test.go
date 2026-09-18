@@ -523,6 +523,7 @@ func TestLifecycleShutdownReapsChildren(t *testing.T) {
 	}
 
 	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	t.Cleanup(func() { _ = m.Close() })
 	waitInit(t, m)
 
 	pidData, err := os.ReadFile(childPIDFile)
@@ -613,6 +614,7 @@ func TestLifecycleCloseIdempotent(t *testing.T) {
 	}
 
 	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	t.Cleanup(func() { _ = m.Close() })
 	waitInit(t, m)
 
 	if err := m.Close(); err != nil {
