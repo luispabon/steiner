@@ -35,7 +35,7 @@ func TestSetModeListenerRunsOutsideSessionLock(t *testing.T) {
 		lockHeld      bool
 		observed      config.ExecutionMode
 	)
-	s.SetModeListener(func(m config.ExecutionMode) {
+	s.SetModeListener(func(_ config.ExecutionMode) {
 		listenerCalls++
 		if !sessionLockFree(s) {
 			lockHeld = true
@@ -130,7 +130,7 @@ func TestLoadSessionListenerRunsOutsideSessionLock(t *testing.T) {
 		lockHeld      bool
 		observed      config.ExecutionMode
 	)
-	s.SetModeListener(func(m config.ExecutionMode) {
+	s.SetModeListener(func(_ config.ExecutionMode) {
 		listenerCalls++
 		if !sessionLockFree(s) {
 			lockHeld = true
