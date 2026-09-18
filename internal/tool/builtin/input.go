@@ -123,7 +123,7 @@ func normalizeRead(in *ReadInput) {
 
 // normalizeGlob applies defaults and caps to glob input.
 func normalizeGlob(in *GlobInput) {
-	if in.Offset <= 0 {
+	if in.Offset < 0 {
 		in.Offset = 0
 	}
 	if in.Limit <= 0 {
@@ -138,7 +138,7 @@ func normalizeGrep(in *GrepInput) {
 		in.HeadLimit = defaultGrepHeadLimit
 	}
 	in.HeadLimit = min(in.HeadLimit, maxGrepHeadLimit)
-	if in.Offset <= 0 {
+	if in.Offset < 0 {
 		in.Offset = 0
 	}
 }

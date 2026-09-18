@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/wonton/web"
@@ -154,7 +155,7 @@ func TestBraveSearcherSearch(t *testing.T) {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tt.expectedErrMsg)
 				}
-				if !contains(err.Error(), tt.expectedErrMsg) {
+				if !strings.Contains(err.Error(), tt.expectedErrMsg) {
 					t.Errorf("error = %v, want to contain %q", err, tt.expectedErrMsg)
 				}
 				return
@@ -221,8 +222,4 @@ func TestBraveSearcherNilInput(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nil input")
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || (len(s) > 0 && len(substr) > 0 && (s[:len(substr)] == substr || contains(s[1:], substr))))
 }
