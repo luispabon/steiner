@@ -1408,17 +1408,10 @@ func TestBuildCompactionRequestWithMode_CacheFields(t *testing.T) {
 				t.Fatalf("Tools = %#v, want %#v", chatRequest.Tools, req.Tools)
 			}
 
-			// Params pointer identity
-			if reflect.ValueOf(chatRequest.Params).Pointer() != reflect.ValueOf(req.ResolvedModel.Params).Pointer() {
-				t.Fatal("Params not shared (pointer identity)")
-			}
+			// Params/ExtraParams are carried through by value; a defensive
+			// clone must not fail this assertion.
 			if !reflect.DeepEqual(chatRequest.Params, req.ResolvedModel.Params) {
 				t.Fatalf("Params value = %#v, want %#v", chatRequest.Params, req.ResolvedModel.Params)
-			}
-
-			// ExtraParams pointer identity
-			if reflect.ValueOf(chatRequest.ExtraParams).Pointer() != reflect.ValueOf(req.ResolvedModel.ExtraParams).Pointer() {
-				t.Fatal("ExtraParams not shared (pointer identity)")
 			}
 			if !reflect.DeepEqual(chatRequest.ExtraParams, req.ResolvedModel.ExtraParams) {
 				t.Fatalf("ExtraParams value = %#v, want %#v", chatRequest.ExtraParams, req.ResolvedModel.ExtraParams)

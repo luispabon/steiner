@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -189,7 +190,7 @@ func TestEventingApproverInnerErrorPropagatesAndEmitsDenial(t *testing.T) {
 		Response: response,
 		Kind:     tool.ApprovalKindPath,
 	})
-	if err == nil || err.Error() != innerErr.Error() {
+	if !errors.Is(err, innerErr) {
 		t.Fatalf("RequestApproval() error = %v, want %v", err, innerErr)
 	}
 	resp := <-response
