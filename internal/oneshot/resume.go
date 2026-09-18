@@ -110,10 +110,6 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 			continue
 		}
 
-		// Check if this phase is being resumed (re-run after a failure).
-		// A phase is resuming if its status is Failed or Running.
-		phaseIsResuming := manifest.PhaseStatuses[phase] == PhaseStatusFailed || manifest.PhaseStatuses[phase] == PhaseStatusRunning
-
 		if err := o.runPhase(runPhaseParams{
 			InterruptCtx:  interruptCtx,
 			Store:         store,
@@ -123,7 +119,6 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 			PlanningPath:  planningPath,
 			Phase:         phase,
 			PreviousPhase: previousPhase,
-			Resuming:      phaseIsResuming,
 		}); err != nil {
 			return manifest, err
 		}

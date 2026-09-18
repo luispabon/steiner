@@ -36,23 +36,20 @@ func (e *BoundaryError) Error() string {
 // plan phase produces overview.md and plan.yaml, implement adds execution.md,
 // and review adds review.md.
 //
-// When phaseIsResuming is true (phase is being re-run after a failure), execution.md
-// is not required for the implement phase, since it may not have been written yet
-// if the failure occurred before the model reached that step. A completed implement phase
-// (phaseIsResuming=false) MUST have execution.md. Review phase always requires execution.md
-// because it is only run after implement completes.
-func requiredArtifactsForPhase(phase Phase, planningPath string, phaseIsResuming bool) []string {
+// The check runs after the phase runner returns, so it always describes a
+// completed phase: a resumed implement run must produce execution.md exactly
+// like a fresh one, otherwise the later review boundary fails on the missing
+// artifact. Resume only relaxes requirements before a phase starts (a run
+// interrupted before execution.md was written can still re-enter implement);
+// see docs/internals/oneshot.md "Mid-implement resume".
+func requiredArtifactsForPhase(phase Phase, planningPath string) []string {
 	required := []string{
 		filepath.Join(planningPath, "overview.md"),
 		filepath.Join(planningPath, "plan.yaml"),
 	}
 	switch phase {
 	case PhaseImplement:
-		// Only require execution.md if this is a fresh run, not a resume.
-		// On resume after a mid-implement failure, execution.md may not exist yet.
-		if !phaseIsResuming {
-			required = append(required, filepath.Join(planningPath, "execution.md"))
-		}
+		required = append(required, filepath.Join(planningPath, "execution.md"))
 	case PhaseReview:
 		// Review always requires execution.md because review only runs after implement completes.
 		required = append(required,
