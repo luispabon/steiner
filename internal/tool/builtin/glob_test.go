@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -338,16 +339,23 @@ func TestGlobWalk_DoublestarPatterns(t *testing.T) {
 	})
 
 	t.Run("early termination cap at maxGlobLimit", func(t *testing.T) {
-		// Use a very broad pattern that matches everything.
-		matches, err := globWalk(tmpDir, "**/*", excluder, &policy)
+		// Use a dedicated directory with more than maxGlobLimit matching
+		// files so the cap assertion isn't vacuously true.
+		capDir := t.TempDir()
+		for i := 0; i < maxGlobLimit+50; i++ {
+			name := fmt.Sprintf("file%04d.go", i)
+			if err := os.WriteFile(filepath.Join(capDir, name), []byte(name), 0o644); err != nil {
+				t.Fatalf("write %s: %v", name, err)
+			}
+		}
+		capPolicy := tool.NewPathPolicy(capDir, config.PathsConfig{})
+
+		matches, err := globWalk(capDir, "**/*.go", excluder, &capPolicy)
 		if err != nil {
 			t.Fatalf("globWalk error: %v", err)
 		}
-		if len(matches) > maxGlobLimit {
-			t.Errorf("got %d matches, want <= %d", len(matches), maxGlobLimit)
-		}
-		if len(matches) == 0 {
-			t.Error("expected at least some matches")
+		if len(matches) != maxGlobLimit {
+			t.Errorf("got %d matches, want exactly %d", len(matches), maxGlobLimit)
 		}
 	})
 

@@ -798,9 +798,28 @@ func TestSubAgentToolDef_Schema(t *testing.T) {
 		t.Fatal("required missing from schema")
 	}
 
-	// Required fields should be exactly 7: type, objective, context, deliverable, constraints, success_criteria, checks.
-	if len(required) != 7 {
-		t.Errorf("required fields count=%d, want 7", len(required))
+	// Required fields should be exactly the seven structured task fields.
+	gotRequired := make(map[string]bool, len(required))
+	for _, r := range required {
+		name, ok := r.(string)
+		if !ok {
+			t.Fatalf("required entry %v is not a string", r)
+		}
+		gotRequired[name] = true
+	}
+	wantRequired := map[string]bool{
+		"type": true, "objective": true, "context": true, "deliverable": true,
+		"constraints": true, "success_criteria": true, "checks": true,
+	}
+	for name := range wantRequired {
+		if !gotRequired[name] {
+			t.Errorf("required fields missing %q", name)
+		}
+	}
+	for name := range gotRequired {
+		if !wantRequired[name] {
+			t.Errorf("required fields has unexpected %q", name)
+		}
 	}
 
 	// Verify the type enum has all 7 agent types.
@@ -1028,7 +1047,7 @@ func TestSpecializedHandler_EmptyTask(t *testing.T) {
 			}
 
 			// Test with valid structured task should succeed
-			_, err = def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test"))
+			_, err = def.Handler(context.Background(), subAgentTask(agentType, "test"))
 			if err != nil {
 				t.Errorf("valid structured task returned error: %v", err)
 			}
@@ -1116,15 +1135,28 @@ func TestSpecializedHandler_UsesTypeAllowedTools(t *testing.T) {
 			}
 			def := SubAgentToolDef(deps, nil)
 
-			_, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "test task"))
+			_, err := def.Handler(context.Background(), subAgentTask(agentType, "test task"))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			// "not_allowed" must not appear in the child's visible tools.
+			// The child's visible tools must exactly match the type's allowlist.
+			gotNames := make(map[string]bool, len(capturedReq.Tools))
 			for _, ts := range capturedReq.Tools {
-				if ts.Function.Name == "not_allowed" {
-					t.Error("child tools contain 'not_allowed' tool")
+				gotNames[ts.Function.Name] = true
+			}
+			wantNames := make(map[string]bool, len(allowedTools))
+			for _, name := range allowedTools {
+				wantNames[name] = true
+			}
+			for name := range wantNames {
+				if !gotNames[name] {
+					t.Errorf("child tools missing allowed tool %q", name)
+				}
+			}
+			for name := range gotNames {
+				if !wantNames[name] {
+					t.Errorf("child tools contain unexpected tool %q", name)
 				}
 			}
 		})
@@ -1649,7 +1681,24 @@ func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
 	}
 
 	// The child RunRequest prompt must include the image in the first user message.
-	_ = capturedReq // runner captured the request; build verification via Result
+	if len(capturedReq.Prompt.Conversation) == 0 {
+		t.Fatal("child prompt conversation is empty")
+	}
+	firstMsg := capturedReq.Prompt.Conversation[0]
+	if len(firstMsg.Images) != 1 {
+		t.Fatalf("first message has %d images, want 1", len(firstMsg.Images))
+	}
+	wantEncoded := base64.StdEncoding.EncodeToString(imgContent)
+	gotImage := firstMsg.Images[0]
+	if gotImage.Data != wantEncoded {
+		t.Errorf("image data = %q, want base64-encoded %q", gotImage.Data, wantEncoded)
+	}
+	if gotImage.MediaType != "image/png" {
+		t.Errorf("image media type = %q, want %q", gotImage.MediaType, "image/png")
+	}
+	if gotImage.Width != 100 || gotImage.Height != 200 {
+		t.Errorf("image dimensions = %dx%d, want 100x200", gotImage.Width, gotImage.Height)
+	}
 
 	// Verify the host result keeps the exact child output.
 	execResult, _ := raw.(tool.ExecutionResult)
@@ -1660,10 +1709,6 @@ func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
 	if dr.Output != "task result" {
 		t.Errorf("result output %q, want exact child output", dr.Output)
 	}
-
-	// Verify the image was base64-encoded from disk correctly.
-	wantEncoded := base64.StdEncoding.EncodeToString(imgContent)
-	_ = wantEncoded // encoding correctness is implicit; the handler would error if os.ReadFile failed
 }
 
 // TestVisionRoutingArgs_PassesHandlerValidation pins the argument shape that
@@ -2516,7 +2561,7 @@ func TestSpecializedHandler_NonCodeAgentsNoWorktreeFields(t *testing.T) {
 			}
 
 			def := SubAgentToolDef(deps, nil)
-			raw, err := def.Handler(ctx, subAgentTask(AgentTypeExplore, "test task"))
+			raw, err := def.Handler(ctx, subAgentTask(agentType, "test task"))
 			if err != nil {
 				t.Fatalf("handler error: %v", err)
 			}

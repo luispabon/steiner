@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/deepnoodle-ai/wonton/web"
@@ -17,13 +18,12 @@ func TestNewSearchBackend(t *testing.T) {
 		name       string
 		config     config.SearchConfig
 		envSetup   map[string]string
-		wantType   string
+		wantType   reflect.Type
 		wantErrMsg string
 	}{
 		{
-			name:     "empty backend returns nil",
-			config:   config.SearchConfig{Backend: ""},
-			wantType: "<nil>",
+			name:   "empty backend returns nil",
+			config: config.SearchConfig{Backend: ""},
 		},
 		{
 			name:       "unknown backend returns error",
@@ -48,7 +48,7 @@ func TestNewSearchBackend(t *testing.T) {
 		{
 			name:     "brave backend with API key returns BraveSearcher",
 			config:   config.SearchConfig{Backend: "brave", BraveAPIKey: "test-key"},
-			wantType: "*BraveSearcher",
+			wantType: reflect.TypeOf(&braveSearcher{}),
 		},
 		{
 			name:       "searxng backend requires base URL",
@@ -58,7 +58,7 @@ func TestNewSearchBackend(t *testing.T) {
 		{
 			name:     "searxng backend with URL returns SearxngSearcher",
 			config:   config.SearchConfig{Backend: "searxng", SearxngURL: "http://localhost:8888"},
-			wantType: "*SearxngSearcher",
+			wantType: reflect.TypeOf(&searxngSearcher{}),
 		},
 	}
 
@@ -84,13 +84,16 @@ func TestNewSearchBackend(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			if tt.wantType == "<nil>" {
+			if tt.wantType == nil {
 				if searcher != nil {
 					t.Fatalf("expected nil, got %T", searcher)
 				}
 			} else {
 				if searcher == nil {
 					t.Fatalf("expected searcher, got nil")
+				}
+				if gotType := reflect.TypeOf(searcher); gotType != tt.wantType {
+					t.Fatalf("searcher type = %s, want %s", gotType, tt.wantType)
 				}
 			}
 		})
@@ -203,15 +206,12 @@ func TestSearxngSearcher(t *testing.T) {
 	})
 
 	t.Run("limit defaults and capping", func(t *testing.T) {
+		var gotCount string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			q := r.URL.Query()
-			count := q.Get("count")
+			gotCount = r.URL.Query().Get("count")
 			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"results":[]}`))
-
-			if count != "30" && count != "10" {
-				w.WriteHeader(http.StatusBadRequest)
-			}
 		}))
 		defer server.Close()
 
@@ -228,6 +228,9 @@ func TestSearxngSearcher(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+		if gotCount != "10" {
+			t.Errorf("count = %q, want %q (default limit)", gotCount, "10")
+		}
 
 		// Test limit capping at 30
 		_, err = searcher.Search(context.Background(), &web.SearchInput{
@@ -236,6 +239,9 @@ func TestSearxngSearcher(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+		if gotCount != "30" {
+			t.Errorf("count = %q, want %q (capped limit)", gotCount, "30")
 		}
 	})
 }

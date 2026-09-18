@@ -84,8 +84,11 @@ func TestNewTransportRejectsProcessesThatDoNotSpeakLSP(t *testing.T) {
 				_ = s.Close(ctx)
 				t.Fatal("expected the handshake to fail against a process that does not speak LSP")
 			}
-			if elapsed := time.Since(start); elapsed >= testTimeout {
-				t.Errorf("newTransport took %v, want it bounded by the context deadline", elapsed)
+			// Allow reasonable scheduling margin above the case's own context
+			// timeout, rather than the unrelated (and much larger) testTimeout.
+			bound := tt.timeout + 500*time.Millisecond
+			if elapsed := time.Since(start); elapsed >= bound {
+				t.Errorf("newTransport took %v, want it bounded by the context deadline (%v)", elapsed, bound)
 			}
 		})
 	}

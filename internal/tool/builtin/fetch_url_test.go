@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -459,121 +460,123 @@ func TestFetchURLHandlerContentTypeRouting(t *testing.T) {
 		}
 	})
 
-	t.Run("routing decision logic matches handler switch", func(t *testing.T) {
-		// Replicate the handler's switch/case decision logic to verify
-		// the routing conditions are correct.
+	t.Run("routeByContentType dispatches to the correct path", func(t *testing.T) {
+		// Exercise the real routeByContentType function with a client whose
+		// transport always fails fast, so no network I/O occurs but the
+		// function still reaches httpClient.Do() for the image/text paths.
+		httpClient := &http.Client{Transport: erroringRoundTripper{}}
+
 		tests := []struct {
-			name        string
-			contentType string
-			url         string
-			wantImage   bool // would handler take image path?
-			wantText    bool // would handler take wonton/fetch text path?
-			wantError   bool // would handler return unsupported error?
+			name          string
+			contentType   string
+			url           string
+			wantHandled   bool // does routeByContentType claim this content type?
+			wantErrSubstr string
 		}{
 			{
 				name:        "image/png",
 				contentType: "image/png",
 				url:         "http://example.com/f.png",
-				wantImage:   true,
-				wantText:    false,
-				wantError:   false,
+				wantHandled: true,
 			},
 			{
 				name:        "Image/PNG (mixed case)",
 				contentType: "Image/PNG",
 				url:         "http://example.com/f.png",
-				wantImage:   true,
-				wantText:    false,
-				wantError:   false,
+				wantHandled: true,
 			},
 			{
 				name:        "empty content-type, .png url",
 				contentType: "",
 				url:         "http://example.com/photo.png",
-				wantImage:   true,
-				wantText:    false,
-				wantError:   false,
+				wantHandled: true,
 			},
 			{
 				name:        "empty content-type, .html url",
 				contentType: "",
 				url:         "http://example.com/page.html",
-				wantImage:   false,
-				wantText:    true,
-				wantError:   false,
+				wantHandled: false,
 			},
 			{
 				name:        "octet-stream, .jpg url",
 				contentType: "application/octet-stream",
 				url:         "http://example.com/photo.jpg",
-				wantImage:   true,
-				wantText:    false,
-				wantError:   false,
+				wantHandled: true,
 			},
 			{
 				name:        "APPLICATION/OCTET-STREAM (mixed case), .jpg url",
 				contentType: "APPLICATION/OCTET-STREAM",
 				url:         "http://example.com/photo.jpg",
-				wantImage:   true,
-				wantText:    false,
-				wantError:   false,
+				wantHandled: true,
 			},
 			{
-				name:        "application/pdf returns error",
-				contentType: "application/pdf",
-				url:         "http://example.com/doc.pdf",
-				wantImage:   false,
-				wantText:    false,
-				wantError:   true,
+				name:          "application/pdf returns error",
+				contentType:   "application/pdf",
+				url:           "http://example.com/doc.pdf",
+				wantHandled:   true,
+				wantErrSubstr: "unsupported content type",
 			},
 			{
-				name:        "APPLICATION/PDF (mixed case) returns error",
-				contentType: "APPLICATION/PDF",
-				url:         "http://example.com/doc.pdf",
-				wantImage:   false,
-				wantText:    false,
-				wantError:   true,
+				name:          "APPLICATION/PDF (mixed case) returns error",
+				contentType:   "APPLICATION/PDF",
+				url:           "http://example.com/doc.pdf",
+				wantHandled:   true,
+				wantErrSubstr: "unsupported content type",
 			},
 			{
 				name:        "text/html goes to wonton",
 				contentType: "text/html",
 				url:         "http://example.com/page.html",
-				wantImage:   false,
-				wantText:    true,
-				wantError:   false,
+				wantHandled: false,
+			},
+			{
+				name:        "application/json takes the raw-text path",
+				contentType: "application/json",
+				url:         "http://example.com/data.json",
+				wantHandled: true,
 			},
 		}
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				ct := cleanContentType(tt.contentType)
-
-				gotImage := isImageContentType(tt.contentType)
-				extFallback := false
-				if !gotImage && (ct == "" || ct == "application/octet-stream") {
-					extFallback = hasImageExtension(tt.url)
+				result, handled, err := routeByContentType(
+					context.Background(), httpClient, FetchURLInput{URL: tt.url}, t.TempDir(), tt.contentType,
+				)
+				if err != nil {
+					t.Fatalf("routeByContentType() error = %v, want nil", err)
 				}
-
-				takesImagePath := gotImage || extFallback
-				if takesImagePath && !tt.wantImage {
-					t.Errorf("takes image path = true, want false (isImage=%v, extFallback=%v)", gotImage, extFallback)
+				if handled != tt.wantHandled {
+					t.Errorf("handled = %v, want %v", handled, tt.wantHandled)
 				}
-				if !takesImagePath && tt.wantImage {
-					t.Errorf("takes image path = false, want true (isImage=%v, extFallback=%v)", gotImage, extFallback)
+				if !tt.wantHandled {
+					if result != nil {
+						t.Errorf("result = %#v, want nil when unhandled", result)
+					}
+					return
 				}
-
-				takesTextPath := !gotImage && !extFallback && isTextLikeContentType(tt.contentType)
-				if takesTextPath != tt.wantText {
-					t.Errorf("takes text path = %v, want %v", takesTextPath, tt.wantText)
+				if result == nil {
+					t.Fatal("result = nil, want non-nil when handled")
 				}
-
-				takesErrorPath := !gotImage && !extFallback && !isTextLikeContentType(tt.contentType)
-				if takesErrorPath != tt.wantError {
-					t.Errorf("takes error path = %v, want %v", takesErrorPath, tt.wantError)
+				if tt.wantErrSubstr != "" {
+					fetchErr, ok := result.(*FetchURLError)
+					if !ok {
+						t.Fatalf("result type = %T, want *FetchURLError", result)
+					}
+					if !containsString(fetchErr.Error, tt.wantErrSubstr) {
+						t.Errorf("FetchURLError.Error = %q, want to contain %q", fetchErr.Error, tt.wantErrSubstr)
+					}
 				}
 			})
 		}
 	})
+}
+
+// erroringRoundTripper fails every request without touching the network, so
+// routeByContentType's image/text paths can be exercised deterministically.
+type erroringRoundTripper struct{}
+
+func (erroringRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("network disabled in test")
 }
 
 func TestOversizeBodyErrorMessage(t *testing.T) {

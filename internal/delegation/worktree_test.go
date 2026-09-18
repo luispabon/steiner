@@ -139,13 +139,26 @@ func TestProvisionCodeWorktree_ConcurrentProvisioning(t *testing.T) {
 func TestProvisionCodeWorktree_FailureCleanup(t *testing.T) {
 	ctx := context.Background()
 	repo := setupTestRepo(t)
+	t.Cleanup(resetProcessHashForTesting)
+	resetProcessHashForTesting()
 
-	// Point at a non-existent directory to trigger a git error.
-	badRepo := filepath.Join(repo, "nonexistent")
+	// First provisioning succeeds and registers a branch checked out at
+	// worktreePath.
+	first, err := ProvisionCodeWorktree(ctx, repo, "test-agent")
+	if err != nil {
+		t.Fatalf("first ProvisionCodeWorktree failed: %v", err)
+	}
 
-	wt, err := ProvisionCodeWorktree(ctx, badRepo, "test-agent")
+	// Provisioning again for the same agent ID (same process hash, same
+	// parent branch) computes the identical path and branch name. The second
+	// call's own pre-checkout `os.RemoveAll(worktreePath)` wipes out the first
+	// worktree's working directory, but git's worktree metadata still
+	// believes the branch is checked out there, so `worktree add -b <branch>`
+	// fails — a real conflicting-worktree failure at the add step (not
+	// getParentBranchName), exercising the worktree-add failure-cleanup path.
+	wt, err := ProvisionCodeWorktree(ctx, repo, "test-agent")
 	if err == nil {
-		t.Fatalf("ProvisionCodeWorktree should have failed for non-existent repo, got worktree: %v", wt)
+		t.Fatalf("ProvisionCodeWorktree should have failed for a branch already checked out, got worktree: %v", wt)
 	}
 
 	// Verify the error wraps ErrWorktreeProvisioning.
@@ -153,9 +166,14 @@ func TestProvisionCodeWorktree_FailureCleanup(t *testing.T) {
 		t.Errorf("error does not wrap ErrWorktreeProvisioning: %v", err)
 	}
 
-	// Verify no half-created worktree is left in the repo's git metadata.
-	// This is only testable if we had a valid repo to begin with, but we can
-	// verify against the real repo that any provisioning attempt cleanup worked.
+	// Verify the failed attempt's cleanup left no half-created directory behind.
+	if _, statErr := os.Stat(first.Path); statErr == nil {
+		t.Errorf("half-created worktree directory still exists after failure cleanup: %s", first.Path)
+	} else if !os.IsNotExist(statErr) {
+		t.Fatalf("stat worktree path after cleanup: %v", statErr)
+	}
+
+	// Verify no half-created worktree is left in git's own metadata.
 	list, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
@@ -256,6 +274,16 @@ func TestListCodeWorktrees_FiltersDelegationPathAndBranch(t *testing.T) {
 	}
 	runCmd(t, repo, "git", "worktree", "add", "-b", "oneshot-run-1", foreignPath, "HEAD")
 
+	// Create a worktree at a sibling-prefixed path (.steiner/worktrees-other/foo),
+	// not actually under .steiner/worktrees, but sharing its string prefix. A raw
+	// strings.HasPrefix check on the path (without a trailing separator) would
+	// wrongly treat this as inside the delegation directory.
+	siblingPath := filepath.Join(repo, ".steiner", "worktrees-other", "foo")
+	if err := os.MkdirAll(siblingPath, 0o755); err != nil {
+		t.Fatalf("create sibling worktree dir: %v", err)
+	}
+	runCmd(t, repo, "git", "worktree", "add", "-b", "delegate/sibling-not-owned", siblingPath, "HEAD")
+
 	// ListCodeWorktrees should only return the two delegation worktrees.
 	worktrees, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
@@ -265,10 +293,14 @@ func TestListCodeWorktrees_FiltersDelegationPathAndBranch(t *testing.T) {
 		t.Errorf("ListCodeWorktrees returned %d worktrees, want 2 (excluding foreign)", len(worktrees))
 	}
 
-	// Verify both returned worktrees are delegation-owned.
+	// Verify both returned worktrees are delegation-owned and the sibling-prefixed
+	// path was excluded despite sharing a string prefix with the delegation dir.
 	for _, wt := range worktrees {
 		if !strings.HasPrefix(wt.Branch, "delegate/") {
 			t.Errorf("worktree branch does not start with 'delegate/': %s", wt.Branch)
+		}
+		if wt.Path == siblingPath {
+			t.Errorf("ListCodeWorktrees included sibling-prefixed path %s outside .steiner/worktrees", siblingPath)
 		}
 	}
 }
@@ -523,8 +555,8 @@ func TestPruneCodeWorktree_RefusesForeignWorktree(t *testing.T) {
 	}
 
 	// Verify the foreign worktree's directory still exists.
-	if _, err := os.Stat(foreignPath); os.IsNotExist(err) {
-		t.Errorf("foreign worktree directory should still exist after refused prune")
+	if _, err := os.Stat(foreignPath); err != nil {
+		t.Errorf("foreign worktree directory should still exist after refused prune: %v", err)
 	}
 
 	// Verify it's still in git worktree list (not in delegation list).
@@ -581,18 +613,23 @@ func TestPruneAllCodeWorktrees_RemovesAll(t *testing.T) {
 		t.Errorf("after prune-all: got %d worktrees, want 0", len(list))
 	}
 
-	// Verify git worktree list in the source repo is clean.
+	// Verify git worktree list in the source repo is clean: exactly one
+	// remaining entry, and it is the main worktree at repo.
 	allWorktrees := runCmdOutput(t, repo, "git", "worktree", "list")
-	lines := strings.Split(allWorktrees, "\n")
-	for _, line := range lines {
+	var remainingPaths []string
+	for _, line := range strings.Split(allWorktrees, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		// The only entry should be the main worktree.
-		if !strings.Contains(line, repo) {
-			t.Errorf("unexpected worktree entry: %s", line)
-		}
+		fields := strings.Fields(line)
+		remainingPaths = append(remainingPaths, fields[0])
+	}
+	if len(remainingPaths) != 1 {
+		t.Fatalf("remaining worktree paths = %v, want exactly [%s]", remainingPaths, repo)
+	}
+	if remainingPaths[0] != repo {
+		t.Errorf("remaining worktree path = %q, want %q", remainingPaths[0], repo)
 	}
 }
 
@@ -642,8 +679,8 @@ func TestPruneAllCodeWorktrees_WithForeignWorktreePresent(t *testing.T) {
 	}
 
 	// Verify the foreign worktree still exists.
-	if _, err := os.Stat(foreignPath); os.IsNotExist(err) {
-		t.Errorf("foreign worktree directory should survive prune-all")
+	if _, err := os.Stat(foreignPath); err != nil {
+		t.Errorf("foreign worktree directory should survive prune-all: %v", err)
 	}
 }
 
@@ -707,8 +744,8 @@ func TestPruneAllCodeWorktrees_SkipsForeignWorktreeInDelegationPath(t *testing.T
 	}
 
 	// Verify the foreign worktree's directory still exists.
-	if _, err := os.Stat(foreignPath); os.IsNotExist(err) {
-		t.Errorf("foreign worktree directory should survive prune-all")
+	if _, err := os.Stat(foreignPath); err != nil {
+		t.Errorf("foreign worktree directory should survive prune-all: %v", err)
 	}
 
 	// Verify the foreign worktree is still in git list (albeit not in ListCodeWorktrees).
@@ -1045,8 +1082,8 @@ func TestPruneCodeWorktree_RejectsPathTraversal(t *testing.T) {
 	}
 
 	// Verify the canary file still exists (not deleted).
-	if _, err := os.Stat(canaryFile); os.IsNotExist(err) {
-		t.Errorf("canary file was deleted by path traversal!")
+	if _, err := os.Stat(canaryFile); err != nil {
+		t.Errorf("canary file was deleted by path traversal: %v", err)
 	}
 }
 

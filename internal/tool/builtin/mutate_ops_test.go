@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,19 +58,19 @@ func TestMutate_EffectivePolicy_AllowsPathOutsideRoot(t *testing.T) {
 func TestReplaceDiagnostics_NoMatch_IncludesOperationIndex(t *testing.T) {
 	tests := []struct {
 		name      string
-		opIndex   float64
+		opIndex   int
 		initial   string
 		oldString string
 	}{
 		{
 			name:      "replace with no match at operation 3",
-			opIndex:   float64(3),
+			opIndex:   3,
 			initial:   "line1\nline2\nline3\n",
 			oldString: "nonexistent",
 		},
 		{
 			name:      "replace with no match at operation 1",
-			opIndex:   float64(1),
+			opIndex:   1,
 			initial:   "hello world",
 			oldString: "goodbye",
 		},
@@ -86,10 +87,22 @@ func TestReplaceDiagnostics_NoMatch_IncludesOperationIndex(t *testing.T) {
 			policy := tool.NewPathPolicy(root, config.PathsConfig{})
 			toolDef := NewMutateTool(Env{WorkDir: root, PathPolicy: &policy, FileObserved: func(string) bool { return true }})
 
+			// Pad the batch with successful filler operations so the target
+			// replace op lands at tt.opIndex (1-based) in the batch.
+			operations := make([]any, 0, tt.opIndex)
+			for i := 1; i < tt.opIndex; i++ {
+				operations = append(operations, map[string]any{
+					"type":    "create",
+					"path":    fmt.Sprintf("filler%d.txt", i),
+					"content": "filler\n",
+				})
+			}
+			operations = append(operations, map[string]any{
+				"type": "replace", "path": "test.txt", "old_string": tt.oldString, "new_string": "replacement",
+			})
+
 			result, err := toolDef.Handler(context.Background(), map[string]any{
-				"operations": []any{
-					map[string]any{"type": "replace", "path": "test.txt", "old_string": tt.oldString, "new_string": "replacement"},
-				},
+				"operations": operations,
 			})
 			if err != nil {
 				t.Fatalf("mutate Handler() error = %v", err)
@@ -104,9 +117,9 @@ func TestReplaceDiagnostics_NoMatch_IncludesOperationIndex(t *testing.T) {
 				t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
 			}
 
-			operationIndexStr := strings.Split(got.Output, ":")[1]
-			if !strings.Contains(operationIndexStr, "operation 1") {
-				t.Errorf("error output does not contain 'operation 1 replace': %s", got.Output)
+			wantSubstr := fmt.Sprintf("operation %d replace", tt.opIndex)
+			if !strings.Contains(got.Output, wantSubstr) {
+				t.Errorf("error output does not contain %q: %s", wantSubstr, got.Output)
 			}
 		})
 	}
@@ -115,19 +128,19 @@ func TestReplaceDiagnostics_NoMatch_IncludesOperationIndex(t *testing.T) {
 func TestReplaceDiagnostics_AmbiguousMatch_IncludesOperationIndex(t *testing.T) {
 	tests := []struct {
 		name      string
-		opIndex   float64
+		opIndex   int
 		initial   string
 		oldString string
 	}{
 		{
 			name:      "replace with ambiguous match at operation 2",
-			opIndex:   float64(2),
+			opIndex:   2,
 			initial:   "hello\nworld\nhello\n",
 			oldString: "hello",
 		},
 		{
 			name:      "replace with multiple matches at operation 5",
-			opIndex:   float64(5),
+			opIndex:   5,
 			initial:   "test test test",
 			oldString: "test",
 		},
@@ -144,10 +157,22 @@ func TestReplaceDiagnostics_AmbiguousMatch_IncludesOperationIndex(t *testing.T) 
 			policy := tool.NewPathPolicy(root, config.PathsConfig{})
 			toolDef := NewMutateTool(Env{WorkDir: root, PathPolicy: &policy, FileObserved: func(string) bool { return true }})
 
+			// Pad the batch with successful filler operations so the target
+			// replace op lands at tt.opIndex (1-based) in the batch.
+			operations := make([]any, 0, tt.opIndex)
+			for i := 1; i < tt.opIndex; i++ {
+				operations = append(operations, map[string]any{
+					"type":    "create",
+					"path":    fmt.Sprintf("filler%d.txt", i),
+					"content": "filler\n",
+				})
+			}
+			operations = append(operations, map[string]any{
+				"type": "replace", "path": "test.txt", "old_string": tt.oldString, "new_string": "replacement",
+			})
+
 			result, err := toolDef.Handler(context.Background(), map[string]any{
-				"operations": []any{
-					map[string]any{"type": "replace", "path": "test.txt", "old_string": tt.oldString, "new_string": "replacement"},
-				},
+				"operations": operations,
 			})
 			if err != nil {
 				t.Fatalf("mutate Handler() error = %v", err)
@@ -162,8 +187,9 @@ func TestReplaceDiagnostics_AmbiguousMatch_IncludesOperationIndex(t *testing.T) 
 				t.Fatalf("OperationsFailed = %d, want 1", got.OperationsFailed)
 			}
 
-			if !strings.Contains(got.Output, "operation 1 replace") {
-				t.Errorf("error output does not contain 'operation 1 replace': %s", got.Output)
+			wantSubstr := fmt.Sprintf("operation %d replace", tt.opIndex)
+			if !strings.Contains(got.Output, wantSubstr) {
+				t.Errorf("error output does not contain %q: %s", wantSubstr, got.Output)
 			}
 		})
 	}

@@ -93,9 +93,18 @@ func TestGrepTool(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		_, ok := resultI.(GrepResult)
+		result, ok := resultI.(GrepResult)
 		if !ok {
 			t.Fatalf("result type = %T, want GrepResult", resultI)
+		}
+		if result.Output != "No matches found" {
+			t.Errorf("Output = %q, want %q", result.Output, "No matches found")
+		}
+		if result.Matches != 0 {
+			t.Errorf("Matches = %d, want 0", result.Matches)
+		}
+		if result.NextOffset != 0 {
+			t.Errorf("NextOffset = %d, want 0", result.NextOffset)
 		}
 	})
 

@@ -783,8 +783,8 @@ func TestPolicy_TmpPath_NoRewriteWhenSandboxTmpDirEmpty(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ResolvePath(%q) error = %v", tc.raw, err)
 			}
-			if !strings.HasPrefix(got, "/tmp") && got != "/tmp" {
-				t.Fatalf("ResolvePath(%q) = %q, want path starting with /tmp", tc.raw, got)
+			if got != tc.raw {
+				t.Fatalf("ResolvePath(%q) = %q, want %q (unchanged)", tc.raw, got, tc.raw)
 			}
 		})
 	}

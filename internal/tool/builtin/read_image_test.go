@@ -63,6 +63,7 @@ func TestReadImageFile(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("readImageFile() error = nil, wantErr %v", tt.wantErr)
+					return
 				}
 				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
 					t.Errorf("readImageFile() error = %q, expected to contain %q", err.Error(), tt.errContains)
@@ -79,8 +80,8 @@ func TestReadImageFile(t *testing.T) {
 				return
 			}
 
-			if !tt.wantImage && result.Image == nil {
-				t.Errorf("readImageFile() Image = nil, want non-nil")
+			if !tt.wantImage && result.Image != nil {
+				t.Errorf("readImageFile() Image = %+v, want nil", result.Image)
 				return
 			}
 

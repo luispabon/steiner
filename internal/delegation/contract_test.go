@@ -12,16 +12,22 @@ import (
 
 func populatedResult() Result {
 	return Result{
-		AgentID:          "agent-123",
-		Status:           StatusPartial,
-		Output:           "test output",
-		Reason:           "condensed findings",
-		TurnCount:        5,
-		TokenCount:       1000,
-		StopReason:       "max_turns",
-		ToolCallCount:    7,
-		FollowUpCount:    2,
-		SessionResumable: true,
+		AgentID:           "agent-123",
+		Status:            StatusPartial,
+		Output:            "test output",
+		Reason:            "condensed findings",
+		TurnCount:         5,
+		TokenCount:        1000,
+		InputTokens:       200,
+		CacheReadTokens:   300,
+		CacheCreateTokens: 400,
+		StopReason:        "max_turns",
+		ToolCallCount:     7,
+		AdvisorBudget:     3,
+		AdvisorUses:       2,
+		AdvisorDenied:     1,
+		FollowUpCount:     2,
+		SessionResumable:  true,
 	}
 }
 
@@ -66,8 +72,14 @@ func TestResultJSONRoundTrip(t *testing.T) {
 			"reason",
 			"turn_count",
 			"token_count",
+			"input_tokens",
+			"cache_read_tokens",
+			"cache_create_tokens",
 			"stop_reason",
 			"tool_call_count",
+			"advisor_budget",
+			"advisor_uses",
+			"advisor_denied",
 			"follow_up_count",
 			"session_resumable",
 		}, []string{"trace"})
@@ -185,6 +197,7 @@ func TestSpecJSONRoundTrip(t *testing.T) {
 			Task:         "test task",
 			Context:      "test context",
 			SystemPrompt: "test prompt",
+			SystemSuffix: "test suffix",
 			Images:       []provider.ImageBlock{{MediaType: "image/png", Data: "aGk="}},
 			AgentType:    AgentTypeCode,
 			Limits: Limits{
@@ -199,6 +212,7 @@ func TestSpecJSONRoundTrip(t *testing.T) {
 			"task",
 			"context",
 			"system_prompt",
+			"system_suffix",
 			"images",
 			"limits",
 			"agent_id",
@@ -224,6 +238,7 @@ func TestSpecJSONRoundTrip(t *testing.T) {
 		}, []string{
 			"context",
 			"system_prompt",
+			"system_suffix",
 			"images",
 		})
 	})

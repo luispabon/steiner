@@ -868,11 +868,12 @@ func TestFollowUpHandler_CodeSessionProjectsWorktreePath(t *testing.T) {
 
 	// Verify the projected relative path is correctly computed.
 	envelope := delegationResult.ProjectToolResult()
-	if !strings.HasPrefix(envelope.WorktreePath, ".steiner"+string(filepath.Separator)+"worktrees"+string(filepath.Separator)) {
-		t.Fatalf("projected worktree_path = %q, want to start with .steiner/worktrees/", envelope.WorktreePath)
+	wantRel, err := filepath.Rel(projectRoot, worktreeDir)
+	if err != nil {
+		t.Fatalf("filepath.Rel() error = %v", err)
 	}
-	if strings.Contains(envelope.WorktreePath, projectRoot) {
-		t.Fatalf("projected worktree_path = %q, should not contain absolute project root %q", envelope.WorktreePath, projectRoot)
+	if envelope.WorktreePath != wantRel {
+		t.Fatalf("projected worktree_path = %q, want %q", envelope.WorktreePath, wantRel)
 	}
 
 	// Verify continuation is set.
@@ -998,11 +999,12 @@ func TestFollowUpHandler_CodeSessionPartialRetainsPath(t *testing.T) {
 
 	// Verify the projected relative path is present even for partial results.
 	envelope := delegationResult.ProjectToolResult()
-	if !strings.HasPrefix(envelope.WorktreePath, ".steiner"+string(filepath.Separator)+"worktrees"+string(filepath.Separator)) {
-		t.Fatalf("projected worktree_path = %q for partial result, want to start with .steiner/worktrees/", envelope.WorktreePath)
+	wantRel, err := filepath.Rel(projectRoot, worktreeDir)
+	if err != nil {
+		t.Fatalf("filepath.Rel() error = %v", err)
 	}
-	if strings.Contains(envelope.WorktreePath, projectRoot) {
-		t.Fatalf("projected worktree_path = %q, should not contain absolute project root", envelope.WorktreePath)
+	if envelope.WorktreePath != wantRel {
+		t.Fatalf("projected worktree_path = %q for partial result, want %q", envelope.WorktreePath, wantRel)
 	}
 
 	// Verify continuation is set.
@@ -1076,11 +1078,12 @@ func TestFollowUpHandler_CodeSessionCancelledRetainsPath(t *testing.T) {
 	}
 
 	envelope := delegationResult.ProjectToolResult()
-	if !strings.HasPrefix(envelope.WorktreePath, ".steiner"+string(filepath.Separator)+"worktrees"+string(filepath.Separator)) {
-		t.Fatalf("projected worktree_path = %q for cancelled result, want to start with .steiner/worktrees/", envelope.WorktreePath)
+	wantRel, err := filepath.Rel(projectRoot, worktreeDir)
+	if err != nil {
+		t.Fatalf("filepath.Rel() error = %v", err)
 	}
-	if strings.Contains(envelope.WorktreePath, projectRoot) {
-		t.Fatalf("projected worktree_path = %q, should not contain absolute project root", envelope.WorktreePath)
+	if envelope.WorktreePath != wantRel {
+		t.Fatalf("projected worktree_path = %q for cancelled result, want %q", envelope.WorktreePath, wantRel)
 	}
 }
 

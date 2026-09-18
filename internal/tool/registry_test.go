@@ -119,7 +119,11 @@ func TestMCPProvenance(t *testing.T) {
 	if got.MCP != prov {
 		t.Errorf("Get() MCP = %+v, want %+v", got.MCP, prov)
 	}
-	if gotBuiltin, ok := reg.Get("read"); ok && gotBuiltin.MCP != (MCPProvenance{}) {
+	gotBuiltin, ok := reg.Get("read")
+	if !ok {
+		t.Fatal("Get(\"read\") = false, want true")
+	}
+	if gotBuiltin.MCP != (MCPProvenance{}) {
 		t.Errorf("Get() built-in MCP = %+v, want zero value", gotBuiltin.MCP)
 	}
 

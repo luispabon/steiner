@@ -422,12 +422,13 @@ func TestReadinessConcurrentAwaiters(t *testing.T) {
 
 	wg.Wait()
 
-	if len(results) == 0 {
-		t.Fatal("no results")
-	}
-
+	// With no progress notifications and a 50ms grace period, readiness
+	// settles as ready (not timed out) with no error.
 	firstIncomplete := results[0].incomplete
 	firstErr := results[0].err
+	if firstIncomplete != false || firstErr != nil {
+		t.Fatalf("terminal result: incomplete=%v, err=%v, want incomplete=false, err=nil", firstIncomplete, firstErr)
+	}
 
 	for i, res := range results {
 		if res.incomplete != firstIncomplete {

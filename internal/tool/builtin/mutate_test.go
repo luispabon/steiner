@@ -1719,6 +1719,9 @@ func TestMutatePlanPhaseFailureAccounting(t *testing.T) {
 }
 
 func TestMutateCommitPhaseFailureAccounting(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("test requires non-root")
+	}
 	root := t.TempDir()
 	toolDef := newMutateTestTool(t, root)
 	readonlyDir := filepath.Join(root, "readonly")

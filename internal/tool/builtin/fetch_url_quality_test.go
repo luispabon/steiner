@@ -37,8 +37,13 @@ func TestLooksLikeNavigation(t *testing.T) {
 			want: false,
 		},
 		{
+			// Link density alone (30 links vs. 10 prose lines) clears
+			// navLinkDensityThreshold, so the only thing saving this content
+			// from a "navigation" classification is the prose-line guard in
+			// looksLikeNavigation: if navMaxProseLines were broken (e.g.
+			// removed), this case would be misclassified as navigation.
 			name: "link-dense but with substantial prose lines is not flagged",
-			markdown: strings.Repeat("[Nav Item](https://example.com/x)\n", 20) +
+			markdown: strings.Repeat("[Nav Item](https://example.com/x)\n", 30) +
 				strings.Repeat(
 					"A long line of genuine prose content that easily clears the per-line threshold. \n", 10,
 				),
