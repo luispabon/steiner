@@ -51,13 +51,9 @@ func TestNewLoginCodexCommand(t *testing.T) {
 }
 
 func TestCodexOAuthScopesMatchAllowedCodexScopes(t *testing.T) {
-	for _, scope := range []string{"api.connectors.read", "api.connectors.invoke"} {
-		if !slices.Contains(codexOAuthScopes, scope) {
-			t.Fatalf("codexOAuthScopes = %#v, want %s", codexOAuthScopes, scope)
-		}
-	}
-	if slices.Contains(codexOAuthScopes, "api.responses.write") {
-		t.Fatalf("codexOAuthScopes = %#v, must not include invalid api.responses.write", codexOAuthScopes)
+	wantScopes := []string{"openid", "profile", "email", "offline_access", "api.connectors.read", "api.connectors.invoke"}
+	if !slices.Equal(codexOAuthScopes, wantScopes) {
+		t.Fatalf("codexOAuthScopes = %#v, want exactly %#v", codexOAuthScopes, wantScopes)
 	}
 }
 
