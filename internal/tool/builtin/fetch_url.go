@@ -212,6 +212,13 @@ func fetchAndSaveImage(ctx context.Context, httpClient *http.Client, in FetchURL
 	if imgErr != nil {
 		return newFetchURLError(in.URL, imgErr.Error()), nil
 	}
+	if statusCode < 200 || statusCode >= 300 {
+		return &FetchURLError{
+			URL:        in.URL,
+			Error:      fmt.Sprintf("HTTP %d", statusCode),
+			StatusCode: statusCode,
+		}, nil
+	}
 	result, saveErr := saveFetchedImage(workDir, img)
 	if saveErr != nil {
 		return nil, fmt.Errorf("fetch_url: %w", saveErr)

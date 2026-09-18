@@ -462,3 +462,81 @@ func TestGlobTool_CustomExcludePatterns(t *testing.T) {
 		}
 	})
 }
+
+func TestGlobWalk_NonexistentRootError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+	excluder := tool.NewPathExcluder(nil, nil)
+
+	// Try to glob a nonexistent subdirectory.
+	nonexistent := filepath.Join(tmpDir, "does-not-exist")
+	matches, err := globWalk(nonexistent, "*", excluder, &policy)
+
+	if err == nil {
+		t.Fatal("expected error for nonexistent root, got nil")
+	}
+	if len(matches) > 0 {
+		t.Errorf("got %d matches for nonexistent root, want 0", len(matches))
+	}
+}
+
+func TestGlobWalk_PermissionDeniedSkipped(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, cannot test permission denial")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create a readable file outside the blocked directory.
+	if err := os.WriteFile(filepath.Join(tmpDir, "visible.txt"), []byte("visible"), 0o644); err != nil {
+		t.Fatalf("write visible.txt: %v", err)
+	}
+
+	// Create a blocked directory with a file inside.
+	blockedDir := filepath.Join(tmpDir, "blocked")
+	if err := os.Mkdir(blockedDir, 0o755); err != nil {
+		t.Fatalf("mkdir blocked: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(blockedDir, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write blocked/secret.txt: %v", err)
+	}
+
+	// Remove read/execute permissions on the directory.
+	if err := os.Chmod(blockedDir, 0o000); err != nil {
+		t.Fatalf("chmod blocked: %v", err)
+	}
+	defer func() { _ = os.Chmod(blockedDir, 0o755) }()
+
+	// Verify that the directory is actually blocked.
+	if _, err := os.ReadDir(blockedDir); err == nil {
+		t.Skip("filesystem does not deny directory traversal after chmod 000")
+	}
+
+	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
+	excluder := tool.NewPathExcluder(nil, nil)
+
+	// Globbing should succeed and find the visible file, but skip the blocked directory.
+	matches, err := globWalk(tmpDir, "*", excluder, &policy)
+	if err != nil {
+		t.Fatalf("globWalk: %v", err)
+	}
+
+	if len(matches) == 0 {
+		t.Errorf("got 0 matches, want at least the visible.txt file")
+	}
+
+	found := false
+	for _, match := range matches {
+		if strings.HasSuffix(match, "visible.txt") {
+			found = true
+		}
+		if strings.Contains(match, "blocked") {
+			t.Errorf("got blocked directory file in results: %q", match)
+		}
+	}
+
+	if !found {
+		t.Errorf("visible.txt not found in matches: %v", matches)
+	}
+}

@@ -47,8 +47,18 @@ func resizeImageIfNeeded(data []byte, maxDimension int) (out []byte, width, heig
 	newWidth := int(float64(width) * scale)
 	newHeight := int(float64(height) * scale)
 
-	// Create a new RGBA image with the target dimensions.
-	resized := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+	// Clamp to minimum of 1 to avoid zero-dimension images.
+	if newWidth < 1 {
+		newWidth = 1
+	}
+	if newHeight < 1 {
+		newHeight = 1
+	}
+
+	// Create a new NRGBA image with the target dimensions.
+	// NRGBA stores non-premultiplied alpha, avoiding double-premultiplication
+	// when retrieving premultiplied values from img.At().
+	resized := image.NewNRGBA(image.Rect(0, 0, newWidth, newHeight))
 
 	// Simple nearest-neighbor scaling using stdlib image/draw.CatmullRom or basic pixel mapping.
 	// Use draw.Copy as a baseline and interpolate via nearest-neighbor lookup.
@@ -67,14 +77,11 @@ func resizeImageIfNeeded(data []byte, maxDimension int) (out []byte, width, heig
 			}
 
 			// Get the color from the original image at this nearest point.
-			r, g, b, a := img.At(srcX, srcY).RGBA()
-			// RGBA() returns 16-bit values; convert back to 8-bit.
-			resized.Set(px, py, color.RGBA{
-				R: uint8(r >> 8),
-				G: uint8(g >> 8),
-				B: uint8(b >> 8),
-				A: uint8(a >> 8),
-			})
+			// img.At().RGBA() returns alpha-premultiplied 16-bit values.
+			// Convert to NRGBA to store unpremultiplied values.
+			c := img.At(srcX, srcY)
+			nrgba := color.NRGBAModel.Convert(c).(color.NRGBA)
+			resized.SetNRGBA(px, py, nrgba)
 		}
 	}
 
