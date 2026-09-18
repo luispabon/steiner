@@ -305,6 +305,61 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 	}
 }
 
+func TestOrchestratorRunReturnsLockReleaseError(t *testing.T) {
+	releaseErr := errors.New("release failed")
+	for _, tt := range []struct {
+		name      string
+		writePlan bool
+		wantErr   error
+	}{
+		{name: "success", writePlan: true, wantErr: releaseErr},
+		{name: "primary error", writePlan: false, wantErr: errors.New("boundary")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			projectRoot := setupGitRepo(t)
+			identity := RunIdentity{ID: "release-run", Slug: "release-test"}
+			t.Cleanup(func() { _ = CleanupWorktree(context.Background(), projectRoot, identity) })
+			runners := map[Phase]*phaseRunnerStub{PhasePlan: {writePlan: tt.writePlan}}
+			if tt.writePlan {
+				runners[PhaseImplement] = &phaseRunnerStub{writePlan: true}
+				runners[PhaseReview] = &phaseRunnerStub{writePlan: true}
+			}
+			runnerFactory := &recordingRunnerFactory{
+				planningPath: identity.PlanningPath(identity.WorktreePath(projectRoot)),
+				runners:      runners,
+			}
+			orch, err := NewOrchestrator(Dependencies{
+				ProjectRoot: projectRoot, Identity: identity, Task: "release test",
+				Config: configWithEffectiveModels("model", nil), SessionStore: &recordingSessionStore{},
+				RunnerFactory: runnerFactory, ManifestStore: NewManifestStore(identity.ManifestPath(projectRoot)),
+				RunLockFactory: func(projectRoot string, runIdentity RunIdentity) (*RunLock, error) {
+					lockPath := runIdentity.LockPath(projectRoot)
+					if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+						return nil, err
+					}
+					if err := os.WriteFile(lockPath, []byte("test"), 0o644); err != nil {
+						return nil, err
+					}
+					return &RunLock{path: lockPath, releaseFunc: func() error { return releaseErr }}, nil
+				},
+			})
+			if err != nil {
+				t.Fatalf("NewOrchestrator failed: %v", err)
+			}
+			_, err = orch.Run(context.Background())
+			if !errors.Is(err, releaseErr) {
+				t.Fatalf("Run error = %v, want release error", err)
+			}
+			if !tt.writePlan {
+				var boundaryErr *BoundaryError
+				if !errors.As(err, &boundaryErr) {
+					t.Fatalf("Run error = %v, want primary boundary error", err)
+				}
+			}
+		})
+	}
+}
+
 func TestOrchestratorStopsOnBoundaryFailure(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "abc123", Slug: "build-parser"}
