@@ -116,9 +116,11 @@ func handleStreamChoiceContent(state *openAIStreamState, content any, emit func(
 	if thinking := extractThinkingDelta(content); thinking != "" {
 		state.thinking.WriteString(thinking)
 		state.sawThinking = true
-		return emit(ChatChunk{Thinking: thinking})
+		if err := emit(ChatChunk{Thinking: thinking}); err != nil {
+			return err
+		}
 	}
-	if text := stringOrEmpty(content); text != "" {
+	if text := extractTextDelta(content); text != "" {
 		state.content.WriteString(text)
 		state.sawContent = true
 		return emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: text}})
@@ -230,7 +232,7 @@ func finalizeToolCalls(toolCalls map[int]*openAIToolCallAccumulator) ([]ToolCall
 
 // extractThinkingDelta returns thinking text if the content value is a structured
 // content array containing a thinking or thinking_delta block (Anthropic-style).
-// Returns "" for plain string content so the caller falls through to stringOrEmpty.
+// Returns "" for plain string content so the caller falls through to extractTextDelta.
 func extractThinkingDelta(value any) string {
 	items, ok := value.([]any)
 	if !ok {
@@ -247,6 +249,34 @@ func extractThinkingDelta(value any) string {
 			continue
 		}
 		if text, ok := m["thinking"].(string); ok {
+			sb.WriteString(text)
+		}
+	}
+	return sb.String()
+}
+
+// extractTextDelta returns text content from a structured content array,
+// skipping thinking/thinking_delta blocks. Returns "" for non-arrays or
+// when no text blocks are present.
+func extractTextDelta(value any) string {
+	if s := stringOrEmpty(value); s != "" {
+		return s
+	}
+	items, ok := value.([]any)
+	if !ok {
+		return ""
+	}
+	var sb strings.Builder
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		t, _ := m["type"].(string)
+		if t == "thinking" || t == "thinking_delta" {
+			continue
+		}
+		if text, ok := m["text"].(string); ok {
 			sb.WriteString(text)
 		}
 	}

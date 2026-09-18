@@ -58,6 +58,11 @@ func (r openAIRequest) MarshalJSON() ([]byte, error) {
 		base["prompt_cache_retention"] = r.PromptCacheRetention
 	}
 	m := mergeRequestParams(base, r.Params, r.ExtraParams)
+	if r.Stream {
+		m["stream"] = true
+	} else {
+		delete(m, "stream")
+	}
 	return json.Marshal(m)
 }
 
@@ -283,7 +288,7 @@ func normalizeMessage(message openAIMessage) (Message, error) {
 	out := Message{
 		Role: MessageRole(message.Role),
 	}
-	if content := stringOrEmpty(message.Content); content != "" {
+	if content := extractMessageContent(message.Content); content != "" {
 		out.Content = content
 	}
 	if message.ReasoningContent != nil {
@@ -384,4 +389,30 @@ func stringOrEmpty(value any) string {
 	default:
 		return ""
 	}
+}
+
+// extractMessageContent extracts text content from a message content value.
+// Handles both plain strings and structured content arrays.
+func extractMessageContent(value any) string {
+	if s := stringOrEmpty(value); s != "" {
+		return s
+	}
+	items, ok := value.([]any)
+	if !ok {
+		return ""
+	}
+	var sb strings.Builder
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		t, _ := m["type"].(string)
+		if t == "text" || t == "output_text" {
+			if text, ok := m["text"].(string); ok {
+				sb.WriteString(text)
+			}
+		}
+	}
+	return sb.String()
 }

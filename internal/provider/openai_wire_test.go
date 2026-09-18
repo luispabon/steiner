@@ -170,6 +170,42 @@ func TestNormalizeMessage_PreservesToolCallsWithEmptyOrWhitespaceContent(t *test
 	}
 }
 
+func TestNormalizeMessage_ExtractsTextFromStructuredContent(t *testing.T) {
+	// F406: non-stream responses with structured content arrays should extract text
+	wire := openAIMessage{
+		Role: "assistant",
+		Content: []any{
+			map[string]any{"type": "text", "text": "hello "},
+			map[string]any{"type": "text", "text": "world"},
+		},
+	}
+	out, err := normalizeMessage(wire)
+	if err != nil {
+		t.Fatalf("normalizeMessage() error = %v", err)
+	}
+	if out.Content != "hello world" {
+		t.Fatalf("Content = %q, want %q", out.Content, "hello world")
+	}
+}
+
+func TestNormalizeMessage_ExtractsTextSkipsOtherBlockTypes(t *testing.T) {
+	// F406: should skip non-text blocks when extracting from structured content
+	wire := openAIMessage{
+		Role: "assistant",
+		Content: []any{
+			map[string]any{"type": "thinking", "thinking": "this should be ignored"},
+			map[string]any{"type": "text", "text": "the answer"},
+		},
+	}
+	out, err := normalizeMessage(wire)
+	if err != nil {
+		t.Fatalf("normalizeMessage() error = %v", err)
+	}
+	if out.Content != "the answer" {
+		t.Fatalf("Content = %q, want %q", out.Content, "the answer")
+	}
+}
+
 func TestOpenAIMessageMarshalJSON_NilReasoningContentOmitted(t *testing.T) {
 	msg := openAIMessage{
 		Role:    "assistant",
@@ -315,6 +351,53 @@ func TestOpenAIRequestMarshalJSONExplicitFieldsOverrideExtraParams(t *testing.T)
 	}
 	if got, want := m["stream"], true; got != want {
 		t.Fatalf("stream = %v, want %v (should override extra_params)", got, want)
+	}
+}
+
+func TestOpenAIRequestMarshalJSONStreamFalseOverridesExtraParamsStreamTrue(t *testing.T) {
+	// F405: stream field must not be overridable by ExtraParams
+	req := openAIRequest{
+		Model:    "gpt-4",
+		Messages: []openAIMessage{{Role: "user", Content: "hello"}},
+		Stream:   false,
+		ExtraParams: map[string]any{
+			"stream": true,
+		},
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("Unmarshal error = %v", err)
+	}
+	if stream, ok := m["stream"]; ok {
+		// When Stream is false, stream field should be omitted, not present
+		t.Fatalf("stream present in output = %v when Stream is false - should be omitted, not present", stream)
+	}
+}
+
+func TestOpenAIRequestMarshalJSONStreamTruePresent(t *testing.T) {
+	// F405: stream field must be present and true when Stream is true
+	req := openAIRequest{
+		Model:    "gpt-4",
+		Messages: []openAIMessage{{Role: "user", Content: "hello"}},
+		Stream:   true,
+		ExtraParams: map[string]any{
+			"stream": false,
+		},
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("Unmarshal error = %v", err)
+	}
+	if got, want := m["stream"], true; got != want {
+		t.Fatalf("stream = %v, want %v (should override ExtraParams)", got, want)
 	}
 }
 
