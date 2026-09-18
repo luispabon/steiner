@@ -445,6 +445,13 @@ func TestParseBashExitLine(t *testing.T) {
 			wantError: false,
 		},
 		{
+			name:      "whitespace around exit code",
+			line:      "__STEINER_EXIT_1__: 12 ",
+			marker:    "__STEINER_EXIT_1__",
+			wantCode:  12,
+			wantError: false,
+		},
+		{
 			name:      "missing exit marker",
 			line:      "garbage text",
 			marker:    "__STEINER_EXIT_1__",
@@ -454,6 +461,20 @@ func TestParseBashExitLine(t *testing.T) {
 		{
 			name:      "unparseable exit code",
 			line:      "__STEINER_EXIT_1__:notanumber",
+			marker:    "__STEINER_EXIT_1__",
+			wantCode:  -1,
+			wantError: true,
+		},
+		{
+			name:      "suffix junk",
+			line:      "__STEINER_EXIT_1__:12junk",
+			marker:    "__STEINER_EXIT_1__",
+			wantCode:  -1,
+			wantError: true,
+		},
+		{
+			name:      "integer overflow",
+			line:      "__STEINER_EXIT_1__:999999999999999999999999999999999999999",
 			marker:    "__STEINER_EXIT_1__",
 			wantCode:  -1,
 			wantError: true,

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -398,8 +399,7 @@ func parseBashExitLine(line, exitMarker string) (int, error) {
 		return -1, fmt.Errorf("missing exit marker %q", exitMarker)
 	}
 
-	var code int
-	_, err := fmt.Sscanf(line[len(prefix):], "%d", &code)
+	code, err := strconv.Atoi(strings.TrimSpace(line[len(prefix):]))
 	if err != nil {
 		return -1, fmt.Errorf("parse exit code: %w", err)
 	}
