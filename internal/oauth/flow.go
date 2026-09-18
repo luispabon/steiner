@@ -61,10 +61,6 @@ func RunAuthCodeFlow(ctx context.Context, cfg FlowConfig) (*oauth2.Token, error)
 	if err != nil {
 		return nil, fmt.Errorf("start callback server: %w", err)
 	}
-	defer func() {
-		_ = listener.Close()
-	}()
-
 	redirectURI := cfg.RedirectURI
 	if redirectURI == "" {
 		redirectURI = fmt.Sprintf("http://localhost:%d%s", port, callbackPath)
@@ -116,6 +112,10 @@ func prepareAuthRequest(cfg FlowConfig, redirectURI, state, verifier string) (*o
 // authURL, and blocks until the local callback server receives an
 // authorization code, the context is cancelled, or an error occurs.
 func awaitCallbackCode(ctx context.Context, cfg FlowConfig, listener net.Listener, callbackPath, state, authURL string) (string, error) {
+	defer func() {
+		_ = listener.Close()
+	}()
+
 	if cfg.OnAuthURL != nil {
 		cfg.OnAuthURL(authURL)
 	}
@@ -165,10 +165,6 @@ func startCallbackServer(port int) (net.Listener, int, error) {
 func serveCallback(listener net.Listener, path, expectedState string, codeChan chan string, errChan chan error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			_ = listener.Close()
-		}()
-
 		code := r.URL.Query().Get("code")
 		state := r.URL.Query().Get("state")
 		errParam := r.URL.Query().Get("error")

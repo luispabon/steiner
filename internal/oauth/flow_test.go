@@ -242,6 +242,10 @@ func TestServeCallback(t *testing.T) {
 				t.Errorf("callback channel timeout")
 			}
 
+			if err := l.Close(); err != nil {
+				t.Errorf("listener.Close() error = %v", err)
+			}
+
 			if tt.wantErrSubstr != "" && tt.name == "error param with xss" {
 				bodyStr := string(body)
 				if contains(bodyStr, "<script>") {
@@ -255,7 +259,7 @@ func TestServeCallback(t *testing.T) {
 			select {
 			case <-served:
 			case <-time.After(2 * time.Second):
-				t.Errorf("listener not closed after request")
+				t.Errorf("callback server did not exit after listener close")
 			}
 		})
 	}
