@@ -25,25 +25,37 @@ func TestAssistantChunkOrderingAcrossThinkingChunk(t *testing.T) {
 	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, "ful", output.ChunkSourceAssistant))
 	buffer.AppendEvent(output.NewAPIResponseEvent(nil, nil, "", nil))
 
-	t.Logf("segment count = %d", len(buffer.segments))
-	for i, seg := range buffer.segments {
-		switch seg.kind {
-		case segmentThinkingBlock:
-			t.Logf("segment %d: thinking block, body=%q", i, seg.thinkData.body)
-		case segmentAssistantMarkdown:
-			t.Logf("segment %d: assistant markdown, text=%q", i, seg.text)
-		default:
-			t.Logf("segment %d: kind=%v", i, seg.kind)
+	// Exact segment count: "waste" chunk, thinking block, "ful" chunk
+	if len(buffer.segments) != 3 {
+		t.Fatalf("segments count = %d, want 3", len(buffer.segments))
+	}
+
+	// First segment: "waste" assistant markdown (arrived before thinking chunk)
+	if buffer.segments[0].kind != segmentAssistantMarkdown {
+		t.Errorf("segment 0 kind = %v, want segmentAssistantMarkdown", buffer.segments[0].kind)
+	}
+	if buffer.segments[0].text != "waste" {
+		t.Errorf("segment 0 text = %q, want 'waste'", buffer.segments[0].text)
+	}
+
+	// Second segment: thinking block
+	if buffer.segments[1].kind != segmentThinkingBlock {
+		t.Errorf("segment 1 kind = %v, want segmentThinkingBlock", buffer.segments[1].kind)
+	}
+	if buffer.segments[1].thinkData == nil || buffer.segments[1].thinkData.body != "considering options" {
+		body := ""
+		if buffer.segments[1].thinkData != nil {
+			body = buffer.segments[1].thinkData.body
 		}
+		t.Errorf("segment 1 thinking body = %q, want 'considering options'", body)
 	}
 
-	if len(buffer.segments) < 2 {
-		t.Fatalf("segments count = %d, want at least 2 (one thinking block, one assistant block)", len(buffer.segments))
+	// Third segment: "ful" assistant markdown (arrived after thinking chunk)
+	if buffer.segments[2].kind != segmentAssistantMarkdown {
+		t.Errorf("segment 2 kind = %v, want segmentAssistantMarkdown", buffer.segments[2].kind)
 	}
-
-	firstKind := buffer.segments[0].kind
-	if firstKind != segmentAssistantMarkdown {
-		t.Errorf("segment 0 kind = %v, want segmentAssistantMarkdown (the \"waste\" chunk arrived before the thinking chunk, so it should render first)", firstKind)
+	if buffer.segments[2].text != "ful" {
+		t.Errorf("segment 2 text = %q, want 'ful'", buffer.segments[2].text)
 	}
 }
 

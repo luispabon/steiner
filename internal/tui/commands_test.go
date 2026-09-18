@@ -315,19 +315,26 @@ func TestProjectCompletionCandidatesTrue(t *testing.T) {
 func TestProjectOverlayItemsFalse(t *testing.T) {
 	t.Parallel()
 	got := projectOverlayItems(false, nil, nil)
-	if len(got) != 22 {
-		t.Fatalf("projectOverlayItems(false) length = %d, want 22", len(got))
+	if len(got) != len(slashCommands) {
+		t.Fatalf("projectOverlayItems(false) length = %d, want %d", len(got), len(slashCommands))
 	}
-	for i, sc := range slashCommands {
-		item := got[i]
-		if item.command != sc.ID {
-			t.Errorf("projectOverlayItems[%d].command = %q, want %q", i, item.command, sc.ID)
-		}
-		if item.name != sc.Name {
-			t.Errorf("projectOverlayItems[%d].name = %q, want %q (for %s)", i, item.name, sc.Name, sc.ID)
-		}
-		if item.desc != sc.Desc {
-			t.Errorf("projectOverlayItems[%d].desc = %q, want %q (for %s)", i, item.desc, sc.Desc, sc.ID)
+
+	// Build expected items from slashCommands, including source and isSkill semantics
+	want := make([]slashOverlayItem, 0, len(slashCommands))
+	for _, sc := range slashCommands {
+		want = append(want, slashOverlayItem{
+			command: sc.ID,
+			name:    sc.Name,
+			desc:    sc.Desc,
+			source:  sc.Source,
+			isSkill: false,
+		})
+	}
+
+	// Compare complete values
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("projectOverlayItems[%d] = %+v, want %+v", i, got[i], want[i])
 		}
 	}
 }
