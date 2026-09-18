@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,6 +72,7 @@ type FileLogSink struct {
 	buildSHA       string
 	dirty          bool
 	version        string
+	warned         bool
 }
 
 // NewFileLogSink creates a new file-based event sink at the given path,
@@ -221,6 +223,9 @@ func (s *FileLogSink) Emit(event Event) {
 
 	data, err := marshalSessionEvent(event, s.runID)
 	if err != nil {
+		s.mu.Lock()
+		s.warn("marshal log event", err)
+		s.mu.Unlock()
 		return
 	}
 	data = append(data, '\n')
@@ -234,14 +239,27 @@ func (s *FileLogSink) Emit(event Event) {
 
 	if s.written+int64(len(data)) > maxFileLogBytes {
 		if err := s.rotate(); err != nil {
+			s.warn("rotate log file", err)
 			return
 		}
 	}
 
 	n, err := s.file.Write(data)
-	if err == nil {
-		s.written += int64(n)
+	if err != nil {
+		s.warn("write log event", err)
+		return
 	}
+	s.written += int64(n)
+}
+
+// warn logs the first sink failure and stays quiet afterwards, so a broken log
+// file cannot flood process logs. Caller must hold mu.
+func (s *FileLogSink) warn(action string, err error) {
+	if s.warned {
+		return
+	}
+	s.warned = true
+	slog.Warn("file log sink degraded", "action", action, "error", err, "path", s.path)
 }
 
 // rotate closes the active file, shifts existing generations

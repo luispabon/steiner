@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -80,6 +81,9 @@ type sshResolveState struct {
 
 func prepareSSHOverlayFromPath(rootPath string, childFDBase int) (*sshOverlay, error) {
 	resolution := resolveSSHIncludeResolution(rootPath)
+	for _, diagnostic := range resolution.skippedDiagnostics {
+		slog.Warn("ssh overlay include skipped", "path", rootPath, "diagnostic", diagnostic)
+	}
 	if len(resolution.files) == 0 {
 		return nil, nil
 	}

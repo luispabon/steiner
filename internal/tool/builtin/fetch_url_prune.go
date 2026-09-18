@@ -38,6 +38,13 @@ func PruneFetchedDir(workDir string) (removed int, err error) {
 // pruneFetchedDir implements PruneFetchedDir with an injectable clock and
 // budget so tests can exercise budget eviction without allocating
 // fetchedBudgetBytes worth of files on disk.
+func removeFetchedFile(path string) error {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove fetched file %s: %w", path, err)
+	}
+	return nil
+}
+
 func pruneFetchedDir(workDir string, now time.Time, budgetBytes int64) (removed int, err error) {
 	fetchedDir := filepath.Join(workDir, ".steiner", "tmp", "fetched")
 
@@ -68,9 +75,8 @@ func pruneFetchedDir(workDir string, now time.Time, budgetBytes int64) (removed 
 		}
 		path := filepath.Join(fetchedDir, entry.Name())
 		if now.Sub(info.ModTime()) >= fetchedMaxAge {
-			if err := os.Remove(path); err != nil {
-				// Already removed by a concurrent process; not our error.
-				continue
+			if err := removeFetchedFile(path); err != nil {
+				return removed, fmt.Errorf("remove stale fetched file: %w", err)
 			}
 			removed++
 			continue
@@ -97,13 +103,8 @@ func pruneFetchedDir(workDir string, now time.Time, budgetBytes int64) (removed 
 		if now.Sub(f.modTime) < fetchedMinBudgetEvictionAge {
 			continue
 		}
-		if err := os.Remove(f.path); err != nil {
-			// Removal failed for an unknown reason (permission error, or a
-			// concurrent process already removed it). Conservatively keep
-			// f.size counted against the budget and move to the next
-			// candidate; this may evict one extra file if the failure was
-			// a concurrent removal, which is the safe direction to err in.
-			continue
+		if err := removeFetchedFile(f.path); err != nil {
+			return removed, err
 		}
 		removed++
 		total -= f.size

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/prompt"
@@ -240,14 +241,24 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 	if req.CompactionLogPath != "" {
 		var err error
 		logger, err = NewCompactionLogger(req.CompactionLogPath)
-		if err == nil {
-			_ = logger.LogRequest(chatRequest) // best effort
-			defer func() { _ = logger.Close() }()
+		if err != nil {
+			slog.Warn("compaction logger unavailable", "path", req.CompactionLogPath, "error", err)
+		} else {
+			if err := logger.LogRequest(chatRequest); err != nil {
+				slog.Warn("compaction request log failed", "path", req.CompactionLogPath, "error", err)
+			}
+			defer func() {
+				if err := logger.Close(); err != nil {
+					slog.Warn("compaction logger close failed", "path", req.CompactionLogPath, "error", err)
+				}
+			}()
 		}
 	}
 	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil)
 	if logger != nil {
-		_ = logger.LogResponse(response) // best effort
+		if logErr := logger.LogResponse(response); logErr != nil {
+			slog.Warn("compaction response log failed", "path", req.CompactionLogPath, "error", logErr)
+		}
 	}
 	if err == nil {
 		recordModelUsage(req, response.Usage)
