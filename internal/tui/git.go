@@ -331,6 +331,33 @@ func parseGitStatusLine(line string) (string, string, bool) {
 }
 
 func readGitAhead(ctx context.Context, repoRoot string, logError func(error)) int {
+	branchOut, err := exec.CommandContext(ctx, "git", "-C", repoRoot, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
+	if err != nil || strings.TrimSpace(string(branchOut)) == "" {
+		return 0
+	}
+	branch := strings.TrimSpace(string(branchOut))
+	configOut, err := exec.CommandContext(ctx, "git", "-C", repoRoot, "config", "--local", "--get-regexp", "^branch\\..*\\.(remote|merge)$").Output()
+	if err != nil {
+		return 0
+	}
+	prefix := "branch." + branch + "."
+	var hasRemote, hasMerge bool
+	for _, line := range strings.Split(strings.TrimSpace(string(configOut)), "\n") {
+		key, value, ok := strings.Cut(line, " ")
+		if !ok || !strings.HasPrefix(key, prefix) || strings.TrimSpace(value) == "" {
+			continue
+		}
+		switch strings.TrimPrefix(key, prefix) {
+		case "remote":
+			hasRemote = true
+		case "merge":
+			hasMerge = true
+		}
+	}
+	if !hasRemote || !hasMerge {
+		return 0
+	}
+
 	out, err := exec.CommandContext(ctx, "git", "-C", repoRoot, "rev-list", "--count", "@{u}..HEAD").Output()
 	if err != nil {
 		if logError != nil {

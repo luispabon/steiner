@@ -128,6 +128,49 @@ func TestNewGitStateLogsWorkingDirectoryResolutionFailure(t *testing.T) {
 	}
 }
 
+func TestReadGitAheadWithoutUpstreamDoesNotLog(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.name", "Test User")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "commit", "--allow-empty", "-m", "init")
+
+	var logged []error
+	if got := readGitAhead(context.Background(), repo, func(err error) {
+		logged = append(logged, err)
+	}); got != 0 {
+		t.Fatalf("ahead = %d, want 0", got)
+	}
+	if len(logged) != 0 {
+		t.Fatalf("logged %d errors, want none: %v", len(logged), logged)
+	}
+}
+
+func TestReadGitAheadLogsRevListFailureWithConfiguredUpstream(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.name", "Test User")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "commit", "--allow-empty", "-m", "init")
+
+	branch := gitOutput(t, repo, "branch", "--show-current")
+	runGit(t, repo, "config", "branch."+branch+".remote", "origin")
+	runGit(t, repo, "config", "branch."+branch+".merge", "refs/heads/missing")
+
+	var logged []error
+	if got := readGitAhead(context.Background(), repo, func(err error) {
+		logged = append(logged, err)
+	}); got != 0 {
+		t.Fatalf("ahead = %d, want 0", got)
+	}
+	if len(logged) != 1 {
+		t.Fatalf("logged %d errors, want 1: %v", len(logged), logged)
+	}
+	if !strings.HasPrefix(logged[0].Error(), "git rev-list --count:") {
+		t.Fatalf("logged error = %q, want rev-list prefix", logged[0])
+	}
+}
+
 func TestSidebarLinesIncludeModifiedFilesSection(t *testing.T) {
 	styles := theme.Default().LipGlossStyles()
 	sidebar := sidebarState{
@@ -202,4 +245,15 @@ func runGit(t *testing.T, dir string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, out)
 	}
+}
+
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.CommandContext(context.Background(), "git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
 }
