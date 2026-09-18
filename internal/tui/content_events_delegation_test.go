@@ -1879,3 +1879,112 @@ func TestFollowUpToUnfindableDelegationFallsBackToAgentType(t *testing.T) {
 		t.Error("border style fell back to default; want the review-specific border")
 	}
 }
+
+func TestDelegationCompleteElapsedGuardedByStartTime(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Add tool call event first to establish context
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code"}))
+
+	// Simulate a DelegationCacheWaiting event that creates a delegation display
+	// with startTime == 0 (no wall-clock timing available yet)
+	deadline := time.Now().Add(10 * time.Second)
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("child-1", "call_1", deadline))
+
+	// Verify the delegation has startTime == 0
+	loc, ok := buffer.activeDelegations["child-1"]
+	if !ok || loc.dd == nil {
+		t.Fatal("active delegation not found")
+	}
+	if loc.dd.startTime != 0 {
+		t.Fatalf("startTime should be 0 after cache waiting, got %d", loc.dd.startTime)
+	}
+
+	// Now send a completion event
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-1",
+		Status:        "success",
+		TurnCount:     1,
+		ToolCallCount: 2,
+		TokenCount:    100,
+		InputTokens:   50,
+	}))
+
+	// Find the completed delegation
+	found := false
+	for _, seg := range buffer.segments {
+		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.agentID == "child-1" {
+			found = true
+			if seg.delegData.status != "complete" {
+				t.Errorf("status = %q, want complete", seg.delegData.status)
+			}
+			// Crucially: elapsed should be empty string (the "timing unknown" representation)
+			// when startTime was 0, not a multi-decade duration
+			if seg.delegData.elapsed != "" {
+				t.Errorf("elapsed = %q, want empty string when startTime was 0", seg.delegData.elapsed)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("completed delegation not found in segments")
+	}
+}
+
+func TestDelegationFailedElapsedGuardedByStartTime(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Add tool call event first to establish context
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code"}))
+
+	// Simulate a DelegationCacheWaiting event
+	deadline := time.Now().Add(10 * time.Second)
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("child-1", "call_1", deadline))
+
+	loc, ok := buffer.activeDelegations["child-1"]
+	if !ok || loc.dd == nil {
+		t.Fatal("active delegation not found")
+	}
+	if loc.dd.startTime != 0 {
+		t.Fatalf("startTime should be 0 after cache waiting, got %d", loc.dd.startTime)
+	}
+
+	// Send a failed event
+	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{
+		AgentID: "child-1",
+		Error:   "test error",
+	}))
+
+	// Find the failed delegation
+	found := false
+	for _, seg := range buffer.segments {
+		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.agentID == "child-1" {
+			found = true
+			if seg.delegData.status != "failed" {
+				t.Errorf("status = %q, want failed", seg.delegData.status)
+			}
+			// Elapsed should be empty string when startTime was 0
+			if seg.delegData.elapsed != "" {
+				t.Errorf("elapsed = %q, want empty string when startTime was 0", seg.delegData.elapsed)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("failed delegation not found in segments")
+	}
+}

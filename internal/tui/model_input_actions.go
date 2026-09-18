@@ -315,7 +315,8 @@ func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 }
 func (m *Model) executeSubmitAction(submitText string, displayText string) (tea.Model, tea.Cmd) {
 	var sessionCmd tea.Cmd
-	if m.sessionStartedAt == nil {
+	newSession := m.sessionStartedAt == nil
+	if newSession {
 		now := time.Now()
 		m.sessionStartedAt = &now
 		m.syncSidebar()
@@ -325,9 +326,14 @@ func (m *Model) executeSubmitAction(submitText string, displayText string) (tea.
 	images := m.pendingImageBlocks()
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText, Images: images}); err != nil {
+			if newSession {
+				m.sessionStartedAt = nil
+				m.syncSidebar()
+			}
 			m.appendError(err)
 			m.input.Reset()
-			return m, sessionCmd
+			m.syncInputChrome()
+			return m, nil
 		}
 	}
 	m.imageMarkers = nil
@@ -443,6 +449,8 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	if err != nil {
 		m.content.AppendLine(fmt.Sprintf("status: launch oneshot failed: %v", err))
 		m.oneshotRunning = false
+		m.syncInputChrome()
+		m.syncSidebar()
 		m.syncViewport()
 		return m, nil
 	}
