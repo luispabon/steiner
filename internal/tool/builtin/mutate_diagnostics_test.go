@@ -98,15 +98,22 @@ func TestFindDiagnosticAnchor(t *testing.T) {
 
 	t.Run("longest candidate wins", func(t *testing.T) {
 		content := []byte("alpha beta gamma\ndelta\n")
-		_, _, lineNum, preview, ok := findDiagnosticAnchor(content, "alpha beta gamma\ndelta")
+		start, end, lineNum, preview, ok := findDiagnosticAnchor(content, "alpha beta gamma\ndelta")
 		if !ok {
 			t.Fatal("ok = false, want true")
 		}
-		if lineNum < 1 {
-			t.Fatalf("lineNum = %d, want >= 1", lineNum)
+		// Candidates derived from "alpha beta gamma\ndelta" are "alpha beta
+		// gamma", "alpha beta", "beta gamma", and "delta"; the longest ("alpha
+		// beta gamma") must win over the shorter word-span and line candidates.
+		wantPreview := "alpha beta gamma"
+		if preview != wantPreview {
+			t.Fatalf("preview = %q, want %q", preview, wantPreview)
 		}
-		if len(preview) == 0 {
-			t.Fatal("preview is empty")
+		if start != 0 || end != len(wantPreview) {
+			t.Fatalf("start,end = %d,%d, want 0,%d", start, end, len(wantPreview))
+		}
+		if lineNum != 1 {
+			t.Fatalf("lineNum = %d, want 1", lineNum)
 		}
 	})
 

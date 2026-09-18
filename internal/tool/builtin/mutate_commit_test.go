@@ -13,9 +13,14 @@ import (
 func TestCommitAtomicWrite_FailureDoesNotCorruptFirstFile(t *testing.T) {
 	root := t.TempDir()
 
-	// Create two files; we'll inject failure on the second (alphabetically later).
+	// Create two files in separate directories; we'll inject failure on the
+	// second (alphabetically later) without touching the first file's parent.
+	bDir := filepath.Join(root, "bdir")
+	if err := os.MkdirAll(bDir, 0o755); err != nil {
+		t.Fatalf("mkdir bdir: %v", err)
+	}
 	aPath := filepath.Join(root, "a.txt")
-	bPath := filepath.Join(root, "b.txt")
+	bPath := filepath.Join(bDir, "b.txt")
 	if err := os.WriteFile(aPath, []byte("original a"), 0o644); err != nil {
 		t.Fatalf("setup WriteFile %q: %v", aPath, err)
 	}
@@ -24,8 +29,8 @@ func TestCommitAtomicWrite_FailureDoesNotCorruptFirstFile(t *testing.T) {
 	}
 
 	// To inject failure on b.txt, make its parent directory read-only.
-	// This causes CreateTemp to fail (can't create in read-only dir).
-	bDir := filepath.Dir(bPath)
+	// This causes CreateTemp to fail (can't create in read-only dir), while
+	// a.txt's parent (root) remains writable.
 	if err := os.Chmod(bDir, 0o555); err != nil {
 		t.Fatalf("chmod dir to read-only: %v", err)
 	}
@@ -50,7 +55,7 @@ func TestCommitAtomicWrite_FailureDoesNotCorruptFirstFile(t *testing.T) {
 			},
 			map[string]any{
 				"type":    "write",
-				"path":    "b.txt",
+				"path":    "bdir/b.txt",
 				"content": "modified b",
 			},
 		},
@@ -241,7 +246,7 @@ func TestCommitCreatesParentDirInSandbox(t *testing.T) {
 	nestedPath := filepath.Join(sandboxTmpDir, "nested", "deep")
 	info, err := os.Stat(nestedPath)
 	if err != nil {
-		t.Errorf("stat nested path: %v", err)
+		t.Fatalf("stat nested path: %v", err)
 	}
 	if !info.IsDir() {
 		t.Errorf("nested path is not a directory")
