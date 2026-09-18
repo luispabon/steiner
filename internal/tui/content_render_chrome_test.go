@@ -4,9 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/colorprofile"
-
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -274,10 +271,7 @@ func TestRenderDelegationHeaderAdvisor(t *testing.T) {
 
 func TestDelegationRowsStylePromptBodyDifferentlyAndInsertSeparator(t *testing.T) {
 	b := newTestBuffer(t)
-	lipgloss.Writer.Profile = colorprofile.TrueColor
-	t.Cleanup(func() {
-		lipgloss.Writer.Profile = colorprofile.ASCII
-	})
+	useTrueColor(t)
 	dd := &delegationDisplayState{
 		promptText:      "same text",
 		promptCollapsed: false,

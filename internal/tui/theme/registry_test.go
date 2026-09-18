@@ -28,14 +28,16 @@ func (m mockTheme) LipGlossStyles() Styles                        { return Style
 func (m mockTheme) GlamourStyleSheet() glamour.TermRendererOption { return nil }
 
 func TestRegisterAndGet(t *testing.T) {
-	Register("test-dark", mockTheme{id: "dark"})
-	got, err := Get("test-dark")
-	if err != nil {
-		t.Fatalf("Get(test-dark) = _, %v", err)
-	}
-	if _, ok := got.(mockTheme); !ok {
-		t.Fatalf("Get(test-dark) returned %T, want mockTheme", got)
-	}
+	withIsolatedRegistry(t, func(t *testing.T) {
+		Register("test-dark", mockTheme{id: "dark"})
+		got, err := Get("test-dark")
+		if err != nil {
+			t.Fatalf("Get(test-dark) = _, %v", err)
+		}
+		if _, ok := got.(mockTheme); !ok {
+			t.Fatalf("Get(test-dark) returned %T, want mockTheme", got)
+		}
+	})
 }
 
 func TestGetFallback(t *testing.T) {

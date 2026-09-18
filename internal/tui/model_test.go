@@ -3413,19 +3413,41 @@ func writeRepoFile(t *testing.T, repo, name, content string) {
 	}
 }
 
-// fakeNotifier records Notify calls for test assertions.
+// fakeNotifier records Notify calls for test assertions. notified is an
+// optional one-shot signal that lets a test wait for the asynchronous
+// notification goroutine instead of sleeping a fixed delay.
 type fakeNotifier struct {
-	mu     sync.Mutex
-	calls  []notify.Notification
-	avail  bool
-	reason string
+	mu       sync.Mutex
+	calls    []notify.Notification
+	avail    bool
+	reason   string
+	notified chan struct{}
 }
 
 func (f *fakeNotifier) Notify(_ context.Context, n notify.Notification) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.calls = append(f.calls, n)
+	f.mu.Unlock()
+	if f.notified != nil {
+		select {
+		case f.notified <- struct{}{}:
+		default:
+		}
+	}
 	return nil
+}
+
+// waitForCall blocks until Notify has been invoked or the timeout elapses, then
+// returns the recorded calls so a test observes the async notification without
+// a fixed sleep.
+func (f *fakeNotifier) waitForCall(t *testing.T) []notify.Notification {
+	t.Helper()
+	select {
+	case <-f.notified:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Notify call")
+	}
+	return f.snapshot()
 }
 
 func (f *fakeNotifier) Availability() (bool, string) {
@@ -3442,15 +3464,13 @@ func (f *fakeNotifier) snapshot() []notify.Notification {
 
 func TestNotifyApprovalEventFiresNotification(t *testing.T) {
 	t.Parallel()
-	fn := &fakeNotifier{avail: true}
+	fn := &fakeNotifier{avail: true, notified: make(chan struct{}, 1)}
 	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
 	m.sidebar.branch = "main"
 
 	_ = m.applyEvent(output.NewApprovalRequestedEvent(1, "bash", "", "approve", "some preview", "path", "", ""))
 
-	time.Sleep(20 * time.Millisecond)
-
-	calls := fn.snapshot()
+	calls := fn.waitForCall(t)
 	if len(calls) != 1 {
 		t.Fatalf("got %d Notify calls, want 1", len(calls))
 	}
@@ -3467,15 +3487,13 @@ func TestNotifyApprovalEventFiresNotification(t *testing.T) {
 
 func TestNotifyWorkflowHandoffFiresNotification(t *testing.T) {
 	t.Parallel()
-	fn := &fakeNotifier{avail: true}
+	fn := &fakeNotifier{avail: true, notified: make(chan struct{}, 1)}
 	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
 	m.sidebar.branch = "main"
 
 	_ = m.applyEvent(output.NewWorkflowHandoffRequestedEvent("next", "target", "message", ""))
 
-	time.Sleep(20 * time.Millisecond)
-
-	calls := fn.snapshot()
+	calls := fn.waitForCall(t)
 	if len(calls) != 1 {
 		t.Fatalf("got %d Notify calls, want 1", len(calls))
 	}
