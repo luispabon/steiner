@@ -318,6 +318,41 @@ func TestFileLogSinkPreservesEventScope(t *testing.T) {
 	}
 }
 
+func TestFileLogSinkContextDiagnosticJSONPreservesLegacyKind(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.log")
+	sink, err := NewFileLogSink(path, FileLogOptions{})
+	if err != nil {
+		t.Fatalf("NewFileLogSink() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sink.Close() })
+
+	sink.Emit(NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+		Kind:         "compaction",
+		Turn:         4,
+		SummaryBytes: 128,
+		Notes:        []string{"note"},
+	}))
+	sink.Emit(WithAgentScope(NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+		Kind:          "session_loaded",
+		ContextTokens: 8192,
+		Status:        "ok",
+	}), "child-1"))
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{
+		`"kind":"compaction"`, `"summary_bytes":128`,
+		`"kind":"session_loaded"`, `"context_tokens":8192`, `"agent_id":"child-1"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("file log JSON = %s, missing %s", text, want)
+		}
+	}
+}
+
 func TestFileLogSinkAppendsAcrossRuns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "session.log")
 

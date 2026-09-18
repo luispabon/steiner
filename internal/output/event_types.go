@@ -152,7 +152,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 	}{
 		Type:      e.Type,
 		Timestamp: e.Timestamp,
-		Payload:   e.Payload,
+		Payload:   payload,
 		Scope:     e.Scope,
 	})
 }

@@ -140,6 +140,10 @@ func newRunID() string {
 // marshalSessionEvent adds sink-specific attribution without changing the
 // general Event JSON shape used by other output consumers.
 func marshalSessionEvent(event Event, runID string) ([]byte, error) {
+	payload := event.Payload
+	if event.Type == EventTypeContextDiagnostics {
+		payload = contextDiagnosticPayloadForJSON(payload)
+	}
 	if event.Scope.AgentID == "" && event.Scope.AgentType == "" {
 		return json.Marshal(struct {
 			Type      string    `json:"type"`
@@ -149,7 +153,7 @@ func marshalSessionEvent(event Event, runID string) ([]byte, error) {
 		}{
 			Type:      event.Type,
 			Timestamp: event.Timestamp,
-			Payload:   event.Payload,
+			Payload:   payload,
 			RunID:     runID,
 		})
 	}
@@ -163,7 +167,7 @@ func marshalSessionEvent(event Event, runID string) ([]byte, error) {
 	}{
 		Type:      event.Type,
 		Timestamp: event.Timestamp,
-		Payload:   event.Payload,
+		Payload:   payload,
 		Scope:     event.Scope,
 		RunID:     runID,
 	})

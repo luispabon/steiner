@@ -66,3 +66,16 @@ func TestContextDiagnosticEventJSONPreservesLegacyKindAndFields(t *testing.T) {
 		})
 	}
 }
+
+func TestScopedContextDiagnosticEventJSONPreservesLegacyKind(t *testing.T) {
+	data, err := json.Marshal(WithAgentScope(NewContextBudgetEvent("conversation", 3, 0, 0, true), "child-1"))
+	if err != nil {
+		t.Fatalf("marshal scoped event: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{`"kind":"budget"`, `"scope":"conversation"`, `"truncated":true`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("scoped event JSON = %s, missing %s", text, want)
+		}
+	}
+}
