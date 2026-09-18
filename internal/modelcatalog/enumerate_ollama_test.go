@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"testing"
 )
 
@@ -37,7 +38,13 @@ func TestOllamaEnumerator(t *testing.T) {
 	if len(result.Models) != 3 {
 		t.Fatalf("models: got %+v", result.Models)
 	}
-	if result.Models[0].ID != "llama3.2:latest" || result.Models[2].ID != "fallback-model" {
-		t.Fatalf("models: got %+v", result.Models)
+
+	ids := make([]string, len(result.Models))
+	for i, m := range result.Models {
+		ids[i] = m.ID
+	}
+	expectedIDs := []string{"llama3.2:latest", "qwen2.5:7b", "fallback-model"}
+	if !slices.Equal(ids, expectedIDs) {
+		t.Errorf("model IDs = %v, want %v", ids, expectedIDs)
 	}
 }

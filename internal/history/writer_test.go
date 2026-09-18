@@ -405,6 +405,14 @@ func TestRecord_ConcurrentWritersGoroutines(t *testing.T) {
 		}
 	}
 
+	seen := make(map[string]bool)
+	for _, p := range prompts {
+		if seen[p] {
+			t.Errorf("loaded prompt %q is duplicated", p)
+		}
+		seen[p] = true
+	}
+
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)

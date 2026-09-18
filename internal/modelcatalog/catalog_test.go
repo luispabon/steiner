@@ -324,4 +324,16 @@ func TestServiceRefreshReportsFailuresAndBoundsConcurrency(t *testing.T) {
 	if len(callbacks) != len(endpoints) {
 		t.Fatalf("callbacks: got %d, want %d", len(callbacks), len(endpoints))
 	}
+
+	for alias, err := range callbacks {
+		if alias == "failed" {
+			if err == nil {
+				t.Errorf("failed provider %q should have an error, got nil", alias)
+			}
+		} else {
+			if err != nil {
+				t.Errorf("successful provider %q should have nil error, got %v", alias, err)
+			}
+		}
+	}
 }

@@ -162,8 +162,8 @@ func TestRefreshableTokenSourceConcurrency(t *testing.T) {
 
 	wg.Wait()
 
-	if refreshCount.Load() > 2 {
-		t.Errorf("refresh called %d times, expected 1-2", refreshCount.Load())
+	if refreshCount.Load() != 1 {
+		t.Errorf("refresh called %d times, expected exactly 1", refreshCount.Load())
 	}
 }
 
