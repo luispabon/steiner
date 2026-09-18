@@ -257,3 +257,64 @@ func eventTypes(events []output.Event) []string {
 	}
 	return types
 }
+
+func TestSetCompactedConversationPreservesLineageAndAddNewGeneration(t *testing.T) {
+	t.Parallel()
+
+	runner := &runExecutorFunc{}
+	s := mustCompactionSession(t, Dependencies{Runner: runner, Config: config.Config{Models: config.ModelsConfig{Effective: config.EffectiveModelAssignments{DefaultModel: "test"}, Definitions: map[string]config.ModelConfig{"test": {ID: "test"}}}}})
+
+	s.mu.Lock()
+	s.lineage = agent.ConversationLineage{
+		Generations: []agent.ConversationGeneration{
+			{ID: 1, Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "old"}}},
+		},
+		NextGenerationID: 2,
+	}
+	s.conversation = s.lineage.FullMessages()
+	s.mu.Unlock()
+
+	compacted := []agent.Message{
+		{Role: agent.MessageRoleSummary, Content: "summary"},
+		{Role: agent.MessageRoleUser, Content: "new"},
+	}
+
+	s.setCompactedConversation(compacted)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if len(s.lineage.Generations) != 2 {
+		t.Errorf("generations = %d, want 2 (old + new)", len(s.lineage.Generations))
+	}
+	if s.lineage.NextGenerationID != 3 {
+		t.Errorf("NextGenerationID = %d, want 3", s.lineage.NextGenerationID)
+	}
+
+	gen1 := s.lineage.Generations[0]
+	if len(gen1.Messages) != 1 || gen1.Messages[0].Content != "old" {
+		t.Errorf("generation 1 messages = %+v, want old message", gen1.Messages)
+	}
+
+	gen2 := s.lineage.Generations[1]
+	if len(gen2.SummaryPrefix) != 1 || gen2.SummaryPrefix[0].Role != agent.MessageRoleSummary {
+		t.Errorf("generation 2 SummaryPrefix = %+v, want summary", gen2.SummaryPrefix)
+	}
+	if len(gen2.Messages) != 1 || gen2.Messages[0].Content != "new" {
+		t.Errorf("generation 2 messages = %+v, want new message", gen2.Messages)
+	}
+
+	fullMessages := s.lineage.FullMessages()
+	if len(fullMessages) != 2 {
+		t.Fatalf("FullMessages len = %d, want 2", len(fullMessages))
+	}
+	if fullMessages[0].Content != "summary" || fullMessages[1].Content != "new" {
+		t.Errorf("FullMessages = %+v, want [summary, new]", fullMessages)
+	}
+
+	compacted[0].Content = "mutated"
+	gen2Copy := s.lineage.Generations[1]
+	if gen2Copy.SummaryPrefix[0].Content != "summary" {
+		t.Errorf("SummaryPrefix was mutated: got %q, want summary", gen2Copy.SummaryPrefix[0].Content)
+	}
+}

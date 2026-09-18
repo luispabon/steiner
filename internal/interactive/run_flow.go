@@ -100,12 +100,7 @@ func (s *Session) recordHistory(text string) {
 
 // cloneMessages returns a deep copy of a message slice.
 func cloneMessages(messages []agent.Message) []agent.Message {
-	if messages == nil {
-		return nil
-	}
-	out := make([]agent.Message, len(messages))
-	copy(out, messages)
-	return out
+	return agent.CloneMessages(messages)
 }
 
 // runWithInterruptOwnership executes a run function with a cancellable context

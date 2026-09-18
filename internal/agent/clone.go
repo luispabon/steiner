@@ -6,6 +6,12 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// CloneMessages returns a deep copy of messages so callers in other packages
+// can mutate the result without affecting the source.
+func CloneMessages(messages []Message) []Message {
+	return cloneMessages(messages)
+}
+
 func cloneMessages(messages []Message) []Message {
 	if len(messages) == 0 {
 		return nil

@@ -4251,3 +4251,32 @@ func TestCacheByteIdentity(t *testing.T) {
 		t.Fatalf("turn 2's prefix is not byte-identical to what turn 1 sent; cached messages were mutated\nturn1Sent=%#v\nturn2Prefix=%#v", turn1Sent, turn2Prefix)
 	}
 }
+
+func TestConfigReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
+
+	deps := Dependencies{
+		Config: config.Config{
+			Providers: map[string]config.ProviderConfig{
+				"openai": {Type: config.ProviderTypeAnthropic},
+			},
+			Tools: map[string]config.ToolConfig{
+				"read": {Description: "Read files"},
+			},
+		},
+	}
+	s := testNewSession(t, deps)
+
+	cfg := s.Config()
+
+	cfg.Providers["openai"] = config.ProviderConfig{Type: config.ProviderTypeOpenAICompat}
+	cfg.Tools["read"] = config.ToolConfig{Description: "mutated"}
+
+	cfg2 := s.Config()
+	if cfg2.Providers["openai"].Type != config.ProviderTypeAnthropic {
+		t.Errorf("Providers was mutated: got %v, want %v", cfg2.Providers["openai"].Type, config.ProviderTypeAnthropic)
+	}
+	if cfg2.Tools["read"].Description != "Read files" {
+		t.Errorf("Tools was mutated: got %q, want 'Read files'", cfg2.Tools["read"].Description)
+	}
+}
