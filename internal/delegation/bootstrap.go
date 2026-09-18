@@ -16,10 +16,6 @@ import (
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
-// defaultChildSystemPrompt stays empty so child agents use the shared system
-// preamble unless a spec provides an explicit override.
-const defaultChildSystemPrompt = ""
-
 // ChildBootstrapOverrides holds the values BuildChildRun needs beyond
 // SubAgentHandlerDeps: the model resolved for this specific delegation
 // (which may differ from anything in deps — deps.Provider/deps.ResolvedModel
@@ -216,25 +212,6 @@ type childPromptParams struct {
 	sandboxEnabled     bool
 	writableMounts     []string
 	sessionDate        prompt.SessionDate
-}
-
-// buildChildToolRegistry creates a new tool registry from the parent registry,
-// excluding the tool named delegateToolName.
-func buildChildToolRegistry(parent *tool.Registry, delegateToolName string) *tool.Registry {
-	if parent == nil {
-		return tool.NewRegistry()
-	}
-
-	parentDefs := parent.Definitions()
-	childDefs := make([]tool.ToolDef, 0, len(parentDefs))
-
-	for _, def := range parentDefs {
-		if def.Name != delegateToolName {
-			childDefs = append(childDefs, def)
-		}
-	}
-
-	return tool.NewRegistry(childDefs...)
 }
 
 // buildChildRegistries produces both the visible tool registry (tools the model

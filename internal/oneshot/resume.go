@@ -78,7 +78,7 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 
 	defer func() {
 		if retErr != nil && manifest.RunID != "" {
-			o.tryFailureReport(ctx, &manifest, planningPath)
+			o.tryFailureReport(ctx, &manifest)
 		}
 	}()
 

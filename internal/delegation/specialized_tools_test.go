@@ -696,8 +696,7 @@ func TestSpecializedHandler_DispatchGateNilStore(t *testing.T) {
 }
 
 func TestSpecializedHandler_RegisterFailureCleansCodeWorktree(t *testing.T) {
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	controller := NewActiveController()
 	const agentID = "duplicate-code"
@@ -1112,8 +1111,7 @@ func TestSpecializedHandler_UsesTypeAllowedTools(t *testing.T) {
 				ModelResolver: nil,
 			}
 			if agentType == AgentTypeCode {
-				repo, cleanup := setupTestRepo(t)
-				t.Cleanup(cleanup)
+				repo := setupTestRepo(t)
 				deps.WorkDir = repo
 			}
 			def := SubAgentToolDef(deps, nil)
@@ -1906,8 +1904,7 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 				}}
 				deps := minimalDeps(runner)
 				if agentType == AgentTypeCode {
-					repo, cleanup := setupTestRepo(t)
-					t.Cleanup(cleanup)
+					repo := setupTestRepo(t)
 					deps.WorkDir = repo
 				}
 				def := SubAgentToolDef(deps, nil)
@@ -2032,8 +2029,7 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 		t.Helper()
 		workDir := "/tmp/work"
 		if agentType == AgentTypeCode {
-			repo, cleanup := setupTestRepo(t)
-			t.Cleanup(cleanup)
+			repo := setupTestRepo(t)
 			workDir = repo
 		}
 		store := NewSessionStore()
@@ -2202,8 +2198,7 @@ func TestVisionHandler_ExtraAllowedTools(t *testing.T) {
 
 func TestSpecializedHandler_CodeProvisionesWorktree(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	var capturedReq agent.RunRequest
 	runCount := 0
@@ -2287,8 +2282,7 @@ func TestSpecializedHandler_CodeCancelledBeforeDispatchRetainsPath(t *testing.T)
 	idGen = func() string { return agentID }
 	t.Cleanup(func() { idGen = originalIDGen })
 
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -2340,8 +2334,7 @@ func TestSpecializedHandler_CodeCancelledBeforeDispatchRetainsPath(t *testing.T)
 // inspect what happened.
 func TestSpecializedHandler_CodeFailedRetainsPath(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return agent.RunState{
@@ -2392,8 +2385,7 @@ func TestSpecializedHandler_CodeFailedRetainsPath(t *testing.T) {
 
 func TestSpecializedHandler_CodeWithDirtyTree(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Create an untracked file to make the tree dirty.
 	dirtyFile := filepath.Join(repo, "dirty.txt")
@@ -2450,8 +2442,7 @@ func TestSpecializedHandler_CodeWithDirtyTree(t *testing.T) {
 
 func TestSpecializedHandler_CodeFatalOnProvisioningFailure(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	t.Cleanup(cleanup)
+	repo := setupTestRepo(t)
 	badRepo := filepath.Join(repo, "nonexistent")
 
 	runCount := 0

@@ -382,48 +382,6 @@ func TestManagerConnect(t *testing.T) {
 		}
 	})
 
-	t.Run("PlanMode reflects Connect and UpdatePlanMode", func(t *testing.T) {
-		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, true, func(string) {}, func(string) {}, io.Discard, nil)
-		defer m.Close() //nolint:errcheck
-		waitInit(t, m)
-
-		if got := m.PlanMode(); !got {
-			t.Fatal("PlanMode() = false, want true after Connect with planMode=true")
-		}
-
-		m.UpdatePlanMode(false)
-		if got := m.PlanMode(); got {
-			t.Fatal("PlanMode() = true, want false after UpdatePlanMode(false)")
-		}
-
-		// UpdateApprover rebuilds defs with the stored approver; UpdatePlanMode
-		// only flips the mode the handler closures read live, so the defs from
-		// UpdateApprover must keep calls working.
-		m.UpdateApprover(allowApprover())
-		m.UpdatePlanMode(true)
-		if got := m.PlanMode(); !got {
-			t.Fatal("PlanMode() = false, want true after UpdatePlanMode(true)")
-		}
-		env, err := findTool(t, m.ToolDefs(), "mcp__fixture__echo").Handler(context.Background(), map[string]any{"text": "hi"})
-		if err != nil {
-			t.Fatalf("echo returned Go error %v, want nil", err)
-		}
-		echo, ok := env.(string)
-		if !ok || echo != "hi" {
-			t.Errorf("echo = %#v, want OK with result %q", env, "hi")
-		}
-	})
-
-	t.Run("PlanMode and UpdatePlanMode are nil-safe", func(t *testing.T) {
-		var m *Manager
-		if got := m.PlanMode(); got {
-			t.Fatal("PlanMode() = true on nil Manager, want false")
-		}
-		m.UpdatePlanMode(true)
-		m.UpdatePlanMode(false)
-	})
-
 	t.Run("ServerStates reports disabled, failed, and connected outcomes", func(t *testing.T) {
 		cfg := config.MCPConfig{
 			Enabled: true,

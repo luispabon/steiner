@@ -234,7 +234,7 @@ func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config
 
 			ent.state.Status = ServerStatusReady
 			ent.session = sess
-			r := newReadiness(m.cfg)
+			r := newReadiness()
 			ent.readiness = r
 			ent.mu.Unlock()
 
@@ -247,13 +247,6 @@ func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config
 			return nil, nil, fmt.Errorf("unexpected server status: %s", status)
 		}
 	}
-}
-
-// sessionFor returns or spawns a live session for the given file.
-// It returns errNoServer if no enabled server declares the file's extension.
-func (m *Manager) sessionFor(ctx context.Context, file string) (session, error) {
-	_, sess, err := m.entryFor(ctx, file)
-	return sess, err
 }
 
 // resolveSessionKey computes the (server, root) session key for a file without

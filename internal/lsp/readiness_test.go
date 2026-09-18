@@ -80,7 +80,7 @@ func TestReadinessQueuedProgressTakesPrecedenceAtTimeout(t *testing.T) {
 	m := NewManager(cfg, t.TempDir(), nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
 
-	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	ent := &entry{session: sess, readiness: newReadiness()}
 	go m.trackReadiness(ent, sess, ent.readiness)
 
 	incomplete, err := m.awaitReady(ctx, ent)
@@ -147,7 +147,7 @@ func TestReadinessBegEndFlipsReady(t *testing.T) {
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
 
-	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	ent := &entry{session: sess, readiness: newReadiness()}
 	beginObserved := make(chan struct{}, 1)
 	progressSession := &readinessProgressObserver{
 		session:  sess,
@@ -229,7 +229,7 @@ func TestReadinessNoProgressFlipsReadyAfterGracePeriod(t *testing.T) {
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
 
-	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	ent := &entry{session: sess, readiness: newReadiness()}
 	go m.trackReadiness(ent, sess, ent.readiness)
 
 	start := time.Now()
@@ -269,7 +269,7 @@ func TestReadinessUnterminatedBeginReturnsIncompleteAfterTimeout(t *testing.T) {
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
 
-	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	ent := &entry{session: sess, readiness: newReadiness()}
 	go m.trackReadiness(ent, sess, ent.readiness)
 
 	begin, _ := json.Marshal(protocol.WorkDoneProgressBegin{Kind: "begin", Title: "Loading"})
@@ -317,7 +317,7 @@ func TestReadinessCancelledCtx(t *testing.T) {
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
 
-	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	ent := &entry{session: sess, readiness: newReadiness()}
 	go m.trackReadiness(ent, sess, ent.readiness)
 
 	cancelCtx, cancelFn := context.WithCancel(context.Background())
@@ -358,7 +358,7 @@ func TestReadinessServerExitWhileBlocked(t *testing.T) {
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
 
-	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	ent := &entry{session: sess, readiness: newReadiness()}
 	go m.trackReadiness(ent, sess, ent.readiness)
 
 	time.AfterFunc(50*time.Millisecond, func() {
@@ -400,7 +400,7 @@ func TestReadinessConcurrentAwaiters(t *testing.T) {
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
 
-	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	ent := &entry{session: sess, readiness: newReadiness()}
 	go m.trackReadiness(ent, sess, ent.readiness)
 
 	const numGoroutines = 10
@@ -461,7 +461,7 @@ func TestReadinessMultipleTokens(t *testing.T) {
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
 
-	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	ent := &entry{session: sess, readiness: newReadiness()}
 	beginAObserved := make(chan struct{}, 1)
 	beginBObserved := make(chan struct{}, 1)
 	progressSession := &readinessProgressObserver{
@@ -536,7 +536,7 @@ func TestReadinessIgnoreOrphanEnd(t *testing.T) {
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
 
-	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	ent := &entry{session: sess, readiness: newReadiness()}
 	beginAObserved := make(chan struct{}, 1)
 	beginBObserved := make(chan struct{}, 1)
 	progressSession := &readinessProgressObserver{
@@ -628,7 +628,7 @@ func TestReadinessReadyBeforeTimeoutThenAwaitAfter(t *testing.T) {
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
 
-	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	ent := &entry{session: sess, readiness: newReadiness()}
 	beginObserved := make(chan struct{}, 1)
 	progressSession := &readinessProgressObserver{
 		session:  sess,
@@ -702,7 +702,7 @@ func TestReadinessServerExitThenAwaitAfter(t *testing.T) {
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
 
-	ent := &entry{session: sess, readiness: newReadiness(cfg)}
+	ent := &entry{session: sess, readiness: newReadiness()}
 	go m.trackReadiness(ent, sess, ent.readiness)
 
 	// Send only begin, no end, so readiness stays notReady.

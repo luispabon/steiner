@@ -129,22 +129,6 @@ func splitCompactionTurns(messages []Message) [][]Message {
 	return turns
 }
 
-func truncateCompactionMessages(messages []Message, limit int) []Message {
-	if len(messages) == 0 {
-		return nil
-	}
-	if limit <= 0 {
-		limit = 80
-	}
-	out := make([]Message, 0, len(messages))
-	for _, message := range messages {
-		cloned := message
-		cloned.Content = summarizeTextPreview(cloned.Content, limit)
-		out = append(out, cloned)
-	}
-	return out
-}
-
 func retainRecentTurns(messages []Message, retainTurns int) []Message {
 	if len(messages) == 0 {
 		return nil

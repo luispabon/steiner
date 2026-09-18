@@ -120,7 +120,7 @@ func TestValidateSubAgentConfigOrchestrationLevel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var problems []string
-			validateSubAgentConfig(&problems, tt.cfg, nil, Config{})
+			validateSubAgentConfig(&problems, tt.cfg)
 			hasErr := false
 			for _, p := range problems {
 				if strings.Contains(p, "orchestration_level") {

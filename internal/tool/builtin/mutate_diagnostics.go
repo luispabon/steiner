@@ -363,10 +363,6 @@ func lineNumberAt(content []byte, offset int) int {
 
 func previewContext(content []byte, lineNum int, anchor string) []string {
 	lines := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
-	if len(lines) == 0 {
-		return []string{fmt.Sprintf("  1 | %s", truncatePreviewLine(anchor, 120))}
-	}
-
 	start := lineNum - 1
 	if start < 1 {
 		start = 1

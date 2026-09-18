@@ -27,8 +27,7 @@ func TestProvisionCodeWorktree_UnbornHeadRequiresCommit(t *testing.T) {
 
 func TestProvisionCodeWorktree_BranchesFromCurrentHead(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Commit a marker file on a non-default branch.
 	runCmd(t, repo, "git", "checkout", "-b", "feature-branch")
@@ -75,8 +74,7 @@ func TestProvisionCodeWorktree_BranchesFromCurrentHead(t *testing.T) {
 
 func TestProvisionCodeWorktree_ConcurrentProvisioning(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	const n = 10
 	results := make([]CodeWorktree, n)
@@ -140,8 +138,7 @@ func TestProvisionCodeWorktree_ConcurrentProvisioning(t *testing.T) {
 
 func TestProvisionCodeWorktree_FailureCleanup(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Point at a non-existent directory to trigger a git error.
 	badRepo := filepath.Join(repo, "nonexistent")
@@ -172,8 +169,7 @@ func TestProvisionCodeWorktree_FailureCleanup(t *testing.T) {
 
 func TestDirtyPaths_CleanRepo(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	paths, err := DirtyPaths(ctx, repo)
 	if err != nil {
@@ -186,8 +182,7 @@ func TestDirtyPaths_CleanRepo(t *testing.T) {
 
 func TestDirtyPaths_ModifiedAndUntracked(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Create a modified file (modify the initial commit).
 	initialFile := filepath.Join(repo, "initial.txt")
@@ -225,8 +220,7 @@ func TestDirtyPaths_ModifiedAndUntracked(t *testing.T) {
 }
 
 func TestListCodeWorktrees_Empty(t *testing.T) {
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	worktrees, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
@@ -239,8 +233,7 @@ func TestListCodeWorktrees_Empty(t *testing.T) {
 
 func TestListCodeWorktrees_FiltersDelegationPathAndBranch(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Provision two delegation worktrees.
 	_, err1 := ProvisionCodeWorktree(ctx, repo, "agent-1")
@@ -282,8 +275,7 @@ func TestListCodeWorktrees_FiltersDelegationPathAndBranch(t *testing.T) {
 
 func TestListProcessCodeWorktrees_FiltersForeignProcess(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 	t.Cleanup(resetProcessHashForTesting)
 
 	foreign, err := ProvisionCodeWorktree(ctx, repo, "foreign-agent")
@@ -313,8 +305,7 @@ func TestListProcessCodeWorktrees_FiltersForeignProcess(t *testing.T) {
 
 func TestProvisionCodeWorktree_ProcessHashEntropyFailure(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 	t.Cleanup(resetProcessHashForTesting)
 
 	resetProcessHashForTesting()
@@ -335,8 +326,7 @@ func TestProvisionCodeWorktree_ProcessHashEntropyFailure(t *testing.T) {
 
 func TestPruneProcessCodeWorktrees_LeavesForeignProcess(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 	t.Cleanup(resetProcessHashForTesting)
 
 	foreign, err := ProvisionCodeWorktree(ctx, repo, "foreign-agent")
@@ -397,8 +387,7 @@ func TestPruneProcessCodeWorktrees_LeavesForeignProcess(t *testing.T) {
 
 func TestPruneProcessCodeWorktrees_ContinuesAfterPruneError(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 	t.Cleanup(resetProcessHashForTesting)
 
 	first, err := ProvisionCodeWorktree(ctx, repo, "first")
@@ -447,8 +436,7 @@ func TestPruneProcessCodeWorktrees_ContinuesAfterPruneError(t *testing.T) {
 
 func TestPruneCodeWorktree_RemovesWorktree(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Provision a worktree.
 	wt, err := ProvisionCodeWorktree(ctx, repo, "prune-test")
@@ -498,8 +486,7 @@ func TestPruneCodeWorktree_RemovesWorktree(t *testing.T) {
 
 func TestPruneCodeWorktree_ToleratesMissing(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Attempt to prune a non-existent worktree (should not error).
 	// Use a relID path structure (hash/branch/agentid).
@@ -514,8 +501,7 @@ func TestPruneCodeWorktree_ToleratesMissing(t *testing.T) {
 
 func TestPruneCodeWorktree_RefusesForeignWorktree(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Create a foreign (non-delegation) worktree under .steiner/worktrees.
 	foreignPath := filepath.Join(repo, ".steiner", "worktrees", "foreign-run")
@@ -556,8 +542,7 @@ func TestPruneCodeWorktree_RefusesForeignWorktree(t *testing.T) {
 
 func TestPruneAllCodeWorktrees_RemovesAll(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Provision three worktrees.
 	const n = 3
@@ -613,8 +598,7 @@ func TestPruneAllCodeWorktrees_RemovesAll(t *testing.T) {
 
 func TestPruneAllCodeWorktrees_WithForeignWorktreePresent(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Provision two delegation worktrees.
 	_, err1 := ProvisionCodeWorktree(ctx, repo, "delegate-1")
@@ -665,8 +649,7 @@ func TestPruneAllCodeWorktrees_WithForeignWorktreePresent(t *testing.T) {
 
 func TestPruneAllCodeWorktrees_SkipsForeignWorktreeInDelegationPath(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Provision two delegation worktrees.
 	_, err1 := ProvisionCodeWorktree(ctx, repo, "good-agent-1")
@@ -747,8 +730,7 @@ func TestPruneAllCodeWorktrees_SkipsForeignWorktreeInDelegationPath(t *testing.T
 
 func TestProvisionCodeWorktree_CollisionFix(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Provision a worktree with agentID "child-1" in the first "process".
 	wt1, err := ProvisionCodeWorktree(ctx, repo, "child-1")
@@ -833,8 +815,7 @@ func TestProvisionCodeWorktree_CollisionFix(t *testing.T) {
 
 func TestProvisionCodeWorktree_SameBranchDifferentAgents(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Provision two worktrees with different agentIDs in the same process (same hash, same branch).
 	wt1, err := ProvisionCodeWorktree(ctx, repo, "agent-1")
@@ -961,8 +942,7 @@ func TestSanitizeBranchName(t *testing.T) {
 
 func TestProvisionCodeWorktree_DetachedHead(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Get the current HEAD commit hash to detach to.
 	currentHeadCommit := runCmdOutput(t, repo, "git", "rev-parse", "HEAD")
@@ -1031,8 +1011,7 @@ func TestProvisionCodeWorktree_DetachedHead(t *testing.T) {
 
 func TestPruneCodeWorktree_RejectsPathTraversal(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Create a canary directory outside the repo for testing.
 	tmpDir := t.TempDir()
@@ -1073,8 +1052,7 @@ func TestPruneCodeWorktree_RejectsPathTraversal(t *testing.T) {
 
 func TestPruneCodeWorktree_RejectsRelIDWithDotDot(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Use a relID with .. segments that would escape the delegation directory.
 	relID := "../../parent-dir-escape"
@@ -1096,8 +1074,7 @@ func TestPruneCodeWorktree_RejectsRelIDWithDotDot(t *testing.T) {
 
 func TestPruneCodeWorktree_DeletesBranch(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Provision a worktree.
 	wt, err := ProvisionCodeWorktree(ctx, repo, "branch-deletion-test")
@@ -1137,8 +1114,7 @@ func TestPruneCodeWorktree_DeletesBranch(t *testing.T) {
 
 func TestPruneCodeWorktree_DeletesBranchDespiteCleanupFailure(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	// Provision a worktree.
 	wt, err := ProvisionCodeWorktree(ctx, repo, "cleanup-failure-test")
@@ -1179,7 +1155,7 @@ func TestPruneCodeWorktree_DeletesBranchDespiteCleanupFailure(t *testing.T) {
 
 // Helper functions.
 
-func setupTestRepo(t *testing.T) (string, func()) {
+func setupTestRepo(t *testing.T) string {
 	tmpDir := t.TempDir()
 	runCmd(t, tmpDir, "git", "init")
 	runCmd(t, tmpDir, "git", "config", "user.email", "test@example.com")
@@ -1193,10 +1169,7 @@ func setupTestRepo(t *testing.T) (string, func()) {
 	runCmd(t, tmpDir, "git", "add", "initial.txt")
 	runCmd(t, tmpDir, "git", "commit", "-m", "initial commit")
 
-	cleanup := func() {
-		// Cleanup is automatic with t.TempDir().
-	}
-	return tmpDir, cleanup
+	return tmpDir
 }
 
 func runCmd(t *testing.T, workDir string, args ...string) {

@@ -60,7 +60,7 @@ func TestPlanSourceAssemblyExcludesAbsentOptionalSources(t *testing.T) {
 	if got, want := assembly.Messages[0].Role, provider.MessageRoleSystem; got != want {
 		t.Fatalf("message[0].role = %q, want %q", got, want)
 	}
-	if got := assembly.Messages[0].Content; !strings.HasPrefix(SystemPreamble("", false, false, "").Content, got) {
+	if got := assembly.Messages[0].Content; !strings.HasPrefix(SystemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent}).Content, got) {
 		t.Fatalf("message[0].content = %q, want prefix of default preamble", got)
 	}
 }
@@ -375,7 +375,7 @@ func TestPlanSourceAssemblyMergesAgentsIntoPreamble(t *testing.T) {
 	if systemCount != 1 {
 		t.Fatalf("system message count = %d, want exactly 1", systemCount)
 	}
-	if preamble := SystemPreamble("", false, false, "").Content; !strings.Contains(systemContent, preamble) {
+	if preamble := SystemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent}).Content; !strings.Contains(systemContent, preamble) {
 		t.Fatalf("system message missing preamble text")
 	}
 	if !strings.Contains(systemContent, "global agents content") {

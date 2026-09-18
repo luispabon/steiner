@@ -24,13 +24,6 @@ func NewStream(w io.Writer, options ...StreamOption) *EventStream {
 	}
 }
 
-// NewEventStream creates a new event stream with the given subscribers.
-func NewEventStream(subscribers ...Subscriber) *EventStream {
-	stream := &EventStream{}
-	stream.Subscribe(subscribers...)
-	return stream
-}
-
 // Subscribe adds non-nil subscribers to the stream.
 func (s *EventStream) Subscribe(subscribers ...Subscriber) {
 	if s == nil {

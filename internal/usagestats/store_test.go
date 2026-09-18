@@ -545,8 +545,3 @@ func newMockClock(t time.Time) *mockClock {
 func (mc *mockClock) Now() time.Time {
 	return mc.value.Load().(time.Time)
 }
-
-func (mc *mockClock) Advance(d time.Duration) {
-	current := mc.value.Load().(time.Time)
-	mc.value.Store(current.Add(d))
-}

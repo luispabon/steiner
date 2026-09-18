@@ -13,7 +13,6 @@ func (s *ContextStateManager) resetTaskStateIfNeeded(state *RunState) {
 	if !ok || !shouldResetTaskState(message.Content) {
 		return
 	}
-	state.Context.FileTrackerSummary = nil
 	state.Context.RecentToolCalls = nil
 }
 

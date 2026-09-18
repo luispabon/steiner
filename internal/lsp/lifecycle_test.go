@@ -102,12 +102,12 @@ func TestManagerSessionSurvivesRequestContextCancellation(t *testing.T) {
 	defer cancel1()
 
 	file := filepath.Join(tmpdir, "file.go")
-	sess1, err := m.sessionFor(ctx1, file)
+	_, sess1, err := m.entryFor(ctx1, file)
 	if err != nil {
-		t.Fatalf("sessionFor: %v", err)
+		t.Fatalf("entryFor: %v", err)
 	}
 	if sess1 == nil {
-		t.Fatal("sessionFor returned a nil session")
+		t.Fatal("entryFor returned a nil session")
 	}
 
 	// Cancel the request context. The ready server must remain alive.
@@ -122,9 +122,9 @@ func TestManagerSessionSurvivesRequestContextCancellation(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), lifecycleTestTimeout)
 	defer cancel2()
 
-	sess2, err := m.sessionFor(ctx2, file)
+	_, sess2, err := m.entryFor(ctx2, file)
 	if err != nil {
-		t.Fatalf("sessionFor after context cancel: %v", err)
+		t.Fatalf("entryFor after context cancel: %v", err)
 	}
 
 	if sess1 != sess2 {
@@ -179,22 +179,22 @@ func TestManagerReaperDoesNotKillInFlightRequests(t *testing.T) {
 	file := filepath.Join(tmpdir, "file.go")
 
 	// Spawn a session.
-	sess1, err := m.sessionFor(ctx, file)
+	_, sess1, err := m.entryFor(ctx, file)
 	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("sessionFor: %v", err)
+		t.Fatalf("entryFor: %v", err)
 	}
 
 	// Wait for the idle timeout to pass (session should be reaped).
 	time.Sleep(250 * time.Millisecond)
 
-	// Now call sessionFor again. The reaper may have tried to kill the session,
+	// Now call entryFor again. The reaper may have tried to kill the session,
 	// but the session should still be accessible or a new one created.
 	ctx2, cancel2 := context.WithTimeout(context.Background(), lifecycleTestTimeout)
 	defer cancel2()
 
-	sess2, err := m.sessionFor(ctx2, file)
+	_, sess2, err := m.entryFor(ctx2, file)
 	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("sessionFor after idle: %v", err)
+		t.Fatalf("entryFor after idle: %v", err)
 	}
 
 	// Both should be non-nil or both nil. If sess1 is non-nil, sess2 should either
@@ -202,23 +202,6 @@ func TestManagerReaperDoesNotKillInFlightRequests(t *testing.T) {
 	if sess1 != nil && sess2 == nil {
 		t.Error("session should either survive or respawn after idle timeout")
 	}
-}
-
-func TestManagerIdleTimeoutZeroDisablesReaping(t *testing.T) {
-	tmpdir := t.TempDir()
-
-	cfg := config.LSPConfig{
-		Enabled:      true,
-		IdleTimeout:  config.Duration{},
-		ReadyTimeout: config.MustDuration("500ms"),
-		Servers:      map[string]config.LSPServerConfig{},
-	}
-
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
-	defer func() { _ = m.Close() }()
-
-	// Should not panic; reaper should not be started.
-	// This test just checks that zero timeout doesn't cause a panic.
 }
 
 func TestManagerZeroIdleTimeoutNoReaper(t *testing.T) {
@@ -285,19 +268,19 @@ func TestManagerFailedEntryRetryAfterCooldown(t *testing.T) {
 	file := filepath.Join(tmpdir, "file.go")
 
 	// First call fails.
-	_, _ = m.sessionFor(ctx, file)
+	_, _, _ = m.entryFor(ctx, file)
 
 	beforeCount := spawnCount
 
 	// Second call within cooldown should not retry.
-	_, _ = m.sessionFor(ctx, file)
+	_, _, _ = m.entryFor(ctx, file)
 	if spawnCount > beforeCount {
 		t.Errorf("spawn retry within cooldown, before %d, after %d", beforeCount, spawnCount)
 	}
 
 	// After the spawn-failure backoff, should retry.
 	rewindSpawnFailure(t, m)
-	_, _ = m.sessionFor(ctx, file)
+	_, _, _ = m.entryFor(ctx, file)
 	if spawnCount <= beforeCount {
 		t.Errorf("no retry after cooldown, before %d, after %d", beforeCount, spawnCount)
 	}

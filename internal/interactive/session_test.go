@@ -615,7 +615,6 @@ func TestRotateSession(t *testing.T) {
 			},
 		})
 		oldID := s.SessionID()
-		oldTitle := s.SessionTitle() // may be empty initially
 
 		if err := s.Handle(context.Background(), RotateSession{}); err != nil {
 			t.Fatalf("RotateSession: %v", err)
@@ -626,7 +625,6 @@ func TestRotateSession(t *testing.T) {
 		if s.SessionTitle() != "" {
 			t.Fatalf("session title = %q, want empty", s.SessionTitle())
 		}
-		_ = oldTitle // used
 	})
 
 	t.Run("stamps supplied group", func(t *testing.T) {

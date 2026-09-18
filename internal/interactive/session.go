@@ -369,19 +369,14 @@ func (s *Session) SetOrchestrationLevel(l config.OrchestrationLevel) error {
 	return nil
 }
 
-// WaitRuns blocks until all run goroutines launched by this session have exited,
-// or the context is done. If both are ready, it prefers the finished wait report.
+// WaitRuns waits for all run goroutines launched by this session to exit,
+// or for the context to be done.
 func (s *Session) WaitRuns(ctx context.Context) bool {
 	done := make(chan struct{})
 	go func() {
 		s.runs.Wait()
 		close(done)
 	}()
-	select {
-	case <-done:
-		return true
-	default:
-	}
 	select {
 	case <-done:
 		return true

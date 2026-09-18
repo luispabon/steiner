@@ -133,9 +133,6 @@ func (t *FileTracker) observeReadHeuristics(result readResult, observation fileO
 	if observation.Action == "annotated" || strings.Contains(content, "file unchanged since turn") {
 		facts = append(facts, fmt.Sprintf("read annotation: %s", summarizeTextPreview(content, 96)))
 	}
-	if observation.Action == "full" && observation.Reason == "previous read no longer visible in context" {
-		facts = append(facts, fmt.Sprintf("read %s: full content (previous read turn %d no longer visible)", path, observation.PreviousRead.LastTurn))
-	}
 	return update, facts
 }
 

@@ -41,12 +41,6 @@ func TestDefinitionsSingleLocation(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	m := &Manager{cfg: config.LSPConfig{MaxResults: 100}}
-
-	// Manually create an entry and session for testing.
-	ent := &entry{state: ServerState{Status: ServerStatusReady}, session: sess}
-	m.sessions = map[sessionKey]*entry{{}: ent}
-
 	// Call the definition request manually (simulating Manager.Definitions).
 	locs, err := sess.Definition(ctx, testFile, 5, 10)
 	if err != nil {
@@ -314,7 +308,7 @@ func TestConcurrentDefinitionsNonInterleaving(t *testing.T) {
 	ent := &entry{
 		state:     ServerState{Status: ServerStatusReady},
 		session:   sess,
-		readiness: newReadiness(config.LSPConfig{}),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 

@@ -53,7 +53,7 @@ func TestSystemPreambleCaveHumanEnabledAndDisabled(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			content := SystemPreamble("", true, tc.caveHuman, "").Content
+			content := SystemPreambleWithAdvisor(SystemPreambleParams{DelegationEnabled: true, CaveHuman: tc.caveHuman, Mode: workflowModeParent}).Content
 			for _, want := range tc.wantPresent {
 				if !strings.Contains(content, want) {
 					t.Fatalf("system preamble missing %q in %q", want, content)
@@ -71,7 +71,7 @@ func TestSystemPreambleCaveHumanEnabledAndDisabled(t *testing.T) {
 func TestSystemPreambleCaveHumanComesAfterWorkflowAndBeforeSuffix(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true, true, "custom suffix").Content
+	content := SystemPreambleWithAdvisor(SystemPreambleParams{DelegationEnabled: true, CaveHuman: true, Mode: workflowModeParent, SystemSuffix: "custom suffix"}).Content
 	workflowIdx := strings.Index(content, testWorkflowMarker)
 	caveHumanIdx := strings.Index(content, testCaveHumanMarker)
 	suffixIdx := strings.Index(content, "custom suffix")

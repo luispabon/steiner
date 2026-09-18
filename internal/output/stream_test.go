@@ -299,7 +299,8 @@ func TestEventStreamDispatchesToSubscribersAndRenderer(t *testing.T) {
 	renderer := NewPlainRenderer(&buf)
 	collector := &recordingSubscriber{}
 
-	stream := NewEventStream(collector)
+	stream := NewStream(&buf)
+	stream.Subscribe(collector)
 	stream.Subscribe(renderer)
 	stream.Emit(NewStopReasonEvent(1, "complete", nil))
 

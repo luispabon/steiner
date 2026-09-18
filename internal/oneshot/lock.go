@@ -26,7 +26,6 @@ type LockRecord struct {
 type RunLock struct {
 	path        string
 	mu          sync.Mutex
-	record      LockRecord
 	releaseFunc func() error
 }
 
@@ -43,7 +42,7 @@ func acquireRunLock(projectRoot string, identity RunIdentity, staleAfter time.Du
 
 	record := newLockRecord(identity.ID)
 	if err := writeLockExclusive(path, record); err == nil {
-		return &RunLock{path: path, record: record}, nil
+		return &RunLock{path: path}, nil
 	} else if !errors.Is(err, os.ErrExist) {
 		return nil, err
 	}
@@ -76,7 +75,7 @@ func acquireRunLock(projectRoot string, identity RunIdentity, staleAfter time.Du
 			}
 			return nil, err
 		}
-		return &RunLock{path: path, record: record}, nil
+		return &RunLock{path: path}, nil
 	}
 
 	return nil, errLockHeld

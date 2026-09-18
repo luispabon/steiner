@@ -28,7 +28,7 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 	planningPath := o.deps.Identity.PlanningPath(worktreePath)
 
 	defer func() {
-		o.reportFailureIfNeeded(ctx, &manifest, planningPath, err)
+		o.reportFailureIfNeeded(ctx, &manifest, err)
 	}()
 
 	store := o.deps.ManifestStore
@@ -107,9 +107,9 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 
 // reportFailureIfNeeded generates a failure report if Run is returning with
 // a non-nil error on a manifest that has already been assigned a RunID.
-func (o *Orchestrator) reportFailureIfNeeded(ctx context.Context, manifest *Manifest, planningPath string, err error) {
+func (o *Orchestrator) reportFailureIfNeeded(ctx context.Context, manifest *Manifest, err error) {
 	if err != nil && manifest.RunID != "" {
-		o.tryFailureReport(ctx, manifest, planningPath)
+		o.tryFailureReport(ctx, manifest)
 	}
 }
 
@@ -273,7 +273,7 @@ func cloneAgentMessages(messages []agent.Message) []agent.Message {
 }
 
 // tryFailureReport attempts to generate a failure report on error.
-func (o *Orchestrator) tryFailureReport(ctx context.Context, manifest *Manifest, _ string) {
+func (o *Orchestrator) tryFailureReport(ctx context.Context, manifest *Manifest) {
 	if manifest == nil || strings.TrimSpace(manifest.RunID) == "" {
 		return
 	}

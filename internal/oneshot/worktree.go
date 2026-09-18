@@ -142,7 +142,6 @@ func verifyWorktree(ctx context.Context, worktreePath, wantBranch string) error 
 func runGit(ctx context.Context, workDir string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", workDir}, args...)...)
 	var stderr bytes.Buffer
-	cmd.Stdout = &bytes.Buffer{}
 	cmd.Stderr = &stderr
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	if err := cmd.Run(); err != nil {

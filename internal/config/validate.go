@@ -62,9 +62,9 @@ func validateProfilesConfig(problems *[]string, cfg Config) {
 		validateProfileReferences(problems, prefix, effective, cfg)
 	}
 
-	effective, err := ResolveEffectiveAssignments(&cfg, "default")
+	_, err := ResolveEffectiveAssignments(&cfg, "default")
 	if err == nil {
-		validateSubAgentConfig(problems, cfg.SubAgent, effective.SubAgents, cfg)
+		validateSubAgentConfig(problems, cfg.SubAgent)
 		validateAdvisorConfig(problems, cfg.Advisor)
 	}
 }

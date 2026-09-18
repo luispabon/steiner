@@ -384,8 +384,7 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 			name:  "code session",
 			tools: []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "mutate"}}},
 			buildRemediation: func(t *testing.T) *RemediationConfig {
-				repo, cleanup := setupTestRepo(t)
-				t.Cleanup(cleanup)
+				repo := setupTestRepo(t)
 				runCmd(t, repo, "git", "checkout", "-b", "delegate/code-session")
 				return &RemediationConfig{
 					WorktreePath:   repo,
@@ -644,8 +643,7 @@ func TestFollowUpHandler_RejectsDeadCodeWorktree(t *testing.T) {
 		{
 			name: "worktree exists but branch mismatch",
 			setupWorktree: func(t *testing.T) string {
-				repo, cleanup := setupTestRepo(t)
-				t.Cleanup(cleanup)
+				repo := setupTestRepo(t)
 				runCmd(t, repo, "git", "checkout", "-b", "unexpected-branch")
 				return repo
 			},
@@ -756,8 +754,7 @@ func TestFollowUpHandler_NonCodeSessionSkipsWorktreeCheck(t *testing.T) {
 }
 
 func TestFollowUpHandler_CodeSessionWithLiveWorktreeStillResumes(t *testing.T) {
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 	runCmd(t, repo, "git", "checkout", "-b", "delegate/child-live")
 
 	store := NewSessionStore()

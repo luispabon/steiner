@@ -139,8 +139,8 @@ type AssemblyOptions struct {
 	PhasePrompt  string
 	Conversation []provider.Message
 	// CachedPreamble is the pre-built system preamble string. When non-empty it
-	// is used directly, bypassing SystemPreamble. All inputs to SystemPreamble
-	// are session-constants, so caching once per session is safe.
+	// is used directly, bypassing SystemPreambleWithAdvisor. All inputs to
+	// SystemPreambleWithAdvisor are session-constants, so caching once per session is safe.
 	CachedPreamble string
 
 	// CachedStaticContext, when non-nil, memoizes the file-backed static sources

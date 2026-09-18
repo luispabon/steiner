@@ -232,11 +232,6 @@ func emitEvent(sink output.EventSink, event output.Event) {
 	}
 }
 
-//nolint:unparam // wrapper preserves the focused advisor test seam.
-func advise(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, conversation []provider.Message, question string, files []advisorFile, maxTokens *int, events output.EventSink, cacheKey string) (provider.ChatResponse, error) {
-	return adviseWithMessages(ctx, prov, rm, buildMessages(conversation, question, files), maxTokens, events, cacheKey, nil)
-}
-
 type advisorDiagnosticContext struct {
 	state                *handlerState
 	writer               *diagnostics.Writer

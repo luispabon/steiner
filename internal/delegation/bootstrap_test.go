@@ -268,7 +268,7 @@ func TestBuildChildPrompt(t *testing.T) {
 			},
 			wantFirstRole: provider.MessageRoleUser,
 			wantFirstText: "do something",
-			wantSystem:    defaultChildSystemPrompt,
+			wantSystem:    "",
 			wantLen:       1,
 			wantImages:    nil,
 		},
@@ -294,7 +294,7 @@ func TestBuildChildPrompt(t *testing.T) {
 			},
 			wantFirstRole: provider.MessageRoleUser,
 			wantFirstText: "do something\n\nAdditional context:\nrelevant info",
-			wantSystem:    defaultChildSystemPrompt,
+			wantSystem:    "",
 			wantLen:       1,
 			wantImages:    nil,
 		},
@@ -309,7 +309,7 @@ func TestBuildChildPrompt(t *testing.T) {
 			},
 			wantFirstRole: provider.MessageRoleUser,
 			wantFirstText: "analyze this image",
-			wantSystem:    defaultChildSystemPrompt,
+			wantSystem:    "",
 			wantLen:       1,
 			wantImages: []provider.ImageBlock{
 				{MediaType: "image/jpeg", Data: "test_data"},
@@ -416,7 +416,7 @@ func TestBuildChildPromptUsesSharedSystemPreambleWhenOverrideEmpty(t *testing.T)
 		caveHuman: false,
 	})
 
-	if promptOpts.PromptOverrides.System != defaultChildSystemPrompt {
+	if promptOpts.PromptOverrides.System != "" {
 		t.Fatalf("PromptOverrides.System = %q, want empty shared base", promptOpts.PromptOverrides.System)
 	}
 
@@ -604,8 +604,8 @@ func TestBuildChildPromptDefaultSystemPrompt(t *testing.T) {
 		homeDir:   "",
 		caveHuman: false,
 	})
-	if opts.PromptOverrides.System != defaultChildSystemPrompt {
-		t.Errorf("default system prompt = %q, want %q", opts.PromptOverrides.System, defaultChildSystemPrompt)
+	if opts.PromptOverrides.System != "" {
+		t.Errorf("default system prompt = %q, want %q", opts.PromptOverrides.System, "")
 	}
 }
 

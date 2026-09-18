@@ -155,11 +155,6 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
 	}
 
-	// Remove stale admin dir under the common .git dir.
-	if err := removeWorktreeAdminDirForRelID(ctx, projectRoot, relID); err != nil {
-		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
-	}
-
 	// Remove any stale checkout path.
 	if err := os.RemoveAll(worktreePath); err != nil {
 		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
@@ -174,7 +169,6 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 	if err := runGit(ctx, projectRoot, "worktree", "add", "-b", branchName, worktreePath, "HEAD"); err != nil {
 		// Best-effort cleanup on failure.
 		_ = runGit(ctx, projectRoot, "worktree", "prune")
-		_ = removeWorktreeAdminDirForRelID(ctx, projectRoot, relID)
 		_ = os.RemoveAll(worktreePath)
 		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
 	}
@@ -183,7 +177,6 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 	if err := verifyCodeWorktree(ctx, worktreePath, branchName); err != nil {
 		// Best-effort cleanup on failure.
 		_ = runGit(ctx, projectRoot, "worktree", "prune")
-		_ = removeWorktreeAdminDirForRelID(ctx, projectRoot, relID)
 		_ = os.RemoveAll(worktreePath)
 		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
 	}
@@ -404,11 +397,6 @@ func pruneCodeWorktreeLocked(ctx context.Context, projectRoot, relID string) (bo
 		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove worktree path: %w", err))
 	}
 
-	// Remove stale admin dir under the common .git dir.
-	if err := removeWorktreeAdminDirForRelID(ctx, projectRoot, relID); err != nil {
-		cleanupErrs = append(cleanupErrs, err)
-	}
-
 	// Delete the branch ref if it exists and is non-empty.
 	if foundEntry.Branch != "" {
 		if err := runGit(ctx, projectRoot, "branch", "-D", foundEntry.Branch); err != nil && !isGitBranchNotFound(err) {
@@ -550,32 +538,6 @@ func gitOutput(ctx context.Context, workDir string, args ...string) (string, err
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, msg)
 	}
 	return stdout.String(), nil
-}
-
-func removeWorktreeAdminDirForRelID(ctx context.Context, projectRoot, relID string) error {
-	commonDir, err := gitOutput(ctx, projectRoot, "rev-parse", "--git-common-dir")
-	if err != nil {
-		return err
-	}
-
-	adminDir := strings.TrimSpace(commonDir)
-	if !filepath.IsAbs(adminDir) {
-		adminDir = filepath.Join(projectRoot, adminDir)
-	}
-	// NOTE: Git names a worktree's admin directory by the basename of its checkout path,
-	// not by the full relID path. This function reconstructs a path using the full relID
-	// (e.g., "<hash>/<branch>/<agentID>"), which does not match git's actual admin-dir
-	// naming, making this lookup a silent no-op in practice. The primary cleanup paths
-	// (git worktree remove --force and git worktree prune) already handle real admin-dir
-	// cleanup correctly, which is why this hasn't caused observed breakage. If real
-	// per-relID admin-dir cleanup becomes necessary, it should look up the actual admin
-	// dir via `git worktree list --porcelain` and extract admin paths from the entries.
-	adminDir = filepath.Join(adminDir, "worktrees", relID)
-
-	if err := os.RemoveAll(adminDir); err != nil {
-		return fmt.Errorf("remove worktree admin dir: %w", err)
-	}
-	return nil
 }
 
 func isGitWorktreeRemovalMissingPath(err error) bool {

@@ -258,7 +258,7 @@ func newManagerWithFakeSession(ctx context.Context, t *testing.T, fs *fakeServer
 			LastUsed:  time.Now(),
 		},
 		session:   sess,
-		readiness: newReadiness(cfg),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 	m.sessions[sessionKey{server: "go", root: root}] = ent

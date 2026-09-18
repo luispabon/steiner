@@ -518,7 +518,7 @@ func TestFinalizeModelCallState_AccumulatesUsageTokens(t *testing.T) {
 	for i, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			response := provider.ChatResponse{Usage: tc.usage}
-			state, _ = p.finalizeModelCallState(context.Background(), state, i+1, provider.ChatRequest{}, response)
+			state, _ = p.finalizeModelCallState(state, i+1, response)
 			if tc.usage != nil {
 				nonCached := tc.usage.PromptTokens - tc.usage.CacheReadInputTokens - tc.usage.CacheCreationInputTokens
 				if nonCached < 0 {

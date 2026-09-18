@@ -177,9 +177,6 @@ type diffOp struct {
 
 type diffCell struct {
 	length int
-	prevI  int
-	prevJ  int
-	move   diffOpKind
 }
 
 func diffLineOps(before, after []string) []diffOp {
@@ -197,11 +194,11 @@ func buildDiffTable(before, after []string) [][]diffCell {
 		for j := len(after) - 1; j >= 0; j-- {
 			switch {
 			case before[i] == after[j]:
-				table[i][j] = diffCell{length: table[i+1][j+1].length + 1, prevI: i + 1, prevJ: j + 1, move: diffOpEqual}
+				table[i][j] = diffCell{length: table[i+1][j+1].length + 1}
 			case table[i+1][j].length >= table[i][j+1].length:
-				table[i][j] = diffCell{length: table[i+1][j].length, prevI: i + 1, prevJ: j, move: diffOpDelete}
+				table[i][j] = diffCell{length: table[i+1][j].length}
 			default:
-				table[i][j] = diffCell{length: table[i][j+1].length, prevI: i, prevJ: j + 1, move: diffOpInsert}
+				table[i][j] = diffCell{length: table[i][j+1].length}
 			}
 		}
 	}
@@ -263,13 +260,6 @@ func previewRangeSpec(lines int) string {
 		lines = 1
 	}
 	return fmt.Sprintf("1,%d", lines)
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func previewCapacity(lineLimit int) int {

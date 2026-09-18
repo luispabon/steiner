@@ -45,7 +45,7 @@ func (s *ContextStateManager) ensureDefaults() {
 func (s *ContextStateManager) PostIngestion(_ context.Context, state RunState) (RunState, error) {
 	s.ensureDefaults()
 	next := state.Clone()
-	next.Conversation = s.normalizeIngestedMessages(next.TurnCount, next.Conversation, s)
+	next.Conversation = s.normalizeIngestedMessages(next.TurnCount, next.Conversation)
 	next.Lineage = newConversationLineage(next.Conversation)
 	return next, nil
 }

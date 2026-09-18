@@ -9,9 +9,8 @@ var hexPattern = regexp.MustCompile(`^[0-9A-F]{8}$`)
 
 func TestFileContentHash(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     []byte
-		wantMatch string // if non-empty, result must equal this
+		name  string
+		input []byte
 	}{
 		{
 			name:  "empty content",

@@ -26,8 +26,7 @@ func lifecycleTestStructuredTask(objective string) map[string]any {
 }
 
 func TestSpecializedCodeHandlerRegistersWorktreeAndUnregisters(t *testing.T) {
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	controller := NewActiveController()
 	var calls int
@@ -63,8 +62,7 @@ func TestSpecializedCodeHandlerRegistersWorktreeAndUnregisters(t *testing.T) {
 }
 
 func TestFollowUpCodeHandlerRegistersSessionWorktreeAndUnregisters(t *testing.T) {
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 	runCmd(t, repo, "git", "checkout", "-b", "delegate/session-worktree")
 
 	store := NewSessionStore()
@@ -213,8 +211,7 @@ func TestSpecializedHandlerCacheWaitingCancellationReturnsCancelled(t *testing.T
 }
 
 func TestSpecializedCodeCacheWaitingCancellationDiscardsAfterCompletion(t *testing.T) {
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	store := NewCacheKeyStore()
 	store.testWaitTimeout = time.Second

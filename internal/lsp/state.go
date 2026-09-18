@@ -32,6 +32,6 @@ type ServerState struct {
 	Err error
 	// StartedAt is when the spawn attempt started.
 	StartedAt time.Time
-	// LastUsed is when the server was last accessed (updated on every sessionFor hit).
+	// LastUsed is when the server was last accessed (updated on every entryFor hit).
 	LastUsed time.Time
 }

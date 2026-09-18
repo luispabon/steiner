@@ -854,27 +854,6 @@ func TestCompactionSourceAndRetentionUsesNormalAndEmergencyWindows(t *testing.T)
 	}
 }
 
-func TestTruncateCompactionMessagesShortensLongToolOutputs(t *testing.T) {
-	messages := []Message{
-		{Role: MessageRoleTool, Name: "read", ToolCallID: "call-1", Content: strings.Repeat("tool output ", 18)},
-		{Role: MessageRoleAssistant, Content: "short assistant"},
-	}
-
-	truncated := truncateCompactionMessages(messages, 24)
-	if len(truncated) != len(messages) {
-		t.Fatalf("truncateCompactionMessages len = %d, want %d", len(truncated), len(messages))
-	}
-	if len(truncated[0].Content) >= len(messages[0].Content) {
-		t.Fatalf("truncated tool output length = %d, want shorter than %d", len(truncated[0].Content), len(messages[0].Content))
-	}
-	if !strings.HasSuffix(truncated[0].Content, "...") {
-		t.Fatalf("truncated tool output = %q, want ellipsis suffix", truncated[0].Content)
-	}
-	if got, want := truncated[1].Content, "short assistant"; got != want {
-		t.Fatalf("non-truncated message = %q, want %q", got, want)
-	}
-}
-
 func TestSummarizeCompactorRetainsRecentTurnsAndDropsOlderToolOutput(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
