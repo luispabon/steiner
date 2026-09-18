@@ -3469,22 +3469,21 @@ func TestBuildMutateLinesRendersOperations(t *testing.T) {
 		t.Fatalf("missing replace new line: %q", got)
 	}
 
-	// delete_file should show D badge and path
-	if !strings.Contains(got, "D") || !strings.Contains(got, "old.go") {
-		t.Errorf("delete_file missing D badge or path in: %q", got)
+	// delete_file renders as a single "D <path>" line, badge and path together.
+	if !strings.Contains(got, "D old.go") {
+		t.Errorf("delete_file missing %q badge+path line in: %q", "D old.go", got)
 	}
 
-	// move should show R badge and paths (from → to) but NOT have a content block
-	if !strings.Contains(got, "R") {
-		t.Errorf("move operation missing R badge in: %q", got)
+	// move renders as a single "R <from> → <to>" line, badge and paths together.
+	if !strings.Contains(got, "R a.go → b.go") {
+		t.Errorf("move operation missing %q badge+paths line in: %q", "R a.go → b.go", got)
 	}
-	if !strings.Contains(got, "a.go") || !strings.Contains(got, "b.go") {
-		t.Errorf("move operation missing path mappings in: %q", got)
+	// move is the last operation and contributes exactly one line (no rule/content
+	// block like create/write/replace produce); the rendered output must therefore
+	// end with the move's rename line, not a trailing rule or content line.
+	if lastLine := lines[len(lines)-1]; stripANSI(lastLine) != "R a.go → b.go" {
+		t.Errorf("last rendered line = %q, want move's rename line with no trailing content block", stripANSI(lastLine))
 	}
-	// Move operations should NOT render file content like create/write/replace do
-	// The output should not have "a.go" or "b.go" appearing as syntax-highlighted code blocks
-	// (just as simple file rename lines). We verify move is distinct by checking
-	// it doesn't produce the extra indentation/content seen in other operations.
 }
 
 func TestBuildMutateLinesFallsBackToPlainWhenEmptyOperations(t *testing.T) {
