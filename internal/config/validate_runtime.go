@@ -24,7 +24,7 @@ var validOneShotPhases = map[string]bool{
 	"review":    true,
 }
 
-func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig, _ map[string]string, _ Config) {
+func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig) {
 	if cfg.MaxParallel == 0 {
 		*problems = append(*problems, "sub_agent.max_parallel must be at least 1 (0 previously had no runtime effect; use 1 for serial delegation, or a higher value for bounded concurrency)")
 	} else if cfg.MaxParallel < 0 {

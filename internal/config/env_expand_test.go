@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -173,7 +174,7 @@ func TestEnvExpanderBasicExpansion(t *testing.T) {
 			if got != tt.want {
 				t.Fatalf("expand(%q) = %q, want %q", tt.input, got, tt.want)
 			}
-			if !stringSlicesEqual(missing, tt.wantErr) {
+			if !slices.Equal(missing, tt.wantErr) {
 				t.Fatalf("expand(%q) missing = %v, want %v", tt.input, missing, tt.wantErr)
 			}
 		})
@@ -342,16 +343,4 @@ func TestUndefinedVarError(t *testing.T) {
 	if !strings.Contains(errStr, "line 61") {
 		t.Fatalf("error message missing line 61: %v", err)
 	}
-}
-
-func stringSlicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i, v := range a {
-		if v != b[i] {
-			return false
-		}
-	}
-	return true
 }
