@@ -187,8 +187,12 @@ func TestCompactionLogger_CreatesParentDirs(t *testing.T) {
 
 	_ = logger.Close()
 
-	if _, err := os.Stat(logPath); os.IsNotExist(err) {
-		t.Error("log file was not created in nested directory")
+	stat, err := os.Stat(logPath)
+	if err != nil {
+		t.Errorf("os.Stat(logPath): %v, want no error", err)
+	}
+	if stat != nil && !stat.Mode().IsRegular() {
+		t.Errorf("logPath is not a regular file: mode=%#o", stat.Mode())
 	}
 }
 
