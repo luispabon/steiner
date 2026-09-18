@@ -170,16 +170,20 @@ func TestUpdateCommand_StableToDev(t *testing.T) {
 
 	oldCheck := checkFunc
 	oldApply := applyFunc
+	calledCheck := false
+	calledApply := false
 	checkFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, bool, error) {
 		if channel != "dev" {
 			t.Errorf("checkFunc channel = %q, want %q", channel, "dev")
 		}
+		calledCheck = true
 		return "dev", true, nil
 	}
 	applyFunc = func(_ context.Context, _, _, _, _, channel, _ string) (string, error) {
 		if channel != "dev" {
 			t.Errorf("applyFunc channel = %q, want %q", channel, "dev")
 		}
+		calledApply = true
 		return "dev", nil
 	}
 	t.Cleanup(func() {
@@ -202,6 +206,17 @@ func TestUpdateCommand_StableToDev(t *testing.T) {
 		t.Errorf("stdout = %q, want channel switch warning", got)
 	}
 	assertOrder(t, got, "\u26a0 notice", "checking version")
+	assertOrder(t, got, "checking version", "updating...")
+	assertOrder(t, got, "updating...", "\u2714")
+	if !strings.Contains(got, "\u2714") {
+		t.Errorf("stdout = %q, want checkmark", got)
+	}
+	if !calledCheck {
+		t.Error("checkFunc was not called")
+	}
+	if !calledApply {
+		t.Error("applyFunc was not called")
+	}
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
 	}

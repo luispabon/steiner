@@ -444,8 +444,9 @@ func TestFormatRelativeTime(t *testing.T) {
 			name:      "more than 7 days ago uses Jan 2, 2006 format",
 			timestamp: now.Add(-30 * 24 * time.Hour),
 			checkFn: func(s string) bool {
-				// Just verify it doesn't end with "ago" and contains digits
-				return !strings.HasSuffix(s, "ago") && len(s) > 0
+				// Verify the documented "Jan 2, 2006" format is used.
+				longAgo := now.Add(-30 * 24 * time.Hour)
+				return s == longAgo.Format("Jan 2, 2006")
 			},
 		},
 	}
