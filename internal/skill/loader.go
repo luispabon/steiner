@@ -265,10 +265,7 @@ func validateSkillName(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("skill name is required")
 	}
-	if strings.ContainsAny(name, `/\`) {
-		return fmt.Errorf("invalid skill name %q", name)
-	}
-	if filepath.Base(name) != name {
+	if name == "." || name == ".." || strings.ContainsAny(name, `/\`) || filepath.Base(name) != name {
 		return fmt.Errorf("invalid skill name %q", name)
 	}
 	return nil

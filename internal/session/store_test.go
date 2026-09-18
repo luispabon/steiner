@@ -624,3 +624,132 @@ func TestConcurrentSaves(t *testing.T) {
 		t.Errorf("index file not found: %v", err)
 	}
 }
+
+func TestSaveRejectsInvalidSessionID(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	tests := []string{
+		"../other",
+		".",
+		"..",
+		"",
+		"path/to/file",
+		"path\\to\\file",
+	}
+
+	for _, id := range tests {
+		session := Session{
+			ID:        id,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Title:     "Invalid",
+			Model:     "test",
+			Lineage:   agent.ConversationLineage{},
+		}
+		if err := store.Save(session); err == nil {
+			t.Errorf("Save with ID %q expected error, got nil", id)
+		}
+	}
+}
+
+func TestLoadRejectsInvalidSessionID(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	tests := []string{
+		"../other",
+		".",
+		"..",
+		"",
+		"path/to/file",
+		"path\\to\\file",
+	}
+
+	for _, id := range tests {
+		if _, err := store.Load(id); err == nil {
+			t.Errorf("Load with ID %q expected error, got nil", id)
+		}
+	}
+}
+
+func TestDeleteRejectsInvalidSessionID(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	tests := []string{
+		"../other",
+		".",
+		"..",
+		"",
+		"path/to/file",
+		"path\\to\\file",
+	}
+
+	for _, id := range tests {
+		if err := store.Delete(id); err == nil {
+			t.Errorf("Delete with ID %q expected error, got nil", id)
+		}
+	}
+}
+
+func TestSaveLoadDeleteWithValidHexID(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	hexID := "abc123def456"
+	now := time.Now().UTC()
+	session := Session{
+		ID:        hexID,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Title:     "Valid Hex",
+		Model:     "test",
+		Lineage:   agent.ConversationLineage{},
+	}
+
+	if err := store.Save(session); err != nil {
+		t.Fatalf("Save with valid hex ID failed: %v", err)
+	}
+
+	loaded, err := store.Load(hexID)
+	if err != nil {
+		t.Fatalf("Load with valid hex ID failed: %v", err)
+	}
+	if loaded.ID != hexID {
+		t.Errorf("loaded ID = %q, want %q", loaded.ID, hexID)
+	}
+
+	if err := store.Delete(hexID); err != nil {
+		t.Fatalf("Delete with valid hex ID failed: %v", err)
+	}
+
+	entries, err := store.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries after delete, got %d", len(entries))
+	}
+}

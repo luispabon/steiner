@@ -393,6 +393,8 @@ func TestValidateSkillName(t *testing.T) {
 		{"../alpha", true},
 		{"alpha/beta", true},
 		{"alpha\\beta", true},
+		{".", true},
+		{"..", true},
 	}
 	for _, tt := range tests {
 		err := validateSkillName(tt.name)
