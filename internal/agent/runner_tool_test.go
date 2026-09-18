@@ -506,7 +506,7 @@ func TestRunnerKeepsRecentDelegateRetentionVisibleWithoutLeakingSummary(t *testi
 				},
 				Retention: &tool.ToolRetention{
 					Kind:       tool.RetentionKindDelegateSummary,
-					AgentID:    "child-1",
+					AgentID:    "child-1:" + hiddenSummary,
 					Status:     "complete",
 					TurnCount:  1,
 					TokenCount: 8,
