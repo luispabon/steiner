@@ -664,6 +664,7 @@ func TestLifecycleCloseDuringReconnect(t *testing.T) {
 	tr := &transitionRecorder{name: "fixture"}
 	m := Connect(context.Background(), cfg, config.LimitsConfig{}, wrap, false,
 		func(string) {}, func(string) {}, io.Discard, tr.onChange)
+	t.Cleanup(func() { _ = m.Close() })
 	tr.m.Store(m)
 	waitInit(t, m)
 	m.UpdateApprover(allowApprover())
