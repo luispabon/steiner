@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,7 +10,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/sandbox"
@@ -305,6 +308,93 @@ func TestBashSession_RealSandboxWrapperFiltersEnv(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "[]") {
 		t.Errorf("stdout = %q, want empty var (sandbox.WrapCommand did not filter the persistent shell's Env)", stdout)
+	}
+}
+
+// TestJoinCaptureGoroutines pins both branches of the bounded join: finished
+// capture goroutines are joined immediately, unfinished ones stop the wait at
+// the timeout instead of blocking the caller.
+func TestJoinCaptureGoroutines(t *testing.T) {
+	t.Run("finished captures join", func(t *testing.T) {
+		var wg sync.WaitGroup
+		wg.Add(1)
+		wg.Done()
+
+		if ok := joinCaptureGoroutines(&wg, time.Second); !ok {
+			t.Error("joinCaptureGoroutines = false, want true for finished captures")
+		}
+	})
+
+	t.Run("unfinished captures return at timeout", func(t *testing.T) {
+		var wg sync.WaitGroup
+		wg.Add(1)
+		defer wg.Done() // released when the subtest ends
+
+		const timeout = 20 * time.Millisecond
+		start := time.Now()
+		ok := joinCaptureGoroutines(&wg, timeout)
+		elapsed := time.Since(start)
+
+		if ok {
+			t.Error("joinCaptureGoroutines = true, want false while captures are unfinished")
+		}
+		if elapsed < timeout {
+			t.Errorf("joinCaptureGoroutines returned after %v, want at least the %v timeout", elapsed, timeout)
+		}
+	})
+}
+
+// TestBashSession_CancellationJoinsCaptures verifies that a cancelled Execute
+// returns, does not block indefinitely on the capture goroutines of the
+// cancelled generation, and leaves the session usable.
+func TestBashSession_CancellationJoinsCaptures(t *testing.T) {
+	s := NewBashSession()
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, _, err := s.Execute(ctx, "sleep 30")
+		done <- err
+	}()
+
+	// The command is still running, so cancellation always takes the restart
+	// path while both capture goroutines are blocked on their pipes.
+	time.Sleep(100 * time.Millisecond)
+	start := time.Now()
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Execute error = %v, want context.Canceled", err)
+		}
+		// Killing the shell closes its pipes, so the capture goroutines are joined
+		// well before the bounded timeout: a wait that hit the timeout would mean
+		// the join depends on it.
+		if elapsed := time.Since(start); elapsed >= bashSessionCaptureJoinTimeout {
+			t.Errorf("Execute returned after %v, want the capture goroutines joined well inside the %v bound", elapsed, bashSessionCaptureJoinTimeout)
+		}
+	case <-time.After(bashSessionCaptureJoinTimeout + 5*time.Second):
+		t.Fatal("Execute did not return within the bounded capture join window after cancellation")
+	}
+
+	// The restarted session must read a fresh command's output without stale
+	// capture goroutines from the cancelled generation interfering.
+	stdout, _, code, err := s.Execute(context.Background(), "echo after-cancel")
+	if err != nil {
+		t.Fatalf("Execute after cancellation: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout, "after-cancel") {
+		t.Errorf("stdout = %q, want to contain %q", stdout, "after-cancel")
 	}
 }
 

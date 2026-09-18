@@ -12,11 +12,19 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const (
 	// bashSessionMaxOutput is the maximum combined output size before truncation.
 	bashSessionMaxOutput = 100 * 1024 // 100 KB
+
+	// bashSessionCaptureJoinTimeout bounds how long a cancelled Execute waits
+	// for the capture goroutines of the cancelled generation. Killing the shell
+	// closes its pipe write ends, so those reads normally return at once;
+	// descendants that inherited the pipe descriptors can keep them open past
+	// the kill, so the wait is bounded rather than open-ended.
+	bashSessionCaptureJoinTimeout = 2 * time.Second
 )
 
 // BashSession is a persistent bash process with marker-based output capture.
@@ -146,13 +154,24 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 	stdoutCh := make(chan captureResult, 1)
 	stderrCh := make(chan captureResult, 1)
 
+	// Capture the readers of this generation: a cancellation restarts the
+	// session and replaces s.stdoutR/s.stderrR, so the goroutines must keep
+	// reading (and reporting on) the pipes they were started for.
+	stdoutR := s.stdoutR
+	stderrR := s.stderrR
+
+	var captures sync.WaitGroup
+	captures.Add(2)
+
 	go func() {
-		text, err := readUntilMarker(s.stdoutR, stdoutMarker)
+		defer captures.Done()
+		text, err := readUntilMarker(stdoutR, stdoutMarker)
 		stdoutCh <- captureResult{text, err}
 	}()
 
 	go func() {
-		text, err := readUntilMarker(s.stderrR, stderrMarker)
+		defer captures.Done()
+		text, err := readUntilMarker(stderrR, stderrMarker)
 		stderrCh <- captureResult{text, err}
 	}()
 
@@ -164,6 +183,10 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 		select {
 		case <-ctx.Done():
 			s.restartAfterCancel(ctx)
+			if !joinCaptureGoroutines(&captures, bashSessionCaptureJoinTimeout) {
+				slog.Warn("bash session: capture goroutines still running after cancellation",
+					"timeout", bashSessionCaptureJoinTimeout)
+			}
 			return "", "", -1, fmt.Errorf("bash session: %w", ctx.Err())
 		case r := <-stdoutCh:
 			stdoutRes = r
@@ -205,6 +228,26 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 	}
 
 	return stdoutText, stderrText, code, nil
+}
+
+// joinCaptureGoroutines waits for the capture goroutines registered with wg to
+// finish, up to timeout, and reports whether they did.
+func joinCaptureGoroutines(wg *sync.WaitGroup, timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 func bashStreamReadError(stdoutText string, stdoutErr error, stderrText string, stderrErr error) error {
