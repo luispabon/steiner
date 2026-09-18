@@ -155,35 +155,38 @@ func fitTextMiddle(text string, width int) string {
 
 	runes := []rune(text)
 	ellipsisWidth := lipgloss.Width("…")
-	availableWidth := width - ellipsisWidth
+	availableWidth := max(0, width-ellipsisWidth)
+	leftBudget := availableWidth / 2
+	rightBudget := availableWidth - leftBudget
 
-	// Build left and right segments to fit within availableWidth
-	var left, right []rune
-	var leftWidth, rightWidth int
-
-	// Start with trying to fill both sides equally
-	targetWidth := availableWidth / 2
-
-	// Build left segment
-	for i := 0; i < len(runes) && leftWidth < targetWidth; i++ {
-		runeWidth := lipgloss.Width(string(runes[i]))
-		if leftWidth+runeWidth <= targetWidth {
-			left = append(left, runes[i])
-			leftWidth += runeWidth
+	// Consume a contiguous prefix and suffix, each stopping at the first
+	// rune that would overflow its budget (never skipping a rune that
+	// doesn't fit and continuing past it, which would drop characters
+	// from the middle of the kept segments instead of just the ellipsis
+	// region).
+	leftEnd := 0
+	leftWidth := 0
+	for leftEnd < len(runes) {
+		runeWidth := lipgloss.Width(string(runes[leftEnd]))
+		if leftWidth+runeWidth > leftBudget {
+			break
 		}
+		leftWidth += runeWidth
+		leftEnd++
 	}
 
-	// Build right segment from the end
-	for i := len(runes) - 1; i >= len(left) && rightWidth < availableWidth-leftWidth; i-- {
-		runeWidth := lipgloss.Width(string(runes[i]))
-		if rightWidth+runeWidth <= availableWidth-leftWidth {
-			// Prepend to right
-			right = append([]rune{runes[i]}, right...)
-			rightWidth += runeWidth
+	rightStart := len(runes)
+	rightWidth := 0
+	for rightStart > leftEnd {
+		runeWidth := lipgloss.Width(string(runes[rightStart-1]))
+		if rightWidth+runeWidth > rightBudget {
+			break
 		}
+		rightWidth += runeWidth
+		rightStart--
 	}
 
-	return string(left) + "…" + string(right)
+	return string(runes[:leftEnd]) + "…" + string(runes[rightStart:])
 }
 
 func fitText(text string, width int) string {
