@@ -142,20 +142,48 @@ func occupancyPercent(used, budget int) int {
 
 func fitTextMiddle(text string, width int) string {
 	text = strings.TrimSpace(text)
-	if width > 0 && len(text) <= width {
+	textWidth := lipgloss.Width(text)
+	if width > 0 && textWidth <= width {
 		return text
 	}
+	if width <= 0 {
+		return text
+	}
+	if width <= 1 {
+		return "…"
+	}
+
 	runes := []rune(text)
-	if width <= 0 || len(runes) <= width {
-		return text
+	ellipsisWidth := lipgloss.Width("…")
+	availableWidth := width - ellipsisWidth
+
+	// Build left and right segments to fit within availableWidth
+	var left, right []rune
+	var leftWidth, rightWidth int
+
+	// Start with trying to fill both sides equally
+	targetWidth := availableWidth / 2
+
+	// Build left segment
+	for i := 0; i < len(runes) && leftWidth < targetWidth; i++ {
+		runeWidth := lipgloss.Width(string(runes[i]))
+		if leftWidth+runeWidth <= targetWidth {
+			left = append(left, runes[i])
+			leftWidth += runeWidth
+		}
 	}
-	if width <= 3 {
-		return string(runes[:width])
+
+	// Build right segment from the end
+	for i := len(runes) - 1; i >= len(left) && rightWidth < availableWidth-leftWidth; i-- {
+		runeWidth := lipgloss.Width(string(runes[i]))
+		if rightWidth+runeWidth <= availableWidth-leftWidth {
+			// Prepend to right
+			right = append([]rune{runes[i]}, right...)
+			rightWidth += runeWidth
+		}
 	}
-	keep := width - 1 // 1 cell for the ellipsis character
-	left := keep / 2
-	right := keep - left
-	return string(runes[:left]) + "…" + string(runes[len(runes)-right:])
+
+	return string(left) + "…" + string(right)
 }
 
 func fitText(text string, width int) string {

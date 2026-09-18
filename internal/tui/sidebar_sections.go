@@ -64,10 +64,10 @@ func (s sidebarState) modelSection(width int) []string {
 	switch {
 	case provider == "":
 		line1 = fgBright.Render(model)
-	case len(provider)+1+len(model) <= width:
+	case lipgloss.Width(provider)+1+lipgloss.Width(model) <= width:
 		line1 = fgDim.Render(provider+"/") + fgBright.Render(model)
 	default:
-		remaining := width - len(model) - 1
+		remaining := width - lipgloss.Width(model) - 1
 		if remaining < 4 {
 			line1 = fgBright.Render(model)
 		} else {

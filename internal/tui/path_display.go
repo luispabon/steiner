@@ -3,6 +3,8 @@ package tui
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // shortenAttachedImagePath renders filePath for display in the images-attached
@@ -13,7 +15,7 @@ func shortenAttachedImagePath(filePath, workingDir, homeDir string, maxWidth int
 		rel, err := filepath.Rel(workingDir, filePath)
 		if err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
 			result := rel
-			if len([]rune(result)) > maxWidth {
+			if ansi.StringWidth(result) > maxWidth {
 				return fitTextMiddle(result, maxWidth)
 			}
 			return result
@@ -24,7 +26,7 @@ func shortenAttachedImagePath(filePath, workingDir, homeDir string, maxWidth int
 	result := homeRelativePath(filePath, homeDir)
 
 	// Step 3: Apply middle-ellipsis if still too long
-	if len([]rune(result)) > maxWidth {
+	if ansi.StringWidth(result) > maxWidth {
 		return fitTextMiddle(result, maxWidth)
 	}
 
