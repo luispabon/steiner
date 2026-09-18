@@ -294,10 +294,10 @@ var (
 	//   Downloading 45%  |  Receiving objects: 67%  |  Extracting package (32%)
 	progressKeywordLine = regexp.MustCompile(`(?i)^\s*(?:download|upload|install|extract|fetch|receiv|transfer|progress|checking|resolving).*\d+\.?\d*\s*%`)
 
-	// spinnerLine matches lines that are just a Unicode braille spinner optionally
+	// spinnerLine matches lines that are just a spinner character optionally
 	// followed by whitespace and/or a short label:
-	//   ⠋  |  ⠋ compiling
-	spinnerLine = regexp.MustCompile(`^\s*[⠁-⣿](?:\s+\S+)?\s*$`)
+	//   ⠋  |  -  |  \  |  |
+	spinnerLine = regexp.MustCompile(`^\s*[-\|/\\⠁-⣿](?:\s+\S+)?\s*$`)
 )
 
 // stripProgressLines removes lines that represent transient progress output:
