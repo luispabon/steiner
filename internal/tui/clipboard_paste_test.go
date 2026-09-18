@@ -165,19 +165,28 @@ func TestPendingImagesClearedOnSubmit(t *testing.T) {
 	}
 }
 
-func TestClipboardImageMsgErrSilentlyIgnored(t *testing.T) {
+func TestHandleClipboardImageMsgNoImageIsSilent(t *testing.T) {
 	t.Parallel()
-	m := Model{}
-	msg := clipboardImageMsg{err: ErrClipboardNoImage}
+	m := newModel(Config{}, nil)
 
-	// simulate the handler logic
-	if msg.err != nil {
-		// silently ignore — no append
-	} else {
-		m.imageMarkers = append(m.imageMarkers, imageMarker{label: nextMarkerLabel(m.imageMarkers), image: msg.block})
+	m.handleClipboardImageMsg(clipboardImageMsg{err: ErrClipboardNoImage})
+
+	if len(m.content.segments) != 0 {
+		t.Fatalf("content segments = %d, want 0 for no-image sentinel", len(m.content.segments))
 	}
+}
 
-	if len(m.imageMarkers) != 0 {
-		t.Fatalf("imageMarkers should be empty on error, got len = %d", len(m.imageMarkers))
+func TestHandleClipboardImageMsgProcessingErrorAppendsError(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	errProcessing := errors.New("clipboard decode failed")
+
+	m.handleClipboardImageMsg(clipboardImageMsg{err: errProcessing})
+
+	if len(m.content.segments) != 1 {
+		t.Fatalf("content segments = %d, want 1", len(m.content.segments))
+	}
+	if got := m.content.segments[0].text; !strings.Contains(got, errProcessing.Error()) {
+		t.Fatalf("error content = %q, want %q", got, errProcessing)
 	}
 }
