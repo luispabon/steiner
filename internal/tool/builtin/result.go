@@ -177,8 +177,16 @@ func (r *MutateResult) clearCommittedMetadata() {
 }
 
 // WasMutated reports whether mutate actually modified the filesystem.
+// It returns true only for successful commits or for rollback failures where
+// the filesystem is left in an inconsistent state (len(r.Paths) > 0).
 func (r *MutateResult) WasMutated() bool {
-	return r != nil && r.OperationsFailed == 0 && r.OperationsApplied > 0
+	if r == nil {
+		return false
+	}
+	if r.OperationsFailed == 0 {
+		return r.OperationsApplied > 0
+	}
+	return len(r.Paths) > 0
 }
 
 // pageResults builds a Result from a sorted list of entry names with pagination.

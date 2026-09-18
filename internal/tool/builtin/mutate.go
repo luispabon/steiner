@@ -44,14 +44,36 @@ func NewMutateTool(env Env) tool.ToolDef {
 
 // mutateDiagnosticsFiles returns the files a mutate call touched that still
 // exist after the mutation, for post-mutate diagnostics. Deleted files and
-// move sources are excluded since they no longer exist on disk.
+// move sources are excluded since they no longer exist on disk. Results are
+// deduplicated and sorted.
 func mutateDiagnosticsFiles(result *MutateResult) []string {
-	files := make([]string, 0, len(result.Created)+len(result.Modified)+len(result.Moved))
-	files = append(files, result.Created...)
-	files = append(files, result.Modified...)
-	for _, m := range result.Moved {
-		files = append(files, m.To)
+	seen := make(map[string]struct{})
+	var files []string
+	for _, p := range result.Created {
+		if p != "" {
+			if _, ok := seen[p]; !ok {
+				seen[p] = struct{}{}
+				files = append(files, p)
+			}
+		}
 	}
+	for _, p := range result.Modified {
+		if p != "" {
+			if _, ok := seen[p]; !ok {
+				seen[p] = struct{}{}
+				files = append(files, p)
+			}
+		}
+	}
+	for _, m := range result.Moved {
+		if m.To != "" {
+			if _, ok := seen[m.To]; !ok {
+				seen[m.To] = struct{}{}
+				files = append(files, m.To)
+			}
+		}
+	}
+	sort.Strings(files)
 	return files
 }
 
