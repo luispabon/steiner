@@ -26,219 +26,23 @@ type HoverResult struct {
 
 // Definitions returns all definitions for a symbol at the given position in a file.
 func (m *Manager) Definitions(ctx context.Context, file string, line, col int) (Result, error) {
-	if line < 1 || col < 1 {
-		return Result{}, fmt.Errorf("invalid position: line %d col %d", line, col)
-	}
-
-	file, err := absWorkspacePath(m.workspace, file)
-	if err != nil {
-		return Result{}, err
-	}
-
-	// Build cache key and check for cached result.
-	// If key resolution fails (best-effort), skip cache and proceed.
-	if sessionKey, ok := m.resolveSessionKey(file); ok {
-		fileHash := hashFileContent(file)
-		if fileHash != "" {
-			key := cacheKey{
-				server:      sessionKey.server,
-				root:        sessionKey.root,
-				method:      "definitions",
-				file:        file,
-				line:        line,
-				column:      col,
-				fileHash:    fileHash,
-				includeDecl: false,
-			}
-			if cached, hit := m.resultCache.get(key); hit {
-				return *cached.(*Result), nil
-			}
-		}
-	}
-
-	// Get the entry so we can lock the cycle.
-	ent, sess, err := m.entryFor(ctx, file)
-	if err != nil {
-		return Result{}, err
-	}
-
-	// Await readiness (but don't hold the lock during the wait).
-	incomplete, err := m.awaitReady(ctx, ent)
-	if err != nil {
-		return Result{}, err
-	}
-
-	// Now acquire the cycle lock and hold it for open → request → close.
-	ent.cycleMu.Lock()
-	defer ent.cycleMu.Unlock()
-
-	// Define the request with a timeout scoped to the request only.
-	reqCtx, cancel := context.WithTimeout(ctx, time.Duration(m.cfg.RequestTimeout.Duration()))
-	defer cancel()
-
-	var locations []Location
-	err = withDocument(ctx, sess, file, func() error {
-		// Issue the request within the request timeout.
-		locs, err := sess.Definition(reqCtx, file, line, col)
-		if err != nil {
-			return fmt.Errorf("definition request: %w", err)
-		}
-		locations = locs
-		return nil
-	})
-	if err != nil {
-		return Result{}, err
-	}
-
-	// Sort deterministically and cap at MaxResults.
-	sortLocations(locations)
-	total := len(locations)
-	truncated := false
-	if len(locations) > m.cfg.MaxResults {
-		locations = locations[:m.cfg.MaxResults]
-		truncated = true
-	}
-
-	result := Result{
-		Locations:  locations,
-		Incomplete: incomplete,
-		Truncated:  truncated,
-		Total:      total,
-	}
-
-	// Store in cache only if the result is not provisional.
-	// Incomplete=true means readiness gate timed out, so the result is provisional.
-	if !incomplete {
-		if sessionKey, ok := m.resolveSessionKey(file); ok {
-			fileHash := hashFileContent(file)
-			if fileHash != "" {
-				key := cacheKey{
-					server:      sessionKey.server,
-					root:        sessionKey.root,
-					method:      "definitions",
-					file:        file,
-					line:        line,
-					column:      col,
-					fileHash:    fileHash,
-					includeDecl: false,
-				}
-				m.resultCache.put(key, &result)
-			}
-		}
-	}
-
-	return result, nil
+	return m.locationsAt(ctx, "definitions", file, line, col, false,
+		func(ctx context.Context, sess session, resolvedFile string) ([]Location, error) {
+			return sess.Definition(ctx, resolvedFile, line, col)
+		}, "definition request")
 }
 
 // References returns all references to a symbol at the given position in a file.
 func (m *Manager) References(ctx context.Context, file string, line, col int, includeDecl bool) (Result, error) {
-	if line < 1 || col < 1 {
-		return Result{}, fmt.Errorf("invalid position: line %d col %d", line, col)
-	}
-
-	file, err := absWorkspacePath(m.workspace, file)
-	if err != nil {
-		return Result{}, err
-	}
-
-	// Build cache key and check for cached result.
-	// If key resolution fails (best-effort), skip cache and proceed.
-	if sessionKey, ok := m.resolveSessionKey(file); ok {
-		fileHash := hashFileContent(file)
-		if fileHash != "" {
-			key := cacheKey{
-				server:      sessionKey.server,
-				root:        sessionKey.root,
-				method:      "references",
-				file:        file,
-				line:        line,
-				column:      col,
-				fileHash:    fileHash,
-				includeDecl: includeDecl,
-			}
-			if cached, hit := m.resultCache.get(key); hit {
-				return *cached.(*Result), nil
-			}
-		}
-	}
-
-	// Get the entry so we can lock the cycle.
-	ent, sess, err := m.entryFor(ctx, file)
-	if err != nil {
-		return Result{}, err
-	}
-
-	// Await readiness (but don't hold the lock during the wait).
-	incomplete, err := m.awaitReady(ctx, ent)
-	if err != nil {
-		return Result{}, err
-	}
-
-	// Now acquire the cycle lock and hold it for open → request → close.
-	ent.cycleMu.Lock()
-	defer ent.cycleMu.Unlock()
-
-	// Define the request with a timeout scoped to the request only.
-	reqCtx, cancel := context.WithTimeout(ctx, time.Duration(m.cfg.RequestTimeout.Duration()))
-	defer cancel()
-
-	var locations []Location
-	err = withDocument(ctx, sess, file, func() error {
-		// Issue the request within the request timeout.
-		locs, err := sess.References(reqCtx, file, line, col, includeDecl)
-		if err != nil {
-			return fmt.Errorf("references request: %w", err)
-		}
-		locations = locs
-		return nil
-	})
-	if err != nil {
-		return Result{}, err
-	}
-
-	// Sort deterministically and cap at MaxResults.
-	sortLocations(locations)
-	total := len(locations)
-	truncated := false
-	if len(locations) > m.cfg.MaxResults {
-		locations = locations[:m.cfg.MaxResults]
-		truncated = true
-	}
-
-	result := Result{
-		Locations:  locations,
-		Incomplete: incomplete,
-		Truncated:  truncated,
-		Total:      total,
-	}
-
-	// Store in cache only if the result is not provisional.
-	// Incomplete=true means readiness gate timed out, so the result is provisional.
-	if !incomplete {
-		if sessionKey, ok := m.resolveSessionKey(file); ok {
-			fileHash := hashFileContent(file)
-			if fileHash != "" {
-				key := cacheKey{
-					server:      sessionKey.server,
-					root:        sessionKey.root,
-					method:      "references",
-					file:        file,
-					line:        line,
-					column:      col,
-					fileHash:    fileHash,
-					includeDecl: includeDecl,
-				}
-				m.resultCache.put(key, &result)
-			}
-		}
-	}
-
-	return result, nil
+	return m.locationsAt(ctx, "references", file, line, col, includeDecl,
+		func(ctx context.Context, sess session, resolvedFile string) ([]Location, error) {
+			return sess.References(ctx, resolvedFile, line, col, includeDecl)
+		}, "references request")
 }
 
-// locationsAt runs the cache/readiness/locking flow shared by Implementations
-// and TypeDefinitions, dispatching the actual LSP request through req.
-func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, line, col int,
+// locationsAt runs the cache/readiness/locking flow shared by location queries,
+// dispatching the actual LSP request through req.
+func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, line, col int, includeDecl bool,
 	req func(context.Context, session, string) ([]Location, error), reqErrPrefix string) (Result, error) {
 	if line < 1 || col < 1 {
 		return Result{}, fmt.Errorf("invalid position: line %d col %d", line, col)
@@ -258,7 +62,7 @@ func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, lin
 			line:        line,
 			column:      col,
 			fileHash:    fileHash,
-			includeDecl: false,
+			includeDecl: includeDecl,
 		}
 	}
 
@@ -323,7 +127,7 @@ func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, lin
 // Implementations returns the concrete implementations of the interface or
 // interface method at the given position in a file.
 func (m *Manager) Implementations(ctx context.Context, file string, line, col int) (Result, error) {
-	return m.locationsAt(ctx, "implementations", file, line, col,
+	return m.locationsAt(ctx, "implementations", file, line, col, false,
 		func(ctx context.Context, sess session, resolvedFile string) ([]Location, error) {
 			return sess.Implementation(ctx, resolvedFile, line, col)
 		}, "implementation request")
@@ -332,7 +136,7 @@ func (m *Manager) Implementations(ctx context.Context, file string, line, col in
 // TypeDefinitions returns the type declaration for the symbol at the given
 // position in a file.
 func (m *Manager) TypeDefinitions(ctx context.Context, file string, line, col int) (Result, error) {
-	return m.locationsAt(ctx, "type_definitions", file, line, col,
+	return m.locationsAt(ctx, "type_definitions", file, line, col, false,
 		func(ctx context.Context, sess session, resolvedFile string) ([]Location, error) {
 			return sess.TypeDefinition(ctx, resolvedFile, line, col)
 		}, "type definition request")

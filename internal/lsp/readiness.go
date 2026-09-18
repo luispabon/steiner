@@ -68,9 +68,7 @@ func (r *readiness) isTerminal() bool {
 // If the server exits while notReady, it returns the server's exit error.
 // Cancellation of ctx returns ctx.Err().
 //
-// Only definitions and references await readiness; diagnostics does not.
-// (Note: diagnostics does not call awaitReady; callers of this method are expected
-// to be only definitions and references once they are implemented in a later step.)
+// Navigation, hover, and symbol queries await readiness; diagnostics does not.
 func (m *Manager) awaitReady(ctx context.Context, e *entry) (incomplete bool, err error) {
 	e.mu.Lock()
 	r := e.readiness

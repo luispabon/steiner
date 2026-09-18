@@ -417,6 +417,25 @@ func typeDefinitionTool(m *Manager) tool.ToolDef {
 	}
 }
 
+type serverErrorKind uint8
+
+const (
+	serverErrorNone serverErrorKind = iota
+	serverErrorNoServer
+	serverErrorExited
+)
+
+func classifyServerError(err error) serverErrorKind {
+	switch {
+	case errors.Is(err, errNoServer):
+		return serverErrorNoServer
+	case errors.Is(err, errServerExited):
+		return serverErrorExited
+	default:
+		return serverErrorNone
+	}
+}
+
 // handleSymbolsError processes errors from DocumentSymbols or WorkspaceSymbols,
 // converting unavailability cases to readable result strings and returning an
 // error for genuine failures. Unlike handleNavigationError, file may be empty
@@ -427,25 +446,26 @@ func handleSymbolsError(m *Manager, file string, err error) (any, error) {
 		return nil, nil
 	}
 
-	if errors.Is(err, errNoServer) {
+	switch classifyServerError(err) {
+	case serverErrorNoServer:
 		if file == "" {
 			return "No language server is enabled. Configure one under `lsp.servers` to enable this tool.", nil
 		}
 		ext := strings.ToLower(filepath.Ext(file))
-		msg := fmt.Sprintf("No language server is configured for %s. Configure one under `lsp.servers` to enable this tool.", ext)
-		return msg, nil
-	}
-
-	if file == "" {
-		return nil, err
-	}
-
-	if errors.Is(err, errServerExited) {
+		return fmt.Sprintf("No language server is configured for %s. Configure one under `lsp.servers` to enable this tool.", ext), nil
+	case serverErrorExited:
+		if file == "" {
+			return nil, err
+		}
 		serverName := findServerNameForFile(m, file)
 		if serverName == "" {
 			return "Language server exited unexpectedly.", nil
 		}
 		return fmt.Sprintf("Language server %s exited unexpectedly.", serverName), nil
+	}
+
+	if file == "" {
+		return nil, err
 	}
 
 	failedServer := findFailedServer(m, file)
@@ -463,13 +483,11 @@ func handleNavigationError(m *Manager, file string, err error) (any, error) {
 		return nil, nil
 	}
 
-	if errors.Is(err, errNoServer) {
+	switch classifyServerError(err) {
+	case serverErrorNoServer:
 		ext := strings.ToLower(filepath.Ext(file))
-		msg := fmt.Sprintf("No language server is configured for %s. Configure one under `lsp.servers` to enable this tool.", ext)
-		return msg, nil
-	}
-
-	if errors.Is(err, errServerExited) {
+		return fmt.Sprintf("No language server is configured for %s. Configure one under `lsp.servers` to enable this tool.", ext), nil
+	case serverErrorExited:
 		serverName := findServerNameForFile(m, file)
 		if serverName == "" {
 			return "Language server exited unexpectedly.", nil
@@ -503,13 +521,11 @@ func handleDiagnosticsError(m *Manager, file string, err error) (any, error) {
 		return nil, nil
 	}
 
-	if errors.Is(err, errNoServer) {
+	switch classifyServerError(err) {
+	case serverErrorNoServer:
 		ext := strings.ToLower(filepath.Ext(file))
-		msg := fmt.Sprintf("No language server is configured for %s. Configure one under `lsp.servers` to enable this tool.", ext)
-		return msg, nil
-	}
-
-	if errors.Is(err, errServerExited) {
+		return fmt.Sprintf("No language server is configured for %s. Configure one under `lsp.servers` to enable this tool.", ext), nil
+	case serverErrorExited:
 		serverName := findServerNameForFile(m, file)
 		if serverName == "" {
 			return "Language server exited unexpectedly.", nil

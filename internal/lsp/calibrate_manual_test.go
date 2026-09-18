@@ -575,8 +575,8 @@ func closeSession(t *testing.T, sess *impl) {
 	}
 }
 
-// report logs the distribution of a sample set. With calibRuns samples the
-// maximum is the practical p95, so it is labelled as the value to size against.
+// report logs the distribution of a sample set. The maximum is the observed
+// maximum for this sample, not a p95 estimate.
 func report(t *testing.T, label string, samples []time.Duration) {
 	t.Helper()
 
