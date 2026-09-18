@@ -9,15 +9,15 @@ import (
 	"strings"
 )
 
-func runAzureCloseout(ctx context.Context, worktreePath, remoteName, branch, targetBranch, title, body string) (string, string, error) {
+func runAzureCloseout(ctx context.Context, req closeoutRequest) (string, string, error) {
 	if _, err := exec.LookPath("az"); err != nil {
 		return "", "", fmt.Errorf("closeout: az cli is required for azure closeout: %w", err)
 	}
-	if err := runGit(ctx, worktreePath, "push", remoteName, branch); err != nil {
+	if err := runGit(ctx, req.WorktreePath, "push", req.RemoteName, req.Branch); err != nil {
 		return "", "", fmt.Errorf("closeout: push branch for azure devops: %w", err)
 	}
-	repository := repositoryNameFromRemote(ctx, worktreePath, remoteName)
-	out, err := commandOutput(ctx, worktreePath, "az", "repos", "pr", "create", "--title", title, "--description", body, "--source-branch", branch, "--target-branch", targetBranch, "--repository", repository, "--output", "tsv", "--query", "url")
+	repository := repositoryNameFromRemote(ctx, req.WorktreePath, req.RemoteName)
+	out, err := commandOutput(ctx, req.WorktreePath, "az", "repos", "pr", "create", "--title", req.Title, "--description", req.Body, "--source-branch", req.Branch, "--target-branch", req.TargetBranch, "--repository", repository, "--output", "tsv", "--query", "url")
 	if err != nil {
 		return "", "", fmt.Errorf("closeout: create azure pr: %w", err)
 	}

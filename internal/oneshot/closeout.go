@@ -30,7 +30,16 @@ const (
 	closeoutProviderAzure  closeoutProvider = "azure"
 )
 
-type closeoutRunner func(context.Context, string, string, string, string, string, string) (string, string, error)
+type closeoutRequest struct {
+	WorktreePath string
+	RemoteName   string
+	Branch       string
+	TargetBranch string
+	Title        string
+	Body         string
+}
+
+type closeoutRunner func(context.Context, closeoutRequest) (string, string, error)
 
 var closeoutRunners = map[closeoutProvider]closeoutRunner{
 	closeoutProviderGitHub: runGitHubCloseout,
@@ -121,7 +130,14 @@ func Closeout(ctx context.Context, cfg config.Config, input CloseoutInput) (Clos
 		}, nil
 	}
 
-	url, note, err := runner(ctx, worktreePath, remoteName, branch, targetBranch, title, body)
+	url, note, err := runner(ctx, closeoutRequest{
+		WorktreePath: worktreePath,
+		RemoteName:   remoteName,
+		Branch:       branch,
+		TargetBranch: targetBranch,
+		Title:        title,
+		Body:         body,
+	})
 	if err != nil {
 		return CloseoutResult{State: closeoutStateFailed, Provider: string(provider), Remote: remoteName, TargetBranch: targetBranch, Title: title, Body: body}, err
 	}
