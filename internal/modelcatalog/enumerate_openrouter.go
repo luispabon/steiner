@@ -107,6 +107,9 @@ func (e *OpenRouterEnumerator) Enumerate(ctx context.Context, ep Endpoint, _ Enu
 			break
 		}
 		endpoint = next
+		if page+1 >= openRouterMaxPages && endpoint != "" {
+			return EnumerationResult{}, fmt.Errorf("enumerate models: pagination cap exceeded after %d pages", openRouterMaxPages)
+		}
 	}
 	return EnumerationResult{Models: models, ETag: etag}, nil
 }
@@ -115,16 +118,12 @@ func openRouterNonText(architecture openRouterArchitecture) bool {
 	if len(architecture.OutputModalities) == 0 {
 		return strings.Contains(strings.ToLower(architecture.Modality), "embedding")
 	}
-	hasText := false
 	for _, modality := range architecture.OutputModalities {
-		switch strings.ToLower(modality) {
-		case "text":
-			hasText = true
-		case "embeddings":
-			return true
+		if strings.EqualFold(strings.TrimSpace(modality), "text") {
+			return false
 		}
 	}
-	return !hasText
+	return true
 }
 
 func safeOpenRouterNextURL(original *url.URL, next string) (string, bool) {
