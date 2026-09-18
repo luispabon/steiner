@@ -46,6 +46,10 @@ func (m *Model) handleWorktreeCountMsg(msg worktreeCountMsg) (tea.Model, tea.Cmd
 		return m, nil
 	}
 	if msg.err != nil || msg.count <= 0 || m.status.mode == "running" {
+		if msg.err != nil {
+			m.appendError(msg.err)
+			m.syncViewport()
+		}
 		m.exitFlowPhase = exitFlowPhaseNone
 		return m.doExit()
 	}

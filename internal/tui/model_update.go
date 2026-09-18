@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"time"
@@ -36,6 +37,8 @@ type modelEntriesUpdatedMsg struct {
 	entries []ModelEntry
 	ok      bool
 }
+
+type controllerHandleFailedMsg struct{ err error }
 
 // sessionTickInterval is the cadence of the session timer display.
 const sessionTickInterval = time.Second
@@ -95,6 +98,10 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleModelEntriesUpdatedMsg(msg)
 	case gitRefreshDoneMsg:
 		m.syncSidebar()
+		return m, nil
+	case controllerHandleFailedMsg:
+		m.appendError(msg.err)
+		m.syncViewport()
 		return m, nil
 	case modelReasoningResolvedMsg:
 		return m.handleModelReasoningResolvedMsg(msg)
@@ -349,7 +356,10 @@ func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	m.status.contextBudget = m.sidebar.contextBudget
 	m.syncInputChrome()
 	if m.git != nil {
-		_ = m.git.takeError()
+		if err := m.git.takeError(); err != nil {
+			m.appendError(err)
+			m.syncViewport()
+		}
 	}
 	// Clear any render error captured during the last cycle.
 	if m.content.lastRenderErr != nil {
@@ -682,6 +692,10 @@ func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
+		if !errors.Is(msg.err, ErrClipboardNoImage) {
+			m.appendError(msg.err)
+			m.syncViewport()
+		}
 		return m, nil
 	}
 	label := nextMarkerLabel(m.imageMarkers)
