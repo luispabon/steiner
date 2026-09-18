@@ -93,30 +93,13 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 // Connect never returns an error for a server failure; a failed server is
 // simply marked failed.
 func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConfig, wrap WrapFn, args ...any) *Manager {
-	var release ReleaseFn
-	var planMode bool
-	var warnFn, infoFn func(string)
-	var stderr io.Writer
-	var onStateChange func()
-	if len(args) == 5 {
-		planMode, _ = args[0].(bool)
-		warnFn, _ = args[1].(func(string))
-		infoFn, _ = args[2].(func(string))
-		stderr, _ = args[3].(io.Writer)
-		onStateChange, _ = args[4].(func())
-	} else {
-		if v, ok := args[0].(ReleaseFn); ok {
-			release = v
-		}
-		if v, ok := args[0].(func(*exec.Cmd)); ok {
-			release = v
-		}
-		planMode, _ = args[1].(bool)
-		warnFn, _ = args[2].(func(string))
-		infoFn, _ = args[3].(func(string))
-		stderr, _ = args[4].(io.Writer)
-		onStateChange, _ = args[5].(func())
-	}
+	parsed := parseConnectArgs(args)
+	release := parsed.release
+	planMode := parsed.planMode
+	warnFn := parsed.warnFn
+	infoFn := parsed.infoFn
+	stderr := parsed.stderr
+	onStateChange := parsed.onStateChange
 	ctx, cancel := context.WithCancel(ctx)
 	m := &Manager{
 		planMode: planMode,
@@ -193,6 +176,40 @@ func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConf
 	}
 
 	return m
+}
+
+type connectArgs struct {
+	release       ReleaseFn
+	planMode      bool
+	warnFn        func(string)
+	infoFn        func(string)
+	stderr        io.Writer
+	onStateChange func()
+}
+
+func parseConnectArgs(args []any) connectArgs {
+	var parsed connectArgs
+	if len(args) == 5 {
+		parsed.planMode, _ = args[0].(bool)
+		parsed.warnFn, _ = args[1].(func(string))
+		parsed.infoFn, _ = args[2].(func(string))
+		parsed.stderr, _ = args[3].(io.Writer)
+		parsed.onStateChange, _ = args[4].(func())
+		return parsed
+	}
+
+	if v, ok := args[0].(ReleaseFn); ok {
+		parsed.release = v
+	}
+	if v, ok := args[0].(func(*exec.Cmd)); ok {
+		parsed.release = v
+	}
+	parsed.planMode, _ = args[1].(bool)
+	parsed.warnFn, _ = args[2].(func(string))
+	parsed.infoFn, _ = args[3].(func(string))
+	parsed.stderr, _ = args[4].(io.Writer)
+	parsed.onStateChange, _ = args[5].(func())
+	return parsed
 }
 
 // connectServer runs one server's connection attempt: handshake, tool list,
