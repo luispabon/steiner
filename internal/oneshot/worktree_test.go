@@ -44,6 +44,8 @@ func TestProvisionWorktreeAndCleanup(t *testing.T) {
 		t.Fatalf(".steiner scaffolding missing: %v", err)
 	}
 
+	assertBranchExists(t, projectRoot, identity.BranchName())
+
 	if err := CleanupWorktree(context.Background(), projectRoot, identity); err != nil {
 		t.Fatalf("CleanupWorktree failed: %v", err)
 	}
@@ -67,6 +69,15 @@ func TestCleanupWorktreeWithoutBranchIsHarmless(t *testing.T) {
 	}
 
 	assertBranchAbsent(t, projectRoot, identity.BranchName())
+}
+
+func assertBranchExists(t *testing.T, projectRoot, branchName string) {
+	t.Helper()
+
+	out := strings.TrimSpace(mustGitOutput(t, projectRoot, "branch", "--list", branchName))
+	if out == "" {
+		t.Fatalf("branch %q missing", branchName)
+	}
 }
 
 func assertBranchAbsent(t *testing.T, projectRoot, branchName string) {

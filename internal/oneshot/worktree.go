@@ -83,10 +83,8 @@ func CleanupWorktree(ctx context.Context, projectRoot string, identity RunIdenti
 	}
 
 	branchName := identity.BranchName()
-	if branchExists(ctx, projectRoot, branchName) {
-		if err := runGit(ctx, projectRoot, "branch", "-D", branchName); err != nil {
-			return err
-		}
+	if err := runGit(ctx, projectRoot, "branch", "-D", branchName); err != nil && !isGitBranchNotFound(err) {
+		return err
 	}
 	return nil
 }
@@ -227,6 +225,14 @@ func removeWorktreeAdminDirAt(projectRoot, commonDir, id string) error {
 		return fmt.Errorf("remove worktree admin dir: %w", err)
 	}
 	return nil
+}
+
+// isGitBranchNotFound reports whether err is git's error for a branch ref that no longer exists.
+func isGitBranchNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "not found")
 }
 
 func isGitWorktreeRemovalMissingPath(err error) bool {
