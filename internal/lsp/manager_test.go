@@ -18,6 +18,20 @@ import (
 
 const managerTestTimeout = 2 * time.Second
 
+// requireSessionStarted fails the test immediately if entryFor/sessionFor
+// did not succeed in starting a real session. Tests that tolerate
+// errNoServer or a nil session on the calls under test can't fail against a
+// manager that never successfully starts a server.
+func requireSessionStarted(t *testing.T, sess session, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("expected session to start, got error: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("expected a non-nil session")
+	}
+}
+
 // rewindSpawnFailure ages every entry's StartedAt past spawnFailureBackoff so a
 // retry is due without the test waiting out the real backoff.
 func rewindSpawnFailure(t *testing.T, m *Manager) {
@@ -330,16 +344,12 @@ func TestManagerExtensionRouting(t *testing.T) {
 	pyFile := filepath.Join(tmpdir, "main.py")
 
 	_, goSess, err := m.entryFor(ctx, goFile)
-	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("entryFor go file: %v", err)
-	}
+	requireSessionStarted(t, goSess, err)
 
 	_, pySess, err := m.entryFor(ctx, pyFile)
-	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("entryFor py file: %v", err)
-	}
+	requireSessionStarted(t, pySess, err)
 
-	if goSess == pySess && goSess != nil {
+	if goSess == pySess {
 		t.Error("go and python servers should be different sessions")
 	}
 }
@@ -424,12 +434,14 @@ func TestManagerNearestRootWins(t *testing.T) {
 
 	// File in inner directory should resolve to inner root.
 	innerFile := filepath.Join(innerDir, "file.go")
-	if _, _, err := m.entryFor(ctx, innerFile); err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("entryFor inner file: %v", err)
-	}
+	_, sess, err := m.entryFor(ctx, innerFile)
+	requireSessionStarted(t, sess, err)
 
 	states := m.ServerStates()
-	if len(states) > 0 && states[0].Root != innerDir {
+	if len(states) == 0 {
+		t.Fatal("no server states")
+	}
+	if states[0].Root != innerDir {
 		t.Errorf("expected root %q, got %q", innerDir, states[0].Root)
 	}
 }
@@ -480,25 +492,17 @@ func TestManagerSameKeyReusesProcess(t *testing.T) {
 	file2 := filepath.Join(tmpdir, "file2.go")
 
 	_, sess1, err := m.entryFor(ctx, file1)
-	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("entryFor file1: %v", err)
-	}
+	requireSessionStarted(t, sess1, err)
 
 	_, sess2, err := m.entryFor(ctx, file2)
-	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("entryFor file2: %v", err)
-	}
+	requireSessionStarted(t, sess2, err)
 
-	// Both should return the same session object (or both nil).
 	if sess1 != sess2 {
-		if sess1 != nil && sess2 != nil {
-			t.Error("two files in same root should reuse the same session")
-		}
+		t.Error("two files in same root should reuse the same session")
 	}
 
-	// Wrap should have been called only once (or not at all, depending on error).
 	calls := callCount.Load()
-	if calls > 1 {
+	if calls != 1 {
 		t.Errorf("spawn called %d times, want 1", calls)
 	}
 }
@@ -551,25 +555,21 @@ func TestManagerDifferentRootsDistinctProcesses(t *testing.T) {
 	file2 := filepath.Join(proj2, "file.go")
 
 	_, sess1, err := m.entryFor(ctx, file1)
-	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("entryFor file1: %v", err)
-	}
+	requireSessionStarted(t, sess1, err)
 
 	_, sess2, err := m.entryFor(ctx, file2)
-	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("entryFor file2: %v", err)
-	}
+	requireSessionStarted(t, sess2, err)
 
-	// Different roots should yield different sessions (or both nil, or one error).
-	if sess1 == sess2 && sess1 != nil && sess2 != nil {
+	if sess1 == sess2 {
 		t.Error("different roots should spawn separate processes")
 	}
 
 	states := m.ServerStates()
-	if len(states) > 1 {
-		if states[0].Root == states[1].Root {
-			t.Errorf("server states have same root: %q", states[0].Root)
-		}
+	if len(states) != 2 {
+		t.Fatalf("expected 2 server states, got %d", len(states))
+	}
+	if states[0].Root == states[1].Root {
+		t.Errorf("server states have same root: %q", states[0].Root)
 	}
 }
 
@@ -618,19 +618,27 @@ func TestManagerConcurrentCallsNoDoubleSpawn(t *testing.T) {
 	file := filepath.Join(tmpdir, "file.go")
 	numGoroutines := 10
 
+	errs := make([]error, numGoroutines)
 	var wg sync.WaitGroup
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
-		go func() {
+		go func(i int) {
 			defer wg.Done()
-			_, _, _ = m.entryFor(ctx, file)
-		}()
+			_, _, err := m.entryFor(ctx, file)
+			errs[i] = err
+		}(i)
 	}
 	wg.Wait()
 
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("entryFor call %d: %v", i, err)
+		}
+	}
+
 	// Only one spawn should have occurred.
 	count := spawnCount.Load()
-	if count > 1 {
+	if count != 1 {
 		t.Errorf("spawn called %d times, want 1 (concurrent calls)", count)
 	}
 }
@@ -808,8 +816,15 @@ func TestManagerCloseTerminatesAllChildren(t *testing.T) {
 	file1 := filepath.Join(proj1, "file.go")
 	file2 := filepath.Join(proj2, "file.go")
 
-	_, _, _ = m.entryFor(ctx, file1)
-	_, _, _ = m.entryFor(ctx, file2)
+	_, sess1, err := m.entryFor(ctx, file1)
+	requireSessionStarted(t, sess1, err)
+	_, sess2, err := m.entryFor(ctx, file2)
+	requireSessionStarted(t, sess2, err)
+
+	statesBeforeClose := m.ServerStates()
+	if len(statesBeforeClose) != 2 {
+		t.Fatalf("expected 2 server states before close, got %d", len(statesBeforeClose))
+	}
 
 	// Close should terminate all.
 	if err := m.Close(); err != nil {
@@ -818,6 +833,9 @@ func TestManagerCloseTerminatesAllChildren(t *testing.T) {
 
 	// All states should be stopped.
 	states := m.ServerStates()
+	if len(states) != 2 {
+		t.Fatalf("expected 2 server states after close, got %d", len(states))
+	}
 	for _, s := range states {
 		if s.Status != ServerStatusStopped {
 			t.Errorf("status = %q, want stopped after close", s.Status)
@@ -965,9 +983,8 @@ func TestManagerCacheDirExistsAndPersists(t *testing.T) {
 	defer cancel()
 
 	file := filepath.Join(tmpdir, "file.go")
-	if _, _, err := m.entryFor(ctx, file); err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("entryFor: %v", err)
-	}
+	_, sess, err := m.entryFor(ctx, file)
+	requireSessionStarted(t, sess, err)
 
 	// Cache directory should exist with 0o700 permissions.
 	entries, err := os.ReadDir(filepath.Join(cacheDir, "steiner", "lsp"))

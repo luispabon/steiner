@@ -183,6 +183,7 @@ func TestStdio(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
+		start := time.Now()
 		var stderr bytes.Buffer
 		_, err := mcp.ConnectSession(ctx, mcp.ServerSpec{
 			Name:    "fixture",
@@ -191,8 +192,15 @@ func TestStdio(t *testing.T) {
 				"STEINER_FIXTURE_STALL_HANDSHAKE": "1",
 			},
 		}, nil, &stderr, 500*time.Millisecond)
+		elapsed := time.Since(start)
 		if err == nil {
 			t.Fatal("Connect succeeded, want error from the handshake timeout")
+		}
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("err = %v, want a wrapped context.DeadlineExceeded", err)
+		}
+		if elapsed < 400*time.Millisecond {
+			t.Errorf("Connect returned after %v, want it to wait out the ~500ms handshake timeout", elapsed)
 		}
 	})
 }
