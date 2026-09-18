@@ -302,11 +302,6 @@ func TestStripBoxChrome(t *testing.T) {
 // TestApplyHighlight
 // ---------------------------------------------------------------------------
 
-// stripANSI is a simple helper for tests: checks if a string has no ESC byte.
-func hasNoANSI(s string) bool {
-	return !strings.ContainsRune(s, '\x1b')
-}
-
 // highlightVisualRange locates the single testSelStyle-painted span in line
 // and returns its visual column range [start, end). If no visible characters
 // carry the highlight, ok is false — this distinguishes an actually-painted

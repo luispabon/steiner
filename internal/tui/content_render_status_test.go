@@ -272,20 +272,3 @@ func TestNonPhaseSeparatorSpacingUnchanged(t *testing.T) {
 		t.Errorf("non-phase separator should end with newline: %q", out)
 	}
 }
-
-// mockPhaseTransitionEvent creates a mock phase transition event for testing
-func mockPhaseTransitionEvent() interface{} {
-	return map[string]interface{}{
-		"from":       "plan",
-		"to":         "implement",
-		"status":     "starting",
-		"model":      "test-model",
-		"session_id": "test-session",
-		"run_id":     "test-run",
-	}
-}
-
-// mockFormatEvent simulates the FormatEvent function output
-func mockFormatEvent(_ interface{}) string {
-	return "phase: phase transition plan -> implement starting model=test-model session=test-session run=test-run"
-}

@@ -565,10 +565,11 @@ func TestStripImagesIfVisionDisabledWithCapabilitiesHolder(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var events []output.Event
 			var visionPtr *bool
-			if tc.name == "falls back to old behavior when holder is nil and vision is false" {
+			switch tc.name {
+			case "falls back to old behavior when holder is nil and vision is false":
 				visionFalse := false
 				visionPtr = &visionFalse
-			} else if tc.name == "does not strip when holder is nil and vision is true" {
+			case "does not strip when holder is nil and vision is true":
 				visionTrue := true
 				visionPtr = &visionTrue
 			}
