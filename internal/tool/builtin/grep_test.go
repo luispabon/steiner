@@ -469,6 +469,84 @@ func TestGrepSearch_MultilineMatchesAcrossLines(t *testing.T) {
 	}
 }
 
+func TestGrepMarkMatchedLines_Boundaries(t *testing.T) {
+	tests := []struct {
+		name       string
+		lines      []string
+		lineStarts []int
+		start      int
+		end        int
+		want       []bool
+	}{
+		{
+			name:       "match ends at next line start",
+			lines:      []string{"alpha", "beta"},
+			lineStarts: []int{0, 6},
+			start:      0,
+			end:        6,
+			want:       []bool{true, false},
+		},
+		{
+			name:       "newline overlap marks both lines",
+			lines:      []string{"alpha", "beta"},
+			lineStarts: []int{0, 6},
+			start:      5,
+			end:        7,
+			want:       []bool{true, true},
+		},
+		{
+			name:       "zero length at line start",
+			lines:      []string{"alpha", "beta"},
+			lineStarts: []int{0, 6},
+			start:      6,
+			end:        6,
+			want:       []bool{false, true},
+		},
+		{
+			name:       "zero length at newline",
+			lines:      []string{"alpha", "beta"},
+			lineStarts: []int{0, 6},
+			start:      5,
+			end:        5,
+			want:       []bool{true, false},
+		},
+		{
+			name:       "empty line in multiline match",
+			lines:      []string{"a", "", "b"},
+			lineStarts: []int{0, 2, 3},
+			start:      1,
+			end:        3,
+			want:       []bool{true, true, false},
+		},
+		{
+			name:       "utf8 uses byte offsets",
+			lines:      []string{"hé", "世界"},
+			lineStarts: []int{0, 4},
+			start:      3,
+			end:        5,
+			want:       []bool{true, true},
+		},
+		{
+			name: "empty file",
+			want: []bool{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := make([]bool, len(tt.lines))
+			grepMarkMatchedLines(got, tt.lines, tt.lineStarts, tt.start, tt.end)
+			if len(got) != len(tt.want) {
+				t.Fatalf("len(got) = %d, want %d", len(got), len(tt.want))
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("line %d marked = %t, want %t", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestRuneColumn(t *testing.T) {
 	tests := []struct {
 		name       string
