@@ -114,11 +114,18 @@ func focusCommand() []string {
 	return nil
 }
 
+const focusTimeout = 3 * time.Second
+
 // focusTerminal attempts to raise the terminal window. All failures are swallowed.
 func focusTerminal() {
-	argv := focusCommand()
+	runFocusCommand(focusCommand(), focusTimeout)
+}
+
+func runFocusCommand(argv []string, timeout time.Duration) {
 	if argv == nil {
 		return
 	}
-	_ = exec.CommandContext(context.Background(), argv[0], argv[1:]...).Run()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	_ = exec.CommandContext(ctx, argv[0], argv[1:]...).Run()
 }

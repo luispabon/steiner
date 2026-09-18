@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const retryAfterMaxDefault = 60 * time.Second
+
 // HTTPError captures a non-success provider HTTP response.
 type HTTPError struct {
 	StatusCode int
@@ -128,9 +130,12 @@ func RetryableProviderError(err error) (time.Duration, bool) {
 	if !isRetryableHTTPStatus(httpErr.StatusCode) {
 		return 0, false
 	}
-	delay, hasHeader := retryAfterDelay(httpErr.Header, 0)
+	delay, hasHeader := retryAfterDelay(httpErr.Header, retryAfterMaxDefault)
 	if !hasHeader && httpErr.StatusCode == http.StatusTooManyRequests {
 		if parsed, ok := parseLiteLLMRetryAfter(httpErr.Body); ok {
+			if parsed > retryAfterMaxDefault {
+				parsed = retryAfterMaxDefault
+			}
 			delay = parsed
 		}
 	}
