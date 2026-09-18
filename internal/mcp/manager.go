@@ -457,15 +457,6 @@ func (m *Manager) ServerStates() []ServerState {
 	return out
 }
 
-// PlanMode returns whether MCP tools currently run in plan mode.
-// Safe to call on a nil Manager.
-func (m *Manager) PlanMode() bool {
-	if m == nil {
-		return false
-	}
-	return m.planMode
-}
-
 // UpdateApprover sets the approver that MCP tool handlers resolve lazily at
 // call time. Call this after the approver becomes available (e.g. after
 // interactive session construction) so MCP tools can be invoked; definitions
