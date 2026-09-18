@@ -231,7 +231,7 @@ func TestEntryForKeyRecordsLastUsedUnderEntryLock(t *testing.T) {
 	after := ent.state.LastUsed
 	ent.mu.Unlock()
 	if !after.After(before) {
-		t.Errorf("LastUsed = %v, want later than %v: a sessionFor hit must refresh it", after, before)
+		t.Errorf("LastUsed = %v, want later than %v: an entryFor hit must refresh it", after, before)
 	}
 
 	stop := make(chan struct{})

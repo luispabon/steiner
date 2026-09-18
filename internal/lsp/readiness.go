@@ -3,8 +3,6 @@ package lsp
 import (
 	"context"
 	"time"
-
-	"github.com/luispabon/steiner/internal/config"
 )
 
 // readinessState is the lifecycle state of a server's readiness.
@@ -30,7 +28,7 @@ type readiness struct {
 }
 
 // newReadiness creates a readiness tracker for a newly-spawned session.
-func newReadiness(_ config.LSPConfig) *readiness {
+func newReadiness() *readiness {
 	return &readiness{
 		state:      readinessNotReady,
 		readyCh:    make(chan struct{}),

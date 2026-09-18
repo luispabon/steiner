@@ -78,7 +78,7 @@ func TestReadyForFileReadySession(t *testing.T) {
 	ent := &entry{
 		state:     ServerState{Status: ServerStatusReady},
 		session:   sess,
-		readiness: newReadiness(cfg),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 	m.sessions[sessionKey{server: "go", root: tmpdir}] = ent
@@ -156,7 +156,7 @@ func installReadyFakeSession(ctx context.Context, t *testing.T, m *Manager, fs *
 	ent := &entry{
 		state:     ServerState{Status: ServerStatusReady},
 		session:   sess,
-		readiness: newReadiness(m.cfg),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 	m.sessions[sessionKey{server: "go", root: workspace}] = ent

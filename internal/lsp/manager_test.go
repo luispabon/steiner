@@ -272,8 +272,8 @@ func TestDoReapReadsSessionUnderLock(t *testing.T) {
 		wg.Add(1)
 		go func(root string) {
 			defer wg.Done()
-			if _, err := m.sessionFor(ctx, filepath.Join(root, "file.go")); err != nil {
-				t.Errorf("sessionFor %s: %v", root, err)
+			if _, _, err := m.entryFor(ctx, filepath.Join(root, "file.go")); err != nil {
+				t.Errorf("entryFor %s: %v", root, err)
 			}
 		}(root)
 	}
@@ -329,14 +329,14 @@ func TestManagerExtensionRouting(t *testing.T) {
 	goFile := filepath.Join(tmpdir, "main.go")
 	pyFile := filepath.Join(tmpdir, "main.py")
 
-	goSess, err := m.sessionFor(ctx, goFile)
+	_, goSess, err := m.entryFor(ctx, goFile)
 	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("sessionFor go file: %v", err)
+		t.Fatalf("entryFor go file: %v", err)
 	}
 
-	pySess, err := m.sessionFor(ctx, pyFile)
+	_, pySess, err := m.entryFor(ctx, pyFile)
 	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("sessionFor py file: %v", err)
+		t.Fatalf("entryFor py file: %v", err)
 	}
 
 	if goSess == pySess && goSess != nil {
@@ -371,9 +371,9 @@ func TestManagerNoServerForExtension(t *testing.T) {
 
 	// Try to get a session for a file with unsupported extension.
 	unsupported := filepath.Join(tmpdir, "file.rs")
-	_, err := m.sessionFor(ctx, unsupported)
+	_, _, err := m.entryFor(ctx, unsupported)
 	if !errors.Is(err, errNoServer) {
-		t.Errorf("sessionFor unsupported file: got %v, want errNoServer", err)
+		t.Errorf("entryFor unsupported file: got %v, want errNoServer", err)
 	}
 }
 
@@ -424,8 +424,8 @@ func TestManagerNearestRootWins(t *testing.T) {
 
 	// File in inner directory should resolve to inner root.
 	innerFile := filepath.Join(innerDir, "file.go")
-	if _, err := m.sessionFor(ctx, innerFile); err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("sessionFor inner file: %v", err)
+	if _, _, err := m.entryFor(ctx, innerFile); err != nil && !errors.Is(err, errNoServer) {
+		t.Fatalf("entryFor inner file: %v", err)
 	}
 
 	states := m.ServerStates()
@@ -479,14 +479,14 @@ func TestManagerSameKeyReusesProcess(t *testing.T) {
 	file1 := filepath.Join(tmpdir, "file1.go")
 	file2 := filepath.Join(tmpdir, "file2.go")
 
-	sess1, err := m.sessionFor(ctx, file1)
+	_, sess1, err := m.entryFor(ctx, file1)
 	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("sessionFor file1: %v", err)
+		t.Fatalf("entryFor file1: %v", err)
 	}
 
-	sess2, err := m.sessionFor(ctx, file2)
+	_, sess2, err := m.entryFor(ctx, file2)
 	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("sessionFor file2: %v", err)
+		t.Fatalf("entryFor file2: %v", err)
 	}
 
 	// Both should return the same session object (or both nil).
@@ -550,14 +550,14 @@ func TestManagerDifferentRootsDistinctProcesses(t *testing.T) {
 	file1 := filepath.Join(proj1, "file.go")
 	file2 := filepath.Join(proj2, "file.go")
 
-	sess1, err := m.sessionFor(ctx, file1)
+	_, sess1, err := m.entryFor(ctx, file1)
 	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("sessionFor file1: %v", err)
+		t.Fatalf("entryFor file1: %v", err)
 	}
 
-	sess2, err := m.sessionFor(ctx, file2)
+	_, sess2, err := m.entryFor(ctx, file2)
 	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("sessionFor file2: %v", err)
+		t.Fatalf("entryFor file2: %v", err)
 	}
 
 	// Different roots should yield different sessions (or both nil, or one error).
@@ -623,7 +623,7 @@ func TestManagerConcurrentCallsNoDoubleSpawn(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = m.sessionFor(ctx, file)
+			_, _, _ = m.entryFor(ctx, file)
 		}()
 	}
 	wg.Wait()
@@ -665,7 +665,7 @@ func TestManagerMissingBinaryMarkedFailed(t *testing.T) {
 
 	// First call should fail and warn.
 	file := filepath.Join(tmpdir, "file.go")
-	_, err1 := m.sessionFor(ctx, file)
+	_, _, err1 := m.entryFor(ctx, file)
 	if err1 == nil {
 		t.Fatal("expected error for missing binary")
 	}
@@ -676,7 +676,7 @@ func TestManagerMissingBinaryMarkedFailed(t *testing.T) {
 	}
 
 	// Subsequent call within cooldown should return same error without respawning.
-	_, err2 := m.sessionFor(ctx, file)
+	_, _, err2 := m.entryFor(ctx, file)
 	if err2 == nil {
 		t.Fatal("expected error for missing binary on second call")
 	}
@@ -688,7 +688,7 @@ func TestManagerMissingBinaryMarkedFailed(t *testing.T) {
 
 	// After the spawn-failure backoff, should retry (but still fail, and warn again).
 	rewindSpawnFailure(t, m)
-	_, err3 := m.sessionFor(ctx, file)
+	_, _, err3 := m.entryFor(ctx, file)
 	if err3 == nil {
 		t.Fatal("expected error for missing binary after cooldown")
 	}
@@ -737,9 +737,9 @@ func TestManagerIdleReapingTerminatesServer(t *testing.T) {
 	file := filepath.Join(tmpdir, "file.go")
 
 	// Spawn a session.
-	_, err := m.sessionFor(ctx, file)
+	_, _, err := m.entryFor(ctx, file)
 	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("sessionFor: %v", err)
+		t.Fatalf("entryFor: %v", err)
 	}
 
 	// Check the state is ready.
@@ -808,8 +808,8 @@ func TestManagerCloseTerminatesAllChildren(t *testing.T) {
 	file1 := filepath.Join(proj1, "file.go")
 	file2 := filepath.Join(proj2, "file.go")
 
-	_, _ = m.sessionFor(ctx, file1)
-	_, _ = m.sessionFor(ctx, file2)
+	_, _, _ = m.entryFor(ctx, file1)
+	_, _, _ = m.entryFor(ctx, file2)
 
 	// Close should terminate all.
 	if err := m.Close(); err != nil {
@@ -899,7 +899,7 @@ func TestManagerContextCancellationDuringSpawn(t *testing.T) {
 		defer wg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_, _ = m.sessionFor(ctx, file)
+		_, _, _ = m.entryFor(ctx, file)
 	}()
 
 	// Wait for goroutine A to enter the stall point.
@@ -910,7 +910,7 @@ func TestManagerContextCancellationDuringSpawn(t *testing.T) {
 	bgCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	_, err := m.sessionFor(bgCtx, file)
+	_, _, err := m.entryFor(bgCtx, file)
 
 	elapsed := time.Since(start)
 
@@ -920,7 +920,7 @@ func TestManagerContextCancellationDuringSpawn(t *testing.T) {
 	}
 
 	if elapsed >= 1*time.Second {
-		t.Errorf("sessionFor took %v, should have returned within ~100ms due to context timeout", elapsed)
+		t.Errorf("entryFor took %v, should have returned within ~100ms due to context timeout", elapsed)
 	}
 
 	// Release goroutine A so it can clean up.
@@ -965,8 +965,8 @@ func TestManagerCacheDirExistsAndPersists(t *testing.T) {
 	defer cancel()
 
 	file := filepath.Join(tmpdir, "file.go")
-	if _, err := m.sessionFor(ctx, file); err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("sessionFor: %v", err)
+	if _, _, err := m.entryFor(ctx, file); err != nil && !errors.Is(err, errNoServer) {
+		t.Fatalf("entryFor: %v", err)
 	}
 
 	// Cache directory should exist with 0o700 permissions.

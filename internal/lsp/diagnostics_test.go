@@ -44,7 +44,7 @@ func TestDiagnosticsSinglePublication(t *testing.T) {
 	ent := &entry{
 		state:     ServerState{Status: ServerStatusReady},
 		session:   sess,
-		readiness: newReadiness(cfg),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 
@@ -128,7 +128,7 @@ func TestDiagnosticsReplaceNotAppend(t *testing.T) {
 	ent := &entry{
 		state:     ServerState{Status: ServerStatusReady},
 		session:   sess,
-		readiness: newReadiness(cfg),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 
@@ -233,7 +233,7 @@ func TestDiagnosticsOtherFilesExcluded(t *testing.T) {
 	ent := &entry{
 		state:     ServerState{Status: ServerStatusReady},
 		session:   sess,
-		readiness: newReadiness(cfg),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 
@@ -324,7 +324,7 @@ func TestDiagnosticsEmptyWindow(t *testing.T) {
 	ent := &entry{
 		state:     ServerState{Status: ServerStatusReady},
 		session:   sess,
-		readiness: newReadiness(cfg),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 
@@ -381,7 +381,7 @@ func TestDiagnosticsEmptyPublication(t *testing.T) {
 	ent := &entry{
 		state:     ServerState{Status: ServerStatusReady},
 		session:   sess,
-		readiness: newReadiness(cfg),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 
@@ -451,7 +451,7 @@ func TestDiagnosticsDistinguishEmptyVsNone(t *testing.T) {
 		ent := &entry{
 			state:     ServerState{Status: ServerStatusReady},
 			session:   sess,
-			readiness: newReadiness(cfg),
+			readiness: newReadiness(),
 		}
 		ent.readiness.markReady()
 
@@ -509,7 +509,7 @@ func TestDiagnosticsDistinguishEmptyVsNone(t *testing.T) {
 		ent := &entry{
 			state:     ServerState{Status: ServerStatusReady},
 			session:   sess,
-			readiness: newReadiness(cfg),
+			readiness: newReadiness(),
 		}
 		ent.readiness.markReady()
 
@@ -574,7 +574,7 @@ func TestDiagnosticsCancelledCollection(t *testing.T) {
 			ent := &entry{
 				state:     ServerState{Status: ServerStatusReady},
 				session:   sess,
-				readiness: newReadiness(cfg),
+				readiness: newReadiness(),
 			}
 			ent.readiness.markReady()
 
@@ -645,7 +645,7 @@ func TestDiagnosticsCapAtMaxResults(t *testing.T) {
 	ent := &entry{
 		state:     ServerState{Status: ServerStatusReady},
 		session:   sess,
-		readiness: newReadiness(cfg),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 
@@ -723,7 +723,7 @@ func TestDiagnosticsSeverityOrdering(t *testing.T) {
 	ent := &entry{
 		state:     ServerState{Status: ServerStatusReady},
 		session:   sess,
-		readiness: newReadiness(cfg),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 
@@ -836,7 +836,7 @@ func TestDiagnosticsStaleNotificationsNotLeaking(t *testing.T) {
 	ent := &entry{
 		state:     ServerState{Status: ServerStatusReady},
 		session:   sess,
-		readiness: newReadiness(cfg),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 
@@ -972,7 +972,7 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 	ent := &entry{
 		state:     ServerState{Status: ServerStatusReady},
 		session:   sess,
-		readiness: newReadiness(cfg),
+		readiness: newReadiness(),
 	}
 	ent.readiness.markReady()
 
