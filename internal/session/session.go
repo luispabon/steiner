@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/luispabon/steiner/internal/agent"
 )
@@ -59,8 +60,9 @@ func generateID() (string, error) {
 // TitleFromPrompt truncates a prompt to 80 characters and collapses whitespace.
 func TitleFromPrompt(prompt string) string {
 	title := strings.Join(strings.Fields(prompt), " ")
-	if len(title) > 80 {
-		title = title[:80]
+	if utf8.RuneCountInString(title) > 80 {
+		runes := []rune(title)
+		title = string(runes[:80])
 	}
 	return title
 }

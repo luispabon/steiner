@@ -2,8 +2,10 @@ package session
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/luispabon/steiner/internal/agent"
 )
@@ -456,6 +458,79 @@ func TestForkCarriesSkills(t *testing.T) {
 				if forked.Skills[i] != skill {
 					t.Errorf("forked Skills[%d] = %q, want %q", i, forked.Skills[i], skill)
 				}
+			}
+		})
+	}
+}
+
+func TestTitleFromPromptUTF8(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "ASCII within 80 chars",
+			input: "Hello world test",
+			want:  "Hello world test",
+		},
+		{
+			name:  "multi-byte characters within limit",
+			input: "こんにちは世界テスト",
+			want:  "こんにちは世界テスト",
+		},
+		{
+			name:  "multi-byte characters at limit",
+			input: strings.Repeat("日", 80),
+			want:  strings.Repeat("日", 80),
+		},
+		{
+			name:  "multi-byte characters exceeding limit",
+			input: strings.Repeat("日", 100),
+			want:  strings.Repeat("日", 80),
+		},
+		{
+			name:  "mixed ASCII and multi-byte within limit",
+			input: "Hello 世界 Test",
+			want:  "Hello 世界 Test",
+		},
+		{
+			name:  "mixed ASCII and multi-byte exceeding limit",
+			input: "Test " + strings.Repeat("日", 100),
+			want:  "Test " + strings.Repeat("日", 75),
+		},
+		{
+			name:  "emoji within limit",
+			input: "Hello 👋 " + strings.Repeat("World ", 10),
+			want:  "Hello 👋 World World World World World World World World World World",
+		},
+		{
+			name:  "multiple spaces collapsed",
+			input: "Hello    " + strings.Repeat("日", 100),
+			want:  "Hello " + strings.Repeat("日", 74),
+		},
+		{
+			name:  "whitespace normalization with multi-byte",
+			input: "  First\t\t日本語\n\nSecond  ",
+			want:  "First 日本語 Second",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := TitleFromPrompt(tt.input)
+			if got != tt.want {
+				t.Errorf("TitleFromPrompt() = %q, want %q", got, tt.want)
+			}
+			// Verify result is valid UTF-8
+			if !utf8.ValidString(got) {
+				t.Errorf("TitleFromPrompt produced invalid UTF-8")
+			}
+			// Verify rune count doesn't exceed 80
+			if utf8.RuneCountInString(got) > 80 {
+				t.Errorf("rune count %d exceeds limit 80", utf8.RuneCountInString(got))
 			}
 		})
 	}
