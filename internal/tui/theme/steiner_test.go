@@ -32,6 +32,10 @@ func TestBuildGlamourStyleSheet_rendersBold(t *testing.T) {
 	if !strings.Contains(out, "bold text") {
 		t.Errorf("rendered output lost text: %q", out)
 	}
+	// Verify ANSI escape sequences are present (bold formatting requires them)
+	if !strings.ContainsRune(out, '\x1b') {
+		t.Errorf("rendered output missing ANSI escapes for bold formatting: %q", out)
+	}
 }
 
 func TestBuildGlamourStyleSheet_rendersHeading(t *testing.T) {
@@ -50,6 +54,10 @@ func TestBuildGlamourStyleSheet_rendersHeading(t *testing.T) {
 	}
 	if !strings.Contains(out, "Heading") {
 		t.Errorf("rendered output lost text: %q", out)
+	}
+	// Verify ANSI escape sequences are present (heading styling requires them)
+	if !strings.ContainsRune(out, '\x1b') {
+		t.Errorf("rendered output missing ANSI escapes for heading styling: %q", out)
 	}
 }
 

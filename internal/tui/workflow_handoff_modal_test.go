@@ -151,6 +151,11 @@ func TestWorkflowHandoffModalBoldLabels(t *testing.T) {
 	if !strings.Contains(stripped, "Planning folder:") {
 		t.Errorf("stripped modal should contain 'Planning folder:' label")
 	}
+
+	// Verify that bold ANSI escape sequences are present in the rendered output
+	if !strings.ContainsRune(rendered, '\x1b') {
+		t.Errorf("modal should contain ANSI escape sequences for bold labels, got: %q", rendered)
+	}
 }
 
 func TestWorkflowHandoffModalModelLineRendering(t *testing.T) {

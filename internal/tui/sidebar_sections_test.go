@@ -470,16 +470,19 @@ func TestPerformanceSection(t *testing.T) {
 		perfOutputTPS         float64
 		sessionCacheHitRate   float64
 		sessionCacheHitRateOK bool
+		wantDuration          string
+		wantTTFT              string
+		wantTPS               string
 		wantCacheHitValue     string
 	}{
-		{"all zeros", 0, 0, 0.0, 0.95, true, "95.0%"},
-		{"with duration", 1200, 0, 0.0, 0.95, true, "95.0%"},
-		{"with ttft", 0, 340, 0.0, 0.95, true, "95.0%"},
-		{"with tps", 0, 0, 42.1, 0.95, true, "95.0%"},
-		{"all values", 1200, 340, 42.1, 0.95, true, "95.0%"},
-		{"cache hit undefined", 0, 0, 0.0, 0.0, false, "—"},
-		{"cache hit zero percent", 0, 0, 0.0, 0.0, true, "0.0%"},
-		{"cache hit partial", 0, 0, 0.0, 0.782, true, "78.2%"},
+		{"all zeros", 0, 0, 0.0, 0.95, true, "—", "—", "—", "95.0%"},
+		{"with duration", 1200, 0, 0.0, 0.95, true, "1.2s", "—", "—", "95.0%"},
+		{"with ttft", 0, 340, 0.0, 0.95, true, "—", "340ms", "—", "95.0%"},
+		{"with tps", 0, 0, 42.1, 0.95, true, "—", "—", "42.1 t/s", "95.0%"},
+		{"all values", 1200, 340, 42.1, 0.95, true, "1.2s", "340ms", "42.1 t/s", "95.0%"},
+		{"cache hit undefined", 0, 0, 0.0, 0.0, false, "—", "—", "—", "—"},
+		{"cache hit zero percent", 0, 0, 0.0, 0.0, true, "—", "—", "—", "0.0%"},
+		{"cache hit partial", 0, 0, 0.0, 0.782, true, "—", "—", "—", "78.2%"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -502,6 +505,15 @@ func TestPerformanceSection(t *testing.T) {
 			joined := strings.Join(got, "\n")
 			if !strings.Contains(joined, "PERFORMANCE") {
 				t.Errorf("performanceSection() missing label %q in %q", "PERFORMANCE", joined)
+			}
+			if !strings.Contains(joined, tc.wantDuration) {
+				t.Errorf("performanceSection() missing duration value %q in %q", tc.wantDuration, joined)
+			}
+			if !strings.Contains(joined, tc.wantTTFT) {
+				t.Errorf("performanceSection() missing ttft value %q in %q", tc.wantTTFT, joined)
+			}
+			if !strings.Contains(joined, tc.wantTPS) {
+				t.Errorf("performanceSection() missing tps value %q in %q", tc.wantTPS, joined)
 			}
 			if !strings.Contains(joined, tc.wantCacheHitValue) {
 				t.Errorf("performanceSection() missing cache hit value %q in %q", tc.wantCacheHitValue, joined)
