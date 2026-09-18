@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/diagnostics"
 )
 
@@ -60,7 +59,7 @@ func newToolStreamExecutor(t *testing.T, reg *Registry, root string) (*Executor,
 	}
 	t.Cleanup(func() { _ = writer.Close() })
 
-	executor := NewExecutor(reg, config.Config{}, nil, root, "", Unsandboxed{})
+	executor := NewExecutor(reg, rootOnlyConfig(), nil, root, "", Unsandboxed{})
 	executor.WithDiagnostics(writer)
 	return executor, diagDir
 }

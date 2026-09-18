@@ -1674,7 +1674,7 @@ func TestBuildChildRunSandboxTmpDir(t *testing.T) {
 		t.Fatalf("mkdir sandbox tmp dir: %v", err)
 	}
 
-	pp := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	pp := tool.NewPathPolicy(workDir, config.PathsConfig{ProjectRootOnly: true})
 	parent := tool.NewRegistry(builtin.NewMutateTool(builtin.Env{WorkDir: workDir, PathPolicy: &pp}))
 
 	spec := Spec{
@@ -1700,6 +1700,7 @@ func TestBuildChildRunSandboxTmpDir(t *testing.T) {
 				Events:        output.NoopSink{},
 				WorkDir:       workDir,
 				Provider:      stubProvider{},
+				Paths:         config.PathsConfig{ProjectRootOnly: true},
 				SandboxTmpDir: tt.sandboxTmpDir,
 			}
 			req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)

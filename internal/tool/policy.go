@@ -162,15 +162,21 @@ func (p PathPolicy) pathWithinSandboxTmp(path string) bool {
 }
 
 // allowed reports whether a path is inside the project root, or, for a
-// writable operation, inside the configured sandbox tmp dir.
+// writable operation, inside the configured sandbox tmp dir. Containment is
+// only enforced when the policy root is set and project_root_only is on.
 func (p PathPolicy) allowed(path string, writable bool) bool {
-	if p.root == "" {
+	if p.root == "" || !p.projectRootOnly {
 		return true
 	}
-	if pathWithinRoot(p.root, path) {
+	if writable && p.pathWithinSandboxTmp(path) {
 		return true
 	}
-	return writable && p.pathWithinSandboxTmp(path)
+	within, err := canonicalPathWithin(p.root, path)
+	if err != nil {
+		// Symlink resolution is defense in depth; fall back to the lexical check.
+		return pathWithinRoot(p.root, path)
+	}
+	return within
 }
 
 func (p PathPolicy) ensureAllowed(path string, writable bool) error {
@@ -376,6 +382,38 @@ func expandTilde(path string) string {
 		}
 	}
 	return path
+}
+
+// PathWithinRoot reports whether path is lexically contained within root. Both
+// are expected to be cleaned absolute paths; symlinks are not resolved.
+func PathWithinRoot(root, path string) bool {
+	return pathWithinRoot(root, path)
+}
+
+// canonicalPathWithin reports whether path, after resolving symlinks in itself
+// (or in its nearest existing ancestor, for paths not yet created), is
+// contained within root (also resolved). It errors when root or an existing
+// path component cannot be resolved.
+func canonicalPathWithin(root, path string) (bool, error) {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false, fmt.Errorf("resolve policy root: %w", err)
+	}
+	target := path
+	for {
+		resolved, resolveErr := filepath.EvalSymlinks(target)
+		if resolveErr == nil {
+			return pathWithinRoot(resolvedRoot, filepath.Clean(resolved)), nil
+		}
+		if !os.IsNotExist(resolveErr) {
+			return false, fmt.Errorf("resolve policy path: %w", resolveErr)
+		}
+		parent := filepath.Dir(target)
+		if parent == target {
+			return false, nil
+		}
+		target = parent
+	}
 }
 
 func pathWithinRoot(root, path string) bool {
