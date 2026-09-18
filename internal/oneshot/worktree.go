@@ -63,7 +63,8 @@ func provisionWorktreeAt(ctx context.Context, projectRoot string, identity RunId
 	}, nil
 }
 
-// CleanupWorktree prunes worktree metadata, removes the checkout, and removes stale admin dirs.
+// CleanupWorktree prunes worktree metadata, removes the checkout and stale admin dirs,
+// then discards the run branch. Cleanup means discard, so the branch is force deleted.
 func CleanupWorktree(ctx context.Context, projectRoot string, identity RunIdentity) error {
 	worktreePath := identity.WorktreePath(projectRoot)
 	if err := runGit(ctx, projectRoot, "worktree", "prune"); err != nil {
@@ -78,6 +79,11 @@ func CleanupWorktree(ctx context.Context, projectRoot string, identity RunIdenti
 		return fmt.Errorf("remove worktree path: %w", err)
 	}
 	if err := removeWorktreeAdminDir(ctx, projectRoot, identity); err != nil {
+		return err
+	}
+
+	branchName := identity.BranchName()
+	if err := runGit(ctx, projectRoot, "branch", "-D", branchName); err != nil && !isGitBranchNotFound(err) {
 		return err
 	}
 	return nil
@@ -219,6 +225,14 @@ func removeWorktreeAdminDirAt(projectRoot, commonDir, id string) error {
 		return fmt.Errorf("remove worktree admin dir: %w", err)
 	}
 	return nil
+}
+
+// isGitBranchNotFound reports whether err is git's error for a branch ref that no longer exists.
+func isGitBranchNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "not found")
 }
 
 func isGitWorktreeRemovalMissingPath(err error) bool {

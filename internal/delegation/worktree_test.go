@@ -425,8 +425,10 @@ func TestPruneProcessCodeWorktrees_ContinuesAfterPruneError(t *testing.T) {
 	if !strings.Contains(err.Error(), "prune process worktrees") {
 		t.Fatalf("PruneProcessCodeWorktrees error = %v, want process-prune context", err)
 	}
-	if removedCount != 1 {
-		t.Fatalf("PruneProcessCodeWorktrees returned %d, want 1 successful prune", removedCount)
+	// Both git removals succeed, so both count as removed even though the
+	// first worktree's branch deletion failed while the second still used it.
+	if removedCount != 2 {
+		t.Fatalf("PruneProcessCodeWorktrees returned %d, want 2 successful prunes", removedCount)
 	}
 
 	worktrees, err := ListCodeWorktrees(repo)
@@ -1130,6 +1132,48 @@ func TestPruneCodeWorktree_DeletesBranch(t *testing.T) {
 	branchListOutput = runCmdOutput(t, repo, "git", "branch", "--list", branchName)
 	if strings.TrimSpace(branchListOutput) != "" {
 		t.Errorf("branch %q should not exist after prune, got: %q", branchName, branchListOutput)
+	}
+}
+
+func TestPruneCodeWorktree_DeletesBranchDespiteCleanupFailure(t *testing.T) {
+	ctx := context.Background()
+	repo, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	// Provision a worktree.
+	wt, err := ProvisionCodeWorktree(ctx, repo, "cleanup-failure-test")
+	if err != nil {
+		t.Fatalf("ProvisionCodeWorktree failed: %v", err)
+	}
+
+	// Extract the relID and branch name for verification.
+	delegationBase := filepath.Join(repo, ".steiner", "worktrees")
+	relID, err := filepath.Rel(delegationBase, wt.Path)
+	if err != nil {
+		t.Fatalf("extract relID: %v", err)
+	}
+	branchName := wt.Branch
+
+	// Inject a stale-checkout removal failure to exercise post-removal cleanup.
+	originalRemoveAll := removeAll
+	t.Cleanup(func() { removeAll = originalRemoveAll })
+	removeAll = func(string) error { return errors.New("injected removeAll failure") }
+
+	removed, err := PruneCodeWorktree(ctx, repo, relID)
+	if !removed {
+		t.Errorf("PruneCodeWorktree should report removed=true after successful git worktree removal")
+	}
+	if err == nil {
+		t.Fatalf("PruneCodeWorktree should return the cleanup failure")
+	}
+	if !strings.Contains(err.Error(), "injected removeAll failure") {
+		t.Errorf("cleanup error should surface injected failure, got: %v", err)
+	}
+
+	// Branch deletion must still have been attempted despite the cleanup failure.
+	branchListOutput := runCmdOutput(t, repo, "git", "branch", "--list", branchName)
+	if strings.TrimSpace(branchListOutput) != "" {
+		t.Errorf("branch %q should be deleted despite cleanup failure, got: %q", branchName, branchListOutput)
 	}
 }
 

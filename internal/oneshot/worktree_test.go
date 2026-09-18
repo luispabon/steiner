@@ -44,12 +44,48 @@ func TestProvisionWorktreeAndCleanup(t *testing.T) {
 		t.Fatalf(".steiner scaffolding missing: %v", err)
 	}
 
+	assertBranchExists(t, projectRoot, identity.BranchName())
+
 	if err := CleanupWorktree(context.Background(), projectRoot, identity); err != nil {
 		t.Fatalf("CleanupWorktree failed: %v", err)
 	}
 
 	if _, err := os.Stat(worktree.Path); !os.IsNotExist(err) {
 		t.Fatalf("worktree path still exists after cleanup: %v", err)
+	}
+	assertBranchAbsent(t, projectRoot, identity.BranchName())
+}
+
+func TestCleanupWorktreeWithoutBranchIsHarmless(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "abc999", Slug: "no-branch"}
+
+	// No worktree and no branch were ever provisioned; cleanup must still succeed
+	// and stay repeatable.
+	for i := 1; i <= 2; i++ {
+		if err := CleanupWorktree(context.Background(), projectRoot, identity); err != nil {
+			t.Fatalf("CleanupWorktree call %d failed: %v", i, err)
+		}
+	}
+
+	assertBranchAbsent(t, projectRoot, identity.BranchName())
+}
+
+func assertBranchExists(t *testing.T, projectRoot, branchName string) {
+	t.Helper()
+
+	out := strings.TrimSpace(mustGitOutput(t, projectRoot, "branch", "--list", branchName))
+	if out == "" {
+		t.Fatalf("branch %q missing", branchName)
+	}
+}
+
+func assertBranchAbsent(t *testing.T, projectRoot, branchName string) {
+	t.Helper()
+
+	out := strings.TrimSpace(mustGitOutput(t, projectRoot, "branch", "--list", branchName))
+	if out != "" {
+		t.Fatalf("branch %q still exists: %q", branchName, out)
 	}
 }
 
