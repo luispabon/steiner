@@ -384,8 +384,10 @@ func (g *runGroup) Add(n int) {
 }
 
 func (g *runGroup) Done() {
-	g.wg.Done()
+	// Decrement the active count before releasing the WaitGroup waiter, so
+	// idle() can never observe a completed wait with a stale active count.
 	g.active.Add(-1)
+	g.wg.Done()
 }
 
 func (g *runGroup) Wait() { g.wg.Wait() }
