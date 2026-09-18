@@ -29,31 +29,10 @@ func (a worktreeAutoApprover) RequestApproval(_ context.Context, req tool.Approv
 		if scope == "" {
 			scope = req.Path.Preview.WorkDir
 		}
-		allowed = pathWithinRoot(a.worktreeRoot, scope)
+		scope = filepath.Clean(strings.TrimSpace(scope))
+		allowed = tool.PathWithinRoot(a.worktreeRoot, scope)
 	}
 
 	req.Response <- tool.ApprovalResponse{Allow: allowed}
 	return nil
-}
-
-func pathWithinRoot(root, candidate string) bool {
-	root = filepath.Clean(strings.TrimSpace(root))
-	candidate = filepath.Clean(strings.TrimSpace(candidate))
-	if root == "" || candidate == "" {
-		return false
-	}
-	rel, err := filepath.Rel(root, candidate)
-	if err != nil {
-		return false
-	}
-	if rel == "." {
-		return true
-	}
-	if rel == "" {
-		return false
-	}
-	if strings.HasPrefix(rel, "..") {
-		return false
-	}
-	return true
 }
