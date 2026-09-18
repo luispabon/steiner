@@ -141,7 +141,13 @@ func TestManagerSessionSurvivesRequestContextCancellation(t *testing.T) {
 	}
 }
 
-func TestManagerReaperDoesNotKillInFlightRequests(t *testing.T) {
+// TestManagerIdleReapRespawnsSession pins the idle-reaping behavior this test
+// actually exercises: an idle session is closed (its process exits) and a
+// later request for the same file spawns a fresh, usable session. It does
+// not exercise in-flight request survival, since the manager has no
+// mechanism that tracks or protects requests in flight against the reaper -
+// only entry.LastUsed, refreshed at the start of entryFor, guards reaping.
+func TestManagerIdleReapRespawnsSession(t *testing.T) {
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -180,27 +186,24 @@ func TestManagerReaperDoesNotKillInFlightRequests(t *testing.T) {
 
 	// Spawn a session.
 	_, sess1, err := m.entryFor(ctx, file)
-	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("entryFor: %v", err)
+	requireSessionStarted(t, sess1, err)
+
+	// Wait for the idle timeout to pass; the reaper should close sess1.
+	select {
+	case <-sess1.Exited():
+	case <-time.After(lifecycleTestTimeout):
+		t.Fatal("timeout waiting for idle-reaped session to exit")
 	}
 
-	// Wait for the idle timeout to pass (session should be reaped).
-	time.Sleep(250 * time.Millisecond)
-
-	// Now call entryFor again. The reaper may have tried to kill the session,
-	// but the session should still be accessible or a new one created.
+	// A new request for the same file should spawn a fresh, usable session.
 	ctx2, cancel2 := context.WithTimeout(context.Background(), lifecycleTestTimeout)
 	defer cancel2()
 
 	_, sess2, err := m.entryFor(ctx2, file)
-	if err != nil && !errors.Is(err, errNoServer) {
-		t.Fatalf("entryFor after idle: %v", err)
-	}
+	requireSessionStarted(t, sess2, err)
 
-	// Both should be non-nil or both nil. If sess1 is non-nil, sess2 should either
-	// be the same (if not reaped yet) or a new one (if reaped and respawned).
-	if sess1 != nil && sess2 == nil {
-		t.Error("session should either survive or respawn after idle timeout")
+	if sess1 == sess2 {
+		t.Error("expected a new session after idle reap, got the reaped one")
 	}
 }
 

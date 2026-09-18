@@ -92,16 +92,17 @@ func TestHTTPIntegration(t *testing.T) {
 			t.Errorf("result = %v, want %q", text, "hello")
 		}
 
-		recordedHeaders.mu.Lock()
-		hasAuth := recordedHeaders.headers["Authorization"]
-		hasCustom := recordedHeaders.headers["X-Custom"]
-		recordedHeaders.mu.Unlock()
-
-		if hasAuth != "Bearer test-token" {
-			t.Errorf("Authorization header not recorded or wrong value: %q", hasAuth)
+		snapshots := recordedHeaders.all()
+		if len(snapshots) < 2 {
+			t.Fatalf("recorded %d requests, want at least 2 (handshake + tool call)", len(snapshots))
 		}
-		if hasCustom != "custom-value" {
-			t.Errorf("X-Custom header not recorded or wrong value: %q", hasCustom)
+		for i, headers := range snapshots {
+			if got := headers["Authorization"]; got != "Bearer test-token" {
+				t.Errorf("request %d: Authorization header = %q, want %q", i, got, "Bearer test-token")
+			}
+			if got := headers["X-Custom"]; got != "custom-value" {
+				t.Errorf("request %d: X-Custom header = %q, want %q", i, got, "custom-value")
+			}
 		}
 
 		if len(infos) != 1 {
@@ -231,24 +232,35 @@ func TestHTTPIntegration(t *testing.T) {
 	})
 }
 
-// httpHeaderRecorder records incoming request headers from the first request.
+// httpHeaderRecorder records incoming request headers from every request, so
+// tests can assert configured headers were sent on each request rather than
+// only on whichever one happened to run last.
 type httpHeaderRecorder struct {
-	mu      sync.Mutex
-	headers map[string]string
+	mu        sync.Mutex
+	snapshots []map[string]string
 }
 
 // wrap returns a handler that records the request headers and then delegates
 // to next, for use as a request-observation wrapper on the shared test server.
 func (r *httpHeaderRecorder) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		r.mu.Lock()
-		r.headers = make(map[string]string)
+		headers := make(map[string]string)
 		for k, vs := range req.Header {
 			if len(vs) > 0 {
-				r.headers[k] = vs[0]
+				headers[k] = vs[0]
 			}
 		}
+		r.mu.Lock()
+		r.snapshots = append(r.snapshots, headers)
 		r.mu.Unlock()
 		next.ServeHTTP(w, req)
 	})
+}
+
+// all returns a copy of the recorded header snapshots, safe to read after
+// the requests under test have completed.
+func (r *httpHeaderRecorder) all() []map[string]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]map[string]string(nil), r.snapshots...)
 }

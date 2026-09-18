@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -148,11 +149,30 @@ func TestManagerConnect(t *testing.T) {
 		waitInit(t, m)
 		m.UpdateApprover(allowApprover())
 
-		// The fixture logs to stderr on every notification, so exercising both
-		// servers guarantees concurrent writes to the shared buffer.
-		for _, name := range []string{"mcp__alpha__echo", "mcp__beta__echo"} {
-			if _, err := findTool(t, m.ToolDefs(), name).Handler(context.Background(), map[string]any{"text": "hi"}); err != nil {
-				t.Fatalf("%s: %v", name, err)
+		// The fixture logs to stderr on every notification. Run both calls
+		// concurrently so their stderr copier goroutines genuinely overlap;
+		// sequential calls would never exercise the shared buffer under
+		// concurrent writes.
+		names := []string{"mcp__alpha__echo", "mcp__beta__echo"}
+		errs := make([]error, len(names))
+		var wg sync.WaitGroup
+		var start sync.WaitGroup
+		start.Add(1)
+		for i, name := range names {
+			wg.Add(1)
+			go func(i int, name string) {
+				defer wg.Done()
+				start.Wait()
+				_, err := findTool(t, m.ToolDefs(), name).Handler(context.Background(), map[string]any{"text": "hi"})
+				errs[i] = err
+			}(i, name)
+		}
+		start.Done()
+		wg.Wait()
+
+		for i, err := range errs {
+			if err != nil {
+				t.Fatalf("%s: %v", names[i], err)
 			}
 		}
 	})
