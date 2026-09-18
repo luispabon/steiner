@@ -212,3 +212,16 @@ func TestStatusBarOmitsModeBadgeWhenUnset(t *testing.T) {
 		t.Errorf("status bar should not contain mode badge when unset, got: %s", result)
 	}
 }
+
+func TestStatusBarTruncatesSingleLongSegment(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	s := statusState{
+		model:  "this_is_an_extremely_long_model_name_that_exceeds_the_available_width_by_a_lot",
+		styles: styles,
+	}
+	result := stripANSI(s.view(40))
+	if len(result) > 40 {
+		t.Errorf("rendered status bar width = %d, want <= 40; content = %q", len(result), result)
+	}
+}

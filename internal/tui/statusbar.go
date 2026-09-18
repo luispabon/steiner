@@ -92,6 +92,9 @@ func (s statusState) view(width int) string {
 				break
 			}
 		}
+		if lipgloss.Width(text) > width {
+			text = lipgloss.NewStyle().MaxWidth(width).Render(text)
+		}
 	}
 	// WithBg is required: lipgloss resets inside the status bar content would
 	// clear cell backgrounds in transparent terminals without it.

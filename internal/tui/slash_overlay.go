@@ -189,9 +189,10 @@ func (s slashOverlay) View() string {
 		var row string
 		var plainRow string
 		if item.isSkill {
-			plainParts := []string{item.command}
-			parts := []string{renderMatchedText(item.command, matchData.commandIndexes, cmdStyle, s.styles.AccentColor)}
-			descWidth := contentW - lipgloss.Width(item.command)
+			command := truncateOverlayText(item.command, contentW)
+			plainParts := []string{command}
+			parts := []string{renderMatchedText(command, matchData.commandIndexes, cmdStyle, s.styles.AccentColor)}
+			descWidth := contentW - lipgloss.Width(command)
 			if item.desc != "" && descWidth > 2 {
 				desc := truncateOverlayText(item.desc, descWidth-2)
 				plainParts = append(plainParts, desc)
