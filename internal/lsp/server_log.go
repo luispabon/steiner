@@ -43,19 +43,11 @@ func NewServerLogWriter(path string) (io.WriteCloser, error) {
 		return &noOpWriteCloser{}, nil
 	}
 	dir := filepath.Dir(path)
-	dirExisted := false
-	if _, statErr := os.Stat(dir); statErr == nil {
-		dirExisted = true
-	} else if !os.IsNotExist(statErr) {
-		return nil, fmt.Errorf("stat lsp server log directory: %w", statErr)
-	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create lsp server log directory: %w", err)
 	}
-	if !dirExisted {
-		if err := os.Chmod(dir, 0o700); err != nil {
-			return nil, fmt.Errorf("secure lsp server log directory: %w", err)
-		}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("secure lsp server log directory: %w", err)
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
