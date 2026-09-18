@@ -27,8 +27,8 @@ type OverlayShell struct {
 	height int
 	// title is displayed in the overlay header.
 	title string
-	// preferredWidth is the ideal width for this overlay, clamped to [40, width-4].
-	// 0 means use the default (width-4, min 40).
+	// preferredWidth is the ideal width for this overlay, clamped to [1, width-4].
+	// 0 means use the default (width-4).
 	preferredWidth int
 }
 
@@ -134,12 +134,9 @@ func (o OverlayShell) handleScrollKey(msg tea.Msg, offset, visibleHeight, totalL
 
 // overlayWidth computes the width of the framed box from the terminal width.
 func (o OverlayShell) overlayWidth() int {
-	w := o.width - 4
+	w := max(1, o.width-4)
 	if o.preferredWidth > 0 && o.preferredWidth < w {
 		w = o.preferredWidth
-	}
-	if w < 40 {
-		w = 40
 	}
 	return w
 }

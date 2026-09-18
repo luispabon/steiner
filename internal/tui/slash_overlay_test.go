@@ -459,3 +459,40 @@ func TestSlashOverlayViewHighlightsMatchedCharacters(t *testing.T) {
 		t.Fatalf("raw view = %q, want inline escape sequences inside matched candidate", view)
 	}
 }
+
+func TestSlashOverlayViewDoesNotOverflowOnLongSkillCommand(t *testing.T) {
+	t.Parallel()
+	s := theme.Default().LipGlossStyles()
+	styles := &s
+	overlay := newSlashOverlay(styles)
+	overlay.OverlayShell = overlay.openShell()
+	overlay.width = 60
+	overlay.height = 24
+	overlay.candidates = []slashOverlayItem{
+		{
+			command: "/this_is_a_very_long_skill_command_that_exceeds_the_content_width",
+			name:    "Long Skill",
+			desc:    "A skill with a very long command",
+			source:  "project",
+			isSkill: true,
+		},
+	}
+	overlay.matchIndexes = []slashOverlayMatch{{}}
+	overlay.query = "/"
+
+	view := overlay.View()
+	plain := stripANSI(view)
+	lines := strings.Split(plain, "\n")
+
+	// The box (see View()'s final PaletteOverlay.Width(innerW+4).Padding(1, 1))
+	// wraps content of innerW in a 1-cell border plus 1-cell padding on each
+	// side, so the outer rendered box is innerW+4 wide, not innerW.
+	innerW := overlay.slashOverlayInnerWidth()
+	boxWidth := innerW + 4
+	for _, line := range lines {
+		lineWidth := len([]rune(line))
+		if lineWidth > boxWidth && lineWidth > 0 {
+			t.Errorf("line width = %d, want <= %d (overlay box width). line = %q", lineWidth, boxWidth, line)
+		}
+	}
+}
