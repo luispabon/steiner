@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -187,5 +188,29 @@ func TestOneshotResumePickerOverlaySelectedRunID(t *testing.T) {
 	updated, _ := opened.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if updated.SelectedRunID() != "run-xyz789" {
 		t.Fatalf("SelectedRunID() = %q, want run-xyz789", updated.SelectedRunID())
+	}
+}
+
+func TestFormatRunRowShortID(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentPresets["amber"])
+	overlay := newOneshotResumePickerOverlay(styles)
+
+	run := oneshot.ResumableRun{
+		RunID:       "xyz",
+		Slug:        "short",
+		Task:        "Test run",
+		ResumePhase: "plan",
+		Status:      "resume at plan",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	row := overlay.formatRunRow(run, 80)
+	if row == "" {
+		t.Fatal("formatRunRow returned empty string")
+	}
+	if !strings.Contains(row, "[xyz]") {
+		t.Fatalf("formatRunRow output %q does not contain short ID [xyz]", row)
 	}
 }

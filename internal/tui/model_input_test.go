@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -598,5 +600,61 @@ func TestProfileSlashCommandDisplaysControllerError(t *testing.T) {
 	}
 	if m.input.Value() != "" {
 		t.Fatalf("input value = %q, want empty", m.input.Value())
+	}
+}
+
+// fakeController is a minimal Controller implementation for testing incompatible controller types.
+type fakeController struct{}
+
+func (c *fakeController) Handle(context.Context, interactive.Action) error {
+	return nil
+}
+
+func (c *fakeController) WorkflowHandoffModelSelection(string) interactive.WorkflowHandoffModelSelection {
+	return interactive.WorkflowHandoffModelSelection{}
+}
+
+func (c *fakeController) CurrentReasoningOverride() provider.ReasoningOverride {
+	return provider.ReasoningOverride{}
+}
+
+var _ interactive.Controller = (*fakeController)(nil)
+
+func TestSessionControllerWithIncompatibleType(t *testing.T) {
+	t.Parallel()
+	fake := &fakeController{}
+	sess, ok := sessionController(fake)
+	if ok {
+		t.Fatal("sessionController accepted incompatible controller, want false")
+	}
+	if sess != nil {
+		t.Fatalf("sessionController returned non-nil session, want nil")
+	}
+}
+
+func TestSessionControllerWithNil(t *testing.T) {
+	t.Parallel()
+	sess, ok := sessionController(nil)
+	if ok {
+		t.Fatal("sessionController accepted nil, want false")
+	}
+	if sess != nil {
+		t.Fatalf("sessionController returned non-nil session, want nil")
+	}
+}
+
+func TestOpenOneshotResumePickerRejectsIncompatibleController(t *testing.T) {
+	t.Parallel()
+	fake := &fakeController{}
+	m := newModel(Config{Controller: fake, SubAgentsEnabled: true}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	opened := m.openOneshotResumePicker()
+	if opened {
+		t.Fatal("openOneshotResumePicker succeeded with incompatible controller, want false")
+	}
+	lastSegment := m.content.segments[len(m.content.segments)-1]
+	if !strings.Contains(lastSegment.text, "controller does not support this action") {
+		t.Fatalf("status message = %q, want to contain controller does not support this action", lastSegment.text)
 	}
 }
