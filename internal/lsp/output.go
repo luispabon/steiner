@@ -64,16 +64,14 @@ func formatDiagnostics(workspace string, res DiagResult, cfg config.LSPConfig) s
 		line := fmt.Sprintf("%s:%d:%d %s: %s", relPath, diag.Line, diag.Column, severity, diag.Message)
 
 		if diag.Source != "" || diag.Code != "" {
-			var bracket string
-			parts := []string{}
+			var tags []string
 			if diag.Source != "" {
-				parts = append(parts, diag.Source)
+				tags = append(tags, diag.Source)
 			}
 			if diag.Code != "" {
-				parts = append(parts, diag.Code)
+				tags = append(tags, diag.Code)
 			}
-			bracket = "[" + strings.Join(parts, "/") + "]"
-			line = line + " " + bracket
+			line = line + " [" + strings.Join(tags, "/") + "]"
 		}
 
 		parts = append(parts, line)
