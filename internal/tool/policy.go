@@ -363,8 +363,7 @@ func normalizePolicyPath(root, raw string) string {
 	if strings.TrimSpace(raw) == "" {
 		return ""
 	}
-	path := strings.TrimSpace(raw)
-	path = expandTilde(path)
+	path := expandTilde(raw)
 	if !filepath.IsAbs(path) {
 		if root == "" {
 			path = filepath.Clean(path)

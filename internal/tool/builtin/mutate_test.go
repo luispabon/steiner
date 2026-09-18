@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +36,59 @@ func runMutate(t *testing.T, toolDef tool.ToolDef, input map[string]any) *Mutate
 		t.Fatalf("mutate Handler() result = %T, want *MutateResult", result)
 	}
 	return got
+}
+
+func TestMutatePreservesSpacedFilenameThroughExecutor(t *testing.T) {
+	root := t.TempDir()
+	policy := tool.NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: true})
+	env := Env{WorkDir: root, PathPolicy: &policy}
+	registry := tool.NewRegistry(NewMutateTool(env))
+	executor := tool.NewExecutor(registry, config.Config{
+		Paths: config.PathsConfig{ProjectRootOnly: true},
+	}, nil, root, "", tool.Unsandboxed{})
+
+	rawPath := " spaced.txt "
+	result, err := executor.Execute(context.Background(), "mutate", "", map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": rawPath, "content": "content\n"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("mutate Execute() error = %v", err)
+	}
+	got, ok := result.(*MutateResult)
+	if !ok {
+		t.Fatalf("mutate Execute() result = %T, want *MutateResult", result)
+	}
+	if got.OperationsFailed != 0 || got.OperationsApplied != 1 {
+		t.Fatalf("mutate result = %#v", got)
+	}
+	if len(got.Created) != 1 || got.Created[0] != rawPath {
+		t.Fatalf("Created = %q, want exact path %q", got.Created, rawPath)
+	}
+	if got.FileHashes[rawPath] != FileContentHash([]byte("content\n")) {
+		t.Fatalf("FileHashes = %#v, want entry for exact path %q", got.FileHashes, rawPath)
+	}
+	assertFile(t, filepath.Join(root, rawPath), "content\n")
+	if _, err := os.Stat(filepath.Join(root, "spaced.txt")); !os.IsNotExist(err) {
+		t.Fatalf("trimmed filename exists, err=%v", err)
+	}
+
+	_, err = executor.Execute(context.Background(), "mutate", "", map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": "   ", "content": "invalid\n"},
+		},
+	})
+	if err == nil {
+		t.Fatal("whitespace-only mutate path error = nil, want policy denial")
+	}
+	var toolErr *tool.ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("whitespace-only mutate path error = %T, want *tool.ToolExecutionError", err)
+	}
+	if toolErr.Kind != "policy_denied" || !strings.Contains(toolErr.Message, "path is required") {
+		t.Fatalf("whitespace-only mutate path error = %#v, want policy_denied path is required", toolErr)
+	}
 }
 
 func TestMutateOperations(t *testing.T) {
