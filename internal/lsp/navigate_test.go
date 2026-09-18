@@ -359,6 +359,8 @@ func TestConcurrentDefinitionsNonInterleaving(t *testing.T) {
 	var wg sync.WaitGroup
 	var err1, err2 error
 
+	// Use distinct positions so each call reaches the LSP instead of sharing a
+	// result-cache key and short-circuiting the second call.
 	// Launch two concurrent Manager.Definitions calls against the same
 	// session. They should serialize at the cycleMu level, not interleave.
 	wg.Add(2)
@@ -368,7 +370,7 @@ func TestConcurrentDefinitionsNonInterleaving(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		_, err2 = m.Definitions(ctx, testFile, 1, 1)
+		_, err2 = m.Definitions(ctx, testFile, 2, 1)
 	}()
 
 	// Wait for the first cycle's didOpen. Because the definition request is
