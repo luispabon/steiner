@@ -128,6 +128,10 @@ type EventScope struct {
 // MarshalJSON omits empty scope metadata so top-level events keep their
 // existing JSON shape.
 func (e Event) MarshalJSON() ([]byte, error) {
+	payload := e.Payload
+	if e.Type == EventTypeContextDiagnostics {
+		payload = contextDiagnosticPayloadForJSON(payload)
+	}
 	if e.Scope.AgentID == "" && e.Scope.AgentType == "" {
 		return json.Marshal(struct {
 			Type      string    `json:"type"`
@@ -136,7 +140,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 		}{
 			Type:      e.Type,
 			Timestamp: e.Timestamp,
-			Payload:   e.Payload,
+			Payload:   payload,
 		})
 	}
 

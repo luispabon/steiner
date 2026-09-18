@@ -279,6 +279,14 @@ func contextDiagnosticEvent(payload contextDiagnosticPayload) Event {
 	}
 }
 
+func contextDiagnosticPayloadForJSON(payload any) any {
+	diagnostic, ok := payload.(contextDiagnosticPayload)
+	if !ok {
+		return payload
+	}
+	return diagnostic.toLegacyContextDiagnostics()
+}
+
 func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnosticPayload {
 	payload = payload.toLegacyContextDiagnostics()
 	switch payload.Kind {
