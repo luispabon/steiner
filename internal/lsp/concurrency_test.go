@@ -235,6 +235,8 @@ func TestEntryForKeyRecordsLastUsedUnderEntryLock(t *testing.T) {
 	}
 
 	stop := make(chan struct{})
+	readerReady := make(chan struct{})
+	var readyOnce sync.Once
 	var wg sync.WaitGroup
 	var observed atomic.Int64
 	wg.Add(1)
@@ -248,10 +250,12 @@ func TestEntryForKeyRecordsLastUsedUnderEntryLock(t *testing.T) {
 			}
 			ent.mu.Lock()
 			observed.Add(ent.state.LastUsed.UnixNano())
+			readyOnce.Do(func() { close(readerReady) })
 			ent.mu.Unlock()
 		}
 	}()
 
+	<-readerReady
 	for range 1000 {
 		got, sess, err := m.entryForKey(ctx, "go", srv, key)
 		if err != nil {
