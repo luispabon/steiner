@@ -39,3 +39,32 @@ func TestApplyEventHistoryLoadedDoesNotMutatePayload(t *testing.T) {
 		t.Fatalf("fileHistory aliases the event payload: payload[0] = %q", payload.Prompts[0])
 	}
 }
+
+// TestApplyEventHistoryLoadedEmptyPayloadKeepsHistory proves a nil or empty
+// snapshot does not clear history the user is already browsing.
+func TestApplyEventHistoryLoadedEmptyPayloadKeepsHistory(t *testing.T) {
+	cases := []struct {
+		name    string
+		prompts []string
+	}{
+		{name: "nil", prompts: nil},
+		{name: "empty", prompts: []string{}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			m.fileHistory = []string{"previous"}
+			m.fileHistoryIdx = 1
+
+			_ = m.applyEvent(output.NewHistoryLoadedEvent(tc.prompts))
+
+			if !reflect.DeepEqual(m.fileHistory, []string{"previous"}) {
+				t.Fatalf("fileHistory = %v, want [previous]", m.fileHistory)
+			}
+			if m.fileHistoryIdx != 1 {
+				t.Fatalf("fileHistoryIdx = %d, want 1 (unchanged)", m.fileHistoryIdx)
+			}
+		})
+	}
+}

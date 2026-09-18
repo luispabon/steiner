@@ -137,6 +137,11 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 
 	if err := p.Lock.Heartbeat(); err != nil {
 		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
+		if writeErr := p.Store.Write(*p.Manifest); writeErr != nil {
+			return writeErr
+		}
+		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorCancelled, err.Error())
+		emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionFailed, modelAlias, "")
 		return err
 	}
 	p.Manifest.CurrentPhase = p.Phase
@@ -202,6 +207,11 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	// matching resumeFromManifest's original behavior before this loop was unified.
 	if err := p.Lock.Heartbeat(); err != nil {
 		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
+		if writeErr := p.Store.Write(*p.Manifest); writeErr != nil {
+			return writeErr
+		}
+		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorCancelled, err.Error())
+		emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionFailed, modelAlias, sessionID)
 		return err
 	}
 	p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusDone

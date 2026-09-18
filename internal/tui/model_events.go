@@ -77,17 +77,17 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.HistoryLoadedEvent:
 		// Copy before reversing: the payload slice belongs to the producer and
 		// is also retained by the transcript, so reversing or aliasing it in
-		// place would corrupt both the event and m.fileHistory.
-		var prompts []string
-		if payload.Prompts != nil {
-			prompts = make([]string, len(payload.Prompts))
+		// place would corrupt both. A nil or empty snapshot carries no history,
+		// so it must not clear prompts the user is already browsing.
+		if len(payload.Prompts) > 0 {
+			prompts := make([]string, len(payload.Prompts))
 			copy(prompts, payload.Prompts)
+			for i, j := 0, len(prompts)-1; i < j; i, j = i+1, j-1 {
+				prompts[i], prompts[j] = prompts[j], prompts[i]
+			}
+			m.fileHistory = prompts
+			m.fileHistoryIdx = -1
 		}
-		for i, j := 0, len(prompts)-1; i < j; i, j = i+1, j-1 {
-			prompts[i], prompts[j] = prompts[j], prompts[i]
-		}
-		m.fileHistory = prompts
-		m.fileHistoryIdx = -1
 		return nil
 	case output.RunStartedEvent:
 		m.interruptPending = false
