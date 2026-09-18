@@ -295,7 +295,9 @@ func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	if m.controller != nil {
 		ctrl := m.controller
 		return m, func() tea.Msg {
-			_ = ctrl.Handle(context.Background(), interactive.ForkSession{})
+			if err := ctrl.Handle(context.Background(), interactive.ForkSession{}); err != nil {
+				return controllerHandleFailedMsg{err: err}
+			}
 			return nil
 		}
 	}

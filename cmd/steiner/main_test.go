@@ -26,6 +26,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 // restoreEnv restores key to its previous value, unsetting it when it was not
@@ -643,6 +644,59 @@ func TestCLIRunnerReturnsCancelledDiagnosticsWithoutError(t *testing.T) {
 	}
 	if got, want := stop.Reason, "cancelled"; got != want {
 		t.Fatalf("stop reason = %q, want %q", got, want)
+	}
+}
+
+func TestCLIRunnerSearchBackendFailureFinishesRun(t *testing.T) {
+	var events []output.Event
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg: func() config.Config {
+				cfg := testRuntimeConfig("test-model")
+				cfg.Search.Backend = "unknown"
+				return cfg
+			}(),
+			provider: &fakeProvider{},
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events: output.SinkFunc(func(event output.Event) {
+				events = append(events, event)
+			}),
+		},
+	}
+
+	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil, nil); err == nil {
+		t.Fatal("Run() error = nil, want search backend error")
+	}
+	if len(events) != 2 {
+		t.Fatalf("events len = %d, want run_started and run_finished", len(events))
+	}
+	if _, ok := events[0].Payload.(output.RunStartedEvent); !ok {
+		t.Fatalf("first payload = %T, want output.RunStartedEvent", events[0].Payload)
+	}
+	finished, ok := events[1].Payload.(output.RunFinishedEvent)
+	if !ok {
+		t.Fatalf("second payload = %T, want output.RunFinishedEvent", events[1].Payload)
+	}
+	if finished.Reason != string(agent.StopReasonError) || finished.Error == "" {
+		t.Fatalf("run finished = %+v, want error reason and message", finished)
+	}
+}
+
+func TestCLIRunnerAcceptsConfiguredSearchCredentials(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cfg  config.SearchConfig
+	}{
+		{name: "google", cfg: config.SearchConfig{Backend: "google", GoogleCx: "cx", GoogleAPIKey: "key"}},
+		{name: "kagi", cfg: config.SearchConfig{Backend: "kagi", KagiAPIKey: "key"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := builtin.NewSearchBackend(tt.cfg); err != nil {
+				t.Fatalf("NewSearchBackend() error = %v, want configured credentials accepted", err)
+			}
+		})
 	}
 }
 

@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func TestOrchestratorResumeSkipsCompletedPhasesAndReclaimsStaleLock(t *testing.T) {
@@ -143,6 +145,53 @@ func TestOrchestratorResumeSkipsCompletedPhasesAndReclaimsStaleLock(t *testing.T
 	}
 	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
 		t.Fatalf("lock file still exists after resume: %v", err)
+	}
+}
+
+func TestOrchestratorResumeReturnsLockReleaseError(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "resume-release", Slug: "resume-release"}
+	_, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	releaseErr := errors.New("resume release failed")
+	orch.deps.RunLockFactory = testRunLockFactory(releaseErr)
+	_, err := orch.Resume(context.Background())
+	if !errors.Is(err, releaseErr) {
+		t.Fatalf("Resume error = %v, want release error", err)
+	}
+	if _, storeErr := store.Read(); storeErr != nil {
+		t.Fatalf("manifest store read failed after Resume: %v", storeErr)
+	}
+}
+
+func TestOrchestratorResumeJoinsPrimaryAndLockReleaseErrors(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "resume-primary", Slug: "resume-primary"}
+	_, _, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	releaseErr := errors.New("resume release failed")
+	orch.deps.RunLockFactory = testRunLockFactory(releaseErr)
+	primaryErr := errors.New("resume primary failed")
+	orch.deps.RunnerFactory = PhaseRunnerFactoryFunc(func(context.Context, Phase, string, tool.ApprovalResponder, config.AdvisorConfig) (PhaseRunner, error) {
+		return nil, primaryErr
+	})
+	_, err := orch.Resume(context.Background())
+	if !errors.Is(err, releaseErr) {
+		t.Fatalf("Resume error = %v, want release error", err)
+	}
+	if !errors.Is(err, primaryErr) {
+		t.Fatalf("Resume error = %v, want primary error", err)
+	}
+}
+
+func testRunLockFactory(releaseErr error) func(string, RunIdentity) (*RunLock, error) {
+	return func(projectRoot string, runIdentity RunIdentity) (*RunLock, error) {
+		lockPath := runIdentity.LockPath(projectRoot)
+		if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(lockPath, []byte("test"), 0o644); err != nil {
+			return nil, err
+		}
+		return &RunLock{path: lockPath, releaseFunc: func() error { return releaseErr }}, nil
 	}
 }
 

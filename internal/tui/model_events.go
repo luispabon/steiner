@@ -464,7 +464,7 @@ func (m *Model) handlePhaseTransition(payload output.PhaseTransitionEvent) tea.C
 			if err := controller.Handle(context.Background(), interactive.RotateSessionWithGroup{
 				Group: strings.TrimSpace(runID),
 			}); err != nil {
-				return phaseTransitionFailedMsg{err: err}
+				return controllerHandleFailedMsg{err: err}
 			}
 			return nil
 		}

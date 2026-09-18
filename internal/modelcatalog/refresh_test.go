@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 	"sync/atomic"
 	"testing"
 )
@@ -23,6 +24,31 @@ func TestServiceRefreshPrepareFailureUsesFreshCache(t *testing.T) {
 	got := service.RefreshAll(context.Background(), []Endpoint{endpoint}, RefreshOptions{})
 	if got.Results[0].Status != RefreshStatusFreshSkipped || got.Results[0].Err != nil || prepared {
 		t.Fatalf("refresh: report=%+v prepared=%v", got, prepared)
+	}
+}
+
+func TestServiceRefreshFallsThroughOnCacheStatusError(t *testing.T) {
+	cachePath := t.TempDir()
+	cache := NewCache(cachePath)
+	if err := cache.SaveAtomic("local", CacheEnvelope{Fingerprint: CacheFingerprint{ProviderType: "openai_compat", BaseURL: "current"}, Models: []DiscoveredModel{{ID: "cached"}}}); err != nil {
+		t.Fatalf("save cache: %v", err)
+	}
+	if err := os.RemoveAll(cachePath); err != nil {
+		t.Fatalf("remove cache dir: %v", err)
+	}
+	if err := os.WriteFile(cachePath, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("replace cache dir: %v", err)
+	}
+	called := false
+	service := NewService(func(_ string, _ *http.Client) (Enumerator, error) {
+		return testEnumerator{enumerate: func(context.Context, Endpoint, EnumerationOptions) (EnumerationResult, error) {
+			called = true
+			return EnumerationResult{Models: []DiscoveredModel{{ID: "fresh"}}}, nil
+		}}, nil
+	}, cache, NewStore(""), nil)
+	got := service.RefreshAll(context.Background(), []Endpoint{{Alias: "local", Type: "openai_compat", BaseURL: "current"}}, RefreshOptions{})
+	if !called || got.Results[0].Status == RefreshStatusFreshSkipped {
+		t.Fatalf("refresh: called=%v report=%+v", called, got)
 	}
 }
 

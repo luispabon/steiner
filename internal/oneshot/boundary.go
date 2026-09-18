@@ -69,7 +69,10 @@ func CheckBoundary(ctx context.Context, phase Phase, worktreePath string, requir
 		return err
 	}
 
-	missing := missingArtifacts(requiredArtifacts)
+	missing, err := missingArtifacts(requiredArtifacts)
+	if err != nil {
+		return err
+	}
 	dirty, err := dirtyPaths(ctx, worktreePath)
 	if err != nil {
 		return err
@@ -84,7 +87,7 @@ func CheckBoundary(ctx context.Context, phase Phase, worktreePath string, requir
 	}
 }
 
-func missingArtifacts(requiredArtifacts []string) []string {
+func missingArtifacts(requiredArtifacts []string) ([]string, error) {
 	var missing []string
 	for _, artifact := range requiredArtifacts {
 		artifact = filepath.Clean(strings.TrimSpace(artifact))
@@ -94,10 +97,12 @@ func missingArtifacts(requiredArtifacts []string) []string {
 		if _, err := os.Stat(artifact); err != nil {
 			if os.IsNotExist(err) {
 				missing = append(missing, artifact)
+				continue
 			}
+			return nil, fmt.Errorf("stat required artifact %s: %w", artifact, err)
 		}
 	}
-	return missing
+	return missing, nil
 }
 
 func dirtyPaths(ctx context.Context, worktreePath string) ([]string, error) {

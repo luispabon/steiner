@@ -1909,6 +1909,36 @@ func TestModelRefreshesGitSnapshotAfterToolAndModelCallFinishedEvents(t *testing
 	}
 }
 
+func TestModelUpdateAppendsControllerHandleFailure(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	errController := errors.New("async controller failed")
+
+	next, _ := m.Update(controllerHandleFailedMsg{err: errController})
+	updated, ok := next.(*Model)
+	if !ok {
+		t.Fatalf("updated model type = %T, want *Model", next)
+	}
+	if got := updated.content.String(80); !strings.Contains(got, errController.Error()) {
+		t.Fatalf("content = %q, want controller error", got)
+	}
+}
+
+func TestModelTickAppendsGitError(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	errGit := errors.New("git refresh failed")
+	m.git.recordError(errGit)
+
+	m = updateModel(t, m, tickMsg{})
+	if got := m.content.String(80); !strings.Contains(got, errGit.Error()) {
+		t.Fatalf("content = %q, want git error", got)
+	}
+	if got := m.git.takeError(); got != nil {
+		t.Fatalf("pending git error = %v, want nil after tick", got)
+	}
+}
+
 func TestModelTickConsumesOnlyItsOwnGitError(t *testing.T) {
 	t.Parallel()
 	m1 := newModel(Config{}, nil)

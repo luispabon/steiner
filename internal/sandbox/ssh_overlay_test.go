@@ -8,8 +8,10 @@
 package sandbox
 
 import (
+	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -18,6 +20,18 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+type countingSlogHandler struct {
+	count int
+}
+
+func (h *countingSlogHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (h *countingSlogHandler) Handle(_ context.Context, _ slog.Record) error {
+	h.count++
+	return nil
+}
+func (h *countingSlogHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *countingSlogHandler) WithGroup(_ string) slog.Handler      { return h }
 
 func TestSSHOverlayClose_NilAndEmpty(t *testing.T) {
 	var overlay *sshOverlay
@@ -228,6 +242,37 @@ func TestPrepareSSHOverlayFromPath_BuildsMemfdsAndArgs(t *testing.T) {
 	}
 	if string(gotRootContent) != "Include "+filepath.Join(dropInDir, "*.conf")+"\n" {
 		t.Fatalf("root memfd content = %q", string(gotRootContent))
+	}
+}
+
+func TestPrepareSSHOverlayFromPath_WarnsAndKeepsPartialOverlay(t *testing.T) {
+	handler := &countingSlogHandler{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	rootDir := t.TempDir()
+	rootConfig := filepath.Join(rootDir, "ssh_config")
+	included := filepath.Join(rootDir, "included.conf")
+	writeFile(t, included, "Host included\n")
+	writeFile(t, rootConfig, "Include "+included+" "+filepath.Join(rootDir, "missing.conf")+"\n")
+
+	overlay, err := prepareSSHOverlayFromPath(rootConfig, 3)
+	if isMemfdUnavailable(err) {
+		t.Skipf("memfd unavailable: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("prepare overlay: %v", err)
+	}
+	if overlay == nil {
+		t.Fatal("expected partial overlay")
+	}
+	defer func() { _ = overlay.Close() }()
+	if len(overlay.memfds) != 2 {
+		t.Fatalf("memfd count = %d, want 2", len(overlay.memfds))
+	}
+	if handler.count != 1 {
+		t.Fatalf("warning count = %d, want 1", handler.count)
 	}
 }
 

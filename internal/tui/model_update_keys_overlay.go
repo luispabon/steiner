@@ -109,7 +109,9 @@ func (m *Model) dispatchSelectedSessionAction(makeAction func(sessionID string) 
 	ctrl := m.controller
 	action := makeAction(selected.ID)
 	return m, func() tea.Msg {
-		_ = ctrl.Handle(context.Background(), action)
+		if err := ctrl.Handle(context.Background(), action); err != nil {
+			return controllerHandleFailedMsg{err: err}
+		}
 		return nil
 	}, true
 }

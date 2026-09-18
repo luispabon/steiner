@@ -3,6 +3,8 @@ package oauth
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -44,6 +46,30 @@ func TestExchangeOpenAIAPIKey(t *testing.T) {
 		}
 	}
 }
+
+func TestExchangeOpenAIAPIKeyReturnsErrorBodyReadError(t *testing.T) {
+	readErr := errors.New("body read failed")
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Status:     "400 Bad Request",
+			Body:       io.NopCloser(errorReader{err: readErr}),
+		}, nil
+	})}
+
+	_, err := ExchangeOpenAIAPIKey(context.Background(), "http://example.test/token", "client-id", "id-token", client)
+	if !errors.Is(err, readErr) {
+		t.Fatalf("error = %v, want body read error", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+type errorReader struct{ err error }
+
+func (r errorReader) Read([]byte) (int, error) { return 0, r.err }
 
 func TestExchangeOpenAIAPIKeyRequiresIDToken(t *testing.T) {
 	_, err := ExchangeOpenAIAPIKey(context.Background(), "http://example.test/token", "client-id", "", nil)

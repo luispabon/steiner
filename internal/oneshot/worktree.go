@@ -3,6 +3,7 @@ package oneshot
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -104,17 +105,17 @@ func prepareWorktreePath(ctx context.Context, projectRoot, worktreePath string) 
 
 func recoverWorktreePath(ctx context.Context, projectRoot string, identity RunIdentity, startPoint string, addErr error) error {
 	if err := runGit(ctx, projectRoot, "worktree", "prune"); err != nil {
-		return fmt.Errorf("prune worktree metadata after add failure: %w (original add error: %s)", err, addErr.Error())
+		return errors.Join(fmt.Errorf("prune worktree metadata after add failure: %w", err), addErr)
 	}
 	if err := removeWorktreeAdminDir(ctx, projectRoot, identity); err != nil {
-		return fmt.Errorf("remove stale worktree admin dir after add failure: %w (original add error: %s)", err, addErr.Error())
+		return errors.Join(fmt.Errorf("remove stale worktree admin dir after add failure: %w", err), addErr)
 	}
 	if err := os.RemoveAll(identity.WorktreePath(projectRoot)); err != nil {
-		return fmt.Errorf("remove stale worktree path after add failure: %w (original add error: %s)", err, addErr.Error())
+		return errors.Join(fmt.Errorf("remove stale worktree path after add failure: %w", err), addErr)
 	}
 
 	if retryErr := addWorktree(ctx, projectRoot, identity.WorktreePath(projectRoot), identity.BranchName(), startPoint); retryErr != nil {
-		return fmt.Errorf("add worktree after cleanup: %w (original add error: %s)", retryErr, addErr.Error())
+		return errors.Join(fmt.Errorf("add worktree after cleanup: %w", retryErr), addErr)
 	}
 	return nil
 }

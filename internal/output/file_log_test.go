@@ -3,7 +3,9 @@ package output
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +16,18 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
+
+type countingSlogHandler struct {
+	count int
+}
+
+func (h *countingSlogHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (h *countingSlogHandler) Handle(_ context.Context, _ slog.Record) error {
+	h.count++
+	return nil
+}
+func (h *countingSlogHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *countingSlogHandler) WithGroup(_ string) slog.Handler      { return h }
 
 func TestNewFileLogSinkEmptyPath(t *testing.T) {
 	if _, err := NewFileLogSink("", FileLogOptions{}); err == nil {
@@ -73,6 +87,46 @@ func TestFileLogSinkUpgradesExistingFileWithoutChangingParent(t *testing.T) {
 		t.Fatalf("stat parent: %v", err)
 	} else if info.Mode().Perm() != 0o755 {
 		t.Errorf("parent mode = %o, want unchanged 755", info.Mode().Perm())
+	}
+}
+
+func TestFileLogSinkEmitWarnsOnceOnMarshalFailure(t *testing.T) {
+	handler := &countingSlogHandler{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	sink, err := NewFileLogSink(filepath.Join(t.TempDir(), "session.log"), FileLogOptions{})
+	if err != nil {
+		t.Fatalf("NewFileLogSink() error = %v", err)
+	}
+	t.Cleanup(func() { _ = sink.Close() })
+
+	badEvent := Event{Type: "test", Payload: func() {}}
+	sink.Emit(badEvent)
+	sink.Emit(badEvent)
+	if handler.count != 1 {
+		t.Fatalf("warning count = %d, want 1", handler.count)
+	}
+}
+
+func TestFileLogSinkEmitWarnsOnceOnWriteFailure(t *testing.T) {
+	handler := &countingSlogHandler{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	sink, err := NewFileLogSink(filepath.Join(t.TempDir(), "session.log"), FileLogOptions{})
+	if err != nil {
+		t.Fatalf("NewFileLogSink() error = %v", err)
+	}
+	if err := sink.file.Close(); err != nil {
+		t.Fatalf("close log file: %v", err)
+	}
+	sink.Emit(NewAssistantMessageEvent(1, "assistant", "test"))
+	sink.Emit(NewAssistantMessageEvent(1, "assistant", "test"))
+	if handler.count != 1 {
+		t.Fatalf("warning count = %d, want 1", handler.count)
 	}
 }
 

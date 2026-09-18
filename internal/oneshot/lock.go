@@ -24,9 +24,10 @@ type LockRecord struct {
 
 // RunLock manages the lifecycle of a per-run lock file.
 type RunLock struct {
-	path   string
-	mu     sync.Mutex
-	record LockRecord
+	path        string
+	mu          sync.Mutex
+	record      LockRecord
+	releaseFunc func() error
 }
 
 // AcquireRunLock atomically acquires the lock or reclaims a stale one.
@@ -105,6 +106,9 @@ func (l *RunLock) Release() error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.releaseFunc != nil {
+		return l.releaseFunc()
+	}
 	if err := os.Remove(l.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove lock: %w", err)
 	}

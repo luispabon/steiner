@@ -150,14 +150,15 @@ func (s *Service) skipIfFresh(result *RefreshResult, endpoint Endpoint, force bo
 	if force {
 		return false
 	}
-	found, fresh, _ := s.cache.Status(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
-	if !found || !fresh {
+	found, fresh, err := s.cache.Status(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
+	if err != nil || !found || !fresh {
 		return false
 	}
-	models, found, _ := s.cache.Load(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
-	if found {
-		s.setDiscovered(endpoint.Alias, models)
+	models, found, err := s.cache.Load(endpoint.Alias, endpoint.Type, endpoint.BaseURL)
+	if err != nil || !found {
+		return false
 	}
+	s.setDiscovered(endpoint.Alias, models)
 	result.Status = RefreshStatusFreshSkipped
 	return true
 }

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	tea "charm.land/bubbletea/v2"
@@ -243,7 +244,9 @@ func (a *App) Run(options ...tea.ProgramOption) error {
 // Call this after the bubbletea program has fully exited.
 func (a *App) Cleanup() {
 	a.bridge.close()
-	_, _ = os.Stdout.WriteString("\x1b[?1000l")
+	if _, err := os.Stdout.WriteString("\x1b[?1000l"); err != nil {
+		slog.Error("reset terminal mouse tracking", "err", err)
+	}
 }
 
 type runtimeEventMsg struct {

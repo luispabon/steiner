@@ -3,6 +3,7 @@ package usagestats
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -96,7 +97,7 @@ func (s *store) load() map[bucketKey]*bucket {
 		if os.IsNotExist(err) {
 			return make(map[bucketKey]*bucket)
 		}
-		// Read error: start empty, no error surfaced.
+		slog.Warn("usage stats store read failed; starting empty", "path", s.path, "error", err)
 		return make(map[bucketKey]*bucket)
 	}
 

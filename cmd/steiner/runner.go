@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"strings"
@@ -111,7 +112,17 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 	))
 
 	events, diagnostics := retainDiagnosticEvents(r.runtime.events)
-	searcher, _ := builtin.NewSearchBackend(r.runtime.cfg.Search)
+	searcher, err := builtin.NewSearchBackend(r.runtime.cfg.Search)
+	if err != nil {
+		r.runtime.events.Emit(output.NewRunFinishedEvent(
+			0,
+			string(agent.StopReasonError),
+			"",
+			"",
+			err,
+		))
+		return runResult{}, fmt.Errorf("create search backend: %w", err)
+	}
 	// The MCP exposure projection is derived at composition time from the
 	// completed registered set: in interactive mode the session runner has
 	// already WaitInit'ed and re-registered late MCP defs before this run, so

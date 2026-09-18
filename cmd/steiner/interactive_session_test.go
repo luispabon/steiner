@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -23,6 +25,7 @@ import (
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
 )
@@ -86,6 +89,23 @@ func TestStartupTUIModelConfigUsesAliasForDisplayModel(t *testing.T) {
 	}
 	if selected.ID != "gpt-5.6-luna" {
 		t.Fatalf("selected backend model ID = %q, want gpt-5.6-luna", selected.ID)
+	}
+}
+
+func TestResetSandboxTmpEmitsWarning(t *testing.T) {
+	tmpPath := filepath.Join(t.TempDir(), "tmp")
+	if err := os.WriteFile(tmpPath, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sb := sandbox.New(config.SandboxConfig{}, config.PermissionsConfig{}, "", "", "", tmpPath)
+	var events []output.Event
+	resetSandboxTmp(output.SinkFunc(func(event output.Event) { events = append(events, event) }), sb)
+	if len(events) != 1 {
+		t.Fatalf("resetSandboxTmp() emitted %d events, want one", len(events))
+	}
+	payload, ok := events[0].Payload.(output.ContextSessionHealthEvent)
+	if !ok || len(payload.Notes) != 1 || !strings.Contains(payload.Notes[0], "sandbox tmp reset") {
+		t.Fatalf("warning event = %#v, want sandbox tmp reset warning", events[0])
 	}
 }
 

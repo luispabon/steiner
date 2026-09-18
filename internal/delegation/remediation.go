@@ -71,7 +71,9 @@ func applyRemediation(
 
 	if state.StopReason != agent.StopReasonComplete || result.Status != StatusComplete {
 		dirty, err := cfg.IsDirty(ctx)
-		if err == nil && len(dirty) > 0 {
+		if err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("code agent worktree %s: could not verify the working tree is clean: %v", cfg.WorktreePath, err))
+		} else if len(dirty) > 0 {
 			result.Warnings = append(result.Warnings, dirtyWorktreeWarning(cfg.WorktreePath, dirty))
 		}
 		return state, runUsage, result, remediationNotAttempted, nil

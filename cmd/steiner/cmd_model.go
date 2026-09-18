@@ -87,10 +87,18 @@ func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 	); err != nil {
 		return err
 	}
+	params, err := formatJSONMap(rm.Params)
+	if err != nil {
+		return fmt.Errorf("format params: %w", err)
+	}
+	extraParams, err := formatJSONMap(rm.ExtraParams)
+	if err != nil {
+		return fmt.Errorf("format extra params: %w", err)
+	}
 	if _, err := fmt.Fprintf(out,
 		"params: %s\nextra_params: %s\nprompt_suffix: %q\ntokenizer:\n  strategy: %s\n  confidence: %s\n",
-		formatJSONMap(rm.Params),
-		formatJSONMap(rm.ExtraParams),
+		params,
+		extraParams,
 		rm.PromptSuffix,
 		rm.TokenizerStrategy,
 		rm.TokenizerConfidence,
@@ -183,13 +191,13 @@ func formatOptionalEffort(value, fallback string) string {
 	return value
 }
 
-func formatJSONMap(values map[string]any) string {
+func formatJSONMap(values map[string]any) (string, error) {
 	if len(values) == 0 {
-		return "{}"
+		return "{}", nil
 	}
 	data, err := json.Marshal(values)
 	if err != nil {
-		return "{}"
+		return "", err
 	}
-	return string(data)
+	return string(data), nil
 }

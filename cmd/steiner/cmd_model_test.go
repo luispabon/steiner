@@ -9,6 +9,13 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+func TestFormatJSONMapReportsMarshalError(t *testing.T) {
+	_, err := formatJSONMap(map[string]any{"unsupported": func() {}})
+	if err == nil {
+		t.Fatal("formatJSONMap() error = nil, want marshal error")
+	}
+}
+
 func TestPrintModelInspect(t *testing.T) {
 	tests := []struct {
 		name      string

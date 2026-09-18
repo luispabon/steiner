@@ -78,7 +78,10 @@ func (bs *braveSearcher) Search(ctx context.Context, input *web.SearchInput) (*w
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("search: read http error response: %w", err)
+		}
 		snippet := string(body)
 		if len(snippet) > 100 {
 			snippet = snippet[:100]
