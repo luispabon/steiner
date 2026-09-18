@@ -2,6 +2,7 @@ package tui
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -316,4 +317,43 @@ func TestSidebarComparableCopiesEveryField(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("checked no projection fields; the test asserts nothing")
 	}
+}
+
+// TestFitTextMiddleContiguousSegments proves fitTextMiddle's kept left/right
+// segments are always a contiguous prefix and suffix of the original runes,
+// never a subsequence with a gap. A stage-3 rewrite briefly skipped runes
+// that didn't fit a per-side width budget instead of stopping there,
+// producing corrupted output like "ab…b" for "a界界b" (both 界 dropped and
+// "b" duplicated) instead of a valid split.
+func TestFitTextMiddleContiguousSegments(t *testing.T) {
+	t.Parallel()
+	cases := []string{"a界b", "xa界byz", "a界界b", "abc界def", "a界b界c界d"}
+	for _, text := range cases {
+		for width := 2; width <= lipglossWidthForTest(text)+1; width++ {
+			result := fitTextMiddle(text, width)
+			left, right, ok := splitOnEllipsis(result)
+			if !ok {
+				continue // result fit without truncation
+			}
+			runes := []rune(text)
+			if !strings.HasPrefix(string(runes), left) {
+				t.Errorf("fitTextMiddle(%q, %d) = %q: left segment %q is not a prefix of the original text", text, width, result, left)
+			}
+			if !strings.HasSuffix(string(runes), right) {
+				t.Errorf("fitTextMiddle(%q, %d) = %q: right segment %q is not a suffix of the original text", text, width, result, right)
+			}
+		}
+	}
+}
+
+func lipglossWidthForTest(s string) int {
+	return len([]rune(s)) * 2
+}
+
+func splitOnEllipsis(s string) (left, right string, ok bool) {
+	idx := strings.Index(s, "…")
+	if idx < 0 {
+		return "", "", false
+	}
+	return s[:idx], s[idx+len("…"):], true
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const maxDelegationTranscriptRows = 40
@@ -393,14 +394,7 @@ func truncateRunes(text string, width int) string {
 	if width < 1 {
 		return ""
 	}
-	runes := []rune(text)
-	if len(runes) <= width {
-		return text
-	}
-	if width == 1 {
-		return "…"
-	}
-	return string(runes[:width-1]) + "…"
+	return ansi.Truncate(text, width, "…")
 }
 
 func (b *contentBuffer) renderDelegationTranscript(dd *delegationDisplayState, width int) []string {

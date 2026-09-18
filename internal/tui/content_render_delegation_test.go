@@ -621,3 +621,71 @@ func TestAdvisorBoxRendersQuestionFiles(t *testing.T) {
 		t.Error("advisor box should render files header")
 	}
 }
+
+func TestTruncateRunesCJK(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		input string
+		width int
+		want  string
+	}{
+		{
+			name:  "ASCII text with width 5",
+			input: "hello",
+			width: 5,
+			want:  "hello",
+		},
+		{
+			name:  "ASCII text truncated",
+			input: "hello world",
+			width: 5,
+			want:  "hell…",
+		},
+		{
+			name:  "CJK chars - 3 chars is 6 cells, truncate to 5 cells gives 2 CJK + ellipsis",
+			input: "界界界",
+			width: 5,
+			want:  "界界…",
+		},
+		{
+			name:  "CJK chars - single char is 2 cells, exact fit",
+			input: "界",
+			width: 2,
+			want:  "界",
+		},
+		{
+			name:  "CJK chars - two chars is 4 cells, truncate to 3 cells gives 1 CJK + ellipsis",
+			input: "界界",
+			width: 3,
+			want:  "界…",
+		},
+		{
+			name:  "mixed ASCII and CJK - 7 cells total, truncate to 6",
+			input: "a界b界c",
+			width: 6,
+			want:  "a界b…",
+		},
+		{
+			name:  "width less than 1",
+			input: "hello",
+			width: 0,
+			want:  "",
+		},
+		{
+			name:  "width 1 - only ellipsis fits",
+			input: "hello",
+			width: 1,
+			want:  "…",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateRunes(tt.input, tt.width)
+			if got != tt.want {
+				t.Errorf("truncateRunes(%q, %d) = %q, want %q", tt.input, tt.width, got, tt.want)
+			}
+		})
+	}
+}

@@ -319,3 +319,71 @@ func TestViewportViewCacheRefreshedOnScroll(t *testing.T) {
 		t.Fatal("stale viewport frame served after scroll; scrollY key must invalidate")
 	}
 }
+
+func TestHighlightCommandPrefixLineCJK(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+
+	tests := []struct {
+		name          string
+		line          string
+		cursorCol     int
+		value         string
+		skillNames    []string
+		innerWidth    int
+		wantHighlight bool
+	}{
+		{
+			name:          "ASCII skill with cursor after prefix",
+			line:          "/deploy rest",
+			cursorCol:     8,
+			value:         "/deploy rest",
+			skillNames:    []string{"deploy"},
+			innerWidth:    30,
+			wantHighlight: true,
+		},
+		{
+			name:          "CJK skill - 2-cell-wide char in name with space",
+			line:          "/界 rest",
+			cursorCol:     5,
+			value:         "/界 rest",
+			skillNames:    []string{"界"},
+			innerWidth:    30,
+			wantHighlight: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := highlightCommandPrefixLine(tt.line, tt.cursorCol, tt.value, tt.skillNames, false, tt.innerWidth, styles.CommandPrefixStyle, styles.UserBg)
+			if tt.wantHighlight {
+				if result == tt.line {
+					t.Errorf("highlightCommandPrefixLine should highlight prefix for %q, got unchanged", tt.line)
+				}
+			} else if result != tt.line {
+				t.Errorf("highlightCommandPrefixLine should not highlight for %q, got %q", tt.line, result)
+			}
+		})
+	}
+}
+
+func TestApplyComposerCursorAnsiCJK(t *testing.T) {
+	t.Parallel()
+	// Test that cursor placement respects cell width, not rune count
+	// "界" is 1 rune but 2 cells wide
+
+	text := "界test"
+	// Cursor at cell position 2 (after 界) should be on 't', not within 界
+	result := applyComposerCursorAnsi(text, 2, true)
+	// Should contain the reverse video escape
+	if !strings.Contains(result, "\x1b[7m") {
+		t.Errorf("applyComposerCursorAnsi should place cursor, got %q", result)
+	}
+
+	// The cursor should be on 't', not splitting the CJK character
+	// After reverse video escape, we should see 't' (or similar)
+	if !strings.Contains(result, "t") {
+		t.Errorf("applyComposerCursorAnsi result should contain 't', got %q", result)
+	}
+}

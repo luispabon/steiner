@@ -142,20 +142,51 @@ func occupancyPercent(used, budget int) int {
 
 func fitTextMiddle(text string, width int) string {
 	text = strings.TrimSpace(text)
-	if width > 0 && len(text) <= width {
+	textWidth := lipgloss.Width(text)
+	if width > 0 && textWidth <= width {
 		return text
 	}
+	if width <= 0 {
+		return text
+	}
+	if width <= 1 {
+		return "…"
+	}
+
 	runes := []rune(text)
-	if width <= 0 || len(runes) <= width {
-		return text
+	ellipsisWidth := lipgloss.Width("…")
+	availableWidth := max(0, width-ellipsisWidth)
+	leftBudget := availableWidth / 2
+	rightBudget := availableWidth - leftBudget
+
+	// Consume a contiguous prefix and suffix, each stopping at the first
+	// rune that would overflow its budget (never skipping a rune that
+	// doesn't fit and continuing past it, which would drop characters
+	// from the middle of the kept segments instead of just the ellipsis
+	// region).
+	leftEnd := 0
+	leftWidth := 0
+	for leftEnd < len(runes) {
+		runeWidth := lipgloss.Width(string(runes[leftEnd]))
+		if leftWidth+runeWidth > leftBudget {
+			break
+		}
+		leftWidth += runeWidth
+		leftEnd++
 	}
-	if width <= 3 {
-		return string(runes[:width])
+
+	rightStart := len(runes)
+	rightWidth := 0
+	for rightStart > leftEnd {
+		runeWidth := lipgloss.Width(string(runes[rightStart-1]))
+		if rightWidth+runeWidth > rightBudget {
+			break
+		}
+		rightWidth += runeWidth
+		rightStart--
 	}
-	keep := width - 1 // 1 cell for the ellipsis character
-	left := keep / 2
-	right := keep - left
-	return string(runes[:left]) + "…" + string(runes[len(runes)-right:])
+
+	return string(runes[:leftEnd]) + "…" + string(runes[rightStart:])
 }
 
 func fitText(text string, width int) string {

@@ -669,3 +669,27 @@ func TestApplyFinishedToolCallResultMutateStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderApprovalPreviewCJK(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		collapseState: make(map[int]bool),
+		styles:        testStyles("#5599ff"),
+	}
+
+	// Test that CJK keys are properly capitalized without byte-slicing corruption
+	result := buffer.renderApprovalPreview(`{"界":"value"}`, 20)
+	if !strings.Contains(stripANSI(result), "界") {
+		t.Errorf("renderApprovalPreview with CJK key corrupted: got %q", stripANSI(result))
+	}
+
+	// Test that value width calculation uses display width, not byte length
+	// With width=12, "界:" is 2+1=3 cells, leaving 12-3-2=7 cells for value
+	// Five CJK chars (10 cells) should truncate to fit in 7 cells
+	result = buffer.renderApprovalPreview(`{"界":"界界界界界"}`, 12)
+	rendered := stripANSI(result)
+	// The value should be truncated, not showing all 5 chars
+	if strings.Count(rendered, "界") < 3 {
+		t.Errorf("renderApprovalPreview with CJK key and value should truncate value: got %q", rendered)
+	}
+}

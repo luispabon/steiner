@@ -122,8 +122,12 @@ func (o oneshotResumePickerOverlay) formatRunRow(run oneshot.ResumableRun, maxWi
 	}
 
 	task := run.Task
-	if len(task) > titleMaxWidth {
-		task = task[:titleMaxWidth-1] + "…"
+	if lipgloss.Width(task) > titleMaxWidth {
+		runes := []rune(task)
+		for len(runes) > 0 && lipgloss.Width(string(runes))+lipgloss.Width("…") > titleMaxWidth {
+			runes = runes[:len(runes)-1]
+		}
+		task = string(runes) + "…"
 	}
 
 	return datetime + task + phaseStr + spacer + idSuffix
