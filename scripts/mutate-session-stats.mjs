@@ -121,6 +121,29 @@ const extractShownFileText = (body) => {
 	return out.length ? out.join("\n") : null;
 };
 
+const sessionFiles = (() => {
+	try {
+		return readdirSync(DIR);
+	} catch (error) {
+		if (error.code === "ENOENT") return [];
+		throw error;
+	}
+})();
+
+const parseMutateResult = (body) => {
+	const trimmed = body.trim();
+	if (trimmed.startsWith("mutate: ")) return { failed: true, parsed: null };
+	try {
+		const parsed = JSON.parse(body);
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { failed: false, parsed: null };
+		const failed = typeof parsed.operations_failed === "number" && parsed.operations_failed > 0;
+		const envelopeError = parsed.operations_failed === undefined && Object.hasOwn(parsed, "error");
+		return { failed: failed || envelopeError, parsed };
+	} catch {
+		return { failed: false, parsed: null };
+	}
+};
+
 const stats = {
 	sessions_scanned: 0,
 	// `unclassifiable`: the error carried no normalization block (only the truncated
@@ -160,7 +183,7 @@ const stats = {
 	},
 };
 
-for (const file of readdirSync(DIR)) {
+for (const file of sessionFiles) {
 	if (!file.endsWith(".json") || file === "index.json") continue;
 	let session;
 	try {
@@ -228,9 +251,9 @@ for (const file of readdirSync(DIR)) {
 
 			if (message.role === "tool" && message.name === "mutate" && pending.has(message.tool_call_id)) {
 				const body = typeof message.content === "string" ? message.content : JSON.stringify(message.content);
-				const failedCount = body.match(/"operations_failed":(\d+)/);
-				const isEnvelopeError = !failedCount && (/^mutate: /.test(body.trim()) || /"error"/.test(body));
-				const failed = (failedCount && Number(failedCount[1]) > 0) || isEnvelopeError;
+				const result = parseMutateResult(body);
+
+				const failed = result.failed;
 
 				if (failed) {
 					stats.failed_calls++;
@@ -254,10 +277,12 @@ for (const file of readdirSync(DIR)) {
 						if (shown && op) bump(stats.whitespace_variant_breakdown, classifyWhitespaceVariant(op.old_string, shown));
 						else bump(stats.whitespace_variant_breakdown, "unclassifiable");
 					}
-					const named = body.match(/operation \d+ (\w+)/);
+
+
+					const output = result.parsed?.output ?? result.parsed?.error ?? body;
+					const named = String(output).match(/operation \d+ (\w+)/);
 					bump(stats.failing_op_type, named ? named[1] : "<unknown>");
-					const skipped = body.match(/"operations_skipped":(\d+)/);
-					if (skipped) stats.ops_never_attempted += Number(skipped[1]);
+					if (typeof result.parsed?.operations_skipped === "number") stats.ops_never_attempted += result.parsed.operations_skipped;
 				} else if (consecutiveFailures > 0) {
 					bump(stats.retry_chains, consecutiveFailures);
 					consecutiveFailures = 0;
