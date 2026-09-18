@@ -6,7 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// didCloseTimeout bounds withDocument's best-effort DidClose. The close is
+// detached from the caller's deadline (the request that opened the document may
+// already have failed), but it must still be bounded: withDocument runs under
+// the session's cycle lock, so an unresponsive server must not hold that lock
+// indefinitely.
+const didCloseTimeout = 5 * time.Second
 
 // languageIDMap maps file extensions to LSP language IDs.
 var languageIDMap = map[string]string{
@@ -52,8 +60,11 @@ func withDocument(ctx context.Context, s session, file string, fn func() error) 
 	fnErr := fn()
 
 	// DidClose is best-effort; close is attempted even if fn errored.
-	// Use a fresh context so this isn't constrained by the request timeout.
-	closeCtx := context.WithoutCancel(ctx)
+	// Detach from the request timeout so a failed request still releases the
+	// document, then bound the close so a wedged server cannot hold the
+	// session's cycle lock indefinitely.
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), didCloseTimeout)
+	defer cancel()
 	_ = s.DidClose(closeCtx, file) // best-effort, error intentionally ignored
 
 	if fnErr != nil {
