@@ -11,11 +11,16 @@ func TestContextSourceIsSystemZone(t *testing.T) {
 		want bool
 	}{
 		{name: "preamble", src: ContextSourcePreamble, want: true},
+		{name: "phase prompt", src: ContextSourcePhasePrompt, want: true},
 		{name: "global agents", src: ContextSourceGlobalAgentsMD, want: true},
 		{name: "project agents", src: ContextSourceProjectAgentsMD, want: true},
 		{name: "conversation summary", src: ContextSourceConversationSummary, want: true},
 		{name: "project context", src: ContextSourceProjectContext, want: false},
+		{name: "skill", src: ContextSourceSkill, want: false},
 		{name: "durable context", src: ContextSourceDurableContext, want: false},
+		{name: "conversation", src: ContextSourceConversation, want: false},
+		{name: "session date", src: ContextSourceSessionDate, want: false},
+		{name: "unknown source", src: ContextSource("unknown"), want: false},
 	}
 
 	for _, tc := range cases {

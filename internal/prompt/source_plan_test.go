@@ -60,8 +60,8 @@ func TestPlanSourceAssemblyExcludesAbsentOptionalSources(t *testing.T) {
 	if got, want := assembly.Messages[0].Role, provider.MessageRoleSystem; got != want {
 		t.Fatalf("message[0].role = %q, want %q", got, want)
 	}
-	if got := assembly.Messages[0].Content; !strings.HasPrefix(SystemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent}).Content, got) {
-		t.Fatalf("message[0].content = %q, want prefix of default preamble", got)
+	if got, want := assembly.Messages[0].Content, SystemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent}).Content; got != want {
+		t.Fatalf("message[0].content mismatch:\ngot:  %q\nwant: %q", got, want)
 	}
 }
 
@@ -665,13 +665,14 @@ func TestSessionDateStabilityAcrossConversationLengths(t *testing.T) {
 		t.Fatalf("conversation not found: idx1=%d idx2=%d", conversationStartIdx1, conversationStartIdx2)
 	}
 
-	for i := 0; i < conversationStartIdx1; i++ {
-		if result1.Messages[i].Content != result2.Messages[i].Content {
-			t.Fatalf("static prefix differs at message %d: %q vs %q", i, result1.Messages[i].Content, result2.Messages[i].Content)
-		}
-		if result1.Messages[i].Role != result2.Messages[i].Role {
-			t.Fatalf("static prefix role differs at message %d: %q vs %q", i, result1.Messages[i].Role, result2.Messages[i].Role)
-		}
+	if conversationStartIdx1 != conversationStartIdx2 {
+		t.Fatalf("conversation boundary mismatch: idx1=%d idx2=%d", conversationStartIdx1, conversationStartIdx2)
+	}
+
+	staticPrefix1 := result1.Messages[:conversationStartIdx1]
+	staticPrefix2 := result2.Messages[:conversationStartIdx2]
+	if !reflect.DeepEqual(staticPrefix1, staticPrefix2) {
+		t.Fatalf("static prefix differs: got %v, want %v", staticPrefix1, staticPrefix2)
 	}
 }
 

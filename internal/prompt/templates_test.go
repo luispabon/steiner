@@ -39,6 +39,8 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 		{name: templateCaveHumanVoice},
 		{name: templateCompactionCaveHumanBody},
 		{name: templateCaveHumanCompactionEncode},
+		{name: templateLSP},
+		{name: templateToolBatching},
 	}
 
 	for _, tc := range cases {
