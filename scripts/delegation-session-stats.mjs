@@ -205,14 +205,6 @@ if (AS_JSON) {
 		console.log(`${k}  messages=${xs.length}  calls=${calls}  (${((100 * calls) / totalCalls).toFixed(1)}% of all child calls)`);
 	}
 
-	// Serialisation cost: wall clock the parent actually waited, assuming a batch
-	// runs concurrently (max) vs. what it would cost serially (sum).
-	const byMsg = new Map();
-	for (const r of rows) {
-		const k = `${r.session}|${r.agent}|${r.batchSize}`;
-		if (!byMsg.has(k)) byMsg.set(k, []);
-		byMsg.get(k).push(r);
-	}
 	console.log("\n== task prompt / result sizes (chars)");
 	for (const [agent, xs] of groupBy(rows, (r) => r.agent)) {
 		console.log(

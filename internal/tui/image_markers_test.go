@@ -89,12 +89,11 @@ func TestRenumberMarkers(t *testing.T) {
 	img3 := agent.ImageBlock{MediaType: "image/webp", Data: "c"}
 
 	tests := []struct {
-		name          string
-		value         string
-		markers       []imageMarker
-		wantValue     string
-		wantLabels    []string
-		wantUnchanged bool
+		name       string
+		value      string
+		markers    []imageMarker
+		wantValue  string
+		wantLabels []string
 	}{
 		{
 			name:  "renumber after middle removal",
@@ -113,9 +112,8 @@ func TestRenumberMarkers(t *testing.T) {
 				{label: "[Image 1]", image: img1},
 				{label: "[Image 2]", image: img2},
 			},
-			wantValue:     "[Image 1]",
-			wantLabels:    []string{"[Image 1]", "[Image 2]"},
-			wantUnchanged: true,
+			wantValue:  "[Image 1]",
+			wantLabels: []string{"[Image 1]", "[Image 2]"},
 		},
 		{
 			name:  "three markers in order",

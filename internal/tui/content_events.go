@@ -225,7 +225,6 @@ type delegationDisplayState struct {
 	// cumulative DelegationCompleteEvent payload values.
 	baselineTurnCount     int
 	baselineToolCallCount int
-	baselineTokenCount    int
 	advisorUse            int
 	advisorMaxUses        int
 	advisorBudget         int

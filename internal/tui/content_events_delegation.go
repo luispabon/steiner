@@ -564,10 +564,10 @@ func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload ou
 func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallStartedEvent) {
 	childAgentID := extractFollowUpAgentID(payload.Arguments)
 	childToolLabel := ""
-	var baselineTurns, baselineToolCalls, baselineTokens int
+	var baselineTurns, baselineToolCalls int
 	if childAgentID != "" {
 		_, childToolLabel = b.findChildDelegationInfo(childAgentID)
-		baselineTurns, baselineToolCalls, baselineTokens = b.captureChildBaselineStats(childAgentID)
+		baselineTurns, baselineToolCalls = b.captureChildBaselineStats(childAgentID)
 	}
 
 	summary := summarizeFollowUpArgs(payload.Arguments)
@@ -586,7 +586,6 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 		followUpAgentID:       childAgentID,
 		baselineTurnCount:     baselineTurns,
 		baselineToolCallCount: baselineToolCalls,
-		baselineTokenCount:    baselineTokens,
 		extMax:                defaultDelegationExtensionMax,
 	}
 	idx := b.appendDelegationSegment(dd)
@@ -938,19 +937,14 @@ func (b *contentBuffer) findChildDelegationInfo(agentID string) (label, toolLabe
 // captureChildBaselineStats searches for the most recent delegation segment
 // with the given agentID and returns its cumulative turn and tool-call counts.
 // These form the baseline that must be subtracted from follow-up
-// DelegationCompleteEvent payload values. Token counts remain whole-life totals.
-// Returns zeroes when the segment is not found or has no data.
-//
-// Cache token counts are deliberately excluded: they are cumulative across
-// follow-ups by construction (accumulated in internal/delegation and carried
-// in the payload), so subtracting a baseline would be wrong — the payload
-// values are rendered verbatim.
-func (b *contentBuffer) captureChildBaselineStats(agentID string) (turns, toolCalls, tokens int) {
+// DelegationCompleteEvent payload values. Returns zeroes when the segment is
+// not found or has no data.
+func (b *contentBuffer) captureChildBaselineStats(agentID string) (turns, toolCalls int) {
 	if agentID == "" {
-		return 0, 0, 0
+		return 0, 0
 	}
 	if loc, ok := b.findDelegation(agentID); ok {
-		return loc.dd.turnCount, loc.dd.toolCallCount, loc.dd.tokenCount
+		return loc.dd.turnCount, loc.dd.toolCallCount
 	}
-	return 0, 0, 0
+	return 0, 0
 }
