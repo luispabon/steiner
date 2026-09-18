@@ -1323,7 +1323,7 @@ func TestFetchAndSaveImage_RejectsNon200Status(t *testing.T) {
 	pngData, _, _ := newTestPNG()
 	workDir := t.TempDir()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write(pngData)

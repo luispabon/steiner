@@ -203,9 +203,9 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 	}
 	exitLine = strings.TrimSpace(exitLine)
 
-	code, err := parseBashExitLine(exitLine, exitMarker)
-	if err != nil {
-		return "", "", -1, fmt.Errorf("bash session: %w", err)
+	code, parseErr := parseBashExitLine(exitLine, exitMarker)
+	if parseErr != nil {
+		return "", "", -1, fmt.Errorf("bash session: %w", parseErr)
 	}
 
 	stdoutText, stdoutTrunc := maybeTruncate(stdoutRes.text, bashSessionMaxOutput)

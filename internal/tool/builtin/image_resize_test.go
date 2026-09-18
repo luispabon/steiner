@@ -226,7 +226,7 @@ func TestResizeImageIfNeeded_TranslucentPixelPreservation(t *testing.T) {
 
 	// Allow ±5 tolerance per channel for round-trip loss through PNG encoding/decoding.
 	const tolerance = 5
-	if nrgba.R < 250-tolerance || nrgba.R > 255 {
+	if nrgba.R < 250-tolerance {
 		t.Errorf("resized red channel = %d, want 250-255 (translucent red may be darkened?)", nrgba.R)
 	}
 	if nrgba.G > 0+tolerance {

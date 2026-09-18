@@ -1413,14 +1413,14 @@ type trackingSession struct {
 func (s *trackingSession) Definition(context.Context, string, int, int) ([]Location, error) {
 	return nil, nil
 }
-func (s *trackingSession) Implementation(ctx context.Context, file string, line, col int) ([]Location, error) {
+func (s *trackingSession) Implementation(_ context.Context, file string, line, col int) ([]Location, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.implementationFile = file
 	s.implementationCalls++
 	return []Location{{File: file, Line: line, Column: col}}, nil
 }
-func (s *trackingSession) TypeDefinition(ctx context.Context, file string, line, col int) ([]Location, error) {
+func (s *trackingSession) TypeDefinition(_ context.Context, file string, line, col int) ([]Location, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.typeDefinitionFile = file
