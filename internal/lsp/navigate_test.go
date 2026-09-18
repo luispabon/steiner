@@ -1400,3 +1400,140 @@ func TestTypeDefinitionsCacheKeyDistinctFromDefinitions(t *testing.T) {
 		t.Error("textDocument/definition not recorded")
 	}
 }
+
+// trackingSession records the file path passed to Implementation and TypeDefinition.
+type trackingSession struct {
+	implementationFile  string
+	typeDefinitionFile  string
+	implementationCalls int
+	typeDefinitionCalls int
+	mu                  sync.Mutex
+}
+
+func (s *trackingSession) Definition(context.Context, string, int, int) ([]Location, error) {
+	return nil, nil
+}
+func (s *trackingSession) Implementation(_ context.Context, file string, line, col int) ([]Location, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.implementationFile = file
+	s.implementationCalls++
+	return []Location{{File: file, Line: line, Column: col}}, nil
+}
+func (s *trackingSession) TypeDefinition(_ context.Context, file string, line, col int) ([]Location, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.typeDefinitionFile = file
+	s.typeDefinitionCalls++
+	return []Location{{File: file, Line: line, Column: col}}, nil
+}
+func (s *trackingSession) References(context.Context, string, int, int, bool) ([]Location, error) {
+	return nil, nil
+}
+func (s *trackingSession) Hover(context.Context, string, int, int) (HoverContent, error) {
+	return HoverContent{}, nil
+}
+func (s *trackingSession) WorkspaceSymbol(context.Context, string) ([]SymbolInfo, error) {
+	return nil, nil
+}
+func (s *trackingSession) DocumentSymbol(context.Context, string) ([]SymbolInfo, error) {
+	return nil, nil
+}
+func (s *trackingSession) DidOpen(context.Context, string, string, string, int32) error { return nil }
+func (s *trackingSession) DidClose(context.Context, string) error                       { return nil }
+func (s *trackingSession) Diagnostics() <-chan PublishedDiagnostics                     { return nil }
+func (s *trackingSession) Progress() <-chan ProgressEvent                               { return nil }
+func (s *trackingSession) Exited() <-chan struct{}                                      { return make(chan struct{}) }
+func (s *trackingSession) Close(context.Context) error                                  { return nil }
+
+func TestImplementationsWithRelativePath(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	sess := &trackingSession{}
+
+	cfg := config.LSPConfig{
+		MaxResults:     100,
+		RequestTimeout: config.MustDuration("2s"),
+		Servers: map[string]config.LSPServerConfig{
+			"go": {Enabled: true, FileExtensions: []string{".go"}},
+		},
+	}
+	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	t.Cleanup(func() { _ = m.Close() })
+
+	root := resolveRoot(testFile, tmpdir, nil)
+	ent := &entry{state: ServerState{Status: ServerStatusReady}, session: sess}
+	m.sessions = map[sessionKey]*entry{{server: "go", root: root}: ent}
+
+	// Call Implementations with a RELATIVE path; it should be resolved to absolute.
+	relPath := "test.go"
+	_, err := m.Implementations(ctx, relPath, 1, 5)
+	if err != nil {
+		t.Fatalf("Implementations: %v", err)
+	}
+
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+
+	if sess.implementationCalls != 1 {
+		t.Fatalf("Implementation called %d times, want 1", sess.implementationCalls)
+	}
+
+	// The session method should have received the RESOLVED absolute path, not the relative path.
+	if sess.implementationFile != testFile {
+		t.Errorf("Implementation called with file %q, want %q (relative path was not resolved)", sess.implementationFile, testFile)
+	}
+}
+
+func TestTypeDefinitionsWithRelativePath(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	sess := &trackingSession{}
+
+	cfg := config.LSPConfig{
+		MaxResults:     100,
+		RequestTimeout: config.MustDuration("2s"),
+		Servers: map[string]config.LSPServerConfig{
+			"go": {Enabled: true, FileExtensions: []string{".go"}},
+		},
+	}
+	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	t.Cleanup(func() { _ = m.Close() })
+
+	root := resolveRoot(testFile, tmpdir, nil)
+	ent := &entry{state: ServerState{Status: ServerStatusReady}, session: sess}
+	m.sessions = map[sessionKey]*entry{{server: "go", root: root}: ent}
+
+	// Call TypeDefinitions with a RELATIVE path; it should be resolved to absolute.
+	relPath := "test.go"
+	_, err := m.TypeDefinitions(ctx, relPath, 1, 5)
+	if err != nil {
+		t.Fatalf("TypeDefinitions: %v", err)
+	}
+
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+
+	if sess.typeDefinitionCalls != 1 {
+		t.Fatalf("TypeDefinition called %d times, want 1", sess.typeDefinitionCalls)
+	}
+
+	// The session method should have received the RESOLVED absolute path, not the relative path.
+	if sess.typeDefinitionFile != testFile {
+		t.Errorf("TypeDefinition called with file %q, want %q (relative path was not resolved)", sess.typeDefinitionFile, testFile)
+	}
+}

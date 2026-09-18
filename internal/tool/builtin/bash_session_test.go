@@ -414,3 +414,71 @@ func TestBashStreamReadErrorIncludesCapturedStderr(t *testing.T) {
 		}
 	}
 }
+
+func TestParseBashExitLine(t *testing.T) {
+	tests := []struct {
+		name      string
+		line      string
+		marker    string
+		wantCode  int
+		wantError bool
+	}{
+		{
+			name:      "valid exit code",
+			line:      "__STEINER_EXIT_1__:0",
+			marker:    "__STEINER_EXIT_1__",
+			wantCode:  0,
+			wantError: false,
+		},
+		{
+			name:      "nonzero exit code",
+			line:      "__STEINER_EXIT_1__:42",
+			marker:    "__STEINER_EXIT_1__",
+			wantCode:  42,
+			wantError: false,
+		},
+		{
+			name:      "negative exit code",
+			line:      "__STEINER_EXIT_1__:-1",
+			marker:    "__STEINER_EXIT_1__",
+			wantCode:  -1,
+			wantError: false,
+		},
+		{
+			name:      "missing exit marker",
+			line:      "garbage text",
+			marker:    "__STEINER_EXIT_1__",
+			wantCode:  -1,
+			wantError: true,
+		},
+		{
+			name:      "unparseable exit code",
+			line:      "__STEINER_EXIT_1__:notanumber",
+			marker:    "__STEINER_EXIT_1__",
+			wantCode:  -1,
+			wantError: true,
+		},
+		{
+			name:      "missing colon",
+			line:      "__STEINER_EXIT_1__0",
+			marker:    "__STEINER_EXIT_1__",
+			wantCode:  -1,
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, err := parseBashExitLine(tt.line, tt.marker)
+			if tt.wantError && err == nil {
+				t.Errorf("parseBashExitLine returned no error, want error")
+			}
+			if !tt.wantError && err != nil {
+				t.Errorf("parseBashExitLine returned error %v, want nil", err)
+			}
+			if !tt.wantError && code != tt.wantCode {
+				t.Errorf("parseBashExitLine returned code %d, want %d", code, tt.wantCode)
+			}
+		})
+	}
+}

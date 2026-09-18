@@ -239,7 +239,7 @@ func (m *Manager) References(ctx context.Context, file string, line, col int, in
 // locationsAt runs the cache/readiness/locking flow shared by Implementations
 // and TypeDefinitions, dispatching the actual LSP request through req.
 func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, line, col int,
-	req func(context.Context, session) ([]Location, error), reqErrPrefix string) (Result, error) {
+	req func(context.Context, session, string) ([]Location, error), reqErrPrefix string) (Result, error) {
 	if line < 1 || col < 1 {
 		return Result{}, fmt.Errorf("invalid position: line %d col %d", line, col)
 	}
@@ -288,7 +288,7 @@ func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, lin
 
 	var locations []Location
 	err = withDocument(ctx, sess, file, func() error {
-		locs, err := req(reqCtx, sess)
+		locs, err := req(reqCtx, sess, file)
 		if err != nil {
 			return fmt.Errorf("%s: %w", reqErrPrefix, err)
 		}
@@ -324,8 +324,8 @@ func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, lin
 // interface method at the given position in a file.
 func (m *Manager) Implementations(ctx context.Context, file string, line, col int) (Result, error) {
 	return m.locationsAt(ctx, "implementations", file, line, col,
-		func(ctx context.Context, sess session) ([]Location, error) {
-			return sess.Implementation(ctx, file, line, col)
+		func(ctx context.Context, sess session, resolvedFile string) ([]Location, error) {
+			return sess.Implementation(ctx, resolvedFile, line, col)
 		}, "implementation request")
 }
 
@@ -333,8 +333,8 @@ func (m *Manager) Implementations(ctx context.Context, file string, line, col in
 // position in a file.
 func (m *Manager) TypeDefinitions(ctx context.Context, file string, line, col int) (Result, error) {
 	return m.locationsAt(ctx, "type_definitions", file, line, col,
-		func(ctx context.Context, sess session) ([]Location, error) {
-			return sess.TypeDefinition(ctx, file, line, col)
+		func(ctx context.Context, sess session, resolvedFile string) ([]Location, error) {
+			return sess.TypeDefinition(ctx, resolvedFile, line, col)
 		}, "type definition request")
 }
 

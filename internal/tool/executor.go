@@ -59,8 +59,11 @@ type Executor struct {
 // working directory, sandbox temp directory, and sandbox wrapper. sandboxTmpDir is
 // optional; when non-empty, /tmp paths in tool input are rewritten to sandboxTmpDir.
 // sandbox must not be nil; callers should pass Unsandboxed{} explicitly when
-// sandboxing is off.
+// sandboxing is off. If sandbox is nil, NewExecutor defaults to Unsandboxed{}.
 func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalResponder, workDir, sandboxTmpDir string, sandbox SandboxWrapper) *Executor {
+	if sandbox == nil {
+		sandbox = Unsandboxed{}
+	}
 	root := normalizeExecutionRoot(workDir)
 	outputLimit := cfg.Limits.ToolOutputMaxBytes
 	if outputLimit < 1 {

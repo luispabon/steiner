@@ -46,34 +46,39 @@ func resolveSymbolPosition(workspace, file, symbol string, line int) (resolvedFi
 	}
 
 	// Scan the entire file for matches.
-	var matchLines []int
+	var matches []struct {
+		line int
+		col  int
+	}
 	for lineIdx, lineText := range lines {
 		col := findLeftmostMatch(lineText, symbol)
 		if col >= 0 {
-			matchLines = append(matchLines, lineIdx)
+			matches = append(matches, struct {
+				line int
+				col  int
+			}{lineIdx, col})
 		}
 	}
 
-	if len(matchLines) == 0 {
+	if len(matches) == 0 {
 		return "", 0, 0, fmt.Errorf("symbol %q not found in %s", symbol, makeRelative(workspace, absPath))
 	}
 
-	if len(matchLines) == 1 {
-		lineIdx := matchLines[0]
-		col := findLeftmostMatch(lines[lineIdx], symbol)
-		return absPath, lineIdx + 1, col + 1, nil // +1 for 1-based
+	if len(matches) == 1 {
+		mt := matches[0]
+		return absPath, mt.line + 1, mt.col + 1, nil // +1 for 1-based
 	}
 
 	// Multiple matches on different lines: error with line list.
 	const maxListedLines = 20
-	lineNums := make([]string, 0, len(matchLines))
-	for i, lineIdx := range matchLines {
+	lineNums := make([]string, 0, len(matches))
+	for i, mt := range matches {
 		if i >= maxListedLines {
-			remaining := len(matchLines) - maxListedLines
+			remaining := len(matches) - maxListedLines
 			lineNums = append(lineNums, fmt.Sprintf("... and %d more", remaining))
 			break
 		}
-		lineNums = append(lineNums, fmt.Sprintf("%d", lineIdx+1))
+		lineNums = append(lineNums, fmt.Sprintf("%d", mt.line+1))
 	}
 	return "", 0, 0, fmt.Errorf("symbol %q found on lines %s — narrow with the line parameter", symbol, strings.Join(lineNums, ", "))
 }

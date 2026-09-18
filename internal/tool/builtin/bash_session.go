@@ -203,13 +203,9 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 	}
 	exitLine = strings.TrimSpace(exitLine)
 
-	code := -1
-	prefix := exitMarker + ":"
-	if strings.HasPrefix(exitLine, prefix) {
-		var parsed int
-		if _, scanErr := fmt.Sscanf(exitLine[len(prefix):], "%d", &parsed); scanErr == nil {
-			code = parsed
-		}
+	code, parseErr := parseBashExitLine(exitLine, exitMarker)
+	if parseErr != nil {
+		return "", "", -1, fmt.Errorf("bash session: %w", parseErr)
 	}
 
 	stdoutText, stdoutTrunc := maybeTruncate(stdoutRes.text, bashSessionMaxOutput)
@@ -391,6 +387,24 @@ func readUntilMarker(r *bufio.Reader, marker string) (string, error) {
 			return sb.String(), io.ErrUnexpectedEOF
 		}
 	}
+}
+
+// parseBashExitLine parses the exit code from a bash session exit marker line.
+// The line must match the format "exitMarker:code" where code is an integer.
+// If the line doesn't match or the code cannot be parsed, an error is returned.
+func parseBashExitLine(line, exitMarker string) (int, error) {
+	prefix := exitMarker + ":"
+	if !strings.HasPrefix(line, prefix) {
+		return -1, fmt.Errorf("missing exit marker %q", exitMarker)
+	}
+
+	var code int
+	_, err := fmt.Sscanf(line[len(prefix):], "%d", &code)
+	if err != nil {
+		return -1, fmt.Errorf("parse exit code: %w", err)
+	}
+
+	return code, nil
 }
 
 // maybeTruncate truncates s to maxBytes and returns whether truncation occurred.

@@ -1316,6 +1316,43 @@ func TestFetchImageBytes(t *testing.T) {
 	})
 }
 
+func TestFetchAndSaveImage_RejectsNon200Status(t *testing.T) {
+	ctx := context.Background()
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+
+	pngData, _, _ := newTestPNG()
+	workDir := t.TempDir()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write(pngData)
+	}))
+	defer server.Close()
+
+	in := FetchURLInput{
+		URL:     server.URL,
+		MaxSize: 100000,
+	}
+
+	result, err := fetchAndSaveImage(ctx, httpClient, in, workDir, "image/png")
+	if err != nil {
+		t.Fatalf("fetchAndSaveImage returned error: %v", err)
+	}
+
+	errResult, ok := result.(*FetchURLError)
+	if !ok {
+		t.Fatalf("expected FetchURLError, got %T", result)
+	}
+
+	if errResult.StatusCode != http.StatusNotFound {
+		t.Errorf("StatusCode = %d, want %d", errResult.StatusCode, http.StatusNotFound)
+	}
+	if !strings.Contains(errResult.Error, "HTTP 404") {
+		t.Errorf("Error = %q, want to contain %q", errResult.Error, "HTTP 404")
+	}
+}
+
 func TestFetchURLUnsupportedImageTypeReturnsStructuredError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/svg+xml")

@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -70,7 +71,12 @@ func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.Pat
 
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return filepath.SkipDir
+			// Skip directories we don't have permission to enter, but propagate
+			// other errors (e.g. nonexistent root).
+			if d != nil && errors.Is(err, fs.ErrPermission) {
+				return nil
+			}
+			return err
 		}
 
 		excludePath := path
