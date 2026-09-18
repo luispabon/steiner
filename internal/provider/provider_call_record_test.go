@@ -311,9 +311,14 @@ func TestClientStreamTTFTLessThanDuration(t *testing.T) {
 // TestCodexWSChatCompletionEmitsProviderCall covers 3.2 for the WebSocket
 // transport: one record per call, transport "ws", outcome "ok".
 func TestCodexWSChatCompletionEmitsProviderCall(t *testing.T) {
+	completed := mustJSON(t, map[string]any{
+		"type":     "response.completed",
+		"response": map[string]any{"output": []any{}, "status": "success"},
+	})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
+			t.Errorf("websocket.Accept() error = %v", err)
 			return
 		}
 		defer func() { _ = conn.CloseNow() }()
@@ -321,12 +326,12 @@ func TestCodexWSChatCompletionEmitsProviderCall(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if _, _, err := conn.Read(ctx); err != nil {
+			t.Errorf("server read request frame: %v", err)
 			return
 		}
-		_ = conn.Write(ctx, websocket.MessageText, mustJSON(t, map[string]any{
-			"type":     "response.completed",
-			"response": map[string]any{"output": []any{}, "status": "success"},
-		}))
+		if err := conn.Write(ctx, websocket.MessageText, completed); err != nil {
+			t.Errorf("server write event: %v", err)
+		}
 	}))
 	defer server.Close()
 

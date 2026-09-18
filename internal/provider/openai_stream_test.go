@@ -392,20 +392,18 @@ func TestOpenAIStreamFlushStreamState_EmitsDoneChunk(t *testing.T) {
 }
 
 func TestOpenAIStreamFlushStreamState_ReturnsNilWhenNothingSeen(t *testing.T) {
-	ctx := context.Background()
-	out := make(chan ChatChunk)
 	state := openAIStreamState{}
+	var emitted []ChatChunk
 
 	err := flushStreamState(func(chunk ChatChunk) error {
-		select {
-		case out <- chunk:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+		emitted = append(emitted, chunk)
+		return nil
 	}, state)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
+	}
+	if len(emitted) != 0 {
+		t.Fatalf("expected no chunk emitted, got %d: %#v", len(emitted), emitted)
 	}
 }
 
