@@ -977,41 +977,40 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 	ent.readiness.markReady()
 
 	fs.onDidOpen = func(ctx context.Context, params *protocol.DidOpenTextDocumentParams) {
-		// Bind this publication to the DidOpen that created it. openedURI and
-		// openedFile are immutable for the lifetime of the goroutine, so no
-		// shared mutable selector (and no lock) is needed.
+		// Bind this publication to the DidOpen that called it. openedURI and
+		// openedFile are local, so no shared mutable selector (and no lock) is
+		// needed.
 		openedURI := params.TextDocument.URI
 		openedFile := openedURI.FsPath()
 
-		go func() {
-			time.Sleep(5 * time.Millisecond)
-			bgCtx := context.WithoutCancel(ctx)
-			// Publish diagnostics specific to the opened file.
-			var msg string
-			switch openedFile {
-			case fileA:
-				msg = "diagnostic for A"
-			case fileB:
-				msg = "diagnostic for B"
-			default:
-				return
-			}
+		// Publish synchronously: the session's diagnostics channel is buffered,
+		// so the collection loop receives this without a fixed delay.
+		bgCtx := context.WithoutCancel(ctx)
+		// Publish diagnostics specific to the opened file.
+		var msg string
+		switch openedFile {
+		case fileA:
+			msg = "diagnostic for A"
+		case fileB:
+			msg = "diagnostic for B"
+		default:
+			return
+		}
 
-			diagParams := &protocol.PublishDiagnosticsParams{
-				URI: openedURI,
-				Diagnostics: []protocol.Diagnostic{
-					{
-						Range: protocol.Range{
-							Start: protocol.Position{Line: 0, Character: 0},
-							End:   protocol.Position{Line: 0, Character: 5},
-						},
-						Severity: protocol.DiagnosticSeverityError,
-						Message:  protocol.String(msg),
+		diagParams := &protocol.PublishDiagnosticsParams{
+			URI: openedURI,
+			Diagnostics: []protocol.Diagnostic{
+				{
+					Range: protocol.Range{
+						Start: protocol.Position{Line: 0, Character: 0},
+						End:   protocol.Position{Line: 0, Character: 5},
 					},
+					Severity: protocol.DiagnosticSeverityError,
+					Message:  protocol.String(msg),
 				},
-			}
-			fs.notifyDiagnostics(bgCtx, t, diagParams)
-		}()
+			},
+		}
+		fs.notifyDiagnostics(bgCtx, t, diagParams)
 	}
 
 	var wg sync.WaitGroup
