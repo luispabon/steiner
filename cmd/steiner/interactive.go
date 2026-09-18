@@ -51,6 +51,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	}
 	sess, err := buildInteractiveSession(rt)
 	if err != nil {
+		closeRuntime(&rt)
 		return err
 	}
 	rt = buildInteractiveRuntime(rt, sess)
@@ -65,6 +66,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	)
 	tuiApp, err := buildInteractiveApp(cmd, flags, rt, sess)
 	if err != nil {
+		closeRuntime(&rt)
 		return err
 	}
 	defer tuiApp.Cleanup()
