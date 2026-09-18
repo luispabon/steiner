@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -248,10 +249,10 @@ func TestServeCallback(t *testing.T) {
 
 			if tt.wantErrSubstr != "" && tt.name == "error param with xss" {
 				bodyStr := string(body)
-				if contains(bodyStr, "<script>") {
+				if strings.Contains(bodyStr, "<script>") {
 					t.Errorf("response body contains unescaped <script> tag")
 				}
-				if !contains(bodyStr, "&lt;script&gt;") {
+				if !strings.Contains(bodyStr, "&lt;script&gt;") {
 					t.Errorf("response body should contain escaped &lt;script&gt;")
 				}
 			}
@@ -306,7 +307,7 @@ func TestOpenBrowser(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadFile() error = %v", err)
 			}
-			if !contains(string(data), "https://example.test") {
+			if !strings.Contains(string(data), "https://example.test") {
 				t.Errorf("marker file = %q, want to contain https://example.test", string(data))
 			}
 			return
@@ -326,16 +327,7 @@ func TestOpenBrowserEmptyPath(t *testing.T) {
 	if err == nil {
 		t.Errorf("openBrowser() expected error with empty PATH, got nil")
 	}
-	if !contains(err.Error(), "start browser:") || !contains(err.Error(), "$PATH") {
+	if !strings.Contains(err.Error(), "start browser:") || !strings.Contains(err.Error(), "$PATH") {
 		t.Errorf("error = %q, want to contain 'start browser:' and '$PATH'", err.Error())
 	}
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i < len(s)-len(substr)+1; i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
