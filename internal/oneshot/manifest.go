@@ -59,6 +59,10 @@ type Manifest struct {
 	PhaseSessionIDs  map[Phase]string      `json:"phase_session_ids,omitempty"`
 	CommitMilestones []CommitMilestone     `json:"commit_milestones,omitempty"`
 	ReportPath       string                `json:"report_path,omitempty"`
+	CloseoutURL      string                `json:"closeout_url,omitempty"`
+	CloseoutProvider string                `json:"closeout_provider,omitempty"`
+	CloseoutState    string                `json:"closeout_state,omitempty"`
+	CloseoutNote     string                `json:"closeout_note,omitempty"`
 	CreatedAt        time.Time             `json:"created_at"`
 	UpdatedAt        time.Time             `json:"updated_at"`
 }
@@ -172,6 +176,11 @@ func writeManifestAtomic(path string, manifest Manifest) error {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("write manifest temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("sync manifest temp file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpName)

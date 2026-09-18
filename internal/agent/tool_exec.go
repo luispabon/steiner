@@ -48,5 +48,5 @@ func contextCancellationState(ctx context.Context, state RunState) (RunState, bo
 		state.StopReason = StopReasonCancelled
 		return state, true
 	}
-	return RunState{}, false
+	return state, false
 }

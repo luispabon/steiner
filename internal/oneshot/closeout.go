@@ -315,7 +315,15 @@ func (e *commandError) Error() string {
 	if detail == "" {
 		detail = strings.TrimSpace(e.stdout)
 	}
-	return fmt.Sprintf("%s %s: %s: %s", e.name, strings.Join(e.args, " "), e.err, detail)
+	var cappedArgs []string
+	for _, arg := range e.args {
+		if len(arg) > 200 {
+			cappedArgs = append(cappedArgs, arg[:200]+"...")
+		} else {
+			cappedArgs = append(cappedArgs, arg)
+		}
+	}
+	return fmt.Sprintf("%s %s: %s: %s", e.name, strings.Join(cappedArgs, " "), e.err, detail)
 }
 
 func (e *commandError) Unwrap() error {

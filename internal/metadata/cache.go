@@ -41,12 +41,16 @@ type Cache struct {
 }
 
 // DefaultCacheDir returns the default models.dev cache directory, honouring
-// XDG_CACHE_HOME when set.
+// XDG_CACHE_HOME when set. Returns empty string if the home directory cannot
+// be determined, causing a downstream error when used.
 func DefaultCacheDir() string {
 	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
 		return filepath.Join(xdg, "steiner", "model-metadata")
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
 	return filepath.Join(home, ".cache", "steiner", "model-metadata")
 }
 

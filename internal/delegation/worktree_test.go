@@ -129,7 +129,7 @@ func TestProvisionCodeWorktree_ConcurrentProvisioning(t *testing.T) {
 	}
 
 	// Verify git worktree list shows all N worktrees.
-	list, err := ListCodeWorktrees(repo)
+	list, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestProvisionCodeWorktree_FailureCleanup(t *testing.T) {
 	// Verify no half-created worktree is left in the repo's git metadata.
 	// This is only testable if we had a valid repo to begin with, but we can
 	// verify against the real repo that any provisioning attempt cleanup worked.
-	list, err := ListCodeWorktrees(repo)
+	list, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestListCodeWorktrees_Empty(t *testing.T) {
 	repo, cleanup := setupTestRepo(t)
 	defer cleanup()
 
-	worktrees, err := ListCodeWorktrees(repo)
+	worktrees, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestListCodeWorktrees_FiltersDelegationPathAndBranch(t *testing.T) {
 	runCmd(t, repo, "git", "worktree", "add", "-b", "oneshot-run-1", foreignPath, "HEAD")
 
 	// ListCodeWorktrees should only return the two delegation worktrees.
-	worktrees, err := ListCodeWorktrees(repo)
+	worktrees, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestPruneProcessCodeWorktrees_LeavesForeignProcess(t *testing.T) {
 		t.Fatalf("PruneProcessCodeWorktrees returned %d, want 2", removedCount)
 	}
 
-	worktrees, err := ListCodeWorktrees(repo)
+	worktrees, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees after prune failed: %v", err)
 	}
@@ -431,7 +431,7 @@ func TestPruneProcessCodeWorktrees_ContinuesAfterPruneError(t *testing.T) {
 		t.Fatalf("PruneProcessCodeWorktrees returned %d, want 2 successful prunes", removedCount)
 	}
 
-	worktrees, err := ListCodeWorktrees(repo)
+	worktrees, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees after prune failed: %v", err)
 	}
@@ -457,7 +457,7 @@ func TestPruneCodeWorktree_RemovesWorktree(t *testing.T) {
 	}
 
 	// Verify it's in the list.
-	list, err := ListCodeWorktrees(repo)
+	list, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestPruneCodeWorktree_RemovesWorktree(t *testing.T) {
 	}
 
 	// Verify it's gone from the list.
-	list, err = ListCodeWorktrees(repo)
+	list, err = ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -542,7 +542,7 @@ func TestPruneCodeWorktree_RefusesForeignWorktree(t *testing.T) {
 	}
 
 	// Verify it's still in git worktree list (not in delegation list).
-	list, err := ListCodeWorktrees(repo)
+	list, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -570,7 +570,7 @@ func TestPruneAllCodeWorktrees_RemovesAll(t *testing.T) {
 	}
 
 	// Verify they all exist.
-	list, err := ListCodeWorktrees(repo)
+	list, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -588,7 +588,7 @@ func TestPruneAllCodeWorktrees_RemovesAll(t *testing.T) {
 	}
 
 	// Verify all are gone.
-	list, err = ListCodeWorktrees(repo)
+	list, err = ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -631,7 +631,7 @@ func TestPruneAllCodeWorktrees_WithForeignWorktreePresent(t *testing.T) {
 	runCmd(t, repo, "git", "worktree", "add", "-b", "oneshot-run-1", foreignPath, "HEAD")
 
 	// Verify initial state: 2 delegation + 1 foreign.
-	list, err := ListCodeWorktrees(repo)
+	list, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -649,7 +649,7 @@ func TestPruneAllCodeWorktrees_WithForeignWorktreePresent(t *testing.T) {
 	}
 
 	// Verify delegation worktrees are gone.
-	list, err = ListCodeWorktrees(repo)
+	list, err = ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -715,7 +715,7 @@ func TestPruneAllCodeWorktrees_SkipsForeignWorktreeInDelegationPath(t *testing.T
 	}
 
 	// Verify all delegation worktrees are gone.
-	afterList, err := ListCodeWorktrees(repo)
+	afterList, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -757,7 +757,7 @@ func TestProvisionCodeWorktree_CollisionFix(t *testing.T) {
 	}
 
 	// Verify it's in the list.
-	list1, err := ListCodeWorktrees(repo)
+	list1, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees after first provision failed: %v", err)
 	}
@@ -783,7 +783,7 @@ func TestProvisionCodeWorktree_CollisionFix(t *testing.T) {
 	}
 
 	// Verify it's gone.
-	list, err := ListCodeWorktrees(repo)
+	list, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees after prune failed: %v", err)
 	}
@@ -802,7 +802,7 @@ func TestProvisionCodeWorktree_CollisionFix(t *testing.T) {
 	}
 
 	// Verify it's in the list.
-	list2, err := ListCodeWorktrees(repo)
+	list2, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees after second provision failed: %v", err)
 	}
@@ -848,7 +848,7 @@ func TestProvisionCodeWorktree_SameBranchDifferentAgents(t *testing.T) {
 	}
 
 	// Verify both are in the list.
-	list, err := ListCodeWorktrees(repo)
+	list, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}
@@ -1013,7 +1013,7 @@ func TestProvisionCodeWorktree_DetachedHead(t *testing.T) {
 	}
 
 	// Verify it's in the delegation list.
-	list, err := ListCodeWorktrees(repo)
+	list, err := ListCodeWorktrees(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListCodeWorktrees failed: %v", err)
 	}

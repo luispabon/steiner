@@ -145,7 +145,7 @@ After the review phase completes with a passing verdict:
    - **GitLab**: uses git push with merge request creation options.
    - **Azure Repos**: uses `az repos pr create`.
 
-The PR/MR title comes from the first H1 (`# `) heading in `overview.md`, falling back to the task string if no H1 is present. The body is `overview.md` (with the H1 line removed) followed by a `---` separator and the full `review.md` content, verbatim — there is no commit list, since every forge already lists a PR's commits natively. The body is capped at 60,000 characters; an oversized body is truncated at a line boundary with a notice naming the planning folder.
+The PR/MR title comes from the first H1 (`# `) heading in `overview.md`, falling back to the task string if no H1 is present. The body is `overview.md` (with the H1 line removed) followed by a `---` separator and the full `review.md` content, verbatim — there is no commit list, since every forge already lists a PR's commits natively. The body is capped at 60,000 characters; an oversized body is truncated at a line boundary with a notice naming the planning folder. When closeout succeeds, the manifest records `closeout_url`, `closeout_provider`, `closeout_state`, and `closeout_note` for visibility in the final run record.
 
 ### TUI Visibility and Interactive Behaviour
 
