@@ -41,6 +41,7 @@ func buildRuntimeEventSink(cfg config.Config, cmd *cobra.Command, flags *cliFlag
 		CaptureAPIRequestBodies: cfg.Diagnostics.CaptureBodies,
 	})
 	if err != nil {
+		_ = slogCloser()
 		return nil, nil, err
 	}
 	return output.NewMultiSink(events, fileSink), joinClosers(slogCloser, fileSink.Close), nil

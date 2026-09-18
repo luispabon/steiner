@@ -141,3 +141,52 @@ func TestVisionHandler_DispatchGateLeaderWrapsEvents(t *testing.T) {
 		t.Errorf("started type/scope = %q/%+v, want %q and agent scope", payload.AgentType, started[0].Scope, AgentTypeVision)
 	}
 }
+
+func TestVisionHandler_CancelledBeforeDispatchCleansTraceWriter(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "test.png")
+	if err := os.WriteFile(imgPath, []byte("fake-png-content"), 0o600); err != nil {
+		t.Fatalf("write temp image: %v", err)
+	}
+	store := agent.NewImageStore(dir)
+	ref := store.Register(imgPath, "image/png", 10, 20, 15)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var runCount atomic.Int32
+	startedAgentID := ""
+	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) {
+		runCount.Add(1)
+		return agent.RunState{}, nil
+	}})
+	deps.WorkDir = dir
+	deps.ImageStore = store
+	deps.Events = output.SinkFunc(func(event output.Event) {
+		if event.Type == output.EventTypeDelegationStarted {
+			startedAgentID = event.Scope.AgentID
+			cancel()
+		}
+	})
+
+	input := map[string]any{
+		"objective":        "describe image",
+		"context":          "background",
+		"deliverable":      "description",
+		"constraints":      []any{},
+		"success_criteria": []any{},
+		"checks":           []any{},
+		"image_id":         ref.ID,
+	}
+	if _, err := newVisionHandler(deps)(ctx, input); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if startedAgentID == "" {
+		t.Fatal("started event did not include agent ID")
+	}
+	if got := runCount.Load(); got != 0 {
+		t.Fatalf("runner called %d times, want 0", got)
+	}
+	if got := toolCallTraceFields(startedAgentID); got != nil {
+		t.Fatalf("toolCallTraceFields(%q) = %v, want nil", startedAgentID, got)
+	}
+}

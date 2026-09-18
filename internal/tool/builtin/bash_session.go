@@ -25,7 +25,8 @@ type BashSession struct {
 	// CommandWrapper is called before starting the bash process. If non-nil,
 	// the returned *exec.Cmd replaces the original. Set this to wrap the process
 	// in a sandbox (e.g. bubblewrap). nil means no-op.
-	CommandWrapper func(*exec.Cmd) *exec.Cmd
+	CommandWrapper          func(*exec.Cmd) *exec.Cmd
+	ReleaseCommandResources func(*exec.Cmd)
 
 	mu      sync.Mutex
 	cmd     *exec.Cmd
@@ -57,6 +58,8 @@ func (s *BashSession) Start() error {
 	if s.CommandWrapper != nil {
 		cmd = s.CommandWrapper(cmd)
 	}
+	release := onceRelease(s.ReleaseCommandResources, cmd)
+	defer release()
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -76,11 +79,13 @@ func (s *BashSession) Start() error {
 		return fmt.Errorf("bash session: stderr pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	startErr := cmd.Start()
+	release()
+	if startErr != nil {
 		_ = stdinPipe.Close()
 		_ = stdoutPipe.Close()
 		_ = stderrPipe.Close()
-		return fmt.Errorf("bash session: start: %w", err)
+		return fmt.Errorf("bash session: start: %w", startErr)
 	}
 
 	s.cmd = cmd
@@ -89,6 +94,17 @@ func (s *BashSession) Start() error {
 	s.stderrR = bufio.NewReader(stderrPipe)
 	s.started = true
 	return nil
+}
+
+func onceRelease(releaseFn func(*exec.Cmd), cmd *exec.Cmd) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			if releaseFn != nil {
+				releaseFn(cmd)
+			}
+		})
+	}
 }
 
 // Execute runs a shell command string and returns stdout, stderr, exitCode, and any session error.
@@ -242,6 +258,8 @@ func (s *BashSession) restartLocked(_ context.Context) error {
 	if s.CommandWrapper != nil {
 		cmd = s.CommandWrapper(cmd)
 	}
+	release := onceRelease(s.ReleaseCommandResources, cmd)
+	defer release()
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -258,11 +276,13 @@ func (s *BashSession) restartLocked(_ context.Context) error {
 		_ = stdoutPipe.Close()
 		return fmt.Errorf("bash session: restart stderr pipe: %w", err)
 	}
-	if err := cmd.Start(); err != nil {
+	startErr := cmd.Start()
+	release()
+	if startErr != nil {
 		_ = stdinPipe.Close()
 		_ = stdoutPipe.Close()
 		_ = stderrPipe.Close()
-		return fmt.Errorf("bash session: restart start: %w", err)
+		return fmt.Errorf("bash session: restart start: %w", startErr)
 	}
 
 	s.cmd = cmd

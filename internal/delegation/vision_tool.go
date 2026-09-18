@@ -81,6 +81,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
 		defer gateRelease()
 		if childCtx.Err() != nil {
+			removeAndCloseToolCallTraceWriter(spec.AgentID)
 			emitDelegateStopped(deps.Events, spec, AgentTypeVision)
 			result := cancelledBeforeDispatchResult(spec.AgentID)
 			if deps.SessionStore != nil && deps.SessionStore.Save(&ChildSession{Spec: spec, Request: req}) {

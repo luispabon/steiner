@@ -89,6 +89,7 @@ func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome stri
 
 	s := sandbox.New(cfg.Sandbox, cfg.Permissions, projectRoot, workDir, userHome, tmpDir)
 	if err := s.EnsureHome(); err != nil {
+		_ = s.Cleanup()
 		return nil, "", fmt.Errorf("sandbox setup: %w", err)
 	}
 	return s, "active", nil

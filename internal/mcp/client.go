@@ -64,6 +64,7 @@ type Session struct {
 	// Reconnect configuration captured at connect time.
 	spec    ServerSpec
 	wrap    func(*exec.Cmd) *exec.Cmd
+	release ReleaseFn
 	stderr  io.Writer
 	timeout time.Duration
 	// managerCtx bounds reconnect attempt handshakes, binds reconnect server
@@ -111,7 +112,29 @@ type SessionOptions struct {
 // the bounded connect ctx expires, so a deadline-driven connect failure is
 // bounded by the timeout rather than the timeout plus the transport's shutdown
 // grace.
-func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, stderr io.Writer, timeout time.Duration, opts ...SessionOptions) (*Session, error) {
+func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, args ...any) (*Session, error) {
+	var release ReleaseFn
+	var stderr io.Writer
+	var timeout time.Duration
+	var opts []SessionOptions
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case ReleaseFn:
+			release = v
+		case func(*exec.Cmd):
+			release = v
+		case io.Writer:
+			stderr = v
+		case time.Duration:
+			timeout = v
+		case SessionOptions:
+			opts = append(opts, v)
+		}
+	}
+	return connectSession(ctx, spec, wrap, release, stderr, timeout, opts...)
+}
+
+func connectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, release ReleaseFn, stderr io.Writer, timeout time.Duration, opts ...SessionOptions) (*Session, error) {
 	var opt SessionOptions
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -119,6 +142,7 @@ func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *
 
 	var transport mcpsdk.Transport
 	var cmd *exec.Cmd
+	var releaseCommand func()
 
 	switch spec.Transport {
 	case "http":
@@ -128,7 +152,8 @@ func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *
 			return nil, fmt.Errorf("connect mcp server %q: %w", spec.Name, err)
 		}
 	case "", "stdio":
-		transport, cmd = newStdioTransport(ctx, spec, wrap, stderr)
+		transport, cmd, releaseCommand = newStdioTransport(ctx, spec, wrap, release, stderr)
+		defer releaseCommand()
 	default:
 		return nil, fmt.Errorf("connect mcp server %q: unsupported transport %q", spec.Name, spec.Transport)
 	}
@@ -186,6 +211,7 @@ func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *
 		protocolVersion: session.InitializeResult().ProtocolVersion,
 		spec:            spec,
 		wrap:            wrap,
+		release:         release,
 		stderr:          stderr,
 		timeout:         timeout,
 		managerCtx:      managerCtx,
@@ -405,6 +431,7 @@ func (s *Session) reconnectOnce() (*mcpsdk.ClientSession, *exec.Cmd, error) {
 	// outlives the handshake deadline.
 	var transport mcpsdk.Transport
 	var cmd *exec.Cmd
+	var releaseCommand func()
 	switch s.spec.Transport {
 	case "http":
 		t, err := newHTTPTransport(s.spec)
@@ -413,7 +440,8 @@ func (s *Session) reconnectOnce() (*mcpsdk.ClientSession, *exec.Cmd, error) {
 		}
 		transport = t
 	case "", "stdio":
-		transport, cmd = newStdioTransport(s.managerCtx, s.spec, s.wrap, s.stderr)
+		transport, cmd, releaseCommand = newStdioTransport(s.managerCtx, s.spec, s.wrap, s.release, s.stderr)
+		defer releaseCommand()
 	default:
 		return nil, nil, fmt.Errorf("reconnect to mcp server %q: unsupported transport %q", s.name, s.spec.Transport)
 	}

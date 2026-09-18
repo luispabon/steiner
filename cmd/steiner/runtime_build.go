@@ -64,33 +64,45 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		HTTPClient: httpClient,
 		Catalog:    newCatalogMetadataAdapter(modelCatalog, &cfg),
 	})
+	var rt cliRuntime
 	events, closeFn, err := buildRuntimeEventSink(cfg, cmd, flags)
 	if err != nil {
 		return cliRuntime{}, err
 	}
+	rt.events = events
+	rt.closeFn = closeFn
 	diagnosticsWriter, err := buildRuntimeDiagnostics(cfg)
 	if err != nil {
+		closeRuntime(&rt)
 		return cliRuntime{}, err
 	}
+	rt.diagnostics = diagnosticsWriter
 	delegationLogger, err := buildDelegationLogger(cfg, flags, diagnosticsWriter)
 	if err != nil {
+		closeRuntime(&rt)
 		return cliRuntime{}, err
 	}
+	rt.delegationLogger = delegationLogger
 	streamErrorLog, err := buildStreamErrorLogger(cfg, flags, diagnosticsWriter)
 	if err != nil {
+		closeRuntime(&rt)
 		return cliRuntime{}, fmt.Errorf("build stream error logger: %w", err)
 	}
+	rt.streamErrorLog = streamErrorLog
 	providerFactory := buildRuntimeProviderFactory(httpClient, streamErrorLog)
 	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
 	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
 	if err != nil {
+		closeRuntime(&rt)
 		return cliRuntime{}, err
 	}
 	sb, status, err := buildRuntimeSandbox(&cfg, projectRoot, workDir, homeDir)
 	if err != nil {
+		closeRuntime(&rt)
 		return cliRuntime{}, err
 	}
+	rt.sandbox = sb
 
 	emitSandboxWarning(cfg, status, events)
 	emitProjectContextDeprecationWarning(cfg, events)
@@ -107,12 +119,15 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		mcpServerLogPath := mcp.ServerLogPath(runtimeLogFile(cfg, flags))
 		mcpServerLogWriter, err := buildMCPServerLogWriter(mcpServerLogPath)
 		if err != nil {
+			closeRuntime(&rt)
 			return cliRuntime{}, err
 		}
 		closeFn = joinClosers(closeFn, mcpServerLogWriter.Close)
+		rt.closeFn = closeFn
 
 		mcpStderr := selectServerStderr(mcpServerLogPath, flags.asyncMCP, mcpServerLogWriter)
 		mcpMgr, mcpState = connectRuntimeMCP(ctx, cfg, sb, flags.asyncMCP, events, mcpStderr)
+		rt.mcpManager = mcpMgr
 	}
 
 	// Construct LSP manager when enabled. Unlike MCP, servers start lazily on
@@ -122,12 +137,15 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		lspServerLogPath := lsp.ServerLogPath(runtimeLogFile(cfg, flags))
 		lspServerLogWriter, err := buildLSPServerLogWriter(lspServerLogPath)
 		if err != nil {
+			closeRuntime(&rt)
 			return cliRuntime{}, err
 		}
 		closeFn = joinClosers(closeFn, lspServerLogWriter.Close)
+		rt.closeFn = closeFn
 
 		lspStderr := selectServerStderr(lspServerLogPath, flags.asyncMCP, lspServerLogWriter)
 		lspMgr = connectRuntimeLSP(cfg, sb, workDir, events, lspStderr)
+		rt.lspManager = lspMgr
 	}
 
 	// Rebuild registry with sandbox, MCP and LSP tools now that workDir and homeDir are known.
@@ -136,10 +154,12 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}
 	historyWriter, sessionStore, err := buildRuntimeSessionStores(homeDir)
 	if err != nil {
+		closeRuntime(&rt)
 		return cliRuntime{}, err
 	}
 	sharedInput, approvalInput, approvalClose := buildRuntimeInputs(cmd.InOrStdin())
 	closeFn = joinClosers(closeFn, approvalClose)
+	rt.closeFn = closeFn
 
 	return cliRuntime{
 		cfg:                          cfg,
