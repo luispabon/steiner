@@ -295,3 +295,11 @@ func padOverlayLine(line string, width int) string {
 	}
 	return line + strings.Repeat(" ", width-lineWidth)
 }
+
+// safeSuffix returns the last n characters of s, or all of s if it is shorter than n.
+func safeSuffix(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[len(s)-n:]
+}

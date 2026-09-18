@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -239,6 +240,28 @@ func TestSessionPickerOverlaySelectionResetOnFilter(t *testing.T) {
 	// Selection should reset to 0
 	if updated.selection != 0 {
 		t.Fatalf("selection after filter = %d, want 0", updated.selection)
+	}
+}
+
+func TestFormatSessionRowShortID(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentPresets["amber"])
+	overlay := newSessionPickerOverlay(styles)
+
+	entry := session.IndexEntry{
+		ID:        "abc",
+		Title:     "Test session",
+		Model:     "claude-opus",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	row := overlay.formatSessionRow(entry, 80)
+	if row == "" {
+		t.Fatal("formatSessionRow returned empty string")
+	}
+	if !strings.Contains(row, "[abc]") {
+		t.Fatalf("formatSessionRow output %q does not contain short ID [abc]", row)
 	}
 }
 

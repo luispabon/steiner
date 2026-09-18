@@ -45,6 +45,32 @@ func TestComposeCenteredOverlayKeepsBaseContentOutsideOverlay(t *testing.T) {
 	}
 }
 
+func TestSafeSuffix(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		s        string
+		n        int
+		expected string
+	}{
+		{"empty string", "", 8, ""},
+		{"short string", "abc", 8, "abc"},
+		{"exactly n chars", "12345678", 8, "12345678"},
+		{"longer than n", "123456789abc", 8, "56789abc"},
+		{"n is 0", "abcdefgh", 0, ""},
+		{"single char short", "1234567", 8, "1234567"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := safeSuffix(tt.s, tt.n)
+			if got != tt.expected {
+				t.Fatalf("safeSuffix(%q, %d) = %q, want %q", tt.s, tt.n, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestPlaceBottomAnchoredAtPosition(t *testing.T) {
 	// Build a 20-row base with distinguishable lines.
 	t.Parallel()

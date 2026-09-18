@@ -111,7 +111,7 @@ func (o oneshotResumePickerOverlay) View() string {
 func (o oneshotResumePickerOverlay) formatRunRow(run oneshot.ResumableRun, maxWidth int) string {
 	datetime := fmt.Sprintf("[ %s ] ", run.UpdatedAt.Local().Format("2006-01-02 15:04:05"))
 	phaseStr := fmt.Sprintf(" (%s)", run.ResumePhase)
-	idSuffix := fmt.Sprintf(" [%s]", run.RunID[len(run.RunID)-8:])
+	idSuffix := fmt.Sprintf(" [%s]", safeSuffix(run.RunID, 8))
 	spacer := " "
 
 	prefixWidth := lipgloss.Width(datetime)

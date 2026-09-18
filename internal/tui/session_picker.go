@@ -110,7 +110,7 @@ func (s sessionPickerOverlay) View() string {
 func (s sessionPickerOverlay) formatSessionRow(entry session.IndexEntry, maxWidth int) string {
 	datetime := fmt.Sprintf("[ %s ] ", entry.UpdatedAt.Local().Format("2006-01-02 15:04:05"))
 	modelStr := fmt.Sprintf(" (%s)", entry.Model)
-	idSuffix := fmt.Sprintf(" [%s]", entry.ID[len(entry.ID)-8:])
+	idSuffix := fmt.Sprintf(" [%s]", safeSuffix(entry.ID, 8))
 	spacer := " "
 
 	prefixWidth := lipgloss.Width(datetime)
