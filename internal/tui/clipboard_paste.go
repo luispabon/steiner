@@ -58,7 +58,10 @@ func readClipboardImageFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		// Read result determines clipboard paste outcome; close errors are not actionable here.
+		_ = file.Close()
+	}()
 
 	data, err := io.ReadAll(io.LimitReader(file, clipboardMaxImageBytes+1))
 	if err != nil {

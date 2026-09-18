@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -42,7 +43,7 @@ func TestReadClipboardImageFile(t *testing.T) {
 			}
 
 			data, err := readClipboardImageFile(path)
-			if err != tc.wantError {
+			if !errors.Is(err, tc.wantError) {
 				t.Fatalf("readClipboardImageFile() error = %v, want %v", err, tc.wantError)
 			}
 			if tc.wantError == nil && len(data) != tc.size {
