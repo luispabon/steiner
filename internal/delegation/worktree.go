@@ -219,11 +219,14 @@ func ListCodeWorktrees(ctx context.Context, projectRoot string) ([]CodeWorktree,
 	}
 
 	delegationPath := filepath.Join(projectRoot, ".steiner", "worktrees")
+	delegationPathPrefix := delegationPath + string(filepath.Separator)
 	var worktrees []CodeWorktree
 
 	for _, entry := range entries {
 		// Only include worktrees under .steiner/worktrees AND with delegate/ branch.
-		if !strings.HasPrefix(entry.Path, delegationPath) {
+		// A trailing separator guards against sibling directories that merely
+		// share the string prefix (e.g. .steiner/worktrees-other).
+		if entry.Path != delegationPath && !strings.HasPrefix(entry.Path, delegationPathPrefix) {
 			continue
 		}
 		if !strings.HasPrefix(entry.Branch, "delegate/") {

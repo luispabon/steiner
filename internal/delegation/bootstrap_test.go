@@ -806,11 +806,13 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
 
+	workDir := t.TempDir()
+
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
 		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
 		Events:      output.NoopSink{},
-		WorkDir:     "/tmp/work",
+		WorkDir:     workDir,
 		Provider:    stubProvider{},
 	}
 
@@ -827,6 +829,25 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 
 	if req.Executor == nil {
 		t.Fatal("BuildChildRun() produced a nil Executor - executor should be non-nil")
+	}
+
+	scoped, ok := req.Executor.(scopedToolExecutor)
+	if !ok {
+		t.Fatalf("Executor type = %T, want scopedToolExecutor", req.Executor)
+	}
+	wantWorkDir, err := filepath.Abs(workDir)
+	if err != nil {
+		t.Fatalf("filepath.Abs() error = %v", err)
+	}
+	innerExec, ok := scoped.inner.(*tool.Executor)
+	if !ok {
+		t.Fatalf("inner executor type = %T, want *tool.Executor", scoped.inner)
+	}
+	if innerExec.WorkDir() != wantWorkDir {
+		t.Errorf("executor WorkDir() = %q, want %q (provided work dir was not propagated)", innerExec.WorkDir(), wantWorkDir)
+	}
+	if req.Prompt.ProjectRoot != workDir {
+		t.Errorf("prompt ProjectRoot = %q, want %q (provided work dir was not propagated to child prompt)", req.Prompt.ProjectRoot, workDir)
 	}
 }
 
