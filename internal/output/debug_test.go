@@ -1,6 +1,7 @@
 package output
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -170,6 +171,12 @@ func TestFormatAnyContextDiagnosticsEvent(t *testing.T) {
 				if result == "" {
 					t.Error("expected non-empty result")
 				}
+				if !strings.Contains(result, "info") {
+					t.Errorf("missing severity 'info' in %q", result)
+				}
+				if !strings.Contains(result, "2") {
+					t.Errorf("missing compaction count '2' in %q", result)
+				}
 			},
 		},
 		{
@@ -228,7 +235,7 @@ func TestFormatCompactionUsage(t *testing.T) {
 	tests := []struct {
 		name    string
 		payload ContextDiagnosticsEvent
-		want    int // expected slice length
+		want    []string
 	}{
 		{
 			name: "all zero",
@@ -238,7 +245,7 @@ func TestFormatCompactionUsage(t *testing.T) {
 				AfterPromptTokens:  0,
 				AfterUsagePercent:  0,
 			},
-			want: 0,
+			want: nil,
 		},
 		{
 			name: "before tokens set",
@@ -248,7 +255,10 @@ func TestFormatCompactionUsage(t *testing.T) {
 				AfterPromptTokens:  80,
 				AfterUsagePercent:  40.0,
 			},
-			want: 2,
+			want: []string{
+				"before prompt_tokens=100 context_usage_percent=50%",
+				"after prompt_tokens=80 context_usage_percent=40%",
+			},
 		},
 		{
 			name: "only after tokens",
@@ -256,7 +266,10 @@ func TestFormatCompactionUsage(t *testing.T) {
 				AfterPromptTokens: 50,
 				AfterUsagePercent: 25.0,
 			},
-			want: 2,
+			want: []string{
+				"before prompt_tokens=0 context_usage_percent=0%",
+				"after prompt_tokens=50 context_usage_percent=25%",
+			},
 		},
 		{
 			name: "fractional percentages",
@@ -266,15 +279,18 @@ func TestFormatCompactionUsage(t *testing.T) {
 				AfterPromptTokens:  900,
 				AfterUsagePercent:  30.0,
 			},
-			want: 2,
+			want: []string{
+				"before prompt_tokens=1000 context_usage_percent=33%",
+				"after prompt_tokens=900 context_usage_percent=30%",
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := formatCompactionUsage(tt.payload)
-			if len(result) != tt.want {
-				t.Fatalf("length = %d, want %d", len(result), tt.want)
+			if !slices.Equal(result, tt.want) {
+				t.Errorf("formatCompactionUsage() = %v, want %v", result, tt.want)
 			}
 		})
 	}
@@ -577,5 +593,11 @@ func TestFormatGenericContextDiagnostics(t *testing.T) {
 	}
 	if !strings.Contains(result, "7") {
 		t.Error("missing turn")
+	}
+	if !strings.Contains(result, "note1") {
+		t.Error("missing note1")
+	}
+	if !strings.Contains(result, "note2") {
+		t.Error("missing note2")
 	}
 }

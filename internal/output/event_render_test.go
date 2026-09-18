@@ -56,6 +56,12 @@ func TestRenderAssistantMessageEvent(t *testing.T) {
 	if seg.Channel != ChannelAssistant {
 		t.Fatalf("Channel = %q, want %q", seg.Channel, ChannelAssistant)
 	}
+	if seg.Label != "assistant" {
+		t.Fatalf("Label = %q, want %q", seg.Label, "assistant")
+	}
+	if seg.Text != "turn=1 role=assistant content=Response text" {
+		t.Fatalf("Text = %q", seg.Text)
+	}
 }
 
 func TestRenderAssistantChunkEvent(t *testing.T) {
@@ -63,6 +69,12 @@ func TestRenderAssistantChunkEvent(t *testing.T) {
 	seg := renderEvent(event)
 	if seg.Channel != ChannelAssistant {
 		t.Fatalf("Channel = %q", seg.Channel)
+	}
+	if seg.Label != "assistant" {
+		t.Fatalf("Label = %q, want %q", seg.Label, "assistant")
+	}
+	if seg.Text != "turn=1 source=assistant chunk=chunk" {
+		t.Fatalf("Text = %q", seg.Text)
 	}
 }
 
@@ -74,6 +86,9 @@ func TestRenderThinkingChunkEvent(t *testing.T) {
 	}
 	if seg.Label != "thinking" {
 		t.Fatalf("Label = %q", seg.Label)
+	}
+	if seg.Text != "turn=1 source=assistant thinking=thinking text" {
+		t.Fatalf("Text = %q", seg.Text)
 	}
 }
 

@@ -402,7 +402,7 @@ func TestCloneContextDiagnosticPayload(t *testing.T) {
 		name    string
 		payload any
 		wantOk  bool
-		check   func(t *testing.T, cloned any)
+		check   func(t *testing.T, src, cloned any)
 	}{
 		{
 			name: "clone compaction event",
@@ -411,7 +411,7 @@ func TestCloneContextDiagnosticPayload(t *testing.T) {
 				Notes:          []string{"note1"},
 			},
 			wantOk: true,
-			check: func(t *testing.T, cloned any) {
+			check: func(t *testing.T, src, cloned any) {
 				ce, ok := cloned.(ContextCompactionEvent)
 				if !ok {
 					t.Fatalf("type = %T", cloned)
@@ -419,12 +419,13 @@ func TestCloneContextDiagnosticPayload(t *testing.T) {
 				if ce.CompactedTurns != 5 {
 					t.Errorf("CompactedTurns = %d", ce.CompactedTurns)
 				}
-				if len(ce.Notes) != 1 {
-					t.Errorf("Notes length = %d", len(ce.Notes))
+				if ce.Notes[0] != "note1" {
+					t.Errorf("Notes[0] = %q, want %q", ce.Notes[0], "note1")
 				}
 				ce.Notes[0] = "modified"
-				if ce.Notes[0] != "modified" {
-					t.Error("clone should be independent")
+				srcCE := src.(ContextCompactionEvent)
+				if srcCE.Notes[0] != "note1" {
+					t.Errorf("source Notes[0] was mutated to %q, clone should be independent", srcCE.Notes[0])
 				}
 			},
 		},
@@ -435,7 +436,7 @@ func TestCloneContextDiagnosticPayload(t *testing.T) {
 				Notes:     []string{"a", "b", "c"},
 			},
 			wantOk: true,
-			check: func(t *testing.T, cloned any) {
+			check: func(t *testing.T, src, cloned any) {
 				be, ok := cloned.(ContextBudgetEvent)
 				if !ok {
 					t.Fatalf("type = %T", cloned)
@@ -446,6 +447,14 @@ func TestCloneContextDiagnosticPayload(t *testing.T) {
 				if len(be.Notes) != 3 {
 					t.Errorf("Notes length = %d", len(be.Notes))
 				}
+				if be.Notes[0] != "a" || be.Notes[1] != "b" || be.Notes[2] != "c" {
+					t.Errorf("Notes = %v, want [a b c]", be.Notes)
+				}
+				be.Notes[0] = "modified"
+				srcBE := src.(ContextBudgetEvent)
+				if srcBE.Notes[0] != "a" {
+					t.Errorf("source Notes[0] was mutated to %q, clone should be independent", srcBE.Notes[0])
+				}
 			},
 		},
 		{
@@ -455,13 +464,21 @@ func TestCloneContextDiagnosticPayload(t *testing.T) {
 				Notes: []string{"note"},
 			},
 			wantOk: true,
-			check: func(t *testing.T, cloned any) {
+			check: func(t *testing.T, src, cloned any) {
 				fae, ok := cloned.(ContextFileAnnotationEvent)
 				if !ok {
 					t.Fatalf("type = %T", cloned)
 				}
 				if fae.Path != "test.txt" {
 					t.Errorf("Path = %q", fae.Path)
+				}
+				if fae.Notes[0] != "note" {
+					t.Errorf("Notes[0] = %q, want %q", fae.Notes[0], "note")
+				}
+				fae.Notes[0] = "modified"
+				srcFAE := src.(ContextFileAnnotationEvent)
+				if srcFAE.Notes[0] != "note" {
+					t.Errorf("source Notes[0] was mutated to %q, clone should be independent", srcFAE.Notes[0])
 				}
 			},
 		},
@@ -484,7 +501,7 @@ func TestCloneContextDiagnosticPayload(t *testing.T) {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOk)
 			}
 			if ok && tt.check != nil {
-				tt.check(t, cloned)
+				tt.check(t, tt.payload, cloned)
 			}
 		})
 	}
