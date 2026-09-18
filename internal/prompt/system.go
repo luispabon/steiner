@@ -169,17 +169,6 @@ func renderSandboxInstruction(mounts []string) string {
 	return renderTemplate(templateSandbox, struct{ Mounts []string }{Mounts: mounts})
 }
 
-// SystemPreamble builds the system-message preamble for an assembled request.
-func SystemPreamble(override string, delegationEnabled bool, caveHuman bool, systemSuffix string) ContextBlock {
-	return SystemPreambleWithAdvisor(SystemPreambleParams{
-		Override:          override,
-		DelegationEnabled: delegationEnabled,
-		Mode:              workflowModeParent,
-		CaveHuman:         caveHuman,
-		SystemSuffix:      systemSuffix,
-	})
-}
-
 // SystemPreambleParams holds the inputs used to build the system preamble.
 type SystemPreambleParams struct {
 	Override              string

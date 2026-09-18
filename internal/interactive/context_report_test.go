@@ -158,7 +158,7 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 	snapshot := RequestContextSnapshot{
 		Model: "gpt-4o",
 		Messages: []provider.Message{
-			{Role: provider.MessageRoleSystem, Content: prompt.SystemPreamble("", false, false, "").Content},
+			{Role: provider.MessageRoleSystem, Content: prompt.SystemPreambleWithAdvisor(prompt.SystemPreambleParams{Mode: prompt.ParentWorkflowMode()}).Content},
 			{Role: provider.MessageRoleSystem, Name: "/tmp/global/AGENTS.md", Content: "global agents"},
 			{Role: provider.MessageRoleSystem, Name: "/tmp/project/AGENTS.md", Content: "project agents"},
 			{Role: provider.MessageRoleUser, Content: "project readme"},
@@ -183,7 +183,7 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 		},
 		MaxTokens: &maxTokens,
 		Blocks: []prompt.ContextBlock{
-			{Source: prompt.ContextSourcePreamble, Content: prompt.SystemPreamble("", false, false, "").Content, ByteSize: len(prompt.SystemPreamble("", false, false, "").Content)},
+			{Source: prompt.ContextSourcePreamble, Content: prompt.SystemPreambleWithAdvisor(prompt.SystemPreambleParams{Mode: prompt.ParentWorkflowMode()}).Content, ByteSize: len(prompt.SystemPreambleWithAdvisor(prompt.SystemPreambleParams{Mode: prompt.ParentWorkflowMode()}).Content)},
 			{Source: prompt.ContextSourceGlobalAgentsMD, Path: "/tmp/global/AGENTS.md", Content: "global agents", ByteSize: len("global agents")},
 			{Source: prompt.ContextSourceProjectAgentsMD, Path: "/tmp/project/AGENTS.md", Content: "project agents", ByteSize: len("project agents")},
 			{Source: prompt.ContextSourceProjectContext, Path: "/tmp/project/README.md", Content: "project readme", ByteSize: len("project readme")},
@@ -272,7 +272,7 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 
 func TestBuildContextReportWithMergedMessages(t *testing.T) {
 	maxTokens := 64
-	preambleBlock := prompt.SystemPreamble("", false, false, "")
+	preambleBlock := prompt.SystemPreambleWithAdvisor(prompt.SystemPreambleParams{Mode: prompt.ParentWorkflowMode()})
 	preambleContent := preambleBlock.Content
 
 	// Blocks and messages simulate merged real-assembly output:
@@ -379,7 +379,7 @@ func TestBuildContextReportWithMergedMessages(t *testing.T) {
 func TestBuildContextReportIncludesSessionDateMergedWithSkills(t *testing.T) {
 	t.Parallel()
 
-	preambleBlock := prompt.SystemPreamble("", false, false, "")
+	preambleBlock := prompt.SystemPreambleWithAdvisor(prompt.SystemPreambleParams{Mode: prompt.ParentWorkflowMode()})
 	preambleContent := preambleBlock.Content
 	sessionDateContent := "Current date: 2026-09-13 (UTC, UTC+00:00), recorded when this session started."
 	skillContent := "skill instructions"

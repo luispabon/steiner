@@ -22,7 +22,7 @@ const (
 func TestSystemPreambleHasNoToolGuidance(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", false, false, "").Content
+	content := SystemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent}).Content
 	// Tool guidance and patch format moved to tool descriptions — must not appear in system prompt.
 	// Note: delegation guidance (## Your role block) is workflow strategy, not tool mechanics — it is intentionally absent from this test's assertions.
 	for _, forbidden := range []string{
@@ -296,7 +296,7 @@ func TestSandboxInstructionRendering(t *testing.T) {
 func TestSystemPreambleDelegationInstructions(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", true, false, "").Content
+	content := SystemPreambleWithAdvisor(SystemPreambleParams{DelegationEnabled: true, Mode: workflowModeParent}).Content
 
 	// Section headers, in canon order. Prose inside each section lives in
 	// templates/delegation.md.tmpl and is deliberately not pinned here.
@@ -451,7 +451,7 @@ func TestDelegationCanonIndependentOfAdvisor(t *testing.T) {
 func TestSystemPreambleCaveHumanMode(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreamble("", false, true, "").Content
+	content := SystemPreambleWithAdvisor(SystemPreambleParams{CaveHuman: true, Mode: workflowModeParent}).Content
 	if !strings.Contains(content, testCaveHumanMarker) {
 		t.Fatalf("cave-human preamble missing output voice block in %q", content)
 	}
@@ -577,7 +577,7 @@ func TestSystemPreambleSystemSuffix(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			content := SystemPreamble("", false, false, tc.suffix).Content
+			content := SystemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent, SystemSuffix: tc.suffix}).Content
 			if !strings.Contains(content, tc.wantIn) {
 				t.Fatalf("preamble missing %q", tc.wantIn)
 			}
@@ -595,7 +595,7 @@ func TestSystemPreambleSuffixAfterOverride(t *testing.T) {
 
 	override := "Custom system prompt"
 	suffix := "Additional instruction"
-	content := SystemPreamble(override, false, false, suffix).Content
+	content := SystemPreambleWithAdvisor(SystemPreambleParams{Override: override, Mode: workflowModeParent, SystemSuffix: suffix}).Content
 
 	if !strings.Contains(content, override) {
 		t.Fatalf("override not found in content")
