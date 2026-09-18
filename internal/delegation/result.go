@@ -121,7 +121,9 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 		result.Status = StatusPartial
 		result.StopReason = rawReason
 	default:
-		result.Status = StatusComplete
+		result.Status = StatusFailed
+		result.StopReason = rawReason
+		result.Reason = fmt.Sprintf("unknown stop reason: %s", rawReason)
 	}
 
 	if tc != nil {
@@ -177,7 +179,7 @@ func cancellationProjectionReason(r Result) string {
 	if r.StopReason == "limit reached" {
 		return "limit reached"
 	}
-	return ""
+	return "cancelled"
 }
 
 func (r *Result) clearPersistence() {

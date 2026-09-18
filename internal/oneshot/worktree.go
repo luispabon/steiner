@@ -144,6 +144,7 @@ func runGit(ctx context.Context, workDir string, args ...string) error {
 	var stderr bytes.Buffer
 	cmd.Stdout = &bytes.Buffer{}
 	cmd.Stderr = &stderr
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
@@ -159,6 +160,7 @@ func gitOutput(ctx context.Context, workDir string, args ...string) (string, err
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {

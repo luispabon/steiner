@@ -88,7 +88,8 @@ func (w *Writer) Record(prompt string) error {
 	if prompt == "" {
 		return nil
 	}
-	escaped := strings.ReplaceAll(prompt, "\t", "\\t")
+	escaped := strings.ReplaceAll(prompt, "\\", "\\\\")
+	escaped = strings.ReplaceAll(escaped, "\t", "\\t")
 	escaped = strings.ReplaceAll(escaped, "\n", "\\n")
 	line := time.Now().Format(time.RFC3339) + "\t" + escaped + "\n"
 
@@ -188,8 +189,9 @@ func (w *Writer) Load() ([]string, error) {
 				continue
 			}
 			prompt := parts[1]
-			prompt = strings.ReplaceAll(prompt, "\\t", "\t")
 			prompt = strings.ReplaceAll(prompt, "\\n", "\n")
+			prompt = strings.ReplaceAll(prompt, "\\t", "\t")
+			prompt = strings.ReplaceAll(prompt, "\\\\", "\\")
 			prompts = append(prompts, prompt)
 		}
 		if len(prompts) > maxEntries {

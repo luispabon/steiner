@@ -88,11 +88,11 @@ func emitFallbackWarnings(events output.EventSink, rm provider.ResolvedModel) {
 	if len(rm.Warnings) == 0 {
 		return
 	}
-	key := rm.Alias + "\x00" + rm.BackendModelID
-	if _, loaded := fallbackWarningModels.LoadOrStore(key, struct{}{}); loaded {
+	if events == nil {
 		return
 	}
-	if events == nil {
+	key := rm.Alias + "\x00" + rm.BackendModelID
+	if _, loaded := fallbackWarningModels.LoadOrStore(key, struct{}{}); loaded {
 		return
 	}
 	for _, warn := range rm.Warnings {
