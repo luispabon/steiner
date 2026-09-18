@@ -13,11 +13,7 @@ type ContextDiagnosticsEvent struct {
 	SessionState          string   `json:"session_state,omitempty"`
 	Action                string   `json:"action,omitempty"`
 	Reason                string   `json:"reason,omitempty"`
-	Tool                  string   `json:"tool,omitempty"`
 	Path                  string   `json:"path,omitempty"`
-	Window                int      `json:"window,omitempty"`
-	Parsed                bool     `json:"parsed,omitempty"`
-	Failures              int      `json:"failures,omitempty"`
 	CompactionCount       int      `json:"compaction_count,omitempty"`
 	RestartGuidance       string   `json:"restart_guidance,omitempty"`
 	RetainedTurns         int      `json:"retained_turns,omitempty"`
