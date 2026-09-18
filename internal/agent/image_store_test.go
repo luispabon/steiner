@@ -132,8 +132,9 @@ func TestImageStore_All(t *testing.T) {
 
 			// Verify IDs are sequential.
 			for i, ref := range refs {
-				if ref.ID == "" {
-					t.Fatalf("All()[%d].ID is empty", i)
+				expected := fmt.Sprintf("img-%d", i+1)
+				if ref.ID != expected {
+					t.Errorf("All()[%d].ID = %q, want %q", i, ref.ID, expected)
 				}
 			}
 		})

@@ -50,17 +50,27 @@ func TestCompleteModelCallEmitsAssistantChunkSource(t *testing.T) {
 		t.Fatalf("completeModelCall() error = %v", err)
 	}
 
+	var hasThinkingChunk, hasAssistantChunk bool
 	for _, event := range events {
 		switch payload := event.Payload.(type) {
 		case output.ThinkingChunkEvent:
+			hasThinkingChunk = true
 			if payload.Source != output.ChunkSourceAssistant {
 				t.Fatalf("thinking chunk source = %q, want %q", payload.Source, output.ChunkSourceAssistant)
 			}
 		case output.AssistantChunkEvent:
+			hasAssistantChunk = true
 			if payload.Source != output.ChunkSourceAssistant {
 				t.Fatalf("assistant chunk source = %q, want %q", payload.Source, output.ChunkSourceAssistant)
 			}
 		}
+	}
+
+	if !hasThinkingChunk {
+		t.Error("no ThinkingChunkEvent emitted")
+	}
+	if !hasAssistantChunk {
+		t.Error("no AssistantChunkEvent emitted")
 	}
 }
 
@@ -558,6 +568,9 @@ func TestStripImagesIfVisionDisabledWithCapabilitiesHolder(t *testing.T) {
 			if tc.name == "falls back to old behavior when holder is nil and vision is false" {
 				visionFalse := false
 				visionPtr = &visionFalse
+			} else if tc.name == "does not strip when holder is nil and vision is true" {
+				visionTrue := true
+				visionPtr = &visionTrue
 			}
 
 			result := stripImagesIfVisionDisabled(visionPtr, tc.messages, tc.alias, 1, output.SinkFunc(func(event output.Event) { events = append(events, event) }), tc.capabilities)

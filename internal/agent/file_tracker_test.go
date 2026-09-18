@@ -71,15 +71,15 @@ func TestFileTrackerFallsBackToFullContentWhenFileChanges(t *testing.T) {
 	content := `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"one\n"}`
 	tracker := FileTracker{}
 	_, _ = tracker.ObserveRead(1, content, true)
-	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("two\n"), 0o644); err != nil {
 		t.Fatalf("rewrite file: %v", err)
 	}
 
-	got, observation := tracker.ObserveRead(2, `{"path":"note.txt","start_line":1,"end_line":2,"total_lines":2,"output":"one\ntwo\n"}`, true)
+	got, observation := tracker.ObserveRead(2, `{"path":"note.txt","start_line":1,"end_line":1,"total_lines":1,"output":"two\n"}`, true)
 	if strings.Contains(got, "file unchanged since turn") {
 		t.Fatalf("changed file reread = %q, want full content", got)
 	}
-	if got, want := observation.Reason, "range changed"; got != want {
+	if got, want := observation.Reason, "modified file"; got != want {
 		t.Fatalf("observation reason = %q, want %q", got, want)
 	}
 }

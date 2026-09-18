@@ -1757,12 +1757,29 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 		// The prefix (all messages except the final compaction instruction) consists of
 		// the assembly messages without the suffix. The normal messages have the suffix
 		// appended to their last user message. So prefix and normal differ only on the
-		// user message that carries the suffix. Verify all non-user messages match.
+		// user message that carries the suffix. Verify all messages match, accounting
+		// for the suffix on the final user message.
 		prefix := compactionReq.Messages[:len(compactionReq.Messages)-1]
-		for i := range prefix {
+
+		// Find the index of the last user message
+		lastUserMsgIdx := -1
+		for i := len(prefix) - 1; i >= 0; i-- {
 			if prefix[i].Role == provider.MessageRoleUser {
-				// Skip the user message — it differs because suffix is not applied
-				// to the compaction prefix.
+				lastUserMsgIdx = i
+				break
+			}
+		}
+
+		for i := range prefix {
+			if lastUserMsgIdx >= 0 && i == lastUserMsgIdx {
+				// The last user message differs because suffix is appended to normal
+				// but not to the prefix. Verify role matches and content is a prefix.
+				if prefix[i].Role != normalReq.Messages[i].Role {
+					t.Fatalf("prefix[%d] Role mismatch: %q vs %q", i, prefix[i].Role, normalReq.Messages[i].Role)
+				}
+				if !strings.HasPrefix(normalReq.Messages[i].Content, prefix[i].Content) {
+					t.Fatalf("prefix[%d] Content should be a prefix of normal Content", i)
+				}
 				continue
 			}
 			if !reflect.DeepEqual(prefix[i], normalReq.Messages[i]) {
