@@ -1003,6 +1003,7 @@ func TestRunnerDelegateDepsCarrySandboxTmpDir(t *testing.T) {
 			def.Advanced.Limits.ContextWindow = 32768
 			cfg.Models.Definitions["test-model"] = def
 			cfg.Sandbox = tt.sandboxCfg
+			cfg.Paths = config.PathsConfig{ProjectRootOnly: true}
 			cfg.SubAgent = config.SubAgentConfig{Enabled: true}
 			sessions := delegation.NewSessionStore()
 			runner := cliRunner{

@@ -226,7 +226,36 @@ func normalizeWorkflowHandoffTarget(workDir, raw string, prefix string) (string,
 	}
 
 	absTarget := filepath.Clean(filepath.Join(baseDir, cleaned))
+
+	if err := validateWorkflowHandoffResolvedContainment(baseDir, prefix, absTarget); err != nil {
+		return "", "", err
+	}
+
 	return cleaned, absTarget, nil
+}
+
+// validateWorkflowHandoffResolvedContainment ensures a target that resolves
+// (through symlinks) stays within the resolved allowed-prefix directory. If
+// either the prefix or the target doesn't exist yet, it defers to the
+// subsequent os.Stat-based checks for a cleaner "does not exist" error.
+func validateWorkflowHandoffResolvedContainment(baseDir, prefix, absTarget string) error {
+	resolvedPrefix, prefixErr := filepath.EvalSymlinks(filepath.Join(baseDir, prefix))
+	resolvedTarget, targetErr := filepath.EvalSymlinks(absTarget)
+	switch {
+	case prefixErr == nil && targetErr == nil:
+		relative, err := filepath.Rel(resolvedPrefix, resolvedTarget)
+		if err != nil {
+			return fmt.Errorf("workflow_handoff: compare resolved target: %w", err)
+		}
+		if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("workflow_handoff: target must stay under %s", prefix)
+		}
+	case prefixErr != nil && !os.IsNotExist(prefixErr):
+		return fmt.Errorf("workflow_handoff: resolve allowed path: %w", prefixErr)
+	case targetErr != nil && !os.IsNotExist(targetErr):
+		return fmt.Errorf("workflow_handoff: resolve target: %w", targetErr)
+	}
+	return nil
 }
 
 func validateWorkflowHandoffTargetSafety(raw string) error {

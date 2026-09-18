@@ -43,7 +43,11 @@ func NewLSTool(env Env) tool.ToolDef {
 			}
 
 			if in.Recursive {
-				return lsRecursive(ctx, absPath, in.Limit, in.Offset)
+				excluder := tool.PathExcluder{}
+				if env.Excluder != nil {
+					excluder = *env.Excluder
+				}
+				return lsRecursive(ctx, absPath, in.Limit, in.Offset, excluder)
 			}
 			return lsNonRecursive(ctx, lsTool, absPath, in.Limit, in.Offset)
 		},
@@ -115,8 +119,8 @@ func lsNonRecursive(
 	return &result, nil
 }
 
-// lsRecursive walks a directory tree and returns relative paths.
-func lsRecursive(ctx context.Context, absPath string, limit, offset int) (*Result, error) {
+// lsRecursive walks a directory tree and returns relative paths, skipping excluded directories.
+func lsRecursive(ctx context.Context, absPath string, limit, offset int, excluder tool.PathExcluder) (*Result, error) {
 	var allEntries []string
 
 	err := filepath.WalkDir(absPath, func(path string, d fs.DirEntry, err error) error {
@@ -133,6 +137,13 @@ func lsRecursive(ctx context.Context, absPath string, limit, offset int) (*Resul
 		}
 
 		if rel == "." {
+			return nil
+		}
+
+		if excluder.ShouldExclude(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 

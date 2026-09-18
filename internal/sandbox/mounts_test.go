@@ -325,6 +325,83 @@ func TestGitWritableBinds_FileWithoutGitdirPrefix(t *testing.T) {
 	}
 }
 
+func TestGitWritableBinds_SymlinkedGitDirRejected(t *testing.T) {
+	root := t.TempDir()
+	target := t.TempDir()
+
+	if err := os.Symlink(target, filepath.Join(root, ".git")); err != nil {
+		t.Fatalf("symlink .git: %v", err)
+	}
+
+	if binds := gitWritableBinds(root); binds != nil {
+		t.Errorf("expected nil binds when .git is a symlink, got %v", binds)
+	}
+}
+
+func TestGitWritableBinds_GitdirOutsideWorktreesRejected(t *testing.T) {
+	root := t.TempDir()
+	escapeDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: "+escapeDir+"\n"), 0o644); err != nil {
+		t.Fatalf("write .git pointer: %v", err)
+	}
+
+	if binds := gitWritableBinds(root); binds != nil {
+		t.Errorf("expected nil binds when gitdir does not sit under a worktrees/ dir, got %v", binds)
+	}
+}
+
+func TestGitWritableBinds_LinkedWorktreeThroughSymlinkResolves(t *testing.T) {
+	root := t.TempDir()
+	mainRepo := t.TempDir()
+	commonDir := filepath.Join(mainRepo, ".git")
+	worktreeGitDir := filepath.Join(commonDir, "worktrees", "wt")
+	if err := os.MkdirAll(worktreeGitDir, 0o755); err != nil {
+		t.Fatalf("mkdir worktree gitdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeGitDir, "commondir"), []byte("../..\n"), 0o644); err != nil {
+		t.Fatalf("write commondir: %v", err)
+	}
+
+	linkedGitDir := filepath.Join(t.TempDir(), "gitdir-link")
+	if err := os.Symlink(worktreeGitDir, linkedGitDir); err != nil {
+		t.Fatalf("symlink gitdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: "+linkedGitDir+"\n"), 0o644); err != nil {
+		t.Fatalf("write .git pointer: %v", err)
+	}
+
+	binds := gitWritableBinds(root)
+	if slices.Contains(binds, linkedGitDir) {
+		t.Errorf("expected the symlink path itself not to be used as a bind source: %v", binds)
+	}
+	if !slices.Contains(binds, worktreeGitDir) {
+		t.Errorf("expected binds to include resolved worktree gitdir %s: %v", worktreeGitDir, binds)
+	}
+	if !slices.Contains(binds, commonDir) {
+		t.Errorf("expected binds to include resolved common dir %s: %v", commonDir, binds)
+	}
+}
+
+func TestGitWritableBinds_PlainRepoThroughSymlinkedRootStillBinds(t *testing.T) {
+	realRoot := t.TempDir()
+	gitDir := filepath.Join(realRoot, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+
+	linkedRoot := filepath.Join(t.TempDir(), "root-link")
+	if err := os.Symlink(realRoot, linkedRoot); err != nil {
+		t.Fatalf("symlink root: %v", err)
+	}
+
+	binds := gitWritableBinds(linkedRoot)
+	wantGitDir := filepath.Join(linkedRoot, ".git")
+	if !slices.Contains(binds, wantGitDir) || len(binds) != 1 {
+		t.Errorf("expected binds=[%s] when only the root's parent is symlinked, got %v", wantGitDir, binds)
+	}
+}
+
 // indexOfSeq returns the index of the first occurrence of needle as a
 // contiguous subsequence in haystack, or -1 if not found.
 func indexOfSeq(haystack []string, needle ...string) int {

@@ -20,7 +20,7 @@ import (
 // them exercising what they actually test.
 func newMutateTestTool(t *testing.T, root string) tool.ToolDef {
 	t.Helper()
-	policy := tool.NewPathPolicy(root, config.PathsConfig{})
+	policy := tool.NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: true})
 	return NewMutateTool(Env{WorkDir: root, PathPolicy: &policy, FileObserved: func(string) bool { return true }})
 }
 
