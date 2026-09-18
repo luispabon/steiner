@@ -26,8 +26,7 @@ func finalizationTestStructuredTask(objective string) map[string]any {
 }
 
 func TestFinalizeDelegateCancellationKeepsSessionAndWorktree(t *testing.T) {
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 	wt, err := ProvisionCodeWorktree(context.Background(), repo, "keep-child")
 	if err != nil {
 		t.Fatalf("ProvisionCodeWorktree: %v", err)
@@ -58,8 +57,7 @@ func TestFinalizeDelegateCancellationKeepsSessionAndWorktree(t *testing.T) {
 }
 
 func TestFinalizeDelegateCancellationDiscardsSelectedWorktree(t *testing.T) {
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 	selected, err := ProvisionCodeWorktree(context.Background(), repo, "discard-child")
 	if err != nil {
 		t.Fatalf("Provision selected worktree: %v", err)
@@ -129,8 +127,7 @@ func TestFinalizeDelegateCancellationDiscardsSelectedWorktree(t *testing.T) {
 }
 
 func TestFinalizeDelegateCancellationRetainsLateDiscardOutcome(t *testing.T) {
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 	wt, err := ProvisionCodeWorktree(context.Background(), repo, "complete-child")
 	if err != nil {
 		t.Fatalf("ProvisionCodeWorktree: %v", err)
@@ -171,8 +168,7 @@ func TestFinalizeDelegateCancellationRetainsLateDiscardOutcome(t *testing.T) {
 }
 
 func TestFinalizeDelegateCancellationReportsPruneFailure(t *testing.T) {
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 	path := filepath.Join(repo, ".steiner", "worktrees", "foreign-child")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
@@ -212,8 +208,7 @@ func TestFinalizeDelegateCancellationReportsPruneFailure(t *testing.T) {
 }
 
 func TestSpecializedCodeDiscardWaitsForRunner(t *testing.T) {
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 	controller := NewActiveController()
 	store := NewSessionStore()
 	events := &recordingEventSink{}

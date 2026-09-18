@@ -15,8 +15,7 @@ import (
 // prunes must not race on the git metadata store.
 func TestPruneCodeWorktreeConcurrentCallsSerialize(t *testing.T) {
 	ctx := context.Background()
-	repo, cleanup := setupTestRepo(t)
-	defer cleanup()
+	repo := setupTestRepo(t)
 
 	delegationBase := filepath.Join(repo, ".steiner", "worktrees")
 	var relIDs []string
