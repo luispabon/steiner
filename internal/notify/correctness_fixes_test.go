@@ -25,11 +25,11 @@ func TestRunFocusCommandEnforcesTimeout(t *testing.T) {
 }
 
 // F275: focusTerminal should handle nil argv gracefully.
-func TestRunFocusCommandHandlesNilArgv(t *testing.T) {
+func TestRunFocusCommandHandlesNilArgv(_ *testing.T) {
 	runFocusCommand(nil, 1*time.Second)
 }
 
 // F275: focusTerminal should handle non-existent command gracefully.
-func TestRunFocusCommandHandlesNonExistentCommand(t *testing.T) {
+func TestRunFocusCommandHandlesNonExistentCommand(_ *testing.T) {
 	runFocusCommand([]string{"/nonexistent/command"}, 1*time.Second)
 }

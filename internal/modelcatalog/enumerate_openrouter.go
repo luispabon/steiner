@@ -58,10 +58,16 @@ func (e *OpenRouterEnumerator) Enumerate(ctx context.Context, ep Endpoint, _ Enu
 	if err != nil {
 		return EnumerationResult{}, fmt.Errorf("parse OpenRouter models URL: %w", err)
 	}
+	models, etag, err := e.enumeratePages(ctx, ep, originalURL, original)
+	if err != nil {
+		return EnumerationResult{}, err
+	}
+	return EnumerationResult{Models: models, ETag: etag}, nil
+}
 
+func (e *OpenRouterEnumerator) enumeratePages(ctx context.Context, ep Endpoint, originalURL *url.URL, endpoint string) ([]DiscoveredModel, string, error) {
 	models := make([]DiscoveredModel, 0)
 	seen := make(map[string]bool)
-	endpoint := original
 	var etag string
 	for page := 0; page < openRouterMaxPages; page++ {
 		if seen[endpoint] {
@@ -71,47 +77,57 @@ func (e *OpenRouterEnumerator) Enumerate(ctx context.Context, ep Endpoint, _ Enu
 
 		req, err := newGETRequest(ctx, ep, endpoint, bearerAuthorization(ep.APIKey))
 		if err != nil {
-			return EnumerationResult{}, err
+			return nil, "", err
 		}
 		var response openRouterListResponse
 		pageETag, err := doJSONRequest(e.client, req, &response)
 		if err != nil {
-			return EnumerationResult{}, err
+			return nil, "", err
 		}
 		if pageETag != "" {
 			etag = pageETag
 		}
-		for _, item := range response.Data {
-			if openRouterNonText(item.Architecture) {
-				continue
-			}
-			displayName := item.Name
-			if displayName == "" {
-				displayName = item.ID
-			}
-			models = append(models, DiscoveredModel{
-				ProviderAlias:   ep.Alias,
-				ProviderType:    ep.Type,
-				ID:              item.ID,
-				DisplayName:     displayName,
-				Description:     item.Description,
-				ContextLength:   item.Context,
-				MaxOutputTokens: item.TopProvider.MaxCompletionTokens,
-			})
-		}
-		if response.Links.Next == nil || *response.Links.Next == "" {
-			break
-		}
-		next, ok := safeOpenRouterNextURL(originalURL, *response.Links.Next)
+		models = append(models, openRouterModels(ep, response.Data)...)
+		next, ok := openRouterNextURL(originalURL, response.Links.Next)
 		if !ok {
 			break
 		}
 		endpoint = next
-		if page+1 >= openRouterMaxPages && endpoint != "" {
-			return EnumerationResult{}, fmt.Errorf("enumerate models: pagination cap exceeded after %d pages", openRouterMaxPages)
+		if page+1 >= openRouterMaxPages {
+			return nil, "", fmt.Errorf("enumerate models: pagination cap exceeded after %d pages", openRouterMaxPages)
 		}
 	}
-	return EnumerationResult{Models: models, ETag: etag}, nil
+	return models, etag, nil
+}
+
+func openRouterModels(ep Endpoint, items []openRouterModel) []DiscoveredModel {
+	models := make([]DiscoveredModel, 0, len(items))
+	for _, item := range items {
+		if openRouterNonText(item.Architecture) {
+			continue
+		}
+		displayName := item.Name
+		if displayName == "" {
+			displayName = item.ID
+		}
+		models = append(models, DiscoveredModel{
+			ProviderAlias:   ep.Alias,
+			ProviderType:    ep.Type,
+			ID:              item.ID,
+			DisplayName:     displayName,
+			Description:     item.Description,
+			ContextLength:   item.Context,
+			MaxOutputTokens: item.TopProvider.MaxCompletionTokens,
+		})
+	}
+	return models
+}
+
+func openRouterNextURL(original *url.URL, next *string) (string, bool) {
+	if next == nil || *next == "" {
+		return "", false
+	}
+	return safeOpenRouterNextURL(original, *next)
 }
 
 func openRouterNonText(architecture openRouterArchitecture) bool {

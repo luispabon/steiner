@@ -51,7 +51,7 @@ func TestAnthropicEnumerateDetectsRepeatedCursor(t *testing.T) {
 // F267: enumeratePages must enforce a page limit to prevent unbounded loops.
 func TestAnthropicEnumerateEnforcesPageCap(t *testing.T) {
 	var requests int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests++
 		lastID := "cursor-" + fmt.Sprintf("%05d", requests)
 		_, _ = w.Write([]byte(`{
@@ -80,7 +80,7 @@ func TestAnthropicEnumerateEnforcesPageCap(t *testing.T) {
 // F269: Enumerate must return an error when the page cap is exceeded, not silently return a partial catalog.
 func TestOpenRouterEnumerateReturnsErrorOnPageCapExceeded(t *testing.T) {
 	var requests int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests++
 		nextPageNum := fmt.Sprintf("%05d", requests)
 		nextURL := "/api/v1/models?page=" + nextPageNum
