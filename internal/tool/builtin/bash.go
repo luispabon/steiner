@@ -66,6 +66,7 @@ func NewBashTool(env Env) tool.ToolDef {
 
 			session := NewBashSession()
 			session.CommandWrapper = resolved.Wrap
+			session.ReleaseCommandResources = resolved.ReleaseCommandResources
 			if err := session.Start(); err != nil {
 				return nil, fmt.Errorf("bash: start session: %w", err)
 			}

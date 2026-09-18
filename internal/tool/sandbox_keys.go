@@ -46,6 +46,14 @@ func (r ResolvedSandbox) Wrap(cmd *exec.Cmd) *exec.Cmd {
 	return r.Wrapper.WrapCommandMode(cmd, r.ReadOnlyProject)
 }
 
+// ReleaseCommandResources releases resources owned by cmd, when the wrapper
+// provides per-command resource cleanup.
+func (r ResolvedSandbox) ReleaseCommandResources(cmd *exec.Cmd) {
+	if releaser, ok := r.Wrapper.(SandboxCommandResourceReleaser); ok {
+		releaser.ReleaseCommandResources(cmd)
+	}
+}
+
 // SandboxWrapperKey is a context key carrying the ResolvedSandbox decision for
 // the current tool call. It is set exactly once per call, by the execution
 // pipeline in runPipeline, and is always non-nil there (Wrapper is Unsandboxed{}

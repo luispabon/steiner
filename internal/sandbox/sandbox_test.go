@@ -242,10 +242,12 @@ func TestWrapCommand_AppendsSSHOverlayFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create root overlay file: %v", err)
 	}
+	t.Cleanup(func() { _ = rootFile.Close() })
 	includeFile, err := os.CreateTemp(t.TempDir(), "overlay-*")
 	if err != nil {
 		t.Fatalf("create included overlay file: %v", err)
 	}
+	t.Cleanup(func() { _ = includeFile.Close() })
 
 	restore := stubSandboxHooks(t, func(string) (string, error) {
 		return "/usr/bin/bwrap", nil

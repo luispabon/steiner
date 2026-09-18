@@ -390,7 +390,11 @@ func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir str
 	cmd.Stdout = stdoutCapture
 	cmd.Stderr = stderrCapture
 
-	err := cmd.Run()
+	err := cmd.Start()
+	resolved.ReleaseCommandResources(cmd)
+	if err == nil {
+		err = cmd.Wait()
+	}
 	metadata := ExecutionMetadata{
 		ExitCode: exitCodeFromError(err),
 		Stdout:   stdoutCapture.Capture(),

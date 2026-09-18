@@ -22,6 +22,12 @@ type SandboxWrapper interface {
 	WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd
 }
 
+// SandboxCommandResourceReleaser releases resources owned by a wrapped command.
+// It is optional so existing SandboxWrapper implementations remain compatible.
+type SandboxCommandResourceReleaser interface {
+	ReleaseCommandResources(*exec.Cmd)
+}
+
 // Unsandboxed is a SandboxWrapper that runs commands unwrapped. Passing it to
 // NewExecutor is an explicit choice that sandboxing is off for this executor,
 // not an absence of configuration.

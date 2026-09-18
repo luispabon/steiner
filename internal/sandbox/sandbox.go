@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 
 	"github.com/luispabon/steiner/internal/config"
 )
@@ -23,6 +24,9 @@ type Sandbox struct {
 	userHome  string // host user home
 	tmpDir    string // session-scoped temp directory
 	envPolicy EnvPolicy
+
+	resourceMu       sync.Mutex
+	commandResources map[*exec.Cmd]*sshOverlay
 }
 
 // New creates a Sandbox. rootDir, workDir, userHome, and tmpDir must be absolute paths.
@@ -112,8 +116,35 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd
 	}
 	if overlay != nil {
 		wrapped.ExtraFiles = append(wrapped.ExtraFiles, overlay.memfds...)
+		s.trackCommandResources(wrapped, overlay)
 	}
 	return wrapped
+}
+
+func (s *Sandbox) trackCommandResources(cmd *exec.Cmd, overlay *sshOverlay) {
+	if overlay == nil {
+		return
+	}
+	s.resourceMu.Lock()
+	defer s.resourceMu.Unlock()
+	if s.commandResources == nil {
+		s.commandResources = make(map[*exec.Cmd]*sshOverlay)
+	}
+	s.commandResources[cmd] = overlay
+}
+
+// ReleaseCommandResources closes files owned by a wrapped command.
+func (s *Sandbox) ReleaseCommandResources(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	s.resourceMu.Lock()
+	overlay := s.commandResources[cmd]
+	delete(s.commandResources, cmd)
+	s.resourceMu.Unlock()
+	if overlay != nil {
+		_ = overlay.Close()
+	}
 }
 
 // WrapCommand wraps cmd with bubblewrap. Returns cmd unchanged when sandbox disabled.

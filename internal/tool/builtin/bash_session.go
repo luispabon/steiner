@@ -25,7 +25,8 @@ type BashSession struct {
 	// CommandWrapper is called before starting the bash process. If non-nil,
 	// the returned *exec.Cmd replaces the original. Set this to wrap the process
 	// in a sandbox (e.g. bubblewrap). nil means no-op.
-	CommandWrapper func(*exec.Cmd) *exec.Cmd
+	CommandWrapper          func(*exec.Cmd) *exec.Cmd
+	ReleaseCommandResources func(*exec.Cmd)
 
 	mu      sync.Mutex
 	cmd     *exec.Cmd
@@ -76,11 +77,15 @@ func (s *BashSession) Start() error {
 		return fmt.Errorf("bash session: stderr pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	startErr := cmd.Start()
+	if s.ReleaseCommandResources != nil {
+		s.ReleaseCommandResources(cmd)
+	}
+	if startErr != nil {
 		_ = stdinPipe.Close()
 		_ = stdoutPipe.Close()
 		_ = stderrPipe.Close()
-		return fmt.Errorf("bash session: start: %w", err)
+		return fmt.Errorf("bash session: start: %w", startErr)
 	}
 
 	s.cmd = cmd
