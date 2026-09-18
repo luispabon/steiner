@@ -285,7 +285,7 @@ func TestAppendUserInputEventImageOnlyWithoutText(t *testing.T) {
 		Type: output.EventTypeUserInput,
 		Payload: output.UserInputEvent{
 			Content: "   ", // whitespace-only content
-			Images: []output.UserInputImage{
+			Images: []output.ImageBlock{
 				{
 					ID:        "img-1",
 					FilePath:  "/home/user/test.png",
