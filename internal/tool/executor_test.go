@@ -263,3 +263,17 @@ func TestExecutorSandboxIsExplicit(t *testing.T) {
 		t.Fatal("Unsandboxed{} must report Enabled() == false")
 	}
 }
+
+func TestNewExecutorNilSandboxDefaults(t *testing.T) {
+	reg := NewRegistry(ToolDef{
+		Name:    "probe",
+		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
+	})
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", nil)
+	if executor.sandbox == nil {
+		t.Fatal("sandbox should never be nil; NewExecutor should default to Unsandboxed{}")
+	}
+	if executor.sandbox.Enabled() {
+		t.Fatal("default sandbox should be Unsandboxed{} with Enabled() == false")
+	}
+}
