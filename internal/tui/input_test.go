@@ -267,3 +267,56 @@ func TestParseInputHandlesProfileCommand(t *testing.T) {
 		}
 	})
 }
+
+func TestMatchCommandPrefix(t *testing.T) {
+	t.Parallel()
+
+	t.Run("argument-taking command with args", func(t *testing.T) {
+		t.Parallel()
+		prefix, ok := matchCommandPrefix("/model gpt-4", nil, false)
+		if !ok {
+			t.Error("matchCommandPrefix should match /model gpt-4")
+		}
+		if prefix != "/model " {
+			t.Errorf("prefix = %q, want /model ", prefix)
+		}
+	})
+
+	t.Run("argument-taking command bare", func(t *testing.T) {
+		t.Parallel()
+		prefix, ok := matchCommandPrefix("/model", nil, false)
+		if !ok {
+			t.Error("matchCommandPrefix should match /model")
+		}
+		if prefix != "/model" {
+			t.Errorf("prefix = %q, want /model", prefix)
+		}
+	})
+
+	t.Run("regression test: /exitfoo should not match /exit", func(t *testing.T) {
+		t.Parallel()
+		_, ok := matchCommandPrefix("/exitfoo", nil, false)
+		if ok {
+			t.Error("matchCommandPrefix should not match /exitfoo")
+		}
+	})
+
+	t.Run("bare command /exit", func(t *testing.T) {
+		t.Parallel()
+		prefix, ok := matchCommandPrefix("/exit", nil, false)
+		if !ok {
+			t.Error("matchCommandPrefix should match /exit")
+		}
+		if prefix != "/exit" {
+			t.Errorf("prefix = %q, want /exit", prefix)
+		}
+	})
+
+	t.Run("non-matching input", func(t *testing.T) {
+		t.Parallel()
+		_, ok := matchCommandPrefix("not a command", nil, false)
+		if ok {
+			t.Error("matchCommandPrefix should not match non-command text")
+		}
+	})
+}

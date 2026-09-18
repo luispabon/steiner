@@ -158,6 +158,42 @@ func TestSidebarLinesIncludeModifiedFilesSection(t *testing.T) {
 	}
 }
 
+func TestDetectGitSnapshotHandlesRenamedFiles(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.name", "Test User")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+
+	oldPath := filepath.Join(repo, "old_name.go")
+	if err := os.WriteFile(oldPath, []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "old_name.go")
+	runGit(t, repo, "commit", "-m", "initial")
+
+	newPath := filepath.Join(repo, "new_name.go")
+	if err := os.Rename(oldPath, newPath); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+
+	snap := detectGitSnapshot(context.Background(), repo, nil)
+	if !snap.ready {
+		t.Fatal("snapshot.ready = false, want true")
+	}
+	if !snap.dirty {
+		t.Fatal("snapshot.dirty = false, want true")
+	}
+	if got, want := len(snap.modifiedFiles), 1; got != want {
+		t.Fatalf("len(snapshot.modifiedFiles) = %d, want %d", got, want)
+	}
+
+	renamedFile := snap.modifiedFiles[0]
+	if got, want := renamedFile.Path, "new_name.go"; got != want {
+		t.Fatalf("renamed file path = %q, want %q (got status %q)", got, want, renamedFile.Status)
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.CommandContext(context.Background(), "git", args...)

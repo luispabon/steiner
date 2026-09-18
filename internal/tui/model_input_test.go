@@ -28,6 +28,8 @@ func TestOneshotAllowedAction(t *testing.T) {
 		{name: "/accent is allowed", input: "/accent", want: true},
 		{name: "/accent amber is allowed", input: "/accent amber", want: true},
 		{name: "/accent foo prefix is allowed", input: "/accent foo", want: true},
+		{name: "regression: /accented should NOT be allowed", input: "/accented", want: false},
+		{name: "regression: /accentfoo should NOT be allowed", input: "/accentfoo", want: false},
 		{name: "/oneshot is NOT allowed", input: "/oneshot do something", want: false},
 		{name: "hello world is NOT allowed", input: "hello world", want: false},
 		{name: "leading whitespace allowed", input: "  /exit", want: true},

@@ -249,6 +249,11 @@ func matchCommandPrefix(text string, skillNames []string, allowlistOnly bool) (s
 			return p, true
 		}
 	}
+	for _, p := range prefixes {
+		if strings.HasSuffix(p, " ") && strings.HasPrefix(trimmed, p) {
+			return p, true
+		}
+	}
 	if !allowlistOnly {
 		for _, name := range skillNames {
 			cmd := "/" + name

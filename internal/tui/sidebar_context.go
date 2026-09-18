@@ -17,6 +17,7 @@ func stripProviderURL(url string) string {
 	url = strings.TrimSpace(url)
 	url = strings.TrimPrefix(url, "https://")
 	url = strings.TrimPrefix(url, "http://")
+	url = strings.TrimSuffix(url, "/")
 	url = strings.TrimSuffix(url, "/v1")
 	url = strings.TrimSuffix(url, "/")
 	return url

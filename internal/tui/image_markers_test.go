@@ -260,6 +260,20 @@ func TestReconcileMarkers(t *testing.T) {
 			wantValue:  "no images here",
 			wantLabels: nil,
 		},
+		{
+			name:       "prose with [Image prefix untouched",
+			value:      "Check [Image processing notes] for details",
+			markers:    nil,
+			wantValue:  "Check [Image processing notes] for details",
+			wantLabels: nil,
+		},
+		{
+			name:       "incomplete numbered marker stripped",
+			value:      "Here is [Image 3 without close bracket",
+			markers:    nil,
+			wantValue:  "Here is  without close bracket",
+			wantLabels: nil,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
