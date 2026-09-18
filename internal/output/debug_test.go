@@ -1,10 +1,56 @@
 package output
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 )
+
+func TestNewContextTokenBudgetEventPreservesFields(t *testing.T) {
+	notes := []string{"first", "second"}
+	event := newContextTokenBudgetEvent(contextTokenBudgetParams{
+		scope:               "conversation",
+		turn:                4,
+		promptTokens:        1682,
+		rawPromptTokens:     1720,
+		contextWindow:       65536,
+		contextUsagePercent: 3.5,
+		compactionThreshold: 70.5,
+		estimatorPadTokens:  16384,
+		totalTokens:         22162,
+		status:              "ok",
+		truncated:           true,
+		notes:               notes,
+	})
+
+	payload, ok := event.Payload.(ContextBudgetEvent)
+	if !ok {
+		t.Fatalf("payload type = %T, want ContextBudgetEvent", event.Payload)
+	}
+	want := ContextBudgetEvent{
+		Scope:               "conversation",
+		Turn:                4,
+		PromptTokens:        1682,
+		RawPromptTokens:     1720,
+		ContextTokens:       65536,
+		TotalTokens:         22162,
+		Truncated:           true,
+		ContextWindow:       65536,
+		ContextUsagePercent: 3.5,
+		CompactionThreshold: 70.5,
+		EstimatorPadTokens:  16384,
+		Status:              "ok",
+		Notes:               []string{"first", "second"},
+	}
+	if !reflect.DeepEqual(payload, want) {
+		t.Fatalf("payload = %+v, want %+v", payload, want)
+	}
+	notes[0] = "changed"
+	if payload.Notes[0] != "first" {
+		t.Fatal("constructor reused notes slice")
+	}
+}
 
 func TestFormatContextDiagnosticsEvent(t *testing.T) {
 	tests := []struct {

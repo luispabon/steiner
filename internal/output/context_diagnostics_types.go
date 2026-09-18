@@ -140,6 +140,10 @@ type ContextBudgetEvent struct {
 	EstimatorPadTokens  int      `json:"estimator_pad_tokens,omitempty"`
 	Status              string   `json:"status,omitempty"`
 	Notes               []string `json:"notes,omitempty"`
+
+	// legacyKind preserves legacy aliases such as session_loaded without adding
+	// that compatibility detail to the wire payload.
+	legacyKind string
 }
 
 // ContextFileAnnotationEvent records contextual file-annotation hints.
@@ -230,8 +234,12 @@ func (payload ContextSessionHealthEvent) toLegacyContextDiagnostics() ContextDia
 }
 
 func (payload ContextBudgetEvent) toLegacyContextDiagnostics() ContextDiagnosticsEvent {
+	kind := "budget"
+	if payload.legacyKind != "" {
+		kind = payload.legacyKind
+	}
 	return ContextDiagnosticsEvent{
-		Kind:                "budget",
+		Kind:                kind,
 		Scope:               payload.Scope,
 		Turn:                payload.Turn,
 		BudgetBytes:         payload.BudgetBytes,
@@ -326,7 +334,7 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			Notes:           append([]string(nil), payload.Notes...),
 		}
 	case "budget", "session_loaded":
-		return ContextBudgetEvent{
+		budget := ContextBudgetEvent{
 			Scope:               payload.Scope,
 			Turn:                payload.Turn,
 			UsedBytes:           payload.UsedBytes,
@@ -343,6 +351,10 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			Status:              payload.Status,
 			Notes:               append([]string(nil), payload.Notes...),
 		}
+		if payload.Kind == "session_loaded" {
+			budget.legacyKind = payload.Kind
+		}
+		return budget
 	case "file_annotation":
 		return ContextFileAnnotationEvent{
 			Scope:    payload.Scope,

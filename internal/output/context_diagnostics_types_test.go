@@ -96,8 +96,77 @@ func TestAsContextBudgetEventSessionLoaded(t *testing.T) {
 		ContextWindow:       8000,
 		ContextUsagePercent: 1.875,
 		Status:              "ok",
+		legacyKind:          "session_loaded",
 	}
 	if !reflect.DeepEqual(budget, want) {
 		t.Fatalf("AsContextBudgetEvent() = %+v, want %+v", budget, want)
+	}
+
+	legacy := budget.toLegacyContextDiagnostics()
+	if legacy.Kind != "session_loaded" {
+		t.Fatalf("budget legacy kind = %q, want session_loaded", legacy.Kind)
+	}
+}
+
+func TestContextDiagnosticTypedLegacyRoundTripsPreserveFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload contextDiagnosticPayload
+	}{
+		{
+			name: "compaction",
+			payload: ContextCompactionEvent{
+				Scope: "scope", Turn: 1, Severity: "severity", SessionState: "state",
+				CompactionCount: 2, RestartGuidance: "guidance", RetainedTurns: 3,
+				RetainedMessages: 4, CompactedTurns: 5, CompactedMessages: 6,
+				SummaryTitle: "title", SummaryPreview: "preview", SummaryText: "text",
+				SummaryBytes: 7, CacheReadTokens: 8, InputTokens: 9, CacheCreateTokens: 10,
+				PromptTokens: 11, RawPromptTokens: 12, ContextTokens: 13, TotalTokens: 14,
+				Truncated: true, ContextWindow: 15, ContextUsagePercent: 16.5,
+				CompactionThreshold: 17.5, EstimatorPadTokens: 18, Status: "status",
+				Mode: "mode", BeforePromptTokens: 19, BeforeRawPromptTokens: 20,
+				BeforeUsagePercent: 21.5, AfterPromptTokens: 22, AfterRawPromptTokens: 23,
+				AfterUsagePercent: 24.5, RetainedRawTurns: 25, SummaryTokenBudget: 26,
+				ThresholdAchieved: true, Notes: []string{"note"},
+			},
+		},
+		{
+			name: "session health",
+			payload: ContextSessionHealthEvent{
+				Scope: "scope", Turn: 1, Severity: "severity", SessionState: "state",
+				CompactionCount: 2, RestartGuidance: "guidance", Notes: []string{"note"},
+			},
+		},
+		{
+			name: "budget",
+			payload: ContextBudgetEvent{
+				Scope: "scope", Turn: 1, UsedBytes: 2, BudgetBytes: 3,
+				PromptTokens: 4, RawPromptTokens: 5, ContextTokens: 6, TotalTokens: 7,
+				Truncated: true, ContextWindow: 8, ContextUsagePercent: 9.5,
+				CompactionThreshold: 10.5, EstimatorPadTokens: 11, Status: "status",
+				Notes: []string{"note"},
+			},
+		},
+		{
+			name: "file annotation",
+			payload: ContextFileAnnotationEvent{
+				Scope: "scope", Turn: 1, Severity: "severity", Action: "action",
+				Reason: "reason", Path: "path", Notes: []string{"note"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			legacy := tt.payload.toLegacyContextDiagnostics()
+			got := contextDiagnosticFromLegacy(legacy)
+			if !reflect.DeepEqual(got, tt.payload) {
+				t.Fatalf("typed -> legacy -> typed = %#v, want %#v", got, tt.payload)
+			}
+			legacy.Notes[0] = "changed"
+			if tt.payload.toLegacyContextDiagnostics().Notes[0] != "note" {
+				t.Fatal("legacy conversion reused notes slice")
+			}
+		})
 	}
 }
