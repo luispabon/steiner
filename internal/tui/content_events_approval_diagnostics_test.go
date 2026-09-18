@@ -206,7 +206,10 @@ func TestApprovalPillAgentLabel(t *testing.T) {
 }
 
 func TestCompactionBannerElapsedMeasuresFromFirstEventEvenWithInterleaved(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel(): this test overrides the package-level nanoNow var,
+	// which races with any other test reading it concurrently (nanoNow is
+	// shared package state, not per-instance) - matches the existing
+	// convention of every other nanoNow-overriding test in this package.
 	b := &contentBuffer{
 		collapseState: make(map[int]bool),
 	}
@@ -332,18 +335,18 @@ func TestClearApprovalStateMarksSegmentsRenderDirty(t *testing.T) {
 
 	// Create tool call segments with approval state
 	toolCall := &toolCallSegment{
-		tool:               "bash",
-		callID:             "call-1",
-		approvalPending:    true,
-		approvalResolved:   true,
+		tool:             "bash",
+		callID:           "call-1",
+		approvalPending:  true,
+		approvalResolved: true,
 	}
 	toolCallGroup := &toolCallGroupSegment{
 		entries: []*toolCallSegment{
 			{
-				tool:               "read",
-				callID:             "call-2",
-				approvalPending:    true,
-				approvalResolved:   false,
+				tool:             "read",
+				callID:           "call-2",
+				approvalPending:  true,
+				approvalResolved: false,
 			},
 		},
 	}
@@ -355,9 +358,9 @@ func TestClearApprovalStateMarksSegmentsRenderDirty(t *testing.T) {
 			renderDirty: false,
 		},
 		{
-			kind:           segmentToolCallGroup,
-			toolGroupData:  toolCallGroup,
-			renderDirty:    false,
+			kind:          segmentToolCallGroup,
+			toolGroupData: toolCallGroup,
+			renderDirty:   false,
 		},
 	}
 
