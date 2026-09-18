@@ -167,6 +167,15 @@ func TestStreamWithEvents(t *testing.T) {
 			},
 			wantThinkingEvents: []string{"old thinking", "new thinking"},
 		},
+		{
+			name: "error chunk with a sink returns the stream error",
+			chunks: []provider.ChatChunk{
+				{Delta: provider.Message{Content: "partial"}},
+				{Error: "stream error"},
+			},
+			wantErr:            "stream error",
+			wantThinkingEvents: []string{},
+		},
 	}
 
 	for _, tc := range tests {

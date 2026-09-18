@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -63,19 +64,28 @@ func TestSpinner_DoubleStart(t *testing.T) {
 }
 
 func TestSpinner_ImmediateStop_TTY(t *testing.T) {
-	// Even with a real timer, the stop channel should win immediately.
-	// This test just verifies no panic for the TTY path.
-	// We can't easily test TTY without an *os.File, so we only test the
-	// fast-path here (we set tty=false above, but let's also test that
-	// setting up the channels works via a short tick).
-	// Instead, test that Start+Stop on a non-TTY buffer completes fast.
-	var buf bytes.Buffer
-	sp := NewSpinner(&buf, "test")
+	// Force TTY detection on with a character-device writer (the same fixture
+	// TestSupportsANSIWithCharDevice uses) and a colour-capable environment, so
+	// the TTY goroutine, ticker, stop channel, and ANSI cleanup path all run.
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm")
+
+	f, err := os.Open("/dev/null")
+	if err != nil {
+		t.Skipf("cannot open /dev/null: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if !isTTY(f) {
+		t.Fatal("test writer is not detected as a TTY; cannot exercise the TTY path")
+	}
+
+	sp := NewSpinner(f, "test")
 	start := time.Now()
 	sp.Start()
 	sp.Stop(true, "ok")
 	elapsed := time.Since(start)
 	if elapsed > 100*time.Millisecond {
-		t.Errorf("Stop took too long: %v", elapsed)
+		t.Errorf("TTY Stop took too long: %v", elapsed)
 	}
 }
