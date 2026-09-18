@@ -54,6 +54,19 @@ func (s *Service) RefreshAll(ctx context.Context, endpoints []Endpoint, opts Ref
 		return report
 	}
 
+	// OnResult is invoked from the worker goroutines, but callers treat it as a
+	// sequential progress callback. Serialize delivery here so provider work
+	// stays parallel while observers never see overlapping callbacks.
+	var onResultMu sync.Mutex
+	deliver := func(result RefreshResult) {
+		if opts.OnResult == nil {
+			return
+		}
+		onResultMu.Lock()
+		defer onResultMu.Unlock()
+		opts.OnResult(result.Alias, result.Err)
+	}
+
 	jobs := make(chan int)
 	var wait sync.WaitGroup
 	if len(endpoints) == 0 {
@@ -70,9 +83,7 @@ func (s *Service) RefreshAll(ctx context.Context, endpoints []Endpoint, opts Ref
 			for index := range jobs {
 				result := s.refreshOne(ctx, endpoints[index], opts.Force)
 				report.Results[index] = result
-				if opts.OnResult != nil {
-					opts.OnResult(result.Alias, result.Err)
-				}
+				deliver(result)
 			}
 		}()
 	}

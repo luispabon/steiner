@@ -75,12 +75,18 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 
 	switch payload := event.Payload.(type) {
 	case output.HistoryLoadedEvent:
-		if len(payload.Prompts) > 0 {
-			for i, j := 0, len(payload.Prompts)-1; i < j; i, j = i+1, j-1 {
-				payload.Prompts[i], payload.Prompts[j] = payload.Prompts[j], payload.Prompts[i]
-			}
+		// Copy before reversing: the payload slice belongs to the producer and
+		// is also retained by the transcript, so reversing or aliasing it in
+		// place would corrupt both the event and m.fileHistory.
+		var prompts []string
+		if payload.Prompts != nil {
+			prompts = make([]string, len(payload.Prompts))
+			copy(prompts, payload.Prompts)
 		}
-		m.fileHistory = payload.Prompts
+		for i, j := 0, len(prompts)-1; i < j; i, j = i+1, j-1 {
+			prompts[i], prompts[j] = prompts[j], prompts[i]
+		}
+		m.fileHistory = prompts
 		m.fileHistoryIdx = -1
 		return nil
 	case output.RunStartedEvent:

@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -44,7 +43,10 @@ type telemetry struct {
 	mu    sync.Mutex
 	file  *os.File
 	runID string
-	seq   atomic.Int64
+	// seq is guarded by mu: the increment and the append it orders must happen
+	// in the same critical section, otherwise a later-recorded line can win the
+	// race to disk and the file's seq order stops matching its line order.
+	seq int64
 }
 
 // newTelemetryFromEnv returns a telemetry writer when TelemetryEnvVar names a
@@ -73,7 +75,6 @@ func (t *telemetry) record(obs Observation, at time.Time) {
 		Kind:              "usage",
 		Timestamp:         at.UTC().Format(time.RFC3339Nano),
 		RunID:             t.runID,
-		Seq:               t.seq.Add(1),
 		Source:            sourceName(obs.Source),
 		ProviderAlias:     obs.ProviderAlias,
 		ProviderType:      obs.ProviderType,
@@ -83,14 +84,15 @@ func (t *telemetry) record(obs Observation, at time.Time) {
 		CacheCreateTokens: obs.CacheCreateTokens,
 		CompletionTokens:  obs.CompletionTokens,
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.seq++
+	line.Seq = t.seq
 	encoded, err := json.Marshal(line)
 	if err != nil {
 		slog.Warn("marshal usage telemetry line", "error", err)
 		return
 	}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	if _, err := t.file.Write(append(encoded, '\n')); err != nil {
 		slog.Warn("write usage telemetry line", "error", err)
 	}

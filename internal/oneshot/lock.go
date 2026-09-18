@@ -81,14 +81,21 @@ func acquireRunLock(projectRoot string, identity RunIdentity, staleAfter time.Du
 	return nil, errLockHeld
 }
 
-// Heartbeat updates the lock file mtime to prevent staleness detection.
-func (l *RunLock) Heartbeat() {
+// Heartbeat updates the lock file mtime to prevent staleness detection. It
+// returns an error when the mtime cannot be updated: a run whose lock has been
+// deleted or is otherwise unwritable may be reclaimed as stale by another run,
+// so the owning run must stop through its normal error path instead of
+// continuing to hold a lock it can no longer keep fresh.
+func (l *RunLock) Heartbeat() error {
 	if l == nil {
-		return
+		return nil
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	_ = os.Chtimes(l.path, time.Now(), time.Now())
+	if err := os.Chtimes(l.path, time.Now(), time.Now()); err != nil {
+		return fmt.Errorf("heartbeat run lock: %w", err)
+	}
+	return nil
 }
 
 // Release removes the lock file if it is still present.

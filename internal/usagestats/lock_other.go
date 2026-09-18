@@ -2,11 +2,17 @@
 
 package usagestats
 
+import "errors"
+
+// errLockingUnsupported is returned by the non-unix locker so persistence fails
+// safely instead of silently succeeding without cross-process locking.
+var errLockingUnsupported = errors.New("usage stats file locking is unsupported on this platform")
+
 // otherFileLocker is the fallback locker for platforms without a flock
-// equivalent wired up (i.e. not unix). It intentionally does not provide
-// cross-process locking; steiner is not currently supported on non-unix
-// targets, so this only guards against a build tag needing a fileLocker
-// implementation to compile.
+// equivalent wired up (i.e. not unix). It cannot provide cross-process locking,
+// so its lock reports an explicit error: a caller that ignored it would persist
+// aggregate stats unlocked and risk clobbering concurrent writers. Persistence
+// callers treat that error as "skip this write" rather than failing the run.
 type otherFileLocker struct{}
 
 func newFileLocker() fileLocker {
@@ -14,7 +20,7 @@ func newFileLocker() fileLocker {
 }
 
 func (*otherFileLocker) lock(uintptr) error {
-	return nil
+	return errLockingUnsupported
 }
 
 func (*otherFileLocker) unlock(uintptr) error {

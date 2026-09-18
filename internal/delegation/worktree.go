@@ -61,8 +61,9 @@ func providerRelativeWorktreePath(projectRoot, worktreePath string) string {
 	return rel
 }
 
-// worktreeMu serializes concurrent git worktree add calls against the same .git
-// metadata store to avoid index-lock races.
+// worktreeMu serializes git worktree mutations (add, remove, prune, branch
+// deletion) against the same .git metadata store to avoid index-lock races
+// between concurrent provisioning and pruning.
 var worktreeMu sync.Mutex
 
 // CodeWorktree describes the provisioned checkout for a delegation run.
@@ -331,6 +332,16 @@ func listWorktreeEntries(ctx context.Context, projectRoot string) ([]CodeWorktre
 // It tolerates "not a working tree" errors (already-removed paths) and missing branches
 // as idempotent no-ops, but refuses to remove worktrees not owned by delegation.
 func PruneCodeWorktree(ctx context.Context, projectRoot, relID string) (bool, error) {
+	worktreeMu.Lock()
+	defer worktreeMu.Unlock()
+	return pruneCodeWorktreeLocked(ctx, projectRoot, relID)
+}
+
+// pruneCodeWorktreeLocked implements PruneCodeWorktree's removal logic and
+// requires the caller to hold worktreeMu. The public wrapper takes the mutex;
+// the prune-all helpers hold it across their whole sweep and call this directly
+// so they never re-enter a non-reentrant mutex through the public helper.
+func pruneCodeWorktreeLocked(ctx context.Context, projectRoot, relID string) (bool, error) {
 	delegationBase := filepath.Clean(filepath.Join(projectRoot, ".steiner", "worktrees"))
 	worktreePath := filepath.Clean(filepath.Join(delegationBase, relID))
 
@@ -402,6 +413,9 @@ func PruneCodeWorktree(ctx context.Context, projectRoot, relID string) (bool, er
 // (this is accurate even if err != nil, reflecting partial progress).
 // Only prunes worktrees known to git with branches starting with "delegate/".
 func PruneAllCodeWorktrees(ctx context.Context, projectRoot string) (int, error) {
+	worktreeMu.Lock()
+	defer worktreeMu.Unlock()
+
 	worktrees, err := ListCodeWorktrees(projectRoot)
 	if err != nil {
 		return 0, err
@@ -417,7 +431,7 @@ func PruneAllCodeWorktrees(ctx context.Context, projectRoot string) (int, error)
 			errs = append(errs, fmt.Errorf("extract relative worktree ID: %w", err))
 			continue
 		}
-		removed, err := PruneCodeWorktree(ctx, projectRoot, relID)
+		removed, err := pruneCodeWorktreeLocked(ctx, projectRoot, relID)
 		if removed {
 			removedCount++
 		}
@@ -457,6 +471,9 @@ func verifyCodeWorktree(ctx context.Context, worktreePath, wantBranch string) er
 // It continues after per-worktree errors and returns the number of worktrees actually pruned,
 // including when some worktrees fail to prune.
 func PruneProcessCodeWorktrees(ctx context.Context, projectRoot string) (int, error) {
+	worktreeMu.Lock()
+	defer worktreeMu.Unlock()
+
 	worktrees, err := ListCodeWorktrees(projectRoot)
 	if err != nil {
 		return 0, err
@@ -476,7 +493,7 @@ func PruneProcessCodeWorktrees(ctx context.Context, projectRoot string) (int, er
 			errs = append(errs, fmt.Errorf("extract relative worktree ID: %w", err))
 			continue
 		}
-		removed, err := PruneCodeWorktree(ctx, projectRoot, relID)
+		removed, err := pruneCodeWorktreeLocked(ctx, projectRoot, relID)
 		if removed {
 			removedCount++
 		}
