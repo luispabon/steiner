@@ -377,7 +377,7 @@ func TestPolicy_ResolvePath_SandboxTmpOutsideRoot(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			policy := NewPathPolicyWithSandbox("/project", config.PathsConfig{}, tc.sandboxTmpDir)
+			policy := NewPathPolicyWithSandbox("/project", config.PathsConfig{ProjectRootOnly: true}, tc.sandboxTmpDir)
 			got, err := policy.ResolvePath(tc.raw, true)
 			if tc.wantErr {
 				if err == nil {
@@ -1038,5 +1038,97 @@ func TestPolicy_RestrictWritesTo_BuildModeUnaffected(t *testing.T) {
 	}
 	if want := "/project/src/main.go"; got != want {
 		t.Fatalf("ResolvePath() = %q, want %q", got, want)
+	}
+}
+
+func TestPolicy_ResolvePath_ProjectRootOnlyDisabled(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+
+	tests := []struct {
+		name            string
+		projectRootOnly bool
+		wantErr         bool
+	}{
+		{name: "enforced", projectRootOnly: true, wantErr: true},
+		{name: "disabled", projectRootOnly: false, wantErr: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: tc.projectRootOnly})
+			got, err := policy.ResolvePath(outside, false)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("ResolvePath(%q) = %q, want error", outside, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ResolvePath(%q) error = %v", outside, err)
+			}
+			if got != outside {
+				t.Fatalf("ResolvePath() = %q, want %q", got, outside)
+			}
+		})
+	}
+}
+
+func TestPolicy_ResolvePath_RejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDir, "secret.txt"), []byte("secret"), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	link := filepath.Join(root, "escape")
+	if err := os.Symlink(outsideDir, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	policy := NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: true})
+
+	tests := []struct {
+		name     string
+		path     string
+		writable bool
+	}{
+		{name: "read through symlink", path: filepath.Join(link, "secret.txt"), writable: false},
+		{name: "write through symlink", path: filepath.Join(link, "new.txt"), writable: true},
+		{name: "write to symlinked dir", path: link, writable: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := policy.ResolvePath(tc.path, tc.writable)
+			if err == nil {
+				t.Fatalf("ResolvePath(%q) = %q, want error", tc.path, got)
+			}
+			var policyErr *PathPolicyError
+			if !errors.As(err, &policyErr) {
+				t.Fatalf("ResolvePath(%q) error = %v, want *PathPolicyError", tc.path, err)
+			}
+			if !policyErr.Promptable {
+				t.Fatalf("ResolvePath(%q) Promptable = false, want true", tc.path)
+			}
+		})
+	}
+}
+
+func TestPolicy_ResolvePath_AllowsSymlinkWithinRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "real"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "real", "file.txt"), []byte("ok"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "real"), filepath.Join(root, "link")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	policy := NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: true})
+	path := filepath.Join(root, "link", "file.txt")
+	if _, err := policy.ResolvePath(path, true); err != nil {
+		t.Fatalf("ResolvePath(%q) error = %v", path, err)
 	}
 }

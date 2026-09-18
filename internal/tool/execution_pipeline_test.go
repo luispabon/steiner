@@ -75,7 +75,7 @@ func TestRunPipelinePolicyDenied(t *testing.T) {
 		Name:    "mutate",
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
 	})
-	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
+	executor := NewExecutor(reg, rootOnlyConfig(), nil, t.TempDir(), "", Unsandboxed{})
 	_, err := executor.Execute(context.Background(), "mutate", "", map[string]any{
 		"operations": []any{
 			map[string]any{"type": "write", "path": "/etc/passwd", "content": "x"},
@@ -648,6 +648,10 @@ func TestExecuteTool_BashSSHConfigSyntaxErrorNotClassified(t *testing.T) {
 
 // --- Built-in tool path violation tests ---
 
+func rootOnlyConfig() config.Config {
+	return config.Config{Paths: config.PathsConfig{ProjectRootOnly: true}}
+}
+
 func mutateOutsideRoot(_ string) map[string]any {
 	return map[string]any{
 		"operations": []any{
@@ -663,7 +667,7 @@ func TestNormalizeExecutionInput_PathViolation_ApproverCalled(t *testing.T) {
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
 	})
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, config.Config{}, approver, workDir, "", &testSandbox{})
+	executor := NewExecutor(reg, rootOnlyConfig(), approver, workDir, "", &testSandbox{})
 	_, err := executor.Execute(context.Background(), "mutate", "", mutateOutsideRoot(workDir))
 	if err == nil {
 		t.Fatal("Execute() error = nil, want policy_denied")
@@ -704,7 +708,7 @@ func TestNormalizeExecutionInput_PathViolation_Allow(t *testing.T) {
 			return map[string]any{"ok": true}, nil
 		},
 	})
-	executor := NewExecutor(reg, config.Config{}, approver, workDir, "", &testSandbox{})
+	executor := NewExecutor(reg, rootOnlyConfig(), approver, workDir, "", &testSandbox{})
 	result, err := executor.Execute(context.Background(), "mutate", "", mutateOutsideRoot(workDir))
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want nil on approval", err)
@@ -730,7 +734,7 @@ func TestNormalizeExecutionInput_PathViolation_Deny(t *testing.T) {
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
 	})
 	workDir := t.TempDir()
-	executor := NewExecutor(reg, config.Config{}, approver, workDir, "", &testSandbox{})
+	executor := NewExecutor(reg, rootOnlyConfig(), approver, workDir, "", &testSandbox{})
 	_, err := executor.Execute(context.Background(), "mutate", "", mutateOutsideRoot(workDir))
 	if err == nil {
 		t.Fatal("Execute() error = nil, want policy_denied after denial")
@@ -752,7 +756,7 @@ func TestNormalizeExecutionInput_PathViolation_ApprovalWithoutSandbox(t *testing
 	})
 	workDir := t.TempDir()
 	// No sandbox — approval must still be requested.
-	executor := NewExecutor(reg, config.Config{}, approver, workDir, "", Unsandboxed{})
+	executor := NewExecutor(reg, rootOnlyConfig(), approver, workDir, "", Unsandboxed{})
 	_, err := executor.Execute(context.Background(), "mutate", "", mutateOutsideRoot(workDir))
 	if err == nil {
 		t.Fatal("Execute() error = nil, want policy_denied")
