@@ -10,7 +10,7 @@ Codex Responses requests send three affinity headers from the stable per-convers
 - `thread-id`: the same session ID
 - `originator`: `codex_cli_rs`
 
-The headers route a conversation to one cache shard. `prompt_cache_key` alone did not produce the measured improvement; the headers are required. They are set in `buildResponsesHTTPRequest` (`internal/provider/codex_responses.go`). The prior measurement was approximately 68% to 89% on `gpt-5.4-mini`.
+The headers route a conversation to one cache shard. `prompt_cache_key` alone did not produce the measured improvement; the headers are required. They are set in `(*responsesWire).HTTPRequest` (`internal/provider/wire_responses.go`). The prior measurement was approximately 68% to 89% on `gpt-5.4-mini`.
 
 Codex does not accept `prompt_cache_retention: "24h"`; a live request returned `400 Bad Request: {"detail":"Unsupported parameter: prompt_cache_retention"}`. The native OpenAI chat-completions wire does send that field for supported models. A separate Codex replica quirk, observed in 2026-08, rejects that parameter with an OpenAI-shaped error even though `responsesWire` does not send it. `responsesWire.RefineRetry` recognizes the exact error through `isCodexPromptCacheRetentionRejection`; the retry path drops affinity headers so it is not pinned to the same replica. Remove this workaround when the upstream issue is fixed.
 

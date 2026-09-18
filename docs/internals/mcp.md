@@ -35,7 +35,6 @@ Stdio stderr is derived from the session log with a `-mcp` suffix and mode `0o60
 | Retry when provably safe | Deferred; even `idempotentHint` does not permit replay. |
 | Per-file `mcp/.yaml` | Not implemented; configuration is in one block. |
 | Legacy HTTP+SSE | Not implemented; only Streamable HTTP is supported. |
-| Not shipping MCP | Superseded; MCP ships with this release. |
 
 ## Verification fixtures
 

@@ -646,9 +646,9 @@ do and tool allowlists for each specialised agent type, see
 | `max_parallel`        | int    | `3`        | Maximum number of delegation-tool calls (specialized sub-agent spawns, `follow_up`) executed concurrently within a single parent turn. Must be at least `1`; `1` forces serial execution for delegation calls. Independent of `limits.max_parallel_tools`, which bounds ordinary tool-call concurrency — a mixed batch never lets the two compete for the same semaphore slots. |
 | `max_follow_ups`      | int    | `5`        | Maximum number of follow-up resumes allowed per delegated child agent. When a child reaches this ceiling, new follow-ups are refused and must be redelegated fresh. With `max_turns: 30` default, worst-case accumulated turn budget is `30 + 5×30 = 180` turns for a single child across its full resume lifetime.                                                             |
 
-Each specialised agent type (`explore`, `research`, `code`, `plan`, `verify`,
-`vision`) has its own hardcoded tool allowlist; there is no user-configurable
-tool allowlist field.
+Each specialised agent type (`explore`, `research`, `code`, `evaluate`,
+`sanity_check`, `review`, `vision`) has its own hardcoded tool allowlist; there is no
+user-configurable tool allowlist field.
 
 Per-agent-type model overrides live in the selected profile's `sub_agents` map
 (see the [`models` block](#models-block)), keyed by agent type (e.g. `code`,
@@ -689,7 +689,7 @@ The `vision` agent type requires a vision-capable model. When the selected profi
 
 A map of externally configured tools registered alongside the built-in tools.
 Each key becomes the tool name the model uses.
-Tool names that collide with a built-in (`read`, `glob`, `grep`, `ls`, `bash`, `display_file`, `mutate`, `fetch_url`, `workflow_handoff`) are rejected at config load — a config tool replaces the built-in definition, substituting an `ExecPath`-only tool for the built-in's handler and silently dropping its behaviour.
+Tool names that collide with a built-in (`read`, `glob`, `grep`, `ls`, `bash`, `display_file`, `mutate`, `fetch_url`, `workflow_handoff`) are rejected at config load.
 
 ```yaml
 tools:

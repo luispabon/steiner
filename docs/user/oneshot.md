@@ -52,7 +52,7 @@ models:
 - Select a profile at startup with `--profile <name>` for oneshot, interactive, or `--exec` runs.
 - `auto_pr` is optional and defaults to `false`.
 
-When `auto_pr` is true and review passes, the opened PR/MR is titled from the first H1 heading the plan phase writes to `overview.md`, falling back to the task string if no H1 is found. Its body is the full `overview.md` content plus the review outcome from `review.md`.
+When `auto_pr` is true and review passes, the opened PR/MR is titled from the first H1 heading the plan phase writes to `overview.md`, falling back to the task string if no H1 is found. Its body strips the first H1 from `overview.md`, then appends the review outcome from `review.md` after a separator.
 
 ## Listing and resumable runs
 

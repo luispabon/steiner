@@ -28,6 +28,11 @@ func newDriver(opts Options) driver {
 Each driver must implement the unexported `driver` interface:
 
 ```go
+import (
+    "context"
+    "time"
+)
+
 type driver interface {
     // notify sends a notification with the given timeout duration.
     // ctx is the service context and should be respected for cancellation.
