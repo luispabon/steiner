@@ -158,7 +158,6 @@ func splitLinesPreserveEndings(text string) []string {
 }
 
 func appendUnique(values []string, value string) []string {
-	value = strings.TrimSpace(value)
 	if value == "" {
 		return values
 	}

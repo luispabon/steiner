@@ -39,7 +39,8 @@ func buildMultiFailureOutput(failures []mutateFailure, total int) string {
 
 	for _, f := range detailed {
 		b.WriteString("\noperation ")
-		fmt.Fprintf(&b, "%d %s: %s\n", f.index, f.opType, f.err.Error())
+		errStr := truncateDiagnosticText(f.err.Error(), 4096)
+		fmt.Fprintf(&b, "%d %s: %s\n", f.index, f.opType, errStr)
 		if f.cascadeOp != 0 {
 			fmt.Fprintf(&b, "  note: operation %d on this file also failed — this may be a consequence of that failure rather than an independent problem.\n", f.cascadeOp)
 		}
@@ -48,7 +49,9 @@ func buildMultiFailureOutput(failures []mutateFailure, total int) string {
 	if len(rest) > 0 {
 		fmt.Fprintf(&b, "\n%d more %s (summary only):\n", len(rest), pluralize("failure", len(rest)))
 		for _, f := range rest {
-			fmt.Fprintf(&b, "  operation %d %s %s: %s\n", f.index, f.opType, f.path, firstLine(f.err.Error()))
+			errLine := firstLine(f.err.Error())
+			errLine = truncateDiagnosticText(errLine, 4096)
+			fmt.Fprintf(&b, "  operation %d %s %s: %s\n", f.index, f.opType, f.path, errLine)
 			if f.cascadeOp != 0 {
 				fmt.Fprintf(&b, "    note: operation %d on this file also failed — this may be a consequence of that failure rather than an independent problem.\n", f.cascadeOp)
 			}
