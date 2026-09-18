@@ -976,21 +976,19 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 	}
 	ent.readiness.markReady()
 
-	// Track which file is being opened.
-	var currentOpenedFile string
-	var currentOpenedMu sync.Mutex
-
 	fs.onDidOpen = func(ctx context.Context, params *protocol.DidOpenTextDocumentParams) {
-		currentOpenedMu.Lock()
-		currentOpenedFile = params.TextDocument.URI.FsPath()
-		currentOpenedMu.Unlock()
+		// Bind this publication to the DidOpen that created it. openedURI and
+		// openedFile are immutable for the lifetime of the goroutine, so no
+		// shared mutable selector (and no lock) is needed.
+		openedURI := params.TextDocument.URI
+		openedFile := openedURI.FsPath()
 
 		go func() {
 			time.Sleep(5 * time.Millisecond)
 			bgCtx := context.WithoutCancel(ctx)
 			// Publish diagnostics specific to the opened file.
 			var msg string
-			switch currentOpenedFile {
+			switch openedFile {
 			case fileA:
 				msg = "diagnostic for A"
 			case fileB:
@@ -1000,7 +998,7 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 			}
 
 			diagParams := &protocol.PublishDiagnosticsParams{
-				URI: params.TextDocument.URI,
+				URI: openedURI,
 				Diagnostics: []protocol.Diagnostic{
 					{
 						Range: protocol.Range{
@@ -1025,8 +1023,13 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 	// processes it, so we need to synchronize with a hook to ensure both
 	// DidClose calls are recorded before we check the sequence.
 	didCloseCount := 0
+	didCloseMu := sync.Mutex{}
 	didCloseDone := make(chan struct{})
 	fs.onDidClose = func(_ context.Context, _ *protocol.DidCloseTextDocumentParams) {
+		// DidClose handlers may run concurrently, so serialize the counter and
+		// the one-time channel close.
+		didCloseMu.Lock()
+		defer didCloseMu.Unlock()
 		didCloseCount++
 		if didCloseCount == 2 {
 			close(didCloseDone)

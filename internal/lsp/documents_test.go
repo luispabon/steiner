@@ -62,6 +62,13 @@ func TestWithDocument(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
+	// Signal when the asynchronous DidClose notification has been processed by
+	// the fake server, instead of guessing with a fixed delay.
+	closeDone := make(chan struct{})
+	fs.onDidClose = func(context.Context, *protocol.DidCloseTextDocumentParams) {
+		close(closeDone)
+	}
+
 	// Test successful open and close.
 	fnCalled := false
 	err = withDocument(ctx, sess, testFile, func() error {
@@ -76,8 +83,11 @@ func TestWithDocument(t *testing.T) {
 		t.Error("withDocument function was not called")
 	}
 
-	// Wait a bit for DidClose to be processed.
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-closeDone:
+	case <-time.After(testTimeout):
+		t.Fatal("timeout waiting for didClose to be recorded")
+	}
 
 	// Verify didOpen and didClose were recorded.
 	methods := fs.recorded()
@@ -115,6 +125,13 @@ func TestWithDocumentClosesEvenOnError(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
+	// Signal when the asynchronous DidClose notification has been processed by
+	// the fake server, instead of guessing with a fixed delay.
+	closeDone := make(chan struct{})
+	fs.onDidClose = func(context.Context, *protocol.DidCloseTextDocumentParams) {
+		close(closeDone)
+	}
+
 	// withDocument should close even if the function errors.
 	fnErr := "test error"
 	err = withDocument(ctx, sess, testFile, func() error {
@@ -125,8 +142,11 @@ func TestWithDocumentClosesEvenOnError(t *testing.T) {
 		t.Errorf("withDocument error: got %v, want %v", err, fnErr)
 	}
 
-	// Wait a bit for DidClose to be processed.
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-closeDone:
+	case <-time.After(testTimeout):
+		t.Fatal("timeout waiting for didClose to be recorded")
+	}
 
 	// Verify didClose was still recorded.
 	methods := fs.recorded()

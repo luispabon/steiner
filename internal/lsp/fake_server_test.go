@@ -285,7 +285,10 @@ func (r *clientSendRecorder) recorded() []string {
 func (f *fakeServer) notifyDiagnostics(ctx context.Context, t *testing.T, params *protocol.PublishDiagnosticsParams) {
 	t.Helper()
 	if err := f.client.PublishDiagnostics(ctx, params); err != nil {
-		t.Fatalf("publish diagnostics: %v", err)
+		// Callers invoke this from delayed or handler goroutines, where
+		// t.Fatalf would only stop that goroutine and never fail the test.
+		// t.Errorf records the failure on the test goroutine safely.
+		t.Errorf("publish diagnostics: %v", err)
 	}
 }
 

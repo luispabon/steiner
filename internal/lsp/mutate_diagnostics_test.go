@@ -9,7 +9,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"go.lsp.dev/protocol"
 
@@ -185,23 +184,22 @@ func TestPostMutateDiagnosticsReturnsFormattedDiagnostics(t *testing.T) {
 	writeTestGoFile(t, testFile)
 
 	fs.onDidOpen = func(ctx context.Context, params *protocol.DidOpenTextDocumentParams) {
-		go func() {
-			time.Sleep(5 * time.Millisecond)
-			bgCtx := context.WithoutCancel(ctx)
-			fs.notifyDiagnostics(bgCtx, t, &protocol.PublishDiagnosticsParams{
-				URI: params.TextDocument.URI,
-				Diagnostics: []protocol.Diagnostic{
-					{
-						Range: protocol.Range{
-							Start: protocol.Position{Line: 0, Character: 0},
-							End:   protocol.Position{Line: 0, Character: 5},
-						},
-						Severity: protocol.DiagnosticSeverityError,
-						Message:  protocol.String("undefined: foo"),
+		// Publish synchronously: the session's diagnostics channel is buffered,
+		// so the collection loop receives this without a fixed delay.
+		bgCtx := context.WithoutCancel(ctx)
+		fs.notifyDiagnostics(bgCtx, t, &protocol.PublishDiagnosticsParams{
+			URI: params.TextDocument.URI,
+			Diagnostics: []protocol.Diagnostic{
+				{
+					Range: protocol.Range{
+						Start: protocol.Position{Line: 0, Character: 0},
+						End:   protocol.Position{Line: 0, Character: 5},
 					},
+					Severity: protocol.DiagnosticSeverityError,
+					Message:  protocol.String("undefined: foo"),
 				},
-			})
-		}()
+			},
+		})
 	}
 
 	// Pass a workspace-relative path to also exercise absWorkspacePath normalization.
@@ -348,25 +346,24 @@ func TestPostMutateDiagnosticsCapsLinesAndReportsOmitted(t *testing.T) {
 	const totalDiags = maxMutateDiagnosticsLines + 5
 
 	fs.onDidOpen = func(ctx context.Context, params *protocol.DidOpenTextDocumentParams) {
-		go func() {
-			time.Sleep(5 * time.Millisecond)
-			bgCtx := context.WithoutCancel(ctx)
-			diags := make([]protocol.Diagnostic, totalDiags)
-			for i := 0; i < totalDiags; i++ {
-				diags[i] = protocol.Diagnostic{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: uint32(i), Character: 0},
-						End:   protocol.Position{Line: uint32(i), Character: 5},
-					},
-					Severity: protocol.DiagnosticSeverityError,
-					Message:  protocol.String(fmt.Sprintf("error %d", i)),
-				}
+		// Publish synchronously: the session's diagnostics channel is buffered,
+		// so the collection loop receives this without a fixed delay.
+		bgCtx := context.WithoutCancel(ctx)
+		diags := make([]protocol.Diagnostic, totalDiags)
+		for i := 0; i < totalDiags; i++ {
+			diags[i] = protocol.Diagnostic{
+				Range: protocol.Range{
+					Start: protocol.Position{Line: uint32(i), Character: 0},
+					End:   protocol.Position{Line: uint32(i), Character: 5},
+				},
+				Severity: protocol.DiagnosticSeverityError,
+				Message:  protocol.String(fmt.Sprintf("error %d", i)),
 			}
-			fs.notifyDiagnostics(bgCtx, t, &protocol.PublishDiagnosticsParams{
-				URI:         params.TextDocument.URI,
-				Diagnostics: diags,
-			})
-		}()
+		}
+		fs.notifyDiagnostics(bgCtx, t, &protocol.PublishDiagnosticsParams{
+			URI:         params.TextDocument.URI,
+			Diagnostics: diags,
+		})
 	}
 
 	got := PostMutateDiagnostics(ctx, m, []string{testFile})
@@ -406,32 +403,31 @@ func TestPostMutateDiagnosticsSortsAcrossFiles(t *testing.T) {
 	writeTestGoFile(t, fileB)
 
 	fs.onDidOpen = func(ctx context.Context, params *protocol.DidOpenTextDocumentParams) {
-		go func() {
-			time.Sleep(5 * time.Millisecond)
-			bgCtx := context.WithoutCancel(ctx)
-			var msg string
-			switch params.TextDocument.URI.FsPath() {
-			case fileA:
-				msg = "issue in a"
-			case fileB:
-				msg = "issue in b"
-			default:
-				return
-			}
-			fs.notifyDiagnostics(bgCtx, t, &protocol.PublishDiagnosticsParams{
-				URI: params.TextDocument.URI,
-				Diagnostics: []protocol.Diagnostic{
-					{
-						Range: protocol.Range{
-							Start: protocol.Position{Line: 0, Character: 0},
-							End:   protocol.Position{Line: 0, Character: 5},
-						},
-						Severity: protocol.DiagnosticSeverityError,
-						Message:  protocol.String(msg),
+		// Publish synchronously: the session's diagnostics channel is buffered,
+		// so the collection loop receives this without a fixed delay.
+		bgCtx := context.WithoutCancel(ctx)
+		var msg string
+		switch params.TextDocument.URI.FsPath() {
+		case fileA:
+			msg = "issue in a"
+		case fileB:
+			msg = "issue in b"
+		default:
+			return
+		}
+		fs.notifyDiagnostics(bgCtx, t, &protocol.PublishDiagnosticsParams{
+			URI: params.TextDocument.URI,
+			Diagnostics: []protocol.Diagnostic{
+				{
+					Range: protocol.Range{
+						Start: protocol.Position{Line: 0, Character: 0},
+						End:   protocol.Position{Line: 0, Character: 5},
 					},
+					Severity: protocol.DiagnosticSeverityError,
+					Message:  protocol.String(msg),
 				},
-			})
-		}()
+			},
+		})
 	}
 
 	// Pass B before A; same session key means requests run sequentially in

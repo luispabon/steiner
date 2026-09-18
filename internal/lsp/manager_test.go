@@ -745,9 +745,12 @@ func TestManagerIdleReapingTerminatesServer(t *testing.T) {
 	file := filepath.Join(tmpdir, "file.go")
 
 	// Spawn a session.
-	_, _, err := m.entryFor(ctx, file)
+	_, sess, err := m.entryFor(ctx, file)
 	if err != nil && !errors.Is(err, errNoServer) {
 		t.Fatalf("entryFor: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("no session spawned")
 	}
 
 	// Check the state is ready.
@@ -759,12 +762,21 @@ func TestManagerIdleReapingTerminatesServer(t *testing.T) {
 		t.Errorf("status = %q, want ready", states[0].Status)
 	}
 
-	// Wait for the idle timeout to fire.
-	time.Sleep(250 * time.Millisecond)
+	// Wait for the idle reaper to terminate the session. The session's exit is
+	// the observable signal that the reaper ran, so wait on it with a bound
+	// instead of sleeping for a fixed duration.
+	select {
+	case <-sess.Exited():
+	case <-time.After(managerTestTimeout):
+		t.Fatalf("session did not exit after idle timeout; statuses: %v", m.ServerStates())
+	}
 
 	// State should now be stopped.
 	states = m.ServerStates()
-	if len(states) > 0 && states[0].Status != ServerStatusStopped {
+	if len(states) == 0 {
+		t.Fatal("no server states after idle reap")
+	}
+	if states[0].Status != ServerStatusStopped {
 		t.Errorf("status = %q, want stopped after idle timeout", states[0].Status)
 	}
 }
