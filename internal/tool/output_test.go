@@ -227,16 +227,31 @@ func TestNoiseStripRemovesDownloadKeywordLines(t *testing.T) {
 	}
 }
 
-func TestNoiseStripRemovesSpinnerLines(t *testing.T) {
-	input := "line1\n⠋\n\\\n|\n/\n-\nline2\n"
+func TestNoiseStripPreservesBareASCIIPunctuationAndRemovesUnicodeSpinner(t *testing.T) {
+	input := "line1\n-\n|\n/\n\\\n⠋\nline2\n"
 	got := stripToolNoise(input)
+	for _, punctuation := range []string{"-", "|", "/", "\\"} {
+		if !strings.Contains(got, "\n"+punctuation+"\n") {
+			t.Fatalf("stripToolNoise() = %q, want bare %q preserved", got, punctuation)
+		}
+	}
 	if strings.Contains(got, "⠋") {
 		t.Fatalf("stripToolNoise() = %q, want braille spinner removed", got)
 	}
-	if strings.Contains(got, "\n\\\n") {
-		t.Fatalf("stripToolNoise() = %q, want ascii spinner removed", got)
-	}
 	if !strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
+		t.Fatalf("stripToolNoise() = %q, want non-spinner lines preserved", got)
+	}
+}
+
+func TestNoiseStripRemovesLabeledASCIISpinners(t *testing.T) {
+	input := "before\n- compiling\n| compiling\n/ compiling\n\\ compiling\nafter\n"
+	got := stripToolNoise(input)
+	for _, spinner := range []string{"- compiling", "| compiling", "/ compiling", "\\ compiling"} {
+		if strings.Contains(got, spinner) {
+			t.Fatalf("stripToolNoise() = %q, want labeled ASCII spinner %q removed", got, spinner)
+		}
+	}
+	if !strings.Contains(got, "before") || !strings.Contains(got, "after") {
 		t.Fatalf("stripToolNoise() = %q, want non-spinner lines preserved", got)
 	}
 }

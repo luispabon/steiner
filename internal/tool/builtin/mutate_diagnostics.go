@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 func buildNoMatchDiagnostics(prefix string, content []byte, oldText, absPath string) string {
@@ -400,25 +401,21 @@ func truncatePreviewLine(s string, limit int) string {
 	return s[:limit-3] + "..."
 }
 
+const diagnosticTruncationMarker = " ... diagnostic text truncated"
+
 // truncateDiagnosticText truncates s to a byte budget, trimming back to a valid
 // UTF-8 boundary and appending a marker if truncated.
 func truncateDiagnosticText(s string, maxBytes int) string {
 	if maxBytes <= 0 || len(s) <= maxBytes {
 		return s
 	}
-
-	// Trim to maxBytes and then walk back to find a valid UTF-8 boundary.
-	truncated := s[:maxBytes]
-	for i := len(truncated); i > 0; i-- {
-		b := truncated[i-1]
-		// ASCII byte or start of multi-byte sequence
-		if b&0xC0 != 0x80 {
-			if i == len(truncated) {
-				return truncated
-			}
-			return truncated[:i] + " ... diagnostic text truncated"
-		}
+	if maxBytes <= len(diagnosticTruncationMarker) {
+		return diagnosticTruncationMarker[:maxBytes]
 	}
-	// Should not reach here; return with marker to be safe.
-	return truncated + " ... diagnostic text truncated"
+
+	end := maxBytes - len(diagnosticTruncationMarker)
+	for end > 0 && !utf8.ValidString(s[:end]) {
+		end--
+	}
+	return s[:end] + diagnosticTruncationMarker
 }

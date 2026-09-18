@@ -10,7 +10,10 @@ import (
 // output. Beyond this, a batch with many bad operations would otherwise echo
 // whole matched file regions repeatedly — the bounded-output invariant this
 // package must keep.
-const maxDetailedMutateFailures = 3
+const (
+	maxDetailedMutateFailures  = 3
+	maxMutateFailureOutputSize = 65536
+)
 
 // mutateFailure is one operation's plan-phase failure, collected while the
 // plan loop keeps going so a single mutate call can report every mistake in
@@ -58,7 +61,7 @@ func buildMultiFailureOutput(failures []mutateFailure, total int) string {
 		}
 	}
 
-	return strings.TrimRight(b.String(), "\n")
+	return truncateDiagnosticText(strings.TrimRight(b.String(), "\n"), maxMutateFailureOutputSize)
 }
 
 func firstLine(s string) string {
