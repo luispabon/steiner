@@ -138,15 +138,19 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	s.sessionTitle = sess.Title
 	s.sessionGroup = strings.TrimSpace(sess.Group)
 	s.mode = mode
-	if s.modeListener != nil {
-		s.modeListener(mode)
-	}
+	listener := s.modeListener
 	s.skills.Reset()
 	for _, name := range sess.Skills {
 		s.skills.Set(name, true)
 	}
 	msgs := append([]agent.Message(nil), s.conversation...)
 	s.mu.Unlock()
+
+	// Notify after releasing the lock: the listener is caller-supplied and may
+	// re-enter the session.
+	if listener != nil {
+		listener(mode)
+	}
 
 	s.replaySessionMessages(msgs)
 
