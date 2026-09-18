@@ -6,6 +6,8 @@ import (
 	"testing"
 	"unsafe"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -210,5 +212,23 @@ func TestStatusBarOmitsModeBadgeWhenUnset(t *testing.T) {
 	// the bare word "plan" may legitimately appear in the oneshot phase segment.
 	if strings.Contains(result, "plan ") || strings.Contains(result, "build") {
 		t.Errorf("status bar should not contain mode badge when unset, got: %s", result)
+	}
+}
+
+func TestStatusBarTruncatesSingleLongSegment(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	s := statusState{
+		model:  "this_is_an_extremely_long_model_name_that_exceeds_the_available_width_by_a_lot",
+		styles: styles,
+	}
+	result := stripANSI(s.view(40))
+	for _, line := range strings.Split(result, "\n") {
+		if w := lipgloss.Width(line); w > 40 {
+			t.Errorf("rendered status bar line width = %d, want <= 40; line = %q", w, line)
+		}
+	}
+	if lines := strings.Split(result, "\n"); len(lines) > 1 {
+		t.Errorf("rendered status bar wrapped into %d lines, want 1; content = %q", len(lines), result)
 	}
 }

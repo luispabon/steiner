@@ -212,21 +212,21 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompac
 }
 
 // finishElapsed returns a formatted elapsed string using the startTime from the
-// current in-progress compaction banner, if one exists. Falls back gracefully
-// when no timing data is available (e.g. replayed history).
+// most recent in-progress compaction banner, searching backward across all
+// segments. Falls back gracefully when no timing data is available (e.g. replayed history).
 func finishElapsed(b *contentBuffer, nowNano int64) string {
-	if len(b.segments) == 0 {
-		return ""
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		seg := &b.segments[i]
+		if seg.kind != segmentCompactionBanner || seg.compactionData == nil || seg.compactionData.finished {
+			continue
+		}
+		if seg.compactionData.startTime == 0 {
+			// No wall-clock start time available (replayed history); skip elapsed.
+			return ""
+		}
+		return formatElapsed(seg.compactionData.startTime, nowNano)
 	}
-	last := &b.segments[len(b.segments)-1]
-	if last.kind != segmentCompactionBanner || last.compactionData == nil || last.compactionData.finished {
-		return ""
-	}
-	if last.compactionData.startTime == 0 {
-		// No wall-clock start time available (replayed history); skip elapsed.
-		return ""
-	}
-	return formatElapsed(last.compactionData.startTime, nowNano)
+	return ""
 }
 
 // HasActiveCompactions reports whether any compaction banner segment is currently
@@ -255,20 +255,22 @@ func (b *contentBuffer) AdvanceCompactionSpinners() {
 }
 
 func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
-	if len(b.segments) > 0 {
-		last := &b.segments[len(b.segments)-1]
-		if last.kind == segmentCompactionBanner && last.compactionData != nil && !last.compactionData.finished {
-			// Preserve the original startTime so elapsed can be computed on finish.
-			if data.startTime == 0 {
-				data.startTime = last.compactionData.startTime
-			}
-			replacement := data
-			last.compactionData = &replacement
-			last.renderDirty = true
-			b.gen++
-			return
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		seg := &b.segments[i]
+		if seg.kind != segmentCompactionBanner || seg.compactionData == nil || seg.compactionData.finished {
+			continue
 		}
+		// Found an unfinished banner; unconditionally preserve its original startTime
+		// so elapsed time is measured from the first progress event, not the latest.
+		oldStartTime := seg.compactionData.startTime
+		replacement := data
+		replacement.startTime = oldStartTime
+		seg.compactionData = &replacement
+		seg.renderDirty = true
+		b.gen++
+		return
 	}
+	// No unfinished banner found; create a new one.
 	replacement := data
 	b.segments = append(b.segments, contentSegment{
 		kind:           segmentCompactionBanner,
@@ -289,6 +291,7 @@ func (b *contentBuffer) clearApprovalState() {
 			if seg.toolData != nil {
 				seg.toolData.approvalPending = false
 				seg.toolData.approvalResolved = false
+				seg.renderDirty = true
 			}
 		case segmentToolCallGroup:
 			if seg.toolGroupData != nil {
@@ -298,6 +301,7 @@ func (b *contentBuffer) clearApprovalState() {
 						entry.approvalResolved = false
 					}
 				}
+				seg.renderDirty = true
 			}
 		}
 	}

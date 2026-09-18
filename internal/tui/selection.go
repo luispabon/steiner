@@ -117,7 +117,7 @@ func (m *Model) extractViewportText() string {
 		}
 		raw := ansi.Strip(lines[idx])
 		sc := 0
-		ec := len([]rune(raw))
+		ec := runewidth.StringWidth(raw)
 		if i == start.line {
 			sc = start.col
 		}
@@ -150,7 +150,7 @@ func extractText(lines []string, state selectionState, regionLeft, regionRight i
 		}
 		raw := ansi.Strip(lines[i])
 		sc := 0
-		ec := len([]rune(raw))
+		ec := runewidth.StringWidth(raw)
 		if i == start.line {
 			sc = start.col
 		}

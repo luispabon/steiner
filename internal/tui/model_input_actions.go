@@ -16,6 +16,14 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+// sessionController safely asserts the controller to the concrete *interactive.Session
+// type these oneshot actions require, reporting false instead of panicking when it
+// isn't (e.g. a test harness or an alternate Controller implementation).
+func sessionController(controller interactive.Controller) (*interactive.Session, bool) {
+	sess, ok := controller.(*interactive.Session)
+	return sess, ok
+}
+
 func (m *Model) executeInterruptAction() *Model {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.InterruptActiveRun{}); err != nil {
@@ -242,9 +250,11 @@ func (m *Model) openOneshotResumePicker() bool {
 		return false
 	}
 
-	// Type assertion is safe here; we know from wiring in cmd/steiner that
-	// the controller is always a *Session
-	sess := m.controller.(*interactive.Session)
+	sess, ok := sessionController(m.controller)
+	if !ok {
+		m.content.AppendLine("status: oneshot unavailable: controller does not support this action")
+		return false
+	}
 	projectRoot := sess.ProjectRoot()
 
 	runs, err := oneshot.ListRuns(projectRoot)
@@ -305,7 +315,8 @@ func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 }
 func (m *Model) executeSubmitAction(submitText string, displayText string) (tea.Model, tea.Cmd) {
 	var sessionCmd tea.Cmd
-	if m.sessionStartedAt == nil {
+	newSession := m.sessionStartedAt == nil
+	if newSession {
 		now := time.Now()
 		m.sessionStartedAt = &now
 		m.syncSidebar()
@@ -315,9 +326,14 @@ func (m *Model) executeSubmitAction(submitText string, displayText string) (tea.
 	images := m.pendingImageBlocks()
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText, Images: images}); err != nil {
+			if newSession {
+				m.sessionStartedAt = nil
+				m.syncSidebar()
+			}
 			m.appendError(err)
 			m.input.Reset()
-			return m, sessionCmd
+			m.syncInputChrome()
+			return m, nil
 		}
 	}
 	m.imageMarkers = nil
@@ -433,18 +449,24 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	if err != nil {
 		m.content.AppendLine(fmt.Sprintf("status: launch oneshot failed: %v", err))
 		m.oneshotRunning = false
+		m.syncInputChrome()
+		m.syncSidebar()
 		m.syncViewport()
 		return m, nil
 	}
 
 	sessionStore := m.sessionStore
 
+	sess, ok := sessionController(m.controller)
+	if !ok {
+		m.content.AppendLine("status: oneshot unavailable: controller does not support this action")
+		m.oneshotRunning = false
+		m.syncViewport()
+		return m, nil
+	}
+
 	// Spawn orchestrator goroutine
 	go func() {
-		// Type assertion is safe here; we know from wiring in cmd/steiner that
-		// the controller is always a *Session
-		sess := m.controller.(*interactive.Session)
-
 		oneshotSessionStore, ok := oneshotSessionStoreOrEmit(sessionStore, sess.EventSink(), runIdentity.ID)
 		if !ok {
 			return
@@ -490,13 +512,17 @@ func (m *Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 
 	sessionStore := m.sessionStore
 
+	sess, ok := sessionController(m.controller)
+	if !ok {
+		m.content.AppendLine("status: oneshot unavailable: controller does not support this action")
+		m.oneshotRunning = false
+		m.syncViewport()
+		return m, nil
+	}
+	projectRoot := sess.ProjectRoot()
+
 	// Spawn orchestrator goroutine
 	go func() {
-		// Type assertion is safe here; we know from wiring in cmd/steiner that
-		// the controller is always a *Session
-		sess := m.controller.(*interactive.Session)
-		projectRoot := sess.ProjectRoot()
-
 		manifest, err := oneshot.ListRuns(projectRoot)
 		if err != nil {
 			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("resume oneshot failed: %v", err)))
@@ -566,7 +592,7 @@ func oneshotAllowedAction(value string) bool {
 	switch {
 	case trimmed == "/exit", trimmed == "/thinking":
 		return true
-	case strings.HasPrefix(trimmed, "/accent"):
+	case trimmed == "/accent", strings.HasPrefix(trimmed, "/accent "):
 		return true
 	default:
 		return false

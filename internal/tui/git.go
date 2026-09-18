@@ -252,6 +252,10 @@ func readGitModifiedFiles(ctx context.Context, repoRoot string, logError func(er
 			continue
 		}
 		path := filepath.Clean(strings.TrimSpace(fields[2]))
+		if strings.Contains(path, " => ") {
+			parts := strings.SplitN(path, " => ", 2)
+			path = filepath.Clean(strings.TrimSpace(parts[1]))
+		}
 		countMap[path] = counts{
 			added:   parseGitNumstatCount(fields[0]),
 			deleted: parseGitNumstatCount(fields[1]),

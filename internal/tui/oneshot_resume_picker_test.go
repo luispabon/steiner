@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -187,5 +188,66 @@ func TestOneshotResumePickerOverlaySelectedRunID(t *testing.T) {
 	updated, _ := opened.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if updated.SelectedRunID() != "run-xyz789" {
 		t.Fatalf("SelectedRunID() = %q, want run-xyz789", updated.SelectedRunID())
+	}
+}
+
+func TestFormatRunRowShortID(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentPresets["amber"])
+	overlay := newOneshotResumePickerOverlay(styles)
+
+	run := oneshot.ResumableRun{
+		RunID:       "xyz",
+		Slug:        "short",
+		Task:        "Test run",
+		ResumePhase: "plan",
+		Status:      "resume at plan",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	row := overlay.formatRunRow(run, 80)
+	if row == "" {
+		t.Fatal("formatRunRow returned empty string")
+	}
+	if !strings.Contains(row, "[xyz]") {
+		t.Fatalf("formatRunRow output %q does not contain short ID [xyz]", row)
+	}
+}
+
+func TestFormatRunRowCJKTruncation(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentPresets["amber"])
+	overlay := newOneshotResumePickerOverlay(styles)
+
+	// Use a mixed ASCII+CJK task to clearly show byte-vs-cell-width differences
+	// "a界b" = 1 ASCII + 1 CJK (2 cells) + 1 ASCII = 4 cells total
+	run := oneshot.ResumableRun{
+		RunID:       "test",
+		Slug:        "test",
+		Task:        "a界b界c界d界e界f界",
+		ResumePhase: "plan",
+		Status:      "resume at plan",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	// Force truncation by using a width that will require cutting the task
+	// The task "a界b界c界d界e界f界" is 16 cells wide (8 runes × 2 cells each)
+	// + datetime ~21, + phaseStr 7, + spacer 1, + idSuffix 8 = ~37 required
+	// So maxWidth of 50 leaves 13 cells for task, which should truncate
+	row := overlay.formatRunRow(run, 50)
+	if row == "" {
+		t.Fatal("formatRunRow returned empty string")
+	}
+
+	// Verify truncation happened with ellipsis
+	if !strings.Contains(row, "…") {
+		t.Errorf("formatRunRow should include ellipsis for truncated task, got %q", row)
+	}
+
+	// The output should not contain the full task
+	if strings.Contains(row, run.Task) {
+		t.Errorf("formatRunRow should not contain full task %q in %q", run.Task, row)
 	}
 }

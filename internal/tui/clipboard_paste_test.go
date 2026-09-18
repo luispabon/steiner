@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -188,5 +189,58 @@ func TestHandleClipboardImageMsgProcessingErrorAppendsError(t *testing.T) {
 	}
 	if got := m.content.segments[0].text; !strings.Contains(got, errProcessing.Error()) {
 		t.Fatalf("error content = %q, want %q", got, errProcessing)
+	}
+}
+
+func TestBuildClipboardImageMsgResizedImageDetectsActualType(t *testing.T) {
+	t.Parallel()
+	// Create a large JPEG image that will trigger resizing to PNG.
+	// ResizeImageIfNeeded re-encodes images > 2048px to PNG.
+	img := image.NewRGBA(image.Rect(0, 0, 3000, 3000))
+	for y := 0; y < 3000; y++ {
+		for x := 0; x < 3000; x++ {
+			img.Set(x, y, color.RGBA{R: 255, G: uint8(x % 256), B: uint8(y % 256), A: 255})
+		}
+	}
+
+	// Encode as JPEG
+	var jpegBuf bytes.Buffer
+	if err := jpeg.Encode(&jpegBuf, img, &jpeg.Options{Quality: 90}); err != nil {
+		t.Fatalf("jpeg.Encode: %v", err)
+	}
+	jpegData := jpegBuf.Bytes()
+
+	// Process with buildClipboardImageMsg using a store
+	dir := t.TempDir()
+	store := agent.NewImageStore(filepath.Join(dir, "images"))
+	msg := buildClipboardImageMsg(jpegData, "image/jpeg", store)
+
+	got, ok := msg.(clipboardImageMsg)
+	if !ok {
+		t.Fatalf("expected clipboardImageMsg, got %T", msg)
+	}
+	if got.err != nil {
+		t.Fatalf("unexpected error: %v", got.err)
+	}
+
+	// After resizing, the JPEG bytes are re-encoded as PNG, so MediaType should be image/png
+	if got.block.MediaType != "image/png" {
+		t.Errorf("block.MediaType = %q, want image/png (resized JPEG becomes PNG)", got.block.MediaType)
+	}
+
+	// File extension should match the actual content type (PNG)
+	if filepath.Ext(got.block.FilePath) != ".png" {
+		t.Errorf("block.FilePath extension = %q, want .png", filepath.Ext(got.block.FilePath))
+	}
+
+	// File should exist and contain PNG bytes
+	data, err := os.ReadFile(got.block.FilePath)
+	if err != nil {
+		t.Errorf("failed to read stored file: %v", err)
+	}
+
+	// PNG files start with the PNG signature
+	if len(data) < 8 || !bytes.Equal(data[:8], []byte{137, 80, 78, 71, 13, 10, 26, 10}) {
+		t.Error("stored file is not valid PNG (wrong magic bytes)")
 	}
 }

@@ -1879,3 +1879,169 @@ func TestFollowUpToUnfindableDelegationFallsBackToAgentType(t *testing.T) {
 		t.Error("border style fell back to default; want the review-specific border")
 	}
 }
+
+func TestDelegationCompleteElapsedGuardedByStartTime(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Add tool call event first to establish context
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code"}))
+
+	// Simulate a DelegationCacheWaiting event that creates a delegation display
+	// with startTime == 0 (no wall-clock timing available yet)
+	deadline := time.Now().Add(10 * time.Second)
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("child-1", "call_1", deadline))
+
+	// Verify the delegation has startTime == 0
+	loc, ok := buffer.activeDelegations["child-1"]
+	if !ok || loc.dd == nil {
+		t.Fatal("active delegation not found")
+	}
+	if loc.dd.startTime != 0 {
+		t.Fatalf("startTime should be 0 after cache waiting, got %d", loc.dd.startTime)
+	}
+
+	// Now send a completion event
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       "child-1",
+		Status:        "success",
+		TurnCount:     1,
+		ToolCallCount: 2,
+		TokenCount:    100,
+		InputTokens:   50,
+	}))
+
+	// Find the completed delegation
+	found := false
+	for _, seg := range buffer.segments {
+		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.agentID == "child-1" {
+			found = true
+			if seg.delegData.status != "complete" {
+				t.Errorf("status = %q, want complete", seg.delegData.status)
+			}
+			// Crucially: elapsed should be empty string (the "timing unknown" representation)
+			// when startTime was 0, not a multi-decade duration
+			if seg.delegData.elapsed != "" {
+				t.Errorf("elapsed = %q, want empty string when startTime was 0", seg.delegData.elapsed)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("completed delegation not found in segments")
+	}
+}
+
+func TestDelegationFailedElapsedGuardedByStartTime(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:               make([]contentSegment, 0),
+		collapseState:          make(map[int]bool),
+		pendingDelegateParents: make([]delegationLocator, 0),
+		activeDelegations:      make(map[string]delegationLocator),
+		styles:                 testStyles(theme.AccentAmber),
+	}
+
+	// Add tool call event first to establish context
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code"}))
+
+	// Simulate a DelegationCacheWaiting event
+	deadline := time.Now().Add(10 * time.Second)
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("child-1", "call_1", deadline))
+
+	loc, ok := buffer.activeDelegations["child-1"]
+	if !ok || loc.dd == nil {
+		t.Fatal("active delegation not found")
+	}
+	if loc.dd.startTime != 0 {
+		t.Fatalf("startTime should be 0 after cache waiting, got %d", loc.dd.startTime)
+	}
+
+	// Send a failed event
+	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{
+		AgentID: "child-1",
+		Error:   "test error",
+	}))
+
+	// Find the failed delegation
+	found := false
+	for _, seg := range buffer.segments {
+		if seg.kind == segmentDelegation && seg.delegData != nil && seg.delegData.agentID == "child-1" {
+			found = true
+			if seg.delegData.status != "failed" {
+				t.Errorf("status = %q, want failed", seg.delegData.status)
+			}
+			// Elapsed should be empty string when startTime was 0
+			if seg.delegData.elapsed != "" {
+				t.Errorf("elapsed = %q, want empty string when startTime was 0", seg.delegData.elapsed)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("failed delegation not found in segments")
+	}
+}
+
+func TestAppendEventDropsScopedChildEventsForUnknownAgent(t *testing.T) {
+	t.Parallel()
+	// Test that scoped child transcript events for agents not in activeDelegations
+	// are dropped and do NOT pollute the main transcript.
+	buffer := &contentBuffer{
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
+	}
+
+	// Create a scoped AssistantChunk event for an agent not in activeDelegations
+	event := output.Event{
+		Type: output.EventTypeAssistantChunk,
+		Scope: output.EventScope{
+			AgentID:   "unknown-agent",
+			AgentType: "code",
+		},
+		Payload: output.AssistantChunkEvent{
+			Content: "This should be dropped, not in transcript",
+		},
+	}
+
+	buffer.AppendEvent(event)
+
+	// Verify that no segment was added to the main transcript
+	if len(buffer.segments) != 0 {
+		t.Errorf("scoped event for unknown agent created %d segments, want 0", len(buffer.segments))
+	}
+}
+
+func TestAppendEventAllowsDelegationLifecycleEventsToFallThrough(t *testing.T) {
+	t.Parallel()
+	// Test that delegation lifecycle events (even when scoped) can fall through
+	// to be handled by appendDelegationEvent.
+	buffer := &contentBuffer{
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
+	}
+
+	// A scoped DelegationStarted event should still create an active delegation
+	// even though the agent isn't in activeDelegations yet (first event).
+	event := output.NewDelegationStartedEvent("new-agent", "task preview")
+	buffer.AppendEvent(event)
+
+	// Verify that the delegation was created (via appendDelegationEvent path)
+	loc, ok := buffer.activeDelegations["new-agent"]
+	if !ok || loc.dd == nil {
+		t.Fatal("DelegationStarted event did not create active delegation")
+	}
+	if loc.dd.agentID != "new-agent" {
+		t.Errorf("agent ID = %q, want new-agent", loc.dd.agentID)
+	}
+}

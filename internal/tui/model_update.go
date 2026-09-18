@@ -655,8 +655,18 @@ func (m *Model) handleDragAutoScrollTick(msg dragAutoScrollTickMsg) (tea.Model, 
 		return m, nil
 	}
 	if m.dragScrollDir < 0 {
+		if m.viewport.AtTop() {
+			m.dragScrollDir = 0
+			m.dragScrollTicking = false
+			return m, nil
+		}
 		m.viewport.ScrollUp(1)
 	} else {
+		if m.viewport.AtBottom() {
+			m.dragScrollDir = 0
+			m.dragScrollTicking = false
+			return m, nil
+		}
 		m.viewport.ScrollDown(1)
 	}
 	m.autoScroll = false

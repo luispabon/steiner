@@ -374,11 +374,13 @@ func (b *contentBuffer) renderApprovalPreview(raw string, width int) string {
 		for _, k := range keys {
 			v := kvMap[k]
 			key := k
-			if len(key) > 0 {
-				key = strings.ToUpper(key[:1]) + key[1:]
+			keyRunes := []rune(key)
+			if len(keyRunes) > 0 {
+				key = strings.ToUpper(string(keyRunes[0])) + string(keyRunes[1:])
 			}
 			label := boldStyle.Render(key + ":")
-			val := muteStyle.Render(truncateRunes(fmt.Sprintf("%v", v), width-len(k)-2))
+			valueWidth := max(1, width-lipgloss.Width(key)-2)
+			val := muteStyle.Render(truncateRunes(fmt.Sprintf("%v", v), valueWidth))
 			lines = append(lines, label+" "+val)
 		}
 		lines = append(lines, "") // bottom padding

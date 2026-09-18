@@ -429,7 +429,8 @@ func (m *Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, i
 // command prefix matches or the cursor sits within the prefix itself.
 func highlightCommandPrefixLine(line string, cursorCol int, value string, skillNames []string, oneshotRunning bool, innerWidth int, prefixStyle, restStyle lipgloss.Style) string {
 	cmdPrefix, ok := matchCommandPrefix(value, skillNames, oneshotRunning)
-	if !ok || !strings.HasPrefix(line, cmdPrefix) || cursorCol < len(cmdPrefix) {
+	prefixWidth := ansi.StringWidth(cmdPrefix)
+	if !ok || !strings.HasPrefix(line, cmdPrefix) || cursorCol < prefixWidth {
 		return line
 	}
 
@@ -437,7 +438,7 @@ func highlightCommandPrefixLine(line string, cursorCol int, value string, skillN
 
 	restText := line[len(cmdPrefix):]
 	restVisibleWidth := ansi.StringWidth(restText)
-	expectedRestWidth := innerWidth - len([]rune(cmdPrefix))
+	expectedRestWidth := innerWidth - prefixWidth
 	if restVisibleWidth < expectedRestWidth {
 		restText += strings.Repeat(" ", expectedRestWidth-restVisibleWidth)
 	}
@@ -515,8 +516,12 @@ func (m *Model) renderTypedInputLines(width int) ([]string, int, int) {
 			// equals this offset when the textarea width is large enough to
 			// disable soft wrapping.
 			absPos := max(0, m.input.Column())
+			if absPos > len([]rune(valueLine)) {
+				absPos = len([]rune(valueLine))
+			}
+			cursorCellPos := ansi.StringWidth(string([]rune(valueLine)[:absPos]))
 			row := 0
-			col := absPos
+			col := cursorCellPos
 			for r, seg := range wrapped {
 				visibleLen := ansi.StringWidth(seg)
 				if col < visibleLen || (col == visibleLen && r == len(wrapped)-1) {
@@ -600,7 +605,7 @@ func applyComposerCursorAnsi(s string, pos int, on bool) string {
 		} else {
 			result.WriteRune(r)
 		}
-		currentCol++
+		currentCol += ansi.StringWidth(string(r))
 	}
 	if !placed {
 		result.WriteString("\x1b[7m \x1b[27m")

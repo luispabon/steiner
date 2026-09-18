@@ -192,7 +192,8 @@ func updateSearchPicker[T any](query *string, selection *int, scrollOffset *int,
 		return searchPickerHandled
 	case tea.KeyBackspace:
 		if len(*query) > 0 {
-			*query = (*query)[:len(*query)-1]
+			queryRunes := []rune(*query)
+			*query = string(queryRunes[:len(queryRunes)-1])
 			*candidates = filter(*query, allEntries)
 			*selection = 0
 			*scrollOffset = 0
@@ -201,7 +202,7 @@ func updateSearchPicker[T any](query *string, selection *int, scrollOffset *int,
 	}
 	// Handle printable characters (tea.KeyRunes equivalent)
 	if keyMsg.Text != "" {
-		*query += keyMsg.String()
+		*query += keyMsg.Text
 		*candidates = filter(*query, allEntries)
 		*selection = 0
 		*scrollOffset = 0

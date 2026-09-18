@@ -75,3 +75,121 @@ func TestBuildFetchURLLines(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildGrepFileLines_NoMatchesSentinel(t *testing.T) {
+	b := &contentBuffer{
+		styles: testStyles(theme.AccentAmber),
+	}
+
+	t.Run("strips No matches found sentinel", func(t *testing.T) {
+		tc := &toolCallSegment{
+			tool:     "grep",
+			bodyKind: "grep",
+			preview: output.ToolPreview{
+				Kind:       "grep",
+				OutputMode: "files_with_matches",
+				Path:       "/tmp",
+				Returned:   0,
+				GrepFiles: []output.ToolPreviewGrepFile{
+					{Path: "No matches found"},
+				},
+			},
+		}
+
+		lines := b.buildGrepFileLines(tc)
+		joined := strings.Join(lines, "\n")
+
+		if strings.Contains(joined, "No matches found") {
+			t.Error("sentinel should be stripped from output")
+		}
+		if !strings.Contains(joined, "no matches found") {
+			t.Errorf("should show 'no matches found' message, got: %q", joined)
+		}
+	})
+
+	t.Run("preserves real grep files", func(t *testing.T) {
+		tc := &toolCallSegment{
+			tool:     "grep",
+			bodyKind: "grep",
+			preview: output.ToolPreview{
+				Kind:       "grep",
+				OutputMode: "files_with_matches",
+				Path:       "/tmp",
+				Returned:   2,
+				GrepFiles: []output.ToolPreviewGrepFile{
+					{Path: "file1.go"},
+					{Path: "file2.go"},
+				},
+			},
+		}
+
+		lines := b.buildGrepFileLines(tc)
+		joined := strings.Join(lines, "\n")
+
+		if !strings.Contains(joined, "file1.go") {
+			t.Error("file1.go should be in output")
+		}
+		if !strings.Contains(joined, "file2.go") {
+			t.Error("file2.go should be in output")
+		}
+	})
+}
+
+func TestBuildGrepCountLines_NoMatchesSentinel(t *testing.T) {
+	b := &contentBuffer{
+		styles: testStyles(theme.AccentAmber),
+	}
+
+	t.Run("strips No matches found sentinel", func(t *testing.T) {
+		tc := &toolCallSegment{
+			tool:     "grep",
+			bodyKind: "grep",
+			preview: output.ToolPreview{
+				Kind:       "grep",
+				OutputMode: "count",
+				Path:       "/tmp",
+				Returned:   0,
+				GrepFiles: []output.ToolPreviewGrepFile{
+					{Path: "No matches found", Count: 0},
+				},
+			},
+		}
+
+		lines := b.buildGrepCountLines(tc)
+		joined := strings.Join(lines, "\n")
+
+		if strings.Contains(joined, "No matches found") {
+			t.Error("sentinel should be stripped from output")
+		}
+		if !strings.Contains(joined, "no matches found") {
+			t.Errorf("should show 'no matches found' message, got: %q", joined)
+		}
+	})
+
+	t.Run("preserves real grep counts", func(t *testing.T) {
+		tc := &toolCallSegment{
+			tool:     "grep",
+			bodyKind: "grep",
+			preview: output.ToolPreview{
+				Kind:       "grep",
+				OutputMode: "count",
+				Path:       "/tmp",
+				Returned:   2,
+				GrepFiles: []output.ToolPreviewGrepFile{
+					{Path: "file1.go", Count: 5},
+					{Path: "file2.go", Count: 3},
+				},
+			},
+		}
+
+		lines := b.buildGrepCountLines(tc)
+		joined := strings.Join(lines, "\n")
+
+		if !strings.Contains(joined, "file1.go:5") {
+			t.Error("file1.go:5 should be in output")
+		}
+		if !strings.Contains(joined, "file2.go:3") {
+			t.Error("file2.go:3 should be in output")
+		}
+	})
+}

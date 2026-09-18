@@ -130,6 +130,30 @@ func (b *contentBuffer) applyScopedDelegationEvent(dd *delegationDisplayState, e
 	}
 }
 
+// isScopedChildTranscriptEvent reports whether an event type belongs to the set
+// that applyScopedDelegationEvent handles (i.e., child transcript events that
+// must not fall through to top-level handlers when the agent is not yet in
+// activeDelegations). Delegation lifecycle events (Started, Complete, Failed,
+// etc.) are excluded because they should fall through to appendDelegationEvent.
+func isScopedChildTranscriptEvent(eventType string) bool {
+	switch eventType {
+	case output.EventTypeAssistantChunk,
+		output.EventTypeThinkingChunk,
+		output.EventTypeAssistantMessage,
+		output.EventTypeToolCallStarted,
+		output.EventTypeToolCallFinished,
+		output.EventTypeStopReason,
+		output.EventTypeModelCallStarted,
+		output.EventTypeContextDiagnostics,
+		output.EventTypeModelCallFinished,
+		output.EventTypeAPIResponse,
+		output.EventTypeAPIRequest:
+		return true
+	default:
+		return false
+	}
+}
+
 func (b *contentBuffer) applyDelegationModelCallStarted(dd *delegationDisplayState, event output.Event) bool {
 	payload, ok := event.Payload.(output.ModelCallStartedEvent)
 	if !ok {
@@ -740,7 +764,9 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 				dd.toolCallCount = payload.ToolCallCount
 				dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
 			}
-			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+			if dd.startTime > 0 {
+				dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+			}
 			dd.output = payload.Output
 			dd.advisorBudget = payload.AdvisorBudget
 			dd.advisorUses = payload.AdvisorUses
@@ -778,7 +804,9 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 	if loc, active := b.activeDelegations[payload.AgentID]; active {
 		if dd := loc.dd; dd != nil {
 			dd.status = "failed"
-			dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+			if dd.startTime > 0 {
+				dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+			}
 			if payload.AdvisorBudget > 0 {
 				dd.advisorBudget = payload.AdvisorBudget
 				dd.advisorUses = payload.AdvisorUses
