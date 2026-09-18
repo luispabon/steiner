@@ -27,7 +27,7 @@ func absWorkspacePath(workDir, p string) (string, error) {
 }
 
 // relDisplayPath returns a human-readable representation of p relative to workDir.
-// If p is not under workDir, it returns p as-is.
+// If p is outside workDir, it returns a relative path containing .., such as ../other/file.txt.
 func relDisplayPath(workDir, p string) string {
 	if workDir == "" || p == "" {
 		return p
