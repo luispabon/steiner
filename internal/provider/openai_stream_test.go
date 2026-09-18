@@ -133,6 +133,85 @@ func TestOpenAIStreamExtractThinkingDelta_SkipsNonMapItems(t *testing.T) {
 	}
 }
 
+// extractTextDelta tests
+
+func TestOpenAIStreamExtractTextDelta_PlainString(t *testing.T) {
+	result := extractTextDelta("plain text")
+	if result != "plain text" {
+		t.Fatalf("got %q, want %q", result, "plain text")
+	}
+}
+
+func TestOpenAIStreamExtractTextDelta_StructuredTextBlock(t *testing.T) {
+	value := []any{
+		map[string]any{"type": "text", "text": "hello world"},
+	}
+	result := extractTextDelta(value)
+	if result != "hello world" {
+		t.Fatalf("got %q, want %q", result, "hello world")
+	}
+}
+
+func TestOpenAIStreamExtractTextDelta_MixedThinkingAndText(t *testing.T) {
+	// F403: structured content with both thinking and text blocks
+	value := []any{
+		map[string]any{"type": "thinking", "thinking": "let me think..."},
+		map[string]any{"type": "text", "text": "answer text"},
+	}
+	result := extractTextDelta(value)
+	if result != "answer text" {
+		t.Fatalf("got %q, want %q", result, "answer text")
+	}
+}
+
+func TestOpenAIStreamExtractTextDelta_SkipsThinkingBlocks(t *testing.T) {
+	value := []any{
+		map[string]any{"type": "thinking", "thinking": "thinking only"},
+	}
+	result := extractTextDelta(value)
+	if result != "" {
+		t.Fatalf("got %q, want empty", result)
+	}
+}
+
+func TestOpenAIStreamExtractTextDelta_MultipleTextBlocks(t *testing.T) {
+	value := []any{
+		map[string]any{"type": "text", "text": "hello "},
+		map[string]any{"type": "text", "text": "world"},
+	}
+	result := extractTextDelta(value)
+	if result != "hello world" {
+		t.Fatalf("got %q, want %q", result, "hello world")
+	}
+}
+
+func TestOpenAIStreamDecodeChatStreamWithHandler_MixedThinkingAndTextStructuredContent(t *testing.T) {
+	// F403: structured content with both thinking and text blocks
+	body := strings.NewReader(
+		"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"thinking text\"},{\"type\":\"text\",\"text\":\"answer text\"}]},\"finish_reason\":\"\"}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+			"data: [DONE]\n\n",
+	)
+
+	chunks, err := collectOpenAIStreamChunks(t, body)
+	if err != nil {
+		t.Fatalf("decodeChatStreamWithHandler() error = %v", err)
+	}
+	if len(chunks) < 2 {
+		t.Fatalf("chunks len = %d, want at least 2", len(chunks))
+	}
+	if chunks[0].Thinking != "thinking text" {
+		t.Fatalf("first chunk Thinking = %q, want %q", chunks[0].Thinking, "thinking text")
+	}
+	if chunks[1].Delta.Content != "answer text" {
+		t.Fatalf("second chunk Content = %q, want %q", chunks[1].Delta.Content, "answer text")
+	}
+	final := chunks[len(chunks)-1]
+	if !final.Done {
+		t.Fatal("final chunk Done = false, want true")
+	}
+}
+
 func TestOpenAIStreamDecodeChatStreamWithHandler_UsesReasoningDetailsAndEOFWithFinalChunk(t *testing.T) {
 	reasoning := "prefix "
 	body := strings.NewReader(
