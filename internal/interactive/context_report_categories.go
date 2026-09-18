@@ -39,10 +39,7 @@ func buildContextCategories(ctx context.Context, snapshot RequestContextSnapshot
 	categories[index["request framing"]].Total += provider.RequestOverheadTokens()
 
 	// Reconstruct block-to-message mapping from assembly order and merging rules.
-	blockMsgIdx, err := reconstructBlockMessageIndex(snapshot.Blocks, len(snapshot.Messages))
-	if err != nil {
-		return nil, fmt.Errorf("reconstruct block message index: %w", err)
-	}
+	blockMsgIdx := reconstructBlockMessageIndex(snapshot.Blocks)
 	messageToBlocks := map[int][]int{}
 	for blockIdx, msgIdx := range blockMsgIdx {
 		messageToBlocks[msgIdx] = append(messageToBlocks[msgIdx], blockIdx)
@@ -188,44 +185,16 @@ func assemblyRoleForSource(source prompt.ContextSource) provider.MessageRole {
 // one must be reflected in the other.
 // Blocks are in assembly order; messages are in the same order with same-role
 // blocks merged.
-// Pre-conv (non-tool) blocks are mapped by simulating role-based merging.
-// Post-conv (tool) blocks each map one-to-one to the final messages.
-func reconstructBlockMessageIndex(blocks []prompt.ContextBlock, totalMessages int) ([]int, error) {
+func reconstructBlockMessageIndex(blocks []prompt.ContextBlock) []int {
 	result := make([]int, len(blocks))
-
-	// Find split point: first tool block.
-	split := len(blocks)
-	for i, block := range blocks {
-		if assemblyRoleForSource(block.Source) == provider.MessageRoleTool {
-			split = i
-			break
-		}
-	}
-
-	if totalMessages < len(blocks)-split {
-		return nil, fmt.Errorf("more post-conv blocks (%d) than messages (%d)", len(blocks)-split, totalMessages)
-	}
-
-	// Pre-conv blocks: simulate merging by role transitions.
 	msgIdx := 0
-	for i := 0; i < split; i++ {
-		if i > 0 {
-			prevRole := assemblyRoleForSource(blocks[i-1].Source)
-			currRole := assemblyRoleForSource(blocks[i].Source)
-			if currRole != prevRole {
-				msgIdx++
-			}
+	for i, block := range blocks {
+		if i > 0 && assemblyRoleForSource(block.Source) != assemblyRoleForSource(blocks[i-1].Source) {
+			msgIdx++
 		}
 		result[i] = msgIdx
 	}
-
-	// Post-conv (tool) blocks: each maps to its own message at the end.
-	postConvStart := totalMessages - (len(blocks) - split)
-	for j := split; j < len(blocks); j++ {
-		result[j] = postConvStart + (j - split)
-	}
-
-	return result, nil
+	return result
 }
 
 // allocateCategoryTokens adjusts the existing category breakdown to the

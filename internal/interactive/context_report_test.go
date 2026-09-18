@@ -417,10 +417,7 @@ func TestBuildContextReportIncludesSessionDateMergedWithSkills(t *testing.T) {
 
 	// Verify session date block is mapped to the correct message even when merged.
 	// The session date block should share message index with the skill block.
-	blockMsgIdx, err := reconstructBlockMessageIndex(snapshot.Blocks, len(snapshot.Messages))
-	if err != nil {
-		t.Fatalf("reconstructBlockMessageIndex() error = %v", err)
-	}
+	blockMsgIdx := reconstructBlockMessageIndex(snapshot.Blocks)
 
 	skillBlockIdx := 1
 	dateBlockIdx := 2
