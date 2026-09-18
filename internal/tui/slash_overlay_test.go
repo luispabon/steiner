@@ -73,11 +73,8 @@ func TestSlashOverlayFilterByCommand(t *testing.T) {
 	overlay.query = "/co"
 	overlay.filterCandidates()
 
-	if len(overlay.candidates) < 2 {
-		t.Fatalf("candidates count = %d, want at least 2 fuzzy matches", len(overlay.candidates))
-	}
-	if overlay.candidates[0].command != "/config" {
-		t.Fatalf("first candidate = %q, want /config", overlay.candidates[0].command)
+	if got, want := candidateCommands(overlay), []string{"/config", "/compact"}; !slices.Equal(got, want) {
+		t.Fatalf("candidates = %v, want exactly %v (matched by /co fuzzy filter)", got, want)
 	}
 }
 

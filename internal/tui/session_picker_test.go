@@ -265,6 +265,34 @@ func TestFormatSessionRowShortID(t *testing.T) {
 	}
 }
 
+func TestFormatSessionRowWithVeryShortID(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentPresets["amber"])
+	overlay := newSessionPickerOverlay(styles)
+
+	// Test with very short IDs that might panic if slice index isn't bounds-checked
+	shortIDs := []string{"id1", "id2", "id3", "x", "ab"}
+	for _, id := range shortIDs {
+		t.Run("id="+id, func(t *testing.T) {
+			entry := session.IndexEntry{
+				ID:        id,
+				Title:     "Test session",
+				Model:     "claude-opus",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			}
+			row := overlay.formatSessionRow(entry, 80)
+			if row == "" {
+				t.Fatalf("formatSessionRow returned empty string for short ID %q", id)
+			}
+			// The ID should appear at the end in brackets
+			if !strings.Contains(row, "["+id+"]") {
+				t.Errorf("formatSessionRow output %q does not contain [%s]", row, id)
+			}
+		})
+	}
+}
+
 func TestRelativeTime(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
