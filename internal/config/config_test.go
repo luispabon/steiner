@@ -433,7 +433,9 @@ logging:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -522,7 +524,9 @@ models:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -620,7 +624,9 @@ models:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -670,7 +676,9 @@ models:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -721,7 +729,9 @@ models:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -767,7 +777,9 @@ models:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -829,7 +841,9 @@ models:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -876,7 +890,9 @@ models:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -968,7 +984,9 @@ logging:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -1018,7 +1036,9 @@ models:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -1057,7 +1077,9 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -1100,7 +1122,9 @@ models:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -1234,7 +1258,9 @@ limits:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -1296,7 +1322,9 @@ search:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -1721,7 +1749,9 @@ permissions:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -1773,7 +1803,9 @@ sandbox:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -1830,7 +1862,9 @@ sandbox:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -1888,7 +1922,9 @@ host_mounts:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -1931,7 +1967,9 @@ models:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -1980,7 +2018,9 @@ sandbox:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)
@@ -2030,7 +2070,9 @@ logging:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+		}
 	})
 	if err := os.Chdir(projectDir); err != nil {
 		t.Fatal(err)

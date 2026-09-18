@@ -1024,6 +1024,17 @@ func TestValidateAdvisorConfig(t *testing.T) {
 			wantErr: "advisor.timeout must be greater than zero when set",
 		},
 		{
+			name: "enabled advisor requires max uses per sub-agent",
+			mutate: func(c *Config) {
+				c.Advisor = AdvisorConfig{
+					Enabled:       true,
+					MaxUsesPerRun: 1,
+				}
+				setDefaultAdvisor(c)
+			},
+			wantErr: "advisor.max_uses_per_sub_agent must be at least 1 when enabled",
+		},
+		{
 			name: "valid advisor config",
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{
@@ -1332,7 +1343,7 @@ func TestMCPConfigValidation(t *testing.T) {
 					"example": {Transport: "http", URL: "ht!!tp://localhost"},
 				},
 			},
-			wantErr: "mcp.servers.example.url:",
+			wantErr: "mcp.servers.example.url: parse",
 		},
 		{
 			name: "header with content-type (lowercase) rejected",
@@ -1360,6 +1371,51 @@ func TestMCPConfigValidation(t *testing.T) {
 				},
 			},
 			wantErr: `mcp.servers.example.headers: header "mcp-session-id" is reserved by the SDK`,
+		},
+		{
+			name: "header with Accept rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"Accept": "application/json"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header "Accept" is reserved by the SDK`,
+		},
+		{
+			name: "header with Mcp-Protocol-Version rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"Mcp-Protocol-Version": "2024-11-05"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header "Mcp-Protocol-Version" is reserved by the SDK`,
+		},
+		{
+			name: "header with Last-Event-Id rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"Last-Event-Id": "12345"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header "Last-Event-Id" is reserved by the SDK`,
+		},
+		{
+			name: "header with Mcp-Method rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"Mcp-Method": "POST"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header "Mcp-Method" is reserved by the SDK`,
+		},
+		{
+			name: "header with Mcp-Name rejected",
+			cfg: MCPConfig{
+				Servers: map[string]MCPServerConfig{
+					"example": {Transport: "http", URL: "http://localhost:3000", Headers: map[string]string{"Mcp-Name": "test-server"}},
+				},
+			},
+			wantErr: `mcp.servers.example.headers: header "Mcp-Name" is reserved by the SDK`,
 		},
 		{
 			name: "header with Mcp-Param- prefix rejected",
