@@ -406,17 +406,17 @@ func readUntilMarker(r *bufio.Reader, marker string, maxBytes int) (string, bool
 	midLine := false
 	for {
 		frag, err := r.ReadSlice('\n')
-		if err != nil && err != bufio.ErrBufferFull && err != io.EOF {
+		if err != nil && !errors.Is(err, bufio.ErrBufferFull) && !errors.Is(err, io.EOF) {
 			return finish(err)
 		}
 		if !midLine && err == nil && string(frag[:len(frag)-1]) == marker {
 			return finish(nil)
 		}
 		appendCapped(frag)
-		switch err {
-		case bufio.ErrBufferFull:
+		switch {
+		case errors.Is(err, bufio.ErrBufferFull):
 			midLine = true
-		case io.EOF:
+		case errors.Is(err, io.EOF):
 			return finish(io.ErrUnexpectedEOF)
 		default:
 			midLine = false
