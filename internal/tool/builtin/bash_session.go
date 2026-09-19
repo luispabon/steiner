@@ -3,6 +3,7 @@ package builtin
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -376,8 +377,8 @@ func (s *BashSession) Close() error {
 	return nil
 }
 
-// readUntilMarker reads lines from r until it encounters a line that is exactly
-// the given marker, then returns the first maxBytes of everything read before
+// readUntilMarker reads lines from r until a line ends with the given marker
+// (the marker may directly follow output lacking a trailing newline), then returns the first maxBytes of everything read before
 // it and whether anything was dropped. Memory stays bounded: lines are read in
 // bufio-sized fragments and bytes past maxBytes are discarded while scanning
 // continues, so the marker is still found however much output precedes it.
@@ -403,23 +404,33 @@ func readUntilMarker(r *bufio.Reader, marker string, maxBytes int) (string, bool
 		buf = append(buf, b...)
 	}
 
-	midLine := false
+	// held buffers the tail of the current line so a marker that follows
+	// output lacking a trailing newline, or that straddles fragments, can be
+	// recognised as a suffix and stripped before it reaches buf.
+	var held []byte
 	for {
 		frag, err := r.ReadSlice('\n')
 		if err != nil && !errors.Is(err, bufio.ErrBufferFull) && !errors.Is(err, io.EOF) {
 			return finish(err)
 		}
-		if !midLine && err == nil && string(frag[:len(frag)-1]) == marker {
-			return finish(nil)
-		}
-		appendCapped(frag)
+		held = append(held, frag...)
 		switch {
 		case errors.Is(err, bufio.ErrBufferFull):
-			midLine = true
+			if flush := len(held) - len(marker); flush > 0 {
+				appendCapped(held[:flush])
+				held = append(held[:0], held[flush:]...)
+			}
 		case errors.Is(err, io.EOF):
+			appendCapped(held)
 			return finish(io.ErrUnexpectedEOF)
 		default:
-			midLine = false
+			body := held[:len(held)-1]
+			if bytes.HasSuffix(body, []byte(marker)) {
+				appendCapped(body[:len(body)-len(marker)])
+				return finish(nil)
+			}
+			appendCapped(held)
+			held = held[:0]
 		}
 	}
 }
