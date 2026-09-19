@@ -504,3 +504,89 @@ func TestReadTool_RejectsSpecialFile(t *testing.T) {
 		t.Fatal("read of FIFO blocked instead of being rejected by policy")
 	}
 }
+
+func TestReadTool_StreamedHashAndTotalLines(t *testing.T) {
+	big := strings.Repeat("line with trailing  \t\r\n"+strings.Repeat("x", 90)+"\n", 2000)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"empty", ""},
+		{"no trailing newline", "a\nb  \nc"},
+		{"trailing newline", "a\nb\n"},
+		{"crlf", "a\r\nb \r\nc\r\n"},
+		{"only newline", "\n"},
+		{"whitespace only tail", "a\n \t\r"},
+		{"interior whitespace", "a \t b\n"},
+		{"large multi-chunk", big},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			p := filepath.Join(dir, "f.txt")
+			if err := os.WriteFile(p, []byte(tt.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			gotHash, gotLines, err := hashAndCountLines(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantLines := 0
+			if len(tt.body) > 0 {
+				wantLines = strings.Count(tt.body, "\n")
+				if !strings.HasSuffix(tt.body, "\n") {
+					wantLines++
+				}
+			}
+			if gotHash != FileContentHash([]byte(tt.body)) {
+				t.Errorf("hash = %s, want %s", gotHash, FileContentHash([]byte(tt.body)))
+			}
+			if gotLines != wantLines {
+				t.Errorf("lines = %d, want %d", gotLines, wantLines)
+			}
+		})
+	}
+
+	t.Run("large file with offset and limit", func(t *testing.T) {
+		if len(big) < 200*1024 {
+			t.Fatalf("fixture too small: %d", len(big))
+		}
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(big), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		def := NewReadTool(Env{WorkDir: dir, PathPolicy: func() *tool.PathPolicy { p := tool.NewPathPolicy(dir, config.PathsConfig{}); return &p }()})
+		res, err := def.Handler(context.Background(), map[string]any{"path": "big.txt", "offset": 100, "limit": 5})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := res.(ReadResult)
+		if r.TotalLines != 4000 {
+			t.Errorf("TotalLines = %d, want 4000", r.TotalLines)
+		}
+		if r.FileHash != FileContentHash([]byte(big)) {
+			t.Errorf("FileHash = %s, want %s", r.FileHash, FileContentHash([]byte(big)))
+		}
+		if r.NextOffset != 105 {
+			t.Errorf("NextOffset = %d, want 105", r.NextOffset)
+		}
+	})
+}
+
+func TestReadImageFile_OversizeStatCheck(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "huge.png")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(5*1024*1024 + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = readImageFile(p, "huge.png")
+	if err == nil || !strings.Contains(err.Error(), "file too large (max 5MB") {
+		t.Fatalf("err = %v, want oversize error", err)
+	}
+}
