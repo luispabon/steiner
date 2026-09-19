@@ -69,7 +69,7 @@ Flattened text is capped by `limits.tool_output_max_bytes` (default `65536`) and
 
 ## Security posture
 
-MCP descriptions and results are third-party content and can carry prompt injection. Treat servers as untrusted code. Path policy does not inspect opaque MCP arguments; approval is the boundary. Sandboxed stdio retains network access and read access to the host filesystem, including credential files, and remote HTTP is not sandboxed. Annotation trust is off by default.
+MCP descriptions and results are third-party content and can carry prompt injection. Treat servers as untrusted code. Path policy does not inspect opaque MCP arguments; approval is the boundary. Sandboxed stdio retains network access and read access to the host filesystem, including credential files, and remote HTTP is not sandboxed. Annotation trust is off by default. HTTP servers that redirect to a different origin (scheme, host, or port) are refused so configured headers are never forwarded to another host; same-origin redirects still carry them. Tools whose input schema exceeds 64 KiB when marshalled are skipped with a warning.
 
 ## Troubleshooting
 
