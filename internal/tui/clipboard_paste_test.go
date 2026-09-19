@@ -202,9 +202,9 @@ func TestBuildClipboardImageMsgResizedImageDetectsActualType(t *testing.T) {
 	t.Parallel()
 	// Create a large JPEG image that will trigger resizing to PNG.
 	// ResizeImageIfNeeded re-encodes images > 2048px to PNG.
-	img := image.NewRGBA(image.Rect(0, 0, 3000, 3000))
-	for y := 0; y < 3000; y++ {
-		for x := 0; x < 3000; x++ {
+	img := image.NewRGBA(image.Rect(0, 0, 2100, 16))
+	for y := 0; y < 16; y++ {
+		for x := 0; x < 2100; x++ {
 			img.Set(x, y, color.RGBA{R: 255, G: uint8(x % 256), B: uint8(y % 256), A: 255})
 		}
 	}
