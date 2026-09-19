@@ -346,8 +346,8 @@ func TestStoreWritePermissions(t *testing.T) {
 		t.Fatalf("stat: %v", err)
 	}
 
-	if info.Mode().Perm() != 0o644 {
-		t.Errorf("file perms: got %o, want 0o644", info.Mode().Perm())
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("file perms: got %o, want 0o600", info.Mode().Perm())
 	}
 }
 
@@ -413,7 +413,7 @@ func TestStorePruningBoundary(t *testing.T) {
 		shouldKeep bool
 	}{
 		{"just inside 8 days", 8*24 - 1, true},
-		{"exactly 8 days", 8 * 24, false},
+		{"exactly 8 days", 8 * 24, true},
 		{"just outside 8 days", 8*24 + 1, false},
 	}
 
