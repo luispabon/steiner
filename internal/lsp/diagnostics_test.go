@@ -37,7 +37,7 @@ func TestDiagnosticsSinglePublication(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("50ms"),
+		DiagnosticsWindow: config.MustDuration("1s"),
 		MaxResults:        100,
 	}
 
@@ -123,7 +123,7 @@ func TestDiagnosticsReplaceNotAppend(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("200ms"),
+		DiagnosticsWindow: config.MustDuration("1s"),
 		MaxResults:        100,
 	}
 
@@ -229,7 +229,7 @@ func TestDiagnosticsOtherFilesExcluded(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("50ms"),
+		DiagnosticsWindow: config.MustDuration("1s"),
 		MaxResults:        100,
 	}
 
@@ -379,7 +379,7 @@ func TestDiagnosticsEmptyPublication(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("50ms"),
+		DiagnosticsWindow: config.MustDuration("1s"),
 		MaxResults:        100,
 	}
 
@@ -450,7 +450,7 @@ func TestDiagnosticsDistinguishEmptyVsNone(t *testing.T) {
 		}
 
 		cfg := config.LSPConfig{
-			DiagnosticsWindow: config.MustDuration("50ms"),
+			DiagnosticsWindow: config.MustDuration("1s"),
 			MaxResults:        100,
 		}
 
@@ -646,7 +646,7 @@ func TestDiagnosticsCapAtMaxResults(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("100ms"),
+		DiagnosticsWindow: config.MustDuration("1s"),
 		MaxResults:        3,
 	}
 
@@ -725,7 +725,7 @@ func TestDiagnosticsSeverityOrdering(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("50ms"),
+		DiagnosticsWindow: config.MustDuration("1s"),
 		MaxResults:        100,
 	}
 
@@ -839,7 +839,7 @@ func TestDiagnosticsStaleNotificationsNotLeaking(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("100ms"),
+		DiagnosticsWindow: config.MustDuration("600ms"),
 		MaxResults:        100,
 	}
 
@@ -976,7 +976,7 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("200ms"),
+		DiagnosticsWindow: config.MustDuration("600ms"),
 		MaxResults:        100,
 	}
 

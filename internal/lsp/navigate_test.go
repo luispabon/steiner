@@ -593,6 +593,18 @@ func TestDidCloseEvenOnError(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
+	// didOpen and didClose are handled on separate goroutines by the fake
+	// server, so wait for both hooks rather than sleeping.
+	openDone := make(chan struct{})
+	closeDone := make(chan struct{})
+	var openOnce, closeOnce sync.Once
+	fs.onDidOpen = func(context.Context, *protocol.DidOpenTextDocumentParams) {
+		openOnce.Do(func() { close(openDone) })
+	}
+	fs.onDidClose = func(context.Context, *protocol.DidCloseTextDocumentParams) {
+		closeOnce.Do(func() { close(closeDone) })
+	}
+
 	// Issue a definition request with a stalled response.
 	fs.stallDefinition()
 
@@ -614,8 +626,14 @@ func TestDidCloseEvenOnError(t *testing.T) {
 	cancel2()
 	<-done
 
-	// Wait for DidClose to be recorded.
-	time.Sleep(100 * time.Millisecond)
+	// Wait for didOpen and didClose to be recorded.
+	for name, ch := range map[string]chan struct{}{"didOpen": openDone, "didClose": closeDone} {
+		select {
+		case <-ch:
+		case <-time.After(testTimeout):
+			t.Fatalf("timeout waiting for %s to be recorded", name)
+		}
+	}
 
 	// Verify didOpen and didClose were both recorded.
 	methods := fs.recorded()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -70,6 +71,13 @@ func TestWithDocument(t *testing.T) {
 	fs.onDidClose = func(context.Context, *protocol.DidCloseTextDocumentParams) {
 		close(closeDone)
 	}
+	// The fake server handles notifications on separate goroutines, so didOpen
+	// and didClose can be recorded in either order: wait for both.
+	openDone := make(chan struct{})
+	var openOnce sync.Once
+	fs.onDidOpen = func(context.Context, *protocol.DidOpenTextDocumentParams) {
+		openOnce.Do(func() { close(openDone) })
+	}
 
 	// Test successful open and close.
 	fnCalled := false
@@ -89,6 +97,11 @@ func TestWithDocument(t *testing.T) {
 	case <-closeDone:
 	case <-time.After(testTimeout):
 		t.Fatal("timeout waiting for didClose to be recorded")
+	}
+	select {
+	case <-openDone:
+	case <-time.After(testTimeout):
+		t.Fatal("timeout waiting for didOpen to be recorded")
 	}
 
 	// Verify didOpen and didClose were recorded.
