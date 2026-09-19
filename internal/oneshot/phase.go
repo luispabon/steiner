@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -59,6 +60,9 @@ type Dependencies struct {
 // Orchestrator owns the outer oneshot phase loop.
 type Orchestrator struct {
 	deps Dependencies
+	// heartbeatInterval overrides how often the run lock is refreshed while a
+	// phase runs; zero means a third of defaultLockStaleAfter.
+	heartbeatInterval time.Duration
 }
 
 // NewOrchestrator validates deps and constructs an orchestrator.

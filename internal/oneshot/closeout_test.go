@@ -695,3 +695,35 @@ func mustReadFile(t *testing.T, path string) string {
 	}
 	return string(data)
 }
+
+func TestDetectCloseoutProviderHosts(t *testing.T) {
+	tests := []struct {
+		url  string
+		want closeoutProvider
+		err  bool
+	}{
+		{url: "https://github.com/o/r.git", want: closeoutProviderGitHub},
+		{url: "git@github.com:o/r.git", want: closeoutProviderGitHub},
+		{url: "ssh://git@github.com:22/o/r.git", want: closeoutProviderGitHub},
+		{url: "https://github.example.com/o/r.git", want: closeoutProviderGitHub},
+		{url: "https://gitlab.com/o/r.git", want: closeoutProviderGitLab},
+		{url: "https://gitlab.corp.example/o/r.git", want: closeoutProviderGitLab},
+		{url: "https://dev.azure.com/org/p/_git/r", want: closeoutProviderAzure},
+		{url: "https://org.visualstudio.com/p/_git/r", want: closeoutProviderAzure},
+		{url: "git@ssh.dev.azure.com:v3/org/p/r", want: closeoutProviderAzure},
+		{url: "https://notgithub.com/o/r.git", err: true},
+		{url: "https://mygitlab.example/o/r.git", err: true},
+		{url: "https://azure-fake.example/o/r.git", err: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			got, err := detectCloseoutProvider(tt.url)
+			if (err != nil) != tt.err {
+				t.Fatalf("err = %v, want error %v", err, tt.err)
+			}
+			if got != tt.want {
+				t.Fatalf("provider = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
