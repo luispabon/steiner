@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/session"
@@ -132,6 +133,9 @@ type phaseFailureOptions struct {
 	SessionID            string
 	Transition           bool
 	IndicatorBeforeWrite bool
+	// SkipManifestWrite leaves run.json untouched, for when the run lock was
+	// lost and the manifest belongs to another process.
+	SkipManifestWrite bool
 }
 
 func (o *Orchestrator) finalizePhaseFailure(p runPhaseParams, cancel context.CancelFunc, failure error, opts phaseFailureOptions) error {
@@ -142,8 +146,12 @@ func (o *Orchestrator) finalizePhaseFailure(p runPhaseParams, cancel context.Can
 	if opts.IndicatorBeforeWrite {
 		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, opts.IndicatorState, opts.IndicatorMessage)
 	}
-	if err := p.Store.Write(*p.Manifest); err != nil {
-		return err
+	// After a lost lock run.json belongs to whichever process reclaimed it,
+	// so emit the events but leave the manifest alone.
+	if !opts.SkipManifestWrite && !errors.Is(failure, errLockLost) {
+		if err := p.Store.Write(*p.Manifest); err != nil {
+			return err
+		}
 	}
 	if !opts.IndicatorBeforeWrite {
 		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, opts.IndicatorState, opts.IndicatorMessage)
@@ -189,13 +197,21 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	}
 
 	conversation := phaseConversation(o.deps.Identity, o.deps.Task, p.Phase, p.WorktreePath, p.PlanningPath)
+	stopHeartbeat := o.startPhaseHeartbeat(p.Lock, cancel)
 	result, runErr := runner.RunPhase(phaseCtx, conversation, nil, o.deps.DrainSteers)
+	hbErr := stopHeartbeat()
+	if hbErr != nil {
+		// The heartbeat cancelled phaseCtx, so runErr is usually a context
+		// error; report the root cause instead.
+		runErr = hbErr
+	}
 
 	sessionID, saveErr := o.persistPhaseSession(p.Phase, modelAlias, result)
 	if saveErr != nil {
 		return o.finalizePhaseFailure(p, cancel, saveErr, phaseFailureOptions{
-			IndicatorState:   phaseIndicatorBoundary,
-			IndicatorMessage: saveErr.Error(),
+			IndicatorState:    phaseIndicatorBoundary,
+			IndicatorMessage:  saveErr.Error(),
+			SkipManifestWrite: errors.Is(hbErr, errLockLost),
 		})
 	}
 	p.Manifest.PhaseSessionIDs[p.Phase] = sessionID
@@ -237,11 +253,52 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusDone
 	p.Manifest.CurrentPhase = p.Phase
 	if err := p.Store.Write(*p.Manifest); err != nil {
+		// Not routed through finalizePhaseFailure, which would retry the write
+		// that just failed. The persisted status stays Running, so resume works.
+		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
+		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorCancelled, err.Error())
+		emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionFailed, modelAlias, sessionID)
 		return err
 	}
 	emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorCompleted, "phase complete")
 	emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionCompleted, modelAlias, sessionID)
 	return nil
+}
+
+// startPhaseHeartbeat refreshes lock every heartbeat interval until the
+// returned stop function is called. stop halts the goroutine, waits for it to
+// exit and returns the first heartbeat error. On a heartbeat failure (including
+// errLockLost) the goroutine calls cancel so the running phase aborts.
+func (o *Orchestrator) startPhaseHeartbeat(lock *RunLock, cancel context.CancelFunc) func() error {
+	interval := o.heartbeatInterval
+	if interval <= 0 {
+		interval = defaultLockStaleAfter / 3
+	}
+	done := make(chan struct{})
+	exited := make(chan struct{})
+	var hbErr error
+	go func() {
+		defer close(exited)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if err := lock.Heartbeat(); err != nil {
+					hbErr = err
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return func() error {
+		close(done)
+		<-exited
+		return hbErr
+	}
 }
 
 func (o *Orchestrator) persistPhaseSession(phase Phase, modelAlias string, result RunResult) (string, error) {

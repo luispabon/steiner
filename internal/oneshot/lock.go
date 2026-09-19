@@ -14,6 +14,10 @@ const defaultLockStaleAfter = 15 * time.Minute
 
 var errLockHeld = errors.New("oneshot run lock is held")
 
+// errLockLost reports that the lock file no longer belongs to this RunLock:
+// it was deleted or reclaimed by another orchestrator.
+var errLockLost = errors.New("oneshot run lock was lost to another owner")
+
 // LockRecord is the durable metadata stored in the lock file.
 type LockRecord struct {
 	Owner      string    `json:"owner"`
@@ -25,6 +29,8 @@ type LockRecord struct {
 // RunLock manages the lifecycle of a per-run lock file.
 type RunLock struct {
 	path        string
+	owner       string    // identity of the acquired record; empty skips ownership checks
+	acquiredAt  time.Time // distinguishes successive acquisitions by the same run ID
 	mu          sync.Mutex
 	releaseFunc func() error
 }
@@ -42,7 +48,7 @@ func acquireRunLock(projectRoot string, identity RunIdentity, staleAfter time.Du
 
 	record := newLockRecord(identity.ID)
 	if err := writeLockExclusive(path, record); err == nil {
-		return &RunLock{path: path}, nil
+		return &RunLock{path: path, owner: record.Owner, acquiredAt: record.AcquiredAt}, nil
 	} else if !errors.Is(err, os.ErrExist) {
 		return nil, err
 	}
@@ -75,7 +81,7 @@ func acquireRunLock(projectRoot string, identity RunIdentity, staleAfter time.Du
 			}
 			return nil, err
 		}
-		return &RunLock{path: path}, nil
+		return &RunLock{path: path, owner: record.Owner, acquiredAt: record.AcquiredAt}, nil
 	}
 
 	return nil, errLockHeld
@@ -92,13 +98,17 @@ func (l *RunLock) Heartbeat() error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if err := l.verifyOwnerLocked(); err != nil {
+		return fmt.Errorf("heartbeat run lock: %w", err)
+	}
 	if err := os.Chtimes(l.path, time.Now(), time.Now()); err != nil {
 		return fmt.Errorf("heartbeat run lock: %w", err)
 	}
 	return nil
 }
 
-// Release removes the lock file if it is still present.
+// Release removes the lock file if it is still present and still ours. A lock
+// that was reclaimed by another owner is left untouched.
 func (l *RunLock) Release() error {
 	if l == nil {
 		return nil
@@ -108,8 +118,33 @@ func (l *RunLock) Release() error {
 	if l.releaseFunc != nil {
 		return l.releaseFunc()
 	}
+	if err := l.verifyOwnerLocked(); err != nil {
+		if errors.Is(err, errLockLost) {
+			return nil
+		}
+		return fmt.Errorf("release run lock: %w", err)
+	}
 	if err := os.Remove(l.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove lock: %w", err)
+	}
+	return nil
+}
+
+// verifyOwnerLocked returns errLockLost when the lock file is missing or
+// carries a different acquisition than this RunLock's. Callers hold l.mu.
+func (l *RunLock) verifyOwnerLocked() error {
+	if l.owner == "" {
+		return nil
+	}
+	record, _, err := readLockRecord(l.path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return errLockLost
+		}
+		return err
+	}
+	if record.Owner != l.owner || !record.AcquiredAt.Equal(l.acquiredAt) {
+		return errLockLost
 	}
 	return nil
 }

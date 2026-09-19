@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -70,6 +71,10 @@ type store struct {
 	path   string
 	locker fileLocker
 	clock  func() time.Time
+
+	// tightenOnce limits the best-effort chmod of pre-existing files to once
+	// per process instead of every write.
+	tightenOnce sync.Once
 }
 
 // newStore creates a new store. If clock is nil, time.Now is used.
@@ -128,7 +133,7 @@ func (s *store) decodeBuckets(data []byte) map[bucketKey]*bucket {
 
 	cutoff := s.clock().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
 	for _, ent := range sf.Entries {
-		if ent.HourUnix <= cutoff {
+		if ent.HourUnix < cutoff {
 			continue
 		}
 		source := SourceUnknown
@@ -194,7 +199,7 @@ func (s *store) atomicWrite(dir string, buckets map[bucketKey]*bucket) error {
 		os.Remove(tmpName) //nolint:errcheck
 		return fmt.Errorf("close temp file: %w", err)
 	}
-	if err := os.Chmod(tmpName, 0o644); err != nil {
+	if err := os.Chmod(tmpName, 0o600); err != nil {
 		os.Remove(tmpName) //nolint:errcheck
 		return fmt.Errorf("chmod temp file: %w", err)
 	}
@@ -209,9 +214,19 @@ func (s *store) atomicWrite(dir string, buckets map[bucketKey]*bucket) error {
 // write persists the delta to disk with additive-delta merge under lock.
 func (s *store) write(delta *bucket, deltaKey bucketKey) error {
 	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create store dir: %w", err)
 	}
+
+	s.tightenOnce.Do(func() {
+		// Best-effort tighten of files created by older versions.
+		if err := os.Chmod(s.path, 0o600); err != nil && !os.IsNotExist(err) {
+			slog.Warn("tighten cache-stats file mode", "path", s.path, "error", err)
+		}
+		if err := os.Chmod(s.lockPath(), 0o600); err != nil && !os.IsNotExist(err) {
+			slog.Warn("tighten cache-stats lock file mode", "path", s.lockPath(), "error", err)
+		}
+	})
 
 	// The lock is taken on a dedicated sibling file, never on the data file
 	// itself: flock binds to the open file description (the inode at open
@@ -250,7 +265,7 @@ func (s *store) write(delta *bucket, deltaKey bucketKey) error {
 
 	cutoff := s.clock().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
 	for key := range diskBuckets {
-		if key.hourUnix <= cutoff {
+		if key.hourUnix < cutoff {
 			delete(diskBuckets, key)
 		}
 	}

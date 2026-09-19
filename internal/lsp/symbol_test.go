@@ -235,3 +235,27 @@ func TestResolveSymbolPositionMaxListedLines(t *testing.T) {
 		t.Errorf("resolveSymbolPosition: error = %q, want to contain '20' and 'and 5 more'", errMsg)
 	}
 }
+
+func TestFindLeftmostMatchUTF16Column(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		line   string
+		symbol string
+		want   int
+	}{
+		{"ascii", "x := Foo()", "Foo", 5},
+		{"bmp char before symbol is one unit", "é := Foo()", "Foo", 5},
+		{"astral char before symbol is two units", `"😀" + Foo()`, "Foo", 7},
+		{"two astral chars", "😀😀 Foo", "Foo", 5},
+		{"not found", "😀 Bar", "Foo", -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := findLeftmostMatch(tt.line, tt.symbol); got != tt.want {
+				t.Errorf("findLeftmostMatch(%q, %q) = %d, want %d", tt.line, tt.symbol, got, tt.want)
+			}
+		})
+	}
+}
