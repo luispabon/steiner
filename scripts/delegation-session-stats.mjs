@@ -48,10 +48,18 @@ const SUB_TOOLS = new Set([
 	"follow_up",
 ]);
 
+const sessionFiles = (() => {
+	try {
+		return readdirSync(DIR);
+	} catch (error) {
+		if (error.code === "ENOENT") return [];
+		throw error;
+	}
+})();
 const rows = [];
 const batches = [];
 
-for (const file of readdirSync(DIR)) {
+for (const file of sessionFiles) {
 	if (!file.endsWith(".json")) continue;
 	let session;
 	try {

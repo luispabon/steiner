@@ -1222,71 +1222,39 @@ func TestNormalizeVersionTag(t *testing.T) {
 	}
 }
 
-func TestCheck_StableUpdateAvailable(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		rel := release{TagName: "v1.2.0"}
-		_ = json.NewEncoder(w).Encode(rel)
-	}))
-	defer server.Close()
-
-	defer saveHTTPClient()()
-	httpClient = newTestClient(server.URL)
-
-	latestVer, needsUpdate, err := Check(context.Background(), "v1.0.0", "owner", "repo", "", "stable", "")
-	if err != nil {
-		t.Fatalf("Check: %v", err)
+func TestCheck_Stable(t *testing.T) {
+	tests := []struct {
+		name            string
+		currentVersion  string
+		wantNeedsUpdate bool
+	}{
+		{"update available", "v1.0.0", true},
+		{"up to date", "v1.2.0", false},
+		{"current newer", "v1.3.0", false},
 	}
-	if latestVer != "v1.2.0" {
-		t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.2.0")
-	}
-	if !needsUpdate {
-		t.Errorf("Check needsUpdate = false, want true")
-	}
-}
 
-func TestCheck_StableUpToDate(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		rel := release{TagName: "v1.2.0"}
-		_ = json.NewEncoder(w).Encode(rel)
-	}))
-	defer server.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(release{TagName: "v1.2.0"})
+			}))
+			defer server.Close()
 
-	defer saveHTTPClient()()
-	httpClient = newTestClient(server.URL)
+			defer saveHTTPClient()()
+			httpClient = newTestClient(server.URL)
 
-	latestVer, needsUpdate, err := Check(context.Background(), "v1.2.0", "owner", "repo", "", "stable", "")
-	if err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-	if latestVer != "v1.2.0" {
-		t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.2.0")
-	}
-	if needsUpdate {
-		t.Errorf("Check needsUpdate = true, want false")
-	}
-}
-
-func TestCheck_StableCurrentNewer(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(release{TagName: "v1.2.0"})
-	}))
-	defer server.Close()
-
-	defer saveHTTPClient()()
-	httpClient = newTestClient(server.URL)
-
-	latestVer, needsUpdate, err := Check(context.Background(), "v1.3.0", "owner", "repo", "", "stable", "")
-	if err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-	if latestVer != "v1.2.0" {
-		t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.2.0")
-	}
-	if needsUpdate {
-		t.Errorf("Check needsUpdate = true, want false")
+			latestVer, needsUpdate, err := Check(context.Background(), tt.currentVersion, "owner", "repo", "", "stable", "")
+			if err != nil {
+				t.Fatalf("Check: %v", err)
+			}
+			if latestVer != "v1.2.0" {
+				t.Errorf("Check latestVer = %q, want %q", latestVer, "v1.2.0")
+			}
+			if needsUpdate != tt.wantNeedsUpdate {
+				t.Errorf("Check needsUpdate = %v, want %v", needsUpdate, tt.wantNeedsUpdate)
+			}
+		})
 	}
 }
 

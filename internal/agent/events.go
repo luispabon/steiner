@@ -63,70 +63,84 @@ func emitCompactionStartedEvent(sink output.EventSink, turn int) {
 	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", turn, 0, "compacting", "compacting", "compacting in progress", "starting compaction"))
 }
 
-func emitCompactionDiagnostics(sink output.EventSink, turn, compactionCount int, beforeFit, afterFit prompt.RequestTokenBudget, mode prompt.CompactionMode, summaryTokenBudget int, retainedMessages []Message, candidate ConversationCandidate, summaryText, promptText string, usage *provider.UsageStats) {
+type compactionDiagnosticsParams struct {
+	turn               int
+	compactionCount    int
+	beforeFit          prompt.RequestTokenBudget
+	afterFit           prompt.RequestTokenBudget
+	mode               prompt.CompactionMode
+	summaryTokenBudget int
+	retainedMessages   []Message
+	candidate          ConversationCandidate
+	summaryText        string
+	promptText         string
+	usage              *provider.UsageStats
+}
+
+func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosticsParams) {
 	if sink == nil {
 		return
 	}
 	var cacheReadTokens, inputTokens, cacheCreateTokens int
-	if usage != nil {
-		cacheReadTokens = usage.CacheReadInputTokens
-		inputTokens = usage.NonCachedPromptTokens()
-		cacheCreateTokens = usage.CacheCreationInputTokens
+	if params.usage != nil {
+		cacheReadTokens = params.usage.CacheReadInputTokens
+		inputTokens = params.usage.NonCachedPromptTokens()
+		cacheCreateTokens = params.usage.CacheCreationInputTokens
 	}
 
-	escalation := compactionEscalationForFit(compactionCount, afterFit)
+	escalation := compactionEscalationForFit(params.compactionCount, params.afterFit)
 	notes := []string{
-		fmt.Sprintf("source generation=%d view=%s", candidate.GenerationID, candidate.View),
-		fmt.Sprintf("mode=%s", mode),
-		fmt.Sprintf("before prompt_tokens=%d context_usage_percent=%.0f%%", beforeFit.EstimatedPromptTokens, beforeFit.PromptUsage*100),
-		fmt.Sprintf("after prompt_tokens=%d context_usage_percent=%.0f%%", afterFit.EstimatedPromptTokens, afterFit.PromptUsage*100),
-		fmt.Sprintf("retained_raw_turns=%d", countTurns(retainedMessages)),
-		fmt.Sprintf("summary_token_budget=%d", summaryTokenBudget),
-		fmt.Sprintf("threshold_achieved=%t", compactionThresholdAchieved(afterFit)),
+		fmt.Sprintf("source generation=%d view=%s", params.candidate.GenerationID, params.candidate.View),
+		fmt.Sprintf("mode=%s", params.mode),
+		fmt.Sprintf("before prompt_tokens=%d context_usage_percent=%.0f%%", params.beforeFit.EstimatedPromptTokens, params.beforeFit.PromptUsage*100),
+		fmt.Sprintf("after prompt_tokens=%d context_usage_percent=%.0f%%", params.afterFit.EstimatedPromptTokens, params.afterFit.PromptUsage*100),
+		fmt.Sprintf("retained_raw_turns=%d", countTurns(params.retainedMessages)),
+		fmt.Sprintf("summary_token_budget=%d", params.summaryTokenBudget),
+		fmt.Sprintf("threshold_achieved=%t", compactionThresholdAchieved(params.afterFit)),
 	}
-	if promptText != "" {
-		notes = append(notes, "prompt="+promptText)
+	if params.promptText != "" {
+		notes = append(notes, "prompt="+params.promptText)
 	}
 	emitEvent(sink, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 		Kind:                  "compaction",
 		Scope:                 "conversation",
-		Turn:                  turn,
+		Turn:                  params.turn,
 		Severity:              escalation.Severity,
 		SessionState:          escalation.SessionState,
-		CompactionCount:       compactionCount,
+		CompactionCount:       params.compactionCount,
 		RestartGuidance:       escalation.RestartGuidance,
-		CompactedTurns:        len(candidate.Messages),
-		CompactedMessages:     len(candidate.Messages),
-		RetainedTurns:         countTurns(retainedMessages),
-		RetainedMessages:      len(retainedMessages),
+		CompactedTurns:        len(params.candidate.Messages),
+		CompactedMessages:     len(params.candidate.Messages),
+		RetainedTurns:         countTurns(params.retainedMessages),
+		RetainedMessages:      len(params.retainedMessages),
 		SummaryTitle:          "compacted conversation history",
-		SummaryPreview:        summarizeTextPreview(summaryText, 120),
-		SummaryText:           summaryText,
-		SummaryBytes:          len(summaryText),
+		SummaryPreview:        summarizeTextPreview(params.summaryText, 120),
+		SummaryText:           params.summaryText,
+		SummaryBytes:          len(params.summaryText),
 		CacheReadTokens:       cacheReadTokens,
 		InputTokens:           inputTokens,
 		CacheCreateTokens:     cacheCreateTokens,
-		Mode:                  string(mode),
-		BeforePromptTokens:    beforeFit.EstimatedPromptTokens,
-		BeforeRawPromptTokens: beforeFit.RawEstimatedPromptTokens,
-		BeforeUsagePercent:    beforeFit.PromptUsage * 100,
-		AfterPromptTokens:     afterFit.EstimatedPromptTokens,
-		AfterRawPromptTokens:  afterFit.RawEstimatedPromptTokens,
-		AfterUsagePercent:     afterFit.PromptUsage * 100,
-		RetainedRawTurns:      countTurns(retainedMessages),
-		SummaryTokenBudget:    summaryTokenBudget,
-		ThresholdAchieved:     compactionThresholdAchieved(afterFit),
-		PromptTokens:          afterFit.EstimatedPromptTokens,
-		RawPromptTokens:       afterFit.RawEstimatedPromptTokens,
-		ContextWindow:         afterFit.ContextSize,
-		ContextUsagePercent:   afterFit.PromptUsage * 100,
-		CompactionThreshold:   afterFit.CompactionThreshold * 100,
-		EstimatorPadTokens:    afterFit.SafetyMarginTokens,
-		Status:                requestTokenBudgetStatus(afterFit),
-		Truncated:             afterFit.ContextSize > 0 && afterFit.TotalTokens > afterFit.ContextSize,
+		Mode:                  string(params.mode),
+		BeforePromptTokens:    params.beforeFit.EstimatedPromptTokens,
+		BeforeRawPromptTokens: params.beforeFit.RawEstimatedPromptTokens,
+		BeforeUsagePercent:    params.beforeFit.PromptUsage * 100,
+		AfterPromptTokens:     params.afterFit.EstimatedPromptTokens,
+		AfterRawPromptTokens:  params.afterFit.RawEstimatedPromptTokens,
+		AfterUsagePercent:     params.afterFit.PromptUsage * 100,
+		RetainedRawTurns:      countTurns(params.retainedMessages),
+		SummaryTokenBudget:    params.summaryTokenBudget,
+		ThresholdAchieved:     compactionThresholdAchieved(params.afterFit),
+		PromptTokens:          params.afterFit.EstimatedPromptTokens,
+		RawPromptTokens:       params.afterFit.RawEstimatedPromptTokens,
+		ContextWindow:         params.afterFit.ContextSize,
+		ContextUsagePercent:   params.afterFit.PromptUsage * 100,
+		CompactionThreshold:   params.afterFit.CompactionThreshold * 100,
+		EstimatorPadTokens:    params.afterFit.SafetyMarginTokens,
+		Status:                requestTokenBudgetStatus(params.afterFit),
+		Truncated:             params.afterFit.ContextSize > 0 && params.afterFit.TotalTokens > params.afterFit.ContextSize,
 		Notes:                 notes,
 	}))
-	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", turn, compactionCount, escalation.Severity, escalation.SessionState, escalation.RestartGuidance, notes...))
+	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", params.turn, params.compactionCount, escalation.Severity, escalation.SessionState, escalation.RestartGuidance, notes...))
 }
 
 func requestTokenBudgetStatus(fit prompt.RequestTokenBudget) string {

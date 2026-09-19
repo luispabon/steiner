@@ -69,48 +69,12 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			return nil, childSetupError(err)
 		}
 		spec.Limits = limits
-		worktree := CodeWorktree{}
-		childCtx, err := deps.ActiveController.Register(agentID, ctx, AgentTypeVision, worktree)
+		result, err := runRegisteredDelegate(ctx, deps, spec, req, CodeWorktree{}, nil, nil, "vision", func(result tool.ExecutionResult) tool.ExecutionResult {
+			return result
+		})
 		if err != nil {
-			cleanupRegistrationWorktree(AgentTypeVision, deps.WorkDir, worktree)
-			return nil, childSetupError(err)
+			return nil, err
 		}
-		defer deps.ActiveController.Unregister(agentID)
-		emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, AgentTypeVision)
-		var gateRelease func()
-		req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
-		defer gateRelease()
-		if childCtx.Err() != nil {
-			removeAndCloseToolCallTraceWriter(spec.AgentID)
-			emitDelegateStopped(deps.Events, spec, AgentTypeVision)
-			result := cancelledBeforeDispatchResult(spec.AgentID)
-			if deps.SessionStore != nil && deps.SessionStore.Save(&ChildSession{Spec: spec, Request: req}) {
-				if dr, ok := result.Value.(Result); ok {
-					dr.persisted = true
-					result.Value = dr
-				}
-			}
-			applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
-			return result, nil
-		}
-
-		result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, withChildDone(func() { deps.ActiveController.MarkComplete(spec.AgentID) }))
-		if err == nil && deps.SessionStore != nil {
-			if saveChildSession(deps.SessionStore, spec, req, state, runUsage, nil) {
-				if dr, ok := result.Value.(Result); ok {
-					dr.persisted = true
-					result.Value = dr
-				}
-			}
-		}
-		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
-		if err != nil {
-			if result != (tool.ExecutionResult{}) {
-				return result, nil
-			}
-			return nil, fmt.Errorf("vision failed: %w", err)
-		}
-
 		return result, nil
 	}
 }

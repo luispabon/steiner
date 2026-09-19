@@ -360,6 +360,72 @@ func cleanupRegistrationWorktree(agentType AgentType, workDir string, worktree C
 	_, _ = pruneCodeWorktree(workDir, worktree)
 }
 
+func runRegisteredDelegate(
+	ctx context.Context,
+	deps SpecializedToolDeps,
+	spec Spec,
+	req agent.RunRequest,
+	worktree CodeWorktree,
+	warnings []string,
+	remediation *RemediationConfig,
+	failureLabel string,
+	decorate func(tool.ExecutionResult) tool.ExecutionResult,
+) (tool.ExecutionResult, error) {
+	childCtx, err := deps.ActiveController.Register(spec.AgentID, ctx, spec.AgentType, worktree)
+	if err != nil {
+		cleanupRegistrationWorktree(spec.AgentType, deps.WorkDir, worktree)
+		return tool.ExecutionResult{}, childSetupError(err)
+	}
+	defer deps.ActiveController.Unregister(spec.AgentID)
+	emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, spec.AgentType)
+
+	var gateRelease func()
+	req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
+	defer gateRelease()
+	if childCtx.Err() != nil {
+		removeAndCloseToolCallTraceWriter(spec.AgentID)
+		emitDelegateStopped(deps.Events, spec, spec.AgentType)
+		result := cancelledBeforeDispatchResult(spec.AgentID)
+		result = decorate(result)
+		result = applySpecializedWorktreeResult(spec.AgentType, result, worktree, warnings, deps.WorkDir)
+		if deps.SessionStore != nil && deps.SessionStore.Save(&ChildSession{Spec: spec, Request: req, Remediation: remediation}) {
+			markResultPersisted(&result)
+		}
+		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
+		return result, nil
+	}
+
+	var opts []spawnOption
+	if remediation != nil {
+		opts = append(opts, WithRemediation(remediation))
+	}
+	opts = append(opts, withChildDone(func() { deps.ActiveController.MarkComplete(spec.AgentID) }))
+	result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
+	if err == nil && deps.SessionStore != nil {
+		if saveChildSession(deps.SessionStore, spec, req, state, runUsage, remediation) {
+			markResultPersisted(&result)
+		}
+	}
+	if err != nil {
+		if result != (tool.ExecutionResult{}) {
+			return result, nil
+		}
+		return tool.ExecutionResult{}, fmt.Errorf("%s failed: %w", failureLabel, err)
+	}
+
+	result = decorate(result)
+	result = applySpecializedWorktreeResult(spec.AgentType, result, worktree, warnings, deps.WorkDir)
+	applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
+	return result, nil
+}
+
+func markResultPersisted(result *tool.ExecutionResult) {
+	if dr, ok := result.Value.(Result); ok {
+		dr.persisted = true
+		result.Value = dr
+	}
+}
+
 func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, worktree CodeWorktree) (SubAgentHandlerDeps, ChildBootstrapOverrides) {
 	handlerDeps := deps.SubAgentHandlerDeps
 	projectRoot := handlerDeps.WorkDir
@@ -432,60 +498,17 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			return nil, childSetupError(err)
 		}
 		spec.Limits = limits
-		childCtx, err := deps.ActiveController.Register(agentID, ctx, agentType, provisionedWorktree)
-		if err != nil {
-			cleanupRegistrationWorktree(agentType, deps.WorkDir, provisionedWorktree)
-			return nil, childSetupError(err)
-		}
-		defer deps.ActiveController.Unregister(agentID)
-		emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, agentType)
-		var gateRelease func()
-		req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
-		defer gateRelease()
-		if childCtx.Err() != nil {
-			removeAndCloseToolCallTraceWriter(spec.AgentID)
-			emitDelegateStopped(deps.Events, spec, agentType)
-			result := applySpecializedWorktreeResult(agentType, cancelledBeforeDispatchResult(spec.AgentID), provisionedWorktree, warnings, deps.WorkDir)
+		remediation := codeRemediationConfig(provisionedWorktree)
+		result, err := runRegisteredDelegate(ctx, deps, spec, req, provisionedWorktree, warnings, remediation, string(agentType), func(result tool.ExecutionResult) tool.ExecutionResult {
 			if dr, ok := result.Value.(Result); ok {
 				dr.AdvisorBudget = spec.AdvisorBudget
 				result.Value = dr
 			}
-			if deps.SessionStore != nil && deps.SessionStore.Save(&ChildSession{Spec: spec, Request: req, Remediation: codeRemediationConfig(provisionedWorktree)}) {
-				if dr, ok := result.Value.(Result); ok {
-					dr.persisted = true
-					result.Value = dr
-				}
-			}
-			applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
-			return result, nil
-		}
-
-		remediation := codeRemediationConfig(provisionedWorktree)
-
-		var opts []spawnOption
-		if remediation != nil {
-			opts = append(opts, WithRemediation(remediation))
-		}
-		opts = append(opts, withChildDone(func() { deps.ActiveController.MarkComplete(spec.AgentID) }))
-		result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
-		if err == nil && deps.SessionStore != nil {
-			if saveChildSession(deps.SessionStore, spec, req, state, runUsage, remediation) {
-				if dr, ok := result.Value.(Result); ok {
-					dr.persisted = true
-					result.Value = dr
-				}
-			}
-		}
+			return result
+		})
 		if err != nil {
-			if result != (tool.ExecutionResult{}) {
-				return result, nil
-			}
-			return nil, fmt.Errorf("%s failed: %w", agentType, err)
+			return nil, err
 		}
-
-		result = applySpecializedWorktreeResult(agentType, result, provisionedWorktree, warnings, deps.WorkDir)
-		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
-
 		return result, nil
 	}
 }

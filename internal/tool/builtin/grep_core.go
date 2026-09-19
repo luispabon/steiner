@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -380,12 +381,14 @@ func grepMultilineMatches(lines []string, contentText, relPath string, re *regex
 // grepLineForOffset returns the index of the line containing the given byte
 // offset into the joined content text, given each line's starting offset.
 func grepLineForOffset(lineStarts []int, offset int) int {
-	line := 0
-	for i, start := range lineStarts {
-		if start > offset {
-			break
-		}
-		line = i
+	if len(lineStarts) == 0 {
+		return 0
+	}
+	line := sort.Search(len(lineStarts), func(i int) bool {
+		return lineStarts[i] > offset
+	}) - 1
+	if line < 0 {
+		return 0
 	}
 	return line
 }
@@ -404,17 +407,24 @@ func grepLineStarts(lines []string) []int {
 }
 
 func grepMarkMatchedLines(lineMatched []bool, lines []string, lineStarts []int, matchStart, matchEnd int) {
+	if len(lines) == 0 || len(lineStarts) == 0 {
+		return
+	}
+	contentEnd := lineStarts[len(lineStarts)-1] + len(lines[len(lines)-1])
+	if matchStart >= contentEnd {
+		return
+	}
 	if matchEnd == matchStart {
 		matchEnd++
 	}
-	for i, line := range lines {
-		lineStart := lineStarts[i]
-		lineEnd := lineStart + len(line)
-		if i < len(lines)-1 {
-			lineEnd++
-		}
-		if lineStart < matchEnd && matchStart < lineEnd {
-			lineMatched[i] = true
-		}
+
+	firstLine := grepLineForOffset(lineStarts, matchStart)
+	lastOffset := matchEnd - 1
+	if lastOffset >= contentEnd {
+		lastOffset = contentEnd - 1
+	}
+	lastLine := grepLineForOffset(lineStarts, lastOffset)
+	for i := firstLine; i <= lastLine; i++ {
+		lineMatched[i] = true
 	}
 }

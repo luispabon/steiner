@@ -43,37 +43,34 @@ func parseStructuredBrief(prefix string, input map[string]any) (structuredBrief,
 	}
 	brief.Deliverable = deliverable
 
-	if constraintsRaw, ok := input["constraints"].([]any); ok {
-		for i, item := range constraintsRaw {
-			s, ok := item.(string)
-			if !ok {
-				return structuredBrief{}, fmt.Errorf("%s: constraints[%d] is not a string", prefix, i)
-			}
-			brief.Constraints = append(brief.Constraints, s)
-		}
+	var err error
+	if brief.Constraints, err = parseStringList(prefix, "constraints", input); err != nil {
+		return structuredBrief{}, err
 	}
-
-	if criteriaRaw, ok := input["success_criteria"].([]any); ok {
-		for i, item := range criteriaRaw {
-			s, ok := item.(string)
-			if !ok {
-				return structuredBrief{}, fmt.Errorf("%s: success_criteria[%d] is not a string", prefix, i)
-			}
-			brief.SuccessCriteria = append(brief.SuccessCriteria, s)
-		}
+	if brief.SuccessCriteria, err = parseStringList(prefix, "success_criteria", input); err != nil {
+		return structuredBrief{}, err
 	}
-
-	if checksRaw, ok := input["checks"].([]any); ok {
-		for i, item := range checksRaw {
-			s, ok := item.(string)
-			if !ok {
-				return structuredBrief{}, fmt.Errorf("%s: checks[%d] is not a string", prefix, i)
-			}
-			brief.Checks = append(brief.Checks, s)
-		}
+	if brief.Checks, err = parseStringList(prefix, "checks", input); err != nil {
+		return structuredBrief{}, err
 	}
 
 	return brief, nil
+}
+
+func parseStringList(prefix, field string, input map[string]any) ([]string, error) {
+	items := []string{}
+	raw, ok := input[field].([]any)
+	if !ok {
+		return items, nil
+	}
+	for i, item := range raw {
+		value, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("%s: %s[%d] is not a string", prefix, field, i)
+		}
+		items = append(items, value)
+	}
+	return items, nil
 }
 
 // assembleTaskContent renders a structuredBrief into a deterministic markdown

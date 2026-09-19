@@ -12,7 +12,7 @@ Steiner can connect to language servers to answer navigation and diagnostics que
 - **lsp_hover**: get a symbol's type signature and documentation, truncated to 4000 characters.
 - **lsp_symbols**: search symbols by name or outline a file.
 
-The first five position-addressing tools accept either 1-based, rune-counted `line` and `column`, or a `symbol` name, optionally narrowed by `line`. Explicit `column` takes precedence. Symbol matching uses identifier boundaries. Without `line`, ambiguous matches list candidate lines; with `line`, the leftmost match is used. `lsp_symbols` uses `file` for document mode and `query` without `file` for workspace mode.
+The position-bearing tools (`lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, and `lsp_hover`) accept either 1-based, rune-counted `line` and `column`, or a `symbol` name, optionally narrowed by `line`. Explicit `column` takes precedence. Symbol matching uses identifier boundaries. Without `line`, ambiguous matches list candidate lines; with `line`, the leftmost match is used. `lsp_symbols` uses `file` for document mode and `query` without `file` for workspace mode.
 
 Results are limited by `lsp.max_results`. Tools return clear messages rather than errors when no server is configured, a server is disabled or fails to start, or an optional method is unsupported. Results can be incomplete while a server is indexing.
 

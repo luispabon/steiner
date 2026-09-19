@@ -46,7 +46,7 @@ The `/cache-stats` slash command opens a read-only overlay with one table for ea
 
 ### Per-turn telemetry
 
-For headless runs, set `STEINER_USAGE_TELEMETRY` to a file path. Steiner appends one JSON line per usage-bearing response and per Codex WebSocket connection event. Recording is off unless the variable is set. An unwritable path silently disables this diagnostic output, and Steiner never reads the file back.
+For headless runs, set `STEINER_USAGE_TELEMETRY` to a file path. Steiner appends one JSON line per usage-bearing response and per Codex WebSocket connection event. Recording is off unless the variable is set. An unwritable path reports a warning and disables this diagnostic output; telemetry remains best-effort, and Steiner never reads the file back.
 
 ```bash
 export STEINER_USAGE_TELEMETRY=~/.local/state/steiner/telemetry.jsonl

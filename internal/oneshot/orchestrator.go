@@ -125,6 +125,35 @@ type runPhaseParams struct {
 	PreviousPhase Phase
 }
 
+type phaseFailureOptions struct {
+	IndicatorState       string
+	IndicatorMessage     string
+	ModelAlias           string
+	SessionID            string
+	Transition           bool
+	IndicatorBeforeWrite bool
+}
+
+func (o *Orchestrator) finalizePhaseFailure(p runPhaseParams, cancel context.CancelFunc, failure error, opts phaseFailureOptions) error {
+	if cancel != nil {
+		cancel()
+	}
+	p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
+	if opts.IndicatorBeforeWrite {
+		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, opts.IndicatorState, opts.IndicatorMessage)
+	}
+	if err := p.Store.Write(*p.Manifest); err != nil {
+		return err
+	}
+	if !opts.IndicatorBeforeWrite {
+		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, opts.IndicatorState, opts.IndicatorMessage)
+	}
+	if opts.Transition {
+		emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionFailed, opts.ModelAlias, opts.SessionID)
+	}
+	return failure
+}
+
 // runPhase executes a single phase: starting events, runner construction, execution, session
 // persistence, boundary checking, and success bookkeeping. It mutates manifest and writes it via
 // store at each state transition, and heartbeats lock at phase start and on successful completion.
@@ -135,13 +164,12 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorStarting, "phase starting")
 
 	if err := p.Lock.Heartbeat(); err != nil {
-		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
-		if writeErr := p.Store.Write(*p.Manifest); writeErr != nil {
-			return writeErr
-		}
-		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorCancelled, err.Error())
-		emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionFailed, modelAlias, "")
-		return err
+		return o.finalizePhaseFailure(p, nil, err, phaseFailureOptions{
+			IndicatorState:   phaseIndicatorCancelled,
+			IndicatorMessage: err.Error(),
+			ModelAlias:       modelAlias,
+			Transition:       true,
+		})
 	}
 	p.Manifest.CurrentPhase = p.Phase
 	p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusRunning
@@ -153,13 +181,11 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	phaseCtx, cancel := context.WithCancel(p.InterruptCtx)
 	runner, err := o.deps.RunnerFactory.NewPhaseRunner(phaseCtx, p.Phase, modelAlias, NewWorktreeAutoApprover(p.WorktreePath), advisorCfg)
 	if err != nil {
-		cancel()
-		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
-		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorBoundary, err.Error())
-		if writeErr := p.Store.Write(*p.Manifest); writeErr != nil {
-			return writeErr
-		}
-		return err
+		return o.finalizePhaseFailure(p, cancel, err, phaseFailureOptions{
+			IndicatorState:       phaseIndicatorBoundary,
+			IndicatorMessage:     err.Error(),
+			IndicatorBeforeWrite: true,
+		})
 	}
 
 	conversation := phaseConversation(o.deps.Identity, o.deps.Task, p.Phase, p.WorktreePath, p.PlanningPath)
@@ -167,37 +193,32 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 
 	sessionID, saveErr := o.persistPhaseSession(p.Phase, modelAlias, result)
 	if saveErr != nil {
-		cancel()
-		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
-		if err := p.Store.Write(*p.Manifest); err != nil {
-			return err
-		}
-		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorBoundary, saveErr.Error())
-		return saveErr
+		return o.finalizePhaseFailure(p, cancel, saveErr, phaseFailureOptions{
+			IndicatorState:   phaseIndicatorBoundary,
+			IndicatorMessage: saveErr.Error(),
+		})
 	}
 	p.Manifest.PhaseSessionIDs[p.Phase] = sessionID
 
 	if runErr != nil {
-		cancel()
-		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
-		if err := p.Store.Write(*p.Manifest); err != nil {
-			return err
-		}
-		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorCancelled, runErr.Error())
-		emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionFailed, modelAlias, sessionID)
-		return runErr
+		return o.finalizePhaseFailure(p, cancel, runErr, phaseFailureOptions{
+			IndicatorState:   phaseIndicatorCancelled,
+			IndicatorMessage: runErr.Error(),
+			ModelAlias:       modelAlias,
+			SessionID:        sessionID,
+			Transition:       true,
+		})
 	}
 
 	requiredArtifacts := requiredArtifactsForPhase(p.Phase, p.PlanningPath)
 	if err := CheckBoundary(phaseCtx, p.Phase, p.WorktreePath, requiredArtifacts); err != nil {
-		cancel()
-		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
-		if err := p.Store.Write(*p.Manifest); err != nil {
-			return err
-		}
-		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorBoundary, err.Error())
-		emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionFailed, modelAlias, sessionID)
-		return err
+		return o.finalizePhaseFailure(p, cancel, err, phaseFailureOptions{
+			IndicatorState:   phaseIndicatorBoundary,
+			IndicatorMessage: err.Error(),
+			ModelAlias:       modelAlias,
+			SessionID:        sessionID,
+			Transition:       true,
+		})
 	}
 
 	cancel()
@@ -205,13 +226,13 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	// across the gap between finishing this phase and starting the next one,
 	// matching resumeFromManifest's original behavior before this loop was unified.
 	if err := p.Lock.Heartbeat(); err != nil {
-		p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusFailed
-		if writeErr := p.Store.Write(*p.Manifest); writeErr != nil {
-			return writeErr
-		}
-		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, phaseIndicatorCancelled, err.Error())
-		emitPhaseTransition(o.deps.Events, p.Manifest.RunID, p.Phase, p.Phase, phaseTransitionFailed, modelAlias, sessionID)
-		return err
+		return o.finalizePhaseFailure(p, nil, err, phaseFailureOptions{
+			IndicatorState:   phaseIndicatorCancelled,
+			IndicatorMessage: err.Error(),
+			ModelAlias:       modelAlias,
+			SessionID:        sessionID,
+			Transition:       true,
+		})
 	}
 	p.Manifest.PhaseStatuses[p.Phase] = PhaseStatusDone
 	p.Manifest.CurrentPhase = p.Phase

@@ -55,22 +55,55 @@ func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, trunc
 	})
 }
 
-// NewContextTokenBudgetEvent creates a new context token budget event.
-func NewContextTokenBudgetEvent(scope string, turn, promptTokens, rawPromptTokens, contextWindow int, contextUsagePercent, compactionThreshold float64, estimatorPadTokens, totalTokens int, status string, truncated bool, notes ...string) Event {
+type contextTokenBudgetParams struct {
+	scope               string
+	turn                int
+	promptTokens        int
+	rawPromptTokens     int
+	contextWindow       int
+	contextUsagePercent float64
+	compactionThreshold float64
+	estimatorPadTokens  int
+	totalTokens         int
+	status              string
+	truncated           bool
+	notes               []string
+}
+
+func newContextTokenBudgetEvent(params contextTokenBudgetParams) Event {
 	return contextDiagnosticEvent(ContextBudgetEvent{
-		Scope:               scope,
-		Turn:                turn,
-		PromptTokens:        promptTokens,
-		RawPromptTokens:     rawPromptTokens,
-		ContextWindow:       contextWindow,
-		ContextUsagePercent: contextUsagePercent,
-		CompactionThreshold: compactionThreshold,
-		EstimatorPadTokens:  estimatorPadTokens,
-		ContextTokens:       contextWindow,
-		TotalTokens:         totalTokens,
-		Status:              status,
-		Truncated:           truncated,
-		Notes:               append([]string(nil), notes...),
+		Scope:               params.scope,
+		Turn:                params.turn,
+		PromptTokens:        params.promptTokens,
+		RawPromptTokens:     params.rawPromptTokens,
+		ContextWindow:       params.contextWindow,
+		ContextUsagePercent: params.contextUsagePercent,
+		CompactionThreshold: params.compactionThreshold,
+		EstimatorPadTokens:  params.estimatorPadTokens,
+		ContextTokens:       params.contextWindow,
+		TotalTokens:         params.totalTokens,
+		Status:              params.status,
+		Truncated:           params.truncated,
+		Notes:               append([]string(nil), params.notes...),
+	})
+}
+
+// NewContextTokenBudgetEvent creates a new context token budget event. The
+// positional form remains as a compatibility shim for internal callers.
+func NewContextTokenBudgetEvent(scope string, turn, promptTokens, rawPromptTokens, contextWindow int, contextUsagePercent, compactionThreshold float64, estimatorPadTokens, totalTokens int, status string, truncated bool, notes ...string) Event {
+	return newContextTokenBudgetEvent(contextTokenBudgetParams{
+		scope:               scope,
+		turn:                turn,
+		promptTokens:        promptTokens,
+		rawPromptTokens:     rawPromptTokens,
+		contextWindow:       contextWindow,
+		contextUsagePercent: contextUsagePercent,
+		compactionThreshold: compactionThreshold,
+		estimatorPadTokens:  estimatorPadTokens,
+		totalTokens:         totalTokens,
+		status:              status,
+		truncated:           truncated,
+		notes:               notes,
 	})
 }
 

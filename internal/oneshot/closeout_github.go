@@ -8,21 +8,21 @@ import (
 	"strings"
 )
 
-func runGitHubCloseout(ctx context.Context, worktreePath, remoteName, branch, targetBranch, title, body string) (string, string, error) {
+func runGitHubCloseout(ctx context.Context, req closeoutRequest) (string, string, error) {
 	if _, err := exec.LookPath("gh"); err != nil {
 		return "", "", fmt.Errorf("closeout: gh cli is required for github closeout: %w", err)
 	}
-	if err := runGit(ctx, worktreePath, "push", remoteName, branch); err != nil {
+	if err := runGit(ctx, req.WorktreePath, "push", req.RemoteName, req.Branch); err != nil {
 		return "", "", fmt.Errorf("closeout: push branch for github: %w", err)
 	}
 	if err := runGitHubAuth(ctx); err != nil {
 		return "", "", err
 	}
-	out, err := commandOutput(ctx, worktreePath, "gh", "pr", "create", "--title", title, "--body", body, "--base", targetBranch, "--head", branch)
+	out, err := commandOutput(ctx, req.WorktreePath, "gh", "pr", "create", "--title", req.Title, "--body", req.Body, "--base", req.TargetBranch, "--head", req.Branch)
 	if err != nil {
 		var cmdErr *commandError
 		if errors.As(err, &cmdErr) && strings.Contains(strings.ToLower(cmdErr.stderr), "already exists") {
-			viewOut, viewErr := commandOutput(ctx, worktreePath, "gh", "pr", "view", branch, "--json", "url", "--jq", ".url")
+			viewOut, viewErr := commandOutput(ctx, req.WorktreePath, "gh", "pr", "view", req.Branch, "--json", "url", "--jq", ".url")
 			if viewErr == nil {
 				return extractURL(viewOut), "pull request already existed", nil
 			}

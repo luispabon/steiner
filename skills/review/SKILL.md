@@ -33,8 +33,9 @@ Follow this sequence:
 5. Run approved review-fix work through Steiner delegation.
 6. Rerun relevant checks.
 7. Repeat only if new blocking findings remain.
-8. Mark final status. The advisor sanity check (### Advisor Sanity Check) must complete before marking.
-9. Offer closeout actions: planning-doc cleanup and PR/MR creation.
+8. Run the Advisor Sanity Check after all final verification reruns.
+9. Mark final status immediately after the Advisor Sanity Check.
+10. Offer closeout actions: planning-doc cleanup and PR/MR creation.
 
 Stop and report blockers instead of widening scope.
 
@@ -145,7 +146,7 @@ If any check fails, the sub-agent must not commit. It must report the mismatch a
 
 ### Advisor Sanity Check
 
-Run the advisor tool between the review-fix loop and final verification, before marking final status. Pass `files` with the review artifacts (e.g. `review.md` or the plan's `overview.md`/`plan.yaml`) and a `question` stating the findings the reviewer is about to mark final, so the advisor judges the actual artifacts rather than a conversational summary. Unconditional — skip only if the per-run advisor budget is exhausted or `AdvisorEnabled` is off.
+Run the advisor tool after all final verification reruns and immediately before marking final status. Pass `files` with the review artifacts (e.g. `review.md` or the plan's `overview.md`/`plan.yaml`) and a `question` stating the findings the reviewer is about to mark final, so the advisor judges the actual artifacts rather than a conversational summary. Unconditional — skip only if the per-run advisor budget is exhausted or `AdvisorEnabled` is off.
 
 Include the advisor's note in the final review status summary. When `review.md` is created during closeout, append the note to the file.
 
@@ -189,7 +190,7 @@ If the user declines cleanup, create or update `review.md` with the final review
 
 ## PR Or MR Preparation
 
-Use commit messages for PR/MR summaries. Do not broad-diff the branch against `origin/main` by default.
+Use commit messages for PR/MR summaries. Do not broad-diff the branch against the local target ref by default.
 
 Build the PR/MR body from:
 
@@ -203,19 +204,45 @@ Inspect targeted diffs only if commit messages and available artifacts are insuf
 
 Detect the remote provider from the current branch tracking remote or `origin`.
 
-Choose the target branch in this order:
+Choose the local target ref in this order:
 
 1. upstream or tracking base if clearly known
 2. `origin/main`
 3. `origin/master`
 4. ask the user
 
+Keep the local target ref separate from the provider target branch. Use the selected ref for local Git comparisons. Set `<target>` to its bare branch name (for example, `origin/main` becomes `main`) for provider CLI and API inputs. Never pass a remote-qualified ref such as `origin/main` as a provider target.
+
 Use only known provider flows:
 
 - GitHub: push if needed, then `gh pr create --title <title> --body <body> --base <target> --head <branch>`
-- GitLab: `git push -o merge_request.create -o merge_request.target=<target> <remote> <branch>`
+- GitLab: push with `git push -o merge_request.create -o merge_request.target=<target> -o merge_request.title="<title>" -o merge_request.description="<body>" <remote> <branch>`
 - Azure DevOps: push if needed, then `az repos pr create --title <title> --description <body> --source-branch <branch> --target-branch <target>`
-- Bitbucket or unknown provider: report unsupported automatic PR/MR creation
+- Bitbucket Cloud: push if needed, then use the Bitbucket Cloud REST API via `curl`:
+  ```
+  curl -X POST -u <user>:<app_password> \\
+    -H "Content-Type: application/json" \\
+    https://api.bitbucket.org/2.0/repositories/<workspace>/<repo>/pullrequests \\
+    -d '{
+      "title": "<title>",
+      "description": "<body>",
+      "source": { "branch": { "name": "<branch>" } },
+      "destination": { "branch": { "name": "<target>" } }
+    }'
+  ```
+- Bitbucket Server / Data Center: push if needed, then use the Server REST API via `curl`:
+  ```
+  curl -X POST -u <user>:<token> \\
+    -H "Content-Type: application/json" \\
+    https://<host>/rest/api/1.0/projects/<project>/repos/<repo>/pull-requests \\
+    -d '{
+      "title": "<title>",
+      "description": "<body>",
+      "fromRef": { "id": "refs/heads/<branch>", "repository": { "slug": "<repo>", "project": { "key": "<project>" } } },
+      "toRef": { "id": "refs/heads/<target>", "repository": { "slug": "<repo>", "project": { "key": "<project>" } } }
+    }'
+  ```
+- Unknown provider: report unsupported automatic PR/MR creation
 
 Ask for confirmation before pushing or creating a PR/MR. Do not dump the full PR/MR body unless the user asks.
 

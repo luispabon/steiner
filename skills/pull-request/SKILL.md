@@ -18,11 +18,12 @@ Stop and report blockers instead of widening scope.
 - Require a branch with commits ahead of the chosen target.
 - Detect the remote from the current branch tracking remote, falling back to `origin`.
 - Derive the provider from the remote URL hostname.
-- Choose the target branch in this order:
+- Choose the local target ref in this order:
   1. upstream or tracking base if clearly known
   2. `origin/main`
   3. `origin/master`
   4. ask the user
+- Keep the local target ref separate from the provider target branch. Use the selected ref for local Git comparisons. Set `<target>` to its bare branch name (for example, `origin/main` becomes `main`) for provider CLI and API inputs. Never pass a remote-qualified ref such as `origin/main` as a provider target.
 
 ## Provider Detection
 
@@ -55,8 +56,8 @@ If the preferred tool is missing, attempt the fallback path or report the blocke
 
 Build the PR/MR title and body from:
 
-1. Commit messages on the current branch that are not on the target branch (`git log <target>..<branch> --format=%s`).
-2. If commit messages are vague, contradictory, or missing, inspect targeted diffs (`git diff <target>...<branch>`) for the most significant files.
+1. Commit messages on the current branch that are not on the target ref (`git log <target-ref>..<branch> --format=%s`).
+2. If commit messages are vague, contradictory, or missing, inspect targeted diffs (`git diff <target-ref>...<branch>`) for the most significant files.
 3. If available, include a brief summary of what changed and why.
 
 Keep the body concise. Do not dump full diffs into the description unless the user explicitly asks.
@@ -78,7 +79,7 @@ Use only the flow matching the detected provider. Confirm before pushing or crea
 
 1. Push the branch with push-options:
    ```
-   git push -o merge_request.create -o merge_request.title="<title>" -o merge_request.description="<body>" -o merge_request.target=<target> <remote> <branch>
+   git push -o merge_request.create -o merge_request.target=<target> -o merge_request.title="<title>" -o merge_request.description="<body>" <remote> <branch>
    ```
 2. If the remote rejects push-options, fall back to `glab` CLI if available:
    ```

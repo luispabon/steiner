@@ -151,19 +151,8 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 
 	if err != nil {
 		runUsage := tokenUsageOf(state)
-		failedResult := failedDelegateExecution(spec, state, runUsage, err, tc, logger)
-		if events != nil {
-			budget, uses, denied := advisorFieldsOf(failedResult)
-			events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
-				AgentID:       spec.AgentID,
-				CallID:        spec.ParentCallID,
-				TaskPreview:   truncateTaskPreview(spec.Task, 120),
-				Error:         err.Error(),
-				AdvisorBudget: budget,
-				AdvisorUses:   uses,
-				AdvisorDenied: denied,
-			}))
-		}
+		failedResult := finalizeDelegateFailure(spec, state, runUsage, err, events, tc, logger)
+
 		return failedResult, state, runUsage, nil
 	}
 
@@ -172,19 +161,8 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		o.onChildDone()
 	}
 	if extErr != nil {
-		failedResult := failedDelegateExecution(spec, state, runUsage, extErr, tc, logger)
-		if events != nil {
-			budget, uses, denied := advisorFieldsOf(failedResult)
-			events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
-				AgentID:       spec.AgentID,
-				CallID:        spec.ParentCallID,
-				TaskPreview:   truncateTaskPreview(spec.Task, 120),
-				Error:         extErr.Error(),
-				AdvisorBudget: budget,
-				AdvisorUses:   uses,
-				AdvisorDenied: denied,
-			}))
-		}
+		failedResult := finalizeDelegateFailure(spec, state, runUsage, extErr, events, tc, logger)
+
 		return failedResult, state, runUsage, nil
 	}
 
@@ -320,6 +298,23 @@ func runChildToCompletion(
 		usage = usage.Add(tokenUsageOf(nextState))
 	}
 	return state, usage, extensionsGranted, nil
+}
+
+func finalizeDelegateFailure(spec Spec, state agent.RunState, runUsage TokenUsage, err error, events output.EventSink, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
+	result := failedDelegateExecution(spec, state, runUsage, err, tc, logger)
+	if events != nil {
+		budget, uses, denied := advisorFieldsOf(result)
+		events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
+			AgentID:       spec.AgentID,
+			CallID:        spec.ParentCallID,
+			TaskPreview:   truncateTaskPreview(spec.Task, 120),
+			Error:         err.Error(),
+			AdvisorBudget: budget,
+			AdvisorUses:   uses,
+			AdvisorDenied: denied,
+		}))
+	}
+	return result
 }
 
 func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsage, err error, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
