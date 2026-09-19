@@ -156,6 +156,7 @@ func (p *mutatePlanner) planMove(index int, op MutateOperation) error {
 	to.isDir = false
 	to.content = append([]byte(nil), from.content...)
 	to.touched = true
+	to.originalMode = from.originalMode
 	from.exists = false
 	from.content = nil
 	from.touched = true
