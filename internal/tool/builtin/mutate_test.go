@@ -2074,3 +2074,40 @@ func TestMutateMutatedPathsMethod(t *testing.T) {
 		seen[p] = true
 	}
 }
+
+func TestMutateMovePreservesFileMode(t *testing.T) {
+	tests := []struct {
+		name string
+		mode os.FileMode
+	}{
+		{"private", 0o600},
+		{"executable", 0o755},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			src := filepath.Join(root, "src.sh")
+			if err := os.WriteFile(src, []byte("x\n"), tt.mode); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+			if err := os.Chmod(src, tt.mode); err != nil {
+				t.Fatalf("chmod fixture: %v", err)
+			}
+			got := runMutate(t, newMutateTestTool(t, root), map[string]any{
+				"operations": []any{
+					map[string]any{"type": "move", "from": "src.sh", "to": "dst.sh"},
+				},
+			})
+			if got.OperationsFailed != 0 {
+				t.Fatalf("mutate failed: %#v", got)
+			}
+			info, err := os.Stat(filepath.Join(root, "dst.sh"))
+			if err != nil {
+				t.Fatalf("stat dst: %v", err)
+			}
+			if info.Mode().Perm() != tt.mode {
+				t.Errorf("dst mode = %o, want %o", info.Mode().Perm(), tt.mode)
+			}
+		})
+	}
+}
