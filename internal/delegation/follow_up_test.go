@@ -19,6 +19,7 @@ import (
 )
 
 func TestFollowUpToolDef(t *testing.T) {
+	t.Parallel()
 	called := false
 	def := FollowUpToolDef(func(_ context.Context, _ map[string]any) (any, error) {
 		called = true
@@ -54,6 +55,7 @@ func TestFollowUpToolDef(t *testing.T) {
 }
 
 func TestFollowUpHandler_UnknownAgentID(t *testing.T) {
+	t.Parallel()
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{SessionStore: NewSessionStore()})
 
 	_, err := handler(context.Background(), map[string]any{
@@ -69,6 +71,7 @@ func TestFollowUpHandler_UnknownAgentID(t *testing.T) {
 }
 
 func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{
@@ -188,6 +191,7 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 }
 
 func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{AgentID: "child-2", Task: "inspect code"},
@@ -260,6 +264,7 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 // matching, which can attach one agent's streaming output to another agent's
 // box when multiple follow-ups/delegations are pending concurrently.
 func TestFollowUpHandler_DelegationStartedUsesFollowUpCallID(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{
@@ -312,6 +317,7 @@ func TestFollowUpHandler_DelegationStartedUsesFollowUpCallID(t *testing.T) {
 }
 
 func TestFollowUpHandler_ResumesFailedChildWhenSessionExists(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec:          Spec{AgentID: "child-failed", Task: "inspect code"},
@@ -373,6 +379,7 @@ func TestFollowUpHandler_ResumesFailedChildWhenSessionExists(t *testing.T) {
 	}
 }
 func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name               string
 		tools              []provider.ToolSpec
@@ -493,6 +500,7 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 }
 
 func TestFollowUpHandler_DeniesMutateChildInPlanMode(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{AgentID: "child-mutate", Task: "fix bug"},
@@ -533,6 +541,7 @@ func TestFollowUpHandler_DeniesMutateChildInPlanMode(t *testing.T) {
 }
 
 func TestFollowUpHandler_AllowsMutateChildInBuildMode(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{AgentID: "child-mutate", Task: "fix bug"},
@@ -577,6 +586,7 @@ func TestFollowUpHandler_AllowsMutateChildInBuildMode(t *testing.T) {
 }
 
 func TestFollowUpHandler_NonMutateChildNotDeniedInPlanMode(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{AgentID: "child-readonly", Task: "investigate"},
@@ -624,6 +634,7 @@ func TestFollowUpHandler_NonMutateChildNotDeniedInPlanMode(t *testing.T) {
 }
 
 func TestFollowUpHandler_RejectsDeadCodeWorktree(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		setupWorktree  func(t *testing.T) string
@@ -721,6 +732,7 @@ func TestFollowUpHandler_RejectsDeadCodeWorktree(t *testing.T) {
 }
 
 func TestFollowUpHandler_NonCodeSessionSkipsWorktreeCheck(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec:    Spec{AgentID: "child-readonly-followup", Task: "investigate"},
@@ -754,6 +766,7 @@ func TestFollowUpHandler_NonCodeSessionSkipsWorktreeCheck(t *testing.T) {
 }
 
 func TestFollowUpHandler_CodeSessionWithLiveWorktreeStillResumes(t *testing.T) {
+	t.Parallel()
 	repo := setupTestRepo(t)
 	runCmd(t, repo, "git", "checkout", "-b", "delegate/child-live")
 
@@ -797,6 +810,7 @@ func TestFollowUpHandler_CodeSessionWithLiveWorktreeStillResumes(t *testing.T) {
 }
 
 func TestFollowUpHandler_CodeSessionProjectsWorktreePath(t *testing.T) {
+	t.Parallel()
 	// Set up a proper project root with .steiner/worktrees structure.
 	projectRoot := t.TempDir()
 	parentRepo := setupTestRepoIn(t, projectRoot)
@@ -883,6 +897,7 @@ func TestFollowUpHandler_CodeSessionProjectsWorktreePath(t *testing.T) {
 }
 
 func TestFollowUpHandler_CodeSessionRejectsDeadWorktreeOmitsPath(t *testing.T) {
+	t.Parallel()
 	projectRoot := t.TempDir()
 
 	store := NewSessionStore()
@@ -922,6 +937,7 @@ func TestFollowUpHandler_CodeSessionRejectsDeadWorktreeOmitsPath(t *testing.T) {
 }
 
 func TestFollowUpHandler_CodeSessionPartialRetainsPath(t *testing.T) {
+	t.Parallel()
 	// Test that a non-complete (partial) result still includes the worktree path.
 	projectRoot := t.TempDir()
 	parentRepo := setupTestRepoIn(t, projectRoot)
@@ -1014,6 +1030,7 @@ func TestFollowUpHandler_CodeSessionPartialRetainsPath(t *testing.T) {
 }
 
 func TestFollowUpHandler_CodeSessionCancelledRetainsPath(t *testing.T) {
+	t.Parallel()
 	// Test that a cancelled follow-up result still includes the worktree path.
 	projectRoot := t.TempDir()
 	parentRepo := setupTestRepoIn(t, projectRoot)
@@ -1088,6 +1105,7 @@ func TestFollowUpHandler_CodeSessionCancelledRetainsPath(t *testing.T) {
 }
 
 func TestChildHasMutateTool(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		tools []provider.ToolSpec
@@ -1161,6 +1179,7 @@ func providerToAgentMessages(messages []provider.Message) []agent.Message {
 	return out
 }
 func TestFollowUpHandler_FreshBudgetWithHighPriorTurnCount(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 
 	// Build a conversation with 58 prior turns (simulating a long prior session).
@@ -1261,6 +1280,7 @@ func TestFollowUpHandler_FreshBudgetWithHighPriorTurnCount(t *testing.T) {
 }
 
 func TestFollowUpHandler_AccumulatesTokenUsageFromPriorSession(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{
@@ -1353,6 +1373,7 @@ func TestFollowUpHandler_AccumulatesTokenUsageFromPriorSession(t *testing.T) {
 }
 
 func TestFollowUpHandler_ReusesOriginalProjectRoot(t *testing.T) {
+	t.Parallel()
 	// Verify that follow_up reuses the original session's ProjectRoot,
 	// which was set from the provisioned worktree path in the original
 	// delegate call. This ensures the follow-up call operates in the same
@@ -1417,6 +1438,7 @@ func TestFollowUpHandler_ReusesOriginalProjectRoot(t *testing.T) {
 }
 
 func TestFollowUpHandler_EnforcesMaxFollowUps(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{
@@ -1489,6 +1511,7 @@ func TestFollowUpHandler_EnforcesMaxFollowUps(t *testing.T) {
 }
 
 func TestFollowUpHandler_CountsAttemptsTowardCeiling(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{

@@ -498,7 +498,7 @@ func TestResolveEffectiveLimits(t *testing.T) {
 }
 
 func TestResolveModelMetadataFallbackWarning(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	writeModelsDevCache(t, "{}")
 
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{

@@ -86,6 +86,7 @@ func TestSessionStoreGetUnknownID(t *testing.T) {
 }
 
 func TestSessionStoreConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 
 	const sessionCount = 32
@@ -206,6 +207,7 @@ func TestSessionStore_Count(t *testing.T) {
 }
 
 func TestSessionStoreInvalidateTombstone(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	original := &ChildSession{
 		Spec:         Spec{AgentID: "child-1", AgentType: AgentTypeCode},
@@ -236,6 +238,7 @@ func TestSessionStoreInvalidateTombstone(t *testing.T) {
 }
 
 func TestSessionStoreInvalidateUnknownAndReset(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Invalidate("missing")
 	store.Save(&ChildSession{Spec: Spec{AgentID: "missing"}})

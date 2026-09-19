@@ -17,6 +17,7 @@ import (
 )
 
 func TestDefinitionsSingleLocation(t *testing.T) {
+	t.Parallel()
 	// Test that a single Location result is correctly returned.
 	fs := newFakeServer()
 	fs.definitionResult = &protocol.Location{
@@ -57,6 +58,7 @@ func TestDefinitionsSingleLocation(t *testing.T) {
 }
 
 func TestDefinitionsLocationSlice(t *testing.T) {
+	t.Parallel()
 	// Test that a LocationSlice result is correctly returned.
 	fs := newFakeServer()
 	fs.definitionResult = protocol.LocationSlice{
@@ -101,6 +103,7 @@ func TestDefinitionsLocationSlice(t *testing.T) {
 }
 
 func TestDefinitionsPositionRoundTrip(t *testing.T) {
+	t.Parallel()
 	// Test that positions round-trip correctly (1-based in, 1-based out).
 	fs := newFakeServer()
 	fs.definitionResult = &protocol.Location{
@@ -142,6 +145,7 @@ func TestDefinitionsPositionRoundTrip(t *testing.T) {
 }
 
 func TestResultsCapAtMaxResults(t *testing.T) {
+	t.Parallel()
 	// Create many locations and test capping.
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
@@ -190,6 +194,7 @@ func TestResultsCapAtMaxResults(t *testing.T) {
 }
 
 func TestResultsDeterministicOrdering(t *testing.T) {
+	t.Parallel()
 	// Test that results are sorted consistently.
 	locs := []Location{
 		{File: "/c.go", Line: 2, Column: 1},
@@ -217,6 +222,7 @@ func TestResultsDeterministicOrdering(t *testing.T) {
 }
 
 func TestDefinitionsInvalidPosition(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -259,6 +265,7 @@ func TestDefinitionsInvalidPosition(t *testing.T) {
 }
 
 func TestRequestTimeout(t *testing.T) {
+	t.Parallel()
 	// Verify that a stalled Definition request is bounded by RequestTimeout and
 	// returns before the test's overall deadline, rather than blocking forever.
 	fs := newFakeServer()
@@ -304,6 +311,7 @@ func TestRequestTimeout(t *testing.T) {
 }
 
 func TestConcurrentDefinitionsNonInterleaving(t *testing.T) {
+	t.Parallel()
 	// Most critical test: verify that two concurrent Manager.Definitions calls
 	// against the same session do not interleave their open/request/close
 	// cycles. Manager.Definitions itself is responsible for acquiring
@@ -458,6 +466,7 @@ func isNonInterleavedSequence(methods []string) bool {
 }
 
 func TestHoverMarkupContent(t *testing.T) {
+	t.Parallel()
 	// Test that hover with MarkupContent is correctly returned.
 	fs := newFakeServer()
 	fs.hoverResult = &protocol.Hover{
@@ -492,6 +501,7 @@ func TestHoverMarkupContent(t *testing.T) {
 }
 
 func TestHoverEmptyResult(t *testing.T) {
+	t.Parallel()
 	// Test that nil hover result is handled correctly.
 	fs := newFakeServer()
 	fs.hoverResult = nil
@@ -521,6 +531,7 @@ func TestHoverEmptyResult(t *testing.T) {
 }
 
 func TestHoverInvalidPosition(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -563,6 +574,7 @@ func TestHoverInvalidPosition(t *testing.T) {
 }
 
 func TestDidCloseEvenOnError(t *testing.T) {
+	t.Parallel()
 	// Test that DidClose is called even if Definition returns an error.
 	fs := newFakeServer()
 	fs.definitionResult = nil // Will cause decode error
@@ -579,6 +591,18 @@ func TestDidCloseEvenOnError(t *testing.T) {
 	testFile := filepath.Join(tmpdir, "test.go")
 	if err := os.WriteFile(testFile, []byte("package main\n"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
+	}
+
+	// didOpen and didClose are handled on separate goroutines by the fake
+	// server, so wait for both hooks rather than sleeping.
+	openDone := make(chan struct{})
+	closeDone := make(chan struct{})
+	var openOnce, closeOnce sync.Once
+	fs.onDidOpen = func(context.Context, *protocol.DidOpenTextDocumentParams) {
+		openOnce.Do(func() { close(openDone) })
+	}
+	fs.onDidClose = func(context.Context, *protocol.DidCloseTextDocumentParams) {
+		closeOnce.Do(func() { close(closeDone) })
 	}
 
 	// Issue a definition request with a stalled response.
@@ -602,8 +626,14 @@ func TestDidCloseEvenOnError(t *testing.T) {
 	cancel2()
 	<-done
 
-	// Wait for DidClose to be recorded.
-	time.Sleep(100 * time.Millisecond)
+	// Wait for didOpen and didClose to be recorded.
+	for name, ch := range map[string]chan struct{}{"didOpen": openDone, "didClose": closeDone} {
+		select {
+		case <-ch:
+		case <-time.After(testTimeout):
+			t.Fatalf("timeout waiting for %s to be recorded", name)
+		}
+	}
 
 	// Verify didOpen and didClose were both recorded.
 	methods := fs.recorded()
@@ -627,6 +657,7 @@ func TestDidCloseEvenOnError(t *testing.T) {
 }
 
 func TestDocumentSymbolsWithoutQuery(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.documentSymbolResult = protocol.DocumentSymbolSlice{
 		{Name: "Foo", Kind: protocol.SymbolKindFunction, Range: protocol.Range{Start: protocol.Position{Line: 1, Character: 0}, End: protocol.Position{Line: 1, Character: 5}}},
@@ -659,6 +690,7 @@ func TestDocumentSymbolsWithoutQuery(t *testing.T) {
 }
 
 func TestDocumentSymbolsWithQuery(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.documentSymbolResult = protocol.DocumentSymbolSlice{
 		{Name: "Foo", Kind: protocol.SymbolKindFunction, Range: protocol.Range{Start: protocol.Position{Line: 1, Character: 0}, End: protocol.Position{Line: 1, Character: 5}}},
@@ -691,6 +723,7 @@ func TestDocumentSymbolsWithQuery(t *testing.T) {
 }
 
 func TestDocumentSymbolsCacheDoesNotLeakAcrossQueries(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.documentSymbolResult = protocol.DocumentSymbolSlice{
 		{Name: "Foo", Kind: protocol.SymbolKindFunction, Range: protocol.Range{Start: protocol.Position{Line: 1, Character: 0}, End: protocol.Position{Line: 1, Character: 5}}},
@@ -830,6 +863,7 @@ func workspaceSymbolTestManager(t *testing.T, workspace string, servers map[stri
 }
 
 func TestWorkspaceSymbolsBestEffortMerge(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 
 	good := newSymbolStubSession([]SymbolInfo{
@@ -855,6 +889,7 @@ func TestWorkspaceSymbolsBestEffortMerge(t *testing.T) {
 }
 
 func TestWorkspaceSymbolsConcurrentFanOut(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 
 	delay := 200 * time.Millisecond
@@ -895,6 +930,7 @@ func TestWorkspaceSymbolsConcurrentFanOut(t *testing.T) {
 }
 
 func TestWorkspaceSymbolsReusesExistingSession(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 
 	sess := newSymbolStubSession([]SymbolInfo{
@@ -925,6 +961,7 @@ func TestWorkspaceSymbolsReusesExistingSession(t *testing.T) {
 }
 
 func TestWorkspaceSymbolsNoEnabledServers(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	m := NewManager(cfg, t.TempDir(), nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -936,6 +973,7 @@ func TestWorkspaceSymbolsNoEnabledServers(t *testing.T) {
 }
 
 func TestImplementationsSingleLocation(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.implementationResult = &protocol.Location{
 		URI: "file:///test.go",
@@ -975,6 +1013,7 @@ func TestImplementationsSingleLocation(t *testing.T) {
 }
 
 func TestImplementationsLocationSlice(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.implementationResult = protocol.LocationSlice{
 		{
@@ -1020,6 +1059,7 @@ func TestImplementationsLocationSlice(t *testing.T) {
 }
 
 func TestImplementationsInvalidPosition(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -1062,6 +1102,7 @@ func TestImplementationsInvalidPosition(t *testing.T) {
 }
 
 func TestImplementationsCacheHit(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.implementationResult = &protocol.Location{
 		URI: "file:///test.go",
@@ -1113,6 +1154,7 @@ func TestImplementationsCacheHit(t *testing.T) {
 }
 
 func TestImplementationsCacheKeyDistinctFromDefinitions(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	implLoc := &protocol.Location{
 		URI: "file:///impl.go",
@@ -1185,6 +1227,7 @@ func TestImplementationsCacheKeyDistinctFromDefinitions(t *testing.T) {
 }
 
 func TestTypeDefinitionsSingleLocation(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.typeDefinitionResult = &protocol.Location{
 		URI: "file:///test.go",
@@ -1224,6 +1267,7 @@ func TestTypeDefinitionsSingleLocation(t *testing.T) {
 }
 
 func TestTypeDefinitionsLocationSlice(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.typeDefinitionResult = protocol.LocationSlice{
 		{
@@ -1269,6 +1313,7 @@ func TestTypeDefinitionsLocationSlice(t *testing.T) {
 }
 
 func TestTypeDefinitionsInvalidPosition(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -1311,6 +1356,7 @@ func TestTypeDefinitionsInvalidPosition(t *testing.T) {
 }
 
 func TestTypeDefinitionsCacheHit(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.typeDefinitionResult = &protocol.Location{
 		URI: "file:///test.go",
@@ -1362,6 +1408,7 @@ func TestTypeDefinitionsCacheHit(t *testing.T) {
 }
 
 func TestTypeDefinitionsCacheKeyDistinctFromDefinitions(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	typeDefLoc := &protocol.Location{
 		URI: "file:///typedef.go",
@@ -1479,6 +1526,7 @@ func (s *trackingSession) Exited() <-chan struct{}                              
 func (s *trackingSession) Close(context.Context) error                                  { return nil }
 
 func TestImplementationsWithRelativePath(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -1525,6 +1573,7 @@ func TestImplementationsWithRelativePath(t *testing.T) {
 }
 
 func TestTypeDefinitionsWithRelativePath(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 

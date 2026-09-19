@@ -119,10 +119,13 @@ func TestContextOverlayDoesNotCaptureWhenBlockingOverlayIsOpen(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			m := newContextOverlayMouseTestModel(t)
-			m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", longContextOverlayMouseReport())})
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", contextOverlayMouseReport(8))})
 			boundsX, boundsY, boundsW, boundsH := m.contextOverlayBounds()
 			centerX := boundsX + boundsW/2
 			centerY := boundsY + boundsH/2
+			if !m.contextOverlayCapturesMouse(centerX, centerY) {
+				t.Fatal("context overlay did not capture mouse at its center before the blocking overlay opened")
+			}
 
 			tc.open(m)
 			if m.contextOverlayCapturesMouse(centerX, centerY) {
@@ -164,10 +167,13 @@ func TestContextOverlayMouseIgnoredWhenConfirmModalOpen(t *testing.T) {
 			ctrl := &conversationTestController{conversation: []agent.Message{{Role: "user"}}}
 			m := newModel(Config{Controller: ctrl, SubAgentsEnabled: true, OrchestrationLevel: "standard"}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 160, Height: 50})
-			m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", longContextOverlayMouseReport())})
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", contextOverlayMouseReport(8))})
 			boundsX, boundsY, boundsW, boundsH := m.contextOverlayBounds()
 			centerX := boundsX + boundsW/2
 			centerY := boundsY + boundsH/2
+			if !m.contextOverlayCapturesMouse(centerX, centerY) {
+				t.Fatal("context overlay did not capture mouse at its center before the confirm modal opened")
+			}
 
 			tc.open(m)
 			if !m.anyConfirmModalOpen() {
@@ -208,8 +214,15 @@ func newContextOverlayMouseTestModel(t *testing.T) *Model {
 }
 
 func longContextOverlayMouseReport() string {
+	return contextOverlayMouseReport(80)
+}
+
+// contextOverlayMouseReport builds a report with n list items. Rendering it
+// through glamour dominates the cost of these tests, so tests that only need
+// the overlay's bounds use a short one.
+func contextOverlayMouseReport(n int) string {
 	lines := []string{"# Long Report", ""}
-	for i := 0; i < 80; i++ {
+	for i := 0; i < n; i++ {
 		lines = append(lines, "- item "+strings.Repeat("x", 8)+" "+strings.Repeat("y", 8))
 	}
 	return strings.Join(lines, "\n")

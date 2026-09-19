@@ -7,6 +7,7 @@ import (
 )
 
 func TestResolveRoot(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		setup   func(t *testing.T) (file, workspace, wantRoot string)

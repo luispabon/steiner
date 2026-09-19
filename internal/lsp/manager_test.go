@@ -51,6 +51,7 @@ func rewindSpawnFailure(t *testing.T, m *Manager) {
 }
 
 func TestBuildServerEnv(t *testing.T) {
+	t.Parallel()
 	cacheDir := "/cache/root"
 
 	tests := []struct {
@@ -209,6 +210,7 @@ func (s *blockingSession) Close(context.Context) error {
 // while fresh spawns install new sessions on both, so its second read collides
 // with entryFor's write unless the read is locked. Run under -race.
 func TestDoReapReadsSessionUnderLock(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -303,6 +305,7 @@ func TestDoReapReadsSessionUnderLock(t *testing.T) {
 }
 
 func TestManagerExtensionRouting(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -355,6 +358,7 @@ func TestManagerExtensionRouting(t *testing.T) {
 }
 
 func TestManagerNoServerForExtension(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 
 	cfg := config.LSPConfig{
@@ -388,6 +392,7 @@ func TestManagerNoServerForExtension(t *testing.T) {
 }
 
 func TestManagerNearestRootWins(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -447,6 +452,7 @@ func TestManagerNearestRootWins(t *testing.T) {
 }
 
 func TestManagerSameKeyReusesProcess(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -508,6 +514,7 @@ func TestManagerSameKeyReusesProcess(t *testing.T) {
 }
 
 func TestManagerDifferentRootsDistinctProcesses(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -574,6 +581,7 @@ func TestManagerDifferentRootsDistinctProcesses(t *testing.T) {
 }
 
 func TestManagerConcurrentCallsNoDoubleSpawn(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -644,6 +652,7 @@ func TestManagerConcurrentCallsNoDoubleSpawn(t *testing.T) {
 }
 
 func TestManagerMissingBinaryMarkedFailed(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 
 	warnCalls := atomic.Int32{}
@@ -708,6 +717,7 @@ func TestManagerMissingBinaryMarkedFailed(t *testing.T) {
 }
 
 func TestManagerIdleReapingTerminatesServer(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -782,6 +792,7 @@ func TestManagerIdleReapingTerminatesServer(t *testing.T) {
 }
 
 func TestManagerCloseTerminatesAllChildren(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -856,6 +867,7 @@ func TestManagerCloseTerminatesAllChildren(t *testing.T) {
 }
 
 func TestManagerCloseIsIdempotent(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 
 	cfg := config.LSPConfig{
@@ -876,6 +888,7 @@ func TestManagerCloseIsIdempotent(t *testing.T) {
 }
 
 func TestManagerContextCancellationDuringSpawn(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -959,6 +972,7 @@ func TestManagerContextCancellationDuringSpawn(t *testing.T) {
 }
 
 func TestManagerCacheDirExistsAndPersists(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 

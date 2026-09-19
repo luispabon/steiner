@@ -84,6 +84,7 @@ func TestFormatCacheStatsReportWithObservations(t *testing.T) {
 }
 
 func TestFormatCacheStatsReportNoRequestsRendersDash(t *testing.T) {
+	t.Parallel()
 	got := formatPerRequest(0, false)
 	if got != "—" {
 		t.Fatalf("formatPerRequest(0, false) = %q, want %q", got, "—")

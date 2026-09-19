@@ -606,6 +606,7 @@ func TestOversizeBodyErrorMessage(t *testing.T) {
 }
 
 func TestFetchURLOversizedHTMLBodyReturnsMaxSizeError(t *testing.T) {
+	t.Parallel()
 	// Pins the strings.Contains match in handleFetchError against wonton's
 	// oversized-body error, which is a bare fmt.Errorf with no exported
 	// sentinel. If wonton reword that message, this test fails instead of
@@ -1046,6 +1047,7 @@ func (brokenReader) Read([]byte) (int, error) {
 }
 
 func TestFetchRawTextLargeBodies(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	newServer := func(body []byte) *httptest.Server {
@@ -1120,7 +1122,7 @@ func TestFetchRawTextLargeBodies(t *testing.T) {
 
 func TestBuildHTMLResultMultiByteCutAtCeiling(t *testing.T) {
 	char := "日" // 3-byte UTF-8 rune
-	repeats := defaultFetchURLMaxSize/len(char) + 100
+	repeats := inlineThreshold + 100
 	markdown := strings.Repeat(char, repeats)
 
 	// Try a small range of ceilings around a 3-byte boundary to guarantee at

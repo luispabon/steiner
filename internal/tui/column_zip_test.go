@@ -100,10 +100,11 @@ func TestRenderBaseViewSidebarHiddenSkipsJoin(t *testing.T) {
 // narrow widths, and a long modified-file list to cover that reachable space.
 func TestZipColumnsMatchesJoinHorizontalAcrossSizes(t *testing.T) {
 	t.Parallel()
+	// One case per distinct path: a wide/tall frame, the narrowest width at which
+	// the sidebar is still visible (narrower widths skip the join entirely), and
+	// the tiny heights (6, 4, 3) where the sidebar's inner height clamps.
 	sizes := []struct{ w, h int }{
-		{220, 60}, {200, 50}, {120, 40}, {100, 24},
-		{90, 12}, {85, 8}, {80, 6}, {300, 80},
-		{220, 10}, {220, 6}, {200, 4}, {180, 3}, {150, 20},
+		{300, 80}, {sidebarMinWidth, 24}, {220, 6}, {200, 4}, {180, 3},
 	}
 	files := make([]gitModifiedFile, 0, 40)
 	for i := range 40 {

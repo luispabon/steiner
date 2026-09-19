@@ -12,6 +12,7 @@ import (
 // also retained by the transcript, so reversing or aliasing it in place would
 // corrupt both.
 func TestApplyEventHistoryLoadedDoesNotMutatePayload(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 
 	original := []string{"one", "two", "three"}
@@ -43,6 +44,7 @@ func TestApplyEventHistoryLoadedDoesNotMutatePayload(t *testing.T) {
 // TestApplyEventHistoryLoadedEmptyPayloadKeepsHistory proves a nil or empty
 // snapshot does not clear history the user is already browsing.
 func TestApplyEventHistoryLoadedEmptyPayloadKeepsHistory(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		prompts []string

@@ -2587,6 +2587,7 @@ func TestFinishGroupedToolCallUpdatesMatchingCallID(t *testing.T) {
 }
 
 func TestRenderToolPreviewUsesChromaStylesForMarkdown(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 
 	buffer := &contentBuffer{
@@ -2610,6 +2611,7 @@ func TestRenderToolPreviewUsesChromaStylesForMarkdown(t *testing.T) {
 }
 
 func TestRenderToolPreviewUsesChromaStylesForMakefile(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 
 	buffer := &contentBuffer{
@@ -2699,6 +2701,7 @@ func TestRenderReadFilePreviewIncludesLanguageInCaption(t *testing.T) {
 }
 
 func TestRenderToolPreviewKeepsGoSyntaxStyling(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 
 	buffer := &contentBuffer{
@@ -2722,6 +2725,7 @@ func TestRenderToolPreviewKeepsGoSyntaxStyling(t *testing.T) {
 }
 
 func TestRenderToolPreviewPreservesDiffSyntaxHighlighting(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 
 	buffer := &contentBuffer{
@@ -2748,6 +2752,7 @@ func TestRenderToolPreviewPreservesDiffSyntaxHighlighting(t *testing.T) {
 }
 
 func TestRenderToolPreviewTrimsSharedMarkdownHeadingInDiffs(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 
 	buffer := &contentBuffer{
@@ -3790,6 +3795,7 @@ func TestRenderToolApprovalBlockMCPShowsServerToolAndSessionButton(t *testing.T)
 }
 
 func TestContentBufferSegmentHeights(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		segments []contentSegment

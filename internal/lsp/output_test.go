@@ -9,6 +9,7 @@ import (
 )
 
 func TestFormatLocationsEmpty(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	res := Result{
 		Locations:  []Location{},
@@ -23,6 +24,7 @@ func TestFormatLocationsEmpty(t *testing.T) {
 }
 
 func TestFormatLocationsIncompleteEmpty(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100, ReadyTimeout: config.MustDuration("5s")}
 	res := Result{
 		Locations:  []Location{},
@@ -40,6 +42,7 @@ func TestFormatLocationsIncompleteEmpty(t *testing.T) {
 }
 
 func TestFormatLocationsSingle(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	res := Result{
 		Locations: []Location{
@@ -59,6 +62,7 @@ func TestFormatLocationsSingle(t *testing.T) {
 }
 
 func TestFormatLocationsTruncated(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 10}
 	res := Result{
 		Locations: []Location{
@@ -76,6 +80,7 @@ func TestFormatLocationsTruncated(t *testing.T) {
 }
 
 func TestFormatLocationsFallbackAbsolute(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	res := Result{
 		Locations: []Location{
@@ -92,6 +97,7 @@ func TestFormatLocationsFallbackAbsolute(t *testing.T) {
 }
 
 func TestFormatHoverEmpty(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100, ReadyTimeout: config.MustDuration("5s")}
 	res := HoverResult{
 		Content:    HoverContent{Text: ""},
@@ -105,6 +111,7 @@ func TestFormatHoverEmpty(t *testing.T) {
 }
 
 func TestFormatHoverIncompleteEmpty(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100, ReadyTimeout: config.MustDuration("5s")}
 	res := HoverResult{
 		Content:    HoverContent{Text: ""},
@@ -121,6 +128,7 @@ func TestFormatHoverIncompleteEmpty(t *testing.T) {
 }
 
 func TestFormatHoverWithContent(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	res := HoverResult{
 		Content:    HoverContent{Text: "This is hover content"},
@@ -134,6 +142,7 @@ func TestFormatHoverWithContent(t *testing.T) {
 }
 
 func TestFormatHoverTruncation(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	// Create content that exceeds maxHoverChars (4000 chars).
 	longContent := strings.Repeat("a", 4500)
@@ -152,6 +161,7 @@ func TestFormatHoverTruncation(t *testing.T) {
 }
 
 func TestFormatHoverTruncationRuneBoundary(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	// Create content with multi-byte characters near the truncation boundary.
 	// Create 5000 runes total (exceeds maxHoverChars=4000).
@@ -192,6 +202,7 @@ func isValidUTF8(s string) bool {
 }
 
 func TestDiagnosticsOutputClean(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	res := DiagResult{
 		Items:         []Diagnostic{},
@@ -209,6 +220,7 @@ func TestDiagnosticsOutputClean(t *testing.T) {
 }
 
 func TestDiagnosticsOutputProvisional(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	res := DiagResult{
 		Items:         []Diagnostic{},
@@ -229,6 +241,7 @@ func TestDiagnosticsOutputProvisional(t *testing.T) {
 }
 
 func TestDiagnosticsOutputDistinguishesCleanFromProvisional(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 
 	cleanRes := DiagResult{
@@ -267,6 +280,7 @@ func TestDiagnosticsOutputDistinguishesCleanFromProvisional(t *testing.T) {
 }
 
 func TestDiagnosticsWithItems(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	res := DiagResult{
 		Items: []Diagnostic{
@@ -300,6 +314,7 @@ func TestDiagnosticsWithItems(t *testing.T) {
 }
 
 func TestDiagnosticsOmitSourceAndCodeWhenEmpty(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	res := DiagResult{
 		Items: []Diagnostic{
@@ -327,6 +342,7 @@ func TestDiagnosticsOmitSourceAndCodeWhenEmpty(t *testing.T) {
 }
 
 func TestDiagnosticsTruncated(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 10}
 	res := DiagResult{
 		Items: []Diagnostic{
@@ -350,6 +366,7 @@ func TestDiagnosticsTruncated(t *testing.T) {
 }
 
 func TestFormatOmittedCounts(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 2}
 
 	locations := Result{
@@ -378,6 +395,7 @@ func TestFormatOmittedCounts(t *testing.T) {
 }
 
 func TestFormatSymbolsEmpty(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	res := SymbolResult{Symbols: []SymbolInfo{}}
 
@@ -388,6 +406,7 @@ func TestFormatSymbolsEmpty(t *testing.T) {
 }
 
 func TestFormatSymbolsIncompleteEmpty(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100, ReadyTimeout: config.MustDuration("5s")}
 	res := SymbolResult{Symbols: []SymbolInfo{}, Incomplete: true}
 
@@ -401,6 +420,7 @@ func TestFormatSymbolsIncompleteEmpty(t *testing.T) {
 }
 
 func TestFormatSymbolsSingle(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	res := SymbolResult{
 		Symbols: []SymbolInfo{
@@ -418,6 +438,7 @@ func TestFormatSymbolsSingle(t *testing.T) {
 }
 
 func TestFormatSymbolsContainer(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
 	res := SymbolResult{
 		Symbols: []SymbolInfo{
@@ -432,6 +453,7 @@ func TestFormatSymbolsContainer(t *testing.T) {
 }
 
 func TestFormatSymbolsTruncated(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 10}
 	res := SymbolResult{
 		Symbols: []SymbolInfo{
@@ -448,6 +470,7 @@ func TestFormatSymbolsTruncated(t *testing.T) {
 }
 
 func TestMakeRelative(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		root    string

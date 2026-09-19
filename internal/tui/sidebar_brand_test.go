@@ -15,6 +15,7 @@ import (
 const brandLinesTestWidth = sidebarWidth - sidebarPadH*2
 
 func TestSidebarStateBrandLines(t *testing.T) {
+	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
 
 	tests := []struct {

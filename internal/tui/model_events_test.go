@@ -113,6 +113,7 @@ func TestApplyEventOneshotFinishedClearsState(t *testing.T) {
 }
 
 func TestApplyEventPromotesQueuedStandaloneApprovalPill(t *testing.T) {
+	t.Parallel()
 	first := &approvalPillData{tool: "bash", mode: "prompt", preview: `{"command":"pwd"}`}
 	second := &approvalPillData{tool: "read", mode: "prompt", preview: `{"path":"note.txt"}`}
 	m := newModel(Config{}, nil)

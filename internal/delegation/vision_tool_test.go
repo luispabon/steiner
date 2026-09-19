@@ -14,6 +14,7 @@ import (
 )
 
 func TestVisionHandler_DeferredGateReleaseUnblocksFollower(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	imgPath := filepath.Join(dir, "test.png")
 	if err := os.WriteFile(imgPath, []byte("fake-png-content"), 0o600); err != nil {
@@ -84,6 +85,7 @@ func TestVisionHandler_DeferredGateReleaseUnblocksFollower(t *testing.T) {
 }
 
 func TestVisionHandler_DispatchGateLeaderWrapsEvents(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	imgPath := filepath.Join(dir, "test.png")
 	if err := os.WriteFile(imgPath, []byte("fake-png-content"), 0o600); err != nil {
@@ -143,6 +145,7 @@ func TestVisionHandler_DispatchGateLeaderWrapsEvents(t *testing.T) {
 }
 
 func TestVisionHandler_CancelledBeforeDispatchCleansTraceWriter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	imgPath := filepath.Join(dir, "test.png")
 	if err := os.WriteFile(imgPath, []byte("fake-png-content"), 0o600); err != nil {

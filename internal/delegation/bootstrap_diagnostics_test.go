@@ -8,6 +8,7 @@ import (
 )
 
 func TestBuildChildRunRequestCarriesDiagnostics(t *testing.T) {
+	t.Parallel()
 	writer, err := diagnostics.New(diagnostics.Options{Dir: t.TempDir(), Streams: diagnostics.Streams{Tool: true}})
 	if err != nil {
 		t.Fatalf("diagnostics.New() error = %v", err)
@@ -27,6 +28,7 @@ func TestBuildChildRunRequestCarriesDiagnostics(t *testing.T) {
 }
 
 func TestBuildChildRunRequestWithoutDiagnostics(t *testing.T) {
+	t.Parallel()
 	req := buildChildRunRequest(childRunRequestParams{
 		WorkDir:    "/tmp/work",
 		AgentID:    "no-diagnostics-child",

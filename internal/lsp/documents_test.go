@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 )
 
 func TestLanguageIDFor(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		file   string
 		expect string
@@ -37,6 +39,7 @@ func TestLanguageIDFor(t *testing.T) {
 }
 
 func TestWithDocument(t *testing.T) {
+	t.Parallel()
 	// Set up a fake session.
 	fs := newFakeServer()
 	fs.definitionResult = &protocol.Location{
@@ -68,6 +71,13 @@ func TestWithDocument(t *testing.T) {
 	fs.onDidClose = func(context.Context, *protocol.DidCloseTextDocumentParams) {
 		close(closeDone)
 	}
+	// The fake server handles notifications on separate goroutines, so didOpen
+	// and didClose can be recorded in either order: wait for both.
+	openDone := make(chan struct{})
+	var openOnce sync.Once
+	fs.onDidOpen = func(context.Context, *protocol.DidOpenTextDocumentParams) {
+		openOnce.Do(func() { close(openDone) })
+	}
 
 	// Test successful open and close.
 	fnCalled := false
@@ -87,6 +97,11 @@ func TestWithDocument(t *testing.T) {
 	case <-closeDone:
 	case <-time.After(testTimeout):
 		t.Fatal("timeout waiting for didClose to be recorded")
+	}
+	select {
+	case <-openDone:
+	case <-time.After(testTimeout):
+		t.Fatal("timeout waiting for didOpen to be recorded")
 	}
 
 	// Verify didOpen and didClose were recorded.
@@ -110,6 +125,7 @@ func TestWithDocument(t *testing.T) {
 }
 
 func TestWithDocumentClosesEvenOnError(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()

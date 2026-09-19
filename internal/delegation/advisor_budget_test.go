@@ -6,6 +6,7 @@ import (
 )
 
 func TestAdvisorBudgetStoreStateForSameID(t *testing.T) {
+	t.Parallel()
 	store := NewAdvisorBudgetStore()
 	state1 := store.StateFor("child-1")
 	state2 := store.StateFor("child-1")
@@ -15,6 +16,7 @@ func TestAdvisorBudgetStoreStateForSameID(t *testing.T) {
 }
 
 func TestAdvisorBudgetStoreStateForDifferentIDs(t *testing.T) {
+	t.Parallel()
 	store := NewAdvisorBudgetStore()
 	state1 := store.StateFor("child-1")
 	state2 := store.StateFor("child-2")
@@ -24,6 +26,7 @@ func TestAdvisorBudgetStoreStateForDifferentIDs(t *testing.T) {
 }
 
 func TestAdvisorBudgetStoreIsolatedFromParent(t *testing.T) {
+	t.Parallel()
 	store := NewAdvisorBudgetStore()
 	parentState := store.StateFor("parent")
 	childState := store.StateFor("child-1")
@@ -33,6 +36,7 @@ func TestAdvisorBudgetStoreIsolatedFromParent(t *testing.T) {
 }
 
 func TestAdvisorBudgetStoreConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	store := NewAdvisorBudgetStore()
 	const numGoroutines = 10
 	var wg sync.WaitGroup
@@ -63,6 +67,7 @@ func TestAdvisorBudgetStoreConcurrentAccess(t *testing.T) {
 }
 
 func TestAdvisorBudgetStoreReset(t *testing.T) {
+	t.Parallel()
 	store := NewAdvisorBudgetStore()
 	state1 := store.StateFor("child-1")
 	store.Reset()

@@ -16,6 +16,7 @@ import (
 )
 
 func TestAbsWorkspacePath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		workspace string
@@ -64,6 +65,7 @@ type opOutcome struct {
 // absolute twin route to the same session, open the same document and return
 // the same results.
 func TestOperationsResolveRelativePaths(t *testing.T) {
+	t.Parallel()
 	definitionTarget := protocol.Location{
 		URI: uri.File("/target/defined.go"),
 		Range: protocol.Range{

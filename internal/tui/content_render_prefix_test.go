@@ -15,6 +15,7 @@ import (
 // applies the changing condition, and compares the rendered output against a
 // cold reference buffer built from the same content.
 func TestContentStringPrefixCache(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 	styles := testStyles(theme.AccentAmber)
 
@@ -177,6 +178,7 @@ func TestContentStringPrefixCacheToolCallFinished(t *testing.T) {
 // active spinner (active delegation) re-renders every frame and must never be
 // folded into the settled prefix.
 func TestActiveDelegationStaysOutsidePrefix(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 	styles := testStyles(theme.AccentAmber)
 

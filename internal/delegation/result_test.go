@@ -33,6 +33,7 @@ func makeRunState(turnCount, tokenCount int, stopReason agent.StopReason, lastAs
 }
 
 func TestBuildResult(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name                 string
 		agentID              string
@@ -160,6 +161,7 @@ func TestBuildResult(t *testing.T) {
 }
 
 func TestBuildResultCarriesCacheTokens(t *testing.T) {
+	t.Parallel()
 	state := agent.RunState{
 		TurnCount:         3,
 		TokenCount:        1000,
@@ -186,6 +188,7 @@ func TestBuildResultCarriesCacheTokens(t *testing.T) {
 }
 
 func TestCountAdvisorUsage(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		conv       []agent.Message
@@ -314,6 +317,7 @@ func TestCountAdvisorUsage(t *testing.T) {
 }
 
 func TestEffectiveAdvisorBudget(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name             string
 		advisorAvailable bool
@@ -363,6 +367,7 @@ func TestEffectiveAdvisorBudget(t *testing.T) {
 }
 
 func TestAppendAdvisorSummaryLine(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name               string
 		output             string
@@ -418,6 +423,7 @@ func TestAppendAdvisorSummaryLine(t *testing.T) {
 }
 
 func TestProviderRelativeWorktreePath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		projectRoot  string
@@ -480,6 +486,7 @@ func TestProviderRelativeWorktreePath(t *testing.T) {
 }
 
 func TestProjectToolResultWorktreePathSerialization(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		result      Result

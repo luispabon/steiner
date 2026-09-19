@@ -19,6 +19,7 @@ func delegateCancelTestRows() []delegateActiveRow {
 }
 
 func TestDelegateCancelModalSelectorRouting(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.delegateCancelModal = openDelegateCancelModal(80, 24, delegateCancelTestRows())
 	m.status.mode = "running"
@@ -55,6 +56,7 @@ func TestDelegateCancelModalSelectorRouting(t *testing.T) {
 }
 
 func TestDelegateCancelModalDispatchesActions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		screen     delegateCancelScreen
@@ -127,6 +129,7 @@ func TestDelegateCancelModalDispatchesActions(t *testing.T) {
 }
 
 func TestDelegateCancelModalStopRunDispatchesInterrupt(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 	m := newModel(Config{}, nil)
 	m.controller = ctrl
@@ -147,6 +150,7 @@ func TestDelegateCancelModalStopRunDispatchesInterrupt(t *testing.T) {
 }
 
 func TestDelegateCancelModalKeepWorkingRefreshesRows(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.content.AppendEvent(output.NewDelegationStartedEventWithType("explore-1", "inspect", "", "", "explore"))
 	m.content.AppendEvent(output.NewDelegationStartedEventWithType("code-1", "change", "", "", "code"))
@@ -166,6 +170,7 @@ func TestDelegateCancelModalKeepWorkingRefreshesRows(t *testing.T) {
 }
 
 func TestDelegateCancelModalStopDoesNotDispatchStaleTarget(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{}
 	m := newModel(Config{}, nil)
 	m.controller = ctrl
@@ -201,6 +206,7 @@ func TestDelegateCancelModalStopDoesNotDispatchStaleTarget(t *testing.T) {
 }
 
 func TestDelegateCancelModalSelectorMarkers(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	rows := delegateCancelTestRows()
 	rows[0].taskPreview = strings.Repeat("long preview ", 20)
@@ -245,6 +251,7 @@ func TestDelegateCancelModalSelectorMarkers(t *testing.T) {
 }
 
 func TestDelegateCancelModalRenderSelectorRow(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.delegateCancelModal = openDelegateCancelModal(80, 24, []delegateActiveRow{{
 		agentID:     "explore-1",
@@ -264,6 +271,7 @@ func TestDelegateCancelModalRenderSelectorRow(t *testing.T) {
 }
 
 func TestDelegateCancelModalShortcutOpensOnlyWithActiveDelegate(t *testing.T) {
+	t.Parallel()
 	keys := []tea.KeyPressMsg{
 		{Code: tea.KeyEsc},
 		{Code: 'c', Mod: tea.ModCtrl},

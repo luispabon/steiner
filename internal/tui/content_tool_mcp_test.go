@@ -84,6 +84,7 @@ func TestMCPToolDisplayTag(t *testing.T) {
 // empty, or populated with unrelated entries — the primary regression risk
 // for this change.
 func TestMCPRenderToolCallFrameBuiltinUnchanged(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 
 	segment := &toolCallSegment{
@@ -120,6 +121,7 @@ func TestMCPRenderToolCallFrameBuiltinUnchanged(t *testing.T) {
 // the "server → tool" tag and the dedicated MCP tag/border styles instead of
 // the default ones.
 func TestMCPRenderToolCallFrameAttribution(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 
 	styles := testStyles(theme.AccentAmber)
@@ -175,6 +177,7 @@ func TestMCPRenderToolCallFrameAttribution(t *testing.T) {
 // layout: the rendered line stays within the requested width and args are
 // still truncated to fit.
 func TestMCPLongTagHeaderLayout(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 
 	buffer := &contentBuffer{

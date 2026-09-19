@@ -69,6 +69,7 @@ func callAdvisorHandler(t *testing.T, reg *tool.Registry) {
 }
 
 func TestBuildDelegateRegistryChildFactoryKeepsParentSessionSeparateFromCacheKey(t *testing.T) {
+	t.Parallel()
 	const parentSessionID = "parent-session-id"
 	childProvider := &fakeProvider{responses: []provider.ChatResponse{
 		{Message: provider.Message{Content: "child result"}, FinishReason: "stop"},
@@ -129,6 +130,7 @@ func TestBuildDelegateRegistryChildFactoryKeepsParentSessionSeparateFromCacheKey
 }
 
 func TestBuildDelegateRegistryDisablesChildLSPGuidanceWithoutServers(t *testing.T) {
+	t.Parallel()
 	for _, servers := range []map[string]config.LSPServerConfig{nil, {}} {
 		t.Run("enabled LSP without configured servers", func(t *testing.T) {
 			fake := &fakeProvider{responses: []provider.ChatResponse{
@@ -175,6 +177,7 @@ func TestBuildDelegateRegistryDisablesChildLSPGuidanceWithoutServers(t *testing.
 }
 
 func TestBuildDelegateRegistryAdvisorCacheKeyStableAcrossCalls(t *testing.T) {
+	t.Parallel()
 	store := NewCacheKeyStore()
 	prov := &fakeProvider{responses: []provider.ChatResponse{
 		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
@@ -224,6 +227,7 @@ func TestBuildDelegateRegistryAdvisorCacheKeyStableAcrossCalls(t *testing.T) {
 }
 
 func TestBuildDelegateRegistryAdvisorFallsBackToProfileDefault(t *testing.T) {
+	t.Parallel()
 	cfg := advisorTestConfig()
 	cfg.Models.Effective.Advisor = ""
 	cfg.Models.Effective.DefaultModel = "profile-default"
@@ -262,6 +266,7 @@ func TestBuildDelegateRegistryAdvisorFallsBackToProfileDefault(t *testing.T) {
 }
 
 func TestBuildDelegateRegistryAdvisorNamedProfileFallsBackToProfileDefault(t *testing.T) {
+	t.Parallel()
 	cfg := advisorTestConfig()
 	cfg.Models.Effective.ProfileName = "named"
 	cfg.Models.Effective.Advisor = ""
@@ -301,6 +306,7 @@ func TestBuildDelegateRegistryAdvisorNamedProfileFallsBackToProfileDefault(t *te
 }
 
 func TestBuildDelegateRegistryAdvisorProfileDefaultResolverError(t *testing.T) {
+	t.Parallel()
 	cfg := advisorTestConfig()
 	cfg.Models.Effective.Advisor = ""
 	cfg.Models.Effective.DefaultModel = "missing-profile-default"
@@ -324,6 +330,7 @@ func TestBuildDelegateRegistryAdvisorProfileDefaultResolverError(t *testing.T) {
 }
 
 func TestBuildDelegateRegistryExcludesVisionForEmptyAssignment(t *testing.T) {
+	t.Parallel()
 	cfg := advisorTestConfig()
 	cfg.Models.Effective.DefaultModel = "advisor"
 	cfg.Models.Effective.SubAgents = map[string]string{string(AgentTypeVision): ""}
@@ -345,6 +352,7 @@ func TestBuildDelegateRegistryExcludesVisionForEmptyAssignment(t *testing.T) {
 }
 
 func TestBuildDelegateRegistryAdvisorBudgetPersistsAcrossCallsViaAdvisorState(t *testing.T) {
+	t.Parallel()
 	state := advisor.NewSharedState()
 	prov := &fakeProvider{responses: []provider.ChatResponse{
 		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
@@ -405,6 +413,7 @@ func TestBuildDelegateRegistryAdvisorBudgetPersistsAcrossCallsViaAdvisorState(t 
 }
 
 func TestBuildDelegateRegistryAdvisorCacheKeyFallsBackWhenStoreNil(t *testing.T) {
+	t.Parallel()
 	prov := &fakeProvider{responses: []provider.ChatResponse{
 		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
 	}}
@@ -439,6 +448,7 @@ func TestBuildDelegateRegistryAdvisorCacheKeyFallsBackWhenStoreNil(t *testing.T)
 }
 
 func TestBuildDelegateRegistryAppliesAdvisorTimeout(t *testing.T) {
+	t.Parallel()
 	// Build a minimal config that allows model resolution to succeed without
 	// making any real HTTP calls (limits are fully configured).
 	cfg := config.Config{
@@ -554,6 +564,7 @@ func TestBuildDelegateRegistryAppliesAdvisorTimeout(t *testing.T) {
 }
 
 func TestBuildDelegateRegistryRegistersAdvisorSchemaWithQuestionAndFiles(t *testing.T) {
+	t.Parallel()
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
 			"testprov": {
@@ -615,6 +626,7 @@ func TestBuildDelegateRegistryRegistersAdvisorSchemaWithQuestionAndFiles(t *test
 }
 
 func TestBuildDelegateRegistryAdvisorNotRegisteredWhenDisabled(t *testing.T) {
+	t.Parallel()
 	reg, err := BuildDelegateRegistry(DelegateDeps{
 		BaseRegistry: tool.NewRegistry(),
 		SubAgentCfg:  config.SubAgentConfig{Enabled: false, MaxFollowUps: 100},
@@ -638,6 +650,7 @@ func TestBuildDelegateRegistryAdvisorNotRegisteredWhenDisabled(t *testing.T) {
 }
 
 func TestBuildDelegateRegistryAdvisorUsesConfigMaxUsesPerRun(t *testing.T) {
+	t.Parallel()
 	state := advisor.NewSharedState()
 	prov := &fakeProvider{responses: []provider.ChatResponse{
 		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},

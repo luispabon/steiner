@@ -25,6 +25,7 @@ func remediationTestRequest() agent.RunRequest {
 }
 
 func TestApplyRemediation(t *testing.T) {
+	t.Parallel()
 	initialState := successRunState()
 	originalOutput := "task result"
 	tests := []struct {
@@ -208,6 +209,7 @@ func remediationConfigWithHeadError(err error) *RemediationConfig {
 }
 
 func TestSpawnDelegate_RemediationKeepsOutput(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	remediationCalls := 0
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
@@ -264,6 +266,7 @@ func TestSpawnDelegate_RemediationKeepsOutput(t *testing.T) {
 }
 
 func TestSpawnDelegate_NonCompleteDirtySkipsRemediation(t *testing.T) {
+	t.Parallel()
 	remediationCalls := 0
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 		if len(req.Prompt.Conversation) > 0 && strings.Contains(req.Prompt.Conversation[len(req.Prompt.Conversation)-1].Content, "Pre-remediation HEAD") {

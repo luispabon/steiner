@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/mcp/testdata/fixtureserver"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -970,21 +970,30 @@ func findTool(t *testing.T, defs []tool.ToolDef, name string) tool.ToolDef {
 
 var cachedFixtureBin string
 
-// TestMain builds the fixtureserver binary once per test process into a
-// temporary directory shared by every test in this package, and publishes the
-// path in STEINER_MCP_FIXTURE_BIN for the external test package (package
-// mcp_test): the go tool allows only one TestMain per test binary, so the
-// external package reads the shared path instead of defining its own.
+// TestMain serves as the fixture server when re-exec'd by the wrapper script,
+// and otherwise writes that wrapper once per test process into a temporary
+// directory shared by every test in this package. It publishes the path in
+// STEINER_MCP_FIXTURE_BIN for the external test package (package mcp_test): the
+// go tool allows only one TestMain per test binary, so the external package
+// reads the shared path instead of defining its own.
 func TestMain(m *testing.M) {
+	if os.Getenv(fixtureserver.Env) == "1" {
+		fixtureserver.Main()
+		os.Exit(0)
+	}
 	dir, err := os.MkdirTemp("", "steiner-mcp-fixture")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "create fixture dir: %v\n", err)
 		os.Exit(1)
 	}
-	cachedFixtureBin = filepath.Join(dir, "fixtureserver")
-	cmd := exec.Command("go", "build", "-o", cachedFixtureBin, "./testdata/fixtureserver") //nolint:noctx
-	if out, err := cmd.CombinedOutput(); err != nil {
-		fmt.Fprintf(os.Stderr, "build fixtureserver: %v\n%s", err, out)
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "resolve test executable: %v\n", err)
+		os.Exit(1)
+	}
+	cachedFixtureBin, err = fixtureserver.WriteWrapper(dir, "fixtureserver", fixtureserver.Env, exe)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "write fixture wrapper: %v\n", err)
 		os.Exit(1)
 	}
 	if err := os.Setenv("STEINER_MCP_FIXTURE_BIN", cachedFixtureBin); err != nil {
@@ -998,7 +1007,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// buildFixture returns the fixtureserver binary, built once per test process.
+// buildFixture returns the fixture server wrapper written by TestMain.
 func buildFixture(t *testing.T) string {
 	t.Helper()
 	return cachedFixtureBin

@@ -7,6 +7,7 @@ import (
 )
 
 func TestValidAgentType(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -35,6 +36,7 @@ func TestValidAgentType(t *testing.T) {
 }
 
 func TestAllAgentTypes(t *testing.T) {
+	t.Parallel()
 	types := AllAgentTypes()
 	if len(types) != 7 {
 		t.Fatalf("AllAgentTypes() returned %d types, want 7", len(types))
@@ -47,6 +49,7 @@ func TestAllAgentTypes(t *testing.T) {
 }
 
 func TestAllSpecializedDelegateTools(t *testing.T) {
+	t.Parallel()
 	tools := AllSpecializedDelegateTools()
 	want := []string{SubAgentToolName, FollowUpToolName}
 
@@ -61,6 +64,7 @@ func TestAllSpecializedDelegateTools(t *testing.T) {
 }
 
 func TestIsDelegationTool(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		want bool
@@ -95,6 +99,7 @@ func TestIsDelegationTool(t *testing.T) {
 }
 
 func TestAgentSystemPrompt(t *testing.T) {
+	t.Parallel()
 	for _, at := range AllAgentTypes() {
 		t.Run(string(at), func(t *testing.T) {
 			p := AgentSystemPrompt(at)
@@ -119,6 +124,7 @@ func TestAgentSystemPrompt(t *testing.T) {
 }
 
 func TestAgentSystemSuffix(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		agentType      AgentType
@@ -229,6 +235,7 @@ func TestAgentSystemSuffix(t *testing.T) {
 }
 
 func TestAgentAllowedTools(t *testing.T) {
+	t.Parallel()
 	legacyMutationTools := []string{"write", "edit", "apply_patch"}
 
 	for _, at := range AllAgentTypes() {
@@ -350,6 +357,7 @@ func TestAgentAllowedTools(t *testing.T) {
 }
 
 func TestAgentTypeVision(t *testing.T) {
+	t.Parallel()
 	t.Run("appears in AllAgentTypes", func(t *testing.T) {
 		if !slices.Contains(AllAgentTypes(), AgentTypeVision) {
 			t.Fatal("AgentTypeVision not found in AllAgentTypes()")
@@ -378,6 +386,7 @@ func TestAgentTypeVision(t *testing.T) {
 }
 
 func TestAgentAllowedToolsUnchangedByMerge(t *testing.T) {
+	t.Parallel()
 	// Merging extra tools must not mutate the built-in allowlists: the values
 	// returned by AgentAllowedTools are identical before and after a merge, and
 	// mutating the merged result does not leak into them.
@@ -396,6 +405,7 @@ func TestAgentAllowedToolsUnchangedByMerge(t *testing.T) {
 }
 
 func TestTemplateLoading(t *testing.T) {
+	t.Parallel()
 	// Verify that all agent prompts and the code suffix template load
 	// successfully without errors. This ensures the embedded templates are
 	// present and valid at runtime.

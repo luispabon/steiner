@@ -13,6 +13,7 @@ import (
 // internal/prompt, so the reverse is an import cycle), so a Go rename or an
 // added/removed AgentType is caught here rather than being impossible.
 func TestPreambleSpecialistRosterMatchesAgentTypes(t *testing.T) {
+	t.Parallel()
 	roster := prompt.SpecialistNames()
 
 	want := []string{"explore", "research", "code", "evaluate", "sanity_check", "review"}

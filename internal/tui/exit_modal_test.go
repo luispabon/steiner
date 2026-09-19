@@ -9,6 +9,7 @@ import (
 )
 
 func TestExitModalRenderIsCompactWithSingleFooterDivider(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -46,6 +47,7 @@ func TestExitModalRenderIsCompactWithSingleFooterDivider(t *testing.T) {
 }
 
 func TestExitModalRenderKeepsButtonsOnSingleLine(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -70,6 +72,7 @@ func TestExitModalRenderKeepsButtonsOnSingleLine(t *testing.T) {
 }
 
 func TestExitModalKeys(t *testing.T) {
+	t.Parallel()
 	t.Run("default selection is exit", func(t *testing.T) {
 		m := newModel(Config{}, nil)
 		m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})

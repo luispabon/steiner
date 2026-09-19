@@ -3247,6 +3247,7 @@ func TestContentBufferReflowsMarkdownForViewportWidth(t *testing.T) {
 }
 
 func TestApplyComposerCursorAnsi(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		input           string
@@ -3342,6 +3343,7 @@ func TestApplyComposerCursorAnsi(t *testing.T) {
 }
 
 func TestComposerCursorBoundaryCase(t *testing.T) {
+	t.Parallel()
 	// Test the boundary case from A3: when wrapped row is exactly full
 	// and cursor sits at the very end of the typed text (end of last row).
 	// The composer width should be chosen so a wrapped row is exactly full.
@@ -4678,6 +4680,11 @@ func TestMultiLineInputViewHeightNeverExceedsTerminal(t *testing.T) {
 	lineCounts := []int{1, 2, 4, 6, 10, 15}
 	for _, h := range heights {
 		for _, n := range lineCounts {
+			// Boundary combinations only: the smallest height with every line
+			// count, and every height with the largest line count.
+			if h != heights[0] && n != lineCounts[len(lineCounts)-1] {
+				continue
+			}
 			t.Run(fmt.Sprintf("h%d_n%d", h, n), func(t *testing.T) {
 				t.Parallel()
 				m := newModel(Config{}, nil)

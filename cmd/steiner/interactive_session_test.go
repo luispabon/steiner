@@ -459,7 +459,7 @@ func TestConnectRuntimeMCPBlockingWaitsAndRegistersTools(t *testing.T) {
 					Enabled:        true,
 					Command:        fixtureBin,
 					Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
-					ConnectTimeout: config.MustDuration("500ms"),
+					ConnectTimeout: config.MustDuration("200ms"),
 				},
 				"good": {Enabled: true, Command: fixtureBin},
 			},
@@ -528,6 +528,7 @@ func TestConnectRuntimeMCPAsyncReturnsBeforeServersResolve(t *testing.T) {
 
 func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 	fixtureBin := buildMCPFixture(t)
+	connectStart := time.Now()
 	mgr := mcp.Connect(context.Background(), config.MCPConfig{
 		Enabled: true,
 		Servers: map[string]config.MCPServerConfig{
@@ -535,7 +536,7 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 				Enabled:        true,
 				Command:        fixtureBin,
 				Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
-				ConnectTimeout: config.MustDuration("500ms"),
+				ConnectTimeout: config.MustDuration("1s"),
 			},
 			"good": {Enabled: true, Command: fixtureBin},
 		},
@@ -582,12 +583,15 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	start := time.Now()
 	if _, err := sr.Run(ctx, nil, nil, nil); err == nil {
 		t.Fatal("Run() error = nil, want fast failure after MCP init")
 	}
-	if elapsed := time.Since(start); elapsed < 400*time.Millisecond {
-		t.Fatalf("Run() returned after %v, want it to wait for the stalling server (500ms connect timeout)", elapsed)
+	// Measured from Connect: the fixture re-exec is a slow-starting test binary,
+	// so how much of the timeout is left when Run starts varies. The flip side is
+	// that the test would falsely pass if setup before Run took over ~900ms, so
+	// it guards against Run not waiting at all, not against a partial wait.
+	if elapsed := time.Since(connectStart); elapsed < 900*time.Millisecond {
+		t.Fatalf("Run() returned %v after Connect, want it to wait for the stalling server (1s connect timeout)", elapsed)
 	}
 
 	// Both servers resolved: stall failed, good connected.
@@ -829,7 +833,7 @@ func TestAwaitSessionRunsWaitsForTrackedHistoryWrite(t *testing.T) {
 	select {
 	case <-awaitDone:
 		t.Fatal("awaitSessionRuns returned while the tracked history write was still pending")
-	case <-time.After(time.Second):
+	case <-time.After(200 * time.Millisecond):
 	}
 
 	releaseWrite()
@@ -1043,7 +1047,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 	// Background goroutine
 	go func() {
 		defer wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		init.once.Do(func() { init.run(ctx, rt) })
 	}()
@@ -1051,7 +1055,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 	// Turn (should block in once.Do until background completes, then observe error)
 	go func() {
 		defer wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		init.once.Do(func() { init.run(ctx, rt) })
 		turnErr = init.err
@@ -1059,7 +1063,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 
 	wg.Wait()
 
-	// Both should observe the same error (WaitInit timed out while the stall server was still connecting; its ConnectTimeout outlives the 500ms ctx)
+	// Both should observe the same error (WaitInit timed out while the stall server was still connecting; its 500ms ConnectTimeout outlives the 200ms ctx)
 	if turnErr == nil {
 		t.Fatal("turn goroutine err = nil, want WaitInit timeout error")
 	}

@@ -7,6 +7,7 @@ import (
 )
 
 func TestLSPServerLogPath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -32,6 +33,7 @@ func TestLSPServerLogPath(t *testing.T) {
 }
 
 func TestNewLSPServerLogWriter(t *testing.T) {
+	t.Parallel()
 	t.Run("no-op for empty path", func(t *testing.T) {
 		w, err := NewServerLogWriter("")
 		if err != nil {

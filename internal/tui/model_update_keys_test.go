@@ -20,6 +20,7 @@ func loadComposerHistory(m *Model, mostRecentFirst ...string) {
 }
 
 func TestHandleKeyUpEmptyComposerRecallsHistory(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	loadComposerHistory(m, "most recent", "older")
 
@@ -41,6 +42,7 @@ func TestHandleKeyUpEmptyComposerRecallsHistory(t *testing.T) {
 }
 
 func TestHandleKeyUpSecondPressPagesToOlderEntry(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	loadComposerHistory(m, "most recent", "older")
 
@@ -56,6 +58,7 @@ func TestHandleKeyUpSecondPressPagesToOlderEntry(t *testing.T) {
 }
 
 func TestHandleKeyUpSingleLineDraftAtColumnZeroRecallsHistory(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	loadComposerHistory(m, "most recent", "older")
 
@@ -76,6 +79,7 @@ func TestHandleKeyUpSingleLineDraftAtColumnZeroRecallsHistory(t *testing.T) {
 }
 
 func TestHandleKeyUpMultilineDraftCursorOnTopLineRecallsHistory(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	loadComposerHistory(m, "most recent", "older")
 
@@ -95,6 +99,7 @@ func TestHandleKeyUpMultilineDraftCursorOnTopLineRecallsHistory(t *testing.T) {
 }
 
 func TestHandleKeyUpMultilineDraftCursorNotOnTopLineMovesCursor(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	loadComposerHistory(m, "most recent", "older")
 
@@ -120,6 +125,7 @@ func TestHandleKeyUpMultilineDraftCursorNotOnTopLineMovesCursor(t *testing.T) {
 }
 
 func TestHandleKeyUpConsecutivePressesKeepPagingThroughMultilineEntry(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	loadComposerHistory(m, "multi\nline\nentry", "older single line")
 
@@ -135,6 +141,7 @@ func TestHandleKeyUpConsecutivePressesKeepPagingThroughMultilineEntry(t *testing
 }
 
 func TestHandleKeyLeftAfterRecallExitsBrowseAndUpThenMovesCursor(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	loadComposerHistory(m, "multi\nline\nentry", "older single line")
 
@@ -163,6 +170,7 @@ func TestHandleKeyLeftAfterRecallExitsBrowseAndUpThenMovesCursor(t *testing.T) {
 }
 
 func TestHandleKeyDownMultilineDraftCursorOnTopLineMovesCursor(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 
 	original := "line one\nline two\nline three"
@@ -189,6 +197,7 @@ func TestHandleKeyDownMultilineDraftCursorOnTopLineMovesCursor(t *testing.T) {
 }
 
 func TestApprovalShortcutsOpenDelegateStopModal(t *testing.T) {
+	t.Parallel()
 	keys := []tea.KeyPressMsg{
 		{Code: tea.KeyEsc},
 		{Code: 'c', Mod: tea.ModCtrl},
@@ -209,6 +218,7 @@ func TestApprovalShortcutsOpenDelegateStopModal(t *testing.T) {
 }
 
 func TestApprovalShortcutsWithoutDelegateKeepApprovalBehavior(t *testing.T) {
+	t.Parallel()
 	for _, key := range []tea.KeyPressMsg{
 		{Code: tea.KeyEsc},
 		{Code: 'c', Mod: tea.ModCtrl},
@@ -244,6 +254,7 @@ func TestApprovalShortcutsWithoutDelegateKeepApprovalBehavior(t *testing.T) {
 }
 
 func TestEscapeClosesHelpBeforeDelegateStopModal(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.status.mode = "running"
 	m.helpVisible = true
@@ -259,6 +270,7 @@ func TestEscapeClosesHelpBeforeDelegateStopModal(t *testing.T) {
 }
 
 func TestHandleNavigationKeyOpensDelegateStopModal(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.controller = &testController{}
 	m.content.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "inspect", "", "", "explore"))

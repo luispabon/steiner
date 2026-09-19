@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -23,12 +22,27 @@ import (
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
+	"github.com/luispabon/steiner/internal/mcp/testdata/fixtureserver"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// buildMCPFixture returns the path to the internal/mcp fixture server binary,
-// compiled once per test process and shared by all callers.
+// cliHelperEnv makes the test binary act as the CLI helper (see cliHelperMain).
+const cliHelperEnv = "STEINER_CLI_TEST_HELPER"
+
+// writeReexecWrapper writes a wrapper script into dir that re-execs this test
+// binary with envVar=1. This replaces compiling helpers with go build at test
+// time, which is a non-race stdlib build that is cold in CI.
+func writeReexecWrapper(dir, name, envVar string) (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve test executable: %w", err)
+	}
+	return fixtureserver.WriteWrapper(dir, name, envVar, exe)
+}
+
+// buildMCPFixture returns the path to the internal/mcp fixture server wrapper,
+// written once per test process and shared by all callers.
 func buildMCPFixture(t *testing.T) string {
 	t.Helper()
 	built := buildMCPFixtureBinaryOnce()
@@ -50,11 +64,9 @@ var buildMCPFixtureBinaryOnce = sync.OnceValue(func() builtMCPFixtureBinary {
 	}
 	mcpFixtureBinaryDir = dir
 
-	bin := filepath.Join(dir, "fixtureserver")
-	cmd := exec.Command("go", "build", "-o", bin, "../../internal/mcp/testdata/fixtureserver") //nolint:noctx
-	output, err := cmd.CombinedOutput()
+	bin, err := writeReexecWrapper(dir, "fixtureserver", fixtureserver.Env)
 	if err != nil {
-		return builtMCPFixtureBinary{err: fmt.Errorf("build fixtureserver: %w: %s", err, strings.TrimSpace(string(output)))}
+		return builtMCPFixtureBinary{err: fmt.Errorf("write fixture wrapper: %w", err)}
 	}
 	return builtMCPFixtureBinary{path: bin}
 })

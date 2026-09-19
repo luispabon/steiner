@@ -35,6 +35,7 @@ func resizeFixtureModel(t *testing.T) *Model {
 // case exercises the same contract through relayoutInput. With autoScroll the
 // resize handler pins to the new bottom instead of preserving the offset.
 func TestResizeKeepsScrollPosition(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		start    int // yOffset before the resize; 839 means at the bottom

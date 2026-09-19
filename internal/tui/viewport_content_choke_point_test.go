@@ -19,6 +19,7 @@ import (
 // the line count to force a scrollbar and never renders content, so it is
 // listed as a known exception.
 func TestViewportSetContentChokePoint(t *testing.T) {
+	t.Parallel()
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatalf("read dir: %v", err)

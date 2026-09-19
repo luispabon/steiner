@@ -244,6 +244,7 @@ func TestWorkflowHandoffModalPlanningFolder(t *testing.T) {
 }
 
 func TestWorkflowHandoffModalWithAttachedPickerKeepsLineWidthsBounded(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})

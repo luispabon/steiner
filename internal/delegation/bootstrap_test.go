@@ -25,6 +25,7 @@ import (
 )
 
 func TestWithAgentScopeAddsAgentType(t *testing.T) {
+	t.Parallel()
 	var got output.Event
 	sink := withAgentScope("child-1", AgentTypeCode, output.SinkFunc(func(event output.Event) {
 		got = event
@@ -95,6 +96,7 @@ func testChildOverride(deps SubAgentHandlerDeps) ChildBootstrapOverrides {
 }
 
 func TestChildContextSkips(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		agentType          AgentType
 		skipProjectContext bool
@@ -119,6 +121,7 @@ func TestChildContextSkips(t *testing.T) {
 }
 
 func TestChildWorkflowMode(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		agentType AgentType
 		wantMode  prompt.WorkflowMode
@@ -141,6 +144,7 @@ func TestChildWorkflowMode(t *testing.T) {
 }
 
 func TestBuildChildRunUsesOverrideProviderAndModel(t *testing.T) {
+	t.Parallel()
 	rawProvider := stubProvider{name: "raw"}
 	resolvedProvider := stubProvider{name: "resolved"}
 	deps := SubAgentHandlerDeps{
@@ -168,6 +172,7 @@ func TestBuildChildRunUsesOverrideProviderAndModel(t *testing.T) {
 }
 
 func TestDeriveChildLimits(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		cfg         config.SubAgentConfig
@@ -251,6 +256,7 @@ func TestDeriveChildLimits(t *testing.T) {
 }
 
 func TestBuildChildPrompt(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		spec          Spec
@@ -435,6 +441,7 @@ func TestBuildChildPromptUsesSharedSystemPreambleWhenOverrideEmpty(t *testing.T)
 }
 
 func TestBuildChildRegistries(t *testing.T) {
+	t.Parallel()
 	t.Run("excludes delegate from both registries", func(t *testing.T) {
 		parent := tool.NewRegistry(
 			tool.ToolDef{Name: "read"},
@@ -501,6 +508,7 @@ func TestBuildChildRegistries(t *testing.T) {
 }
 
 func TestBuildChildRegistries_AllowedTools(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read"},
 		tool.ToolDef{Name: "write"},
@@ -574,6 +582,7 @@ func TestBuildChildRegistries_AllowedTools(t *testing.T) {
 }
 
 func TestBuildChildRegistriesContainsAllowedTools(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read"},
 		tool.ToolDef{Name: "bash"},
@@ -597,6 +606,7 @@ func TestBuildChildRegistriesContainsAllowedTools(t *testing.T) {
 }
 
 func TestBuildChildPromptDefaultSystemPrompt(t *testing.T) {
+	t.Parallel()
 	spec := Spec{Task: "do something"}
 	opts := buildChildPrompt(childPromptParams{
 		spec:      spec,
@@ -610,6 +620,7 @@ func TestBuildChildPromptDefaultSystemPrompt(t *testing.T) {
 }
 
 func TestBuildChildPromptCarriesStaticContextCache(t *testing.T) {
+	t.Parallel()
 	opts := buildChildPrompt(childPromptParams{spec: Spec{Task: "do the thing"}})
 	if opts.CachedStaticContext == nil {
 		t.Error("AssemblyOptions.CachedStaticContext = nil, want non-nil per-run cache")
@@ -620,6 +631,7 @@ func TestBuildChildPromptCarriesStaticContextCache(t *testing.T) {
 }
 
 func TestBuildChildPromptSkipProjectContext(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name               string
 		skipProjectContext bool
@@ -678,6 +690,7 @@ func TestBuildChildPromptSkipProjectContext(t *testing.T) {
 }
 
 func TestBuildChildRunDoesNotInheritActiveSkills(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
@@ -707,6 +720,7 @@ func TestBuildChildRunDoesNotInheritActiveSkills(t *testing.T) {
 }
 
 func TestBuildChildRunAllowedTools(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 		tool.ToolDef{Name: "write", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
@@ -749,6 +763,7 @@ func TestBuildChildRunAllowedTools(t *testing.T) {
 }
 
 func TestBuildChildRunResultToolSurface(t *testing.T) {
+	t.Parallel()
 	// Verify that BuildChildRun produces correct tool registries through
 	// the full bootstrap path.
 	parent := tool.NewRegistry(
@@ -802,6 +817,7 @@ func TestBuildChildRunResultToolSurface(t *testing.T) {
 }
 
 func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
@@ -852,6 +868,7 @@ func TestBuildChildRunUsesProvidedWorkDir(t *testing.T) {
 }
 
 func TestBuildChildRunThreadsMaxParallelTools(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", ParallelSafe: true, Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
@@ -901,6 +918,7 @@ func writeExecutableScript(t *testing.T, dir string, n int) string {
 }
 
 func TestBuildChildRunThreadsToolOutputMaxBytes(t *testing.T) {
+	t.Parallel()
 	scriptPath := writeExecutableScript(t, t.TempDir(), 2000)
 	parent := tool.NewRegistry(tool.ToolDef{Name: "probe", ExecPath: scriptPath})
 
@@ -933,6 +951,7 @@ func TestBuildChildRunThreadsToolOutputMaxBytes(t *testing.T) {
 }
 
 func TestBuildChildRunDefaultToolOutputMaxBytesWhenUnset(t *testing.T) {
+	t.Parallel()
 	scriptPath := writeExecutableScript(t, t.TempDir(), 2000)
 	parent := tool.NewRegistry(tool.ToolDef{Name: "probe", ExecPath: scriptPath})
 
@@ -964,6 +983,7 @@ func TestBuildChildRunDefaultToolOutputMaxBytesWhenUnset(t *testing.T) {
 }
 
 func TestBuildChildRunThreadsPathsBlockedPaths(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(tool.ToolDef{
 		Name:    "read",
 		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
@@ -998,6 +1018,7 @@ func TestBuildChildRunThreadsPathsBlockedPaths(t *testing.T) {
 }
 
 func TestBuildChildRunThreadsContextManagement(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }})
 
 	deps := SubAgentHandlerDeps{
@@ -1020,6 +1041,7 @@ func TestBuildChildRunThreadsContextManagement(t *testing.T) {
 }
 
 func TestBuildChildRunIncludesModel(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
@@ -1042,6 +1064,7 @@ func TestBuildChildRunIncludesModel(t *testing.T) {
 }
 
 func TestBuildChildRunIncludesMaxTokens(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
@@ -1068,6 +1091,7 @@ func TestBuildChildRunIncludesMaxTokens(t *testing.T) {
 }
 
 func TestBuildChildRunIncludesModelBudget(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
@@ -1100,6 +1124,7 @@ func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 }
 
 func TestBuildChildRunIncludesStreamingPreferred(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
@@ -1122,6 +1147,7 @@ func TestBuildChildRunIncludesStreamingPreferred(t *testing.T) {
 }
 
 func TestBuildChildRunIncludesTurnTimeout(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
@@ -1143,6 +1169,7 @@ func TestBuildChildRunIncludesTurnTimeout(t *testing.T) {
 }
 
 func TestBuildChildRun(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 		tool.ToolDef{Name: "delegate"},
@@ -1330,6 +1357,7 @@ func TestBuildChildRunRecorderPropagation(t *testing.T) {
 // agent.RunRequest, which is what lets cache diagnostics records attribute
 // sub-agent model calls to a specific delegation.
 func TestBuildChildRunAgentScopePropagation(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
@@ -1361,6 +1389,7 @@ func TestBuildChildRunAgentScopePropagation(t *testing.T) {
 // sandbox is disabled (or bypassed), the child preamble renders no sandbox
 // section and carries no writable mounts.
 func TestBuildChildRunSandboxDisabled(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
@@ -1390,6 +1419,7 @@ func TestBuildChildRunSandboxDisabled(t *testing.T) {
 // SubAgentHandlerDeps: when the parent sandbox is active, the child preamble renders
 // the same sandbox section with the writable mount paths.
 func TestBuildChildRunSandboxEnabled(t *testing.T) {
+	t.Parallel()
 	parent := tool.NewRegistry(
 		tool.ToolDef{Name: "read", Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }},
 	)
@@ -1438,6 +1468,7 @@ func (w *recordingSandboxWrapper) WrapCommandMode(cmd *exec.Cmd, readOnlyProject
 // SandboxWrapperKey resolved per call -> bash handler. The sentinel wrapper
 // must fire when the child runs bash. This is what #507 doubted.
 func TestChildBashIsSandboxed(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skipf("bash not available: %v", err)
 	}
@@ -1481,6 +1512,7 @@ func TestChildBashIsSandboxed(t *testing.T) {
 // execution mode via SubAgentHandlerDeps.ModeGetter, so its own executor resolves
 // readOnlyProject the same way the parent's would in plan mode.
 func TestChildModeGetterAppliesReadOnlyProjectInPlanMode(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skipf("bash not available: %v", err)
 	}
@@ -1521,6 +1553,7 @@ func TestChildModeGetterAppliesReadOnlyProjectInPlanMode(t *testing.T) {
 }
 
 func TestChildExploreBashContextIsReadOnly(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		agentType AgentType
@@ -1565,6 +1598,7 @@ func TestChildExploreBashContextIsReadOnly(t *testing.T) {
 }
 
 func TestBuildChildRunRequestPromptCacheKeyFallsBackWhenStoreNil(t *testing.T) {
+	t.Parallel()
 	req := buildChildRunRequest(childRunRequestParams{
 		WorkDir:    "/tmp/work",
 		AgentID:    "cache-key-nil-store",
@@ -1577,6 +1611,7 @@ func TestBuildChildRunRequestPromptCacheKeyFallsBackWhenStoreNil(t *testing.T) {
 }
 
 func TestBuildChildRunRequestEnablesParallelSafeToolsOnly(t *testing.T) {
+	t.Parallel()
 	execReg := tool.NewRegistry(
 		tool.ToolDef{Name: "read", ParallelSafe: true},
 		tool.ToolDef{Name: "bash"},
@@ -1603,6 +1638,7 @@ func TestBuildChildRunRequestEnablesParallelSafeToolsOnly(t *testing.T) {
 }
 
 func TestBuildChildRunRequestNeverEnablesDelegationTools(t *testing.T) {
+	t.Parallel()
 	// Children never have delegation tools in their exec registry (they
 	// can't nest), so the child ParallelClassOf classifier must only consult the
 	// registry, never delegation.IsDelegationTool.
@@ -1618,6 +1654,7 @@ func TestBuildChildRunRequestNeverEnablesDelegationTools(t *testing.T) {
 }
 
 func TestBuildChildRunRequestPromptCacheKeyReusePerAgentType(t *testing.T) {
+	t.Parallel()
 	store := NewCacheKeyStore()
 
 	first := buildChildRunRequest(childRunRequestParams{
@@ -1657,6 +1694,7 @@ func TestBuildChildRunRequestPromptCacheKeyReusePerAgentType(t *testing.T) {
 }
 
 func TestMCPChildRegistryRetainsHandlersAndProvenance(t *testing.T) {
+	t.Parallel()
 	handler := func(_ context.Context, _ map[string]any) (any, error) { return "ok", nil }
 	prov := tool.MCPProvenance{Server: "notes", ToolName: "search"}
 	parent := tool.NewRegistry(
@@ -1689,6 +1727,7 @@ func TestMCPChildRegistryRetainsHandlersAndProvenance(t *testing.T) {
 // SandboxTmpDir the same mutation is denied because /tmp is outside the
 // project root and the child has no approver.
 func TestBuildChildRunSandboxTmpDir(t *testing.T) {
+	t.Parallel()
 	workDir := t.TempDir()
 	sandboxTmpDir := filepath.Join(workDir, "sandbox-tmp")
 	if err := os.MkdirAll(sandboxTmpDir, 0o755); err != nil {

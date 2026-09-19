@@ -16,6 +16,7 @@ import (
 )
 
 func TestToolDefsCount(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -27,6 +28,7 @@ func TestToolDefsCount(t *testing.T) {
 }
 
 func TestToolDefsNames(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -45,6 +47,7 @@ func TestToolDefsNames(t *testing.T) {
 }
 
 func TestToolDefsOrdering(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		cfg  config.LSPConfig
@@ -99,6 +102,7 @@ func TestToolDefsOrdering(t *testing.T) {
 }
 
 func TestToolDefsParallelSafe(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -112,6 +116,7 @@ func TestToolDefsParallelSafe(t *testing.T) {
 }
 
 func TestToolDefsSchemas(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -203,6 +208,7 @@ func TestToolDefsSchemas(t *testing.T) {
 }
 
 func TestReferencesIncludeDeclarationDefault(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{
 		Servers: map[string]config.LSPServerConfig{
 			"test": {
@@ -236,6 +242,7 @@ func TestReferencesIncludeDeclarationDefault(t *testing.T) {
 }
 
 func TestNoServerError(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -267,6 +274,7 @@ func TestNoServerError(t *testing.T) {
 }
 
 func TestServerExitedError(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{
 		Servers: map[string]config.LSPServerConfig{
 			"mock": {
@@ -294,6 +302,7 @@ func TestServerExitedError(t *testing.T) {
 }
 
 func TestFailedServerError(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{
 		Servers: map[string]config.LSPServerConfig{
 			"mock": {
@@ -318,6 +327,7 @@ func TestFailedServerError(t *testing.T) {
 }
 
 func TestNoServerErrorHover(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -349,6 +359,7 @@ func TestNoServerErrorHover(t *testing.T) {
 }
 
 func TestServerExitedErrorHover(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{
 		Servers: map[string]config.LSPServerConfig{
 			"mock": {
@@ -376,6 +387,7 @@ func TestServerExitedErrorHover(t *testing.T) {
 }
 
 func TestFailedServerErrorHover(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{
 		Servers: map[string]config.LSPServerConfig{
 			"mock": {
@@ -400,6 +412,7 @@ func TestFailedServerErrorHover(t *testing.T) {
 }
 
 func TestSymbolResolutionError(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, t.TempDir(), nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -462,6 +475,7 @@ func symbolTestManager(t *testing.T, sess session, workspace, testFile string) *
 }
 
 func TestSymbolResolutionSuccess(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.definitionResult = &protocol.Location{
 		URI: "file:///test.go",
@@ -515,6 +529,7 @@ func TestSymbolResolutionSuccess(t *testing.T) {
 }
 
 func TestSymbolResolutionEmptyResult(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	// fs.definitionResult left unset: the server returns zero locations.
 
@@ -560,6 +575,7 @@ func TestSymbolResolutionEmptyResult(t *testing.T) {
 }
 
 func TestSymbolResolutionCacheSharesWithColumnPath(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.definitionResult = &protocol.Location{
 		URI: "file:///test.go",
@@ -621,6 +637,7 @@ func TestSymbolResolutionCacheSharesWithColumnPath(t *testing.T) {
 }
 
 func TestColumnWithoutLineError(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -650,6 +667,7 @@ func TestColumnWithoutLineError(t *testing.T) {
 }
 
 func TestNeitherColumnNorSymbolError(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -678,6 +696,7 @@ func TestNeitherColumnNorSymbolError(t *testing.T) {
 }
 
 func TestColumnPathNoEchoLine(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{
 		Servers: map[string]config.LSPServerConfig{
 			"test": {
@@ -717,6 +736,7 @@ func TestColumnPathNoEchoLine(t *testing.T) {
 }
 
 func TestColumnAndSymbolSupplied(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -746,6 +766,7 @@ func TestColumnAndSymbolSupplied(t *testing.T) {
 }
 
 func TestSymbolsToolBothArgsEmpty(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -763,6 +784,7 @@ func TestSymbolsToolBothArgsEmpty(t *testing.T) {
 }
 
 func TestSymbolsToolNoServerWorkspaceMode(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -784,6 +806,7 @@ func TestSymbolsToolNoServerWorkspaceMode(t *testing.T) {
 }
 
 func TestSymbolsToolNoServerDocumentMode(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -808,6 +831,7 @@ func TestSymbolsToolNoServerDocumentMode(t *testing.T) {
 }
 
 func TestSymbolsToolDocumentModeSuccess(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.documentSymbolResult = protocol.DocumentSymbolSlice{
 		{
@@ -852,6 +876,7 @@ func TestSymbolsToolDocumentModeSuccess(t *testing.T) {
 }
 
 func TestImplementationsToolNoServer(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -888,6 +913,7 @@ func TestImplementationsToolNoServer(t *testing.T) {
 }
 
 func TestImplementationsToolMethodNotFound(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.implementationErr = jsonrpc2.NewError(jsonrpc2.MethodNotFound, "unsupported")
 
@@ -929,6 +955,7 @@ func TestImplementationsToolMethodNotFound(t *testing.T) {
 }
 
 func TestImplementationsToolEmptyResult(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.implementationResult = nil
 
@@ -970,6 +997,7 @@ func TestImplementationsToolEmptyResult(t *testing.T) {
 }
 
 func TestImplementationsToolSymbolEcho(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.implementationResult = &protocol.Location{
 		URI: "file:///test.go",
@@ -1017,6 +1045,7 @@ func TestImplementationsToolSymbolEcho(t *testing.T) {
 }
 
 func TestTypeDefinitionsToolNoServer(t *testing.T) {
+	t.Parallel()
 	cfg := config.LSPConfig{}
 	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -1053,6 +1082,7 @@ func TestTypeDefinitionsToolNoServer(t *testing.T) {
 }
 
 func TestTypeDefinitionsToolMethodNotFound(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.typeDefinitionErr = jsonrpc2.NewError(jsonrpc2.MethodNotFound, "unsupported")
 
@@ -1094,6 +1124,7 @@ func TestTypeDefinitionsToolMethodNotFound(t *testing.T) {
 }
 
 func TestTypeDefinitionsToolEmptyResult(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.typeDefinitionResult = nil
 
@@ -1135,6 +1166,7 @@ func TestTypeDefinitionsToolEmptyResult(t *testing.T) {
 }
 
 func TestTypeDefinitionsToolSymbolEcho(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.typeDefinitionResult = &protocol.Location{
 		URI: "file:///test.go",

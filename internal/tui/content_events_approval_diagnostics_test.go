@@ -113,6 +113,7 @@ func TestApprovalCorrelatesByCallIDAcrossConcurrentCalls(t *testing.T) {
 }
 
 func TestApprovalRequestedRetainsCallIDInToolCallAndFallbackPill(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{collapseState: make(map[int]bool)}
 	call := &toolCallSegment{tool: "bash", callID: "call-normal"}
 	b.segments = []contentSegment{{kind: segmentToolCall, toolData: call}}
@@ -129,6 +130,7 @@ func TestApprovalRequestedRetainsCallIDInToolCallAndFallbackPill(t *testing.T) {
 }
 
 func TestApprovalFallbackDecisionCorrelatesByCallID(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{collapseState: make(map[int]bool)}
 	for _, callID := range []string{"call-A", "call-B"} {
 		b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{
@@ -156,6 +158,7 @@ func TestApprovalFallbackDecisionCorrelatesByCallID(t *testing.T) {
 }
 
 func TestApprovalQueueDepthsAreHeadRelativeAndRecomputed(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{styles: testStyles(theme.AccentAmber), collapseState: make(map[int]bool)}
 	head := &approvalPillData{tool: "bash", agentID: "worker", queueDepth: 9}
 	tail := &approvalPillData{tool: "read", queueDepth: 9}
@@ -184,6 +187,7 @@ func TestApprovalQueueDepthsAreHeadRelativeAndRecomputed(t *testing.T) {
 }
 
 func TestApprovalPillAgentLabel(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
 	for _, test := range []struct {
 		name  string

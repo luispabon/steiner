@@ -108,6 +108,7 @@ func TestStatusSectionNilAddsNoBlankLineToSidebar(t *testing.T) {
 }
 
 func TestMCPRowSpinnerWhenConnecting(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		state       string

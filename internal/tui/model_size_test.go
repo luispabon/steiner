@@ -14,6 +14,7 @@ import (
 const modelSizeThreshold = 65536
 
 func TestModelSizeStaysBounded(t *testing.T) {
+	t.Parallel()
 	size := unsafe.Sizeof(Model{})
 	if size >= modelSizeThreshold {
 		t.Errorf("unsafe.Sizeof(Model{}) = %d, want < %d; Model is copied by value whenever a "+

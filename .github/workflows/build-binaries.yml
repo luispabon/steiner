@@ -50,10 +50,34 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
+        id: setup-go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Locate Go caches
+        id: go-cache
+        run: |
+          echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+      # Per-job cache (setup-go's built-in one shares a single key across all
+      # jobs, so a darwin build cache ended up restored into the race job).
+      # Only main saves; PRs restore main's entries.
+      - name: Restore Go caches
+        id: go-cache-restore
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.GOMODCACHE }}
+            ${{ steps.go-cache.outputs.GOCACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-build-${{ matrix.os }}-${{ matrix.arch }}-cgo${{ matrix.cgo_enabled }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-build-${{ matrix.os }}-${{ matrix.arch }}-cgo${{ matrix.cgo_enabled }}-
+
+      - name: Download Go modules
+        run: go mod download
 
       - name: Install UPX
         if: matrix.os != 'darwin'
@@ -87,3 +111,12 @@ jobs:
         with:
           name: ${{ inputs.artifact_prefix }}steiner-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/steiner-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.binary_ext }}
+
+      - name: Save Go caches
+        if: github.ref == 'refs/heads/main' && !cancelled() && steps.go-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.GOMODCACHE }}
+            ${{ steps.go-cache.outputs.GOCACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-build-${{ matrix.os }}-${{ matrix.arch }}-cgo${{ matrix.cgo_enabled }}-${{ hashFiles('go.sum') }}

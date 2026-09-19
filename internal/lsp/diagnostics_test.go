@@ -19,6 +19,7 @@ import (
 // TestDiagnosticsSinglePublication tests that a single publication for the
 // requested file is returned correctly (scenario 1).
 func TestDiagnosticsSinglePublication(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -36,7 +37,7 @@ func TestDiagnosticsSinglePublication(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("5s"),
+		DiagnosticsWindow: config.MustDuration("1s"),
 		MaxResults:        100,
 	}
 
@@ -104,6 +105,7 @@ func TestDiagnosticsSinglePublication(t *testing.T) {
 // TestDiagnosticsReplaceNotAppend tests that a second publication for the SAME
 // file within the window REPLACES the first, not appended (scenario 2).
 func TestDiagnosticsReplaceNotAppend(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -121,7 +123,7 @@ func TestDiagnosticsReplaceNotAppend(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("200ms"),
+		DiagnosticsWindow: config.MustDuration("1s"),
 		MaxResults:        100,
 	}
 
@@ -205,6 +207,7 @@ func TestDiagnosticsReplaceNotAppend(t *testing.T) {
 // TestDiagnosticsOtherFilesExcluded tests that publications for unrelated files
 // are excluded from the result (scenario 3).
 func TestDiagnosticsOtherFilesExcluded(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -226,7 +229,7 @@ func TestDiagnosticsOtherFilesExcluded(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("5s"),
+		DiagnosticsWindow: config.MustDuration("1s"),
 		MaxResults:        100,
 	}
 
@@ -300,6 +303,7 @@ func TestDiagnosticsOtherFilesExcluded(t *testing.T) {
 // TestDiagnosticsEmptyWindow tests that an empty window (server never publishes)
 // returns zero items, WindowExpired=true, and a nil error (scenario 4).
 func TestDiagnosticsEmptyWindow(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -357,6 +361,7 @@ func TestDiagnosticsEmptyWindow(t *testing.T) {
 // This distinguishes from TestDiagnosticsEmptyWindow where the server never
 // publishes at all, yielding WindowExpired=true.
 func TestDiagnosticsEmptyPublication(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -374,7 +379,7 @@ func TestDiagnosticsEmptyPublication(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("50ms"),
+		DiagnosticsWindow: config.MustDuration("1s"),
 		MaxResults:        100,
 	}
 
@@ -425,6 +430,7 @@ func TestDiagnosticsEmptyPublication(t *testing.T) {
 // publication (true). Both have len(Items)==0, so WindowExpired is the sole
 // differentiator.
 func TestDiagnosticsDistinguishEmptyVsNone(t *testing.T) {
+	t.Parallel()
 	// Test case 1: server publishes empty list
 	{
 		fs := newFakeServer()
@@ -444,7 +450,7 @@ func TestDiagnosticsDistinguishEmptyVsNone(t *testing.T) {
 		}
 
 		cfg := config.LSPConfig{
-			DiagnosticsWindow: config.MustDuration("50ms"),
+			DiagnosticsWindow: config.MustDuration("1s"),
 			MaxResults:        100,
 		}
 
@@ -537,6 +543,7 @@ func TestDiagnosticsDistinguishEmptyVsNone(t *testing.T) {
 // requested file; otherwise the file was never checked and the result is
 // provisional (WindowExpired=true).
 func TestDiagnosticsCancelledCollection(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name              string
 		publish           bool
@@ -621,6 +628,7 @@ func TestDiagnosticsCancelledCollection(t *testing.T) {
 // TestDiagnosticsCapAtMaxResults tests that over-cap results are truncated to
 // MaxResults with Truncated=true (scenario 5).
 func TestDiagnosticsCapAtMaxResults(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -638,7 +646,7 @@ func TestDiagnosticsCapAtMaxResults(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("100ms"),
+		DiagnosticsWindow: config.MustDuration("1s"),
 		MaxResults:        3,
 	}
 
@@ -699,6 +707,7 @@ func TestDiagnosticsCapAtMaxResults(t *testing.T) {
 // sort in the documented rank order (error < warning < information < hint < unknown)
 // (scenario 6).
 func TestDiagnosticsSeverityOrdering(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -716,7 +725,7 @@ func TestDiagnosticsSeverityOrdering(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("5s"),
+		DiagnosticsWindow: config.MustDuration("1s"),
 		MaxResults:        100,
 	}
 
@@ -812,6 +821,7 @@ func TestDiagnosticsSeverityOrdering(t *testing.T) {
 // stale diagnostics interfere with later results, causing other tests to fail.
 // Here we just verify that sequential calls work correctly.
 func TestDiagnosticsStaleNotificationsNotLeaking(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -829,7 +839,7 @@ func TestDiagnosticsStaleNotificationsNotLeaking(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("100ms"),
+		DiagnosticsWindow: config.MustDuration("600ms"),
 		MaxResults:        100,
 	}
 
@@ -934,6 +944,7 @@ func TestDiagnosticsStaleNotificationsNotLeaking(t *testing.T) {
 // calls on one session, each for a different file, never interleave and each gets
 // only its own file's results (scenario 8 — THE CONCURRENCY TEST).
 func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -965,7 +976,7 @@ func TestDiagnosticsConcurrentNonInterleaving(t *testing.T) {
 	}
 
 	cfg := config.LSPConfig{
-		DiagnosticsWindow: config.MustDuration("200ms"),
+		DiagnosticsWindow: config.MustDuration("600ms"),
 		MaxResults:        100,
 	}
 
