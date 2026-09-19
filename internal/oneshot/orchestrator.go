@@ -133,6 +133,9 @@ type phaseFailureOptions struct {
 	SessionID            string
 	Transition           bool
 	IndicatorBeforeWrite bool
+	// SkipManifestWrite leaves run.json untouched, for when the run lock was
+	// lost and the manifest belongs to another process.
+	SkipManifestWrite bool
 }
 
 func (o *Orchestrator) finalizePhaseFailure(p runPhaseParams, cancel context.CancelFunc, failure error, opts phaseFailureOptions) error {
@@ -145,7 +148,7 @@ func (o *Orchestrator) finalizePhaseFailure(p runPhaseParams, cancel context.Can
 	}
 	// After a lost lock run.json belongs to whichever process reclaimed it,
 	// so emit the events but leave the manifest alone.
-	if !errors.Is(failure, errLockLost) {
+	if !opts.SkipManifestWrite && !errors.Is(failure, errLockLost) {
 		if err := p.Store.Write(*p.Manifest); err != nil {
 			return err
 		}
@@ -196,7 +199,8 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	conversation := phaseConversation(o.deps.Identity, o.deps.Task, p.Phase, p.WorktreePath, p.PlanningPath)
 	stopHeartbeat := o.startPhaseHeartbeat(p.Lock, cancel)
 	result, runErr := runner.RunPhase(phaseCtx, conversation, nil, o.deps.DrainSteers)
-	if hbErr := stopHeartbeat(); hbErr != nil {
+	hbErr := stopHeartbeat()
+	if hbErr != nil {
 		// The heartbeat cancelled phaseCtx, so runErr is usually a context
 		// error; report the root cause instead.
 		runErr = hbErr
@@ -205,8 +209,9 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	sessionID, saveErr := o.persistPhaseSession(p.Phase, modelAlias, result)
 	if saveErr != nil {
 		return o.finalizePhaseFailure(p, cancel, saveErr, phaseFailureOptions{
-			IndicatorState:   phaseIndicatorBoundary,
-			IndicatorMessage: saveErr.Error(),
+			IndicatorState:    phaseIndicatorBoundary,
+			IndicatorMessage:  saveErr.Error(),
+			SkipManifestWrite: errors.Is(hbErr, errLockLost),
 		})
 	}
 	p.Manifest.PhaseSessionIDs[p.Phase] = sessionID

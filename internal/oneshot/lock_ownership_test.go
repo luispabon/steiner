@@ -11,6 +11,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -284,5 +285,49 @@ func TestRunPhaseFinalManifestWriteFailureEmitsFailureEvents(t *testing.T) {
 	}
 	if !sawIndicator || !sawTransition {
 		t.Fatalf("failure events missing (indicator=%v transition=%v): %+v", sawIndicator, sawTransition, events)
+	}
+}
+
+type failingSessionStore struct{}
+
+func (failingSessionStore) Save(session.Session) error { return errors.New("disk full") }
+
+func TestRunPhaseLockLostWithSessionSaveFailureSkipsManifestWrite(t *testing.T) {
+	dir := t.TempDir()
+	identity := RunIdentity{ID: "abc123", Slug: "build-parser"}
+	lock, err := acquireRunLock(dir, identity, time.Hour)
+	if err != nil {
+		t.Fatalf("acquireRunLock: %v", err)
+	}
+	path := identity.LockPath(dir)
+	ours, _, err := readLockRecord(path)
+	if err != nil {
+		t.Fatalf("read lock: %v", err)
+	}
+
+	runner := funcRunner(func(ctx context.Context) (RunResult, error) {
+		writeStolenLock(t, path, LockRecord{Owner: "other", AcquiredAt: ours.AcquiredAt, UpdatedAt: ours.UpdatedAt})
+		<-ctx.Done()
+		return RunResult{}, ctx.Err()
+	})
+	var events []output.Event
+	o := newHeartbeatTestOrchestrator(runner, &events)
+	o.deps.SessionStore = failingSessionStore{}
+	manifest := &Manifest{RunID: "run-1", PhaseStatuses: map[Phase]PhaseStatus{PhasePlan: PhaseStatusRunning}, PhaseSessionIDs: map[Phase]string{}}
+	store := NewManifestStore(filepath.Join(dir, "manifest.json"))
+	if err := store.Write(*manifest); err != nil {
+		t.Fatalf("seed manifest: %v", err)
+	}
+
+	err = o.runPhase(runPhaseParams{InterruptCtx: context.Background(), Store: store, Manifest: manifest, Lock: lock, Phase: PhasePlan})
+	if err == nil {
+		t.Fatal("runPhase succeeded, want an error")
+	}
+	disk, err := store.Read()
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if got := disk.PhaseStatuses[PhasePlan]; got != PhaseStatusRunning {
+		t.Fatalf("on-disk phase status = %q, want %q (untouched after lock loss)", got, PhaseStatusRunning)
 	}
 }
