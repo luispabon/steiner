@@ -212,7 +212,7 @@ func TestHandoffClearRotateStillSavesFinalTurnUnderOriginalSession(t *testing.T)
 		return RunResult{Conversation: final}, nil
 	}))
 	done := make(chan struct{})
-	go func() { defer close(done); s.submitPrompt(context.Background(), "plan it", nil) }()
+	go func() { defer close(done); s.submitPrompt(context.Background(), "plan it\nwith detail", nil) }()
 	<-started
 
 	// The TUI's accept path: clear the conversation, then rotate the session.
@@ -237,8 +237,8 @@ func TestHandoffClearRotateStillSavesFinalTurnUnderOriginalSession(t *testing.T)
 	if len(msgs) == 0 || msgs[len(msgs)-1].Content != "final plan turn" {
 		t.Fatalf("saved lineage = %+v, want it to end with the final turn", msgs)
 	}
-	if saved.Title == "" {
-		t.Error("saved session has no title")
+	if saved.Title != "plan it with detail" {
+		t.Errorf("saved title = %q, want single-line title", saved.Title)
 	}
 	if got := s.Conversation(); len(got) != 0 {
 		t.Fatalf("live conversation = %+v, want untouched (empty)", got)

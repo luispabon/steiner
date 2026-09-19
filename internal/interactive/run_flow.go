@@ -19,7 +19,14 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 
 	s.mu.Lock()
 	startID := s.sessionID
-	startMeta := runSessionMeta{cacheKey: s.promptCacheKey, group: s.sessionGroup, title: s.sessionTitle}
+	startMeta := runSessionMeta{
+		cacheKey: s.promptCacheKey,
+		group:    s.sessionGroup,
+		title:    s.sessionTitle,
+		mode:     string(s.mode),
+		skills:   s.skills.Snapshot(),
+		modelID:  currentModelConfig(s.deps.Config).ID,
+	}
 	isFirstPrompt := len(s.conversation) == 0
 	s.conversation = append(s.conversation, agent.Message{Role: agent.MessageRoleUser, Content: text, Images: images})
 	s.mu.Unlock()
@@ -109,6 +116,9 @@ type runSessionMeta struct {
 	cacheKey string
 	group    string
 	title    string
+	mode     string
+	skills   []string
+	modelID  string
 }
 
 // saveOrphanedRunResult persists a finished run's conversation under startID
@@ -130,21 +140,15 @@ func (s *Session) saveOrphanedRunResult(startID string, meta runSessionMeta, pro
 
 func (s *Session) saveRunResultAs(id string, meta runSessionMeta, prompt string, isFirstPrompt bool, result RunResult) error {
 	lineage := lineageFromResult(result)
-	s.mu.RLock()
-	mode := string(s.mode)
-	skills := s.skills.Snapshot()
-	modelID := currentModelConfig(s.deps.Config).ID
-	s.mu.RUnlock()
-
 	var sess session.Session
 	if existing, err := s.deps.SessionStore.Load(id); err == nil {
 		sess = existing.WithLineage(lineage)
 	} else {
 		var newErr error
 		if meta.group != "" {
-			sess, newErr = session.NewSession(modelID, lineage, meta.group)
+			sess, newErr = session.NewSession(meta.modelID, lineage, meta.group)
 		} else {
-			sess, newErr = session.NewSession(modelID, lineage)
+			sess, newErr = session.NewSession(meta.modelID, lineage)
 		}
 		if newErr != nil {
 			return fmt.Errorf("create session: %w", newErr)
@@ -159,8 +163,8 @@ func (s *Session) saveRunResultAs(id string, meta runSessionMeta, prompt string,
 			sess = sess.WithTitle(title)
 		}
 	}
-	sess.Mode = mode
-	sess.Skills = skills
+	sess.Mode = meta.mode
+	sess.Skills = meta.skills
 	return s.deps.SessionStore.Save(sess)
 }
 
