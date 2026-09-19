@@ -546,6 +546,7 @@ config` output and is not user-configurable.
 | `warning_on_unsupported_platform` | bool     | `true`  | When enabled, shows a warning in the TUI when sandbox is unavailable or bypassed.                                                                                                                                    |
 | `env_passthrough`                 | []string | `[]`    | Additional host environment variable names (beyond the built-in allowlist) passed through to sandboxed processes. Entries may end in `*` to match by prefix (e.g. `MYAPP_*`); no other wildcard forms are supported. |
 | `env_passthrough_all`             | bool     | `false` | When `true`, disables environment filtering entirely and passes the full host environment through, including credentials.                                                                                            |
+| `bind_host_cache`                 | bool     | `false` | When `true`, binds the real `~/.cache` read-write into the sandbox. By default the cache location is backed by a sandbox-private directory (`.steiner/home/cache/`), so sandboxed tools cannot poison host caches (go-build, pip, uv). |
 | `host_mounts`                     | []object | `[]`    | Additional host paths to bind-mount into the sandbox. Use `mode: rw` to grant writable access to paths outside the workspace (all host paths are already readable through the root bind).                            |
 
 Each entry has:
@@ -561,6 +562,7 @@ sandbox:
   warning_on_unsupported_platform: true # default; warns when sandbox is unavailable/bypassed
   env_passthrough: []                 # default; extra allowlisted env var names, "*" suffix allowed for prefix match
   env_passthrough_all: false          # default; true disables env filtering entirely
+  bind_host_cache: false              # default; true binds the real ~/.cache read-write
   host_mounts:
     - path: ~/.kube
       mode: rw

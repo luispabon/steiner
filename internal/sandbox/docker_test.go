@@ -135,7 +135,7 @@ func TestBuildArgs_Docker_DeniedMasksExistingSocket(t *testing.T) {
 	restore := stubDockerSocketCandidates(t, []string{sock})
 	defer restore()
 
-	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user", nil, nil, "/tmp/sandbox-tmp", false, config.PermissionsConfig{Docker: false})
+	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user", nil, nil, "/tmp/sandbox-tmp", false, config.PermissionsConfig{Docker: false}, false)
 
 	if !containsSeq(args, "--bind", "/dev/null", sock) {
 		t.Errorf("expected docker socket mask in args: %v", args)
@@ -153,7 +153,7 @@ func TestBuildArgs_Docker_AllowedEmitsNothing(t *testing.T) {
 	restore := stubDockerSocketCandidates(t, []string{sock})
 	defer restore()
 
-	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user", nil, nil, "/tmp/sandbox-tmp", false, config.PermissionsConfig{Docker: true})
+	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user", nil, nil, "/tmp/sandbox-tmp", false, config.PermissionsConfig{Docker: true}, false)
 
 	if containsSeq(args, "--bind", "/dev/null", sock) {
 		t.Errorf("did not expect docker socket mask when permitted: %v", args)
@@ -174,7 +174,7 @@ func TestBuildArgs_Docker_MaskOrderedAfterMountsBeforeChdir(t *testing.T) {
 	hostMounts := []config.HostMount{{Path: "/data/rw", Mode: "rw"}}
 	overlayArgs := []string{"--tmpfs", "/etc/ssh/ssh_config.d"}
 
-	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user", hostMounts, overlayArgs, "/tmp/sandbox-tmp", false, config.PermissionsConfig{Docker: false})
+	args := BuildArgs("/ws", "/ws", "/ws/.steiner/home", "/home/user", hostMounts, overlayArgs, "/tmp/sandbox-tmp", false, config.PermissionsConfig{Docker: false}, false)
 
 	hostMountIdx := slices.Index(args, "/data/rw")
 	overlayIdx := slices.Index(args, "/etc/ssh/ssh_config.d")

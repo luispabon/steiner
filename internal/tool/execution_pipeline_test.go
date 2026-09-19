@@ -28,9 +28,9 @@ type testSandbox struct {
 }
 
 func (s *testSandbox) Enabled() bool { return true }
-func (s *testSandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd {
+func (s *testSandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cmd, error) {
 	s.lastReadOnlyProject = readOnlyProject
-	return cmd
+	return cmd, nil
 }
 
 // mockApprover tracks calls to RequestApproval and sends a preconfigured response.

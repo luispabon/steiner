@@ -201,10 +201,10 @@ func TestBashSession(t *testing.T) {
 		var wrappedCmd *exec.Cmd
 
 		s := NewBashSession()
-		s.CommandWrapper = func(cmd *exec.Cmd) *exec.Cmd {
+		s.CommandWrapper = func(cmd *exec.Cmd) (*exec.Cmd, error) {
 			wrapperCalled = true
 			wrappedCmd = cmd
-			return cmd
+			return cmd, nil
 		}
 
 		if err := s.Start(); err != nil {
@@ -238,7 +238,7 @@ func TestBashSession_CommandWrapperFiltersEnv(t *testing.T) {
 	t.Setenv("STEINER_TEST_FAKE_TOKEN", "x")
 
 	s := NewBashSession()
-	s.CommandWrapper = func(cmd *exec.Cmd) *exec.Cmd {
+	s.CommandWrapper = func(cmd *exec.Cmd) (*exec.Cmd, error) {
 		host := cmd.Env
 		if host == nil {
 			host = os.Environ()
@@ -250,7 +250,7 @@ func TestBashSession_CommandWrapperFiltersEnv(t *testing.T) {
 			}
 		}
 		cmd.Env = filtered
-		return cmd
+		return cmd, nil
 	}
 
 	if err := s.Start(); err != nil {

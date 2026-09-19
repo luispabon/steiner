@@ -126,10 +126,10 @@ func TestHTTPIntegration(t *testing.T) {
 		}
 
 		wrapCalled := false
-		wrap := func(cmd *exec.Cmd) *exec.Cmd {
+		wrap := func(cmd *exec.Cmd) (*exec.Cmd, error) {
 			wrapCalled = true
 			t.Fatal("wrap func called for http server, want never called")
-			return cmd
+			return cmd, nil
 		}
 
 		m := Connect(context.Background(), cfg, config.LimitsConfig{}, wrap, false,

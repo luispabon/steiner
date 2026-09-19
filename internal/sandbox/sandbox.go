@@ -25,13 +25,16 @@ type Sandbox struct {
 	tmpDir    string // session-scoped temp directory
 	envPolicy EnvPolicy
 
+	bwrapPath string // absolute bwrap path resolved at construction
+	bwrapErr  error  // non-nil when bwrap could not be resolved
+
 	resourceMu       sync.Mutex
 	commandResources map[*exec.Cmd]*sshOverlay
 }
 
 // New creates a Sandbox. rootDir, workDir, userHome, and tmpDir must be absolute paths.
 func New(cfg config.SandboxConfig, perms config.PermissionsConfig, rootDir, workDir, userHome, tmpDir string) *Sandbox {
-	return &Sandbox{
+	s := &Sandbox{
 		cfg:       cfg,
 		perms:     perms,
 		root:      rootDir,
@@ -40,6 +43,22 @@ func New(cfg config.SandboxConfig, perms config.PermissionsConfig, rootDir, work
 		tmpDir:    tmpDir,
 		envPolicy: newEnvPolicy(cfg.EnvPassthroughAll, cfg.EnvPassthrough),
 	}
+	if cfg.Enabled {
+		s.bwrapPath, s.bwrapErr = resolveBwrap()
+	}
+	return s
+}
+
+func resolveBwrap() (string, error) {
+	path, err := lookupBwrap("bwrap")
+	if err != nil {
+		return "", fmt.Errorf("locate bwrap: %w", err)
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve bwrap path: %w", err)
+	}
+	return abs, nil
 }
 
 // Enabled reports whether sandboxing is active.
@@ -53,10 +72,14 @@ func (s *Sandbox) TmpDir() string {
 }
 
 // WrapCommandMode wraps cmd with bubblewrap, optionally with project read-only mode.
-// Returns cmd unchanged when sandbox disabled or bwrap is unavailable.
-func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd {
+// Returns cmd unchanged when sandbox is disabled. When enabled but bwrap could
+// not be resolved, it fails closed with an error instead of returning cmd.
+func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cmd, error) {
 	if !s.cfg.Enabled {
-		return cmd
+		return cmd, nil
+	}
+	if s.bwrapErr != nil {
+		return nil, fmt.Errorf("sandbox enabled but unavailable: %w", s.bwrapErr)
 	}
 
 	overlayFDBase := 3 + len(cmd.ExtraFiles)
@@ -68,15 +91,6 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd
 		overlay = nil
 	}
 
-	bwrapPath, err := lookupBwrap("bwrap")
-	if err != nil {
-		// bwrap not available — return cmd unchanged; caller should have run PrereqCheck.
-		if overlay != nil {
-			_ = overlay.Close() // Best-effort cleanup; overlay files will not be handed to a child process.
-		}
-		return cmd
-	}
-
 	if readOnlyProject {
 		_ = os.MkdirAll(filepath.Join(s.root, ".steiner", "plans"), 0o755) // Best-effort; bind will fail if it still doesn't exist, but create attempt must not block.
 	}
@@ -86,7 +100,15 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd
 	if overlay != nil {
 		overlayArgs = overlay.bwrapArgs
 	}
-	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.cfg.HostMounts, overlayArgs, s.tmpDir, readOnlyProject, s.perms)
+	if !s.cfg.BindHostCache && s.userHome != "" && cacheMountPath(s.userHome) != "" {
+		if err := os.MkdirAll(privateCacheDir(sandboxHome), 0o755); err != nil {
+			if overlay != nil {
+				_ = overlay.Close() // Best-effort cleanup; overlay files will not be handed to a child process.
+			}
+			return nil, fmt.Errorf("create sandbox cache dir: %w", err)
+		}
+	}
+	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.cfg.HostMounts, overlayArgs, s.tmpDir, readOnlyProject, s.perms, s.cfg.BindHostCache)
 
 	// Build the new Args slice: [bwrap, ...bwrap-args..., "--", original-cmd, original-args...]
 	args := make([]string, 0, 1+len(bwrapArgs)+1+len(cmd.Args))
@@ -104,7 +126,7 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd
 		inherited = os.Environ()
 	}
 	wrapped := &exec.Cmd{
-		Path:   bwrapPath,
+		Path:   s.bwrapPath,
 		Args:   args,
 		Stdin:  cmd.Stdin,
 		Stdout: cmd.Stdout,
@@ -118,7 +140,7 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd
 		wrapped.ExtraFiles = append(wrapped.ExtraFiles, overlay.memfds...)
 		s.trackCommandResources(wrapped, overlay)
 	}
-	return wrapped
+	return wrapped, nil
 }
 
 func (s *Sandbox) trackCommandResources(cmd *exec.Cmd, overlay *sshOverlay) {
@@ -148,7 +170,7 @@ func (s *Sandbox) ReleaseCommandResources(cmd *exec.Cmd) {
 }
 
 // WrapCommand wraps cmd with bubblewrap. Returns cmd unchanged when sandbox disabled.
-func (s *Sandbox) WrapCommand(cmd *exec.Cmd) *exec.Cmd {
+func (s *Sandbox) WrapCommand(cmd *exec.Cmd) (*exec.Cmd, error) {
 	return s.WrapCommandMode(cmd, false)
 }
 

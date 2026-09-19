@@ -42,7 +42,7 @@ type ResolvedSandbox struct {
 }
 
 // Wrap applies the resolved sandbox decision to cmd.
-func (r ResolvedSandbox) Wrap(cmd *exec.Cmd) *exec.Cmd {
+func (r ResolvedSandbox) Wrap(cmd *exec.Cmd) (*exec.Cmd, error) {
 	return r.Wrapper.WrapCommandMode(cmd, r.ReadOnlyProject)
 }
 

@@ -9,11 +9,15 @@ import (
 )
 
 // BuildArgs returns the bwrap argument list (excluding the trailing -- cmd args).
-func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts []config.HostMount, overlayArgs []string, tmpDir string, readOnlyProject bool, perms config.PermissionsConfig) []string {
+func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts []config.HostMount, overlayArgs []string, tmpDir string, readOnlyProject bool, perms config.PermissionsConfig, bindHostCache bool) []string {
 	var args []string
 
 	// Namespace isolation: unshare all but share network.
 	args = append(args, "--unshare-all", "--share-net")
+
+	// Tie the sandbox lifetime to steiner's and detach from the controlling
+	// terminal so sandboxed processes cannot open /dev/tty (TIOCSTI injection).
+	args = append(args, "--die-with-parent", "--new-session")
 
 	// Root filesystem: entire root read-only (base layer).
 	args = append(args, "--ro-bind", "/", "/")
@@ -49,10 +53,16 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 	// Sandbox state directory writable at original absolute path.
 	args = append(args, "--bind", sandboxHome, sandboxHome)
 
-	// User cache directory writable so tools can read and write cached data.
+	// The cache location is backed by a sandbox-private directory unless the
+	// user opted in to the real host cache, which lets sandboxed tools poison
+	// caches (go-build, pip, uv) later consumed outside the sandbox.
 	if userHome != "" {
 		if cacheDir := cacheMountPath(userHome); cacheDir != "" {
-			args = append(args, "--bind", cacheDir, cacheDir)
+			src := privateCacheDir(sandboxHome)
+			if bindHostCache {
+				src = cacheDir
+			}
+			args = append(args, "--bind", src, cacheDir)
 		}
 	}
 
@@ -167,6 +177,10 @@ func gitWritableBinds(root string) []string {
 	}
 
 	return binds
+}
+
+func privateCacheDir(sandboxHome string) string {
+	return filepath.Join(sandboxHome, "cache")
 }
 
 func cacheMountPath(userHome string) string {

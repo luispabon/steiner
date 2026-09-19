@@ -19,7 +19,7 @@ type SandboxWrapper interface {
 	Enabled() bool
 	// WrapCommandMode wraps cmd for execution, optionally with the project
 	// mounted read-only.
-	WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd
+	WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cmd, error)
 }
 
 // SandboxCommandResourceReleaser releases resources owned by a wrapped command.
@@ -37,7 +37,7 @@ type Unsandboxed struct{}
 func (Unsandboxed) Enabled() bool { return false }
 
 // WrapCommandMode returns cmd unchanged.
-func (Unsandboxed) WrapCommandMode(cmd *exec.Cmd, _ bool) *exec.Cmd { return cmd }
+func (Unsandboxed) WrapCommandMode(cmd *exec.Cmd, _ bool) (*exec.Cmd, error) { return cmd, nil }
 
 // Executor runs tool definitions through a resolution, normalization, and dispatch
 // pipeline. The caller-facing seam is Execute.

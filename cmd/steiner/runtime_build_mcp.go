@@ -24,10 +24,10 @@ import (
 // forwards pre-arm state changes as states-only snapshots (no registry origins)
 // until armed, then switches to full snapshots with origins.
 func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandbox, asyncMCP bool, events output.EventSink, stderr io.Writer) (*mcp.Manager, *mcpStateProducer) {
-	var wrap func(*exec.Cmd) *exec.Cmd
+	var wrap mcp.WrapFn
 	var release func(*exec.Cmd)
 	if sb != nil {
-		wrap = func(c *exec.Cmd) *exec.Cmd { return sb.WrapCommandMode(c, true) }
+		wrap = func(c *exec.Cmd) (*exec.Cmd, error) { return sb.WrapCommandMode(c, true) }
 		release = sb.ReleaseCommandResources
 	}
 	diagnose := func(severity string) func(string) {
@@ -63,10 +63,10 @@ func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandb
 // so this never blocks CLI startup. Server warnings are routed through the same
 // session_health diagnostic channel as MCP.
 func connectRuntimeLSP(cfg config.Config, sb *sandbox.Sandbox, workDir string, events output.EventSink, stderr io.Writer) *lsp.Manager {
-	var wrap func(*exec.Cmd) *exec.Cmd
+	var wrap lsp.WrapFn
 	var release func(*exec.Cmd)
 	if sb != nil {
-		wrap = func(c *exec.Cmd) *exec.Cmd { return sb.WrapCommandMode(c, true) }
+		wrap = func(c *exec.Cmd) (*exec.Cmd, error) { return sb.WrapCommandMode(c, true) }
 		release = sb.ReleaseCommandResources
 	}
 	warnFn := func(msg string) {

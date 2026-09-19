@@ -6,6 +6,10 @@ Steiner uses Linux `bubblewrap` to sandbox tool execution and limit model-driven
 
 By default, `bash` and subprocess tools run in a sandbox with a read-only view of the host filesystem and writable access limited to the workspace and sandbox state. The host filesystem remains readable, including credential files. Network access is shared with the host, so sandboxing is not a barrier against deliberate exfiltration or malicious code. The environment allowlist blocks inherited credential variables, but it does not block credential files on disk.
 
+Bubblewrap runs with `--die-with-parent`, so sandboxed processes are killed if Steiner exits or crashes, and `--new-session`, so they cannot open the controlling terminal (`/dev/tty`) to inject input. Locally launched MCP stdio servers and LSP servers use the same wrapper and need no terminal.
+
+The sandbox fails closed: `bwrap` is resolved once at startup and executed by absolute path. If sandboxing is enabled and `bwrap` cannot be resolved, commands are refused with an error rather than run unwrapped. Use `--unsafe` to run without a sandbox deliberately.
+
 Sandboxed `/tmp` is a session-scoped directory under `.steiner/tmp/sandbox-tmp/<id>/`. It persists across tool calls and is cleared on `/clear`, `/resume`, `/fork`, or process exit.
 
 For SSH client-only commands, Steiner can create an ephemeral system-config overlay. Dynamic includes may be skipped. If OpenSSH still rejects the config, Steiner can ask to rerun outside the sandbox.
@@ -56,6 +60,15 @@ sandbox:
 Mounts keep their host paths and are present at startup. All paths are already readable; use mounts for writable access outside the workspace.
 
 The sandbox home is `.steiner/home/`, used for isolated tool caches and state. It persists across sessions and is ignored by git. Remove it with `rm -rf .steiner/home/` when a reset is needed.
+
+### Cache directory
+
+When `~/.cache` exists on the host, the sandbox mounts a private cache directory (`.steiner/home/cache/`) at that path instead of the real one. Tools such as Go, pip, and uv still get a writable cache, but anything they write cannot poison the host cache used by later unsandboxed runs. The private cache starts empty, so first builds are slower. To share the real cache read-write, opt in:
+
+```yaml
+sandbox:
+  bind_host_cache: true
+```
 
 ## Mount layout
 

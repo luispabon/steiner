@@ -35,7 +35,7 @@ type BashSession struct {
 	// CommandWrapper is called before starting the bash process. If non-nil,
 	// the returned *exec.Cmd replaces the original. Set this to wrap the process
 	// in a sandbox (e.g. bubblewrap). nil means no-op.
-	CommandWrapper          func(*exec.Cmd) *exec.Cmd
+	CommandWrapper          func(*exec.Cmd) (*exec.Cmd, error)
 	ReleaseCommandResources func(*exec.Cmd)
 
 	mu      sync.Mutex
@@ -66,7 +66,11 @@ func (s *BashSession) Start() error {
 
 	// Apply the wrapper (for sandbox integration) before starting.
 	if s.CommandWrapper != nil {
-		cmd = s.CommandWrapper(cmd)
+		wrapped, err := s.CommandWrapper(cmd)
+		if err != nil {
+			return fmt.Errorf("bash session: wrap command: %w", err)
+		}
+		cmd = wrapped
 	}
 	setBashProcessGroup(cmd)
 	release := onceRelease(s.ReleaseCommandResources, cmd)
@@ -310,7 +314,11 @@ func (s *BashSession) restartLocked(_ context.Context) error {
 
 	cmd := exec.Command("/bin/bash", "--norc", "--noprofile") //nolint:noctx // persistent session process, not tied to a single request context
 	if s.CommandWrapper != nil {
-		cmd = s.CommandWrapper(cmd)
+		wrapped, err := s.CommandWrapper(cmd)
+		if err != nil {
+			return fmt.Errorf("bash session: restart wrap command: %w", err)
+		}
+		cmd = wrapped
 	}
 	setBashProcessGroup(cmd)
 	release := onceRelease(s.ReleaseCommandResources, cmd)

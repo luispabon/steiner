@@ -245,11 +245,11 @@ func TestManagerFailedEntryRetryAfterCooldown(t *testing.T) {
 	spawnCount := 0
 	spawnCountMu := &sync.Mutex{}
 
-	wrapFn := func(cmd *exec.Cmd) *exec.Cmd {
+	wrapFn := func(cmd *exec.Cmd) (*exec.Cmd, error) {
 		spawnCountMu.Lock()
 		spawnCount++
 		spawnCountMu.Unlock()
-		return cmd
+		return cmd, nil
 	}
 
 	cfg := config.LSPConfig{

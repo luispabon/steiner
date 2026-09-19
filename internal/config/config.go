@@ -203,6 +203,7 @@ type SandboxConfig struct {
 	WarningOnUnsupportedPlatform bool        `yaml:"warning_on_unsupported_platform"`
 	EnvPassthrough               []string    `yaml:"env_passthrough"`
 	EnvPassthroughAll            bool        `yaml:"env_passthrough_all"`
+	BindHostCache                bool        `yaml:"bind_host_cache"`
 	HostMounts                   []HostMount `yaml:"host_mounts"`
 }
 

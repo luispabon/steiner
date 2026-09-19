@@ -20,7 +20,7 @@ import (
 )
 
 // WrapFn wraps a server command before launch, e.g. inside the sandbox.
-type WrapFn func(*exec.Cmd) *exec.Cmd
+type WrapFn func(*exec.Cmd) (*exec.Cmd, error)
 
 // ReleaseFn releases resources owned by a wrapped server command.
 type ReleaseFn func(*exec.Cmd)

@@ -1457,10 +1457,10 @@ type recordingSandboxWrapper struct {
 
 func (w *recordingSandboxWrapper) Enabled() bool { return true }
 
-func (w *recordingSandboxWrapper) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd {
+func (w *recordingSandboxWrapper) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cmd, error) {
 	w.calls.Add(1)
 	w.lastReadOnlyProject.Store(readOnlyProject)
-	return cmd
+	return cmd, nil
 }
 
 // TestChildBashIsSandboxed proves the parent's sandbox wrapper survives the
