@@ -75,6 +75,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # The race job below requires CGO_ENABLED=1, so it can never exercise the
+    # CGO_ENABLED=0 configuration the release binaries actually ship with.
+    # Running this one with cgo off (Build and Test alike) makes it real
+    # coverage of that build rather than a duplicate of the race job.
+    env:
+      CGO_ENABLED: "0"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -112,14 +119,8 @@ jobs:
       - name: Build
         run: make build-binaries
 
-      # The race job below requires CGO_ENABLED=1, so it can never exercise the
-      # CGO_ENABLED=0 configuration the release binaries actually ship with.
-      # Running this one with cgo off makes it real coverage of that build
-      # rather than a duplicate of the race job.
       - name: Test (CGO_ENABLED=0, as shipped)
         run: make test
-        env:
-          CGO_ENABLED: 0
 
       - name: Save Go caches
         if: github.ref == 'refs/heads/main' && !cancelled() && steps.go-cache-restore.outputs.cache-hit != 'true'
@@ -187,8 +188,29 @@ jobs:
       - name: Imports check
         run: make imports-check
 
+      - name: Locate golangci-lint cache
+        id: golangci-cache
+        run: |
+          echo "GOLANGCI_LINT_CACHE=$(golangci-lint cache status | sed -n 's/^Dir: //p')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore golangci-lint cache
+        id: golangci-cache-restore
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ steps.golangci-cache.outputs.GOLANGCI_LINT_CACHE }}
+          key: golangci-lint-${{ runner.os }}-${{ hashFiles('go.sum', '.golangci.yml') }}
+          restore-keys: |
+            golangci-lint-${{ runner.os }}-
+
       - name: Lint
         run: make lint
+
+      - name: Save golangci-lint cache
+        if: github.ref == 'refs/heads/main' && !cancelled() && steps.golangci-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ steps.golangci-cache.outputs.GOLANGCI_LINT_CACHE }}
+          key: golangci-lint-${{ runner.os }}-${{ hashFiles('go.sum', '.golangci.yml') }}
 
       - name: Vuln check
         run: make vuln
