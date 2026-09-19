@@ -4,6 +4,7 @@ package history
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,7 +43,7 @@ func NewWriter(path string) (*Writer, error) {
 		return nil, fmt.Errorf("close history file: %w", err)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
-		fmt.Fprintf(os.Stderr, "history: tighten file mode: %v\n", err)
+		slog.Warn("history: cannot tighten file permissions", "file", path, "error", err)
 	}
 	return &Writer{path: path, locker: newFileLocker()}, nil
 }
@@ -113,7 +114,7 @@ func (w *Writer) Record(prompt string) error {
 			return fmt.Errorf("close history file: %w", err)
 		}
 		if err := os.Chmod(w.path, 0o600); err != nil {
-			fmt.Fprintf(os.Stderr, "history: tighten file mode: %v\n", err)
+			slog.Warn("history: cannot tighten file permissions", "file", w.path, "error", err)
 		}
 		return w.trim()
 	})

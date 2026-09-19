@@ -101,7 +101,7 @@ func newToolCallTraceWriter(workDir, agentID, sessionID string) *toolCallTraceWr
 	pruneOldToolCallTraces(filepath.Dir(dir))
 
 	path := filepath.Join(dir, agentID+".jsonl")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil
 	}
@@ -222,7 +222,7 @@ func (w *toolCallTraceWriter) reopen() error {
 	if !w.closed {
 		return nil
 	}
-	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return fmt.Errorf("reopen tool call trace: %w", err)
 	}
@@ -252,6 +252,15 @@ func (w *toolCallTraceWriter) snapshot() (path string, total, failed int, counts
 		countsCopy[k] = v
 	}
 	return w.path, w.toolCallsTotal, w.toolCallsFailed, countsCopy
+}
+
+// clearRetainedToolCallTraceWriters drops every retained writer. Called on
+// conversation reset, when sessions are discarded and follow_up can no longer
+// reference them.
+func clearRetainedToolCallTraceWriters() {
+	toolCallTraceRegistryMu.Lock()
+	defer toolCallTraceRegistryMu.Unlock()
+	clear(toolCallTraceRetained)
 }
 
 func removeAndCloseToolCallTraceWriter(agentID string) {

@@ -15,4 +15,5 @@ func ResetForNewConversation(sessions *SessionStore, budgets *AdvisorBudgetStore
 	if budgets != nil {
 		budgets.Reset()
 	}
+	clearRetainedToolCallTraceWriters()
 }
