@@ -208,7 +208,11 @@ func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[strin
 			}))
 		}
 		delete(pendingDelegates, msg.ToolCallID)
-	} else if msg.Name == "display_file" {
+		delete(startedToolCalls, msg.ToolCallID)
+	}
+
+	// Emit DisplayFileEvent if this is a display_file call with valid payload.
+	if msg.Name == "display_file" {
 		var result builtin.DisplayFileResult
 		if err := json.Unmarshal([]byte(msg.Content), &result); err == nil && result.Path != "" {
 			placeholder := strings.TrimSpace(result.Message)
@@ -220,7 +224,11 @@ func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[strin
 				Preview: output.FormatFilePreview(result.Path, placeholder),
 			}))
 		}
-	} else if _, ok := startedToolCalls[msg.ToolCallID]; ok {
+	}
+
+	// Always emit ToolCallFinishedEvent for any tool call that was started.
+	if _, ok := startedToolCalls[msg.ToolCallID]; ok {
 		s.events.Emit(output.NewToolCallFinishedEvent(0, msg.Name, msg.ToolCallID, msg.Content, toolResultError(msg.Content)))
+		delete(startedToolCalls, msg.ToolCallID)
 	}
 }

@@ -29,9 +29,11 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 func (s *Session) handleImmediateAction(ctx context.Context, action Action) (bool, error) {
 	switch a := action.(type) {
 	case SubmitPrompt:
+		endRun := s.beginRun()
 		s.runs.Add(1)
 		go func() {
 			defer s.runs.Done()
+			defer endRun()
 			s.submitPrompt(ctx, a.Text, a.Images)
 		}()
 		return true, nil
@@ -62,9 +64,19 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 		s.emitConfigReport()
 		return true, nil
 	case TriggerManualCompaction:
+		s.mu.Lock()
+		if s.activeRuns > 0 {
+			s.mu.Unlock()
+			s.events.Emit(output.NewOverlayReportEvent("Context Report", errRunInProgress.Error()))
+			return true, fmt.Errorf("compact: %w", errRunInProgress)
+		}
+		s.activeRuns++
+		s.mu.Unlock()
+		endRun := s.endRun
 		s.runs.Add(1)
 		go func() {
 			defer s.runs.Done()
+			defer endRun()
 			s.manualCompaction(ctx, a.Steering)
 		}()
 		return true, nil
@@ -80,7 +92,9 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, error) {
 	switch a := action.(type) {
 	case ClearConversation:
-		s.SetConversation(nil)
+		s.mu.Lock()
+		s.resetConversationLocked()
+		s.mu.Unlock()
 		s.skills.Reset()
 		return true, nil
 	case SetSkillEnabled:

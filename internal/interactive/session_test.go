@@ -174,8 +174,8 @@ func TestActiveRunControllerClear(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	ctrl := &ActiveRunController{}
-	ctrl.Set(cancel)
-	ctrl.Clear()
+	tok := ctrl.Set(cancel)
+	ctrl.Clear(tok)
 
 	if ctrl.HasCancel() {
 		t.Fatal("expected HasCancel to be false after Clear")

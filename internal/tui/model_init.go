@@ -239,8 +239,7 @@ var overlayKeyHandlers = []overlayKeyHandler{
 	overlayKeyHandlerFunc{
 		match: func(m *Model) bool { return m.sessionPicker.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
-			_, cmd := m.handleSessionPickerKey(msg)
-			return cmd
+			return m.handleSessionPickerKey(msg)
 		},
 	},
 	overlayKeyHandlerFunc{

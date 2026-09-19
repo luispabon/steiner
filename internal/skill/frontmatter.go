@@ -9,6 +9,8 @@ import (
 // parseFrontmatter extracts name and description from YAML frontmatter (--- ... ---).
 // Returns empty strings if no frontmatter is present, fields are absent, or YAML is malformed.
 func parseFrontmatter(content string) (name, description string) {
+	// Strip UTF-8 BOM if present (U+FEFF).
+	content = strings.TrimPrefix(content, string(rune(0xFEFF)))
 	lines := strings.Split(content, "\n")
 	if strings.TrimSpace(lines[0]) != "---" {
 		return "", ""

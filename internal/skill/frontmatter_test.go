@@ -47,6 +47,12 @@ func TestParseFrontmatter(t *testing.T) {
 			wantName: "",
 			wantDesc: "",
 		},
+		{
+			name:     "BOM with name and description",
+			content:  string(rune(0xFEFF)) + "---\nname: plan\ndescription: Plan coding work.\n---\nBody text.",
+			wantName: "plan",
+			wantDesc: "Plan coding work.",
+		},
 	}
 
 	for _, tt := range tests {

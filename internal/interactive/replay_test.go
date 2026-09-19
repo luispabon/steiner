@@ -395,6 +395,80 @@ func TestReplaySessionMessagesDisplayFileEvent(t *testing.T) {
 	}
 }
 
+func TestReplaySessionMessagesDisplayFileCallsAlwaysFinish(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
+	})
+
+	msgs := []agent.Message{
+		{
+			Role:    agent.MessageRoleAssistant,
+			Content: "showing files",
+			ToolCalls: []agent.ToolCall{
+				{ID: "call-valid", Name: "display_file", Arguments: map[string]any{"path": "valid.go"}},
+				{ID: "call-bad", Name: "display_file", Arguments: map[string]any{"path": "bad.go"}},
+			},
+		},
+		{
+			Role:       agent.MessageRoleTool,
+			ToolCallID: "call-valid",
+			Name:       "display_file",
+			Content:    `{"path":"valid.go","message":"file content"}`,
+		},
+		{
+			Role:       agent.MessageRoleTool,
+			ToolCallID: "call-bad",
+			Name:       "display_file",
+			Content:    `{malformed json}`,
+		},
+	}
+	s.replaySessionMessages(msgs)
+
+	// Collect Started/Finished events for each tool call.
+	type callEvent struct {
+		id    string
+		count int
+	}
+	callEvents := make(map[string]*callEvent)
+	displayFileCount := 0
+
+	for _, e := range events {
+		switch p := e.Payload.(type) {
+		case output.ToolCallStartedEvent:
+			if _, ok := callEvents[p.CallID]; !ok {
+				callEvents[p.CallID] = &callEvent{id: p.CallID}
+			}
+			callEvents[p.CallID].count++
+		case output.ToolCallFinishedEvent:
+			if _, ok := callEvents[p.CallID]; !ok {
+				callEvents[p.CallID] = &callEvent{id: p.CallID}
+			}
+			callEvents[p.CallID].count++
+		case output.DisplayFilePayload:
+			displayFileCount++
+		}
+	}
+
+	// Both tool calls must have Started and Finished events (count = 2 each).
+	for _, callID := range []string{"call-valid", "call-bad"} {
+		ce, ok := callEvents[callID]
+		if !ok {
+			t.Errorf("tool call %s: no events found", callID)
+			continue
+		}
+		if ce.count != 2 {
+			t.Errorf("tool call %s: got %d events, want 2 (Started + Finished)", callID, ce.count)
+		}
+	}
+
+	// Only the valid display_file should emit a DisplayFilePayload.
+	if displayFileCount != 1 {
+		t.Errorf("got %d DisplayFilePayload events, want 1", displayFileCount)
+	}
+}
+
 func TestReplaySessionMessagesToolCallError(t *testing.T) {
 	t.Parallel()
 	var events []output.Event

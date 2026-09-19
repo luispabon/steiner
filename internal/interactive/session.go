@@ -2,6 +2,7 @@ package interactive
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
@@ -45,6 +46,7 @@ type Session struct {
 	sessionDate         prompt.SessionDate
 	done                chan struct{}
 	runs                runGroup
+	activeRuns          int // prompt/compaction runs in flight; guarded by mu
 	exitOnce            sync.Once
 }
 
@@ -253,6 +255,39 @@ func (s *Session) SetConversation(conversation []agent.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.conversation = cloneMessages(conversation)
+}
+
+// resetConversationLocked clears the conversation and its lineage together so
+// the two cannot drift. The caller must hold s.mu.
+func (s *Session) resetConversationLocked() {
+	s.conversation = nil
+	s.lineage = agent.ConversationLineage{}
+}
+
+// errRunInProgress is returned when a state-mutating action is dispatched
+// while a prompt or compaction run is active.
+var errRunInProgress = errors.New("cannot change the session while a run is in progress")
+
+// beginRun registers an in-flight run under s.mu, the same lock the mutation
+// guards use, so there is no check-then-act gap. The returned func ends it.
+func (s *Session) beginRun() (end func()) {
+	s.mu.Lock()
+	s.activeRuns++
+	s.mu.Unlock()
+	return s.endRun
+}
+
+func (s *Session) endRun() {
+	s.mu.Lock()
+	s.activeRuns--
+	s.mu.Unlock()
+}
+
+// runActive reports whether a prompt or compaction run is in flight.
+func (s *Session) runActive() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.activeRuns > 0
 }
 
 // SetRunner replaces the session's run executor. This allows the CLI adapter

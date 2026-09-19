@@ -16,6 +16,8 @@ import (
 type ActiveRunController struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
+	owner  uint64
+	nextID uint64
 	steers *agent.SteerQueue
 }
 
@@ -24,17 +26,26 @@ func NewActiveRunController() *ActiveRunController {
 	return &ActiveRunController{steers: agent.NewSteerQueue()}
 }
 
-// Set records a new cancel function, replacing any existing one.
-func (c *ActiveRunController) Set(cancel context.CancelFunc) {
+// Set records a new cancel function, replacing any existing one, and returns
+// an owner token that must be passed to Clear.
+func (c *ActiveRunController) Set(cancel context.CancelFunc) uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.nextID++
+	c.owner = c.nextID
 	c.cancel = cancel
+	return c.owner
 }
 
-// Clear releases the current cancel function without calling it, and drops
-// any pending steer messages.
-func (c *ActiveRunController) Clear() {
+// Clear releases the cancel function registered under token without calling
+// it, and drops any pending steer messages. It is a no-op when a later Set has
+// replaced the registration, so a finishing run cannot clear its successor.
+func (c *ActiveRunController) Clear(token uint64) {
 	c.mu.Lock()
+	if c.owner != token || c.cancel == nil {
+		c.mu.Unlock()
+		return
+	}
 	c.cancel = nil
 	c.mu.Unlock()
 	c.steers.Clear()

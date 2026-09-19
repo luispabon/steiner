@@ -54,6 +54,10 @@ func (m *Model) executeClearAction() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) executeCompactAction(action inputAction) (tea.Model, tea.Cmd) {
+	if m.sessionBusy() {
+		m.refuseWhileBusy("compact")
+		return m, nil
+	}
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.TriggerManualCompaction{Steering: action.compactionSteering}); err != nil {
 			m.appendError(err)
@@ -225,6 +229,10 @@ func (m *Model) openSessionPicker() bool {
 }
 
 func (m *Model) executeRequestSessionPickerAction() (tea.Model, tea.Cmd) {
+	if m.sessionBusy() {
+		m.refuseWhileBusy("switch sessions")
+		return m, nil
+	}
 	if !m.openSessionPicker() {
 		m.input.Reset()
 		m.relayoutInput()
@@ -285,6 +293,10 @@ func (m *Model) executeOneshotResumePickerAction() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
+	if m.sessionBusy() {
+		m.refuseWhileBusy("fork")
+		return m, nil
+	}
 	// Check if there are any segments/messages in the conversation
 	if len(m.content.segments) == 0 {
 		m.content.AppendLine("status: no conversation to fork")
