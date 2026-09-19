@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 // fallbackProjectContextBudgetBytes is used when neither the assembly policy
@@ -119,6 +120,11 @@ func readFileBlock(absPath string, remaining int) (ContextBlock, error) {
 	truncated := false
 	if blockBytes > remaining {
 		blockBytes = remaining
+		// Back up to a rune start; a valid rune has at most UTFMax-1
+		// continuation bytes, so cap the walk for non-UTF-8 data.
+		for i := 0; i < utf8.UTFMax-1 && blockBytes > 0 && !utf8.RuneStart(data[blockBytes]); i++ {
+			blockBytes--
+		}
 		truncated = true
 	}
 	return ContextBlock{

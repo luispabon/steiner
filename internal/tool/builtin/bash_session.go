@@ -3,6 +3,7 @@ package builtin
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -67,6 +68,7 @@ func (s *BashSession) Start() error {
 	if s.CommandWrapper != nil {
 		cmd = s.CommandWrapper(cmd)
 	}
+	setBashProcessGroup(cmd)
 	release := onceRelease(s.ReleaseCommandResources, cmd)
 	defer release()
 
@@ -119,11 +121,17 @@ func onceRelease(releaseFn func(*exec.Cmd), cmd *exec.Cmd) func() {
 // Execute runs a shell command string and returns stdout, stderr, exitCode, and any session error.
 // The context deadline is respected; if exceeded, the session is restarted.
 func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stderr string, exitCode int, err error) {
+	stdout, stderr, exitCode, _, err = s.execute(ctx, command)
+	return stdout, stderr, exitCode, err
+}
+
+// execute is Execute plus a flag reporting whether either stream was truncated.
+func (s *BashSession) execute(ctx context.Context, command string) (stdout, stderr string, exitCode int, truncated bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if !s.started {
-		return "", "", -1, fmt.Errorf("bash session: not started")
+		return "", "", -1, false, fmt.Errorf("bash session: not started")
 	}
 
 	n := s.counter.Add(1)
@@ -144,12 +152,13 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 	)
 
 	if _, err := io.WriteString(s.stdin, script); err != nil {
-		return "", "", -1, fmt.Errorf("bash session: write command: %w", err)
+		return "", "", -1, false, fmt.Errorf("bash session: write command: %w", err)
 	}
 
 	type captureResult struct {
-		text string
-		err  error
+		text  string
+		trunc bool
+		err   error
 	}
 
 	stdoutCh := make(chan captureResult, 1)
@@ -166,14 +175,14 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 
 	go func() {
 		defer captures.Done()
-		text, err := readUntilMarker(stdoutR, stdoutMarker)
-		stdoutCh <- captureResult{text, err}
+		text, trunc, err := readUntilMarker(stdoutR, stdoutMarker, bashSessionMaxOutput)
+		stdoutCh <- captureResult{text, trunc, err}
 	}()
 
 	go func() {
 		defer captures.Done()
-		text, err := readUntilMarker(stderrR, stderrMarker)
-		stderrCh <- captureResult{text, err}
+		text, trunc, err := readUntilMarker(stderrR, stderrMarker, bashSessionMaxOutput)
+		stderrCh <- captureResult{text, trunc, err}
 	}()
 
 	var stdoutRes, stderrRes captureResult
@@ -183,7 +192,7 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 	for pending > 0 {
 		select {
 		case <-ctx.Done():
-			return "", "", -1, s.cancelInFlight(ctx, &captures)
+			return "", "", -1, false, s.cancelInFlight(ctx, &captures)
 		case r := <-stdoutCh:
 			stdoutRes = r
 			pending--
@@ -194,32 +203,30 @@ func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stde
 	}
 
 	if stdoutRes.err != nil || stderrRes.err != nil {
-		return "", "", -1, bashStreamReadError(stdoutRes.text, stdoutRes.err, stderrRes.text, stderrRes.err)
+		return "", "", -1, false, bashStreamReadError(stdoutRes.text, stdoutRes.err, stderrRes.text, stderrRes.err)
 	}
 
 	// Read the exit-code line from stdout (emitted after the stdout marker).
 	exitLine, err := s.stdoutR.ReadString('\n')
 	if err != nil && err != io.EOF {
-		return "", "", -1, fmt.Errorf("bash session: read exit line: %w", err)
+		return "", "", -1, false, fmt.Errorf("bash session: read exit line: %w", err)
 	}
 	exitLine = strings.TrimSpace(exitLine)
 
 	code, parseErr := parseBashExitLine(exitLine, exitMarker)
 	if parseErr != nil {
-		return "", "", -1, fmt.Errorf("bash session: %w", parseErr)
+		return "", "", -1, false, fmt.Errorf("bash session: %w", parseErr)
 	}
 
-	stdoutText, stdoutTrunc := maybeTruncate(stdoutRes.text, bashSessionMaxOutput)
-	stderrText, stderrTrunc := maybeTruncate(stderrRes.text, bashSessionMaxOutput)
-
-	if stdoutTrunc {
+	stdoutText, stderrText := stdoutRes.text, stderrRes.text
+	if stdoutRes.trunc {
 		stdoutText += "\n[output truncated]"
 	}
-	if stderrTrunc {
+	if stderrRes.trunc {
 		stderrText += "\n[output truncated]"
 	}
 
-	return stdoutText, stderrText, code, nil
+	return stdoutText, stderrText, code, stdoutRes.trunc || stderrRes.trunc, nil
 }
 
 // cancelInFlight restarts the session after ctx cancelled an in-flight command
@@ -292,7 +299,7 @@ func (s *BashSession) restartAfterCancel(ctx context.Context) {
 func (s *BashSession) restartLocked(_ context.Context) error {
 	if s.cmd != nil {
 		_ = s.stdin.Close()
-		_ = s.cmd.Process.Kill()
+		killBashProcess(s.cmd)
 		_ = s.cmd.Wait()
 	}
 	s.cmd = nil
@@ -305,6 +312,7 @@ func (s *BashSession) restartLocked(_ context.Context) error {
 	if s.CommandWrapper != nil {
 		cmd = s.CommandWrapper(cmd)
 	}
+	setBashProcessGroup(cmd)
 	release := onceRelease(s.ReleaseCommandResources, cmd)
 	defer release()
 
@@ -350,7 +358,7 @@ func (s *BashSession) Close() error {
 	}
 
 	_ = s.stdin.Close()
-	_ = s.cmd.Process.Kill()
+	killBashProcess(s.cmd)
 	err := s.cmd.Wait()
 	s.started = false
 	s.cmd = nil
@@ -369,23 +377,60 @@ func (s *BashSession) Close() error {
 	return nil
 }
 
-// readUntilMarker reads lines from r until it encounters a line that is exactly
-// the given marker, then returns everything read before the marker.
-func readUntilMarker(r *bufio.Reader, marker string) (string, error) {
-	var sb strings.Builder
+// readUntilMarker reads lines from r until a line ends with the given marker
+// (the marker may directly follow output lacking a trailing newline), then returns the first maxBytes of everything read before
+// it and whether anything was dropped. Memory stays bounded: lines are read in
+// bufio-sized fragments and bytes past maxBytes are discarded while scanning
+// continues, so the marker is still found however much output precedes it.
+func readUntilMarker(r *bufio.Reader, marker string, maxBytes int) (string, bool, error) {
+	var buf []byte
+	truncated := false
+	finish := func(err error) (string, bool, error) {
+		text := string(buf)
+		if truncated {
+			text = trimIncompleteUTF8SuffixString(text)
+		}
+		return text, truncated, err
+	}
+	appendCapped := func(b []byte) {
+		room := maxBytes - len(buf)
+		if room < 0 {
+			room = 0
+		}
+		if len(b) > room {
+			b = b[:room]
+			truncated = true
+		}
+		buf = append(buf, b...)
+	}
+
+	// held buffers the tail of the current line so a marker that follows
+	// output lacking a trailing newline, or that straddles fragments, can be
+	// recognised as a suffix and stripped before it reaches buf.
+	var held []byte
 	for {
-		line, err := r.ReadString('\n')
-		if err != nil && err != io.EOF {
-			return sb.String(), err
+		frag, err := r.ReadSlice('\n')
+		if err != nil && !errors.Is(err, bufio.ErrBufferFull) && !errors.Is(err, io.EOF) {
+			return finish(err)
 		}
-		trimmed := strings.TrimRight(line, "\n")
-		if trimmed == marker {
-			return sb.String(), nil
-		}
-		sb.WriteString(line)
-		if err == io.EOF {
-			// Unexpected EOF before marker — process likely died.
-			return sb.String(), io.ErrUnexpectedEOF
+		held = append(held, frag...)
+		switch {
+		case errors.Is(err, bufio.ErrBufferFull):
+			if flush := len(held) - len(marker); flush > 0 {
+				appendCapped(held[:flush])
+				held = append(held[:0], held[flush:]...)
+			}
+		case errors.Is(err, io.EOF):
+			appendCapped(held)
+			return finish(io.ErrUnexpectedEOF)
+		default:
+			body := held[:len(held)-1]
+			if bytes.HasSuffix(body, []byte(marker)) {
+				appendCapped(body[:len(body)-len(marker)])
+				return finish(nil)
+			}
+			appendCapped(held)
+			held = held[:0]
 		}
 	}
 }
@@ -405,13 +450,4 @@ func parseBashExitLine(line, exitMarker string) (int, error) {
 	}
 
 	return code, nil
-}
-
-// maybeTruncate truncates s to maxBytes and returns whether truncation occurred.
-// The cut is adjusted to avoid splitting a multi-byte UTF-8 rune.
-func maybeTruncate(s string, maxBytes int) (string, bool) {
-	if len(s) <= maxBytes {
-		return s, false
-	}
-	return trimIncompleteUTF8SuffixString(s[:maxBytes]), true
 }

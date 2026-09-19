@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"hash"
+	"hash/crc32"
 	"image"
 	_ "image/gif"  // register GIF decoder for image.Decode
 	_ "image/jpeg" // register JPEG decoder for image.Decode
 	_ "image/png"  // register PNG decoder for image.Decode
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,17 +78,9 @@ func NewReadTool(env Env) tool.ToolDef {
 				}, nil
 			}
 
-			data, err := os.ReadFile(absPath)
+			fileHash, totalLines, err := hashAndCountLines(absPath)
 			if err != nil {
 				return nil, fmt.Errorf("read: %w", err)
-			}
-
-			totalLines := 0
-			if len(data) > 0 {
-				totalLines = bytes.Count(data, []byte{'\n'})
-				if data[len(data)-1] != '\n' {
-					totalLines++
-				}
 			}
 
 			outputLines := strings.Split(contentText, "\n")
@@ -109,7 +104,7 @@ func NewReadTool(env Env) tool.ToolDef {
 
 			result := ReadResult{
 				Path:       displayPath,
-				FileHash:   FileContentHash(data),
+				FileHash:   fileHash,
 				StartLine:  startLine,
 				EndLine:    endLine,
 				TotalLines: totalLines,
@@ -128,14 +123,17 @@ func NewReadTool(env Env) tool.ToolDef {
 // readImageFile reads an image file, base64-encodes it, detects dimensions,
 // and returns a ReadResult with an embedded ImageBlock.
 func readImageFile(absPath, displayPath string) (*ReadResult, error) {
-	data, err := os.ReadFile(absPath)
+	info, err := os.Stat(absPath)
 	if err != nil {
 		return nil, fmt.Errorf("read image: %w", err)
 	}
+	if info.Size() > 5*1024*1024 {
+		return nil, fmt.Errorf("read image: file too large (max 5MB, got %s)", output.FormatFileSize(int(info.Size())))
+	}
 
-	// Check size before base64 encoding (max 5MB).
-	if len(data) > 5*1024*1024 {
-		return nil, fmt.Errorf("read image: file too large (max 5MB, got %s)", output.FormatFileSize(len(data)))
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("read image: %w", err)
 	}
 
 	// Detect dimensions using stdlib image package, with the existing WebP
@@ -192,3 +190,70 @@ func readImageFile(absPath, displayPath string) (*ReadResult, error) {
 		},
 	}, nil
 }
+
+// hashAndCountLines streams the file once, producing the same hash as
+// FileContentHash and the same line count as the previous in-memory logic.
+func hashAndCountLines(path string) (string, int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() { _ = f.Close() }()
+
+	w := &hashLineWriter{crc: crc32.NewIEEE()}
+	if _, err := io.Copy(w, f); err != nil {
+		return "", 0, err
+	}
+	lines := w.newlines
+	if w.size > 0 && !w.endsNewline {
+		lines++
+	}
+	return fmt.Sprintf("%08X", w.crc.Sum32()), lines, nil
+}
+
+// hashLineWriter feeds a CRC32 with content whose per-line trailing
+// whitespace (tab, space, CR) is trimmed, while counting newlines.
+type hashLineWriter struct {
+	crc         hash.Hash32
+	pending     []byte
+	newlines    int
+	size        int64
+	endsNewline bool
+}
+
+func (w *hashLineWriter) Write(p []byte) (int, error) {
+	if len(p) > 0 {
+		w.size += int64(len(p))
+		w.endsNewline = p[len(p)-1] == '\n'
+	}
+	start := 0
+	for i, c := range p {
+		if c == '\n' {
+			w.newlines++
+			w.emit(p[start:i])
+			w.pending = w.pending[:0]
+			_, _ = w.crc.Write([]byte{'\n'})
+			start = i + 1
+		}
+	}
+	w.emit(p[start:])
+	return len(p), nil
+}
+
+// emit hashes seg (which contains no newline), holding back its trailing
+// whitespace run until a later non-whitespace byte proves it is interior.
+func (w *hashLineWriter) emit(seg []byte) {
+	end := len(seg)
+	for end > 0 && isTrimByte(seg[end-1]) {
+		end--
+	}
+	if end == 0 {
+		w.pending = append(w.pending, seg...)
+		return
+	}
+	_, _ = w.crc.Write(w.pending)
+	_, _ = w.crc.Write(seg[:end])
+	w.pending = append(w.pending[:0], seg[end:]...)
+}
+
+func isTrimByte(c byte) bool { return c == '\t' || c == ' ' || c == '\r' }
