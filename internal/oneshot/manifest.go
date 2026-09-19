@@ -105,37 +105,6 @@ func (s *ManifestStore) Write(manifest Manifest) error {
 	return writeManifestAtomic(s.path, manifest)
 }
 
-// Update loads the manifest, applies the callback, and writes it back atomically.
-func (s *ManifestStore) Update(update func(*Manifest) error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	manifest, err := s.readLocked()
-	if err != nil {
-		return err
-	}
-	if err := update(&manifest); err != nil {
-		return err
-	}
-	stampManifest(&manifest)
-	return writeManifestAtomic(s.path, manifest)
-}
-
-func (s *ManifestStore) readLocked() (Manifest, error) {
-	data, err := os.ReadFile(s.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return Manifest{}, nil
-		}
-		return Manifest{}, fmt.Errorf("read manifest: %w", err)
-	}
-	var manifest Manifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		return Manifest{}, fmt.Errorf("unmarshal manifest: %w", err)
-	}
-	return manifest, nil
-}
-
 func ensureManifestMaps(manifest *Manifest) {
 	if manifest.PhaseStatuses == nil {
 		manifest.PhaseStatuses = map[Phase]PhaseStatus{}

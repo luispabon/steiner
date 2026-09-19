@@ -23,7 +23,7 @@ Each oneshot run receives a unique **run ID** (short slug derived from the task 
 
 The worktree and branch are immutable for the life of the run; concurrent runs never share a branch or worktree.
 
-Per-run locking is atomic and short-lived — acquired during provisioning, held through run setup, and released after the manifest is written. Stale locks are detected and reclaimed via compare-and-swap during resume.
+Per-run locking is atomic and short-lived — acquired during provisioning, held through run setup, and released after the manifest is written. Stale locks are detected and reclaimed via compare-and-swap during resume. While a phase runs, a background heartbeat refreshes the lock every 5 minutes (one third of the 15-minute staleness window); `Heartbeat` and `Release` verify the lock file still carries this run's owner and acquisition time, and a mismatch (`errLockLost`) aborts the phase without touching the foreign lock.
 
 ### Sandbox and Worktree
 

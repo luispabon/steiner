@@ -281,18 +281,26 @@ func resolveTargetBranch(ctx context.Context, worktreePath, remote string) (stri
 
 func detectCloseoutProvider(remoteURL string) (closeoutProvider, error) {
 	host := remoteHost(remoteURL)
+	if h, _, ok := strings.Cut(host, ":"); ok {
+		host = h // drop an explicit port
+	}
 	switch {
 	case host == "":
 		return "", fmt.Errorf("closeout: remote url %q has no host", remoteURL)
-	case strings.Contains(host, "github.com") || strings.HasSuffix(host, ".github.com") || strings.Contains(host, "github"):
+	case hostIs(host, "github.com") || strings.HasPrefix(host, "github."):
 		return closeoutProviderGitHub, nil
-	case strings.Contains(host, "gitlab.com") || strings.Contains(host, "gitlab"):
+	case hostIs(host, "gitlab.com") || strings.HasPrefix(host, "gitlab."):
 		return closeoutProviderGitLab, nil
-	case strings.Contains(host, "dev.azure.com") || strings.Contains(host, "visualstudio.com") || strings.Contains(host, "azure"):
+	case hostIs(host, "dev.azure.com") || hostIs(host, "visualstudio.com"):
 		return closeoutProviderAzure, nil
 	default:
 		return "", fmt.Errorf("unsupported provider for remote host %q", host)
 	}
+}
+
+// hostIs reports whether host equals domain or is a subdomain of it.
+func hostIs(host, domain string) bool {
+	return host == domain || strings.HasSuffix(host, "."+domain)
 }
 
 func remoteHost(remoteURL string) string {
