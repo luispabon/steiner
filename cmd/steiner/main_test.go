@@ -74,7 +74,7 @@ func TestMain(m *testing.M) {
 	if os.Getenv(lspHelperEnv) != "" {
 		os.Exit(m.Run())
 	}
-	if os.Getenv(mcpFixtureServerEnv) == "1" {
+	if os.Getenv(fixtureserver.Env) == "1" {
 		fixtureserver.Main()
 		os.Exit(0)
 	}

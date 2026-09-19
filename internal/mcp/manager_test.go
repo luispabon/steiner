@@ -970,29 +970,6 @@ func findTool(t *testing.T, defs []tool.ToolDef, name string) tool.ToolDef {
 
 var cachedFixtureBin string
 
-// fixtureServerEnv makes the test binary act as the fixture server instead of
-// running tests; see TestMain and writeReexecWrapper.
-const fixtureServerEnv = "STEINER_MCP_FIXTURE_SERVER"
-
-// writeReexecWrapper writes an executable shell script into dir that re-execs
-// this test binary with envVar=1, and returns its path. exec keeps the PID, so
-// process-reaping tests see the fixture itself rather than a shell. The race
-// runtime's exit sleep is disabled for the helper: it has no late race reports
-// worth waiting for and would otherwise add ~100ms to every spawn.
-func writeReexecWrapper(dir, name, envVar string) (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("resolve test executable: %w", err)
-	}
-	quoted := "'" + strings.ReplaceAll(exe, "'", `'\''`) + "'"
-	path := filepath.Join(dir, name)
-	script := "#!/bin/sh\nGORACE=\"$GORACE atexit_sleep_ms=0\" " + envVar + "=1 exec " + quoted + ` "$@"` + "\n"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil { //nolint:gosec // test helper must be executable
-		return "", fmt.Errorf("write wrapper: %w", err)
-	}
-	return path, nil
-}
-
 // TestMain serves as the fixture server when re-exec'd by the wrapper script,
 // and otherwise writes that wrapper once per test process into a temporary
 // directory shared by every test in this package. It publishes the path in
@@ -1000,7 +977,7 @@ func writeReexecWrapper(dir, name, envVar string) (string, error) {
 // go tool allows only one TestMain per test binary, so the external package
 // reads the shared path instead of defining its own.
 func TestMain(m *testing.M) {
-	if os.Getenv(fixtureServerEnv) == "1" {
+	if os.Getenv(fixtureserver.Env) == "1" {
 		fixtureserver.Main()
 		os.Exit(0)
 	}
@@ -1009,7 +986,12 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "create fixture dir: %v\n", err)
 		os.Exit(1)
 	}
-	cachedFixtureBin, err = writeReexecWrapper(dir, "fixtureserver", fixtureServerEnv)
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "resolve test executable: %v\n", err)
+		os.Exit(1)
+	}
+	cachedFixtureBin, err = fixtureserver.WriteWrapper(dir, "fixtureserver", fixtureserver.Env, exe)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "write fixture wrapper: %v\n", err)
 		os.Exit(1)

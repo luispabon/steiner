@@ -21,6 +21,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/mcp"
+	"github.com/luispabon/steiner/internal/mcp/testdata/fixtureserver"
 	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -361,8 +362,7 @@ func stageSandboxFixture(t *testing.T, sandboxTmp string) {
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	copyFile(t, exe, filepath.Join(sandboxTmp, "mcp.test"))
-	script := "#!/bin/sh\nGORACE=\"$GORACE atexit_sleep_ms=0\" STEINER_MCP_FIXTURE_SERVER=1 exec /tmp/mcp.test \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(sandboxTmp, "fixtureserver"), []byte(script), 0o755); err != nil { //nolint:gosec // test helper must be executable
+	if _, err := fixtureserver.WriteWrapper(sandboxTmp, "fixtureserver", fixtureserver.Env, "/tmp/mcp.test"); err != nil {
 		t.Fatalf("write sandbox wrapper: %v", err)
 	}
 }

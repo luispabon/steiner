@@ -587,7 +587,9 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 		t.Fatal("Run() error = nil, want fast failure after MCP init")
 	}
 	// Measured from Connect: the fixture re-exec is a slow-starting test binary,
-	// so how much of the timeout is left when Run starts varies.
+	// so how much of the timeout is left when Run starts varies. The flip side is
+	// that the test would falsely pass if setup before Run took over ~900ms, so
+	// it guards against Run not waiting at all, not against a partial wait.
 	if elapsed := time.Since(connectStart); elapsed < 900*time.Millisecond {
 		t.Fatalf("Run() returned %v after Connect, want it to wait for the stalling server (1s connect timeout)", elapsed)
 	}
