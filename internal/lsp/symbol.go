@@ -3,6 +3,7 @@ package lsp
 import (
 	"fmt"
 	"strings"
+	"unicode/utf16"
 )
 
 // resolveSymbolPosition finds a symbol within a file and returns its absolute path and 1-based position.
@@ -84,7 +85,7 @@ func resolveSymbolPosition(workspace, file, symbol string, line int) (resolvedFi
 }
 
 // findLeftmostMatch searches line for symbol at identifier boundaries, returning
-// the 0-based column of the leftmost match, or -1 if not found or no match is at a boundary.
+// the 0-based column (in UTF-16 code units, the LSP default position encoding) of the leftmost match, or -1 if not found or no match is at a boundary.
 // A match at column i is valid if the character before index i (if any) and the character
 // after the match (if any) are not identifier characters.
 func findLeftmostMatch(line, symbol string) int {
@@ -121,7 +122,7 @@ func findLeftmostMatch(line, symbol string) int {
 			continue
 		}
 
-		return i
+		return len(utf16.Encode(runes[:i]))
 	}
 
 	return -1
