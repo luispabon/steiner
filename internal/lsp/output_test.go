@@ -518,3 +518,72 @@ func TestMakeRelative(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatOutputBounded(t *testing.T) {
+	t.Parallel()
+	cfg := config.LSPConfig{MaxResults: 100}
+	huge := strings.Repeat("é😀", 512*1024) // ~2.5MB, multi-byte runes
+	tests := []struct {
+		name   string
+		out    string
+		maxLen int
+	}{
+		{"diagnostic message", formatDiagnostics("/w", DiagResult{Items: []Diagnostic{{File: "/w/a.go", Line: 1, Column: 1, Message: huge, Source: huge, Code: huge}}}, cfg), 3*(maxItemChars*5+64) + 200},
+		{"symbol name", formatSymbols("/w", SymbolResult{Symbols: []SymbolInfo{{Location: Location{File: "/w/a.go", Line: 1, Column: 1}, Name: huge, Container: huge}}}, cfg), 2*(maxItemChars*5+64) + 200},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if len(tt.out) > tt.maxLen {
+				t.Errorf("output %d bytes, want <= %d", len(tt.out), tt.maxLen)
+			}
+			if !utf8.ValidString(tt.out) {
+				t.Error("output is not valid UTF-8")
+			}
+			if !strings.Contains(tt.out, "truncated") {
+				t.Error("expected truncation note")
+			}
+			if strings.Count(tt.out, "\n") != 0 {
+				t.Errorf("field truncation broke single-line layout: %d newlines", strings.Count(tt.out, "\n"))
+			}
+		})
+	}
+}
+
+func TestCapOutput(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		in        string
+		truncated bool
+	}{
+		{"under cap", strings.Repeat("a", maxOutputBytes), false},
+		{"over cap ascii", strings.Repeat("a", maxOutputBytes+10), true},
+		{"over cap splits rune", "a" + strings.Repeat("😀", maxOutputBytes), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := capOutput(tt.in)
+			if !utf8.ValidString(got) {
+				t.Error("invalid UTF-8")
+			}
+			if has := strings.Contains(got, "output truncated"); has != tt.truncated {
+				t.Errorf("truncated note = %v, want %v", has, tt.truncated)
+			}
+			if len(got) > maxOutputBytes+64 {
+				t.Errorf("len = %d, too large", len(got))
+			}
+		})
+	}
+}
+
+func TestFormatLocationsBoundedTotal(t *testing.T) {
+	t.Parallel()
+	cfg := config.LSPConfig{MaxResults: 100}
+	res := Result{Locations: []Location{{File: "/w/" + strings.Repeat("d/", 600000) + "a.go", Line: 1, Column: 1}}}
+	out := formatLocations("/w", res, cfg)
+	if len(out) > maxOutputBytes+64 || !utf8.ValidString(out) {
+		t.Errorf("unbounded or invalid output: %d bytes", len(out))
+	}
+}
