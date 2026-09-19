@@ -115,8 +115,18 @@ type openAIToolCallFunction struct {
 }
 
 type openAIResponse struct {
-	Choices []openAIChoice `json:"choices"`
-	Usage   *UsageStats    `json:"usage,omitempty"`
+	Choices []openAIChoice     `json:"choices"`
+	Usage   *UsageStats        `json:"usage,omitempty"`
+	Error   *openAIStreamError `json:"error,omitempty"`
+}
+
+// openAIStreamError is the in-band error object some OpenAI-compatible
+// gateways send as a stream chunk. Code may be a string or a number.
+type openAIStreamError struct {
+	Message string          `json:"message,omitempty"`
+	Type    string          `json:"type,omitempty"`
+	Code    json.RawMessage `json:"code,omitempty"`
+	Status  int             `json:"status,omitempty"`
 }
 
 type openAIPromptTokensDetails struct {
@@ -148,14 +158,16 @@ func (u *openAIUsage) toUsageStats() *UsageStats {
 // is captured into UsageStats.CacheReadInputTokens.
 func (r *openAIResponse) UnmarshalJSON(data []byte) error {
 	type raw struct {
-		Choices []openAIChoice `json:"choices"`
-		Usage   *openAIUsage   `json:"usage,omitempty"`
+		Choices []openAIChoice     `json:"choices"`
+		Usage   *openAIUsage       `json:"usage,omitempty"`
+		Error   *openAIStreamError `json:"error,omitempty"`
 	}
 	var v raw
 	if err := json.Unmarshal(data, &v); err != nil {
 		return err
 	}
 	r.Choices = v.Choices
+	r.Error = v.Error
 	if v.Usage != nil {
 		r.Usage = v.Usage.toUsageStats()
 	}

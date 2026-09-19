@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 )
 
@@ -141,8 +142,24 @@ func handleAnthropicMessageDelta(state *anthropicStreamState, payload anthropicS
 
 func emitAnthropicStreamError(payload anthropicStreamEvent, emit func(ChatChunk) error) error {
 	message := "anthropic stream error"
-	if payload.Error != nil && strings.TrimSpace(payload.Error.Message) != "" {
-		message = payload.Error.Message
+	errType := ""
+	if payload.Error != nil {
+		errType = payload.Error.Type
+		if strings.TrimSpace(payload.Error.Message) != "" {
+			message = payload.Error.Message
+		}
+	}
+	if errType != "" {
+		message = fmt.Sprintf("%s: %s", errType, message)
+	}
+	// Transient in-band errors are returned as classified HTTP errors so the
+	// client retry loop treats them like their HTTP-status equivalents.
+	if status := anthropicStreamErrorStatus(errType); status != 0 {
+		return &HTTPError{
+			StatusCode: status,
+			Status:     fmt.Sprintf("%d %s", status, http.StatusText(status)),
+			Body:       message,
+		}
 	}
 	return emit(ChatChunk{
 		Done:          true,
@@ -334,5 +351,20 @@ func readAnthropicSSEEvent(reader *bufio.Reader) (string, string, error) {
 			}
 			return "", "", io.EOF
 		}
+	}
+}
+
+// anthropicStreamErrorStatus maps an in-band Anthropic error type to the HTTP
+// status it corresponds to. It returns 0 for types that are not transient.
+func anthropicStreamErrorStatus(errType string) int {
+	switch errType {
+	case "overloaded_error":
+		return statusAnthropicOverloaded
+	case "api_error":
+		return http.StatusInternalServerError
+	case "rate_limit_error":
+		return http.StatusTooManyRequests
+	default:
+		return 0
 	}
 }

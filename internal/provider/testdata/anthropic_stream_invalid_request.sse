@@ -1,0 +1,6 @@
+event: message_start
+data: {"type":"message_start","message":{"usage":{"input_tokens":1}}}
+
+event: error
+data: {"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}
+

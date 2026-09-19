@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -78,6 +80,9 @@ func processStreamEvent(state *openAIStreamState, event string, emit func(ChatCh
 			return false, fmt.Errorf("%w: %w", errDecodeStreamChunkUnexpected, err)
 		}
 		return false, fmt.Errorf("%w: %w", errDecodeStreamChunk, err)
+	}
+	if payload.Error != nil {
+		return false, openAIStreamErrorToError(payload.Error)
 	}
 	if payload.Usage != nil {
 		state.usage = payload.Usage
@@ -312,5 +317,43 @@ func readSSEEvent(reader *bufio.Reader) (string, error) {
 			}
 			return "", io.EOF
 		}
+	}
+}
+
+// openAIStreamErrorToError converts an in-band error chunk into an error. When
+// the gateway supplies a recognisable status or code the error is an
+// *HTTPError so the retry loop can classify it; otherwise it is terminal.
+func openAIStreamErrorToError(e *openAIStreamError) error {
+	message := strings.TrimSpace(e.Message)
+	if message == "" {
+		message = "stream error"
+	}
+	if e.Type != "" {
+		message = e.Type + ": " + message
+	}
+	status := e.Status
+	code := strings.Trim(strings.TrimSpace(string(e.Code)), `"`)
+	if status == 0 {
+		if n, err := strconv.Atoi(code); err == nil {
+			status = n
+		}
+	}
+	if status == 0 {
+		switch {
+		case e.Type == "rate_limit_error" || code == "rate_limit_exceeded":
+			status = http.StatusTooManyRequests
+		case e.Type == "server_error" || code == "server_error":
+			status = http.StatusInternalServerError
+		case e.Type == "overloaded_error" || code == "overloaded":
+			status = statusAnthropicOverloaded
+		}
+	}
+	if status < 400 || status > 599 {
+		return fmt.Errorf("openai stream error: %s", message)
+	}
+	return &HTTPError{
+		StatusCode: status,
+		Status:     fmt.Sprintf("%d %s", status, http.StatusText(status)),
+		Body:       message,
 	}
 }
