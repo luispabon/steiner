@@ -72,7 +72,7 @@ func NewBashTool(env Env) tool.ToolDef {
 			}
 			defer func() { _ = session.Close() }()
 
-			stdout, stderr, exitCode, execErr := session.Execute(execCtx, command)
+			stdout, stderr, exitCode, truncated, execErr := session.execute(execCtx, command)
 			if execErr != nil {
 				// Timeout or session error — return as a result rather than a Go error
 				// so the model receives the failure information.
@@ -96,10 +96,6 @@ func NewBashTool(env Env) tool.ToolDef {
 				output.WriteString("[stderr]\n")
 				output.WriteString(stderr)
 			}
-
-			// Detect truncation: maybeTruncate appends "[output truncated]" when hit.
-			truncated := strings.Contains(stdout, "[output truncated]") ||
-				strings.Contains(stderr, "[output truncated]")
 
 			// Apply the caller-specified max_output_chars cap on the combined output.
 			combined := output.String()
