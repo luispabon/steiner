@@ -20,7 +20,7 @@ import (
 )
 
 // WrapFn wraps a server command before launch, e.g. inside the sandbox.
-type WrapFn func(*exec.Cmd) *exec.Cmd
+type WrapFn func(*exec.Cmd) (*exec.Cmd, error)
 
 // ReleaseFn releases resources owned by a wrapped server command.
 type ReleaseFn func(*exec.Cmd)
@@ -272,6 +272,10 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 		var passing []*mcpsdk.Tool
 		advertisedTools, passing = filterTools(session.Tools(), srv, spec.Name, warnFn)
 		for _, t := range passing {
+			if size, tooLarge := schemaTooLarge(t.InputSchema); tooLarge {
+				warnFn(fmt.Sprintf("MCP server %q tool %q skipped: input schema is %d bytes (limit %d) or unmarshalable", spec.Name, t.Name, size, maxInputSchemaBytes))
+				continue
+			}
 			def := mcpToolDef(session, t, func() tool.ApprovalResponder { return m.currentApprover() }, func() bool { return m.planMode }, srv, limits)
 			m.defs = append(m.defs, def)
 			toolNames = append(toolNames, t.Name)

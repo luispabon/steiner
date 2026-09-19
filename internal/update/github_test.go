@@ -176,3 +176,95 @@ func TestFetchReleaseByTag_Non200(t *testing.T) {
 		t.Errorf("fetchReleaseByTag error = %q, want GitHub API 404", err.Error())
 	}
 }
+
+func TestFetchLatestRelease_OversizedBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Write more than maxReleaseJSONBytes to trigger the limit
+		largePayload := make([]byte, maxReleaseJSONBytes+1)
+		for i := range largePayload {
+			largePayload[i] = 'a'
+		}
+		_, _ = w.Write(largePayload)
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	_, err := fetchLatestRelease(context.Background(), "owner", "repo", "")
+	if err == nil {
+		t.Fatal("fetchLatestRelease: expected error for oversized body, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeded maximum size") {
+		t.Errorf("fetchLatestRelease error = %q, want exceeded maximum size error", err.Error())
+	}
+}
+
+func TestFetchLatestRelease_StreamingEndlessBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Use an io.NopCloser wrapping an endless reader to simulate streaming
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("ResponseWriter does not support flushing")
+		}
+
+		// Write initial valid JSON fragment
+		_, _ = w.Write([]byte(`{"tag_name":"v1.0.0","assets":[`))
+		flusher.Flush()
+
+		// Stream endless data to trigger size limit
+		for i := 0; i < maxReleaseJSONBytes*2; i++ {
+			if _, err := w.Write([]byte("a")); err != nil {
+				return
+			}
+			if i%10000 == 0 {
+				flusher.Flush()
+			}
+		}
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	_, err := fetchLatestRelease(context.Background(), "owner", "repo", "")
+	if err == nil {
+		t.Fatal("fetchLatestRelease: expected error for endless body, got nil")
+	}
+	// The error could be from size limit or from JSON parsing of incomplete data
+	if !strings.Contains(err.Error(), "exceeded maximum size") && !strings.Contains(err.Error(), "decode release") {
+		t.Errorf("fetchLatestRelease error = %q, want size limit or decode error", err.Error())
+	}
+}
+
+func TestFetchLatestRelease_NormalSizeBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := release{
+			TagName: "v1.2.3",
+			Assets: []asset{
+				{Name: "steiner-linux-amd64", DownloadURL: "https://example.com/linux"},
+			},
+		}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	defer saveHTTPClient()()
+	httpClient = newTestClient(server.URL)
+
+	rel, err := fetchLatestRelease(context.Background(), "owner", "repo", "")
+	if err != nil {
+		t.Fatalf("fetchLatestRelease: %v", err)
+	}
+	if rel.TagName != "v1.2.3" {
+		t.Errorf("TagName = %q, want %q", rel.TagName, "v1.2.3")
+	}
+	if len(rel.Assets) != 1 {
+		t.Fatalf("len(Assets) = %d, want 1", len(rel.Assets))
+	}
+}

@@ -53,7 +53,10 @@ func TestWrapCommand_OverlayResourcesReleaseAfterStart(t *testing.T) {
 	cmd.ExtraFiles = []*os.File{callerFile}
 	var output strings.Builder
 	cmd.Stdout = &output
-	wrapped := s.WrapCommand(cmd)
+	wrapped, err := s.WrapCommand(cmd)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 	if err := wrapped.Start(); err != nil {
 		t.Fatalf("start wrapped command: %v", err)
 	}

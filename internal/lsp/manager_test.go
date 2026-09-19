@@ -483,9 +483,9 @@ func TestManagerSameKeyReusesProcess(t *testing.T) {
 		},
 	}
 
-	wrapFn := func(cmd *exec.Cmd) *exec.Cmd {
+	wrapFn := func(cmd *exec.Cmd) (*exec.Cmd, error) {
 		callCount.Add(1)
-		return cmd
+		return cmd, nil
 	}
 
 	m := NewManager(cfg, tmpdir, wrapFn, func(string) {}, nil)
@@ -612,9 +612,9 @@ func TestManagerConcurrentCallsNoDoubleSpawn(t *testing.T) {
 		},
 	}
 
-	wrapFn := func(cmd *exec.Cmd) *exec.Cmd {
+	wrapFn := func(cmd *exec.Cmd) (*exec.Cmd, error) {
 		spawnCount.Add(1)
-		return cmd
+		return cmd, nil
 	}
 
 	m := NewManager(cfg, tmpdir, wrapFn, func(string) {}, nil)
@@ -904,12 +904,12 @@ func TestManagerContextCancellationDuringSpawn(t *testing.T) {
 	spawnGate := make(chan struct{})
 	var once sync.Once
 
-	wrapFn := func(cmd *exec.Cmd) *exec.Cmd {
+	wrapFn := func(cmd *exec.Cmd) (*exec.Cmd, error) {
 		once.Do(func() {
 			close(spawnEntered)
 			<-spawnGate
 		})
-		return cmd
+		return cmd, nil
 	}
 
 	cfg := config.LSPConfig{

@@ -2092,3 +2092,61 @@ logging:
 		t.Fatalf("error = %q, should not mention UNSET_B (it has a default)", err)
 	}
 }
+
+func TestLoadSandboxBindHostCache(t *testing.T) {
+	const base = `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  profiles:
+    default:
+      default_model: default
+  definitions:
+    default:
+      provider: local
+      id: test-model
+`
+	tests := []struct {
+		name    string
+		sandbox string
+		want    bool
+	}{
+		{"default is false", "", false},
+		{"opt-in", "sandbox:\n  bind_host_cache: true\n", true},
+		{"explicit false", "sandbox:\n  bind_host_cache: false\n", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			projectDir := filepath.Join(tempDir, "project")
+			projectConfigDir := filepath.Join(projectDir, ".steiner")
+			mustMkdirAll(t, projectConfigDir)
+			writeFile(t, filepath.Join(projectConfigDir, "config.yaml"), base+tt.sandbox)
+
+			cwd, err := os.Getwd()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := os.Chdir(cwd); err != nil {
+					t.Errorf("cleanup: restore working directory to %s: %v", cwd, err)
+				}
+			})
+			if err := os.Chdir(projectDir); err != nil {
+				t.Fatal(err)
+			}
+
+			cfg, err := Load(LoadOptions{
+				HomeDir: filepath.Join(tempDir, "home"),
+				Env:     map[string]string{},
+			})
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.Sandbox.BindHostCache != tt.want {
+				t.Fatalf("sandbox.bind_host_cache = %v, want %v", cfg.Sandbox.BindHostCache, tt.want)
+			}
+		})
+	}
+}

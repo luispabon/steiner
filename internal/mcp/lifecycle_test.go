@@ -141,12 +141,12 @@ func TestLifecycleCallsBlockDuringReconnect(t *testing.T) {
 	var startedOnce sync.Once
 	var releaseOnce sync.Once
 	releaseFn := func() { releaseOnce.Do(func() { close(release) }) }
-	wrap := func(c *exec.Cmd) *exec.Cmd {
+	wrap := func(c *exec.Cmd) (*exec.Cmd, error) {
 		if spawns.Add(1) > 1 {
 			startedOnce.Do(func() { close(started) })
 			<-release
 		}
-		return c
+		return c, nil
 	}
 	defer releaseFn()
 
@@ -642,12 +642,12 @@ func TestLifecycleCloseDuringReconnect(t *testing.T) {
 	var startedOnce sync.Once
 	var releaseOnce sync.Once
 	releaseFn := func() { releaseOnce.Do(func() { close(release) }) }
-	wrap := func(c *exec.Cmd) *exec.Cmd {
+	wrap := func(c *exec.Cmd) (*exec.Cmd, error) {
 		if spawns.Add(1) > 1 {
 			startedOnce.Do(func() { close(started) })
 			<-release
 		}
-		return c
+		return c, nil
 	}
 	defer releaseFn()
 

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -30,12 +31,12 @@ import (
 // internal/sandbox/docker.go) — such a var is still removed even if it also
 // appears in spec.Env, since bwrap applies --unsetenv after receiving the
 // process environment.
-func buildCommand(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, stderr io.Writer) *exec.Cmd {
-	cmd, _ := buildCommandTracked(ctx, spec, wrap, stderr)
-	return cmd
+func buildCommand(ctx context.Context, spec ServerSpec, wrap WrapFn, stderr io.Writer) (*exec.Cmd, error) {
+	cmd, _, err := buildCommandTracked(ctx, spec, wrap, stderr)
+	return cmd, err
 }
 
-func buildCommandTracked(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, stderr io.Writer) (*exec.Cmd, *exec.Cmd) {
+func buildCommandTracked(ctx context.Context, spec ServerSpec, wrap WrapFn, stderr io.Writer) (*exec.Cmd, *exec.Cmd, error) {
 	cmd := exec.CommandContext(ctx, spec.Command, spec.Args...)
 	wrapped := cmd
 
@@ -43,7 +44,11 @@ func buildCommandTracked(ctx context.Context, spec ServerSpec, wrap func(*exec.C
 	cmd.Stderr = stderr
 
 	if wrap != nil {
-		cmd = wrap(cmd)
+		var err error
+		cmd, err = wrap(cmd)
+		if err != nil {
+			return nil, nil, fmt.Errorf("wrap command: %w", err)
+		}
 		wrapped = cmd
 		// The sandbox wrapper returns a fresh exec.Cmd built from a struct
 		// literal, so it has no context. exec.Start rejects a non-nil Cancel on
@@ -73,7 +78,7 @@ func buildCommandTracked(ctx context.Context, spec ServerSpec, wrap func(*exec.C
 	// applied before the wrap would silently do nothing.
 	applyProcessGroup(cmd)
 
-	return cmd, wrapped
+	return cmd, wrapped, nil
 }
 
 // sortedEnvPairs renders m as KEY=VALUE pairs in sorted key order, so the

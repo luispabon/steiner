@@ -11,7 +11,7 @@ import (
 )
 
 // WrapFn wraps a server command before launch, e.g. inside the sandbox.
-type WrapFn func(*exec.Cmd) *exec.Cmd
+type WrapFn func(*exec.Cmd) (*exec.Cmd, error)
 
 // ReleaseFn releases resources owned by a wrapped server command.
 type ReleaseFn func(*exec.Cmd)
@@ -47,7 +47,11 @@ func newTransport(handshakeCtx, processCtx context.Context, spec TransportSpec) 
 	cmd := exec.CommandContext(processCtx, spec.Command, spec.Args...)
 	cmd.Env = spec.Env
 	if spec.Wrap != nil {
-		cmd = spec.Wrap(cmd)
+		wrapped, err := spec.Wrap(cmd)
+		if err != nil {
+			return nil, fmt.Errorf("wrap server command: %w", err)
+		}
+		cmd = wrapped
 	}
 	release := onceRelease(spec.Release, cmd)
 	defer release()

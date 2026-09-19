@@ -19,7 +19,10 @@ func TestWrapCommand_Disabled(t *testing.T) {
 	s := New(cfg, config.PermissionsConfig{}, "/workspace", "/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
-	wrapped := s.WrapCommand(original)
+	wrapped, err := s.WrapCommand(original)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 
 	if wrapped != original {
 		t.Error("expected WrapCommand to return original cmd unchanged when sandbox disabled")
@@ -31,7 +34,10 @@ func TestWrapCommandMode_Disabled(t *testing.T) {
 	s := New(cfg, config.PermissionsConfig{}, "/workspace", "/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
-	wrapped := s.WrapCommandMode(original, true)
+	wrapped, err := s.WrapCommandMode(original, true)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 
 	if wrapped != original {
 		t.Error("expected WrapCommandMode to return original cmd unchanged when sandbox disabled, even with readOnlyProject=true")
@@ -51,8 +57,14 @@ func TestWrapCommandMode_False_MatchesWrapCommand(t *testing.T) {
 
 	original := exec.CommandContext(context.Background(), "/usr/bin/env", "FOO=bar")
 
-	wrapped := s.WrapCommand(original)
-	wrappedMode := s.WrapCommandMode(exec.CommandContext(context.Background(), "/usr/bin/env", "FOO=bar"), false)
+	wrapped, err := s.WrapCommand(original)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
+	wrappedMode, err := s.WrapCommandMode(exec.CommandContext(context.Background(), "/usr/bin/env", "FOO=bar"), false)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 
 	if wrapped.Path != wrappedMode.Path {
 		t.Errorf("Path mismatch: WrapCommand=%q, WrapCommandMode(false)=%q", wrapped.Path, wrappedMode.Path)
@@ -80,7 +92,10 @@ func TestWrapCommandMode_True_CreatesSteinerdDir(t *testing.T) {
 	s := New(cfg, config.PermissionsConfig{}, root, root, "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
-	wrapped := s.WrapCommandMode(original, true)
+	wrapped, err := s.WrapCommandMode(original, true)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 
 	if wrapped == original {
 		t.Fatal("expected wrapping when sandbox enabled and readOnlyProject=true")
@@ -100,44 +115,6 @@ func TestWrapCommandMode_True_CreatesSteinerdDir(t *testing.T) {
 	}
 }
 
-func TestWrapCommandMode_True_NoBwrap(t *testing.T) {
-	restore := stubSandboxHooks(t, func(string) (string, error) {
-		return "", exec.ErrNotFound
-	}, func(string, int) (*sshOverlay, error) {
-		return nil, nil
-	})
-	defer restore()
-
-	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
-
-	original := exec.CommandContext(context.Background(), "echo", "hello")
-	wrapped := s.WrapCommandMode(original, true)
-
-	if wrapped != original {
-		t.Error("expected WrapCommandMode to return original when bwrap is not found, even with readOnlyProject=true")
-	}
-}
-
-func TestWrapCommand_Enabled_NoBwrap(t *testing.T) {
-	restore := stubSandboxHooks(t, func(string) (string, error) {
-		return "", exec.ErrNotFound
-	}, func(string, int) (*sshOverlay, error) {
-		return nil, nil
-	})
-	defer restore()
-
-	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
-
-	original := exec.CommandContext(context.Background(), "echo", "hello")
-	wrapped := s.WrapCommand(original)
-
-	if wrapped != original {
-		t.Error("expected WrapCommand to return original when bwrap is not found")
-	}
-}
-
 func TestWrapCommand_Enabled_WrapsCommand(t *testing.T) {
 	restore := stubSandboxHooks(t, func(string) (string, error) {
 		return "/usr/bin/bwrap", nil
@@ -150,7 +127,10 @@ func TestWrapCommand_Enabled_WrapsCommand(t *testing.T) {
 	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "/usr/bin/env", "FOO=bar")
-	wrapped := s.WrapCommand(original)
+	wrapped, err := s.WrapCommand(original)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 
 	if wrapped == original {
 		t.Fatal("expected a new wrapped cmd when sandbox enabled and bwrap present")
@@ -199,7 +179,10 @@ func TestWrapCommand_HostMountsFromConfig(t *testing.T) {
 	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
-	wrapped := s.WrapCommand(original)
+	wrapped, err := s.WrapCommand(original)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 
 	if !containsSeq(wrapped.Args, "--bind", "/data/rw", "/data/rw") {
 		t.Errorf("expected --bind /data/rw /data/rw in args: %v", wrapped.Args)
@@ -221,7 +204,10 @@ func TestWrapCommand_Enabled_InheritsStreams(t *testing.T) {
 	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "ls")
-	wrapped := s.WrapCommand(original)
+	wrapped, err := s.WrapCommand(original)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 
 	if wrapped.Stdin != original.Stdin {
 		t.Error("Stdin not inherited")
@@ -274,7 +260,10 @@ func TestWrapCommand_AppendsSSHOverlayFiles(t *testing.T) {
 	original := exec.CommandContext(context.Background(), "ssh", "example.com")
 	original.ExtraFiles = []*os.File{os.Stdout}
 
-	wrapped := s.WrapCommand(original)
+	wrapped, err := s.WrapCommand(original)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 
 	if len(wrapped.ExtraFiles) != 3 {
 		t.Fatalf("extra files len = %d, want 3", len(wrapped.ExtraFiles))
@@ -310,7 +299,10 @@ func TestWrapCommand_OverlayFailureFallsBack(t *testing.T) {
 	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
-	wrapped := s.WrapCommand(original)
+	wrapped, err := s.WrapCommand(original)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 
 	if wrapped == original {
 		t.Fatal("expected sandbox wrapping to continue after overlay failure")
@@ -320,33 +312,6 @@ func TestWrapCommand_OverlayFailureFallsBack(t *testing.T) {
 	}
 	if err := memfd.Close(); err == nil {
 		t.Fatal("expected failed overlay memfd to be closed")
-	}
-}
-
-func TestWrapCommand_BwrapLookupFailureClosesOverlay(t *testing.T) {
-	memfd, err := os.CreateTemp(t.TempDir(), "overlay-*")
-	if err != nil {
-		t.Fatalf("create temp overlay file: %v", err)
-	}
-
-	restore := stubSandboxHooks(t, func(string) (string, error) {
-		return "", exec.ErrNotFound
-	}, func(string, int) (*sshOverlay, error) {
-		return &sshOverlay{memfds: []*os.File{memfd}}, nil
-	})
-	defer restore()
-
-	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
-
-	original := exec.CommandContext(context.Background(), "echo", "hello")
-	wrapped := s.WrapCommand(original)
-
-	if wrapped != original {
-		t.Fatal("expected original command when bwrap lookup fails")
-	}
-	if err := memfd.Close(); err == nil {
-		t.Fatal("expected overlay memfd to be closed when bwrap lookup fails")
 	}
 }
 
@@ -364,7 +329,10 @@ func TestWrapCommandMode_NilEnv_DoesNotInheritUnfiltered(t *testing.T) {
 	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
-	wrapped := s.WrapCommandMode(original, false)
+	wrapped, err := s.WrapCommandMode(original, false)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 
 	if wrapped.Env == nil {
 		t.Fatal("expected wrapped.Env to be non-nil: nil cmd.Env must be treated as inheriting the host environment before filtering")
@@ -400,7 +368,10 @@ func TestWrapCommandMode_NilEnv_PassthroughAll(t *testing.T) {
 	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
-	wrapped := s.WrapCommandMode(original, false)
+	wrapped, err := s.WrapCommandMode(original, false)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 
 	found := false
 	for _, kv := range wrapped.Env {
@@ -437,7 +408,10 @@ func TestWrapCommand_NilEnv_Integration_HostVarNotVisibleInSandbox(t *testing.T)
 	}
 
 	original := exec.CommandContext(context.Background(), "env")
-	wrapped := s.WrapCommand(original)
+	wrapped, err := s.WrapCommand(original)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 
 	out, err := wrapped.CombinedOutput()
 	if err != nil {
@@ -504,7 +478,10 @@ func TestWrapCommand_AllowsGitCommitInWorktreeSubdir(t *testing.T) {
 
 	statusCmd := exec.CommandContext(context.Background(), gitPath, "status", "--short")
 	statusCmd.Dir = worktreeDir
-	statusWrapped := s.WrapCommand(statusCmd)
+	statusWrapped, err := s.WrapCommand(statusCmd)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 	if statusWrapped.Path != bwrapPath {
 		t.Fatalf("wrapped status path = %q, want %q", statusWrapped.Path, bwrapPath)
 	}
@@ -520,7 +497,10 @@ func TestWrapCommand_AllowsGitCommitInWorktreeSubdir(t *testing.T) {
 		t.Helper()
 		cmd := exec.CommandContext(context.Background(), gitPath, args...)
 		cmd.Dir = worktreeDir
-		wrapped := s.WrapCommand(cmd)
+		wrapped, err := s.WrapCommand(cmd)
+		if err != nil {
+			t.Fatalf("wrap command: %v", err)
+		}
 		out, err := wrapped.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %v failed: %v\n%s", args, err, out)
@@ -601,7 +581,10 @@ func TestWrapCommand_SSHOverlayIntegration_BwrapSSHConfig(t *testing.T) {
 	original.Stdout = &stdout
 	original.Stderr = &stderr
 
-	wrapped := s.WrapCommand(original)
+	wrapped, err := s.WrapCommand(original)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 	if wrapped == original {
 		t.Fatal("expected wrapped command when sandbox enabled and bwrap present")
 	}
@@ -647,7 +630,10 @@ func TestWrapCommand_DockerDenied_SandboxStartsSuccessfully(t *testing.T) {
 	}
 
 	original := exec.CommandContext(context.Background(), "true")
-	wrapped := s.WrapCommand(original)
+	wrapped, err := s.WrapCommand(original)
+	if err != nil {
+		t.Fatalf("wrap command: %v", err)
+	}
 	if wrapped.Path != bwrapPath {
 		t.Fatalf("wrapped path = %q, want %q", wrapped.Path, bwrapPath)
 	}
@@ -726,5 +712,131 @@ func stubSandboxHooks(t *testing.T, lookPath func(string) (string, error), prepa
 	return func() {
 		lookupBwrap = prevLookup
 		prepareSSHOverlay = prevPrepare
+	}
+}
+
+func TestWrapCommandMode_FailsClosedWhenBwrapUnresolvable(t *testing.T) {
+	restore := stubSandboxHooks(t, func(string) (string, error) {
+		return "", exec.ErrNotFound
+	}, func(string, int) (*sshOverlay, error) {
+		t.Error("ssh overlay must not be prepared when bwrap is unavailable")
+		return nil, nil
+	})
+	defer restore()
+
+	s := New(config.SandboxConfig{Enabled: true}, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+
+	for _, readOnly := range []bool{false, true} {
+		original := exec.CommandContext(context.Background(), "echo", "hello")
+		wrapped, err := s.WrapCommandMode(original, readOnly)
+		if err == nil {
+			t.Fatalf("readOnly=%v: expected error when bwrap is unresolvable", readOnly)
+		}
+		if wrapped != nil {
+			t.Errorf("readOnly=%v: expected nil command alongside error, got %v", readOnly, wrapped)
+		}
+		if !errors.Is(err, exec.ErrNotFound) {
+			t.Errorf("readOnly=%v: error %v does not wrap lookup failure", readOnly, err)
+		}
+	}
+}
+
+func TestWrapCommandMode_LookupFailingAfterConstructionNeverUnwrapped(t *testing.T) {
+	calls := 0
+	restore := stubSandboxHooks(t, func(string) (string, error) {
+		calls++
+		if calls > 1 {
+			return "", exec.ErrNotFound
+		}
+		return "/usr/bin/bwrap", nil
+	}, func(string, int) (*sshOverlay, error) {
+		return nil, nil
+	})
+	defer restore()
+
+	s := New(config.SandboxConfig{Enabled: true}, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", t.TempDir())
+
+	original := exec.CommandContext(context.Background(), "echo", "hello")
+	wrapped, err := s.WrapCommand(original)
+	if err != nil {
+		t.Fatalf("WrapCommand: %v", err)
+	}
+	if wrapped == original {
+		t.Fatal("command returned unwrapped after later lookup failure")
+	}
+	if wrapped.Path != "/usr/bin/bwrap" {
+		t.Errorf("Path = %q, want resolved /usr/bin/bwrap", wrapped.Path)
+	}
+	if calls != 1 {
+		t.Errorf("bwrap lookup calls = %d, want 1 (resolved once at construction)", calls)
+	}
+}
+
+func TestNew_ResolvesBwrapToAbsolutePath(t *testing.T) {
+	restore := stubSandboxHooks(t, func(string) (string, error) {
+		return "relative/bwrap", nil
+	}, func(string, int) (*sshOverlay, error) {
+		return nil, nil
+	})
+	defer restore()
+
+	s := New(config.SandboxConfig{Enabled: true}, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", t.TempDir())
+	wrapped, err := s.WrapCommand(exec.CommandContext(context.Background(), "echo", "hi"))
+	if err != nil {
+		t.Fatalf("WrapCommand: %v", err)
+	}
+	if !filepath.IsAbs(wrapped.Path) {
+		t.Errorf("Path = %q, want absolute", wrapped.Path)
+	}
+}
+
+func TestNew_DisabledSkipsBwrapLookup(t *testing.T) {
+	restore := stubSandboxHooks(t, func(string) (string, error) {
+		t.Error("lookup must not run when sandbox is disabled")
+		return "", exec.ErrNotFound
+	}, func(string, int) (*sshOverlay, error) {
+		return nil, nil
+	})
+	defer restore()
+
+	s := New(config.SandboxConfig{}, config.PermissionsConfig{}, "/w", "/w", "/h", "/t")
+	original := exec.CommandContext(context.Background(), "echo")
+	got, err := s.WrapCommand(original)
+	if err != nil || got != original {
+		t.Errorf("disabled sandbox: got (%v, %v), want original and nil error", got, err)
+	}
+}
+
+func TestWrapCommandMode_CreatesPrivateCacheDir(t *testing.T) {
+	restore := stubSandboxHooks(t, func(string) (string, error) {
+		return "/usr/bin/bwrap", nil
+	}, func(string, int) (*sshOverlay, error) {
+		return nil, nil
+	})
+	defer restore()
+
+	for _, tc := range []struct {
+		name      string
+		bindHost  bool
+		wantCache bool
+	}{
+		{"default", false, true},
+		{"bind host cache", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			home := t.TempDir()
+			if err := os.Mkdir(filepath.Join(home, ".cache"), 0o755); err != nil {
+				t.Fatalf("mkdir host cache: %v", err)
+			}
+			s := New(config.SandboxConfig{Enabled: true, BindHostCache: tc.bindHost}, config.PermissionsConfig{}, root, root, home, t.TempDir())
+			if _, err := s.WrapCommand(exec.CommandContext(context.Background(), "echo")); err != nil {
+				t.Fatalf("WrapCommand: %v", err)
+			}
+			_, statErr := os.Stat(privateCacheDir(filepath.Join(root, ".steiner", "home")))
+			if got := statErr == nil; got != tc.wantCache {
+				t.Errorf("private cache dir exists = %v, want %v", got, tc.wantCache)
+			}
+		})
 	}
 }

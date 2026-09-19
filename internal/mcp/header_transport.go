@@ -17,6 +17,7 @@ import (
 type headerTransport struct {
 	base    http.RoundTripper // nil means http.DefaultTransport
 	headers map[string]string
+	origin  string // when set, headers are only injected for requests to this origin
 }
 
 // RoundTrip injects configured headers onto the request and delegates to the base transport.
@@ -27,7 +28,7 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		base = http.DefaultTransport
 	}
 
-	if len(t.headers) == 0 {
+	if len(t.headers) == 0 || (t.origin != "" && originOf(req.URL) != t.origin) {
 		return base.RoundTrip(req)
 	}
 

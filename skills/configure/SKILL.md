@@ -71,12 +71,13 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `limits.max_parallel_tools`|int|`4`|Concurrent ordinary tools; >=1. |
 | `sandbox`|block|see fields below|Bubblewrap sandbox settings. |
 | `sandbox.enabled`|bool|`true`|Enable bubblewrap; `--unsafe` forces false. |
-| `sandbox.warning_on_unsupported_platform`|bool|`true`|Warn if sandbox is unavailable or bypassed. |
-| `sandbox.env_passthrough`|[]string|`[]`|Extra environment names; only trailing `*` is a prefix wildcard. |
-| `sandbox.env_passthrough_all`|bool|`false`|Disable environment filtering, including credential filtering. |
+| `sandbox.warning_on_unsupported_platform`|bool|`true`|Warn if sandbox unavailable/bypassed. |
+| `sandbox.env_passthrough`|[]string|`[]`|Extra env names; trailing `*` = prefix. |
+| `sandbox.env_passthrough_all`|bool|`false`|Disable env filtering (incl. credentials). |
+| `sandbox.bind_host_cache`|bool|`false`|Bind real `~/.cache` rw, not a private one. |
 | `sandbox.host_mounts.<index>.path`|string|—|Host path; `~` expands. |
-| `sandbox.host_mounts.<index>.mode`|string|—|`ro` or `rw`; host paths are read-only by default. |
-| `permissions.docker`|bool|`false`|Allow sandboxed tools to reach Docker socket; otherwise masked. |
+| `sandbox.host_mounts.<index>.mode`|string|—|`ro` or `rw`; default read-only. |
+| `permissions.docker`|bool|`false`|Allow Docker socket access; else masked. |
 | `sub_agent.enabled`|bool|`true`|Enable child agents. |
 | `sub_agent.orchestration_level`|string|`standard`|`low` or `standard` delegation steering. |
 | `sub_agent.max_turns`|int|`30`|Per-child turns (min 15). |

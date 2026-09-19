@@ -1,9 +1,12 @@
 package mcp
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
+	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -21,16 +24,44 @@ func newHTTPTransport(spec ServerSpec) (mcpsdk.Transport, error) {
 		return nil, fmt.Errorf("build http transport for mcp server %q: URL is empty", spec.Name)
 	}
 
-	if _, err := url.Parse(spec.URL); err != nil {
+	parsed, err := url.Parse(spec.URL)
+	if err != nil {
 		return nil, fmt.Errorf("build http transport for mcp server %q: invalid URL %q: %w", spec.Name, spec.URL, err)
 	}
 
 	transport := &mcpsdk.StreamableClientTransport{
 		Endpoint: spec.URL,
 		HTTPClient: &http.Client{
-			Transport: &headerTransport{headers: spec.Headers},
+			Transport:     &headerTransport{headers: spec.Headers, origin: originOf(parsed)},
+			CheckRedirect: refuseCrossOriginRedirect,
 		},
 	}
 
 	return transport, nil
+}
+
+// originOf returns scheme://host:port for u, with the scheme's default port made explicit.
+func originOf(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		switch u.Scheme {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return strings.ToLower(u.Scheme) + "://" + net.JoinHostPort(strings.ToLower(u.Hostname()), port)
+}
+
+// refuseCrossOriginRedirect stops redirects that leave the original request's
+// origin so configured credentials are never forwarded to another host.
+func refuseCrossOriginRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if from, to := originOf(via[0].URL), originOf(req.URL); from != to {
+		return fmt.Errorf("refusing cross-origin redirect from %s to %s", from, to)
+	}
+	return nil
 }

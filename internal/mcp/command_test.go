@@ -20,7 +20,7 @@ func TestBuildCommand_Basic(t *testing.T) {
 	}
 	stderr := io.Discard
 
-	cmd := buildCommand(context.Background(), spec, nil, stderr)
+	cmd := mustBuildCommand(context.Background(), t, spec, nil, stderr)
 
 	if cmd.Path != spec.Command {
 		t.Errorf("Path = %q, want %q", cmd.Path, spec.Command)
@@ -54,7 +54,7 @@ func TestBuildCommand_Basic(t *testing.T) {
 }
 
 func TestBuildCommand_AppliesProcessGroup(t *testing.T) {
-	cmd := buildCommand(context.Background(), ServerSpec{Command: "/bin/true"}, nil, io.Discard)
+	cmd := mustBuildCommand(context.Background(), t, ServerSpec{Command: "/bin/true"}, nil, io.Discard)
 
 	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid {
 		t.Error("SysProcAttr.Setpgid not set on the unwrapped command")
@@ -72,7 +72,7 @@ func TestBuildCommand_AppliesProcessGroup(t *testing.T) {
 
 func TestBuildCommand_SpecEnvSurvivesFilteringWrap(t *testing.T) {
 	allowed := map[string]bool{"PATH": true, "HOME": true}
-	filterWrap := func(c *exec.Cmd) *exec.Cmd {
+	filterWrap := func(c *exec.Cmd) (*exec.Cmd, error) {
 		filtered := make([]string, 0, len(c.Env))
 		for _, kv := range c.Env {
 			key, _, ok := strings.Cut(kv, "=")
@@ -84,7 +84,7 @@ func TestBuildCommand_SpecEnvSurvivesFilteringWrap(t *testing.T) {
 			Path: "/wrapped/bin",
 			Args: []string{"/wrapped/bin"},
 			Env:  filtered,
-		}
+		}, nil
 	}
 
 	spec := ServerSpec{
@@ -92,7 +92,7 @@ func TestBuildCommand_SpecEnvSurvivesFilteringWrap(t *testing.T) {
 		Env:     map[string]string{"MCP_TOKEN": "secret"},
 	}
 
-	got := buildCommand(context.Background(), spec, filterWrap, io.Discard)
+	got := mustBuildCommand(context.Background(), t, spec, filterWrap, io.Discard)
 
 	if !slices.Contains(got.Env, "MCP_TOKEN=secret") {
 		t.Errorf("expected spec.Env to survive the filtering wrap, got %v", got.Env)
@@ -111,8 +111,8 @@ func TestBuildCommand_SpecEnvOrderIsDeterministic(t *testing.T) {
 		Env:     map[string]string{"ZETA": "1", "ALPHA": "2", "MID": "3"},
 	}
 
-	first := buildCommand(context.Background(), spec, nil, io.Discard)
-	second := buildCommand(context.Background(), spec, nil, io.Discard)
+	first := mustBuildCommand(context.Background(), t, spec, nil, io.Discard)
+	second := mustBuildCommand(context.Background(), t, spec, nil, io.Discard)
 
 	specTail := func(env []string) []string {
 		return env[len(env)-3:]
@@ -133,7 +133,7 @@ func TestBuildCommand_AppliesProcessGroupAfterWrap(t *testing.T) {
 	// Mirror sandbox.WrapCommandMode: the wrapper returns a fresh exec.Cmd that
 	// copies only Path/Args/Stdin/Stdout/Stderr/Env and drops SysProcAttr,
 	// Cancel, and WaitDelay.
-	wrap := func(c *exec.Cmd) *exec.Cmd {
+	wrap := func(c *exec.Cmd) (*exec.Cmd, error) {
 		if c.SysProcAttr != nil {
 			t.Error("applyProcessGroup ran before wrap")
 		}
@@ -148,10 +148,10 @@ func TestBuildCommand_AppliesProcessGroupAfterWrap(t *testing.T) {
 			Stderr:     c.Stderr,
 			Env:        append([]string{"FILTERED=1"}, c.Env...),
 			ExtraFiles: []*os.File{os.Stdin},
-		}
+		}, nil
 	}
 
-	got := buildCommand(context.Background(), ServerSpec{Command: "/bin/true"}, wrap, io.Discard)
+	got := mustBuildCommand(context.Background(), t, ServerSpec{Command: "/bin/true"}, wrap, io.Discard)
 
 	if got.Path != "/wrapped/bin" {
 		t.Errorf("Path = %q, want the wrapped command's path", got.Path)
@@ -174,4 +174,13 @@ func TestBuildCommand_AppliesProcessGroupAfterWrap(t *testing.T) {
 	if got.Stdin != nil || got.Stdout != nil {
 		t.Error("Stdin/Stdout must stay nil")
 	}
+}
+
+func mustBuildCommand(ctx context.Context, t *testing.T, spec ServerSpec, wrap WrapFn, stderr io.Writer) *exec.Cmd {
+	t.Helper()
+	cmd, err := buildCommand(ctx, spec, wrap, stderr)
+	if err != nil {
+		t.Fatalf("buildCommand: %v", err)
+	}
+	return cmd
 }

@@ -382,7 +382,10 @@ func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir str
 	if workDir != "" {
 		cmd.Dir = workDir
 	}
-	cmd = resolved.Wrap(cmd)
+	cmd, err := resolved.Wrap(cmd)
+	if err != nil {
+		return nil, nil, ExecutionMetadata{}, fmt.Errorf("wrap command: %w", err)
+	}
 	cmd.Stdin = bytes.NewReader(payload)
 
 	stdoutCapture := newBoundedCapture(limit)
@@ -390,7 +393,7 @@ func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir str
 	cmd.Stdout = stdoutCapture
 	cmd.Stderr = stderrCapture
 
-	err := cmd.Start()
+	err = cmd.Start()
 	resolved.ReleaseCommandResources(cmd)
 	if err == nil {
 		err = cmd.Wait()

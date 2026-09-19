@@ -39,7 +39,7 @@ func TestStdio(t *testing.T) {
 		stageSandboxFixture(t, sandboxTmp)
 
 		s := newSandbox(t, repoRoot, sandboxTmp)
-		wrap := func(c *exec.Cmd) *exec.Cmd { return s.WrapCommandMode(c, true) }
+		wrap := func(c *exec.Cmd) (*exec.Cmd, error) { return s.WrapCommandMode(c, true) }
 
 		var stderr bytes.Buffer
 		sess, err := mcp.ConnectSession(context.Background(), mcp.ServerSpec{
@@ -96,8 +96,11 @@ func TestStdio(t *testing.T) {
 		recordPath := filepath.Join(sandboxTmp, "record.txt")
 
 		s := newSandbox(t, repoRoot, sandboxTmp)
-		wrap := func(c *exec.Cmd) *exec.Cmd {
-			w := s.WrapCommandMode(c, true)
+		wrap := func(c *exec.Cmd) (*exec.Cmd, error) {
+			w, err := s.WrapCommandMode(c, true)
+			if err != nil {
+				return nil, err
+			}
 			// The sandbox env allowlist (sandbox.FilterEnv) strips arbitrary
 			// vars, so the fixture's env vars are injected on the wrapped
 			// command, which bwrap passes on to the fixture unchanged.
@@ -109,7 +112,7 @@ func TestStdio(t *testing.T) {
 				"STEINER_FIXTURE_TOUCH="+filepath.Join(repoRoot, "probe.txt"),
 				"STEINER_FIXTURE_RECORD=/tmp/record.txt",
 			)
-			return w
+			return w, nil
 		}
 
 		var stderr bytes.Buffer

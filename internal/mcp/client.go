@@ -63,7 +63,7 @@ type Session struct {
 
 	// Reconnect configuration captured at connect time.
 	spec    ServerSpec
-	wrap    func(*exec.Cmd) *exec.Cmd
+	wrap    WrapFn
 	release ReleaseFn
 	stderr  io.Writer
 	timeout time.Duration
@@ -112,7 +112,7 @@ type SessionOptions struct {
 // the bounded connect ctx expires, so a deadline-driven connect failure is
 // bounded by the timeout rather than the timeout plus the transport's shutdown
 // grace.
-func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, args ...any) (*Session, error) {
+func ConnectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, args ...any) (*Session, error) {
 	var release ReleaseFn
 	var stderr io.Writer
 	var timeout time.Duration
@@ -134,7 +134,7 @@ func ConnectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *
 	return connectSession(ctx, spec, wrap, release, stderr, timeout, opts...)
 }
 
-func connectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *exec.Cmd, release ReleaseFn, stderr io.Writer, timeout time.Duration, opts ...SessionOptions) (*Session, error) {
+func connectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, release ReleaseFn, stderr io.Writer, timeout time.Duration, opts ...SessionOptions) (*Session, error) {
 	var opt SessionOptions
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -152,7 +152,11 @@ func connectSession(ctx context.Context, spec ServerSpec, wrap func(*exec.Cmd) *
 			return nil, fmt.Errorf("connect mcp server %q: %w", spec.Name, err)
 		}
 	case "", "stdio":
-		transport, cmd, releaseCommand = newStdioTransport(ctx, spec, wrap, release, stderr)
+		var err error
+		transport, cmd, releaseCommand, err = newStdioTransport(ctx, spec, wrap, release, stderr)
+		if err != nil {
+			return nil, fmt.Errorf("connect mcp server %q: %w", spec.Name, err)
+		}
 		defer releaseCommand()
 	default:
 		return nil, fmt.Errorf("connect mcp server %q: unsupported transport %q", spec.Name, spec.Transport)
@@ -440,7 +444,11 @@ func (s *Session) reconnectOnce() (*mcpsdk.ClientSession, *exec.Cmd, error) {
 		}
 		transport = t
 	case "", "stdio":
-		transport, cmd, releaseCommand = newStdioTransport(s.managerCtx, s.spec, s.wrap, s.release, s.stderr)
+		var err error
+		transport, cmd, releaseCommand, err = newStdioTransport(s.managerCtx, s.spec, s.wrap, s.release, s.stderr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("reconnect to mcp server %q: %w", s.name, err)
+		}
 		defer releaseCommand()
 	default:
 		return nil, nil, fmt.Errorf("reconnect to mcp server %q: unsupported transport %q", s.name, s.spec.Transport)

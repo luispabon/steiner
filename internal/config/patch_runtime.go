@@ -54,6 +54,7 @@ func applySandboxPatch(cfg *SandboxConfig, patch *sandboxPatch) {
 		cfg.EnvPassthrough = *patch.EnvPassthrough
 	}
 	setIfPresent(&cfg.EnvPassthroughAll, patch.EnvPassthroughAll)
+	setIfPresent(&cfg.BindHostCache, patch.BindHostCache)
 	if patch.HostMounts != nil {
 		cfg.HostMounts = *patch.HostMounts
 	}

@@ -28,10 +28,10 @@ type recordingWrapper struct {
 
 func (w *recordingWrapper) Enabled() bool { return true }
 
-func (w *recordingWrapper) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) *exec.Cmd {
+func (w *recordingWrapper) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cmd, error) {
 	w.calls++
 	w.lastReadOnlyProject = readOnlyProject
-	return cmd
+	return cmd, nil
 }
 
 func TestBashTool(t *testing.T) {

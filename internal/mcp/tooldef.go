@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -12,6 +13,19 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
+
+// maxInputSchemaBytes caps the marshalled size of a remote tool's input schema
+// so an untrusted server cannot inflate every provider request.
+const maxInputSchemaBytes = 64 * 1024
+
+// schemaTooLarge reports the marshalled schema size and whether it exceeds maxInputSchemaBytes.
+func schemaTooLarge(schema any) (int, bool) {
+	b, err := json.Marshal(schema)
+	if err != nil {
+		return 0, true
+	}
+	return len(b), len(b) > maxInputSchemaBytes
+}
 
 // mcpToolDef builds a tool.ToolDef for a discovered MCP tool.
 // getApprover resolves the approval responder lazily at call time (the manager
