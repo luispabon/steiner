@@ -52,36 +52,36 @@ func (m *Model) handleFilePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) handleSessionPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleSessionPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.Code {
 	case tea.KeyEsc:
 		m.sessionPicker = m.sessionPicker.Close()
 	case tea.KeyEnter:
-		if newModel, cmd, ok := m.dispatchSelectedSessionAction(func(sid string) interactive.Action {
+		if cmd, ok := m.dispatchSelectedSessionAction(func(sid string) interactive.Action {
 			return interactive.LoadSession{SessionID: sid}
 		}); ok {
-			return newModel, cmd
+			return cmd
 		}
 	}
 	// Handle printable characters (tea.KeyRunes equivalent)
 	if msg.Text != "" {
 		if msg.String() == "f" {
-			if newModel, cmd, ok := m.dispatchSelectedSessionAction(func(sid string) interactive.Action {
+			if cmd, ok := m.dispatchSelectedSessionAction(func(sid string) interactive.Action {
 				return interactive.ForkSavedSession{SessionID: sid}
 			}); ok {
-				return newModel, cmd
+				return cmd
 			}
 		} else {
 			var cmd tea.Cmd
 			m.sessionPicker, cmd = m.sessionPicker.Update(msg)
-			return m, cmd
+			return cmd
 		}
 	} else {
 		var cmd tea.Cmd
 		m.sessionPicker, cmd = m.sessionPicker.Update(msg)
-		return m, cmd
+		return cmd
 	}
-	return m, nil
+	return nil
 }
 
 // dispatchSelectedSessionAction closes the session picker, runs the reset
@@ -89,17 +89,17 @@ func (m *Model) handleSessionPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 // currently selected candidate. selected is false when there is no
 // candidate selection, in which case the caller should fall through
 // without modifying m.
-func (m *Model) dispatchSelectedSessionAction(makeAction func(sessionID string) interactive.Action) (*Model, tea.Cmd, bool) {
+func (m *Model) dispatchSelectedSessionAction(makeAction func(sessionID string) interactive.Action) (tea.Cmd, bool) {
 	// Every early return must leave the model untouched: the receiver is a
 	// pointer, so a mutation before a false return would persist in the caller
 	// even though the caller treats false as "nothing happened".
 	if m.sessionPicker.selection < 0 || len(m.sessionPicker.candidates) == 0 || m.controller == nil {
-		return m, nil, false
+		return nil, false
 	}
 	if m.sessionBusy() {
 		m.sessionPicker = m.sessionPicker.Close()
 		m.refuseWhileBusy("switch sessions")
-		return m, nil, true
+		return nil, true
 	}
 	selected := m.sessionPicker.candidates[m.sessionPicker.selection]
 	m.sessionPicker = m.sessionPicker.Close()
@@ -113,7 +113,7 @@ func (m *Model) dispatchSelectedSessionAction(makeAction func(sessionID string) 
 	m.syncViewport()
 	ctrl := m.controller
 	action := makeAction(selected.ID)
-	return m, func() tea.Msg {
+	return func() tea.Msg {
 		if err := ctrl.Handle(context.Background(), action); err != nil {
 			return controllerHandleFailedMsg{err: err}
 		}

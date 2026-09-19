@@ -429,7 +429,6 @@ func TestReplaySessionMessagesDisplayFileCallsAlwaysFinish(t *testing.T) {
 	// Collect Started/Finished events for each tool call.
 	type callEvent struct {
 		id    string
-		typ   string
 		count int
 	}
 	callEvents := make(map[string]*callEvent)
