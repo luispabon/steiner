@@ -238,6 +238,7 @@ func TestStopReasonTimestampFiltering(t *testing.T) {
 }
 
 func TestAssistantMarkdownWrapsLongProseLines(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	useTrueColor(t)
 

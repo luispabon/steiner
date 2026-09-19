@@ -12,6 +12,7 @@ import (
 )
 
 func TestConfirmModalDefaultSelectionIsHonoured(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		defaultAction  confirmModalAction
@@ -48,6 +49,7 @@ func TestConfirmModalDefaultSelectionIsHonoured(t *testing.T) {
 }
 
 func TestConfirmModalMoveSelectionWraps(t *testing.T) {
+	t.Parallel()
 	spec := confirmModalSpec{
 		Title:         "test",
 		Heading:       "Proceed?",
@@ -84,6 +86,7 @@ func TestConfirmModalMoveSelectionWraps(t *testing.T) {
 }
 
 func TestConfirmModalSelectedActionReturnsCurrentSelection(t *testing.T) {
+	t.Parallel()
 	spec := confirmModalSpec{
 		Title:         "test",
 		Heading:       "Proceed?",
@@ -105,6 +108,7 @@ func TestConfirmModalSelectedActionReturnsCurrentSelection(t *testing.T) {
 }
 
 func TestConfirmModalHandleKey(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		defaultAction confirmModalAction
@@ -153,6 +157,7 @@ func TestConfirmModalHandleKey(t *testing.T) {
 }
 
 func TestConfirmModalRenderContainsAllContent(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 	spec := confirmModalSpec{
 		Title:         "test",
@@ -177,6 +182,7 @@ func TestConfirmModalRenderContainsAllContent(t *testing.T) {
 }
 
 func TestConfirmModalRenderAtNarrowWidth(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 	spec := confirmModalSpec{
 		Title:         "test",
@@ -201,6 +207,7 @@ func TestConfirmModalRenderAtNarrowWidth(t *testing.T) {
 }
 
 func TestConfirmModalCloseMarksAsClosed(t *testing.T) {
+	t.Parallel()
 	spec := confirmModalSpec{
 		Title:         "test",
 		Heading:       "Proceed?",
@@ -221,6 +228,7 @@ func TestConfirmModalCloseMarksAsClosed(t *testing.T) {
 }
 
 func TestConfirmModalsFollowResize(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		open func(m *Model)
@@ -282,6 +290,7 @@ func TestConfirmModalsFollowResize(t *testing.T) {
 }
 
 func TestConfirmModalViewPriority(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 

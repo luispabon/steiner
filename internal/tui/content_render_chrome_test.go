@@ -18,6 +18,7 @@ func newTestBuffer(t *testing.T) *contentBuffer {
 }
 
 func TestCompactionBoxCollapsedInProgress(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	cd := &compactionBannerData{
 		subtitle:     "summarizing context",
@@ -57,6 +58,7 @@ func TestCompactionBoxCollapsedInProgress(t *testing.T) {
 }
 
 func TestCompactionBoxCollapsedFinished(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	cd := &compactionBannerData{
 		subtitle:        "summarizing context",
@@ -96,6 +98,7 @@ func TestCompactionBoxCollapsedFinished(t *testing.T) {
 }
 
 func TestCompactionFinishedHeaderShowsCacheRateBeforeElapsed(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	cd := &compactionBannerData{
 		finished:          true,
@@ -123,6 +126,7 @@ func TestCompactionFinishedHeaderShowsCacheRateBeforeElapsed(t *testing.T) {
 }
 
 func TestCompactionFinishedHeaderShowsZeroCacheRate(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	cd := &compactionBannerData{
 		finished:        true,
@@ -148,6 +152,7 @@ func TestCompactionFinishedHeaderShowsZeroCacheRate(t *testing.T) {
 }
 
 func TestCompactionHeaderOmitsCacheRateWithoutUsage(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	cd := &compactionBannerData{
 		finished:        true,
@@ -171,6 +176,7 @@ func TestCompactionHeaderOmitsCacheRateWithoutUsage(t *testing.T) {
 }
 
 func TestCompactionDiagnosticsWiresBannerUsage(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	b.handleCompactionDiagnostics(output.ContextCompactionEvent{
 		Severity:          "ok",
@@ -218,6 +224,7 @@ func TestCompactionDiagnosticsWiresBannerUsage(t *testing.T) {
 }
 
 func TestCompactionInProgressHeaderOmitsCacheRate(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	cd := &compactionBannerData{
 		finished:          false,
@@ -238,6 +245,7 @@ func TestCompactionInProgressHeaderOmitsCacheRate(t *testing.T) {
 }
 
 func TestCompactionBoxUsesNilGuard(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	seg := contentSegment{compactionData: nil}
 	out := b.renderCompactionBannerSegment(seg, 80)
@@ -247,6 +255,7 @@ func TestCompactionBoxUsesNilGuard(t *testing.T) {
 }
 
 func TestRenderDelegationHeaderAdvisor(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	header := b.renderDelegationHeader(&delegationDisplayState{
 		isAdvisor:      true,
@@ -270,6 +279,7 @@ func TestRenderDelegationHeaderAdvisor(t *testing.T) {
 }
 
 func TestDelegationRowsStylePromptBodyDifferentlyAndInsertSeparator(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	useTrueColor(t)
 	dd := &delegationDisplayState{
@@ -323,6 +333,7 @@ func TestDelegationRowsStylePromptBodyDifferentlyAndInsertSeparator(t *testing.T
 }
 
 func TestDelegationRowsOmitSeparatorWhenCollapsed(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	cases := []struct {
 		name string
@@ -364,6 +375,7 @@ func TestDelegationRowsOmitSeparatorWhenCollapsed(t *testing.T) {
 }
 
 func TestDelegationRowsAdvisorQuestionAndFiles(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	dd := &delegationDisplayState{
 		isAdvisor:       true,
@@ -412,6 +424,7 @@ func TestDelegationRowsAdvisorQuestionAndFiles(t *testing.T) {
 }
 
 func TestDelegationRowsAdvisorCollapsedHeaderShowsQuestionAndFileCount(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	dd := &delegationDisplayState{
 		isAdvisor:       true,
@@ -440,6 +453,7 @@ func TestDelegationRowsAdvisorCollapsedHeaderShowsQuestionAndFileCount(t *testin
 }
 
 func TestRenderClosingSeparatorHasBlankLineMargin(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	b.appendLabeledBlock("Compaction", "summary text")
 

@@ -11,6 +11,7 @@ import (
 )
 
 func TestContextOverlayRendersMarkdownAndKeepsBaseVisible(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 	m := newModel(Config{Model: "gpt-test"}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})

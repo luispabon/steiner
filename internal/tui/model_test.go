@@ -3247,6 +3247,7 @@ func TestContentBufferReflowsMarkdownForViewportWidth(t *testing.T) {
 }
 
 func TestApplyComposerCursorAnsi(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		input           string
@@ -3342,6 +3343,7 @@ func TestApplyComposerCursorAnsi(t *testing.T) {
 }
 
 func TestComposerCursorBoundaryCase(t *testing.T) {
+	t.Parallel()
 	// Test the boundary case from A3: when wrapped row is exactly full
 	// and cursor sits at the very end of the typed text (end of last row).
 	// The composer width should be chosen so a wrapped row is exactly full.

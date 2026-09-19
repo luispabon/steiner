@@ -77,6 +77,7 @@ func TestBuildFetchURLLines(t *testing.T) {
 }
 
 func TestBuildGrepFileLines_NoMatchesSentinel(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		styles: testStyles(theme.AccentAmber),
 	}
@@ -136,6 +137,7 @@ func TestBuildGrepFileLines_NoMatchesSentinel(t *testing.T) {
 }
 
 func TestBuildGrepCountLines_NoMatchesSentinel(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{
 		styles: testStyles(theme.AccentAmber),
 	}

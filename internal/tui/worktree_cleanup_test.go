@@ -12,6 +12,7 @@ import (
 )
 
 func TestWorktreeCleanupPlan(t *testing.T) {
+	t.Parallel()
 	listCalls := 0
 	pruneCalls := 0
 	wantErr := errors.New("prune failed")
@@ -44,6 +45,7 @@ func TestWorktreeCleanupPlan(t *testing.T) {
 }
 
 func TestWorktreeCleanupPlanNilReceiver(t *testing.T) {
+	t.Parallel()
 	var plan *WorktreeCleanupPlan
 	if count, err := plan.Count(context.Background()); count != 0 || err != nil {
 		t.Fatalf("nil Count() = (%d, %v), want (0, nil)", count, err)
@@ -58,6 +60,7 @@ func TestWorktreeCleanupPlanNilReceiver(t *testing.T) {
 }
 
 func TestWorktreeCleanupModalState(t *testing.T) {
+	t.Parallel()
 	state := openConfirmModal(80, 24, worktreeCleanupModalSpec(2))
 	if state.selectedAction() != confirmModalLeft {
 		t.Fatalf("default action = %v, want confirmModalLeft", state.selectedAction())
@@ -80,6 +83,7 @@ func TestWorktreeCleanupModalState(t *testing.T) {
 }
 
 func TestExitFlowDecisionLogic(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		plan        *WorktreeCleanupPlan
@@ -123,6 +127,7 @@ func TestExitFlowDecisionLogic(t *testing.T) {
 }
 
 func TestExitFlowCountingCtrlCIgnored(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{Controller: &testController{}}, nil)
 	m.exitFlowPhase = exitFlowPhaseCounting
 
@@ -142,6 +147,7 @@ func TestExitFlowCountingCtrlCIgnored(t *testing.T) {
 }
 
 func TestExitFlowCountErrorExits(t *testing.T) {
+	t.Parallel()
 	controller := &testController{}
 	m := newModel(Config{Controller: controller}, nil)
 	m.exitFlowPhase = exitFlowPhaseCounting
@@ -163,6 +169,7 @@ func TestExitFlowCountErrorExits(t *testing.T) {
 }
 
 func TestExitFlowStaleCountIgnored(t *testing.T) {
+	t.Parallel()
 	controller := &testController{}
 	m := newModel(Config{Controller: controller}, nil)
 	m.exitFlowPhase = exitFlowPhaseCleanup
@@ -180,6 +187,7 @@ func TestExitFlowStaleCountIgnored(t *testing.T) {
 }
 
 func TestExitFlowCountThenEscape(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{Controller: &testController{}}, nil)
 	m.exitFlowPhase = exitFlowPhaseCounting
 	m.handleWorktreeCountMsg(worktreeCountMsg{count: 2})
@@ -197,6 +205,7 @@ func TestExitFlowCountThenEscape(t *testing.T) {
 }
 
 func TestWorktreeCleanupPlanCountCancelled(t *testing.T) {
+	t.Parallel()
 	plan := NewWorktreeCleanupPlan(func(ctx context.Context) (int, error) {
 		return 0, ctx.Err()
 	}, nil)
@@ -220,6 +229,7 @@ func TestWorktreeCleanupPlanCountCancelled(t *testing.T) {
 }
 
 func TestExitFlowReentryGuard(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	plan := NewWorktreeCleanupPlan(func(context.Context) (int, error) {
 		calls++
@@ -241,6 +251,7 @@ func TestExitFlowReentryGuard(t *testing.T) {
 }
 
 func TestWorktreeCleanupModalKeys(t *testing.T) {
+	t.Parallel()
 	t.Run("escape cancels exit", func(t *testing.T) {
 		m := newModel(Config{Controller: &testController{}}, nil)
 		m.exitFlowPhase = exitFlowPhaseCleanup
@@ -304,6 +315,7 @@ func TestWorktreeCleanupModalKeys(t *testing.T) {
 }
 
 func TestDoExitWithoutControllerReturnsQuit(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	_, cmd := m.doExit()
 	if cmd == nil {

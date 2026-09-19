@@ -12,6 +12,7 @@ import (
 )
 
 func TestSetInitialModeSeedsModel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		initialConfig string
@@ -43,6 +44,7 @@ func TestSetInitialModeSeedsModel(t *testing.T) {
 }
 
 func TestSetInitialEnabledSkillsSeedsModel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		config  []string
@@ -101,6 +103,7 @@ func TestSetInitialEnabledSkillsSeedsModel(t *testing.T) {
 }
 
 func TestResumeSeedsInitialModeBeforeToggle(t *testing.T) {
+	t.Parallel()
 	store := tuiTestSessionStore{}
 	sess, err := interactive.NewSession(interactive.Dependencies{
 		BaseEvents:   output.NoopSink{},

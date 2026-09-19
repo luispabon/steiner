@@ -14,6 +14,7 @@ import (
 )
 
 func TestDetectGitSnapshotIncludesModifiedFiles(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	runGit(t, repo, "init")
 	runGit(t, repo, "config", "user.name", "Test User")
@@ -52,6 +53,7 @@ func TestDetectGitSnapshotIncludesModifiedFiles(t *testing.T) {
 }
 
 func TestDetectGitSnapshotIncludesUntrackedFiles(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	runGit(t, repo, "init")
 	runGit(t, repo, "config", "user.name", "Test User")
@@ -130,6 +132,7 @@ func TestNewGitStateLogsWorkingDirectoryResolutionFailure(t *testing.T) {
 }
 
 func TestReadGitAheadWithoutUpstreamDoesNotLog(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	runGit(t, repo, "init")
 	runGit(t, repo, "config", "user.name", "Test User")
@@ -148,6 +151,7 @@ func TestReadGitAheadWithoutUpstreamDoesNotLog(t *testing.T) {
 }
 
 func TestReadGitAheadLogsRevListFailureWithConfiguredUpstream(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	runGit(t, repo, "init")
 	runGit(t, repo, "config", "user.name", "Test User")
@@ -173,6 +177,7 @@ func TestReadGitAheadLogsRevListFailureWithConfiguredUpstream(t *testing.T) {
 }
 
 func TestSidebarLinesIncludeModifiedFilesSection(t *testing.T) {
+	t.Parallel()
 	styles := theme.Default().LipGlossStyles()
 	sidebar := sidebarState{
 		workingDir: "/tmp/project",
@@ -203,6 +208,7 @@ func TestSidebarLinesIncludeModifiedFilesSection(t *testing.T) {
 }
 
 func TestDetectGitSnapshotHandlesRenamedFiles(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	runGit(t, repo, "init")
 	runGit(t, repo, "config", "user.name", "Test User")

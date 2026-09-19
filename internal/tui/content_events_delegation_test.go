@@ -14,6 +14,7 @@ import (
 )
 
 func TestDelegationCacheWaitingBindsAndClears(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:               make([]contentSegment, 0),
 		collapseState:          make(map[int]bool),
@@ -52,6 +53,7 @@ func TestDelegationCacheWaitingBindsAndClears(t *testing.T) {
 }
 
 func TestDelegationCacheWaitingProductionEventOrder(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-production", map[string]any{"type": "code", "task": "wait for cache"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-production", "wait for cache", "call-production"))
@@ -78,6 +80,7 @@ func TestDelegationCacheWaitingProductionEventOrder(t *testing.T) {
 }
 
 func TestCacheWaitingCancellationLeavesElapsedEmpty(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "wait for cache"}))
 	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("child-1", "call_1", time.Now().Add(time.Second)))
@@ -339,6 +342,7 @@ func TestScopedCancellationFinalizesOnlyTargetDelegation(t *testing.T) {
 }
 
 func TestDelegationFailedCallIDBindsPendingParent(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-1", map[string]any{"type": "code", "objective": "one"}))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-2", map[string]any{"type": "code", "objective": "two"}))
@@ -357,6 +361,7 @@ func TestDelegationFailedCallIDBindsPendingParent(t *testing.T) {
 }
 
 func TestDelegationFailedBeforeToolStartBindsLater(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "child-1", CallID: "call-1", Error: "setup"}))
 	if len(buffer.segments) != 1 || len(buffer.pendingDelegateParents) != 0 || len(buffer.pendingDelegationStarts) != 1 {
@@ -374,6 +379,7 @@ func TestDelegationFailedBeforeToolStartBindsLater(t *testing.T) {
 }
 
 func TestDelegationFailedUnmatchedCallIDDoesNotQueueParentFallback(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-existing", map[string]any{"type": "code", "objective": "existing"}))
 	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "child-unknown", CallID: "call-unknown", Error: "setup"}))
@@ -399,6 +405,7 @@ func TestDelegationFailedUnmatchedCallIDDoesNotQueueParentFallback(t *testing.T)
 }
 
 func TestUnknownDelegationTerminalEventsUseFallbackDisplay(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 		AgentID: "unknown-complete",
@@ -419,6 +426,7 @@ func TestUnknownDelegationTerminalEventsUseFallbackDisplay(t *testing.T) {
 }
 
 func TestDelegationContextUsesRawPromptTokensForFill(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	b.AppendEvent(output.NewDelegationStartedEvent("child-raw", "inspect docs"))
 
@@ -491,6 +499,7 @@ func TestScopedDelegationCompactionStaysInsideDelegationSegment(t *testing.T) {
 }
 
 func TestRenderDelegationSegmentKeepsBoxWidthBounded(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 	buffer := &contentBuffer{
 		segments:      make([]contentSegment, 0),
@@ -1435,6 +1444,7 @@ func TestCheckBufferDirtyWithActiveEntryInGroup(t *testing.T) {
 }
 
 func TestDelegationStartedBindsPendingBoxByCallID(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:               make([]contentSegment, 0),
 		collapseState:          make(map[int]bool),
@@ -1464,6 +1474,7 @@ func TestDelegationStartedBindsPendingBoxByCallID(t *testing.T) {
 }
 
 func TestDelegationStartedEmptyCallIDUsesFIFO(t *testing.T) {
+	t.Parallel()
 	buffer := &contentBuffer{
 		segments:               make([]contentSegment, 0),
 		collapseState:          make(map[int]bool),
@@ -1483,6 +1494,7 @@ func TestDelegationStartedEmptyCallIDUsesFIFO(t *testing.T) {
 }
 
 func TestActiveDelegateRowsUseTranscriptOrderAndLifecycleType(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEventWithType("child-2", "second task", "", "", "review"), "child-2"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEventWithType("child-1", "first task", "", "", "explore"), "child-1"))
@@ -1503,6 +1515,7 @@ func TestActiveDelegateRowsUseTranscriptOrderAndLifecycleType(t *testing.T) {
 }
 
 func TestActiveDelegateRowsExcludeCompletedAndFailed(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("complete", "done task", "", "", "code"))
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("failed", "failed task", "", "", "review"))
@@ -1520,6 +1533,7 @@ func TestActiveDelegateRowsExcludeCompletedAndFailed(t *testing.T) {
 }
 
 func TestActiveDelegateRowsIncludeCacheWaitingAndExcludeCancellation(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-cache", map[string]any{"type": "code", "task": "cache task"}))
 	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent("cache-child", "call-cache", time.Now().Add(time.Second)))
@@ -1537,6 +1551,7 @@ func TestActiveDelegateRowsIncludeCacheWaitingAndExcludeCancellation(t *testing.
 }
 
 func TestActiveDelegateRowsLegacyTypeFallsBackToToolLabel(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-code", map[string]any{"type": "code", "task": "code task"}))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-explore", map[string]any{"type": "explore", "task": "explore task"}))
@@ -1556,6 +1571,7 @@ func TestActiveDelegateRowsLegacyTypeFallsBackToToolLabel(t *testing.T) {
 }
 
 func TestActiveDelegateRowsExcludeAdvisorsAndEmptyIDs(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "pending-call", map[string]any{"type": "code", "task": "pending task"}))
@@ -1566,6 +1582,7 @@ func TestActiveDelegateRowsExcludeAdvisorsAndEmptyIDs(t *testing.T) {
 }
 
 func TestActiveDelegateRowsPreserveGroupEntryOrder(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "first task", "", "", "explore"))
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-2", "second task", "", "", "code"))
@@ -1583,6 +1600,7 @@ func TestActiveDelegateRowsPreserveGroupEntryOrder(t *testing.T) {
 }
 
 func TestAdvisorEventRoutingToActiveChild(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "explore"))
 	initialSegments := len(buffer.segments)
@@ -1609,6 +1627,7 @@ func TestAdvisorEventRoutingToActiveChild(t *testing.T) {
 }
 
 func TestAdvisorEventRoutingParentUnscoped(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "explore"))
 	initialSegments := len(buffer.segments)
@@ -1626,6 +1645,7 @@ func TestAdvisorEventRoutingParentUnscoped(t *testing.T) {
 }
 
 func TestAdvisorBudgetExhaustedRoutingToActiveChild(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "explore"))
 	initialSegments := len(buffer.segments)
@@ -1649,6 +1669,7 @@ func TestAdvisorBudgetExhaustedRoutingToActiveChild(t *testing.T) {
 }
 
 func TestAdvisorBudgetExhaustedParentUnscoped(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "explore"))
 	initialSegments := len(buffer.segments)
@@ -1675,6 +1696,7 @@ func TestAdvisorBudgetExhaustedParentUnscoped(t *testing.T) {
 // fallback is unreachable for this case. No production code change is
 // needed for I1 — this test is a regression pin.
 func TestAdvisorThinkingChunkScopedToActiveChildMutatesChildState(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.showThinking = true
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "review"))
@@ -1712,6 +1734,7 @@ func TestAdvisorThinkingChunkScopedToActiveChildMutatesChildState(t *testing.T) 
 // the above: an unscoped advisor thinking chunk keeps today's behaviour,
 // routing through the package-global activeAdvisorSegment fallback.
 func TestAdvisorThinkingChunkUnscopedUsesActiveAdvisorSegment(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.showThinking = true
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1, "question", nil))
@@ -1742,6 +1765,7 @@ func TestAdvisorThinkingChunkUnscopedUsesActiveAdvisorSegment(t *testing.T) {
 // advisor counters updates the child's delegationDisplayState so the
 // rendered failed meta line surfaces "advisor n/m".
 func TestHandleDelegationFailedCarriesAdvisorCountersForActiveChild(t *testing.T) {
+	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-id", "test task", "", "", "review"))
 

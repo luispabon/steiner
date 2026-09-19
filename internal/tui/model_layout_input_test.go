@@ -25,6 +25,7 @@ func cursorInLines(t *testing.T, lines []string, cursorRow, cursorCol int) (row,
 // depend on the textarea's internal width; the same expectations hold before
 // and after the width change.
 func TestComposerLayoutAcrossInputStates(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		width, height int
@@ -118,6 +119,7 @@ func TestComposerLayoutAcrossInputStates(t *testing.T) {
 // Before the fix, a narrow width made LineInfo().ColumnOffset row-relative and
 // the cursor was placed in the wrong hardwrapped segment.
 func TestComposerCursorPlacementIndependentOfTextareaWidth(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
 
@@ -143,6 +145,7 @@ func TestComposerCursorPlacementIndependentOfTextareaWidth(t *testing.T) {
 // row jumped to the start of the logical line (the textarea could not see the
 // wrap), which disagreed with what was rendered.
 func TestComposerUpDownNavigatesVisualRows(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
 
@@ -174,6 +177,7 @@ func TestComposerUpDownNavigatesVisualRows(t *testing.T) {
 // gate's design (recall on Up only when the cursor is on the boundary line),
 // history recall is the correct, expected outcome here — not a regression.
 func TestComposerUpNavigatesVisualRowsWithHistoryPresent(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
 

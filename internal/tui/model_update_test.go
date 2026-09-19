@@ -3,6 +3,7 @@ package tui
 import "testing"
 
 func TestHandleUpdateCheckResultMsg(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name              string
 		msg               updateCheckResultMsg

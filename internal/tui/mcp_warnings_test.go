@@ -6,6 +6,7 @@ import (
 )
 
 func TestMCPStartupWarnings(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		servers []MCPServerStatus
@@ -96,6 +97,7 @@ func TestMCPStartupWarnings(t *testing.T) {
 }
 
 func TestMCPStartupWarningsUnavailable(t *testing.T) {
+	t.Parallel()
 	servers := []MCPServerStatus{
 		{Name: "foo", State: "unavailable", Error: "exhausted retries"},
 	}
@@ -110,6 +112,7 @@ func TestMCPStartupWarningsUnavailable(t *testing.T) {
 }
 
 func TestMCPTransitionWarnings(t *testing.T) {
+	t.Parallel()
 	failed := []MCPServerStatus{{Name: "foo", State: "failed", Error: "boom"}}
 	unavailable := []MCPServerStatus{{Name: "foo", State: "unavailable", Error: "exhausted"}}
 	connected := []MCPServerStatus{{Name: "foo", State: "connected"}}

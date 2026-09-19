@@ -3,6 +3,7 @@ package tui
 import "testing"
 
 func TestFormatCountdown(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		deadline int64

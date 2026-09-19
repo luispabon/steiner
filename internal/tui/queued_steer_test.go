@@ -38,6 +38,7 @@ func TestQueuedSteerHeightAndRenderAgree(t *testing.T) {
 }
 
 func TestQueuedSteerBoxEmptyWhenNoQueue(t *testing.T) {
+	t.Parallel()
 	m := &Model{styles: testStyles("#5599ff"), steers: agent.NewSteerQueue()}
 	if got := m.renderQueuedSteerBox(60); got != "" {
 		t.Errorf("renderQueuedSteerBox = %q, want empty for empty queue", got)
@@ -48,6 +49,7 @@ func TestQueuedSteerBoxEmptyWhenNoQueue(t *testing.T) {
 }
 
 func TestQueuedSteerBoxNilQueueIsSafe(t *testing.T) {
+	t.Parallel()
 	m := &Model{styles: testStyles("#5599ff")}
 	if got := m.renderQueuedSteerBox(60); got != "" {
 		t.Errorf("renderQueuedSteerBox = %q, want empty for nil queue", got)
@@ -58,6 +60,7 @@ func TestQueuedSteerBoxNilQueueIsSafe(t *testing.T) {
 }
 
 func TestQueuedSteerBoxNarrowFallback(t *testing.T) {
+	t.Parallel()
 	m := newQueuedSteerTestModel(t, agent.SteerMessage{Text: "hello"})
 	rendered := m.renderQueuedSteerBox(13)
 	if !strings.Contains(rendered, "queued: hello") {
@@ -72,6 +75,7 @@ func TestQueuedSteerBoxNarrowFallback(t *testing.T) {
 }
 
 func TestQueuedSteerBoxNarrowFallbackBoundsMultilineMessage(t *testing.T) {
+	t.Parallel()
 	m := newQueuedSteerTestModel(t, agent.SteerMessage{Text: "line one\nline two\n" + strings.Repeat("x", 100)})
 	rendered := m.renderQueuedSteerBox(12)
 	if strings.Contains(rendered, "\n") {
@@ -83,6 +87,7 @@ func TestQueuedSteerBoxNarrowFallbackBoundsMultilineMessage(t *testing.T) {
 }
 
 func TestQueuedSteerBoxTitleShowsCountWhenPlural(t *testing.T) {
+	t.Parallel()
 	single := newQueuedSteerTestModel(t, agent.SteerMessage{Text: "one"})
 	if rendered := single.renderQueuedSteerBox(60); strings.Contains(rendered, "queued (") {
 		t.Errorf("single-message title = %q, want no count", rendered)
@@ -100,6 +105,7 @@ func TestQueuedSteerBoxTitleShowsCountWhenPlural(t *testing.T) {
 }
 
 func TestWrapQueuedSteerLinesOverflow(t *testing.T) {
+	t.Parallel()
 	// Three one-line messages wrap to 5 rows (A, blank separator, B, blank
 	// separator, C); only 3 fit (A, blank, B), leaving one blank separator and
 	// C hidden. The blank separator carries no content, so the overflow row
@@ -120,6 +126,7 @@ func TestWrapQueuedSteerLinesOverflow(t *testing.T) {
 }
 
 func TestWrapQueuedSteerLinesOverflowIsInvariantUnderMerge(t *testing.T) {
+	t.Parallel()
 	// ctrl+g take-back merges N queued messages into one via MergeSteers,
 	// erasing their boundaries. The overflow row must report the same
 	// hidden-row count before and after that merge, since the actual
@@ -141,6 +148,7 @@ func TestWrapQueuedSteerLinesOverflowIsInvariantUnderMerge(t *testing.T) {
 }
 
 func TestQueuedSteerPlaceholderPluralization(t *testing.T) {
+	t.Parallel()
 	if got := queuedSteerPlaceholder(1); !strings.Contains(got, "1 message queued") {
 		t.Errorf("placeholder(1) = %q, want it to contain '1 message queued'", got)
 	}
@@ -163,6 +171,7 @@ func newTakeBackTestModel(t *testing.T, msgs ...agent.SteerMessage) *Model {
 }
 
 func TestTakeBackSingleMessageEmptyComposer(t *testing.T) {
+	t.Parallel()
 	m := newTakeBackTestModel(t, agent.SteerMessage{Text: "hello there"})
 	m = m.executeTakeBackSteersAction().(*Model)
 
@@ -175,6 +184,7 @@ func TestTakeBackSingleMessageEmptyComposer(t *testing.T) {
 }
 
 func TestTakeBackMultipleMessagesJoinedInOrder(t *testing.T) {
+	t.Parallel()
 	m := newTakeBackTestModel(t,
 		agent.SteerMessage{Text: "first"},
 		agent.SteerMessage{Text: "second"},
@@ -189,6 +199,7 @@ func TestTakeBackMultipleMessagesJoinedInOrder(t *testing.T) {
 }
 
 func TestTakeBackWithDraftAppendsDraftLastAndPlacesCursorAtEnd(t *testing.T) {
+	t.Parallel()
 	m := newTakeBackTestModel(t, agent.SteerMessage{Text: "queued one"})
 	m.input.SetValue("my draft")
 
@@ -204,6 +215,7 @@ func TestTakeBackWithDraftAppendsDraftLastAndPlacesCursorAtEnd(t *testing.T) {
 }
 
 func TestTakeBackRestoresImageMarkersInOrder(t *testing.T) {
+	t.Parallel()
 	imgA := agent.ImageBlock{ID: "a", MediaType: "image/png", Data: "AAAA"}
 	imgB := agent.ImageBlock{ID: "b", MediaType: "image/png", Data: "BBBB"}
 	m := newTakeBackTestModel(t,
@@ -229,6 +241,7 @@ func TestTakeBackRestoresImageMarkersInOrder(t *testing.T) {
 }
 
 func TestTakeBackClearsQueuedBoxAndLayout(t *testing.T) {
+	t.Parallel()
 	m := newTakeBackTestModel(t, agent.SteerMessage{Text: "hello"})
 	if m.queuedSteerHeight(m.width) == 0 {
 		t.Fatal("expected queued box to occupy rows before take-back")
@@ -245,6 +258,7 @@ func TestTakeBackClearsQueuedBoxAndLayout(t *testing.T) {
 }
 
 func TestTakeBackEmptyQueueIsNoOpLeavesDraft(t *testing.T) {
+	t.Parallel()
 	m := newTakeBackTestModel(t)
 	m.input.SetValue("untouched draft")
 
@@ -266,6 +280,7 @@ func (drainedStubQueue) Snapshot() []agent.SteerMessage { return nil }
 func (drainedStubQueue) Len() int                       { return 1 }
 
 func TestTakeBackRaceWithDrainLeavesComposerUntouched(t *testing.T) {
+	t.Parallel()
 	m := newTakeBackTestModel(t, agent.SteerMessage{Text: "queued"})
 	m.steers = drainedStubQueue{}
 	m.input.SetValue("my draft")
@@ -278,6 +293,7 @@ func TestTakeBackRaceWithDrainLeavesComposerUntouched(t *testing.T) {
 }
 
 func TestCtrlGRoutesToTakeBackDuringActiveRun(t *testing.T) {
+	t.Parallel()
 	m := newTakeBackTestModel(t, agent.SteerMessage{Text: "queued during run"})
 	m.status.mode = "running"
 
@@ -296,6 +312,7 @@ func TestCtrlGRoutesToTakeBackDuringActiveRun(t *testing.T) {
 // pushes the status bar off the bottom of the frame: layout must subtract
 // the queued box height from every call site that positions the composer.
 func TestLayoutAccountsForQueuedBoxAndTallComposer(t *testing.T) {
+	t.Parallel()
 	shortQueue := agent.NewSteerQueue()
 	shortQueue.Add(agent.SteerMessage{Text: "A"})
 	shortQueue.Add(agent.SteerMessage{Text: "B"})

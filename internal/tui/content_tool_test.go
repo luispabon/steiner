@@ -53,6 +53,7 @@ func TestSpecializedDelegateToolAccessor(t *testing.T) {
 }
 
 func TestRenderToolCallBoxKeepsRequestedWidth(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 	buffer := &contentBuffer{
 		styles: testStyles(theme.AccentAmber),
@@ -77,6 +78,7 @@ func TestRenderToolCallBoxKeepsRequestedWidth(t *testing.T) {
 // while preserving literal backslash-n sequences and the existing rune-count
 // truncation with "…".
 func TestRenderToolCallFrameCollapsesMultilineArgs(t *testing.T) {
+	t.Parallel()
 	useTrueColor(t)
 
 	tests := []struct {

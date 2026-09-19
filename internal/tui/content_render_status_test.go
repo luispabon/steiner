@@ -9,6 +9,7 @@ import (
 )
 
 func TestAppendLineRoutesStatusPrefixToStatusSegment(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{segments: make([]contentSegment, 0)}
 
 	b.appendLine("status: model switched to opencode-go/minimax-m3")
@@ -26,6 +27,7 @@ func TestAppendLineRoutesStatusPrefixToStatusSegment(t *testing.T) {
 }
 
 func TestAppendLineKeepsNonStatusLinesAsPlain(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{segments: make([]contentSegment, 0)}
 
 	b.appendLine("note")
@@ -45,6 +47,7 @@ func TestAppendLineKeepsNonStatusLinesAsPlain(t *testing.T) {
 }
 
 func TestRenderStatusSegmentBasic(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	seg := contentSegment{kind: segmentStatus, text: "model switched to opencode-go/minimax-m3"}
 
@@ -101,6 +104,7 @@ func TestRenderStatusSegmentTimestampInlineRightAligned(t *testing.T) {
 }
 
 func TestRenderStatusSegmentStripsTrailingDot(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	seg := contentSegment{kind: segmentStatus, text: "session restored."}
 
@@ -116,6 +120,7 @@ func TestRenderStatusSegmentStripsTrailingDot(t *testing.T) {
 }
 
 func TestRenderStatusSegmentStripsTrailingBullet(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	// Some callers already include the separator dot in the body.
 	seg := contentSegment{kind: segmentStatus, text: "session restored ·"}
@@ -128,6 +133,7 @@ func TestRenderStatusSegmentStripsTrailingBullet(t *testing.T) {
 }
 
 func TestRenderStatusSegmentEmptyBody(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	seg := contentSegment{kind: segmentStatus, text: ""}
 
@@ -146,6 +152,7 @@ func TestRenderStatusSegmentEmptyBody(t *testing.T) {
 }
 
 func TestRenderStatusSegmentNarrowWidthDoesNotPanic(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	seg := contentSegment{kind: segmentStatus, text: "model switched to opencode-go/minimax-m3"}
 
@@ -162,6 +169,7 @@ func TestRenderStatusSegmentNarrowWidthDoesNotPanic(t *testing.T) {
 }
 
 func TestRenderStatusSegmentWrapsLongBody(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	body := strings.Repeat("long-token-with-no-spaces-", 8)
 	seg := contentSegment{kind: segmentStatus, text: body}
@@ -178,6 +186,7 @@ func TestRenderStatusSegmentWrapsLongBody(t *testing.T) {
 }
 
 func TestRenderStatusSegmentWhitespaceOnlyBody(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	seg := contentSegment{kind: segmentStatus, text: "   "}
 
@@ -193,6 +202,7 @@ func TestRenderStatusSegmentWhitespaceOnlyBody(t *testing.T) {
 }
 
 func TestPhaseTransitionEventRendersAsStatusSegment(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	// Use real output.NewPhaseTransitionEvent and AppendEvent dispatch
 	event := output.NewPhaseTransitionEvent("test-run", "plan", "implement", "starting", "test-model", "test-session")
@@ -223,6 +233,7 @@ func TestPhaseTransitionEventRendersAsStatusSegment(t *testing.T) {
 }
 
 func TestPhaseSeparatorHasBlankLinesAboveAndBelow(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	// Create a phase separator
 	seg := contentSegment{
@@ -254,6 +265,7 @@ func TestPhaseSeparatorHasBlankLinesAboveAndBelow(t *testing.T) {
 }
 
 func TestNonPhaseSeparatorSpacingUnchanged(t *testing.T) {
+	t.Parallel()
 	b := newTestBuffer(t)
 	// Create a non-phase separator (e.g., for compaction)
 	seg := contentSegment{

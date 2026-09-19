@@ -329,6 +329,7 @@ func highlightVisualRange(line string) (start, end int, ok bool) {
 }
 
 func TestApplyScreenHighlight(t *testing.T) {
+	t.Parallel()
 	frame := "hello world\nfoo bar baz\ngoodbye cruel"
 
 	tests := []struct {

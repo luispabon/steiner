@@ -42,6 +42,7 @@ func TestNeedsTickingReturnsFalseWhenMCPSettled(t *testing.T) {
 }
 
 func TestNeedsTickingReturnsTrueForActiveRegularToolCall(t *testing.T) {
+	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
 	td := &toolCallSegment{active: true, callID: "call-1"}
 	m := &Model{
@@ -123,6 +124,7 @@ func TestHandleTickMsgAdvancesRegularToolSpinnerAndStopsAfterFinish(t *testing.T
 }
 
 func TestNeedsTickingStopsAfterParentDelegationCancellation(t *testing.T) {
+	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
 	m := &Model{content: contentBuffer{styles: styles}}
 	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "first task"))
