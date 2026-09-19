@@ -1,7 +1,9 @@
 package provider
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,20 +11,28 @@ import (
 	"github.com/luispabon/steiner/internal/metadata"
 )
 
+// seedModelsDevCacheDir writes a models.dev cache with the given JSON body and
+// a far-future expiry under root, so metadata.Cache.IsFresh() skips Refresh().
+func seedModelsDevCacheDir(root, cacheJSON string) error {
+	cache := &metadata.Cache{Dir: filepath.Join(root, "steiner", "model-metadata")}
+	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
+		return fmt.Errorf("create cache dir: %w", err)
+	}
+	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
+		return fmt.Errorf("write cache: %w", err)
+	}
+	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
+		return fmt.Errorf("write cache meta: %w", err)
+	}
+	return nil
+}
+
 func writeModelsDevCache(t *testing.T, cacheJSON string) {
 	t.Helper()
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
-
-	cache := &metadata.Cache{Dir: metadata.DefaultCacheDir()}
-	if err := os.MkdirAll(cache.Dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	if err := os.WriteFile(cache.CachePath(), []byte(cacheJSON), 0o644); err != nil {
-		t.Fatalf("WriteFile(cache) error = %v", err)
-	}
-	if err := os.WriteFile(cache.MetaPath(), []byte(`{"downloaded_at":"2026-05-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","url":"https://models.dev/api.json"}`), 0o644); err != nil {
-		t.Fatalf("WriteFile(meta) error = %v", err)
+	if err := seedModelsDevCacheDir(cacheRoot, cacheJSON); err != nil {
+		t.Fatalf("seedModelsDevCacheDir() error = %v", err)
 	}
 }
 

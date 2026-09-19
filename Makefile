@@ -51,8 +51,12 @@ build-binaries-dev:
 test:
 	go test ./...
 
+# The default 1s race-runtime exit sleep adds ~1s to every test binary and
+# helper subprocess; 100ms (not 0) keeps a flush window so late race reports
+# still get out. Child processes inherit it via os.Environ(). Any GORACE options
+# the developer already set are preserved.
 test-race:
-	go test -race ./...
+	GORACE="$(GORACE) atexit_sleep_ms=100" go test -race ./...
 
 vet:
 	go vet ./...
