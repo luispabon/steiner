@@ -4,12 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 )
 
 // httpClient is the HTTP client used for all HTTP requests in this package.
 // It is set to http.DefaultClient by default and can be replaced in tests.
 var httpClient = http.DefaultClient
+
+const (
+	// maxReleaseJSONBytes limits the size of GitHub release JSON responses to protect
+	// against unbounded memory consumption from malicious or streaming responses.
+	// Release JSON is typically a few KB; this 5 MB limit accommodates even large
+	// releases with many assets.
+	maxReleaseJSONBytes = 5 * 1024 * 1024
+)
 
 // asset represents a downloadable release asset from a GitHub release.
 type asset struct {
@@ -61,8 +70,17 @@ func fetchRelease(ctx context.Context, url, token string) (*release, error) {
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
 	}
 
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxReleaseJSONBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if len(body) > maxReleaseJSONBytes {
+		return nil, fmt.Errorf("release JSON exceeded maximum size of %d bytes", maxReleaseJSONBytes)
+	}
+
 	var rel release
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	if err := json.Unmarshal(body, &rel); err != nil {
 		return nil, fmt.Errorf("decode release: %w", err)
 	}
 
