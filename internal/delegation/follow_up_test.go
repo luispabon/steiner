@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -117,7 +118,7 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 						},
 					},
 				},
-				TurnCount:  3,
+				TurnCount:  5, // cumulative: session had 2, follow-up ran 3 more
 				TokenCount: 15,
 				StopReason: agent.StopReasonComplete,
 			}, nil
@@ -209,14 +210,18 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 	})
 
 	call := 0
+	var maxTurns []int
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 			call++
+			maxTurns = append(maxTurns, req.Limits.MaxTurns)
+			// The real runner reports a cumulative turn count: the session
+			// starts at 1 and each follow-up adds 2 turns.
 			return agent.RunState{
 				Conversation: providerToAgentMessages(req.Prompt.Conversation),
-				TurnCount:    call,
+				TurnCount:    1 + 2*call,
 				TokenCount:   5 * call,
 				StopReason:   agent.StopReasonComplete,
 			}, nil
@@ -248,8 +253,12 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 	if session.FollowUpCount != 2 {
 		t.Fatalf("stored FollowUpCount=%d, want 2", session.FollowUpCount)
 	}
-	if session.TurnCount != 4 {
-		t.Fatalf("stored TurnCount=%d, want 4", session.TurnCount)
+	// Cumulative end-of-run count (1 + 2 + 2), not a sum of cumulative counts.
+	if session.TurnCount != 5 {
+		t.Fatalf("stored TurnCount=%d, want 5", session.TurnCount)
+	}
+	if want := []int{1 + 5, 3 + 5}; len(maxTurns) != 2 || maxTurns[0] != want[0] || maxTurns[1] != want[1] {
+		t.Fatalf("follow-up MaxTurns=%v, want %v", maxTurns, want)
 	}
 	if session.TokenCount != 25 {
 		t.Fatalf("stored TokenCount=%d, want 25", session.TokenCount)
@@ -454,7 +463,7 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 					}
 					return agent.RunState{
 						Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "follow-up result"}},
-						TurnCount:    1,
+						TurnCount:    2, // cumulative: session had 1
 						TokenCount:   5,
 						StopReason:   agent.StopReasonComplete,
 					}, nil
@@ -1573,5 +1582,61 @@ func TestFollowUpHandler_CountsAttemptsTowardCeiling(t *testing.T) {
 	}
 	if session.FollowUpCount != 2 {
 		t.Fatalf("final FollowUpCount=%d, want 2 (ceiling enforced, no attempt 3)", session.FollowUpCount)
+	}
+}
+
+// TestFollowUpHandler_TracesToolCallsAfterFirstRunClosedWriter guards against
+// follow-up runs silently losing tool-call tracing once the first run has
+// closed the child's trace writer.
+func TestFollowUpHandler_TracesToolCallsAfterFirstRunClosedWriter(t *testing.T) {
+	traceRoot := t.TempDir()
+	const agentID = "child-trace-fu"
+	writer := newToolCallTraceWriter(traceRoot, agentID, "sess-fu")
+	if writer == nil {
+		t.Fatal("newToolCallTraceWriter returned nil")
+	}
+	registerToolCallTraceWriter(agentID, writer)
+	t.Cleanup(func() { removeAndCloseToolCallTraceWriter(agentID) })
+	// First run ends: SpawnDelegate reads counters and closes the writer.
+	if fields := toolCallTraceFields(agentID); fields == nil {
+		t.Fatal("toolCallTraceFields returned nil for registered writer")
+	}
+
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: Spec{AgentID: agentID, Task: "inspect"},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Events: withToolCallTrace(nil, writer),
+			Limits: agent.Limits{MaxTurns: 1, MaxTokens: 1},
+		},
+		Conversation: []agent.Message{{Role: agent.MessageRoleUser, Content: "initial task"}},
+		TurnCount:    1,
+	})
+
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			now := time.Now()
+			req.Events.Emit(output.Event{Timestamp: now, Payload: output.ToolCallStartedEvent{Turn: 2, Tool: "read", CallID: "c1"}})
+			req.Events.Emit(output.Event{Timestamp: now, Payload: output.ToolCallFinishedEvent{Turn: 2, Tool: "read", CallID: "c1", Result: "ok"}})
+			return agent.RunState{
+				Conversation: providerToAgentMessages(req.Prompt.Conversation),
+				TurnCount:    2,
+				StopReason:   agent.StopReasonComplete,
+			}, nil
+		}},
+	})
+	if _, err := handler(context.Background(), map[string]any{"agent_id": agentID, "message": "again"}); err != nil {
+		t.Fatalf("follow-up error: %v", err)
+	}
+
+	data, err := os.ReadFile(writer.path)
+	if err != nil {
+		t.Fatalf("read trace file: %v", err)
+	}
+	if got := strings.Count(string(data), `"tool":"read"`); got != 1 {
+		t.Fatalf("trace file has %d read lines, want 1; contents: %q", got, data)
 	}
 }

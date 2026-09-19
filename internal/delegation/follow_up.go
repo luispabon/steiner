@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
@@ -100,6 +101,10 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 		return nil, childSetupError(err)
 	}
 	defer deps.ActiveController.Unregister(agentID)
+	if err := reactivateToolCallTraceWriter(agentID); err != nil {
+		// Best-effort: tracing must not block the follow-up, but say so.
+		fmt.Fprintf(os.Stderr, "steiner: follow_up %s: %v\n", agentID, err)
+	}
 	emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, spec.AgentType)
 
 	var opts []spawnOption
@@ -111,7 +116,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	if err == nil {
 		updatedOK := deps.SessionStore.Update(agentID, SessionUpdateParams{
 			Conversation:  state.Conversation,
-			TurnCount:     state.TurnCount,
+			TurnCount:     state.TurnCount - session.TurnCount, // Update adds a delta; state.TurnCount is cumulative
 			TokenCount:    runUsage.OutputTokens,
 			ToolCallCount: countToolCalls(state.Conversation),
 			TokenUsage:    runUsage,

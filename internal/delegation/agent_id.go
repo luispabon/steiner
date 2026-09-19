@@ -53,9 +53,8 @@ func resetProcessHashForTesting() {
 	processHashValue = ""
 }
 
-// ResetAgentCounter resets agent IDs for a new conversation boundary such as
-// clear.
-func ResetAgentCounter() {
+// resetAgentCounterForTesting resets the agent ID counter for tests.
+func resetAgentCounterForTesting() {
 	agentCounter.Store(0)
 }
 

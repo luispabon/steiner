@@ -155,6 +155,16 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
 	}
 
+	// Refuse to clobber a path that is still a registered worktree: kept
+	// worktrees may hold uncommitted or unmerged work needed by follow_up.
+	if registered, err := listWorktreeEntries(ctx, projectRoot); err == nil {
+		for _, e := range registered {
+			if filepath.Clean(e.Path) == filepath.Clean(worktreePath) {
+				return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", errors.Join(ErrWorktreeProvisioning, fmt.Errorf("worktree %s already exists (branch %s); refusing to overwrite", worktreePath, e.Branch)))
+			}
+		}
+	}
+
 	// Remove any stale checkout path.
 	if err := os.RemoveAll(worktreePath); err != nil {
 		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
@@ -188,22 +198,29 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 }
 
 // DirtyPaths returns the list of modified/untracked paths in the project,
-// by parsing git status --porcelain. Returns an empty slice if the tree is clean.
+// by parsing git status --porcelain -z. Renames and copies contribute both the
+// new and the original path. Returns an empty slice if the tree is clean.
 func DirtyPaths(ctx context.Context, projectRoot string) ([]string, error) {
-	out, err := gitOutput(ctx, projectRoot, "status", "--porcelain")
+	out, err := gitOutput(ctx, projectRoot, "status", "--porcelain", "-z")
 	if err != nil {
 		return nil, err
 	}
 
 	var paths []string
-	for _, line := range strings.Split(out, "\n") {
+	entries := strings.Split(out, "\x00")
+	for i := 0; i < len(entries); i++ {
+		entry := entries[i]
 		// Do NOT TrimSpace here; porcelain format has status prefix that matters.
-		if len(line) == 0 {
+		if len(entry) <= 3 {
 			continue
 		}
-		// Strip the 2-character porcelain status prefix and the following space.
-		if len(line) > 3 {
-			paths = append(paths, line[3:])
+		paths = append(paths, entry[3:])
+		// In -z format a rename/copy entry is "XY new\x00old\x00".
+		if entry[0] == 'R' || entry[0] == 'C' || entry[1] == 'R' || entry[1] == 'C' {
+			i++
+			if i < len(entries) && entries[i] != "" {
+				paths = append(paths, entries[i])
+			}
 		}
 	}
 	return paths, nil
