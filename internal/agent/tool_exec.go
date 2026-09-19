@@ -44,7 +44,8 @@ func mutationResultPaths(result any) []string {
 }
 
 func contextCancellationState(ctx context.Context, state RunState) (RunState, bool) {
-	if ctxErr := ctx.Err(); ctxErr != nil {
+	// A runner-imposed timeout expiring is not a user cancellation.
+	if ctxErr := ctx.Err(); ctxErr != nil && !isLimitTimeout(ctx) {
 		state.StopReason = StopReasonCancelled
 		return state, true
 	}

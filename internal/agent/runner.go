@@ -165,7 +165,7 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		turnCtx := ctx
 		var cancel context.CancelFunc
 		if req.Limits.TurnTimeout > 0 {
-			turnCtx, cancel = context.WithTimeout(ctx, req.Limits.TurnTimeout)
+			turnCtx, cancel = context.WithTimeoutCause(ctx, req.Limits.TurnTimeout, errTurnTimeout)
 		}
 		outcome := p.advance(turnCtx, state)
 		if cancel != nil {
