@@ -3,6 +3,7 @@ package interactive
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -200,6 +201,8 @@ func TestActiveRunControllerClearRequiresOwnerToken(t *testing.T) {
 
 func TestHandoffClearRotateStillSavesFinalTurnUnderOriginalSession(t *testing.T) {
 	t.Parallel()
+	// Multi-line and longer than 80 characters: the title must be normalised.
+	handoffPrompt := "plan it\n\n\twith detail: " + strings.Repeat("more words ", 12)
 	store := newMockSessionStore()
 	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
 	startID := s.SessionID()
@@ -212,7 +215,7 @@ func TestHandoffClearRotateStillSavesFinalTurnUnderOriginalSession(t *testing.T)
 		return RunResult{Conversation: final}, nil
 	}))
 	done := make(chan struct{})
-	go func() { defer close(done); s.submitPrompt(context.Background(), "plan it\nwith detail", nil) }()
+	go func() { defer close(done); s.submitPrompt(context.Background(), handoffPrompt, nil) }()
 	<-started
 
 	// The TUI's accept path: clear the conversation, then rotate the session.
@@ -237,8 +240,8 @@ func TestHandoffClearRotateStillSavesFinalTurnUnderOriginalSession(t *testing.T)
 	if len(msgs) == 0 || msgs[len(msgs)-1].Content != "final plan turn" {
 		t.Fatalf("saved lineage = %+v, want it to end with the final turn", msgs)
 	}
-	if saved.Title != "plan it with detail" {
-		t.Errorf("saved title = %q, want single-line title", saved.Title)
+	if want := session.TitleFromPrompt(handoffPrompt); saved.Title != want || len([]rune(want)) != 80 {
+		t.Errorf("saved title = %q, want %q (80 runes, whitespace collapsed)", saved.Title, want)
 	}
 	if got := s.Conversation(); len(got) != 0 {
 		t.Fatalf("live conversation = %+v, want untouched (empty)", got)

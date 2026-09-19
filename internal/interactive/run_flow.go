@@ -157,7 +157,7 @@ func (s *Session) saveRunResultAs(id string, meta runSessionMeta, prompt string,
 		sess.PromptCacheKey = meta.cacheKey
 		title := meta.title
 		if title == "" && isFirstPrompt {
-			title = prompt
+			title = session.TitleFromPrompt(prompt)
 		}
 		if title != "" {
 			sess = sess.WithTitle(title)
