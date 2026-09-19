@@ -461,7 +461,78 @@ func TestRecord_PreservesFileMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat: %v", err)
 	}
-	if mode := info.Mode(); mode.Perm() != 0o644 {
-		t.Errorf("file mode = %v, want 0644", mode.Perm())
+	if mode := info.Mode(); mode.Perm() != 0o600 {
+		t.Errorf("file mode = %v, want 0600", mode.Perm())
 	}
+}
+
+func TestNewWriter_CreatesFileWith0600(t *testing.T) {
+	tmpRoot := t.TempDir()
+	dir := filepath.Join(tmpRoot, "steiner")
+	path := filepath.Join(dir, "history.log")
+
+	w, err := NewWriter(path)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if mode := info.Mode(); mode.Perm() != 0o600 {
+		t.Errorf("file mode = %v, want 0o600", mode.Perm())
+	}
+
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("Stat dir: %v", err)
+	}
+	dirMode := dirInfo.Mode().Perm()
+	if dirMode&0o077 != 0 {
+		t.Errorf("dir mode = %o, should not be group/world readable (has unwanted bits 0o%o)", dirMode, dirMode&0o077)
+	}
+
+	_ = w
+}
+
+func TestRecord_AppendMaintains0600(t *testing.T) {
+	w := mustOpenWriter(t, t.TempDir())
+
+	if err := w.Record("first prompt"); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	info, err := os.Stat(w.Path())
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if mode := info.Mode(); mode.Perm() != 0o600 {
+		t.Errorf("file mode after append = %v, want 0o600", mode.Perm())
+	}
+}
+
+func TestNewWriter_Tightens0644To0600(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "history.log")
+
+	// Create a file with 0o644 permissions
+	if err := os.WriteFile(path, []byte{}, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	w, err := NewWriter(path)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if mode := info.Mode(); mode.Perm() != 0o600 {
+		t.Errorf("file mode after NewWriter = %v, want 0o600 (should tighten from 0o644)", mode.Perm())
+	}
+
+	_ = w
 }

@@ -38,13 +38,14 @@ func NewRefreshableTokenSource(store *TokenStore, conf *oauth2.Config, token *oa
 
 // Token returns a valid token, refreshing and persisting if necessary.
 func (r *RefreshableTokenSource) Token() (*oauth2.Token, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	tok, err := r.inner.Token()
 	if err != nil {
 		return nil, err
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.last == nil || !tokenPersistenceEqual(tok, r.last) {
 		if err := r.store.Save(tok); err != nil {
 			return nil, fmt.Errorf("save refreshed token: %w", err)
