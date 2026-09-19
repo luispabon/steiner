@@ -29,6 +29,7 @@ func mutateDiagnosticsTestConfig() config.LSPConfig {
 }
 
 func TestReadyForFileNoServerForExtension(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	m := NewManager(mutateDiagnosticsTestConfig(), tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -39,6 +40,7 @@ func TestReadyForFileNoServerForExtension(t *testing.T) {
 }
 
 func TestReadyForFileNoServerConfigured(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	m := NewManager(config.LSPConfig{Servers: map[string]config.LSPServerConfig{}}, tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -49,6 +51,7 @@ func TestReadyForFileNoServerConfigured(t *testing.T) {
 }
 
 func TestReadyForFileNoSessionYet(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	m := NewManager(mutateDiagnosticsTestConfig(), tmpdir, nil, func(string) {}, nil)
 	defer func() { _ = m.Close() }()
@@ -60,6 +63,7 @@ func TestReadyForFileNoSessionYet(t *testing.T) {
 }
 
 func TestReadyForFileReadySession(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -92,6 +96,7 @@ func TestReadyForFileReadySession(t *testing.T) {
 }
 
 func TestReadyForFileNonReadyStatus(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		status ServerStatus
@@ -125,6 +130,7 @@ func TestReadyForFileNonReadyStatus(t *testing.T) {
 // with no matching entry does not cause a new *session* to be created. It does
 // not prove zero I/O of any kind, only that no spawn was triggered.
 func TestReadyForFileDoesNotSpawn(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cfg := mutateDiagnosticsTestConfig()
 	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
@@ -169,6 +175,7 @@ func writeTestGoFile(t *testing.T, path string) {
 }
 
 func TestPostMutateDiagnosticsReturnsFormattedDiagnostics(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -212,6 +219,7 @@ func TestPostMutateDiagnosticsReturnsFormattedDiagnostics(t *testing.T) {
 }
 
 func TestPostMutateDiagnosticsNoDiagnosticsReturnsEmpty(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -236,6 +244,7 @@ func TestPostMutateDiagnosticsNoDiagnosticsReturnsEmpty(t *testing.T) {
 }
 
 func TestPostMutateDiagnosticsCapsFileCount(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -284,6 +293,7 @@ func TestPostMutateDiagnosticsCapsFileCount(t *testing.T) {
 }
 
 func TestPostMutateDiagnosticsNilManager(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	got := PostMutateDiagnostics(ctx, nil, []string{"whatever.go"})
 	if got != "" {
@@ -292,6 +302,7 @@ func TestPostMutateDiagnosticsNilManager(t *testing.T) {
 }
 
 func TestPostMutateDiagnosticsCancelledContext(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	spawnCtx, spawnCancel := context.WithTimeout(context.Background(), testTimeout)
 	defer spawnCancel()
@@ -328,6 +339,7 @@ func TestPostMutateDiagnosticsCancelledContext(t *testing.T) {
 // rendering cap and its trailer, using a single file that publishes more
 // diagnostics than the cap.
 func TestPostMutateDiagnosticsCapsLinesAndReportsOmitted(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -385,6 +397,7 @@ func TestPostMutateDiagnosticsCapsLinesAndReportsOmitted(t *testing.T) {
 // multiple files are interleaved in file-path order, independent of the
 // order the files were passed in or the order the server published them.
 func TestPostMutateDiagnosticsSortsAcrossFiles(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()

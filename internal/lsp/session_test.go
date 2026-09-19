@@ -21,6 +21,7 @@ func targetRange() protocol.Range {
 }
 
 func TestSessionDefinitionRoundTrip(t *testing.T) {
+	t.Parallel()
 	target := uri.File("/src/target.go")
 
 	tests := []struct {
@@ -77,6 +78,7 @@ func TestSessionDefinitionRoundTrip(t *testing.T) {
 }
 
 func TestSessionImplementationRoundTrip(t *testing.T) {
+	t.Parallel()
 	target := uri.File("/src/target.go")
 
 	tests := []struct {
@@ -133,6 +135,7 @@ func TestSessionImplementationRoundTrip(t *testing.T) {
 }
 
 func TestSessionTypeDefinitionRoundTrip(t *testing.T) {
+	t.Parallel()
 	target := uri.File("/src/target.go")
 
 	tests := []struct {
@@ -189,6 +192,7 @@ func TestSessionTypeDefinitionRoundTrip(t *testing.T) {
 }
 
 func TestSessionImplementationCapabilityDeclared(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -208,6 +212,7 @@ func TestSessionImplementationCapabilityDeclared(t *testing.T) {
 }
 
 func TestSessionTypeDefinitionCapabilityDeclared(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -227,6 +232,7 @@ func TestSessionTypeDefinitionCapabilityDeclared(t *testing.T) {
 }
 
 func TestSessionHandshakeHonoursContextDeadline(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	fs.stallInitialize()
 
@@ -245,6 +251,7 @@ func TestSessionHandshakeHonoursContextDeadline(t *testing.T) {
 }
 
 func TestSessionRequestFailsWhenServerExits(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -278,6 +285,7 @@ func TestSessionRequestFailsWhenServerExits(t *testing.T) {
 }
 
 func TestSessionRequestsRejectedAfterServerExit(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -297,6 +305,7 @@ func TestSessionRequestsRejectedAfterServerExit(t *testing.T) {
 }
 
 func TestSessionCloseSendsShutdownBeforeExit(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -331,6 +340,7 @@ func TestSessionCloseSendsShutdownBeforeExit(t *testing.T) {
 }
 
 func TestSessionCloseForceKillsUnresponsiveServer(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -351,6 +361,7 @@ func TestSessionCloseForceKillsUnresponsiveServer(t *testing.T) {
 }
 
 func TestSessionForwardsDiagnosticsAndProgress(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -412,6 +423,7 @@ func TestSessionForwardsDiagnosticsAndProgress(t *testing.T) {
 }
 
 func TestSessionProgressEventDecoding(t *testing.T) {
+	t.Parallel()
 	message := "3/25 packages"
 
 	tests := []struct {
@@ -476,6 +488,7 @@ func TestSessionProgressEventDecoding(t *testing.T) {
 }
 
 func TestSessionForwardsInitializationOptions(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -512,6 +525,7 @@ func TestSessionForwardsInitializationOptions(t *testing.T) {
 }
 
 func TestSessionOmitsEmptyInitializationOptions(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -530,6 +544,7 @@ func TestSessionOmitsEmptyInitializationOptions(t *testing.T) {
 }
 
 func TestHoverContentsToText(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		contents protocol.HoverContents
@@ -597,6 +612,7 @@ func TestHoverContentsToText(t *testing.T) {
 func strPtr(s string) *string { return &s }
 
 func TestSessionWorkspaceSymbolFlat(t *testing.T) {
+	t.Parallel()
 	target := uri.File("/src/target.go")
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -638,6 +654,7 @@ func TestSessionWorkspaceSymbolFlat(t *testing.T) {
 }
 
 func TestSessionWorkspaceSymbolWorkspaceSymbolSlice(t *testing.T) {
+	t.Parallel()
 	target := uri.File("/src/target.go")
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -672,6 +689,7 @@ func TestSessionWorkspaceSymbolWorkspaceSymbolSlice(t *testing.T) {
 }
 
 func TestSessionWorkspaceSymbolLocationUriOnly(t *testing.T) {
+	t.Parallel()
 	target := uri.File("/src/target.go")
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -716,6 +734,7 @@ func TestSessionWorkspaceSymbolLocationUriOnly(t *testing.T) {
 }
 
 func TestSessionDocumentSymbolFlat(t *testing.T) {
+	t.Parallel()
 	target := uri.File("/src/target.go")
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -747,6 +766,7 @@ func TestSessionDocumentSymbolFlat(t *testing.T) {
 }
 
 func TestSessionDocumentSymbolNestedChildren(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -790,6 +810,7 @@ func TestSessionDocumentSymbolNestedChildren(t *testing.T) {
 }
 
 func TestSessionDocumentSymbolEmptyResult(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 

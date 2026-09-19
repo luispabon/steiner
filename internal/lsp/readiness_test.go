@@ -63,6 +63,7 @@ func (s *readinessTestSession) Close(context.Context) error { return nil }
 // TestReadinessQueuedProgressTakesPrecedenceAtTimeout verifies that a queued
 // complete cycle is processed when the readiness timeout is already ready.
 func TestReadinessQueuedProgressTakesPrecedenceAtTimeout(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -129,6 +130,7 @@ func waitForReadinessBegin(t *testing.T, observed <-chan struct{}, token string)
 // TestReadinessBegEndFlipsReady verifies that a single begin/end cycle marks
 // readiness as ready, and subsequent awaitReady calls return immediately.
 func TestReadinessBegEndFlipsReady(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -211,6 +213,7 @@ func TestReadinessBegEndFlipsReady(t *testing.T) {
 // progress arrives, readiness flips to ready after ReadyGracePeriod, not
 // after ReadyTimeout.
 func TestReadinessNoProgressFlipsReadyAfterGracePeriod(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -251,6 +254,7 @@ func TestReadinessNoProgressFlipsReadyAfterGracePeriod(t *testing.T) {
 // when a begin arrives but no matching end, awaitReady returns incomplete=true
 // after ReadyTimeout, with err=nil (no error).
 func TestReadinessUnterminatedBeginReturnsIncompleteAfterTimeout(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -299,6 +303,7 @@ func TestReadinessUnterminatedBeginReturnsIncompleteAfterTimeout(t *testing.T) {
 // TestReadinessCancelledCtx verifies that cancellation of the caller's context
 // causes awaitReady to return promptly with ctx.Err().
 func TestReadinessCancelledCtx(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -340,6 +345,7 @@ func TestReadinessCancelledCtx(t *testing.T) {
 // while awaitReady is blocked, awaitReady returns promptly with
 // errServerExited, not waiting for ReadyTimeout.
 func TestReadinessServerExitWhileBlocked(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -382,6 +388,7 @@ func TestReadinessServerExitWhileBlocked(t *testing.T) {
 // awaitReady on the same entry all unblock with the same result when the entry
 // becomes ready or times out.
 func TestReadinessConcurrentAwaiters(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -444,6 +451,7 @@ func TestReadinessConcurrentAwaiters(t *testing.T) {
 // first complete begin/end cycle completes, even if other tokens are still
 // in-flight or additional begins arrive afterward.
 func TestReadinessMultipleTokens(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -517,6 +525,7 @@ func TestReadinessMultipleTokens(t *testing.T) {
 // begin was never observed does not corrupt the in-flight count and does not
 // trigger readiness.
 func TestReadinessIgnoreOrphanEnd(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -608,6 +617,7 @@ func TestReadinessIgnoreOrphanEnd(t *testing.T) {
 // window has passed still correctly returns incomplete=false. This tests that
 // the redundant timer race condition does not exist.
 func TestReadinessReadyBeforeTimeoutThenAwaitAfter(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -682,6 +692,7 @@ func TestReadinessReadyBeforeTimeoutThenAwaitAfter(t *testing.T) {
 // happened correctly returns errServerExited (not falsely claiming readiness).
 // This tests that the defer's channel-close-without-state bug does not exist.
 func TestReadinessServerExitThenAwaitAfter(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 

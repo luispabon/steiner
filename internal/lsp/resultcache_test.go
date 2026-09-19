@@ -17,6 +17,7 @@ import (
 )
 
 func TestResultCache_IdenticalCallHitsCache(t *testing.T) {
+	t.Parallel()
 	// Test 1: An identical repeated call (same file, same position, same content)
 	// hits the cache — assert via a call counter that the SECOND identical call
 	// does not reach the server.
@@ -67,6 +68,7 @@ func TestResultCache_IdenticalCallHitsCache(t *testing.T) {
 }
 
 func TestResultCache_FileMutationCausesMiss(t *testing.T) {
+	t.Parallel()
 	// Test 2: Editing the file between two calls (same position, different content)
 	// produces a cache MISS on the second call.
 
@@ -117,6 +119,7 @@ func TestResultCache_FileMutationCausesMiss(t *testing.T) {
 }
 
 func TestResultCache_ProvisionalNotCached_Navigate(t *testing.T) {
+	t.Parallel()
 	// Test 3a: A provisional result (Incomplete=true) from Manager.Definitions
 	// is NOT cached. Force incomplete=true by starting a begin progress event
 	// that never completes before ReadyTimeout fires.
@@ -209,6 +212,7 @@ func TestResultCache_ProvisionalNotCached_Navigate(t *testing.T) {
 }
 
 func TestResultCache_ProvisionalNotCached_Diagnostics(t *testing.T) {
+	t.Parallel()
 	// Test 3b: A provisional diagnostics result (WindowExpired=true) from
 	// Manager.Diagnostics is NOT cached. Force WindowExpired=true by letting
 	// the collection window elapse with no publication for the file.
@@ -282,6 +286,7 @@ func TestResultCache_ProvisionalNotCached_Diagnostics(t *testing.T) {
 }
 
 func TestResultCache_LRUEviction(t *testing.T) {
+	t.Parallel()
 	// Test 4: LRU eviction: fill the cache past its bound and assert
 	// the least-recently-used entry was evicted while more-recently-used ones survive.
 
@@ -358,6 +363,7 @@ func TestResultCache_LRUEviction(t *testing.T) {
 }
 
 func TestResultCache_ConcurrentAccess_RaceFree(t *testing.T) {
+	t.Parallel()
 	// Test 5: Concurrent access is race-free. Launch many goroutines
 	// hitting the cache (mixed reads/writes/evictions) concurrently and
 	// assert no panic and no race (verified via -race flag).
@@ -435,6 +441,7 @@ func TestResultCache_ConcurrentAccess_RaceFree(t *testing.T) {
 }
 
 func TestResultCache_DifferentMethodsNoCollision(t *testing.T) {
+	t.Parallel()
 	// Test 6: Different methods (definitions vs references vs diagnostics)
 	// for the SAME file/position do not collide in the cache.
 
@@ -494,6 +501,7 @@ func TestResultCache_DifferentMethodsNoCollision(t *testing.T) {
 }
 
 func TestResultCache_IncludeDeclIsPartOfKey(t *testing.T) {
+	t.Parallel()
 	// Test 7: includeDecl (a References-only parameter) is part of the key —
 	// two calls differing only in includeDecl do not collide.
 
@@ -540,6 +548,7 @@ func TestResultCache_IncludeDeclIsPartOfKey(t *testing.T) {
 }
 
 func TestResultCache_SliceCloning(t *testing.T) {
+	t.Parallel()
 	// Verify that slices are cloned on store and on hit to prevent data races
 	// when callers modify the results (e.g., sort in place).
 
@@ -586,6 +595,7 @@ func TestResultCache_SliceCloning(t *testing.T) {
 }
 
 func TestHashFileContent(t *testing.T) {
+	t.Parallel()
 	// Unit test for hashFileContent and related hashing.
 
 	t.Run("hashFileContent returns empty on read error", func(t *testing.T) {

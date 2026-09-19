@@ -110,6 +110,7 @@ func TestCacheDirFor(t *testing.T) {
 }
 
 func TestCacheDirDifferentRootsAreDifferent(t *testing.T) {
+	t.Parallel()
 	configDir := t.TempDir()
 	root1 := "/workspace/project1"
 	root2 := "/workspace/project2"
@@ -141,6 +142,7 @@ func TestCacheDirDifferentRootsAreDifferent(t *testing.T) {
 }
 
 func TestCacheDirLocationStructure(t *testing.T) {
+	t.Parallel()
 	configDir := t.TempDir()
 	root := "/workspace/project"
 

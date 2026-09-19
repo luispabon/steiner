@@ -57,6 +57,7 @@ func fakeServerForHelper() *fakeServer {
 }
 
 func TestNewTransportRejectsProcessesThatDoNotSpeakLSP(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		mode string
@@ -77,7 +78,7 @@ func TestNewTransportRejectsProcessesThatDoNotSpeakLSP(t *testing.T) {
 			s, err := newTransport(ctx, ctx, TransportSpec{
 				Command:  os.Args[0],
 				Args:     []string{"-test.run=TestLSPHelperProcess"},
-				Env:      []string{helperEnv + "=" + tt.mode},
+				Env:      append(os.Environ(), helperEnv+"="+tt.mode),
 				RootPath: t.TempDir(),
 			})
 			if err == nil {

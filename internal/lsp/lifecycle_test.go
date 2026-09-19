@@ -16,6 +16,7 @@ import (
 const lifecycleTestTimeout = 5 * time.Second
 
 func TestManagerClosePreservesProcessContextForGracefulSession(t *testing.T) {
+	t.Parallel()
 	m := NewManager(config.LSPConfig{}, t.TempDir(), nil, func(string) {}, nil)
 
 	entered := make(chan struct{}, 1)
@@ -67,6 +68,7 @@ func TestManagerClosePreservesProcessContextForGracefulSession(t *testing.T) {
 }
 
 func TestManagerSessionSurvivesRequestContextCancellation(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -148,6 +150,7 @@ func TestManagerSessionSurvivesRequestContextCancellation(t *testing.T) {
 // mechanism that tracks or protects requests in flight against the reaper -
 // only entry.LastUsed, refreshed at the start of entryFor, guards reaping.
 func TestManagerIdleReapRespawnsSession(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -208,6 +211,7 @@ func TestManagerIdleReapRespawnsSession(t *testing.T) {
 }
 
 func TestManagerZeroIdleTimeoutNoReaper(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 
 	cfg := config.LSPConfig{
@@ -231,6 +235,7 @@ func TestManagerZeroIdleTimeoutNoReaper(t *testing.T) {
 }
 
 func TestManagerFailedEntryRetryAfterCooldown(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	cacheDir := filepath.Join(tmpdir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {

@@ -11,6 +11,7 @@ import (
 )
 
 func TestLanguageIDFor(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		file   string
 		expect string
@@ -37,6 +38,7 @@ func TestLanguageIDFor(t *testing.T) {
 }
 
 func TestWithDocument(t *testing.T) {
+	t.Parallel()
 	// Set up a fake session.
 	fs := newFakeServer()
 	fs.definitionResult = &protocol.Location{
@@ -110,6 +112,7 @@ func TestWithDocument(t *testing.T) {
 }
 
 func TestWithDocumentClosesEvenOnError(t *testing.T) {
+	t.Parallel()
 	fs := newFakeServer()
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()

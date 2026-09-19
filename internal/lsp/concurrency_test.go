@@ -53,6 +53,7 @@ func (s *probeSession) closeCall() (context.Context, time.Time, bool, error) {
 // DidClose runs on a context detached from the caller's cancellation but still
 // carrying a deadline, so a wedged server cannot hold the cycle lock forever.
 func TestWithDocumentDidCloseIsBoundedAndDetached(t *testing.T) {
+	t.Parallel()
 	sess := &probeSession{readinessTestSession: &readinessTestSession{}}
 
 	testFile := filepath.Join(t.TempDir(), "test.go")
@@ -89,6 +90,7 @@ func TestWithDocumentDidCloseIsBoundedAndDetached(t *testing.T) {
 // TestClientHandlerProgressDropsNewestWhenFull pins that a full progress
 // channel drops the newest event instead of parking the notification handler.
 func TestClientHandlerProgressDropsNewestWhenFull(t *testing.T) {
+	t.Parallel()
 	ch := &clientHandler{
 		diagnostics: make(chan PublishedDiagnostics, 1),
 		progress:    make(chan ProgressEvent, notifyBuffer),
@@ -137,6 +139,7 @@ func TestClientHandlerProgressDropsNewestWhenFull(t *testing.T) {
 // diagnostics channel evicts its oldest publication and keeps the newest, so a
 // later consumer never reads diagnostics the server already replaced.
 func TestClientHandlerPublishDiagnosticsDropsOldestWhenFull(t *testing.T) {
+	t.Parallel()
 	ch := &clientHandler{
 		diagnostics: make(chan PublishedDiagnostics, notifyBuffer),
 		progress:    make(chan ProgressEvent, 1),
@@ -195,6 +198,7 @@ func TestClientHandlerPublishDiagnosticsDropsOldestWhenFull(t *testing.T) {
 // LastUsed write that skipped ent.mu is a data race with it and fails under
 // -race.
 func TestEntryForKeyRecordsLastUsedUnderEntryLock(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := config.LSPConfig{
 		Enabled: true,

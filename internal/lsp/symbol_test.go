@@ -8,6 +8,7 @@ import (
 )
 
 func TestResolveSymbolPosition(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		fileContent string
@@ -163,6 +164,7 @@ func TestResolveSymbolPosition(t *testing.T) {
 }
 
 func TestResolveSymbolPositionAbsolutePath(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	testFile := filepath.Join(tmpdir, "test.go")
 	if err := os.WriteFile(testFile, []byte("func Foo() {}\n"), 0o644); err != nil {
@@ -182,6 +184,7 @@ func TestResolveSymbolPositionAbsolutePath(t *testing.T) {
 }
 
 func TestResolveSymbolPositionEmptySymbol(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	_, _, _, err := resolveSymbolPosition(tmpdir, "test.go", "", 1)
 	if err == nil {
@@ -190,6 +193,7 @@ func TestResolveSymbolPositionEmptySymbol(t *testing.T) {
 }
 
 func TestResolveSymbolPositionLineZeroVsAbsent(t *testing.T) {
+	t.Parallel()
 	tmpdir := t.TempDir()
 	testFile := filepath.Join(tmpdir, "test.go")
 	if err := os.WriteFile(testFile, []byte("Foo\nBar\nFoo\n"), 0o644); err != nil {
@@ -208,6 +212,7 @@ func TestResolveSymbolPositionLineZeroVsAbsent(t *testing.T) {
 }
 
 func TestResolveSymbolPositionMaxListedLines(t *testing.T) {
+	t.Parallel()
 	// Create a file with many matches (more than 20).
 	var content string
 	for i := 1; i <= 25; i++ {
