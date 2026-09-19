@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -27,8 +26,34 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// buildMCPFixture returns the path to the internal/mcp fixture server binary,
-// compiled once per test process and shared by all callers.
+// mcpFixtureServerEnv makes the test binary act as the internal/mcp fixture
+// server instead of running tests; TestMain dispatches on it.
+const mcpFixtureServerEnv = "STEINER_MCP_FIXTURE_SERVER"
+
+// cliHelperEnv makes the test binary act as the CLI helper (see cliHelperMain).
+const cliHelperEnv = "STEINER_CLI_TEST_HELPER"
+
+// writeReexecWrapper writes an executable shell script into dir that re-execs
+// this test binary with envVar=1, and returns its path. exec keeps the PID.
+// The race exit sleep is disabled for the helper (it only delays each spawn).
+// This replaces compiling helpers with go build at test time, which is a
+// non-race stdlib build that is cold in CI.
+func writeReexecWrapper(dir, name, envVar string) (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve test executable: %w", err)
+	}
+	quoted := "'" + strings.ReplaceAll(exe, "'", `'\''`) + "'"
+	path := filepath.Join(dir, name)
+	script := "#!/bin/sh\nGORACE=\"$GORACE atexit_sleep_ms=0\" " + envVar + "=1 exec " + quoted + ` "$@"` + "\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil { //nolint:gosec // test helper must be executable
+		return "", fmt.Errorf("write wrapper: %w", err)
+	}
+	return path, nil
+}
+
+// buildMCPFixture returns the path to the internal/mcp fixture server wrapper,
+// written once per test process and shared by all callers.
 func buildMCPFixture(t *testing.T) string {
 	t.Helper()
 	built := buildMCPFixtureBinaryOnce()
@@ -50,11 +75,9 @@ var buildMCPFixtureBinaryOnce = sync.OnceValue(func() builtMCPFixtureBinary {
 	}
 	mcpFixtureBinaryDir = dir
 
-	bin := filepath.Join(dir, "fixtureserver")
-	cmd := exec.Command("go", "build", "-o", bin, "../../internal/mcp/testdata/fixtureserver") //nolint:noctx
-	output, err := cmd.CombinedOutput()
+	bin, err := writeReexecWrapper(dir, "fixtureserver", mcpFixtureServerEnv)
 	if err != nil {
-		return builtMCPFixtureBinary{err: fmt.Errorf("build fixtureserver: %w: %s", err, strings.TrimSpace(string(output)))}
+		return builtMCPFixtureBinary{err: fmt.Errorf("write fixture wrapper: %w", err)}
 	}
 	return builtMCPFixtureBinary{path: bin}
 })

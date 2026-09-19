@@ -528,6 +528,7 @@ func TestConnectRuntimeMCPAsyncReturnsBeforeServersResolve(t *testing.T) {
 
 func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 	fixtureBin := buildMCPFixture(t)
+	connectStart := time.Now()
 	mgr := mcp.Connect(context.Background(), config.MCPConfig{
 		Enabled: true,
 		Servers: map[string]config.MCPServerConfig{
@@ -535,7 +536,7 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 				Enabled:        true,
 				Command:        fixtureBin,
 				Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
-				ConnectTimeout: config.MustDuration("500ms"),
+				ConnectTimeout: config.MustDuration("1s"),
 			},
 			"good": {Enabled: true, Command: fixtureBin},
 		},
@@ -582,12 +583,13 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	start := time.Now()
 	if _, err := sr.Run(ctx, nil, nil, nil); err == nil {
 		t.Fatal("Run() error = nil, want fast failure after MCP init")
 	}
-	if elapsed := time.Since(start); elapsed < 400*time.Millisecond {
-		t.Fatalf("Run() returned after %v, want it to wait for the stalling server (500ms connect timeout)", elapsed)
+	// Measured from Connect: the fixture re-exec is a slow-starting test binary,
+	// so how much of the timeout is left when Run starts varies.
+	if elapsed := time.Since(connectStart); elapsed < 900*time.Millisecond {
+		t.Fatalf("Run() returned %v after Connect, want it to wait for the stalling server (1s connect timeout)", elapsed)
 	}
 
 	// Both servers resolved: stall failed, good connected.

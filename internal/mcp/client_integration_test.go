@@ -35,7 +35,7 @@ func TestStdio(t *testing.T) {
 
 		repoRoot := t.TempDir()
 		sandboxTmp := t.TempDir()
-		copyFile(t, fixtureBin, filepath.Join(sandboxTmp, "fixtureserver"))
+		stageSandboxFixture(t, sandboxTmp)
 
 		s := newSandbox(t, repoRoot, sandboxTmp)
 		wrap := func(c *exec.Cmd) *exec.Cmd { return s.WrapCommandMode(c, true) }
@@ -86,7 +86,7 @@ func TestStdio(t *testing.T) {
 
 		repoRoot := t.TempDir()
 		sandboxTmp := t.TempDir()
-		copyFile(t, fixtureBin, filepath.Join(sandboxTmp, "fixtureserver"))
+		stageSandboxFixture(t, sandboxTmp)
 		// recordPath is the HOST path used to read the record back; the
 		// fixture itself is given the SANDBOX-side path below, since
 		// sandboxTmp is bind-mounted read-write at /tmp inside the sandbox
@@ -348,6 +348,23 @@ func buildFixture(t *testing.T) string {
 		t.Fatal("buildFixture: STEINER_MCP_FIXTURE_BIN not set; package mcp TestMain must run first")
 	}
 	return bin
+}
+
+// stageSandboxFixture makes /tmp/fixtureserver available inside a sandbox whose
+// /tmp is sandboxTmp. The host-side wrapper from buildFixture points at the
+// test binary under the host's /tmp, which the sandbox's /tmp bind mount hides,
+// so copy the test binary next to a wrapper that re-execs it by sandbox path.
+func stageSandboxFixture(t *testing.T, sandboxTmp string) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	copyFile(t, exe, filepath.Join(sandboxTmp, "mcp.test"))
+	script := "#!/bin/sh\nGORACE=\"$GORACE atexit_sleep_ms=0\" STEINER_MCP_FIXTURE_SERVER=1 exec /tmp/mcp.test \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(sandboxTmp, "fixtureserver"), []byte(script), 0o755); err != nil { //nolint:gosec // test helper must be executable
+		t.Fatalf("write sandbox wrapper: %v", err)
+	}
 }
 
 func copyFile(t *testing.T, src, dst string) {

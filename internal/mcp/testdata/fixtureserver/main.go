@@ -1,11 +1,14 @@
-// Command fixtureserver is a hand-rolled JSON-RPC 2.0 MCP server used by the
+// Package fixtureserver is a hand-rolled JSON-RPC 2.0 MCP server used by the
 // internal/mcp integration tests. It deliberately does not import the MCP SDK:
 // the tests exercise the SDK client against a plain stdio JSON-RPC peer.
 //
 // It reads newline-delimited JSON requests from stdin and writes newline-
 // delimited JSON responses to stdout. Only JSON-RPC is written to stdout;
 // diagnostics go to stderr via the log package.
-package main
+//
+// It is a library rather than a main package so test binaries can re-exec
+// themselves as the server (see Main) instead of compiling it with go build.
+package fixtureserver
 
 import (
 	"bufio"
@@ -20,7 +23,8 @@ import (
 	"time"
 )
 
-func main() {
+// Main runs the fixture server on stdin/stdout until stdin closes.
+func Main() {
 	recordPath := os.Getenv("STEINER_FIXTURE_RECORD")
 	touchPath := os.Getenv("STEINER_FIXTURE_TOUCH")
 	spawnChild := os.Getenv("STEINER_FIXTURE_SPAWN_CHILD") == "1"
