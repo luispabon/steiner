@@ -459,7 +459,7 @@ func TestConnectRuntimeMCPBlockingWaitsAndRegistersTools(t *testing.T) {
 					Enabled:        true,
 					Command:        fixtureBin,
 					Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
-					ConnectTimeout: config.MustDuration("500ms"),
+					ConnectTimeout: config.MustDuration("200ms"),
 				},
 				"good": {Enabled: true, Command: fixtureBin},
 			},
@@ -833,7 +833,7 @@ func TestAwaitSessionRunsWaitsForTrackedHistoryWrite(t *testing.T) {
 	select {
 	case <-awaitDone:
 		t.Fatal("awaitSessionRuns returned while the tracked history write was still pending")
-	case <-time.After(time.Second):
+	case <-time.After(200 * time.Millisecond):
 	}
 
 	releaseWrite()
@@ -1047,7 +1047,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 	// Background goroutine
 	go func() {
 		defer wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		init.once.Do(func() { init.run(ctx, rt) })
 	}()
@@ -1055,7 +1055,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 	// Turn (should block in once.Do until background completes, then observe error)
 	go func() {
 		defer wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		init.once.Do(func() { init.run(ctx, rt) })
 		turnErr = init.err
@@ -1063,7 +1063,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 
 	wg.Wait()
 
-	// Both should observe the same error (WaitInit timed out while the stall server was still connecting; its ConnectTimeout outlives the 500ms ctx)
+	// Both should observe the same error (WaitInit timed out while the stall server was still connecting; its 500ms ConnectTimeout outlives the 200ms ctx)
 	if turnErr == nil {
 		t.Fatal("turn goroutine err = nil, want WaitInit timeout error")
 	}
