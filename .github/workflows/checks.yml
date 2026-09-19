@@ -24,10 +24,34 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Go
+        id: setup-go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Locate Go caches
+        id: go-cache
+        run: |
+          echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+      # Per-job cache (setup-go's built-in one shares a single key across all
+      # jobs, so a darwin build cache ended up restored into the race job).
+      # Only main saves; PRs restore main's entries.
+      - name: Restore Go caches
+        id: go-cache-restore
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.GOMODCACHE }}
+            ${{ steps.go-cache.outputs.GOCACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-
+
+      - name: Download Go modules
+        run: go mod download
 
       - name: Vet
         run: make vet
@@ -39,6 +63,15 @@ jobs:
       - name: Vet (darwin cross-compile)
         run: GOOS=darwin go vet ./...
 
+      - name: Save Go caches
+        if: github.ref == 'refs/heads/main' && !cancelled() && steps.go-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.GOMODCACHE }}
+            ${{ steps.go-cache.outputs.GOCACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}
+
   test:
     runs-on: ubuntu-latest
 
@@ -47,10 +80,34 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Go
+        id: setup-go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Locate Go caches
+        id: go-cache
+        run: |
+          echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+      # Per-job cache (setup-go's built-in one shares a single key across all
+      # jobs, so a darwin build cache ended up restored into the race job).
+      # Only main saves; PRs restore main's entries.
+      - name: Restore Go caches
+        id: go-cache-restore
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.GOMODCACHE }}
+            ${{ steps.go-cache.outputs.GOCACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-cgo0-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-cgo0-
+
+      - name: Download Go modules
+        run: go mod download
 
       - name: Build
         run: make build-binaries
@@ -64,6 +121,15 @@ jobs:
         env:
           CGO_ENABLED: 0
 
+      - name: Save Go caches
+        if: github.ref == 'refs/heads/main' && !cancelled() && steps.go-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.GOMODCACHE }}
+            ${{ steps.go-cache.outputs.GOCACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-cgo0-${{ hashFiles('go.sum') }}
+
   lint:
     runs-on: ubuntu-latest
 
@@ -72,10 +138,34 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Go
+        id: setup-go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Locate Go caches
+        id: go-cache
+        run: |
+          echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+      # Per-job cache (setup-go's built-in one shares a single key across all
+      # jobs, so a darwin build cache ended up restored into the race job).
+      # Only main saves; PRs restore main's entries.
+      - name: Restore Go caches
+        id: go-cache-restore
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.GOMODCACHE }}
+            ${{ steps.go-cache.outputs.GOCACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-
+
+      - name: Download Go modules
+        run: go mod download
 
       - name: Cache Go tools
         id: cache-go-tools
@@ -103,6 +193,15 @@ jobs:
       - name: Vuln check
         run: make vuln
 
+      - name: Save Go caches
+        if: github.ref == 'refs/heads/main' && !cancelled() && steps.go-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.GOMODCACHE }}
+            ${{ steps.go-cache.outputs.GOCACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}
+
   race:
     runs-on: ubuntu-latest
 
@@ -111,13 +210,46 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Go
+        id: setup-go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Locate Go caches
+        id: go-cache
+        run: |
+          echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+      # Per-job cache (setup-go's built-in one shares a single key across all
+      # jobs, so a darwin build cache ended up restored into the race job).
+      # Only main saves; PRs restore main's entries.
+      - name: Restore Go caches
+        id: go-cache-restore
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.GOMODCACHE }}
+            ${{ steps.go-cache.outputs.GOCACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-
+
+      - name: Download Go modules
+        run: go mod download
 
       - name: Test race
         run: make test-race
+
+      - name: Save Go caches
+        if: github.ref == 'refs/heads/main' && !cancelled() && steps.go-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.GOMODCACHE }}
+            ${{ steps.go-cache.outputs.GOCACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}
 
   # Allocation ceilings live behind the perfguard build tag so their benchmark
   # runs stay out of the normal suite. They run here as their own job rather
@@ -133,10 +265,43 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Go
+        id: setup-go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Locate Go caches
+        id: go-cache
+        run: |
+          echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+      # Per-job cache (setup-go's built-in one shares a single key across all
+      # jobs, so a darwin build cache ended up restored into the race job).
+      # Only main saves; PRs restore main's entries.
+      - name: Restore Go caches
+        id: go-cache-restore
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.GOMODCACHE }}
+            ${{ steps.go-cache.outputs.GOCACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-
+
+      - name: Download Go modules
+        run: go mod download
 
       - name: Performance guards
         run: make test-perf
+
+      - name: Save Go caches
+        if: github.ref == 'refs/heads/main' && !cancelled() && steps.go-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.GOMODCACHE }}
+            ${{ steps.go-cache.outputs.GOCACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}
