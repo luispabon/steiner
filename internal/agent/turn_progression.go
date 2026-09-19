@@ -110,6 +110,9 @@ func (p *turnProgressor) handleModelCallError(ctx context.Context, state RunStat
 		emitStop(p.request.Events, cancelled, nil)
 		return turnOutcome{State: cancelled, Stop: true}
 	}
+	if isLimitTimeout(ctx) {
+		err = limitTimeoutError(ctx, p.limitTimeout(ctx))
+	}
 	state.StopReason = StopReasonError
 	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
 		Turn:  turn,
@@ -195,27 +198,15 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 			var outcome turnOutcome
 			state, outcome = p.executeSingleToolCall(ctx, state, turn, calls[i])
 			if outcome.Stop {
-				if state.StopReason == StopReasonCancelled {
-					for _, call := range calls[i+1:] {
-						state = p.appendToolOutcome(ctx, state, turn, call, nil, errors.Join(errNotDispatched, ctx.Err()), false)
-					}
-					return p.finalizeCancelledTurn(ctx, state)
-				}
-				return outcome
+				return p.finishStoppedSerial(ctx, state, outcome, turn, calls[i+1:])
 			}
 			i++
 			continue
 		}
 		results := p.invokeParallel(ctx, state, turn, calls[i:i+n])
 		for k := 0; k < n; k++ {
-			if _, cancelled := contextCancellationState(ctx, state); cancelled {
-				for j := k; j < n; j++ {
-					state = p.appendToolOutcome(ctx, state, turn, calls[i+j], results[j].value, results[j].err, results[j].started)
-				}
-				for _, call := range calls[i+n:] {
-					state = p.appendToolOutcome(ctx, state, turn, call, nil, errors.Join(errNotDispatched, ctx.Err()), false)
-				}
-				return p.finalizeCancelledTurn(ctx, state)
+			if _, cancelled := contextCancellationState(ctx, state); cancelled || isLimitTimeout(ctx) {
+				return p.finishStoppedParallel(ctx, state, turn, calls[i:], results, k, n)
 			}
 			var outcome turnOutcome
 			state, outcome = p.applyToolResult(ctx, state, turn, calls[i+k], results[k].value, results[k].err)
@@ -226,6 +217,47 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 		i += n
 	}
 	return p.finalizeToolTurn(ctx, state, turn, response)
+}
+
+// appendNotDispatched records a "not dispatched" result for each call that
+// never ran, keeping one tool_result per tool_use.
+func (p *turnProgressor) appendNotDispatched(ctx context.Context, state RunState, turn int, calls []provider.ToolCall) RunState {
+	for _, call := range calls {
+		state = p.appendToolOutcome(ctx, state, turn, call, nil, errors.Join(errNotDispatched, ctx.Err()), false)
+	}
+	return state
+}
+
+// finishStoppedSerial closes out a turn after a serial tool call stopped the
+// run. On cancellation or a runner-imposed limit timeout the remaining calls
+// are recorded as not dispatched.
+func (p *turnProgressor) finishStoppedSerial(ctx context.Context, state RunState, outcome turnOutcome, turn int, remaining []provider.ToolCall) turnOutcome {
+	cancelled := state.StopReason == StopReasonCancelled
+	if !cancelled && !isLimitTimeout(ctx) {
+		return outcome
+	}
+	state = p.appendNotDispatched(ctx, state, turn, remaining)
+	if cancelled {
+		return p.finalizeCancelledTurn(ctx, state)
+	}
+	outcome.State = state
+	return outcome
+}
+
+// finishStoppedParallel closes out a turn when the context ended while
+// applying the results of a parallel batch. calls starts at the batch (n calls
+// long); results from index k on are recorded, then everything after the batch
+// is recorded as not dispatched. A runner-imposed limit timeout is an error
+// stop, not a cancel.
+func (p *turnProgressor) finishStoppedParallel(ctx context.Context, state RunState, turn int, calls []provider.ToolCall, results []batchResult, k, n int) turnOutcome {
+	for j := k; j < n; j++ {
+		state = p.appendToolOutcome(ctx, state, turn, calls[j], results[j].value, results[j].err, results[j].started)
+	}
+	state = p.appendNotDispatched(ctx, state, turn, calls[n:])
+	if _, cancelled := contextCancellationState(ctx, state); cancelled {
+		return p.finalizeCancelledTurn(ctx, state)
+	}
+	return p.handleError(ctx, state, nil)
 }
 
 func (p *turnProgressor) parallelLimitForClass(class ParallelClass) int {
@@ -308,15 +340,25 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunSta
 		state = p.appendToolOutcome(ctx, state, turn, call, result, err, true)
 		return state, turnOutcome{State: state, Stop: true}
 	}
+	if isLimitTimeout(ctx) {
+		state = p.appendToolOutcome(ctx, state, turn, call, result, err, true)
+		outcome := p.handleError(ctx, state, nil)
+		return outcome.State, outcome
+	}
 	return p.applyToolResult(ctx, state, turn, call, result, err)
 }
 
-// invokeTool runs the executor and returns the raw outcome. It does not emit
-// events or touch RunState. It is the single call site (besides the
+// invokeTool runs the executor and returns the raw outcome. It does not touch
+// RunState and emits events only when a tool panics (a diagnostic event). It is the single call site (besides the
 // read-only vision routing bypass) through which tool execution flows, so
 // this is where the file-observed checker is injected for mutate's
 // replace-operation guard.
-func (p *turnProgressor) invokeTool(ctx context.Context, _ int, call provider.ToolCall) (any, error) {
+func (p *turnProgressor) invokeTool(ctx context.Context, turn int, call provider.ToolCall) (result any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			result, err = nil, p.recoverToolPanic(turn, call, r)
+		}
+	}()
 	if p.request.ContextManager != nil {
 		ctx = tool.WithFileObservedChecker(ctx, p.request.ContextManager.FileObserved)
 	}
@@ -549,7 +591,7 @@ func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcom
 	modelCtx := ctx
 	if timeout := p.request.Limits.ModelCallTimeout; timeout > 0 {
 		var cancelModel context.CancelFunc
-		modelCtx, cancelModel = context.WithTimeout(ctx, timeout)
+		modelCtx, cancelModel = context.WithTimeoutCause(ctx, timeout, errModelCallTimeout)
 		defer cancelModel()
 	}
 	modelOutcome, response := p.executeModelCall(modelCtx, state, assembly, chatRequest)
@@ -578,6 +620,9 @@ func (p *turnProgressor) handleError(ctx context.Context, state RunState, err er
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
 		emitStop(p.request.Events, cancelled, nil)
 		return turnOutcome{State: cancelled, Stop: true}
+	}
+	if isLimitTimeout(ctx) {
+		err = limitTimeoutError(ctx, p.limitTimeout(ctx))
 	}
 	state.StopReason = StopReasonError
 	return turnOutcome{State: state, Error: err, Stop: true}

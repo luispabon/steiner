@@ -753,3 +753,180 @@ func TestSaveLoadDeleteWithValidHexID(t *testing.T) {
 		t.Errorf("expected 0 entries after delete, got %d", len(entries))
 	}
 }
+
+func TestStorePermissionsAreOwnerOnly(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sessions")
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if err := store.Save(Session{ID: "abc", UpdatedAt: time.Now()}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	for path, want := range map[string]os.FileMode{
+		dir:                            0o700,
+		filepath.Join(dir, "abc.json"): 0o600,
+		filepath.Join(dir, indexFile):  0o600,
+	} {
+		st, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat %s: %v", path, err)
+		}
+		if st.Mode().Perm() != want {
+			t.Errorf("%s mode = %o, want %o", path, st.Mode().Perm(), want)
+		}
+	}
+}
+
+func TestNewStoreTightensExistingPermissions(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := []string{"old.json", indexFile}
+	for _, f := range files {
+		content := "{}"
+		if f == indexFile {
+			content = "[]"
+		}
+		if err := os.WriteFile(filepath.Join(dir, f), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(filepath.Join(dir, f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := NewStore(dir); err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	st, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o700 {
+		t.Errorf("dir mode = %o, want 700", st.Mode().Perm())
+	}
+	for _, f := range files {
+		st, err := os.Stat(filepath.Join(dir, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode = %o, want 600", f, st.Mode().Perm())
+		}
+	}
+}
+
+func TestSaveTightensStaleTmpFile(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := filepath.Join(dir, "s1.json.tmp")
+	if err := os.WriteFile(tmp, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(tmp, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(Session{ID: "s1", UpdatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(filepath.Join(dir, "s1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %o, want 600", st.Mode().Perm())
+	}
+}
+
+func TestLoadIndexDropsInvalidIDs(t *testing.T) {
+	dir := t.TempDir()
+	idx := `[{"id":"../evil"},{"id":""},{"id":"a/b"},{"id":"good"}]`
+	if err := os.WriteFile(filepath.Join(dir, indexFile), []byte(idx), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.List()
+	if len(got) != 1 || got[0].ID != "good" {
+		t.Errorf("index = %+v, want only [good]", got)
+	}
+}
+
+func TestEvictionNeverDeletesOutsideStoreDir(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(root, "victim.json")
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Bypass loadIndex validation to exercise eviction's own guard.
+	old := time.Now().Add(-100 * time.Hour)
+	store.index = nil
+	for i := 0; i < maxSessions; i++ {
+		store.index = append(store.index, IndexEntry{ID: fmt.Sprintf("s%d", i), UpdatedAt: time.Now()})
+	}
+	store.index = append(store.index, IndexEntry{ID: "../victim", UpdatedAt: old}) // oldest, evicted last-in-slice
+	store.mu.Lock()
+	err = store.evictOldestLocked()
+	store.mu.Unlock()
+	if err == nil {
+		t.Error("expected error evicting invalid id")
+	}
+	if _, statErr := os.Stat(outside); statErr != nil {
+		t.Errorf("outside file was removed: %v", statErr)
+	}
+}
+
+func TestNewStoreSurvivesChmodFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "old.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	orig := chmod
+	t.Cleanup(func() { chmod = orig })
+	chmod = func(string, os.FileMode) error { return os.ErrPermission }
+
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore with failing chmod = %v, want best-effort success", err)
+	}
+	if store == nil {
+		t.Fatal("NewStore returned nil store")
+	}
+}
+
+func TestSecureExistingFilesOnlyTouchesSessionJSON(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.json", "b.json.tmp", "c.jsonl", "d.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(filepath.Join(dir, name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	secureExistingFiles(dir)
+	want := map[string]os.FileMode{"a.json": 0o600, "b.json.tmp": 0o600, "c.jsonl": 0o644, "d.txt": 0o644}
+	for name, mode := range want {
+		st, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Mode().Perm() != mode {
+			t.Errorf("%s mode = %o, want %o", name, st.Mode().Perm(), mode)
+		}
+	}
+}

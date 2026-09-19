@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,7 +17,35 @@ const (
 	indexFile   = "index.json"
 	maxSessions = 25
 	sessionExt  = ".json"
+
+	// Transcripts may contain sensitive prompts and tool output.
+	dirMode  os.FileMode = 0o700
+	fileMode os.FileMode = 0o600
 )
+
+// chmod is os.Chmod, swappable so tests can simulate ownership failures.
+var chmod = os.Chmod
+
+// secureExistingFiles tightens permissions on session and index files
+// created by older versions with world-readable modes. It is best-effort:
+// files we cannot chmod (root-owned after a sudo run, root-squash mounts) are
+// logged and skipped so the store still opens; new writes use fileMode anyway.
+func secureExistingFiles(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		slog.Warn("session store: cannot list directory to tighten permissions", "dir", dir, "error", err)
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || (filepath.Ext(name) != sessionExt && !strings.HasSuffix(name, sessionExt+".tmp")) {
+			continue
+		}
+		if err := chmod(filepath.Join(dir, name), fileMode); err != nil && !os.IsNotExist(err) {
+			slog.Warn("session store: cannot tighten file permissions", "file", name, "error", err)
+		}
+	}
+}
 
 // Store manages session persistence to disk with atomic writes and eviction.
 type Store struct {
@@ -27,9 +56,13 @@ type Store struct {
 
 // NewStore creates a store for the given directory, creating it if absent.
 func NewStore(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return nil, fmt.Errorf("create store directory: %w", err)
 	}
+	if err := chmod(dir, dirMode); err != nil {
+		slog.Warn("session store: cannot tighten directory permissions", "dir", dir, "error", err)
+	}
+	secureExistingFiles(dir)
 	store := &Store{dir: dir}
 	if err := store.loadIndex(); err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("load index: %w", err)
@@ -171,11 +204,17 @@ func (s *Store) writeAtomic(path string, data interface{}) error {
 	}
 
 	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data64, 0o644); err != nil {
+	if err := os.WriteFile(tmpPath, data64, fileMode); err != nil {
 		return fmt.Errorf("write tmp file: %w", err)
+	}
+	// WriteFile does not alter the mode of a pre-existing tmp file.
+	if err := os.Chmod(tmpPath, fileMode); err != nil {
+		_ = os.Remove(tmpPath) // best-effort cleanup; the chmod error is returned
+		return fmt.Errorf("secure tmp file: %w", err)
 	}
 
 	if err := os.Rename(tmpPath, path); err != nil {
+		// Best-effort cleanup; the rename error is the one worth reporting.
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename tmp file: %w", err)
 	}
@@ -195,8 +234,17 @@ func (s *Store) loadIndex() error {
 		return err
 	}
 
-	if err := json.Unmarshal(data, &s.index); err != nil {
+	var entries []IndexEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
 		return err
+	}
+	// Drop entries whose IDs could escape the store directory.
+	s.index = make([]IndexEntry, 0, len(entries))
+	for _, e := range entries {
+		if _, err := safeSessionPath(s.dir, e.ID); err != nil {
+			continue
+		}
+		s.index = append(s.index, e)
 	}
 
 	return nil
@@ -240,7 +288,10 @@ func (s *Store) evictOldestLocked() error {
 	toRemove := s.index[len(s.index)-1]
 	s.index = s.index[:len(s.index)-1]
 
-	sessionPath := filepath.Join(s.dir, toRemove.ID+sessionExt)
+	sessionPath, err := safeSessionPath(s.dir, toRemove.ID)
+	if err != nil {
+		return fmt.Errorf("validate evicted session id: %w", err)
+	}
 	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete evicted session: %w", err)
 	}
