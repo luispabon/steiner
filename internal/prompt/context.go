@@ -120,7 +120,9 @@ func readFileBlock(absPath string, remaining int) (ContextBlock, error) {
 	truncated := false
 	if blockBytes > remaining {
 		blockBytes = remaining
-		for blockBytes > 0 && !utf8.RuneStart(data[blockBytes]) {
+		// Back up to a rune start; a valid rune has at most UTFMax-1
+		// continuation bytes, so cap the walk for non-UTF-8 data.
+		for i := 0; i < utf8.UTFMax-1 && blockBytes > 0 && !utf8.RuneStart(data[blockBytes]); i++ {
 			blockBytes--
 		}
 		truncated = true

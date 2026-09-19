@@ -7,6 +7,29 @@ import (
 	"unicode/utf8"
 )
 
+func TestReadFileBlockBinaryBackScanBounded(t *testing.T) {
+	// A run of continuation bytes is not valid UTF-8; the cut may back up at
+	// most UTFMax-1 bytes rather than walking through the whole block.
+	data := make([]byte, 100)
+	for i := range data {
+		data[i] = 0x80
+	}
+	path := filepath.Join(t.TempDir(), "f.bin")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	block, err := readFileBlock(path, 50)
+	if err != nil {
+		t.Fatalf("readFileBlock: %v", err)
+	}
+	if want := 50 - (utf8.UTFMax - 1); block.ByteSize != want {
+		t.Errorf("ByteSize = %d, want %d", block.ByteSize, want)
+	}
+	if !block.Truncated {
+		t.Error("Truncated = false, want true")
+	}
+}
+
 func TestReadFileBlockTruncatesOnRuneBoundary(t *testing.T) {
 	tests := []struct {
 		name    string
