@@ -37,8 +37,13 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("chat completions request failed: %s: %s", id, e.Body)
 }
 
+// statusAnthropicOverloaded is Anthropic's non-standard "overloaded" status.
+const statusAnthropicOverloaded = 529
+
 func isRetryableHTTPStatus(status int) bool {
 	switch status {
+	case statusAnthropicOverloaded:
+		return true
 	case http.StatusRequestTimeout, http.StatusConflict, http.StatusTooManyRequests,
 		http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable,
 		http.StatusGatewayTimeout:

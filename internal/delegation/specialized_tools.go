@@ -324,7 +324,7 @@ func codeRemediationConfig(worktree CodeWorktree) *RemediationConfig {
 			return strings.TrimSpace(out), nil
 		},
 		Committed: func(ctx context.Context, preHEAD string, initialDirty []string) (bool, error) {
-			diffOut, err := gitOutput(ctx, worktree.Path, "diff", "--name-only", preHEAD+"..HEAD")
+			diffOut, err := gitOutput(ctx, worktree.Path, "diff", "--name-only", "--no-renames", preHEAD+"..HEAD")
 			if err != nil {
 				return false, err
 			}
@@ -373,6 +373,7 @@ func runRegisteredDelegate(
 ) (tool.ExecutionResult, error) {
 	childCtx, err := deps.ActiveController.Register(spec.AgentID, ctx, spec.AgentType, worktree)
 	if err != nil {
+		removeAndCloseToolCallTraceWriter(spec.AgentID)
 		cleanupRegistrationWorktree(spec.AgentType, deps.WorkDir, worktree)
 		return tool.ExecutionResult{}, childSetupError(err)
 	}

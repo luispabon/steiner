@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-func TestResetAgentCounter(t *testing.T) {
+func TestResetAgentCounterForTesting(t *testing.T) {
 	generateAgentID()
 	generateAgentID()
-	ResetAgentCounter()
+	resetAgentCounterForTesting()
 	if got := generateAgentID(); got != "child-1" {
 		t.Errorf("generateAgentID() after reset = %q, want child-1", got)
 	}
@@ -37,7 +37,7 @@ func TestResetForNewConversation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ResetAgentCounter()
+			resetAgentCounterForTesting()
 			if tt.sessions != nil {
 				if !tt.sessions.Save(&ChildSession{Spec: Spec{AgentID: "child-1"}}) {
 					t.Fatal("SessionStore.Save() = false, want true")
@@ -58,8 +58,8 @@ func TestResetForNewConversation(t *testing.T) {
 			if tt.budgets != nil && len(tt.budgets.states) != tt.wantBudgetCnt {
 				t.Errorf("AdvisorBudgetStore states = %d, want %d", len(tt.budgets.states), tt.wantBudgetCnt)
 			}
-			if got := generateAgentID(); got != "child-1" {
-				t.Errorf("generateAgentID() after reset = %q, want child-1", got)
+			if got := generateAgentID(); got != "child-2" {
+				t.Errorf("generateAgentID() after ResetForNewConversation = %q, want child-2 (counter must survive /clear)", got)
 			}
 		})
 	}

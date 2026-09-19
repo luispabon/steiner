@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
@@ -100,6 +101,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 		return nil, childSetupError(err)
 	}
 	defer deps.ActiveController.Unregister(agentID)
+	reopenFollowUpTrace(agentID)
 	emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, spec.AgentType)
 
 	var opts []spawnOption
@@ -111,7 +113,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	if err == nil {
 		updatedOK := deps.SessionStore.Update(agentID, SessionUpdateParams{
 			Conversation:  state.Conversation,
-			TurnCount:     state.TurnCount,
+			TurnCount:     state.TurnCount - session.TurnCount, // Update adds a delta; state.TurnCount is cumulative
 			TokenCount:    runUsage.OutputTokens,
 			ToolCallCount: countToolCalls(state.Conversation),
 			TokenUsage:    runUsage,
@@ -210,4 +212,13 @@ func childHasAdvisorTool(req agent.RunRequest) bool {
 		}
 	}
 	return false
+}
+
+// reopenFollowUpTrace re-registers the agent's trace writer for a follow-up
+// run. Best-effort: tracing must not block the follow-up, so failures are
+// logged rather than returned.
+func reopenFollowUpTrace(agentID string) {
+	if err := reactivateToolCallTraceWriter(agentID); err != nil {
+		slog.Warn("follow_up: cannot reopen tool call trace", "agent", agentID, "error", err)
+	}
 }

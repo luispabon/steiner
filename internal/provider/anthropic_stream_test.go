@@ -155,28 +155,22 @@ func TestDecodeAnthropicStreamWithHandler_FlushesOnEOFWithoutMessageStop(t *test
 	}
 }
 
-func TestDecodeAnthropicStreamWithHandler_ErrorEventEmitsTerminalErrorChunk(t *testing.T) {
+func TestDecodeAnthropicStreamWithHandler_ErrorEventReturnsClassifiedError(t *testing.T) {
 	stream := strings.Join([]string{
 		"event: error",
 		`data: {"type":"error","error":{"type":"api_error","message":"provider unavailable"}}`,
 		"",
 	}, "\n")
 
-	var chunks []ChatChunk
-	err := decodeAnthropicStreamWithHandler(context.Background(), strings.NewReader(stream), func(chunk ChatChunk) error {
-		chunks = append(chunks, chunk)
+	err := decodeAnthropicStreamWithHandler(context.Background(), strings.NewReader(stream), func(ChatChunk) error {
+		t.Fatal("no chunk expected for a retryable in-band error")
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("decodeAnthropicStreamWithHandler() error = %v", err)
+	httpErr := asHTTPError(err)
+	if httpErr == nil || httpErr.StatusCode != 500 {
+		t.Fatalf("error = %v, want HTTPError 500", err)
 	}
-	if len(chunks) != 1 {
-		t.Fatalf("chunks = %d, want 1", len(chunks))
-	}
-	if !chunks[0].Done {
-		t.Fatal("Done = false, want true")
-	}
-	if got, want := chunks[0].Error, "provider unavailable"; got != want {
-		t.Fatalf("error = %q, want %q", got, want)
+	if !strings.Contains(err.Error(), "api_error: provider unavailable") {
+		t.Fatalf("error = %q, want type and message", err)
 	}
 }

@@ -4,6 +4,7 @@ package history
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,15 +32,18 @@ type Writer struct {
 // NewWriter opens or creates a history file at the given path.
 func NewWriter(path string) (*Writer, error) {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create history dir: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open history file: %w", err)
 	}
 	if err := f.Close(); err != nil {
 		return nil, fmt.Errorf("close history file: %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		slog.Warn("history: cannot tighten file permissions", "file", path, "error", err)
 	}
 	return &Writer{path: path, locker: newFileLocker()}, nil
 }
@@ -94,7 +98,7 @@ func (w *Writer) Record(prompt string) error {
 	line := time.Now().Format(time.RFC3339) + "\t" + escaped + "\n"
 
 	return w.withLock(func() error {
-		f, err := os.OpenFile(w.path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+		f, err := os.OpenFile(w.path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
 		if err != nil {
 			return fmt.Errorf("open history file: %w", err)
 		}
@@ -108,6 +112,9 @@ func (w *Writer) Record(prompt string) error {
 		}
 		if err := f.Close(); err != nil {
 			return fmt.Errorf("close history file: %w", err)
+		}
+		if err := os.Chmod(w.path, 0o600); err != nil {
+			slog.Warn("history: cannot tighten file permissions", "file", w.path, "error", err)
 		}
 		return w.trim()
 	})
@@ -152,7 +159,7 @@ func (w *Writer) trim() error {
 		os.Remove(tmpName) //nolint:errcheck
 		return fmt.Errorf("close temp history file: %w", err)
 	}
-	if err := os.Chmod(tmpName, 0o644); err != nil {
+	if err := os.Chmod(tmpName, 0o600); err != nil {
 		os.Remove(tmpName) //nolint:errcheck
 		return fmt.Errorf("chmod temp history file: %w", err)
 	}

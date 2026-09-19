@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,9 +69,13 @@ type toolCallTraceWriter struct {
 	path    string
 	pending map[string]pendingToolCall
 
+	closed bool
+
 	toolCallsTotal  int
 	toolCallsFailed int
 	toolCounts      map[string]int
+	writeErrors     int
+	firstWriteErr   error
 }
 
 // traceSessionID returns sessionID if non-empty, otherwise the process-scoped
@@ -96,7 +101,7 @@ func newToolCallTraceWriter(workDir, agentID, sessionID string) *toolCallTraceWr
 	pruneOldToolCallTraces(filepath.Dir(dir))
 
 	path := filepath.Join(dir, agentID+".jsonl")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil
 	}
@@ -189,8 +194,49 @@ func (w *toolCallTraceWriter) finished(ts time.Time, turn int, tool, callID, res
 	}
 	w.toolCounts[tool]++
 
-	// Best-effort; delegation tracing must not break execution.
-	_ = w.enc.Encode(line)
+	// Best-effort: a failed write must not break execution, but it is counted
+	// and surfaced in the host-side trace-log fields so silent loss is visible.
+	if w.closed {
+		w.writeErrors++
+		if w.firstWriteErr == nil {
+			w.firstWriteErr = os.ErrClosed
+		}
+		return
+	}
+	if err := w.enc.Encode(line); err != nil {
+		w.writeErrors++
+		if w.firstWriteErr == nil {
+			w.firstWriteErr = err
+		}
+	}
+}
+
+// reopen reopens a closed writer's file in append mode so a follow-up run of
+// the same agent keeps tracing to the same file. No-op when still open.
+func (w *toolCallTraceWriter) reopen() error {
+	if w == nil {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.closed {
+		return nil
+	}
+	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return fmt.Errorf("reopen tool call trace: %w", err)
+	}
+	w.file = f
+	w.enc = json.NewEncoder(f)
+	w.closed = false
+	return nil
+}
+
+// writeFailures returns the number of failed trace writes and the first error.
+func (w *toolCallTraceWriter) writeFailures() (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writeErrors, w.firstWriteErr
 }
 
 // snapshot returns a copy of the accumulated counters for host-side (never
@@ -208,11 +254,41 @@ func (w *toolCallTraceWriter) snapshot() (path string, total, failed int, counts
 	return w.path, w.toolCallsTotal, w.toolCallsFailed, countsCopy
 }
 
+// clearRetainedToolCallTraceWriters drops every retained writer. Called on
+// conversation reset, when sessions are discarded and follow_up can no longer
+// reference them.
+func clearRetainedToolCallTraceWriters() {
+	toolCallTraceRegistryMu.Lock()
+	defer toolCallTraceRegistryMu.Unlock()
+	clear(toolCallTraceRetained)
+}
+
 func removeAndCloseToolCallTraceWriter(agentID string) {
 	w := takeToolCallTraceWriter(agentID)
 	if w != nil {
 		w.close()
 	}
+	toolCallTraceRegistryMu.Lock()
+	delete(toolCallTraceRetained, agentID)
+	toolCallTraceRegistryMu.Unlock()
+}
+
+// reactivateToolCallTraceWriter reopens the retained trace writer for agentID
+// (closed when its previous run finished) and registers it again so the next
+// run's tool calls are traced and the file is closed at run end. No-op when
+// no writer was retained (tracing disabled or never created).
+func reactivateToolCallTraceWriter(agentID string) error {
+	toolCallTraceRegistryMu.Lock()
+	w := toolCallTraceRetained[agentID]
+	toolCallTraceRegistryMu.Unlock()
+	if w == nil {
+		return nil
+	}
+	if err := w.reopen(); err != nil {
+		return err
+	}
+	registerToolCallTraceWriter(agentID, w)
+	return nil
 }
 
 func (w *toolCallTraceWriter) close() {
@@ -221,6 +297,10 @@ func (w *toolCallTraceWriter) close() {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.closed {
+		return
+	}
+	w.closed = true
 	// Best-effort; delegation tracing must not break execution.
 	_ = w.file.Close()
 }
@@ -277,6 +357,9 @@ func classifyMutateFailure(text string) string {
 var (
 	toolCallTraceRegistryMu sync.Mutex
 	toolCallTraceRegistry   = make(map[string]*toolCallTraceWriter)
+	// toolCallTraceRetained keeps each agent's writer (file closed between
+	// runs) so follow_up can reopen it.
+	toolCallTraceRetained = make(map[string]*toolCallTraceWriter)
 )
 
 // registerToolCallTraceWriter registers w for agentID so SpawnDelegate can
@@ -288,6 +371,7 @@ func registerToolCallTraceWriter(agentID string, w *toolCallTraceWriter) {
 	toolCallTraceRegistryMu.Lock()
 	defer toolCallTraceRegistryMu.Unlock()
 	toolCallTraceRegistry[agentID] = w
+	toolCallTraceRetained[agentID] = w
 }
 
 // takeToolCallTraceWriter removes and returns the trace writer registered for
@@ -339,10 +423,15 @@ func toolCallTraceFields(agentID string) map[string]any {
 	}
 	defer w.close()
 	path, total, failed, counts := w.snapshot()
-	return map[string]any{
+	fields := map[string]any{
 		"trace_file":        path,
 		"tool_calls_total":  total,
 		"tool_calls_failed": failed,
 		"tool_counts":       counts,
 	}
+	if n, err := w.writeFailures(); n > 0 {
+		fields["trace_write_errors"] = n
+		fields["trace_write_error"] = err.Error()
+	}
+	return fields
 }

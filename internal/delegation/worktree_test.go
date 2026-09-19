@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -149,16 +150,14 @@ func TestProvisionCodeWorktree_FailureCleanup(t *testing.T) {
 		t.Fatalf("first ProvisionCodeWorktree failed: %v", err)
 	}
 
-	// Provisioning again for the same agent ID (same process hash, same
-	// parent branch) computes the identical path and branch name. The second
-	// call's own pre-checkout `os.RemoveAll(worktreePath)` wipes out the first
-	// worktree's working directory, but git's worktree metadata still
-	// believes the branch is checked out there, so `worktree add -b <branch>`
-	// fails — a real conflicting-worktree failure at the add step (not
-	// getParentBranchName), exercising the worktree-add failure-cleanup path.
+	// Drop the worktree registration but keep its branch. Provisioning the
+	// same agent ID again computes the identical path and branch name, so
+	// `worktree add -b <branch>` fails because the branch already exists — a
+	// real failure at the add step exercising the failure-cleanup path.
+	runCmd(t, repo, "git", "worktree", "remove", "--force", first.Path)
 	wt, err := ProvisionCodeWorktree(ctx, repo, "test-agent")
 	if err == nil {
-		t.Fatalf("ProvisionCodeWorktree should have failed for a branch already checked out, got worktree: %v", wt)
+		t.Fatalf("ProvisionCodeWorktree should have failed for an existing branch, got worktree: %v", wt)
 	}
 
 	// Verify the error wraps ErrWorktreeProvisioning.
@@ -1229,4 +1228,80 @@ func runCmdOutput(t *testing.T, workDir string, args ...string) string {
 		t.Fatalf("command %v failed: %v\nstderr: %s", args, err, stderr.String())
 	}
 	return stdout.String()
+}
+
+func TestProvisionCodeWorktree_SurvivesConversationReset(t *testing.T) {
+	ctx := context.Background()
+	repo := setupTestRepo(t)
+	resetAgentCounterForTesting()
+
+	first, err := ProvisionCodeWorktree(ctx, repo, generateAgentID())
+	if err != nil {
+		t.Fatalf("first provision: %v", err)
+	}
+	dirty := filepath.Join(first.Path, "work.txt")
+	if err := os.WriteFile(dirty, []byte("uncommitted"), 0o644); err != nil {
+		t.Fatalf("write dirty file: %v", err)
+	}
+
+	ResetForNewConversation(NewSessionStore(), NewAdvisorBudgetStore())
+
+	second, err := ProvisionCodeWorktree(ctx, repo, generateAgentID())
+	if err != nil {
+		t.Fatalf("second provision after reset: %v", err)
+	}
+	if second.Path == first.Path || second.Branch == first.Branch {
+		t.Fatalf("second worktree collides with first: %+v vs %+v", second, first)
+	}
+	if got, err := os.ReadFile(dirty); err != nil || string(got) != "uncommitted" {
+		t.Fatalf("first worktree work was clobbered: %q, %v", got, err)
+	}
+}
+
+func TestProvisionCodeWorktree_RefusesRegisteredExistingWorktree(t *testing.T) {
+	ctx := context.Background()
+	repo := setupTestRepo(t)
+
+	first, err := ProvisionCodeWorktree(ctx, repo, "dup-agent")
+	if err != nil {
+		t.Fatalf("first provision: %v", err)
+	}
+	dirty := filepath.Join(first.Path, "work.txt")
+	if err := os.WriteFile(dirty, []byte("keep me"), 0o644); err != nil {
+		t.Fatalf("write dirty file: %v", err)
+	}
+
+	_, err = ProvisionCodeWorktree(ctx, repo, "dup-agent")
+	if !errors.Is(err, ErrWorktreeProvisioning) {
+		t.Fatalf("second provision error = %v, want ErrWorktreeProvisioning", err)
+	}
+	if got, rerr := os.ReadFile(dirty); rerr != nil || string(got) != "keep me" {
+		t.Fatalf("existing worktree was clobbered: %q, %v", got, rerr)
+	}
+}
+
+func TestCommittedDetectsRename(t *testing.T) {
+	ctx := context.Background()
+	repo := setupTestRepo(t)
+	committed := codeRemediationConfig(CodeWorktree{Path: repo}).Committed
+
+	pre := strings.TrimSpace(runCmdOutput(t, repo, "git", "rev-parse", "HEAD"))
+	runCmd(t, repo, "git", "mv", "initial.txt", "renamed.txt")
+
+	dirty, err := DirtyPaths(ctx, repo)
+	if err != nil {
+		t.Fatalf("DirtyPaths: %v", err)
+	}
+	slices.Sort(dirty)
+	if want := []string{"initial.txt", "renamed.txt"}; !slices.Equal(dirty, want) {
+		t.Fatalf("DirtyPaths = %v, want %v", dirty, want)
+	}
+
+	if ok, err := committed(ctx, pre, dirty); err != nil || ok {
+		t.Fatalf("Committed before commit = %v, %v; want false, nil", ok, err)
+	}
+	runCmd(t, repo, "git", "commit", "-m", "rename")
+	if ok, err := committed(ctx, pre, dirty); err != nil || !ok {
+		t.Fatalf("Committed after rename commit = %v, %v; want true, nil", ok, err)
+	}
 }

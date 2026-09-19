@@ -2671,3 +2671,29 @@ func TestVisionHandler_ParentCallIDFromContext(t *testing.T) {
 		t.Errorf("started CallID = %q, want call_VISION", started.CallID)
 	}
 }
+
+func TestSpecializedHandler_RegisterFailureClosesTraceWriter(t *testing.T) {
+	controller := NewActiveController()
+	const agentID = "duplicate-trace"
+	if _, err := controller.Register(agentID, context.Background(), AgentTypeExplore, CodeWorktree{}); err != nil {
+		t.Fatalf("pre-register agent: %v", err)
+	}
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		t.Fatal("runner called after duplicate registration")
+		return agent.RunState{}, nil
+	}})
+	deps.ActiveController = controller
+	deps.WorkDir = t.TempDir()
+	originalIDGen := idGen
+	idGen = func() string { return agentID }
+	defer func() { idGen = originalIDGen }()
+
+	_, err := newSpecializedHandler(AgentTypeExplore, deps)(context.Background(), validStructuredTask("duplicate"))
+	if !errors.Is(err, ErrAgentAlreadyActive) {
+		t.Fatalf("handler error = %v, want ErrAgentAlreadyActive", err)
+	}
+	if w := takeToolCallTraceWriter(agentID); w != nil {
+		w.close()
+		t.Fatal("trace writer still registered after register failure; file handle leaked")
+	}
+}
