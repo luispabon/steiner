@@ -13,6 +13,7 @@ import (
 )
 
 func TestFailedDelegateReason_IncludesError(t *testing.T) {
+	t.Parallel()
 	err := errors.New("deadline exceeded")
 	reason := failedDelegateReason(err, agent.RunState{})
 	if !strings.Contains(reason, "delegation failed: deadline exceeded") {
@@ -21,6 +22,7 @@ func TestFailedDelegateReason_IncludesError(t *testing.T) {
 }
 
 func TestFailedDelegateReason_CountsToolActivity(t *testing.T) {
+	t.Parallel()
 	err := errors.New("deadline exceeded")
 	state := agent.RunState{
 		Conversation: []agent.Message{
@@ -34,6 +36,7 @@ func TestFailedDelegateReason_CountsToolActivity(t *testing.T) {
 }
 
 func TestFailedDelegateReason_CancellationSaysSessionPreserved(t *testing.T) {
+	t.Parallel()
 	err := context.Canceled
 	reason := failedDelegateReason(err, agent.RunState{})
 	if !strings.Contains(reason, "session is preserved") {
@@ -45,6 +48,7 @@ func TestFailedDelegateReason_CancellationSaysSessionPreserved(t *testing.T) {
 }
 
 func TestCancelledDelegateReason_ZeroTurnsTellsParentSessionIsPreserved(t *testing.T) {
+	t.Parallel()
 	reason := cancelledDelegateReason(agent.RunState{
 		StopReason: agent.StopReasonCancelled,
 	})
@@ -57,6 +61,7 @@ func TestCancelledDelegateReason_ZeroTurnsTellsParentSessionIsPreserved(t *testi
 }
 
 func TestCancelledDelegateReason_NamesLastToolWithoutArguments(t *testing.T) {
+	t.Parallel()
 	state := agent.RunState{
 		TurnCount:  3,
 		TokenCount: 1500,
@@ -121,6 +126,7 @@ func supersedeOrAppendNoticeForTest(conversation []agent.Message, notice string)
 }
 
 func TestRunChildToCompletion_NoExtensionNeeded(t *testing.T) {
+	t.Parallel()
 	// State already done — loop exits immediately.
 	runner := &extensionStubRunner{}
 	state := agent.RunState{
@@ -155,6 +161,7 @@ func TestRunChildToCompletion_NoExtensionNeeded(t *testing.T) {
 }
 
 func TestRunChildToCompletion_OneExtensionThenComplete(t *testing.T) {
+	t.Parallel()
 	// One extension needed, then completes.
 	// Initial state triggers extension; single runner response is the completion.
 	runner := &extensionStubRunner{
@@ -205,6 +212,7 @@ func TestRunChildToCompletion_OneExtensionThenComplete(t *testing.T) {
 }
 
 func TestRunChildToCompletion_MultipleExtensionsThenComplete(t *testing.T) {
+	t.Parallel()
 	// Needs 3 extensions before completing.
 	// Initial state triggers first extension; 2 more return needing more, final completes.
 	responses := []extensionStubResponse{
@@ -285,6 +293,7 @@ func TestRunChildToCompletion_MultipleExtensionsThenComplete(t *testing.T) {
 }
 
 func TestRunChildToCompletion_CapsAtMaxExtensions(t *testing.T) {
+	t.Parallel()
 	// Always needs extension — caps at maxDelegateExtensions.
 	var responses []extensionStubResponse
 	for i := 0; i < maxDelegateExtensions; i++ {
@@ -354,6 +363,7 @@ func TestRunChildToCompletion_CapsAtMaxExtensions(t *testing.T) {
 }
 
 func TestRunChildToCompletion_ErrorDuringExtension(t *testing.T) {
+	t.Parallel()
 	// First extension succeeds (returns state that still needs extension),
 	// second extension fails during execution.
 	runner := &extensionStubRunner{
@@ -415,6 +425,7 @@ func TestRunChildToCompletion_ErrorDuringExtension(t *testing.T) {
 }
 
 func TestSpawnDelegateAccumulatesExtensionUsage(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		calls++
@@ -435,6 +446,7 @@ func TestSpawnDelegateAccumulatesExtensionUsage(t *testing.T) {
 }
 
 func TestSpawnDelegateAccumulatesErroredExtensionUsage(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		calls++
@@ -455,6 +467,7 @@ func TestSpawnDelegateAccumulatesErroredExtensionUsage(t *testing.T) {
 }
 
 func TestTurnBudgetNoticeFunc(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		extensionsLeft int
 	}{
@@ -476,6 +489,7 @@ func TestTurnBudgetNoticeFunc(t *testing.T) {
 }
 
 func TestSpawnDelegate_SetsInitialTurnBudgetNotice(t *testing.T) {
+	t.Parallel()
 	var capturedReq agent.RunRequest
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 		capturedReq = req
@@ -497,6 +511,7 @@ func TestSpawnDelegate_SetsInitialTurnBudgetNotice(t *testing.T) {
 }
 
 func TestSpawnDelegate_DoesNotEmitStartedEvent(t *testing.T) {
+	t.Parallel()
 	sink := &collectingSink{}
 	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil

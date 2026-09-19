@@ -9,6 +9,7 @@ import (
 )
 
 func TestActiveDelegateCancellationIsolation(t *testing.T) {
+	t.Parallel()
 	controller := NewActiveController()
 	parent := context.Background()
 	alphaWorktree := CodeWorktree{Path: "/tmp/alpha", Branch: "delegate/alpha"}
@@ -66,6 +67,7 @@ func TestActiveDelegateCancellationIsolation(t *testing.T) {
 }
 
 func TestActiveDelegateCancelAllKeepsMetadata(t *testing.T) {
+	t.Parallel()
 	controller := NewActiveController()
 	contexts := make(map[string]context.Context)
 	worktrees := map[string]CodeWorktree{
@@ -100,6 +102,7 @@ func TestActiveDelegateCancelAllKeepsMetadata(t *testing.T) {
 }
 
 func TestActiveDelegateCancellationOutcomeLinearizesAgainstCompletion(t *testing.T) {
+	t.Parallel()
 	controller := NewActiveController()
 	if _, err := controller.Register("child", context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
 		t.Fatalf("Register(child) returned error: %v", err)
@@ -122,6 +125,7 @@ func TestActiveDelegateCancellationOutcomeLinearizesAgainstCompletion(t *testing
 }
 
 func TestActiveDelegateDiscardRequestLifecycle(t *testing.T) {
+	t.Parallel()
 	controller := NewActiveController()
 	if controller.RequestDiscard("missing") {
 		t.Fatal("RequestDiscard(missing) returned true, want false")
@@ -149,6 +153,7 @@ func TestActiveDelegateDiscardRequestLifecycle(t *testing.T) {
 }
 
 func TestActiveDelegateCancelAllDoesNotRequestDiscard(t *testing.T) {
+	t.Parallel()
 	controller := NewActiveController()
 	for _, id := range []string{"alpha", "beta"} {
 		if _, err := controller.Register(id, context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
@@ -164,6 +169,7 @@ func TestActiveDelegateCancelAllDoesNotRequestDiscard(t *testing.T) {
 }
 
 func TestActiveDelegateDuplicateConcurrentRegistration(t *testing.T) {
+	t.Parallel()
 	controller := NewActiveController()
 	const attempts = 32
 
@@ -204,6 +210,7 @@ func TestActiveDelegateDuplicateConcurrentRegistration(t *testing.T) {
 }
 
 func TestActiveDelegateConcurrentRegisterAndCancel(t *testing.T) {
+	t.Parallel()
 	controller := NewActiveController()
 	const agentCount = 24
 	contexts := make([]context.Context, agentCount)

@@ -8,6 +8,7 @@ import (
 )
 
 func TestTokenUsageAdd(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		base TokenUsage
@@ -49,6 +50,7 @@ func TestTokenUsageAdd(t *testing.T) {
 }
 
 func TestTokenUsageOf(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		state agent.RunState
@@ -88,6 +90,7 @@ func TestTokenUsageOf(t *testing.T) {
 // prompt tokens where 50 were served from cache, the hit rate must be 50/100 =
 // 50%, not 50/150.
 func TestTokenUsageOf_HitRateRegression(t *testing.T) {
+	t.Parallel()
 	state := agent.RunState{
 		InputTokens:     50, // non-cached portion: PromptTokens(100) - CacheReadInputTokens(50)
 		CacheReadTokens: 50,

@@ -9,6 +9,7 @@ import (
 )
 
 func TestDispatchReleaseSinkForwardsAndReleasesOnce(t *testing.T) {
+	t.Parallel()
 	wantEvents := []output.Event{
 		{Type: output.EventTypeModelCallStarted, Payload: "started"},
 		{Type: output.EventTypeThinkingChunk, Payload: "thinking"},
@@ -38,6 +39,7 @@ func TestDispatchReleaseSinkForwardsAndReleasesOnce(t *testing.T) {
 }
 
 func TestDispatchReleaseSinkNilInnerStillReleases(t *testing.T) {
+	t.Parallel()
 	releaseCalls := 0
 	sink := newDispatchReleaseSink(nil, func() {
 		releaseCalls++
@@ -50,6 +52,7 @@ func TestDispatchReleaseSinkNilInnerStillReleases(t *testing.T) {
 }
 
 func TestDispatchReleaseSinkReleaseRunsAfterForward(t *testing.T) {
+	t.Parallel()
 	order := []string{}
 	sink := newDispatchReleaseSink(output.SinkFunc(func(output.Event) {
 		order = append(order, "forward")
@@ -65,6 +68,7 @@ func TestDispatchReleaseSinkReleaseRunsAfterForward(t *testing.T) {
 }
 
 func TestDispatchReleaseSinkNonMatchingEventsDoNotRelease(t *testing.T) {
+	t.Parallel()
 	releaseCalls := 0
 	sink := newDispatchReleaseSink(output.NoopSink{}, func() {
 		releaseCalls++

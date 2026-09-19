@@ -15,6 +15,7 @@ import (
 // live in provider.Resolver (see internal/provider/model_resolver_test.go);
 // resolve here is a plain fake with no caching of its own.
 func TestBuildModelResolverWithResolveWiresProviderFactory(t *testing.T) {
+	t.Parallel()
 	model := provider.ResolvedModel{Alias: "luna", BackendModelID: "luna-v1"}
 	var gotAlias string
 	resolve := func(alias string) (provider.ResolvedModel, error) {
@@ -49,6 +50,7 @@ func TestBuildModelResolverWithResolveWiresProviderFactory(t *testing.T) {
 }
 
 func TestBuildModelResolverWithResolvePropagatesError(t *testing.T) {
+	t.Parallel()
 	wantErr := errors.New("resolution failure")
 	resolver := buildModelResolverWithResolve(DelegateDeps{}, func(string) (provider.ResolvedModel, error) {
 		return provider.ResolvedModel{}, wantErr
@@ -60,6 +62,7 @@ func TestBuildModelResolverWithResolvePropagatesError(t *testing.T) {
 }
 
 func TestBuildModelResolverWithResolveFallsBackToParentProviderWithoutFactory(t *testing.T) {
+	t.Parallel()
 	parentProvider := &stubProvider{}
 	model := provider.ResolvedModel{Alias: "luna"}
 	resolver := buildModelResolverWithResolve(DelegateDeps{Provider: parentProvider}, func(string) (provider.ResolvedModel, error) {

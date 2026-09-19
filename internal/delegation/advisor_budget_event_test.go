@@ -38,6 +38,7 @@ func failedEventFrom(events []output.Event) (output.DelegationFailedEvent, bool)
 // the DelegationCompleteEvent emitted by SpawnDelegate must carry the
 // configured per-child advisor budget, not zero.
 func TestSpecializedHandlerCompleteEventCarriesAdvisorBudget(t *testing.T) {
+	t.Parallel()
 	events := &recordingEventSink{}
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
@@ -66,6 +67,7 @@ func TestSpecializedHandlerCompleteEventCarriesAdvisorBudget(t *testing.T) {
 // TestSpecializedHandlerCompleteEventZeroBudgetWhenAdvisorUnavailable is the
 // mirror case: a child with no advisor access emits AdvisorBudget == 0.
 func TestSpecializedHandlerCompleteEventZeroBudgetWhenAdvisorUnavailable(t *testing.T) {
+	t.Parallel()
 	events := &recordingEventSink{}
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
@@ -91,6 +93,7 @@ func TestSpecializedHandlerCompleteEventZeroBudgetWhenAdvisorUnavailable(t *test
 // follow_up resumption's completion event must also carry the correct
 // non-zero advisor budget.
 func TestFollowUpCompleteEventCarriesAdvisorBudget(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{
@@ -157,6 +160,7 @@ func TestFollowUpCompleteEventCarriesAdvisorBudget(t *testing.T) {
 // line when usage is non-zero, and must not contain it when both counters
 // are zero. result.Reason must never contain the summary line.
 func TestSpawnDelegateOutputCarriesAdvisorSummaryLine(t *testing.T) {
+	t.Parallel()
 	conversationWithAdvisorUse := []agent.Message{
 		{
 			Role: agent.MessageRoleAssistant,
@@ -236,6 +240,7 @@ func TestSpawnDelegateOutputCarriesAdvisorSummaryLine(t *testing.T) {
 // DelegationFailedEvent carrying the advisor counters observed before the
 // failure, rather than leaving them at zero for every caller.
 func TestSpawnDelegateFailedEventCarriesAdvisorCounters(t *testing.T) {
+	t.Parallel()
 	runErr := errors.New("boom")
 	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return agent.RunState{
@@ -278,6 +283,7 @@ func TestSpawnDelegateFailedEventCarriesAdvisorCounters(t *testing.T) {
 // setup-failure sites (before the child ever ran) correctly emit zero
 // advisor counters rather than leaving them unpopulated by accident.
 func TestEmitDelegateFailedSetupSiteReportsZeroAdvisorCounters(t *testing.T) {
+	t.Parallel()
 	events := &recordingEventSink{}
 	spec := Spec{AgentID: "agent-setup-fail", Task: "task", AdvisorBudget: 4}
 	emitDelegateFailed(events, spec, AgentTypeExplore, "setup failed")

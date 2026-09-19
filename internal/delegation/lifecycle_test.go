@@ -26,6 +26,7 @@ func lifecycleTestStructuredTask(objective string) map[string]any {
 }
 
 func TestSpecializedCodeHandlerRegistersWorktreeAndUnregisters(t *testing.T) {
+	t.Parallel()
 	repo := setupTestRepo(t)
 
 	controller := NewActiveController()
@@ -62,6 +63,7 @@ func TestSpecializedCodeHandlerRegistersWorktreeAndUnregisters(t *testing.T) {
 }
 
 func TestFollowUpCodeHandlerRegistersSessionWorktreeAndUnregisters(t *testing.T) {
+	t.Parallel()
 	repo := setupTestRepo(t)
 	runCmd(t, repo, "git", "checkout", "-b", "delegate/session-worktree")
 
@@ -296,6 +298,7 @@ func TestSpecializedCodeCacheWaitingCancellationDiscardsAfterCompletion(t *testi
 }
 
 func TestFollowUpInvalidatedSessionCannotResume(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{Spec: Spec{AgentID: "invalidated", AgentType: AgentTypeReview, Task: "review"}})
 	store.Invalidate("invalidated")

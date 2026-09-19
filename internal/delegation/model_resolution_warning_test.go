@@ -9,6 +9,7 @@ import (
 )
 
 func TestBuildModelResolverEmitsResolvedModelWarningsOncePerAlias(t *testing.T) {
+	t.Parallel()
 	warning := "Model metadata warning: luna/luna-v1 has unknown context limits. Using conservative fallback: context_window=32768, max_output_tokens=4096. Set models.luna.advanced.limits.context_window to remove this warning."
 	sink := &recordingEventSink{}
 	resolver := buildModelResolverWithResolve(DelegateDeps{Events: sink}, func(alias string) (provider.ResolvedModel, error) {
@@ -38,6 +39,7 @@ func TestBuildModelResolverEmitsResolvedModelWarningsOncePerAlias(t *testing.T) 
 }
 
 func TestBuildModelResolverEmitsWarningsForDifferentAliasesIndependently(t *testing.T) {
+	t.Parallel()
 	sink := &recordingEventSink{}
 	warnings := map[string][]string{
 		"luna": {"warning for models.luna.advanced.limits.context_window"},

@@ -124,6 +124,7 @@ func subAgentTaskWithImageID(taskDescription, imageID string) map[string]any {
 }
 
 func TestAssembleTaskContent(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    structuredBrief
@@ -307,6 +308,7 @@ func waitingEvents(events []output.Event) []output.Event {
 }
 
 func TestSpecializedHandler_DispatchGateLeaderWrapsEvents(t *testing.T) {
+	t.Parallel()
 	var capturedReq agent.RunRequest
 	events := &recordingEventSink{}
 	var runCount int
@@ -422,6 +424,7 @@ func TestSpecializedHandler_CancelledBeforeDispatchCleansToolCallTrace(t *testin
 }
 
 func TestSpecializedHandler_DeferredGateReleaseUnblocksFollower(t *testing.T) {
+	t.Parallel()
 	store := NewCacheKeyStore()
 	leaderStarted := make(chan struct{})
 	followerWaiting := make(chan struct{})
@@ -596,6 +599,7 @@ func (s *dispatchGateEventSink) Emit(event output.Event) {
 }
 
 func TestSpecializedHandler_DispatchGateTimeoutFallbackDispatchesFollower(t *testing.T) {
+	t.Parallel()
 	store := NewCacheKeyStore()
 	store.testWaitTimeout = 20 * time.Millisecond
 	leaderStarted := make(chan struct{})
@@ -674,6 +678,7 @@ func TestSpecializedHandler_DispatchGateTimeoutFallbackDispatchesFollower(t *tes
 }
 
 func TestSpecializedHandler_DispatchGateNilStore(t *testing.T) {
+	t.Parallel()
 	var capturedReq agent.RunRequest
 	events := &recordingEventSink{}
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
@@ -754,6 +759,7 @@ func TestSpecializedHandler_RegisterFailureDoesNotCreateNonCodeWorktree(t *testi
 }
 
 func TestSubAgentToolDef_Schema(t *testing.T) {
+	t.Parallel()
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
@@ -842,6 +848,7 @@ func TestSubAgentToolDef_Schema(t *testing.T) {
 }
 
 func TestSubAgentToolDef_ExcludeTypes(t *testing.T) {
+	t.Parallel()
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
@@ -866,6 +873,7 @@ func TestSubAgentToolDef_ExcludeTypes(t *testing.T) {
 }
 
 func TestSubAgentToolDef_SchemaIsDeterministic(t *testing.T) {
+	t.Parallel()
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
@@ -899,6 +907,7 @@ func TestSubAgentToolDef_SchemaIsDeterministic(t *testing.T) {
 }
 
 func TestSubAgentDispatch_Errors(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		excludeTypes []AgentType
@@ -961,6 +970,7 @@ func TestSubAgentDispatch_Errors(t *testing.T) {
 }
 
 func TestSpecializedHandler_EmptyTask(t *testing.T) {
+	t.Parallel()
 	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return agent.RunState{}, nil
 	}}
@@ -1056,6 +1066,7 @@ func TestSpecializedHandler_EmptyTask(t *testing.T) {
 }
 
 func TestSpecializedHandler_UsesTypeSystemPrompt(t *testing.T) {
+	t.Parallel()
 	// Verify that the handler builds the child RunRequest with the correct
 	// system prompt for the agent type. Code now uses the shared base prompt,
 	// so this test stays focused on the types that still supply explicit
@@ -1090,6 +1101,7 @@ func TestSpecializedHandler_UsesTypeSystemPrompt(t *testing.T) {
 }
 
 func TestSpecializedHandler_UsesTypeAllowedTools(t *testing.T) {
+	t.Parallel()
 	// Verify that the handler restricts child registries to the per-type allowlist.
 	// We register all allowed tools in the parent registry and confirm that
 	// only the expected tools reach the child.
@@ -1164,6 +1176,7 @@ func TestSpecializedHandler_UsesTypeAllowedTools(t *testing.T) {
 }
 
 func TestSpecializedHandler_ReturnsExecutionResult(t *testing.T) {
+	t.Parallel()
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
@@ -1179,6 +1192,7 @@ func TestSpecializedHandler_ReturnsExecutionResult(t *testing.T) {
 }
 
 func TestSpecializedHandler_UsesPerTypeModel(t *testing.T) {
+	t.Parallel()
 	// Configure a model alias for a specific agent type.
 	// Provide a ModelResolver that records whether it was called and with what alias.
 	// Verify that the handler uses the resolved model.
@@ -1239,6 +1253,7 @@ func TestSpecializedHandler_UsesPerTypeModel(t *testing.T) {
 }
 
 func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
+	t.Parallel()
 	// No Agents entry for the agent type: use the selected profile default.
 	const defaultAlias = "profile-default"
 	resolverCalledWith := ""
@@ -1287,6 +1302,7 @@ func TestSpecializedHandler_FallsBackWithoutModelConfig(t *testing.T) {
 }
 
 func TestSpecializedHandler_FallsBackWithNilResolver(t *testing.T) {
+	t.Parallel()
 	// Agents entry exists with a model alias, but ModelResolver is nil.
 	// Should fall back to parent model without error.
 	agentType := AgentTypeExplore
@@ -1325,6 +1341,7 @@ func TestSpecializedHandler_FallsBackWithNilResolver(t *testing.T) {
 }
 
 func TestSpecializedHandler_EmptyModelConfigUsesProfileDefault(t *testing.T) {
+	t.Parallel()
 	const defaultAlias = "profile-default"
 	var resolverCalledWith string
 	var capturedReq agent.RunRequest
@@ -1353,6 +1370,7 @@ func TestSpecializedHandler_EmptyModelConfigUsesProfileDefault(t *testing.T) {
 }
 
 func TestSpecializedHandler_ProfileDefaultResolverError(t *testing.T) {
+	t.Parallel()
 	const defaultAlias = "bad-profile-default"
 	expectedErr := fmt.Errorf("profile default unavailable")
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
@@ -1376,6 +1394,7 @@ func TestSpecializedHandler_ProfileDefaultResolverError(t *testing.T) {
 }
 
 func TestResolveModel_VisionEmptyAliasDoesNotUseProfileDefault(t *testing.T) {
+	t.Parallel()
 	resolverCalled := false
 	deps := minimalDeps(nil)
 	deps.ModelResolver = func(string) (provider.Provider, provider.ResolvedModel, error) {
@@ -1397,6 +1416,7 @@ func TestResolveModel_VisionEmptyAliasDoesNotUseProfileDefault(t *testing.T) {
 }
 
 func TestSpecializedHandler_ModelResolverError(t *testing.T) {
+	t.Parallel()
 	// ModelResolver returns an error.
 	// Handler should return that error.
 	agentType := AgentTypeExplore
@@ -1523,6 +1543,7 @@ func TestSpecializedHandler_SavesChildSession(t *testing.T) {
 }
 
 func TestVisionToolDef_Schema(t *testing.T) {
+	t.Parallel()
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
@@ -1571,6 +1592,7 @@ func TestVisionToolDef_Schema(t *testing.T) {
 }
 
 func TestVisionToolDef_DescriptionMentionsFollowUp(t *testing.T) {
+	t.Parallel()
 	// Updated: SubAgentToolDef is a unified tool for all types.
 	// The follow_up guidance was vision-specific (reusing agent_id for follow-up questions
 	// about the same cached image). The unified tool description doesn't repeat type-specific
@@ -1587,6 +1609,7 @@ func TestVisionToolDef_DescriptionMentionsFollowUp(t *testing.T) {
 }
 
 func TestVisionToolSkippedWithoutModel(t *testing.T) {
+	t.Parallel()
 	// When the vision model is not configured, SubAgentToolDef should
 	// exclude vision from the type enum.
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
@@ -1612,6 +1635,7 @@ func TestVisionToolSkippedWithoutModel(t *testing.T) {
 }
 
 func TestVisionHandler_UnknownImageID(t *testing.T) {
+	t.Parallel()
 	store := agent.NewImageStore(t.TempDir())
 	deps := SpecializedToolDeps{
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
@@ -1639,6 +1663,7 @@ func TestVisionHandler_UnknownImageID(t *testing.T) {
 }
 
 func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
+	t.Parallel()
 	// Write a small fake image file and register it in the ImageStore.
 	dir := t.TempDir()
 	imgPath := filepath.Join(dir, "test.png")
@@ -1717,6 +1742,7 @@ func TestVisionHandler_ReadsImageAndInjectsIntoSpec(t *testing.T) {
 // internal/delegation (import cycle), so this test lives here to catch drift
 // between the two sides if either changes independently.
 func TestVisionRoutingArgs_PassesHandlerValidation(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	imgPath := filepath.Join(dir, "test.png")
 	imgContent := []byte("fake-png-content")
@@ -1907,6 +1933,7 @@ func TestSubAgentHandlerDepsDisabledSandboxNotCarried(t *testing.T) {
 }
 
 func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
+	t.Parallel()
 	// Agents that should skip project context.
 	skipTypes := []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeSanityCheck}
 	// Vision is excluded because it uses newVisionHandler which requires image_id.
@@ -2005,6 +2032,7 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 }
 
 func TestMergedAllowedTools(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		base   []string
@@ -2193,6 +2221,7 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 }
 
 func TestVisionHandler_ExtraAllowedTools(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	imgPath := filepath.Join(dir, "test.png")
 	imgContent := []byte("fake-png-content")
@@ -2242,6 +2271,7 @@ func TestVisionHandler_ExtraAllowedTools(t *testing.T) {
 }
 
 func TestSpecializedHandler_CodeProvisionesWorktree(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := setupTestRepo(t)
 
@@ -2378,6 +2408,7 @@ func TestSpecializedHandler_CodeCancelledBeforeDispatchRetainsPath(t *testing.T)
 // worktree_path — a failed run's worktree stays on disk so the parent can
 // inspect what happened.
 func TestSpecializedHandler_CodeFailedRetainsPath(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := setupTestRepo(t)
 
@@ -2429,6 +2460,7 @@ func TestSpecializedHandler_CodeFailedRetainsPath(t *testing.T) {
 }
 
 func TestSpecializedHandler_CodeWithDirtyTree(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := setupTestRepo(t)
 
@@ -2486,6 +2518,7 @@ func TestSpecializedHandler_CodeWithDirtyTree(t *testing.T) {
 }
 
 func TestSpecializedHandler_CodeFatalOnProvisioningFailure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := setupTestRepo(t)
 	badRepo := filepath.Join(repo, "nonexistent")
@@ -2522,6 +2555,7 @@ func TestSpecializedHandler_CodeFatalOnProvisioningFailure(t *testing.T) {
 }
 
 func TestApplyCodeWorktreeResult_MergesWarnings(t *testing.T) {
+	t.Parallel()
 	result := tool.ExecutionResult{Value: Result{
 		Warnings: []string{"dirty worktree after failed remediation"},
 	}}
@@ -2540,6 +2574,7 @@ func TestApplyCodeWorktreeResult_MergesWarnings(t *testing.T) {
 }
 
 func TestSpecializedHandler_NonCodeAgentsNoWorktreeFields(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
@@ -2582,6 +2617,7 @@ func TestSpecializedHandler_NonCodeAgentsNoWorktreeFields(t *testing.T) {
 	}
 }
 func TestSpecializedHandler_ParentCallIDFromContext(t *testing.T) {
+	t.Parallel()
 	sink := &collectingSink{}
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
@@ -2605,6 +2641,7 @@ func TestSpecializedHandler_ParentCallIDFromContext(t *testing.T) {
 }
 
 func TestVisionHandler_ParentCallIDFromContext(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	imgPath := filepath.Join(dir, "test.png")
 	if err := os.WriteFile(imgPath, []byte("fake-png-content"), 0o600); err != nil {

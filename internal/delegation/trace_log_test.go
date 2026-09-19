@@ -9,6 +9,7 @@ import (
 )
 
 func TestNewTraceLogger_EmptyPath(t *testing.T) {
+	t.Parallel()
 	logger, err := NewTraceLogger("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -19,6 +20,7 @@ func TestNewTraceLogger_EmptyPath(t *testing.T) {
 }
 
 func TestNewTraceLogger_WhitespacePath(t *testing.T) {
+	t.Parallel()
 	logger, err := NewTraceLogger("   ")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -29,6 +31,7 @@ func TestNewTraceLogger_WhitespacePath(t *testing.T) {
 }
 
 func TestTraceLogger_WriteAndClose(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "delegation.log")
 
@@ -67,6 +70,7 @@ func TestTraceLogger_WriteAndClose(t *testing.T) {
 }
 
 func TestTraceLogger_MultipleWrites(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "delegation.log")
 
@@ -96,6 +100,7 @@ func TestTraceLogger_MultipleWrites(t *testing.T) {
 }
 
 func TestTraceLogger_NilReceiver(t *testing.T) {
+	t.Parallel()
 	var logger *TraceLogger
 	tc := newTraceCollector("agent", "task")
 	tc.add("start", "msg", nil)
@@ -107,6 +112,7 @@ func TestTraceLogger_NilReceiver(t *testing.T) {
 }
 
 func TestTraceLogger_EmptyCollector(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "delegation.log")
 
@@ -131,6 +137,7 @@ func TestTraceLogger_EmptyCollector(t *testing.T) {
 }
 
 func TestTraceLogger_CreatesParentDirs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "dir", "delegation.log")
 
@@ -148,6 +155,7 @@ func TestTraceLogger_CreatesParentDirs(t *testing.T) {
 }
 
 func TestTraceLogger_ExistingFilePermissions(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "delegation.log")
 	if err := os.Chmod(dir, 0o755); err != nil {
@@ -180,6 +188,7 @@ func TestTraceLogger_ExistingFilePermissions(t *testing.T) {
 }
 
 func TestTraceLogger_ExactPermissions(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "delegation.log")
 
@@ -207,6 +216,7 @@ func TestTraceLogger_ExactPermissions(t *testing.T) {
 }
 
 func TestLogPath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  string

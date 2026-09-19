@@ -8,6 +8,7 @@ import (
 )
 
 func TestCacheKeyStoreKeyForReusesSameAgentType(t *testing.T) {
+	t.Parallel()
 	store := NewCacheKeyStore()
 	n := 0
 	mint := func() (string, error) {
@@ -32,6 +33,7 @@ func TestCacheKeyStoreKeyForReusesSameAgentType(t *testing.T) {
 }
 
 func TestCacheKeyStoreKeyForDiffersByAgentType(t *testing.T) {
+	t.Parallel()
 	store := NewCacheKeyStore()
 	n := 0
 	mint := func() (string, error) {
@@ -53,6 +55,7 @@ func TestCacheKeyStoreKeyForDiffersByAgentType(t *testing.T) {
 }
 
 func TestCacheKeyStoreKeyForMintErrorNotCached(t *testing.T) {
+	t.Parallel()
 	store := NewCacheKeyStore()
 	wantErr := errors.New("mint failed")
 	n := 0
@@ -82,6 +85,7 @@ func TestCacheKeyStoreKeyForMintErrorNotCached(t *testing.T) {
 }
 
 func TestCacheKeyStoreBeginDispatchLeaderAndFollower(t *testing.T) {
+	t.Parallel()
 	store := NewCacheKeyStore()
 	isLeader, release, _ := store.BeginDispatch("shared-key")
 	t.Cleanup(release)
@@ -119,6 +123,7 @@ func TestCacheKeyStoreBeginDispatchLeaderAndFollower(t *testing.T) {
 }
 
 func TestCacheKeyStoreBeginDispatchWaitCancellation(t *testing.T) {
+	t.Parallel()
 	store := NewCacheKeyStore()
 	_, release, _ := store.BeginDispatch("cancel-key")
 	t.Cleanup(release)
@@ -139,6 +144,7 @@ func TestCacheKeyStoreBeginDispatchWaitCancellation(t *testing.T) {
 }
 
 func TestCacheKeyStoreBeginDispatchReleaseStartsNewWave(t *testing.T) {
+	t.Parallel()
 	store := NewCacheKeyStore()
 	firstLeader, firstRelease, _ := store.BeginDispatch("wave-key")
 	t.Cleanup(firstRelease)
@@ -180,6 +186,7 @@ func TestCacheKeyStoreBeginDispatchReleaseStartsNewWave(t *testing.T) {
 }
 
 func TestCacheKeyStoreBeginDispatchEmptyKeyIsUngated(t *testing.T) {
+	t.Parallel()
 	store := NewCacheKeyStore()
 	_, release, _ := store.BeginDispatch("existing-key")
 	isLeader, emptyRelease, wait := store.BeginDispatch("")
@@ -197,6 +204,7 @@ func TestCacheKeyStoreBeginDispatchEmptyKeyIsUngated(t *testing.T) {
 }
 
 func TestCacheKeyStoreDispatchGateTimeout(t *testing.T) {
+	t.Parallel()
 	if dispatchGateTimeout != 10*time.Second {
 		t.Fatalf("dispatchGateTimeout = %s, want 10s", dispatchGateTimeout)
 	}

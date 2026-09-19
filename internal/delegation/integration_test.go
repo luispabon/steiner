@@ -163,6 +163,7 @@ func makeSpec(agentID string, outputLimitTokens int) Spec {
 }
 
 func TestBasicResult(t *testing.T) {
+	t.Parallel()
 	prov := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{Message: provider.Message{Content: "done"}, FinishReason: "stop"},
@@ -208,6 +209,7 @@ func TestBasicResult(t *testing.T) {
 }
 
 func TestDelegationEvents(t *testing.T) {
+	t.Parallel()
 	prov := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{Message: provider.Message{Content: "done"}, FinishReason: "stop"},
@@ -244,6 +246,7 @@ func TestDelegationEvents(t *testing.T) {
 }
 
 func TestChildEventsAreScopedWhileLifecycleEventsStayTopLevel(t *testing.T) {
+	t.Parallel()
 	prov := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{Message: provider.Message{Content: "done"}, FinishReason: "stop"},
@@ -280,6 +283,7 @@ func TestChildEventsAreScopedWhileLifecycleEventsStayTopLevel(t *testing.T) {
 }
 
 func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
+	t.Parallel()
 	prov := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{Message: provider.Message{Content: "unused"}, FinishReason: "stop"},
@@ -336,6 +340,7 @@ func TestInitialRunnerErrorReturnsStructuredFailure(t *testing.T) {
 }
 
 func TestLocalRetentionKeepsFullOutput(t *testing.T) {
+	t.Parallel()
 	longContent := strings.Repeat("x", 5000)
 	prov := &fakeProvider{
 		responses: []provider.ChatResponse{{Message: provider.Message{Content: longContent}, FinishReason: "stop"}},
@@ -377,6 +382,7 @@ func TestLocalRetentionKeepsFullOutput(t *testing.T) {
 }
 
 func TestLocalRetentionKeepsLongOutput(t *testing.T) {
+	t.Parallel()
 	outputText := strings.Repeat("full-output ", 200)
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: outputText}, FinishReason: "stop"}}}
 
@@ -420,6 +426,7 @@ func TestLocalRetentionKeepsLongOutput(t *testing.T) {
 }
 
 func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
+	t.Parallel()
 	parentReg := tool.NewRegistry(
 		tool.ToolDef{
 			Name:        "helper",
@@ -467,6 +474,7 @@ func TestChildToolSurfaceAllowsToolsAndRejectsDelegate(t *testing.T) {
 // a helper tool does not pollute the parent conversation. The parent only
 // receives the Result; child internal messages stay in the child.
 func TestParentContextIsolation(t *testing.T) {
+	t.Parallel()
 	helperCallCount := 0
 	parentReg := tool.NewRegistry(
 		tool.ToolDef{
@@ -606,6 +614,7 @@ func completeState(content string) agent.RunState {
 }
 
 func TestDelegateNeedsExtension(t *testing.T) {
+	t.Parallel()
 	toolCalls := []agent.ToolCall{{ID: "tc", Name: "bash"}}
 	cases := []struct {
 		name       string
@@ -635,6 +644,7 @@ func TestDelegateNeedsExtension(t *testing.T) {
 }
 
 func TestExtensionTriggersWhenMidWork(t *testing.T) {
+	t.Parallel()
 	spec := makeSpec("ext-agent-1", 10000)
 	sink := &collectingSink{}
 
@@ -676,6 +686,7 @@ func TestExtensionTriggersWhenMidWork(t *testing.T) {
 }
 
 func TestNoExtensionWhenComplete(t *testing.T) {
+	t.Parallel()
 	spec := makeSpec("ext-agent-2", 10000)
 	sink := &collectingSink{}
 
@@ -704,6 +715,7 @@ func TestNoExtensionWhenComplete(t *testing.T) {
 }
 
 func TestNoExtensionWhenNoToolCalls(t *testing.T) {
+	t.Parallel()
 	spec := makeSpec("ext-agent-3", 10000)
 	sink := &collectingSink{}
 
@@ -738,6 +750,7 @@ func TestNoExtensionWhenNoToolCalls(t *testing.T) {
 }
 
 func TestExtensionCapAtMaxExtensions(t *testing.T) {
+	t.Parallel()
 	spec := makeSpec("ext-agent-4", 10000)
 	sink := &collectingSink{}
 
@@ -773,6 +786,7 @@ func TestExtensionCapAtMaxExtensions(t *testing.T) {
 }
 
 func TestExtensionMaxTurnsBumped(t *testing.T) {
+	t.Parallel()
 	spec := makeSpec("ext-agent-5", 10000)
 	sink := &collectingSink{}
 
@@ -808,6 +822,7 @@ func TestExtensionMaxTurnsBumped(t *testing.T) {
 }
 
 func TestExtensionEventEmitted(t *testing.T) {
+	t.Parallel()
 	spec := makeSpec("ext-agent-6", 10000)
 	sink := &collectingSink{}
 
@@ -852,6 +867,7 @@ func TestExtensionEventEmitted(t *testing.T) {
 }
 
 func TestExtensionErrorReturnsFailedStatusAndPreservesState(t *testing.T) {
+	t.Parallel()
 	spec := makeSpec("ext-agent-7", 10000)
 	sink := &collectingSink{}
 
@@ -918,6 +934,7 @@ func TestExtensionErrorReturnsFailedStatusAndPreservesState(t *testing.T) {
 }
 
 func TestExtensionCancellationReturnsPartialStatus(t *testing.T) {
+	t.Parallel()
 	spec := makeSpec("ext-agent-cancelled", 10000)
 	sink := &collectingSink{}
 
@@ -972,6 +989,7 @@ func TestExtensionCancellationReturnsPartialStatus(t *testing.T) {
 // Result. The parent's tool result must clearly say the child session
 // is still resumable, not just hand back an empty result.
 func TestZeroTurnCancellationTellsParentSessionPreserved(t *testing.T) {
+	t.Parallel()
 	spec := makeSpec("zero-turn-cancel-agent", 1000)
 	sink := &collectingSink{}
 
@@ -1017,6 +1035,7 @@ func TestZeroTurnCancellationTellsParentSessionPreserved(t *testing.T) {
 // TestResultReasonEmptyOnComplete verifies that a complete delegate result
 // carries no failure/cancellation reason.
 func TestResultReasonEmptyOnComplete(t *testing.T) {
+	t.Parallel()
 	prov := &fakeProvider{
 		responses: []provider.ChatResponse{{Message: provider.Message{Content: "task output"}, FinishReason: "stop"}},
 	}
@@ -1043,6 +1062,7 @@ func TestResultReasonEmptyOnComplete(t *testing.T) {
 }
 
 func TestTruncateTaskPreviewRuneSafe(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		s    string
@@ -1071,6 +1091,7 @@ func TestTruncateTaskPreviewRuneSafe(t *testing.T) {
 }
 
 func TestDelegationCompleteEventEmittedWithResult(t *testing.T) {
+	t.Parallel()
 	spec := makeSpec("event-order-agent", 10000)
 	sink := &collectingSink{}
 	runner := &presetRunner{states: []agent.RunState{{
@@ -1110,6 +1131,7 @@ func TestDelegationCompleteEventEmittedWithResult(t *testing.T) {
 }
 
 func TestCancelledDelegateWithOutputReturnsPartial(t *testing.T) {
+	t.Parallel()
 	spec := makeSpec("cancel-partial-agent", 10000)
 	sink := &collectingSink{}
 
@@ -1162,6 +1184,7 @@ func TestCancelledDelegateWithOutputReturnsPartial(t *testing.T) {
 }
 
 func TestFollowUpSanitizesSavedDanglingToolCalls(t *testing.T) {
+	t.Parallel()
 	store := NewSessionStore()
 	store.Save(&ChildSession{
 		Spec: Spec{
@@ -1230,6 +1253,7 @@ func TestFollowUpSanitizesSavedDanglingToolCalls(t *testing.T) {
 // shared across BuildDelegateRegistry calls preserves child sessions, enabling
 // follow_up across turn boundaries.
 func TestCrossTurnSessionStorePreservesSessions(t *testing.T) {
+	t.Parallel()
 	sharedStore := NewSessionStore()
 
 	// Turn 1: Save a session simulating what delegate/explore does on success.

@@ -62,6 +62,7 @@ func assertKeys(t *testing.T, keys map[string]json.RawMessage, data []byte, want
 }
 
 func TestResultJSONRoundTrip(t *testing.T) {
+	t.Parallel()
 	t.Run("populated result keeps every wire field", func(t *testing.T) {
 		result := populatedResult()
 		keys, data := marshalKeys(t, result)
@@ -192,6 +193,7 @@ func TestResultJSONRoundTrip(t *testing.T) {
 }
 
 func TestSpecJSONRoundTrip(t *testing.T) {
+	t.Parallel()
 	t.Run("populated spec keeps every wire field", func(t *testing.T) {
 		spec := Spec{
 			Task:         "test task",

@@ -8,6 +8,7 @@ import (
 )
 
 func TestDefaultLimits(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name                  string
 		cfg                   config.SubAgentConfig
@@ -59,6 +60,7 @@ func TestDefaultLimits(t *testing.T) {
 }
 
 func TestApplyOverridesTightenOnly(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		base      Limits

@@ -7,6 +7,7 @@ import (
 )
 
 func TestSetupErrorProjectToolErrorAlreadyActive(t *testing.T) {
+	t.Parallel()
 	envelope := (&SetupError{err: ErrAgentAlreadyActive}).ProjectToolError()
 	if envelope.Output != "" {
 		t.Errorf("Output = %q, want empty", envelope.Output)
@@ -20,6 +21,7 @@ func TestSetupErrorProjectToolErrorAlreadyActive(t *testing.T) {
 }
 
 func TestSetupErrorProjectToolErrorGeneric(t *testing.T) {
+	t.Parallel()
 	envelope := (&SetupError{err: errors.New("other")}).ProjectToolError()
 	if envelope.Output != "" {
 		t.Errorf("Output = %q, want empty", envelope.Output)
@@ -33,6 +35,7 @@ func TestSetupErrorProjectToolErrorGeneric(t *testing.T) {
 }
 
 func TestSetupErrorProjectToolErrorRequiresCommit(t *testing.T) {
+	t.Parallel()
 	envelope := (&SetupError{err: ErrCodeWorktreeRequiresCommit}).ProjectToolError()
 	want := "code sub-agent requires a Git repository with at least one commit; commit the project files and retry"
 	if envelope.Reason != want {

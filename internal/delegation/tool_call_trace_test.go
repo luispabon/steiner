@@ -36,6 +36,7 @@ func readJSONLLines(t *testing.T, path string) []toolCallTraceLine {
 }
 
 func TestToolCallTraceWriter_RecordsStartedFinishedPairs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	w := newToolCallTraceWriter(dir, "agent-1", "")
 	if w == nil {
@@ -96,6 +97,7 @@ func TestToolCallTraceWriter_RecordsStartedFinishedPairs(t *testing.T) {
 }
 
 func TestToolCallTraceWriter_DurationMsFromEventTimestamps(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	w := newToolCallTraceWriter(dir, "agent-duration", "")
 	defer w.close()
@@ -129,6 +131,7 @@ type errString string
 func (e errString) Error() string { return string(e) }
 
 func TestToolCallTraceWriter_MutateFailClassTaxonomy(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		message string
@@ -163,6 +166,7 @@ func TestToolCallTraceWriter_MutateFailClassTaxonomy(t *testing.T) {
 }
 
 func TestToolCallTraceWriter_NonMutateFailureHasNoFailClass(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	w := newToolCallTraceWriter(dir, "agent-read", "")
 	defer w.close()
@@ -182,6 +186,7 @@ func TestToolCallTraceWriter_NonMutateFailureHasNoFailClass(t *testing.T) {
 }
 
 func TestToolCallTraceWriter_ForwardsToInnerSink(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	w := newToolCallTraceWriter(dir, "agent-forward", "")
 	defer w.close()
@@ -199,6 +204,7 @@ func TestToolCallTraceWriter_ForwardsToInnerSink(t *testing.T) {
 }
 
 func TestWithToolCallTrace_NilWriterReturnsInnerUnchanged(t *testing.T) {
+	t.Parallel()
 	inner := output.SinkFunc(func(output.Event) {})
 	got := withToolCallTrace(inner, nil)
 	if _, ok := got.(scopedToolCallTraceSink); ok {
@@ -207,6 +213,7 @@ func TestWithToolCallTrace_NilWriterReturnsInnerUnchanged(t *testing.T) {
 }
 
 func TestNewToolCallTraceWriter_EmptyWorkDirOrAgentID(t *testing.T) {
+	t.Parallel()
 	if w := newToolCallTraceWriter("", "agent-1", ""); w != nil {
 		t.Error("expected nil writer for empty workDir")
 	}
@@ -216,6 +223,7 @@ func TestNewToolCallTraceWriter_EmptyWorkDirOrAgentID(t *testing.T) {
 }
 
 func TestToolCallTraceRegistry_RegisterAndTake(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	w := newToolCallTraceWriter(dir, "agent-registry", "")
 	registerToolCallTraceWriter("agent-registry", w)
@@ -234,6 +242,7 @@ func TestToolCallTraceRegistry_RegisterAndTake(t *testing.T) {
 }
 
 func TestPruneOldToolCallTraces(t *testing.T) {
+	t.Parallel()
 	tracesDir := t.TempDir()
 
 	staleDir := filepath.Join(tracesDir, "stale-session")
@@ -267,6 +276,7 @@ func TestPruneOldToolCallTraces(t *testing.T) {
 }
 
 func TestClassifyMutateFailure_MatchOrder(t *testing.T) {
+	t.Parallel()
 	// A message matching both "no match for old_string" and the whitespace
 	// variant marker must classify as the whitespace variant since it's
 	// checked first.
@@ -277,6 +287,7 @@ func TestClassifyMutateFailure_MatchOrder(t *testing.T) {
 }
 
 func TestProcessTraceSession_StableWithinProcess(t *testing.T) {
+	t.Parallel()
 	first := processTraceSession()
 	second := processTraceSession()
 	if first != second {
@@ -291,6 +302,7 @@ func TestProcessTraceSession_StableWithinProcess(t *testing.T) {
 }
 
 func TestTraceSessionID(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		sessionID    string
@@ -318,6 +330,7 @@ func TestTraceSessionID(t *testing.T) {
 }
 
 func TestNewToolCallTraceWriter_WithSessionID(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	sessionID := "test-sess-123"
 	w := newToolCallTraceWriter(dir, "agent-with-session", sessionID)

@@ -5,6 +5,7 @@ import (
 )
 
 func TestTraceCollector_EmptyResult(t *testing.T) {
+	t.Parallel()
 	tc := newTraceCollector("agent-1", "some task")
 	entries := tc.result()
 	if entries != nil {
@@ -13,6 +14,7 @@ func TestTraceCollector_EmptyResult(t *testing.T) {
 }
 
 func TestTraceCollector_AddsEntries(t *testing.T) {
+	t.Parallel()
 	tc := newTraceCollector("agent-1", "test task")
 	tc.add("start", "delegation started", map[string]any{"max_turns": 15})
 	tc.add("child_run_complete", "initial run finished", nil)
@@ -36,6 +38,7 @@ func TestTraceCollector_AddsEntries(t *testing.T) {
 }
 
 func TestTraceCollector_ResultIsACopy(t *testing.T) {
+	t.Parallel()
 	tc := newTraceCollector("agent-1", "task")
 	tc.add("a", "first", nil)
 	first := tc.result()

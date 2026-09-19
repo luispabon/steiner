@@ -363,6 +363,7 @@ func assertTaskOrder(t *testing.T, results, want []string) {
 }
 
 func TestParallelDelegationEndToEndOverlap(t *testing.T) {
+	t.Parallel()
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
 	result := startParallelParent(context.Background(), h, 3, tool.NewRegistry())
 	waitParallel(t, h.allStarted, "three children did not become active")
@@ -402,6 +403,7 @@ func waitParallelCacheWaiting(t *testing.T, h *parallelHarness, n int, timeout t
 }
 
 func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	store := NewCacheKeyStore()
@@ -544,6 +546,7 @@ func TestParallelDelegationGateSerializesFirstProviderCall(t *testing.T) {
 }
 
 func TestParallelDelegationGateCancellationReleasesFollowers(t *testing.T) {
+	t.Parallel()
 	// The fixed 10-second dispatchGateTimeout fallback is not tested end to end
 	// here. It is not injectable, and waiting 10 seconds would violate the
 	// fast-test convention, especially under go test -race. The timeout unit path
@@ -586,6 +589,7 @@ func TestParallelDelegationGateCancellationReleasesFollowers(t *testing.T) {
 }
 
 func TestParallelDelegationEndToEndBounded(t *testing.T) {
+	t.Parallel()
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore", "explore"), 2)
 	result := startParallelParent(context.Background(), h, 2, tool.NewRegistry())
 	waitParallel(t, h.allStarted, "bounded batch did not start two children")
@@ -609,6 +613,7 @@ func TestParallelDelegationEndToEndBounded(t *testing.T) {
 // ordinary tool calls (see internal/agent/turn_progression_test.go's
 // TestParallelRunLength_ZeroMaxParallelToolsForcesSerialization).
 func TestParallelDelegationEndToEndZeroForcesSerial(t *testing.T) {
+	t.Parallel()
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore", "explore"), 1)
 	close(h.done)
 	result := startParallelParent(context.Background(), h, 0, tool.NewRegistry())
@@ -629,6 +634,7 @@ func TestParallelDelegationEndToEndZeroForcesSerial(t *testing.T) {
 // The harness observes provider-level completion, not the delegate handler's final return, so a scheduler preemption in the handler's final steps could in theory let a completion-order applier sneak through.
 // That corner is covered deterministically at the unit level by internal/agent/turn_progression_test.go (TestExecuteToolCalls_ParallelReversedCompletionAppliesInOrder), which the batch-join architecture makes the authoritative check.
 func TestParallelDelegationEndToEndOrdering(t *testing.T) {
+	t.Parallel()
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
 	releases := map[string]chan struct{}{"task-0": make(chan struct{}), "task-1": make(chan struct{}), "task-2": make(chan struct{})}
 	ready := make(chan struct{})
@@ -674,6 +680,7 @@ func TestParallelDelegationEndToEndOrdering(t *testing.T) {
 }
 
 func TestParallelDelegationEndToEndMixedBatch(t *testing.T) {
+	t.Parallel()
 	base := tool.NewRegistry(tool.ToolDef{Name: "read", Handler: func(context.Context, map[string]any) (any, error) { return "read-result", nil }})
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "read", "explore", "explore"), 2)
 	result := startParallelParent(context.Background(), h, 2, base)
@@ -690,6 +697,7 @@ func TestParallelDelegationEndToEndMixedBatch(t *testing.T) {
 }
 
 func TestParallelDelegationEndToEndFailureIsolation(t *testing.T) {
+	t.Parallel()
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
 	h.failTask = "task-1"
 	ready := make(chan struct{})
@@ -714,6 +722,7 @@ func TestParallelDelegationEndToEndFailureIsolation(t *testing.T) {
 }
 
 func TestParallelDelegationEndToEndNoNesting(t *testing.T) {
+	t.Parallel()
 	spec := makeSpec("nested-check", 100)
 	_, exec := testChildRegistries(tool.NewRegistry())
 	req := buildChildRunRequest(childRunRequestParams{AgentID: spec.AgentID, Provider: &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "ok"}}}}, VisibleReg: exec, ExecReg: exec, PromptOpts: testBuildPrompt(spec)})
@@ -726,6 +735,7 @@ func TestParallelDelegationEndToEndNoNesting(t *testing.T) {
 }
 
 func TestParallelDelegationEndToEndCancellation(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	h := newParallelHarness(delegationParentResponse("explore", "explore", "explore"), 3)
 	h.blockOnCtx = true
@@ -741,6 +751,7 @@ func TestParallelDelegationEndToEndCancellation(t *testing.T) {
 }
 
 func TestParallelDelegationCodeAgentsReceiveDistinctWorktrees(t *testing.T) {
+	t.Parallel()
 	// Setup a real git repository for the harness to use.
 	tmpRepo := t.TempDir()
 	runGitCmd(t, tmpRepo, "git", "init")

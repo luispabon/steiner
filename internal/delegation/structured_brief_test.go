@@ -3,6 +3,7 @@ package delegation
 import "testing"
 
 func TestParseStructuredBrief_NonStringListElements(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		field   string

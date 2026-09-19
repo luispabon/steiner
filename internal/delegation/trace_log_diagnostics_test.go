@@ -11,6 +11,7 @@ import (
 )
 
 func TestTraceLoggerWritesDetailedTraceThroughDiagnosticsWhenCaptureEnabled(t *testing.T) {
+	t.Parallel()
 	diagDir := filepath.Join(t.TempDir(), "diag")
 	logPath := filepath.Join(t.TempDir(), "steiner-delegation.log")
 	writer, err := diagnostics.New(diagnostics.Options{Dir: diagDir, Streams: diagnostics.Streams{Tool: true}, CaptureBodies: true})
@@ -72,6 +73,7 @@ func TestTraceLoggerWritesDetailedTraceThroughDiagnosticsWhenCaptureEnabled(t *t
 }
 
 func TestTraceLoggerDiagnosticsOmitsBodiesWhenCaptureDisabled(t *testing.T) {
+	t.Parallel()
 	diagDir := filepath.Join(t.TempDir(), "diag")
 	logPath := filepath.Join(t.TempDir(), "private", "steiner-delegation.log")
 	writer, err := diagnostics.New(diagnostics.Options{Dir: diagDir, Streams: diagnostics.Streams{Tool: true}})
@@ -131,6 +133,7 @@ func TestTraceLoggerDiagnosticsOmitsBodiesWhenCaptureDisabled(t *testing.T) {
 }
 
 func TestTraceLoggerFallsBackToFile(t *testing.T) {
+	t.Parallel()
 	logPath := filepath.Join(t.TempDir(), "steiner-delegation.log")
 	logger, err := NewTraceLoggerWithDiagnostics(logPath, nil)
 	if err != nil {
@@ -152,6 +155,7 @@ func TestTraceLoggerFallsBackToFile(t *testing.T) {
 }
 
 func TestTraceLoggerNoPathNoDiagnostics(t *testing.T) {
+	t.Parallel()
 	logger, err := NewTraceLoggerWithDiagnostics("", nil)
 	if err != nil {
 		t.Fatalf("NewTraceLoggerWithDiagnostics() error = %v", err)
