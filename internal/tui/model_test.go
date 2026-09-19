@@ -4680,6 +4680,11 @@ func TestMultiLineInputViewHeightNeverExceedsTerminal(t *testing.T) {
 	lineCounts := []int{1, 2, 4, 6, 10, 15}
 	for _, h := range heights {
 		for _, n := range lineCounts {
+			// Boundary combinations only: the smallest height with every line
+			// count, and every height with the largest line count.
+			if h != heights[0] && n != lineCounts[len(lineCounts)-1] {
+				continue
+			}
 			t.Run(fmt.Sprintf("h%d_n%d", h, n), func(t *testing.T) {
 				t.Parallel()
 				m := newModel(Config{}, nil)

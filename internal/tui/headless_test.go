@@ -361,13 +361,24 @@ func assertHarnessLive(tb testing.TB, r headlessResult, cfg runConfig) {
 // is skipped under -race, where it is not meaningful; see assertHarnessLive.
 const harnessFPS = 60
 
+// harnessDuration halves a run's wall-clock length under -race. The race build
+// skips the only timing threshold (Guard 4), so the remaining deterministic
+// guards need only enough frames to be meaningful; the normal build keeps the
+// full length so its timing coverage is unchanged.
+func harnessDuration(d time.Duration) time.Duration {
+	if raceEnabled {
+		return d / 2
+	}
+	return d
+}
+
 func TestHarnessScrolling(t *testing.T) {
-	r := runHeadless(t, 800*time.Millisecond, 1*time.Millisecond, harnessFPS)
+	r := runHeadless(t, harnessDuration(800*time.Millisecond), 1*time.Millisecond, harnessFPS)
 	t.Logf("scrolling harness: %s", r)
 }
 
 func TestHarnessIdle(t *testing.T) {
-	r := runIdle(t, 400*time.Millisecond, harnessFPS)
+	r := runIdle(t, harnessDuration(400*time.Millisecond), harnessFPS)
 	t.Logf("idle harness: %s", r)
 }
 
@@ -377,8 +388,8 @@ func TestHarnessSelfTest(t *testing.T) {
 		minMeasuredDelta  = 5 * time.Millisecond
 	)
 
-	base := runHeadlessWithInjectedViewDelay(t, 600*time.Millisecond, 2*time.Millisecond, harnessFPS, 0)
-	delayed := runHeadlessWithInjectedViewDelay(t, 600*time.Millisecond, 2*time.Millisecond, harnessFPS, injectedViewDelay)
+	base := runHeadlessWithInjectedViewDelay(t, harnessDuration(600*time.Millisecond), 2*time.Millisecond, harnessFPS, 0)
+	delayed := runHeadlessWithInjectedViewDelay(t, harnessDuration(600*time.Millisecond), 2*time.Millisecond, harnessFPS, injectedViewDelay)
 	t.Logf("self-test base avgView=%s delayed avgView=%s", time.Duration(base.avgViewNanos), time.Duration(delayed.avgViewNanos))
 	// Independent runs vary in view count and render state under CI contention,
 	// so require only a conservative fraction of the injected delay.
