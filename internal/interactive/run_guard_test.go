@@ -113,6 +113,7 @@ func TestSubmitPromptDoesNotSaveUnderChangedSession(t *testing.T) {
 	store := newMockSessionStore()
 	store.loadedSessions["new"] = session.Session{ID: "new", Lineage: lineageOf(userMsg("new convo"))}
 	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
+	startID := s.SessionID()
 	started := make(chan struct{})
 	release := make(chan struct{})
 	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message, _ []string) (RunResult, error) {
@@ -131,6 +132,9 @@ func TestSubmitPromptDoesNotSaveUnderChangedSession(t *testing.T) {
 	<-done
 	if _, ok := store.savedSessions["new"]; ok {
 		t.Fatal("stale run saved under the new session ID")
+	}
+	if _, ok := store.savedSessions[startID]; !ok {
+		t.Fatal("stale run's result was not saved under its original session ID")
 	}
 	if conv := s.Conversation(); len(conv) != 1 || conv[0].Content != "new convo" {
 		t.Fatalf("conversation = %+v", conv)
@@ -191,5 +195,58 @@ func TestActiveRunControllerClearRequiresOwnerToken(t *testing.T) {
 	c.Clear(tokB)
 	if c.HasCancel() {
 		t.Fatal("owner Clear did not release cancel")
+	}
+}
+
+func TestHandoffClearRotateStillSavesFinalTurnUnderOriginalSession(t *testing.T) {
+	t.Parallel()
+	store := newMockSessionStore()
+	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
+	startID := s.SessionID()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message, _ []string) (RunResult, error) {
+		close(started)
+		<-release // blocked in the workflow handoff responder
+		final := append(append([]agent.Message{}, conv...), agent.Message{Role: agent.MessageRoleAssistant, Content: "final plan turn"})
+		return RunResult{Conversation: final}, nil
+	}))
+	done := make(chan struct{})
+	go func() { defer close(done); s.submitPrompt(context.Background(), "plan it", nil) }()
+	<-started
+
+	// The TUI's accept path: clear the conversation, then rotate the session.
+	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
+		t.Fatalf("ClearConversation: %v", err)
+	}
+	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
+		t.Fatalf("RotateSession: %v", err)
+	}
+	newID := s.SessionID()
+	if newID == startID {
+		t.Fatal("session ID did not rotate")
+	}
+	close(release)
+	<-done
+
+	saved, ok := store.savedSessions[startID]
+	if !ok {
+		t.Fatal("final run was not saved under the original session ID")
+	}
+	msgs := saved.Lineage.FullMessages()
+	if len(msgs) == 0 || msgs[len(msgs)-1].Content != "final plan turn" {
+		t.Fatalf("saved lineage = %+v, want it to end with the final turn", msgs)
+	}
+	if saved.Title == "" {
+		t.Error("saved session has no title")
+	}
+	if got := s.Conversation(); len(got) != 0 {
+		t.Fatalf("live conversation = %+v, want untouched (empty)", got)
+	}
+	if got := s.lineage.FullMessages(); len(got) != 0 {
+		t.Fatalf("live lineage = %+v, want untouched (empty)", got)
+	}
+	if _, ok := store.savedSessions[newID]; ok {
+		t.Fatal("run result leaked into the rotated session")
 	}
 }

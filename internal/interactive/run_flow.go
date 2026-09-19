@@ -19,6 +19,7 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 
 	s.mu.Lock()
 	startID := s.sessionID
+	startMeta := runSessionMeta{cacheKey: s.promptCacheKey, group: s.sessionGroup, title: s.sessionTitle}
 	isFirstPrompt := len(s.conversation) == 0
 	s.conversation = append(s.conversation, agent.Message{Role: agent.MessageRoleUser, Content: text, Images: images})
 	s.mu.Unlock()
@@ -33,7 +34,9 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 		runner := s.currentRunner()
 		result, err := runner.Run(runCtx, conversation, s.skills.Snapshot(), drainSteers)
 
-		s.applyRunResult(startID, result)
+		if !s.applyRunResult(startID, result) {
+			s.saveOrphanedRunResult(startID, startMeta, text, isFirstPrompt, result)
+		}
 
 		if err != nil {
 			return err
@@ -42,7 +45,7 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 	})
 
 	if s.sessionChanged(startID) {
-		slog.Warn("session changed during run; skipping save", "run_session", startID)
+		slog.Warn("session changed during run; result saved under its original session", "run_session", startID)
 		if err != nil {
 			s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
 		}
@@ -73,7 +76,8 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 
 // applyRunResult writes a finished run's conversation back into the session,
 // unless the session identity changed since the run started, in which case the
-// result belongs to a different session and is dropped.
+// result belongs to a different session and is left out of memory (the caller
+// saves it under its original ID via saveOrphanedRunResult).
 func (s *Session) applyRunResult(startID string, result RunResult) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -85,14 +89,79 @@ func (s *Session) applyRunResult(startID string, result RunResult) bool {
 		if result.WorkflowHandoff == nil {
 			s.conversation = result.Conversation
 		}
-		s.lineage = agent.ConversationLineage{
-			Generations: []agent.ConversationGeneration{
-				{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(result.Conversation)},
-			},
-			NextGenerationID: 2,
-		}
+		s.lineage = lineageFromResult(result)
 	}
 	return true
+}
+
+func lineageFromResult(result RunResult) agent.ConversationLineage {
+	return agent.ConversationLineage{
+		Generations: []agent.ConversationGeneration{
+			{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(result.Conversation)},
+		},
+		NextGenerationID: 2,
+	}
+}
+
+// runSessionMeta is the identity metadata of the session a run started in,
+// captured so the run's result can still be saved after the session rotated.
+type runSessionMeta struct {
+	cacheKey string
+	group    string
+	title    string
+}
+
+// saveOrphanedRunResult persists a finished run's conversation under startID
+// when the live session moved on mid-run (e.g. a workflow handoff cleared and
+// rotated it). In-memory state is left untouched.
+func (s *Session) saveOrphanedRunResult(startID string, meta runSessionMeta, prompt string, isFirstPrompt bool, result RunResult) {
+	if s.deps.SessionStore == nil || len(result.Conversation) == 0 {
+		return
+	}
+	if err := s.saveRunResultAs(startID, meta, prompt, isFirstPrompt, result); err != nil {
+		slog.Warn("save orphaned run result", "run_session", startID, "error", err)
+		s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:     "session_health",
+			Severity: "warning",
+			Notes:    []string{fmt.Sprintf("save session: %v", err)},
+		}))
+	}
+}
+
+func (s *Session) saveRunResultAs(id string, meta runSessionMeta, prompt string, isFirstPrompt bool, result RunResult) error {
+	lineage := lineageFromResult(result)
+	s.mu.RLock()
+	mode := string(s.mode)
+	skills := s.skills.Snapshot()
+	modelID := currentModelConfig(s.deps.Config).ID
+	s.mu.RUnlock()
+
+	var sess session.Session
+	if existing, err := s.deps.SessionStore.Load(id); err == nil {
+		sess = existing.WithLineage(lineage)
+	} else {
+		var newErr error
+		if meta.group != "" {
+			sess, newErr = session.NewSession(modelID, lineage, meta.group)
+		} else {
+			sess, newErr = session.NewSession(modelID, lineage)
+		}
+		if newErr != nil {
+			return fmt.Errorf("create session: %w", newErr)
+		}
+		sess.ID = id
+		sess.PromptCacheKey = meta.cacheKey
+		title := meta.title
+		if title == "" && isFirstPrompt {
+			title = prompt
+		}
+		if title != "" {
+			sess = sess.WithTitle(title)
+		}
+	}
+	sess.Mode = mode
+	sess.Skills = skills
+	return s.deps.SessionStore.Save(sess)
 }
 
 func (s *Session) sessionChanged(startID string) bool {
