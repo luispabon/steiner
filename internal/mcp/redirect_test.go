@@ -12,7 +12,7 @@ import (
 
 func TestRedirectHeaders(t *testing.T) {
 	var bSaw atomic.Int32
-	b := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	b := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" {
 			bSaw.Add(1)
 		}
@@ -35,9 +35,13 @@ func TestRedirectHeaders(t *testing.T) {
 
 	client := newHTTPClientForTest(t, a.URL)
 
-	resp, err := client.Get(a.URL + "/cross")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, a.URL+"/cross", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	resp, err := client.Do(req)
 	if err == nil {
-		resp.Body.Close()
+		_ = resp.Body.Close() // test cleanup
 		t.Fatal("cross-origin redirect succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "cross-origin") {
@@ -47,11 +51,15 @@ func TestRedirectHeaders(t *testing.T) {
 		t.Error("cross-origin server received the Authorization header")
 	}
 
-	resp, err = client.Get(a.URL + "/same")
+	req, err = http.NewRequestWithContext(t.Context(), http.MethodGet, a.URL+"/same", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	resp, err = client.Do(req)
 	if err != nil {
 		t.Fatalf("same-origin redirect: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close() // test cleanup
 	if got, _ := sameGot.Load().(string); got != "Bearer SECRET" {
 		t.Errorf("same-origin Authorization = %q, want Bearer SECRET", got)
 	}
@@ -59,18 +67,22 @@ func TestRedirectHeaders(t *testing.T) {
 
 func TestHeaderTransportSkipsOtherOrigin(t *testing.T) {
 	var saw atomic.Int32
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" {
 			saw.Add(1)
 		}
 	}))
 	defer s.Close()
 	c := &http.Client{Transport: &headerTransport{headers: map[string]string{"Authorization": "x"}, origin: "http://other.example:1"}}
-	resp, err := c.Get(s.URL)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	resp, err := c.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close() // test cleanup
 	if saw.Load() != 0 {
 		t.Error("header injected for non-matching origin")
 	}
