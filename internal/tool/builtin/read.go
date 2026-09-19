@@ -198,7 +198,7 @@ func hashAndCountLines(path string) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	w := &hashLineWriter{crc: crc32.NewIEEE()}
 	if _, err := io.Copy(w, f); err != nil {
@@ -228,8 +228,7 @@ func (w *hashLineWriter) Write(p []byte) (int, error) {
 	}
 	start := 0
 	for i, c := range p {
-		switch c {
-		case '\n':
+		if c == '\n' {
 			w.newlines++
 			w.emit(p[start:i])
 			w.pending = w.pending[:0]
