@@ -74,7 +74,7 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `sandbox.warning_on_unsupported_platform`|bool|`true`|Warn if sandbox is unavailable or bypassed. |
 | `sandbox.env_passthrough`|[]string|`[]`|Extra environment names; only trailing `*` is a prefix wildcard. |
 | `sandbox.env_passthrough_all`|bool|`false`|Disable environment filtering, including credential filtering. |
-| `sandbox.bind_host_cache`|bool|`false`|Bind the real `~/.cache` read-write instead of a sandbox-private cache. |
+| `sandbox.bind_host_cache`|bool|`false`|Bind real `~/.cache` rw, not a private one. |
 | `sandbox.host_mounts.<index>.path`|string|—|Host path; `~` expands. |
 | `sandbox.host_mounts.<index>.mode`|string|—|`ro` or `rw`; host paths are read-only by default. |
 | `permissions.docker`|bool|`false`|Allow sandboxed tools to reach Docker socket; otherwise masked. |
