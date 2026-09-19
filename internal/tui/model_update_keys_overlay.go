@@ -96,6 +96,11 @@ func (m *Model) dispatchSelectedSessionAction(makeAction func(sessionID string) 
 	if m.sessionPicker.selection < 0 || len(m.sessionPicker.candidates) == 0 || m.controller == nil {
 		return m, nil, false
 	}
+	if m.sessionBusy() {
+		m.sessionPicker = m.sessionPicker.Close()
+		m.refuseWhileBusy("switch sessions")
+		return m, nil, true
+	}
 	selected := m.sessionPicker.candidates[m.sessionPicker.selection]
 	m.sessionPicker = m.sessionPicker.Close()
 	m.input.Reset()
@@ -448,6 +453,10 @@ func (m *Model) openProfilePickerFromSlashCommand() *Model {
 }
 
 func (m *Model) openSessionPickerFromSlashCommand() *Model {
+	if m.sessionBusy() {
+		m.refuseWhileBusy("switch sessions")
+		return m
+	}
 	m.openSessionPicker()
 	return m
 }

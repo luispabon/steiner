@@ -3,6 +3,7 @@ package interactive
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -17,6 +18,7 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 	s.recordHistory(text)
 
 	s.mu.Lock()
+	startID := s.sessionID
 	isFirstPrompt := len(s.conversation) == 0
 	s.conversation = append(s.conversation, agent.Message{Role: agent.MessageRoleUser, Content: text, Images: images})
 	s.mu.Unlock()
@@ -31,25 +33,21 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 		runner := s.currentRunner()
 		result, err := runner.Run(runCtx, conversation, s.skills.Snapshot(), drainSteers)
 
-		s.mu.Lock()
-		if len(result.Conversation) > 0 {
-			if result.WorkflowHandoff == nil {
-				s.conversation = result.Conversation
-			}
-			s.lineage = agent.ConversationLineage{
-				Generations: []agent.ConversationGeneration{
-					{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(result.Conversation)},
-				},
-				NextGenerationID: 2,
-			}
-		}
-		s.mu.Unlock()
+		s.applyRunResult(startID, result)
 
 		if err != nil {
 			return err
 		}
 		return nil
 	})
+
+	if s.sessionChanged(startID) {
+		slog.Warn("session changed during run; skipping save", "run_session", startID)
+		if err != nil {
+			s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
+		}
+		return
+	}
 
 	if isFirstPrompt && s.deps.SessionStore != nil {
 		s.mu.Lock()
@@ -71,6 +69,36 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 		s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
 		return
 	}
+}
+
+// applyRunResult writes a finished run's conversation back into the session,
+// unless the session identity changed since the run started, in which case the
+// result belongs to a different session and is dropped.
+func (s *Session) applyRunResult(startID string, result RunResult) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sessionID != startID {
+		slog.Warn("session changed during run; discarding result", "run_session", startID, "current_session", s.sessionID)
+		return false
+	}
+	if len(result.Conversation) > 0 {
+		if result.WorkflowHandoff == nil {
+			s.conversation = result.Conversation
+		}
+		s.lineage = agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(result.Conversation)},
+			},
+			NextGenerationID: 2,
+		}
+	}
+	return true
+}
+
+func (s *Session) sessionChanged(startID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sessionID != startID
 }
 
 // recordHistory persists text to prompt history and publishes the refreshed
@@ -109,10 +137,10 @@ func cloneMessages(messages []agent.Message) []agent.Message {
 // cancel and controller clear.
 func (s *Session) runWithInterruptOwnership(ctx context.Context, run func(context.Context) error) error {
 	runCtx, cancel := context.WithCancel(ctx)
-	s.runController.Set(cancel)
+	token := s.runController.Set(cancel)
 	defer func() {
 		cancel()
-		s.runController.Clear()
+		s.runController.Clear(token)
 	}()
 	return run(runCtx)
 }

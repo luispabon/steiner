@@ -37,10 +37,10 @@ func splitSummaryPrefix(messages []agent.Message) (prefix, rest []agent.Message)
 
 func (s *Session) runManualCompaction(ctx context.Context, model string, run func(context.Context) ([]agent.Message, error)) (result []agent.Message, err error) {
 	runCtx, cancel := context.WithCancel(ctx)
-	s.runController.Set(cancel)
+	token := s.runController.Set(cancel)
 	defer func() {
 		cancel()
-		s.runController.Clear()
+		s.runController.Clear(token)
 
 		reason := "complete"
 		if err != nil {

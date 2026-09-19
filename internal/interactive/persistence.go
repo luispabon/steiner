@@ -102,6 +102,12 @@ func (s *Session) resolveFallbackContextWindow() int {
 	return rm.EffectiveLimits.ContextWindow
 }
 
+// refuseRunInProgress surfaces errRunInProgress as an overlay notice and error.
+func (s *Session) refuseRunInProgress(action string) error {
+	s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("%s: %s", action, errRunInProgress)))
+	return fmt.Errorf("%s: %w", action, errRunInProgress)
+}
+
 // loadSession replaces the current conversation and lineage with a previously
 // saved session, following the ClearConversation pattern but seeding from stored lineage.
 func (s *Session) loadSession(ctx context.Context, sessionID string) error {
@@ -130,6 +136,10 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}
 
 	s.mu.Lock()
+	if s.activeRuns > 0 {
+		s.mu.Unlock()
+		return s.refuseRunInProgress("load session")
+	}
 	s.lineage = sess.Lineage
 	s.conversation = sess.Lineage.FullMessages()
 	s.sessionID = sess.ID
@@ -205,6 +215,9 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 
 // handleForkSession forks the current live session after saving it, then switches to the fork.
 func (s *Session) handleForkSession(ctx context.Context) error {
+	if s.runActive() {
+		return s.refuseRunInProgress("fork session")
+	}
 	if s.deps.SessionStore == nil {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))
 		return nil
@@ -245,6 +258,9 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 
 // handleForkSavedSession forks a saved session by ID, saves the fork, then switches to it.
 func (s *Session) handleForkSavedSession(ctx context.Context, sessionID string) error {
+	if s.runActive() {
+		return s.refuseRunInProgress("fork saved session")
+	}
 	if s.deps.SessionStore == nil {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))
 		return nil

@@ -208,15 +208,27 @@ func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// sessionBusy reports whether a run, tool call, delegation, compaction or
+// oneshot is in flight, so session-mutating actions must be refused.
+func (m *Model) sessionBusy() bool {
+	return m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.activity.busy() || m.compaction.Active() || m.oneshotRunning
+}
+
+// refuseWhileBusy appends the busy notice for the named action and resets the
+// composer.
+func (m *Model) refuseWhileBusy(action string) {
+	m.content.AppendLine("status: cannot " + action + " while a run is in progress")
+	m.input.Reset()
+	m.relayoutInput()
+	m.syncViewport()
+}
+
 // clearConversationStateWithError refuses to clear while a run is in
 // progress, otherwise clears unconditionally via performClearConversationState.
 func (m *Model) clearConversationStateWithError() (tea.Model, bool, error) {
-	if m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.activity.busy() || m.compaction.Active() || m.oneshotRunning {
-		m.content.AppendLine("status: cannot clear while a run is in progress")
-		m.input.Reset()
+	if m.sessionBusy() {
+		m.refuseWhileBusy("clear")
 		m.syncInputChrome()
-		m.relayoutInput()
-		m.syncViewport()
 		return m, false, nil
 	}
 	err := m.performClearConversationState()
