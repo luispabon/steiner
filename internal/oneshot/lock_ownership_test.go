@@ -227,6 +227,11 @@ func TestRunPhaseAbortsWhenLockLost(t *testing.T) {
 	if got := manifest.PhaseStatuses[PhasePlan]; got != PhaseStatusFailed {
 		t.Fatalf("phase status = %q, want failed", got)
 	}
+	// The failed status is only in memory: the on-disk manifest must not have
+	// been rewritten by the process that lost the lock.
+	if disk, err := store.Read(); err == nil && disk.PhaseStatuses[PhasePlan] == PhaseStatusFailed {
+		t.Fatalf("manifest on disk was overwritten with failed status after the lock was lost")
+	}
 	if err := lock.Release(); err != nil {
 		t.Fatalf("Release: %v", err)
 	}

@@ -143,8 +143,12 @@ func (o *Orchestrator) finalizePhaseFailure(p runPhaseParams, cancel context.Can
 	if opts.IndicatorBeforeWrite {
 		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, opts.IndicatorState, opts.IndicatorMessage)
 	}
-	if err := p.Store.Write(*p.Manifest); err != nil {
-		return err
+	// After a lost lock run.json belongs to whichever process reclaimed it,
+	// so emit the events but leave the manifest alone.
+	if !errors.Is(failure, errLockLost) {
+		if err := p.Store.Write(*p.Manifest); err != nil {
+			return err
+		}
 	}
 	if !opts.IndicatorBeforeWrite {
 		emitPhaseIndicator(o.deps.Events, p.Manifest.RunID, p.Phase, opts.IndicatorState, opts.IndicatorMessage)

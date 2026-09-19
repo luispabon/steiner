@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -70,6 +71,10 @@ type store struct {
 	path   string
 	locker fileLocker
 	clock  func() time.Time
+
+	// tightenOnce limits the best-effort chmod of pre-existing files to once
+	// per process instead of every write.
+	tightenOnce sync.Once
 }
 
 // newStore creates a new store. If clock is nil, time.Now is used.
@@ -213,13 +218,15 @@ func (s *store) write(delta *bucket, deltaKey bucketKey) error {
 		return fmt.Errorf("create store dir: %w", err)
 	}
 
-	// Best-effort tighten existing files.
-	if err := os.Chmod(s.path, 0o600); err != nil && !os.IsNotExist(err) {
-		slog.Warn("tighten cache-stats file mode", "path", s.path, "error", err)
-	}
-	if err := os.Chmod(s.lockPath(), 0o600); err != nil && !os.IsNotExist(err) {
-		slog.Warn("tighten cache-stats lock file mode", "path", s.lockPath(), "error", err)
-	}
+	s.tightenOnce.Do(func() {
+		// Best-effort tighten of files created by older versions.
+		if err := os.Chmod(s.path, 0o600); err != nil && !os.IsNotExist(err) {
+			slog.Warn("tighten cache-stats file mode", "path", s.path, "error", err)
+		}
+		if err := os.Chmod(s.lockPath(), 0o600); err != nil && !os.IsNotExist(err) {
+			slog.Warn("tighten cache-stats lock file mode", "path", s.lockPath(), "error", err)
+		}
+	})
 
 	// The lock is taken on a dedicated sibling file, never on the data file
 	// itself: flock binds to the open file description (the inode at open
