@@ -40,16 +40,58 @@ func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testin
 	}
 }
 
+func TestRunManualCompactionRetainsSteerQueuedWhileActive(t *testing.T) {
+	s := mustCompactionSession(t, Dependencies{})
+	ctrl := s.ActiveRunController()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	want := agent.SteerMessage{Text: "queued during compaction", Images: []agent.ImageBlock{{MediaType: "image/png", Data: "abc"}}}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, error) {
+			close(started)
+			select {
+			case <-release:
+				return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		})
+	}()
+
+	<-started
+	ctrl.SteerQueue().Add(want)
+	close(release)
+	<-done
+
+	if ctrl.HasCancel() {
+		t.Fatal("run controller was not released")
+	}
+	got := ctrl.SteerQueue().Snapshot()
+	if !reflect.DeepEqual(got, []agent.SteerMessage{want}) {
+		t.Fatalf("queued steers = %+v, want %+v", got, []agent.SteerMessage{want})
+	}
+}
+
 func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testing.T) {
 	var events []output.Event
 	s := mustCompactionSession(t, Dependencies{BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
 	ctrl := s.ActiveRunController()
-	_, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, error) { return nil, errors.New("boom") })
+	want := agent.SteerMessage{Text: "queued before compaction error"}
+	_, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, error) {
+		ctrl.SteerQueue().Add(want)
+		return nil, errors.New("boom")
+	})
 	if err == nil || err.Error() != "boom" {
 		t.Fatalf("error = %v, want boom", err)
 	}
 	if ctrl.HasCancel() {
 		t.Fatal("run controller was not cleared")
+	}
+	if got := ctrl.SteerQueue().Snapshot(); !reflect.DeepEqual(got, []agent.SteerMessage{want}) {
+		t.Fatalf("queued steers = %+v, want %+v", got, []agent.SteerMessage{want})
 	}
 	finished := events[len(events)-1].Payload.(output.RunFinishedEvent)
 	if finished.Reason != "error" || finished.Error != "boom" {
@@ -61,9 +103,11 @@ func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 	s := mustCompactionSession(t, Dependencies{})
 	ctrl := s.ActiveRunController()
 	started := make(chan struct{})
+	want := agent.SteerMessage{Text: "queued before compaction cancellation"}
 	go func() { <-started; ctrl.Interrupt() }()
 	_, err := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, error) {
 		close(started)
+		ctrl.SteerQueue().Add(want)
 		<-ctx.Done()
 		return nil, ctx.Err()
 	})
@@ -72,6 +116,9 @@ func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 	}
 	if ctrl.HasCancel() {
 		t.Fatal("run controller was not cleared")
+	}
+	if got := ctrl.SteerQueue().Snapshot(); !reflect.DeepEqual(got, []agent.SteerMessage{want}) {
+		t.Fatalf("queued steers = %+v, want %+v", got, []agent.SteerMessage{want})
 	}
 }
 

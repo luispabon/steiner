@@ -40,7 +40,7 @@ func (s *Session) runManualCompaction(ctx context.Context, model string, run fun
 	token := s.runController.Set(cancel)
 	defer func() {
 		cancel()
-		s.runController.Clear(token)
+		s.runController.Release(token)
 
 		reason := "complete"
 		if err != nil {
