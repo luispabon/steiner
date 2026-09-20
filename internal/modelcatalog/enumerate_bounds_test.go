@@ -106,7 +106,7 @@ func TestAnthropicErrorBodyBounded(t *testing.T) {
 
 func mustGET(t *testing.T, u string) *http.Request {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, u, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
