@@ -20,6 +20,14 @@ const (
 	schemaVersion = "1"
 	cacheFilename = "models.dev.json"
 	metaFilename  = "models.dev.meta.json"
+	lockFilename  = "models.dev.lock"
+
+	// maxResponseBytes caps the models.dev body. api.json is a few MB today;
+	// 32 MB leaves ample growth room while bounding memory.
+	maxResponseBytes = 32 << 20
+	// defaultRefreshTimeout bounds one Refresh, including the stale-cache path
+	// reached from LoadBestEffortWithStatus.
+	defaultRefreshTimeout = 8 * time.Second
 )
 
 // CacheMetadata holds HTTP cache headers and freshness info.
@@ -36,8 +44,18 @@ type CacheMetadata struct {
 type Cache struct {
 	// Dir is the directory where cache files live.
 	Dir string
-	// HTTPClient is the HTTP client used for fetching. If nil, http.DefaultClient is used.
+	// HTTPClient is the HTTP client used for fetching. If nil, a client with a timeout is used.
 	HTTPClient *http.Client
+
+	// refreshTimeout overrides defaultRefreshTimeout when non-zero (tests).
+	refreshTimeout time.Duration
+}
+
+func (c *Cache) httpClient() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
+	return &http.Client{Timeout: defaultRefreshTimeout}
 }
 
 // DefaultCacheDir returns the default models.dev cache directory, honouring
@@ -146,6 +164,16 @@ func (c *Cache) LoadMetadata() (CacheMetadata, error) {
 // Refresh fetches fresh data from models.dev (or returns cached if 304 Not Modified).
 // Non-fatal: returns nil error on network failure when stale cache is available.
 func (c *Cache) Refresh(ctx context.Context) error {
+	timeout := c.refreshTimeout
+	if timeout == 0 {
+		timeout = defaultRefreshTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if err := os.MkdirAll(c.Dir, 0o700); err != nil {
+		return fmt.Errorf("create cache dir: %w", err)
+	}
 	existingMeta, _ := c.LoadMetadata()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsDevURL, nil)
@@ -160,12 +188,7 @@ func (c *Cache) Refresh(ctx context.Context) error {
 		req.Header.Set("If-Modified-Since", existingMeta.LastModified)
 	}
 
-	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-
-	resp, err := client.Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		// Network failure: stale cache is acceptable.
 		return nil
@@ -176,23 +199,23 @@ func (c *Cache) Refresh(ctx context.Context) error {
 	case http.StatusNotModified:
 		// Cache is still valid; bump expires_at only.
 		existingMeta.ExpiresAt = time.Now().Add(cacheTTL)
-		return c.saveMetadata(existingMeta)
+		return c.writeLocked(func() error { return c.saveMetadata(existingMeta) })
 
 	case http.StatusOK:
 		// Read and validate body.
-		buf, err := io.ReadAll(resp.Body)
+		buf, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 		if err != nil {
 			// Non-fatal.
 			return nil
+		}
+		if len(buf) > maxResponseBytes {
+			return fmt.Errorf("models.dev response exceeds %d bytes", maxResponseBytes)
 		}
 		// Validate JSON parse before writing.
 		var check any
 		if err := json.Unmarshal(buf, &check); err != nil {
 			// Body not valid JSON; don't corrupt cache.
 			return nil
-		}
-		if err := atomicWrite(c.CachePath(), buf); err != nil {
-			return fmt.Errorf("atomic write cache: %w", err)
 		}
 		now := time.Now()
 		meta := CacheMetadata{
@@ -203,12 +226,32 @@ func (c *Cache) Refresh(ctx context.Context) error {
 			URL:           modelsDevURL,
 			SchemaVersion: schemaVersion,
 		}
-		return c.saveMetadata(meta)
+		return c.writeLocked(func() error {
+			if err := atomicWrite(c.CachePath(), buf); err != nil {
+				return fmt.Errorf("atomic write cache: %w", err)
+			}
+			return c.saveMetadata(meta)
+		})
 
 	default:
 		// 4xx, 5xx — non-fatal; stale cache is acceptable.
 		return nil
 	}
+}
+
+// writeLocked runs write under the cross-process cache lock. Only the local
+// cache writes are locked, never the network fetch, so a slow fetch in one
+// process cannot block another process's startup.
+func (c *Cache) writeLocked(write func() error) error {
+	if err := os.MkdirAll(c.Dir, 0o700); err != nil {
+		return fmt.Errorf("create cache dir: %w", err)
+	}
+	release, err := acquireFileLock(filepath.Join(c.Dir, lockFilename))
+	if err != nil {
+		return fmt.Errorf("lock cache: %w", err)
+	}
+	defer release()
+	return write()
 }
 
 // Clear removes both cache files.
@@ -236,7 +279,7 @@ func (c *Cache) saveMetadata(meta CacheMetadata) error {
 // atomicWrite writes data to path via a temp file + rename to avoid partial writes.
 func atomicWrite(path string, data []byte) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
 	tmp, err := os.CreateTemp(dir, ".tmp-models-dev-*")
@@ -248,6 +291,11 @@ func atomicWrite(path string, data []byte) error {
 		_ = tmp.Close()
 		os.Remove(tmpName) //nolint:errcheck
 		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		os.Remove(tmpName) //nolint:errcheck
+		return fmt.Errorf("sync temp file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpName) //nolint:errcheck

@@ -120,7 +120,7 @@ func (e *CodexEnumerator) codexRequest(ctx context.Context, ep Endpoint, opts En
 
 func decodeCodexModels(resp *http.Response) (codexModelsResponse, error) {
 	var response codexModelsResponse
-	decoder := json.NewDecoder(resp.Body)
+	decoder := json.NewDecoder(capBody(resp.Body))
 	if err := decoder.Decode(&response); err != nil {
 		return codexModelsResponse{}, fmt.Errorf("decode Codex models response: %w", err)
 	}

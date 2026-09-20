@@ -585,7 +585,12 @@ func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcom
 		if outcome.Error != nil {
 			return p.handleError(ctx, outcome.State, outcome.Error)
 		}
-		return outcome
+		if outcome.Stop || outcome.Retry {
+			return outcome
+		}
+		// Nothing left to compact but the request still fits the hard limit:
+		// continue with the model call instead of aborting the run.
+		state = outcome.State
 	}
 
 	modelCtx := ctx
@@ -641,6 +646,11 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 	}
 	if compacted {
 		return turnOutcome{State: state, Retry: true}
+	}
+	if fit.Fits {
+		// Soft compaction threshold crossed, but no candidate is left and the
+		// request fits the hard limit: proceed without compacting.
+		return turnOutcome{State: state}
 	}
 	return turnOutcome{
 		State: state,

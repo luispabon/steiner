@@ -275,12 +275,6 @@ func TestSummarizeCompactorPreservesCurrentBehavior(t *testing.T) {
 	if messageContentsContain(ToProviderMessages(outcome.State.Conversation), "turn 1 user") {
 		t.Fatalf("conversation retained older turn in raw transcript: %#v", outcome.State.Conversation)
 	}
-	if got, want := len(outcome.State.Context.RetainedSummaries), 1; got != want {
-		t.Fatalf("retained summaries = %d, want %d", got, want)
-	}
-	if got, want := outcome.State.Context.RetainedSummaries[0].Text, "summary handoff text"; got != want {
-		t.Fatalf("retained summary text = %q, want %q", got, want)
-	}
 }
 
 func TestSummarizeCompactorCutsSourceBeforeRecentTurns(t *testing.T) {
@@ -2119,5 +2113,54 @@ func TestBuildCompactionRequestWithModeReturnsBlocks(t *testing.T) {
 	}
 	if !foundPreamble {
 		t.Errorf("blocks %+v missing preamble block", blocks)
+	}
+}
+
+func TestRunStageAndFitNotAppliedThatFitsIsNoOpSuccess(t *testing.T) {
+	t.Parallel()
+
+	preStage := RunState{Conversation: []Message{
+		{Role: MessageRoleUser, Content: "keep me"},
+		{Role: MessageRoleAssistant, Content: "and me"},
+	}}
+	fits := prompt.RequestTokenBudget{Fits: true, ContextSize: 1000, PromptUsage: 0.75}
+
+	tests := []struct {
+		name    string
+		outcome CompactionOutcome
+		wantErr bool
+	}{
+		{name: "not applied but fits", outcome: CompactionOutcome{Applied: false, Fit: fits}},
+		{name: "not applied and does not fit", outcome: CompactionOutcome{Applied: false, Fit: prompt.RequestTokenBudget{ContextSize: 1000, PromptUsage: 0.95}}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			stages := summarizeCompactionStages{
+				stageRunner: func(context.Context, RunRequest, RunState, int, ConversationCandidate, summarizeCompactionStageParams) (CompactionOutcome, error) {
+					return tt.outcome, nil
+				},
+				fitRunner: func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error) {
+					t.Error("fitRunner must not be called for a not-applied stage")
+					return prompt.RequestTokenBudget{}, nil
+				},
+			}
+			got, err := stages.runStageAndFit(context.Background(), RunRequest{}, preStage, 1, ConversationCandidate{}, summarizeCompactionStageParams{})
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("runStageAndFit() error = nil, want non-nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("runStageAndFit() error = %v, want nil", err)
+			}
+			if got.Applied {
+				t.Error("Applied = true, want false")
+			}
+			if len(got.State.Conversation) != len(preStage.Conversation) || got.State.Conversation[0].Content != "keep me" {
+				t.Errorf("State.Conversation = %+v, want pre-stage conversation preserved", got.State.Conversation)
+			}
+		})
 	}
 }

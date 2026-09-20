@@ -174,18 +174,18 @@ func doAnthropicRequest(client *http.Client, req *http.Request) (anthropicListRe
 	}
 	defer func() { _ = resp.Body.Close() }() // Response body cleanup errors do not change enumeration result.
 	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes*4))
 		if readErr != nil {
 			return anthropicListResponse{}, "", resp.StatusCode, fmt.Errorf("read Anthropic error response: %w", readErr)
 		}
 		message := string(body)
 		if resp.StatusCode == http.StatusBadRequest && (strings.Contains(strings.ToLower(message), "limit") || strings.Contains(strings.ToLower(message), "page size")) {
-			return anthropicListResponse{}, "", resp.StatusCode, fmt.Errorf("anthropic page size rejected: %s", message)
+			return anthropicListResponse{}, "", resp.StatusCode, fmt.Errorf("anthropic page size rejected: %s", truncateForError(message))
 		}
 		return anthropicListResponse{}, "", resp.StatusCode, fmt.Errorf("enumerate models: unexpected status code %d", resp.StatusCode)
 	}
 	var response anthropicListResponse
-	decoder := json.NewDecoder(resp.Body)
+	decoder := json.NewDecoder(capBody(resp.Body))
 	if err := decoder.Decode(&response); err != nil {
 		return anthropicListResponse{}, "", resp.StatusCode, fmt.Errorf("decode model enumeration response: %w", err)
 	}

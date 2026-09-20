@@ -687,7 +687,7 @@ func TestMessageConvert_AssemblyOptions(t *testing.T) {
 			Conversation: []Message{{Role: MessageRoleUser, Content: "fallback msg"}},
 			Lineage:      newConversationLineage([]Message{{Role: MessageRoleUser, Content: "fallback msg"}}),
 			Context: ContextState{
-				RetainedSummaries: []RetainedSummary{{Title: "summary", Text: "retained"}},
+				RecentToolCalls: []string{"read"},
 			},
 		}
 		base := prompt.AssemblyOptions{}
@@ -777,73 +777,6 @@ func TestMessageConvert_AssemblyOptions(t *testing.T) {
 		}
 		if len(result.SkillsRoots) != 1 || result.SkillsRoots[0] != "/skills" {
 			t.Errorf("expected [/skills], got %v", result.SkillsRoots)
-		}
-	})
-}
-
-func TestMessageConvert_ToPromptContext(t *testing.T) {
-	t.Run("empty state produces empty slice", func(t *testing.T) {
-		state := ContextState{}
-		result := toPromptContext(state)
-		if len(result.RetainedSummaries) != 0 {
-			t.Errorf("expected 0 summaries, got %d", len(result.RetainedSummaries))
-		}
-	})
-
-	t.Run("maps retained summaries correctly", func(t *testing.T) {
-		state := ContextState{
-			RetainedSummaries: []RetainedSummary{
-				{Title: "summary1", Text: "body", Source: "compactor", Turn: 4},
-			},
-		}
-		result := toPromptContext(state)
-
-		if len(result.RetainedSummaries) != 1 {
-			t.Fatalf("expected 1 summary, got %d", len(result.RetainedSummaries))
-		}
-		if result.RetainedSummaries[0] != (prompt.DurableSummaryEntry{Title: "summary1", Text: "body", Source: "compactor", Turn: 4}) {
-			t.Errorf("summary mismatch: %+v", result.RetainedSummaries[0])
-		}
-	})
-}
-
-func TestMessageConvert_FromPromptContext(t *testing.T) {
-	t.Run("empty state produces empty slice", func(t *testing.T) {
-		state := prompt.DurableContextState{}
-		result := fromPromptContext(state)
-		if len(result.RetainedSummaries) != 0 {
-			t.Errorf("expected 0 summaries, got %d", len(result.RetainedSummaries))
-		}
-	})
-
-	t.Run("maps retained summaries correctly", func(t *testing.T) {
-		state := prompt.DurableContextState{
-			RetainedSummaries: []prompt.DurableSummaryEntry{
-				{Title: "s1", Text: "body", Source: "compactor", Turn: 4},
-			},
-		}
-		result := fromPromptContext(state)
-
-		if len(result.RetainedSummaries) != 1 {
-			t.Fatalf("expected 1 summary, got %d", len(result.RetainedSummaries))
-		}
-		if result.RetainedSummaries[0] != (RetainedSummary{Title: "s1", Text: "body", Source: "compactor", Turn: 4}) {
-			t.Errorf("summary mismatch: %+v", result.RetainedSummaries[0])
-		}
-	})
-}
-
-func TestMessageConvert_PromptContextRoundTrip(t *testing.T) {
-	t.Run("round-trips retained summaries", func(t *testing.T) {
-		original := ContextState{
-			RetainedSummaries: []RetainedSummary{
-				{Title: "title", Text: "body", Source: "compactor", Turn: 4},
-			},
-		}
-		result := fromPromptContext(toPromptContext(original))
-
-		if len(result.RetainedSummaries) != 1 || result.RetainedSummaries[0] != (RetainedSummary{Title: "title", Text: "body", Source: "compactor", Turn: 4}) {
-			t.Errorf("summary mismatch after round-trip: %+v", result.RetainedSummaries)
 		}
 	})
 }

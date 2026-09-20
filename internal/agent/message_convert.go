@@ -161,38 +161,7 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 	providerMsgs := ToReplaySafeProviderMessages(conversation)
 
 	base.Conversation = providerMsgs
-	base.ContextState = toPromptContext(state.Context)
 	return base
-}
-
-func toPromptContext(state ContextState) prompt.DurableContextState {
-	out := prompt.DurableContextState{
-		RetainedSummaries: make([]prompt.DurableSummaryEntry, 0, len(state.RetainedSummaries)),
-	}
-	for _, item := range state.RetainedSummaries {
-		out.RetainedSummaries = append(out.RetainedSummaries, prompt.DurableSummaryEntry{
-			Title:  item.Title,
-			Text:   item.Text,
-			Source: item.Source,
-			Turn:   item.Turn,
-		})
-	}
-	return out
-}
-
-func fromPromptContext(state prompt.DurableContextState) ContextState {
-	out := ContextState{
-		RetainedSummaries: make([]RetainedSummary, 0, len(state.RetainedSummaries)),
-	}
-	for _, item := range state.RetainedSummaries {
-		out.RetainedSummaries = append(out.RetainedSummaries, RetainedSummary{
-			Title:  item.Title,
-			Text:   item.Text,
-			Source: item.Source,
-			Turn:   item.Turn,
-		})
-	}
-	return out
 }
 
 func stripReasoningContent(messages []provider.Message) {

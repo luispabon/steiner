@@ -231,7 +231,6 @@ func initializeRunState(req RunRequest) RunState {
 	state := RunState{
 		Conversation: conversation,
 		Lineage:      newConversationLineage(conversation),
-		Context:      fromPromptContext(req.Prompt.ContextState),
 	}
 	state.TurnCount = initialConversationTurnCount(conversation)
 	return state

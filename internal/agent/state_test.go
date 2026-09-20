@@ -142,9 +142,8 @@ func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 			{Role: MessageRoleUser, Content: "keep working"},
 		}),
 		Context: ContextState{
-			RetainedSummaries: []RetainedSummary{
-				{Title: "earlier progress", Text: "implemented the scheduler", Source: "compaction", Turn: 2},
-			},
+			RecentToolCalls: []string{"read"},
+			TurnCount:       2,
 		},
 	}
 
@@ -170,23 +169,21 @@ func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 	if got, want := withConversation.Lineage.FullMessages()[0].Content, "new turn"; got != want {
 		t.Fatalf("Lineage full content = %q, want %q", got, want)
 	}
-	if got, want := withConversation.Context.RetainedSummaries[0].Text, "implemented the scheduler"; got != want {
-		t.Fatalf("RetainedSummary text = %q, want %q", got, want)
+	if got, want := withConversation.Context.RecentToolCalls[0], "read"; got != want {
+		t.Fatalf("RecentToolCalls[0] = %q, want %q", got, want)
 	}
 
-	withConversation.Context.RetainedSummaries[0].Text = "changed"
+	withConversation.Context.RecentToolCalls[0] = "changed"
 
-	if got, want := original.Context.RetainedSummaries[0].Text, "implemented the scheduler"; got != want {
-		t.Fatalf("original retained summary text = %q, want %q", got, want)
+	if got, want := original.Context.RecentToolCalls[0], "read"; got != want {
+		t.Fatalf("original RecentToolCalls[0] = %q, want %q", got, want)
 	}
 	if got, want := original.Lineage.FullMessages()[0].Content, "keep working"; got != want {
 		t.Fatalf("original lineage content = %q, want %q", got, want)
 	}
 
 	withContext := original.WithContext(ContextState{
-		RetainedSummaries: []RetainedSummary{
-			{Title: "replacement", Text: "render compacted context blocks", Source: "planner", Turn: 4},
-		},
+		RecentToolCalls: []string{"mutate"},
 	})
 
 	if got, want := len(withContext.Conversation), len(original.Conversation); got != want {
@@ -195,8 +192,8 @@ func TestRunStateUpdateHelpersPreserveDurableContext(t *testing.T) {
 	if got, want := withContext.Conversation[0].Content, "keep working"; got != want {
 		t.Fatalf("Conversation content = %q, want %q", got, want)
 	}
-	if got, want := withContext.Context.RetainedSummaries[0].Text, "render compacted context blocks"; got != want {
-		t.Fatalf("replacement RetainedSummary text = %q, want %q", got, want)
+	if got, want := withContext.Context.RecentToolCalls[0], "mutate"; got != want {
+		t.Fatalf("replacement RecentToolCalls[0] = %q, want %q", got, want)
 	}
 	if got, want := withContext.Lineage.FullMessages()[0].Content, "keep working"; got != want {
 		t.Fatalf("WithContext lineage content = %q, want %q", got, want)

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -48,40 +47,6 @@ func compactionCannotSolveError(fit prompt.RequestTokenBudget) error {
 	)
 }
 
-func recordCompactionSummary(current ContextState, summary string, candidate ConversationCandidate, turn int) ContextState {
-	next := current.Clone()
-	next.RetainedSummaries = appendRetainedSummary(next.RetainedSummaries, compactionRetainedSummary(summary, candidate, turn))
-	return next
-}
-
-func compactionRetainedSummary(summary string, candidate ConversationCandidate, turn int) RetainedSummary {
-	title, text := parseCompactionRetainedSummary(summary)
-	return RetainedSummary{
-		Title:  title,
-		Text:   text,
-		Source: fmt.Sprintf("compaction:%d/%s", candidate.GenerationID, candidate.View),
-		Turn:   turn,
-	}
-}
-
-func parseCompactionRetainedSummary(summary string) (string, string) {
-	title := "compacted conversation history"
-	text := summary
-	var envelope struct {
-		Title   string `json:"title"`
-		Content string `json:"content"`
-	}
-	if err := json.Unmarshal([]byte(summary), &envelope); err == nil {
-		if strings.TrimSpace(envelope.Title) != "" {
-			title = envelope.Title
-		}
-		if strings.TrimSpace(envelope.Content) != "" {
-			text = envelope.Content
-		}
-	}
-	return title, text
-}
-
 func fallbackCompactionSummary(candidate ConversationCandidate) string {
 	if len(candidate.Messages) == 0 {
 		return ""
@@ -100,28 +65,6 @@ func fallbackCompactionSummary(candidate ConversationCandidate) string {
 		"- continue from the retained conversation",
 	}
 	return strings.Join(sections, "\n")
-}
-
-func appendRetainedSummary(existing []RetainedSummary, summary RetainedSummary) []RetainedSummary {
-	if strings.TrimSpace(summary.Text) == "" {
-		return cloneRetainedSummaries(existing)
-	}
-	next := cloneRetainedSummaries(existing)
-	if len(next) > 0 {
-		last := next[len(next)-1]
-		if retainedSummariesEqual(last, summary) {
-			next[len(next)-1] = summary
-			return next
-		}
-	}
-	return append(next, summary)
-}
-
-func retainedSummariesEqual(a, b RetainedSummary) bool {
-	return a.Title == b.Title &&
-		a.Text == b.Text &&
-		a.Source == b.Source &&
-		a.Turn == b.Turn
 }
 
 func compactionEscalationForFit(compactionCount int, fit prompt.RequestTokenBudget) compactionEscalation {
@@ -189,13 +132,12 @@ func compactionSummaryText(content string, candidate ConversationCandidate) stri
 	return fallbackCompactionSummary(candidate)
 }
 
-func buildSummarizedCompactionState(state RunState, summaryText string, candidate ConversationCandidate, turn int, retained []Message) RunState {
+func buildSummarizedCompactionState(state RunState, summaryText string, retained []Message) RunState {
 	summaryPrefix := []Message{{Role: MessageRoleSummary, Content: summaryText}}
 	nextLineage := state.Lineage.WithNewGeneration(summaryPrefix, retained)
 	nextState := state.Clone()
 	nextState.Lineage = nextLineage
 	nextState.Conversation = nextLineage.FullMessages()
-	nextState.Context = recordCompactionSummary(nextState.Context, summaryText, candidate, turn)
 	return nextState
 }
 

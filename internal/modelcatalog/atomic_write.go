@@ -21,6 +21,10 @@ func atomicWriteFile(dir, pattern, target, kind string, data []byte) error {
 		_ = tmp.Close()
 		return fmt.Errorf("write %s temp file: %w", kind, err)
 	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync %s temp file: %w", kind, err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close %s temp file: %w", kind, err)
 	}
