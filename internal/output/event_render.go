@@ -197,6 +197,12 @@ func renderModelCallFinishedEvent(payload ModelCallFinishedEvent) Segment {
 	return Segment{Channel: channel, Label: label, Text: strings.Join(parts, " ")}
 }
 
+// maxRenderedToolFieldRunes bounds the tool arguments, tool result, and
+// unknown-event payload text rendered into a single terminal line. Tool output
+// can be megabytes; the full value stays in the session log and the model
+// context, the terminal line only needs enough to identify the call.
+const maxRenderedToolFieldRunes = 2048
+
 func renderToolCallStartedEvent(payload ToolCallStartedEvent) Segment {
 	parts := []string{
 		fmt.Sprintf("turn=%d start", payload.Turn),
@@ -204,7 +210,7 @@ func renderToolCallStartedEvent(payload ToolCallStartedEvent) Segment {
 	parts = appendField(parts, "tool", payload.Tool)
 	parts = appendField(parts, "id", payload.CallID)
 	if len(payload.Arguments) > 0 {
-		parts = append(parts, fmt.Sprintf("args=%s", CompactJSON(payload.Arguments)))
+		parts = append(parts, fmt.Sprintf("args=%s", TruncateWithEllipsis(CompactJSON(payload.Arguments), maxRenderedToolFieldRunes)))
 	}
 	return Segment{Channel: ChannelTool, Label: "tool", Text: strings.Join(parts, " ")}
 }
@@ -215,7 +221,7 @@ func renderToolCallFinishedEvent(payload ToolCallFinishedEvent) Segment {
 	}
 	parts = appendField(parts, "tool", payload.Tool)
 	parts = appendField(parts, "id", payload.CallID)
-	parts = appendField(parts, "result", payload.Result)
+	parts = appendField(parts, "result", TruncateWithEllipsis(payload.Result, maxRenderedToolFieldRunes))
 	channel := ChannelTool
 	label := "tool"
 	if payload.Error != "" {
@@ -394,7 +400,7 @@ func renderUnknownEvent(event Event) Segment {
 	if event.Payload == nil {
 		return Segment{Channel: ChannelStatus, Label: "status", Text: event.Type}
 	}
-	return Segment{Channel: ChannelStatus, Label: "status", Text: fmt.Sprintf("%s %s", event.Type, CompactJSON(event.Payload))}
+	return Segment{Channel: ChannelStatus, Label: "status", Text: fmt.Sprintf("%s %s", event.Type, TruncateWithEllipsis(CompactJSON(event.Payload), maxRenderedToolFieldRunes))}
 }
 
 // FormatEvent renders an event into the plain-text line shown in stream output.
