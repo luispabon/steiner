@@ -10,7 +10,8 @@ import (
 	"time"
 )
 
-func TestRefreshIgnoresOversizeBody(t *testing.T) {
+func newOversizeServer(t *testing.T) *httptest.Server {
+	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"pad":"`))
@@ -22,14 +23,40 @@ func TestRefreshIgnoresOversizeBody(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(`"}`))
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestRefreshRejectsOversizeBody(t *testing.T) {
+	srv := newOversizeServer(t)
 	c := newTestCache(t)
 	c.HTTPClient = &http.Client{Transport: &redirectTransport{target: srv.URL}}
-	if err := c.Refresh(context.Background()); err != nil {
-		t.Fatalf("Refresh() error = %v, want nil (stale cache fallback)", err)
+	if err := c.Refresh(context.Background()); err == nil {
+		t.Fatal("Refresh() error = nil, want oversize rejection")
 	}
 	if _, err := os.Stat(c.CachePath()); !os.IsNotExist(err) {
 		t.Fatalf("cache file written for oversize body: %v", err)
+	}
+}
+
+// LoadBestEffortWithStatus is what makes returning the Refresh error safe:
+// it must still serve the stale cache and record why the refresh failed.
+func TestLoadBestEffortWithStatusOversizeRefreshServesStaleCache(t *testing.T) {
+	srv := newOversizeServer(t)
+	c := newTestCache(t)
+	stale := []byte(`{"stale":true}`)
+	writeTestData(t, c, stale) // no metadata file, so the cache is not fresh
+	c.HTTPClient = &http.Client{Transport: &redirectTransport{target: srv.URL}}
+
+	res := c.LoadBestEffortWithStatus(context.Background())
+	if res.Err != nil {
+		t.Fatalf("Err = %v, want nil", res.Err)
+	}
+	if string(res.Data) != string(stale) {
+		t.Fatalf("Data = %q, want stale cache %q", res.Data, stale)
+	}
+	if !strings.Contains(res.Status.Reason, "exceeds") {
+		t.Fatalf("Status.Reason = %q, want it to mention the oversize failure", res.Status.Reason)
 	}
 }
 

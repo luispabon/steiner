@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -210,9 +209,7 @@ func (c *Cache) Refresh(ctx context.Context) error {
 			return nil
 		}
 		if len(buf) > maxResponseBytes {
-			// Like any other refresh failure: keep the stale cache.
-			slog.Warn("models.dev response too large; keeping cached metadata", "limit_bytes", maxResponseBytes)
-			return nil
+			return fmt.Errorf("models.dev response exceeds %d bytes", maxResponseBytes)
 		}
 		// Validate JSON parse before writing.
 		var check any
