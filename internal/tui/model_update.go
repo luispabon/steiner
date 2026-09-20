@@ -99,6 +99,10 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case gitRefreshDoneMsg:
 		m.syncSidebar()
 		return m, nil
+	case clipboardFailedMsg:
+		m.appendError(msg.err)
+		m.syncViewport()
+		return m, nil
 	case controllerHandleFailedMsg:
 		m.appendError(msg.err)
 		m.syncViewport()

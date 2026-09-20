@@ -117,6 +117,9 @@ func (r *PlainRenderer) Printf(format string, args ...any) {
 	if r.err != nil {
 		return
 	}
+	if !r.finishStreamingLocked() {
+		return
+	}
 	r.writeStringLocked(fmt.Sprintf(format, args...))
 }
 

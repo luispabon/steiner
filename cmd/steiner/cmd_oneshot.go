@@ -54,8 +54,19 @@ type phaseRunnerParams struct {
 	OrchestrationLevel func() config.OrchestrationLevel
 }
 
+// buildPhaseRuntime is the runtime constructor used by newPhaseRunner; tests
+// replace it to observe the flags a phase runtime is built from.
+var buildPhaseRuntime = buildRuntimeWithRoots
+
 func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, params phaseRunnerParams) (oneshot.PhaseRunner, error) {
-	runtime, err := buildRuntimeWithRoots(ctx, cmd, flags, params.ProjectRoot, params.WorkDir, params.ModelAlias)
+	// A phase runtime is single-use and has no readiness wait of its own, so it
+	// must block on MCP connects even when the launching TUI runs asyncMCP.
+	// Copy the flags so the shared *cliFlags is never mutated.
+	// Shallow copy: only a bool is overridden, so this isolates it. If cliFlags
+	// gains a slice or map field, deep-copy it here or C1 silently regresses.
+	phaseFlags := *flags
+	phaseFlags.asyncMCP = false
+	runtime, err := buildPhaseRuntime(ctx, cmd, &phaseFlags, params.ProjectRoot, params.WorkDir, params.ModelAlias)
 	if err != nil {
 		return nil, err
 	}
