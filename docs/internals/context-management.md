@@ -80,14 +80,9 @@ Both stages work the same way:
 1. Older turns are split from the retained recent turns.
 2. The older turns are assembled through the normal prompt assembly path, then a final `user` message is appended asking the model to summarise them. The compaction request carries the same tool definitions and generation params as a normal turn, so the call replays the identical cached prefix (system + tools + conversation) and hits the prompt cache. This holds for manual `/compact` too: the interactive session reuses the runner's `PromptAssembly` options rather than building its own, so both paths assemble from the same skills, project context, and preamble settings. Normal mode uses a detailed 8-section handoff (task, repo state, work completed, decisions, problems, remaining work, verification, preferences). Emergency mode appends extra guidance to be shorter and more lossy. When `cave_human` is enabled, the compaction prompt uses a purpose-built compaction voice block in place of the standard instruction, producing denser summaries (dropped articles, `key=value` shorthand, semicolons over sentences) instead of the verbose default.
 3. The model's summary becomes a `MessageRoleSummary` prefix on a new `ConversationGeneration`.
-4. The summary is appended to `ContextState.RetainedSummaries` with source `compaction:{generationID}/{view}`.
-5. A new `ConversationGeneration` is created containing just the summary prefix + retained turns. The old generation is preserved in `ConversationLineage`.
+4. A new `ConversationGeneration` is created containing just the summary prefix + retained turns. The old generation is preserved in `ConversationLineage`.
 
 `ConversationLineage` keeps all generations — nothing is ever pruned. This means the full conversation history is theoretically recoverable, but subsequent turns only see the latest generation.
-
-### Durable context
-
-During compaction, `RetainedSummaries` from previous compactions are included by the same prompt assembly path used for normal turns. This ensures the compacting model has awareness of earlier work even though the original transcript is gone from the active generation.
 
 ### Escalation policy
 
@@ -113,13 +108,12 @@ Context diagnostics for these states are emitted as typed sub-events: budget, co
 
 | Field | Purpose |
 |-------|---------|
-| `RetainedSummaries` | Accumulated compaction summaries; fed into subsequent compaction prompts |
 | `FileTrackerSummary` | Names of files the agent has read or modified |
 | `RecentToolCalls` | Tool names used in recent turns; refreshed each turn from lineage |
 | `TurnCount` | Total turns in the session |
 | `CompactionCount` | How many times compaction has run |
 
-`ContextState` is cloned on each turn. Compactions append to `RetainedSummaries` and increment `CompactionCount`. `RecentToolCalls` is rebuilt each turn from the current lineage generation's messages.
+`ContextState` is cloned on each turn. Compactions increment `CompactionCount`; the summary itself lives only in the new generation's prefix, so each compaction replaces the previous summary rather than stacking. `RecentToolCalls` is rebuilt each turn from the current lineage generation's messages.
 
 ---
 

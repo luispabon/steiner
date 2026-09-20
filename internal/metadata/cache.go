@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -174,12 +175,6 @@ func (c *Cache) Refresh(ctx context.Context) error {
 	if err := os.MkdirAll(c.Dir, 0o700); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
-	release, err := acquireFileLock(filepath.Join(c.Dir, lockFilename))
-	if err != nil {
-		return fmt.Errorf("lock cache: %w", err)
-	}
-	defer release()
-
 	existingMeta, _ := c.LoadMetadata()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsDevURL, nil)
@@ -205,7 +200,7 @@ func (c *Cache) Refresh(ctx context.Context) error {
 	case http.StatusNotModified:
 		// Cache is still valid; bump expires_at only.
 		existingMeta.ExpiresAt = time.Now().Add(cacheTTL)
-		return c.saveMetadata(existingMeta)
+		return c.writeLocked(func() error { return c.saveMetadata(existingMeta) })
 
 	case http.StatusOK:
 		// Read and validate body.
@@ -215,16 +210,15 @@ func (c *Cache) Refresh(ctx context.Context) error {
 			return nil
 		}
 		if len(buf) > maxResponseBytes {
-			return fmt.Errorf("models.dev response exceeds %d bytes", maxResponseBytes)
+			// Like any other refresh failure: keep the stale cache.
+			slog.Warn("models.dev response too large; keeping cached metadata", "limit_bytes", maxResponseBytes)
+			return nil
 		}
 		// Validate JSON parse before writing.
 		var check any
 		if err := json.Unmarshal(buf, &check); err != nil {
 			// Body not valid JSON; don't corrupt cache.
 			return nil
-		}
-		if err := atomicWrite(c.CachePath(), buf); err != nil {
-			return fmt.Errorf("atomic write cache: %w", err)
 		}
 		now := time.Now()
 		meta := CacheMetadata{
@@ -235,12 +229,32 @@ func (c *Cache) Refresh(ctx context.Context) error {
 			URL:           modelsDevURL,
 			SchemaVersion: schemaVersion,
 		}
-		return c.saveMetadata(meta)
+		return c.writeLocked(func() error {
+			if err := atomicWrite(c.CachePath(), buf); err != nil {
+				return fmt.Errorf("atomic write cache: %w", err)
+			}
+			return c.saveMetadata(meta)
+		})
 
 	default:
 		// 4xx, 5xx — non-fatal; stale cache is acceptable.
 		return nil
 	}
+}
+
+// writeLocked runs write under the cross-process cache lock. Only the local
+// cache writes are locked, never the network fetch, so a slow fetch in one
+// process cannot block another process's startup.
+func (c *Cache) writeLocked(write func() error) error {
+	if err := os.MkdirAll(c.Dir, 0o700); err != nil {
+		return fmt.Errorf("create cache dir: %w", err)
+	}
+	release, err := acquireFileLock(filepath.Join(c.Dir, lockFilename))
+	if err != nil {
+		return fmt.Errorf("lock cache: %w", err)
+	}
+	defer release()
+	return write()
 }
 
 // Clear removes both cache files.

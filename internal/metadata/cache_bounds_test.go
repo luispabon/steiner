@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func TestRefreshRejectsOversizeBody(t *testing.T) {
+func TestRefreshIgnoresOversizeBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"pad":"`))
@@ -25,8 +25,8 @@ func TestRefreshRejectsOversizeBody(t *testing.T) {
 	defer srv.Close()
 	c := newTestCache(t)
 	c.HTTPClient = &http.Client{Transport: &redirectTransport{target: srv.URL}}
-	if err := c.Refresh(context.Background()); err == nil {
-		t.Fatal("Refresh() error = nil, want oversize rejection")
+	if err := c.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v, want nil (stale cache fallback)", err)
 	}
 	if _, err := os.Stat(c.CachePath()); !os.IsNotExist(err) {
 		t.Fatalf("cache file written for oversize body: %v", err)
