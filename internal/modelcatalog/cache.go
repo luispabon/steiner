@@ -121,7 +121,7 @@ func (c *Cache) SaveAtomic(alias string, envelope CacheEnvelope) error {
 	envelope.FetchedAt = now
 	envelope.ExpiresAt = now.Add(CacheTTL)
 
-	if err := os.MkdirAll(c.Dir, 0o755); err != nil {
+	if err := os.MkdirAll(c.Dir, 0o700); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
 	release, err := c.lock(alias)
@@ -201,7 +201,7 @@ func (c *Cache) readEnvelope(alias string) (CacheEnvelope, error) {
 }
 
 func (c *Cache) lock(alias string) (func(), error) {
-	if err := os.MkdirAll(c.Dir, 0o755); err != nil {
+	if err := os.MkdirAll(c.Dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create cache dir: %w", err)
 	}
 	release, err := acquireFileLock(c.lockPath(alias))

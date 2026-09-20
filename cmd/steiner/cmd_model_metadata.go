@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,6 +38,9 @@ func newModelMetadataStatusCommand() *cobra.Command {
 	}
 }
 
+// modelMetadataRefreshTimeout bounds a manual models.dev refresh.
+const modelMetadataRefreshTimeout = 8 * time.Second
+
 func newModelMetadataRefreshCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "refresh",
@@ -47,8 +51,10 @@ func newModelMetadataRefreshCommand() *cobra.Command {
 }
 
 func runModelMetadataRefresh(cmd *cobra.Command, _ []string) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), modelMetadataRefreshTimeout)
+	defer cancel()
 	cache := metadataCacheFactory(nil)
-	if err := cache.Refresh(cmd.Context()); err != nil {
+	if err := cache.Refresh(ctx); err != nil {
 		return fmt.Errorf("refresh cache: %w", err)
 	}
 	if _, err := fmt.Fprintln(cmd.OutOrStdout(), "model metadata cache refreshed"); err != nil {

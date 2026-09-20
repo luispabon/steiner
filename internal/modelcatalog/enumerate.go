@@ -3,9 +3,13 @@ package modelcatalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
 )
@@ -75,11 +79,53 @@ func SupportsType(providerType config.ProviderType) bool {
 	}
 }
 
+// maxResponseBytes caps any enumeration response body. Real provider model
+// lists are well under 2 MB; 10 MB leaves generous headroom.
+const maxResponseBytes = 10 << 20
+
+// maxErrorBodyBytes caps how much of a non-success body is read and embedded
+// in an error message.
+const maxErrorBodyBytes = 512
+
+// clientOrDefault returns client, or a new client when nil. A client without a
+// CheckRedirect gets a copy with one that refuses cross-origin redirects, so
+// provider credentials in custom headers (which net/http does not strip) never
+// reach another origin. The caller's client is not mutated.
 func clientOrDefault(client *http.Client) *http.Client {
 	if client == nil {
-		return &http.Client{}
+		return &http.Client{CheckRedirect: refuseCrossOriginRedirect}
 	}
-	return client
+	if client.CheckRedirect != nil {
+		return client
+	}
+	clone := *client
+	clone.CheckRedirect = refuseCrossOriginRedirect
+	return &clone
+}
+
+// originOf returns scheme://host:port for u, with the scheme's default port made explicit.
+func originOf(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		switch u.Scheme {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return strings.ToLower(u.Scheme) + "://" + net.JoinHostPort(strings.ToLower(u.Hostname()), port)
+}
+
+// refuseCrossOriginRedirect stops redirects that leave the original request's origin.
+func refuseCrossOriginRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if from, to := originOf(via[0].URL), originOf(req.URL); from != to {
+		return fmt.Errorf("refusing cross-origin redirect from %s to %s", from, to)
+	}
+	return nil
 }
 
 func newGETRequest(ctx context.Context, ep Endpoint, endpoint string, authorization string) (*http.Request, error) {
@@ -112,7 +158,7 @@ func doJSONRequest(client *http.Client, req *http.Request, response any) (string
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return "", fmt.Errorf("enumerate models: unexpected status code %d", resp.StatusCode)
 	}
-	decoder := json.NewDecoder(resp.Body)
+	decoder := json.NewDecoder(capBody(resp.Body))
 	if err := decoder.Decode(response); err != nil {
 		return "", fmt.Errorf("decode model enumeration response: %w", err)
 	}
@@ -124,4 +170,41 @@ func doJSONRequest(client *http.Client, req *http.Request, response any) (string
 		return "", fmt.Errorf("decode model enumeration response: %w", err)
 	}
 	return resp.Header.Get("ETag"), nil
+}
+
+var errBodyTooLarge = errors.New("response body exceeds size limit")
+
+type cappedReader struct {
+	r         io.Reader
+	remaining int64
+}
+
+// capBody wraps r so reading more than maxResponseBytes fails with
+// errBodyTooLarge instead of silently truncating.
+func capBody(r io.Reader) io.Reader {
+	return &cappedReader{r: r, remaining: maxResponseBytes}
+}
+
+func (c *cappedReader) Read(p []byte) (int, error) {
+	if c.remaining < 0 {
+		return 0, errBodyTooLarge
+	}
+	if int64(len(p)) > c.remaining+1 {
+		p = p[:c.remaining+1]
+	}
+	n, err := c.r.Read(p)
+	c.remaining -= int64(n)
+	if c.remaining < 0 {
+		return n - int(-c.remaining), errBodyTooLarge
+	}
+	return n, err
+}
+
+// truncateForError shortens s to at most maxErrorBodyBytes for embedding in errors.
+func truncateForError(s string) string {
+	s = strings.ToValidUTF8(s, "")
+	if len(s) > maxErrorBodyBytes {
+		return s[:maxErrorBodyBytes] + "..."
+	}
+	return s
 }

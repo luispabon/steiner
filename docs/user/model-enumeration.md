@@ -142,3 +142,5 @@ prints `disabled` when discovery is off.
   a compatible endpoint as described above.
 - Steiner does not automatically re-refresh providers during a session beyond the
   startup refresh of missing or stale caches and explicit `steiner models refresh`.
+
+Enumeration requests refuse redirects to a different origin (scheme, host, or port) so provider credentials and configured headers are never forwarded to another host; same-origin redirects still work. Responses larger than 10 MB are rejected.

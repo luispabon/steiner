@@ -61,7 +61,7 @@ func (s *Store) Record(providerAlias, modelID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return fmt.Errorf("create popularity store dir: %w", err)
 	}
 	release, err := acquireFileLock(s.path + ".lock")
@@ -94,7 +94,7 @@ func (s *Store) Snapshot() map[Key]int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return map[Key]int{}
 	}
 	release, err := acquireFileLock(s.path + ".lock")
