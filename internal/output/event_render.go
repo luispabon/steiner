@@ -201,6 +201,12 @@ func renderModelCallFinishedEvent(payload ModelCallFinishedEvent) Segment {
 // unknown-event payload text rendered into a single terminal line. Tool output
 // can be megabytes; the full value stays in the session log and the model
 // context, the terminal line only needs enough to identify the call.
+//
+// TruncateWithEllipsis collapses whitespace (strings.Fields) even when it does
+// not truncate, so rendered args and results lose their line breaks. That is
+// deliberate: the previous raw appendField emitted newlines into the middle of
+// a line in a line-oriented stream, which corrupted the format. Do not "fix"
+// this back to preserve whitespace.
 const maxRenderedToolFieldRunes = 2048
 
 func renderToolCallStartedEvent(payload ToolCallStartedEvent) Segment {

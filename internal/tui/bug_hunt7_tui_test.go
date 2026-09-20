@@ -44,7 +44,12 @@ func TestToolCallHeaderRespectsCellWidth(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
 			seg := &toolCallSegment{tool: "bash", args: tt.args, meta: "✓", collapsed: true}
-			header := strings.TrimSuffix(b.renderToolCall(seg, width), "\n")
+			// Call the frame directly: renderToolCall wraps it in a box that
+			// re-wraps overflow and would mask the bug.
+			header := b.renderToolCallFrame(seg, width)
+			if strings.Contains(header, "\n") {
+				t.Fatalf("header wrapped onto multiple lines: %q", stripANSI(header))
+			}
 			if w := lipgloss.Width(header); w > width {
 				t.Fatalf("header width = %d, want <= %d: %q", w, width, stripANSI(header))
 			}

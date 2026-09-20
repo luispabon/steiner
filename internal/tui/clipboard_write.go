@@ -17,6 +17,8 @@ type clipboardFailedMsg struct{ err error }
 
 // copyToClipboard returns a tea.Cmd that writes text to the system clipboard.
 // Tries wl-copy (Wayland), xclip, xsel, then falls back to OSC52.
+// The failure path covers write errors only: a terminal that silently ignores
+// OSC52 still accepts the write and is not detectable from here.
 func copyToClipboard(text string) tea.Cmd {
 	return func() tea.Msg {
 		if clipboardExec(text) {
