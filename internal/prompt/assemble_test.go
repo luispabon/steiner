@@ -36,7 +36,6 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 		HomeDir:                   homeDir,
 		ProjectRoot:               projectRoot,
 		SkillsRoots:               []string{skillsRoot},
-		ContextState:              DurableContextState{RetainedSummaries: []DurableSummaryEntry{{Title: "summary", Text: "retained compaction summary", Source: "compactor", Turn: 4}}},
 		Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "how do I fix this?"}, {Role: provider.MessageRoleAssistant, Content: "use the tools"}},
 		ProjectContextBudgetBytes: 1024,
 		ProjectContextExtraFiles:  []string{"README.md", "go.mod"},
@@ -86,9 +85,6 @@ func TestAssembleOrdersContextAndSkipsImplicitSkills(t *testing.T) {
 
 	if readme <= 0 || readme >= conversation {
 		t.Fatalf("message order = readme:%d conversation:%d", readme, conversation)
-	}
-	if got := strings.Contains(assembly.Messages[0].Content, "retained compaction summary"); got {
-		t.Fatalf("system message unexpectedly includes retained compaction summary: %q", assembly.Messages[0].Content)
 	}
 }
 
@@ -385,29 +381,6 @@ func TestAssemblePassesFullConversationUnfiltered(t *testing.T) {
 	}
 	if convCount != len(conversation) {
 		t.Errorf("Assembly.Messages contains %d/%d conversation messages; want all", convCount, len(conversation))
-	}
-}
-
-func TestAssembleRetainedSummariesAreNotInjectedIntoSystemPrompt(t *testing.T) {
-	t.Parallel()
-
-	assembly, err := Assemble(context.Background(), AssemblyOptions{
-		ContextState: DurableContextState{
-			RetainedSummaries: []DurableSummaryEntry{
-				{Title: "compacted conversation history", Text: "earlier request and tool output", Source: "loop_compaction", Turn: 2},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Assemble() error = %v", err)
-	}
-
-	// Retained summaries should no longer produce a durable_context block in
-	// the system prompt zone — they are injected via the volatile zone instead.
-	for _, block := range assembly.Blocks {
-		if block.Source == ContextSourceDurableContext {
-			t.Fatalf("unexpected durable_context block in system prompt: %+v", block)
-		}
 	}
 }
 

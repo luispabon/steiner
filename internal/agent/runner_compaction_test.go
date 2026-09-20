@@ -12,7 +12,7 @@ import (
 )
 
 //nolint:gocyclo
-func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
+func TestRunnerKeepsPromptBoundedAcrossToolTurns(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{
@@ -64,11 +64,6 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 		Executor: executor,
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
-			ContextState: prompt.DurableContextState{
-				RetainedSummaries: []prompt.DurableSummaryEntry{
-					{Title: "prior work", Text: "keep prompt assembly policy-driven", Source: "assistant", Turn: 1},
-				},
-			},
 		},
 		Limits: Limits{MaxTurns: 8, MaxTokens: 2000},
 	})
@@ -90,14 +85,6 @@ func TestRunnerKeepsPromptBoundedAndRetainsDurableContext(t *testing.T) {
 	}
 	if got, want := state.Lineage.FullMessages()[0].Content, "start"; got != want {
 		t.Fatalf("lineage first message = %q, want %q", got, want)
-	}
-
-	// RetainedSummaries survive across turns via the compaction path.
-	if got, want := len(state.Context.RetainedSummaries), 1; got != want {
-		t.Fatalf("retained summaries = %d, want %d", got, want)
-	}
-	if got, want := state.Context.RetainedSummaries[0].Text, "keep prompt assembly policy-driven"; got != want {
-		t.Fatalf("retained summary text = %q, want %q", got, want)
 	}
 }
 
@@ -186,11 +173,6 @@ func TestRunnerEmitsContextDiagnosticsForBudgetPressureAndCompaction(t *testing.
 		Executor: executor,
 		Prompt: prompt.AssemblyOptions{
 			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "start"}},
-			ContextState: prompt.DurableContextState{
-				RetainedSummaries: []prompt.DurableSummaryEntry{
-					{Title: "prior", Text: strings.Repeat("summary ", 8), Source: "user", Turn: 1},
-				},
-			},
 		},
 		Limits: Limits{MaxTurns: 6, MaxTokens: 100},
 		Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
@@ -380,5 +362,51 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 	}
 	if got, want := budgetCount, 2; got != want {
 		t.Fatalf("token budget diagnostics = %d, want %d", got, want)
+	}
+}
+
+func TestRunnerLargeToolResultCrossingSoftThresholdButFittingCompletes(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message: provider.Message{
+					Role:      provider.MessageRoleAssistant,
+					ToolCalls: []provider.ToolCall{{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "big.txt"}}},
+				},
+				FinishReason: "tool_calls",
+			},
+			{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "done"}, FinishReason: "stop"},
+		},
+	}
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+			return tool.ExecutionResult{Value: map[string]any{"contents": strings.Repeat("word ", 400)}}, nil
+		},
+	}
+
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub,
+		Executor: executor,
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:               1800,
+			MaxCompletionTokens:       16,
+			SafetyMarginTokens:        0,
+			SummaryMaxTokens:          64,
+			NormalSummaryMaxTokens:    64,
+			EmergencySummaryMaxTokens: 32,
+		},
+		Prompt: prompt.AssemblyOptions{
+			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "read the big file"}},
+		},
+		Limits: Limits{MaxTurns: 8, MaxTokens: 5000},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v, want run to complete (reqs=%d)", err, len(providerStub.requests))
+	}
+	if got, want := state.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("StopReason = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 2; got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
 }

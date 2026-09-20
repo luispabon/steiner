@@ -171,6 +171,13 @@ func (s summarizeCompactionStages) runStageAndFit(
 		return CompactionOutcome{}, err
 	}
 	if !outcome.Applied {
+		if outcome.Fit.Fits {
+			// Nothing to summarize (or an empty summary) but the request still
+			// fits the hard limit: a no-op success. A not-applied outcome carries
+			// a zero-value State, so keep the pre-stage state.
+			outcome.State = state
+			return outcome, nil
+		}
 		return outcome, emergencyCompactionError(outcome.Fit)
 	}
 
@@ -217,7 +224,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	}
 
 	retained := cloneMessages(plan.retainedMessages)
-	nextState := buildSummarizedCompactionState(state, summaryText, candidate, turn, retained)
+	nextState := buildSummarizedCompactionState(state, summaryText, retained)
 	latestFit, err := fitConversationState(ctx, req, nextState)
 	if err != nil {
 		return CompactionOutcome{}, err
@@ -267,7 +274,6 @@ func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Mess
 	state := RunState{
 		Conversation: currentConv,
 		Lineage:      newConversationLineage(currentConv),
-		Context:      fromPromptContext(req.Prompt.ContextState),
 	}
 
 	skipped := map[string]bool{}

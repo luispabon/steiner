@@ -89,19 +89,6 @@ type AssemblyPolicy struct {
 	Budgets SourceBudgetModel
 }
 
-// DurableSummaryEntry stores a retained summary carried across compactions.
-type DurableSummaryEntry struct {
-	Title  string `json:"title,omitempty"`
-	Text   string `json:"text"`
-	Source string `json:"source,omitempty"`
-	Turn   int    `json:"turn,omitempty"`
-}
-
-// DurableContextState carries retained context that survives compaction.
-type DurableContextState struct {
-	RetainedSummaries []DurableSummaryEntry `json:"retained_summaries,omitempty"`
-}
-
 // AssemblyOptions configures prompt assembly for a run.
 type AssemblyOptions struct {
 	HomeDir           string
@@ -122,7 +109,6 @@ type AssemblyOptions struct {
 	ProjectContextExtraFiles  []string
 	ProjectContextIgnoreFiles []string
 	Policy                    AssemblyPolicy
-	ContextState              DurableContextState
 	DelegationEnabled         bool
 	// OrchestrationLevel controls how strongly the delegation canon steers
 	// the orchestrator toward delegating; see config.OrchestrationLevel.

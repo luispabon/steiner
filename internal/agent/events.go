@@ -178,9 +178,6 @@ func emitAssemblyDiagnostics(sink output.EventSink, opts prompt.AssemblyOptions,
 		if block.Path != "" {
 			notes = append(notes, "path="+block.Path)
 		}
-		if block.Source == prompt.ContextSourceConversationSummary {
-			notes = append(notes, "compacted conversation history")
-		}
 
 		emitEvent(sink, output.NewContextBudgetEvent(
 			string(block.Source),

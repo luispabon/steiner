@@ -82,11 +82,6 @@ func TestPlanSourceAssemblyIncludesAndPlacesOptionalSources(t *testing.T) {
 		ProjectRoot: projectRoot,
 		SkillsRoots: []string{skillsRoot},
 		SkillNames:  []string{"codex"},
-		ContextState: DurableContextState{
-			RetainedSummaries: []DurableSummaryEntry{
-				{Title: "retained conversation", Text: "earlier request and tool output", Source: "loop_compaction", Turn: 2},
-			},
-		},
 		Conversation: []provider.Message{
 			{Role: provider.MessageRoleUser, Content: "conversation turn"},
 		},
