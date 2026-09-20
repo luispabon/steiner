@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -369,4 +370,37 @@ func TestPromptAssemblyCarriesPhasePrompt(t *testing.T) {
 			t.Errorf("AssemblyOptions.PhasePrompt = %q, want empty", got)
 		}
 	})
+}
+
+func TestNewPhaseRunnerBlocksOnMCPReadiness(t *testing.T) {
+	sentinel := errors.New("stop after capture")
+	var seen []bool
+	orig := buildPhaseRuntime
+	buildPhaseRuntime = func(_ context.Context, _ *cobra.Command, flags *cliFlags, _, _, _ string) (cliRuntime, error) {
+		seen = append(seen, flags.asyncMCP)
+		return cliRuntime{}, sentinel
+	}
+	t.Cleanup(func() { buildPhaseRuntime = orig })
+
+	shared := &cliFlags{asyncMCP: true}
+	factory := phaseRunnerFactory{flags: shared}
+
+	// Flags mutated after the factory exists must not change the outcome.
+	for _, asyncAfter := range []bool{true, false} {
+		shared.asyncMCP = asyncAfter
+		if _, err := factory.NewPhaseRunner(context.Background(), oneshot.PhasePlan, "", nil, config.AdvisorConfig{}); !errors.Is(err, sentinel) {
+			t.Fatalf("NewPhaseRunner() error = %v, want sentinel", err)
+		}
+		if got := shared.asyncMCP; got != asyncAfter {
+			t.Errorf("shared flags asyncMCP = %v, want %v (must not be mutated)", got, asyncAfter)
+		}
+	}
+	if len(seen) != 2 {
+		t.Fatalf("buildPhaseRuntime calls = %d, want 2", len(seen))
+	}
+	for i, got := range seen {
+		if got {
+			t.Errorf("call %d: phase runtime asyncMCP = true, want false", i)
+		}
+	}
 }

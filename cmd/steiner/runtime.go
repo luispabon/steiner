@@ -135,7 +135,7 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 
 func closeRuntime(rt *cliRuntime) {
 	if rt.imageStore != nil {
-		_ = rt.imageStore.Cleanup()
+		emitCloseWarning(rt.events, "close image store", rt.imageStore.Cleanup())
 	}
 	// Terminate language and MCP servers before the sandbox tmp dir is removed.
 	if rt.lspManager != nil {
