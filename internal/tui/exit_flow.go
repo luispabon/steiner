@@ -33,8 +33,9 @@ func (m *Model) beginExitFlow() (tea.Model, tea.Cmd) {
 	}
 	m.exitModal = m.exitModal.close()
 	m.exitFlowPhase = exitFlowPhaseCounting
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	m.exitCountCancel = cancel
 	return m, func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		count, err := m.worktreePlan.Count(ctx)
 		return worktreeCountMsg{count: count, err: err}
@@ -45,6 +46,7 @@ func (m *Model) handleWorktreeCountMsg(msg worktreeCountMsg) (tea.Model, tea.Cmd
 	if m.exitFlowPhase != exitFlowPhaseCounting {
 		return m, nil
 	}
+	m.exitCountCancel = nil
 	if msg.err != nil || msg.count <= 0 || m.status.mode == "running" {
 		if msg.err != nil {
 			m.appendError(msg.err)

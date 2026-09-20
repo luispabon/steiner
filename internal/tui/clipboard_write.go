@@ -12,6 +12,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// clipboardFailedMsg reports that every clipboard mechanism failed.
+type clipboardFailedMsg struct{ err error }
+
 // copyToClipboard returns a tea.Cmd that writes text to the system clipboard.
 // Tries wl-copy (Wayland), xclip, xsel, then falls back to OSC52.
 func copyToClipboard(text string) tea.Cmd {
@@ -19,7 +22,9 @@ func copyToClipboard(text string) tea.Cmd {
 		if clipboardExec(text) {
 			return nil
 		}
-		_, _ = fmt.Fprint(os.Stdout, ansi.SetSystemClipboard(text))
+		if _, err := fmt.Fprint(os.Stdout, ansi.SetSystemClipboard(text)); err != nil {
+			return clipboardFailedMsg{err: fmt.Errorf("copy to clipboard: %w", err)}
+		}
 		return nil
 	}
 }

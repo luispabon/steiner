@@ -182,7 +182,11 @@ func TestRegularToolCallGroupFinishesCallsIndependently(t *testing.T) {
 		t.Fatalf("group entries after call-2 finish = %#v, want only call-2 finished", group.entries)
 	}
 
+	b.hadChunks = true
 	b.Clear()
+	if b.hadChunks {
+		t.Fatal("hadChunks not reset by Clear")
+	}
 	if b.HasActiveToolCalls() || b.activeToolCalls != nil {
 		t.Fatalf("activeToolCalls after Clear = %#v, want empty", b.activeToolCalls)
 	}

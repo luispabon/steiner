@@ -143,7 +143,7 @@ func (o OverlayShell) overlayWidth() int {
 
 // InnerWidth returns the usable content width inside the box padding.
 func (o OverlayShell) InnerWidth() int {
-	return o.overlayWidth() - 4
+	return max(0, o.overlayWidth()-4)
 }
 
 // Divider returns a horizontal rule string sized to the inner width.

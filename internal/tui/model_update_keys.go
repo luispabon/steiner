@@ -101,6 +101,13 @@ func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, te
 	// Handle Ctrl-key shortcuts before the switch (msg.Code alone can't match ctrl keys).
 	switch {
 	case isCtrl(msg, 'c') || isCtrl(msg, 'd'):
+		if m.exitFlowPhase == exitFlowPhaseCounting && m.exitCountCancel != nil {
+			// Second Ctrl-C/D while counting worktrees: abort the count and quit.
+			m.exitCountCancel()
+			m.exitCountCancel = nil
+			m.exitFlowPhase = exitFlowPhaseNone
+			return true, m, tea.Quit
+		}
 		if m.controller == nil && m.worktreePlan == nil {
 			return true, m, tea.Quit
 		}

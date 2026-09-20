@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -174,6 +175,7 @@ type Model struct {
 	pollLSPStatesFunc            func() []LSPServerStatus
 	worktreePlan                 *WorktreeCleanupPlan
 	exitFlowPhase                int
+	exitCountCancel              context.CancelFunc
 	worktreeCleanupModal         confirmModalState
 	resolveReasoningForAliasFunc func(alias string) (provider.ReasoningCapabilities, string)
 	reasoningBatchResolved       bool

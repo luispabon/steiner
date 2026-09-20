@@ -148,8 +148,8 @@ func (b *contentBuffer) renderToolCallFrame(tc *toolCallSegment, width int) stri
 	argsText := strings.ReplaceAll(tc.args, "\r\n", "\n")
 	argsText = strings.ReplaceAll(argsText, "\n", " ⏎ ")
 	argsText = strings.ReplaceAll(argsText, "\r", " ⏎ ")
-	if len([]rune(argsText)) > argsAvail {
-		argsText = string([]rune(argsText)[:argsAvail-1]) + "…"
+	if lipgloss.Width(argsText) > argsAvail {
+		argsText = truncateRunes(argsText, argsAvail)
 	}
 	styledArgs := ""
 	if argsText != "" {
