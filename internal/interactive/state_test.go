@@ -91,6 +91,28 @@ func TestActiveRunControllerSteerQueue(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "Release preserves the queue and does not clear a successor",
+			test: func(t *testing.T) {
+				c := NewActiveRunController()
+				first := c.Set(func() {})
+				c.SteerQueue().Add(agent.SteerMessage{Text: "pending"})
+				second := c.Set(func() {})
+
+				c.Release(first)
+				if !c.HasCancel() {
+					t.Fatal("stale Release cleared successor cancel function")
+				}
+				c.Release(second)
+				if c.HasCancel() {
+					t.Fatal("Release did not clear current cancel function")
+				}
+				got := c.SteerQueue().Snapshot()
+				if len(got) != 1 || got[0].Text != "pending" {
+					t.Errorf("after Release(), Snapshot() = %+v, want pending message", got)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

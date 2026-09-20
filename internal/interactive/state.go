@@ -27,7 +27,7 @@ func NewActiveRunController() *ActiveRunController {
 }
 
 // Set records a new cancel function, replacing any existing one, and returns
-// an owner token that must be passed to Clear.
+// an owner token that must be passed to Clear or Release.
 func (c *ActiveRunController) Set(cancel context.CancelFunc) uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -49,6 +49,18 @@ func (c *ActiveRunController) Clear(token uint64) {
 	c.cancel = nil
 	c.mu.Unlock()
 	c.steers.Clear()
+}
+
+// Release releases the cancel function registered under token without calling
+// it or changing pending steer messages. It is a no-op when a later Set has
+// replaced the registration.
+func (c *ActiveRunController) Release(token uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.owner != token || c.cancel == nil {
+		return
+	}
+	c.cancel = nil
 }
 
 // Interrupt calls the current cancel function, if any.
