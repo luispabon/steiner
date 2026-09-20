@@ -44,6 +44,8 @@ func interactiveProgramOptions(cfg config.Config) []tea.ProgramOption {
 func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	// Paint the TUI before MCP servers finish connecting; the interactive
 	// session runner waits for every server before the first agent turn.
+	// Oneshot phase runtimes do not inherit this: newPhaseRunner builds them
+	// from a flags copy with asyncMCP=false so they block on MCP readiness.
 	flags.asyncMCP = true
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
