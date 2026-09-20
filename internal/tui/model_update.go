@@ -291,7 +291,7 @@ func (m *Model) performClearConversationState() error {
 func (m *Model) handleToggleThinkingMsg(_ toggleThinkingMsg) (tea.Model, tea.Cmd) {
 	m.showThinking = !m.showThinking
 	m.content.showThinking = m.showThinking
-	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
+	if err := prefs.SetShowThinking(m.showThinking); err != nil {
 		m.content.AppendLine(m.styles.WarningStyle.Render(fmt.Sprintf("prefs save failed: %v", err)))
 	}
 	for i := range m.content.segments {
@@ -331,7 +331,7 @@ func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	m.profilePicker.styles = m.styles
 	m.orchestrationPicker.styles = m.styles
 	m.oneshotResumePicker.styles = m.styles
-	if err := prefs.Save(prefs.Prefs{Accent: m.accentPreset, ShowThinking: m.showThinking}); err != nil {
+	if err := prefs.SetAccent(m.accentPreset); err != nil {
 		m.content.AppendLine(m.styles.WarningStyle.Render(fmt.Sprintf("prefs save failed: %v", err)))
 	}
 	for i := range m.content.segments {
