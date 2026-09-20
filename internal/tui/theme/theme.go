@@ -36,9 +36,14 @@ type Palette struct {
 	ContentBG string
 }
 
-// DefaultPalette returns the historical TUI surface colors.
+const (
+	defaultSidebarBG = "#050505"
+	defaultContentBG = "#000000"
+)
+
+// DefaultPalette returns the default TUI preference surface colors.
 func DefaultPalette() Palette {
-	return Palette{SidebarBG: Black, ContentBG: BgElev}
+	return Palette{SidebarBG: defaultSidebarBG, ContentBG: defaultContentBG}
 }
 
 func canonicalHex(value string) (string, error) {
@@ -54,7 +59,7 @@ func canonicalHex(value string) (string, error) {
 }
 
 // ResolvePalette validates and canonicalizes configured surface colors. Empty
-// values resolve to the historical defaults.
+// values resolve to the default palette.
 func ResolvePalette(sidebarBG, contentBG string) (Palette, error) {
 	defaults := DefaultPalette()
 	var err error
