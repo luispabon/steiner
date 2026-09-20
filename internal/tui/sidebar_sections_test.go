@@ -59,8 +59,8 @@ func TestFormatSessionElapsed(t *testing.T) {
 func TestSessionRowTwoTone(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
-	keyStyle := styles.FgFaint.Background(lipgloss.Color(theme.Black))
-	valStyle := styles.FgDim.Background(lipgloss.Color(theme.Black))
+	keyStyle := styles.FgFaint.Background(lipgloss.Color(styles.Palette.SidebarBG))
+	valStyle := styles.FgDim.Background(lipgloss.Color(styles.Palette.SidebarBG))
 
 	cases := []struct {
 		name     string
@@ -305,7 +305,7 @@ func TestStatusSectionAccentKeys(t *testing.T) {
 	if len(got) != 4 {
 		t.Fatalf("statusSection() len = %d, want 4 (blank + 3 rows)", len(got))
 	}
-	bg := lipgloss.Color(theme.Black)
+	bg := lipgloss.Color(styles.Palette.SidebarBG)
 	wantSandboxKey := styles.CardLabel.Background(bg).Render("SANDBOX       ")
 	wantSkillKey := styles.CardLabel.Background(bg).Render("SKILL         ")
 	wantMCPKey := styles.CardLabel.Background(bg).Render("MCP           ")

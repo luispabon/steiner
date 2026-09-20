@@ -15,15 +15,15 @@ import (
 // renderViewportWithScrollbarOriginal is the pre-optimization reference implementation
 // kept here to validate output parity with the builder-based replacement.
 // Updated to include background styling for the leading line.
-func renderViewportWithScrollbarOriginal(viewportInner, scrollbar string, viewportWidth int) string {
+func renderViewportWithScrollbarOriginal(viewportInner, scrollbar string, viewportWidth int, contentBG string) string {
 	vpLines := strings.Split(viewportInner, "\n")
 	scLines := strings.Split(scrollbar, "\n")
 	merged := make([]string, 0, len(vpLines)+1)
 
 	// Add background-filled leading line to match the new implementation.
-	leadBg := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).
+	leadBg := lipgloss.NewStyle().Background(lipgloss.Color(contentBG)).
 		Render(strings.Repeat(" ", viewportWidth))
-	leadSc := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev)).Render(" ")
+	leadSc := lipgloss.NewStyle().Background(lipgloss.Color(contentBG)).Render(" ")
 	merged = append(merged, leadBg+leadSc)
 
 	for i := 0; i < len(vpLines) && i < len(scLines); i++ {
@@ -231,7 +231,7 @@ func TestRenderViewportWithScrollbar(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			want := renderViewportWithScrollbarOriginal(tc.viewport, tc.scrollbar, viewportWidth)
+			want := renderViewportWithScrollbarOriginal(tc.viewport, tc.scrollbar, viewportWidth, m.resolvedPalette().ContentBG)
 			got := m.renderViewportWithScrollbar(tc.viewport, tc.scrollbar)
 			if got != want {
 				t.Errorf("output mismatch\nwant: %q\n got: %q", want, got)

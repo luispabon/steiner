@@ -251,7 +251,7 @@ func TestResolvePalette(t *testing.T) {
 		want             Palette
 		wantErr          bool
 	}{
-		{name: "defaults", want: DefaultPalette()},
+		{name: "defaults", want: Palette{SidebarBG: "#050505", ContentBG: "#000000"}},
 		{name: "canonical", sidebar: "#AABBCC", content: "#DDeeFF", want: Palette{SidebarBG: "#aabbcc", ContentBG: "#ddeeff"}},
 		{name: "bad sidebar", sidebar: "red", content: "#112233", wantErr: true},
 		{name: "bad content", sidebar: "#112233", content: "#12345", wantErr: true},

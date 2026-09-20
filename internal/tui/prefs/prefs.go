@@ -73,6 +73,29 @@ func Load() (Prefs, error) {
 	return p, nil
 }
 
+func update(fn func(*Prefs)) error {
+	p, err := Load()
+	if err != nil {
+		return err
+	}
+	fn(&p)
+	return Save(p)
+}
+
+// SetAccent updates the persisted accent preference.
+func SetAccent(accent string) error {
+	return update(func(p *Prefs) {
+		p.Accent = accent
+	})
+}
+
+// SetShowThinking updates the persisted thinking visibility preference.
+func SetShowThinking(showThinking bool) error {
+	return update(func(p *Prefs) {
+		p.ShowThinking = showThinking
+	})
+}
+
 // Save writes prefs to ~/.config/steiner/prefs.yaml atomically.
 // Creates the config dir if absent. Uses a temp file + rename to
 // prevent concurrent Load calls from reading a partial or empty file.
