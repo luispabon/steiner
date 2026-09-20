@@ -95,6 +95,62 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSetAccentPreservesOtherPrefs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	initial := Prefs{
+		Accent:          "mint",
+		ShowThinking:    true,
+		SidebarPosition: "right",
+		SidebarBG:       "#112233",
+		ContentBG:       "#445566",
+	}
+	if err := Save(initial); err != nil {
+		t.Fatalf("Save() = %v", err)
+	}
+
+	if err := SetAccent("purple"); err != nil {
+		t.Fatalf("SetAccent() = %v", err)
+	}
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load() = _, %v", err)
+	}
+	want := initial
+	want.Accent = "purple"
+	if got != want {
+		t.Fatalf("Load() = %#v, want %#v", got, want)
+	}
+}
+
+func TestSetShowThinkingPreservesOtherPrefs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	initial := Prefs{
+		Accent:          "mint",
+		ShowThinking:    true,
+		SidebarPosition: "right",
+		SidebarBG:       "#112233",
+		ContentBG:       "#445566",
+	}
+	if err := Save(initial); err != nil {
+		t.Fatalf("Save() = %v", err)
+	}
+
+	if err := SetShowThinking(false); err != nil {
+		t.Fatalf("SetShowThinking() = %v", err)
+	}
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load() = _, %v", err)
+	}
+	want := initial
+	want.ShowThinking = false
+	if got != want {
+		t.Fatalf("Load() = %#v, want %#v", got, want)
+	}
+}
+
 func TestLoadRejectsInvalidBackground(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
