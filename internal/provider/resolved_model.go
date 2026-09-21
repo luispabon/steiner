@@ -188,3 +188,18 @@ func hasAnyPrefix(value string, prefixes ...string) bool {
 	}
 	return false
 }
+
+// DisplayRef returns the provider-qualified model identifier
+// PROVIDER/ALIAS_OR_MODEL_ID[/EFFORT].
+func (r ResolvedModel) DisplayRef() string {
+	alias := strings.TrimSpace(r.Alias)
+	prov := strings.TrimSpace(r.ProviderAlias)
+	qualified := alias
+	if prov != "" && !strings.HasPrefix(alias, prov+"/") {
+		qualified = prov + "/" + alias
+	}
+	if alias == "" {
+		qualified = prov
+	}
+	return ModelEffortLabel(qualified, r.ReasoningEffectiveEffort)
+}

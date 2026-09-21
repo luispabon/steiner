@@ -40,6 +40,7 @@ func (c *Client) withRetry(
 		if err == nil {
 			return nil
 		}
+		err = wrapUsageLimit(c.providerType, err, usageLimitNow())
 
 		decision := classify(err)
 		if !decision.retry || attempt == maxAttempts {

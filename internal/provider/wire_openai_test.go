@@ -320,12 +320,6 @@ func TestOpenAIWireRefineRetry(t *testing.T) {
 		wantRetryAfter time.Duration
 	}{
 		{
-			name:         "litellm budget exhaustion is permanent",
-			providerType: "litellm",
-			err:          rateLimited("Budget has been exceeded!", nil),
-			decision:     retryDecision{retry: true, reason: "429"},
-		},
-		{
 			name:           "litellm parses retry delay from body when header is absent",
 			providerType:   "litellm",
 			err:            rateLimited("Rate limit reached. Try again in 11 seconds", nil),

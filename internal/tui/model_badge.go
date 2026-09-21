@@ -5,16 +5,12 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func formatModelEffort(model, effort string) string {
-	model = strings.TrimSpace(model)
-	effort = strings.TrimSpace(effort)
-	if effort == "" {
-		return model
-	}
-	return model + "/" + effort
+	return provider.ModelEffortLabel(model, effort)
 }
 
 func renderModelBadge(styles *theme.Styles, model, effort string) string {

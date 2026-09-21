@@ -8,6 +8,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -18,6 +19,10 @@ type AgentRunner interface {
 }
 
 const maxDelegateExtensions = 3
+
+// usageLimitDelegateNotice tells the parent how to proceed when a child hit a
+// provider usage limit. It deliberately names neither times nor profiles.
+const usageLimitDelegateNotice = "To continue now, delegate a fresh sub-agent; new sub-agents use the currently configured model. If that also reports a usage limit, stop delegating and tell the user."
 
 // turnBudgetNoticeFunc builds an agent.RunRequest.TurnBudgetNotice closure
 // carrying extensionsLeft, the number of delegate extensions still available
@@ -409,6 +414,9 @@ func failedDelegateReason(err error, state agent.RunState) string {
 	// does not conclude the session is gone and start a new delegation.
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		parts = append(parts, "the child session is preserved and can be resumed with follow_up using the same agent_id")
+	}
+	if _, ok := provider.AsUsageLimit(err); ok {
+		parts = append(parts, usageLimitDelegateNotice)
 	}
 	return strings.Join(parts, "\n")
 }

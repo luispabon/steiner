@@ -687,3 +687,36 @@ func TestWithAgentScopeModifier(t *testing.T) {
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
+
+func TestNewStopReasonEventUsageLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantAction string
+	}{
+		{"with reset", &provider.UsageLimitError{Kind: provider.UsageLimitKindUsage, Provider: "codex", Message: "slow down", ResetsAt: time.Now().Add(time.Hour)}, usageLimitActionReset},
+		{"without reset", &provider.UsageLimitError{Kind: provider.UsageLimitKindQuota, Provider: "openai", Message: "no credit"}, usageLimitActionUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ev := NewStopReasonEvent(2, "usage_limit", tt.err)
+			p, ok := ev.Payload.(StopReasonEvent)
+			if !ok {
+				t.Fatalf("payload type = %T", ev.Payload)
+			}
+			if p.Summary != "stopped: provider usage limit reached" {
+				t.Errorf("Summary = %q", p.Summary)
+			}
+			if p.Action != tt.wantAction {
+				t.Errorf("Action = %q, want %q", p.Action, tt.wantAction)
+			}
+			seg := renderStopReasonEvent(p)
+			if seg.Channel != ChannelError {
+				t.Errorf("Channel = %v, want ChannelError", seg.Channel)
+			}
+			if !strings.Contains(seg.Text, tt.err.Error()) {
+				t.Errorf("text %q missing error message", seg.Text)
+			}
+		})
+	}
+}

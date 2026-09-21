@@ -128,6 +128,9 @@ func RetryableProviderError(err error) (time.Duration, bool) {
 	if err == nil {
 		return 0, false
 	}
+	if _, ok := AsUsageLimit(err); ok {
+		return 0, false
+	}
 	var httpErr *HTTPError
 	if !errors.As(err, &httpErr) {
 		return 0, false

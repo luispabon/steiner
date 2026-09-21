@@ -143,27 +143,11 @@ func executeChatRequest(
 	requestID := newRequestID()
 	emitEvent(events, output.WithAPICallIdentity(newAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget, estimatedPromptTokens, rawPromptTokens, isCompaction), turn, requestID))
 
-	// When streaming is not preferred, try ChatCompletion first and only fall
-	// back to streaming if it is unavailable.
 	if !streamingPreferred && (skipNonStream == nil || !*skipNonStream) {
-		response, chatErr := prov.ChatCompletion(ctx, req)
-		if chatErr == nil {
-			emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil), turn, requestID))
-			return response, time.Time{}, nil
+		response, done, err := tryNonStreamFirst(ctx, prov, turn, req, requestID, events, skipNonStream)
+		if done {
+			return response, time.Time{}, err
 		}
-		// Detect "stream required" 400 error and mark it for future turns.
-		if IsStreamRequiredError(chatErr) {
-			if skipNonStream != nil {
-				*skipNonStream = true
-			}
-			emitEvent(events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
-				Turn:     turn,
-				Severity: "warning",
-				Kind:     "stream_required",
-				Message:  fmt.Sprintf("model requires streaming; non-stream requests will be skipped in subsequent turns: %v", chatErr),
-			}))
-		}
-		// Fall through to streaming when ChatCompletion fails.
 	}
 
 	stream, err := prov.StreamChatCompletion(ctx, req)
@@ -178,12 +162,54 @@ func executeChatRequest(
 		return response, firstChunkTime, nil
 	}
 
+	if _, ok := provider.AsUsageLimit(err); ok {
+		emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(nil, nil, "", err), turn, requestID))
+		return provider.ChatResponse{}, time.Time{}, err
+	}
+
 	response, chatErr := prov.ChatCompletion(ctx, req)
 	emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, chatErr), turn, requestID))
 	if chatErr != nil {
 		return provider.ChatResponse{}, time.Time{}, chatErr
 	}
 	return response, time.Time{}, nil
+}
+
+// tryNonStreamFirst tries ChatCompletion before streaming. done is false when
+// the caller should fall back to streaming.
+func tryNonStreamFirst(
+	ctx context.Context,
+	prov provider.Provider,
+	turn int,
+	req provider.ChatRequest,
+	requestID string,
+	events output.EventSink,
+	skipNonStream *bool,
+) (response provider.ChatResponse, done bool, err error) {
+	response, chatErr := prov.ChatCompletion(ctx, req)
+	if chatErr == nil {
+		emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil), turn, requestID))
+		return response, true, nil
+	}
+	// A usage limit applies to the whole provider; falling back would only
+	// spend another request.
+	if _, ok := provider.AsUsageLimit(chatErr); ok {
+		emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(nil, nil, "", chatErr), turn, requestID))
+		return provider.ChatResponse{}, true, chatErr
+	}
+	// Detect "stream required" 400 error and mark it for future turns.
+	if IsStreamRequiredError(chatErr) {
+		if skipNonStream != nil {
+			*skipNonStream = true
+		}
+		emitEvent(events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+			Turn:     turn,
+			Severity: "warning",
+			Kind:     "stream_required",
+			Message:  fmt.Sprintf("model requires streaming; non-stream requests will be skipped in subsequent turns: %v", chatErr),
+		}))
+	}
+	return provider.ChatResponse{}, false, nil
 }
 
 // IsStreamRequiredError reports whether err is the provider's "this model only
