@@ -19,6 +19,8 @@ const (
 	// StopReasonWorkflowHandoff indicates the run terminated because a
 	// workflow handoff request was accepted.
 	StopReasonWorkflowHandoff StopReason = "workflow_handoff"
+	// StopReasonUsageLimit indicates the run stopped because the provider reported a usage or quota limit.
+	StopReasonUsageLimit StopReason = "usage_limit"
 )
 
 // ConversationViewKind identifies the view used for a conversation candidate.

@@ -4565,3 +4565,13 @@ func TestAdvisorCompleteRendersTokensAndCacheRowsWhenExpanded(t *testing.T) {
 		t.Fatalf("rendered box = %q, want it to contain Cache: 90.0%%", rendered)
 	}
 }
+
+func TestUsageLimitStopReasonRendering(t *testing.T) {
+	ev := output.NewStopReasonEvent(1, "usage_limit", errors.New("provider usage limit reached (codex/luna/high): slow down"))
+	if got, want := formatStopReasonEvent(ev), "error: provider usage limit reached (codex/luna/high): slow down"; got != want {
+		t.Errorf("formatStopReasonEvent() = %q, want %q", got, want)
+	}
+	if isCompletionStopReason("usage_limit") {
+		t.Error("isCompletionStopReason(usage_limit) = true, want false")
+	}
+}

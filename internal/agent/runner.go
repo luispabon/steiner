@@ -193,6 +193,14 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 				}
 				continue
 			}
+			if ule, ok := provider.AsUsageLimit(outcome.Error); ok {
+				if ule.Model == "" {
+					ule.Model = req.ResolvedModel.DisplayRef()
+				}
+				if state.StopReason == StopReasonError {
+					state.StopReason = StopReasonUsageLimit
+				}
+			}
 			state = p.finalizeDeferredReadImages(state)
 			emitStop(req.Events, state, outcome.Error)
 			return state, outcome.Error

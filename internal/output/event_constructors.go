@@ -212,8 +212,18 @@ func NewStopReasonEvent(turn int, reason string, err error) Event {
 		payload.Error = err.Error()
 	}
 	payload.Summary, payload.Action = stopReasonSummary(reason, turn)
+	if strings.TrimSpace(reason) == "usage_limit" {
+		if ule, ok := provider.AsUsageLimit(err); ok && ule.HasReset() {
+			payload.Action = usageLimitActionReset
+		}
+	}
 	return newEvent(EventTypeStopReason, payload)
 }
+
+const (
+	usageLimitActionReset   = "wait until the limit resets, then continue"
+	usageLimitActionUnknown = "check your provider plan, billing, or budget, then continue"
+)
 
 func stopReasonSummary(reason string, turn int) (string, string) {
 	switch strings.TrimSpace(reason) {
@@ -241,6 +251,8 @@ func stopReasonSummary(reason string, turn int) (string, string) {
 			return fmt.Sprintf("run cancelled at turn %d", turn), "inspect /history for retained diagnostics or retry when you are ready to continue"
 		}
 		return "run cancelled", "inspect /history for retained diagnostics or retry when you are ready to continue"
+	case "usage_limit":
+		return "stopped: provider usage limit reached", usageLimitActionUnknown
 	case "error":
 		return "run failed", "inspect the reported error and retry"
 	default:
