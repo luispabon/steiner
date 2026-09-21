@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 )
 
@@ -16,9 +17,13 @@ type responsesStreamEvent struct {
 	Response responsesResponse `json:"response,omitempty"`
 	Item     responsesItem     `json:"item,omitempty"`
 	Error    *struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
+		Message string          `json:"message"`
+		Type    string          `json:"type"`
+		Code    json.RawMessage `json:"code"`
 	} `json:"error,omitempty"`
+	Status     *int                       `json:"status,omitempty"`
+	StatusCode *int                       `json:"status_code,omitempty"`
+	Headers    map[string]json.RawMessage `json:"headers,omitempty"`
 }
 
 type responsesStreamState struct {
@@ -83,6 +88,9 @@ func processResponsesStreamEvent(state *responsesStreamState, event string, emit
 		return false, fmt.Errorf("%w: %w", errDecodeStreamChunk, err)
 	}
 	if payload.Error != nil {
+		if httpErr := responsesFrameHTTPError(&payload, event); httpErr != nil {
+			return false, httpErr
+		}
 		if payload.Error.Message != "" {
 			return false, fmt.Errorf("responses stream error: %s", payload.Error.Message)
 		}
@@ -202,5 +210,43 @@ func responsesStreamStateToChatChunk(state responsesStreamState) ChatChunk {
 		Usage:        state.usage,
 		Done:         true,
 		FinishReason: state.finishReason,
+	}
+}
+
+// wsRetryableErrorCodes keep the plain-error path so the WebSocket provider can
+// reconnect or resend instead of surfacing an HTTP-style failure.
+var wsRetryableErrorCodes = map[string]struct{}{
+	"websocket_connection_limit_reached": {},
+	"previous_response_not_found":        {},
+}
+
+// responsesFrameHTTPError converts a status-bearing error frame (status >= 400)
+// into an *HTTPError so it can be classified like an HTTP response. It returns
+// nil for frames without a status or with a WebSocket-retryable code.
+func responsesFrameHTTPError(payload *responsesStreamEvent, frame string) *HTTPError {
+	status := payload.Status
+	if status == nil {
+		status = payload.StatusCode
+	}
+	if status == nil || *status < 400 {
+		return nil
+	}
+	code := strings.TrimSpace(string(payload.Error.Code))
+	if code == "null" {
+		code = ""
+	}
+	code = strings.Trim(code, `"`)
+	if _, ok := wsRetryableErrorCodes[code]; ok {
+		return nil
+	}
+	header := http.Header{}
+	for k, raw := range payload.Headers {
+		header.Set(k, strings.Trim(string(raw), `"`))
+	}
+	return &HTTPError{
+		StatusCode: *status,
+		Status:     fmt.Sprintf("%d %s", *status, http.StatusText(*status)),
+		Body:       frame,
+		Header:     header,
 	}
 }

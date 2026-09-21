@@ -61,9 +61,9 @@ func (w *openaiWire) DecodeStream(ctx context.Context, body io.Reader, emit func
 }
 
 // RefineRetry applies litellm's 429 body semantics, which the engine cannot
-// interpret: litellm returns 429 for both rate limits and budget exhaustion, and
-// only the latter is permanent. It also relays upstream rate limits as
-// "Try again in N seconds" text instead of forwarding the Retry-After header.
+// interpret: litellm relays upstream rate limits as "Try again in N seconds"
+// text instead of forwarding the Retry-After header. Budget exhaustion (also a
+// 429) is classified centrally as a usage limit before RefineRetry runs.
 func (w *openaiWire) RefineRetry(err error, decision retryDecision) retryDecision {
 	if w.providerType != "litellm" || !decision.retry {
 		return decision
@@ -71,9 +71,6 @@ func (w *openaiWire) RefineRetry(err error, decision retryDecision) retryDecisio
 	httpErr := asHTTPError(err)
 	if httpErr == nil || httpErr.StatusCode != http.StatusTooManyRequests {
 		return decision
-	}
-	if isLiteLLMBudgetExceeded(httpErr.Body) {
-		return retryDecision{}
 	}
 	if decision.retryAfter <= 0 {
 		if parsed, ok := parseLiteLLMRetryAfter(httpErr.Body); ok {

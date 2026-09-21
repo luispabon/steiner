@@ -194,6 +194,13 @@ func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatReques
 			return result, sendAttempts, nil
 		}
 
+		// A usage limit is a refusal, not a dead connection: the socket is
+		// healthy, so neither reconnect, resend nor close it.
+		err = wrapUsageLimit(p.providerType, err, usageLimitNow())
+		if _, ok := AsUsageLimit(err); ok {
+			return ChatResponse{}, sendAttempts, err
+		}
+
 		// Retrying resends the whole request on a fresh connection, so the
 		// response starts over. That is only safe while nothing has been
 		// emitted; after the first delta a retry would repeat text the consumer
