@@ -151,6 +151,12 @@ func executeChatRequest(
 			emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil), turn, requestID))
 			return response, time.Time{}, nil
 		}
+		// A usage limit applies to the whole provider; falling back would only
+		// spend another request.
+		if _, ok := provider.AsUsageLimit(chatErr); ok {
+			emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(nil, nil, "", chatErr), turn, requestID))
+			return provider.ChatResponse{}, time.Time{}, chatErr
+		}
 		// Detect "stream required" 400 error and mark it for future turns.
 		if IsStreamRequiredError(chatErr) {
 			if skipNonStream != nil {
@@ -176,6 +182,11 @@ func executeChatRequest(
 		}
 		emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil), turn, requestID))
 		return response, firstChunkTime, nil
+	}
+
+	if _, ok := provider.AsUsageLimit(err); ok {
+		emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(nil, nil, "", err), turn, requestID))
+		return provider.ChatResponse{}, time.Time{}, err
 	}
 
 	response, chatErr := prov.ChatCompletion(ctx, req)
