@@ -107,7 +107,7 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 	switch rawReason {
 	case "complete":
 		result.Status = StatusComplete
-	case "error":
+	case "error", "usage_limit":
 		result.Status = StatusFailed
 	case "cancelled":
 		if state.TurnCount > 0 && (strings.TrimSpace(output) != "" || countToolCalls(state.Conversation) > 0) {
