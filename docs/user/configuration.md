@@ -444,7 +444,7 @@ Unresolved limits use the conservative fallback values.
 | `max_backoff`     | duration string | `"5s"`    | Upper cap on exponential backoff wait time.                     |
 | `retry_after_max` | duration string | `"30s"`   | Maximum time to honour a `Retry-After` header before giving up. |
 
-Provider usage and quota limits are never retried regardless of `retry` settings. These include: Codex `usage_limit_reached` and `usage_not_included`, OpenAI `insufficient_quota` and billing codes (`credit_balance_exhausted`, `organization_spend_limit_exceeded`, `project_spend_limit_exceeded`), and LiteLLM budget exhaustion. The run stops with reason `usage_limit`, and the error message names the provider-qualified model (e.g., `codex/luna/high`) and, when the provider reports a reset time, the reset time in local time plus relative duration. Other 429 responses (e.g., rate limits, slow-down) keep the normal retry policy.
+Provider usage and quota limits are never retried regardless of `retry` settings. These include: Codex `usage_limit_reached` and `usage_not_included`, OpenAI `insufficient_quota` and billing codes (`credit_balance_exhausted`, `organization_spend_limit_exceeded`, `project_spend_limit_exceeded`, `organization_usage_limit_exceeded`), and LiteLLM budget exhaustion. The run stops with reason `usage_limit`, and the error message names the provider-qualified model (e.g., `codex/luna/high`) and, when the provider reports a reset time, the reset time in local time plus relative duration. Other 429 responses (e.g., rate limits, slow-down) keep the normal retry policy.
 
 ### `ModelPrompts` fields
 
