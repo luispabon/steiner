@@ -25,28 +25,72 @@ func usageLimitRunRequest(p provider.Provider, events *[]output.Event) RunReques
 }
 
 func TestRunnerUsageLimitStopsWithoutRetry(t *testing.T) {
-	for _, streaming := range []bool{false, true} {
-		name := "non-stream first"
-		if streaming {
-			name = "stream first"
-		}
-		t.Run(name, func(t *testing.T) {
+	tests := []struct {
+		name        string
+		streaming   bool
+		newProvider func(ule *provider.UsageLimitError, calls *int) *fakeProvider
+	}{
+		{
+			name:      "non-stream first",
+			streaming: false,
+			newProvider: func(ule *provider.UsageLimitError, calls *int) *fakeProvider {
+				return &fakeProvider{
+					chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+						*calls++
+						return provider.ChatResponse{}, ule
+					},
+					streamFn: func(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+						*calls++
+						return nil, ule
+					},
+				}
+			},
+		},
+		{
+			name:      "stream first, error before first byte",
+			streaming: true,
+			newProvider: func(ule *provider.UsageLimitError, calls *int) *fakeProvider {
+				return &fakeProvider{
+					chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+						*calls++
+						return provider.ChatResponse{}, ule
+					},
+					streamFn: func(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+						*calls++
+						return nil, ule
+					},
+				}
+			},
+		},
+		{
+			name:      "stream first, in-band error",
+			streaming: true,
+			newProvider: func(ule *provider.UsageLimitError, calls *int) *fakeProvider {
+				return &fakeProvider{
+					chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+						*calls++
+						return provider.ChatResponse{}, ule
+					},
+					streamFn: func(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+						*calls++
+						ch := make(chan provider.ChatChunk, 1)
+						ch <- provider.ChatChunk{Done: true, Error: ule.Error(), OriginalError: ule}
+						close(ch)
+						return ch, nil
+					},
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			calls := 0
 			ule := &provider.UsageLimitError{
 				Kind:     provider.UsageLimitKindUsage,
 				Provider: "codex",
 				HTTP:     &provider.HTTPError{StatusCode: 429},
 			}
-			stub := &fakeProvider{
-				chatFn: func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
-					calls++
-					return provider.ChatResponse{}, ule
-				},
-				streamFn: func(_ context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
-					calls++
-					return nil, ule
-				},
-			}
+			stub := tt.newProvider(ule, &calls)
 			origSleep := runnerRetrySleepFn
 			sleeps := 0
 			runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error { sleeps++; return nil }
@@ -54,7 +98,7 @@ func TestRunnerUsageLimitStopsWithoutRetry(t *testing.T) {
 
 			var events []output.Event
 			req := usageLimitRunRequest(stub, &events)
-			req.StreamingPreferred = streaming
+			req.StreamingPreferred = tt.streaming
 			state, err := NewRunner().Run(context.Background(), req)
 			if err == nil {
 				t.Fatal("Run() error = nil, want usage limit error")
