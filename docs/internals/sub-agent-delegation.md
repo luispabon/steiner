@@ -175,6 +175,8 @@ A child "needs extension" when `StopReason == StopReasonMaxTurns` AND the last a
 
 `StopReasonMaxTurns` and `StopReasonMaxTokens` map to `StatusPartial`. A partial result means the child's budget was exhausted before it could finish. Parent models must treat partial results conservatively — do not assume the delegated task succeeded, and retry or narrow scope rather than treating partial output as authoritative.
 
+`StopReasonUsageLimit` maps to `StatusFailed`. A usage-limit failure means the provider reported a quota or usage limit (e.g., Codex `usage_limit_reached`, OpenAI `insufficient_quota`, LiteLLM budget exhaustion); these errors are never retried at any layer. The failure `reason` carries the provider's usage-limit message (e.g., "Usage limit reached; reset at 2026-09-22 14:30:00 -0400 (in 23h5m)") followed by a fixed sentence: "To continue now, delegate a fresh sub-agent; new sub-agents use the currently configured model. If that also reports a usage limit, stop delegating and tell the user." Each agent fails independently — limits are enforced per provider, so mixed-provider delegate chains see failures only on the provider that hit its limit. `follow_up` stays pinned to the child's original provider/model; resumability after the limit resets is tracked in issue [#784](https://github.com/anthropics/steiner/issues/784).
+
 ### Parallel tool execution
 
 The parent `agent.RunRequest` may set `ParallelClassOf func(string) agent.ParallelClass`, a classifier grouping tool calls by execution concurrency class: `ParallelClassNone` (serial), `ParallelClassTool` (ordinary parallel-safe tools bounded by `MaxParallelTools`), and `ParallelClassDelegation` (delegation calls bounded by `MaxParallelDelegations`). Child runs receive a non-nil classifier that only returns `ParallelClassTool`/`ParallelClassNone` — they cannot nest delegation and receive no `ParallelClassDelegation` classification. Both limits require values >= 1 to enable concurrency; `1` forces serial execution. A batch only groups adjacent calls of the same class; a class change breaks the run, so e.g. `[grep, delegate, grep]` forms three separate runs (grep alone, delegate alone, grep alone), each under its own class-specific semaphore.
@@ -197,7 +199,7 @@ A parallel batch receives one shared pre-batch conversation snapshot. Siblings t
 | `InputTokens`       | Cumulative uncached prompt tokens consumed by the child across extensions and follow-ups   |
 | `CacheReadTokens`   | Cumulative cache-read tokens consumed by the child across extensions and follow-ups        |
 | `CacheCreateTokens` | Cumulative cache-create tokens consumed by the child across extensions and follow-ups      |
-| `StopReason`        | Populated on partial: `"max_turns"`, `"max_tokens"`, or `"cancelled"` |
+| `StopReason`        | Populated on partial: `"max_turns"`, `"max_tokens"`, or `"cancelled"`; on failed: `"usage_limit"` |
 
 The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSession.TokenUsage`, so these token counters report the child agent's whole-life totals.
 
