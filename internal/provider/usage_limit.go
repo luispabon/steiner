@@ -94,9 +94,7 @@ type usageErrorBody struct {
 }
 
 type usageEnvelope struct {
-	Type   string          `json:"type"`
-	Status json.Number     `json:"status"`
-	Error  *usageErrorBody `json:"error"`
+	Error *usageErrorBody `json:"error"`
 }
 
 func (b *usageErrorBody) code() string {
