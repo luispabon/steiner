@@ -190,15 +190,15 @@ func TestWrapUsageLimit(t *testing.T) {
 	if wrapUsageLimit("openai", nil, recv) != nil {
 		t.Error("nil must stay nil")
 	}
-	if got := wrapUsageLimit("openai", plain, recv); got != plain {
+	if got := wrapUsageLimit("openai", plain, recv); !errors.Is(got, plain) {
 		t.Error("non-HTTP error must be unchanged")
 	}
-	if got := wrapUsageLimit("openai", other, recv); got != error(other) {
+	if got := wrapUsageLimit("openai", other, recv); !errors.Is(got, other) {
 		t.Error("non-matching HTTPError must be returned unchanged")
 	}
 	got := wrapUsageLimit("openai", fmt.Errorf("request: %w", match), recv)
-	ule, ok := got.(*UsageLimitError)
-	if !ok {
+	ule, ok := AsUsageLimit(got)
+	if !ok || got.Error() != ule.Error() {
 		t.Fatalf("got %T, want *UsageLimitError", got)
 	}
 	if ule.HTTP != match || ule.Kind != UsageLimitKindQuota {
@@ -207,7 +207,7 @@ func TestWrapUsageLimit(t *testing.T) {
 	if again := wrapUsageLimit("openai", fmt.Errorf("outer: %w", ule), recv); again == nil || again.Error() != fmt.Sprintf("outer: %v", ule) {
 		t.Error("already-wrapped error must pass through unchanged")
 	}
-	if again := wrapUsageLimit("openai", ule, recv); again != error(ule) {
+	if again := wrapUsageLimit("openai", ule, recv); !errors.Is(again, ule) {
 		t.Error("idempotent wrap must return identical error")
 	}
 }

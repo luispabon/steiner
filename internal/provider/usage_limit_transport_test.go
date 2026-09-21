@@ -150,7 +150,7 @@ func TestResponsesStreamErrorFrames(t *testing.T) {
 			if got := httpErr.Header.Get("X-Codex-Primary-Used-Percent"); got != "100.0" {
 				t.Fatalf("header = %q, want 100.0", got)
 			}
-			if _, ok := wrapUsageLimit("codex", err, time.Unix(1738880000, 0)).(*UsageLimitError); !ok {
+			if _, ok := AsUsageLimit(wrapUsageLimit("codex", err, time.Unix(1738880000, 0))); !ok {
 				t.Fatal("frame error not classified as usage limit")
 			}
 		})
