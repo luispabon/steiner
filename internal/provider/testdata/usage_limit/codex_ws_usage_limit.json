@@ -1,0 +1,1 @@
+{"type":"error","status":429,"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"pro","resets_at":1738888888},"headers":{"x-codex-primary-used-percent":"100.0","x-codex-primary-window-minutes":15}}
