@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -21,8 +22,8 @@ type responsesStreamEvent struct {
 		Type    string          `json:"type"`
 		Code    json.RawMessage `json:"code"`
 	} `json:"error,omitempty"`
-	Status     *int                       `json:"status,omitempty"`
-	StatusCode *int                       `json:"status_code,omitempty"`
+	Status     json.RawMessage            `json:"status,omitempty"`
+	StatusCode json.RawMessage            `json:"status_code,omitempty"`
 	Headers    map[string]json.RawMessage `json:"headers,omitempty"`
 }
 
@@ -220,15 +221,31 @@ var wsRetryableErrorCodes = map[string]struct{}{
 	"previous_response_not_found":        {},
 }
 
+// frameStatus parses a frame's status field leniently: absent, null, a bare
+// integer, or a quoted integer string. It returns (0, false) when raw does
+// not decode to an integer.
+func frameStatus(raw json.RawMessage) (int, bool) {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" {
+		return 0, false
+	}
+	s = strings.Trim(s, `"`)
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 // responsesFrameHTTPError converts a status-bearing error frame (status >= 400)
 // into an *HTTPError so it can be classified like an HTTP response. It returns
 // nil for frames without a status or with a WebSocket-retryable code.
 func responsesFrameHTTPError(payload *responsesStreamEvent, frame string) *HTTPError {
-	status := payload.Status
-	if status == nil {
-		status = payload.StatusCode
+	status, ok := frameStatus(payload.Status)
+	if !ok {
+		status, ok = frameStatus(payload.StatusCode)
 	}
-	if status == nil || *status < 400 {
+	if !ok || status < 400 {
 		return nil
 	}
 	code := strings.TrimSpace(string(payload.Error.Code))
@@ -244,8 +261,8 @@ func responsesFrameHTTPError(payload *responsesStreamEvent, frame string) *HTTPE
 		header.Set(k, strings.Trim(string(raw), `"`))
 	}
 	return &HTTPError{
-		StatusCode: *status,
-		Status:     fmt.Sprintf("%d %s", *status, http.StatusText(*status)),
+		StatusCode: status,
+		Status:     fmt.Sprintf("%d %s", status, http.StatusText(status)),
 		Body:       frame,
 		Header:     header,
 	}

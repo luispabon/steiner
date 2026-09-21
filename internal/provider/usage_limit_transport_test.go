@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -119,6 +120,8 @@ func TestResponsesStreamErrorFrames(t *testing.T) {
 	frame := usageFixture(t, "codex_ws_usage_limit.json")
 	noStatus := strings.Replace(frame, `"status":429,`, "", 1)
 	retryable := strings.Replace(frame, `"type":"usage_limit_reached"`, `"type":"usage_limit_reached","code":"websocket_connection_limit_reached"`, 1)
+	nonIntStatus := strings.Replace(frame, `"status":429,`, `"status":"failed",`, 1)
+	quotedStatus := strings.Replace(frame, `"status":429,`, `"status":"429",`, 1)
 	tests := []struct {
 		name     string
 		frame    string
@@ -127,12 +130,17 @@ func TestResponsesStreamErrorFrames(t *testing.T) {
 		{"status-bearing frame becomes HTTPError", frame, true},
 		{"frame without status stays plain", noStatus, false},
 		{"websocket-retryable code stays plain", retryable, false},
+		{"non-integer status stays plain", nonIntStatus, false},
+		{"quoted integer status becomes HTTPError", quotedStatus, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := processResponsesStreamEvent(&responsesStreamState{}, tt.frame, func(ChatChunk) error { return nil })
 			if err == nil {
 				t.Fatal("error = nil")
+			}
+			if errors.Is(err, errDecodeStreamChunk) {
+				t.Fatalf("err = %v, want frame to decode instead of failing as errDecodeStreamChunk", err)
 			}
 			httpErr := asHTTPError(err)
 			if (httpErr != nil) != tt.wantHTTP {
@@ -154,6 +162,14 @@ func TestResponsesStreamErrorFrames(t *testing.T) {
 				t.Fatal("frame error not classified as usage limit")
 			}
 		})
+	}
+}
+
+func TestResponsesStreamEventStringStatusDecodes(t *testing.T) {
+	event := `{"type":"response.in_progress","status":"in_progress"}`
+	_, err := processResponsesStreamEvent(&responsesStreamState{}, event, func(ChatChunk) error { return nil })
+	if err != nil {
+		t.Fatalf("processResponsesStreamEvent() error = %v, want nil", err)
 	}
 }
 
