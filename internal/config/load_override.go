@@ -22,6 +22,7 @@ func applyCLIOverrides(cfg *Config, cli CLIOverrides) error {
 	}
 	if cli.Unsafe {
 		cfg.Sandbox.Enabled = false
+		cfg.Sandbox.DisabledBy = SandboxDisabledByCLIUnsafe
 	}
 	return nil
 }

@@ -44,7 +44,11 @@ func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags, modelAlias string) (co
 	if modelAlias == "" {
 		overrides.Model = flags.model
 	}
-	return config.Load(config.LoadOptions{CLI: overrides})
+	return config.Load(config.LoadOptions{
+		CLI: overrides,
+		// step-5 of project-config-trust replaces this with the resolved trust decision.
+		ProjectTrust: config.ProjectTrustTrusted,
+	})
 }
 
 func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {

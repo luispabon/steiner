@@ -8,6 +8,7 @@ import (
 type configFilePatch struct {
 	path         string
 	allowMissing bool
+	project      bool
 }
 
 func resolveHomeDir(explicitHome string, env map[string]string) (string, error) {
@@ -53,6 +54,6 @@ func resolveConfigPaths(opts LoadOptions, homeDir, workingDir string) []configFi
 
 	return []configFilePatch{
 		{path: globalPath, allowMissing: true},
-		{path: projectPath, allowMissing: !explicitProjectPath},
+		{path: projectPath, allowMissing: !explicitProjectPath, project: true},
 	}
 }

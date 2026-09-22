@@ -568,6 +568,7 @@ func loadConfigWithSubAgentAgents(t *testing.T, agents map[string]string) (confi
 		ProjectConfigPath: path,
 		WorkingDir:        dir,
 		HomeDir:           dir,
+		ProjectTrust:      config.ProjectTrustTrusted,
 	})
 }
 

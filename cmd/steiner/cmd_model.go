@@ -35,6 +35,8 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 					Verbose:    flags.verbose,
 					Unsafe:     flags.unsafe,
 				},
+				// step-5 of project-config-trust replaces this with the resolved trust decision.
+				ProjectTrust: config.ProjectTrustTrusted,
 			})
 			if err != nil {
 				return err

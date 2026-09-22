@@ -111,7 +111,11 @@ func buildModelsRuntime(cmd *cobra.Command) (*modelcatalog.Service, []modelcatal
 	if err != nil {
 		return nil, nil, fmt.Errorf("read config path: %w", err)
 	}
-	cfg, err := config.Load(config.LoadOptions{CLI: config.CLIOverrides{ConfigPath: configPath}})
+	cfg, err := config.Load(config.LoadOptions{
+		CLI: config.CLIOverrides{ConfigPath: configPath},
+		// step-5 of project-config-trust replaces this with the resolved trust decision.
+		ProjectTrust: config.ProjectTrustTrusted,
+	})
 	if err != nil {
 		return nil, nil, err
 	}

@@ -22,10 +22,11 @@ func TestLoadAcceptsCanonicalSubAgentTypes(t *testing.T) {
 	writeValidationSyncConfig(t, configPath, fmt.Sprintf("models:\n  profiles:\n    default:\n      default_model: default\n      sub_agents:\n%s", subAgents.String()))
 
 	if _, err := config.Load(config.LoadOptions{
-		HomeDir:    filepath.Join(tempDir, "home"),
-		WorkingDir: tempDir,
-		Env:        map[string]string{},
-		CLI:        config.CLIOverrides{ConfigPath: configPath},
+		HomeDir:      filepath.Join(tempDir, "home"),
+		WorkingDir:   tempDir,
+		Env:          map[string]string{},
+		CLI:          config.CLIOverrides{ConfigPath: configPath},
+		ProjectTrust: config.ProjectTrustTrusted,
 	}); err != nil {
 		t.Fatalf("config.Load() error = %v, want nil", err)
 	}
@@ -37,10 +38,11 @@ func TestLoadRejectsUnknownSubAgentType(t *testing.T) {
 	writeValidationSyncConfig(t, configPath, "models:\n  profiles:\n    default:\n      default_model: default\n      sub_agents:\n        bogus: default\n")
 
 	_, err := config.Load(config.LoadOptions{
-		HomeDir:    filepath.Join(tempDir, "home"),
-		WorkingDir: tempDir,
-		Env:        map[string]string{},
-		CLI:        config.CLIOverrides{ConfigPath: configPath},
+		HomeDir:      filepath.Join(tempDir, "home"),
+		WorkingDir:   tempDir,
+		Env:          map[string]string{},
+		CLI:          config.CLIOverrides{ConfigPath: configPath},
+		ProjectTrust: config.ProjectTrustTrusted,
 	})
 	if err == nil {
 		t.Fatal("config.Load() error = nil, want unknown sub-agent type error")

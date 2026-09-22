@@ -205,7 +205,20 @@ type SandboxConfig struct {
 	EnvPassthroughAll            bool        `yaml:"env_passthrough_all"`
 	BindHostCache                bool        `yaml:"bind_host_cache"`
 	HostMounts                   []HostMount `yaml:"host_mounts"`
+
+	// DisabledBy names the layer that last set Enabled=false: one of the
+	// SandboxDisabledBy* constants, or "" when the sandbox is enabled.
+	DisabledBy string `yaml:"-"`
 }
+
+const (
+	// SandboxDisabledByGlobalConfig marks the sandbox as disabled by the global config layer.
+	SandboxDisabledByGlobalConfig = "global_config"
+	// SandboxDisabledByProjectConfig marks the sandbox as disabled by the project config layer.
+	SandboxDisabledByProjectConfig = "project_config"
+	// SandboxDisabledByCLIUnsafe marks the sandbox as disabled by the --unsafe CLI flag.
+	SandboxDisabledByCLIUnsafe = "cli_unsafe"
+)
 
 // PermissionsConfig holds host-capability flags granted to the sandbox.
 type PermissionsConfig struct {

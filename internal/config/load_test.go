@@ -397,7 +397,7 @@ func loadProfileTestConfigResult(t *testing.T, contents string, cli CLIOverrides
 		t.Fatalf("write config fixture: %v", err)
 	}
 	cli.ConfigPath = configPath
-	return Load(LoadOptions{
+	return loadTrusted(LoadOptions{
 		HomeDir:    filepath.Join(tempDir, "home"),
 		WorkingDir: tempDir,
 		Env:        env,
