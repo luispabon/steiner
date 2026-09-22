@@ -573,26 +573,50 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 	summary := summarizeFollowUpArgs(payload.Arguments)
 	promptText := extractFollowUpMessage(payload.Arguments)
 
-	dd := &delegationDisplayState{
-		toolLabel:             childToolLabel,
-		taskPreview:           summary,
-		promptText:            promptText,
-		promptCollapsed:       true,
-		parentCallID:          payload.CallID,
-		parentArgs:            summary,
-		status:                "active",
-		collapsed:             true,
-		isFollowUp:            true,
-		followUpAgentID:       childAgentID,
-		baselineTurnCount:     baselineTurns,
-		baselineToolCallCount: baselineToolCalls,
-		extMax:                defaultDelegationExtensionMax,
+	loc, queued := b.takeQueuedDelegation(payload.CallID)
+	if !queued {
+		loc.dd = &delegationDisplayState{
+			toolLabel:       childToolLabel,
+			taskPreview:     summary,
+			promptText:      promptText,
+			promptCollapsed: true,
+			parentCallID:    payload.CallID,
+			parentArgs:      summary,
+			status:          "active",
+			collapsed:       true,
+			isFollowUp:      true,
+			followUpAgentID: childAgentID,
+			extMax:          defaultDelegationExtensionMax,
+		}
+		loc.seg = b.appendDelegationSegment(loc.dd)
 	}
-	idx := b.appendDelegationSegment(dd)
-	b.pendingDelegateParents = append(b.pendingDelegateParents, delegationLocator{seg: idx, dd: dd})
+	dd := loc.dd
+	dd.queuedForSlot = false
+	dd.parentCallID = payload.CallID
+	dd.parentArgs = summary
+	dd.taskPreview = summary
+	dd.promptText = promptText
+	dd.status = "active"
+	dd.startTime = nanoNow()
+	dd.isFollowUp = true
+	dd.followUpAgentID = childAgentID
+	dd.baselineTurnCount = baselineTurns
+	dd.baselineToolCallCount = baselineToolCalls
+	dd.toolLabel = childToolLabel
+	b.markDelegationDirty(loc.seg)
+	b.pendingDelegateParents = append(b.pendingDelegateParents, loc)
 }
 
 func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolCallStartedEvent) {
+	if loc, found := b.takeQueuedDelegation(payload.CallID); found {
+		loc.dd.queuedForSlot = false
+		loc.dd.status = "active"
+		loc.dd.collapsed = true
+		loc.dd.startTime = nanoNow()
+		b.bindParentDelegateCall(loc, payload)
+		b.pendingDelegateParents = append(b.pendingDelegateParents, loc)
+		return
+	}
 	if loc, found := b.dequeuePendingDelegationStartByCallID(payload.CallID); found {
 		b.bindParentDelegateCall(loc, payload)
 		return
@@ -666,6 +690,68 @@ func (b *contentBuffer) handleDelegationCacheWaiting(event output.Event) {
 	b.markDelegationDirty(loc.seg)
 }
 
+// appendToolCallQueuedEvent records a delegation call announced as waiting for a
+// parallelism slot. The box is created here so it is visible before the call is
+// dispatched, then activated by the matching ToolCallStartedEvent.
+func (b *contentBuffer) appendToolCallQueuedEvent(event output.Event) {
+	b.finishStreaming()
+	payload, ok := event.Payload.(output.ToolCallQueuedEvent)
+	if !ok || !isDelegateOrSpecialized(payload.Tool) || payload.CallID == "" {
+		// Without a call ID the box could not be bound or cleaned up later, so
+		// leave it to the normal ToolCallStarted path instead of risking stale
+		// queued state.
+		return
+	}
+	if b.queuedDelegations == nil {
+		b.queuedDelegations = make(map[string]delegationLocator)
+	}
+	summary := summarizeArgs(payload.Tool, payload.Arguments)
+	toolLabel, promptText, brief := delegateCallDetails(payload.Tool, payload.Arguments)
+	dd := &delegationDisplayState{
+		toolLabel:       toolLabel,
+		taskPreview:     summary,
+		promptText:      promptText,
+		promptCollapsed: true,
+		parentCallID:    payload.CallID,
+		parentArgs:      summary,
+		queuedForSlot:   true,
+		status:          "active",
+		collapsed:       true,
+		extMax:          defaultDelegationExtensionMax,
+	}
+	if brief != nil {
+		dd.applyStructuredBrief(*brief)
+	}
+	idx := b.appendDelegationSegment(dd)
+	b.queuedDelegations[payload.CallID] = delegationLocator{seg: idx, dd: dd}
+}
+
+// clearQueuedDelegation drops any queued-delegation entry for a call ID so a
+// finished event cannot leave stale queued state behind.
+func (b *contentBuffer) clearQueuedDelegation(callID string) {
+	if b.queuedDelegations == nil || callID == "" {
+		return
+	}
+	delete(b.queuedDelegations, callID)
+}
+
+// takeQueuedDelegation pops the queued delegation box for a call ID so the
+// matching start event activates it instead of creating a duplicate.
+func (b *contentBuffer) takeQueuedDelegation(callID string) (delegationLocator, bool) {
+	if callID == "" || b.queuedDelegations == nil {
+		return delegationLocator{}, false
+	}
+	loc, found := b.queuedDelegations[callID]
+	if !found {
+		return delegationLocator{}, false
+	}
+	delete(b.queuedDelegations, callID)
+	if loc.dd == nil {
+		return delegationLocator{}, false
+	}
+	return loc, true
+}
+
 func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 	payload, ok := event.Payload.(output.DelegationStartedEvent)
 	if !ok {
@@ -690,6 +776,7 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 			dd.modelName, dd.reasoning = b.resolveAliasBadge(modelAlias)
 		}
 		dd.cacheWaiting = false
+		dd.queuedForSlot = false
 		dd.startTime = nanoNow()
 		dd.status = "active"
 		dd.collapsed = true

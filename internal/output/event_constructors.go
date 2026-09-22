@@ -152,6 +152,17 @@ func NewToolCallStartedEvent(turn int, toolName, callID string, arguments map[st
 	})
 }
 
+// NewToolCallQueuedEvent creates a new tool call queued event. Emitted only for
+// delegation-class calls that have not yet acquired a parallelism slot.
+func NewToolCallQueuedEvent(turn int, toolName, callID string, arguments map[string]any) Event {
+	return newEvent(EventTypeToolCallQueued, ToolCallQueuedEvent{
+		Turn:      turn,
+		Tool:      toolName,
+		CallID:    callID,
+		Arguments: arguments,
+	})
+}
+
 // NewToolCallFinishedEvent creates a new tool call finished event.
 func NewToolCallFinishedEvent(turn int, toolName, callID string, result string, err error) Event {
 	return NewToolCallFinishedEventWithPreview(turn, toolName, callID, result, err, ToolPreview{})

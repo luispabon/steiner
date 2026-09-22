@@ -84,6 +84,7 @@ func (b *contentBuffer) applyFinishedToolCallToDelegation(idx int, payload outpu
 		}
 		if dd.agentID == "" && payload.Error != "" {
 			b.removeFromPendingDelegateParents(dd)
+			b.clearQueuedDelegation(payload.CallID)
 			dd.status = "failed"
 			seg.renderDirty = true
 			b.gen++
@@ -101,6 +102,7 @@ func (b *contentBuffer) applyFinishedToolCallToDelegation(idx int, payload outpu
 			}
 			if dd.agentID == "" && payload.Error != "" {
 				b.removeFromPendingDelegateParents(dd)
+				b.clearQueuedDelegation(payload.CallID)
 				dd.status = "failed"
 				seg.renderDirty = true
 				b.gen++
@@ -331,6 +333,7 @@ func (b *contentBuffer) Clear() {
 	b.activeToolCalls = nil
 	b.pendingDelegateParents = nil
 	b.pendingDelegationStarts = nil
+	b.queuedDelegations = nil
 	b.activeAdvisorSegment = 0
 	// Invalidate render caches.
 	b.stringCacheWidth = 0
