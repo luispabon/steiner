@@ -21,9 +21,9 @@ func cursorInLines(t *testing.T, lines []string, cursorRow, cursorCol int) (row,
 
 // TestComposerLayoutAcrossInputStates pins the composer layout (input rows,
 // viewport height, and rendered cursor position) across input states. These
-// values derive from steiner's own hardwrap of m.input.Value() and must not
-// depend on the textarea's internal width; the same expectations hold before
-// and after the width change.
+// values derive from steiner's own wrap of m.input.Value() and must not depend
+// on the textarea's internal width; the same expectations hold before and after
+// the width change.
 func TestComposerLayoutAcrossInputStates(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -59,8 +59,8 @@ func TestComposerLayoutAcrossInputStates(t *testing.T) {
 			innerWidth := m.inputInnerWidth(m.contentWidth())
 			maxVisible := m.maxVisibleInputLines(m.contentWidth())
 
-			// Expected rendered rows: hardwrap each logical line at innerWidth.
-			// All non-placeholder fixtures are pure-x lines, so hardwrap breaks
+			// Expected rendered rows: wrap each logical line at innerWidth.
+			// All non-placeholder fixtures are pure-x lines, so wrapping breaks
 			// them at exact innerWidth boundaries.
 			wantRows := 0
 			if tt.placeholder {
@@ -166,6 +166,57 @@ func TestComposerUpDownNavigatesVisualRows(t *testing.T) {
 	row, col := cursorInLines(t, lines, cursorRow, cursorCol)
 	if row != 1 || col != 0 {
 		t.Fatalf("rendered cursor at row %d col %d, want row 1 col 0", row, col)
+	}
+}
+
+// TestComposerUpWithSpacedDraftStepsThroughTextareaRows pins that the composer
+// draws the same rows the textarea navigates for text with spaces: each Up
+// while a soft-wrapped row remains above the caret moves the caret up one
+// textarea row and one drawn row, and history recall only starts once the caret
+// is on the top row of the top logical line.
+func TestComposerUpWithSpacedDraftStepsThroughTextareaRows(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	draft := "the quick brown fox jumps over the lazy dog and keeps on running"
+	m.input.SetValue(draft)
+	m.input.CursorEnd()
+	loadComposerHistory(m, "most recent prompt")
+
+	if got := m.input.LineInfo().RowOffset; got == 0 {
+		t.Fatalf("test setup invalid: caret starts on the top textarea row")
+	}
+
+	for {
+		wantRow := m.input.LineInfo().RowOffset - 1
+		m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+
+		if got := m.input.LineInfo().RowOffset; got != wantRow {
+			t.Fatalf("textarea row = %d, want %d after Up", got, wantRow)
+		}
+		if got := m.input.Value(); got != draft {
+			t.Fatalf("Value() = %q, want unchanged draft %q (a row remained above the caret)", got, draft)
+		}
+		if got := m.fileHistoryIdx; got != -1 {
+			t.Fatalf("fileHistoryIdx = %d, want -1", got)
+		}
+		_, cursorRow, _ := m.renderTypedInputLines(m.inputInnerWidth(m.contentWidth()))
+		if cursorRow != wantRow {
+			t.Fatalf("drawn cursor row = %d, want %d (drawn rows must match textarea rows)", cursorRow, wantRow)
+		}
+		if wantRow == 0 {
+			break
+		}
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+
+	if got := m.input.Value(); got != "most recent prompt" {
+		t.Fatalf("Value() = %q, want %q (recall only from the top textarea row)", got, "most recent prompt")
+	}
+	if got := m.fileHistoryIdx; got != 0 {
+		t.Fatalf("fileHistoryIdx = %d, want 0", got)
 	}
 }
 

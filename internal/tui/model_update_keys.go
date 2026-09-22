@@ -408,11 +408,11 @@ func (m *Model) handleKeyUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // cursorOnTopInputRow reports whether the caret sits on the first visual row of
 // the composer. m.input.Line() counts logical lines split on "\n", so a wrapped
-// or multiline draft can report Line() == 0 while the caret renders on a lower
-// row; the history-recall gate must key off the rendered row instead.
+// draft reports Line() == 0 from every wrapped row; the textarea's RowOffset is
+// the soft-wrapped row the caret occupies and the row Up moves through, so the
+// history-recall gate keys off that.
 func (m *Model) cursorOnTopInputRow() bool {
-	_, cursorRow, _ := m.renderTypedInputLines(m.inputInnerWidth(m.contentWidth()))
-	return cursorRow == 0
+	return m.input.Line() == 0 && m.input.LineInfo().RowOffset == 0
 }
 
 func (m *Model) handleKeyDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

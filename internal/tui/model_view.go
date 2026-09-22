@@ -508,46 +508,91 @@ func (m *Model) renderTypedInputLines(width int) ([]string, int, int) {
 	cursorDisplayCol := 0
 	lines := make([]string, 0, len(valueLines))
 	for i, valueLine := range valueLines {
-		wrapped := wrapComposerLine(valueLine, width)
+		rows := wrapComposerLine(valueLine, width)
 		if i == cursorLine {
 			// m.input.Column() is the rune offset of the cursor within the
 			// logical line, independent of the textarea's internal wrap
-			// width. The old code used LineInfo().ColumnOffset, which only
-			// equals this offset when the textarea width is large enough to
-			// disable soft wrapping.
-			absPos := max(0, m.input.Column())
-			if absPos > len([]rune(valueLine)) {
-				absPos = len([]rune(valueLine))
-			}
-			cursorCellPos := ansi.StringWidth(string([]rune(valueLine)[:absPos]))
+			// width. Mapping it through the rows wrapComposerLine draws keeps
+			// the drawn caret on the row the textarea navigates.
+			runes := []rune(valueLine)
+			absPos := min(max(0, m.input.Column()), len(runes))
 			row := 0
-			col := cursorCellPos
-			for r, seg := range wrapped {
-				visibleLen := ansi.StringWidth(seg)
-				if col < visibleLen || (col == visibleLen && r == len(wrapped)-1) {
-					row = r
+			for r, seg := range rows {
+				if seg.start > absPos {
 					break
 				}
-				col -= visibleLen
+				row = r
 			}
 			cursorDisplayRow = len(lines) + row
-			cursorDisplayCol = col
+			cursorDisplayCol = ansi.StringWidth(string(runes[rows[row].start:absPos]))
 		}
-		lines = append(lines, wrapped...)
+		for _, seg := range rows {
+			lines = append(lines, seg.text)
+		}
 	}
 	return lines, cursorDisplayRow, cursorDisplayCol
 }
 
-func wrapComposerLine(line string, width int) []string {
+// composerLineRow is one drawn row of a logical composer line: the row text and
+// the rune offset of its first rune within the logical line.
+type composerLineRow struct {
+	text  string
+	start int
+}
+
+// wrapComposerLine splits a logical input line into the rows the composer
+// draws. Wrapping follows the textarea's soft wrap: rows break at spaces (the
+// space at a break stays on the row it follows) and words wider than the row
+// are hard-broken. Sharing that rule keeps the drawn rows identical to the rows
+// Up/Down move through, which the history-recall gate keys off.
+func wrapComposerLine(line string, width int) []composerLineRow {
 	if width < 1 {
 		width = 1
 	}
-	wrapped := ansi.Hardwrap(line, width, true)
-	wrapped = strings.TrimRight(wrapped, "\n")
-	if wrapped == "" {
-		return []string{""}
+	runes := []rune(line)
+	rows := []composerLineRow{{start: 0}}
+	rowStart := 0
+	rowWidth := 0
+
+	closeRow := func(at int) {
+		rows[len(rows)-1].text = string(runes[rowStart:at])
+		rows = append(rows, composerLineRow{start: at})
+		rowStart = at
+		rowWidth = 0
 	}
-	return strings.Split(wrapped, "\n")
+
+	for i := 0; i < len(runes); {
+		spacesStart := i
+		for i < len(runes) && isComposerSpace(runes[i]) {
+			i++
+		}
+		wordStart := i
+		for i < len(runes) && !isComposerSpace(runes[i]) {
+			i++
+		}
+		spaceWidth := ansi.StringWidth(string(runes[spacesStart:wordStart]))
+		wordWidth := ansi.StringWidth(string(runes[wordStart:i]))
+		if wordWidth > 0 && rowWidth > 0 && rowWidth+spaceWidth+wordWidth > width {
+			// The spaces end the current row; the word starts the next one.
+			closeRow(wordStart)
+		} else {
+			rowWidth += spaceWidth
+		}
+		for j := wordStart; j < i; j++ {
+			runeWidth := ansi.StringWidth(string(runes[j]))
+			if rowWidth > 0 && rowWidth+runeWidth > width {
+				closeRow(j)
+			}
+			rowWidth += runeWidth
+		}
+	}
+	rows[len(rows)-1].text = string(runes[rowStart:])
+	return rows
+}
+
+// isComposerSpace reports whether the rune is whitespace the composer wraps on.
+func isComposerSpace(r rune) bool {
+	return r == ' ' || r == '\t'
 }
 
 // stripTrailingReset removes the trailing ANSI reset sequence added by lipgloss Style.Render.
