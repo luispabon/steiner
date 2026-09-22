@@ -1,0 +1,3 @@
+m: &m
+  enabled: false
+sandbox: *m

@@ -57,7 +57,7 @@ func TestModelsRefreshDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh error = %v", err)
 	}
-	if output != "model discovery disabled\n" {
+	if !strings.Contains(output, "model discovery disabled\n") {
 		t.Fatalf("refresh output = %q, want disabled notice", output)
 	}
 }
@@ -107,7 +107,7 @@ func TestModelsStatusDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status error = %v", err)
 	}
-	if output != "model discovery: disabled\n" {
+	if !strings.Contains(output, "model discovery: disabled\n") {
 		t.Fatalf("status output = %q, want disabled status", output)
 	}
 }

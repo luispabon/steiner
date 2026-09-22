@@ -21,6 +21,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/metadata"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tui"
 )
 
 func TestVersionOutput_Styling(t *testing.T) {
@@ -174,6 +175,58 @@ models:
 
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+// TestCommandsConfigUntrustedProject pins that `steiner config` works on an
+// untrusted project without prompting: it shows a "NOT trusted" header but
+// still prints the project's overridden values.
+func TestCommandsConfigUntrustedProject(t *testing.T) {
+	oldTrustDialog := runTrustDialog
+	t.Cleanup(func() { runTrustDialog = oldTrustDialog })
+	runTrustDialog = func(context.Context, tui.DialogIO, config.ProjectInspection) (tui.TrustChoice, error) {
+		t.Fatal("steiner config must never show the trust dialog")
+		return tui.TrustDeny, nil
+	}
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	writeFile(t, configPath, `providers:
+  local:
+    type: openai_compat
+    base_url: http://example/v1
+models:
+  profiles:
+    default:
+      default_model: test
+  definitions:
+    test:
+      provider: local
+      id: test-model
+`)
+	t.Setenv("HOME", filepath.Join(tempDir, "home"))
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--config", configPath, "config"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "# project ") || !strings.Contains(got, " is NOT trusted") {
+		t.Fatalf("output missing untrusted header: %q", got)
+	}
+
+	var parsed config.Config
+	if err := yaml.Unmarshal(stdout.Bytes(), &parsed); err != nil {
+		t.Fatalf("unmarshal config output: %v\noutput:\n%s", err, got)
+	}
+	if parsed.Models.Definitions["test"].ID != "test-model" {
+		t.Fatalf("models[test].ID = %q, want test-model", parsed.Models.Definitions["test"].ID)
 	}
 }
 
@@ -558,8 +611,8 @@ models:
 			t.Fatalf("stdout = %q, want %q absent", got, absent)
 		}
 	}
-	if stderr.Len() != 0 {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
+	if !strings.Contains(stderr.String(), trustProjectConfigEnv) {
+		t.Fatalf("stderr = %q, want project trust notice", stderr.String())
 	}
 }
 

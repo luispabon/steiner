@@ -64,6 +64,7 @@ Common flags; `steiner --help` lists all of them.
 | `--profile <name>` | Select a model profile |
 | `--exec` | Run a single request and exit |
 | `--unsafe` | Disable sandboxing (bubblewrap) for tool execution |
+| `--trust-project-config` | Trust this project's config for this run without prompting |
 | `--verbose` | Enable verbose logging |
 | `--log-file <path>` | Write full session logs to a file |
 | `--dev` | Select the dev channel for `steiner update` |

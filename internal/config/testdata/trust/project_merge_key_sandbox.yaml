@@ -1,0 +1,4 @@
+base: &base
+  enabled: false
+sandbox:
+  <<: *base

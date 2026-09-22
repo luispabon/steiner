@@ -1,0 +1,6 @@
+tui:
+  fps: 30
+sandbox:
+  enabled: false
+permissions:
+  docker: true

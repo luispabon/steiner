@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"time"
 )
@@ -27,6 +28,9 @@ type LoadOptions struct {
 	HomeDir           string
 	Env               map[string]string
 	CLI               CLIOverrides
+	// ProjectTrust gates whether the project config layer may be applied.
+	// The zero value refuses an existing project config.
+	ProjectTrust ProjectTrust
 }
 
 func loadEnvironment(env map[string]string) map[string]string {
@@ -55,11 +59,15 @@ func Load(opts LoadOptions) (Config, error) {
 		if item.path == "" {
 			continue
 		}
+		if err := checkProjectTrust(item, opts.ProjectTrust); err != nil {
+			return Config{}, err
+		}
 		patch, err := readConfigPatch(item.path, env, item.allowMissing)
 		if err != nil {
 			return Config{}, err
 		}
 		applyPatch(&cfg, patch)
+		recordSandboxDisabledBy(&cfg, patch, item.project)
 	}
 
 	if err := applyEnvOverrides(&cfg, env); err != nil {
@@ -85,6 +93,40 @@ func Load(opts LoadOptions) (Config, error) {
 	cfg.Models.Effective = effective
 
 	return cfg, nil
+}
+
+// checkProjectTrust refuses an existing, untrusted project config layer. A
+// missing project config is always allowed; readConfigPatch handles that
+// case (empty patch, or the existing "does not exist" error for an explicit
+// --config path).
+func checkProjectTrust(item configFilePatch, trust ProjectTrust) error {
+	if !item.project || trust == ProjectTrustTrusted {
+		return nil
+	}
+	switch _, statErr := os.Stat(item.path); {
+	case statErr == nil:
+		return fmt.Errorf("load project config %q: %w", item.path, ErrProjectUntrusted)
+	case os.IsNotExist(statErr):
+		return nil
+	default:
+		return fmt.Errorf("stat project config %q: %w", item.path, statErr)
+	}
+}
+
+// recordSandboxDisabledBy sets cfg.Sandbox.DisabledBy to the layer that last
+// toggled sandbox.enabled in patch, leaving it untouched if patch doesn't set it.
+func recordSandboxDisabledBy(cfg *Config, patch configPatch, project bool) {
+	if patch.Sandbox == nil || patch.Sandbox.Enabled == nil {
+		return
+	}
+	switch {
+	case *patch.Sandbox.Enabled:
+		cfg.Sandbox.DisabledBy = ""
+	case project:
+		cfg.Sandbox.DisabledBy = SandboxDisabledByProjectConfig
+	default:
+		cfg.Sandbox.DisabledBy = SandboxDisabledByGlobalConfig
+	}
 }
 
 func normalizeExecutionModes(cfg *Config) {

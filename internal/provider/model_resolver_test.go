@@ -389,7 +389,7 @@ func TestResolverCacheDifferentiatesExplicitInheritedCodexContext(t *testing.T) 
 		if err := os.WriteFile(filepath.Join(project, ".steiner", "config.yaml"), []byte(data), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		cfg, err := config.Load(config.LoadOptions{WorkingDir: project, HomeDir: filepath.Join(dir, "home"), Env: map[string]string{}})
+		cfg, err := config.Load(config.LoadOptions{WorkingDir: project, HomeDir: filepath.Join(dir, "home"), Env: map[string]string{}, ProjectTrust: config.ProjectTrustTrusted})
 		if err != nil {
 			t.Fatal(err)
 		}

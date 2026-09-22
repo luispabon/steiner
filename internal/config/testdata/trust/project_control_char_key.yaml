@@ -1,0 +1,4 @@
+mcp:
+  servers:
+    "evil\r\e[2Kname":
+      command: sh

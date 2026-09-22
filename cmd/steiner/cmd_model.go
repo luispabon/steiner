@@ -28,13 +28,11 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			alias := args[0]
-			cfg, err := config.Load(config.LoadOptions{
-				CLI: config.CLIOverrides{
-					ConfigPath: flags.configPath,
-					Model:      flags.model,
-					Verbose:    flags.verbose,
-					Unsafe:     flags.unsafe,
-				},
+			cfg, err := loadCLIConfig(cmd, flags, config.CLIOverrides{
+				ConfigPath: flags.configPath,
+				Model:      flags.model,
+				Verbose:    flags.verbose,
+				Unsafe:     flags.unsafe,
 			})
 			if err != nil {
 				return err

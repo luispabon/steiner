@@ -1,0 +1,4 @@
+lsp:
+  servers:
+    "x.y":
+      command: sh

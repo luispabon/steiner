@@ -1,0 +1,4 @@
+mcp:
+  servers:
+    "evil.co":
+      command: sh

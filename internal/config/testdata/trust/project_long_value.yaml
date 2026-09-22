@@ -1,0 +1,2 @@
+logging:
+  file: this-is-a-very-long-path-value-that-should-be-truncated-when-rendered-past-sixty-runes.log

@@ -19,7 +19,7 @@ A minimal, local-first Go coding agent with bounded context and sandboxed execut
 
 ## Safety
 
-Review configuration before real work. Commands are sandboxed by default on Linux, but sandboxing is not a confidentiality boundary. `--unsafe` disables the sandbox. See [Sandboxing](docs/user/sandboxing.md).
+Review configuration before real work. Commands are sandboxed by default on Linux, but sandboxing is not a confidentiality boundary. `--unsafe` disables the sandbox. See [Sandboxing](docs/user/sandboxing.md). The first time steiner runs in a project directory, it asks you to trust that project, showing every way its `.steiner/config.yaml` would change your global config. See [Project trust](docs/user/configuration.md#project-trust).
 
 ## Documentation map
 

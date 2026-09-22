@@ -106,6 +106,16 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// HOME above is a fresh temp dir with no trust store, and go test runs
+	// without a TTY, so every config.Load call would otherwise hit the
+	// project-trust hard error. Trust every project for the whole suite via
+	// the env escape hatch; project_trust_test.go clears it per-case with
+	// t.Setenv where it needs to exercise the untrusted path.
+	if err := os.Setenv(trustProjectConfigEnv, "1"); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to set %s for cmd tests: %v\n", trustProjectConfigEnv, err)
+		os.Exit(1)
+	}
+
 	// metadata.DefaultCacheDir prefers XDG_CACHE_HOME over HOME, so overriding
 	// HOME alone leaves tests reading and writing the developer's real
 	// ~/.cache/steiner (and fetching models.dev over the network) on any machine

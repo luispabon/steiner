@@ -1,0 +1,4 @@
+paths:
+  writable_paths:
+    - /tmp
+    - /var/tmp

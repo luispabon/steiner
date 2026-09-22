@@ -9,6 +9,13 @@ import (
 	"testing"
 )
 
+// loadTrusted loads with the project layer trusted, for tests that exercise
+// cascade behaviour rather than the trust gate.
+func loadTrusted(opts LoadOptions) (Config, error) {
+	opts.ProjectTrust = ProjectTrustTrusted
+	return Load(opts)
+}
+
 func TestDefaultConfigProjectContextFilesDefaultToNil(t *testing.T) {
 	cfg := defaultConfig(nil)
 
@@ -341,7 +348,7 @@ models:
         codex:
           use_max_context_window: true
 `)
-	cfg, err := Load(LoadOptions{HomeDir: homeDir, WorkingDir: projectDir, Env: map[string]string{}})
+	cfg, err := loadTrusted(LoadOptions{HomeDir: homeDir, WorkingDir: projectDir, Env: map[string]string{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,7 +448,7 @@ logging:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: homeDir,
 		Env: map[string]string{
 			"STEINER_MODEL":                   "env",
@@ -532,7 +539,7 @@ models:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -632,7 +639,7 @@ models:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: homeDir,
 		Env:     map[string]string{},
 	})
@@ -684,7 +691,7 @@ models:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -737,7 +744,7 @@ models:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -785,7 +792,7 @@ models:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -992,7 +999,7 @@ logging:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: homeDir,
 		Env:     map[string]string{},
 	})
@@ -1045,7 +1052,7 @@ models:
 	}
 	t.Setenv("HOME", homeDir)
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: homeDir,
 		Env: map[string]string{
 			"HOME": homeDir,
@@ -1085,7 +1092,7 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = Load(LoadOptions{
+	_, err = loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -1376,7 +1383,7 @@ models:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -1420,7 +1427,7 @@ models:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -1467,7 +1474,7 @@ models:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -1516,7 +1523,7 @@ desktop_notifications:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -1564,7 +1571,7 @@ limits:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -1607,7 +1614,7 @@ models:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -1656,7 +1663,7 @@ update_check:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -1702,7 +1709,7 @@ models:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -1757,7 +1764,7 @@ permissions:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -1811,7 +1818,7 @@ sandbox:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -1871,7 +1878,7 @@ sandbox:
 	}
 
 	tempHome := filepath.Join(tempDir, "home")
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: tempHome,
 		Env:     map[string]string{},
 	})
@@ -1930,7 +1937,7 @@ host_mounts:
 		t.Fatal(err)
 	}
 
-	_, err = Load(LoadOptions{
+	_, err = loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -1975,7 +1982,7 @@ models:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -2026,7 +2033,7 @@ sandbox:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(LoadOptions{
+	cfg, err := loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -2078,7 +2085,7 @@ logging:
 		t.Fatal(err)
 	}
 
-	_, err = Load(LoadOptions{
+	_, err = loadTrusted(LoadOptions{
 		HomeDir: filepath.Join(tempDir, "home"),
 		Env:     map[string]string{},
 	})
@@ -2137,7 +2144,7 @@ models:
 				t.Fatal(err)
 			}
 
-			cfg, err := Load(LoadOptions{
+			cfg, err := loadTrusted(LoadOptions{
 				HomeDir: filepath.Join(tempDir, "home"),
 				Env:     map[string]string{},
 			})

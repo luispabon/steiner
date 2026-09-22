@@ -47,6 +47,21 @@ type cliFlags struct {
 	// server before the first agent turn. Non-interactive commands keep the
 	// blocking behaviour (set false, the zero value).
 	asyncMCP bool
+	// trustProjectConfig is --trust-project-config: trust this project's
+	// config for this run without prompting, and without persisting it.
+	trustProjectConfig bool
+	// projectTrust is the resolved trust decision. Zero value is untrusted;
+	// set once by ensureProjectTrust.
+	projectTrust config.ProjectTrust
+	// trustSource records how projectTrust was resolved: "stored", "always",
+	// "session", "flag", or "env". Empty until trustResolved is true.
+	trustSource string
+	// projectRoot is the trust key (InspectProject's symlink-resolved
+	// project root), set by ensureProjectTrust for diagnostic logging.
+	projectRoot string
+	// trustResolved memoises ensureProjectTrust so trust is resolved exactly
+	// once per process.
+	trustResolved bool
 }
 
 type cliRuntime struct {

@@ -1,0 +1,6 @@
+m: &m
+  command: sh
+mcp:
+  servers:
+    x:
+      <<: *m

@@ -680,6 +680,7 @@ func loadCloseoutConfig(t *testing.T, autoPR bool) config.Config { //nolint:unpa
 		ProjectConfigPath: configPath,
 		WorkingDir:        t.TempDir(),
 		HomeDir:           t.TempDir(),
+		ProjectTrust:      config.ProjectTrustTrusted,
 	})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
