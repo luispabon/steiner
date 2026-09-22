@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // cursorInLines converts the cursor row and column from renderTypedInputLines
@@ -166,6 +167,82 @@ func TestComposerUpDownNavigatesVisualRows(t *testing.T) {
 	row, col := cursorInLines(t, lines, cursorRow, cursorCol)
 	if row != 1 || col != 0 {
 		t.Fatalf("rendered cursor at row %d col %d, want row 1 col 0", row, col)
+	}
+}
+
+// assertComposerRowsMatchTextarea fails when the composer draws different rows
+// than the textarea soft-wraps a single-line value into, when it puts the caret
+// on a different row than the textarea does, or when a drawn row is wider than
+// the composer's inner width.
+func assertComposerRowsMatchTextarea(t *testing.T, m *Model) {
+	t.Helper()
+	width := m.inputInnerWidth(m.contentWidth())
+	lines, cursorRow, _ := m.renderTypedInputLines(width)
+	info := m.input.LineInfo()
+	if len(lines) != info.Height {
+		t.Fatalf("drawn rows = %d, want %d (textarea soft-wrapped rows)", len(lines), info.Height)
+	}
+	if cursorRow != info.RowOffset {
+		t.Fatalf("drawn cursor row = %d, want %d (textarea caret row)", cursorRow, info.RowOffset)
+	}
+	for i, line := range lines {
+		if got := ansi.StringWidth(line); got > width {
+			t.Fatalf("drawn row %d width = %d, want <= %d", i, got, width)
+		}
+	}
+}
+
+// TestComposerWrapMatchesTextareaAtExactWidthBoundary pins the textarea's
+// reserved-space rule: a line that exactly fills the composer width wraps into
+// an extra reserved row, so the caret at the end sits on that row and Up steps
+// onto the text row before history recall can start.
+func TestComposerWrapMatchesTextareaAtExactWidthBoundary(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	draft := strings.Repeat("x", m.inputInnerWidth(m.contentWidth()))
+	m.input.SetValue(draft)
+	m.input.CursorEnd()
+
+	if got := m.input.LineInfo().Height; got != 2 {
+		t.Fatalf("textarea rows = %d, want 2 (an exact-width line reserves a trailing row)", got)
+	}
+	assertComposerRowsMatchTextarea(t, m)
+
+	loadComposerHistory(m, "most recent prompt")
+
+	// The caret starts on the reserved row, so the first Up steps onto the text.
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+	if got := m.input.Value(); got != draft {
+		t.Fatalf("Value() = %q, want unchanged draft %q (a reserved row sat below the caret)", got, draft)
+	}
+	assertComposerRowsMatchTextarea(t, m)
+
+	// Nothing is above the caret any more, so the next Up recalls.
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+	if got := m.input.Value(); got != "most recent prompt" {
+		t.Fatalf("Value() = %q, want %q (recall from the top textarea row)", got, "most recent prompt")
+	}
+}
+
+// TestComposerWrapMatchesTextareaWithTrailingSpaceAndOverflow pins the wrap on
+// text that ends in whitespace and overflows the width: rows keep the textarea's
+// break points and caret rows, and no drawn row exceeds the inner width.
+func TestComposerWrapMatchesTextareaWithTrailingSpaceAndOverflow(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	draft := strings.Repeat("ab cd ", 12)
+	m.input.SetValue(draft)
+
+	for _, col := range []int{0, 5, 35, 36, 71, len([]rune(draft))} {
+		m.input.SetCursorColumn(col)
+		assertComposerRowsMatchTextarea(t, m)
+	}
+	if got := m.input.LineInfo().Height; got != 3 {
+		t.Fatalf("textarea rows = %d, want 3 (trailing space reserves a row)", got)
 	}
 }
 

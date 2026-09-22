@@ -3,6 +3,7 @@ package tui
 import (
 	"slices"
 	"strings"
+	"unicode"
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
@@ -533,66 +534,112 @@ func (m *Model) renderTypedInputLines(width int) ([]string, int, int) {
 	return lines, cursorDisplayRow, cursorDisplayCol
 }
 
-// composerLineRow is one drawn row of a logical composer line: the row text and
-// the rune offset of its first rune within the logical line.
+// composerLineRow is one drawn row of a logical composer line: the row text
+// with the wrap's reserved trailing spaces trimmed (so a drawn row never
+// exceeds the composer's inner width) and the rune offset within the logical
+// line where the row's content starts.
 type composerLineRow struct {
 	text  string
 	start int
 }
 
+// composerGridRune is one rune of a wrapped row: the rune and the offset it came
+// from in the logical line, or -1 for the trailing space the wrap reserves so
+// the caret can sit after the last character.
+type composerGridRune struct {
+	r     rune
+	value int
+}
+
 // wrapComposerLine splits a logical input line into the rows the composer
-// draws. Wrapping follows the textarea's soft wrap: rows break at spaces (the
-// space at a break stays on the row it follows) and words wider than the row
-// are hard-broken. Sharing that rule keeps the drawn rows identical to the rows
-// Up/Down move through, which the history-recall gate keys off.
+// draws. The rule mirrors the textarea's soft wrap exactly: whitespace is
+// unicode whitespace, a word keeps the whitespace that follows it until the two
+// no longer fit together, a word wider than the row is broken at the width, and
+// a row that reaches the width reserves a trailing space (and a row for it).
+// Drawing the textarea's rows is what keeps Up/Down, which move through those
+// rows, in step with what is on screen.
 func wrapComposerLine(line string, width int) []composerLineRow {
 	if width < 1 {
 		width = 1
 	}
-	runes := []rune(line)
-	rows := []composerLineRow{{start: 0}}
-	rowStart := 0
-	rowWidth := 0
+	value := []rune(line)
+	var (
+		grid   = [][]composerGridRune{{}}
+		word   []composerGridRune
+		spaces []composerGridRune
+		row    int
+	)
 
-	closeRow := func(at int) {
-		rows[len(rows)-1].text = string(runes[rowStart:at])
-		rows = append(rows, composerLineRow{start: at})
-		rowStart = at
-		rowWidth = 0
-	}
-
-	for i := 0; i < len(runes); {
-		spacesStart := i
-		for i < len(runes) && isComposerSpace(runes[i]) {
-			i++
-		}
-		wordStart := i
-		for i < len(runes) && !isComposerSpace(runes[i]) {
-			i++
-		}
-		spaceWidth := ansi.StringWidth(string(runes[spacesStart:wordStart]))
-		wordWidth := ansi.StringWidth(string(runes[wordStart:i]))
-		if wordWidth > 0 && rowWidth > 0 && rowWidth+spaceWidth+wordWidth > width {
-			// The spaces end the current row; the word starts the next one.
-			closeRow(wordStart)
+	for i, r := range value {
+		if unicode.IsSpace(r) {
+			spaces = append(spaces, composerGridRune{r: r, value: i})
 		} else {
-			rowWidth += spaceWidth
+			word = append(word, composerGridRune{r: r, value: i})
 		}
-		for j := wordStart; j < i; j++ {
-			runeWidth := ansi.StringWidth(string(runes[j]))
-			if rowWidth > 0 && rowWidth+runeWidth > width {
-				closeRow(j)
+
+		if len(spaces) > 0 {
+			if composerGridWidth(grid[row])+composerGridWidth(word)+len(spaces) > width {
+				row++
+				grid = append(grid, nil)
 			}
-			rowWidth += runeWidth
+			grid[row] = append(grid[row], word...)
+			grid[row] = append(grid[row], spaces...)
+			word, spaces = nil, nil
+			continue
+		}
+		if len(word) > 0 {
+			// A word that has reached the width starts a new row, unless the
+			// current row is still empty.
+			if composerGridWidth(word)+ansi.StringWidth(string(word[len(word)-1].r)) > width {
+				if len(grid[row]) > 0 {
+					row++
+					grid = append(grid, nil)
+				}
+				grid[row] = append(grid[row], word...)
+				word = nil
+			}
 		}
 	}
-	rows[len(rows)-1].text = string(runes[rowStart:])
+
+	if composerGridWidth(grid[row])+composerGridWidth(word)+len(spaces) >= width {
+		row++
+		grid = append(grid, nil)
+	}
+	grid[row] = append(grid[row], word...)
+	grid[row] = append(grid[row], spaces...)
+	grid[row] = append(grid[row], composerGridRune{r: ' ', value: -1})
+
+	rows := make([]composerLineRow, 0, len(grid))
+	for _, rowRunes := range grid {
+		rows = append(rows, composerLineRow{
+			text:  strings.TrimRight(composerGridText(rowRunes), " "),
+			start: composerGridStart(rowRunes, len(value)),
+		})
+	}
 	return rows
 }
 
-// isComposerSpace reports whether the rune is whitespace the composer wraps on.
-func isComposerSpace(r rune) bool {
-	return r == ' ' || r == '\t'
+func composerGridWidth(row []composerGridRune) int {
+	return ansi.StringWidth(composerGridText(row))
+}
+
+func composerGridText(row []composerGridRune) string {
+	var b strings.Builder
+	for _, g := range row {
+		b.WriteRune(g.r)
+	}
+	return b.String()
+}
+
+// composerGridStart returns the logical-line offset of the row's first rune,
+// falling back to end for a row that holds only reserved spaces.
+func composerGridStart(row []composerGridRune, end int) int {
+	for _, g := range row {
+		if g.value >= 0 {
+			return g.value
+		}
+	}
+	return end
 }
 
 // stripTrailingReset removes the trailing ANSI reset sequence added by lipgloss Style.Render.
