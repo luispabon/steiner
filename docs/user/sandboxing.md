@@ -36,7 +36,9 @@ Unsafe mode disables the sandbox for the session:
 steiner --unsafe
 ```
 
-Use it when a tool needs paths outside the workspace or to isolate a sandbox issue. It removes the primary protection and runs commands directly on the host. There are no boundary prompts in unsafe mode.
+Use it when a tool needs paths outside the workspace or to isolate a sandbox issue. It removes the primary protection and runs commands directly on the host. There are no boundary prompts in unsafe mode. `--unsafe` is independent of [project config trust](configuration.md#project-trust): it never affects, and is never affected by, the trust dialog.
+
+The sandbox-bypass startup warning names its source — `--unsafe`, `sandbox.enabled=false` in the project config, or `sandbox.enabled=false` in the global config — rather than a single generic message.
 
 ## Platform requirements
 

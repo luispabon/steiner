@@ -12,7 +12,7 @@ entries win):
 
 1. Compiled defaults
 2. `~/.config/steiner/config.yaml` — user-level config
-3. `.steiner/config.yaml` — project-level config (checked in or gitignored)
+3. `.steiner/config.yaml` — project-level config (checked in or gitignored); applied only once the project is trusted, see [Project trust](#project-trust)
 4. Environment variables with the `STEINER_` prefix
 5. CLI flags (`--profile`, `--model`, `--verbose`, `--unsafe`)
 
@@ -40,6 +40,7 @@ Key environment variables:
 | `STEINER_TOOL_OUTPUT_MAX_BYTES`   | `limits.tool_output_max_bytes`     |
 | `STEINER_MAX_PARALLEL_TOOLS`      | `limits.max_parallel_tools`        |
 | `STEINER_TUI_FPS`                 | `tui.fps`                          |
+| `STEINER_TRUST_PROJECT_CONFIG`    | trusts the current project's config for this run only, skipping the trust dialog (see [Project trust](#project-trust)) |
 
 ### Environment variable expansion in config values
 
@@ -72,6 +73,30 @@ logging:
 ```
 
 If `OPENAI_API_KEY` is not set, configuration loading fails. If `OPENAI_BASE_URL` is not set, it defaults to the URL shown.
+
+---
+
+## Project trust
+
+The first time steiner runs in a project directory it hasn't seen before, it shows a trust dialog before applying that project's `.steiner/config.yaml` — whether or not the project actually has one. The trust key is the symlink-resolved absolute working directory, not a discovered git or project root, so running steiner from a subdirectory of an already-trusted project prompts again.
+
+When the project has a config file, the dialog lists every leaf setting it overrides versus the global config, one line per field. Security-relevant fields are marked with a leading `!` and shown with warning styling: `sandbox`, `permissions`, `paths.writable_paths`/`blocked_paths`/`project_root_only`, most of `mcp.servers.*` (all fields except a few benign ones), `lsp.servers.*.command`/`args`/`env`, `tools.*.exec`/`subcommand`, and `providers.*.base_url`/`headers`/`api_key`/`api_key_env`. Secret-shaped values on the global side (`api_key` fields, anything under `headers` or `env`) are masked as `(set)`; the project's own values are always shown in full and unexpanded, so a `${VAR}` reference shows which environment variable would be used, not its value. If the project YAML fails to parse, the dialog still appears with a parse-error message in place of the diff.
+
+Three choices:
+
+- **[a] Always trust** — persists the decision; later changes to that project's config never re-prompt.
+- **[s] This session only** — trusts for this run; nothing is written to disk.
+- **[d] Deny and exit** — the default, and what `Esc`/`Ctrl-C` chooses; the process exits non-zero.
+
+"Always trust" decisions are recorded in `~/.config/steiner/trusted_projects.json`. There is no revoke or list command; edit or delete that file directly to revoke trust for a project. A corrupt or unrecognized-version file is deleted automatically, and you'll see a one-time notice; a plain read/permission error is a hard error instead, and the file is left untouched.
+
+The dialog needs a terminal: with `--exec`, or with no TTY, steiner can't show it. An untrusted project then makes the process exit non-zero with an error naming the fix. `steiner oneshot` follows the same plain-TTY rule as any other command.
+
+For scripted or CI use, pass `--trust-project-config` or set `STEINER_TRUST_PROJECT_CONFIG=1` (or `true`, case-insensitive) to trust the current project for that run only, skipping the dialog; neither persists anything.
+
+`steiner config` is an exception: it loads and prints the project's config values without prompting or persisting trust, prepending a `# project <root> is NOT trusted` header line when the project isn't in the trust store.
+
+`--unsafe` is independent of project trust in both directions: it never affects the trust dialog, and trusting a project never affects `--unsafe`.
 
 ---
 

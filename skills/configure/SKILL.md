@@ -19,7 +19,7 @@ Use this skill when a user asks to understand or change Steiner configuration. A
 
 Sole canonical compact reference for safe configuration edits; use this file as the source of truth.
 
-**Targets/precedence.** Project: `.steiner/config.yaml` or `--config <path>`; global: `~/.config/steiner/config.yaml`. Order: defaults, global YAML, project YAML, env, CLI; later wins. `--profile <name>` selects a profile; `STEINER_MODEL`, then `--model <ref>`, select the active model; `--verbose` enables verbose logging; `--unsafe` forces `sandbox.enabled: false`. Scalar expansion: `${VAR}`, `${VAR:-default}`, `$VAR`, `$$`; undefined variables fail except `${VAR:-}`.
+**Targets/precedence.** Project: `.steiner/config.yaml` or `--config <path>`; global: `~/.config/steiner/config.yaml`. Order: defaults, global, project, env, CLI; later wins; project needs trust. `--profile <name>` selects a profile; `STEINER_MODEL`, then `--model <ref>`, select the active model; `--verbose` enables verbose logging; `--unsafe` forces `sandbox.enabled: false`. Scalar expansion: `${VAR}`, `${VAR:-default}`, `$VAR`, `$$`; undefined variables fail except `${VAR:-}`.
 
 **Environment.** `STEINER_MODEL` -> active model; `STEINER_SUB_AGENTS_MAX_PARALLEL` -> `sub_agent.max_parallel`; `STEINER_TUI_FPS` -> `tui.fps`; `STEINER_MAX_TURNS`, `STEINER_MAX_TOKENS`, `STEINER_TOOL_OUTPUT_MAX_BYTES`, `STEINER_MAX_PARALLEL_TOOLS` -> matching `limits` fields; `STEINER_LOG_LEVEL`, `STEINER_LOG_FILE`, `STEINER_COMPACTION_LOG_FILE` -> matching `logging` fields. `GOOGLE_SEARCH_CX`, `GOOGLE_SEARCH_API_KEY`, `KAGI_API_KEY`, `BRAVE_API_KEY` fill empty matching `search` fields. Integer overrides must parse as integers.
 
