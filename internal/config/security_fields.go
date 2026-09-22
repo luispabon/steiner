@@ -19,12 +19,26 @@ var securityFieldPatterns = []string{
 	"providers.*.api_key_env",
 }
 
-// isSecurityPath reports whether path (a dotted YAML path) is covered by
-// securityFieldPatterns, either directly or as an ancestor of a covered path.
-func isSecurityPath(path string) bool {
-	pathSegs := strings.Split(path, ".")
-	for _, pattern := range securityFieldPatterns {
-		if segmentsOverlap(strings.Split(pattern, "."), pathSegs) {
+// securityFieldPatternSegs is securityFieldPatterns pre-split into segments,
+// derived once so isSecurityPath never re-splits a caller-supplied path (a
+// dotted map key such as "evil.co" would otherwise be mistaken for two
+// segments).
+var securityFieldPatternSegs = splitPatterns(securityFieldPatterns)
+
+func splitPatterns(patterns []string) [][]string {
+	segs := make([][]string, len(patterns))
+	for i, p := range patterns {
+		segs[i] = strings.Split(p, ".")
+	}
+	return segs
+}
+
+// isSecurityPath reports whether segs (a YAML path's already-split segments)
+// is covered by securityFieldPatterns, either directly or as an ancestor of a
+// covered path.
+func isSecurityPath(segs []string) bool {
+	for _, pattern := range securityFieldPatternSegs {
+		if segmentsOverlap(pattern, segs) {
 			return true
 		}
 	}

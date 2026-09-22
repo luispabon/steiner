@@ -64,7 +64,7 @@ func TestIsSecurityPath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			if got := isSecurityPath(tt.path); got != tt.want {
+			if got := isSecurityPath(strings.Split(tt.path, ".")); got != tt.want {
 				t.Errorf("isSecurityPath(%q) = %v, want %v", tt.path, got, tt.want)
 			}
 		})

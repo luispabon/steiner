@@ -185,12 +185,28 @@ func (m *trustDialogModel) adjustScroll(delta int) {
 // changeListHeight is the number of change lines visible at once, reserving
 // room for the header lines and the always-visible button row.
 func (m *trustDialogModel) changeListHeight() int {
-	const chrome = 8
-	h := m.height - chrome
+	h := m.height - m.chromeLines()
 	if h < 1 {
 		h = 1
 	}
 	return h
+}
+
+// chromeLines is the number of non-change lines the changes view renders:
+// title, blank, header, blank, permanence line, blank, buttons, plus a
+// scroll-indicator line (always reserved so scrolling can't change the
+// chrome count) and, when any change is security-relevant, the blank and
+// note line calling that out.
+func (m *trustDialogModel) chromeLines() int {
+	const base = 7
+	chrome := base
+	if len(m.insp.Changes) > 0 {
+		chrome++
+	}
+	if m.hasSecurityChange() {
+		chrome += 2
+	}
+	return chrome
 }
 
 // noticeDialogModel is the bubbletea model backing RunNoticeDialog.
@@ -244,14 +260,26 @@ func (m *noticeDialogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // RunTrustDialog shows the trust prompt for insp and returns the choice. Any
-// program error returns TrustDeny with the error.
+// program error returns TrustDeny with the error. The program ending without
+// the user reaching a decision (m.done unset, e.g. on EOF or a cancelled
+// context) also returns TrustDeny: a lingering cursor position must never be
+// read as consent.
 func RunTrustDialog(ctx context.Context, dio DialogIO, insp config.ProjectInspection) (TrustChoice, error) {
 	m := newTrustDialogModel(insp)
 	p := tea.NewProgram(m, tea.WithInput(dio.In), tea.WithOutput(dio.Out), tea.WithContext(ctx))
 	if _, err := p.Run(); err != nil {
 		return TrustDeny, err
 	}
-	return m.selected, nil
+	return trustDialogResult(m), nil
+}
+
+// trustDialogResult reports the user's trust decision, or TrustDeny when the
+// program ended before m.done was set (no explicit decision was made).
+func trustDialogResult(m *trustDialogModel) TrustChoice {
+	if !m.done {
+		return TrustDeny
+	}
+	return m.selected
 }
 
 // RunNoticeDialog shows message until the user dismisses it.

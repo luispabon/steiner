@@ -127,8 +127,8 @@ func TrustProject(opts LoadOptions, root string, now time.Time) error {
 
 	path := trustStorePath(homeDir)
 
-	// The notice is ignored here: an earlier InspectProject call (added in a
-	// future step) already surfaces corruption notices to the user.
+	// The notice is ignored here: callers run InspectProject first, which
+	// surfaces corruption notices to the user.
 	store, _, err := readTrustStore(path)
 	if err != nil {
 		return err

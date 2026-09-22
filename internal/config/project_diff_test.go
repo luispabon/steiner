@@ -4,8 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+	"unicode"
 )
 
 func inspectOptions(home, work string) LoadOptions {
@@ -306,6 +308,173 @@ func TestInspectProjectReflectsTrust(t *testing.T) {
 	}
 	if !inspection.Trusted {
 		t.Error("Trusted = false, want true")
+	}
+}
+
+func TestInspectProjectDottedMapKeyPreservesSecurityFlag(t *testing.T) {
+	tests := []struct {
+		name    string
+		fixture string
+		path    string
+	}{
+		{"mcp server", "project_dotted_mcp_server.yaml", `mcp.servers."evil.co".command`},
+		{"provider", "project_dotted_provider.yaml", `providers."a.b".base_url`},
+		{"lsp server", "project_dotted_lsp_server.yaml", `lsp.servers."x.y".command`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home, work := t.TempDir(), t.TempDir()
+			writeProjectFixture(t, work, tt.fixture)
+
+			inspection, err := InspectProject(inspectOptions(home, work))
+			if err != nil {
+				t.Fatalf("InspectProject: %v", err)
+			}
+			var got *FieldChange
+			for i := range inspection.Changes {
+				if inspection.Changes[i].Path == tt.path {
+					got = &inspection.Changes[i]
+				}
+			}
+			if got == nil {
+				t.Fatalf("Changes = %+v, want a change at Path %q", inspection.Changes, tt.path)
+			}
+			if !got.Security {
+				t.Errorf("Change %+v: Security = false, want true", got)
+			}
+		})
+	}
+}
+
+func TestInspectProjectDottedMapKeyMasksBefore(t *testing.T) {
+	home, work := t.TempDir(), t.TempDir()
+	writeGlobalFixture(t, home, "global_dotted_provider_api_key.yaml")
+	writeProjectFixture(t, work, "project_dotted_provider_api_key.yaml")
+
+	inspection, err := InspectProject(inspectOptions(home, work))
+	if err != nil {
+		t.Fatalf("InspectProject: %v", err)
+	}
+	want := FieldChange{
+		Path:     `providers."a.b".api_key`,
+		Before:   "(set)",
+		After:    strconv.Quote("${EVIL}"),
+		Security: true,
+	}
+	if len(inspection.Changes) != 1 || inspection.Changes[0] != want {
+		t.Fatalf("Changes = %+v, want [%+v]", inspection.Changes, want)
+	}
+}
+
+func TestInspectProjectMergeKeyClassified(t *testing.T) {
+	home, work := t.TempDir(), t.TempDir()
+	writeProjectFixture(t, work, "project_merge_key_sandbox.yaml")
+
+	inspection, err := InspectProject(inspectOptions(home, work))
+	if err != nil {
+		t.Fatalf("InspectProject: %v", err)
+	}
+	var got *FieldChange
+	for i := range inspection.Changes {
+		if inspection.Changes[i].Path == "sandbox.enabled" {
+			got = &inspection.Changes[i]
+		}
+		if strings.Contains(inspection.Changes[i].Path, "<<") {
+			t.Fatalf("Changes = %+v, want no path containing a merge key marker", inspection.Changes)
+		}
+	}
+	if got == nil {
+		t.Fatalf("Changes = %+v, want sandbox.enabled present", inspection.Changes)
+	}
+	if !got.Security {
+		t.Errorf("Change %+v: Security = false, want true", got)
+	}
+}
+
+func TestInspectProjectMCPMergeKeyClassified(t *testing.T) {
+	home, work := t.TempDir(), t.TempDir()
+	writeProjectFixture(t, work, "project_merge_key_mcp.yaml")
+
+	inspection, err := InspectProject(inspectOptions(home, work))
+	if err != nil {
+		t.Fatalf("InspectProject: %v", err)
+	}
+	var got *FieldChange
+	for i := range inspection.Changes {
+		if inspection.Changes[i].Path == "mcp.servers.x.command" {
+			got = &inspection.Changes[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("Changes = %+v, want mcp.servers.x.command present", inspection.Changes)
+	}
+	if !got.Security {
+		t.Errorf("Change %+v: Security = false, want true", got)
+	}
+}
+
+func TestInspectProjectAliasedMappingDescended(t *testing.T) {
+	home, work := t.TempDir(), t.TempDir()
+	writeProjectFixture(t, work, "project_alias_sandbox.yaml")
+
+	inspection, err := InspectProject(inspectOptions(home, work))
+	if err != nil {
+		t.Fatalf("InspectProject: %v", err)
+	}
+	var got *FieldChange
+	for i := range inspection.Changes {
+		if inspection.Changes[i].Path == "sandbox.enabled" {
+			got = &inspection.Changes[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("Changes = %+v, want sandbox.enabled present", inspection.Changes)
+	}
+	if got.After != "false" {
+		t.Errorf("Change %+v: After = %q, want %q", got, got.After, "false")
+	}
+}
+
+func TestInspectProjectControlCharacterKeySanitized(t *testing.T) {
+	home, work := t.TempDir(), t.TempDir()
+	writeProjectFixture(t, work, "project_control_char_key.yaml")
+
+	inspection, err := InspectProject(inspectOptions(home, work))
+	if err != nil {
+		t.Fatalf("InspectProject: %v", err)
+	}
+	if len(inspection.Changes) != 1 {
+		t.Fatalf("Changes = %+v, want exactly one change", inspection.Changes)
+	}
+	got := inspection.Changes[0]
+	if !got.Security {
+		t.Errorf("Change %+v: Security = false, want true", got)
+	}
+	for _, s := range []string{got.Path, got.Before, got.After} {
+		for _, r := range s {
+			if r != ' ' && !unicode.IsGraphic(r) {
+				t.Fatalf("Change %+v: field %q contains non-graphic rune %q", got, s, r)
+			}
+		}
+	}
+	if !strings.Contains(got.Path, `"evil\r\x1b[2Kname"`) {
+		t.Fatalf("Path = %q, want the hostile key rendered escaped and quoted", got.Path)
+	}
+}
+
+func TestInspectProjectEmptyConfigNoChanges(t *testing.T) {
+	home, work := t.TempDir(), t.TempDir()
+	writeProjectFixture(t, work, "project_empty.yaml")
+
+	inspection, err := InspectProject(inspectOptions(home, work))
+	if err != nil {
+		t.Fatalf("InspectProject: %v", err)
+	}
+	if inspection.ParseError != "" {
+		t.Fatalf("ParseError = %q, want empty", inspection.ParseError)
+	}
+	if len(inspection.Changes) != 0 {
+		t.Errorf("Changes = %+v, want empty", inspection.Changes)
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 
 // FieldChange is one leaf setting the project config overrides.
 type FieldChange struct {
-	Path     string // dotted YAML path, e.g. "mcp.servers.foo.command"
+	Path     string // dotted YAML path, e.g. "mcp.servers.foo.command"; a segment containing "." or a non-printable character is quoted, e.g. `mcp.servers."evil.co".command`
 	Before   string // rendered global/default value, "(unset)", or "(set)" when masked
 	After    string // rendered project value, unexpanded, never masked
 	Security bool   // matches the security-relevant field set
@@ -102,9 +102,10 @@ func resolveProjectRoot(workingDir string) (string, error) {
 	return resolved, nil
 }
 
-// readRawConfigNode reads and raw-decodes path, unwrapping the YAML document
-// node down to its root mapping. No env expansion or validation is applied.
-// It returns (nil, nil) for an empty document.
+// readRawConfigNode reads and raw-decodes path, normalizing away YAML
+// anchors, aliases and merge keys, then unwrapping the YAML document node
+// down to its root mapping. No env expansion or validation is applied. It
+// returns (nil, nil) for an empty document.
 func readRawConfigNode(path string) (*yaml.Node, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
@@ -114,7 +115,30 @@ func readRawConfigNode(path string) (*yaml.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	return unwrapDocument(node), nil
+	normalized, err := normalizeConfigNode(node)
+	if err != nil {
+		return nil, fmt.Errorf("normalize config %q: %w", path, err)
+	}
+	return unwrapDocument(normalized), nil
+}
+
+// normalizeConfigNode resolves YAML anchors, aliases and merge keys in node
+// by round-tripping through a generic decode/encode, so the raw-node walk in
+// project_diff_render.go cannot be bypassed by "<<: *anchor" merge keys or
+// aliased mappings. No env expansion happens here.
+func normalizeConfigNode(node *yaml.Node) (*yaml.Node, error) {
+	var v any
+	if err := node.Decode(&v); err != nil {
+		return nil, fmt.Errorf("decode config: %w", err)
+	}
+	if v == nil {
+		return nil, nil
+	}
+	var normalized yaml.Node
+	if err := normalized.Encode(v); err != nil {
+		return nil, fmt.Errorf("encode config: %w", err)
+	}
+	return &normalized, nil
 }
 
 // readRawConfigNodeOrNil is readRawConfigNode with missing files and parse

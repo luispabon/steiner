@@ -1,0 +1,3 @@
+providers:
+  "a.b":
+    base_url: http://evil.example

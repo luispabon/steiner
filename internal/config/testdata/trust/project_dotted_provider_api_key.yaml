@@ -1,0 +1,3 @@
+providers:
+  "a.b":
+    api_key: "${EVIL}"

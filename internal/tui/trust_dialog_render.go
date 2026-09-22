@@ -55,6 +55,12 @@ func (m *trustDialogModel) changesBody() []string {
 	}
 	lines = append(lines, changeLines[start:end]...)
 
+	if remaining := len(changeLines) - end; remaining > 0 {
+		lines = append(lines, m.styles.FgFaint.Render(fmt.Sprintf("  … %d more (↑/↓ to scroll)", remaining)))
+	} else if len(changeLines) > 0 {
+		lines = append(lines, "")
+	}
+
 	if m.hasSecurityChange() {
 		lines = append(lines, "", "Lines marked ! are security-relevant.")
 	}
@@ -78,6 +84,11 @@ func (m *trustDialogModel) renderChangeLines() []string {
 		}
 	}
 
+	width := m.width
+	if width < 1 {
+		width = 80
+	}
+
 	lines := make([]string, 0, len(m.insp.Changes))
 	for _, c := range m.insp.Changes {
 		prefix := "  "
@@ -85,6 +96,7 @@ func (m *trustDialogModel) renderChangeLines() []string {
 			prefix = "! "
 		}
 		line := fmt.Sprintf("%s%-*s %s → %s", prefix, maxLen, c.Path, c.Before, c.After)
+		line = ansi.Truncate(line, width, "…")
 		if c.Security {
 			line = m.styles.WarningStyle.Bold(true).Render(line)
 		}

@@ -171,6 +171,53 @@ func TestTrustDialogScroll(t *testing.T) {
 	}
 }
 
+func TestTrustDialogSmallHeightTitleStaysVisible(t *testing.T) {
+	insp := config.ProjectInspection{
+		ProjectRoot: "/x",
+		ConfigPath:  "/x/.steiner/config.yaml",
+	}
+	for i := 0; i < 20; i++ {
+		insp.Changes = append(insp.Changes, config.FieldChange{
+			Path:     "field" + string(rune('a'+i)),
+			Before:   "0",
+			After:    "1",
+			Security: true,
+		})
+	}
+
+	m := newTrustDialogModel(insp)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
+	view := m.View()
+
+	lines := strings.Split(view.Content, "\n")
+	if len(lines) == 0 || !strings.Contains(lines[0], "Trust project") {
+		t.Fatalf("expected first line to contain %q, got:\n%s", "Trust project", view.Content)
+	}
+}
+
+func TestTrustDialogLongChangeLineTruncatedToWidth(t *testing.T) {
+	insp := config.ProjectInspection{
+		ProjectRoot: "/x",
+		ConfigPath:  "/x/.steiner/config.yaml",
+		Changes: []config.FieldChange{
+			{
+				Path:   "field",
+				Before: strings.Repeat("b", 60),
+				After:  strings.Repeat("a", 60),
+			},
+		},
+	}
+
+	m := newTrustDialogModel(insp)
+	m.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
+
+	for _, line := range m.renderChangeLines() {
+		if l := len([]rune(line)); l > 40 {
+			t.Fatalf("change line exceeds width 40 (%d runes): %q", l, line)
+		}
+	}
+}
+
 func TestNoticeDialogDismiss(t *testing.T) {
 	m := newNoticeDialogModel("Notice", "something happened")
 	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -193,6 +240,25 @@ func TestNoticeDialogView(t *testing.T) {
 	}
 	if !strings.Contains(view.Content, "Press Enter to continue") {
 		t.Fatalf("expected footer in view, got:\n%s", view.Content)
+	}
+}
+
+func TestTrustDialogResult(t *testing.T) {
+	tests := []struct {
+		name string
+		m    *trustDialogModel
+		want TrustChoice
+	}{
+		{"not done ignores cursor position", &trustDialogModel{selected: TrustAlways, done: false}, TrustDeny},
+		{"done reports the decision", &trustDialogModel{selected: TrustAlways, done: true}, TrustAlways},
+		{"not done defaults to deny", &trustDialogModel{selected: TrustSession, done: false}, TrustDeny},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := trustDialogResult(tt.m); got != tt.want {
+				t.Errorf("trustDialogResult(%+v) = %v, want %v", tt.m, got, tt.want)
+			}
+		})
 	}
 }
 
