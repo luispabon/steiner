@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -33,7 +34,7 @@ import (
 	"github.com/luispabon/steiner/skills"
 )
 
-func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags, modelAlias string) (config.Config, error) {
+func loadRuntimeConfig(cmd *cobra.Command, flags *cliFlags, modelAlias string) (config.Config, error) {
 	overrides := config.CLIOverrides{
 		ConfigPath: flags.configPath,
 		Model:      modelAlias,
@@ -44,11 +45,7 @@ func loadRuntimeConfig(_ *cobra.Command, flags *cliFlags, modelAlias string) (co
 	if modelAlias == "" {
 		overrides.Model = flags.model
 	}
-	return config.Load(config.LoadOptions{
-		CLI: overrides,
-		// step-5 of project-config-trust replaces this with the resolved trust decision.
-		ProjectTrust: config.ProjectTrustTrusted,
-	})
+	return loadCLIConfig(cmd, flags, overrides)
 }
 
 func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {
@@ -75,6 +72,9 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}
 	rt.events = events
 	rt.closeFn = closeFn
+	if flags.trustResolved {
+		slog.Info("project trust", "root", flags.projectRoot, "source", flags.trustSource)
+	}
 	diagnosticsWriter, err := buildRuntimeDiagnostics(cfg)
 	if err != nil {
 		closeRuntime(&rt)

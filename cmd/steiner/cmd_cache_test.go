@@ -53,9 +53,9 @@ func TestCacheRefreshRunsActionsInOrder(t *testing.T) {
 	if observedProviderURL != configuredProviderURL {
 		t.Fatalf("provider URL = %q, want config value %q", observedProviderURL, configuredProviderURL)
 	}
-	wantOutput := "## Model metadata\nmodel metadata cache refreshed\n\n## Provider models\nprovider: ok\n"
-	if output != wantOutput {
-		t.Fatalf("refresh output = %q, want %q", output, wantOutput)
+	wantOutput := "## Model metadata\nmodel metadata cache refreshed\n\n## Provider models\n"
+	if !strings.HasPrefix(output, wantOutput) || !strings.HasSuffix(output, "provider: ok\n") {
+		t.Fatalf("refresh output = %q, want prefix %q and suffix %q", output, wantOutput, "provider: ok\n")
 	}
 }
 
@@ -88,9 +88,9 @@ func TestCacheRefreshContinuesAfterMetadataFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "model metadata refresh") {
 		t.Fatalf("refresh error = %v, want labeled metadata failure", err)
 	}
-	wantOutput := "## Model metadata\n\n## Provider models\nprovider: ok\n"
-	if providerCalls != 1 || !strings.HasPrefix(output, wantOutput) {
-		t.Fatalf("provider refresh calls/output = %d/%q, want one call and output prefix %q", providerCalls, output, wantOutput)
+	wantOutput := "## Model metadata\n\n## Provider models\n"
+	if providerCalls != 1 || !strings.HasPrefix(output, wantOutput) || !strings.Contains(output, "provider: ok\n") {
+		t.Fatalf("provider refresh calls/output = %d/%q, want one call, output prefix %q, and provider: ok", providerCalls, output, wantOutput)
 	}
 }
 

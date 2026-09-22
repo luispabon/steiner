@@ -12,27 +12,29 @@ import (
 var modelCatalogServiceFactory = buildModelCatalogService
 var modelCatalogCacheFactory = modelcatalog.NewCache
 
-func newModelsCommand() *cobra.Command {
+func newModelsCommand(flags *cliFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "models",
 		Short: "Manage discovered provider models",
 	}
-	cmd.AddCommand(newModelsRefreshCommand())
-	cmd.AddCommand(newModelsStatusCommand())
+	cmd.AddCommand(newModelsRefreshCommand(flags))
+	cmd.AddCommand(newModelsStatusCommand(flags))
 	return cmd
 }
 
-func newModelsRefreshCommand() *cobra.Command {
+func newModelsRefreshCommand(flags *cliFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "refresh",
 		Short: "Force refresh of discovered provider models",
 		Args:  cobra.NoArgs,
-		RunE:  runModelsRefresh,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runModelsRefresh(cmd, flags, args)
+		},
 	}
 }
 
-func runModelsRefresh(cmd *cobra.Command, _ []string) error {
-	service, endpoints, err := buildModelsRuntime(cmd)
+func runModelsRefresh(cmd *cobra.Command, flags *cliFlags, _ []string) error {
+	service, endpoints, err := buildModelsRuntime(cmd, flags)
 	if err != nil {
 		return err
 	}
@@ -65,13 +67,13 @@ func runModelsRefresh(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func newModelsStatusCommand() *cobra.Command {
+func newModelsStatusCommand(flags *cliFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show discovered provider model cache status",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			service, endpoints, err := buildModelsRuntime(cmd)
+			service, endpoints, err := buildModelsRuntime(cmd, flags)
 			if err != nil {
 				return err
 			}
@@ -106,16 +108,8 @@ func newModelsStatusCommand() *cobra.Command {
 	}
 }
 
-func buildModelsRuntime(cmd *cobra.Command) (*modelcatalog.Service, []modelcatalog.Endpoint, error) {
-	configPath, err := cmd.Flags().GetString("config")
-	if err != nil {
-		return nil, nil, fmt.Errorf("read config path: %w", err)
-	}
-	cfg, err := config.Load(config.LoadOptions{
-		CLI: config.CLIOverrides{ConfigPath: configPath},
-		// step-5 of project-config-trust replaces this with the resolved trust decision.
-		ProjectTrust: config.ProjectTrustTrusted,
-	})
+func buildModelsRuntime(cmd *cobra.Command, flags *cliFlags) (*modelcatalog.Service, []modelcatalog.Endpoint, error) {
+	cfg, err := loadCLIConfig(cmd, flags, config.CLIOverrides{ConfigPath: flags.configPath})
 	if err != nil {
 		return nil, nil, err
 	}

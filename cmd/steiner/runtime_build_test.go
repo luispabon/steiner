@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"strings"
+
+	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/lsp"
@@ -660,6 +663,58 @@ func TestEmitSandboxWarning_EnvPassthroughAll(t *testing.T) {
 	}
 }
 
+func TestEmitSandboxWarning_BypassedMessageByDisabledBy(t *testing.T) {
+	tests := []struct {
+		name          string
+		disabledBy    string
+		wantSubstring string
+	}{
+		{
+			name:          "cli unsafe",
+			disabledBy:    config.SandboxDisabledByCLIUnsafe,
+			wantSubstring: "sandbox bypassed by --unsafe.",
+		},
+		{
+			name:          "project config",
+			disabledBy:    config.SandboxDisabledByProjectConfig,
+			wantSubstring: "sandbox bypassed by sandbox.enabled=false in the project config.",
+		},
+		{
+			name:          "global config",
+			disabledBy:    config.SandboxDisabledByGlobalConfig,
+			wantSubstring: "sandbox bypassed by sandbox.enabled=false in the global config.",
+		},
+		{
+			name:          "unknown falls back to generic message",
+			disabledBy:    "",
+			wantSubstring: "sandbox bypassed: running with --unsafe or sandbox.enabled=false.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Config{
+				Sandbox: config.SandboxConfig{WarningOnUnsupportedPlatform: true, DisabledBy: tt.disabledBy},
+			}
+			var emitted []output.Event
+			sink := output.SinkFunc(func(e output.Event) { emitted = append(emitted, e) })
+
+			emitSandboxWarning(cfg, "bypassed", sink)
+
+			if len(emitted) == 0 {
+				t.Fatal("expected a SandboxStatusEvent, got none")
+			}
+			payload, ok := emitted[0].Payload.(output.SandboxStatusEvent)
+			if !ok {
+				t.Fatalf("payload type = %T, want output.SandboxStatusEvent", emitted[0].Payload)
+			}
+			if !strings.Contains(payload.Message, tt.wantSubstring) {
+				t.Fatalf("message = %q, want substring %q", payload.Message, tt.wantSubstring)
+			}
+		})
+	}
+}
+
 func TestEmitProjectContextDeprecationWarning(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -1003,7 +1058,9 @@ models:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := loadRuntimeConfig(nil, &tt.flags, tt.modelAlias)
+			cmd := &cobra.Command{}
+			cmd.SetContext(context.Background())
+			cfg, err := loadRuntimeConfig(cmd, &tt.flags, tt.modelAlias)
 			if err != nil {
 				t.Fatalf("loadRuntimeConfig() error = %v", err)
 			}
@@ -1039,7 +1096,9 @@ models:
       id: base-model
 `)
 
-	_, err := loadRuntimeConfig(nil, &cliFlags{configPath: configPath, profile: "missing"}, "")
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	_, err := loadRuntimeConfig(cmd, &cliFlags{configPath: configPath, profile: "missing"}, "")
 	if err == nil || !strings.Contains(err.Error(), "profile is not defined") {
 		t.Fatalf("loadRuntimeConfig() error = %v, want unknown profile error", err)
 	}

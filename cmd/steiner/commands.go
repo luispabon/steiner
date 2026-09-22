@@ -58,6 +58,7 @@ func newRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().BoolVar(&flags.enableStreaming, "enable-streaming", false, "enable streaming responses in --exec mode (default: non-streaming)")
 	rootCmd.PersistentFlags().BoolVar(&flags.unsafe, "unsafe", false, "disable sandbox (bubblewrap) for tool execution")
 	rootCmd.PersistentFlags().BoolVar(&flags.dev, "dev", false, "select the dev release channel for `steiner update`")
+	rootCmd.PersistentFlags().BoolVar(&flags.trustProjectConfig, "trust-project-config", false, "trust this project's config for this run without prompting")
 	rootCmd.Flags().StringVar(&flags.resume, "resume", "", "resume a saved session by ID; omit value to list sessions")
 	rootCmd.Flag("resume").NoOptDefVal = ""
 
@@ -67,8 +68,8 @@ func newRootCommand() *cobra.Command {
 	rootCmd.AddCommand(newSkillsCommand(flags))
 	rootCmd.AddCommand(newModelCommand(flags))
 	rootCmd.AddCommand(newModelMetadataCommand())
-	rootCmd.AddCommand(newModelsCommand())
-	rootCmd.AddCommand(newCacheCommand())
+	rootCmd.AddCommand(newModelsCommand(flags))
+	rootCmd.AddCommand(newCacheCommand(flags))
 	rootCmd.AddCommand(newOneshotCommand(flags))
 	rootCmd.AddCommand(newWorktreesCommand(flags))
 	rootCmd.AddCommand(newUpdateCommand())
@@ -146,6 +147,15 @@ func newConfigCommand(flags *cliFlags) *cobra.Command {
 		Short: "Print the resolved configuration",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			loadOpts := config.LoadOptions{CLI: config.CLIOverrides{ConfigPath: flags.configPath}}
+			insp, err := inspectProject(loadOpts)
+			if err != nil {
+				return fmt.Errorf("inspect project config: %w", err)
+			}
+			if insp.StoreNotice != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), insp.StoreNotice)
+			}
+
 			resolved, err := config.Load(config.LoadOptions{
 				CLI: config.CLIOverrides{
 					ConfigPath: flags.configPath,
@@ -154,11 +164,16 @@ func newConfigCommand(flags *cliFlags) *cobra.Command {
 					Verbose:    flags.verbose,
 					Unsafe:     flags.unsafe,
 				},
-				// step-5 of project-config-trust replaces this with the resolved trust decision.
+				// steiner config always shows the resolved config, including an
+				// untrusted project layer, without prompting or persisting trust.
 				ProjectTrust: config.ProjectTrustTrusted,
 			})
 			if err != nil {
 				return err
+			}
+
+			if !insp.Trusted {
+				fmt.Fprintf(cmd.OutOrStdout(), "# project %s is NOT trusted\n", insp.ProjectRoot)
 			}
 
 			data, err := yaml.Marshal(resolved)

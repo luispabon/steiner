@@ -110,7 +110,16 @@ func emitSandboxWarning(cfg config.Config, status string, events output.EventSin
 	case "unavailable":
 		msg = fmt.Sprintf("sandbox unavailable: bubblewrap is not supported on %s. Bash and subprocess tools run unsandboxed.", runtime.GOOS)
 	case "bypassed":
-		msg = "sandbox bypassed: running with --unsafe or sandbox.enabled=false. Bash and subprocess tools run unsandboxed."
+		switch cfg.Sandbox.DisabledBy {
+		case config.SandboxDisabledByCLIUnsafe:
+			msg = "sandbox bypassed by --unsafe. Bash and subprocess tools run unsandboxed."
+		case config.SandboxDisabledByProjectConfig:
+			msg = "sandbox bypassed by sandbox.enabled=false in the project config. Bash and subprocess tools run unsandboxed."
+		case config.SandboxDisabledByGlobalConfig:
+			msg = "sandbox bypassed by sandbox.enabled=false in the global config. Bash and subprocess tools run unsandboxed."
+		default:
+			msg = "sandbox bypassed: running with --unsafe or sandbox.enabled=false. Bash and subprocess tools run unsandboxed."
+		}
 	}
 	if msg != "" {
 		events.Emit(output.NewSandboxStatusEvent(status, msg))

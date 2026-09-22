@@ -7,16 +7,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newCacheCommand() *cobra.Command {
+func newCacheCommand(flags *cliFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cache",
 		Short: "Manage application caches",
 	}
-	cmd.AddCommand(newCacheRefreshCommand())
+	cmd.AddCommand(newCacheRefreshCommand(flags))
 	return cmd
 }
 
-func newCacheRefreshCommand() *cobra.Command {
+func newCacheRefreshCommand(flags *cliFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "refresh",
 		Short: "Refresh model metadata and provider model caches",
@@ -35,7 +35,7 @@ func newCacheRefreshCommand() *cobra.Command {
 			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "## Provider models"); err != nil {
 				errs = append(errs, fmt.Errorf("provider model refresh: write section header: %w", err))
 			}
-			if err := runModelsRefresh(cmd, nil); err != nil {
+			if err := runModelsRefresh(cmd, flags, nil); err != nil {
 				errs = append(errs, fmt.Errorf("provider model refresh: %w", err))
 			}
 			return errors.Join(errs...)
