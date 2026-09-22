@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // cursorInLines converts the cursor row and column from renderTypedInputLines
@@ -21,9 +22,9 @@ func cursorInLines(t *testing.T, lines []string, cursorRow, cursorCol int) (row,
 
 // TestComposerLayoutAcrossInputStates pins the composer layout (input rows,
 // viewport height, and rendered cursor position) across input states. These
-// values derive from steiner's own hardwrap of m.input.Value() and must not
-// depend on the textarea's internal width; the same expectations hold before
-// and after the width change.
+// values derive from steiner's own wrap of m.input.Value() and must not depend
+// on the textarea's internal width; the same expectations hold before and after
+// the width change.
 func TestComposerLayoutAcrossInputStates(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -59,8 +60,8 @@ func TestComposerLayoutAcrossInputStates(t *testing.T) {
 			innerWidth := m.inputInnerWidth(m.contentWidth())
 			maxVisible := m.maxVisibleInputLines(m.contentWidth())
 
-			// Expected rendered rows: hardwrap each logical line at innerWidth.
-			// All non-placeholder fixtures are pure-x lines, so hardwrap breaks
+			// Expected rendered rows: wrap each logical line at innerWidth.
+			// All non-placeholder fixtures are pure-x lines, so wrapping breaks
 			// them at exact innerWidth boundaries.
 			wantRows := 0
 			if tt.placeholder {
@@ -169,13 +170,163 @@ func TestComposerUpDownNavigatesVisualRows(t *testing.T) {
 	}
 }
 
+// assertComposerRowsMatchTextarea fails when the composer draws different rows
+// than the textarea soft-wraps a single-line value into, when it puts the caret
+// on a different row than the textarea does, or when a drawn row is wider than
+// the composer's inner width.
+func assertComposerRowsMatchTextarea(t *testing.T, m *Model) {
+	t.Helper()
+	width := m.inputInnerWidth(m.contentWidth())
+	lines, cursorRow, cursorCol := m.renderTypedInputLines(width)
+	info := m.input.LineInfo()
+	if len(lines) != info.Height {
+		t.Fatalf("drawn rows = %d, want %d (textarea soft-wrapped rows)", len(lines), info.Height)
+	}
+	if cursorRow != info.RowOffset {
+		t.Fatalf("drawn cursor row = %d, want %d (textarea caret row)", cursorRow, info.RowOffset)
+	}
+	if cursorCol != info.CharOffset {
+		t.Fatalf("drawn cursor col = %d, want %d (textarea caret column)", cursorCol, info.CharOffset)
+	}
+	for i, line := range lines {
+		if got := ansi.StringWidth(line); got > width {
+			t.Fatalf("drawn row %d width = %d, want <= %d", i, got, width)
+		}
+	}
+}
+
+// TestComposerWrapMatchesTextareaAtExactWidthBoundary pins the textarea's
+// reserved-space rule: a line that exactly fills the composer width wraps into
+// an extra reserved row, so the caret at the end sits on that row and Up steps
+// onto the text row before history recall can start.
+func TestComposerWrapMatchesTextareaAtExactWidthBoundary(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	draft := strings.Repeat("x", m.inputInnerWidth(m.contentWidth()))
+	m.input.SetValue(draft)
+	m.input.CursorEnd()
+
+	if got := m.input.LineInfo().Height; got != 2 {
+		t.Fatalf("textarea rows = %d, want 2 (an exact-width line reserves a trailing row)", got)
+	}
+	assertComposerRowsMatchTextarea(t, m)
+
+	loadComposerHistory(m, "most recent prompt")
+
+	// The caret starts on the reserved row, so the first Up steps onto the text.
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+	if got := m.input.Value(); got != draft {
+		t.Fatalf("Value() = %q, want unchanged draft %q (a reserved row sat below the caret)", got, draft)
+	}
+	assertComposerRowsMatchTextarea(t, m)
+
+	// Nothing is above the caret any more, so the next Up recalls.
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+	if got := m.input.Value(); got != "most recent prompt" {
+		t.Fatalf("Value() = %q, want %q (recall from the top textarea row)", got, "most recent prompt")
+	}
+}
+
+// TestComposerWrapMatchesTextareaWithIdeographicSpace pins the wrap of unicode
+// whitespace wider than one column: the textarea materializes every whitespace
+// rune as a single ASCII space, so the composer must wrap and draw the same
+// single-column spaces or its rows and caret row drift from the rows Up/Down
+// move through.
+func TestComposerWrapMatchesTextareaWithIdeographicSpace(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	// U+3000 measures two columns wide, the textarea's materialized space one.
+	draft := strings.Repeat("\u3000word", 8)
+	m.input.SetValue(draft)
+
+	for _, col := range []int{0, 1, 2, 5, 20, len([]rune(draft))} {
+		m.input.SetCursorColumn(col)
+		assertComposerRowsMatchTextarea(t, m)
+	}
+}
+
+// TestComposerWrapMatchesTextareaWithTrailingSpaceAndOverflow pins the wrap on
+// text that ends in whitespace and overflows the width: rows keep the textarea's
+// break points and caret rows, and no drawn row exceeds the inner width.
+func TestComposerWrapMatchesTextareaWithTrailingSpaceAndOverflow(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	draft := strings.Repeat("ab cd ", 12)
+	m.input.SetValue(draft)
+
+	for _, col := range []int{0, 5, 35, 36, 71, len([]rune(draft))} {
+		m.input.SetCursorColumn(col)
+		assertComposerRowsMatchTextarea(t, m)
+	}
+	if got := m.input.LineInfo().Height; got != 3 {
+		t.Fatalf("textarea rows = %d, want 3 (trailing space reserves a row)", got)
+	}
+}
+
+// TestComposerUpWithSpacedDraftStepsThroughTextareaRows pins that the composer
+// draws the same rows the textarea navigates for text with spaces: each Up
+// while a soft-wrapped row remains above the caret moves the caret up one
+// textarea row and one drawn row, and history recall only starts once the caret
+// is on the top row of the top logical line.
+func TestComposerUpWithSpacedDraftStepsThroughTextareaRows(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	draft := "the quick brown fox jumps over the lazy dog and keeps on running"
+	m.input.SetValue(draft)
+	m.input.CursorEnd()
+	loadComposerHistory(m, "most recent prompt")
+
+	if got := m.input.LineInfo().RowOffset; got == 0 {
+		t.Fatalf("test setup invalid: caret starts on the top textarea row")
+	}
+
+	for {
+		wantRow := m.input.LineInfo().RowOffset - 1
+		m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+
+		if got := m.input.LineInfo().RowOffset; got != wantRow {
+			t.Fatalf("textarea row = %d, want %d after Up", got, wantRow)
+		}
+		if got := m.input.Value(); got != draft {
+			t.Fatalf("Value() = %q, want unchanged draft %q (a row remained above the caret)", got, draft)
+		}
+		if got := m.fileHistoryIdx; got != -1 {
+			t.Fatalf("fileHistoryIdx = %d, want -1", got)
+		}
+		_, cursorRow, _ := m.renderTypedInputLines(m.inputInnerWidth(m.contentWidth()))
+		if cursorRow != wantRow {
+			t.Fatalf("drawn cursor row = %d, want %d (drawn rows must match textarea rows)", cursorRow, wantRow)
+		}
+		if wantRow == 0 {
+			break
+		}
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+
+	if got := m.input.Value(); got != "most recent prompt" {
+		t.Fatalf("Value() = %q, want %q (recall only from the top textarea row)", got, "most recent prompt")
+	}
+	if got := m.fileHistoryIdx; got != 0 {
+		t.Fatalf("fileHistoryIdx = %d, want 0", got)
+	}
+}
+
 // TestComposerUpNavigatesVisualRowsWithHistoryPresent pins the boundary of the
-// history-recall gate: m.input.Line() counts logical lines split on "\n", not
-// wrapped display rows, so a single long logical line reports Line() == 0 no
-// matter which wrapped row the cursor visually sits on. That means the cursor
-// is always considered to be "on the top line" in this scenario, and per the
-// gate's design (recall on Up only when the cursor is on the boundary line),
-// history recall is the correct, expected outcome here — not a regression.
+// history-recall gate once history is loaded: recall only happens from the top
+// visual row. m.input.Line() counts logical lines split on "\n", not wrapped
+// display rows, so a single long logical line reports Line() == 0 no matter
+// which wrapped row the caret visually sits on. Keying the gate off the rendered
+// row keeps Up moving the caret within such a draft instead of jumping into
+// history.
 func TestComposerUpNavigatesVisualRowsWithHistoryPresent(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
@@ -189,10 +340,41 @@ func TestComposerUpNavigatesVisualRowsWithHistoryPresent(t *testing.T) {
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
 
+	if got := m.input.Value(); got != val {
+		t.Fatalf("Value() = %q, want unchanged draft %q (caret was not on the top visual row)", got, val)
+	}
+	if got := m.fileHistoryIdx; got != -1 {
+		t.Fatalf("fileHistoryIdx = %d, want -1 (recall must not start off the top visual row)", got)
+	}
+	// The cursor ends one visual row up, at the start of the second wrapped row.
+	if got := m.input.Column(); got != 36 {
+		t.Fatalf("cursor column = %d, want 36 (start of second wrapped row)", got)
+	}
+}
+
+// TestComposerUpAtTopVisualRowRecallsHistoryWithHistoryPresent covers the other
+// side of the gate: the same wrapped draft recalls history once the caret sits
+// on the top visual row.
+func TestComposerUpAtTopVisualRowRecallsHistoryWithHistoryPresent(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	val := strings.Repeat("x", 100)
+	m.input.SetValue(val)
+	m.input.SetCursorColumn(0)
+
+	loadComposerHistory(m, "most recent prompt")
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+
 	if got := m.input.Value(); got != "most recent prompt" {
-		t.Fatalf("Value() = %q, want history entry %q (recall expected: Line() is 0 for a single logical line)", got, "most recent prompt")
+		t.Fatalf("Value() = %q, want history entry %q (caret on the top visual row)", got, "most recent prompt")
 	}
 	if got := m.fileHistoryIdx; got != 0 {
 		t.Fatalf("fileHistoryIdx = %d, want 0", got)
+	}
+	if got := m.historyDraft; got != val {
+		t.Fatalf("historyDraft = %q, want %q", got, val)
 	}
 }

@@ -3,6 +3,7 @@ package tui
 import (
 	"slices"
 	"strings"
+	"unicode"
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
@@ -508,46 +509,156 @@ func (m *Model) renderTypedInputLines(width int) ([]string, int, int) {
 	cursorDisplayCol := 0
 	lines := make([]string, 0, len(valueLines))
 	for i, valueLine := range valueLines {
-		wrapped := wrapComposerLine(valueLine, width)
+		rows := wrapComposerLine(valueLine, width)
 		if i == cursorLine {
 			// m.input.Column() is the rune offset of the cursor within the
 			// logical line, independent of the textarea's internal wrap
-			// width. The old code used LineInfo().ColumnOffset, which only
-			// equals this offset when the textarea width is large enough to
-			// disable soft wrapping.
-			absPos := max(0, m.input.Column())
-			if absPos > len([]rune(valueLine)) {
-				absPos = len([]rune(valueLine))
-			}
-			cursorCellPos := ansi.StringWidth(string([]rune(valueLine)[:absPos]))
+			// width. Mapping it through the rows wrapComposerLine draws keeps
+			// the drawn caret on the row the textarea navigates.
+			runes := []rune(valueLine)
+			absPos := min(max(0, m.input.Column()), len(runes))
 			row := 0
-			col := cursorCellPos
-			for r, seg := range wrapped {
-				visibleLen := ansi.StringWidth(seg)
-				if col < visibleLen || (col == visibleLen && r == len(wrapped)-1) {
-					row = r
+			for r, seg := range rows {
+				if composerGridStart(seg.runes, len(runes)) > absPos {
 					break
 				}
-				col -= visibleLen
+				row = r
 			}
 			cursorDisplayRow = len(lines) + row
-			cursorDisplayCol = col
+			cursorDisplayCol = composerGridCol(rows[row].runes, absPos)
 		}
-		lines = append(lines, wrapped...)
+		for _, seg := range rows {
+			lines = append(lines, seg.text)
+		}
 	}
 	return lines, cursorDisplayRow, cursorDisplayCol
 }
 
-func wrapComposerLine(line string, width int) []string {
+// composerLineRow is one drawn row of a logical composer line: the row text
+// with the wrap's reserved trailing spaces trimmed (so a drawn row never
+// exceeds the composer's inner width) and the grid runes the text is built
+// from, which carry the logical-line offsets used to place the caret.
+type composerLineRow struct {
+	text  string
+	runes []composerGridRune
+}
+
+// composerGridRune is one rune of a wrapped row: the rune and the offset it came
+// from in the logical line, or -1 for the trailing space the wrap reserves so
+// the caret can sit after the last character. Whitespace is materialized as an
+// ASCII space, matching what the textarea draws, while value keeps the offset of
+// the whitespace rune it came from.
+type composerGridRune struct {
+	r     rune
+	value int
+}
+
+// wrapComposerLine splits a logical input line into the rows the composer
+// draws. The rule mirrors the textarea's soft wrap exactly: whitespace is
+// unicode whitespace, a word keeps the whitespace that follows it until the two
+// no longer fit together, a word wider than the row is broken at the width, and
+// a row that reaches the width reserves a trailing space (and a row for it).
+// Drawing the textarea's rows is what keeps Up/Down, which move through those
+// rows, in step with what is on screen.
+func wrapComposerLine(line string, width int) []composerLineRow {
 	if width < 1 {
 		width = 1
 	}
-	wrapped := ansi.Hardwrap(line, width, true)
-	wrapped = strings.TrimRight(wrapped, "\n")
-	if wrapped == "" {
-		return []string{""}
+	value := []rune(line)
+	var (
+		grid   = [][]composerGridRune{{}}
+		word   []composerGridRune
+		spaces []composerGridRune
+		row    int
+	)
+
+	for i, r := range value {
+		if unicode.IsSpace(r) {
+			spaces = append(spaces, composerGridRune{r: ' ', value: i})
+		} else {
+			word = append(word, composerGridRune{r: r, value: i})
+		}
+
+		if len(spaces) > 0 {
+			if composerGridWidth(grid[row])+composerGridWidth(word)+len(spaces) > width {
+				row++
+				grid = append(grid, nil)
+			}
+			grid[row] = append(grid[row], word...)
+			grid[row] = append(grid[row], spaces...)
+			word, spaces = nil, nil
+			continue
+		}
+		if len(word) > 0 {
+			// A word that has reached the width starts a new row, unless the
+			// current row is still empty.
+			if composerGridWidth(word)+ansi.StringWidth(string(word[len(word)-1].r)) > width {
+				if len(grid[row]) > 0 {
+					row++
+					grid = append(grid, nil)
+				}
+				grid[row] = append(grid[row], word...)
+				word = nil
+			}
+		}
 	}
-	return strings.Split(wrapped, "\n")
+
+	if composerGridWidth(grid[row])+composerGridWidth(word)+len(spaces) >= width {
+		row++
+		grid = append(grid, nil)
+	}
+	grid[row] = append(grid[row], word...)
+	grid[row] = append(grid[row], spaces...)
+	grid[row] = append(grid[row], composerGridRune{r: ' ', value: -1})
+
+	rows := make([]composerLineRow, 0, len(grid))
+	for _, rowRunes := range grid {
+		rows = append(rows, composerLineRow{
+			text:  strings.TrimRight(composerGridText(rowRunes), " "),
+			runes: rowRunes,
+		})
+	}
+	return rows
+}
+
+func composerGridWidth(row []composerGridRune) int {
+	return ansi.StringWidth(composerGridText(row))
+}
+
+func composerGridText(row []composerGridRune) string {
+	var b strings.Builder
+	for _, g := range row {
+		b.WriteRune(g.r)
+	}
+	return b.String()
+}
+
+// composerGridCol returns the cell column the caret occupies on a row: the
+// width of the row's content before the logical-line offset offset, measured on
+// the grid so whitespace counts as the ASCII space the wrap materialized.
+func composerGridCol(row []composerGridRune, offset int) int {
+	col := 0
+	for _, g := range row {
+		if g.value < 0 {
+			continue
+		}
+		if g.value >= offset {
+			break
+		}
+		col += ansi.StringWidth(string(g.r))
+	}
+	return col
+}
+
+// composerGridStart returns the logical-line offset of the row's first rune,
+// falling back to end for a row that holds only reserved spaces.
+func composerGridStart(row []composerGridRune, end int) int {
+	for _, g := range row {
+		if g.value >= 0 {
+			return g.value
+		}
+	}
+	return end
 }
 
 // stripTrailingReset removes the trailing ANSI reset sequence added by lipgloss Style.Render.

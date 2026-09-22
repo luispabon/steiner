@@ -384,7 +384,7 @@ func (m *Model) handleTabKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleKeyUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.fileHistoryIdx == -1 && m.input.Line() != 0 {
+	if m.fileHistoryIdx == -1 && !m.cursorOnTopInputRow() {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
@@ -404,6 +404,15 @@ func (m *Model) handleKeyUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+// cursorOnTopInputRow reports whether the caret sits on the first visual row of
+// the composer. m.input.Line() counts logical lines split on "\n", so a wrapped
+// draft reports Line() == 0 from every wrapped row; the textarea's RowOffset is
+// the soft-wrapped row the caret occupies and the row Up moves through, so the
+// history-recall gate keys off that.
+func (m *Model) cursorOnTopInputRow() bool {
+	return m.input.Line() == 0 && m.input.LineInfo().RowOffset == 0
 }
 
 func (m *Model) handleKeyDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

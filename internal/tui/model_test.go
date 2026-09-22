@@ -3366,14 +3366,17 @@ func TestComposerCursorBoundaryCase(t *testing.T) {
 	if isPlaceholder {
 		t.Fatal("expected typed input, not placeholder")
 	}
-	if len(lines) != 1 {
-		t.Fatalf("expected 1 line, got %d", len(lines))
+	// The textarea reserves a trailing space (and a row for it) once a row is
+	// exactly full, so the composer draws that row too and the caret at the very
+	// end of the text sits on it.
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
 	}
-	if cursorRow != 0 {
-		t.Fatalf("cursor row = %d, want 0", cursorRow)
+	if cursorRow != 1 {
+		t.Fatalf("cursor row = %d, want 1 (reserved row after an exact-width line)", cursorRow)
 	}
-	if cursorCol != 36 {
-		t.Fatalf("cursor col = %d, want 36 (at end)", cursorCol)
+	if cursorCol != 0 {
+		t.Fatalf("cursor col = %d, want 0", cursorCol)
 	}
 
 	// Render the view to verify the line is not truncated
