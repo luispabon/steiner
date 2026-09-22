@@ -170,12 +170,12 @@ func TestComposerUpDownNavigatesVisualRows(t *testing.T) {
 }
 
 // TestComposerUpNavigatesVisualRowsWithHistoryPresent pins the boundary of the
-// history-recall gate: m.input.Line() counts logical lines split on "\n", not
-// wrapped display rows, so a single long logical line reports Line() == 0 no
-// matter which wrapped row the cursor visually sits on. That means the cursor
-// is always considered to be "on the top line" in this scenario, and per the
-// gate's design (recall on Up only when the cursor is on the boundary line),
-// history recall is the correct, expected outcome here — not a regression.
+// history-recall gate once history is loaded: recall only happens from the top
+// visual row. m.input.Line() counts logical lines split on "\n", not wrapped
+// display rows, so a single long logical line reports Line() == 0 no matter
+// which wrapped row the caret visually sits on. Keying the gate off the rendered
+// row keeps Up moving the caret within such a draft instead of jumping into
+// history.
 func TestComposerUpNavigatesVisualRowsWithHistoryPresent(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
@@ -189,10 +189,41 @@ func TestComposerUpNavigatesVisualRowsWithHistoryPresent(t *testing.T) {
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
 
+	if got := m.input.Value(); got != val {
+		t.Fatalf("Value() = %q, want unchanged draft %q (caret was not on the top visual row)", got, val)
+	}
+	if got := m.fileHistoryIdx; got != -1 {
+		t.Fatalf("fileHistoryIdx = %d, want -1 (recall must not start off the top visual row)", got)
+	}
+	// The cursor ends one visual row up, at the start of the second wrapped row.
+	if got := m.input.Column(); got != 36 {
+		t.Fatalf("cursor column = %d, want 36 (start of second wrapped row)", got)
+	}
+}
+
+// TestComposerUpAtTopVisualRowRecallsHistoryWithHistoryPresent covers the other
+// side of the gate: the same wrapped draft recalls history once the caret sits
+// on the top visual row.
+func TestComposerUpAtTopVisualRowRecallsHistoryWithHistoryPresent(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	val := strings.Repeat("x", 100)
+	m.input.SetValue(val)
+	m.input.SetCursorColumn(0)
+
+	loadComposerHistory(m, "most recent prompt")
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+
 	if got := m.input.Value(); got != "most recent prompt" {
-		t.Fatalf("Value() = %q, want history entry %q (recall expected: Line() is 0 for a single logical line)", got, "most recent prompt")
+		t.Fatalf("Value() = %q, want history entry %q (caret on the top visual row)", got, "most recent prompt")
 	}
 	if got := m.fileHistoryIdx; got != 0 {
 		t.Fatalf("fileHistoryIdx = %d, want 0", got)
+	}
+	if got := m.historyDraft; got != val {
+		t.Fatalf("historyDraft = %q, want %q", got, val)
 	}
 }

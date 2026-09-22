@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -130,10 +131,45 @@ func TestHandleKeyUpConsecutivePressesKeepPagingThroughMultilineEntry(t *testing
 	loadComposerHistory(m, "multi\nline\nentry", "older single line")
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+
+	// The recalled entry puts the caret at its end, off the top visual row.
+	if got := m.input.Line(); got != 2 {
+		t.Fatalf("Line() = %d, want 2 (caret at end of recalled multiline entry)", got)
+	}
+
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
 
 	if got := m.input.Value(); got != "older single line" {
 		t.Fatalf("Value() = %q, want %q (consecutive Up must keep paging, not get stuck moving within the recalled entry)", got, "older single line")
+	}
+	if got := m.fileHistoryIdx; got != 1 {
+		t.Fatalf("fileHistoryIdx = %d, want 1", got)
+	}
+}
+
+// TestHandleKeyUpWhileBrowsingWrappedEntryPagesRegardlessOfCaretRow proves Up
+// keeps paging history while browsing even when the caret renders on a lower
+// visual row of a wrapped recalled entry.
+func TestHandleKeyUpWhileBrowsingWrappedEntryPagesRegardlessOfCaretRow(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	wrapped := strings.Repeat("x", 100)
+	loadComposerHistory(m, wrapped, "older single line")
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+	if got := m.input.Value(); got != wrapped {
+		t.Fatalf("Value() = %q, want recalled %q", got, wrapped)
+	}
+	if _, cursorRow, _ := m.renderTypedInputLines(m.inputInnerWidth(m.contentWidth())); cursorRow == 0 {
+		t.Fatalf("test setup invalid: caret renders on the top visual row of the recalled entry")
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+
+	if got := m.input.Value(); got != "older single line" {
+		t.Fatalf("Value() = %q, want %q (Up while browsing recalls regardless of caret row)", got, "older single line")
 	}
 	if got := m.fileHistoryIdx; got != 1 {
 		t.Fatalf("fileHistoryIdx = %d, want 1", got)
