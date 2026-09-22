@@ -177,13 +177,16 @@ func TestComposerUpDownNavigatesVisualRows(t *testing.T) {
 func assertComposerRowsMatchTextarea(t *testing.T, m *Model) {
 	t.Helper()
 	width := m.inputInnerWidth(m.contentWidth())
-	lines, cursorRow, _ := m.renderTypedInputLines(width)
+	lines, cursorRow, cursorCol := m.renderTypedInputLines(width)
 	info := m.input.LineInfo()
 	if len(lines) != info.Height {
 		t.Fatalf("drawn rows = %d, want %d (textarea soft-wrapped rows)", len(lines), info.Height)
 	}
 	if cursorRow != info.RowOffset {
 		t.Fatalf("drawn cursor row = %d, want %d (textarea caret row)", cursorRow, info.RowOffset)
+	}
+	if cursorCol != info.CharOffset {
+		t.Fatalf("drawn cursor col = %d, want %d (textarea caret column)", cursorCol, info.CharOffset)
 	}
 	for i, line := range lines {
 		if got := ansi.StringWidth(line); got > width {
@@ -223,6 +226,26 @@ func TestComposerWrapMatchesTextareaAtExactWidthBoundary(t *testing.T) {
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
 	if got := m.input.Value(); got != "most recent prompt" {
 		t.Fatalf("Value() = %q, want %q (recall from the top textarea row)", got, "most recent prompt")
+	}
+}
+
+// TestComposerWrapMatchesTextareaWithIdeographicSpace pins the wrap of unicode
+// whitespace wider than one column: the textarea materializes every whitespace
+// rune as a single ASCII space, so the composer must wrap and draw the same
+// single-column spaces or its rows and caret row drift from the rows Up/Down
+// move through.
+func TestComposerWrapMatchesTextareaWithIdeographicSpace(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	// U+3000 measures two columns wide, the textarea's materialized space one.
+	draft := strings.Repeat("\u3000word", 8)
+	m.input.SetValue(draft)
+
+	for _, col := range []int{0, 1, 2, 5, 20, len([]rune(draft))} {
+		m.input.SetCursorColumn(col)
+		assertComposerRowsMatchTextarea(t, m)
 	}
 }
 

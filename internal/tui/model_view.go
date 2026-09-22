@@ -519,13 +519,13 @@ func (m *Model) renderTypedInputLines(width int) ([]string, int, int) {
 			absPos := min(max(0, m.input.Column()), len(runes))
 			row := 0
 			for r, seg := range rows {
-				if seg.start > absPos {
+				if composerGridStart(seg.runes, len(runes)) > absPos {
 					break
 				}
 				row = r
 			}
 			cursorDisplayRow = len(lines) + row
-			cursorDisplayCol = ansi.StringWidth(string(runes[rows[row].start:absPos]))
+			cursorDisplayCol = composerGridCol(rows[row].runes, absPos)
 		}
 		for _, seg := range rows {
 			lines = append(lines, seg.text)
@@ -536,16 +536,18 @@ func (m *Model) renderTypedInputLines(width int) ([]string, int, int) {
 
 // composerLineRow is one drawn row of a logical composer line: the row text
 // with the wrap's reserved trailing spaces trimmed (so a drawn row never
-// exceeds the composer's inner width) and the rune offset within the logical
-// line where the row's content starts.
+// exceeds the composer's inner width) and the grid runes the text is built
+// from, which carry the logical-line offsets used to place the caret.
 type composerLineRow struct {
 	text  string
-	start int
+	runes []composerGridRune
 }
 
 // composerGridRune is one rune of a wrapped row: the rune and the offset it came
 // from in the logical line, or -1 for the trailing space the wrap reserves so
-// the caret can sit after the last character.
+// the caret can sit after the last character. Whitespace is materialized as an
+// ASCII space, matching what the textarea draws, while value keeps the offset of
+// the whitespace rune it came from.
 type composerGridRune struct {
 	r     rune
 	value int
@@ -572,7 +574,7 @@ func wrapComposerLine(line string, width int) []composerLineRow {
 
 	for i, r := range value {
 		if unicode.IsSpace(r) {
-			spaces = append(spaces, composerGridRune{r: r, value: i})
+			spaces = append(spaces, composerGridRune{r: ' ', value: i})
 		} else {
 			word = append(word, composerGridRune{r: r, value: i})
 		}
@@ -613,7 +615,7 @@ func wrapComposerLine(line string, width int) []composerLineRow {
 	for _, rowRunes := range grid {
 		rows = append(rows, composerLineRow{
 			text:  strings.TrimRight(composerGridText(rowRunes), " "),
-			start: composerGridStart(rowRunes, len(value)),
+			runes: rowRunes,
 		})
 	}
 	return rows
@@ -629,6 +631,23 @@ func composerGridText(row []composerGridRune) string {
 		b.WriteRune(g.r)
 	}
 	return b.String()
+}
+
+// composerGridCol returns the cell column the caret occupies on a row: the
+// width of the row's content before the logical-line offset offset, measured on
+// the grid so whitespace counts as the ASCII space the wrap materialized.
+func composerGridCol(row []composerGridRune, offset int) int {
+	col := 0
+	for _, g := range row {
+		if g.value < 0 {
+			continue
+		}
+		if g.value >= offset {
+			break
+		}
+		col += ansi.StringWidth(string(g.r))
+	}
+	return col
 }
 
 // composerGridStart returns the logical-line offset of the row's first rune,
