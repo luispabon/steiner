@@ -244,7 +244,7 @@ func (b *contentBuffer) renderDelegationHeaderStatus(dd *delegationDisplayState)
 	var styled string
 	switch dd.status {
 	case "active":
-		if dd.cacheWaiting {
+		if dd.queuedForSlot || dd.cacheWaiting {
 			styled = b.styles.FgMute.Render("⧖")
 		} else {
 			frame := spinnerFrames[dd.spinnerFrame%len(spinnerFrames)]
@@ -276,10 +276,12 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 		if modelEffort := delegationModelEffort(dd); modelEffort != "" {
 			parts = append(parts, b.styles.FgDim.Render(modelEffort))
 		}
-		if dd.cacheWaiting {
-			parts = append(parts, b.styles.FgDim.Render(formatCountdown(dd.cacheWaitDeadline, nanoNow())))
-		} else if dd.startTime > 0 {
-			parts = append(parts, b.styles.FgDim.Render(formatElapsed(dd.startTime, nanoNow())))
+		if !dd.queuedForSlot {
+			if dd.cacheWaiting {
+				parts = append(parts, b.styles.FgDim.Render(formatCountdown(dd.cacheWaitDeadline, nanoNow())))
+			} else if dd.startTime > 0 {
+				parts = append(parts, b.styles.FgDim.Render(formatElapsed(dd.startTime, nanoNow())))
+			}
 		}
 	case "complete":
 		metaParts := delegationCompleteMeta(dd)
@@ -374,9 +376,12 @@ func (b *contentBuffer) renderDelegationHeaderOperation(dd *delegationDisplaySta
 		}
 	} else {
 		operation = strings.TrimSpace(dd.currentOperation)
-		if operation == "" && dd.cacheWaiting {
+		switch {
+		case operation == "" && dd.queuedForSlot && dd.status == "active":
+			operation = "Waiting for slot"
+		case operation == "" && dd.cacheWaiting:
 			operation = "waiting for cache warm-up…"
-		} else if operation == "" && dd.status == "active" {
+		case operation == "" && dd.status == "active":
 			operation = strings.TrimSpace(dd.taskPreview)
 		}
 	}

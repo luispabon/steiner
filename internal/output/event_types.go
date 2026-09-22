@@ -18,6 +18,10 @@ const (
 	EventTypeToolCallStarted = "tool_call_started"
 	// EventTypeToolCallFinished marks the end of a tool call.
 	EventTypeToolCallFinished = "tool_call_finished"
+	// EventTypeToolCallQueued marks a delegation tool call announced before it
+	// acquires a parallelism slot. It carries the same payload shape as
+	// EventTypeToolCallStarted and is emitted only for delegation-class calls.
+	EventTypeToolCallQueued = "tool_call_queued"
 	// EventTypeApprovalRequested marks a pending approval request.
 	EventTypeApprovalRequested = "approval_requested"
 	// EventTypeApprovalAccepted marks an accepted approval request.
@@ -233,6 +237,17 @@ type ModelCallFinishedEvent struct {
 
 // ToolCallStartedEvent records a tool invocation before execution begins.
 type ToolCallStartedEvent struct {
+	Turn      int            `json:"turn"`
+	Tool      string         `json:"tool,omitempty"`
+	CallID    string         `json:"call_id,omitempty"`
+	Arguments map[string]any `json:"arguments,omitempty"`
+}
+
+// ToolCallQueuedEvent records a delegation tool invocation announced before it
+// acquires a parallelism slot, so the UI can show it waiting. It mirrors
+// ToolCallStartedEvent; the matching ToolCallStartedEvent follows once the call
+// is actually dispatched.
+type ToolCallQueuedEvent struct {
 	Turn      int            `json:"turn"`
 	Tool      string         `json:"tool,omitempty"`
 	CallID    string         `json:"call_id,omitempty"`

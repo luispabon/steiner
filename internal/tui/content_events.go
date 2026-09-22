@@ -187,6 +187,7 @@ type delegationDisplayState struct {
 	parentArgs              string
 	startTime               int64 // unix nano, set on DelegationStarted
 	cacheWaiting            bool
+	queuedForSlot           bool
 	cacheWaitDeadline       int64  // unix nano, valid only when cacheWaiting
 	elapsed                 string // formatted elapsed, set on Complete/Failed
 	spinnerFrame            int    // index into spinnerFrames
@@ -306,6 +307,7 @@ type contentBuffer struct {
 	activeToolCalls         map[string]toolCallLocator   // callID → regular tool-call locator
 	pendingDelegateParents  []delegationLocator          // delegations awaiting DelegationStartedEvent binding
 	pendingDelegationStarts []delegationLocator          // delegations awaiting parent delegate tool binding
+	queuedDelegations       map[string]delegationLocator // parentCallID → delegation box announced as queued, awaiting ToolCallStarted
 	activeAdvisorSegment    int                          // 1-based segment index; 0 means none active
 	skillNames              []string                     // skill names for command prefix matching
 	mcpToolOrigins          map[string]MCPToolOrigin     // registry tool name -> MCP server/tool it came from
@@ -370,6 +372,7 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeAdvisorBudgetExhausted: (*contentBuffer).appendAdvisorEvent,
 	output.EventTypeProviderDiagnostic:     (*contentBuffer).appendProviderDiagnosticEvent,
 	output.EventTypeToolCallStarted:        (*contentBuffer).appendToolCallStartedEvent,
+	output.EventTypeToolCallQueued:         (*contentBuffer).appendToolCallQueuedEvent,
 	output.EventTypeToolCallFinished:       (*contentBuffer).appendToolCallFinishedEvent,
 	output.EventTypeDisplayFile:            (*contentBuffer).appendDisplayFileEvent,
 	output.EventTypeStopReason:             (*contentBuffer).appendStopReasonEvent,

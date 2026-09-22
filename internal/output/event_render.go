@@ -35,6 +35,7 @@ var eventRenderers = map[reflect.Type]func(Event) Segment{
 	reflect.TypeOf(ModelCallStartedEvent{}):       typedRenderer(renderModelCallStartedEvent),
 	reflect.TypeOf(ModelCallFinishedEvent{}):      typedRenderer(renderModelCallFinishedEvent),
 	reflect.TypeOf(ToolCallStartedEvent{}):        typedRenderer(renderToolCallStartedEvent),
+	reflect.TypeOf(ToolCallQueuedEvent{}):         typedRenderer(renderToolCallQueuedEvent),
 	reflect.TypeOf(ToolCallFinishedEvent{}):       typedRenderer(renderToolCallFinishedEvent),
 	reflect.TypeOf(DelegationCompleteEvent{}):     typedRenderer(renderDelegationCompleteEvent),
 	reflect.TypeOf(AdvisorStartedEvent{}):         typedRenderer(renderAdvisorStartedEvent),
@@ -212,6 +213,18 @@ const maxRenderedToolFieldRunes = 2048
 func renderToolCallStartedEvent(payload ToolCallStartedEvent) Segment {
 	parts := []string{
 		fmt.Sprintf("turn=%d start", payload.Turn),
+	}
+	parts = appendField(parts, "tool", payload.Tool)
+	parts = appendField(parts, "id", payload.CallID)
+	if len(payload.Arguments) > 0 {
+		parts = append(parts, fmt.Sprintf("args=%s", TruncateWithEllipsis(CompactJSON(payload.Arguments), maxRenderedToolFieldRunes)))
+	}
+	return Segment{Channel: ChannelTool, Label: "tool", Text: strings.Join(parts, " ")}
+}
+
+func renderToolCallQueuedEvent(payload ToolCallQueuedEvent) Segment {
+	parts := []string{
+		fmt.Sprintf("turn=%d queued", payload.Turn),
 	}
 	parts = appendField(parts, "tool", payload.Tool)
 	parts = appendField(parts, "id", payload.CallID)

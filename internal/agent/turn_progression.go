@@ -192,6 +192,8 @@ func finalizeDeferredReadImagesForRequest(req RunRequest, state RunState) RunSta
 func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, response provider.ChatResponse) turnOutcome {
 	turn := state.TurnCount
 	calls := response.Message.ToolCalls
+	p.queuedDelegations = p.queueDelegationCalls(turn, calls)
+	defer p.drainQueuedDelegations(turn)
 	for i := 0; i < len(calls); {
 		n := p.parallelRunLength(calls, i)
 		if n <= 1 {
@@ -295,6 +297,61 @@ type batchResult struct {
 	started bool
 }
 
+// queuedDelegationCalls tracks the delegation calls announced as queued for a
+// single tool-execution phase, in emission order, plus which have since been
+// dispatched.
+type queuedDelegationCalls struct {
+	calls   []provider.ToolCall
+	started map[string]bool
+}
+
+// queueDelegationCalls emits a tool_call_queued event for every delegation-class
+// call in the turn, before any of them is dispatched, so a call waiting for a
+// parallelism slot is visible in the UI. Regular tool calls are never queued.
+// Returns nil when nothing was queued.
+func (p *turnProgressor) queueDelegationCalls(turn int, calls []provider.ToolCall) *queuedDelegationCalls {
+	if p.request.ParallelClassOf == nil {
+		return nil
+	}
+	var queued *queuedDelegationCalls
+	for _, call := range calls {
+		if p.request.ParallelClassOf(call.Name) != ParallelClassDelegation {
+			continue
+		}
+		if queued == nil {
+			queued = &queuedDelegationCalls{started: make(map[string]bool)}
+		}
+		queued.calls = append(queued.calls, call)
+		emitEvent(p.request.Events, output.NewToolCallQueuedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
+	}
+	return queued
+}
+
+// markDelegationStarted records that a queued delegation call reached dispatch.
+func (p *turnProgressor) markDelegationStarted(callID string) {
+	if p.queuedDelegations == nil {
+		return
+	}
+	p.queuedDelegations.started[callID] = true
+}
+
+// drainQueuedDelegations terminates any queued delegation call that was never
+// dispatched with a tool_call_finished error event, so its waiting UI box does
+// not linger after the turn stops.
+func (p *turnProgressor) drainQueuedDelegations(turn int) {
+	queued := p.queuedDelegations
+	p.queuedDelegations = nil
+	if queued == nil {
+		return
+	}
+	for _, call := range queued.calls {
+		if queued.started[call.ID] {
+			continue
+		}
+		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", errNotDispatched))
+	}
+}
+
 func (p *turnProgressor) invokeParallel(ctx context.Context, state RunState, turn int, calls []provider.ToolCall) []batchResult {
 	batchCtx := WithConversationSnapshot(ctx, liveConversationSnapshot(state))
 	results := make([]batchResult, len(calls))
@@ -319,6 +376,7 @@ func (p *turnProgressor) invokeParallel(ctx context.Context, state RunState, tur
 		}
 		results[i].started = true
 		emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
+		p.markDelegationStarted(call.ID)
 		wg.Add(1)
 		go func(i int, call provider.ToolCall) {
 			defer wg.Done()
@@ -334,6 +392,7 @@ func (p *turnProgressor) invokeParallel(ctx context.Context, state RunState, tur
 
 func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunState, turn int, call provider.ToolCall) (RunState, turnOutcome) {
 	emitEvent(p.request.Events, output.NewToolCallStartedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
+	p.markDelegationStarted(call.ID)
 	ctx = WithConversationSnapshot(ctx, liveConversationSnapshot(state))
 	result, err := p.invokeTool(ctx, turn, call)
 	if state, cancelled := contextCancellationState(ctx, state); cancelled {
@@ -373,6 +432,7 @@ func (p *turnProgressor) applyToolResult(ctx context.Context, state RunState, tu
 		state.WorkflowHandoff = transition
 		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
 		state = p.finalizeDeferredReadImages(state)
+		p.drainQueuedDelegations(turn)
 		emitStop(p.request.Events, state, nil)
 		return state, turnOutcome{State: state, Stop: true}
 	}
@@ -415,6 +475,10 @@ func (p *turnProgressor) appendToolOutcome(ctx context.Context, state RunState, 
 }
 
 func (p *turnProgressor) finalizeCancelledTurn(ctx context.Context, state RunState) turnOutcome {
+	// Terminate queued delegations before the stop event so their finished
+	// events precede the run's stop_reason and the UI never sees a stop while a
+	// waiting box is still open.
+	p.drainQueuedDelegations(state.TurnCount)
 	cancelled, _ := contextCancellationState(ctx, state)
 	visionState, subAgentConfigured := p.getVisionCapabilityContext()
 	cancelled.Lineage = cancelled.Lineage.WithCurrentMessages(stripImagesFromMessages(cancelled.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
@@ -555,6 +619,14 @@ type turnProgressor struct {
 	// previousMessageHashes holds the per-message hashes of the last chat
 	// request actually sent, for shared_prefix_messages divergence detection.
 	previousMessageHashes []string
+
+	// queuedDelegations holds the delegation calls announced via
+	// tool_call_queued for the tool-execution phase currently running. Entries
+	// are marked started as each call is dispatched; any left when the phase
+	// ends never ran (cancellation or a limit ended the turn first) and are
+	// terminated with a tool_call_finished error event so the UI can close them.
+	// Nil when no delegation call was queued.
+	queuedDelegations *queuedDelegationCalls
 }
 
 func newTurnProgressor(req RunRequest, base prompt.AssemblyOptions, compactFn compactConversationFn) *turnProgressor {
