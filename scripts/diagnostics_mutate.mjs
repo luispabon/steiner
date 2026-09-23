@@ -422,10 +422,14 @@ export function taxonomyBucket(failure) {
 	const f = failure?.match;
 	if (!f) return null;
 	if (failure.reason === "ambiguous_match") return `ambiguous:${countBucket(f.old_lines ?? 0)}`;
+	// A stale read whose old text still matches the file is a guard block, not a
+	// recall error: the edit would have applied had the read been fresh. This
+	// outranks the concrete-difference buckets below.
+	if (failure.reason === "stale_read" && (f.match_count ?? 0) > 0) return "guard_blocked_matching_edit";
 	if (f.matches_original) return "forgot_own_edit_in_call";
 	// Concrete differences outrank read state: a read-state bucket says when the
 	// model last saw the file, not why the bytes differ now.
-	if (f.ws_kind && f.ws_kind !== "none") return `whitespace:${f.ws_kind}`;
+	if (f.ws_kind && f.ws_kind !== "none" && f.ws_kind !== "exact") return `whitespace:${f.ws_kind}`;
 	if (f.crlf_mismatch) return "encoding:crlf";
 	if (f.unescape_matches) return "encoding:escaped";
 	if (f.line_prefix) return "encoding:line_prefix";

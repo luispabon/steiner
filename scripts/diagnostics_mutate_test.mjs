@@ -197,11 +197,30 @@ test("taxonomyBucket assigns the first matching bucket", () => {
 		["partial_recall", failure({ lines_found: 1, nonblank_lines: 3 }), "partial_recall"],
 		["ambiguous", failure({ old_lines: 2 }, "ambiguous_match"), "ambiguous:2-3"],
 		["ambiguous_short", failure({ old_lines: 1 }, "ambiguous_match"), "ambiguous:1"],
+		["stale_read_guard", failure({ match_count: 1 }, "stale_read"), "guard_blocked_matching_edit"],
 		["no_match_block", { reason: "no_match" }, null],
 	];
 	for (const [name, f, want] of cases) {
 		assert.equal(taxonomyBucket(f), want, name);
 	}
+});
+
+test("a guard-blocked stale read outranks whitespace", () => {
+	// The old text still matches the file, so the edit would have applied had
+	// the read been fresh; that outranks the ws_kind difference it also carries.
+	assert.equal(
+		taxonomyBucket(failure({ ws_kind: "exact", match_count: 1 }, "stale_read")),
+		"guard_blocked_matching_edit",
+	);
+});
+
+test("ws_kind exact is never a whitespace bucket", () => {
+	// "exact" means the read text matches verbatim, so it is not a whitespace
+	// difference. With no guard-match condition it falls through to the
+	// controlled line buckets instead of `whitespace:exact`.
+	const bucket = taxonomyBucket(failure({ ws_kind: "exact" }));
+	assert.notEqual(bucket, "whitespace:exact");
+	assert.equal(bucket, "partial_recall");
 });
 
 // -------------------------------------------------- filters and baseline
@@ -253,7 +272,7 @@ test("samples come from capture_bodies records and filter by cause", () => {
 	const { messages } = analyze({ toolRecords, providerRecords });
 	const all = collectSamples(messages, { limit: 10 });
 	assert.equal(all.length, 1);
-	assert.equal(all[0].cause, "stale_after_own_edit");
+	assert.equal(all[0].cause, "guard_blocked_matching_edit");
 	assert.equal(all[0].sample.path, "internal/tool/mutate.go");
 	assert.equal(collectSamples(messages, { cause: "encoding:crlf", limit: 10 }).length, 0);
 });
@@ -274,9 +293,9 @@ test("CLI mutate --json parses fixtures and reports both groupings", () => {
 });
 
 test("CLI mutate --samples --cause prints the raw body", () => {
-	const out = execFileSync("node", [SCRIPT, "mutate", "--dir", FIXTURES, "--samples", "5", "--cause", "stale_after_own_edit"], { encoding: "utf8" });
+	const out = execFileSync("node", [SCRIPT, "mutate", "--dir", FIXTURES, "--samples", "5", "--cause", "guard_blocked_matching_edit"], { encoding: "utf8" });
 	assert.match(out, /internal\/tool\/mutate\.go/);
-	assert.match(out, /stale_after_own_edit/);
+	assert.match(out, /guard_blocked_matching_edit/);
 });
 
 test("CLI mutate refuses --compare", () => {
