@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -409,5 +411,126 @@ func TestBaseContextManagerObserveReadToolResult(t *testing.T) {
 				t.Fatalf("notes = %v, want range note", payload.Notes)
 			}
 		})
+	}
+}
+
+// TestContextStateManagerRetainsIngestedToolResultBytes pins that a tool result
+// already sent to the provider is not reshaped by post-ingestion on a fresh run,
+// while the read tracker is still reconstructed.
+func TestContextStateManagerRetainsIngestedToolResultBytes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("two\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	historical, err := json.Marshal(readResult{Path: path, StartLine: 1, EndLine: 1, TotalLines: 1, Output: "one\n"})
+	if err != nil {
+		t.Fatalf("marshal read result: %v", err)
+	}
+	history := []Message{{
+		Role:       MessageRoleTool,
+		Name:       "read",
+		ToolCallID: "call_1",
+		Turn:       1,
+		Content:    string(historical),
+		Ingested:   true,
+	}}
+
+	for run := 1; run <= 2; run++ {
+		manager := NewContextStateManager()
+		var events []output.Event
+		manager.SetEventSink(output.SinkFunc(func(event output.Event) { events = append(events, event) }))
+		state := RunState{
+			TurnCount:    2,
+			Conversation: cloneMessages(history),
+			Lineage:      newConversationLineage(cloneMessages(history)),
+		}
+		next, err := manager.PostIngestion(context.Background(), state)
+		if err != nil {
+			t.Fatalf("run %d PostIngestion error = %v", run, err)
+		}
+		got := next.Conversation[0]
+		if got.Content != string(historical) {
+			t.Fatalf("run %d content = %q, want provider-visible bytes %q", run, got.Content, string(historical))
+		}
+		if strings.Contains(got.Content, "file unchanged since turn") {
+			t.Fatalf("run %d content = %q, want no reannotation", run, got.Content)
+		}
+		if len(events) != 0 {
+			t.Fatalf("run %d events = %d, want 0 (no annotation diagnostics)", run, len(events))
+		}
+		if !manager.FileObserved(path) {
+			t.Fatalf("run %d read tracker did not reconstruct %s", run, path)
+		}
+	}
+
+	// Mechanism check: the same historical bytes are reshaped when unmarked, so
+	// the second read is rewritten to an unchanged-file annotation. This is the
+	// fresh-run rewrite that the Ingested flag prevents.
+	firstRead, err := json.Marshal(readResult{Path: path, StartLine: 1, EndLine: 1, TotalLines: 1, Output: "one\n"})
+	if err != nil {
+		t.Fatalf("marshal first read: %v", err)
+	}
+	secondRead, err := json.Marshal(readResult{Path: path, StartLine: 1, EndLine: 1, TotalLines: 1, Output: "two\n"})
+	if err != nil {
+		t.Fatalf("marshal second read: %v", err)
+	}
+	unmarked := []Message{
+		{Role: MessageRoleTool, Name: "read", ToolCallID: "call_1", Turn: 1, Content: string(firstRead)},
+		{Role: MessageRoleTool, Name: "read", ToolCallID: "call_2", Turn: 2, Content: string(secondRead)},
+	}
+	reshaped, err := NewContextStateManager().PostIngestion(context.Background(), RunState{TurnCount: 2, Conversation: cloneMessages(unmarked), Lineage: newConversationLineage(cloneMessages(unmarked))})
+	if err != nil {
+		t.Fatalf("unmarked PostIngestion error = %v", err)
+	}
+	if !strings.Contains(reshaped.Conversation[1].Content, "file unchanged since turn") {
+		t.Fatalf("unmarked second read = %q, want annotation rewriting provider-visible bytes", reshaped.Conversation[1].Content)
+	}
+}
+
+// TestContextStateManagerShapesLegacyToolResultOnceThenFreezes pins the one-time
+// ingestion shaping applied to an unmarked tool message and that the shaped
+// bytes are frozen on subsequent runs.
+func TestContextStateManagerShapesLegacyToolResultOnceThenFreezes(t *testing.T) {
+	raw, err := json.Marshal(struct {
+		ExitCode int    `json:"exit_code"`
+		Output   string `json:"output"`
+	}{ExitCode: 1, Output: "\x1b[31mwarning: retry\x1b[0m\nwarning: retry\nwarning: retry\n"})
+	if err != nil {
+		t.Fatalf("marshal legacy bash result: %v", err)
+	}
+	legacy := []Message{{
+		Role:       MessageRoleTool,
+		Name:       "bash",
+		ToolCallID: "call_1",
+		Turn:       1,
+		Content:    string(raw),
+	}}
+
+	manager := NewContextStateManager()
+	state := RunState{TurnCount: 1, Conversation: cloneMessages(legacy), Lineage: newConversationLineage(cloneMessages(legacy))}
+	shaped, err := manager.PostIngestion(context.Background(), state)
+	if err != nil {
+		t.Fatalf("first PostIngestion error = %v", err)
+	}
+	firstPass := shaped.Conversation[0]
+	if !firstPass.Ingested {
+		t.Fatal("legacy tool message Ingested = false after first PostIngestion, want true")
+	}
+	if firstPass.Content == string(raw) {
+		t.Fatalf("legacy content = %q, want one-time shaping to change it", firstPass.Content)
+	}
+	if strings.Contains(firstPass.Content, "\x1b[") {
+		t.Fatalf("shaped content = %q, want ANSI escapes stripped", firstPass.Content)
+	}
+
+	frozen := cloneMessages(shaped.Conversation)
+	second := RunState{TurnCount: 1, Conversation: cloneMessages(frozen), Lineage: newConversationLineage(cloneMessages(frozen))}
+	again, err := NewContextStateManager().PostIngestion(context.Background(), second)
+	if err != nil {
+		t.Fatalf("second PostIngestion error = %v", err)
+	}
+	if got := again.Conversation[0].Content; got != firstPass.Content {
+		t.Fatalf("content after second PostIngestion = %q, want frozen %q", got, firstPass.Content)
 	}
 }

@@ -541,12 +541,16 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
 		}
 	}
+	// Live tool results have already passed ingestion shaping, so freeze them:
+	// a later fresh-run PostIngestion must not reshape these provider-visible
+	// bytes (see baseContextManager.normalizeIngestedMessage).
 	toolMessage := Message{
 		Role:       MessageRoleTool,
 		Content:    toolContent,
 		ToolCallID: call.ID,
 		Name:       call.Name,
 		Turn:       turn,
+		Ingested:   true,
 	}
 	if err == nil {
 		toolMessage.Retention = cloneMessageRetention(normalizedResult.Retention)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -742,5 +744,128 @@ func TestRunnerContextStateManagerSanitizesRecentToolCallSummaries(t *testing.T)
 	}
 	if !strings.Contains(got.Context.RecentToolCalls[0], "go test ./internal/agent") {
 		t.Fatalf("recent tool call summary = %q, want sanitized command fragment", got.Context.RecentToolCalls[0])
+	}
+}
+
+// TestRunnerFreshRunRetainsIngestedProviderVisibleToolResultBytes runs a
+// read(full) -> read(after disk change) transcript, then replays it as the
+// SourceConversation of a fresh run. The historical tool-result bytes the
+// first run sent must reach the provider unchanged: a fresh FileTracker must
+// not reannotate provider-visible content. Without Message.Ingested the second
+// read is rewritten to an unchanged-file annotation and the byte comparison
+// fails.
+func TestRunnerFreshRunRetainsIngestedProviderVisibleToolResultBytes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(path, []byte("one\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	firstRead, err := json.Marshal(readResult{Path: path, StartLine: 1, EndLine: 1, TotalLines: 1, Output: "one\n"})
+	if err != nil {
+		t.Fatalf("marshal first read: %v", err)
+	}
+	secondRead, err := json.Marshal(readResult{Path: path, StartLine: 1, EndLine: 1, TotalLines: 1, Output: "two\n"})
+	if err != nil {
+		t.Fatalf("marshal second read: %v", err)
+	}
+
+	toolCall := func(id string) provider.ChatResponse {
+		return provider.ChatResponse{
+			Message: provider.Message{
+				Role:      provider.MessageRoleAssistant,
+				ToolCalls: []provider.ToolCall{{ID: id, Name: "read", Arguments: map[string]any{"path": path}}},
+			},
+			FinishReason: "tool_calls",
+			Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
+		}
+	}
+	final := provider.ChatResponse{
+		Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "done"},
+		FinishReason: "stop",
+		Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
+	}
+
+	run1Provider := &fakeProvider{responses: []provider.ChatResponse{toolCall("call_1"), toolCall("call_2"), final}}
+	reads := 0
+	run1Executor := &fakeExecutor{execute: func(_ context.Context, toolName string, _ map[string]any) (any, error) {
+		if toolName != "read" {
+			return nil, fmt.Errorf("tool = %s, want read", toolName)
+		}
+		reads++
+		if reads == 1 {
+			return string(firstRead), nil
+		}
+		if err := os.WriteFile(path, []byte("two\n"), 0o644); err != nil {
+			return nil, err
+		}
+		return string(secondRead), nil
+	}}
+
+	run1State, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider:       run1Provider,
+		Executor:       run1Executor,
+		ContextManager: &ContextStateManager{},
+		Prompt:         prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "inspect the file"}}},
+		ResolvedModel:  provider.ResolvedModel{BackendModelID: "test-model"},
+		Limits:         Limits{MaxTurns: 4, MaxTokens: 200},
+	})
+	if err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	if got, want := run1State.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("first StopReason = %q, want %q", got, want)
+	}
+
+	visible := map[string]string{}
+	for _, message := range run1Provider.requests[len(run1Provider.requests)-1].Messages {
+		if message.Role == provider.MessageRoleTool {
+			visible[message.ToolCallID] = message.Content
+		}
+	}
+	if visible["call_1"] != string(firstRead) || visible["call_2"] != string(secondRead) {
+		t.Fatalf("first-run provider-visible tool results = %#v, want full read payloads", visible)
+	}
+
+	run2Provider := &fakeProvider{responses: []provider.ChatResponse{final}}
+	run2Manager := NewContextStateManager()
+	run2State, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider:           run2Provider,
+		Executor:           &fakeExecutor{},
+		ContextManager:     run2Manager,
+		SourceConversation: append(cloneMessages(run1State.Conversation), Message{Role: MessageRoleUser, Content: "continue"}),
+		ResolvedModel:      provider.ResolvedModel{BackendModelID: "test-model"},
+		Limits:             Limits{MaxTurns: 6, MaxTokens: 200},
+	})
+	if err != nil {
+		t.Fatalf("second Run() error = %v", err)
+	}
+	if got, want := run2State.StopReason, StopReasonComplete; got != want {
+		t.Fatalf("second StopReason = %q, want %q", got, want)
+	}
+	if len(run2Provider.requests) == 0 {
+		t.Fatal("second run made no provider request")
+	}
+
+	var sawSecondRead bool
+	for _, message := range run2Provider.requests[0].Messages {
+		if message.Role != provider.MessageRoleTool {
+			continue
+		}
+		want, ok := visible[message.ToolCallID]
+		if !ok {
+			continue
+		}
+		if message.Content != want {
+			t.Fatalf("fresh run tool %s content = %q, want provider-visible %q", message.ToolCallID, message.Content, want)
+		}
+		if message.ToolCallID == "call_2" {
+			sawSecondRead = true
+		}
+	}
+	if !sawSecondRead {
+		t.Fatal("fresh run did not replay the second read tool result")
+	}
+	if !run2Manager.FileObserved(path) {
+		t.Fatal("fresh run did not reconstruct read tracker state")
 	}
 }
