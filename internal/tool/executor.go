@@ -53,6 +53,10 @@ type Executor struct {
 	// outcome (issue #707 stage 4). A nil writer is a no-op, so unwired paths
 	// and tests need no special handling.
 	diagnostics *diagnostics.Writer
+	// scope tags every tool-stream record this executor writes with its
+	// caller: the top-level parent, or a sub-agent's ID and type. Set once at
+	// construction via WithDiagnosticsScope.
+	scope diagnosticsScope
 }
 
 // NewExecutor creates a new tool executor with the given registry, config, approver,
@@ -87,6 +91,14 @@ func (e *Executor) WithDiagnostics(w *diagnostics.Writer) *Executor {
 	return e
 }
 
+// WithDiagnosticsScope tags every tool-stream record this executor writes with
+// its caller: parent, or a sub-agent's ID and type. It returns the executor
+// for chaining, mirroring WithDiagnostics.
+func (e *Executor) WithDiagnosticsScope(source diagnostics.Source, agentID, agentType string) *Executor {
+	e.scope = diagnosticsScope{source: source, agentID: agentID, agentType: agentType}
+	return e
+}
+
 // WithModeGetter sets the execution mode getter on the executor and returns it
 // for chaining. The getter is called during execution to determine the current
 // mode (plan or build). When non-nil, the mode is threaded through the execution
@@ -108,7 +120,7 @@ func (e *Executor) WorkDir() string {
 func (e *Executor) Execute(ctx context.Context, toolName, callID string, input map[string]any) (any, error) {
 	start := time.Now()
 	result, err := e.runPipeline(ctx, executionInput{ToolName: toolName, CallID: callID, Input: input})
-	e.recordDiagnostics(toolName, input, result, err, time.Since(start))
+	e.recordDiagnostics(ctx, toolName, input, result, err, time.Since(start))
 	return result, err
 }
 

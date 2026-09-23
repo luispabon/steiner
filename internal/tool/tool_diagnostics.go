@@ -31,6 +31,7 @@ type DiagnosticsDetail interface {
 // -size scalars only; Failures.PathExt never carries a path.
 type toolRecordPayload struct {
 	Tool       string                 `json:"tool"`
+	Model      string                 `json:"model,omitempty"`
 	Outcome    string                 `json:"outcome"`
 	DurationMs int                    `json:"duration_ms"`
 	OpsTotal   int                    `json:"ops_total"`
@@ -48,7 +49,7 @@ type toolOpFailurePayload struct {
 // recordDiagnostics emits one kind:"tool" diagnostics record per Execute
 // call, on every outcome — a failure rate needs a denominator of successes
 // too. No-op when the tool stream is disabled or the executor has no writer.
-func (e *Executor) recordDiagnostics(toolName string, input map[string]any, result any, err error, dur time.Duration) {
+func (e *Executor) recordDiagnostics(ctx context.Context, toolName string, input map[string]any, result any, err error, dur time.Duration) {
 	if !e.diagnostics.Enabled(diagnostics.KindTool) {
 		return
 	}
@@ -88,7 +89,19 @@ func (e *Executor) recordDiagnostics(toolName string, input map[string]any, resu
 		})
 	}
 
-	e.diagnostics.Write(diagnostics.Record{Kind: diagnostics.KindTool, Payload: payload})
+	record := diagnostics.Record{
+		Kind:      diagnostics.KindTool,
+		Source:    e.scope.source,
+		AgentID:   e.scope.agentID,
+		AgentType: e.scope.agentType,
+	}
+	if call, ok := CallDiagnosticsFromContext(ctx); ok {
+		record.Turn = call.Turn
+		payload.Model = call.Model
+	}
+	record.Payload = payload
+
+	e.diagnostics.Write(record)
 }
 
 // pathExt returns path's extension, or "" for an extensionless name —

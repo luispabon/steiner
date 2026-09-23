@@ -421,6 +421,7 @@ func (p *turnProgressor) invokeTool(ctx context.Context, turn int, call provider
 	if p.request.ContextManager != nil {
 		ctx = tool.WithFileObservedChecker(ctx, p.request.ContextManager.FileObserved)
 	}
+	ctx = tool.WithCallDiagnostics(ctx, tool.CallDiagnostics{Turn: turn, Model: p.request.ResolvedModel.BackendModelID})
 	return p.request.Executor.Execute(ctx, call.Name, call.ID, cloneInput(call.Arguments))
 }
 
