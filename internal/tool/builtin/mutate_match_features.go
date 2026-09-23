@@ -73,7 +73,7 @@ func (p *mutatePlanner) matchFailure(err error, state *mutateFileState, op Mutat
 	})
 	wrapped := &matchFailureError{err: err, match: &features}
 	if p.env.Capture == tool.DiagnosticsCaptureBodies && p.samplesUsed < maxDetailedMutateFailures {
-		wrapped.sample = buildMatchSample(state.displayPath, op.OldString, state.content, features.LocusLine)
+		wrapped.sample = buildMatchSample(state.displayPath, op.OldString, state.content, features.MatchCount, features.LocusLine)
 		p.samplesUsed++
 	}
 	return wrapped
@@ -229,8 +229,11 @@ func locusLine(in matchFeatureInput, matchCount int, haveRegion bool, matchedLin
 // buildMatchSample builds the bounded raw sample recorded for an eligible
 // failed replace under capture_bodies: the attempted old_string and a small
 // file region, both truncated to maxMatchSampleBytes. Only the last read range
-// is tracked, so the region is evidence, not proof of what the model saw.
-func buildMatchSample(displayPath, old string, content []byte, locus int) *tool.MatchSample {
+// is tracked, so the region is evidence, not proof of what the model saw. When
+// matchCount > 0 the old_string occurs exactly, so the region is built around
+// locus (that exact occurrence) rather than an earlier normalized near-match,
+// keeping the sample region and locus_line pointed at the same target.
+func buildMatchSample(displayPath, old string, content []byte, matchCount, locus int) *tool.MatchSample {
 	sample := &tool.MatchSample{Path: displayPath}
 
 	truncOld := truncateDiagnosticText(old, maxMatchSampleBytes)
@@ -239,7 +242,7 @@ func buildMatchSample(displayPath, old string, content []byte, locus int) *tool.
 
 	region := ""
 	startLine := 0
-	if matched, lineNum, ok := extractNormalizedMatch(content, old); ok {
+	if matched, lineNum, ok := extractNormalizedMatch(content, old); ok && matchCount == 0 {
 		region = matched
 		startLine = lineNum
 	} else if locus > 0 {

@@ -401,7 +401,7 @@ func TestComputeMatchFailure_BoundedOnRepetitiveFile(t *testing.T) {
 
 func TestBuildMatchSample_TruncatesUTF8(t *testing.T) {
 	old := strings.Repeat("é", 5000)
-	sample := buildMatchSample("dir/file.txt", old, []byte("unrelated\n"), 0)
+	sample := buildMatchSample("dir/file.txt", old, []byte("unrelated\n"), 0, 0)
 	if !sample.OldTruncated {
 		t.Error("old_truncated = false, want true for a >4 KiB old_string")
 	}
@@ -410,6 +410,50 @@ func TestBuildMatchSample_TruncatesUTF8(t *testing.T) {
 	}
 	if len(sample.OldString) > maxMatchSampleBytes {
 		t.Errorf("old_string length = %d, want <= %d", len(sample.OldString), maxMatchSampleBytes)
+	}
+}
+
+func TestBuildMatchSample_UsesExactLocusOverNormalizedNearMatch(t *testing.T) {
+	// Line 2 is a whitespace-normalized near-match of the old_string, while the
+	// exact occurrence sits on line 20. extractNormalizedMatch finds the earlier
+	// near-match, so the sample must ignore it once match_count > 0 and build the
+	// region around the exact locus instead.
+	content := "start\n" + "foo    bar\n" + strings.Repeat("filler\n", 17) + "foo bar\n" + strings.Repeat("filler\n", 5)
+	old := "foo bar\n"
+
+	features := computeMatchFailure(matchFeatureInput{old: old, content: []byte(content)})
+	if features.MatchCount != 1 {
+		t.Fatalf("match_count = %d, want 1 (only the exact occurrence counts)", features.MatchCount)
+	}
+	if features.LocusLine != 20 {
+		t.Fatalf("locus_line = %d, want 20 (the exact occurrence, not the line-2 near-match)", features.LocusLine)
+	}
+
+	sample := buildMatchSample("dir/file.txt", old, []byte(content), features.MatchCount, features.LocusLine)
+	lastLine := sample.RegionStartLine + strings.Count(sample.Region, "\n")
+	if sample.RegionStartLine > features.LocusLine || features.LocusLine > lastLine {
+		t.Errorf("region lines [%d,%d] do not cover locus line %d", sample.RegionStartLine, lastLine, features.LocusLine)
+	}
+	if !strings.Contains(sample.Region, "foo bar") {
+		t.Errorf("region %q does not include the exact occurrence", sample.Region)
+	}
+	if strings.Contains(sample.Region, "foo    bar") {
+		t.Errorf("region %q includes the whitespace-normalized near-match", sample.Region)
+	}
+}
+
+func TestBuildMatchSample_NormalizedRegionWhenNoExactMatch(t *testing.T) {
+	content := "foo    bar\nother\n"
+	old := "foo bar\n"
+
+	features := computeMatchFailure(matchFeatureInput{old: old, content: []byte(content)})
+	if features.MatchCount != 0 {
+		t.Fatalf("match_count = %d, want 0", features.MatchCount)
+	}
+
+	sample := buildMatchSample("dir/file.txt", old, []byte(content), features.MatchCount, features.LocusLine)
+	if sample.RegionStartLine != 1 || sample.Region != "foo    bar" {
+		t.Errorf("region = %q start line = %d, want the normalized near-match at line 1", sample.Region, sample.RegionStartLine)
 	}
 }
 
