@@ -643,10 +643,11 @@ function parentTurnPairs(cacheRecords, toolRecords) {
 				delegationSeconds: longest ? longest.ms / 1000 : 0,
 				delegationTool: longest?.tool ?? null,
 				sharedPrefixMessages: sorted[i].payload?.shared_prefix_messages ?? 0,
-				// Left undefined when the record predates the field, so
+				// Left undefined when the record predates the fields, so
 				// classifyColdTurn can tell "explicitly no baseline" from "old
-				// record that never said".
+				// record that never said" and from "comparison was disabled".
 				prefixPredecessorKnown: sorted[i].payload?.prefix_predecessor_known,
+				prefixComparisonEnabled: sorted[i].payload?.prefix_comparison_enabled,
 				uncached: uncachedTokens(sorted[i]),
 			});
 		}
@@ -656,12 +657,13 @@ function parentTurnPairs(cacheRecords, toolRecords) {
 
 // classifyColdTurn attributes one cold turn to a cause.
 //
-// no_prior_baseline is tested first. A producer that sets
-// prefix_predecessor_known: false is saying it had no prior baseline in this
-// process to compare the request's prefix against, so shared_prefix_messages
-// carries no rewrite signal and blaming a rewrite would invent one. Records
-// written before the field existed omit it entirely and keep the
-// prefix_rewrite reading below.
+// no_prior_baseline is tested first and needs both producer flags: an
+// explicit prefix_comparison_enabled: true (the producer actually ran a
+// comparison) and prefix_predecessor_known: false (it found no in-process
+// predecessor to compare against). A disabled or absent comparison flag means
+// no comparison signal at all, so it must fall through to the legacy reading
+// below rather than masquerade as a missing baseline. Records written before
+// either field existed omit both and keep that legacy reading too.
 //
 // prefix_rewrite is tested next and wins over delegation: when the prefix
 // diverges at message 0 the request cannot hit any cached entry no matter how
@@ -676,7 +678,7 @@ function parentTurnPairs(cacheRecords, toolRecords) {
 // falls through to idle or unexplained. Use prefix mode on a session log for
 // the full picture; it has the message_hashes sequence this stream lacks.
 function classifyColdTurn(pair) {
-	if (pair.prefixPredecessorKnown === false) return "no_prior_baseline";
+	if (pair.prefixComparisonEnabled === true && pair.prefixPredecessorKnown === false) return "no_prior_baseline";
 	if (pair.sharedPrefixMessages === 0) return "prefix_rewrite";
 	if (pair.delegationSeconds * 1000 >= LONG_DELEGATION_MS) return "delegation";
 	if (pair.gapSeconds * 1000 >= LONG_DELEGATION_MS) return "idle";

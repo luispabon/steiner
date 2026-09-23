@@ -280,17 +280,19 @@ test("coldturns: consecutive turns pair by process seq, not by wall-clock ts", (
 	assert.equal(terra.metrics.longDelegationN, 1);
 });
 
-test("coldturns: explicit prefix_predecessor_known false is distinct; absent keeps prefix_rewrite", () => {
+test("coldturns: no_prior_baseline needs prefix_comparison_enabled true, not just predecessor false", () => {
 	const out = coldturnsSeq();
 	const byClass = Object.fromEntries(out.cold_turn_attribution.map((r) => [r.key, r.n]));
-	// prec-1 turn 2 sets the field false and turn 3 omits it; neither carries
-	// shared_prefix_messages. The explicit one is a missing baseline, not a
-	// rewrite; the legacy one keeps the old prefix_rewrite reading.
+	// prec-1 turn 2 sets prefix_predecessor_known false with
+	// prefix_comparison_enabled true: a real missing baseline. Turn 3 omits both
+	// (legacy), turn 4 disables comparison, and turn 5 omits the comparison flag
+	// with predecessor false. None of those may masquerade as no_prior_baseline;
+	// they keep the legacy prefix_rewrite reading.
 	assert.equal(byClass.no_prior_baseline, 1);
-	assert.equal(byClass.prefix_rewrite, 1);
+	assert.equal(byClass.prefix_rewrite, 3);
 
 	const nova = out.by_model.find((r) => r.key === "gpt-5.6-nova");
-	assert.equal(nova.metrics.coldTurns, 2);
+	assert.equal(nova.metrics.coldTurns, 4);
 });
 
 test("cache mode --compare prints both build_sha columns with a delta", () => {
