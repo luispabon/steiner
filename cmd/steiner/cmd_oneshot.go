@@ -52,6 +52,9 @@ type phaseRunnerParams struct {
 	WorkflowMode       prompt.WorkflowMode
 	CurrentEffective   func() config.EffectiveModelAssignments
 	OrchestrationLevel func() config.OrchestrationLevel
+	// CacheBaseline is the baseline store shared by every phase of one oneshot
+	// execution; see phaseRunnerFactory.baseline.
+	CacheBaseline *agent.CacheBaselineStore
 }
 
 // buildPhaseRuntime is the runtime constructor used by newPhaseRunner; tests
@@ -99,6 +102,7 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 		currentEffective:     params.CurrentEffective,
 		orchestrationLevelFn: params.OrchestrationLevel,
 		staticContext:        &prompt.StaticContextCache{},
+		cacheBaseline:        params.CacheBaseline,
 	}
 	if alias := strings.TrimSpace(params.ModelAlias); alias != "" {
 		runner.currentAlias = func() string {
@@ -150,6 +154,7 @@ func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 			rootDir:     rt.projectRoot,
 			identity:    identity,
 			sessionDate: sessionDate,
+			baseline:    agent.NewCacheBaselineStore(),
 		},
 		Events: rt.events,
 	})
@@ -203,6 +208,7 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 			rootDir:     rt.projectRoot,
 			identity:    identity,
 			sessionDate: sessionDate,
+			baseline:    agent.NewCacheBaselineStore(),
 		},
 		Events: rt.events,
 	})
@@ -253,6 +259,10 @@ type phaseRunnerFactory struct {
 	sessionDate        prompt.SessionDate
 	currentEffective   func() config.EffectiveModelAssignments
 	orchestrationLevel func() config.OrchestrationLevel
+	// baseline is allocated once per oneshot execution and shared by every phase
+	// runner the factory builds, so sequential phases of one run compare against
+	// each other's outbound requests under the same oneshot cache identity.
+	baseline *agent.CacheBaselineStore
 }
 
 // phaseParams builds the runner parameters for a phase, including the phase
@@ -280,6 +290,7 @@ func (f phaseRunnerFactory) phaseParams(phase oneshot.Phase, modelAlias string, 
 		WorkflowMode:       prompt.DelegatedChildWorkflowMode(),
 		CurrentEffective:   f.currentEffective,
 		OrchestrationLevel: f.orchestrationLevel,
+		CacheBaseline:      f.baseline,
 	}, nil
 }
 
