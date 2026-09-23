@@ -228,6 +228,55 @@ func TestSaveAndLoadPreservesToolCallTranscript(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadPreservesIngestedFlag(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	original := Session{
+		ID:        "ingested-session",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Title:     "Ingested Session",
+		Model:     "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID: 1,
+					Messages: []agent.Message{
+						{Role: agent.MessageRoleUser, Content: "inspect the file"},
+						{Role: agent.MessageRoleTool, Content: "full read payload", ToolCallID: "call_1", Name: "read", Ingested: true},
+						{Role: agent.MessageRoleTool, Content: "legacy payload", ToolCallID: "call_2", Name: "read"},
+					},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+
+	if err := store.Save(original); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	loaded, err := store.Load(original.ID)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	got := loaded.Lineage.FullMessages()
+	if len(got) != 3 {
+		t.Fatalf("loaded conversation length = %d, want 3", len(got))
+	}
+	if !got[1].Ingested {
+		t.Fatalf("loaded tool message Ingested = false, want true preserved from persisted lineage")
+	}
+	if got[2].Ingested {
+		t.Fatalf("loaded unmarked tool message Ingested = true, want false")
+	}
+}
+
 func TestLoadLegacyConversationFallbackPreservesToolAndDelegationMessages(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := NewStore(tmpDir)
