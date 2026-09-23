@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T10:10:00Z","run_id":"seq-1","session_id":"sess-seq","build_sha":"dddd4444","kind":"tool","source":"parent","turn":2,"seq":1,"payload":{"tool":"sub_agent","outcome":"ok","duration_ms":420000,"ops_total":1,"ops_failed":0}}

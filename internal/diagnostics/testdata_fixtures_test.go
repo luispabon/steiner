@@ -19,6 +19,12 @@ import (
 // mutate/ is a third set: its tool and provider records carry the attribution
 // and match-failure fields the mutate analysis mode reads, and it mixes
 // pre-attribution and attributed runs so both grouping rules are exercised.
+//
+// coldturns_seq/ is a fourth, coldturns-shaped set for the seq-ordering and
+// prefix_predecessor_known behaviours: it holds records whose ts order differs
+// from their seq order, and records with the field explicit versus absent. It
+// is separate so the original coldturns/ row counts stay pinned by their own
+// assertions.
 func TestSharedFixturesDecode(t *testing.T) {
 	root := filepath.Join("..", "..", "testdata", "diagnostics")
 
@@ -29,6 +35,7 @@ func TestSharedFixturesDecode(t *testing.T) {
 	}{
 		{name: "flat", dir: root, kinds: []Kind{KindCache, KindProvider, KindTool}},
 		{name: "coldturns", dir: filepath.Join(root, "coldturns"), kinds: []Kind{KindCache, KindTool}},
+		{name: "coldturns_seq", dir: filepath.Join(root, "coldturns_seq"), kinds: []Kind{KindCache, KindTool}},
 		{name: "mutate", dir: filepath.Join(root, "mutate"), kinds: []Kind{KindProvider, KindTool}},
 	} {
 		t.Run(set.name, func(t *testing.T) {

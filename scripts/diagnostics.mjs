@@ -598,6 +598,22 @@ function delegationWindows(toolRecords) {
 		.filter((d) => Number.isFinite(d.start));
 }
 
+// orderBySeq orders records by process-global seq (internal/diagnostics's
+// writer assigns it), falling back to the order they were read for records
+// that predate the field. FileLogSink appends each record serialized, so file
+// order is write order; ts is wall-clock and can step backwards, which would
+// mis-pair consecutive turns. Consecutive turns are what this join walks, so
+// the pairing must follow seq rather than ts.
+function orderBySeq(records) {
+	return records
+		.map((r, i) => ({ r, i }))
+		.sort((a, b) => {
+			if (Number.isFinite(a.r.seq) && Number.isFinite(b.r.seq)) return a.r.seq - b.r.seq;
+			return a.i - b.i;
+		})
+		.map((x) => x.r);
+}
+
 // parentTurnPairs walks consecutive parent turns within a run and describes
 // the gap between them: how long it was, and the longest delegation-class
 // call that fits inside it. The first turn of each run is deliberately
@@ -609,7 +625,7 @@ function parentTurnPairs(cacheRecords, toolRecords) {
 	const parents = cacheRecords.filter((r) => r.source === "parent" && Number.isFinite(Date.parse(r.ts)));
 	const pairs = [];
 	for (const [runID, records] of groupBy(parents, (r) => r.run_id ?? "")) {
-		const sorted = [...records].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
+		const sorted = orderBySeq(records);
 		for (let i = 1; i < sorted.length; i++) {
 			const prevTs = Date.parse(sorted[i - 1].ts);
 			const curTs = Date.parse(sorted[i].ts);
@@ -627,6 +643,10 @@ function parentTurnPairs(cacheRecords, toolRecords) {
 				delegationSeconds: longest ? longest.ms / 1000 : 0,
 				delegationTool: longest?.tool ?? null,
 				sharedPrefixMessages: sorted[i].payload?.shared_prefix_messages ?? 0,
+				// Left undefined when the record predates the field, so
+				// classifyColdTurn can tell "explicitly no baseline" from "old
+				// record that never said".
+				prefixPredecessorKnown: sorted[i].payload?.prefix_predecessor_known,
 				uncached: uncachedTokens(sorted[i]),
 			});
 		}
@@ -636,7 +656,14 @@ function parentTurnPairs(cacheRecords, toolRecords) {
 
 // classifyColdTurn attributes one cold turn to a cause.
 //
-// prefix_rewrite is tested first and wins over delegation: when the prefix
+// no_prior_baseline is tested first. A producer that sets
+// prefix_predecessor_known: false is saying it had no prior baseline in this
+// process to compare the request's prefix against, so shared_prefix_messages
+// carries no rewrite signal and blaming a rewrite would invent one. Records
+// written before the field existed omit it entirely and keep the
+// prefix_rewrite reading below.
+//
+// prefix_rewrite is tested next and wins over delegation: when the prefix
 // diverges at message 0 the request cannot hit any cached entry no matter how
 // recently it was touched, so timing explains nothing extra. #569 asks for
 // compaction to be counted separately rather than folded into delegation, and
@@ -649,6 +676,7 @@ function parentTurnPairs(cacheRecords, toolRecords) {
 // falls through to idle or unexplained. Use prefix mode on a session log for
 // the full picture; it has the message_hashes sequence this stream lacks.
 function classifyColdTurn(pair) {
+	if (pair.prefixPredecessorKnown === false) return "no_prior_baseline";
 	if (pair.sharedPrefixMessages === 0) return "prefix_rewrite";
 	if (pair.delegationSeconds * 1000 >= LONG_DELEGATION_MS) return "delegation";
 	if (pair.gapSeconds * 1000 >= LONG_DELEGATION_MS) return "idle";
@@ -783,14 +811,18 @@ function longestCommonPrefixLen(prev, cur) {
 	return i;
 }
 
+// computePrefixRows walks each agent group in session-log order, which is
+// append order: FileLogSink serializes writes, so the file reads back in the
+// order the runtime issued the requests. It must not sort by payload.turn:
+// an interactive prompt starts a fresh turn counter, so turn numbers reset
+// within one agent group and sorting by them interleaves unrelated requests.
 function computePrefixRows(logfile) {
 	const events = readJsonl(logfile).filter((e) => e.type === "api_request");
 	const groups = groupBy(events, (e) => e.scope?.agent_id ?? "");
 	const out = [];
 	for (const [agentID, evs] of groups) {
-		const sorted = [...evs].sort((a, b) => (a.payload?.turn ?? 0) - (b.payload?.turn ?? 0));
 		let prevHashes = null;
-		for (const ev of sorted) {
+		for (const ev of evs) {
 			const p = ev.payload ?? {};
 			const hashes = p.message_hashes ?? [];
 			let cached = 0;
