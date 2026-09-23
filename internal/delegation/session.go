@@ -77,6 +77,13 @@ type SubAgentHandlerDeps struct {
 	// /new. This is a deliberate accepted scope choice — a stale shard hint
 	// costs at most a cache miss, never a correctness issue — not a bug.
 	CacheKeyStore *CacheKeyStore
+	// CacheBaseline is the parent session's cache baseline store, threaded onto
+	// each child run request. Shared pointers are safe because baseline entries
+	// are keyed by prompt cache key, delegation agent ID, and model identity:
+	// same-type siblings intentionally share one prompt cache key (see
+	// CacheKeyStore.KeyFor) but each still gets its own baseline entry via its
+	// distinct agent ID. Nil disables child baseline tracking.
+	CacheBaseline *agent.CacheBaselineStore
 	// MaxParallelTools bounds how many parallel-safe tool calls a child may
 	// run concurrently within its own turn. Distinct from SubAgentCfg.MaxParallel,
 	// which bounds concurrent delegation spawns from the parent.

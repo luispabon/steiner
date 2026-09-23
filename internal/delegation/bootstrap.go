@@ -130,6 +130,7 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		ModeGetter:         deps.ModeGetter,
 		AgentType:          override.AgentType,
 		CacheKeyStore:      deps.CacheKeyStore,
+		CacheBaseline:      deps.CacheBaseline,
 		SandboxTmpDir:      deps.SandboxTmpDir,
 		Diagnostics:        deps.Diagnostics,
 		Sandbox:            deps.Sandbox,
@@ -259,6 +260,7 @@ type childRunRequestParams struct {
 	ModeGetter         func() config.ExecutionMode
 	AgentType          AgentType
 	CacheKeyStore      *CacheKeyStore
+	CacheBaseline      *agent.CacheBaselineStore
 	SandboxTmpDir      string
 	Sandbox            tool.SandboxWrapper
 	// Diagnostics is threaded onto the child run request and the child
@@ -324,6 +326,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		StreamingPreferred: p.StreamingPreferred,
 		CaveHuman:          p.PromptOpts.CaveHuman,
 		PromptCacheKey:     childCacheKey,
+		CacheBaseline:      p.CacheBaseline,
 		UsageSource:        usagestats.SourceSubAgent,
 		ContextManager:     agent.NewContextStateManager(p.ContextManagement),
 		Diagnostics:        p.Diagnostics,

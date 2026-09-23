@@ -292,6 +292,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		CompactionLogPath:  r.runtime.compactionLogFile,
 		DrainSteers:        drainSteers,
 		PromptCacheKey:     r.promptCacheKey(),
+		CacheBaseline:      r.cacheBaseline,
 		VisionCapabilities: visionCapabilities,
 		ImageStore:         r.runtime.imageStore,
 		SourceConversation: setup.conversation,

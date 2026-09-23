@@ -44,6 +44,13 @@ type cliRunner struct {
 	// session-scoped, so every turn of one session shares it; the scope key is
 	// the session ID, so a rotated or loaded session reloads the sources.
 	staticContext *prompt.StaticContextCache
+	// cacheBaseline is the session-owned store of prior outbound message hashes
+	// used for cache-prefix diagnostics. Production runners are session-scoped,
+	// so every run of one session shares it, as do that session's delegated
+	// children (threaded via newDelegateDeps). Entries are keyed by cache key and
+	// model identity, so parent, per-agent-type child, and oneshot phase runs stay
+	// isolated without extra bookkeeping.
+	cacheBaseline *agent.CacheBaselineStore
 }
 
 type runResult = oneshot.RunResult
@@ -220,6 +227,7 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		ImageStore:            r.runtime.imageStore,
 		ExtraAllowedTools:     extraAllowedTools,
 		CacheKeyStore:         r.runtime.delegationCacheKeyStore,
+		CacheBaseline:         r.cacheBaseline,
 		AdvisorState:          r.runtime.advisorState,
 		AdvisorBudgetStore:    r.runtime.delegationAdvisorBudgetStore,
 		SandboxTmpDir:         sandboxTmpDir,

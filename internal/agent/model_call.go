@@ -116,6 +116,7 @@ func executeChatRequest(
 	isCompaction bool,
 	streamingPreferred bool,
 	skipNonStream *bool,
+	onIssue func([]provider.Message),
 ) (provider.ChatResponse, time.Time, error) {
 	var estimatedPromptTokens, rawPromptTokens int
 	if budget.ContextSize > 0 {
@@ -139,6 +140,13 @@ func executeChatRequest(
 		rawPromptTokens = fit.RawEstimatedPromptTokens
 	} else {
 		estimatedPromptTokens, rawPromptTokens = estimatePromptTokensForEvent(ctx, req)
+	}
+	// The budget has accepted this request and any request-scoped vision strip
+	// has already run, so this is the point where the request is actually
+	// issued. onIssue (when set) hashes and promotes the outbound messages for
+	// cache-prefix diagnostics.
+	if onIssue != nil {
+		onIssue(req.Messages)
 	}
 	requestID := newRequestID()
 	emitEvent(events, output.WithAPICallIdentity(newAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget, estimatedPromptTokens, rawPromptTokens, isCompaction), turn, requestID))
@@ -235,12 +243,25 @@ func IsStreamRequiredError(err error) bool {
 		(strings.Contains(strings.ToLower(httpErr.Body), "must") || strings.Contains(strings.ToLower(httpErr.Body), "required"))
 }
 
-func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, skipNonStream *bool, prefixHash string, sharedPrefixMessages int) (provider.ChatResponse, time.Time, error) {
+func completeModelCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, skipNonStream *bool) (provider.ChatResponse, time.Time, error) {
 	chatRequest.Messages = stripImagesIfVisionDisabled(req.ResolvedModel.Vision, chatRequest.Messages, req.ResolvedModel.Alias, turn, req.Events, req.VisionCapabilities)
-	response, firstChunkTime, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream)
+	// stats is captured by onIssue, which executeChatRequest fires once the
+	// request is actually issued. Each issued attempt (including the inline
+	// image-strip retry) recomputes and promotes the transformed messages.
+	var stats requestCacheStats
+	onIssue := func(messages []provider.Message) {
+		stats = computeRequestCacheStats(req, messages)
+	}
+	response, firstChunkTime, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream, onIssue)
 	if err == nil {
 		recordModelUsage(req, response.Usage)
-		emitCacheDiagnostic(req, response.Usage, turn, prefixHash, sharedPrefixMessages)
+		emitCacheDiagnostic(req, response.Usage, turn, stats)
+		// The provider accepted this request, so it is safe to advance the
+		// baseline now. Each baseline key scopes one conversation whose turns
+		// run one after another, so promoting here (rather than atomically with
+		// the compare in onIssue) cannot race with a sibling's or a later turn's
+		// comparison.
+		promoteRequestCacheStats(req, stats)
 		return response, firstChunkTime, nil
 	}
 	if !shouldRetryWithoutImages(err, chatRequest.Messages) {
@@ -282,10 +303,15 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 		Message:  fmt.Sprintf("model %s rejected image attachments with HTTP 400; retrying once without images", req.ResolvedModel.Alias),
 	}))
 	chatRequest.Messages = stripped
-	retryResp, retryFirst, retryErr := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream)
+	retryResp, retryFirst, retryErr := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream, onIssue)
 	if retryErr == nil {
 		recordModelUsage(req, retryResp.Usage)
-		emitCacheDiagnostic(req, retryResp.Usage, turn, prefixHash, sharedPrefixMessages)
+		emitCacheDiagnostic(req, retryResp.Usage, turn, stats)
+		// See the comment on the first-attempt promote above: this retry's
+		// stats overwrote the earlier (rejected) attempt's stats via the shared
+		// onIssue closure, so promoting here still only advances the baseline
+		// past an accepted request.
+		promoteRequestCacheStats(req, stats)
 	}
 	return retryResp, retryFirst, retryErr
 }

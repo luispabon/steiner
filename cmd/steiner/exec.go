@@ -59,6 +59,9 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		sessionIDFn:        func() string { return promptCacheKey },
 		sessionDateFn:      func() prompt.SessionDate { return sessionDate },
 		staticContext:      &prompt.StaticContextCache{},
+		// Exec is a single-run scope: allocate a fresh store per invocation
+		// rather than sharing one across process-lifetime invocations.
+		cacheBaseline: agent.NewCacheBaselineStore(),
 	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil, nil)
 	if err != nil {
 		return err

@@ -18,6 +18,10 @@ const FIXTURES = join(__dirname, "..", "testdata", "diagnostics");
 // flat fixtures deliberately do not: they exist to pin per-mode aggregates
 // and every existing assertion counts their rows.
 const COLDTURN_FIXTURES = join(FIXTURES, "coldturns");
+// A second coldturns-shaped set for the seq-ordering and
+// prefix_predecessor_known behaviours. Kept apart from coldturns/ so the
+// original set's row counts stay pinned by their own assertions.
+const COLDTURN_SEQ_FIXTURES = join(FIXTURES, "coldturns_seq");
 
 function run(args) {
 	const out = execFileSync("node", [SCRIPT, ...args], { encoding: "utf8" });
@@ -118,6 +122,26 @@ test("prefix mode: append-only and break-at-N verdicts", () => {
 	assert.equal(child.length, 2);
 	assert.equal(child[0].verdict, "-");
 	assert.equal(child[1].verdict, "BREAK-AT-1");
+	assert.equal(child[1].cached, 1);
+});
+
+test("prefix mode: interactive prompts that reset turn numbers stay in log order", () => {
+	const logfile = join(FIXTURES, "session_interactive.jsonl");
+	const rows = run(["prefix", logfile, "--json"]);
+
+	// Two interactive prompts in the top-level group both start at turn 1, so
+	// sorting by turn would interleave their requests and report a false
+	// BREAK-AT-2. Append order (the file's order) shows a prefix that only ever
+	// grows.
+	const topLevel = rows.filter((r) => r.agentID === "(top-level)");
+	assert.deepEqual(topLevel.map((r) => r.turn), [1, 2, 1, 2]);
+	assert.deepEqual(topLevel.map((r) => r.verdict), ["-", "APPEND-ONLY", "APPEND-ONLY", "APPEND-ONLY"]);
+	assert.deepEqual(topLevel.map((r) => r.cached), [0, 1, 2, 3]);
+
+	// The child's events are interleaved in the log with the parent's; grouping
+	// must keep each agent's own append order rather than the global file order.
+	const child = rows.filter((r) => r.agentID === "child-1");
+	assert.deepEqual(child.map((r) => r.verdict), ["-", "APPEND-ONLY"]);
 	assert.equal(child[1].cached, 1);
 });
 
@@ -232,6 +256,43 @@ test("coldturns: --compare is refused rather than silently ignored", () => {
 		() => execFileSync("node", [SCRIPT, "coldturns", "--dir", COLDTURN_FIXTURES, "--compare", "a", "b"], { encoding: "utf8", stdio: "pipe" }),
 		(err) => err.status === 1,
 	);
+});
+
+// ------------------------------------------------- coldturns seq ordering
+
+const coldturnsSeq = (extra = []) => run(["coldturns", "--dir", COLDTURN_SEQ_FIXTURES, "--json", ...extra]);
+
+test("coldturns: consecutive turns pair by process seq, not by wall-clock ts", () => {
+	const out = coldturnsSeq();
+	// seq-1's turn 2 (seq 2) is appended before the next interactive prompt's
+	// turn 1 (seq 3), but its ts is a minute later -- a clock step back, which
+	// is why the pairing follows seq. In seq order the 420s sub_agent fits the
+	// gap between turn 1 and turn 2, so the cold turn attributes to delegation.
+	// Ordering by ts instead would pair turn 2 with the later request and report
+	// unexplained.
+	const byClass = Object.fromEntries(out.cold_turn_attribution.map((r) => [r.key, r.n]));
+	assert.equal(byClass.delegation, 1);
+	assert.equal(byClass.unexplained, undefined);
+
+	const terra = out.by_model.find((r) => r.key === "gpt-5.6-terra");
+	assert.equal(terra.n, 2);
+	assert.equal(terra.metrics.coldTurns, 1);
+	assert.equal(terra.metrics.longDelegationN, 1);
+});
+
+test("coldturns: no_prior_baseline needs prefix_comparison_enabled true, not just predecessor false", () => {
+	const out = coldturnsSeq();
+	const byClass = Object.fromEntries(out.cold_turn_attribution.map((r) => [r.key, r.n]));
+	// prec-1 turn 2 sets prefix_predecessor_known false with
+	// prefix_comparison_enabled true: a real missing baseline. Turn 3 omits both
+	// (legacy), turn 4 disables comparison, and turn 5 omits the comparison flag
+	// with predecessor false. None of those may masquerade as no_prior_baseline;
+	// they keep the legacy prefix_rewrite reading.
+	assert.equal(byClass.no_prior_baseline, 1);
+	assert.equal(byClass.prefix_rewrite, 3);
+
+	const nova = out.by_model.find((r) => r.key === "gpt-5.6-nova");
+	assert.equal(nova.metrics.coldTurns, 4);
 });
 
 test("cache mode --compare prints both build_sha columns with a delta", () => {

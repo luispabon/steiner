@@ -111,6 +111,11 @@ type RunRequest struct {
 	// a no-op, so unwired paths and tests need no special handling.
 	Diagnostics *diagnostics.Writer
 
+	// CacheBaseline, when non-nil, tracks the previous outbound message hash
+	// sequence per cache-key identity so cache diagnostics can report the shared
+	// prefix with the prior accepted request. Nil disables baseline tracking.
+	CacheBaseline *CacheBaselineStore
+
 	// AgentID and AgentType identify this run's delegation scope for
 	// diagnostics records, mirroring output.WithAgentScope/WithAgentTypeScope.
 	// Empty for the top-level parent run.

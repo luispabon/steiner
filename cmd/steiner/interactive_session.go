@@ -618,6 +618,7 @@ func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, project
 			sessionDate:        prompt.NewSessionDate(time.Now()),
 			currentEffective:   currentEffective,
 			orchestrationLevel: orchestrationLevel,
+			baseline:           agent.NewCacheBaselineStore(),
 		}
 	}
 }
@@ -636,6 +637,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		modeGetterFunc:           sess.Mode,
 		orchestrationLevelFn:     sess.OrchestrationLevel,
 		staticContext:            &prompt.StaticContextCache{},
+		cacheBaseline:            agent.NewCacheBaselineStore(),
 	}
 	runner.approver = sess.Approver(rt.events)
 	if rt.mcpState != nil {
