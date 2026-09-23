@@ -71,16 +71,21 @@ type ImageBlock struct {
 
 // Message is the agent-side conversation record used across compaction flows.
 type Message struct {
-	Role             MessageRole              `json:"role"`
-	Content          string                   `json:"content,omitempty"`
-	ReasoningContent string                   `json:"reasoning_content,omitempty"`
-	Name             string                   `json:"name,omitempty"`
-	ToolCallID       string                   `json:"tool_call_id,omitempty"`
-	ToolCalls        []ToolCall               `json:"tool_calls,omitempty"`
-	Images           []ImageBlock             `json:"images,omitempty"`
-	Source           string                   `json:"source,omitempty"`
-	ByteSize         int                      `json:"byte_size,omitempty"`
-	Turn             int                      `json:"turn,omitempty"`
+	Role             MessageRole  `json:"role"`
+	Content          string       `json:"content,omitempty"`
+	ReasoningContent string       `json:"reasoning_content,omitempty"`
+	Name             string       `json:"name,omitempty"`
+	ToolCallID       string       `json:"tool_call_id,omitempty"`
+	ToolCalls        []ToolCall   `json:"tool_calls,omitempty"`
+	Images           []ImageBlock `json:"images,omitempty"`
+	Source           string       `json:"source,omitempty"`
+	ByteSize         int          `json:"byte_size,omitempty"`
+	Turn             int          `json:"turn,omitempty"`
+	// Ingested marks a tool message whose Content has already passed ingestion
+	// shaping and reached the provider. PostIngestion must retain such content
+	// verbatim: reshaping it would rewrite provider-visible history and
+	// invalidate the prompt-cache prefix.
+	Ingested         bool                     `json:"ingested,omitempty"`
 	Retention        *MessageRetention        `json:"retention,omitempty"`
 	ProviderMetadata *MessageProviderMetadata `json:"provider_metadata,omitempty"`
 }

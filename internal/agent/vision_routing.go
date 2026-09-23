@@ -12,8 +12,9 @@ import (
 )
 
 // handleImagesForVision routes or strips pasted images for a model that
-// cannot view images, mutating state in place. Returns mutated=true if any
-// change was made to state.Conversation/state.Lineage.
+// cannot view images, mutating state in place. It acts on the latest
+// generation's raw messages and leaves the summary prefix untouched. Returns
+// mutated=true if any change was made to state.Conversation/state.Lineage.
 func (p *turnProgressor) handleImagesForVision(ctx context.Context, state *RunState) bool {
 	vc := p.request.VisionCapabilities
 	if vc == nil {
@@ -25,7 +26,16 @@ func (p *turnProgressor) handleImagesForVision(ctx context.Context, state *RunSt
 		return false
 	}
 
-	if !p.conversationHasPastedImages(state.Conversation) && !p.conversationHasDeferredReadImages(state.Conversation) {
+	// Image handling runs on the latest generation's raw messages only. The
+	// summary prefix is carried untouched by the lineage, so folding
+	// state.Conversation (prefix plus raw messages) into the generation's
+	// messages would make FullMessages repeat the prefix.
+	currentMessages := state.Lineage.SummaryPrefixStrippedMessages()
+	if state.Lineage.Empty() {
+		currentMessages = state.Conversation
+	}
+
+	if !p.conversationHasPastedImages(currentMessages) && !p.conversationHasDeferredReadImages(currentMessages) {
 		return false
 	}
 
@@ -41,15 +51,8 @@ func (p *turnProgressor) handleImagesForVision(ctx context.Context, state *RunSt
 		}))
 	}
 
-	// Deliberately copies state.Conversation rather than following the
-	// SummaryPrefixStrippedMessages() pattern used elsewhere: this is a fresh
-	// user turn with no summary prefix to worry about double-counting, and the
-	// images must survive the copy so routing/stripping can use them. Revisit
-	// if images ever need to survive behind a post-compaction summary.
-	newMessages := make([]Message, len(state.Conversation))
-	copy(newMessages, state.Conversation)
-	originalMessages := make([]Message, len(state.Conversation))
-	copy(originalMessages, state.Conversation)
+	newMessages := cloneMessages(currentMessages)
+	originalMessages := cloneMessages(currentMessages)
 
 	for i := range newMessages {
 		if !eligibleVisionMessage(newMessages[i]) {
@@ -58,8 +61,8 @@ func (p *turnProgressor) handleImagesForVision(ctx context.Context, state *RunSt
 
 		p.processImagesInMessage(ctx, &newMessages[i], vc.SubAgentConfigured(), visionTaskContent(originalMessages, i))
 	}
-	state.Conversation = newMessages
 	state.Lineage = state.Lineage.WithCurrentMessages(newMessages)
+	state.Conversation = state.Lineage.FullMessages()
 
 	return true
 }

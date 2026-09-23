@@ -115,6 +115,8 @@ Context diagnostics for these states are emitted as typed sub-events: budget, co
 
 `ContextState` is cloned on each turn. Compactions increment `CompactionCount`; the summary itself lives only in the new generation's prefix, so each compaction replaces the previous summary rather than stacking. `RecentToolCalls` is rebuilt each turn from the current lineage generation's messages.
 
+Tool-result content that already reached the provider is frozen. Such messages carry `Message.Ingested`, and post-ingestion retains their bytes verbatim instead of reshaping them; for `read` results whose payload still parses as a read result it restores read-tracking state via `ObserveRead` with annotations disabled, so the tracker is rebuilt without rewriting the historical bytes or emitting annotation diagnostics. A non-parseable payload (for example vision-routed text) leaves the tracker unchanged. Unmarked legacy messages are shaped once and then marked `Ingested`. This keeps the prompt-cache prefix stable when a session resumes against files that have since changed on disk.
+
 ---
 
 ## Byte budget reference

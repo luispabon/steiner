@@ -196,6 +196,22 @@ func (b *baseContextManager) normalizeIngestedMessage(turn int, message Message)
 	if messageTurn <= 0 {
 		return message
 	}
+	if message.Ingested {
+		return b.restoreIngestedToolState(messageTurn, message)
+	}
 	message.Content = b.observeToolResult(messageTurn, message.Name, nil, message.Content)
+	message.Ingested = true
+	return message
+}
+
+// restoreIngestedToolState rebuilds FileTracker read state for a tool message
+// whose Content already reached the provider, without rewriting that Content.
+// ObserveRead is called with annotations disabled, so it can record the read
+// but cannot alter the bytes or emit annotation diagnostics. Other tools need
+// no tracker action.
+func (b *baseContextManager) restoreIngestedToolState(turn int, message Message) Message {
+	if strings.EqualFold(strings.TrimSpace(message.Name), "read") {
+		_, _ = b.fileTracker.ObserveRead(turn, message.Content, false)
+	}
 	return message
 }
