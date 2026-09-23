@@ -423,14 +423,16 @@ export function taxonomyBucket(failure) {
 	if (!f) return null;
 	if (failure.reason === "ambiguous_match") return `ambiguous:${countBucket(f.old_lines ?? 0)}`;
 	if (f.matches_original) return "forgot_own_edit_in_call";
-	if (f.read_state === "self_mutated") return "stale_after_own_edit";
-	if (f.read_state === "external_change") return "changed_externally";
-	if (f.read_state === "never_read") return "never_read";
-	if (f.read_state === "pruned") return "read_pruned";
+	// Concrete differences outrank read state: a read-state bucket says when the
+	// model last saw the file, not why the bytes differ now.
 	if (f.ws_kind && f.ws_kind !== "none") return `whitespace:${f.ws_kind}`;
 	if (f.crlf_mismatch) return "encoding:crlf";
 	if (f.unescape_matches) return "encoding:escaped";
 	if (f.line_prefix) return "encoding:line_prefix";
+	if (f.read_state === "self_mutated") return "stale_after_own_edit";
+	if (f.read_state === "external_change") return "changed_externally";
+	if (f.read_state === "never_read") return "never_read";
+	if (f.read_state === "pruned") return "read_pruned";
 	if (f.in_read_range === "no") return "outside_read_range";
 	if (f.lines_found === f.nonblank_lines && f.nonblank_lines > 0) return "lines_real_sequence_wrong";
 	if (f.lines_found === 0) return "fabricated_or_wrong_file";

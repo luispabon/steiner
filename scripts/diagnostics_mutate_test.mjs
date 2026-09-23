@@ -181,6 +181,12 @@ test("taxonomyBucket assigns the first matching bucket", () => {
 		["external_change", failure({ read_state: "external_change" }), "changed_externally"],
 		["never_read", failure({ read_state: "never_read" }), "never_read"],
 		["pruned", failure({ read_state: "pruned" }), "read_pruned"],
+		// A concrete difference outranks the read state that also matches.
+		["self_mutated_whitespace", failure({ read_state: "self_mutated", ws_kind: "internal_spacing" }), "whitespace:internal_spacing"],
+		["self_mutated_crlf", failure({ read_state: "self_mutated", crlf_mismatch: true }), "encoding:crlf"],
+		["self_mutated_escaped", failure({ read_state: "self_mutated", unescape_matches: true }), "encoding:escaped"],
+		["self_mutated_line_prefix", failure({ read_state: "self_mutated", line_prefix: true }), "encoding:line_prefix"],
+		["whitespace_over_crlf", failure({ ws_kind: "internal_spacing", crlf_mismatch: true }), "whitespace:internal_spacing"],
 		["whitespace", failure({ ws_kind: "internal_spacing" }), "whitespace:internal_spacing"],
 		["crlf", failure({ crlf_mismatch: true }), "encoding:crlf"],
 		["escaped", failure({ unescape_matches: true }), "encoding:escaped"],
