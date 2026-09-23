@@ -53,7 +53,7 @@ func TestEmitCacheDiagnostic_NoOpWhenStreamDisabled(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: false})
 	req := RunRequest{Diagnostics: w}
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, "abcd1234", 0)
+	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, requestCacheStats{prefixHash: "abcd1234"})
 
 	if got := readCacheRecords(t, dir); len(got) != 0 {
 		t.Fatalf("records = %d, want 0 when the cache stream is disabled", len(got))
@@ -64,7 +64,7 @@ func TestEmitCacheDiagnostic_NoOpWhenUsageNil(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
 	req := RunRequest{Diagnostics: w}
-	emitCacheDiagnostic(req, nil, 1, "abcd1234", 0)
+	emitCacheDiagnostic(req, nil, 1, requestCacheStats{prefixHash: "abcd1234"})
 
 	if got := readCacheRecords(t, dir); len(got) != 0 {
 		t.Fatalf("records = %d, want 0 for a nil-usage response", len(got))
@@ -75,7 +75,7 @@ func TestEmitCacheDiagnostic_NotGatedByUsageRecorder(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
 	req := RunRequest{Diagnostics: w, UsageRecorder: nil}
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, "abcd1234", 0)
+	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, requestCacheStats{prefixHash: "abcd1234"})
 
 	if got := readCacheRecords(t, dir); len(got) != 1 {
 		t.Fatalf("records = %d, want 1 even with no UsageRecorder configured", len(got))
@@ -102,8 +102,8 @@ func TestEmitCacheDiagnostic_FieldsAndColdStart(t *testing.T) {
 		CacheReadInputTokens:     40,
 		CacheCreationInputTokens: 5,
 	}
-	emitCacheDiagnostic(req, usage, 3, "prefixhash", 2)
-	emitCacheDiagnostic(req, usage, 4, "prefixhash2", 2)
+	emitCacheDiagnostic(req, usage, 3, requestCacheStats{prefixHash: "prefixhash", sharedPrefixMessages: 2})
+	emitCacheDiagnostic(req, usage, 4, requestCacheStats{prefixHash: "prefixhash2", sharedPrefixMessages: 2})
 
 	records := readCacheRecords(t, dir)
 	if len(records) != 2 {
@@ -233,10 +233,9 @@ func TestCumulativePrefixHash_EmptyMessagesYieldsEmptyHash(t *testing.T) {
 	}
 }
 
-// TestTurnProgressor_PromotesPendingHashesOnlyWhenModelCallIssued exercises
-// prepareTurn plus the promotion in executeModelCall through a real Runner
-// loop, verifying shared_prefix_messages reflects the last request actually
-// sent rather than every prepareTurn attempt.
+// TestTurnProgressor_PromotesPendingHashesOnlyWhenModelCallIssued exercises a
+// real Runner loop, verifying the cache diagnostics reflect the request actually
+// issued rather than every prepareTurn attempt.
 func TestTurnProgressor_PromotesPendingHashesOnlyWhenModelCallIssued(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
@@ -293,4 +292,126 @@ type noopExecutor struct{}
 
 func (noopExecutor) Execute(context.Context, string, string, map[string]any) (any, error) {
 	return nil, nil
+}
+
+func TestEmitCacheDiagnostic_PredecessorKnownAlwaysEmitted(t *testing.T) {
+	resetColdStart(t)
+	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
+	req := RunRequest{Diagnostics: w}
+	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, requestCacheStats{prefixHash: "aaaa"})
+	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 2, requestCacheStats{prefixHash: "bbbb", sharedPrefixMessages: 1, predecessorKnown: true})
+
+	records := readCacheRecords(t, dir)
+	if len(records) != 2 {
+		t.Fatalf("records = %d, want 2", len(records))
+	}
+	if first := string(mustMarshal(t, records[0].Payload)); !strings.Contains(first, `"prefix_predecessor_known":false`) {
+		t.Errorf("first payload = %s, want prefix_predecessor_known false", first)
+	}
+	if second := string(mustMarshal(t, records[1].Payload)); !strings.Contains(second, `"prefix_predecessor_known":true`) {
+		t.Errorf("second payload = %s, want prefix_predecessor_known true", second)
+	}
+}
+
+func TestComputeRequestCacheStats_PromotesIssuedSequences(t *testing.T) {
+	store := NewCacheBaselineStore()
+	req := RunRequest{
+		CacheBaseline:  store,
+		PromptCacheKey: "key-1",
+		ResolvedModel:  provider.ResolvedModel{ProviderAlias: "p", BackendModelID: "m"},
+	}
+	messages := []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}}
+
+	first := computeRequestCacheStats(req, messages)
+	if first.predecessorKnown || first.sharedPrefixMessages != 0 {
+		t.Fatalf("first = %+v, want no predecessor", first)
+	}
+	if first.prefixHash == "" {
+		t.Fatal("prefixHash is empty, want non-empty for non-empty messages")
+	}
+
+	second := computeRequestCacheStats(req, append(messages, provider.Message{Role: provider.MessageRoleAssistant, Content: "hi"}))
+	if !second.predecessorKnown || second.sharedPrefixMessages != 1 {
+		t.Fatalf("second = %+v, want known predecessor sharing 1 message", second)
+	}
+}
+
+func TestComputeRequestCacheStats_EmptyCacheKeySkipsBaseline(t *testing.T) {
+	store := NewCacheBaselineStore()
+	req := RunRequest{CacheBaseline: store, ResolvedModel: provider.ResolvedModel{BackendModelID: "m"}}
+	messages := []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}}
+	for i := 0; i < 2; i++ {
+		if stats := computeRequestCacheStats(req, messages); stats.predecessorKnown {
+			t.Fatalf("call %d reported a predecessor with an empty cache key", i)
+		}
+	}
+	if len(store.entries) != 0 {
+		t.Fatalf("store has %d entries for an empty cache key, want 0", len(store.entries))
+	}
+}
+
+func TestCompleteModelCall_PromotesPostVisionStripMessages(t *testing.T) {
+	store := NewCacheBaselineStore()
+	vision := false
+	prov := &fakeProvider{chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+		return provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"},
+			Usage:   &provider.UsageStats{PromptTokens: 10, CompletionTokens: 1},
+		}, nil
+	}}
+	req := RunRequest{
+		Provider:       prov,
+		CacheBaseline:  store,
+		PromptCacheKey: "key-1",
+		ResolvedModel: provider.ResolvedModel{
+			Alias:          "test-model",
+			Vision:         &vision,
+			ProviderAlias:  "p",
+			BackendModelID: "m",
+		},
+		Events: output.NoopSink{},
+	}
+	chatRequest := provider.ChatRequest{
+		Model: "test-model",
+		Messages: []provider.Message{{
+			Role:    provider.MessageRoleUser,
+			Content: "look",
+			Images:  []provider.ImageBlock{{MediaType: "image/png", Data: "abc"}},
+		}},
+	}
+	if _, _, err := completeModelCall(context.Background(), req, 1, chatRequest, nil, prompt.ModelTokenBudget{}, nil); err != nil {
+		t.Fatalf("completeModelCall() error = %v", err)
+	}
+
+	stripped := []provider.Message{{Role: provider.MessageRoleUser, Content: "look"}}
+	shared, known := store.CompareAndPromote(cacheBaselineKeyForRequest(req), perMessageHashes(stripped))
+	if !known || shared != 1 {
+		t.Fatalf("baseline after issue = (%d, %v), want the image-stripped sequence (1, true)", shared, known)
+	}
+}
+
+func TestCompleteModelCall_RejectedBudgetDoesNotPromote(t *testing.T) {
+	store := NewCacheBaselineStore()
+	prov := &fakeProvider{chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+		t.Error("provider called for a request the budget should have rejected")
+		return provider.ChatResponse{}, nil
+	}}
+	req := RunRequest{
+		Provider:       prov,
+		CacheBaseline:  store,
+		PromptCacheKey: "key-1",
+		ResolvedModel:  provider.ResolvedModel{ProviderAlias: "p", BackendModelID: "m"},
+		Events:         output.NoopSink{},
+	}
+	chatRequest := provider.ChatRequest{
+		Model:    "test-model",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: strings.Repeat("x", 500)}},
+	}
+	budget := prompt.ModelTokenBudget{ContextSize: 1, MaxCompletionTokens: 1}
+	if _, _, err := completeModelCall(context.Background(), req, 1, chatRequest, nil, budget, nil); err == nil {
+		t.Fatal("completeModelCall() error = nil, want budget rejection")
+	}
+	if _, known := store.CompareAndPromote(cacheBaselineKeyForRequest(req), []string{"any"}); known {
+		t.Fatal("a budget-rejected request promoted a baseline")
+	}
 }

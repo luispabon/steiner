@@ -196,7 +196,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 			}()
 		}
 	}
-	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil)
+	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, nil)
 	if logger != nil {
 		if logErr := logger.LogResponse(response); logErr != nil {
 			slog.Warn("compaction response log failed", "path", req.CompactionLogPath, "error", logErr)

@@ -32,6 +32,18 @@ type cachePayload struct {
 	CacheKeyHash         string `json:"cache_key_hash,omitempty"`
 	PrefixHash           string `json:"prefix_hash,omitempty"`
 	SharedPrefixMessages int    `json:"shared_prefix_messages,omitempty"`
+	// PrefixPredecessorKnown distinguishes "no predecessor to compare against"
+	// from a known predecessor that shares zero messages. It is emitted on
+	// every cache record (no omitempty).
+	PrefixPredecessorKnown bool `json:"prefix_predecessor_known"`
+}
+
+// requestCacheStats carries the cache-prefix diagnostics computed for one
+// outbound request that was actually issued.
+type requestCacheStats struct {
+	prefixHash           string
+	sharedPrefixMessages int
+	predecessorKnown     bool
 }
 
 // emitCacheDiagnostic writes one kind: "cache" diagnostics record for a
@@ -40,7 +52,7 @@ type cachePayload struct {
 // deliberately independent of req.UsageRecorder: the diagnostics stream and
 // the in-memory/persisted usagestats recorder are separate concerns gated by
 // separate config.
-func emitCacheDiagnostic(req RunRequest, usage *provider.UsageStats, turn int, prefixHash string, sharedPrefixMessages int) {
+func emitCacheDiagnostic(req RunRequest, usage *provider.UsageStats, turn int, stats requestCacheStats) {
 	if usage == nil || !req.Diagnostics.Enabled(diagnostics.KindCache) {
 		return
 	}
@@ -52,19 +64,47 @@ func emitCacheDiagnostic(req RunRequest, usage *provider.UsageStats, turn int, p
 		AgentType: req.AgentType,
 		Turn:      turn,
 		Payload: cachePayload{
-			ProviderAlias:        req.ResolvedModel.ProviderAlias,
-			BackendModelID:       req.ResolvedModel.BackendModelID,
-			ProviderType:         string(req.ResolvedModel.EffectiveProviderType),
-			PromptTokens:         usage.PromptTokens,
-			CacheReadTokens:      usage.CacheReadInputTokens,
-			CacheCreateTokens:    usage.CacheCreationInputTokens,
-			CompletionTokens:     usage.CompletionTokens,
-			ColdStart:            coldStart,
-			CacheKeyHash:         shortHash(req.PromptCacheKey),
-			PrefixHash:           prefixHash,
-			SharedPrefixMessages: sharedPrefixMessages,
+			ProviderAlias:          req.ResolvedModel.ProviderAlias,
+			BackendModelID:         req.ResolvedModel.BackendModelID,
+			ProviderType:           string(req.ResolvedModel.EffectiveProviderType),
+			PromptTokens:           usage.PromptTokens,
+			CacheReadTokens:        usage.CacheReadInputTokens,
+			CacheCreateTokens:      usage.CacheCreationInputTokens,
+			CompletionTokens:       usage.CompletionTokens,
+			ColdStart:              coldStart,
+			CacheKeyHash:           shortHash(req.PromptCacheKey),
+			PrefixHash:             stats.prefixHash,
+			SharedPrefixMessages:   stats.sharedPrefixMessages,
+			PrefixPredecessorKnown: stats.predecessorKnown,
 		},
 	})
+}
+
+// computeRequestCacheStats hashes the post-transform outbound messages and,
+// when a baseline store is configured, compares them against and promotes them
+// into the store for this request's cache identity. Call it only for requests
+// that are actually issued.
+func computeRequestCacheStats(req RunRequest, messages []provider.Message) requestCacheStats {
+	hashes := perMessageHashes(messages)
+	stats := requestCacheStats{prefixHash: cumulativePrefixHash(hashes)}
+	if req.CacheBaseline != nil {
+		stats.sharedPrefixMessages, stats.predecessorKnown = req.CacheBaseline.CompareAndPromote(cacheBaselineKeyForRequest(req), hashes)
+	}
+	return stats
+}
+
+// cacheBaselineKeyForRequest builds the cache identity for a run's outbound
+// requests from its prompt cache key and resolved model identity.
+func cacheBaselineKeyForRequest(req RunRequest) CacheBaselineKey {
+	rm := req.ResolvedModel
+	return CacheBaselineKey{
+		CacheKey:               req.PromptCacheKey,
+		ConfiguredProviderType: string(rm.ProviderConfig.Type),
+		EffectiveProviderType:  string(rm.EffectiveProviderType),
+		EffectiveTransport:     string(rm.EffectiveTransport),
+		ProviderAlias:          rm.ProviderAlias,
+		BackendModelID:         rm.BackendModelID,
+	}
 }
 
 // perMessageHashes returns one 8-hex-char content hash per message, computed
