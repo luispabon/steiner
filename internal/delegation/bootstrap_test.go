@@ -920,7 +920,7 @@ func writeExecutableScript(t *testing.T, dir string, n int) string {
 func TestBuildChildRunThreadsToolOutputMaxBytes(t *testing.T) {
 	t.Parallel()
 	scriptPath := writeExecutableScript(t, t.TempDir(), 2000)
-	parent := tool.NewRegistry(tool.ToolDef{Name: "probe", ExecPath: scriptPath})
+	parent := tool.NewRegistry(tool.ToolDef{Name: "probe", ExecPath: "/bin/sh", Subcommand: scriptPath})
 
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
@@ -953,7 +953,7 @@ func TestBuildChildRunThreadsToolOutputMaxBytes(t *testing.T) {
 func TestBuildChildRunDefaultToolOutputMaxBytesWhenUnset(t *testing.T) {
 	t.Parallel()
 	scriptPath := writeExecutableScript(t, t.TempDir(), 2000)
-	parent := tool.NewRegistry(tool.ToolDef{Name: "probe", ExecPath: scriptPath})
+	parent := tool.NewRegistry(tool.ToolDef{Name: "probe", ExecPath: "/bin/sh", Subcommand: scriptPath})
 
 	deps := SubAgentHandlerDeps{
 		ParentReg:   parent,
