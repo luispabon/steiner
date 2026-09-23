@@ -36,7 +36,15 @@ The earlier claim that WebSocket could reach approximately 0.95 versus HTTP's ap
 
 Warm-turn cache reads measured approximately 95.2%. An aggregate near 87% is a weighted mix of warm turns and zero-read cold turns; the main aggregate lever is the number of cold turns, not warm-turn behavior. The affinity-header result above remains endorsed because its before/after measurement has not been refuted.
 
-A provisional Codex-only analysis on 2026-09-10 found 22 parent turns after delegations lasting 261s to 1132s and none cold. It covered roughly 15 hours of sessions, 21 of 22 observations from Codex, and diagnostics streams that had only recently landed. The result is not a settled claim and issue #569 remains open.
+### Delegation-induced cold turns
+
+Issue [#569](https://github.com/luispabon/steiner/issues/569) proposed that any delegated call over about five minutes makes the parent's next turn cold, and proposed batching delegations (lever A) or keepalive pings on the parent's prefix (lever B). Real-session diagnostics from 2026-09-09 to 2026-09-23 (80 runs, 1,446 consecutive same-model parent turn pairs, almost all Codex) supersede both that claim and a provisional 2026-09-10 finding of zero cold turns after long delegations.
+
+There is no five-minute cliff in production. With the parent prefix intact, cold turns rose from 1.6% (17/1,039) after no delegation or one under 240s to 8.8% (13/148) after delegations of 300s or more: roughly 11 excess cold turns in two weeks, or about 8.5 excluding one large-context run that held 58% of the evicted tokens. They cost about 725k uncached tokens, about 0.8% of all uncached input; parent traffic was about 8% of prompt volume, and sub-agents carried most uncached tokens.
+
+Lever B would have cost about 14.6M prefix tokens in pings to save about 0.725M, breaking even only if cached input is priced below about 4.7% of full input. Nine evictions followed delegations under 240s, which a four-minute ping cannot reach. Lever A's cache benefit is bounded by the excess eviction rate, so batching must be justified on wall-clock time alone. Both levers were dropped and #569 closed. The result is Codex-scoped: non-Codex orchestrators contributed four long-delegation windows.
+
+Analysis note: every turn changes `prefix_hash`, so it cannot identify rewrites. `shared_prefix_messages` is the longest common message prefix with the previous request; it grows by each turn's new messages when the prefix is intact and drops on a rewrite. A cold turn after a rewrite is not explained by the rewrite alone: 192 of 216 rewrites stayed warm on the static prefix.
 
 ## Storage schema and concurrency
 
