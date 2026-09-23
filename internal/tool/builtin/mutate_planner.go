@@ -13,6 +13,9 @@ type mutatePlanner struct {
 	states  map[string]*mutateFileState
 	result  MutateResult
 	applied int
+	// samplesUsed counts raw match samples recorded this call, so the
+	// capture_bodies sample cap applies across the whole batch.
+	samplesUsed int
 }
 
 type mutateFileState struct {
@@ -163,7 +166,17 @@ func (p *mutatePlanner) recordFailure(op MutateOperation, err error) {
 	if path == "" {
 		path = op.From
 	}
-	p.recordFailureDetail(strings.TrimSpace(op.Type), path, classifyMutateError(err))
+	failure := mutateOpFailure{
+		op:     strings.TrimSpace(op.Type),
+		reason: classifyMutateError(err),
+		path:   path,
+	}
+	var matchErr *matchFailureError
+	if errors.As(err, &matchErr) {
+		failure.match = matchErr.match
+		failure.sample = matchErr.sample
+	}
+	p.result.failures = append(p.result.failures, failure)
 }
 
 func (p *mutatePlanner) recordFailureDetail(op, path, reason string) {

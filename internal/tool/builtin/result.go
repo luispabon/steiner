@@ -125,6 +125,8 @@ type mutateOpFailure struct {
 	op     string
 	reason string
 	path   string
+	match  *tool.MatchFailure
+	sample *tool.MatchSample
 }
 
 // FailedOps implements tool.DiagnosticsDetail, so Executor can build the
@@ -136,7 +138,7 @@ func (r *MutateResult) FailedOps() []tool.OpFailure {
 	}
 	out := make([]tool.OpFailure, len(r.failures))
 	for i, f := range r.failures {
-		out[i] = tool.OpFailure{Op: f.op, Reason: f.reason, Path: f.path}
+		out[i] = tool.OpFailure{Op: f.op, Reason: f.reason, Path: f.path, Match: f.match, Sample: f.sample}
 	}
 	return out
 }

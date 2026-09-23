@@ -40,3 +40,35 @@ type diagnosticsScope struct {
 	agentID   string
 	agentType string
 }
+
+// DiagnosticsCapture is the level of detail the tool diagnostics stream may
+// record for one call. It rides the execution context so the executor can tell
+// a handler whether it may compute features, and whether it may retain raw
+// content.
+type DiagnosticsCapture int
+
+const (
+	// DiagnosticsCaptureOff means the tool stream is disabled: compute nothing.
+	DiagnosticsCaptureOff DiagnosticsCapture = iota
+	// DiagnosticsCaptureScalars means features only, no raw content.
+	DiagnosticsCaptureScalars
+	// DiagnosticsCaptureBodies means features plus raw samples (stage D).
+	DiagnosticsCaptureBodies
+)
+
+// diagnosticsCaptureKey is the context key carrying DiagnosticsCapture into
+// tool handlers, mirroring callDiagnosticsKey.
+type diagnosticsCaptureKey struct{}
+
+// WithDiagnosticsCapture returns a context carrying c so a handler can decide
+// how much match-failure detail to compute.
+func WithDiagnosticsCapture(ctx context.Context, c DiagnosticsCapture) context.Context {
+	return context.WithValue(ctx, diagnosticsCaptureKey{}, c)
+}
+
+// DiagnosticsCaptureFromContext returns the capture level attached by
+// WithDiagnosticsCapture, or DiagnosticsCaptureOff when absent.
+func DiagnosticsCaptureFromContext(ctx context.Context) DiagnosticsCapture {
+	c, _ := ctx.Value(diagnosticsCaptureKey{}).(DiagnosticsCapture)
+	return c
+}

@@ -119,9 +119,25 @@ func (e *Executor) WorkDir() string {
 // empty when no call ID is available.
 func (e *Executor) Execute(ctx context.Context, toolName, callID string, input map[string]any) (any, error) {
 	start := time.Now()
+	ctx = e.withDiagnosticsCapture(ctx)
 	result, err := e.runPipeline(ctx, executionInput{ToolName: toolName, CallID: callID, Input: input})
 	e.recordDiagnostics(ctx, toolName, input, result, err, time.Since(start))
 	return result, err
+}
+
+// withDiagnosticsCapture stamps ctx with the tool diagnostics capture level so
+// mutate can decide whether to compute match features. Off when the tool
+// stream is disabled, Bodies when capture_bodies is on, Scalars otherwise.
+// Both writer probes are nil-safe, so an unwired executor yields Off.
+func (e *Executor) withDiagnosticsCapture(ctx context.Context) context.Context {
+	switch {
+	case !e.diagnostics.Enabled(diagnostics.KindTool):
+		return WithDiagnosticsCapture(ctx, DiagnosticsCaptureOff)
+	case e.diagnostics.CaptureBodies():
+		return WithDiagnosticsCapture(ctx, DiagnosticsCaptureBodies)
+	default:
+		return WithDiagnosticsCapture(ctx, DiagnosticsCaptureScalars)
+	}
 }
 
 func normalizeExecutionRoot(workDir string) string {
