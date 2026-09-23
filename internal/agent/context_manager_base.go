@@ -85,6 +85,12 @@ func (b *baseContextManager) FileObserved(path string) bool {
 	return b.fileTracker.WasObserved(path)
 }
 
+// FileReadState returns the tracker's record of its last read of path as seen
+// at turn, backing mutate's failure diagnostics (see tool.FileReadState).
+func (b *baseContextManager) FileReadState(path string, turn int) tool.FileReadState {
+	return b.fileTracker.ReadState(path, turn)
+}
+
 func (b *baseContextManager) SetEventSink(sink output.EventSink) {
 	b.events = sink
 }

@@ -27,22 +27,30 @@ type trackedFileRead struct {
 type FileTracker struct {
 	reads       map[string]trackedFileRead
 	generations map[string]uint64
+	// pruned records paths whose read entry was dropped by PruneBeforeTurn, so
+	// a later read-state lookup can distinguish "never read" from "read but
+	// pruned". A re-read clears the entry again.
+	pruned map[string]struct{}
 }
 
 // Clone returns a copy of the tracker state.
 func (t *FileTracker) Clone() FileTracker {
-	if len(t.reads) == 0 && len(t.generations) == 0 {
+	if len(t.reads) == 0 && len(t.generations) == 0 && len(t.pruned) == 0 {
 		return FileTracker{}
 	}
 	out := FileTracker{
 		reads:       make(map[string]trackedFileRead, len(t.reads)),
 		generations: make(map[string]uint64, len(t.generations)),
+		pruned:      make(map[string]struct{}, len(t.pruned)),
 	}
 	for path, read := range t.reads {
 		out.reads[path] = read
 	}
 	for path, generation := range t.generations {
 		out.generations[path] = generation
+	}
+	for path := range t.pruned {
+		out.pruned[path] = struct{}{}
 	}
 	return out
 }
@@ -76,11 +84,17 @@ func (t *FileTracker) Summaries(limit int) []string {
 }
 
 // PruneBeforeTurn removes all tracked read entries whose LastTurn is strictly
-// less than the given turn. Called after compaction drops old turns.
+// less than the given turn. Called after compaction drops old turns. Pruned
+// paths are remembered so a read-state lookup can report them as pruned rather
+// than never read.
 func (t *FileTracker) PruneBeforeTurn(turn int) {
 	for key, entry := range t.reads {
 		if entry.LastTurn < turn {
 			delete(t.reads, key)
+			if t.pruned == nil {
+				t.pruned = make(map[string]struct{})
+			}
+			t.pruned[key] = struct{}{}
 		}
 	}
 }
