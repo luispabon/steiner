@@ -1007,7 +1007,7 @@ for file permissions, rotation, retention, and writer details.
 | `streams.cache`   | bool   | `false`                                    | Prompt-cache observations.                                                                                                                     |
 | `streams.provider`| bool   | `false`                                    | One record per model call, whatever the outcome. Subsumes the stream-error log, which otherwise writes next to `logging.file`.                  |
 | `streams.tool`    | bool   | `false`                                    | Tool execution and delegation traces. Subsumes the delegation trace log, which otherwise writes next to `logging.file`.                         |
-| `capture_bodies`  | bool   | `false`                                    | Allow full message, tool and block content instead of bounded scalar fields. Also unbounds the session log's `api_request` records. Expensive, and captures prompts. |
+| `capture_bodies`  | bool   | `false`                                    | Allow full message, tool and block content instead of bounded scalar fields. Also unbounds the session log's `api_request` records, and makes failed mutate replaces record the attempted `old_string` and a bounded file region, at most 3 per call and 4 KiB each. Expensive, and captures prompts. |
 
 ```yaml
 diagnostics:
@@ -1020,6 +1020,11 @@ diagnostics:
     tool: false
   capture_bodies: false
 ```
+
+With `capture_bodies`, delegation traces are routed into the `tool` stream in
+full. The `tool` stream rotates at 20 MB with 3 generations kept, so a long
+collection window overwrites its oldest records; snapshot the diagnostics
+directory when the window matters.
 
 ### Analyzing diagnostics
 

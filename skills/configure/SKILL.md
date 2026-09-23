@@ -120,7 +120,7 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `diagnostics.streams.cache`|bool|`false`|Prompt-cache stream. |
 | `diagnostics.streams.provider`|bool|`false`|Per-model-call stream; subsumes stream-error log. |
 | `diagnostics.streams.tool`|bool|`false`|Tool/delegation stream; subsumes delegation log. |
-| `diagnostics.capture_bodies`|bool|`false`|Full message/tool/block content instead of scalars; captures prompts. |
+| `diagnostics.capture_bodies`|bool|`false`|Full message/tool/block content instead of scalars, incl. mutate failure samples; captures prompts. |
 | `context_management.read_annotations`|bool|`true`|Annotate reads with path and line range. |
 | `search.backend`|string|—|`searxng`, `google`, `kagi`, or `brave`; selects requirements. |
 | `search.searxng_url`|string|—|Required for `searxng`. |
