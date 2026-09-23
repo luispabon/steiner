@@ -1026,6 +1026,183 @@ func TestVisionTaskContentForReadUsesParentUserRequest(t *testing.T) {
 	}
 }
 
+// Regression: post-compaction image handling must not fold the summary prefix
+// into the generation's raw messages, which would duplicate it in the outbound
+// prompt.
+func TestHandleImagesForVision_SummaryPrefixNotDuplicated(t *testing.T) {
+	vc := NewVisionCapabilities(true)
+	vc.LatchIncapable("test-model")
+
+	const summaryText = "earlier turns were compacted into this summary"
+	summary := Message{Role: MessageRoleSummary, Content: summaryText}
+	imageMessage := Message{
+		Role:    MessageRoleUser,
+		Content: "what is in this image?",
+		Images: []ImageBlock{{
+			ID:        "img-1",
+			FilePath:  "/path/to/img.png",
+			MediaType: "image/png",
+			Data:      "base64data",
+		}},
+	}
+	lineage := ConversationLineage{
+		Generations:      []ConversationGeneration{newConversationGeneration(2, []Message{summary}, []Message{imageMessage})},
+		NextGenerationID: 3,
+	}
+	state := RunState{Conversation: lineage.FullMessages(), Lineage: lineage}
+
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, toolName string, input map[string]any) (any, error) {
+			if toolName != "sub_agent" {
+				t.Fatalf("unexpected tool: %s", toolName)
+			}
+			if input["image_id"] != "img-1" {
+				t.Fatalf("unexpected image_id: %v", input["image_id"])
+			}
+			return tool.ExecutionResult{Value: visionProjectionTestResult{}}, nil
+		},
+	}
+
+	req := RunRequest{
+		ResolvedModel:      provider.ResolvedModel{BackendModelID: "test-model", Alias: "test-model"},
+		Executor:           executor,
+		VisionCapabilities: vc,
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	if !p.handleImagesForVision(context.Background(), &state) {
+		t.Fatal("mutated = false, want true")
+	}
+
+	if got := len(state.Conversation); got != 2 {
+		t.Fatalf("conversation length = %d, want 2 (summary plus image message)", got)
+	}
+	if got := countMessagesWithContent(state.Conversation, summaryText); got != 1 {
+		t.Fatalf("summary appears %d times in state.Conversation, want 1", got)
+	}
+	if got := countMessagesWithContent(state.Lineage.FullMessages(), summaryText); got != 1 {
+		t.Fatalf("summary appears %d times in lineage.FullMessages(), want 1", got)
+	}
+
+	image := state.Conversation[1]
+	if len(image.Images) != 0 {
+		t.Fatalf("image message still carries images: %v", image.Images)
+	}
+	if !contains(image.Content, "screenshot showing a button") {
+		t.Fatalf("image message lacks routed description, got: %s", image.Content)
+	}
+	if contains(image.Content, "could not be processed") {
+		t.Fatalf("image message should not carry the fallback note, got: %s", image.Content)
+	}
+
+	assembled := assemblyOptions(prompt.AssemblyOptions{}, state).Conversation
+	if got := countProviderMessagesWithContent(assembled, summaryText); got != 1 {
+		t.Fatalf("summary appears %d times in assembled prompt, want 1", got)
+	}
+	if !providerMessagesContain(assembled, "screenshot showing a button") {
+		t.Fatal("assembled prompt lacks routed image description")
+	}
+}
+
+// Deferred read images must survive the same post-compaction path: the summary
+// prefix stays single while the read image is routed exactly as it is on a
+// fresh conversation.
+func TestHandleImagesForVision_DeferredReadImageUnderSummaryPrefix(t *testing.T) {
+	vc := NewVisionCapabilities(true)
+	vc.LatchIncapable("test-model")
+
+	const summaryText = "summary of compacted turns"
+	summary := Message{Role: MessageRoleSummary, Content: summaryText}
+	userMessage := Message{Role: MessageRoleUser, Content: "inspect screenshot.png"}
+	readMessage := Message{
+		Role:       MessageRoleTool,
+		Name:       "read",
+		ToolCallID: "read-1",
+		Content:    `{"path":"screenshot.png"}`,
+		Images: []ImageBlock{{
+			ID:        "img-1",
+			FilePath:  "/tmp/screenshot.png",
+			MediaType: "image/png",
+			Data:      "read-image-data",
+		}},
+	}
+	lineage := ConversationLineage{
+		Generations:      []ConversationGeneration{newConversationGeneration(2, []Message{summary}, []Message{userMessage, readMessage})},
+		NextGenerationID: 3,
+	}
+	state := RunState{Conversation: lineage.FullMessages(), Lineage: lineage}
+
+	var visionContext string
+	executor := &fakeExecutor{
+		execute: func(_ context.Context, _ string, input map[string]any) (any, error) {
+			visionContext, _ = input["context"].(string)
+			data, _ := json.Marshal(map[string]string{"agent_id": "vision-1", "output": "a detailed description"})
+			return string(data), nil
+		},
+	}
+
+	req := RunRequest{
+		ResolvedModel:      provider.ResolvedModel{BackendModelID: "test-model", Alias: "test-model"},
+		Executor:           executor,
+		VisionCapabilities: vc,
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+
+	if !p.handleImagesForVision(context.Background(), &state) {
+		t.Fatal("mutated = false, want true (deferred read image)")
+	}
+
+	if got := countMessagesWithContent(state.Conversation, summaryText); got != 1 {
+		t.Fatalf("summary appears %d times in state.Conversation, want 1", got)
+	}
+	if got := countProviderMessagesWithContent(assemblyOptions(prompt.AssemblyOptions{}, state).Conversation, summaryText); got != 1 {
+		t.Fatalf("summary appears %d times in assembled prompt, want 1", got)
+	}
+	if !contains(visionContext, "inspect screenshot.png") {
+		t.Fatalf("vision context = %q, want parent user request", visionContext)
+	}
+
+	readResult := state.Conversation[len(state.Conversation)-1]
+	if readResult.Role != MessageRoleTool || readResult.Name != "read" {
+		t.Fatalf("last message = %+v, want the read tool result", readResult)
+	}
+	if len(readResult.Images) != 0 {
+		t.Fatalf("consumed read image still present: %v", readResult.Images)
+	}
+	if !contains(readResult.Content, "a detailed description") {
+		t.Fatalf("read result lacks routed description, got: %s", readResult.Content)
+	}
+}
+
+func countMessagesWithContent(messages []Message, content string) int {
+	count := 0
+	for _, message := range messages {
+		if message.Content == content {
+			count++
+		}
+	}
+	return count
+}
+
+func countProviderMessagesWithContent(messages []provider.Message, content string) int {
+	count := 0
+	for _, message := range messages {
+		if message.Content == content {
+			count++
+		}
+	}
+	return count
+}
+
+func providerMessagesContain(messages []provider.Message, want string) bool {
+	for _, message := range messages {
+		if contains(message.Content, want) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestVisionTaskContentForUserPreservesPastedImageRequest(t *testing.T) {
 	messages := []Message{{Role: MessageRoleUser, Content: "Describe this pasted image."}}
 	if got := visionTaskContent(messages, 0); got != messages[0].Content {
