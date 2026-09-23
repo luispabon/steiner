@@ -6,7 +6,7 @@
 //   node scripts/diagnostics.mjs <mode> [flags]
 //   node scripts/diagnostics.mjs prefix <logfile> [flags]
 //
-// Modes: cache | provider | tools | coldturns | prefix <logfile>
+// Modes: cache | provider | tools | coldturns | mutate | prefix <logfile>
 //
 // cache/provider/tools read the diagnostics directory (one JSONL file per
 // stream: cache.jsonl, provider.jsonl, tool.jsonl; see
@@ -38,6 +38,19 @@
 //                          instead of a rate (default 10). A soft guard, not a
 //                          filter -- n prints on every row regardless, so
 //                          adequacy stays a human judgement.
+//
+// mutate mode reads tool.jsonl and provider.jsonl and reports call/ops
+// metrics, message grouping, failure reasons, a feature report and a cause
+// taxonomy (see scripts/diagnostics_mutate.mjs). Its extra flags:
+//   --baseline-sha <sha>   split windows by whether <sha> is an ancestor of
+//                          each record's build_sha (git merge-base). Without
+//                          it there is a single "all" window. A "featured"
+//                          subset -- calls carrying a failures[].match block --
+//                          is always reported.
+//   --exclude-run <id>     drop one run_id from every stream
+//   --model <prefix>       keep only calls attributed to a matching model
+//   --samples N            print up to N raw capture_bodies samples
+//   --cause <bucket>       with --samples, keep one taxonomy bucket only
 //
 // VOCABULARY
 //   cold start   -- a run's first usage-bearing cache record (cold_start: true
@@ -74,6 +87,7 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { runMutate } from "./diagnostics_mutate.mjs";
 
 const argv = process.argv.slice(2);
 const MODE = argv[0];
@@ -852,8 +866,24 @@ function main() {
 		return;
 	}
 
+	if (MODE === "mutate") {
+		if (COMPARE) {
+			console.error("--compare does not apply to mutate mode; use --baseline-sha for a before/after split");
+			process.exit(1);
+		}
+		runMutate({
+			toolRecords: filterRecords(loadEnvelope("tool")),
+			providerRecords: filterRecords(loadEnvelope("provider")),
+			args: flagArgs,
+			asJson: AS_JSON,
+			top: TOP,
+			printTable,
+		});
+		return;
+	}
+
 	if (!["cache", "provider", "tools"].includes(MODE)) {
-		console.error("usage: node scripts/diagnostics.mjs <cache|provider|tools|coldturns> [flags]");
+		console.error("usage: node scripts/diagnostics.mjs <cache|provider|tools|coldturns|mutate> [flags]");
 		console.error("       node scripts/diagnostics.mjs prefix <logfile> [flags]");
 		process.exit(1);
 	}

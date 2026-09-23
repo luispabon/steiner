@@ -114,7 +114,7 @@ check: tidy-check
 # Separate from `check` on purpose: it is Node tooling for scripts/*.mjs, and
 # CI's main Go-only path must not gain a Node dependency.
 test-scripts:
-	node --test scripts/diagnostics_test.mjs
+	node --test scripts/diagnostics_test.mjs scripts/diagnostics_mutate_test.mjs
 
 # Run TUI benchmarks. Default: all suites, 1s each, single count.
 # Run a specific suite: `make bench BENCH=BenchmarkKeystroke`
