@@ -92,3 +92,39 @@ func TestBuildChildRunCacheKeysIsolateAgentTypes(t *testing.T) {
 		t.Fatalf("agent types share prompt cache key %q", explore.PromptCacheKey)
 	}
 }
+
+// TestBuildChildRunSameTypeSiblingsShareCacheKeyButNotBaselineIdentity proves
+// two concurrent same-type sibling delegations intentionally share one
+// prompt cache key (so they route to the same provider cache shard) while
+// still getting distinct baseline identities, so one sibling's outbound
+// requests can never be mistaken for the other's predecessor.
+func TestBuildChildRunSameTypeSiblingsShareCacheKeyButNotBaselineIdentity(t *testing.T) {
+	store := agent.NewCacheBaselineStore()
+	deps := cacheBaselineChildDeps(store)
+	deps.CacheKeyStore = NewCacheKeyStore()
+	override := ChildBootstrapOverrides{
+		AgentType:     AgentTypeExplore,
+		AllowedTools:  []string{"read"},
+		Provider:      stubProvider{name: "child"},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "child-model"},
+	}
+
+	siblingA, _, err := BuildChildRun(context.Background(), deps, override, Spec{Task: "t", AgentID: "sibling-a", Limits: Limits{MaxTurns: 1}})
+	if err != nil {
+		t.Fatalf("BuildChildRun(sibling-a) error = %v", err)
+	}
+	siblingB, _, err := BuildChildRun(context.Background(), deps, override, Spec{Task: "t", AgentID: "sibling-b", Limits: Limits{MaxTurns: 1}})
+	if err != nil {
+		t.Fatalf("BuildChildRun(sibling-b) error = %v", err)
+	}
+
+	if siblingA.PromptCacheKey == "" || siblingA.PromptCacheKey != siblingB.PromptCacheKey {
+		t.Fatalf("sibling prompt cache keys = %q/%q, want equal and non-empty", siblingA.PromptCacheKey, siblingB.PromptCacheKey)
+	}
+	if siblingA.CacheBaseline != store || siblingB.CacheBaseline != store {
+		t.Fatalf("sibling CacheBaseline pointers = %p/%p, want both %p", siblingA.CacheBaseline, siblingB.CacheBaseline, store)
+	}
+	if siblingA.AgentID == "" || siblingB.AgentID == "" || siblingA.AgentID == siblingB.AgentID {
+		t.Fatalf("sibling AgentIDs = %q/%q, want distinct and non-empty", siblingA.AgentID, siblingB.AgentID)
+	}
+}

@@ -114,8 +114,10 @@ type DelegateDeps struct {
 	// CacheBaseline is the parent session's cache baseline store, threaded to
 	// child run requests so child runs can report shared-prefix diagnostics
 	// against their own prior outbound requests. Sharing the parent's store is
-	// safe: baseline entries are keyed by prompt cache key and model identity,
-	// and child keys are distinct per agent type. Nil disables child baseline
+	// safe: baseline entries are keyed by prompt cache key, delegation agent
+	// ID, and model identity. Same-type siblings intentionally share one
+	// prompt cache key (see CacheKeyStore.KeyFor) but each still gets its own
+	// baseline entry via its distinct agent ID. Nil disables child baseline
 	// tracking.
 	CacheBaseline *agent.CacheBaselineStore
 	// AdvisorState is the singleton advisor use-counter shared across the

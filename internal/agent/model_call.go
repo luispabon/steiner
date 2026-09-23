@@ -256,6 +256,12 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 	if err == nil {
 		recordModelUsage(req, response.Usage)
 		emitCacheDiagnostic(req, response.Usage, turn, stats)
+		// The provider accepted this request, so it is safe to advance the
+		// baseline now. Each baseline key scopes one conversation whose turns
+		// run one after another, so promoting here (rather than atomically with
+		// the compare in onIssue) cannot race with a sibling's or a later turn's
+		// comparison.
+		promoteRequestCacheStats(req, stats)
 		return response, firstChunkTime, nil
 	}
 	if !shouldRetryWithoutImages(err, chatRequest.Messages) {
@@ -301,6 +307,11 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 	if retryErr == nil {
 		recordModelUsage(req, retryResp.Usage)
 		emitCacheDiagnostic(req, retryResp.Usage, turn, stats)
+		// See the comment on the first-attempt promote above: this retry's
+		// stats overwrote the earlier (rejected) attempt's stats via the shared
+		// onIssue closure, so promoting here still only advances the baseline
+		// past an accepted request.
+		promoteRequestCacheStats(req, stats)
 	}
 	return retryResp, retryFirst, retryErr
 }

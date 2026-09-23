@@ -113,7 +113,7 @@ type RunRequest struct {
 
 	// CacheBaseline, when non-nil, tracks the previous outbound message hash
 	// sequence per cache-key identity so cache diagnostics can report the shared
-	// prefix with the prior issued request. Nil disables baseline tracking.
+	// prefix with the prior accepted request. Nil disables baseline tracking.
 	CacheBaseline *CacheBaselineStore
 
 	// AgentID and AgentType identify this run's delegation scope for

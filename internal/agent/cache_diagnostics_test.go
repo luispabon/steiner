@@ -332,7 +332,7 @@ func TestEmitCacheDiagnostic_ComparisonEnabledEmitted(t *testing.T) {
 	}
 }
 
-func TestComputeRequestCacheStats_PromotesIssuedSequences(t *testing.T) {
+func TestComputeRequestCacheStats_ComparesWithoutPromoting(t *testing.T) {
 	store := NewCacheBaselineStore()
 	req := RunRequest{
 		CacheBaseline:  store,
@@ -352,9 +352,52 @@ func TestComputeRequestCacheStats_PromotesIssuedSequences(t *testing.T) {
 		t.Fatal("prefixHash is empty, want non-empty for non-empty messages")
 	}
 
+	// Comparing again without promoting must not see the first call's hashes:
+	// computeRequestCacheStats is read-only.
+	again := computeRequestCacheStats(req, messages)
+	if again.predecessorKnown {
+		t.Fatal("computeRequestCacheStats reported a predecessor from a prior compare-only call, want none: it must not promote")
+	}
+
+	promoteRequestCacheStats(req, first)
 	second := computeRequestCacheStats(req, append(messages, provider.Message{Role: provider.MessageRoleAssistant, Content: "hi"}))
 	if !second.predecessorKnown || second.sharedPrefixMessages != 1 {
 		t.Fatalf("second = %+v, want known predecessor sharing 1 message", second)
+	}
+}
+
+func TestPromoteRequestCacheStats_NoOpWhenComparisonDisabled(t *testing.T) {
+	store := NewCacheBaselineStore()
+	req := RunRequest{CacheBaseline: store, ResolvedModel: provider.ResolvedModel{BackendModelID: "m"}}
+	messages := []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}}
+	stats := computeRequestCacheStats(req, messages)
+	promoteRequestCacheStats(req, stats)
+	if len(store.entries) != 0 {
+		t.Fatalf("store has %d entries after promoting a disabled-comparison request, want 0", len(store.entries))
+	}
+}
+
+func TestComputeRequestCacheStats_SiblingsWithSharedCacheKeyDontShareBaseline(t *testing.T) {
+	store := NewCacheBaselineStore()
+	messages := []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}}
+
+	childA := RunRequest{
+		CacheBaseline:  store,
+		PromptCacheKey: "shared-key",
+		AgentID:        "child-a",
+		ResolvedModel:  provider.ResolvedModel{ProviderAlias: "p", BackendModelID: "m"},
+	}
+	statsA := computeRequestCacheStats(childA, messages)
+	if statsA.predecessorKnown {
+		t.Fatal("child A's first request reported a predecessor, want none")
+	}
+	promoteRequestCacheStats(childA, statsA)
+
+	childB := childA
+	childB.AgentID = "child-b"
+	stats := computeRequestCacheStats(childB, messages)
+	if stats.predecessorKnown {
+		t.Fatal("child B's first request reported a predecessor from sibling child A, want none: siblings sharing a prompt cache key must not share a baseline")
 	}
 }
 
@@ -410,7 +453,7 @@ func TestCompleteModelCall_PromotesPostVisionStripMessages(t *testing.T) {
 	}
 
 	stripped := []provider.Message{{Role: provider.MessageRoleUser, Content: "look"}}
-	shared, known := store.CompareAndPromote(cacheBaselineKeyForRequest(req), perMessageHashes(stripped))
+	shared, known := store.Compare(cacheBaselineKeyForRequest(req), perMessageHashes(stripped))
 	if !known || shared != 1 {
 		t.Fatalf("baseline after issue = (%d, %v), want the image-stripped sequence (1, true)", shared, known)
 	}
@@ -437,7 +480,109 @@ func TestCompleteModelCall_RejectedBudgetDoesNotPromote(t *testing.T) {
 	if _, _, err := completeModelCall(context.Background(), req, 1, chatRequest, nil, budget, nil); err == nil {
 		t.Fatal("completeModelCall() error = nil, want budget rejection")
 	}
-	if _, known := store.CompareAndPromote(cacheBaselineKeyForRequest(req), []string{"any"}); known {
+	if _, known := store.Compare(cacheBaselineKeyForRequest(req), []string{"any"}); known {
 		t.Fatal("a budget-rejected request promoted a baseline")
+	}
+}
+
+// TestCompleteModelCall_RejectedAttemptDoesNotBecomeBaseline covers the bug
+// this fix addresses: a request the provider rejects with HTTP 400 (any
+// reason, not just vision) must not become the predecessor for the next
+// turn's comparison. Before the compare/promote split, onIssue promoted every
+// issued attempt including rejected ones, so the next turn's genuinely first
+// request would spuriously report a known predecessor sharing 0 messages
+// (prefix_rewrite) instead of no predecessor (no_prior_baseline).
+func TestCompleteModelCall_RejectedAttemptDoesNotBecomeBaseline(t *testing.T) {
+	store := NewCacheBaselineStore()
+	prov := &fakeProvider{chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+		return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request"}
+	}}
+	req := RunRequest{
+		Provider:       prov,
+		CacheBaseline:  store,
+		PromptCacheKey: "key-1",
+		ResolvedModel:  provider.ResolvedModel{ProviderAlias: "p", BackendModelID: "m"},
+		Events:         output.NoopSink{},
+	}
+	chatRequest := provider.ChatRequest{
+		Model:    "test-model",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+	}
+	if _, _, err := completeModelCall(context.Background(), req, 1, chatRequest, nil, prompt.ModelTokenBudget{}, nil); err == nil {
+		t.Fatal("completeModelCall() error = nil, want the fakeProvider's HTTPError (non-image request, no retry)")
+	}
+
+	// The next turn's genuinely first request must report no predecessor, not
+	// a predecessor from the rejected attempt above.
+	stats := computeRequestCacheStats(req, chatRequest.Messages)
+	if stats.predecessorKnown {
+		t.Fatal("a rejected attempt became the baseline predecessor for the next turn")
+	}
+}
+
+// TestCompleteModelCall_InlineImageStripRetryComparesAgainstPreTurnBaseline
+// covers the inline vision fallback path (no VisionCapabilities holder): the
+// diagnostic emitted for the accepted, image-stripped retry must compare
+// against the pre-turn baseline, not against the rejected with-images
+// attempt from the same turn.
+func TestCompleteModelCall_InlineImageStripRetryComparesAgainstPreTurnBaseline(t *testing.T) {
+	resetColdStart(t)
+	store := NewCacheBaselineStore()
+	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
+	prov := &fakeProvider{
+		chatFn: func(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+			if len(req.Messages) > 0 && len(req.Messages[0].Images) > 0 {
+				return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request"}
+			}
+			return provider.ChatResponse{
+				Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"},
+				Usage:   &provider.UsageStats{PromptTokens: 10, CompletionTokens: 1},
+			}, nil
+		},
+	}
+	req := RunRequest{
+		Provider:       prov,
+		CacheBaseline:  store,
+		PromptCacheKey: "key-1",
+		ResolvedModel:  provider.ResolvedModel{Alias: "test-model", ProviderAlias: "p", BackendModelID: "m"},
+		Events:         output.NoopSink{},
+		Diagnostics:    w,
+	}
+
+	// Pre-turn baseline: an accepted, single-message request from a prior turn,
+	// so a request sharing that one leading message reports shared == 1.
+	priorMessages := []provider.Message{{Role: provider.MessageRoleUser, Content: "look"}}
+	priorStats := computeRequestCacheStats(req, priorMessages)
+	promoteRequestCacheStats(req, priorStats)
+
+	chatRequest := provider.ChatRequest{
+		Model: "test-model",
+		Messages: []provider.Message{{
+			Role:    provider.MessageRoleUser,
+			Content: "look",
+			Images:  []provider.ImageBlock{{MediaType: "image/png", Data: "abc"}},
+		}},
+	}
+	if _, _, err := completeModelCall(context.Background(), req, 2, chatRequest, nil, prompt.ModelTokenBudget{}, nil); err != nil {
+		t.Fatalf("completeModelCall() error = %v", err)
+	}
+
+	// The accepted retry (images stripped) hashes to the same content as
+	// priorMessages ("look" with no images), so the emitted diagnostic must
+	// report shared == 1 against the pre-turn baseline. Before the fix,
+	// onIssue promoted the rejected with-images attempt first, so the retry
+	// compared against that rejected attempt's hashes (a different message,
+	// since it still carried Images) instead of priorMessages, and would
+	// report shared == 0.
+	records := readCacheRecords(t, dir)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	var payload cachePayload
+	if err := json.Unmarshal(mustMarshal(t, records[0].Payload), &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if !payload.PrefixPredecessorKnown || payload.SharedPrefixMessages != 1 {
+		t.Fatalf("payload = %+v, want prefix_predecessor_known true and shared_prefix_messages 1 (measured against the pre-turn baseline)", payload)
 	}
 }

@@ -44,12 +44,15 @@ type cachePayload struct {
 }
 
 // requestCacheStats carries the cache-prefix diagnostics computed for one
-// outbound request that was actually issued.
+// outbound request that was actually issued, plus what promoteRequestCacheStats
+// needs to later advance the baseline if the request is accepted.
 type requestCacheStats struct {
 	prefixHash           string
 	sharedPrefixMessages int
 	comparisonEnabled    bool
 	predecessorKnown     bool
+	baselineKey          CacheBaselineKey
+	messageHashes        []string
 }
 
 // emitCacheDiagnostic writes one kind: "cache" diagnostics record for a
@@ -88,27 +91,51 @@ func emitCacheDiagnostic(req RunRequest, usage *provider.UsageStats, turn int, s
 }
 
 // computeRequestCacheStats hashes the post-transform outbound messages and,
-// when a baseline store is configured, compares them against and promotes them
-// into the store for this request's cache identity. Call it only for requests
-// that are actually issued.
+// when a baseline store is configured, compares them against the store's
+// current baseline for this request's cache identity. It does not advance the
+// baseline: call promoteRequestCacheStats once the request this was computed
+// for is known to have been accepted. Call computeRequestCacheStats only for
+// requests that are actually issued.
 func computeRequestCacheStats(req RunRequest, messages []provider.Message) requestCacheStats {
 	hashes := perMessageHashes(messages)
-	stats := requestCacheStats{prefixHash: cumulativePrefixHash(hashes)}
+	stats := requestCacheStats{
+		prefixHash:    cumulativePrefixHash(hashes),
+		baselineKey:   cacheBaselineKeyForRequest(req),
+		messageHashes: hashes,
+	}
 	// A comparison is only meaningful with a usable store and a nonempty cache
-	// key; CompareAndPromote is a no-op otherwise.
+	// key; Compare is a no-op otherwise.
 	if req.CacheBaseline != nil && req.PromptCacheKey != "" {
 		stats.comparisonEnabled = true
-		stats.sharedPrefixMessages, stats.predecessorKnown = req.CacheBaseline.CompareAndPromote(cacheBaselineKeyForRequest(req), hashes)
+		stats.sharedPrefixMessages, stats.predecessorKnown = req.CacheBaseline.Compare(stats.baselineKey, hashes)
 	}
 	return stats
 }
 
+// promoteRequestCacheStats advances the cache baseline to the message
+// sequence stats was computed from. Call it only once the request that
+// produced stats is known to have been accepted by the provider: a rejected
+// attempt must never become the predecessor for the next comparison. Safe to
+// call unconditionally after computeRequestCacheStats; it is a no-op when
+// comparison was not enabled for the request.
+func promoteRequestCacheStats(req RunRequest, stats requestCacheStats) {
+	if !stats.comparisonEnabled {
+		return
+	}
+	req.CacheBaseline.Promote(stats.baselineKey, stats.messageHashes)
+}
+
 // cacheBaselineKeyForRequest builds the cache identity for a run's outbound
-// requests from its prompt cache key and resolved model identity.
+// requests from its prompt cache key, delegation AgentID, and resolved model
+// identity. AgentID is included so that concurrent sub-agent siblings sharing
+// one prompt cache key (see CacheKeyStore.KeyFor) still get isolated baseline
+// entries: the parent run's AgentID is "", each child's is its own delegation
+// AgentID.
 func cacheBaselineKeyForRequest(req RunRequest) CacheBaselineKey {
 	rm := req.ResolvedModel
 	return CacheBaselineKey{
 		CacheKey:               req.PromptCacheKey,
+		AgentID:                req.AgentID,
 		ConfiguredProviderType: string(rm.ProviderConfig.Type),
 		EffectiveProviderType:  string(rm.EffectiveProviderType),
 		EffectiveTransport:     string(rm.EffectiveTransport),
