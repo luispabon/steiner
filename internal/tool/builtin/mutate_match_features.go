@@ -85,11 +85,17 @@ func (p *mutatePlanner) matchFailure(err error, state *mutateFileState, op Mutat
 // file text to the agent.
 func computeMatchFailure(in matchFeatureInput) tool.MatchFailure {
 	allOldLines := splitFeatureLines(in.old)
+	// bytes.Count treats an empty needle as every rune boundary plus one, so an
+	// empty old_string would report a spurious match count instead of none.
+	matchCount := 0
+	if in.old != "" {
+		matchCount = bytes.Count(in.content, []byte(in.old))
+	}
 	f := tool.MatchFailure{
 		OldBytes:         len(in.old),
 		OldLines:         len(allOldLines),
 		NonBlankLines:    countNonBlankLines(allOldLines),
-		MatchCount:       bytes.Count(in.content, []byte(in.old)),
+		MatchCount:       matchCount,
 		CRLFMismatch:     bytes.Contains(in.content, []byte("\r\n")) != strings.Contains(in.old, "\r\n"),
 		FileHashSupplied: in.fileHashSupplied,
 	}
@@ -135,6 +141,14 @@ func computeMatchFailure(in matchFeatureInput) tool.MatchFailure {
 
 	matchedRegion, matchedLine, haveRegion := extractNormalizedMatch(in.content, in.old)
 	f.WhitespaceKind, f.IndentDeltaMax = whitespaceFeatures(in.content, in.old, matchedRegion, haveRegion)
+	if f.MatchCount > 0 {
+		// An exact occurrence outranks any whitespace classification: an
+		// ambiguous_match or stale_read edit whose old_string is present in the
+		// file is not a whitespace problem, so neither the whitespace kind nor
+		// the indent delta derived from it applies.
+		f.WhitespaceKind = "exact"
+		f.IndentDeltaMax = 0
+	}
 
 	if oldStyle, oldOK := indentStyle(oldLines); oldOK {
 		if fileStyle, fileOK := indentStyle(fileLines); fileOK && fileStyle != oldStyle {

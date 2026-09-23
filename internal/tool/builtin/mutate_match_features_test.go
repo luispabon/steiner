@@ -209,6 +209,51 @@ func TestComputeMatchFailure_Features(t *testing.T) {
 			},
 		},
 		{
+			name: "exact match outranks indent classification",
+			// The old_string occurs verbatim at line 3, while the first window that
+			// matches after whitespace normalization (line 1) is indented. Without
+			// the exact override this row reports indent_uniform with delta 1.
+			in: matchFeatureInput{old: "foo\nbar\n", content: []byte("\tfoo\n\tbar\nfoo\nbar\n")},
+			check: func(t *testing.T, f tool.MatchFailure) {
+				if f.MatchCount != 1 {
+					t.Errorf("match_count = %d, want 1", f.MatchCount)
+				}
+				if f.WhitespaceKind != "exact" {
+					t.Errorf("ws_kind = %q, want exact", f.WhitespaceKind)
+				}
+				if f.IndentDeltaMax != 0 {
+					t.Errorf("indent_delta_max = %d, want 0 when ws_kind is exact", f.IndentDeltaMax)
+				}
+			},
+		},
+		{
+			name: "exact match outranks trailing classification",
+			// The old_string is present verbatim (missing only its trailing
+			// newline in the attempt), so the unclassified whitespace kind must not
+			// surface as trailing.
+			in: matchFeatureInput{old: "foo\nbar", content: []byte("foo\nbar\n")},
+			check: func(t *testing.T, f tool.MatchFailure) {
+				if f.MatchCount != 1 {
+					t.Errorf("match_count = %d, want 1", f.MatchCount)
+				}
+				if f.WhitespaceKind != "exact" {
+					t.Errorf("ws_kind = %q, want exact", f.WhitespaceKind)
+				}
+			},
+		},
+		{
+			name: "empty old_string has no match count",
+			in:   matchFeatureInput{old: "", content: []byte("abc")},
+			check: func(t *testing.T, f tool.MatchFailure) {
+				if f.MatchCount != 0 {
+					t.Errorf("match_count = %d, want 0 for an empty old_string", f.MatchCount)
+				}
+				if f.OldBytes != 0 || f.OldLines != 0 {
+					t.Errorf("old_bytes = %d old_lines = %d, want 0/0", f.OldBytes, f.OldLines)
+				}
+			},
+		},
+		{
 			name: "matches original after earlier op in call",
 			in:   matchFeatureInput{old: "alpha", content: []byte("beta"), original: []byte("alpha"), touched: true},
 			check: func(t *testing.T, f tool.MatchFailure) {
