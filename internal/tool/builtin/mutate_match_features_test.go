@@ -15,17 +15,14 @@ import (
 )
 
 // runMutateCapture runs a mutate call with an explicit diagnostics capture
-// level (and optional read lookup) in the handler context, so tests can drive
-// the Stage C/D feature paths directly.
-func runMutateCapture(t *testing.T, root string, capture tool.DiagnosticsCapture, observed func(string) bool, lookup tool.FileReadLookup, input map[string]any) *MutateResult {
+// level in the handler context, so tests can drive the Stage C/D feature paths
+// directly.
+func runMutateCapture(t *testing.T, root string, capture tool.DiagnosticsCapture, observed func(string) bool, input map[string]any) *MutateResult {
 	t.Helper()
 	policy := tool.NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: true})
 	env := Env{WorkDir: root, PathPolicy: &policy, FileObserved: observed}
 	toolDef := NewMutateTool(env)
 	ctx := tool.WithDiagnosticsCapture(context.Background(), capture)
-	if lookup != nil {
-		ctx = tool.WithFileReadLookup(ctx, lookup)
-	}
 	result, err := toolDef.Handler(ctx, input)
 	if err != nil {
 		t.Fatalf("mutate Handler() error = %v", err)
@@ -395,7 +392,7 @@ func TestMatchFailure_CaptureLevels(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := runMutateCapture(t, root, tc.capture, observed, nil, input)
+			got := runMutateCapture(t, root, tc.capture, observed, input)
 			failures := got.FailedOps()
 			if len(failures) != 1 {
 				t.Fatalf("FailedOps() = %v, want one entry", failures)
@@ -420,7 +417,7 @@ func TestMatchSample_PerCallCap(t *testing.T) {
 		}
 		operations = append(operations, map[string]any{"type": "replace", "path": name, "old_string": "NOPE", "new_string": "x"})
 	}
-	got := runMutateCapture(t, root, tool.DiagnosticsCaptureBodies, func(string) bool { return true }, nil, map[string]any{"operations": operations})
+	got := runMutateCapture(t, root, tool.DiagnosticsCaptureBodies, func(string) bool { return true }, map[string]any{"operations": operations})
 	failures := got.FailedOps()
 	if len(failures) != maxDetailedMutateFailures+1 {
 		t.Fatalf("FailedOps() = %d entries, want %d", len(failures), maxDetailedMutateFailures+1)
@@ -456,8 +453,8 @@ func TestMutatePlanner_MatchFeaturesAndReasonStable(t *testing.T) {
 	}
 	observed := func(string) bool { return true }
 
-	off := runMutateCapture(t, root, tool.DiagnosticsCaptureOff, observed, nil, input)
-	scalars := runMutateCapture(t, root, tool.DiagnosticsCaptureScalars, observed, nil, input)
+	off := runMutateCapture(t, root, tool.DiagnosticsCaptureOff, observed, input)
+	scalars := runMutateCapture(t, root, tool.DiagnosticsCaptureScalars, observed, input)
 
 	if off.Output != scalars.Output {
 		t.Errorf("capture changed model-facing output:\n off: %q\n scalars: %q", off.Output, scalars.Output)
@@ -492,7 +489,7 @@ func TestMutatePlanner_MatchesOriginalAcrossOps(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("alpha\n"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	got := runMutateCapture(t, root, tool.DiagnosticsCaptureScalars, func(string) bool { return true }, nil, map[string]any{
+	got := runMutateCapture(t, root, tool.DiagnosticsCaptureScalars, func(string) bool { return true }, map[string]any{
 		"operations": []any{
 			map[string]any{"type": "replace", "path": "a.txt", "old_string": "alpha", "new_string": "beta"},
 			map[string]any{"type": "replace", "path": "a.txt", "old_string": "alpha", "new_string": "gamma"},
@@ -582,8 +579,8 @@ func TestMutateGolden_ModelFacingUnchanged(t *testing.T) {
 		},
 	}
 
-	off := runMutateCapture(t, root, tool.DiagnosticsCaptureOff, observed, nil, input)
-	bodies := runMutateCapture(t, root, tool.DiagnosticsCaptureBodies, observed, nil, input)
+	off := runMutateCapture(t, root, tool.DiagnosticsCaptureOff, observed, input)
+	bodies := runMutateCapture(t, root, tool.DiagnosticsCaptureBodies, observed, input)
 
 	if off.Output != bodies.Output {
 		t.Errorf("output changed across capture level:\n off: %q\n bodies: %q", off.Output, bodies.Output)

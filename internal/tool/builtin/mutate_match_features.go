@@ -112,19 +112,7 @@ func computeMatchFailure(in matchFeatureInput) tool.MatchFailure {
 	fileLines := splitFeatureLines(string(in.content))
 	f.FileLines = len(fileLines)
 
-	fileTrimmed := make(map[string]struct{}, len(fileLines))
-	for _, l := range fileLines {
-		fileTrimmed[strings.TrimSpace(l)] = struct{}{}
-	}
-	for _, l := range oldLines {
-		trimmed := strings.TrimSpace(l)
-		if trimmed == "" {
-			continue
-		}
-		if _, ok := fileTrimmed[trimmed]; ok {
-			f.LinesFound++
-		}
-	}
+	f.LinesFound = linesFoundCount(oldLines, fileLines)
 
 	fileNB, fileNBLines := nonBlankTrimmedLines(fileLines)
 	oldNB, _ := nonBlankTrimmedLines(oldLines)
@@ -146,10 +134,7 @@ func computeMatchFailure(in matchFeatureInput) tool.MatchFailure {
 	}
 
 	matchedRegion, matchedLine, haveRegion := extractNormalizedMatch(in.content, in.old)
-	f.WhitespaceKind = whitespaceKind(in.content, in.old, matchedRegion, haveRegion)
-	if f.WhitespaceKind == "indent_uniform" || f.WhitespaceKind == "indent_nonuniform" {
-		f.IndentDeltaMax = indentDeltaMax(in.old, matchedRegion)
-	}
+	f.WhitespaceKind, f.IndentDeltaMax = whitespaceFeatures(in.content, in.old, matchedRegion, haveRegion)
 
 	if oldStyle, oldOK := indentStyle(oldLines); oldOK {
 		if fileStyle, fileOK := indentStyle(fileLines); fileOK && fileStyle != oldStyle {
@@ -158,35 +143,73 @@ func computeMatchFailure(in matchFeatureInput) tool.MatchFailure {
 	}
 
 	f.UnescapeMatches = unescapeMatches(in.content, in.old)
-
-	nonBlank, prefixed := linePrefixCounts(oldLines)
-	if prefixed > 0 && prefixed*2 >= nonBlank {
-		f.LinePrefix = true
-	}
+	f.LinePrefix = linePrefixDominant(oldLines)
 
 	f.MatchesOriginal = in.touched && bytes.Contains(in.original, []byte(in.old)) && !bytes.Contains(in.content, []byte(in.old))
 
-	// locus_line: the first exact occurrence wins when the text is present at
-	// all (ambiguous_match, or stale_read whose edit would have matched);
-	// otherwise fall back to the normalized window, the longest-run alignment,
-	// then the nearest diagnostic anchor.
-	locus := 0
-	switch {
-	case f.MatchCount > 0:
-		locus = lineNumberAt(in.content, bytes.Index(in.content, []byte(in.old)))
-	case haveRegion:
-		locus = matchedLine
-	case run > 0 && startNB >= 0 && startNB < len(fileNBLines):
-		locus = fileNBLines[startNB]
-	default:
-		if _, _, lineNum, _, ok := findDiagnosticAnchor(in.content, in.old); ok {
-			locus = lineNum
-		}
-	}
+	locus := locusLine(in, f.MatchCount, haveRegion, matchedLine, run, startNB, fileNBLines)
 	f.LocusLine = locus
 	f.InReadRange = inReadRange(locus, in.read)
 
 	return f
+}
+
+// linesFoundCount counts how many non-blank old lines appear (after trimming)
+// among the file's trimmed lines.
+func linesFoundCount(oldLines, fileLines []string) int {
+	fileTrimmed := make(map[string]struct{}, len(fileLines))
+	for _, l := range fileLines {
+		fileTrimmed[strings.TrimSpace(l)] = struct{}{}
+	}
+	found := 0
+	for _, l := range oldLines {
+		trimmed := strings.TrimSpace(l)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := fileTrimmed[trimmed]; ok {
+			found++
+		}
+	}
+	return found
+}
+
+// whitespaceFeatures derives the bounded whitespace kind and, for the indent
+// kinds, the largest per-line indent delta against the matched region.
+func whitespaceFeatures(content []byte, old, matchedRegion string, haveRegion bool) (kind string, indentDelta int) {
+	kind = whitespaceKind(content, old, matchedRegion, haveRegion)
+	if kind == "indent_uniform" || kind == "indent_nonuniform" {
+		indentDelta = indentDeltaMax(old, matchedRegion)
+	}
+	return kind, indentDelta
+}
+
+// linePrefixDominant reports whether at least half of the non-blank old lines
+// carry a line-number prefix.
+func linePrefixDominant(oldLines []string) bool {
+	nonBlank, prefixed := linePrefixCounts(oldLines)
+	return prefixed > 0 && prefixed*2 >= nonBlank
+}
+
+// locusLine picks the 1-based locus line for a failed replace: the first exact
+// occurrence wins when the text is present at all (ambiguous_match, or
+// stale_read whose edit would have matched); otherwise it falls back to the
+// normalized window, the longest-run alignment, then the nearest diagnostic
+// anchor.
+func locusLine(in matchFeatureInput, matchCount int, haveRegion bool, matchedLine, run, startNB int, fileNBLines []int) int {
+	switch {
+	case matchCount > 0:
+		return lineNumberAt(in.content, bytes.Index(in.content, []byte(in.old)))
+	case haveRegion:
+		return matchedLine
+	case run > 0 && startNB >= 0 && startNB < len(fileNBLines):
+		return fileNBLines[startNB]
+	default:
+		if _, _, lineNum, _, ok := findDiagnosticAnchor(in.content, in.old); ok {
+			return lineNum
+		}
+	}
+	return 0
 }
 
 // buildMatchSample builds the bounded raw sample recorded for an eligible
