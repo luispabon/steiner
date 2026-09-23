@@ -36,6 +36,11 @@ type cachePayload struct {
 	// from a known predecessor that shares zero messages. It is emitted on
 	// every cache record (no omitempty).
 	PrefixPredecessorKnown bool `json:"prefix_predecessor_known"`
+	// PrefixComparisonEnabled reports whether a session baseline comparison was
+	// active for this request: a usable store plus a nonempty cache key. When
+	// false, PrefixPredecessorKnown is always false because nothing was
+	// compared. Emitted on every cache record (no omitempty).
+	PrefixComparisonEnabled bool `json:"prefix_comparison_enabled"`
 }
 
 // requestCacheStats carries the cache-prefix diagnostics computed for one
@@ -43,6 +48,7 @@ type cachePayload struct {
 type requestCacheStats struct {
 	prefixHash           string
 	sharedPrefixMessages int
+	comparisonEnabled    bool
 	predecessorKnown     bool
 }
 
@@ -64,18 +70,19 @@ func emitCacheDiagnostic(req RunRequest, usage *provider.UsageStats, turn int, s
 		AgentType: req.AgentType,
 		Turn:      turn,
 		Payload: cachePayload{
-			ProviderAlias:          req.ResolvedModel.ProviderAlias,
-			BackendModelID:         req.ResolvedModel.BackendModelID,
-			ProviderType:           string(req.ResolvedModel.EffectiveProviderType),
-			PromptTokens:           usage.PromptTokens,
-			CacheReadTokens:        usage.CacheReadInputTokens,
-			CacheCreateTokens:      usage.CacheCreationInputTokens,
-			CompletionTokens:       usage.CompletionTokens,
-			ColdStart:              coldStart,
-			CacheKeyHash:           shortHash(req.PromptCacheKey),
-			PrefixHash:             stats.prefixHash,
-			SharedPrefixMessages:   stats.sharedPrefixMessages,
-			PrefixPredecessorKnown: stats.predecessorKnown,
+			ProviderAlias:           req.ResolvedModel.ProviderAlias,
+			BackendModelID:          req.ResolvedModel.BackendModelID,
+			ProviderType:            string(req.ResolvedModel.EffectiveProviderType),
+			PromptTokens:            usage.PromptTokens,
+			CacheReadTokens:         usage.CacheReadInputTokens,
+			CacheCreateTokens:       usage.CacheCreationInputTokens,
+			CompletionTokens:        usage.CompletionTokens,
+			ColdStart:               coldStart,
+			CacheKeyHash:            shortHash(req.PromptCacheKey),
+			PrefixHash:              stats.prefixHash,
+			SharedPrefixMessages:    stats.sharedPrefixMessages,
+			PrefixPredecessorKnown:  stats.predecessorKnown,
+			PrefixComparisonEnabled: stats.comparisonEnabled,
 		},
 	})
 }
@@ -87,7 +94,10 @@ func emitCacheDiagnostic(req RunRequest, usage *provider.UsageStats, turn int, s
 func computeRequestCacheStats(req RunRequest, messages []provider.Message) requestCacheStats {
 	hashes := perMessageHashes(messages)
 	stats := requestCacheStats{prefixHash: cumulativePrefixHash(hashes)}
-	if req.CacheBaseline != nil {
+	// A comparison is only meaningful with a usable store and a nonempty cache
+	// key; CompareAndPromote is a no-op otherwise.
+	if req.CacheBaseline != nil && req.PromptCacheKey != "" {
+		stats.comparisonEnabled = true
 		stats.sharedPrefixMessages, stats.predecessorKnown = req.CacheBaseline.CompareAndPromote(cacheBaselineKeyForRequest(req), hashes)
 	}
 	return stats

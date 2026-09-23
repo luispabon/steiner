@@ -313,6 +313,25 @@ func TestEmitCacheDiagnostic_PredecessorKnownAlwaysEmitted(t *testing.T) {
 	}
 }
 
+func TestEmitCacheDiagnostic_ComparisonEnabledEmitted(t *testing.T) {
+	resetColdStart(t)
+	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
+	req := RunRequest{Diagnostics: w}
+	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, requestCacheStats{prefixHash: "aaaa", comparisonEnabled: true})
+	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 2, requestCacheStats{prefixHash: "bbbb"})
+
+	records := readCacheRecords(t, dir)
+	if len(records) != 2 {
+		t.Fatalf("records = %d, want 2", len(records))
+	}
+	if first := string(mustMarshal(t, records[0].Payload)); !strings.Contains(first, `"prefix_comparison_enabled":true`) {
+		t.Errorf("first payload = %s, want prefix_comparison_enabled true", first)
+	}
+	if second := string(mustMarshal(t, records[1].Payload)); !strings.Contains(second, `"prefix_comparison_enabled":false`) {
+		t.Errorf("second payload = %s, want prefix_comparison_enabled false", second)
+	}
+}
+
 func TestComputeRequestCacheStats_PromotesIssuedSequences(t *testing.T) {
 	store := NewCacheBaselineStore()
 	req := RunRequest{
@@ -323,6 +342,9 @@ func TestComputeRequestCacheStats_PromotesIssuedSequences(t *testing.T) {
 	messages := []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}}
 
 	first := computeRequestCacheStats(req, messages)
+	if !first.comparisonEnabled {
+		t.Error("first.comparisonEnabled = false, want true with a store and nonempty key")
+	}
 	if first.predecessorKnown || first.sharedPrefixMessages != 0 {
 		t.Fatalf("first = %+v, want no predecessor", first)
 	}
@@ -341,7 +363,11 @@ func TestComputeRequestCacheStats_EmptyCacheKeySkipsBaseline(t *testing.T) {
 	req := RunRequest{CacheBaseline: store, ResolvedModel: provider.ResolvedModel{BackendModelID: "m"}}
 	messages := []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}}
 	for i := 0; i < 2; i++ {
-		if stats := computeRequestCacheStats(req, messages); stats.predecessorKnown {
+		stats := computeRequestCacheStats(req, messages)
+		if stats.comparisonEnabled {
+			t.Fatalf("call %d enabled comparison with an empty cache key", i)
+		}
+		if stats.predecessorKnown {
 			t.Fatalf("call %d reported a predecessor with an empty cache key", i)
 		}
 	}

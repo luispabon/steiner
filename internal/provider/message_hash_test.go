@@ -66,7 +66,7 @@ func TestMessageHashInput_ImageOrderAndDeterminism(t *testing.T) {
 	if MessageHashInput(ab) == MessageHashInput(ba) {
 		t.Fatal("image order must affect the hash input")
 	}
-	if MessageHashInput(ab) != MessageHashInput(ab) {
+	if first := MessageHashInput(ab); first != MessageHashInput(ab) {
 		t.Fatal("hash input must be deterministic for identical messages")
 	}
 }
