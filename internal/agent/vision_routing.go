@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // handleImagesForVision routes or strips pasted images for a model that
@@ -165,6 +166,7 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 
 	emitEvent(p.request.Events, output.NewToolCallStartedEvent(0, "sub_agent", callID, args))
 
+	ctx = tool.WithCallDiagnostics(ctx, tool.CallDiagnostics{Turn: 0, Model: p.request.ResolvedModel.BackendModelID})
 	raw, err := p.request.Executor.Execute(ctx, "sub_agent", callID, args)
 	if err != nil {
 		return p.failVisionCall(callID, err)

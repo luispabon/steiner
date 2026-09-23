@@ -15,6 +15,10 @@ import (
 // in the flat one: coldturns mode needs cache and tool records that line up
 // in time, while every other mode's assertions count the flat fixtures' rows.
 // It carries no provider stream, since the join never reads one.
+//
+// mutate/ is a third set: its tool and provider records carry the attribution
+// and match-failure fields the mutate analysis mode reads, and it mixes
+// pre-attribution and attributed runs so both grouping rules are exercised.
 func TestSharedFixturesDecode(t *testing.T) {
 	root := filepath.Join("..", "..", "testdata", "diagnostics")
 
@@ -25,6 +29,7 @@ func TestSharedFixturesDecode(t *testing.T) {
 	}{
 		{name: "flat", dir: root, kinds: []Kind{KindCache, KindProvider, KindTool}},
 		{name: "coldturns", dir: filepath.Join(root, "coldturns"), kinds: []Kind{KindCache, KindTool}},
+		{name: "mutate", dir: filepath.Join(root, "mutate"), kinds: []Kind{KindProvider, KindTool}},
 	} {
 		t.Run(set.name, func(t *testing.T) {
 			for _, kind := range set.kinds {

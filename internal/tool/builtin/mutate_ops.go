@@ -76,10 +76,10 @@ func (p *mutatePlanner) planReplace(index int, op MutateOperation) error {
 		return err
 	}
 	if err := p.verifyFileHash(index, "replace", state, op.FileHash); err != nil {
-		return err
+		return p.matchFailure(err, state, op)
 	}
 	if err := p.verifyObserved(index, state, op.FileHash); err != nil {
-		return err
+		return p.matchFailure(err, state, op)
 	}
 	if op.OldString == "" {
 		return fmt.Errorf("mutate: operation %d replace: old_string is empty", index)
@@ -88,9 +88,9 @@ func (p *mutatePlanner) planReplace(index int, op MutateOperation) error {
 	matchCount := bytes.Count(state.content, oldBytes)
 	switch {
 	case matchCount == 0:
-		return errors.New(buildNoMatchDiagnostics(fmt.Sprintf("mutate: operation %d replace", index), state.content, op.OldString, state.path))
+		return p.matchFailure(errors.New(buildNoMatchDiagnostics(fmt.Sprintf("mutate: operation %d replace", index), state.content, op.OldString, state.path)), state, op)
 	case matchCount > 1 && !op.ReplaceAll:
-		return errors.New(buildAmbiguousDiagnostics(fmt.Sprintf("mutate: operation %d replace", index), state.content, op.OldString, matchCount, state.path))
+		return p.matchFailure(errors.New(buildAmbiguousDiagnostics(fmt.Sprintf("mutate: operation %d replace", index), state.content, op.OldString, matchCount, state.path)), state, op)
 	}
 	firstMatch := bytes.Index(state.content, oldBytes)
 	anchorLine := lineNumberAt(state.content, firstMatch)

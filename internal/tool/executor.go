@@ -53,6 +53,10 @@ type Executor struct {
 	// outcome (issue #707 stage 4). A nil writer is a no-op, so unwired paths
 	// and tests need no special handling.
 	diagnostics *diagnostics.Writer
+	// scope tags every tool-stream record this executor writes with its
+	// caller: the top-level parent, or a sub-agent's ID and type. Set once at
+	// construction via WithDiagnosticsScope.
+	scope diagnosticsScope
 }
 
 // NewExecutor creates a new tool executor with the given registry, config, approver,
@@ -87,6 +91,14 @@ func (e *Executor) WithDiagnostics(w *diagnostics.Writer) *Executor {
 	return e
 }
 
+// WithDiagnosticsScope tags every tool-stream record this executor writes with
+// its caller: parent, or a sub-agent's ID and type. It returns the executor
+// for chaining, mirroring WithDiagnostics.
+func (e *Executor) WithDiagnosticsScope(source diagnostics.Source, agentID, agentType string) *Executor {
+	e.scope = diagnosticsScope{source: source, agentID: agentID, agentType: agentType}
+	return e
+}
+
 // WithModeGetter sets the execution mode getter on the executor and returns it
 // for chaining. The getter is called during execution to determine the current
 // mode (plan or build). When non-nil, the mode is threaded through the execution
@@ -107,9 +119,25 @@ func (e *Executor) WorkDir() string {
 // empty when no call ID is available.
 func (e *Executor) Execute(ctx context.Context, toolName, callID string, input map[string]any) (any, error) {
 	start := time.Now()
+	ctx = e.withDiagnosticsCapture(ctx)
 	result, err := e.runPipeline(ctx, executionInput{ToolName: toolName, CallID: callID, Input: input})
-	e.recordDiagnostics(toolName, input, result, err, time.Since(start))
+	e.recordDiagnostics(ctx, toolName, input, result, err, time.Since(start))
 	return result, err
+}
+
+// withDiagnosticsCapture stamps ctx with the tool diagnostics capture level so
+// mutate can decide whether to compute match features. Off when the tool
+// stream is disabled, Bodies when capture_bodies is on, Scalars otherwise.
+// Both writer probes are nil-safe, so an unwired executor yields Off.
+func (e *Executor) withDiagnosticsCapture(ctx context.Context) context.Context {
+	switch {
+	case !e.diagnostics.Enabled(diagnostics.KindTool):
+		return WithDiagnosticsCapture(ctx, DiagnosticsCaptureOff)
+	case e.diagnostics.CaptureBodies():
+		return WithDiagnosticsCapture(ctx, DiagnosticsCaptureBodies)
+	default:
+		return WithDiagnosticsCapture(ctx, DiagnosticsCaptureScalars)
+	}
 }
 
 func normalizeExecutionRoot(workDir string) string {

@@ -297,6 +297,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	// default to paper over.
 	exec := tool.NewExecutor(p.ExecReg, childCfg, nil, p.WorkDir, p.SandboxTmpDir, p.Sandbox)
 	exec = exec.WithDiagnostics(p.Diagnostics)
+	exec = exec.WithDiagnosticsScope(diagnostics.SourceSubAgent, p.AgentID, string(p.AgentType))
 	if p.ModeGetter != nil {
 		exec = exec.WithModeGetter(p.ModeGetter)
 	}

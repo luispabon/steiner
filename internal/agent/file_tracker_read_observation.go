@@ -87,6 +87,8 @@ func (t *FileTracker) recordTrackedRead(canonicalPath, path string, result readR
 	}
 	previous, existed := t.reads[canonicalPath]
 	t.reads[canonicalPath] = next
+	// A re-read makes the path observed again, so it is no longer "read but pruned".
+	delete(t.pruned, canonicalPath)
 	return previous, next, existed
 }
 

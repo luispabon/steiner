@@ -27,6 +27,10 @@ func NewMutateTool(env Env) tool.ToolDef {
 			if checker := tool.FileObservedCheckerFromContext(ctx); checker != nil {
 				plannerEnv.FileObserved = checker
 			}
+			if lookup := tool.FileReadLookupFromContext(ctx); lookup != nil {
+				plannerEnv.FileReadLookup = lookup
+			}
+			plannerEnv.Capture = tool.DiagnosticsCaptureFromContext(ctx)
 			planner := &mutatePlanner{
 				env:    plannerEnv,
 				states: make(map[string]*mutateFileState),

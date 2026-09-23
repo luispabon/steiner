@@ -420,7 +420,16 @@ func (p *turnProgressor) invokeTool(ctx context.Context, turn int, call provider
 	}()
 	if p.request.ContextManager != nil {
 		ctx = tool.WithFileObservedChecker(ctx, p.request.ContextManager.FileObserved)
+		// mutate is not parallel-safe (ParallelClassNone), so this lookup runs
+		// serially with respect to the tracker, same as FileObserved; no extra
+		// locking is needed for the unguarded FileTracker.
+		ctx = tool.WithFileReadLookup(ctx, func(path string) tool.FileReadState {
+			state := p.request.ContextManager.FileReadState(path, turn)
+			state.Known = true
+			return state
+		})
 	}
+	ctx = tool.WithCallDiagnostics(ctx, tool.CallDiagnostics{Turn: turn, Model: p.request.ResolvedModel.BackendModelID})
 	return p.request.Executor.Execute(ctx, call.Name, call.ID, cloneInput(call.Arguments))
 }
 

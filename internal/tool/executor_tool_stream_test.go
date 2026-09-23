@@ -17,13 +17,26 @@ import (
 // payload into toolRecordPayload.
 func readToolRecords(t *testing.T, dir string) []toolRecordPayload {
 	t.Helper()
+	raw := readRawToolRecords(t, dir)
+	records := make([]toolRecordPayload, 0, len(raw))
+	for _, rec := range raw {
+		records = append(records, decodeToolPayload(t, rec.Payload))
+	}
+	return records
+}
+
+// readRawToolRecords reads every record from dir's tool.jsonl, keeping the
+// envelope fields that readToolRecords discards when it decodes only the
+// payload.
+func readRawToolRecords(t *testing.T, dir string) []diagnostics.Record {
+	t.Helper()
 	f, err := os.Open(filepath.Join(dir, "tool.jsonl"))
 	if err != nil {
 		t.Fatalf("open tool.jsonl: %v", err)
 	}
 	defer func() { _ = f.Close() }()
 
-	var records []toolRecordPayload
+	var records []diagnostics.Record
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -34,20 +47,27 @@ func readToolRecords(t *testing.T, dir string) []toolRecordPayload {
 		if err := json.Unmarshal(line, &rec); err != nil {
 			t.Fatalf("unmarshal record: %v", err)
 		}
-		payloadBytes, err := json.Marshal(rec.Payload)
-		if err != nil {
-			t.Fatalf("marshal payload: %v", err)
-		}
-		var payload toolRecordPayload
-		if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-			t.Fatalf("unmarshal payload: %v", err)
-		}
-		records = append(records, payload)
+		records = append(records, rec)
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatalf("scan tool.jsonl: %v", err)
 	}
 	return records
+}
+
+// decodeToolPayload re-encodes a decoded record payload so it can be read back
+// as a toolRecordPayload.
+func decodeToolPayload(t *testing.T, payload any) toolRecordPayload {
+	t.Helper()
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	var p toolRecordPayload
+	if err := json.Unmarshal(payloadBytes, &p); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	return p
 }
 
 func newToolStreamExecutor(t *testing.T, reg *Registry, root string) (*Executor, string) {
@@ -202,6 +222,92 @@ func TestPathExt(t *testing.T) {
 		if got := pathExt(tt.path); got != tt.want {
 			t.Errorf("pathExt(%q) = %q, want %q", tt.path, got, tt.want)
 		}
+	}
+}
+
+func TestExecuteEmitsToolRecordAttribution(t *testing.T) {
+	tests := []struct {
+		name          string
+		scopeSource   diagnostics.Source
+		scopeID       string
+		scopeType     string
+		call          *CallDiagnostics
+		wantSource    diagnostics.Source
+		wantAgentID   string
+		wantAgentType string
+		wantTurn      int
+		wantModel     string
+		// wantOmitted asserts the marshalled record carries none of the
+		// attribution fields, for the unwired path.
+		wantOmitted bool
+	}{
+		{
+			name:          "sub-agent scope with call context",
+			scopeSource:   diagnostics.SourceSubAgent,
+			scopeID:       "agent-7",
+			scopeType:     "code",
+			call:          &CallDiagnostics{Turn: 4, Model: "gpt-test"},
+			wantSource:    diagnostics.SourceSubAgent,
+			wantAgentID:   "agent-7",
+			wantAgentType: "code",
+			wantTurn:      4,
+			wantModel:     "gpt-test",
+		},
+		{
+			name:        "parent scope with call context",
+			scopeSource: diagnostics.SourceParent,
+			call:        &CallDiagnostics{Turn: 2, Model: "parent-model"},
+			wantSource:  diagnostics.SourceParent,
+			wantTurn:    2,
+			wantModel:   "parent-model",
+		},
+		{
+			name:        "nothing set omits attribution",
+			wantOmitted: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			reg := NewRegistry(ToolDef{
+				Name:    "read",
+				Handler: func(_ context.Context, _ map[string]any) (any, error) { return "ok", nil },
+			})
+			executor, diagDir := newToolStreamExecutor(t, reg, root)
+			executor.WithDiagnosticsScope(tt.scopeSource, tt.scopeID, tt.scopeType)
+
+			ctx := context.Background()
+			if tt.call != nil {
+				ctx = WithCallDiagnostics(ctx, *tt.call)
+			}
+			if _, err := executor.Execute(ctx, "read", "", map[string]any{}); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+
+			records := readRawToolRecords(t, diagDir)
+			if len(records) != 1 {
+				t.Fatalf("records = %d, want 1", len(records))
+			}
+			got := records[0]
+			if got.Source != tt.wantSource || got.AgentID != tt.wantAgentID || got.AgentType != tt.wantAgentType || got.Turn != tt.wantTurn {
+				t.Errorf("envelope = source=%q agent_id=%q agent_type=%q turn=%d, want %q/%q/%q/%d",
+					got.Source, got.AgentID, got.AgentType, got.Turn, tt.wantSource, tt.wantAgentID, tt.wantAgentType, tt.wantTurn)
+			}
+			if model := decodeToolPayload(t, got.Payload).Model; model != tt.wantModel {
+				t.Errorf("payload.model = %q, want %q", model, tt.wantModel)
+			}
+			if tt.wantOmitted {
+				raw, err := os.ReadFile(filepath.Join(diagDir, "tool.jsonl"))
+				if err != nil {
+					t.Fatalf("read tool.jsonl: %v", err)
+				}
+				for _, field := range []string{`"source"`, `"agent_id"`, `"agent_type"`, `"turn"`, `"model"`} {
+					if strings.Contains(string(raw), field) {
+						t.Errorf("tool.jsonl contains %s with no scope or call context:\n%s", field, raw)
+					}
+				}
+			}
+		})
 	}
 }
 

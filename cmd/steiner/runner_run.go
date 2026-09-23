@@ -10,6 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -262,6 +263,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	}
 	executor := tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir, sandboxTmpDir, r.sandboxWrapper())
 	executor = executor.WithDiagnostics(r.runtime.diagnostics)
+	executor = executor.WithDiagnosticsScope(diagnostics.SourceParent, "", "")
 	if r.modeGetterFunc != nil {
 		executor = executor.WithModeGetter(r.modeGetterFunc)
 	}

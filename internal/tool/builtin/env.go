@@ -27,6 +27,14 @@ type Env struct {
 	// only). Overridden per-call from the request context by NewMutateTool,
 	// mirroring PathPolicy; nil means "not observed" for any path.
 	FileObserved tool.FileObservedChecker
+	// FileReadLookup reports the agent's last read state for a path, overridden
+	// per-call from the request context by NewMutateTool. Nil means "unknown"
+	// for any path.
+	FileReadLookup tool.FileReadLookup
+	// Capture is the tool diagnostics capture level for the current call,
+	// overridden per-call from the request context by NewMutateTool. Off means
+	// the tool stream is disabled, so mutate computes no match features.
+	Capture tool.DiagnosticsCapture
 	// MutateDiagnostics queries LSP diagnostics for files a mutate call
 	// touched, when an LSP manager is configured and lsp.enabled. Nil when
 	// LSP is disabled or unconfigured — the mutate handler skips diagnostics
