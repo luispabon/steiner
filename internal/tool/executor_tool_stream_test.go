@@ -237,6 +237,9 @@ func TestExecuteEmitsToolRecordAttribution(t *testing.T) {
 		wantAgentType string
 		wantTurn      int
 		wantModel     string
+		// wantOmitted asserts the marshalled record carries none of the
+		// attribution fields, for the unwired path.
+		wantOmitted bool
 	}{
 		{
 			name:          "sub-agent scope with call context",
@@ -257,6 +260,10 @@ func TestExecuteEmitsToolRecordAttribution(t *testing.T) {
 			wantSource:  diagnostics.SourceParent,
 			wantTurn:    2,
 			wantModel:   "parent-model",
+		},
+		{
+			name:        "nothing set omits attribution",
+			wantOmitted: true,
 		},
 	}
 	for _, tt := range tests {
@@ -289,33 +296,18 @@ func TestExecuteEmitsToolRecordAttribution(t *testing.T) {
 			if model := decodeToolPayload(t, got.Payload).Model; model != tt.wantModel {
 				t.Errorf("payload.model = %q, want %q", model, tt.wantModel)
 			}
+			if tt.wantOmitted {
+				raw, err := os.ReadFile(filepath.Join(diagDir, "tool.jsonl"))
+				if err != nil {
+					t.Fatalf("read tool.jsonl: %v", err)
+				}
+				for _, field := range []string{`"source"`, `"agent_id"`, `"agent_type"`, `"turn"`, `"model"`} {
+					if strings.Contains(string(raw), field) {
+						t.Errorf("tool.jsonl contains %s with no scope or call context:\n%s", field, raw)
+					}
+				}
+			}
 		})
-	}
-}
-
-// TestExecuteEmitsToolRecordAttributionOmitted asserts that an executor with
-// neither a diagnostics scope nor call context omits every attribution field
-// from the marshalled record, so unwired paths stay valid.
-func TestExecuteEmitsToolRecordAttributionOmitted(t *testing.T) {
-	root := t.TempDir()
-	reg := NewRegistry(ToolDef{
-		Name:    "read",
-		Handler: func(_ context.Context, _ map[string]any) (any, error) { return "ok", nil },
-	})
-	executor, diagDir := newToolStreamExecutor(t, reg, root)
-
-	if _, err := executor.Execute(context.Background(), "read", "", map[string]any{}); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-
-	raw, err := os.ReadFile(filepath.Join(diagDir, "tool.jsonl"))
-	if err != nil {
-		t.Fatalf("read tool.jsonl: %v", err)
-	}
-	for _, field := range []string{`"source"`, `"agent_id"`, `"agent_type"`, `"turn"`, `"model"`} {
-		if strings.Contains(string(raw), field) {
-			t.Errorf("tool.jsonl contains %s with no scope or call context:\n%s", field, raw)
-		}
 	}
 }
 
