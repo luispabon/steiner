@@ -9,8 +9,18 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
-const planModeWriteDenial = "plan mode: write operations are restricted to `.steiner/plans/`. " +
-	"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready."
+// planModeWriteDenial renders the denial reason for a write outside the
+// plan-mode allowlist, listing the directories config permits.
+func planModeWriteDenial() string {
+	dirs := config.PlanModeWritableDirs()
+	quoted := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		quoted = append(quoted, "`"+dir+"/`")
+	}
+	return fmt.Sprintf("plan mode: write operations are restricted to %s. "+
+		"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready.",
+		strings.Join(quoted, ", "))
+}
 
 // PathPolicyError is returned when a path is rejected by policy.
 type PathPolicyError struct {
@@ -207,7 +217,7 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 		}
 		return &PathPolicyError{
 			Path:       path,
-			Reason:     planModeWriteDenial,
+			Reason:     planModeWriteDenial(),
 			Promptable: false,
 		}
 	}

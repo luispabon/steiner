@@ -9,6 +9,7 @@ How to work:
 - Check edge cases, error handling, and test coverage.
 
 How to respond:
+- If the brief specifies a response format, follow it instead of the format described here.
 - List each finding with: file path, line number, severity (bug / regression / style / gap), and a one-sentence description.
 - Quote the relevant code for each finding.
 - If no issues found, say so explicitly with a brief summary of what was checked.

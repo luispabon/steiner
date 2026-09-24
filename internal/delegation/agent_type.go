@@ -77,7 +77,7 @@ var agentAllowlists = map[AgentType][]string{
 	AgentTypeExplore:     {"read", "glob", "grep", "ls", "bash", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
 	AgentTypeResearch:    {"read", "glob", "grep", "ls", "web_search", "fetch_url"},
 	AgentTypeCode:        {"read", "glob", "grep", "ls", "mutate", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
-	AgentTypeEvaluate:    {"read", "glob", "grep", "ls", "advisor"},
+	AgentTypeEvaluate:    {"read", "glob", "grep", "ls", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
 	AgentTypeSanityCheck: {"read", "glob", "grep", "ls", "bash"},
 	AgentTypeReview:      {"read", "glob", "grep", "ls", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
 	AgentTypeVision:      {"read"},
@@ -147,7 +147,7 @@ func AgentSystemSuffix(t AgentType, advisorEnabled, lspEnabled bool) string {
 	if advisorEnabled && (t == AgentTypeCode || t == AgentTypeReview || t == AgentTypeEvaluate) {
 		suffixes = append(suffixes, advisorAgentSuffix)
 	}
-	if lspEnabled && (t == AgentTypeExplore || t == AgentTypeCode || t == AgentTypeReview) {
+	if lspEnabled && (t == AgentTypeExplore || t == AgentTypeCode || t == AgentTypeReview || t == AgentTypeEvaluate) {
 		suffixes = append(suffixes, lspAgentSuffix)
 	}
 	return strings.Join(suffixes, "\n\n")

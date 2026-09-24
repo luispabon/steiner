@@ -36,12 +36,15 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 	// Project workspace binding: read-only or writable depending on plan mode.
 	if readOnlyProject {
 		args = append(args, "--ro-bind", writableRoot, writableRoot)
-		args = append(args, "--bind", filepath.Join(writableRoot, ".steiner", "plans"), filepath.Join(writableRoot, ".steiner", "plans"))
+		for _, dir := range config.PlanModeWritableDirs() {
+			path := filepath.Join(writableRoot, filepath.FromSlash(dir))
+			args = append(args, "--bind", path, path)
+		}
 		// Plan mode keeps the working tree read-only but must still allow git
 		// metadata operations (branch/commit/stage) so a planning session can
-		// hand off to implementation. .git is existence-gated (unlike
-		// .steiner/plans, it cannot be created) and bound whole rather than by
-		// path, since git writes transient lock files (index.lock,
+		// hand off to implementation. .git is existence-gated (unlike the
+		// plan-mode writable directories, it cannot be created) and bound whole
+		// rather than by path, since git writes transient lock files (index.lock,
 		// config.lock, packed-refs.new) that don't exist at mount time.
 		for _, gitBind := range gitWritableBinds(writableRoot) {
 			args = append(args, "--bind", gitBind, gitBind)

@@ -71,6 +71,15 @@ func (s *Sandbox) TmpDir() string {
 	return s.tmpDir
 }
 
+// ensurePlanModeDirs best-effort creates the plan-mode writable directories.
+// The binds fail if they still don't exist, but a failed create attempt must
+// not block sandboxing.
+func ensurePlanModeDirs(root string) {
+	for _, dir := range config.PlanModeWritableDirs() {
+		_ = os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755)
+	}
+}
+
 // WrapCommandMode wraps cmd with bubblewrap, optionally with project read-only mode.
 // Returns cmd unchanged when sandbox is disabled. When enabled but bwrap could
 // not be resolved, it fails closed with an error instead of returning cmd.
@@ -92,7 +101,7 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cm
 	}
 
 	if readOnlyProject {
-		_ = os.MkdirAll(filepath.Join(s.root, ".steiner", "plans"), 0o755) // Best-effort; bind will fail if it still doesn't exist, but create attempt must not block.
+		ensurePlanModeDirs(s.root)
 	}
 
 	sandboxHome := filepath.Join(s.root, ".steiner", "home")

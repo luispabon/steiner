@@ -101,17 +101,18 @@ func TestWrapCommandMode_True_CreatesSteinerdDir(t *testing.T) {
 		t.Fatal("expected wrapping when sandbox enabled and readOnlyProject=true")
 	}
 
-	steinerPlansPath := filepath.Join(root, ".steiner", "plans")
-	if _, err := os.Stat(steinerPlansPath); err != nil {
-		t.Errorf("expected .steiner/plans directory to be created: %v", err)
+	for _, dir := range config.PlanModeWritableDirs() {
+		path := filepath.Join(root, filepath.FromSlash(dir))
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected %s directory to be created: %v", dir, err)
+		}
+		if !containsSeq(wrapped.Args, "--bind", path, path) {
+			t.Errorf("expected --bind %s %s in args: %v", path, path, wrapped.Args)
+		}
 	}
 
 	if !containsSeq(wrapped.Args, "--ro-bind", root, root) {
 		t.Errorf("expected --ro-bind %s %s in args: %v", root, root, wrapped.Args)
-	}
-
-	if !containsSeq(wrapped.Args, "--bind", steinerPlansPath, steinerPlansPath) {
-		t.Errorf("expected --bind %s %s in args: %v", steinerPlansPath, steinerPlansPath, wrapped.Args)
 	}
 }
 

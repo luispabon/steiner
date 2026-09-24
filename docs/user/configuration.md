@@ -550,7 +550,7 @@ Controls execution mode configuration.
 
 | Field     | Type   | Default   | Description                                                                                                                                                               |
 | --------- | ------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `default` | string | `"build"` | Execution mode for interactive sessions. Allowed values: `"plan"` or `"build"`. `plan` restricts project edits to `.steiner/plans/`; `build` is normal workspace editing. |
+| `default` | string | `"build"` | Execution mode for interactive sessions. Allowed values: `"plan"` or `"build"`. `plan` restricts project edits to `.steiner/plans/` and `.steiner/security/`; `build` is normal workspace editing. |
 
 ```yaml
 modes:
