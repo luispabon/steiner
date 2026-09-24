@@ -977,6 +977,56 @@ func TestRunPipeline_PlanMode_DeniesTypoPath(t *testing.T) {
 	}
 }
 
+func TestRunPipeline_ModeGetter_PlanMode_AllowsConfigDirsDeniesOthers(t *testing.T) {
+	reg := NewRegistry(ToolDef{
+		Name:    "mutate",
+		Handler: func(_ context.Context, _ map[string]any) (any, error) { return map[string]any{"ok": true}, nil },
+	})
+	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{}).
+		WithModeGetter(func() config.ExecutionMode { return config.ExecutionModePlan })
+
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{name: "security report allowed", path: ".steiner/security/audit.md"},
+		{name: "plan artifact allowed", path: ".steiner/plans/slug/plan.md"},
+		{name: "source write denied", path: "src/main.go", wantErr: true},
+		{name: "other steiner dir denied", path: ".steiner/home/note.txt", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := executor.Execute(context.Background(), "mutate", "", map[string]any{
+				"operations": []any{
+					map[string]any{"type": "write", "path": tc.path, "content": "x"},
+				},
+			})
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("Execute() error = %v, want nil for %s in plan mode", err, tc.path)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Execute() error = nil, want policy_denied for %s in plan mode", tc.path)
+			}
+			var toolErr *ToolExecutionError
+			if !errors.As(err, &toolErr) {
+				t.Fatalf("error type = %T, want *ToolExecutionError", err)
+			}
+			if toolErr.Kind != "policy_denied" {
+				t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
+			}
+			for _, dir := range config.PlanModeWritableDirs() {
+				if !strings.Contains(toolErr.Message, "`"+dir+"/`") {
+					t.Fatalf("error message = %q, want to list %q", toolErr.Message, "`"+dir+"/`")
+				}
+			}
+		})
+	}
+}
+
 // TestRunPipeline_PlanMode_BashAndSubprocessBothReadOnly is a regression test
 // for the plan-mode divergence that motivated this refactor: bash and
 // subprocess-backed tools must receive the same readOnlyProject decision from

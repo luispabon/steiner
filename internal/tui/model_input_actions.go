@@ -360,23 +360,30 @@ func (m *Model) executeSubmitAction(submitText string, displayText string) (tea.
 }
 
 // skillExecutionMode returns the execution mode a direct `/skillname`
-// invocation should switch the session into. The plan skill is the only
-// plan-only workflow; every other skill (implement, review, simplify,
-// pull-request, and any project/user-defined skill) implies normal
-// workspace editing, so it maps to build mode.
-func skillExecutionMode(skillName string) config.ExecutionMode {
-	if skillName == "plan" {
-		return config.ExecutionModePlan
+// invocation should switch the session into, and whether a switch is needed at
+// all. The plan skill is the only plan-only workflow; every other skill
+// (implement, review, simplify, pull-request, and any project/user-defined
+// skill) implies normal workspace editing, so it maps to build mode. The
+// security-audit skill reports on the current state rather than editing, so it
+// preserves the mode the session is already in and requests no switch.
+func skillExecutionMode(skillName string) (config.ExecutionMode, bool) {
+	switch skillName {
+	case "plan":
+		return config.ExecutionModePlan, true
+	case "security-audit":
+		return "", false
 	}
-	return config.ExecutionModeBuild
+	return config.ExecutionModeBuild, true
 }
 
 func (m *Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea.Cmd) {
 	m = m.updateSkillState(skillName, true)
 
 	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.SwitchMode{Mode: skillExecutionMode(skillName)}); err != nil {
-			m.appendError(err)
+		if mode, switchMode := skillExecutionMode(skillName); switchMode {
+			if err := m.controller.Handle(context.Background(), interactive.SwitchMode{Mode: mode}); err != nil {
+				m.appendError(err)
+			}
 		}
 	}
 	m.syncSidebar()

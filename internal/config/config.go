@@ -10,6 +10,15 @@ const (
 	ExecutionModeBuild ExecutionMode = "build"
 )
 
+// PlanModeWritableDirs returns the project-relative directories that stay
+// writable in plan mode. It is the single source of truth for tool policy, the
+// plan-mode denial message, sandbox mounts, and the best-effort directory
+// creation performed before sandboxed commands run. A fresh slice is returned
+// on each call so callers cannot mutate the shared list.
+func PlanModeWritableDirs() []string {
+	return []string{".steiner/plans", ".steiner/security"}
+}
+
 // OrchestrationLevel controls how strongly the system preamble steers the
 // orchestrator towards sub-agent delegation.
 type OrchestrationLevel string
