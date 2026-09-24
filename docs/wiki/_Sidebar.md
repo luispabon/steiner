@@ -20,6 +20,7 @@
 - [MCP](user-mcp)
 - [LSP](user-lsp)
 - [Advisor](user-advisor)
+- [Security audit](user-security-audit)
 - [Cache stats](user-cache-stats)
 - [Desktop notifications](user-desktop-notifications)
 - [Images](user-images)

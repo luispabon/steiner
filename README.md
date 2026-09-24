@@ -14,6 +14,7 @@ A minimal, local-first Go coding agent with bounded context and sandboxed execut
 - Bounded context through delegation, budgets, and compaction. See [Context management](docs/user/context-management.md).
 - Structured tools, optional language-server and MCP integrations. See [Tools](docs/user/tools.md), [LSP](docs/user/lsp.md), and [MCP](docs/user/mcp.md).
 - Plan/build execution modes and resumable autonomous runs. See [Execution modes](docs/user/execution-modes.md) and [Oneshot](docs/user/oneshot.md).
+- Static, read-only security audits of a diff or repository, with adversarial verification. See [Security audit](docs/user/security-audit.md).
 - Sandboxed commands by default. See [Sandboxing](docs/user/sandboxing.md).
 - Optional advisor, model discovery, image input, notifications, and cache statistics. See [Optional features](docs/user/optional-features.md).
 
