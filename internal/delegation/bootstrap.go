@@ -106,7 +106,7 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		}
 	}
 
-	readOnlyBash := deps.SandboxEnabled && override.AgentType == AgentTypeExplore
+	readOnlyBash := deps.SandboxEnabled && (override.AgentType == AgentTypeExplore || override.AgentType == AgentTypeEvaluate)
 	traceRoot := override.ProjectRoot
 	if traceRoot == "" {
 		traceRoot = deps.WorkDir

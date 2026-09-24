@@ -200,6 +200,12 @@ func TestAgentSystemSuffix(t *testing.T) {
 			},
 		},
 		{
+			name:       "evaluate agent suffix with lsp",
+			agentType:  AgentTypeEvaluate,
+			lspEnabled: true,
+			contains:   []string{lspAgentSuffix},
+		},
+		{
 			name:           "explore agent has no suffix with advisor enabled",
 			agentType:      AgentTypeExplore,
 			advisorEnabled: true,
@@ -264,9 +270,17 @@ func TestAgentAllowedTools(t *testing.T) {
 		}
 	})
 
-	t.Run("evaluate has no mutation tools and no lsp tools", func(t *testing.T) {
+	t.Run("evaluate has bash and lsp tools but no mutation tools", func(t *testing.T) {
 		tools := AgentAllowedTools(AgentTypeEvaluate)
-		for _, m := range append(legacyMutationTools, "bash", "mutate", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols") {
+		if !slices.Contains(tools, "bash") {
+			t.Fatal("AgentAllowedTools(evaluate) missing bash")
+		}
+		for _, lspTool := range []string{"lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"} {
+			if !slices.Contains(tools, lspTool) {
+				t.Fatalf("AgentAllowedTools(evaluate) missing %q", lspTool)
+			}
+		}
+		for _, m := range append(legacyMutationTools, "mutate") {
 			if slices.Contains(tools, m) {
 				t.Fatalf("AgentAllowedTools(evaluate) should not contain %q", m)
 			}

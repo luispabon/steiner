@@ -14,7 +14,7 @@ The write restriction for `mutate` and other path-writing tools, and the denial 
 
 The executor resolves the sandbox decision once per tool call in `internal/tool.Executor.runPipeline`. Both the `bash` and subprocess dispatch paths consume that same `readOnlyProject` decision. An earlier implementation computed the paths independently, which let a config-defined subprocess tool retain a writable project mount in plan mode while `bash` was read-only. The shared resolution now keeps those paths aligned.
 
-The composition root threads the parent's live execution-mode getter into every child executor as `ModeGetter`. A child executor therefore sees plan mode when its parent is in plan mode: its `mutate` calls are restricted to `.steiner/plans/` and `.steiner/security/`, and its `bash` and subprocess calls receive the read-only project mount. This is inherited runtime state, not a per-agent-type policy. The existing `readOnlyBash` flag for `explore` children remains a separate allowlist-specific restriction.
+The composition root threads the parent's live execution-mode getter into every child executor as `ModeGetter`. A child executor therefore sees plan mode when its parent is in plan mode: its `mutate` calls are restricted to `.steiner/plans/` and `.steiner/security/`, and its `bash` and subprocess calls receive the read-only project mount. This is inherited runtime state, not a per-agent-type policy. The existing `readOnlyBash` flag for `explore` and `evaluate` children remains a separate allowlist-specific restriction.
 
 ## Child prompt composition
 
