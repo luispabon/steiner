@@ -12,7 +12,7 @@ Use it before shipping a change or when onboarding to unfamiliar code:
 - audit the repository, or a subtree, as a whole
 - get an adversarial second opinion on each candidate before you trust it
 
-The only write is the report file. The audit never modifies code, configuration, or `.gitignore`, and never stages, commits, or reverts anything.
+The only file the audit writes is the report. It never modifies code, configuration, or `.gitignore`, and never stages, commits, or reverts anything.
 
 ## Usage
 
@@ -57,12 +57,13 @@ Diff mode expands each changed symbol by one hop: direct callers and callees, th
 The audit runs as a fixed multi-agent pipeline:
 
 1. **Map** — one `explore` sub-agent builds an attack-surface map: entry points, trust boundaries, sensitive sinks, authn/authz chokepoints, validation patterns, secret handling, config and deployment files, dependency manifests, and AI/LLM usage signals. It makes no vulnerability judgements.
-2. **Advisor checkpoint 1** — optional, only when the `advisor` tool is available. Asks whether the map and chosen lenses miss an attack surface or a relevant lens.
-3. **Lens selection and find** — one `review` sub-agent per selected lens, run in parallel. A lens runs only when the map shows relevant surface; every skipped lens is recorded with its reason.
-4. **Synthesise** — parent work. Deduplicates by root cause, flags locations raised by more than one lens, promotes out-of-lens observations, and assigns stable IDs (`SA-001`, `SA-002`, …).
-5. **Verify** — one fresh `evaluate` sub-agent per candidate, given the claim as a neutral hypothesis and never the finder's reasoning, confidence, or severity. Each verifier tries to disprove the claim.
-6. **Advisor checkpoint 2** — optional, only when the `advisor` tool is available. Asks whether the verdicts and severities hold up. Feedback may trigger a fresh verifier run or a severity change, but never promotes a candidate to `supported` on its own.
-7. **Report** — written to disk as described below.
+2. **Lens selection** — lenses are selected from the map. A lens runs only when the map shows relevant surface; every skipped lens is recorded with its reason.
+3. **Advisor checkpoint 1** — optional, only when the `advisor` tool is available. Asks whether the map and chosen lenses miss an attack surface or a relevant lens.
+4. **Find** — one `review` sub-agent per selected lens, run in parallel.
+5. **Synthesise** — parent work. Deduplicates by root cause, flags locations raised by more than one lens, promotes out-of-lens observations, and assigns stable IDs (`SA-001`, `SA-002`, …).
+6. **Verify** — one fresh `evaluate` sub-agent per candidate, given the claim as a neutral hypothesis and never the finder's reasoning, confidence, or severity. Each verifier tries to disprove the claim.
+7. **Advisor checkpoint 2** — optional, only when the `advisor` tool is available. Asks whether the verdicts and severities hold up. Feedback may trigger a fresh verifier run or a severity change, but never promotes a candidate to `supported` on its own.
+8. **Report** — written to disk as described below.
 
 ## Lenses
 
@@ -135,7 +136,7 @@ If no override is set, `evaluate` uses the profile's `default_model`. See [Recom
 
 ## Cost and limits
 
-The audit has no built-in caps: no limit on the number of finders, verifiers, or expanded context hops. Cost and latency scale with the scope you audit, so a whole-repository run on a large codebase can be expensive. Start with a diff or a subtree when in doubt.
+The audit has no built-in caps: no limit on the number of finders, verifiers, or context files pulled in by the one-hop expansion. Cost and latency scale with the scope you audit, so a whole-repository run on a large codebase can be expensive. Start with a diff or a subtree when in doubt.
 
 Limitations to keep in mind:
 
@@ -146,7 +147,8 @@ Limitations to keep in mind:
 
 ## Safety
 
-- Read-only: the only write is the report file.
+- The only file the audit writes is the report; nothing else is ever created, modified, or deleted.
+- When sandboxing is enabled, the mapper and verifiers run with the project mounted read-only. Finders don't get a read-only mount in build mode, so for them read-only is an instruction in the brief, not an enforced restriction. In plan mode the whole project is read-only apart from `.steiner/plans/`, `.steiner/security/`, and `.git` when sandboxed.
 - Repository files and tool output are treated as untrusted data, never as instructions.
 - No exploit payloads, no secret values, no "secure" claims.
 - Execution mode is never switched; plan mode stays plan mode.
