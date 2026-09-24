@@ -35,7 +35,7 @@ Before touching git:
 
 ## Scope Resolution
 
-Every git call is `git --no-pager` with `--no-ext-diff --no-textconv --no-color`; diffs add `--ignore-submodules=all --find-renames`. Below, `$DIFF` stands for `git --no-pager diff --no-ext-diff --no-textconv --no-color --ignore-submodules=all --find-renames`; always run the expanded form.
+Every git call uses `git --no-pager`. Every `git diff` and `git show` call adds `--no-ext-diff --no-textconv --no-color`; `git diff` also adds `--ignore-submodules=all --find-renames`. Below, `<DIFF>` is a placeholder, like `<BASE>`: replace it with `git --no-pager diff --no-ext-diff --no-textconv --no-color --ignore-submodules=all --find-renames` before running.
 
 ### Diff Mode
 
@@ -44,20 +44,20 @@ Every git call is `git --no-pager` with `--no-ext-diff --no-textconv --no-color`
 3. Changed paths are the union of the following; keep status, rename, and delete info when deduplicating:
 
    ```
-   $DIFF --name-status <BASE> HEAD
-   $DIFF --name-status --cached
-   $DIFF --name-status
+   <DIFF> --name-status <BASE> HEAD
+   <DIFF> --name-status --cached
+   <DIFF> --name-status
    git --no-pager ls-files --others --exclude-standard
    ```
 
 4. Empty set: stop with an error. Never fall back to repo mode.
-5. Audit the final working-tree content of each changed path. Deletion pre-images: committed → `git --no-pager show <BASE>:<path>`; staged-only → `HEAD:<path>`; unstaged → index `:<path>`, else `HEAD:<path>`.
+5. Audit the final working-tree content of each changed path. Deletion pre-images: committed → `git --no-pager show --no-ext-diff --no-textconv --no-color <BASE>:<path>`; staged-only → `HEAD:<path>`; unstaged → index `:<path>`, else `HEAD:<path>`.
 6. Binary paths show `-` for both counts in:
 
    ```
-   $DIFF --numstat <BASE> HEAD
-   $DIFF --numstat --cached
-   $DIFF --numstat
+   <DIFF> --numstat <BASE> HEAD
+   <DIFF> --numstat --cached
+   <DIFF> --numstat
    git --no-pager diff --no-index --no-ext-diff --no-textconv --no-color --numstat -- /dev/null <path>   # per untracked path; exit 1 on a non-empty file is expected
    ```
 
