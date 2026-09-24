@@ -88,6 +88,10 @@ Analyze branch changes for structural and code quality improvements before revie
 
 `/simplify` does not hunt for bugs — use `/review` for that. All proposed changes preserve existing behavior.
 
+## Security audit
+
+`/security-audit` statically reviews a git diff or a repository for security weaknesses, running per-domain finders and adversarially verifying each candidate with a fresh evaluator. It is read-only apart from a create-only report under `.steiner/security/`, requires delegation, and preserves the current execution mode. See [Security audit](security-audit.md).
+
 ## Codex OAuth
 
 Use an OpenAI Codex subscription with Steiner without a separate API key. For the login, status, provider, and raw model reference setup, see [Codex OAuth in Provider and model setup](provider-and-model-setup.md#codex-oauth).
