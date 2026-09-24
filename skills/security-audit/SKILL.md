@@ -18,7 +18,7 @@ Review source statically for security weaknesses, in a diff or across a reposito
 
 ## Preconditions
 
-- The `sub_agent` tool must be available. If not, stop and tell the user the audit needs delegation enabled (`delegation.enabled: true`); there is no inline fallback, so do not map, find, or verify yourself (D5).
+- The `sub_agent` tool must be available. If not, stop and tell the user the audit needs delegation enabled (`sub_agent.enabled: true`); there is no inline fallback, so do not map, find, or verify yourself (D5).
 - `.steiner/security/` must be writable; if it cannot be created, stop before starting.
 
 ## Arguments
