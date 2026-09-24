@@ -1552,7 +1552,7 @@ func TestChildModeGetterAppliesReadOnlyProjectInPlanMode(t *testing.T) {
 	}
 }
 
-func TestChildExploreBashContextIsReadOnly(t *testing.T) {
+func TestChildReadOnlyBashContextByAgentType(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
@@ -1560,6 +1560,8 @@ func TestChildExploreBashContextIsReadOnly(t *testing.T) {
 		want      bool
 	}{
 		{name: "explore with sandbox", agentType: AgentTypeExplore, want: true},
+		{name: "evaluate with sandbox", agentType: AgentTypeEvaluate, want: true},
+		{name: "review with sandbox", agentType: AgentTypeReview, want: false},
 		{name: "code with sandbox", agentType: AgentTypeCode, want: false},
 	}
 

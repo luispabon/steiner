@@ -101,6 +101,7 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 - The parent-only `workflow_handoff` tool is not included in child allowlists yet.
 - Only the `code` sub-agent has access to file-mutation tools (`mutate`).
 - `explore`, `research`, `evaluate`, and `vision` are read-only.
+- `explore` and `evaluate` can run commands via `bash` (for `git diff`, `git log`, `git show`, `grep`, `find`, etc.); when sandboxing is enabled, `bash` runs with the project mounted read-only, so writes to the workspace fail.
 - `sanity_check` and `review` can run commands via `bash` (for tests, `git diff`, `git log`, etc.) but must not modify files.
 - MCP tools are registered from third-party servers and are only exposed to sub-agents when the server's `sub_agents` list explicitly includes the agent type. Approval is per-server and controlled by the parent's configuration.
 - All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
@@ -116,7 +117,7 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 | `explore`  | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox), `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
 | `research` | `read`, `glob`, `grep`, `ls`, `web_search`\*, `fetch_url`\* |
 | `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `advisor`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
-| `evaluate`    | `read`, `glob`, `grep`, `ls`, `advisor`                     |
+| `evaluate`    | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox), `advisor`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
 | `sanity_check`| `read`, `glob`, `grep`, `ls`, `bash`                        |
 | `vision`   | `read`                                                      |
 | `review`      | `read`, `glob`, `grep`, `ls`, `bash`, `advisor`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |

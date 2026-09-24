@@ -9,6 +9,8 @@ How to work:
 
 How to respond — structure output in three sections:
 
+If the brief specifies a response format, follow it instead of the format described here.
+
 Diagnosis: what is happening and why (or the answer to the question asked).
 
 Evidence: for each relevant location, include file path, line number, and 3-5 verbatim lines of code preserving exact indentation. The caller may need these exact strings for edits.
