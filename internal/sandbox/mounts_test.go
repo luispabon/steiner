@@ -195,6 +195,24 @@ func TestBuildArgs_ReadOnlyProject_RoBindsRootAndBindsSteiner(t *testing.T) {
 	}
 }
 
+func TestBuildArgs_ReadOnlyProject_BindsPlanModeWritableDirs(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range config.PlanModeWritableDirs() {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", true, config.PermissionsConfig{}, false)
+
+	for _, dir := range config.PlanModeWritableDirs() {
+		path := filepath.Join(root, filepath.FromSlash(dir))
+		if !containsSeq(args, "--bind", path, path) {
+			t.Errorf("expected --bind %s %s in args: %v", path, path, args)
+		}
+	}
+}
+
 func TestBuildArgs_ReadOnlyProject_False_UnchangedFromBefore(t *testing.T) {
 	root := "/test/root"
 	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", false, config.PermissionsConfig{}, false)

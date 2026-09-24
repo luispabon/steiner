@@ -945,6 +945,30 @@ func TestPolicy_RestrictWritesTo_DeniesSrcWrites(t *testing.T) {
 	}
 }
 
+func TestPolicy_RestrictWritesTo_DenialReasonListsConfigDirs(t *testing.T) {
+	policy := NewPathPolicy("/project", config.PathsConfig{})
+	dirs := config.PlanModeWritableDirs()
+	prefixes := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		prefixes = append(prefixes, filepath.Join(policy.Root(), dir))
+	}
+	restricted := policy.RestrictWritesTo(prefixes...)
+
+	_, err := restricted.ResolvePath("src/main.go", true)
+	if err == nil {
+		t.Fatal("ResolvePath(src/main.go, writable) = nil, want error")
+	}
+	var policyErr *PathPolicyError
+	if !errors.As(err, &policyErr) {
+		t.Fatalf("error type = %T, want *PathPolicyError", err)
+	}
+	for _, dir := range dirs {
+		if !strings.Contains(policyErr.Reason, "`"+dir+"/`") {
+			t.Fatalf("Reason = %q, want to contain %q", policyErr.Reason, "`"+dir+"/`")
+		}
+	}
+}
+
 func TestPolicy_RestrictWritesTo_AllowsRootSubtree(t *testing.T) {
 	policy := NewPathPolicy("/project", config.PathsConfig{})
 	restricted := policy.RestrictWritesTo(filepath.Join(policy.Root(), ".steiner"))

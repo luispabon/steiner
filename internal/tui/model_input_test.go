@@ -477,13 +477,15 @@ func TestArgSkillInvocationEnablesAndSubmitsArgs(t *testing.T) {
 func TestSkillInvocationSwitchesExecutionMode(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		skill    string
-		wantMode config.ExecutionMode
+		skill      string
+		wantMode   config.ExecutionMode
+		wantSwitch bool
 	}{
-		{"plan", config.ExecutionModePlan},
-		{"implement", config.ExecutionModeBuild},
-		{"review", config.ExecutionModeBuild},
-		{"someCustomSkill", config.ExecutionModeBuild},
+		{"plan", config.ExecutionModePlan, true},
+		{"implement", config.ExecutionModeBuild, true},
+		{"review", config.ExecutionModeBuild, true},
+		{"someCustomSkill", config.ExecutionModeBuild, true},
+		{"security-audit", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.skill, func(t *testing.T) {
@@ -504,8 +506,37 @@ func TestSkillInvocationSwitchesExecutionMode(t *testing.T) {
 					got = append(got, sm.Mode)
 				}
 			}
+			if !tt.wantSwitch {
+				if len(got) != 0 {
+					t.Fatalf("SwitchMode actions = %#v, want none for %q", got, tt.skill)
+				}
+				return
+			}
 			if len(got) != 1 || got[0] != tt.wantMode {
 				t.Fatalf("SwitchMode actions = %#v, want exactly one with mode %q", got, tt.wantMode)
+			}
+		})
+	}
+}
+
+func TestSkillExecutionMode(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		skill      string
+		wantMode   config.ExecutionMode
+		wantSwitch bool
+	}{
+		{"plan", config.ExecutionModePlan, true},
+		{"review", config.ExecutionModeBuild, true},
+		{"implement", config.ExecutionModeBuild, true},
+		{"security-audit", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.skill, func(t *testing.T) {
+			t.Parallel()
+			gotMode, gotSwitch := skillExecutionMode(tt.skill)
+			if gotMode != tt.wantMode || gotSwitch != tt.wantSwitch {
+				t.Fatalf("skillExecutionMode(%q) = (%q, %v), want (%q, %v)", tt.skill, gotMode, gotSwitch, tt.wantMode, tt.wantSwitch)
 			}
 		})
 	}
