@@ -7,7 +7,6 @@ import (
 func chatRequestWire(request ChatRequest, defaultModel string, stream bool) (openAIRequest, error) {
 	wire := openAIRequest{
 		Model:       defaultModel,
-		Messages:    make([]openAIMessage, 0, len(request.Messages)),
 		MaxTokens:   request.MaxTokens,
 		Stream:      stream,
 		Reasoning:   request.Reasoning,
@@ -20,40 +19,62 @@ func chatRequestWire(request ChatRequest, defaultModel string, stream bool) (ope
 	if stream {
 		wire.StreamOptions = &openAIStreamOptions{IncludeUsage: true}
 	}
-	if len(request.Tools) > 0 {
-		wire.Tools = make([]openAITool, 0, len(request.Tools))
-		for _, tool := range request.Tools {
-			wire.Tools = append(wire.Tools, openAITool{
-				Type: tool.Type,
-				Function: openAIToolFunction{
-					Name:        tool.Function.Name,
-					Description: tool.Function.Description,
-					Parameters:  tool.Function.Parameters,
-				},
-			})
-		}
+	wire.Tools = toOpenAITools(request.Tools)
+	messages, err := toOpenAIWireMessages(request.Messages)
+	if err != nil {
+		return openAIRequest{}, err
 	}
-	// OpenAI requires the tool messages answering an assistant turn's tool_calls
-	// to follow it contiguously. A tool result's image parts would break that run,
-	// so defer them and emit them as one user message once the run ends.
+	wire.Messages = messages
+	if request.IncludeEmptyReasoning {
+		fillEmptyReasoningContent(wire.Messages)
+	}
+	return wire, nil
+}
+
+// toOpenAITools converts request tool specs to wire tools, or nil when there are
+// none.
+func toOpenAITools(tools []ToolSpec) []openAITool {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]openAITool, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, openAITool{
+			Type: tool.Type,
+			Function: openAIToolFunction{
+				Name:        tool.Function.Name,
+				Description: tool.Function.Description,
+				Parameters:  tool.Function.Parameters,
+			},
+		})
+	}
+	return out
+}
+
+// toOpenAIWireMessages converts request messages to wire messages. OpenAI
+// requires the tool messages answering an assistant turn's tool_calls to follow
+// it contiguously. A tool result's image parts would break that run, so they are
+// deferred and emitted as one user message once the run ends.
+func toOpenAIWireMessages(messages []Message) ([]openAIMessage, error) {
+	out := make([]openAIMessage, 0, len(messages))
 	var pendingImageParts []openAIContentPart
 	flushImages := func() {
 		if len(pendingImageParts) == 0 {
 			return
 		}
-		wire.Messages = append(wire.Messages, openAIMessage{Role: "user", Content: pendingImageParts})
+		out = append(out, openAIMessage{Role: "user", Content: pendingImageParts})
 		pendingImageParts = nil
 	}
-	for _, msg := range request.Messages {
+	for _, msg := range messages {
 		if msg.Role != MessageRoleTool {
 			flushImages()
 		}
 		wireMsgs, err := toOpenAIMessages(msg)
 		if err != nil {
-			return openAIRequest{}, err
+			return nil, err
 		}
 		if msg.Role == MessageRoleTool && len(wireMsgs) > 1 {
-			wire.Messages = append(wire.Messages, wireMsgs[0])
+			out = append(out, wireMsgs[0])
 			for _, extra := range wireMsgs[1:] {
 				if parts, ok := extra.Content.([]openAIContentPart); ok {
 					pendingImageParts = append(pendingImageParts, parts...)
@@ -61,18 +82,21 @@ func chatRequestWire(request ChatRequest, defaultModel string, stream bool) (ope
 			}
 			continue
 		}
-		wire.Messages = append(wire.Messages, wireMsgs...)
+		out = append(out, wireMsgs...)
 	}
 	flushImages()
-	if request.IncludeEmptyReasoning {
-		empty := ""
-		for i := range wire.Messages {
-			if wire.Messages[i].Role == "assistant" && wire.Messages[i].ReasoningContent == nil {
-				wire.Messages[i].ReasoningContent = &empty
-			}
+	return out, nil
+}
+
+// fillEmptyReasoningContent sets a non-nil empty reasoning_content on assistant
+// messages that lack one, keeping the field present in the serialized request.
+func fillEmptyReasoningContent(messages []openAIMessage) {
+	empty := ""
+	for i := range messages {
+		if messages[i].Role == "assistant" && messages[i].ReasoningContent == nil {
+			messages[i].ReasoningContent = &empty
 		}
 	}
-	return wire, nil
 }
 
 func normalizedTokenCount(usage *UsageStats) int {

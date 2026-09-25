@@ -122,21 +122,9 @@ func (s *ImageStore) BindSession(sessionID string, minNext int) error {
 	defer s.mu.Unlock()
 
 	newDir := filepath.Join(s.root, sessionID)
-	var idx imageIndex
-	hasIndex := false
-	if info, err := os.Stat(newDir); err == nil && info.IsDir() {
-		data, rerr := os.ReadFile(filepath.Join(newDir, imageIndexFilename))
-		switch {
-		case rerr == nil:
-			if uerr := json.Unmarshal(data, &idx); uerr != nil {
-				return fmt.Errorf("bind session %s: read image index: %w", sessionID, uerr)
-			}
-			hasIndex = true
-		case os.IsNotExist(rerr):
-			// No index yet: a fresh or pre-upgrade session folder.
-		default:
-			return fmt.Errorf("bind session %s: read image index: %w", sessionID, rerr)
-		}
+	idx, hasIndex, err := loadSessionIndex(newDir, sessionID)
+	if err != nil {
+		return err
 	}
 
 	next := max(minNext, 1)
@@ -144,16 +132,7 @@ func (s *ImageStore) BindSession(sessionID string, minNext int) error {
 	order := make([]string, 0, len(idx.Images))
 	if hasIndex {
 		next = max(next, idx.Next, highestImageID(idx.Images)+1)
-		for _, ref := range idx.Images {
-			if ref.ID == "" {
-				continue
-			}
-			if _, ok := refs[ref.ID]; ok {
-				continue
-			}
-			refs[ref.ID] = ref
-			order = append(order, ref.ID)
-		}
+		refs, order = refsFromIndex(idx)
 	}
 
 	prevDir, prevBound := s.dir, s.bound
@@ -212,27 +191,85 @@ func (s *ImageStore) CopySession(fromID, toID string) error {
 		if entry.IsDir() {
 			continue
 		}
-		name := entry.Name()
-		data, rerr := os.ReadFile(filepath.Join(srcDir, name))
-		if rerr != nil {
-			return fmt.Errorf("copy session images: read %s: %w", name, rerr)
-		}
-		if name == imageIndexFilename {
-			var idx imageIndex
-			if jerr := json.Unmarshal(data, &idx); jerr == nil {
-				for i := range idx.Images {
-					idx.Images[i].FilePath = rewriteSessionPath(idx.Images[i].FilePath, srcDir, dstDir)
-				}
-				if rewritten, merr := json.MarshalIndent(idx, "", "  "); merr == nil {
-					data = rewritten
-				}
-			}
-		}
-		if werr := os.WriteFile(filepath.Join(dstDir, name), data, 0o644); werr != nil {
-			return fmt.Errorf("copy session images: write %s: %w", name, werr)
+		if err := copySessionEntry(entry.Name(), srcDir, dstDir); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// loadSessionIndex reads dir/index.json into an imageIndex. It reports whether
+// an index was present; a missing folder or index is not an error.
+func loadSessionIndex(dir, sessionID string) (imageIndex, bool, error) {
+	var idx imageIndex
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return idx, false, nil
+	}
+	data, rerr := os.ReadFile(filepath.Join(dir, imageIndexFilename))
+	switch {
+	case rerr == nil:
+		if uerr := json.Unmarshal(data, &idx); uerr != nil {
+			return imageIndex{}, false, fmt.Errorf("bind session %s: read image index: %w", sessionID, uerr)
+		}
+		return idx, true, nil
+	case os.IsNotExist(rerr):
+		// No index yet: a fresh or pre-upgrade session folder.
+		return idx, false, nil
+	default:
+		return imageIndex{}, false, fmt.Errorf("bind session %s: read image index: %w", sessionID, rerr)
+	}
+}
+
+// refsFromIndex returns the unique, non-empty refs of idx keyed by ID, plus
+// their registration order.
+func refsFromIndex(idx imageIndex) (map[string]ImageRef, []string) {
+	refs := make(map[string]ImageRef)
+	order := make([]string, 0, len(idx.Images))
+	for _, ref := range idx.Images {
+		if ref.ID == "" {
+			continue
+		}
+		if _, ok := refs[ref.ID]; ok {
+			continue
+		}
+		refs[ref.ID] = ref
+		order = append(order, ref.ID)
+	}
+	return refs, order
+}
+
+// copySessionEntry copies one non-directory entry from srcDir to dstDir,
+// rewriting index file paths that point inside srcDir to sit under dstDir.
+func copySessionEntry(name, srcDir, dstDir string) error {
+	data, err := os.ReadFile(filepath.Join(srcDir, name))
+	if err != nil {
+		return fmt.Errorf("copy session images: read %s: %w", name, err)
+	}
+	if name == imageIndexFilename {
+		data = rewriteIndexPaths(data, srcDir, dstDir)
+	}
+	if err := os.WriteFile(filepath.Join(dstDir, name), data, 0o644); err != nil {
+		return fmt.Errorf("copy session images: write %s: %w", name, err)
+	}
+	return nil
+}
+
+// rewriteIndexPaths rewrites index paths under srcDir to sit under dstDir,
+// leaving the original bytes when the index cannot be parsed or re-encoded.
+func rewriteIndexPaths(data []byte, srcDir, dstDir string) []byte {
+	var idx imageIndex
+	if err := json.Unmarshal(data, &idx); err != nil {
+		return data
+	}
+	for i := range idx.Images {
+		idx.Images[i].FilePath = rewriteSessionPath(idx.Images[i].FilePath, srcDir, dstDir)
+	}
+	rewritten, err := json.MarshalIndent(idx, "", "  ")
+	if err != nil {
+		return data
+	}
+	return rewritten
 }
 
 // Register assigns the next img-N ID in the current binding, records the ref,

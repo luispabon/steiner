@@ -200,6 +200,36 @@ func TestRunnerRunExitStripsImagesWhenCancelledBeforeTurn(t *testing.T) {
 	}
 }
 
+// TestRunnerRunExitStripsImagesOnValidationFailure covers the earliest Run exit
+// path: request validation rejects the run before any turn executes, yet Run
+// still strips image payloads and leaves a placeholder behind.
+func TestRunnerRunExitStripsImagesOnValidationFailure(t *testing.T) {
+	state, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: &fakeProvider{},
+		Prompt: prompt.AssemblyOptions{Conversation: []provider.Message{{
+			Role:    provider.MessageRoleUser,
+			Content: "look",
+			Images: []provider.ImageBlock{
+				{ID: "img-1", FilePath: "/tmp/img-1.png", MediaType: "image/png", Data: "user-image-data"},
+			},
+		}}},
+		ResolvedModel: provider.ResolvedModel{Alias: "parent", BackendModelID: "parent"},
+		Limits:        Limits{MaxTurns: 3},
+	})
+	if err == nil || err.Error() != "tool executor is required" {
+		t.Fatalf("Run() error = %v, want %q", err, "tool executor is required")
+	}
+	if state.StopReason != StopReasonError {
+		t.Fatalf("StopReason = %q, want %q", state.StopReason, StopReasonError)
+	}
+	if stateHasImageData(state) {
+		t.Fatalf("state retained image data: %#v", state)
+	}
+	if len(state.Conversation) == 0 || !strings.Contains(state.Conversation[0].Content, "[image img-1:") {
+		t.Fatalf("state conversation missing placeholder: %#v", state.Conversation)
+	}
+}
+
 // TestRunnerRunExitsStripDeferredReadImages drives every named Runner.Run exit
 // end-to-end through a read-image tool turn and asserts the returned state never
 // carries image payloads and always leaves an image placeholder behind.
