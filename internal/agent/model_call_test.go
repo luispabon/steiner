@@ -116,7 +116,7 @@ func TestCompleteModelCallRetriesHTTP400WithoutImages(t *testing.T) {
 				t.Fatal("request has no messages")
 			}
 			if len(req.Messages[0].Images) > 0 {
-				return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request"}
+				return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request", Body: "image input is not supported for this model"}
 			}
 			return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"}}, nil
 		},
@@ -665,6 +665,107 @@ func TestCompleteModelCallLatchesIncapableOnFirstVisionError(t *testing.T) {
 	}
 	if !sawDiscovery {
 		t.Fatal("expected vision_discovery diagnostic event")
+	}
+}
+
+// TestCompleteModelCallImageRejectionGating pins that only image-related HTTP
+// 400 bodies may trigger the image-free retry / vision latch. A generic 400
+// (context length, stream-required) must surface unchanged and leave vision
+// capability untouched, at both VisionUnknown and VisionCapable.
+func TestCompleteModelCallImageRejectionGating(t *testing.T) {
+	tests := []struct {
+		name           string
+		body           string
+		initial        VisionState
+		wantImageError bool
+	}{
+		{name: "context length 400 unknown vision", body: "maximum context length exceeded", initial: VisionUnknown},
+		{name: "context length 400 capable vision", body: "maximum context length exceeded", initial: VisionCapable},
+		{name: "stream required 400 unknown vision", body: "Stream must be set to true", initial: VisionUnknown},
+		{name: "stream required 400 capable vision", body: "Stream must be set to true", initial: VisionCapable},
+		{name: "image unsupported 400 unknown vision", body: "This model does not support image inputs", initial: VisionUnknown, wantImageError: true},
+		{name: "image unsupported 400 capable vision", body: "This model does not support image inputs", initial: VisionCapable, wantImageError: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			prov := &fakeProvider{
+				chatFn: func(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+					if requestHasImages(req.Messages) {
+						return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request", Body: tc.body}
+					}
+					return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"}}, nil
+				},
+			}
+			capabilities := NewVisionCapabilities(false)
+			if tc.initial != VisionUnknown {
+				capabilities.SetDerived("test-model", tc.initial)
+			}
+			_, _, err := completeModelCall(context.Background(), RunRequest{
+				Provider:           prov,
+				ResolvedModel:      provider.ResolvedModel{Alias: "test-model"},
+				VisionCapabilities: capabilities,
+				Events:             output.NoopSink{},
+			}, 1, provider.ChatRequest{
+				Model: "test-model",
+				Messages: []provider.Message{{
+					Role:    provider.MessageRoleUser,
+					Content: "analyze",
+					Images:  []provider.ImageBlock{{MediaType: "image/png", Data: "abc"}},
+				}},
+			}, nil, prompt.ModelTokenBudget{}, nil)
+
+			if tc.wantImageError {
+				if !errors.Is(err, errRetryTurnForVision) {
+					t.Fatalf("completeModelCall() error = %v, want errRetryTurnForVision", err)
+				}
+				if state := capabilities.Get("test-model"); state != VisionIncapable {
+					t.Errorf("vision state = %v, want VisionIncapable", state)
+				}
+				return
+			}
+
+			var httpErr *provider.HTTPError
+			if !errors.As(err, &httpErr) {
+				t.Fatalf("completeModelCall() error = %v, want the surfaced *provider.HTTPError", err)
+			}
+			if httpErr.StatusCode != 400 {
+				t.Errorf("HTTPError.StatusCode = %d, want 400", httpErr.StatusCode)
+			}
+			if state := capabilities.Get("test-model"); state != tc.initial {
+				t.Errorf("vision state = %v, want unchanged %v", state, tc.initial)
+			}
+			for i, req := range prov.requests {
+				if !requestHasImages(req.Messages) {
+					t.Errorf("request %d was issued without images despite a non-image 400", i)
+				}
+			}
+		})
+	}
+}
+
+// TestIsImageRejection covers the lowercase-substring marker matching used to
+// gate the image-free retry on HTTP 400 bodies.
+func TestIsImageRejection(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "empty body is not an image rejection", body: "", want: false},
+		{name: "image marker", body: "This model does not support image inputs", want: true},
+		{name: "vision marker", body: "vision is not enabled for this model", want: true},
+		{name: "multimodal marker", body: "multimodal not supported", want: true},
+		{name: "multi-modal marker", body: "multi-modal requests are rejected", want: true},
+		{name: "marker match is case insensitive", body: "IMAGE INPUT NOT SUPPORTED", want: true},
+		{name: "context length is not an image rejection", body: "maximum context length exceeded", want: false},
+		{name: "stream required is not an image rejection", body: "Stream must be set to true", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isImageRejection(tc.body); got != tc.want {
+				t.Errorf("isImageRejection(%q) = %v, want %v", tc.body, got, tc.want)
+			}
+		})
 	}
 }
 
