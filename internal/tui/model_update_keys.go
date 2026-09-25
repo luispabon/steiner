@@ -268,8 +268,7 @@ func (m *Model) tryDeleteMarker(msg tea.KeyPressMsg) (*Model, bool) {
 		if idx, _, atEnd, _ := markerAtCursor(value, runeOff, m.imageMarkers); atEnd && idx >= 0 {
 			removedLen := len([]rune(m.imageMarkers[idx].label))
 			value = removeMarkerFromValue(value, m.imageMarkers[idx])
-			m.imageMarkers = slices.Delete(m.imageMarkers, idx, idx+1)
-			value, m.imageMarkers = renumberMarkers(value, m.imageMarkers)
+			m.removeMarkerImage(idx)
 			m.restoreCursorFromRuneOffset(value, runeOff-removedLen)
 			m.relayoutInput()
 			return m, true
@@ -279,8 +278,7 @@ func (m *Model) tryDeleteMarker(msg tea.KeyPressMsg) (*Model, bool) {
 	if msg.Code == tea.KeyDelete {
 		if idx, atStart, _, _ := markerAtCursor(value, runeOff, m.imageMarkers); atStart && idx >= 0 {
 			value = removeMarkerFromValue(value, m.imageMarkers[idx])
-			m.imageMarkers = slices.Delete(m.imageMarkers, idx, idx+1)
-			value, m.imageMarkers = renumberMarkers(value, m.imageMarkers)
+			m.removeMarkerImage(idx)
 			m.restoreCursorFromRuneOffset(value, runeOff)
 			m.relayoutInput()
 			return m, true
@@ -288,6 +286,16 @@ func (m *Model) tryDeleteMarker(msg tea.KeyPressMsg) (*Model, bool) {
 	}
 
 	return m, false
+}
+
+// removeMarkerImage forgets the marker's image and drops it from the pending
+// list without relabelling the survivors.
+func (m *Model) removeMarkerImage(idx int) {
+	if idx < 0 || idx >= len(m.imageMarkers) {
+		return
+	}
+	m.removeStoreImage(m.imageMarkers[idx])
+	m.imageMarkers = slices.Delete(m.imageMarkers, idx, idx+1)
 }
 
 func (m *Model) applyMarkerPostEdit(msg tea.KeyPressMsg) *Model {
@@ -307,6 +315,7 @@ func (m *Model) applyMarkerPostEdit(msg tea.KeyPressMsg) *Model {
 	if isEditKey(msg) {
 		value := m.input.Value()
 		newValue, newMarkers := reconcileMarkers(value, m.imageMarkers)
+		m.removeVanishedMarkers(newMarkers)
 		if newValue != value {
 			runeOff := cursorRuneOffset(value, m.input.Line(), m.cursorCol())
 			m.imageMarkers = newMarkers
@@ -469,13 +478,13 @@ func (m *Model) executeTakeBackSteersAction() tea.Model {
 	}
 	merged := agent.MergeSteers(all)
 
-	markers := make([]imageMarker, len(merged.Images))
-	for i, img := range merged.Images {
-		markers[i] = imageMarker{label: fmt.Sprintf("[Image %d]", i+1), image: img}
+	markers := make([]imageMarker, 0, len(merged.Images))
+	for i := range merged.Images {
+		label := m.markerLabel(&merged.Images[i])
+		markers = append(markers, imageMarker{label: label, image: merged.Images[i]})
 	}
-	value, markers := renumberMarkers(merged.Content, markers)
 
-	m.input.SetValue(value)
+	m.input.SetValue(merged.Content)
 	m.imageMarkers = markers
 	m.input.CursorEnd()
 

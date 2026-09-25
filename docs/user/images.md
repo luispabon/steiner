@@ -8,9 +8,9 @@ In the interactive TUI, use **Ctrl+V** to paste an image. Steiner reads the imag
 
 - **Resized** to a maximum of 2048px on the longest side to keep token costs manageable
 - **Token-accounted** using the formula `(width × height) / 750 + 85` overhead per image
-- **Displayed** as `[Image N]` in the composer until you submit
+- **Displayed** as `[img-N]` in the composer until you submit, where `N` is the image's stable store ID, the same identifier used everywhere else
 
-You can paste multiple images before submitting — they accumulate and are all sent with your message. Use `/clear` in the TUI to dismiss pending images without sending them.
+You can paste multiple images before submitting — they accumulate and are all sent with your message. The marker label is the image's store ID (for example `[img-3]`). Deleting a marker (Backspace at its end or Delete at its start) discards that image from the store, and IDs are not reused, so the images you keep retain their original labels. Use `/clear` in the TUI to dismiss pending images without sending them.
 
 **Supported formats:** PNG, JPG, JPEG, GIF, WebP
 **Max size:** 5MB per image

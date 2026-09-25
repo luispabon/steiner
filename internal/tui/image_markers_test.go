@@ -7,25 +7,28 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-func TestNextMarkerLabel(t *testing.T) {
+func TestMarkerLabel(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name    string
-		markers []imageMarker
-		want    string
-	}{
-		{"empty list", nil, "[Image 1]"},
-		{"one marker", []imageMarker{{label: "[Image 1]"}}, "[Image 2]"},
-		{"two markers", []imageMarker{{label: "[Image 1]"}, {label: "[Image 2]"}}, "[Image 3]"},
+	m := Model{}
+
+	withID := agent.ImageBlock{ID: "img-3"}
+	if got := m.markerLabel(&withID); got != "[img-3]" {
+		t.Errorf("markerLabel(with ID) = %q, want %q", got, "[img-3]")
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := nextMarkerLabel(tc.markers)
-			if got != tc.want {
-				t.Errorf("nextMarkerLabel = %q, want %q", got, tc.want)
-			}
-		})
+
+	// Without a store the block has no ID; a TUI-local counter assigns one and
+	// stamps it onto the block so the label matches the marker pattern.
+	noID := agent.ImageBlock{}
+	if got := m.markerLabel(&noID); got != "[img-1]" {
+		t.Errorf("markerLabel(no ID) = %q, want %q", got, "[img-1]")
+	}
+	if noID.ID != "img-1" {
+		t.Errorf("block.ID = %q, want img-1", noID.ID)
+	}
+
+	second := agent.ImageBlock{}
+	if got := m.markerLabel(&second); got != "[img-2]" {
+		t.Errorf("markerLabel(second no ID) = %q, want %q", got, "[img-2]")
 	}
 }
 
@@ -40,8 +43,8 @@ func TestPendingImageBlocks(t *testing.T) {
 		want    []agent.ImageBlock
 	}{
 		{"empty", nil, nil},
-		{"single", []imageMarker{{label: "[Image 1]", image: img1}}, []agent.ImageBlock{img1}},
-		{"preserves order", []imageMarker{{label: "[Image 1]", image: img1}, {label: "[Image 2]", image: img2}}, []agent.ImageBlock{img1, img2}},
+		{"single", []imageMarker{{label: "[img-1]", image: img1}}, []agent.ImageBlock{img1}},
+		{"preserves order", []imageMarker{{label: "[img-1]", image: img1}, {label: "[img-2]", image: img2}}, []agent.ImageBlock{img1, img2}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -67,9 +70,9 @@ func TestRemoveMarkerFromValue(t *testing.T) {
 		marker imageMarker
 		want   string
 	}{
-		{"removes first occurrence", "hello [Image 1] world", imageMarker{label: "[Image 1]"}, "hello  world"},
-		{"missing label is noop", "hello world", imageMarker{label: "[Image 1]"}, "hello world"},
-		{"removes only first", "[Image 1] foo [Image 1]", imageMarker{label: "[Image 1]"}, " foo [Image 1]"},
+		{"removes first occurrence", "hello [img-1] world", imageMarker{label: "[img-1]"}, "hello  world"},
+		{"missing label is noop", "hello world", imageMarker{label: "[img-1]"}, "hello world"},
+		{"removes only first", "[img-1] foo [img-1]", imageMarker{label: "[img-1]"}, " foo [img-1]"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -77,70 +80,6 @@ func TestRemoveMarkerFromValue(t *testing.T) {
 			got := removeMarkerFromValue(tc.value, tc.marker)
 			if got != tc.want {
 				t.Errorf("removeMarkerFromValue = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestRenumberMarkers(t *testing.T) {
-	t.Parallel()
-	img1 := agent.ImageBlock{MediaType: "image/png", Data: "a"}
-	img2 := agent.ImageBlock{MediaType: "image/jpeg", Data: "b"}
-	img3 := agent.ImageBlock{MediaType: "image/webp", Data: "c"}
-
-	tests := []struct {
-		name       string
-		value      string
-		markers    []imageMarker
-		wantValue  string
-		wantLabels []string
-	}{
-		{
-			name:  "renumber after middle removal",
-			value: "a [Image 1] c [Image 3]",
-			markers: []imageMarker{
-				{label: "[Image 1]", image: img1},
-				{label: "[Image 3]", image: img3},
-			},
-			wantValue:  "a [Image 1] c [Image 2]",
-			wantLabels: []string{"[Image 1]", "[Image 2]"},
-		},
-		{
-			name:  "mismatch count returns unchanged",
-			value: "[Image 1]",
-			markers: []imageMarker{
-				{label: "[Image 1]", image: img1},
-				{label: "[Image 2]", image: img2},
-			},
-			wantValue:  "[Image 1]",
-			wantLabels: []string{"[Image 1]", "[Image 2]"},
-		},
-		{
-			name:  "three markers in order",
-			value: "[Image 1] [Image 2] [Image 3]",
-			markers: []imageMarker{
-				{label: "[Image 1]", image: img1},
-				{label: "[Image 2]", image: img2},
-				{label: "[Image 3]", image: img3},
-			},
-			wantValue:  "[Image 1] [Image 2] [Image 3]",
-			wantLabels: []string{"[Image 1]", "[Image 2]", "[Image 3]"},
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			gotValue, gotMarkers := renumberMarkers(tc.value, tc.markers)
-			if gotValue != tc.wantValue {
-				t.Errorf("renumberMarkers value = %q, want %q", gotValue, tc.wantValue)
-			}
-			if len(gotMarkers) != len(tc.wantLabels) {
-				t.Fatalf("renumberMarkers markers len = %d, want %d", len(gotMarkers), len(tc.wantLabels))
-			}
-			for i, want := range tc.wantLabels {
-				if gotMarkers[i].label != want {
-					t.Errorf("markers[%d].label = %q, want %q", i, gotMarkers[i].label, want)
-				}
 			}
 		})
 	}
@@ -178,11 +117,11 @@ func TestCursorRuneOffset(t *testing.T) {
 func TestMarkerAtCursor(t *testing.T) {
 	t.Parallel()
 	img1 := agent.ImageBlock{MediaType: "image/png", Data: "a"}
-	markers := []imageMarker{{label: "[Image 1]", image: img1}}
+	markers := []imageMarker{{label: "[img-1]", image: img1}}
 
-	// "[Image 1]" is 9 chars, starts at rune 6 in "hello [Image 1] world"
-	// rune offsets: h=0,e=1,l=2,l=3,o=4, =5,[=6,I=7,m=8,a=9,g=10,e=11, =12,1=13,]=14, =15
-	value := "hello [Image 1] world"
+	// "[img-1]" is 7 chars, starts at rune 6 in "hello [img-1] world"
+	// rune offsets: h=0,e=1,l=2,l=3,o=4, =5,[=6,i=7,m=8,g=9,-=10,1=11,]=12, =13
+	value := "hello [img-1] world"
 
 	tests := []struct {
 		name       string
@@ -195,8 +134,8 @@ func TestMarkerAtCursor(t *testing.T) {
 		{"before marker", 5, -1, false, false, false},
 		{"at start of marker", 6, 0, true, false, false},
 		{"inside marker", 8, 0, false, false, true},
-		{"at end of marker", 15, 0, false, true, false},
-		{"after marker", 16, -1, false, false, false},
+		{"at end of marker", 13, 0, false, true, false},
+		{"after marker", 14, -1, false, false, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -216,6 +155,14 @@ func TestMarkerAtCursor(t *testing.T) {
 			}
 		})
 	}
+
+	// Marker-shaped text with no pending marker is plain text: never reported.
+	plain := "say [img-9] now"
+	for off := 4; off <= 11; off++ {
+		if idx, _, _, _ := markerAtCursor(plain, off, markers); idx != -1 {
+			t.Errorf("markerAtCursor(plain text at offset %d) idx = %d, want -1", off, idx)
+		}
+	}
 }
 
 func TestReconcileMarkers(t *testing.T) {
@@ -232,24 +179,24 @@ func TestReconcileMarkers(t *testing.T) {
 	}{
 		{
 			name:       "all markers present unchanged",
-			value:      "[Image 1] [Image 2]",
-			markers:    []imageMarker{{label: "[Image 1]", image: img1}, {label: "[Image 2]", image: img2}},
-			wantValue:  "[Image 1] [Image 2]",
-			wantLabels: []string{"[Image 1]", "[Image 2]"},
+			value:      "[img-1] [img-2]",
+			markers:    []imageMarker{{label: "[img-1]", image: img1}, {label: "[img-2]", image: img2}},
+			wantValue:  "[img-1] [img-2]",
+			wantLabels: []string{"[img-1]", "[img-2]"},
 		},
 		{
-			name:       "missing marker removed from slice",
-			value:      "[Image 1]",
-			markers:    []imageMarker{{label: "[Image 1]", image: img1}, {label: "[Image 2]", image: img2}},
-			wantValue:  "[Image 1]",
-			wantLabels: []string{"[Image 1]"},
+			name:       "missing marker removed from slice without renumbering",
+			value:      "[img-1]",
+			markers:    []imageMarker{{label: "[img-1]", image: img1}, {label: "[img-2]", image: img2}},
+			wantValue:  "[img-1]",
+			wantLabels: []string{"[img-1]"},
 		},
 		{
-			name:       "survivors renumbered",
-			value:      "[Image 2]",
-			markers:    []imageMarker{{label: "[Image 1]", image: img1}, {label: "[Image 2]", image: img2}},
-			wantValue:  "[Image 1]",
-			wantLabels: []string{"[Image 1]"},
+			name:       "survivor keeps its id",
+			value:      "[img-2]",
+			markers:    []imageMarker{{label: "[img-1]", image: img1}, {label: "[img-2]", image: img2}},
+			wantValue:  "[img-2]",
+			wantLabels: []string{"[img-2]"},
 		},
 		{
 			name:       "no markers",
@@ -259,15 +206,22 @@ func TestReconcileMarkers(t *testing.T) {
 			wantLabels: nil,
 		},
 		{
-			name:       "prose with [Image prefix untouched",
-			value:      "Check [Image processing notes] for details",
+			name:       "prose with img prefix untouched",
+			value:      "Check [img processing notes] for details",
 			markers:    nil,
-			wantValue:  "Check [Image processing notes] for details",
+			wantValue:  "Check [img processing notes] for details",
+			wantLabels: nil,
+		},
+		{
+			name:       "user typed marker with no pending marker kept",
+			value:      "see [img-1]",
+			markers:    nil,
+			wantValue:  "see [img-1]",
 			wantLabels: nil,
 		},
 		{
 			name:       "incomplete numbered marker stripped",
-			value:      "Here is [Image 3 without close bracket",
+			value:      "Here is [img-3 without close bracket",
 			markers:    nil,
 			wantValue:  "Here is  without close bracket",
 			wantLabels: nil,
@@ -332,7 +286,7 @@ func TestExecuteSubmitActionAppendsImagesAttached(t *testing.T) {
 		},
 		imageMarkers: []imageMarker{
 			{
-				label: "[Image 1]",
+				label: "[img-1]",
 				image: agent.ImageBlock{
 					ID:        "img-1",
 					FilePath:  "/home/user/project/.steiner/tmp/images/20260630_143052_a7f3.png",
@@ -372,10 +326,10 @@ func TestExecuteSubmitActionAppendsImagesAttached(t *testing.T) {
 func TestSnapCursorPastMarkers(t *testing.T) {
 	t.Parallel()
 	img1 := agent.ImageBlock{MediaType: "image/png", Data: "a"}
-	markers := []imageMarker{{label: "[Image 1]", image: img1}}
-	// value: "ab[Image 1]cd"
-	// rune positions: a=0,b=1,[=2,...]=10,c=11,d=12
-	value := "ab[Image 1]cd"
+	markers := []imageMarker{{label: "[img-1]", image: img1}}
+	// value: "ab[img-1]cd"
+	// rune positions: a=0,b=1,[=2,...,]=8,c=9,d=10
+	value := "ab[img-1]cd"
 
 	tests := []struct {
 		name      string
@@ -385,10 +339,10 @@ func TestSnapCursorPastMarkers(t *testing.T) {
 	}{
 		{"before marker unchanged", 1, 1, 1},
 		{"at start unchanged", 2, 1, 2},
-		{"inside snap right", 5, 1, 11},
+		{"inside snap right", 5, 1, 9},
 		{"inside snap left", 5, -1, 2},
-		{"at end unchanged", 11, 1, 11},
-		{"after marker unchanged", 12, 1, 12},
+		{"at end unchanged", 9, 1, 9},
+		{"after marker unchanged", 10, 1, 10},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -398,5 +352,11 @@ func TestSnapCursorPastMarkers(t *testing.T) {
 				t.Errorf("snapCursorPastMarkers(%d, %d) = %d, want %d", tc.offset, tc.direction, got, tc.want)
 			}
 		})
+	}
+
+	// A marker-shaped fragment with no pending marker is not snapped over.
+	plain := "ab[img-9]cd"
+	if got := snapCursorPastMarkers(plain, 5, markers, 1); got != 5 {
+		t.Errorf("snapCursorPastMarkers(plain text) = %d, want 5", got)
 	}
 }

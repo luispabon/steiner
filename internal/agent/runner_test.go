@@ -351,7 +351,7 @@ func TestSteerInjectionMultipleImages(t *testing.T) {
 		if steerMsg.Images[1].Data != "fourth-image-data" {
 			t.Errorf("second steer image data = %q, want %q", steerMsg.Images[1].Data, "fourth-image-data")
 		}
-		wantContent := "first queued message\n\nsecond queued message\n\nthird queued message [Image 1]\n\nfourth queued message [Image 2]"
+		wantContent := "first queued message\n\nsecond queued message\n\nthird queued message [Image 1]\n\nfourth queued message [Image 1]"
 		if steerMsg.Content != wantContent {
 			t.Errorf("steer content = %q, want %q", steerMsg.Content, wantContent)
 		}
@@ -472,22 +472,22 @@ func TestMergeSteers(t *testing.T) {
 			wantImages: 0,
 		},
 		{
-			name: "two steers with images renumbered",
+			name: "two steers keep markers",
 			steers: []SteerMessage{
 				{Text: "see [Image 1] and [Image 2]", Images: []ImageBlock{{MediaType: "image/png"}, {MediaType: "image/png"}}},
 				{Text: "also [Image 1]", Images: []ImageBlock{{MediaType: "image/jpeg"}}},
 			},
-			wantText:   "see [Image 1] and [Image 2]\n\nalso [Image 3]",
+			wantText:   "see [Image 1] and [Image 2]\n\nalso [Image 1]",
 			wantImages: 3,
 		},
 		{
-			name: "three steers with cumulative renumbering",
+			name: "three steers keep markers",
 			steers: []SteerMessage{
 				{Text: "[Image 1]", Images: []ImageBlock{{MediaType: "image/png"}}},
 				{Text: "[Image 1]", Images: []ImageBlock{{MediaType: "image/png"}}},
 				{Text: "[Image 1] and [Image 2]", Images: []ImageBlock{{MediaType: "image/png"}, {MediaType: "image/png"}}},
 			},
-			wantText:   "[Image 1]\n\n[Image 2]\n\n[Image 3] and [Image 4]",
+			wantText:   "[Image 1]\n\n[Image 1]\n\n[Image 1] and [Image 2]",
 			wantImages: 4,
 		},
 	}
@@ -502,48 +502,6 @@ func TestMergeSteers(t *testing.T) {
 			}
 			if got.Role != MessageRoleUser {
 				t.Errorf("Role = %q, want %q", got.Role, MessageRoleUser)
-			}
-		})
-	}
-}
-
-func TestRenumberMarkers(t *testing.T) {
-	tests := []struct {
-		name   string
-		text   string
-		offset int
-		want   string
-	}{
-		{
-			name:   "no markers",
-			text:   "plain text",
-			offset: 2,
-			want:   "plain text",
-		},
-		{
-			name:   "single marker",
-			text:   "see [Image 1]",
-			offset: 3,
-			want:   "see [Image 4]",
-		},
-		{
-			name:   "multiple markers",
-			text:   "[Image 1] and [Image 2]",
-			offset: 5,
-			want:   "[Image 6] and [Image 7]",
-		},
-		{
-			name:   "zero offset is identity",
-			text:   "[Image 3]",
-			offset: 0,
-			want:   "[Image 3]",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := renumberMarkers(tc.text, tc.offset)
-			if got != tc.want {
-				t.Errorf("renumberMarkers(%q, %d) = %q, want %q", tc.text, tc.offset, got, tc.want)
 			}
 		})
 	}

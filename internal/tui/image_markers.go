@@ -29,14 +29,10 @@ type imageMarker struct {
 	image agent.ImageBlock
 }
 
-var imageMarkerPattern = regexp.MustCompile(`\[Image \d+\]`)
+var imageMarkerPattern = regexp.MustCompile(`\[img-\d+\]`)
 
 // Require an image number before treating a fragment as an incomplete marker.
-var partialMarkerPattern = regexp.MustCompile(`\[Image\s+\d+\]?`)
-
-func nextMarkerLabel(markers []imageMarker) string {
-	return fmt.Sprintf("[Image %d]", len(markers)+1)
-}
+var partialMarkerPattern = regexp.MustCompile(`\[img-\d+\]?`)
 
 func pendingImageBlocks(markers []imageMarker) []agent.ImageBlock {
 	if len(markers) == 0 {
@@ -53,35 +49,38 @@ func removeMarkerFromValue(value string, marker imageMarker) string {
 	return strings.Replace(value, marker.label, "", 1)
 }
 
-func renumberMarkers(value string, markers []imageMarker) (string, []imageMarker) {
-	locs := imageMarkerPattern.FindAllStringIndex(value, -1)
-	if len(locs) != len(markers) {
-		return value, markers
+// markerLabel returns the composer marker label for block, stamping a
+// TUI-local img-N ID when the block has none. Blocks registered with the image
+// store carry a stable ID; the local counter only runs when no store is wired
+// (tests), where no store IDs exist to collide with.
+func (m *Model) markerLabel(block *agent.ImageBlock) string {
+	if block.ID == "" {
+		m.localImageCounter++
+		block.ID = fmt.Sprintf("img-%d", m.localImageCounter)
 	}
-	// Build a map from old label → marker so we can reorder by text position.
-	byLabel := make(map[string]imageMarker, len(markers))
+	return "[" + block.ID + "]"
+}
+
+func hasMarkerLabel(markers []imageMarker, label string) bool {
 	for _, m := range markers {
-		byLabel[m.label] = m
-	}
-	newMarkers := make([]imageMarker, 0, len(markers))
-	newValue := value
-	// We replace right-to-left to keep byte offsets valid.
-	for i := len(locs) - 1; i >= 0; i-- {
-		newLabel := fmt.Sprintf("[Image %d]", i+1)
-		start, end := locs[i][0], locs[i][1]
-		newValue = newValue[:start] + newLabel + newValue[end:]
-	}
-	// Rebuild markers in text order (left-to-right) with new labels.
-	for i, loc := range locs {
-		oldLabel := value[loc[0]:loc[1]]
-		m, ok := byLabel[oldLabel]
-		if !ok {
-			return value, markers
+		if m.label == label {
+			return true
 		}
-		m.label = fmt.Sprintf("[Image %d]", i+1)
-		newMarkers = append(newMarkers, m)
 	}
-	return newValue, newMarkers
+	return false
+}
+
+// pendingMarkerLabels returns the label set of every pending marker, used to
+// distinguish real markers from user-typed marker-shaped text.
+func (m *Model) pendingMarkerLabels() map[string]struct{} {
+	if len(m.imageMarkers) == 0 {
+		return nil
+	}
+	labels := make(map[string]struct{}, len(m.imageMarkers))
+	for _, mk := range m.imageMarkers {
+		labels[mk.label] = struct{}{}
+	}
+	return labels
 }
 
 func cursorRuneOffset(value string, row, col int) int {
@@ -101,11 +100,7 @@ func cursorRuneOffset(value string, row, col int) int {
 }
 
 func markerAtCursor(value string, runeOffset int, markers []imageMarker) (idx int, atStart, atEnd, inside bool) {
-	locs := imageMarkerPattern.FindAllStringIndex(value, -1)
-	for i, loc := range locs {
-		startRune := len([]rune(value[:loc[0]]))
-		endRune := startRune + len([]rune(value[loc[0]:loc[1]]))
-
+	for _, loc := range imageMarkerPattern.FindAllStringIndex(value, -1) {
 		label := value[loc[0]:loc[1]]
 		markerIdx := -1
 		for j, m := range markers {
@@ -115,9 +110,12 @@ func markerAtCursor(value string, runeOffset int, markers []imageMarker) (idx in
 			}
 		}
 		if markerIdx == -1 {
-			markerIdx = i
+			// Marker-shaped text with no pending marker is plain user text.
+			continue
 		}
 
+		startRune := len([]rune(value[:loc[0]]))
+		endRune := startRune + len([]rune(label))
 		if runeOffset == startRune {
 			return markerIdx, true, false, false
 		}
@@ -153,15 +151,17 @@ func reconcileMarkers(value string, markers []imageMarker) (string, []imageMarke
 		return cleaned, nil
 	}
 
-	cleaned, survivors = renumberMarkers(cleaned, survivors)
 	return cleaned, survivors
 }
 
-func snapCursorPastMarkers(value string, runeOffset int, _ []imageMarker, direction int) int {
-	locs := imageMarkerPattern.FindAllStringIndex(value, -1)
-	for _, loc := range locs {
+func snapCursorPastMarkers(value string, runeOffset int, markers []imageMarker, direction int) int {
+	for _, loc := range imageMarkerPattern.FindAllStringIndex(value, -1) {
+		label := value[loc[0]:loc[1]]
+		if !hasMarkerLabel(markers, label) {
+			continue
+		}
 		startRune := len([]rune(value[:loc[0]]))
-		endRune := startRune + len([]rune(value[loc[0]:loc[1]]))
+		endRune := startRune + len([]rune(label))
 		if runeOffset > startRune && runeOffset < endRune {
 			if direction < 0 {
 				return startRune
@@ -174,6 +174,33 @@ func snapCursorPastMarkers(value string, runeOffset int, _ []imageMarker, direct
 
 func (m *Model) pendingImageBlocks() []agent.ImageBlock {
 	return pendingImageBlocks(m.imageMarkers)
+}
+
+// removeStoreImage forgets a marker's image in the store, tolerating no store
+// and empty IDs.
+func (m *Model) removeStoreImage(mk imageMarker) {
+	if m.imageStore != nil && mk.image.ID != "" {
+		m.imageStore.Remove(mk.image.ID)
+	}
+}
+
+// removePendingImages discards every pending image, deleting each from the
+// store because IDs are never reused. Used on any non-submit discard pathway.
+func (m *Model) removePendingImages() {
+	for _, mk := range m.imageMarkers {
+		m.removeStoreImage(mk)
+	}
+	m.imageMarkers = nil
+}
+
+// removeVanishedMarkers deletes the store file of every current marker that is
+// absent from survivors (e.g. edited out of the composer).
+func (m *Model) removeVanishedMarkers(survivors []imageMarker) {
+	for _, mk := range m.imageMarkers {
+		if !hasMarkerLabel(survivors, mk.label) {
+			m.removeStoreImage(mk)
+		}
+	}
 }
 
 func (m *Model) restoreCursorFromRuneOffset(value string, targetRuneOff int) {

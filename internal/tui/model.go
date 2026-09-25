@@ -212,6 +212,7 @@ type Model struct {
 	primaryModel                 string
 	profileNames                 []string
 	imageMarkers                 []imageMarker
+	localImageCounter            int
 	oneshotRunning               bool
 	oneshotPhase                 string
 	steers                       steerQueue

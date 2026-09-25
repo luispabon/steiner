@@ -250,7 +250,7 @@ func (m *Model) performClearConversationState() error {
 	m.content.Clear()
 	m.selection = m.selection.clear()
 	m.clearDragState()
-	m.imageMarkers = nil
+	m.removePendingImages()
 	m.activity = m.activity.clear()
 	m.status.mode = ""
 	m.status.approvalActive = false
@@ -724,7 +724,7 @@ func (m *Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.C
 		}
 		return m, nil
 	}
-	label := nextMarkerLabel(m.imageMarkers)
+	label := m.markerLabel(&msg.block)
 	m.imageMarkers = append(m.imageMarkers, imageMarker{label: label, image: msg.block})
 	m.input.InsertString(label)
 	m.syncInputChrome()
