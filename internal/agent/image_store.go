@@ -400,9 +400,9 @@ func (s *ImageStore) persistIndexLocked() {
 	}
 }
 
-// NextImageIDFloor returns 1 + the highest N among "img-N" references in the
-// lineage's message contents (all generations, summary prefixes included), or
-// 1 when there are none.
+// NextImageIDFloor returns 1 + the highest N in image placeholders or composer
+// markers across the lineage's message contents and summary prefixes, or 1 when
+// there are none.
 func NextImageIDFloor(l ConversationLineage) int {
 	highest := 0
 	for _, gen := range l.Generations {
