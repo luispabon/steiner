@@ -432,6 +432,32 @@ func TestNextImageIDFloor(t *testing.T) {
 	}
 }
 
+func TestParseImageIDNumber(t *testing.T) {
+	tests := []struct {
+		name   string
+		id     string
+		want   int
+		wantOK bool
+	}{
+		{name: "bare id", id: "img-7", want: 7, wantOK: true},
+		{name: "single digit", id: "img-1", want: 1, wantOK: true},
+		{name: "file path", id: "/shots/img-20240101.png", wantOK: false},
+		{name: "placeholder text", id: "[image img-3: /x.png]", wantOK: false},
+		{name: "missing number", id: "img-", wantOK: false},
+		{name: "trailing suffix", id: "img-3.png", wantOK: false},
+		{name: "leading prose", id: "see img-3", wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseImageIDNumber(tt.id)
+			if ok != tt.wantOK || got != tt.want {
+				t.Errorf("parseImageIDNumber(%q) = (%d, %v), want (%d, %v)", tt.id, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
+
 func TestImageStoreConcurrentAccess(t *testing.T) {
 	store := NewImageStore(t.TempDir())
 	if err := store.BindSession("concurrent", 1); err != nil {

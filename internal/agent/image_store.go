@@ -23,8 +23,9 @@ const staleImageDirAge = 30 * 24 * time.Hour
 // session's folder.
 const imageIndexFilename = "index.json"
 
-// imageIDPattern matches the numeric part of an img-N identifier.
-var imageIDPattern = regexp.MustCompile(`img-(\d+)`)
+// imageIDPattern matches a bare img-N identifier exactly, anchored so prose or
+// file paths such as /shots/img-20240101.png are not treated as image IDs.
+var imageIDPattern = regexp.MustCompile(`^img-(\d+)$`)
 
 // imageRefPattern matches an image ID inside a rendered placeholder
 // ("[image img-N:") or a composer marker ("[img-N]"). A bare "img-N" in prose
@@ -482,7 +483,8 @@ func highestImageRefInMessages(messages []Message) int {
 	return highest
 }
 
-// parseImageIDNumber extracts N from an "img-N" identifier.
+// parseImageIDNumber extracts N from a bare "img-N" identifier, rejecting any
+// string that carries surrounding text.
 func parseImageIDNumber(id string) (int, bool) {
 	match := imageIDPattern.FindStringSubmatch(id)
 	if match == nil {
