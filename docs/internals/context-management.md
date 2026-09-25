@@ -42,13 +42,33 @@ Each turn, steiner assembles the full context through a 7-step ordered plan. The
 | 6 | Session date | — | Yes |
 | 7 | Conversation history | — | No (pass-through) |
 
+The static skills source (step 4) is populated only for exec and oneshot runs. Interactive sessions assemble with an empty enabled-skill set, so step 4 contributes nothing, and deliver skills as conversation blocks instead (see [Interactive skill delivery](#interactive-skill-delivery)).
+
 Each step with a budget is tracked by a `budgetTracker`. When a source exceeds its allocation, content is truncated and a `Truncated` flag is set on the resulting `ContextBlock`. The system preamble, phase prompt, AGENTS.md, and session date are never truncated.
 
-The three file-backed static sources (steps 2 to 4: AGENTS.md, project context files, skills) are read from disk once and reused. `internal/prompt` memoizes them in a `StaticContextCache` that the interactive, oneshot, and exec runners inject via `AssemblyOptions.CachedStaticContext` (the interactive runner keeps one for the session, oneshot uses a fresh cache per phase, and exec a fresh cache per run). Editing one of those files mid-session therefore does not change the assembled prefix. Each partition reloads on its own: the AGENTS.md and project-context partitions when their file-selecting inputs change, the skills partition when the enabled skill set changes, and every partition when `AssemblyOptions.StaticContextScope` (the session identity) changes. The system preamble (step 1) is memoized separately by `CachedSystemPreamble` and is not part of this cache.
+The three file-backed static sources (steps 2 to 4: AGENTS.md, project context files, skills) are read from disk once and reused. `internal/prompt` memoizes them in a `StaticContextCache` that the interactive, oneshot, and exec runners inject via `AssemblyOptions.CachedStaticContext` (the interactive runner keeps one for the session, oneshot uses a fresh cache per phase, and exec a fresh cache per run). Editing one of those files mid-session therefore does not change the assembled prefix. Each partition reloads on its own: the AGENTS.md and project-context partitions when their file-selecting inputs change, the skills partition when the enabled skill set changes (this partition is unused interactively, which always assembles with an empty enabled-skill set), and every partition when `AssemblyOptions.StaticContextScope` (the session identity) changes. The system preamble (step 1) is memoized separately by `CachedSystemPreamble` and is not part of this cache.
 
 The tool/delegation summary budget machinery was removed from `internal/prompt`. Tool output is bounded at its source by `internal/tool`, delegate reasons carry no cap, and compaction summaries by `internal/provider`'s `deriveSummaryMaxTokens`.
 
 `ContextSource` constants distinguish where each block originated: `preamble`, `phase_prompt`, `global_agents_md`, `project_agents_md`, `project_context`, `skill`, `session_date`, `durable_context`, and `conversation_summary`.
+
+### Interactive skill delivery
+
+Interactive sessions keep skills out of the static prefix, so enabling or disabling a skill never changes the cacheable portion of the request. Instead, `internal/interactive` prepends skill blocks to the next submitted user message, after any execution-mode notice and before the user's text:
+
+```
+<steiner-skill name="..." state="active|inactive" bytes="N">
+...
+</steiner-skill>
+```
+
+Each block is one length-delimited envelope. The open tag carries the quoted skill name, the state (`active` on enable, `inactive` on disable), and the byte length of the body between the open tag and the `</steiner-skill>` close tag. An activation body embeds the shared skill framing text and a `## Active Skill: <name>` heading; a deactivation body states the skill is no longer active. `SplitSkillBlocks` parses an optional leading execution-mode notice, then the leading envelopes, stopping at the first malformed one so the remaining content is preserved byte-for-byte. `EffectiveSkills` folds envelopes across user messages in order: a later activation replaces the earlier block and moves it to the end, and a deactivation removes it.
+
+On submit, `skillDeltaBlocks` computes the net diff against the skills already effective in the conversation: deactivations for skills no longer enabled first, then activations for enabled skills not yet effective. Existing conversation messages are never rewritten, so historical envelopes stay in place; the diff describes only the change for the current turn.
+
+When a skill body exceeds `prompt.SkillContentCapBytes` (98304 bytes, the same value as the skills assembly budget), the activation truncates it on a UTF-8 rune boundary and appends a `[truncated: skill exceeded the 98304-byte cap]` marker. Enabling such a skill emits a `skill_truncated` warning event carrying the original size and the cap.
+
+Resuming a session replays envelopes as `skill_state` status lines (`enabled`/`disabled`) instead of re-emitting the envelope text. The `/context` report attributes each envelope's tokens to the `enabled skills` category and labels envelopes no longer effective as `(inactive, removed at next compaction)`.
 
 ### Session date assembly
 
@@ -83,6 +103,10 @@ Both stages work the same way:
 4. A new `ConversationGeneration` is created containing just the summary prefix + retained turns. The old generation is preserved in `ConversationLineage`.
 
 `ConversationLineage` keeps all generations — nothing is ever pruned. This means the full conversation history is theoretically recoverable, but subsequent turns only see the latest generation.
+
+### Skills through compaction
+
+Both normal and emergency stages strip skill envelopes from the retained messages, then re-inject the currently active envelopes verbatim as a single leading user message ahead of the retained turns; stale activations and deactivations are dropped. `activeSkillBlocks` scans the full generation, so it sees early activations alongside any late switch retained in the tail. An enabled skill thus survives compaction, while a disabled skill disappears at the next compaction.
 
 ### Escalation policy
 
@@ -126,6 +150,8 @@ Tool-result content that already reached the provider is frozen. Such messages c
 | Project context | 8000 |
 | Skills | 98304 |
 
+`prompt.SkillContentCapBytes` (98304, the same value as the skills assembly budget) caps the body of an interactive skill block. A larger body is truncated on a UTF-8 rune boundary with a `[truncated: skill exceeded the 98304-byte cap]` marker, and enabling that skill emits a `skill_truncated` warning event carrying the original size and the cap.
+
 Budgets are configurable via `AssemblyPolicy` in the prompt package. Zero values fall back to these defaults.
 
 ---
@@ -138,3 +164,5 @@ Budgets are configurable via `AssemblyPolicy` in the prompt package. Zero values
 - **Children use the same compaction path**: sub-agents have the same context manager and compaction logic as the parent.
 - **Compaction is lossy but bounded**: summaries are capped.
 - **70% threshold**: compaction triggers when estimated prompt tokens reach 70% of the context window, reserving headroom for the model response.
+- **Skill toggles never rewrite the prefix**: enabling or disabling a skill appends blocks to the next user message and leaves historical messages and the static prefix untouched, preserving prompt-cache reuse (exec and oneshot keep skills in the static skills source).
+- **Active skills survive compaction**: active skill envelopes are stripped from retained turns and re-injected verbatim after summarisation; disabled skills disappear at the next compaction.
