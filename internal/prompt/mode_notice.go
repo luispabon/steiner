@@ -19,16 +19,26 @@ func ModeNotice(mode config.ExecutionMode) string {
 	}
 }
 
-// StripModeNotice removes a leading execution-mode notice prefix (as produced
-// by ModeNotice + "\n\n") from persisted user message content, if present.
+// modeNoticePrefix returns the leading execution-mode notice prefix (as
+// produced by ModeNotice + "\n\n") present in content, or "" when none is.
 // Matches against the exact known notice strings for plan and build mode — a
 // small closed set, not a general pattern.
-func StripModeNotice(content string) string {
+func modeNoticePrefix(content string) string {
 	for _, mode := range []config.ExecutionMode{config.ExecutionModePlan, config.ExecutionModeBuild} {
 		prefix := ModeNotice(mode) + "\n\n"
 		if strings.HasPrefix(content, prefix) {
-			return strings.TrimPrefix(content, prefix)
+			return prefix
 		}
 	}
-	return content
+	return ""
+}
+
+// StripModeNotice removes a leading execution-mode notice prefix (as produced
+// by ModeNotice + "\n\n") from persisted user message content, if present.
+func StripModeNotice(content string) string {
+	prefix := modeNoticePrefix(content)
+	if prefix == "" {
+		return content
+	}
+	return strings.TrimPrefix(content, prefix)
 }
