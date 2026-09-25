@@ -28,6 +28,10 @@ Auto-compaction is never steered; it always uses an empty steering value.
 - Summaries from previous compactions (chained forward)
 - The most recent 1–3 conversation turns (verbatim)
 
+### Skills in interactive sessions
+
+Enabling or disabling a skill in an interactive session does not rewrite anything already sent, so the session's cached prefix is preserved; the change is delivered with your next message. An active skill survives compaction (it is re-applied after the summary), while a disabled skill disappears the next time compaction runs. A skill longer than 98304 bytes is truncated with a marker, and Steiner warns with the original size and the cap. The `/context` report shows leftover blocks for skills you have turned off as inactive until compaction removes them.
+
 ## Session date
 
 Steiner captures the local calendar date when a session or standalone run begins — for example, `Current date: 2026-09-13 (BST, UTC+01:00), recorded when this session started.` — and includes it in every request. The date is captured only once per session identity (new session, resume, or fork uses a fresh capture), and per standalone exec or oneshot run; within a session it remains fixed even as wall-clock time advances.

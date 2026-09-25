@@ -7,6 +7,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 )
 
 func TestIsDelegateToolCall(t *testing.T) {
@@ -577,4 +578,106 @@ func TestReplaySessionMessagesReasoningContent(t *testing.T) {
 	if assistantEvent.Content != "here's the fix" {
 		t.Errorf("assistantEvent.Content = %q, want 'here's the fix'", assistantEvent.Content)
 	}
+}
+
+// replayUserEvents replays msgs and returns the emitted events in order.
+func replayUserEvents(t *testing.T, msgs []agent.Message) []output.Event {
+	t.Helper()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
+	})
+	s.replaySessionMessages(msgs)
+	return events
+}
+
+func TestReplaySessionMessagesSkillStates(t *testing.T) {
+	t.Parallel()
+
+	activation, _ := prompt.RenderSkillActivation("docs", "docs body")
+	deactivation := prompt.RenderSkillDeactivation("docs")
+
+	t.Run("activation with text emits state then input", func(t *testing.T) {
+		t.Parallel()
+		events := replayUserEvents(t, []agent.Message{{
+			Role:    agent.MessageRoleUser,
+			Content: prompt.PrependSkillBlocks([]string{activation}, "now do the thing"),
+		}})
+		if len(events) != 2 {
+			t.Fatalf("events = %d, want 2: %+v", len(events), events)
+		}
+		state := mustEventPayload[output.SkillStateEvent](t, events[0])
+		if state.Name != "docs" || state.State != output.SkillStateEnabled {
+			t.Errorf("events[0] = %+v, want docs/enabled", state)
+		}
+		input := mustEventPayload[output.UserInputEvent](t, events[1])
+		if input.Content != "now do the thing" || input.Mode != "resume" {
+			t.Errorf("events[1] = %+v, want content 'now do the thing' mode resume", input)
+		}
+		if strings.Contains(input.Content, "<steiner-skill") {
+			t.Errorf("input content leaked envelope: %q", input.Content)
+		}
+	})
+
+	t.Run("skill only emits only state", func(t *testing.T) {
+		t.Parallel()
+		events := replayUserEvents(t, []agent.Message{{Role: agent.MessageRoleUser, Content: activation}})
+		if len(events) != 1 {
+			t.Fatalf("events = %d, want 1: %+v", len(events), events)
+		}
+		state := mustEventPayload[output.SkillStateEvent](t, events[0])
+		if state.Name != "docs" || state.State != output.SkillStateEnabled {
+			t.Errorf("state = %+v, want docs/enabled", state)
+		}
+	})
+
+	t.Run("deactivate then activate emits both states then input", func(t *testing.T) {
+		t.Parallel()
+		activationB, _ := prompt.RenderSkillActivation("review", "review body")
+		content := prompt.PrependSkillBlocks([]string{deactivation, activationB}, "after switch")
+		events := replayUserEvents(t, []agent.Message{{Role: agent.MessageRoleUser, Content: content}})
+		if len(events) != 3 {
+			t.Fatalf("events = %d, want 3: %+v", len(events), events)
+		}
+		disabled := mustEventPayload[output.SkillStateEvent](t, events[0])
+		if disabled.Name != "docs" || disabled.State != output.SkillStateDisabled {
+			t.Errorf("events[0] = %+v, want docs/disabled", disabled)
+		}
+		enabled := mustEventPayload[output.SkillStateEvent](t, events[1])
+		if enabled.Name != "review" || enabled.State != output.SkillStateEnabled {
+			t.Errorf("events[1] = %+v, want review/enabled", enabled)
+		}
+		input := mustEventPayload[output.UserInputEvent](t, events[2])
+		if input.Content != "after switch" {
+			t.Errorf("events[2] content = %q, want 'after switch'", input.Content)
+		}
+	})
+
+	t.Run("no blocks unchanged", func(t *testing.T) {
+		t.Parallel()
+		events := replayUserEvents(t, []agent.Message{{Role: agent.MessageRoleUser, Content: "plain text"}})
+		if len(events) != 1 {
+			t.Fatalf("events = %d, want 1: %+v", len(events), events)
+		}
+		input := mustEventPayload[output.UserInputEvent](t, events[0])
+		if input.Content != "plain text" || input.Mode != "resume" {
+			t.Errorf("input = %+v, want content 'plain text' mode resume", input)
+		}
+	})
+
+	t.Run("skill only with images still emits input", func(t *testing.T) {
+		t.Parallel()
+		events := replayUserEvents(t, []agent.Message{{
+			Role:    agent.MessageRoleUser,
+			Content: activation,
+			Images:  []agent.ImageBlock{{ID: "img1"}},
+		}})
+		if len(events) != 2 {
+			t.Fatalf("events = %d, want 2: %+v", len(events), events)
+		}
+		input := mustEventPayload[output.UserInputEvent](t, events[1])
+		if input.Content != "" || len(input.Images) != 1 {
+			t.Errorf("events[1] = %+v, want empty content with 1 image", input)
+		}
+	})
 }

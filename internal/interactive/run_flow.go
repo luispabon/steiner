@@ -7,6 +7,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/session"
 )
 
@@ -16,6 +17,12 @@ import (
 // session. Emits stop/error and history events consistently.
 func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.ImageBlock) {
 	s.recordHistory(text)
+
+	// Skill content is injected only into the newly appended user message;
+	// existing conversation messages are never rewritten. Blocks are computed
+	// from the conversation snapshot outside the session lock.
+	blocks := s.skillDeltaBlocks(ctx, s.Conversation())
+	content := prompt.PrependSkillBlocks(blocks, text)
 
 	s.mu.Lock()
 	startID := s.sessionID
@@ -28,7 +35,7 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 		modelID:  currentModelConfig(s.deps.Config).ID,
 	}
 	isFirstPrompt := len(s.conversation) == 0
-	s.conversation = append(s.conversation, agent.Message{Role: agent.MessageRoleUser, Content: text, Images: images})
+	s.conversation = append(s.conversation, agent.Message{Role: agent.MessageRoleUser, Content: content, Images: images})
 	s.mu.Unlock()
 
 	err := s.runWithInterruptOwnership(ctx, func(runCtx context.Context) error {
@@ -39,7 +46,7 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 			conversation[len(conversation)-1].Content = notice + conversation[len(conversation)-1].Content
 		}
 		runner := s.currentRunner()
-		result, err := runner.Run(runCtx, conversation, s.skills.Snapshot(), drainSteers)
+		result, err := runner.Run(runCtx, conversation, drainSteers)
 
 		if !s.applyRunResult(startID, result) {
 			s.saveOrphanedRunResult(startID, startMeta, text, isFirstPrompt, result)

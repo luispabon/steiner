@@ -171,7 +171,7 @@ func TestManualCompactionHasSourceUsesAssistantCycles(t *testing.T) {
 
 func TestManualCompactionAllowsMultipleAssistantCyclesInSingleTurn(t *testing.T) {
 	var gotConversation []agent.Message
-	runner := &runExecutorFunc{compact: func(_ context.Context, conversation []agent.Message, _ []string, _ []provider.ToolSpec) ([]agent.Message, error) {
+	runner := &runExecutorFunc{compact: func(_ context.Context, conversation []agent.Message, _ []provider.ToolSpec) ([]agent.Message, error) {
 		gotConversation = cloneMessages(conversation)
 		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
 	}}
@@ -194,10 +194,8 @@ func TestManualCompactionAllowsMultipleAssistantCyclesInSingleTurn(t *testing.T)
 
 func TestManualCompactionUsesRunnerCompact(t *testing.T) {
 	var gotConversation []agent.Message
-	var gotSkills []string
-	runner := &runExecutorFunc{compact: func(_ context.Context, conversation []agent.Message, skills []string, _ []provider.ToolSpec) ([]agent.Message, error) {
+	runner := &runExecutorFunc{compact: func(_ context.Context, conversation []agent.Message, _ []provider.ToolSpec) ([]agent.Message, error) {
 		gotConversation = cloneMessages(conversation)
-		gotSkills = append([]string(nil), skills...)
 		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
 	}}
 	s := mustCompactionSession(t, Dependencies{Runner: runner, SkillNames: []string{"skill-a"}})
@@ -209,9 +207,6 @@ func TestManualCompactionUsesRunnerCompact(t *testing.T) {
 	}
 	if len(gotConversation) != 4 {
 		t.Fatalf("Compact conversation length = %d, want 4", len(gotConversation))
-	}
-	if !reflect.DeepEqual(gotSkills, []string{"skill-a"}) {
-		t.Fatalf("Compact skills = %v", gotSkills)
 	}
 	if s.Conversation()[0].Content != "summary" {
 		t.Fatal("conversation was not replaced by compact result")
@@ -237,7 +232,7 @@ func TestHandleManualCompactionPassesSteeringToRunner(t *testing.T) {
 
 func TestManualCompactionPassesSnapshotToolsToRunner(t *testing.T) {
 	var gotTools []provider.ToolSpec
-	runner := &runExecutorFunc{compact: func(_ context.Context, _ []agent.Message, _ []string, tools []provider.ToolSpec) ([]agent.Message, error) {
+	runner := &runExecutorFunc{compact: func(_ context.Context, _ []agent.Message, tools []provider.ToolSpec) ([]agent.Message, error) {
 		gotTools = provider.CloneTools(tools)
 		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
 	}}
@@ -266,7 +261,7 @@ func TestManualCompactionPersistsCompactSessionWithoutFollowupPrompt(t *testing.
 	if err := store.Save(initial); err != nil {
 		t.Fatal(err)
 	}
-	runner := &runExecutorFunc{compact: func(context.Context, []agent.Message, []string, []provider.ToolSpec) ([]agent.Message, error) {
+	runner := &runExecutorFunc{compact: func(context.Context, []agent.Message, []provider.ToolSpec) ([]agent.Message, error) {
 		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
 	}}
 	s := mustCompactionSession(t, Dependencies{Runner: runner, SessionStore: store, Config: config.Config{Models: config.ModelsConfig{Effective: config.EffectiveModelAssignments{DefaultModel: "test"}, Definitions: map[string]config.ModelConfig{"test": {ID: modelID}}}}})

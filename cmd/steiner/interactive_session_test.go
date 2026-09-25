@@ -583,7 +583,7 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := sr.Run(ctx, nil, nil, nil); err == nil {
+	if _, err := sr.Run(ctx, nil, nil); err == nil {
 		t.Fatal("Run() error = nil, want fast failure after MCP init")
 	}
 	// Measured from Connect: the fixture re-exec is a slow-starting test binary,
@@ -1092,13 +1092,13 @@ type blockedCleanupTestRunner struct {
 	release chan struct{}
 }
 
-func (r *blockedCleanupTestRunner) Run(context.Context, []agent.Message, []string, func() []agent.SteerMessage) (interactive.RunResult, error) {
+func (r *blockedCleanupTestRunner) Run(context.Context, []agent.Message, func() []agent.SteerMessage) (interactive.RunResult, error) {
 	close(r.started)
 	<-r.release
 	return interactive.RunResult{}, nil
 }
 
-func (r *blockedCleanupTestRunner) Compact(_ context.Context, conversation []agent.Message, _ []string, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
+func (r *blockedCleanupTestRunner) Compact(_ context.Context, conversation []agent.Message, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
 	return conversation, nil
 }
 
@@ -1121,5 +1121,62 @@ func TestSortedProfileNamesEmpty(t *testing.T) {
 	got := sortedProfileNames(map[string]config.ModelProfile{})
 	if len(got) != 0 {
 		t.Fatalf("sortedProfileNames(empty) = %v, want empty", got)
+	}
+}
+
+// lastRequestContents joins the message contents of the most recent provider
+// request.
+func lastRequestContents(t *testing.T, p *fakeProvider) string {
+	t.Helper()
+	if len(p.requests) == 0 {
+		t.Fatal("provider received no request")
+	}
+	var contents []string
+	for _, message := range p.requests[len(p.requests)-1].Messages {
+		contents = append(contents, message.Content)
+	}
+	return strings.Join(contents, "\n")
+}
+
+// TestSessionRunnerForwardsNilStaticSkillNames proves the interactive adapter
+// never populates the static skill set: driving the same cliRunner through
+// sessionRunner (whose Run and Compact pass nil skill names) omits a skill that
+// the same runner includes when the name is passed explicitly.
+func TestSessionRunnerForwardsNilStaticSkillNames(t *testing.T) {
+	skillsRoot := filepath.Join(t.TempDir(), ".config", "steiner", "skills")
+	mustMkdirAll(t, filepath.Join(skillsRoot, "review"))
+	writeFile(t, filepath.Join(skillsRoot, "review", "SKILL.md"), "review skill instructions")
+
+	providerStub := &fakeProvider{responses: []provider.ChatResponse{
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"}, FinishReason: "stop"},
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"}, FinishReason: "stop"},
+	}}
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      testRuntimeConfig("test-model"),
+			provider: providerStub,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  filepath.Dir(filepath.Dir(filepath.Dir(skillsRoot))),
+			events:   output.NoopSink{},
+		},
+	}
+	adapter := sessionRunner{runner: runner}
+	conversation := []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}
+
+	if _, err := adapter.Run(context.Background(), conversation, nil); err != nil {
+		t.Fatalf("sessionRunner.Run() error = %v", err)
+	}
+	if got := lastRequestContents(t, providerStub); strings.Contains(got, "review skill instructions") {
+		t.Fatalf("interactive Run forwarded static skill names; request included skill content:\n%s", got)
+	}
+
+	// Control: the same cliRunner with an explicit skill name does include it,
+	// so the omission above proves the nil forwarding, not a missing skill.
+	if _, err := runner.Run(context.Background(), conversation, []string{"review"}, nil); err != nil {
+		t.Fatalf("cliRunner.Run() error = %v", err)
+	}
+	if got := lastRequestContents(t, providerStub); !strings.Contains(got, "review skill instructions") {
+		t.Fatalf("control run missing static skill content:\n%s", got)
 	}
 }

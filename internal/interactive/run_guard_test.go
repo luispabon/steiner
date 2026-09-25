@@ -34,7 +34,7 @@ func startBlockedRun(t *testing.T, s *Session) (started chan struct{}, release c
 	t.Helper()
 	started = make(chan struct{})
 	release = make(chan struct{})
-	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message, _ []string) (RunResult, error) {
+	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
 		close(started)
 		<-release
 		return RunResult{Conversation: append(conv, agent.Message{Role: agent.MessageRoleAssistant, Content: "old answer"})}, nil
@@ -117,7 +117,7 @@ func TestSubmitPromptDoesNotSaveUnderChangedSession(t *testing.T) {
 	startID := s.SessionID()
 	started := make(chan struct{})
 	release := make(chan struct{})
-	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message, _ []string) (RunResult, error) {
+	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
 		close(started)
 		<-release
 		return RunResult{Conversation: conv}, nil
@@ -208,7 +208,7 @@ func TestHandoffClearRotateStillSavesFinalTurnUnderOriginalSession(t *testing.T)
 	startID := s.SessionID()
 	started := make(chan struct{})
 	release := make(chan struct{})
-	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message, _ []string) (RunResult, error) {
+	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
 		close(started)
 		<-release // blocked in the workflow handoff responder
 		final := append(append([]agent.Message{}, conv...), agent.Message{Role: agent.MessageRoleAssistant, Content: "final plan turn"})

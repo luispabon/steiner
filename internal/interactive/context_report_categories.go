@@ -45,6 +45,11 @@ func buildContextCategories(ctx context.Context, snapshot RequestContextSnapshot
 		messageToBlocks[msgIdx] = append(messageToBlocks[msgIdx], blockIdx)
 	}
 
+	// Fold every user message's skill blocks in order to learn which occurrences
+	// remain effective, so embedded envelopes in conversation messages can be
+	// attributed to the enabled skills category.
+	skillActive := latestEffectiveSkills(snapshot.Messages)
+
 	conversationOrdinal := 0
 	toolOrdinal := 0
 	for msgIdx, message := range snapshot.Messages {
@@ -61,7 +66,7 @@ func buildContextCategories(ctx context.Context, snapshot RequestContextSnapshot
 			continue
 		}
 
-		attributeOrphanMessage(message, categories, index, tokenCount, &conversationOrdinal, &toolOrdinal)
+		attributeOrphanMessage(message, msgIdx, skillActive, categories, index, tokenCount, &conversationOrdinal, &toolOrdinal)
 	}
 
 	for i, tool := range snapshot.Tools {
@@ -136,7 +141,7 @@ func distributeBlockTokens(allBlocks []prompt.ContextBlock, blockIndices []int, 
 // attributeOrphanMessage classifies a message that is not mapped to any block
 // into either the "tool result / tool summary blocks" or "conversation messages"
 // category based on its role, maintaining ordinal counters.
-func attributeOrphanMessage(message provider.Message, categories []contextReportCategory, index map[string]int, tokenCount int, conversationOrdinal *int, toolOrdinal *int) {
+func attributeOrphanMessage(message provider.Message, msgIdx int, skillActive map[skillOccurrence]bool, categories []contextReportCategory, index map[string]int, tokenCount int, conversationOrdinal *int, toolOrdinal *int) {
 	switch message.Role {
 	case provider.MessageRoleTool:
 		*toolOrdinal++
@@ -152,17 +157,117 @@ func attributeOrphanMessage(message provider.Message, categories []contextReport
 			Tokens: tokenCount,
 		})
 		categories[index["tool result / tool summary blocks"]].Total += tokenCount
+	case provider.MessageRoleUser:
+		if _, blocks, rest := prompt.SplitSkillBlocks(message.Content); len(blocks) > 0 {
+			attributeUserSkillBlocks(message, msgIdx, blocks, rest, skillActive, categories, index, tokenCount, conversationOrdinal)
+			return
+		}
+		attributeConversationMessage(message, categories, index, tokenCount, conversationOrdinal)
 	default:
+		attributeConversationMessage(message, categories, index, tokenCount, conversationOrdinal)
+	}
+}
+
+// attributeConversationMessage attributes a whole message's tokens to the
+// conversation messages category, preserving the existing label and preview.
+func attributeConversationMessage(message provider.Message, categories []contextReportCategory, index map[string]int, tokenCount int, conversationOrdinal *int) {
+	*conversationOrdinal++
+	label := fmt.Sprintf("%s #%d", message.Role, *conversationOrdinal)
+	if preview := previewText(message.Content); preview != "" {
+		label += ": " + preview
+	}
+	categories[index["conversation messages"]].Items = append(categories[index["conversation messages"]].Items, contextReportItem{
+		Label:  label,
+		Tokens: tokenCount,
+	})
+	categories[index["conversation messages"]].Total += tokenCount
+}
+
+// staleSkillSuffix marks a skill block that is no longer part of the latest
+// effective activation set (a superseded activation or a deactivation).
+const staleSkillSuffix = " (inactive, removed at next compaction)"
+
+// skillOccurrence identifies one leading skill block envelope by its message
+// index and its position within that message's block run.
+type skillOccurrence struct {
+	message int
+	block   int
+}
+
+// latestEffectiveSkills folds skill blocks across the messages in order and
+// returns the occurrences still effective. Because a later block for a name
+// always supersedes an earlier one, an occurrence is effective only when it is
+// the last block for its name and that block is an activation. Ordering, not
+// text equality, decides the winner so repeated identical envelopes do not
+// collapse onto the wrong occurrence.
+func latestEffectiveSkills(messages []provider.Message) map[skillOccurrence]bool {
+	last := map[string]skillOccurrence{}
+	states := map[skillOccurrence]prompt.SkillBlockState{}
+	for msgIdx, message := range messages {
+		if message.Role != provider.MessageRoleUser {
+			continue
+		}
+		_, blocks, _ := prompt.SplitSkillBlocks(message.Content)
+		for j, block := range blocks {
+			occurrence := skillOccurrence{message: msgIdx, block: j}
+			last[block.Name] = occurrence
+			states[occurrence] = block.State
+		}
+	}
+	active := make(map[skillOccurrence]bool)
+	for _, occurrence := range last {
+		if states[occurrence] == prompt.SkillBlockActive {
+			active[occurrence] = true
+		}
+	}
+	return active
+}
+
+// attributeUserSkillBlocks splits a user message's token count across its
+// embedded skill envelopes by byte share and attributes the remainder to the
+// conversation category. A skill-only message has no conversation item, so its
+// rounding remainder stays with the first skill item to keep the message total
+// conserved.
+func attributeUserSkillBlocks(message provider.Message, msgIdx int, blocks []prompt.SkillBlock, rest string, skillActive map[skillOccurrence]bool, categories []contextReportCategory, index map[string]int, tokenCount int, conversationOrdinal *int) {
+	enabledIdx := index["enabled skills"]
+	base := len(categories[enabledIdx].Items)
+	contentBytes := len(message.Content)
+	consumed := 0
+	for j, block := range blocks {
+		share := 0
+		if contentBytes > 0 {
+			share = tokenCount * len(block.Text) / contentBytes
+		}
+		consumed += share
+		label := block.Name
+		if !skillActive[skillOccurrence{message: msgIdx, block: j}] {
+			label += staleSkillSuffix
+		}
+		categories[enabledIdx].Items = append(categories[enabledIdx].Items, contextReportItem{
+			Label:  label,
+			Tokens: share,
+		})
+		categories[enabledIdx].Total += share
+	}
+
+	remainder := tokenCount - consumed
+	if strings.TrimSpace(rest) != "" {
 		*conversationOrdinal++
 		label := fmt.Sprintf("%s #%d", message.Role, *conversationOrdinal)
-		if preview := previewText(message.Content); preview != "" {
+		if preview := previewText(rest); preview != "" {
 			label += ": " + preview
 		}
 		categories[index["conversation messages"]].Items = append(categories[index["conversation messages"]].Items, contextReportItem{
 			Label:  label,
-			Tokens: tokenCount,
+			Tokens: remainder,
 		})
-		categories[index["conversation messages"]].Total += tokenCount
+		categories[index["conversation messages"]].Total += remainder
+		return
+	}
+
+	if remainder != 0 {
+		categories[enabledIdx].Items[base].Tokens += remainder
+		categories[enabledIdx].Total += remainder
 	}
 }
 

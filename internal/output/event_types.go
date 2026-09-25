@@ -2,6 +2,7 @@ package output
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -109,6 +110,13 @@ const (
 	// key worth surfacing. It renders as a status line and never carries
 	// sandbox or other sidebar state.
 	EventTypeConfigWarning = "config_warning"
+	// EventTypeSkillTruncated is emitted when an enabled skill's SKILL.md body
+	// exceeds the skill content cap and is truncated. It renders as a status
+	// line.
+	EventTypeSkillTruncated = "skill_truncated"
+	// EventTypeSkillState is emitted by session replay once per persisted skill
+	// block. It renders as a status line.
+	EventTypeSkillState = "skill_state"
 	// EventTypeMCPStatus is emitted when the MCP server set changes state. The
 	// payload is an immutable snapshot of the MCP surface, so display consumers
 	// never read the registry or manager concurrently.
@@ -594,6 +602,37 @@ type SandboxStatusEvent struct {
 // ConfigWarningEvent carries a user-facing configuration warning message.
 type ConfigWarningEvent struct {
 	Message string `json:"message"`
+}
+
+// SkillTruncatedEvent is the payload for EventTypeSkillTruncated. It names the
+// skill whose SKILL.md body exceeded the cap and reports the original body size
+// and the cap that was applied.
+type SkillTruncatedEvent struct {
+	Name      string `json:"name"`
+	SizeBytes int    `json:"size_bytes"`
+	CapBytes  int    `json:"cap_bytes"`
+}
+
+// Message renders the user-facing truncation warning. The stream renderer and
+// the TUI share it so the wording is defined once.
+func (e SkillTruncatedEvent) Message() string {
+	return fmt.Sprintf(
+		"warning: skill %s is %d bytes, over the %d-byte skill cap; truncated to %d bytes",
+		e.Name, e.SizeBytes, e.CapBytes, e.CapBytes,
+	)
+}
+
+// SkillStateEnabled marks a skill as active in the latest effective set.
+const SkillStateEnabled = "enabled"
+
+// SkillStateDisabled marks a skill as no longer active.
+const SkillStateDisabled = "disabled"
+
+// SkillStateEvent is the payload for EventTypeSkillState. It records a
+// persisted skill block's name and enabled/disabled state during replay.
+type SkillStateEvent struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
 }
 
 // MCPServerState is the display-only view of one configured MCP server inside

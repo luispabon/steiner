@@ -224,6 +224,12 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	}
 
 	retained := cloneMessages(plan.retainedMessages)
+	// buildSummarizedCompactionState strips skill blocks and drops skill-only
+	// retained messages before persisting them. Apply the same transformation here
+	// so the emitted RetainedMessages reflects the retained source messages that
+	// were actually persisted; the synthetic active-skill re-injection that
+	// buildSummarizedCompactionState prepends is not a retained source message.
+	retained = stripRetainedSkillBlocks(retained)
 	nextState := buildSummarizedCompactionState(state, summaryText, retained)
 	latestFit, err := fitConversationState(ctx, req, nextState)
 	if err != nil {

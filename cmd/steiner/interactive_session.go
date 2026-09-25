@@ -24,6 +24,7 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/sandbox"
+	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
 	"github.com/luispabon/steiner/internal/update"
@@ -66,6 +67,7 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 		HomeDir:           rt.homeDir,
 		WorkDir:           rt.workDir,
 		SessionStore:      rt.sessionStore,
+		SkillLoader:       skill.Loader{RootDirs: prompt.SkillRoots(rt.homeDir, rt.projectRoot), BundledFS: rt.skillBundledFS},
 		DelegateCanceller: delegationCanceller{c: rt.delegationActiveController},
 		CompactionLogPath: rt.compactionLogFile,
 		RecordModelSwitch: modelPopularityRecorder(rt.modelPopularity),
@@ -698,18 +700,18 @@ type sessionRunner struct {
 	mcpInit *mcpInitOnce
 }
 
-func (r sessionRunner) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
-	return r.runner.Compact(ctx, conversation, skillNames, tools, steering)
+func (r sessionRunner) Compact(ctx context.Context, conversation []agent.Message, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
+	return r.runner.Compact(ctx, conversation, nil, tools, steering)
 }
 
-func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (interactive.RunResult, error) {
+func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, drainSteers func() []agent.SteerMessage) (interactive.RunResult, error) {
 	if r.mcpInit != nil {
 		r.mcpInit.once.Do(func() { r.mcpInit.run(ctx, r.runner.runtime) })
 		if r.mcpInit.err != nil {
 			return interactive.RunResult{}, r.mcpInit.err
 		}
 	}
-	result, err := r.runner.Run(ctx, conversation, skillNames, drainSteers)
+	result, err := r.runner.Run(ctx, conversation, nil, drainSteers)
 	return interactive.RunResult{
 		Conversation:    result.Conversation,
 		WorkflowHandoff: result.WorkflowHandoff,
