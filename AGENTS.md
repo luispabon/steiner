@@ -55,7 +55,7 @@ docs/                    Product/design docs and implementation notes
 * Sub-agents receive only explicitly passed context and cannot nest.
 * Mutation tools are approval-gated by default.
 * **Prompt cache integrity is load-bearing** — protect the prefix:
-  * Keep static sources (preamble, agents, project context, skills) before dynamic sources (conversation, tool summaries); don't reorder `internal/prompt/source_plan.go`.
+  * Keep static sources (preamble, agents, project context, and, for exec and oneshot runs, skills) before dynamic sources (conversation, tool summaries); don't reorder `internal/prompt/source_plan.go`. Interactive sessions exclude skills from static assembly and append length-delimited skill blocks to the conversation instead.
   * No per-turn non-determinism in the prefix (preamble, tool definitions, skills, project context) — the preamble is memoized per session by `CachedSystemPreamble`.
   * Tool definition ordering stays deterministic (`internal/tool/registry.go` sorts by name; filtered subsets must not depend on map iteration order).
   * Don't remove or rename cache hints: Codex `session-id`/`thread-id` headers (`internal/provider/codex_responses.go`), Anthropic `cache_control` breakpoints (`internal/provider/anthropic_wire.go`), or `PromptCacheKey` assignment rules.
