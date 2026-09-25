@@ -641,6 +641,54 @@ func TestBuildContextCategoriesSkillEnvelopeAttribution(t *testing.T) {
 		}
 	})
 
+	t.Run("repeated byte-identical envelopes label by occurrence", func(t *testing.T) {
+		t.Parallel()
+		activation, _ := prompt.RenderSkillActivation("docs", "docs body")
+
+		// Two distinct messages carry the same bytes for the same skill name.
+		// The later occurrence supersedes the earlier one, so attribution must
+		// key on position rather than envelope text.
+		messages := []provider.Message{
+			{Role: provider.MessageRoleUser, Content: prompt.PrependSkillBlocks([]string{activation}, "first")},
+			{Role: provider.MessageRoleUser, Content: prompt.PrependSkillBlocks([]string{activation}, "second")},
+		}
+		if messages[0].Content == messages[1].Content {
+			t.Fatalf("test setup requires distinct messages")
+		}
+		snapshot := RequestContextSnapshot{Model: "gpt-4o", Messages: messages}
+
+		categories, err := buildContextCategories(context.Background(), snapshot)
+		if err != nil {
+			t.Fatalf("buildContextCategories() error = %v", err)
+		}
+		skills := contextCategory(t, categories, "enabled skills")
+		wantLabels := []string{
+			"docs (inactive, removed at next compaction)",
+			"docs",
+		}
+		if len(skills.Items) != len(wantLabels) {
+			t.Fatalf("enabled skills items = %+v, want %d", skills.Items, len(wantLabels))
+		}
+		for i, want := range wantLabels {
+			if skills.Items[i].Label != want {
+				t.Errorf("items[%d].Label = %q, want %q", i, skills.Items[i].Label, want)
+			}
+		}
+
+		total := 0
+		for _, message := range messages {
+			tokens, err := provider.EstimateMessageTokens(context.Background(), "gpt-4o", message)
+			if err != nil {
+				t.Fatalf("EstimateMessageTokens() error = %v", err)
+			}
+			total += tokens
+		}
+		conv := contextCategory(t, categories, "conversation messages")
+		if skills.Total+conv.Total != total {
+			t.Errorf("skills %d + conversation %d = %d, want %d", skills.Total, conv.Total, skills.Total+conv.Total, total)
+		}
+	})
+
 	t.Run("static skill block attribution unchanged", func(t *testing.T) {
 		t.Parallel()
 		snapshot := RequestContextSnapshot{
