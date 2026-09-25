@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 func mustSkillActivation(t *testing.T, name, body string) string {
@@ -263,5 +265,72 @@ func TestBuildSummarizedCompactionStateScansConversationWhenLineageEmpty(t *test
 	}
 	if got, want := out.Conversation[1].Content, a1; got != want {
 		t.Fatalf("replayed skill content = %q, want %q", got, want)
+	}
+}
+
+func TestSummarizeCompactorRetainedMessagesExcludeDroppedSkillOnlyMessage(t *testing.T) {
+	t.Parallel()
+
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{
+			{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "summary handoff"},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	a1 := mustSkillActivation(t, "alpha", "one")
+	skillOnly := prompt.PrependSkillBlocks([]string{a1}, "")
+	all := []Message{
+		{Role: MessageRoleUser, Content: "turn 1 user"},
+		{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+		{Role: MessageRoleUser, Content: skillOnly},
+		{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
+		{Role: MessageRoleUser, Content: "turn 3 user"},
+		{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
+		{Role: MessageRoleUser, Content: "turn 4 user"},
+		{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
+	}
+	state := stateFromMessages(all)
+
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), RunRequest{
+		Provider:      providerStub,
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         100000,
+			MaxCompletionTokens: 256,
+			SafetyMarginTokens:  0,
+			SummaryMaxTokens:    128,
+		},
+	}, state, 5, candidate, "")
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if !outcome.Applied {
+		t.Fatal("Applied = false, want true")
+	}
+
+	// The skill-only retained message is stripped and dropped before persisting, so
+	// the diagnostic count must reflect the five surviving retained source messages
+	// rather than the six pre-strip retained messages.
+	if got, want := len(outcome.RetainedMessages), 5; got != want {
+		t.Fatalf("RetainedMessages len = %d, want %d (skill-only retained message dropped)", got, want)
+	}
+	for _, msg := range outcome.RetainedMessages {
+		if strings.Contains(msg.Content, "steiner-skill") {
+			t.Fatalf("RetainedMessages kept a skill envelope: %q", msg.Content)
+		}
+	}
+
+	// The synthetic active-skill re-injection is persisted but is not a retained
+	// source message, so it must not be counted above.
+	if got := skillEnvelopeCount(outcome.State.Conversation); got != 1 {
+		t.Fatalf("persisted skill envelopes = %d, want 1 reinjection", got)
 	}
 }
