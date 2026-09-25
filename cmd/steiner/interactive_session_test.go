@@ -583,7 +583,7 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := sr.Run(ctx, nil, nil, nil); err == nil {
+	if _, err := sr.Run(ctx, nil, nil); err == nil {
 		t.Fatal("Run() error = nil, want fast failure after MCP init")
 	}
 	// Measured from Connect: the fixture re-exec is a slow-starting test binary,
@@ -1092,13 +1092,13 @@ type blockedCleanupTestRunner struct {
 	release chan struct{}
 }
 
-func (r *blockedCleanupTestRunner) Run(context.Context, []agent.Message, []string, func() []agent.SteerMessage) (interactive.RunResult, error) {
+func (r *blockedCleanupTestRunner) Run(context.Context, []agent.Message, func() []agent.SteerMessage) (interactive.RunResult, error) {
 	close(r.started)
 	<-r.release
 	return interactive.RunResult{}, nil
 }
 
-func (r *blockedCleanupTestRunner) Compact(_ context.Context, conversation []agent.Message, _ []string, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
+func (r *blockedCleanupTestRunner) Compact(_ context.Context, conversation []agent.Message, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
 	return conversation, nil
 }
 

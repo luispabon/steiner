@@ -98,8 +98,7 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		s.skills.Reset()
 		return true, nil
 	case SetSkillEnabled:
-		s.skills.Set(a.Name, a.Enabled)
-		return true, nil
+		return true, s.setSkillEnabled(ctx, a.Name, a.Enabled)
 	case SubmitApproval:
 		s.approvalCoordinator.Submit(a)
 		return true, nil
