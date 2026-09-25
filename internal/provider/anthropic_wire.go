@@ -77,17 +77,21 @@ type anthropicImageSource struct {
 }
 
 type anthropicContentBlock struct {
-	Type         string                 `json:"type"`
-	Text         string                 `json:"text,omitempty"`
-	Thinking     string                 `json:"thinking,omitempty"`
-	Signature    string                 `json:"signature,omitempty"`
-	ID           string                 `json:"id,omitempty"`
-	Name         string                 `json:"name,omitempty"`
-	Input        map[string]any         `json:"input,omitempty"`
-	ToolUseID    string                 `json:"tool_use_id,omitempty"`
-	Content      string                 `json:"content,omitempty"`
-	Source       *anthropicImageSource  `json:"source,omitempty"`
-	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
+	Type      string         `json:"type"`
+	Text      string         `json:"text,omitempty"`
+	Thinking  string         `json:"thinking,omitempty"`
+	Signature string         `json:"signature,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Input     map[string]any `json:"input,omitempty"`
+	ToolUseID string         `json:"tool_use_id,omitempty"`
+	Content   string         `json:"content,omitempty"`
+	// ContentBlocks carries a nested content array (a tool_result's text and
+	// image blocks). When non-empty MarshalJSON writes it as "content", taking
+	// precedence over the string Content field.
+	ContentBlocks []anthropicContentBlock
+	Source        *anthropicImageSource  `json:"source,omitempty"`
+	CacheControl  *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 func (b anthropicContentBlock) MarshalJSON() ([]byte, error) {
@@ -115,7 +119,9 @@ func (b anthropicContentBlock) MarshalJSON() ([]byte, error) {
 	if b.ToolUseID != "" {
 		m["tool_use_id"] = b.ToolUseID
 	}
-	if b.Content != "" {
+	if len(b.ContentBlocks) > 0 {
+		m["content"] = b.ContentBlocks
+	} else if b.Content != "" {
 		m["content"] = b.Content
 	}
 	if b.Source != nil {
@@ -355,13 +361,23 @@ func assistantThinkingBlock(message Message) *anthropicContentBlock {
 }
 
 func toolMessageToAnthropic(message Message) *anthropicMessage {
-	content := []anthropicContentBlock{{
+	block := anthropicContentBlock{
 		Type:      "tool_result",
 		ToolUseID: message.ToolCallID,
-		Content:   message.Content,
-	}}
-	content = appendImageBlocks(content, message.Images)
-	return &anthropicMessage{Role: "user", Content: content}
+	}
+	if len(message.Images) > 0 {
+		// Anthropic requires tool_result content to come first in the user
+		// message. Images returned by a tool belong inside the block's nested
+		// content array, not as sibling blocks.
+		var blocks []anthropicContentBlock
+		if message.Content != "" {
+			blocks = append(blocks, anthropicContentBlock{Type: "text", Text: message.Content})
+		}
+		block.ContentBlocks = appendImageBlocks(blocks, message.Images)
+	} else {
+		block.Content = message.Content
+	}
+	return &anthropicMessage{Role: "user", Content: []anthropicContentBlock{block}}
 }
 
 func genericMessageToAnthropic(message Message) *anthropicMessage {

@@ -326,3 +326,66 @@ func TestHandleImagesForVisionDoesNotProcessAssistantImages(t *testing.T) {
 		t.Fatal("assistant image was modified")
 	}
 }
+
+// TestRunnerChildShapedReadImageDeliveredExactlyOnce covers the request shape a
+// delegated child runs with: its own vision tracker (SubAgentConfigured=false)
+// derived from the child model. Each read image must reach exactly the model
+// request that immediately follows it and be stripped from later requests.
+func TestRunnerChildShapedReadImageDeliveredExactlyOnce(t *testing.T) {
+	capabilities := NewVisionCapabilities(false)
+	capabilities.SetDerived("child-model", VisionCapable)
+	readDatas := []string{"read-image-1", "read-image-2"}
+	readCalls := 0
+	executor := &fakeExecutor{execute: func(_ context.Context, name string, _ map[string]any) (any, error) {
+		if name != "read" {
+			t.Fatalf("tool = %q, want read", name)
+		}
+		data := readDatas[readCalls]
+		readCalls++
+		return builtin.ReadResult{Image: &builtin.ImageBlock{
+			FilePath: "/tmp/image.png", MediaType: "image/png", Data: data, Width: 2, Height: 3, SizeBytes: 4,
+		}}, nil
+	}}
+
+	providerStub := &fakeProvider{}
+	chatCalls := 0
+	providerStub.chatFn = func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+		chatCalls++
+		if chatCalls <= 2 {
+			return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{{
+				ID: "read-" + readDatas[chatCalls-1], Name: "read", Arguments: map[string]any{"path": "image.png"},
+			}}}}, nil
+		}
+		return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "done"}}, nil
+	}
+
+	readImageData := func(messages []provider.Message) string {
+		for _, message := range messages {
+			for _, image := range message.Images {
+				if image.Data != "" {
+					return image.Data
+				}
+			}
+		}
+		return ""
+	}
+
+	store := NewImageStore(t.TempDir())
+	if _, err := NewRunner().Run(context.Background(), RunRequest{
+		Provider: providerStub, Executor: executor,
+		Prompt:        prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "inspect image.png"}}},
+		ResolvedModel: provider.ResolvedModel{Alias: "child-model", BackendModelID: "child-model"},
+		Limits:        Limits{MaxTurns: 4}, VisionCapabilities: capabilities, ImageStore: store,
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(providerStub.requests) != 3 {
+		t.Fatalf("provider requests = %d, want 3", len(providerStub.requests))
+	}
+	if got := readImageData(providerStub.requests[1].Messages); got != "read-image-1" {
+		t.Fatalf("request 2 read image = %q, want read-image-1", got)
+	}
+	if got := readImageData(providerStub.requests[2].Messages); got != "read-image-2" {
+		t.Fatalf("request 3 read image = %q, want read-image-2", got)
+	}
+}

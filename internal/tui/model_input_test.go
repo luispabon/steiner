@@ -83,7 +83,7 @@ func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
 	t.Parallel()
 	input := newModelInput()
 	input.SetValue("describe this")
-	input.InsertString(" [Image 1]")
+	input.InsertString(" [img-1]")
 
 	q := agent.NewSteerQueue()
 	styles := testStyles(theme.AccentAmber)
@@ -92,7 +92,7 @@ func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
 		steers:         q,
 		input:          input,
 		imageMarkers: []imageMarker{
-			{label: "[Image 1]", image: agent.ImageBlock{MediaType: "image/png", Data: "queued-image-data"}},
+			{label: "[img-1]", image: agent.ImageBlock{MediaType: "image/png", Data: "queued-image-data"}},
 		},
 		content: contentBuffer{
 			segments:      make([]contentSegment, 0),
@@ -114,8 +114,8 @@ func TestSteerActionCapturesImagesForOneshot(t *testing.T) {
 		t.Fatalf("steer queue len = %d, want 1", len(queued))
 	}
 	msg := queued[0]
-	if msg.Text != "describe this [Image 1]" {
-		t.Errorf("steer text = %q, want %q", msg.Text, "describe this [Image 1]")
+	if msg.Text != "describe this [img-1]" {
+		t.Errorf("steer text = %q, want %q", msg.Text, "describe this [img-1]")
 	}
 	if len(msg.Images) != 1 {
 		t.Fatalf("steer images = %d, want 1", len(msg.Images))

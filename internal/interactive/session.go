@@ -75,7 +75,7 @@ func NewSession(deps Dependencies) (*Session, error) {
 		orchestrationLevel = config.OrchestrationLevelStandard
 	}
 	now := time.Now
-	return &Session{
+	sess := &Session{
 		deps:                deps,
 		events:              events,
 		displaySink:         displaySink,
@@ -94,7 +94,9 @@ func NewSession(deps Dependencies) (*Session, error) {
 		now:                 now,
 		sessionDate:         prompt.NewSessionDate(now()),
 		done:                make(chan struct{}),
-	}, nil
+	}
+	sess.bindImageStore(sessionID, 1)
+	return sess, nil
 }
 
 // EventSink returns the session's composed event sink for external consumers

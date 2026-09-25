@@ -216,27 +216,27 @@ func TestTakeBackWithDraftAppendsDraftLastAndPlacesCursorAtEnd(t *testing.T) {
 
 func TestTakeBackRestoresImageMarkersInOrder(t *testing.T) {
 	t.Parallel()
-	imgA := agent.ImageBlock{ID: "a", MediaType: "image/png", Data: "AAAA"}
-	imgB := agent.ImageBlock{ID: "b", MediaType: "image/png", Data: "BBBB"}
+	imgA := agent.ImageBlock{ID: "img-1", MediaType: "image/png", Data: "AAAA"}
+	imgB := agent.ImageBlock{ID: "img-2", MediaType: "image/png", Data: "BBBB"}
 	m := newTakeBackTestModel(t,
-		agent.SteerMessage{Text: "look at [Image 1]", Images: []agent.ImageBlock{imgA}},
-		agent.SteerMessage{Text: "and [Image 1]", Images: []agent.ImageBlock{imgB}},
+		agent.SteerMessage{Text: "look at [img-1]", Images: []agent.ImageBlock{imgA}},
+		agent.SteerMessage{Text: "and [img-2]", Images: []agent.ImageBlock{imgB}},
 	)
 
 	m = m.executeTakeBackSteersAction().(*Model)
 
-	want := "look at [Image 1]\n\nand [Image 2]"
+	want := "look at [img-1]\n\nand [img-2]"
 	if got := m.input.Value(); got != want {
 		t.Errorf("input.Value() = %q, want %q", got, want)
 	}
 	if len(m.imageMarkers) != 2 {
 		t.Fatalf("len(imageMarkers) = %d, want 2", len(m.imageMarkers))
 	}
-	if m.imageMarkers[0].label != "[Image 1]" || m.imageMarkers[0].image != imgA {
-		t.Errorf("imageMarkers[0] = %+v, want label [Image 1] and image %+v", m.imageMarkers[0], imgA)
+	if m.imageMarkers[0].label != "[img-1]" || m.imageMarkers[0].image != imgA {
+		t.Errorf("imageMarkers[0] = %+v, want label [img-1] and image %+v", m.imageMarkers[0], imgA)
 	}
-	if m.imageMarkers[1].label != "[Image 2]" || m.imageMarkers[1].image != imgB {
-		t.Errorf("imageMarkers[1] = %+v, want label [Image 2] and image %+v", m.imageMarkers[1], imgB)
+	if m.imageMarkers[1].label != "[img-2]" || m.imageMarkers[1].image != imgB {
+		t.Errorf("imageMarkers[1] = %+v, want label [img-2] and image %+v", m.imageMarkers[1], imgB)
 	}
 }
 

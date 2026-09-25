@@ -218,7 +218,9 @@ The `sub_agent` with type `vision` requires the six standard task fields plus `i
 
 When you paste an image, the TUI displays its assigned ID below the submitted message. Pass that ID to `sub_agent` with type `vision` to examine the image.
 
-After the initial type `vision` call, use the `agent_id` inside the returned `continuation` object with `follow_up` to ask additional questions about the same image. The provider's server-side prompt cache makes follow-ups cheap.
+After the initial type `vision` call, use the `agent_id` inside the returned `continuation` object with `follow_up` to ask additional questions about the same image. Each follow-up re-sends the image with the request, so a follow-up costs a full image request.
+
+Sub-agents can also read image files with the `read` tool. A child sees a read-returned image on the model request that immediately follows the read; the image payload is stripped from later requests, so re-read the file if the child needs it again.
 
 The `vision` type is only available when the selected profile's `sub_agents.vision`
 is configured. It requires a vision-capable model:

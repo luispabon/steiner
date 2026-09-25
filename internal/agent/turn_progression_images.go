@@ -54,8 +54,10 @@ func imageBlockPlaceholder(img ImageBlock, visionState VisionState, subAgentConf
 		case visionState == VisionIncapable:
 			// Non-vision without sub-agent: no re-examine hint.
 			suffix = "]"
+		case subAgentConfigured:
+			suffix = fmt.Sprintf(" — use sub_agent type \"vision\" with image_id \"%s\" or read tool to re-examine]", img.ID)
 		default:
-			suffix = fmt.Sprintf(" — use vision tool with image_id \"%s\" or read tool to re-examine]", img.ID)
+			suffix = " — use read tool to re-examine]"
 		}
 		return descriptive + suffix
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -137,11 +136,17 @@ func NewRunner() *Runner {
 	return &Runner{}
 }
 
-// Run executes req until the loop completes, stops, or fails.
-//
-//nolint:gocyclo // turn loop branches are intentionally explicit
+// Run executes req until the loop completes, stops, or fails. The returned
+// state never carries image payloads: whatever exit path the run takes, every
+// remaining image is stripped before Run returns.
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	req = normalizeRunRequest(req)
+	state, err := r.run(ctx, req)
+	return finalizeImagesAtRunExitForRequest(req, state), err
+}
+
+//nolint:gocyclo // turn loop branches are intentionally explicit
+func (r *Runner) run(ctx context.Context, req RunRequest) (RunState, error) {
 	state := initializeRunState(req)
 	if validated, done, err := validateRunRequest(ctx, req, state); err != nil {
 		return validated, err
@@ -192,7 +197,6 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		if outcome.Error != nil {
 			if shouldRetry, retryErr := handleTransientProviderRetry(ctx, req.Events, state.TurnCount, outcome.Error, &runnerRetries); shouldRetry {
 				if retryErr != nil {
-					state = p.finalizeDeferredReadImages(state)
 					emitStop(req.Events, state, outcome.Error)
 					return state, outcome.Error
 				}
@@ -206,7 +210,6 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 					state.StopReason = StopReasonUsageLimit
 				}
 			}
-			state = p.finalizeDeferredReadImages(state)
 			emitStop(req.Events, state, outcome.Error)
 			return state, outcome.Error
 		}
@@ -217,7 +220,6 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			if hadSteers && state.StopReason == StopReasonComplete {
 				continue
 			}
-			state = p.finalizeDeferredReadImages(state)
 			if state.StopReason == StopReasonComplete {
 				emitStop(req.Events, state, nil)
 			}
@@ -299,19 +301,16 @@ func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 func stopRunBeforeTurn(ctx context.Context, req RunRequest, state RunState) (RunState, bool) {
 	if err := ctx.Err(); err != nil {
 		state.StopReason = StopReasonCancelled
-		state = finalizeDeferredReadImagesForRequest(req, state)
 		emitStop(req.Events, state, nil)
 		return state, true
 	}
 	if req.Limits.MaxTurns > 0 && state.TurnCount >= req.Limits.MaxTurns {
 		state.StopReason = StopReasonMaxTurns
-		state = finalizeDeferredReadImagesForRequest(req, state)
 		emitStop(req.Events, state, nil)
 		return state, true
 	}
 	if req.Limits.MaxTokens > 0 && state.TokenCount >= req.Limits.MaxTokens {
 		state.StopReason = StopReasonMaxTokens
-		state = finalizeDeferredReadImagesForRequest(req, state)
 		emitStop(req.Events, state, nil)
 		return state, true
 	}
@@ -387,8 +386,6 @@ func handleTransientProviderRetry(ctx context.Context, events output.EventSink, 
 
 var runnerRetrySleepFn = runnerRetrySleepDefault
 
-var imageMarkerRe = regexp.MustCompile(`\[Image (\d+)\]`)
-
 func runnerRetrySleep(ctx context.Context, delay time.Duration) error {
 	return runnerRetrySleepFn(ctx, delay)
 }
@@ -407,34 +404,19 @@ func runnerRetrySleepDefault(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-// MergeSteers merges queued steering messages into the single user message
-// the runner appends to the conversation, joining texts with a blank line
-// and renumbering [Image N] markers so they stay aligned with the
-// concatenated image blocks.
+// MergeSteers joins queued steering messages into the single user message the
+// runner appends to the conversation, joining texts with a blank line and
+// concatenating image blocks. Composer markers are store IDs, so the texts are
+// passed through unchanged.
 func MergeSteers(steers []SteerMessage) Message {
 	if len(steers) == 1 {
 		return Message{Role: MessageRoleUser, Content: steers[0].Text, Images: steers[0].Images}
 	}
 	var texts []string
 	var images []ImageBlock
-	offset := 0
-	for i, s := range steers {
-		if i > 0 {
-			s.Text = renumberMarkers(s.Text, offset)
-		}
+	for _, s := range steers {
 		texts = append(texts, s.Text)
 		images = append(images, s.Images...)
-		offset += len(s.Images)
 	}
 	return Message{Role: MessageRoleUser, Content: strings.Join(texts, "\n\n"), Images: images}
-}
-
-// renumberMarkers finds [Image N] markers in text and adds offset to N.
-// The marker format is [Image N] where N is 1-indexed (matching internal/tui/image_markers.go).
-func renumberMarkers(text string, offset int) string {
-	return imageMarkerRe.ReplaceAllStringFunc(text, func(match string) string {
-		var n int
-		_, _ = fmt.Sscanf(match, "[Image %d]", &n)
-		return fmt.Sprintf("[Image %d]", n+offset)
-	})
 }

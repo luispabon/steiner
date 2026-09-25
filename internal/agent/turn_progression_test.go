@@ -2060,7 +2060,7 @@ func TestAdvance_VisionLatchRetryDoesNotPanic(t *testing.T) {
 	providerStub := &fakeProvider{
 		chatFn: func(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
 			if requestHasImages(req.Messages) {
-				return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request"}
+				return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request", Body: "image input is not supported for this model"}
 			}
 			return provider.ChatResponse{
 				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"},

@@ -409,7 +409,7 @@ func (m *Model) renderNormalInputView(contentWidth int, bar string, bodyWidth, i
 		}
 
 		if renderedLine == line {
-			renderedLine = renderInputLine(line, innerWidth, m.styles.ImageMarkerStyle)
+			renderedLine = renderInputLine(line, innerWidth, m.styles.ImageMarkerStyle, m.pendingMarkerLabels())
 		}
 		renderedLine = m.styles.UserBg.Width(innerWidth).Render(renderedLine)
 		if i+start == cursorRow {
@@ -724,14 +724,17 @@ func applyComposerCursorAnsi(s string, pos int, on bool) string {
 	return result.String()
 }
 
-func styleImageMarkers(line string, markerStyle lipgloss.Style) string {
+func styleImageMarkers(line string, markerStyle lipgloss.Style, labels map[string]struct{}) string {
 	return imageMarkerPattern.ReplaceAllStringFunc(line, func(match string) string {
+		if _, ok := labels[match]; !ok {
+			return match
+		}
 		return markerStyle.Render(match)
 	})
 }
 
-func renderInputLine(line string, width int, markerStyle lipgloss.Style) string {
-	if styled := styleImageMarkers(line, markerStyle); styled != line {
+func renderInputLine(line string, width int, markerStyle lipgloss.Style, labels map[string]struct{}) string {
+	if styled := styleImageMarkers(line, markerStyle, labels); styled != line {
 		return theme.WithBg(lipgloss.NewStyle().Width(width).Render(styled), theme.UserSoft)
 	}
 	return lipgloss.NewStyle().Width(width).Render(line)

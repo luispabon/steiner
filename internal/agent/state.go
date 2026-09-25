@@ -289,6 +289,23 @@ func (s RunState) WithLineage(lineage ConversationLineage) RunState {
 	return next
 }
 
+// LineageWithoutImageData returns a deep copy of lineage with every image
+// payload stripped from each generation's summary prefix and messages. The
+// input lineage is not modified. Callers persist the result so no image bytes
+// reach disk.
+func LineageWithoutImageData(lineage ConversationLineage) ConversationLineage {
+	out := lineage.Clone()
+	for i := range out.Generations {
+		if len(out.Generations[i].SummaryPrefix) > 0 {
+			out.Generations[i].SummaryPrefix = stripImagesFromMessages(out.Generations[i].SummaryPrefix, VisionUnknown, false)
+		}
+		if len(out.Generations[i].Messages) > 0 {
+			out.Generations[i].Messages = stripImagesFromMessages(out.Generations[i].Messages, VisionUnknown, false)
+		}
+	}
+	return out
+}
+
 // WithContext returns a copy of the state with the durable context replaced.
 func (s RunState) WithContext(context ContextState) RunState {
 	next := s.Clone()

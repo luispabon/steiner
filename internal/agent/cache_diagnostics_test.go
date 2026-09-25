@@ -532,7 +532,7 @@ func TestCompleteModelCall_InlineImageStripRetryComparesAgainstPreTurnBaseline(t
 	prov := &fakeProvider{
 		chatFn: func(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
 			if len(req.Messages) > 0 && len(req.Messages[0].Images) > 0 {
-				return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request"}
+				return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request", Body: "image input is not supported for this model"}
 			}
 			return provider.ChatResponse{
 				Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"},

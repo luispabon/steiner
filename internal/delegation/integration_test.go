@@ -1320,3 +1320,36 @@ func TestCrossTurnSessionStorePreservesSessions(t *testing.T) {
 		t.Fatalf("FollowUpCount = %d, want 1", session.FollowUpCount)
 	}
 }
+
+// TestBuildChildRunDerivesChildVisionCapabilities verifies the child gets its
+// own vision tracker: derived from the resolved model, and never inheriting the
+// parent's session state (SubAgentConfigured=false so children cannot nest
+// vision routing).
+func TestBuildChildRunDerivesChildVisionCapabilities(t *testing.T) {
+	t.Parallel()
+	vision := true
+	deps := SubAgentHandlerDeps{
+		Provider:    &fakeProvider{},
+		ParentReg:   tool.NewRegistry(),
+		SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 5, MaxTokens: 10000, MaxFollowUps: 100},
+		Events:      output.NoopSink{},
+		WorkDir:     "/tmp/work",
+	}
+	override := ChildBootstrapOverrides{
+		Provider:      deps.Provider,
+		ResolvedModel: provider.ResolvedModel{Alias: "child-vision", Vision: &vision},
+	}
+	req, _, err := BuildChildRun(context.Background(), deps, override, Spec{Task: "look", AgentID: "child-vision"})
+	if err != nil {
+		t.Fatalf("BuildChildRun() error = %v", err)
+	}
+	if req.VisionCapabilities == nil {
+		t.Fatal("VisionCapabilities = nil, want a child-owned tracker")
+	}
+	if req.VisionCapabilities.SubAgentConfigured() {
+		t.Fatal("SubAgentConfigured = true, want false so children cannot nest vision")
+	}
+	if got := req.VisionCapabilities.Get("child-vision"); got != agent.VisionCapable {
+		t.Fatalf("child vision state = %v, want VisionCapable", got)
+	}
+}

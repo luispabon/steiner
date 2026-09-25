@@ -139,8 +139,8 @@ func TestPendingImagesAccumulate(t *testing.T) {
 	if msg1.err != nil {
 		t.Fatal("unexpected error")
 	}
-	m.imageMarkers = append(m.imageMarkers, imageMarker{label: nextMarkerLabel(m.imageMarkers), image: msg1.block})
-	m.imageMarkers = append(m.imageMarkers, imageMarker{label: nextMarkerLabel(m.imageMarkers), image: msg2.block})
+	m.imageMarkers = append(m.imageMarkers, imageMarker{label: m.markerLabel(&msg1.block), image: msg1.block})
+	m.imageMarkers = append(m.imageMarkers, imageMarker{label: m.markerLabel(&msg2.block), image: msg2.block})
 
 	if len(m.imageMarkers) != 2 {
 		t.Fatalf("imageMarkers len = %d, want 2", len(m.imageMarkers))
@@ -157,7 +157,7 @@ func TestPendingImagesClearedOnSubmit(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.imageMarkers = []imageMarker{
-		{label: "[Image 1]", image: agent.ImageBlock{MediaType: "image/png", Data: "abc"}},
+		{label: "[img-1]", image: agent.ImageBlock{MediaType: "image/png", Data: "abc"}},
 	}
 	if len(m.imageMarkers) == 0 {
 		t.Fatalf("test setup failed: imageMarkers should have 1 item, got 0")
