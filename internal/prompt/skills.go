@@ -45,9 +45,16 @@ func loadSkillBlocks(ctx context.Context, loader skill.Loader, names []string) (
 	return blocks, nil
 }
 
+// skillFramingText is the shared framing that governs skill usage. Both the
+// static "Active Skills" block and per-skill activation envelopes embed it, so
+// it stays neutral between one and many active skills.
+const skillFramingText = "The user has explicitly enabled skills for this session. " +
+	"Each skill defines a workflow you must follow when the user's request matches its domain. " +
+	"Skills govern your working process - they do not override project instructions (CLAUDE.md, AGENTS.md) or tool policy. " +
+	"The user can override a skill's workflow with an explicit instruction."
+
 func skillFramingBlock(names []string) ContextBlock {
-	content := "## Active Skills\n\n" +
-		"The user has explicitly enabled the skills below for this session. Each skill defines a workflow you must follow when the user's request matches its domain. Skills govern your working process - they do not override project instructions (CLAUDE.md, AGENTS.md) or tool policy. The user can override a skill's workflow with an explicit instruction.\n\n" +
+	content := "## Active Skills\n\n" + skillFramingText + "\n\n" +
 		"Enabled: " + strings.Join(names, ", ")
 
 	return ContextBlock{
