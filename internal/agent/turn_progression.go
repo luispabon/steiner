@@ -94,7 +94,6 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 
 func (p *turnProgressor) handleModelCallError(ctx context.Context, state RunState, turn int, err error) turnOutcome {
 	if cancelled, ok := contextCancellationState(ctx, state); ok {
-		cancelled = p.finalizeDeferredReadImages(cancelled)
 		emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
 			Turn:  turn,
 			Model: p.request.ResolvedModel.BackendModelID,
@@ -156,17 +155,19 @@ func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, state RunSta
 	return turnOutcome{State: state, Stop: true}
 }
 
-func (p *turnProgressor) finalizeDeferredReadImages(state RunState) RunState {
-	return finalizeDeferredReadImagesForRequest(p.request, state)
-}
-
-func finalizeDeferredReadImagesForRequest(req RunRequest, state RunState) RunState {
-	visionState, subAgentConfigured := VisionUnknown, false
-	if req.VisionCapabilities != nil {
-		visionState = req.VisionCapabilities.Get(req.ResolvedModel.Alias)
-		subAgentConfigured = req.VisionCapabilities.SubAgentConfigured()
+// finalizeImagesAtRunExitForRequest strips every remaining image payload from
+// the state a run is about to return. It applies to every exit path, so the
+// caller never receives image bytes regardless of how the run stopped. When the
+// lineage is empty the raw conversation is stripped directly; otherwise the
+// latest generation's messages are stripped and the conversation is rebuilt
+// from the lineage.
+func finalizeImagesAtRunExitForRequest(req RunRequest, state RunState) RunState {
+	visionState, subAgentConfigured := visionCapabilityContextForRequest(req)
+	if state.Lineage.Empty() {
+		state.Conversation = stripImagesFromMessages(state.Conversation, visionState, subAgentConfigured)
+		return state
 	}
-	state.Lineage = state.Lineage.WithCurrentMessages(stripDeferredReadImages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
+	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
 	state.Conversation = state.Lineage.FullMessages()
 	return state
 }
@@ -432,7 +433,6 @@ func (p *turnProgressor) applyToolResult(ctx context.Context, state RunState, tu
 		// Already-executed parallel siblings are intentionally not retained because workflow handoff abandons the source transcript (see internal/interactive/run_flow.go conversation adoption guard).
 		state.WorkflowHandoff = transition
 		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", nil))
-		state = p.finalizeDeferredReadImages(state)
 		p.drainQueuedDelegations(turn)
 		emitStop(p.request.Events, state, nil)
 		return state, turnOutcome{State: state, Stop: true}
@@ -787,12 +787,18 @@ func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (promp
 }
 
 // getVisionCapabilityContext returns the vision state and sub-agent config for the current alias.
-// When VisionCapabilities is nil, returns VisionUnknown and false (preserving old behavior).
 func (p *turnProgressor) getVisionCapabilityContext() (VisionState, bool) {
-	vc := p.request.VisionCapabilities
+	return visionCapabilityContextForRequest(p.request)
+}
+
+// visionCapabilityContextForRequest returns the vision state for the request's
+// resolved model alias and whether a vision sub-agent is configured. When
+// VisionCapabilities is nil, returns VisionUnknown and false (preserving old
+// behavior).
+func visionCapabilityContextForRequest(req RunRequest) (VisionState, bool) {
+	vc := req.VisionCapabilities
 	if vc == nil {
 		return VisionUnknown, false
 	}
-	alias := p.request.ResolvedModel.Alias
-	return vc.Get(alias), vc.SubAgentConfigured()
+	return vc.Get(req.ResolvedModel.Alias), vc.SubAgentConfigured()
 }

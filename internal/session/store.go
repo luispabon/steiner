@@ -86,6 +86,9 @@ func (s *Store) Save(session Session) error {
 	if err != nil {
 		return fmt.Errorf("validate session id: %w", err)
 	}
+	// Never persist image payloads: strip them from a clone so the caller's
+	// lineage is left untouched.
+	session.Lineage = agent.LineageWithoutImageData(session.Lineage)
 	if err := s.writeAtomic(sessionPath, session); err != nil {
 		return fmt.Errorf("write session: %w", err)
 	}

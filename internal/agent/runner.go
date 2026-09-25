@@ -137,11 +137,17 @@ func NewRunner() *Runner {
 	return &Runner{}
 }
 
-// Run executes req until the loop completes, stops, or fails.
-//
-//nolint:gocyclo // turn loop branches are intentionally explicit
+// Run executes req until the loop completes, stops, or fails. The returned
+// state never carries image payloads: whatever exit path the run takes, every
+// remaining image is stripped before Run returns.
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	req = normalizeRunRequest(req)
+	state, err := r.run(ctx, req)
+	return finalizeImagesAtRunExitForRequest(req, state), err
+}
+
+//nolint:gocyclo // turn loop branches are intentionally explicit
+func (r *Runner) run(ctx context.Context, req RunRequest) (RunState, error) {
 	state := initializeRunState(req)
 	if validated, done, err := validateRunRequest(ctx, req, state); err != nil {
 		return validated, err
@@ -192,7 +198,6 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 		if outcome.Error != nil {
 			if shouldRetry, retryErr := handleTransientProviderRetry(ctx, req.Events, state.TurnCount, outcome.Error, &runnerRetries); shouldRetry {
 				if retryErr != nil {
-					state = p.finalizeDeferredReadImages(state)
 					emitStop(req.Events, state, outcome.Error)
 					return state, outcome.Error
 				}
@@ -206,7 +211,6 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 					state.StopReason = StopReasonUsageLimit
 				}
 			}
-			state = p.finalizeDeferredReadImages(state)
 			emitStop(req.Events, state, outcome.Error)
 			return state, outcome.Error
 		}
@@ -217,7 +221,6 @@ func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 			if hadSteers && state.StopReason == StopReasonComplete {
 				continue
 			}
-			state = p.finalizeDeferredReadImages(state)
 			if state.StopReason == StopReasonComplete {
 				emitStop(req.Events, state, nil)
 			}
@@ -299,19 +302,16 @@ func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 func stopRunBeforeTurn(ctx context.Context, req RunRequest, state RunState) (RunState, bool) {
 	if err := ctx.Err(); err != nil {
 		state.StopReason = StopReasonCancelled
-		state = finalizeDeferredReadImagesForRequest(req, state)
 		emitStop(req.Events, state, nil)
 		return state, true
 	}
 	if req.Limits.MaxTurns > 0 && state.TurnCount >= req.Limits.MaxTurns {
 		state.StopReason = StopReasonMaxTurns
-		state = finalizeDeferredReadImagesForRequest(req, state)
 		emitStop(req.Events, state, nil)
 		return state, true
 	}
 	if req.Limits.MaxTokens > 0 && state.TokenCount >= req.Limits.MaxTokens {
 		state.StopReason = StopReasonMaxTokens
-		state = finalizeDeferredReadImagesForRequest(req, state)
 		emitStop(req.Events, state, nil)
 		return state, true
 	}
