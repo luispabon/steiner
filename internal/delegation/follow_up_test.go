@@ -1640,3 +1640,93 @@ func TestFollowUpHandler_TracesToolCallsAfterFirstRunClosedWriter(t *testing.T) 
 		t.Fatalf("trace file has %d read lines, want 1; contents: %q", got, data)
 	}
 }
+
+// TestFollowUpHandler_ReattachesVisionImagesOnly verifies that a vision
+// follow-up re-sends the stored image payload on the appended final message,
+// while a non-vision follow-up carries no image.
+func TestFollowUpHandler_ReattachesVisionImagesOnly(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		agentType AgentType
+		images    []provider.ImageBlock
+		wantData  string
+	}{
+		{
+			name:      "vision reattaches the stored image",
+			agentType: AgentTypeVision,
+			images:    []provider.ImageBlock{{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "vision-image-data"}},
+			wantData:  "vision-image-data",
+		},
+		{
+			name:      "non-vision follow-up carries no image",
+			agentType: AgentTypeReview,
+			images:    []provider.ImageBlock{{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "review-image-data"}},
+			wantData:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store := NewSessionStore()
+			store.Save(&ChildSession{
+				Spec: Spec{
+					AgentID:   "child-img",
+					AgentType: tt.agentType,
+					Task:      "look at the image",
+					Images:    tt.images,
+					Limits:    Limits{MaxTurns: 2, OutputLimitTokens: 9},
+				},
+				Request: agent.RunRequest{
+					Prompt: promptWithConversation("initial task"),
+					Limits: agent.Limits{MaxTurns: 2, MaxTokens: 9},
+				},
+				Conversation: []agent.Message{
+					{Role: agent.MessageRoleUser, Content: "initial task"},
+					{Role: agent.MessageRoleAssistant, Content: "first answer"},
+				},
+				TurnCount: 2,
+			})
+
+			var capturedReq agent.RunRequest
+			handler := NewFollowUpHandler(SubAgentHandlerDeps{
+				SubAgentCfg:  config.SubAgentConfig{MaxTurns: 7, MaxTokens: 77, MaxFollowUps: 100},
+				Events:       &recordingEventSink{},
+				SessionStore: store,
+				Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+					capturedReq = req
+					return agent.RunState{
+						Conversation: []agent.Message{
+							{Role: agent.MessageRoleUser, Content: "initial task"},
+							{Role: agent.MessageRoleAssistant, Content: "first answer"},
+							{Role: agent.MessageRoleUser, Content: "another question"},
+							{Role: agent.MessageRoleAssistant, Content: "second answer"},
+						},
+						TurnCount:  3,
+						StopReason: agent.StopReasonComplete,
+					}, nil
+				}},
+			})
+
+			if _, err := handler(context.Background(), map[string]any{
+				"agent_id": "child-img",
+				"message":  "another question",
+			}); err != nil {
+				t.Fatalf("handler returned error: %v", err)
+			}
+
+			last := capturedReq.Prompt.Conversation[len(capturedReq.Prompt.Conversation)-1]
+			if last.Content != "another question" {
+				t.Fatalf("last message content = %q, want appended follow-up", last.Content)
+			}
+			gotData := ""
+			if len(last.Images) == 1 {
+				gotData = last.Images[0].Data
+			}
+			if gotData != tt.wantData {
+				t.Fatalf("follow-up image data = %q, want %q", gotData, tt.wantData)
+			}
+		})
+	}
+}

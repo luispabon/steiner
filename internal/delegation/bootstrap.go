@@ -140,6 +140,14 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		Paths:              deps.Paths,
 		ContextManagement:  deps.ContextManagement,
 	})
+	// Children own a fresh vision capability tracker rather than inheriting the
+	// parent's session tracker. SubAgentConfigured is false so a child that
+	// cannot see images strips them instead of attempting further vision
+	// routing (children cannot nest vision). Deriving the child's own alias
+	// keeps the read-image one-request contract intact for its model.
+	childVision := agent.NewVisionCapabilities(false)
+	childVision.SetDerived(override.ResolvedModel.Alias, agent.VisionStateFromPtr(override.ResolvedModel.Vision))
+	req.VisionCapabilities = childVision
 	return req, limits, nil
 }
 

@@ -42,7 +42,7 @@ func specializedDescription(t AgentType) string {
 	case AgentTypeReview:
 		return "Spawn a review sub-agent to examine code changes for bugs, regressions, missing tests, or plan adherence."
 	case AgentTypeVision:
-		return "Spawn a vision sub-agent to analyze an image. The sub-agent receives the image directly and describes or answers questions about it. After the initial call, use follow_up with the returned agent_id to ask additional questions about the same image — the image is cached server-side so follow-ups are cheap."
+		return "Spawn a vision sub-agent to analyze an image. The sub-agent receives the image directly and describes or answers questions about it. After the initial call, use follow_up with the returned agent_id to ask additional questions about the same image; the image is re-sent on every follow-up request."
 	default:
 		return "Spawn a specialized sub-agent."
 	}

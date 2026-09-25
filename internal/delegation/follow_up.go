@@ -33,12 +33,20 @@ func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (an
 }
 
 // buildContinuationRequest prepares a request for a continuation agent run.
-func buildContinuationRequest(base agent.RunRequest, conversation []agent.Message, message string, priorTurns int, freshLimits Limits) agent.RunRequest {
+// images, when non-empty, are reattached to the appended final user message so
+// a vision follow-up re-sends the original image payload; the child session
+// stores images only on its first message, and the provider has no server-side
+// image cache to fall back on.
+func buildContinuationRequest(base agent.RunRequest, conversation []agent.Message, message string, images []provider.ImageBlock, priorTurns int, freshLimits Limits) agent.RunRequest {
 	base.Prompt.Conversation = agent.ToReplaySafeProviderMessages(conversation)
-	base.Prompt.Conversation = append(base.Prompt.Conversation, provider.Message{
+	final := provider.Message{
 		Role:    provider.MessageRoleUser,
 		Content: message,
-	})
+	}
+	if len(images) > 0 {
+		final.Images = append([]provider.ImageBlock(nil), images...)
+	}
+	base.Prompt.Conversation = append(base.Prompt.Conversation, final)
 	base.Limits.MaxTurns = priorTurns + freshLimits.MaxTurns
 	base.Limits.MaxTokens = freshLimits.OutputLimitTokens
 	base.Limits.TurnTimeout = freshLimits.Timeout
@@ -75,7 +83,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			agentID, deps.SubAgentCfg.MaxFollowUps)
 	}
 	freshLimits := DefaultLimits(deps.SubAgentCfg)
-	req := buildContinuationRequest(session.Request, session.Conversation, message, session.TurnCount, freshLimits)
+	req := buildContinuationRequest(session.Request, session.Conversation, message, followUpImages(session), session.TurnCount, freshLimits)
 
 	spec := session.Spec
 	spec.Limits = freshLimits
@@ -138,6 +146,16 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	}
 
 	return result, nil
+}
+
+// followUpImages returns the image payload to reattach to a follow-up, which is
+// non-empty only for vision children; other agent types have no stored image to
+// re-send.
+func followUpImages(session *ChildSession) []provider.ImageBlock {
+	if session.Spec.AgentType == AgentTypeVision {
+		return session.Spec.Images
+	}
+	return nil
 }
 
 func validateFollowUp(input map[string]any, deps SubAgentHandlerDeps) (string, string, *ChildSession, error) {

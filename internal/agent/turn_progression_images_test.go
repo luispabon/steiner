@@ -171,7 +171,7 @@ func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
 				Height:    1080,
 				SizeBytes: 456789,
 			},
-			want: `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use vision tool with image_id "img-1" or read tool to re-examine]`,
+			want: `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use read tool to re-examine]`,
 		},
 		{
 			name: "image with ID but no size",
@@ -183,7 +183,7 @@ func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
 				Height:    480,
 				SizeBytes: 0,
 			},
-			want: `[image img-2: /tmp/test.jpg 640x480 jpeg — use vision tool with image_id "img-2" or read tool to re-examine]`,
+			want: `[image img-2: /tmp/test.jpg 640x480 jpeg — use read tool to re-examine]`,
 		},
 	}
 
@@ -222,8 +222,8 @@ func TestStripImagesFromMessages_withIDAndFilePath(t *testing.T) {
 	if got[0].Images != nil {
 		t.Fatalf("Images = %v, want nil", got[0].Images)
 	}
-	// Should contain the new format placeholder with the vision tool hint.
-	wantPlaceholder := `[image img-1: /home/user/.steiner/tmp/images/test.png 1920x1080 png 488KB — use vision tool with image_id "img-1" or read tool to re-examine]`
+	// Should contain the new format placeholder with the read tool hint.
+	wantPlaceholder := `[image img-1: /home/user/.steiner/tmp/images/test.png 1920x1080 png 488KB — use read tool to re-examine]`
 	wantContent := "look at this image\n" + wantPlaceholder
 	if got[0].Content != wantContent {
 		t.Fatalf("Content = %q, want %q", got[0].Content, wantContent)
@@ -244,9 +244,25 @@ func TestImageBlockPlaceholder_VisionCapable(t *testing.T) {
 		SizeBytes: 456789,
 	}
 	got := imageBlockPlaceholder(img, VisionCapable, false)
-	want := `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use vision tool with image_id "img-1" or read tool to re-examine]`
+	want := `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use read tool to re-examine]`
 	if got != want {
 		t.Fatalf("VisionCapable: got %q, want %q", got, want)
+	}
+}
+
+func TestImageBlockPlaceholder_VisionCapableWithSubAgent(t *testing.T) {
+	img := ImageBlock{
+		ID:        "img-1",
+		FilePath:  "/home/user/.steiner/tmp/images/screenshot.png",
+		MediaType: "image/png",
+		Width:     1920,
+		Height:    1080,
+		SizeBytes: 456789,
+	}
+	got := imageBlockPlaceholder(img, VisionCapable, true)
+	want := `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use sub_agent type "vision" with image_id "img-1" or read tool to re-examine]`
+	if got != want {
+		t.Fatalf("VisionCapable with sub-agent: got %q, want %q", got, want)
 	}
 }
 
