@@ -8,6 +8,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
+	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -20,14 +21,21 @@ type RunResult struct {
 // runExecutor starts and manages model-in-the-loop runs. Consumer-defined to
 // avoid coupling to internal/agent or cmd/steiner.
 type runExecutor interface {
-	// Run executes a model run with the given conversation and skills.
+	// Run executes a model run with the given conversation.
 	// drainSteers drains all queued between-turn steering messages; pass nil when unavailable.
 	// Returns the updated conversation on success.
-	Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (RunResult, error)
+	Run(ctx context.Context, conversation []agent.Message, drainSteers func() []agent.SteerMessage) (RunResult, error)
 
 	// Compact reduces the conversation through the same runner seam used by
 	// normal runs.
-	Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, error)
+	Compact(ctx context.Context, conversation []agent.Message, tools []provider.ToolSpec, steering string) ([]agent.Message, error)
+}
+
+// skillLoader loads a skill document by name for submit-time injection.
+// Consumer-defined to avoid coupling to internal/skill or cmd/steiner.
+type skillLoader interface {
+	// Load returns the skill document with the given name.
+	Load(context.Context, string) (skill.Skill, error)
 }
 
 // historyWriter persists and loads prompt history for an interactive session.
@@ -60,11 +68,16 @@ type DelegateCanceller interface {
 // required by an interactive session. Each field uses a consumer-defined
 // interface to avoid premature coupling to concrete implementations.
 type Dependencies struct {
-	BaseEvents        output.EventSink
-	Runner            runExecutor
-	HistoryWriter     historyWriter
-	SessionStore      sessionStore
-	SkillNames        []string
+	BaseEvents    output.EventSink
+	Runner        runExecutor
+	HistoryWriter historyWriter
+	SessionStore  sessionStore
+	SkillNames    []string
+	// SkillLoader loads skill documents so an enabled skill's content can be
+	// injected into the next submitted user message. Nil disables delivery:
+	// enable/disable still toggles the tracked set, but no content is injected.
+	// cmd/steiner wires it.
+	SkillLoader       skillLoader
 	Config            config.Config
 	HomeDir           string
 	WorkDir           string

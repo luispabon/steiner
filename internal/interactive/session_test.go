@@ -492,7 +492,7 @@ func TestSessionWaitRunsWaitsForSubmittedPrompt(t *testing.T) {
 	release := make(chan struct{})
 	finished := make(chan struct{})
 	s := testNewSession(t, Dependencies{
-		Runner: newRunExecutorFunc(func(ctx context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(ctx context.Context, _ []agent.Message) (RunResult, error) {
 			close(started)
 			defer close(finished)
 			select {
@@ -548,7 +548,7 @@ func TestSessionWaitRunsReturnsFalseWhenContextDone(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	s := testNewSession(t, Dependencies{
-		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message) (RunResult, error) {
 			close(started)
 			<-release
 			return RunResult{}, nil
@@ -587,7 +587,7 @@ func TestSessionWaitRunsReturnsFalseWhenContextDone(t *testing.T) {
 
 func TestSessionWaitRunsPrefersFinishedRunWithCancelledContext(t *testing.T) {
 	s := testNewSession(t, Dependencies{
-		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message) (RunResult, error) {
 			return RunResult{}, nil
 		}),
 	})
@@ -717,7 +717,7 @@ func TestRotateSessionReCapturesSessionDate(t *testing.T) {
 func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
-		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message) (RunResult, error) {
 			return RunResult{Conversation: conversation}, nil
 		}),
 	})
@@ -740,7 +740,7 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 	t.Parallel()
 	var called bool
 	s := testNewSession(t, Dependencies{
-		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message) (RunResult, error) {
 			called = true
 			return RunResult{Conversation: conversation}, nil
 		}),
@@ -756,7 +756,7 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
-		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message) (RunResult, error) {
 			return RunResult{Conversation: []agent.Message{
 				{Role: agent.MessageRoleUser, Content: "hello"},
 				{Role: agent.MessageRoleAssistant, Content: "hi there"},
@@ -774,7 +774,7 @@ func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 func TestSubmitPromptSkipsConversationUpdateOnWorkflowHandoff(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{
-		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message) (RunResult, error) {
 			return RunResult{
 				Conversation: []agent.Message{
 					{Role: agent.MessageRoleUser, Content: "hello"},
@@ -821,7 +821,7 @@ func TestSubmitPromptSavesSessionOnWorkflowHandoff(t *testing.T) {
 	t.Parallel()
 	mockStore := newMockSessionStore()
 	s := testNewSession(t, Dependencies{
-		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message) (RunResult, error) {
 			return RunResult{
 				Conversation: []agent.Message{
 					{Role: agent.MessageRoleUser, Content: "hello"},
@@ -878,7 +878,7 @@ func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
-		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message) (RunResult, error) {
 			return RunResult{}, fmt.Errorf("run failed")
 		}),
 	})
@@ -910,7 +910,7 @@ func TestSubmitPromptSavesSessionOnRunError(t *testing.T) {
 			events = append(events, event)
 		}),
 		SessionStore: mockStore,
-		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message) (RunResult, error) {
 			return RunResult{Conversation: []agent.Message{
 				{Role: agent.MessageRoleUser, Content: "test prompt"},
 				{Role: agent.MessageRoleAssistant, Content: "partial response"},
@@ -961,7 +961,7 @@ func TestSubmitPromptRecordsHistory(t *testing.T) {
 		BaseEvents: output.SinkFunc(func(event output.Event) {
 			events = append(events, event)
 		}),
-		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message) (RunResult, error) {
 			return RunResult{Conversation: append(conversation, agent.Message{Role: agent.MessageRoleAssistant, Content: "ok"})}, nil
 		}),
 		HistoryWriter: &recordingHistoryWriter{
@@ -1002,7 +1002,7 @@ func TestSubmitPromptRecordsHistoryBeforeRun(t *testing.T) {
 	var recordedBeforeRun atomic.Bool
 	var recordCalled atomic.Bool
 	s := testNewSession(t, Dependencies{
-		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message) (RunResult, error) {
 			recordedBeforeRun.Store(recordCalled.Load())
 			return RunResult{Conversation: conversation}, nil
 		}),
@@ -1040,7 +1040,7 @@ func TestSubmitPromptRecordsHistoryWhenRunFails(t *testing.T) {
 				BaseEvents: output.SinkFunc(func(event output.Event) {
 					events = append(events, event)
 				}),
-				Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+				Runner: newRunExecutorFunc(func(_ context.Context, _ []agent.Message) (RunResult, error) {
 					return RunResult{}, tt.err
 				}),
 				HistoryWriter: &recordingHistoryWriter{
@@ -1148,7 +1148,7 @@ func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
 	block := make(chan struct{})
 	cancelled := false
 	s := testNewSession(t, Dependencies{
-		Runner: newRunExecutorFunc(func(ctx context.Context, _ []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(ctx context.Context, _ []agent.Message) (RunResult, error) {
 			close(block)
 			<-ctx.Done()
 			cancelled = true
@@ -1206,25 +1206,25 @@ func TestClearConversationResetsSkills(t *testing.T) {
 
 // runExecutorFunc adapts functions to the runExecutor interface.
 type runExecutorFunc struct {
-	run             func(context.Context, []agent.Message, []string) (RunResult, error)
-	compact         func(context.Context, []agent.Message, []string, []provider.ToolSpec) ([]agent.Message, error)
+	run             func(context.Context, []agent.Message) (RunResult, error)
+	compact         func(context.Context, []agent.Message, []provider.ToolSpec) ([]agent.Message, error)
 	compactSteering string
 }
 
-func newRunExecutorFunc(run func(context.Context, []agent.Message, []string) (RunResult, error)) *runExecutorFunc {
+func newRunExecutorFunc(run func(context.Context, []agent.Message) (RunResult, error)) *runExecutorFunc {
 	return &runExecutorFunc{run: run}
 }
 
-func (f *runExecutorFunc) Run(ctx context.Context, conversation []agent.Message, skillNames []string, _ func() []agent.SteerMessage) (RunResult, error) {
-	return f.run(ctx, conversation, skillNames)
+func (f *runExecutorFunc) Run(ctx context.Context, conversation []agent.Message, _ func() []agent.SteerMessage) (RunResult, error) {
+	return f.run(ctx, conversation)
 }
 
-func (f *runExecutorFunc) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
+func (f *runExecutorFunc) Compact(ctx context.Context, conversation []agent.Message, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
 	f.compactSteering = steering
 	if f.compact == nil {
 		return conversation, nil
 	}
-	return f.compact(ctx, conversation, skillNames, tools)
+	return f.compact(ctx, conversation, tools)
 }
 
 // recordingHistoryWriter implements historyWriter for testing.
@@ -1993,24 +1993,6 @@ func TestHandleSetSkillEnabledDisablesSkill(t *testing.T) {
 	}
 }
 
-func TestSubmitPromptDoesNotPassSkillsUntilEnabled(t *testing.T) {
-	t.Parallel()
-	var gotSkillNames []string
-	s := testNewSession(t, Dependencies{
-		SkillNames: []string{"review"},
-		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, skillNames []string) (RunResult, error) {
-			gotSkillNames = append([]string(nil), skillNames...)
-			return RunResult{Conversation: conversation}, nil
-		}),
-	})
-
-	s.submitPrompt(context.Background(), "hey", nil)
-
-	if len(gotSkillNames) != 0 {
-		t.Fatalf("runner skill names = %v, want none", gotSkillNames)
-	}
-}
-
 func TestSessionAccessorsNonNil(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{})
@@ -2319,7 +2301,7 @@ func TestLoadSessionRestoresMode(t *testing.T) {
 				// Capture the next-turn runner submission so the test proves a
 				// restored session re-announces its mode through the real
 				// submission path, not only via the private helper.
-				deps.Runner = newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+				deps.Runner = newRunExecutorFunc(func(_ context.Context, conversation []agent.Message) (RunResult, error) {
 					capturedConversations = append(capturedConversations, cloneMessages(conversation))
 					result := append(append([]agent.Message(nil), conversation...), agent.Message{
 						Role:    agent.MessageRoleAssistant,
@@ -2630,7 +2612,7 @@ func TestSubmitPromptWithImages(t *testing.T) {
 			t.Parallel()
 			var got []agent.Message
 			s := testNewSession(t, Dependencies{
-				Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+				Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message) (RunResult, error) {
 					got = conversation
 					return RunResult{Conversation: conversation}, nil
 				}),
@@ -3904,7 +3886,7 @@ func TestModeNoticeStickyBuildModeRunner(t *testing.T) {
 				Default: config.ExecutionModeBuild,
 			},
 		},
-		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message) (RunResult, error) {
 			capturedConversations = append(capturedConversations, cloneMessages(conversation))
 			result := append(append([]agent.Message(nil), conversation...), agent.Message{
 				Role:    agent.MessageRoleAssistant,
@@ -4143,7 +4125,7 @@ func TestModeNoticeStickinessPlanMode(t *testing.T) {
 				Default: config.ExecutionModePlan,
 			},
 		},
-		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message) (RunResult, error) {
 			// Capture the conversation sent by this turn
 			capturedConversations = append(capturedConversations, cloneMessages(conversation))
 			// Return what was sent plus an assistant message (echo pattern)
@@ -4217,7 +4199,7 @@ func TestCacheByteIdentity(t *testing.T) {
 				Default: config.ExecutionModePlan,
 			},
 		},
-		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message, _ []string) (RunResult, error) {
+		Runner: newRunExecutorFunc(func(_ context.Context, conversation []agent.Message) (RunResult, error) {
 			sentConversations = append(sentConversations, cloneMessages(conversation))
 			// Echo back the conversation plus an assistant message
 			result := append(append([]agent.Message(nil), conversation...), agent.Message{

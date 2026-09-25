@@ -217,12 +217,12 @@ type concurrentRunExecutor struct {
 	calls *atomic.Int64
 }
 
-func (e *concurrentRunExecutor) Run(context.Context, []agent.Message, []string, func() []agent.SteerMessage) (RunResult, error) {
+func (e *concurrentRunExecutor) Run(context.Context, []agent.Message, func() []agent.SteerMessage) (RunResult, error) {
 	e.calls.Add(1)
 	return RunResult{}, nil
 }
 
-func (e *concurrentRunExecutor) Compact(_ context.Context, conversation []agent.Message, _ []string, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
+func (e *concurrentRunExecutor) Compact(_ context.Context, conversation []agent.Message, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
 	e.calls.Add(1)
 	return conversation, nil
 }
