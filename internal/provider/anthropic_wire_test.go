@@ -422,15 +422,19 @@ func TestAnthropicMessage_ToolResultWithImage(t *testing.T) {
 				}
 			}
 			for i, img := range tt.message.Images {
-				imageBlock := block.ContentBlocks[len(tt.wantNested)-len(tt.message.Images)+i]
+				blockIdx := len(tt.wantNested) - len(tt.message.Images) + i
+				imageBlock := block.ContentBlocks[blockIdx]
 				if imageBlock.Source == nil {
-					t.Fatalf("content[%d].Source = nil, want source", i)
+					t.Fatalf("content[%d].Source = nil, want source", blockIdx)
+				}
+				if got, want := imageBlock.Source.Type, "base64"; got != want {
+					t.Fatalf("content[%d].Source.Type = %q, want %q", blockIdx, got, want)
 				}
 				if got, want := imageBlock.Source.MediaType, img.MediaType; got != want {
-					t.Fatalf("content[%d].Source.MediaType = %q, want %q", i, got, want)
+					t.Fatalf("content[%d].Source.MediaType = %q, want %q", blockIdx, got, want)
 				}
 				if got, want := imageBlock.Source.Data, img.Data; got != want {
-					t.Fatalf("content[%d].Source.Data = %q, want %q", i, got, want)
+					t.Fatalf("content[%d].Source.Data = %q, want %q", blockIdx, got, want)
 				}
 			}
 

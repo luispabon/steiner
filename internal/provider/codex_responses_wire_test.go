@@ -411,6 +411,9 @@ func TestResponsesRequestWire_ToolResultImageOrdering(t *testing.T) {
 		messages   []Message
 		wantKinds  []string
 		wantImages []string
+		// wantTextAfterImage, when non-empty, asserts the flushed image item
+		// precedes the following user text message.
+		wantTextAfterImage string
 	}{
 		{
 			name:       "single tool result with image unchanged",
@@ -431,10 +434,11 @@ func TestResponsesRequestWire_ToolResultImageOrdering(t *testing.T) {
 			wantImages: []string{"imgA", "imgC"},
 		},
 		{
-			name:       "images flush before a following user message",
-			messages:   []Message{toolResult("a", "a", "imgA"), {Role: MessageRoleUser, Content: "next"}},
-			wantKinds:  []string{"output", "message:user", "message:user"},
-			wantImages: []string{"imgA"},
+			name:               "images flush before a following user message",
+			messages:           []Message{toolResult("a", "a", "imgA"), {Role: MessageRoleUser, Content: "next"}},
+			wantKinds:          []string{"output", "message:user", "message:user"},
+			wantImages:         []string{"imgA"},
+			wantTextAfterImage: "next",
 		},
 		{
 			name:       "images flush at end of request",
@@ -487,6 +491,45 @@ func TestResponsesRequestWire_ToolResultImageOrdering(t *testing.T) {
 			if !slices.Equal(images, tt.wantImages) {
 				t.Fatalf("images = %v, want %v", images, tt.wantImages)
 			}
+			if tt.wantTextAfterImage != "" {
+				imageIdx, textIdx := -1, -1
+				for i, item := range wire.Input {
+					for _, part := range item.Content {
+						if part.Type == "input_image" {
+							imageIdx = i
+						}
+						if part.Type == "input_text" && part.Text == tt.wantTextAfterImage {
+							textIdx = i
+						}
+					}
+				}
+				if imageIdx < 0 || textIdx < 0 {
+					t.Fatalf("image index = %d, text index = %d, want both present", imageIdx, textIdx)
+				}
+				if imageIdx > textIdx {
+					t.Fatalf("flushed image item at %d must precede following user text at %d", imageIdx, textIdx)
+				}
+			}
 		})
+	}
+}
+
+// TestResponsesRequestWire_ToolResultImageExactJSON pins the exact serialized
+// JSON of a single tool result carrying one image for the Codex Responses wire:
+// the function_call_output item, the synthetic user message that carries the
+// image, and every field and its order.
+func TestResponsesRequestWire_ToolResultImageExactJSON(t *testing.T) {
+	msg := Message{Role: MessageRoleTool, ToolCallID: "call_1", Name: "read", Content: `{"ok":true}`, Images: []ImageBlock{{MediaType: "image/png", Data: "QUJD"}}}
+	wire, err := responsesRequestWire(ChatRequest{Model: "m", Messages: []Message{msg}}, "m", false)
+	if err != nil {
+		t.Fatalf("responsesRequestWire() error = %v", err)
+	}
+	data, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	const want = `{"input":[{"type":"function_call_output","call_id":"call_1","output":"{\"ok\":true}"},{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,QUJD"}]}],"model":"m"}`
+	if got := string(data); got != want {
+		t.Fatalf("serialized JSON mismatch:\n got: %s\nwant: %s", got, want)
 	}
 }

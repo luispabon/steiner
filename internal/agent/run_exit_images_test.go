@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -197,4 +198,142 @@ func TestRunnerRunExitStripsImagesWhenCancelledBeforeTurn(t *testing.T) {
 	if !strings.Contains(state.Conversation[0].Content, "[image img-1:") {
 		t.Fatalf("cancelled conversation missing placeholder: %q", state.Conversation[0].Content)
 	}
+}
+
+// TestRunnerRunExitsStripDeferredReadImages drives every named Runner.Run exit
+// end-to-end through a read-image tool turn and asserts the returned state never
+// carries image payloads and always leaves an image placeholder behind.
+func TestRunnerRunExitsStripDeferredReadImages(t *testing.T) {
+	origSleep := runnerRetrySleepFn
+	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error { return nil }
+	defer func() { runnerRetrySleepFn = origSleep }()
+
+	readTurn := func() provider.ChatResponse {
+		return provider.ChatResponse{Message: provider.Message{
+			Role:      provider.MessageRoleAssistant,
+			ToolCalls: []provider.ToolCall{{ID: "read-1", Name: "read", Arguments: map[string]any{"path": "image.png"}}},
+		}}
+	}
+	doneTurn := provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "done"}}
+
+	newRequest := func(t *testing.T, p provider.Provider, limits Limits) RunRequest {
+		t.Helper()
+		capabilities := NewVisionCapabilities(false)
+		capabilities.SetDerived("parent", VisionCapable)
+		executor := &fakeExecutor{execute: func(_ context.Context, name string, _ map[string]any) (any, error) {
+			if name != "read" {
+				t.Fatalf("tool = %q, want read", name)
+			}
+			return builtin.ReadResult{Image: &builtin.ImageBlock{
+				FilePath: "/tmp/image.png", MediaType: "image/png", Data: "read-image-data", Width: 2, Height: 3, SizeBytes: 4,
+			}}, nil
+		}}
+		return RunRequest{
+			Provider: p, Executor: executor,
+			Prompt:        prompt.AssemblyOptions{Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "inspect image.png"}}},
+			ResolvedModel: provider.ResolvedModel{Alias: "parent", BackendModelID: "parent"},
+			Limits:        limits, VisionCapabilities: capabilities, ImageStore: NewImageStore(t.TempDir()),
+		}
+	}
+
+	tests := []struct {
+		name     string
+		run      func(t *testing.T) (RunState, error)
+		wantStop StopReason
+		wantErr  string
+	}{
+		{
+			name: "non-retryable provider error",
+			run: func(t *testing.T) (RunState, error) {
+				p := &fakeProvider{}
+				calls := 0
+				p.chatFn = func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+					calls++
+					if calls == 1 {
+						return readTurn(), nil
+					}
+					return provider.ChatResponse{}, errors.New("model failed")
+				}
+				return NewRunner().Run(context.Background(), newRequest(t, p, Limits{MaxTurns: 5}))
+			},
+			wantStop: StopReasonError,
+			wantErr:  "model failed",
+		},
+		{
+			name: "cancellation during model call",
+			run: func(t *testing.T) (RunState, error) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				p := &fakeProvider{}
+				calls := 0
+				p.chatFn = func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+					calls++
+					if calls == 1 {
+						return readTurn(), nil
+					}
+					cancel()
+					return provider.ChatResponse{}, ctx.Err()
+				}
+				return NewRunner().Run(ctx, newRequest(t, p, Limits{MaxTurns: 5}))
+			},
+			wantStop: StopReasonCancelled,
+		},
+		{
+			name: "max turns immediately after read-image tool turn",
+			run: func(t *testing.T) (RunState, error) {
+				p := &fakeProvider{responses: []provider.ChatResponse{readTurn(), doneTurn}}
+				return NewRunner().Run(context.Background(), newRequest(t, p, Limits{MaxTurns: 1}))
+			},
+			wantStop: StopReasonMaxTurns,
+		},
+		{
+			name: "max tokens after read-image tool turn",
+			run: func(t *testing.T) (RunState, error) {
+				readWithUsage := readTurn()
+				readWithUsage.Usage = &provider.UsageStats{CompletionTokens: 10}
+				p := &fakeProvider{responses: []provider.ChatResponse{readWithUsage, doneTurn}}
+				return NewRunner().Run(context.Background(), newRequest(t, p, Limits{MaxTurns: 5, MaxTokens: 1}))
+			},
+			wantStop: StopReasonMaxTokens,
+		},
+		{
+			name: "normal completion",
+			run: func(t *testing.T) (RunState, error) {
+				p := &fakeProvider{responses: []provider.ChatResponse{readTurn(), doneTurn}}
+				return NewRunner().Run(context.Background(), newRequest(t, p, Limits{MaxTurns: 5}))
+			},
+			wantStop: StopReasonComplete,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state, err := tt.run(t)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("Run() error = %v, want %q", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("Run() error = %v, want nil", err)
+			}
+			if state.StopReason != tt.wantStop {
+				t.Fatalf("StopReason = %q, want %q", state.StopReason, tt.wantStop)
+			}
+			if stateHasImageData(state) {
+				t.Fatalf("state retained image data: %#v", state)
+			}
+			if !messagesContainImagePlaceholder(state.Conversation) {
+				t.Fatalf("state conversation missing image placeholder: %#v", state.Conversation)
+			}
+		})
+	}
+}
+
+func messagesContainImagePlaceholder(messages []Message) bool {
+	for _, message := range messages {
+		if strings.Contains(message.Content, "[image img-1:") {
+			return true
+		}
+	}
+	return false
 }

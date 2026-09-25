@@ -213,6 +213,9 @@ func TestChatRequestWire_ToolResultImageOrdering(t *testing.T) {
 		messages   []Message
 		wantRoles  []string
 		wantImages []string
+		// wantTextAfterImage, when non-empty, asserts the flushed image message
+		// precedes the following user text message.
+		wantTextAfterImage string
 	}{
 		{
 			name:       "single tool result with image unchanged",
@@ -233,10 +236,11 @@ func TestChatRequestWire_ToolResultImageOrdering(t *testing.T) {
 			wantImages: []string{"imgA", "imgC"},
 		},
 		{
-			name:       "images flush before a following user message",
-			messages:   []Message{toolResult("a", "a", "imgA"), {Role: MessageRoleUser, Content: "next"}},
-			wantRoles:  []string{"tool", "user", "user"},
-			wantImages: []string{"imgA"},
+			name:               "images flush before a following user message",
+			messages:           []Message{toolResult("a", "a", "imgA"), {Role: MessageRoleUser, Content: "next"}},
+			wantRoles:          []string{"tool", "user", "user"},
+			wantImages:         []string{"imgA"},
+			wantTextAfterImage: "next",
 		},
 		{
 			name:       "images flush at end of request",
@@ -273,6 +277,47 @@ func TestChatRequestWire_ToolResultImageOrdering(t *testing.T) {
 			if !slices.Equal(images, tt.wantImages) {
 				t.Fatalf("images = %v, want %v", images, tt.wantImages)
 			}
+			if tt.wantTextAfterImage != "" {
+				imageIdx, textIdx := -1, -1
+				for i, msg := range wire.Messages {
+					if parts, ok := msg.Content.([]openAIContentPart); ok {
+						for _, part := range parts {
+							if part.ImageURL != nil {
+								imageIdx = i
+							}
+						}
+					}
+					if text, ok := msg.Content.(string); ok && text == tt.wantTextAfterImage {
+						textIdx = i
+					}
+				}
+				if imageIdx < 0 || textIdx < 0 {
+					t.Fatalf("image index = %d, text index = %d, want both present", imageIdx, textIdx)
+				}
+				if imageIdx > textIdx {
+					t.Fatalf("flushed image message at %d must precede following user text at %d", imageIdx, textIdx)
+				}
+			}
 		})
+	}
+}
+
+// TestChatRequestWire_ToolResultImageExactJSON pins the exact serialized JSON of
+// a single tool result carrying one image for the OpenAI chat wire: the tool
+// message, the synthetic user message that carries the image, and every field
+// and its order.
+func TestChatRequestWire_ToolResultImageExactJSON(t *testing.T) {
+	msg := Message{Role: MessageRoleTool, ToolCallID: "call_1", Name: "read", Content: `{"ok":true}`, Images: []ImageBlock{{MediaType: "image/png", Data: "QUJD"}}}
+	wire, err := chatRequestWire(ChatRequest{Model: "m", Messages: []Message{msg}}, "m", false)
+	if err != nil {
+		t.Fatalf("chatRequestWire() error = %v", err)
+	}
+	data, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	const want = `{"messages":[{"role":"tool","content":"{\"ok\":true}","name":"read","tool_call_id":"call_1"},{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,QUJD","detail":"auto"}}]}],"model":"m"}`
+	if got := string(data); got != want {
+		t.Fatalf("serialized JSON mismatch:\n got: %s\nwant: %s", got, want)
 	}
 }
