@@ -526,3 +526,148 @@ func TestBuildContextReportShowsTruncationMarker(t *testing.T) {
 		}
 	})
 }
+
+// contextCategory returns the named category, failing the test if it is absent.
+func contextCategory(t *testing.T, categories []contextReportCategory, title string) contextReportCategory {
+	t.Helper()
+	for _, category := range categories {
+		if category.Title == title {
+			return category
+		}
+	}
+	t.Fatalf("category %q not found", title)
+	return contextReportCategory{}
+}
+
+func TestBuildContextCategoriesSkillEnvelopeAttribution(t *testing.T) {
+	t.Parallel()
+
+	t.Run("activation only has no conversation item", func(t *testing.T) {
+		t.Parallel()
+		activation, _ := prompt.RenderSkillActivation("docs", "docs body")
+		message := provider.Message{Role: provider.MessageRoleUser, Content: activation}
+		snapshot := RequestContextSnapshot{Model: "gpt-4o", Messages: []provider.Message{message}}
+
+		categories, err := buildContextCategories(context.Background(), snapshot)
+		if err != nil {
+			t.Fatalf("buildContextCategories() error = %v", err)
+		}
+		skills := contextCategory(t, categories, "enabled skills")
+		if len(skills.Items) != 1 {
+			t.Fatalf("enabled skills items = %+v, want 1", skills.Items)
+		}
+		if skills.Items[0].Label != "docs" {
+			t.Errorf("item label = %q, want docs", skills.Items[0].Label)
+		}
+		want, err := provider.EstimateMessageTokens(context.Background(), "gpt-4o", message)
+		if err != nil {
+			t.Fatalf("EstimateMessageTokens() error = %v", err)
+		}
+		if skills.Total != want {
+			t.Errorf("enabled skills total = %d, want %d", skills.Total, want)
+		}
+		if conv := contextCategory(t, categories, "conversation messages"); len(conv.Items) != 0 {
+			t.Errorf("conversation items = %+v, want none", conv.Items)
+		}
+	})
+
+	t.Run("activation with text splits tokens and labels conversation", func(t *testing.T) {
+		t.Parallel()
+		activation, _ := prompt.RenderSkillActivation("docs", "docs body")
+		content := prompt.PrependSkillBlocks([]string{activation}, "please review")
+		message := provider.Message{Role: provider.MessageRoleUser, Content: content}
+		snapshot := RequestContextSnapshot{Model: "gpt-4o", Messages: []provider.Message{message}}
+
+		categories, err := buildContextCategories(context.Background(), snapshot)
+		if err != nil {
+			t.Fatalf("buildContextCategories() error = %v", err)
+		}
+		want, err := provider.EstimateMessageTokens(context.Background(), "gpt-4o", message)
+		if err != nil {
+			t.Fatalf("EstimateMessageTokens() error = %v", err)
+		}
+		skills := contextCategory(t, categories, "enabled skills")
+		conv := contextCategory(t, categories, "conversation messages")
+		if skills.Total+conv.Total != want {
+			t.Errorf("skills %d + conversation %d = %d, want message total %d", skills.Total, conv.Total, skills.Total+conv.Total, want)
+		}
+		if len(conv.Items) != 1 || conv.Items[0].Label != "user #1: please review" {
+			t.Errorf("conversation items = %+v, want one 'user #1: please review'", conv.Items)
+		}
+	})
+
+	t.Run("switch marks stale blocks and current active", func(t *testing.T) {
+		t.Parallel()
+		alpha, _ := prompt.RenderSkillActivation("alpha", "alpha body")
+		beta, _ := prompt.RenderSkillActivation("beta", "beta body")
+		deactivateAlpha := prompt.RenderSkillDeactivation("alpha")
+
+		messages := []provider.Message{
+			{Role: provider.MessageRoleUser, Content: prompt.PrependSkillBlocks([]string{alpha}, "first")},
+			{Role: provider.MessageRoleUser, Content: prompt.PrependSkillBlocks([]string{deactivateAlpha, beta}, "second")},
+		}
+		snapshot := RequestContextSnapshot{Model: "gpt-4o", Messages: messages}
+
+		categories, err := buildContextCategories(context.Background(), snapshot)
+		if err != nil {
+			t.Fatalf("buildContextCategories() error = %v", err)
+		}
+		skills := contextCategory(t, categories, "enabled skills")
+		wantLabels := []string{
+			"alpha (inactive, removed at next compaction)",
+			"alpha (inactive, removed at next compaction)",
+			"beta",
+		}
+		if len(skills.Items) != len(wantLabels) {
+			t.Fatalf("enabled skills items = %+v, want %d", skills.Items, len(wantLabels))
+		}
+		for i, want := range wantLabels {
+			if skills.Items[i].Label != want {
+				t.Errorf("items[%d].Label = %q, want %q", i, skills.Items[i].Label, want)
+			}
+		}
+
+		total := 0
+		for _, message := range messages {
+			tokens, err := provider.EstimateMessageTokens(context.Background(), "gpt-4o", message)
+			if err != nil {
+				t.Fatalf("EstimateMessageTokens() error = %v", err)
+			}
+			total += tokens
+		}
+		conv := contextCategory(t, categories, "conversation messages")
+		if skills.Total+conv.Total != total {
+			t.Errorf("skills %d + conversation %d = %d, want %d", skills.Total, conv.Total, skills.Total+conv.Total, total)
+		}
+	})
+
+	t.Run("static skill block attribution unchanged", func(t *testing.T) {
+		t.Parallel()
+		snapshot := RequestContextSnapshot{
+			Model: "gpt-4o",
+			Messages: []provider.Message{
+				{Role: provider.MessageRoleUser, Content: "skill instructions"},
+				{Role: provider.MessageRoleUser, Content: "hello"},
+			},
+			Blocks: []prompt.ContextBlock{
+				{Source: prompt.ContextSourceSkill, Path: "/skills/review/SKILL.md", Content: "skill instructions", ByteSize: len("skill instructions")},
+			},
+		}
+
+		categories, err := buildContextCategories(context.Background(), snapshot)
+		if err != nil {
+			t.Fatalf("buildContextCategories() error = %v", err)
+		}
+		skills := contextCategory(t, categories, "enabled skills")
+		if len(skills.Items) != 1 {
+			t.Fatalf("enabled skills items = %+v, want 1", skills.Items)
+		}
+		if skills.Items[0].Label != "review/SKILL.md" {
+			t.Errorf("item label = %q, want review/SKILL.md", skills.Items[0].Label)
+		}
+		conv := contextCategory(t, categories, "conversation messages")
+		if len(conv.Items) != 1 || conv.Items[0].Label != "user #1: hello" {
+			t.Errorf("conversation items = %+v, want one 'user #1: hello'", conv.Items)
+		}
+	})
+}

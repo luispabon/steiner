@@ -120,7 +120,20 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 		switch msg.Role {
 		case agent.MessageRoleUser:
 			images := convertImageBlocks(msg.Images)
-			s.events.Emit(output.NewUserInputEvent(prompt.StripModeNotice(msg.Content), "resume", images))
+			_, blocks, rest := prompt.SplitSkillBlocks(msg.Content)
+			for _, block := range blocks {
+				state := output.SkillStateDisabled
+				if block.State == prompt.SkillBlockActive {
+					state = output.SkillStateEnabled
+				}
+				s.events.Emit(output.NewSkillStateEvent(block.Name, state))
+			}
+			// rest already excludes the mode notice prefix and every block
+			// envelope, so it replaces StripModeNotice here. Emit the input
+			// event only when user text or images remain.
+			if strings.TrimSpace(rest) != "" || len(images) > 0 {
+				s.events.Emit(output.NewUserInputEvent(rest, "resume", images))
+			}
 		case agent.MessageRoleAssistant:
 			if msg.ReasoningContent != "" {
 				s.events.Emit(output.NewThinkingChunkEventWithSource(0, msg.ReasoningContent, output.ChunkSourceAssistant))
