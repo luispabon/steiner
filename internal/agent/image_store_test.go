@@ -393,12 +393,26 @@ func TestNextImageIDFloor(t *testing.T) {
 			want: 8,
 		},
 		{
+			name: "composer marker reference",
+			lineage: ConversationLineage{Generations: []ConversationGeneration{{ID: 1, Messages: []Message{
+				{Role: MessageRoleUser, Content: "see [img-4] before submit"},
+			}}}},
+			want: 5,
+		},
+		{
 			name: "summary prefix and earlier generations counted",
 			lineage: ConversationLineage{Generations: []ConversationGeneration{
-				{ID: 1, SummaryPrefix: []Message{{Role: MessageRoleSummary, Content: "img-3 seen"}}},
-				{ID: 2, Messages: []Message{{Role: MessageRoleUser, Content: "img-5 again"}}},
+				{ID: 1, SummaryPrefix: []Message{{Role: MessageRoleSummary, Content: "saw [img-3] earlier"}}},
+				{ID: 2, Messages: []Message{{Role: MessageRoleUser, Content: "[image img-5: /y.png 8x8 png 1KB]"}}},
 			}},
 			want: 6,
+		},
+		{
+			name: "file path img-N ignored",
+			lineage: ConversationLineage{Generations: []ConversationGeneration{{ID: 1, Messages: []Message{
+				{Role: MessageRoleUser, Content: "read /shots/img-20240101.png and /tmp/img-9.png"},
+			}}}},
+			want: 1,
 		},
 		{
 			name: "non-matching text ignored",

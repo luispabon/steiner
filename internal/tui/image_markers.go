@@ -138,11 +138,25 @@ func markerAtCursor(value string, runeOffset int, markers []imageMarker) (idx in
 	return -1, false, false, false
 }
 
+// pendingMarkerPrefix reports whether s is a proper prefix of a pending marker
+// label. A partial marker fragment is cleaned up only when the user is editing
+// a marker that is actually pending; a typed fragment for an earlier,
+// non-pending ID is plain text and must survive.
+func pendingMarkerPrefix(s string, markers []imageMarker) bool {
+	for _, m := range markers {
+		if len(s) < len(m.label) && strings.HasPrefix(m.label, s) {
+			return true
+		}
+	}
+	return false
+}
+
 func reconcileMarkers(value string, markers []imageMarker) (string, []imageMarker) {
-	// Remove partial/incomplete marker fragments that don't match the full pattern.
-	// Find all partial matches, then remove those that aren't full matches.
+	// Drop an incomplete marker fragment only when it is a prefix of a pending
+	// marker label (the user edited a live marker down); leave other
+	// marker-shaped text alone.
 	cleaned := partialMarkerPattern.ReplaceAllStringFunc(value, func(s string) string {
-		if imageMarkerPattern.MatchString(s) {
+		if imageMarkerPattern.MatchString(s) || !pendingMarkerPrefix(s, markers) {
 			return s
 		}
 		return ""

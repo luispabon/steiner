@@ -26,6 +26,11 @@ const imageIndexFilename = "index.json"
 // imageIDPattern matches the numeric part of an img-N identifier.
 var imageIDPattern = regexp.MustCompile(`img-(\d+)`)
 
+// imageRefPattern matches an image ID inside a rendered placeholder
+// ("[image img-N:") or a composer marker ("[img-N]"). A bare "img-N" in prose
+// or a file path (e.g. /shots/img-20240101.png) must not raise the ID floor.
+var imageRefPattern = regexp.MustCompile(`\[image img-(\d+):|\[img-(\d+)\]`)
+
 // ImageRef describes a registered image with ID, file location, and metadata.
 type ImageRef struct {
 	ID        string `json:"id"`
@@ -456,13 +461,19 @@ func highestImageID(refs []ImageRef) int {
 	return highest
 }
 
-// highestImageRefInMessages returns the highest N among "img-N" references in
-// the messages' content, or 0.
+// highestImageRefInMessages returns the highest N among image references in the
+// messages' content, or 0. Only rendered placeholders ("[image img-N:") and
+// composer markers ("[img-N]") count; a bare "img-N" in prose or a file path is
+// not an image reference.
 func highestImageRefInMessages(messages []Message) int {
 	highest := 0
 	for _, msg := range messages {
-		for _, match := range imageIDPattern.FindAllStringSubmatch(msg.Content, -1) {
-			n, err := strconv.Atoi(match[1])
+		for _, match := range imageRefPattern.FindAllStringSubmatch(msg.Content, -1) {
+			digits := match[1]
+			if digits == "" {
+				digits = match[2]
+			}
+			n, err := strconv.Atoi(digits)
 			if err == nil && n > highest {
 				highest = n
 			}

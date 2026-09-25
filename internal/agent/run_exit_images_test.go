@@ -359,6 +359,85 @@ func TestRunnerRunExitsStripDeferredReadImages(t *testing.T) {
 	}
 }
 
+// TestRunnerRunExitStripsPastedImages covers the two remaining exit paths for a
+// pasted (user-attached) image rather than a deferred read image: a
+// non-retryable provider error and cancellation during the model call. Both
+// must leave the returned state without image bytes and with a placeholder.
+func TestRunnerRunExitStripsPastedImages(t *testing.T) {
+	newRequest := func(p provider.Provider) RunRequest {
+		return RunRequest{
+			Provider: p, Executor: &fakeExecutor{},
+			SourceConversation: []Message{{Role: MessageRoleUser, Content: "look", Images: []ImageBlock{
+				{ID: "img-1", FilePath: "/tmp/img-1.png", MediaType: "image/png", Data: "user-image-data"},
+			}}},
+			ResolvedModel: provider.ResolvedModel{Alias: "parent", BackendModelID: "parent"},
+			Limits:        Limits{MaxTurns: 5},
+		}
+	}
+
+	tests := []struct {
+		name     string
+		run      func(t *testing.T) (RunState, error)
+		wantStop StopReason
+		wantErr  string
+	}{
+		{
+			name: "non-retryable provider error",
+			run: func(t *testing.T) (RunState, error) {
+				p := &fakeProvider{}
+				sentRaw := false
+				p.chatFn = func(_ context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
+					sentRaw = requestHasImages(req.Messages)
+					return provider.ChatResponse{}, errors.New("model failed")
+				}
+				state, err := NewRunner().Run(context.Background(), newRequest(p))
+				if !sentRaw {
+					t.Error("pasted image data was not sent to the provider")
+				}
+				return state, err
+			},
+			wantStop: StopReasonError,
+			wantErr:  "model failed",
+		},
+		{
+			name: "cancellation during model call",
+			run: func(_ *testing.T) (RunState, error) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				p := &fakeProvider{}
+				p.chatFn = func(_ context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+					cancel()
+					return provider.ChatResponse{}, ctx.Err()
+				}
+				return NewRunner().Run(ctx, newRequest(p))
+			},
+			wantStop: StopReasonCancelled,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state, err := tt.run(t)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("Run() error = %v, want %q", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("Run() error = %v, want nil", err)
+			}
+			if state.StopReason != tt.wantStop {
+				t.Fatalf("StopReason = %q, want %q", state.StopReason, tt.wantStop)
+			}
+			if stateHasImageData(state) {
+				t.Fatalf("state retained image data: %#v", state)
+			}
+			if !messagesContainImagePlaceholder(state.Conversation) {
+				t.Fatalf("state conversation missing image placeholder: %#v", state.Conversation)
+			}
+		})
+	}
+}
+
 func messagesContainImagePlaceholder(messages []Message) bool {
 	for _, message := range messages {
 		if strings.Contains(message.Content, "[image img-1:") {

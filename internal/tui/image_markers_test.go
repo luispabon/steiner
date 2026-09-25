@@ -241,11 +241,32 @@ func TestReconcileMarkers(t *testing.T) {
 			wantLabels: nil,
 		},
 		{
-			name:       "incomplete numbered marker stripped",
+			name:       "typed fragment for non-pending id survives",
 			value:      "Here is [img-3 without close bracket",
 			markers:    nil,
-			wantValue:  "Here is  without close bracket",
+			wantValue:  "Here is [img-3 without close bracket",
 			wantLabels: nil,
+		},
+		{
+			name:       "partial fragment of pending marker stripped",
+			value:      "Here is [img-3",
+			markers:    []imageMarker{{label: "[img-3]", image: img1}},
+			wantValue:  "Here is ",
+			wantLabels: nil,
+		},
+		{
+			name:       "pending marker survives while typed prior fragment kept",
+			value:      "[img-2] [img-3",
+			markers:    []imageMarker{{label: "[img-2]", image: img1}, {label: "[img-3]", image: img2}},
+			wantValue:  "[img-2] ",
+			wantLabels: []string{"[img-2]"},
+		},
+		{
+			name:       "typed prior fragment kept beside pending marker",
+			value:      "typed [img-2 then [img-3]",
+			markers:    []imageMarker{{label: "[img-3]", image: img1}},
+			wantValue:  "typed [img-2 then [img-3]",
+			wantLabels: []string{"[img-3]"},
 		},
 	}
 	for _, tc := range tests {
