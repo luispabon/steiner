@@ -39,6 +39,33 @@ func TestRenderConfigWarningEvent(t *testing.T) {
 	}
 }
 
+func TestRenderSkillTruncatedEvent(t *testing.T) {
+	seg := renderEvent(NewSkillTruncatedEvent("docs", 2048, 1024))
+	if seg.Channel != ChannelStatus {
+		t.Fatalf("Channel = %q, want %q", seg.Channel, ChannelStatus)
+	}
+	if seg.Label != "status" {
+		t.Fatalf("Label = %q, want %q", seg.Label, "status")
+	}
+	want := "warning: skill docs is 2048 bytes, over the 1024-byte skill cap; truncated to 1024 bytes"
+	if seg.Text != want {
+		t.Fatalf("Text = %q, want %q", seg.Text, want)
+	}
+}
+
+func TestRenderSkillStateEvent(t *testing.T) {
+	seg := renderEvent(NewSkillStateEvent("docs", SkillStateEnabled))
+	if seg.Channel != ChannelStatus {
+		t.Fatalf("Channel = %q, want %q", seg.Channel, ChannelStatus)
+	}
+	if seg.Label != "status" {
+		t.Fatalf("Label = %q, want %q", seg.Label, "status")
+	}
+	if seg.Text != "skill docs enabled" {
+		t.Fatalf("Text = %q, want %q", seg.Text, "skill docs enabled")
+	}
+}
+
 func TestRenderRunStartedEvent(t *testing.T) {
 	event := NewRunStartedEvent("oneshot", "gpt-4", "analyze this", 10, 4096)
 	seg := renderEvent(event)

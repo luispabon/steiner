@@ -394,8 +394,14 @@ var contentEventHandlers = map[string]contentEventHandler{
 	// ConfigWarning transcript lines are appended explicitly by model_events.go
 	// (warning styling) so the event never mutates sandbox state.
 	output.EventTypeConfigWarning: func(*contentBuffer, output.Event) {},
-	output.EventTypeAPIRequest:    func(*contentBuffer, output.Event) {},
-	output.EventTypeAPIResponse:   func(b *contentBuffer, _ output.Event) { b.finishStreaming() },
+	// SkillTruncated transcript lines are appended explicitly by model_events.go
+	// (warning styling); the event carries no transcript state of its own.
+	output.EventTypeSkillTruncated: func(*contentBuffer, output.Event) {},
+	// SkillState transcript lines are appended explicitly by model_events.go; the
+	// event carries no transcript state of its own.
+	output.EventTypeSkillState:  func(*contentBuffer, output.Event) {},
+	output.EventTypeAPIRequest:  func(*contentBuffer, output.Event) {},
+	output.EventTypeAPIResponse: func(b *contentBuffer, _ output.Event) { b.finishStreaming() },
 	// SteerReceived is handled by model_events.go (AppendUser); no content
 	// line is emitted here.
 	output.EventTypeSteerReceived: func(*contentBuffer, output.Event) {},

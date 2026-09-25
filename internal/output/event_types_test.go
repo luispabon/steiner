@@ -21,6 +21,30 @@ func TestProviderDiagnosticEventIncludesTimingFields(t *testing.T) {
 	}
 }
 
+func TestSkillEventJSONFieldNames(t *testing.T) {
+	truncated, err := json.Marshal(NewSkillTruncatedEvent("docs", 2048, 1024))
+	if err != nil {
+		t.Fatalf("marshal skill_truncated event: %v", err)
+	}
+	truncatedText := string(truncated)
+	for _, want := range []string{`"type":"skill_truncated"`, `"name":"docs"`, `"size_bytes":2048`, `"cap_bytes":1024`} {
+		if !strings.Contains(truncatedText, want) {
+			t.Errorf("skill_truncated JSON = %s, missing %s", truncated, want)
+		}
+	}
+
+	state, err := json.Marshal(NewSkillStateEvent("docs", SkillStateDisabled))
+	if err != nil {
+		t.Fatalf("marshal skill_state event: %v", err)
+	}
+	stateText := string(state)
+	for _, want := range []string{`"type":"skill_state"`, `"name":"docs"`, `"state":"disabled"`} {
+		if !strings.Contains(stateText, want) {
+			t.Errorf("skill_state JSON = %s, missing %s", state, want)
+		}
+	}
+}
+
 func TestDelegationWorktreeDisposalEventJSON(t *testing.T) {
 	event := WithAgentTypeScope(WithAgentScope(NewDelegationWorktreeDisposalEvent("child-1", false, "failed"), "child-1"), "code")
 	data, err := json.Marshal(event)

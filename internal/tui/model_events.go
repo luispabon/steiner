@@ -214,6 +214,10 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		}
 	case output.ConfigWarningEvent:
 		m.content.AppendLine(m.styles.WarningStyle.Render(payload.Message))
+	case output.SkillTruncatedEvent:
+		m.content.AppendLine(m.styles.WarningStyle.Render(payload.Message()))
+	case output.SkillStateEvent:
+		m.content.AppendLine(fmt.Sprintf("status: skill %s %s", payload.Name, payload.State))
 	case output.MCPStatusEvent:
 		m.applyMCPStatusEvent(payload)
 	case output.OneshotFinishedEvent:

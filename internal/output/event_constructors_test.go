@@ -170,6 +170,47 @@ func TestNewConfigWarningEvent(t *testing.T) {
 	})
 }
 
+func TestNewSkillTruncatedEvent(t *testing.T) {
+	event := NewSkillTruncatedEvent("  docs  ", 2048, 1024)
+	if event.Type != EventTypeSkillTruncated {
+		t.Fatalf("Type = %q, want %q", event.Type, EventTypeSkillTruncated)
+	}
+	if event.Timestamp.IsZero() {
+		t.Fatal("Timestamp is zero")
+	}
+	p, ok := event.Payload.(SkillTruncatedEvent)
+	if !ok {
+		t.Fatalf("Payload type = %T", event.Payload)
+	}
+	if p.Name != "docs" {
+		t.Errorf("Name = %q, want %q", p.Name, "docs")
+	}
+	if p.SizeBytes != 2048 || p.CapBytes != 1024 {
+		t.Errorf("SizeBytes/CapBytes = %d/%d, want 2048/1024", p.SizeBytes, p.CapBytes)
+	}
+	want := "warning: skill docs is 2048 bytes, over the 1024-byte skill cap; truncated to 1024 bytes"
+	if msg := p.Message(); msg != want {
+		t.Errorf("Message() = %q, want %q", msg, want)
+	}
+}
+
+func TestNewSkillStateEvent(t *testing.T) {
+	event := NewSkillStateEvent(" docs ", " enabled ")
+	if event.Type != EventTypeSkillState {
+		t.Fatalf("Type = %q, want %q", event.Type, EventTypeSkillState)
+	}
+	p, ok := event.Payload.(SkillStateEvent)
+	if !ok {
+		t.Fatalf("Payload type = %T", event.Payload)
+	}
+	if p.Name != "docs" || p.State != SkillStateEnabled {
+		t.Errorf("Name/State = %q/%q, want docs/enabled", p.Name, p.State)
+	}
+	if SkillStateDisabled != "disabled" {
+		t.Errorf("SkillStateDisabled = %q, want %q", SkillStateDisabled, "disabled")
+	}
+}
+
 func TestNewModeChangedEvent(t *testing.T) {
 	t.Run("basic fields", func(t *testing.T) {
 		event := NewModeChangedEvent("oneshot")

@@ -626,6 +626,25 @@ func NewConfigWarningEvent(message string) Event {
 	return newEvent(EventTypeConfigWarning, ConfigWarningEvent{Message: strings.TrimSpace(message)})
 }
 
+// NewSkillTruncatedEvent creates a skill_truncated event warning that a skill's
+// body exceeded capBytes and was truncated.
+func NewSkillTruncatedEvent(name string, sizeBytes, capBytes int) Event {
+	return newEvent(EventTypeSkillTruncated, SkillTruncatedEvent{
+		Name:      strings.TrimSpace(name),
+		SizeBytes: sizeBytes,
+		CapBytes:  capBytes,
+	})
+}
+
+// NewSkillStateEvent creates a skill_state event recording a persisted skill
+// block's enabled/disabled state.
+func NewSkillStateEvent(name, state string) Event {
+	return newEvent(EventTypeSkillState, SkillStateEvent{
+		Name:  strings.TrimSpace(name),
+		State: strings.TrimSpace(state),
+	})
+}
+
 // NewMCPStatusEvent creates an mcp_status snapshot event carrying an immutable
 // view of the MCP surface: whether MCP is enabled, every configured server's
 // live state keyed by server name, and the registry's MCP tool origins.
