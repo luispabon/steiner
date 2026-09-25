@@ -151,6 +151,7 @@ func TestSplitSkillBlocksMalformed(t *testing.T) {
 		{label: "bad state", input: malformed, wantBlocks: 0, restIsInput: true},
 		{label: "size beyond content", input: "<steiner-skill name=\"x\" state=\"active\" bytes=\"99\">\nabc\n</steiner-skill>", wantBlocks: 0, restIsInput: true},
 		{label: "size numeric overflow", input: "<steiner-skill name=\"x\" state=\"active\" bytes=\"99999999999999999999\">\nabc\n</steiner-skill>", wantBlocks: 0, restIsInput: true},
+		{label: "size max int64", input: "<steiner-skill name=\"x\" state=\"active\" bytes=\"9223372036854775807\">\nabc\n</steiner-skill>", wantBlocks: 0, restIsInput: true},
 		{label: "missing close tag", input: "<steiner-skill name=\"x\" state=\"active\" bytes=\"3\">\nabc", wantBlocks: 0, restIsInput: true},
 		{label: "unterminated name", input: "<steiner-skill name=\"x state=\"active\" bytes=\"3\">\nabc\n</steiner-skill>", wantBlocks: 0, restIsInput: true},
 		{label: "valid then malformed", input: valid + "\n\n" + malformed, wantBlocks: 1, wantRest: malformed},

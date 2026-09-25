@@ -1123,3 +1123,60 @@ func TestSortedProfileNamesEmpty(t *testing.T) {
 		t.Fatalf("sortedProfileNames(empty) = %v, want empty", got)
 	}
 }
+
+// lastRequestContents joins the message contents of the most recent provider
+// request.
+func lastRequestContents(t *testing.T, p *fakeProvider) string {
+	t.Helper()
+	if len(p.requests) == 0 {
+		t.Fatal("provider received no request")
+	}
+	var contents []string
+	for _, message := range p.requests[len(p.requests)-1].Messages {
+		contents = append(contents, message.Content)
+	}
+	return strings.Join(contents, "\n")
+}
+
+// TestSessionRunnerForwardsNilStaticSkillNames proves the interactive adapter
+// never populates the static skill set: driving the same cliRunner through
+// sessionRunner (whose Run and Compact pass nil skill names) omits a skill that
+// the same runner includes when the name is passed explicitly.
+func TestSessionRunnerForwardsNilStaticSkillNames(t *testing.T) {
+	skillsRoot := filepath.Join(t.TempDir(), ".config", "steiner", "skills")
+	mustMkdirAll(t, filepath.Join(skillsRoot, "review"))
+	writeFile(t, filepath.Join(skillsRoot, "review", "SKILL.md"), "review skill instructions")
+
+	providerStub := &fakeProvider{responses: []provider.ChatResponse{
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"}, FinishReason: "stop"},
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"}, FinishReason: "stop"},
+	}}
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      testRuntimeConfig("test-model"),
+			provider: providerStub,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  filepath.Dir(filepath.Dir(filepath.Dir(skillsRoot))),
+			events:   output.NoopSink{},
+		},
+	}
+	adapter := sessionRunner{runner: runner}
+	conversation := []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}
+
+	if _, err := adapter.Run(context.Background(), conversation, nil); err != nil {
+		t.Fatalf("sessionRunner.Run() error = %v", err)
+	}
+	if got := lastRequestContents(t, providerStub); strings.Contains(got, "review skill instructions") {
+		t.Fatalf("interactive Run forwarded static skill names; request included skill content:\n%s", got)
+	}
+
+	// Control: the same cliRunner with an explicit skill name does include it,
+	// so the omission above proves the nil forwarding, not a missing skill.
+	if _, err := runner.Run(context.Background(), conversation, []string{"review"}, nil); err != nil {
+		t.Fatalf("cliRunner.Run() error = %v", err)
+	}
+	if got := lastRequestContents(t, providerStub); !strings.Contains(got, "review skill instructions") {
+		t.Fatalf("control run missing static skill content:\n%s", got)
+	}
+}

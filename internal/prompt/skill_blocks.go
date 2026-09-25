@@ -105,9 +105,14 @@ func parseSkillBlockAt(content string, pos int) (SkillBlock, int, bool) {
 		return SkillBlock{}, pos, false
 	}
 	innerStart := pos + m[1]
+	// Guard before the addition: a size that fits int can still overflow
+	// innerStart+size and wrap negative, panicking the slice below.
+	if size > len(content)-innerStart {
+		return SkillBlock{}, pos, false
+	}
 	innerEnd := innerStart + size
 	const closeTag = "\n</steiner-skill>"
-	if innerEnd > len(content) || !strings.HasPrefix(content[innerEnd:], closeTag) {
+	if !strings.HasPrefix(content[innerEnd:], closeTag) {
 		return SkillBlock{}, pos, false
 	}
 	end := innerEnd + len(closeTag)

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -278,5 +279,115 @@ func TestSkillInjectionNilLoaderIsSafe(t *testing.T) {
 	s.submitPrompt(context.Background(), "hello", nil)
 	if got := runner.lastUserContent(t); got != "hello" {
 		t.Fatalf("content = %q, want no injection with nil loader", got)
+	}
+}
+
+// TestSkillActivationProviderPrefixStable proves that enabling a skill between
+// turns leaves the earlier turn's provider-visible messages byte-identical: the
+// activation block is appended, never rewritten into the cached prefix.
+func TestSkillActivationProviderPrefixStable(t *testing.T) {
+	t.Parallel()
+	loader := &fakeSkillLoader{skills: map[string]skill.Skill{"review": {Name: "review", Content: "REVIEW BODY"}}}
+	runner := &recordingRunner{}
+	s := skillTestSession(t, runner, loader, "review")
+
+	s.submitPrompt(context.Background(), "first", nil)
+	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "review", Enabled: true}); err != nil {
+		t.Fatalf("enable review: %v", err)
+	}
+	s.submitPrompt(context.Background(), "second", nil)
+
+	if len(runner.convos) != 2 {
+		t.Fatalf("recorded %d conversations, want 2", len(runner.convos))
+	}
+	first := agent.ToReplaySafeProviderMessages(runner.convos[0])
+	second := agent.ToReplaySafeProviderMessages(runner.convos[1])
+	if len(second) < len(first) {
+		t.Fatalf("second turn has %d provider messages, want at least %d", len(second), len(first))
+	}
+	if !reflect.DeepEqual(second[:len(first)], first) {
+		t.Fatalf("enabling a skill rewrote earlier provider messages:\nfirst  %#v\nsecond %#v", first, second[:len(first)])
+	}
+}
+
+// TestSkillSwitchProviderPrefixStable covers the A-to-B switch: the earlier
+// turn's provider prefix is byte-identical, and the appended delta deactivates
+// A before activating B.
+func TestSkillSwitchProviderPrefixStable(t *testing.T) {
+	t.Parallel()
+	loader := &fakeSkillLoader{skills: map[string]skill.Skill{
+		"alpha": {Name: "alpha", Content: "ALPHA BODY"},
+		"beta":  {Name: "beta", Content: "BETA BODY"},
+	}}
+	runner := &recordingRunner{}
+	s := skillTestSession(t, runner, loader, "alpha", "beta")
+
+	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "alpha", Enabled: true}); err != nil {
+		t.Fatalf("enable alpha: %v", err)
+	}
+	s.submitPrompt(context.Background(), "one", nil)
+	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "alpha", Enabled: false}); err != nil {
+		t.Fatalf("disable alpha: %v", err)
+	}
+	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "beta", Enabled: true}); err != nil {
+		t.Fatalf("enable beta: %v", err)
+	}
+	s.submitPrompt(context.Background(), "two", nil)
+
+	if len(runner.convos) != 2 {
+		t.Fatalf("recorded %d conversations, want 2", len(runner.convos))
+	}
+	first := agent.ToReplaySafeProviderMessages(runner.convos[0])
+	second := agent.ToReplaySafeProviderMessages(runner.convos[1])
+	if len(second) < len(first) {
+		t.Fatalf("second turn has %d provider messages, want at least %d", len(second), len(first))
+	}
+	if !reflect.DeepEqual(second[:len(first)], first) {
+		t.Fatalf("switching skills rewrote earlier provider messages:\nfirst  %#v\nsecond %#v", first, second[:len(first)])
+	}
+
+	delta := runner.lastUserContent(t)
+	deactivation := prompt.RenderSkillDeactivation("alpha")
+	activation := activationBlock(t, "beta", "BETA BODY")
+	deactivationAt := strings.Index(delta, deactivation)
+	activationAt := strings.Index(delta, activation)
+	if deactivationAt < 0 {
+		t.Fatalf("delta missing alpha deactivation:\n%q", delta)
+	}
+	if activationAt < 0 {
+		t.Fatalf("delta missing beta activation:\n%q", delta)
+	}
+	if deactivationAt > activationAt {
+		t.Fatalf("delta deactivation at %d after activation at %d, want deactivation first", deactivationAt, activationAt)
+	}
+}
+
+// TestSkillBlocksFollowModeNotice proves the runtime ordering of a newly sent
+// user message: mode notice, then the skill delta block, then the raw user text.
+func TestSkillBlocksFollowModeNotice(t *testing.T) {
+	t.Parallel()
+	loader := &fakeSkillLoader{skills: map[string]skill.Skill{"review": {Name: "review", Content: "REVIEW BODY"}}}
+	runner := &recordingRunner{}
+	cfg := guardTestConfig()
+	cfg.Modes = config.ModesConfig{Default: config.ExecutionModePlan}
+	s := testNewSession(t, Dependencies{Runner: runner, SkillNames: []string{"review"}, SkillLoader: loader, Config: cfg})
+
+	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "review", Enabled: true}); err != nil {
+		t.Fatalf("enable review: %v", err)
+	}
+	s.submitPrompt(context.Background(), "hello", nil)
+
+	content := runner.lastUserContent(t)
+	notice := prompt.ModeNotice(config.ExecutionModePlan)
+	if !strings.HasPrefix(content, notice+"\n\n") {
+		t.Fatalf("content does not start with the mode notice:\n%q", content)
+	}
+	rest := strings.TrimPrefix(content, notice+"\n\n")
+	block := activationBlock(t, "review", "REVIEW BODY")
+	if !strings.HasPrefix(rest, block+"\n\n") {
+		t.Fatalf("skill block does not follow the mode notice:\n%q", rest)
+	}
+	if got := strings.TrimPrefix(rest, block+"\n\n"); got != "hello" {
+		t.Fatalf("text after skill block = %q, want %q", got, "hello")
 	}
 }
