@@ -87,11 +87,14 @@ func loadVisionImageBlock(imageID string, store *agent.ImageStore) (provider.Ima
 	}
 	ref, ok := store.Get(imageID)
 	if !ok {
-		return provider.ImageBlock{}, fmt.Errorf("vision: unknown image_id %q", imageID)
+		return provider.ImageBlock{}, fmt.Errorf("vision: image %q is not registered in this conversation", imageID)
+	}
+	if ref.FilePath == "" {
+		return provider.ImageBlock{}, fmt.Errorf("vision: image %q is no longer available; paste it again", imageID)
 	}
 	data, err := os.ReadFile(ref.FilePath)
 	if err != nil {
-		return provider.ImageBlock{}, fmt.Errorf("vision: read image: %w", err)
+		return provider.ImageBlock{}, fmt.Errorf("vision: image %q is no longer available (it may have been pruned); paste it again: %w", imageID, err)
 	}
 	return provider.ImageBlock{
 		MediaType: ref.MediaType,

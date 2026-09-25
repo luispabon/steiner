@@ -58,6 +58,15 @@ type sessionStore interface {
 	List() ([]session.IndexEntry, error)
 }
 
+// imageSessionStore scopes the image store to the active conversation.
+type imageSessionStore interface {
+	// BindSession switches the image store to sessionID's folder, with the
+	// next img-N at least minNext.
+	BindSession(sessionID string, minNext int) error
+	// CopySession copies fromID's image folder to toID (used for forks).
+	CopySession(fromID, toID string) error
+}
+
 // DelegateCanceller cancels active delegated agents.
 type DelegateCanceller interface {
 	CancelAgent(agentID string, discard bool) error
@@ -88,6 +97,9 @@ type Dependencies struct {
 	// with the new effective assignments.
 	OnEffectiveAssignmentsChanged func(config.EffectiveModelAssignments)
 	DelegateCanceller             DelegateCanceller
+	// ImageStore scopes image registrations to the active conversation. cmd/steiner
+	// wires it; nil disables session-scoped image storage.
+	ImageStore imageSessionStore
 	// ResolveModel resolves a model alias to its provider and model metadata,
 	// backed by the session's shared Resolver (memoized, single-flight).
 	// Required wherever a resolved model's metadata (e.g. context window) is

@@ -80,6 +80,7 @@ func (s *Session) rotateSession(group string, updateGroup bool) error {
 	}
 	s.sessionID = id
 	s.promptCacheKey = id
+	s.bindImageStore(id, 1)
 	s.sessionDate = prompt.NewSessionDate(s.now())
 	s.sessionTitle = ""
 	if updateGroup {
@@ -156,6 +157,8 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	msgs := append([]agent.Message(nil), s.conversation...)
 	s.mu.Unlock()
 
+	s.bindImageStore(sess.ID, agent.NextImageIDFloor(sess.Lineage))
+
 	// Notify after releasing the lock: the listener is caller-supplied and may
 	// re-enter the session.
 	if listener != nil {
@@ -213,6 +216,37 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// bindImageStore scopes the image store to sessionID, emitting a non-fatal
+// warning through the session event sink when binding fails.
+func (s *Session) bindImageStore(sessionID string, minNext int) {
+	if s.deps.ImageStore == nil {
+		return
+	}
+	if err := s.deps.ImageStore.BindSession(sessionID, minNext); err != nil {
+		s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:     "session_health",
+			Severity: "warning",
+			Notes:    []string{fmt.Sprintf("bind image store: %v", err)},
+		}))
+	}
+}
+
+// copySessionImages copies the source session's image folder to the fork,
+// emitting a non-fatal warning through the session event sink when the copy
+// fails.
+func (s *Session) copySessionImages(fromID, toID string) {
+	if s.deps.ImageStore == nil {
+		return
+	}
+	if err := s.deps.ImageStore.CopySession(fromID, toID); err != nil {
+		s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:     "session_health",
+			Severity: "warning",
+			Notes:    []string{fmt.Sprintf("copy session images: %v", err)},
+		}))
+	}
+}
+
 // handleForkSession forks the current live session after saving it, then switches to the fork.
 func (s *Session) handleForkSession(ctx context.Context) error {
 	if s.runActive() {
@@ -252,6 +286,8 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 		return err
 	}
 
+	s.copySessionImages(currentSession.ID, forked.ID)
+
 	s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Forked from: %s", originalTitle)))
 	return s.loadSession(ctx, forked.ID)
 }
@@ -282,6 +318,8 @@ func (s *Session) handleForkSavedSession(ctx context.Context, sessionID string) 
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("fork saved session: save failed: %v", err)))
 		return err
 	}
+
+	s.copySessionImages(loadedSession.ID, forked.ID)
 
 	s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Forked from: %s", loadedSession.Title)))
 	return s.loadSession(ctx, forked.ID)

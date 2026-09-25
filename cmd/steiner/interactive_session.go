@@ -81,6 +81,9 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 	if rt.historyWriter != nil {
 		sessDeps.HistoryWriter = rt.historyWriter
 	}
+	if rt.imageStore != nil {
+		sessDeps.ImageStore = rt.imageStore
+	}
 	return interactive.NewSession(sessDeps)
 }
 
