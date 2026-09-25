@@ -168,6 +168,48 @@ func TestApplyEventConfigWarningAppendsWithoutTouchingSandbox(t *testing.T) {
 	}
 }
 
+func TestApplyEventSkillTruncatedAppendsWarning(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	m := &Model{
+		styles: styles,
+		content: contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+			styles:        styles,
+		},
+	}
+
+	_ = m.applyEvent(output.NewSkillTruncatedEvent("docs", 2048, 1024))
+
+	if len(m.content.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(m.content.segments))
+	}
+	seg := m.content.segments[0]
+	for _, want := range []string{"docs", "2048", "1024"} {
+		if !strings.Contains(seg.text, want) {
+			t.Errorf("segment text = %q, want it to contain %q", seg.text, want)
+		}
+	}
+}
+
+func TestApplyEventSkillStateAppendsStatus(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+
+	_ = m.applyEvent(output.NewSkillStateEvent("docs", output.SkillStateDisabled))
+
+	var found bool
+	for _, seg := range m.content.segments {
+		if seg.kind == segmentStatus && seg.text == "skill docs disabled" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no status segment %q; segments=%v", "skill docs disabled", m.content.segments)
+	}
+}
+
 func TestConfigureModelStateSeedsConfigWarnings(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{ConfigWarnings: []string{"project_context.max_tokens is deprecated"}}, nil)
