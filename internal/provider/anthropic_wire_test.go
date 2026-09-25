@@ -330,12 +330,9 @@ func TestAnthropicMessage_UserNoContent(t *testing.T) {
 
 func TestAnthropicMessage_ToolResultWithImage(t *testing.T) {
 	tests := []struct {
-		name    string
-		message Message
-		want    struct {
-			numBlocks int
-			types     []string
-		}
+		name       string
+		message    Message
+		wantNested []string // block types nested inside tool_result.content
 	}{
 		{
 			name: "tool result with text and one image",
@@ -351,13 +348,7 @@ func TestAnthropicMessage_ToolResultWithImage(t *testing.T) {
 					SizeBytes: 4096,
 				}},
 			},
-			want: struct {
-				numBlocks int
-				types     []string
-			}{
-				numBlocks: 2,
-				types:     []string{"tool_result", "image"},
-			},
+			wantNested: []string{"text", "image"},
 		},
 		{
 			name: "tool result with text and multiple images",
@@ -382,13 +373,19 @@ func TestAnthropicMessage_ToolResultWithImage(t *testing.T) {
 					},
 				},
 			},
-			want: struct {
-				numBlocks int
-				types     []string
-			}{
-				numBlocks: 3,
-				types:     []string{"tool_result", "image", "image"},
+			wantNested: []string{"text", "image", "image"},
+		},
+		{
+			name: "tool result with image and no text",
+			message: Message{
+				Role:       MessageRoleTool,
+				ToolCallID: "toolu_789",
+				Images: []ImageBlock{{
+					MediaType: "image/png",
+					Data:      "iVBORw0KGgoAAAANS...",
+				}},
 			},
+			wantNested: []string{"image"},
 		},
 	}
 
@@ -403,66 +400,69 @@ func TestAnthropicMessage_ToolResultWithImage(t *testing.T) {
 				t.Fatalf("role = %q, want %q", got, want)
 			}
 
-			if got, want := len(result.Content), tt.want.numBlocks; got != want {
+			// The image must be nested inside the single tool_result block, never
+			// a sibling block (Anthropic requires tool_result blocks to come
+			// first in the user message content array).
+			if got, want := len(result.Content), 1; got != want {
 				t.Fatalf("number of blocks = %d, want %d", got, want)
 			}
-
-			// Verify tool_result block
-			toolResultBlock := result.Content[0]
-			if got, want := toolResultBlock.Type, "tool_result"; got != want {
-				t.Fatalf("block[0].type = %q, want %q", got, want)
+			block := result.Content[0]
+			if got, want := block.Type, "tool_result"; got != want {
+				t.Fatalf("block.type = %q, want %q", got, want)
 			}
-			if got, want := toolResultBlock.ToolUseID, tt.message.ToolCallID; got != want {
-				t.Fatalf("block[0].ToolUseID = %q, want %q", got, want)
+			if got, want := block.ToolUseID, tt.message.ToolCallID; got != want {
+				t.Fatalf("block.ToolUseID = %q, want %q", got, want)
 			}
-			if got, want := toolResultBlock.Content, tt.message.Content; got != want {
-				t.Fatalf("block[0].Content = %q, want %q", got, want)
+			if got, want := len(block.ContentBlocks), len(tt.wantNested); got != want {
+				t.Fatalf("nested blocks = %d, want %d", got, want)
 			}
-
-			// Verify image blocks
+			for i, wantType := range tt.wantNested {
+				if got := block.ContentBlocks[i].Type; got != wantType {
+					t.Fatalf("content[%d].type = %q, want %q", i, got, wantType)
+				}
+			}
 			for i, img := range tt.message.Images {
-				blockIdx := 1 + i
-				imageBlock := result.Content[blockIdx]
-				if got, want := imageBlock.Type, "image"; got != want {
-					t.Fatalf("block[%d].type = %q, want %q", blockIdx, got, want)
-				}
+				imageBlock := block.ContentBlocks[len(tt.wantNested)-len(tt.message.Images)+i]
 				if imageBlock.Source == nil {
-					t.Fatalf("block[%d].Source = nil, want source", blockIdx)
-				}
-				if got, want := imageBlock.Source.Type, "base64"; got != want {
-					t.Fatalf("block[%d].Source.Type = %q, want %q", blockIdx, got, want)
+					t.Fatalf("content[%d].Source = nil, want source", i)
 				}
 				if got, want := imageBlock.Source.MediaType, img.MediaType; got != want {
-					t.Fatalf("block[%d].Source.MediaType = %q, want %q", blockIdx, got, want)
+					t.Fatalf("content[%d].Source.MediaType = %q, want %q", i, got, want)
 				}
 				if got, want := imageBlock.Source.Data, img.Data; got != want {
-					t.Fatalf("block[%d].Source.Data = %q, want %q", blockIdx, got, want)
+					t.Fatalf("content[%d].Source.Data = %q, want %q", i, got, want)
 				}
 			}
 
-			// Verify JSON marshaling
+			// The marshaled tool_result content must be an array, not a string.
 			data, err := json.Marshal(result)
 			if err != nil {
 				t.Fatalf("json.Marshal() error = %v", err)
 			}
-
-			var parsed map[string]any
+			var parsed struct {
+				Content []struct {
+					Type    string `json:"type"`
+					Content []struct {
+						Type string `json:"type"`
+					} `json:"content"`
+				} `json:"content"`
+			}
 			if err := json.Unmarshal(data, &parsed); err != nil {
 				t.Fatalf("json.Unmarshal() error = %v", err)
 			}
-
-			content, ok := parsed["content"].([]any)
-			if !ok {
-				t.Fatalf("content type = %T, want []any", parsed["content"])
+			if len(parsed.Content) != 1 {
+				t.Fatalf("marshaled blocks = %d, want 1 tool_result", len(parsed.Content))
 			}
-
-			// Verify tool_result block in JSON
-			toolBlock, ok := content[0].(map[string]any)
-			if !ok {
-				t.Fatalf("content[0] type = %T, want map[string]any", content[0])
+			if got, want := parsed.Content[0].Type, "tool_result"; got != want {
+				t.Fatalf("marshaled block.type = %q, want %q", got, want)
 			}
-			if got, want := toolBlock["type"], "tool_result"; got != want {
-				t.Fatalf("content[0].type = %q, want %q", got, want)
+			if got, want := len(parsed.Content[0].Content), len(tt.wantNested); got != want {
+				t.Fatalf("marshaled nested content = %d, want %d", got, want)
+			}
+			for i, wantType := range tt.wantNested {
+				if got := parsed.Content[0].Content[i].Type; got != wantType {
+					t.Fatalf("marshaled content[%d].type = %q, want %q", i, got, wantType)
+				}
 			}
 		})
 	}
@@ -556,6 +556,73 @@ func TestAnthropicMessage_ToolResultNoImages_Regression(t *testing.T) {
 	// Verify no Source field is set
 	if result.Content[0].Source != nil {
 		t.Fatalf("block.Source = %#v, want nil", result.Content[0].Source)
+	}
+
+	// A tool message without images must still marshal content as a JSON string.
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	var parsed struct {
+		Content []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(parsed.Content) != 1 {
+		t.Fatalf("marshaled blocks = %d, want 1", len(parsed.Content))
+	}
+	var contentStr string
+	if err := json.Unmarshal(parsed.Content[0].Content, &contentStr); err != nil {
+		t.Fatalf("marshaled tool_result content is not a JSON string: %v", err)
+	}
+	if got, want := contentStr, message.Content; got != want {
+		t.Fatalf("marshaled content = %q, want %q", got, want)
+	}
+}
+
+func TestAnthropicRequestWire_ImageToolResultsKeepToolResultFirst(t *testing.T) {
+	request := ChatRequest{
+		Model: "claude-3-7-sonnet",
+		Messages: []Message{
+			{
+				Role: MessageRoleAssistant,
+				ToolCalls: []ToolCall{
+					{ID: "a", Name: "read", Arguments: map[string]any{"path": "a"}},
+					{ID: "b", Name: "read", Arguments: map[string]any{"path": "b"}},
+					{ID: "c", Name: "read", Arguments: map[string]any{"path": "c"}},
+				},
+			},
+			{Role: MessageRoleTool, ToolCallID: "a", Content: "a"},
+			{
+				Role:       MessageRoleTool,
+				ToolCallID: "b",
+				Content:    "b",
+				Images:     []ImageBlock{{MediaType: "image/png", Data: "imgB"}},
+			},
+			{Role: MessageRoleTool, ToolCallID: "c", Content: "c"},
+		},
+	}
+
+	wire := anthropicRequestWire(request, "claude-3-7-sonnet", false)
+
+	if got, want := len(wire.Messages), 4; got != want {
+		t.Fatalf("messages = %d, want %d", got, want)
+	}
+	if got, want := wire.Messages[0].Role, "assistant"; got != want {
+		t.Fatalf("messages[0].Role = %q, want %q", got, want)
+	}
+	for i, msg := range wire.Messages[1:] {
+		if got, want := msg.Role, "user"; got != want {
+			t.Fatalf("messages[%d].Role = %q, want %q", i+1, got, want)
+		}
+		for j, block := range msg.Content {
+			if got, want := block.Type, "tool_result"; got != want {
+				t.Fatalf("messages[%d].Content[%d].Type = %q, want %q", i+1, j, got, want)
+			}
+		}
 	}
 }
 

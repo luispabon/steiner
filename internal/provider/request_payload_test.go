@@ -2,6 +2,8 @@ package provider
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -184,6 +186,92 @@ func TestUsageStatsNonCachedPromptTokens(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.usage.NonCachedPromptTokens(); got != tt.want {
 				t.Fatalf("NonCachedPromptTokens() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChatRequestWire_ToolResultImageOrdering(t *testing.T) {
+	toolResult := func(id, content string, images ...string) Message {
+		msg := Message{Role: MessageRoleTool, ToolCallID: id, Content: content}
+		for _, data := range images {
+			msg.Images = append(msg.Images, ImageBlock{MediaType: "image/png", Data: data})
+		}
+		return msg
+	}
+	assistantWithCalls := Message{
+		Role: MessageRoleAssistant,
+		ToolCalls: []ToolCall{
+			{ID: "a", Name: "read", RawArguments: "{}"},
+			{ID: "b", Name: "read", RawArguments: "{}"},
+			{ID: "c", Name: "read", RawArguments: "{}"},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		messages   []Message
+		wantRoles  []string
+		wantImages []string
+	}{
+		{
+			name:       "single tool result with image unchanged",
+			messages:   []Message{toolResult("a", "ok", "imgA")},
+			wantRoles:  []string{"tool", "user"},
+			wantImages: []string{"imgA"},
+		},
+		{
+			name:       "middle tool image flushed after the run",
+			messages:   []Message{assistantWithCalls, toolResult("a", "a"), toolResult("b", "b", "imgB"), toolResult("c", "c")},
+			wantRoles:  []string{"assistant", "tool", "tool", "tool", "user"},
+			wantImages: []string{"imgB"},
+		},
+		{
+			name:       "images from several tool results merge in order",
+			messages:   []Message{assistantWithCalls, toolResult("a", "a", "imgA"), toolResult("b", "b"), toolResult("c", "c", "imgC")},
+			wantRoles:  []string{"assistant", "tool", "tool", "tool", "user"},
+			wantImages: []string{"imgA", "imgC"},
+		},
+		{
+			name:       "images flush before a following user message",
+			messages:   []Message{toolResult("a", "a", "imgA"), {Role: MessageRoleUser, Content: "next"}},
+			wantRoles:  []string{"tool", "user", "user"},
+			wantImages: []string{"imgA"},
+		},
+		{
+			name:       "images flush at end of request",
+			messages:   []Message{{Role: MessageRoleAssistant, Content: "hi"}, toolResult("a", "a", "imgA")},
+			wantRoles:  []string{"assistant", "tool", "user"},
+			wantImages: []string{"imgA"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wire, err := chatRequestWire(ChatRequest{Model: "m", Messages: tt.messages}, "m", false)
+			if err != nil {
+				t.Fatalf("chatRequestWire() error = %v", err)
+			}
+			var roles []string
+			var images []string
+			for _, msg := range wire.Messages {
+				roles = append(roles, msg.Role)
+				parts, ok := msg.Content.([]openAIContentPart)
+				if !ok {
+					continue
+				}
+				for _, part := range parts {
+					if part.ImageURL == nil {
+						continue
+					}
+					images = append(images, strings.TrimPrefix(part.ImageURL.URL, "data:image/png;base64,"))
+				}
+			}
+			if !slices.Equal(roles, tt.wantRoles) {
+				t.Fatalf("roles = %v, want %v", roles, tt.wantRoles)
+			}
+			if !slices.Equal(images, tt.wantImages) {
+				t.Fatalf("images = %v, want %v", images, tt.wantImages)
 			}
 		})
 	}

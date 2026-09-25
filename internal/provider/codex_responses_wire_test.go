@@ -2,6 +2,8 @@ package provider
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -384,5 +386,107 @@ func TestResponsesRequestWire_UserMessageFollowsSystemMessage(t *testing.T) {
 	}
 	if got, want := secondItem.Content[0].Text, "Hello"; got != want {
 		t.Fatalf("input[1].content text = %q, want %q", got, want)
+	}
+}
+
+func TestResponsesRequestWire_ToolResultImageOrdering(t *testing.T) {
+	toolResult := func(id, content string, images ...string) Message {
+		msg := Message{Role: MessageRoleTool, ToolCallID: id, Content: content}
+		for _, data := range images {
+			msg.Images = append(msg.Images, ImageBlock{MediaType: "image/png", Data: data})
+		}
+		return msg
+	}
+	assistantWithCalls := Message{
+		Role: MessageRoleAssistant,
+		ToolCalls: []ToolCall{
+			{ID: "a", Name: "read", RawArguments: "{}"},
+			{ID: "b", Name: "read", RawArguments: "{}"},
+			{ID: "c", Name: "read", RawArguments: "{}"},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		messages   []Message
+		wantKinds  []string
+		wantImages []string
+	}{
+		{
+			name:       "single tool result with image unchanged",
+			messages:   []Message{toolResult("a", "ok", "imgA")},
+			wantKinds:  []string{"output", "message:user"},
+			wantImages: []string{"imgA"},
+		},
+		{
+			name:       "middle tool image flushed after the run",
+			messages:   []Message{assistantWithCalls, toolResult("a", "a"), toolResult("b", "b", "imgB"), toolResult("c", "c")},
+			wantKinds:  []string{"call", "call", "call", "output", "output", "output", "message:user"},
+			wantImages: []string{"imgB"},
+		},
+		{
+			name:       "images from several tool results merge in order",
+			messages:   []Message{assistantWithCalls, toolResult("a", "a", "imgA"), toolResult("b", "b"), toolResult("c", "c", "imgC")},
+			wantKinds:  []string{"call", "call", "call", "output", "output", "output", "message:user"},
+			wantImages: []string{"imgA", "imgC"},
+		},
+		{
+			name:       "images flush before a following user message",
+			messages:   []Message{toolResult("a", "a", "imgA"), {Role: MessageRoleUser, Content: "next"}},
+			wantKinds:  []string{"output", "message:user", "message:user"},
+			wantImages: []string{"imgA"},
+		},
+		{
+			name:       "images flush at end of request",
+			messages:   []Message{{Role: MessageRoleAssistant, Content: "hi"}, toolResult("a", "a", "imgA")},
+			wantKinds:  []string{"message:assistant", "output", "message:user"},
+			wantImages: []string{"imgA"},
+		},
+		{
+			name: "hoisted system message does not break the tool run",
+			messages: []Message{
+				assistantWithCalls,
+				toolResult("a", "a", "imgA"),
+				{Role: MessageRoleSystem, Content: "system note"},
+				toolResult("b", "b"),
+			},
+			wantKinds:  []string{"call", "call", "call", "output", "output", "message:user"},
+			wantImages: []string{"imgA"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wire, err := responsesRequestWire(ChatRequest{Model: "m", Messages: tt.messages}, "m", false)
+			if err != nil {
+				t.Fatalf("responsesRequestWire() error = %v", err)
+			}
+			var kinds []string
+			var images []string
+			for _, item := range wire.Input {
+				switch item.Type {
+				case "function_call":
+					kinds = append(kinds, "call")
+				case "function_call_output":
+					kinds = append(kinds, "output")
+				case "message":
+					kinds = append(kinds, "message:"+item.Role)
+				default:
+					kinds = append(kinds, item.Type)
+				}
+				for _, part := range item.Content {
+					if part.Type != "input_image" {
+						continue
+					}
+					images = append(images, strings.TrimPrefix(part.ImageURL, "data:image/png;base64,"))
+				}
+			}
+			if !slices.Equal(kinds, tt.wantKinds) {
+				t.Fatalf("kinds = %v, want %v", kinds, tt.wantKinds)
+			}
+			if !slices.Equal(images, tt.wantImages) {
+				t.Fatalf("images = %v, want %v", images, tt.wantImages)
+			}
+		})
 	}
 }

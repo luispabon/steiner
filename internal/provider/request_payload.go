@@ -33,13 +33,37 @@ func chatRequestWire(request ChatRequest, defaultModel string, stream bool) (ope
 			})
 		}
 	}
+	// OpenAI requires the tool messages answering an assistant turn's tool_calls
+	// to follow it contiguously. A tool result's image parts would break that run,
+	// so defer them and emit them as one user message once the run ends.
+	var pendingImageParts []openAIContentPart
+	flushImages := func() {
+		if len(pendingImageParts) == 0 {
+			return
+		}
+		wire.Messages = append(wire.Messages, openAIMessage{Role: "user", Content: pendingImageParts})
+		pendingImageParts = nil
+	}
 	for _, msg := range request.Messages {
+		if msg.Role != MessageRoleTool {
+			flushImages()
+		}
 		wireMsgs, err := toOpenAIMessages(msg)
 		if err != nil {
 			return openAIRequest{}, err
 		}
+		if msg.Role == MessageRoleTool && len(wireMsgs) > 1 {
+			wire.Messages = append(wire.Messages, wireMsgs[0])
+			for _, extra := range wireMsgs[1:] {
+				if parts, ok := extra.Content.([]openAIContentPart); ok {
+					pendingImageParts = append(pendingImageParts, parts...)
+				}
+			}
+			continue
+		}
 		wire.Messages = append(wire.Messages, wireMsgs...)
 	}
+	flushImages()
 	if request.IncludeEmptyReasoning {
 		empty := ""
 		for i := range wire.Messages {

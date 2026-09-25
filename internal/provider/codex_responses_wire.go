@@ -140,6 +140,18 @@ func responsesRequestWire(request ChatRequest, defaultModel string, stream bool)
 	}
 
 	var instructions []string
+	// Codex Responses requires function_call_output items to follow the
+	// assistant turn contiguously. A tool result's image parts would break that
+	// run, so defer them and emit them as one user message once the run ends.
+	// System messages are hoisted into instructions and must not flush the run.
+	var pendingImageParts []responsesContentPart
+	flushImages := func() {
+		if len(pendingImageParts) == 0 {
+			return
+		}
+		wire.Input = append(wire.Input, messageItem("user", pendingImageParts))
+		pendingImageParts = nil
+	}
 	for _, msg := range request.Messages {
 		if msg.Role == MessageRoleSystem {
 			if text := strings.TrimSpace(msg.Content); text != "" {
@@ -147,12 +159,23 @@ func responsesRequestWire(request ChatRequest, defaultModel string, stream bool)
 			}
 			continue
 		}
+		if msg.Role != MessageRoleTool {
+			flushImages()
+		}
 		items, err := messageToResponsesItems(msg)
 		if err != nil {
 			return responsesRequest{}, err
 		}
+		if msg.Role == MessageRoleTool && len(items) > 1 {
+			wire.Input = append(wire.Input, items[0])
+			for _, extra := range items[1:] {
+				pendingImageParts = append(pendingImageParts, extra.Content...)
+			}
+			continue
+		}
 		wire.Input = append(wire.Input, items...)
 	}
+	flushImages()
 	wire.Instructions = strings.Join(instructions, "\n\n")
 	return wire, nil
 }
