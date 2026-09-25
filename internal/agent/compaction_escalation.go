@@ -133,6 +133,10 @@ func compactionSummaryText(content string, candidate ConversationCandidate) stri
 }
 
 func buildSummarizedCompactionState(state RunState, summaryText string, retained []Message) RunState {
+	retained = stripRetainedSkillBlocks(retained)
+	if replay, ok := replayedSkillMessage(activeSkillBlocks(state)); ok {
+		retained = append([]Message{replay}, retained...)
+	}
 	summaryPrefix := []Message{{Role: MessageRoleSummary, Content: summaryText}}
 	nextLineage := state.Lineage.WithNewGeneration(summaryPrefix, retained)
 	nextState := state.Clone()
