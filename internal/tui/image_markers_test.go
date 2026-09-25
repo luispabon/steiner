@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -73,6 +75,11 @@ func TestRemoveMarkerFromValue(t *testing.T) {
 		{"removes first occurrence", "hello [img-1] world", imageMarker{label: "[img-1]"}, "hello  world"},
 		{"missing label is noop", "hello world", imageMarker{label: "[img-1]"}, "hello world"},
 		{"removes only first", "[img-1] foo [img-1]", imageMarker{label: "[img-1]"}, " foo [img-1]"},
+		// [img-1] must not match a prefix of [img-10].
+		{"longer id untouched", "[img-10]", imageMarker{label: "[img-1]"}, "[img-10]"},
+		{"removes exact token among prefix ids", "[img-10] [img-1]", imageMarker{label: "[img-1]"}, "[img-10] "},
+		{"removes longer id without touching shorter", "[img-1] [img-10]", imageMarker{label: "[img-10]"}, "[img-1] "},
+		{"user typed marker-shaped text kept", "[img-1] [img-99]", imageMarker{label: "[img-1]"}, " [img-99]"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -197,6 +204,20 @@ func TestReconcileMarkers(t *testing.T) {
 			markers:    []imageMarker{{label: "[img-1]", image: img1}, {label: "[img-2]", image: img2}},
 			wantValue:  "[img-2]",
 			wantLabels: []string{"[img-2]"},
+		},
+		{
+			name:       "prefix label does not match longer token",
+			value:      "[img-10]",
+			markers:    []imageMarker{{label: "[img-1]", image: img1}, {label: "[img-10]", image: img2}},
+			wantValue:  "[img-10]",
+			wantLabels: []string{"[img-10]"},
+		},
+		{
+			name:       "longer label does not keep shorter token",
+			value:      "[img-1]",
+			markers:    []imageMarker{{label: "[img-1]", image: img1}, {label: "[img-10]", image: img2}},
+			wantValue:  "[img-1]",
+			wantLabels: []string{"[img-1]"},
 		},
 		{
 			name:       "no markers",
@@ -358,5 +379,94 @@ func TestSnapCursorPastMarkers(t *testing.T) {
 	plain := "ab[img-9]cd"
 	if got := snapCursorPastMarkers(plain, 5, markers, 1); got != 5 {
 		t.Errorf("snapCursorPastMarkers(plain text) = %d, want 5", got)
+	}
+}
+
+// newMarkerStore returns a bound ImageStore plus a helper that writes a file
+// inside the store folder and registers it.
+func newMarkerStore(t *testing.T) (*agent.ImageStore, func(name string) (string, agent.ImageRef)) {
+	t.Helper()
+	store := agent.NewImageStore(t.TempDir())
+	if err := store.BindSession("sess", 1); err != nil {
+		t.Fatalf("BindSession: %v", err)
+	}
+	// Register creates the session folder lazily; create it so test files land
+	// inside it (Register then writes index.json there).
+	if err := os.MkdirAll(store.Dir(), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", store.Dir(), err)
+	}
+	write := func(name string) (string, agent.ImageRef) {
+		path := filepath.Join(store.Dir(), name)
+		if err := os.WriteFile(path, []byte(name), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+		return path, store.Register(path, "image/png", 1, 1, len(name))
+	}
+	return store, write
+}
+
+func TestRemoveMarkerImageDeletesStoreFile(t *testing.T) {
+	t.Parallel()
+	store, write := newMarkerStore(t)
+	fileA, refA := write("a.png")
+	fileB, refB := write("b.png")
+
+	m := Model{imageStore: store, imageMarkers: []imageMarker{
+		{label: "[" + refA.ID + "]", image: agent.ImageBlock{ID: refA.ID, FilePath: fileA}},
+		{label: "[" + refB.ID + "]", image: agent.ImageBlock{ID: refB.ID, FilePath: fileB}},
+	}}
+
+	m.removeMarkerImage(0)
+
+	if _, err := os.Stat(fileA); !os.IsNotExist(err) {
+		t.Errorf("removed marker's file still exists: %v", err)
+	}
+	if _, err := os.Stat(fileB); err != nil {
+		t.Errorf("other marker's file was removed: %v", err)
+	}
+	if _, ok := store.Get(refA.ID); ok {
+		t.Errorf("store still holds %s after removeMarkerImage", refA.ID)
+	}
+	if _, ok := store.Get(refB.ID); !ok {
+		t.Errorf("store lost %s, want it retained", refB.ID)
+	}
+	if len(m.imageMarkers) != 1 || m.imageMarkers[0].image.ID != refB.ID {
+		t.Errorf("imageMarkers = %+v, want only %s", m.imageMarkers, refB.ID)
+	}
+}
+
+func TestRemovePendingImagesDeletesAllStoreFiles(t *testing.T) {
+	t.Parallel()
+	store, write := newMarkerStore(t)
+	var markers []imageMarker
+	var files []string
+	for _, name := range []string{"a.png", "b.png"} {
+		path, ref := write(name)
+		markers = append(markers, imageMarker{label: "[" + ref.ID + "]", image: agent.ImageBlock{ID: ref.ID, FilePath: path}})
+		files = append(files, path)
+	}
+
+	m := Model{imageStore: store, imageMarkers: markers}
+	m.removePendingImages()
+
+	for _, path := range files {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("pending file %s still exists after clear: %v", path, err)
+		}
+	}
+	if len(m.imageMarkers) != 0 {
+		t.Errorf("imageMarkers = %d, want 0", len(m.imageMarkers))
+	}
+	if len(store.All()) != 0 {
+		t.Errorf("store refs = %d, want 0", len(store.All()))
+	}
+}
+
+func TestRemovePendingImagesToleratesNilStore(t *testing.T) {
+	t.Parallel()
+	m := Model{imageMarkers: []imageMarker{{label: "[img-1]", image: agent.ImageBlock{ID: "img-1"}}}}
+	m.removePendingImages()
+	if len(m.imageMarkers) != 0 {
+		t.Errorf("imageMarkers = %d, want 0", len(m.imageMarkers))
 	}
 }

@@ -45,8 +45,17 @@ func pendingImageBlocks(markers []imageMarker) []agent.ImageBlock {
 	return out
 }
 
+// removeMarkerFromValue removes the first complete marker token whose label
+// matches marker exactly. Matching full tokens keeps [img-1] from matching a
+// prefix of a different marker such as [img-10], and leaves marker-shaped user
+// text alone.
 func removeMarkerFromValue(value string, marker imageMarker) string {
-	return strings.Replace(value, marker.label, "", 1)
+	for _, loc := range imageMarkerPattern.FindAllStringIndex(value, -1) {
+		if value[loc[0]:loc[1]] == marker.label {
+			return value[:loc[0]] + value[loc[1]:]
+		}
+	}
+	return value
 }
 
 // markerLabel returns the composer marker label for block, stamping a
@@ -139,10 +148,15 @@ func reconcileMarkers(value string, markers []imageMarker) (string, []imageMarke
 		return ""
 	})
 
-	// Keep only markers whose labels still exist in the cleaned value.
+	// Keep only markers whose label still appears as a complete token in the
+	// cleaned value. Token membership stops [img-1] matching [img-10].
+	present := make(map[string]struct{})
+	for _, tok := range imageMarkerPattern.FindAllString(cleaned, -1) {
+		present[tok] = struct{}{}
+	}
 	survivors := make([]imageMarker, 0, len(markers))
 	for _, m := range markers {
-		if strings.Contains(cleaned, m.label) {
+		if _, ok := present[m.label]; ok {
 			survivors = append(survivors, m)
 		}
 	}
