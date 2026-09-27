@@ -327,8 +327,12 @@ func TestMutateFailedOps_EmptyOperations(t *testing.T) {
 	if got.OperationsFailed == 0 {
 		t.Fatalf("OperationsFailed = 0, want nonzero")
 	}
-	if failures := got.FailedOps(); len(failures) == 0 {
+	failures := got.FailedOps()
+	if len(failures) == 0 {
 		t.Fatalf("FailedOps() is empty on a failed call; a failed mutate would be recorded as outcome %q", "ok")
+	}
+	if failures[0].Reason != ReasonInvalidField {
+		t.Errorf("FailedOps()[0].Reason = %q, want %q", failures[0].Reason, ReasonInvalidField)
 	}
 }
 
