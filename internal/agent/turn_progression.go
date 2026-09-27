@@ -453,9 +453,9 @@ func calibratedToolDelta(delta, previousRaw, calibrated int) int {
 func (p *turnProgressor) appendToolOutcome(ctx context.Context, state RunState, turn int, call provider.ToolCall, result any, err error, emitFinished bool) RunState {
 	var toolMessage Message
 	if emitFinished {
-		toolMessage = p.buildToolMessage(turn, call, result, err)
+		toolMessage = p.buildToolMessage(turn, call, result, err, state.Lineage.latestMessages())
 	} else {
-		toolMessage = p.buildToolMessageWithEvent(turn, call, result, err, false)
+		toolMessage = p.buildToolMessageWithEvent(turn, call, result, err, false, state.Lineage.latestMessages())
 	}
 	state.Conversation = append(state.Conversation, toolMessage)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
@@ -497,11 +497,11 @@ func liveConversationSnapshot(state RunState) []provider.Message {
 	return ToReplaySafeProviderMessages(conversation)
 }
 
-func (p *turnProgressor) buildToolMessage(turn int, call provider.ToolCall, result any, err error) Message {
-	return p.buildToolMessageWithEvent(turn, call, result, err, true)
+func (p *turnProgressor) buildToolMessage(turn int, call provider.ToolCall, result any, err error, prior []Message) Message {
+	return p.buildToolMessageWithEvent(turn, call, result, err, true, prior)
 }
 
-func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolCall, result any, err error, emitFinished bool) Message {
+func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolCall, result any, err error, emitFinished bool, prior []Message) Message {
 	var toolContent string
 	var preview output.ToolPreview
 	normalizedResult := ToolResultEnvelope{}
@@ -526,7 +526,7 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 				toolContent = normalizedResult.Content
 			}
 		} else {
-			toolContent = shapeIngestedToolResultForContextManager(p.request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
+			toolContent = shapeFreshToolResultForContextManager(p.request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content, prior)
 		}
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
 		if emitFinished {

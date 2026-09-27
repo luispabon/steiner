@@ -89,6 +89,13 @@ func shapeIngestedToolResultForContextManager(cm *ContextStateManager, turn int,
 	return cm.ObserveToolResult(turn, toolName, input, content)
 }
 
+func shapeFreshToolResultForContextManager(cm *ContextStateManager, turn int, toolName string, input map[string]any, content string, prior []Message) string {
+	if cm == nil {
+		return content
+	}
+	return cm.observeFreshToolResult(turn, toolName, input, content, prior)
+}
+
 func processAssistantResponseForContextManager(cm *ContextStateManager, turn int, content string) (string, string) {
 	if cm == nil {
 		return content, ""
