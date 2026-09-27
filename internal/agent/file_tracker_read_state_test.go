@@ -18,6 +18,31 @@ func observeTrackedRead(t *testing.T, tracker *FileTracker, path string, turn in
 	tracker.ObserveRead(turn, string(content), true)
 }
 
+func TestFileTrackerRecordReadMatchesDisabledObservation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(path, []byte("one"+"\n"+"two"+"\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	content, err := json.Marshal(readResult{Path: path, StartLine: 1, EndLine: 2, TotalLines: 2, Output: "one" + "\n" + "two" + "\n"})
+	if err != nil {
+		t.Fatalf("marshal read result: %v", err)
+	}
+
+	want := FileTracker{}
+	got := FileTracker{}
+	wantContent, _ := want.ObserveRead(4, string(content), false)
+	got.RecordRead(4, string(content))
+	if wantContent != string(content) {
+		t.Fatalf("disabled annotation observation changed content: %q", wantContent)
+	}
+	if gotState, wantState := got.ReadState(path, 5), want.ReadState(path, 5); gotState != wantState {
+		t.Errorf("RecordRead state = %+v, want disabled observation state %+v", gotState, wantState)
+	}
+	if gotObserved, wantObserved := got.WasObserved(path), want.WasObserved(path); gotObserved != wantObserved || !gotObserved {
+		t.Errorf("RecordRead WasObserved = %t, want %t", gotObserved, wantObserved)
+	}
+}
+
 func TestFileTrackerReadState(t *testing.T) {
 	observed := tool.FileReadState{Observed: true, StartLine: 1, EndLine: 2, TotalLines: 2}
 

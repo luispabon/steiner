@@ -16,6 +16,11 @@ type fileObservation struct {
 	Notes        []string
 }
 
+// RecordRead records a read result without changing or returning its content.
+func (t *FileTracker) RecordRead(turn int, content string) {
+	_, _ = t.ObserveRead(turn, content, false)
+}
+
 // ObserveRead records a read result and may replace unchanged content with an annotation.
 func (t *FileTracker) ObserveRead(turn int, content string, annotationsEnabled bool) (string, fileObservation) {
 	result, ok := parseReadResult(content)
