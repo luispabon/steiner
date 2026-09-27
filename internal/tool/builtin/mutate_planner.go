@@ -250,7 +250,7 @@ func (p *mutatePlanner) verifyObserved(index int, state *mutateFileState, fileHa
 	if p.env.FileObserved != nil && p.env.FileObserved(state.path) {
 		return nil
 	}
-	return fmt.Errorf("mutate: operation %d replace: %s not read this session and no file_hash supplied — read the file first, or pass the file_hash from a read/grep result", index, state.displayPath)
+	return fmt.Errorf("mutate: operation %d replace: %s not read this session and no file_hash supplied — bash output (cat, sed, head, tail) does not count as a read; use read (a small offset/limit around the edit is enough), or pass the file_hash from a read/grep result", index, state.displayPath)
 }
 
 func (p *mutatePlanner) textState(index int, opType, path string) (*mutateFileState, error) {

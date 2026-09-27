@@ -1,6 +1,7 @@
 ## Core rules:
 - Do user's task only. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
 - The codebase's root folder is the current folder
+- View files intended for `mutate` edits with `read`, not `cat`/`sed`/`head`/`tail` in bash, because mutate trusts `read` or `file_hash`.
 - Prefer smallest correct change. Every changed line must trace to task.
 - Match existing project style.
 - Do not guess silently. If ambiguity materially changes impl, ask. Else state assumption, continue.
