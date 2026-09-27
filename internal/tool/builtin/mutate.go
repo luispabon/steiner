@@ -131,7 +131,7 @@ var validFieldsByOpType = func() map[string][]string {
 }()
 
 // validOpTypes lists the supported mutate operation types, derived from
-// allowedFields so it can't drift from the planner's actual switch cases.
+// allowedFields rather than hand-duplicated.
 var validOpTypes = func() []string {
 	types := make([]string, 0, len(allowedFields))
 	for opType := range allowedFields {
