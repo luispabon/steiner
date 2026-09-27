@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -310,6 +311,66 @@ func TestReadTool(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestReadOutputCapPaginationAndLineTruncation(t *testing.T) {
+	dir := t.TempDir()
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	def := NewReadTool(Env{WorkDir: dir, PathPolicy: &policy})
+	lines := make([]string, 70)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("%02d:%s", i, strings.Repeat("x", 995))
+	}
+	content := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "cap.txt"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, numbered := range []bool{false, true} {
+		offset := 1
+		for {
+			got, err := def.Handler(context.Background(), map[string]any{"path": "cap.txt", "offset": offset, "limit": 1000, "line_numbers": numbered})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := got.(ReadResult)
+			if r.EndLine < offset {
+				t.Fatalf("page at %d emitted no lines", offset)
+			}
+			if r.NextOffset == 0 {
+				break
+			}
+			if r.NextOffset != r.EndLine+1 {
+				t.Fatalf("next=%d end=%d", r.NextOffset, r.EndLine)
+			}
+			if r.NextOffset <= offset {
+				t.Fatalf("pagination did not advance: %d", offset)
+			}
+			offset = r.NextOffset
+		}
+	}
+
+	long := strings.Repeat("z", readMaxLineRunes+100) + "\nsecond\n"
+	if err := os.WriteFile(filepath.Join(dir, "long.txt"), []byte(long), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := def.Handler(context.Background(), map[string]any{"path": "long.txt", "limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := got.(ReadResult)
+	if !strings.HasSuffix(r.Output, LineTruncationMarker+"\n") {
+		t.Fatalf("truncated output lost line boundary: %q", r.Output[len(r.Output)-30:])
+	}
+	if r.EndLine != 1 || r.NextOffset != 2 {
+		t.Fatalf("bounds end=%d next=%d", r.EndLine, r.NextOffset)
+	}
+	got, err = def.Handler(context.Background(), map[string]any{"path": "long.txt", "offset": 2, "limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.(ReadResult).Output != "second\n" {
+		t.Fatalf("second page = %q", got.(ReadResult).Output)
+	}
 }
 
 func TestReadTextPreservesSourceAndOptInNumbers(t *testing.T) {

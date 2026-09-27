@@ -95,6 +95,12 @@ func TestNormalizeReadPreviewContents(t *testing.T) {
 			want:      "alpha\nbeta\n",
 		},
 		{
+			name:      "box separator with unknown starting line",
+			contents:  "     1│alpha\n     2│beta\n",
+			startLine: 0,
+			want:      "alpha\nbeta\n",
+		},
+		{
 			name:      "empty content",
 			contents:  "",
 			startLine: 1,

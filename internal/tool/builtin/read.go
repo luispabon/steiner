@@ -28,7 +28,7 @@ func NewReadTool(env Env) tool.ToolDef {
 		ParallelSafe:    true,
 		Description:     "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Text line numbers are opt-in with `line_numbers`; output is bounded. Continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
 		ParameterSchema: ReadSchema(),
-		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+		Handler: func(_ context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[ReadInput](input)
 			if err != nil {
 				return nil, fmt.Errorf("read: %w", err)
@@ -49,12 +49,12 @@ func NewReadTool(env Env) tool.ToolDef {
 				}
 			}
 
-			// Check if this is an image file and handle it specially.
+			// Handle images before applying text-file checks.
 			if IsImageExtension(filepath.Ext(absPath)) {
 				return readImageFile(absPath, displayPath)
 			}
 
-			fileHash, totalLines, contentText, sourceCount, err := readTextRange(absPath, in.Offset, in.Limit)
+			fileHash, totalLines, contentText, _, err := readTextRange(absPath, in.Offset, in.Limit)
 			if err != nil {
 				if contentText == "" {
 					return nil, fmt.Errorf("read: %w", err)
@@ -68,8 +68,17 @@ func NewReadTool(env Env) tool.ToolDef {
 				}
 			}
 			boundedLines := boundLines(lines, lineBoundingConfig{maxLineRunes: readMaxLineRunes, maxOutputRunes: readMaxOutputRunes})
+			for i := range boundedLines {
+				if i < len(lines) && strings.HasSuffix(lines[i], "\n") && !strings.HasSuffix(boundedLines[i], "\n") {
+					ending := "\n"
+					if strings.HasSuffix(lines[i], "\r\n") {
+						ending = "\r\n"
+					}
+					boundedLines[i] += ending
+				}
+			}
 			boundedOutput := strings.Join(boundedLines, "")
-			numLines := sourceCount
+			numLines := len(boundedLines)
 
 			startLine := in.Offset
 			endLine := startLine + numLines - 1
