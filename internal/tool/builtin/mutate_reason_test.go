@@ -73,6 +73,13 @@ func mutateErrorCases() []mutateErrorCase {
 			want: ReasonMissingFile,
 		},
 		{
+			name: "missing_parent_directory",
+			run: func(t *testing.T) *MutateResult {
+				return runMutate(t, newMutateTestTool(t, t.TempDir()), map[string]any{"operations": []any{map[string]any{"type": "create", "path": "missing/a.txt", "content": "x"}}})
+			},
+			want: ReasonMissingFile,
+		},
+		{
 			name: "path_policy",
 			run: func(t *testing.T) *MutateResult {
 				root := t.TempDir()
@@ -135,7 +142,61 @@ func mutateErrorCases() []mutateErrorCase {
 			want: ReasonIOError,
 		},
 		{
-			name: "other",
+			name: "invalid_type",
+			run: func(t *testing.T) *MutateResult {
+				return runMutate(t, newMutateTestTool(t, t.TempDir()), map[string]any{"operations": []any{map[string]any{"type": "bogus", "path": "a.txt"}}})
+			},
+			want: ReasonInvalidType,
+		},
+		{
+			name: "invalid_field",
+			run: func(t *testing.T) *MutateResult {
+				return runMutate(t, newMutateTestTool(t, t.TempDir()), map[string]any{"operations": []any{map[string]any{"type": "create", "path": "a.txt", "old_string": "x"}}})
+			},
+			want: ReasonInvalidField,
+		},
+		{
+			name: "assertion_failed",
+			run: func(t *testing.T) *MutateResult {
+				root := t.TempDir()
+				if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return runMutate(t, newMutateTestTool(t, root), map[string]any{"operations": []any{map[string]any{"type": "write", "path": "a.txt", "content": "updated", "assert_present": []any{"absent"}}}})
+			},
+			want: ReasonAssertionFailed,
+		},
+		{
+			name: "already_exists",
+			run: func(t *testing.T) *MutateResult {
+				root := t.TempDir()
+				if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return runMutate(t, newMutateTestTool(t, root), map[string]any{"operations": []any{map[string]any{"type": "create", "path": "a.txt", "content": "x"}}})
+			},
+			want: ReasonAlreadyExists,
+		},
+		{
+			name: "wrong_target",
+			run: func(t *testing.T) *MutateResult {
+				root := t.TempDir()
+				if err := os.Mkdir(filepath.Join(root, "dir"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				return runMutate(t, newMutateTestTool(t, root), map[string]any{"operations": []any{map[string]any{"type": "write", "path": "dir", "content": "x"}}})
+			},
+			want: ReasonWrongTarget,
+		},
+		{
+			name: "type_required",
+			run: func(t *testing.T) *MutateResult {
+				return runMutate(t, newMutateTestTool(t, t.TempDir()), map[string]any{"operations": []any{map[string]any{"path": "a.txt"}}})
+			},
+			want: ReasonInvalidType,
+		},
+		{
+			name: "empty_old_string_is_invalid_field",
 			run: func(t *testing.T) *MutateResult {
 				root := t.TempDir()
 				if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
@@ -148,7 +209,7 @@ func mutateErrorCases() []mutateErrorCase {
 					},
 				})
 			},
-			want: ReasonOther,
+			want: ReasonInvalidField,
 		},
 	}
 }
@@ -169,6 +230,33 @@ func TestClassifyMutateError(t *testing.T) {
 				t.Errorf("FailedOps()[0].Reason = %q, want %q (output: %s)", failures[0].Reason, tt.want, got.Output)
 			}
 		})
+	}
+}
+
+func TestClassifyMutateError_OtherCommitFailure(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "target")
+	planner := &mutatePlanner{env: Env{WorkDir: root}, states: make(map[string]*mutateFileState)}
+	op := MutateOperation{Type: "create", Path: "target", Content: "content"}
+	if err := planner.planOperation(1, op); err != nil {
+		t.Fatalf("planOperation() error = %v", err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatalf("setup Mkdir: %v", err)
+	}
+
+	dirtyPaths, failure, err := planner.commit()
+	if err == nil {
+		t.Fatal("commit() error = nil, want rename failure")
+	}
+	if len(dirtyPaths) != 0 {
+		t.Fatalf("commit() dirty paths = %v, want none", dirtyPaths)
+	}
+	if failure.op != "write" || failure.path != "target" {
+		t.Fatalf("commit() failure = %+v, want write target", failure)
+	}
+	if got := classifyMutateError(err); got != ReasonOther {
+		t.Errorf("classifyMutateError(commit error) = %q, want %q (error: %v)", got, ReasonOther, err)
 	}
 }
 
