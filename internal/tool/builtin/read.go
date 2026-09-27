@@ -54,14 +54,13 @@ func NewReadTool(env Env) tool.ToolDef {
 				return readImageFile(absPath, displayPath)
 			}
 
-			fileHash, totalLines, contentText, _, err := readTextRange(absPath, in.Offset, in.Limit)
+			fileHash, totalLines, lines, err := readTextRange(absPath, in.Offset, in.Limit)
 			if err != nil {
-				if contentText == "" {
+				if len(lines) == 0 {
 					return nil, fmt.Errorf("read: %w", err)
 				}
-				return &ReadResult{Path: displayPath, Output: contentText}, nil
+				return &ReadResult{Path: displayPath, Output: strings.Join(lines, "")}, nil
 			}
-			lines := splitReadLines([]byte(contentText))
 			if in.LineNumbers {
 				for i := range lines {
 					lines[i] = fmt.Sprintf("%6d│%s", in.Offset+i, lines[i])
@@ -188,11 +187,22 @@ func hashAndCountLines(path string) (string, int, error) {
 	if _, err := io.Copy(w, f); err != nil {
 		return "", 0, err
 	}
+	fileHash, lines := w.result()
+	return fileHash, lines, nil
+}
+
+func hashAndCountLinesBytes(data []byte) (string, int) {
+	w := &hashLineWriter{crc: crc32.NewIEEE()}
+	_, _ = w.Write(data)
+	return w.result()
+}
+
+func (w *hashLineWriter) result() (string, int) {
 	lines := w.newlines
 	if w.size > 0 && !w.endsNewline {
 		lines++
 	}
-	return fmt.Sprintf("%08X", w.crc.Sum32()), lines, nil
+	return fmt.Sprintf("%08X", w.crc.Sum32()), lines
 }
 
 // hashLineWriter feeds a CRC32 with content whose per-line trailing

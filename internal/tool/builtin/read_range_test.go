@@ -13,6 +13,38 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+func TestReadTextRangeReturnsPageAndMetadataFromReadBytes(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		body  string
+		start int
+		limit int
+		want  string
+	}{
+		{name: "selected lines", body: "one\ntwo\nthree\n", start: 2, limit: 1, want: "two\n"},
+		{name: "no trailing newline", body: "one\ntwo", start: 1, limit: 2, want: "one\ntwo"},
+		{name: "empty file", body: "", start: 1, limit: 2, want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "input.txt")
+			if err := os.WriteFile(path, []byte(tc.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			gotHash, gotLines, page, err := readTextRange(path, tc.start, tc.limit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Join(page, ""); got != tc.want {
+				t.Errorf("page = %q, want %q", got, tc.want)
+			}
+			wantHash, wantLines := hashAndCountLinesBytes([]byte(tc.body))
+			if gotHash != wantHash || gotLines != wantLines {
+				t.Errorf("metadata = (%q, %d), want (%q, %d)", gotHash, gotLines, wantHash, wantLines)
+			}
+		})
+	}
+}
+
 func TestReadRangeRejectsBinaryAndOversizedFiles(t *testing.T) {
 	dir := t.TempDir()
 	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
