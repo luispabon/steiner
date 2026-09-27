@@ -11,7 +11,6 @@ import (
 	_ "image/gif"  // register GIF decoder for image.Decode
 	_ "image/jpeg" // register JPEG decoder for image.Decode
 	_ "image/png"  // register PNG decoder for image.Decode
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -172,23 +171,6 @@ func readImageFile(absPath, displayPath string) (*ReadResult, error) {
 			SizeBytes: len(data),
 		},
 	}, nil
-}
-
-// hashAndCountLines streams the file once, producing the same hash as
-// FileContentHash and the same line count as the previous in-memory logic.
-func hashAndCountLines(path string) (string, int, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer func() { _ = f.Close() }()
-
-	w := &hashLineWriter{crc: crc32.NewIEEE()}
-	if _, err := io.Copy(w, f); err != nil {
-		return "", 0, err
-	}
-	fileHash, lines := w.result()
-	return fileHash, lines, nil
 }
 
 func hashAndCountLinesBytes(data []byte) (string, int) {
