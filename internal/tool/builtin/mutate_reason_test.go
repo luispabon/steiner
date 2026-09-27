@@ -196,6 +196,13 @@ func mutateErrorCases() []mutateErrorCase {
 			want: ReasonInvalidType,
 		},
 		{
+			name: "path_required",
+			run: func(t *testing.T) *MutateResult {
+				return runMutate(t, newMutateTestTool(t, t.TempDir()), map[string]any{"operations": []any{map[string]any{"type": "replace", "old_string": "old", "new_string": "new"}}})
+			},
+			want: ReasonInvalidField,
+		},
+		{
 			name: "empty_old_string_is_invalid_field",
 			run: func(t *testing.T) *MutateResult {
 				root := t.TempDir()

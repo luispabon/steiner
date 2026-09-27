@@ -67,6 +67,8 @@ func classifyMutateError(err error) string {
 		return ReasonStaleRead
 	case strings.Contains(msg, "type is required"), strings.Contains(msg, "unsupported type"):
 		return ReasonInvalidType
+	case strings.Contains(msg, " is required"):
+		return ReasonInvalidField
 	case strings.Contains(msg, "is not valid for this operation type"), strings.Contains(msg, "old_string is empty"):
 		return ReasonInvalidField
 	case strings.Contains(msg, "assert_present failed"), strings.Contains(msg, "assert_absent failed"):
