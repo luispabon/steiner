@@ -101,10 +101,6 @@ func normalizeReadPreviewContents(contents string, startLine int) string {
 	}
 
 	lines := strings.Split(contents, "\n")
-	if len(lines) == 0 {
-		return contents
-	}
-
 	if startLine > 0 {
 		current := startLine
 		for _, line := range lines {
