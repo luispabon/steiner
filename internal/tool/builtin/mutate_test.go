@@ -409,9 +409,27 @@ func TestMutateRejectsInvalidOperations(t *testing.T) {
 			wantError: "operations is required",
 		},
 		{
+			name:      "missing type",
+			input:     map[string]any{"operations": []any{map[string]any{"path": "note.txt"}}},
+			wantError: "type is required",
+			wantAlso:  "create, delete_file, move, replace, write",
+		},
+		{
+			name:      "whitespace-only type",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "  ", "path": "note.txt"}}},
+			wantError: "type is required",
+			wantAlso:  "create, delete_file, move, replace, write",
+		},
+		{
 			name:      "unsupported type: chmod",
 			input:     map[string]any{"operations": []any{map[string]any{"type": "chmod", "path": "note.txt"}}},
 			wantError: "unsupported type",
+		},
+		{
+			name:      "unsupported type: append",
+			input:     map[string]any{"operations": []any{map[string]any{"type": "append", "path": "note.txt"}}},
+			wantError: `unsupported type "append"`,
+			wantAlso:  "create, delete_file, move, replace, write",
 		},
 		{
 			name:      "unsupported type: line_replace (removed)",

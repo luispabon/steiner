@@ -130,6 +130,17 @@ var validFieldsByOpType = func() map[string][]string {
 	return types
 }()
 
+// validOpTypes lists the supported mutate operation types, derived from
+// allowedFields rather than hand-duplicated.
+var validOpTypes = func() []string {
+	types := make([]string, 0, len(allowedFields))
+	for opType := range allowedFields {
+		types = append(types, opType)
+	}
+	sort.Strings(types)
+	return types
+}()
+
 func validateFields(index int, op MutateOperation) error {
 	opType := strings.TrimSpace(op.Type)
 	allowed, ok := allowedFields[opType]
