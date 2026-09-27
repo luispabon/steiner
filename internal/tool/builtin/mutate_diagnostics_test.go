@@ -179,6 +179,26 @@ func TestExtractNormalizedMatch(t *testing.T) {
 
 func TestBuildNoMatchDiagnostics(t *testing.T) {
 	const absPath = "/tmp/work/note.txt"
+	t.Run("line prefix hint requires every nonblank line", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, old string
+			want      bool
+		}{
+			{"all prefixed", "     1│alpha\n     2│beta", true},
+			{"one unprefixed", "     1│alpha\nbeta", false},
+			{"blank line ignored", "1│alpha\n  \n2|beta", true},
+			{"blank only", "  \n\t", false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				out := buildNoMatchDiagnostics("edit", []byte("unrelated source\n"), tc.old, absPath)
+				got := strings.Contains(out, "old_string contains read line-number prefixes; remove them")
+				if got != tc.want {
+					t.Fatalf("hint = %v, want %v; output=%q", got, tc.want, out)
+				}
+			})
+		}
+	})
+
 	t.Run("no anchor found", func(t *testing.T) {
 		content := []byte("hello world\n")
 		out := buildNoMatchDiagnostics("edit", content, "nonexistent text", absPath)

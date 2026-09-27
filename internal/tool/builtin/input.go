@@ -2,9 +2,10 @@ package builtin
 
 // ReadInput is the typed input for the read tool.
 type ReadInput struct {
-	Path   string `json:"path"`
-	Offset int    `json:"offset,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
+	Path        string `json:"path"`
+	Offset      int    `json:"offset,omitempty"`
+	Limit       int    `json:"limit,omitempty"`
+	LineNumbers bool   `json:"line_numbers,omitempty"`
 }
 
 // MutateInput is the typed input for the mutate tool.

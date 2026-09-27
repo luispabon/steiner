@@ -89,6 +89,18 @@ func TestNormalizeReadPreviewContents(t *testing.T) {
 			want:      "package main\n\nfunc main() {\n\tfmt.Println(\"hi\")\n}\n",
 		},
 		{
+			name:      "new box separator line prefix",
+			contents:  "     2│alpha\n     3│beta\n",
+			startLine: 2,
+			want:      "alpha\nbeta\n",
+		},
+		{
+			name:      "box separator with unknown starting line",
+			contents:  "     1│alpha\n     2│beta\n",
+			startLine: 0,
+			want:      "alpha\nbeta\n",
+		},
+		{
 			name:      "empty content",
 			contents:  "",
 			startLine: 1,

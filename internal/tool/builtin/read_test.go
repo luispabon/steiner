@@ -294,51 +294,151 @@ func TestReadTool(t *testing.T) {
 		}
 	})
 
-	t.Run("total output capped is recoverable via NextOffset", func(t *testing.T) {
-		const lineCount = 80
-		const contentLength = 1896
-		lines := make([]string, lineCount)
-		for i := range lines {
-			lines[i] = fmt.Sprintf("%02d:%s", i, strings.Repeat("x", contentLength-3))
+	t.Run("oversized paginated read rejected by size limit", func(t *testing.T) {
+		content := strings.Repeat("x", 100*1024+1)
+		path := filepath.Join(tmpDir, "paged-large.txt")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(tmpDir, "paged-large.txt"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
-			t.Fatalf("write paged file: %v", err)
-		}
-		offset := 1
-		var collected []string
-		for {
-			resultI, err := toolDef.Handler(ctx, map[string]any{"path": "paged-large.txt", "offset": offset, "limit": 1000})
+		for _, args := range []map[string]any{{"path": "paged-large.txt"}, {"path": "paged-large.txt", "offset": 2}} {
+			got, err := toolDef.Handler(ctx, args)
 			if err != nil {
-				t.Fatalf("read page at offset %d: %v", offset, err)
+				t.Fatal(err)
 			}
-			result := resultI.(ReadResult)
-			if result.StartLine != offset {
-				t.Fatalf("StartLine = %d, want %d", result.StartLine, offset)
-			}
-			for _, rendered := range strings.Split(result.Output, "\n") {
-				parts := strings.SplitN(rendered, "\t", 2)
-				if len(parts) != 2 {
-					t.Fatalf("rendered line = %q, want line number and content", rendered)
-				}
-				collected = append(collected, parts[1])
-			}
-			if result.NextOffset == 0 {
-				break
-			}
-			if result.NextOffset <= offset || result.EndLine != result.NextOffset-1 {
-				t.Fatalf("page bounds: offset=%d end=%d next=%d", offset, result.EndLine, result.NextOffset)
-			}
-			offset = result.NextOffset
-		}
-		if len(collected) != len(lines) {
-			t.Fatalf("collected %d lines, want %d", len(collected), len(lines))
-		}
-		for i := range lines {
-			if collected[i] != lines[i] {
-				t.Fatalf("collected line %d differs from source", i+1)
+			result := got.(*ReadResult)
+			if !strings.Contains(result.Output, "file too large") {
+				t.Fatalf("output = %q", result.Output)
 			}
 		}
 	})
+}
+
+func TestReadOutputCapPaginationAndLineTruncation(t *testing.T) {
+	dir := t.TempDir()
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	def := NewReadTool(Env{WorkDir: dir, PathPolicy: &policy})
+	lines := make([]string, 70)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("%02d:%s", i, strings.Repeat("x", 995))
+	}
+	content := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "cap.txt"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, numbered := range []bool{false, true} {
+		offset := 1
+		var seen []string
+		for {
+			got, err := def.Handler(context.Background(), map[string]any{"path": "cap.txt", "offset": offset, "limit": 1000, "line_numbers": numbered})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := got.(ReadResult)
+			if len([]rune(r.Output)) > readMaxOutputRunes {
+				t.Fatalf("output exceeds cap: %d", len([]rune(r.Output)))
+			}
+			emitted := strings.Split(strings.TrimSuffix(r.Output, "\n"), "\n")
+			if r.Output == "" {
+				emitted = nil
+			}
+			if len(emitted) != r.EndLine-r.StartLine+1 {
+				t.Fatalf("emitted %d lines; bounds %d-%d", len(emitted), r.StartLine, r.EndLine)
+			}
+			for i, line := range emitted {
+				line = strings.TrimSuffix(line, "\r")
+				if numbered {
+					parts := strings.SplitN(line, "│", 2)
+					if len(parts) != 2 {
+						t.Fatalf("numbered line = %q", line)
+					}
+					var actual int
+					if _, err := fmt.Sscanf(parts[0], "%d", &actual); err != nil {
+						t.Fatal(err)
+					}
+					if actual != offset+i {
+						t.Fatalf("line number = %d, want %d", actual, offset+i)
+					}
+					line = parts[1]
+				}
+				seen = append(seen, line)
+			}
+			if r.EndLine < offset {
+				t.Fatalf("page at %d emitted no lines", offset)
+			}
+			if r.NextOffset == 0 {
+				break
+			}
+			if r.NextOffset != r.EndLine+1 {
+				t.Fatalf("next=%d end=%d", r.NextOffset, r.EndLine)
+			}
+			if r.NextOffset <= offset {
+				t.Fatalf("pagination did not advance: %d", offset)
+			}
+			offset = r.NextOffset
+		}
+		if len(seen) != len(lines) {
+			t.Fatalf("saw %d lines, want %d", len(seen), len(lines))
+		}
+		for i := range lines {
+			if seen[i] != lines[i] {
+				t.Fatalf("line %d differs across pages", i+1)
+			}
+		}
+	}
+
+	long := strings.Repeat("z", readMaxLineRunes+100) + "\nsecond\n"
+	if err := os.WriteFile(filepath.Join(dir, "long.txt"), []byte(long), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := def.Handler(context.Background(), map[string]any{"path": "long.txt", "limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := got.(ReadResult)
+	if !strings.HasSuffix(r.Output, LineTruncationMarker+"\n") {
+		t.Fatalf("truncated output lost line boundary: %q", r.Output[len(r.Output)-30:])
+	}
+	if r.EndLine != 1 || r.NextOffset != 2 {
+		t.Fatalf("bounds end=%d next=%d", r.EndLine, r.NextOffset)
+	}
+	got, err = def.Handler(context.Background(), map[string]any{"path": "long.txt", "offset": 2, "limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.(ReadResult).Output != "second\n" {
+		t.Fatalf("second page = %q", got.(ReadResult).Output)
+	}
+}
+
+func TestReadTextPreservesSourceAndOptInNumbers(t *testing.T) {
+	dir := t.TempDir()
+	body := "\talpha\r\n beta\nlast"
+	if err := os.WriteFile(filepath.Join(dir, "sample.txt"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	def := NewReadTool(Env{WorkDir: dir, PathPolicy: &policy})
+	call := func(args map[string]any) *ReadResult {
+		args["path"] = "sample.txt"
+		got, err := def.Handler(context.Background(), args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		returnValue, ok := got.(ReadResult)
+		if !ok {
+			t.Fatalf("result type %T, want ReadResult", got)
+		}
+		return &returnValue
+	}
+	if got := call(map[string]any{}).Output; got != body {
+		t.Fatalf("default output = %q, want %q", got, body)
+	}
+	if got := call(map[string]any{"line_numbers": true}).Output; got != "     1│\talpha\r\n     2│ beta\n     3│last" {
+		t.Fatalf("numbered output = %q", got)
+	}
+	if got := call(map[string]any{"offset": 2, "limit": 1}).Output; got != " beta\n" {
+		t.Fatalf("range = %q", got)
+	}
 }
 
 // TestReadResult_JSONShape verifies that ReadResult JSON output contains expected fields
@@ -503,74 +603,6 @@ func TestReadTool_RejectsSpecialFile(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("read of FIFO blocked instead of being rejected by policy")
 	}
-}
-
-func TestReadTool_StreamedHashAndTotalLines(t *testing.T) {
-	big := strings.Repeat("line with trailing  \t\r\n"+strings.Repeat("x", 90)+"\n", 2000)
-	tests := []struct {
-		name string
-		body string
-	}{
-		{"empty", ""},
-		{"no trailing newline", "a\nb  \nc"},
-		{"trailing newline", "a\nb\n"},
-		{"crlf", "a\r\nb \r\nc\r\n"},
-		{"only newline", "\n"},
-		{"whitespace only tail", "a\n \t\r"},
-		{"interior whitespace", "a \t b\n"},
-		{"large multi-chunk", big},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			p := filepath.Join(dir, "f.txt")
-			if err := os.WriteFile(p, []byte(tt.body), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			gotHash, gotLines, err := hashAndCountLines(p)
-			if err != nil {
-				t.Fatal(err)
-			}
-			wantLines := 0
-			if len(tt.body) > 0 {
-				wantLines = strings.Count(tt.body, "\n")
-				if !strings.HasSuffix(tt.body, "\n") {
-					wantLines++
-				}
-			}
-			if gotHash != FileContentHash([]byte(tt.body)) {
-				t.Errorf("hash = %s, want %s", gotHash, FileContentHash([]byte(tt.body)))
-			}
-			if gotLines != wantLines {
-				t.Errorf("lines = %d, want %d", gotLines, wantLines)
-			}
-		})
-	}
-
-	t.Run("large file with offset and limit", func(t *testing.T) {
-		if len(big) < 200*1024 {
-			t.Fatalf("fixture too small: %d", len(big))
-		}
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(big), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		def := NewReadTool(Env{WorkDir: dir, PathPolicy: func() *tool.PathPolicy { p := tool.NewPathPolicy(dir, config.PathsConfig{}); return &p }()})
-		res, err := def.Handler(context.Background(), map[string]any{"path": "big.txt", "offset": 100, "limit": 5})
-		if err != nil {
-			t.Fatal(err)
-		}
-		r := res.(ReadResult)
-		if r.TotalLines != 4000 {
-			t.Errorf("TotalLines = %d, want 4000", r.TotalLines)
-		}
-		if r.FileHash != FileContentHash([]byte(big)) {
-			t.Errorf("FileHash = %s, want %s", r.FileHash, FileContentHash([]byte(big)))
-		}
-		if r.NextOffset != 105 {
-			t.Errorf("NextOffset = %d, want 105", r.NextOffset)
-		}
-	})
 }
 
 func TestReadImageFile_OversizeStatCheck(t *testing.T) {

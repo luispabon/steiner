@@ -11,27 +11,23 @@ import (
 	_ "image/gif"  // register GIF decoder for image.Decode
 	_ "image/jpeg" // register JPEG decoder for image.Decode
 	_ "image/png"  // register PNG decoder for image.Decode
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/deepnoodle-ai/dive/toolkit"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// NewReadTool creates a ToolDef for the read tool backed by Dive's ReadFileTool.
+// NewReadTool creates a ToolDef for the read tool.
 // nolint:gocyclo // handler closure complexity is unavoidable with multi-branch file type logic and pagination
 func NewReadTool(env Env) tool.ToolDef {
-	readTool := toolkit.NewReadFileTool()
 	return tool.ToolDef{
 		Name:            "read",
 		ParallelSafe:    true,
-		Description:     "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Returns line-numbered content and pagination metadata for text files. Output is bounded; continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
+		Description:     "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Text line numbers are opt-in with `line_numbers`; output is bounded. Continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
 		ParameterSchema: ReadSchema(),
-		Handler: func(ctx context.Context, input map[string]any) (any, error) {
+		Handler: func(_ context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[ReadInput](input)
 			if err != nil {
 				return nil, fmt.Errorf("read: %w", err)
@@ -52,48 +48,34 @@ func NewReadTool(env Env) tool.ToolDef {
 				}
 			}
 
-			// Check if this is an image file and handle it specially.
+			// Handle images before applying text-file checks.
 			if IsImageExtension(filepath.Ext(absPath)) {
 				return readImageFile(absPath, displayPath)
 			}
 
-			diveResult, err := readTool.Call(ctx, &toolkit.ReadFileInput{
-				FilePath: absPath,
-				Offset:   in.Offset,
-				Limit:    in.Limit,
-			})
+			fileHash, totalLines, lines, err := readTextRange(absPath, in.Offset, in.Limit)
 			if err != nil {
-				return nil, fmt.Errorf("read: %w", err)
+				if len(lines) == 0 {
+					return nil, fmt.Errorf("read: %w", err)
+				}
+				return &ReadResult{Path: displayPath, Output: strings.Join(lines, "")}, nil
 			}
-
-			contentText := ""
-			if len(diveResult.Content) > 0 {
-				contentText = diveResult.Content[0].Text
+			if in.LineNumbers {
+				for i := range lines {
+					lines[i] = fmt.Sprintf("%6d│%s", in.Offset+i, lines[i])
+				}
 			}
-
-			if diveResult.IsError {
-				return &ReadResult{
-					Path:   displayPath,
-					Output: contentText,
-				}, nil
+			boundedLines := boundLines(lines, lineBoundingConfig{maxLineRunes: readMaxLineRunes, maxOutputRunes: readMaxOutputRunes})
+			for i := range boundedLines {
+				if i < len(lines) && strings.HasSuffix(lines[i], "\n") && !strings.HasSuffix(boundedLines[i], "\n") {
+					ending := "\n"
+					if strings.HasSuffix(lines[i], "\r\n") {
+						ending = "\r\n"
+					}
+					boundedLines[i] += ending
+				}
 			}
-
-			fileHash, totalLines, err := hashAndCountLines(absPath)
-			if err != nil {
-				return nil, fmt.Errorf("read: %w", err)
-			}
-
-			outputLines := strings.Split(contentText, "\n")
-			if len(outputLines) > 0 && outputLines[len(outputLines)-1] == "" {
-				outputLines = outputLines[:len(outputLines)-1]
-			}
-
-			// Bound lines to cap per-line rune count.
-			boundedLines := boundLines(outputLines, lineBoundingConfig{
-				maxLineRunes:   readMaxLineRunes,
-				maxOutputRunes: readMaxOutputRunes,
-			})
-			boundedOutput := strings.Join(boundedLines, "\n")
+			boundedOutput := strings.Join(boundedLines, "")
 			numLines := len(boundedLines)
 
 			startLine := in.Offset
@@ -191,24 +173,18 @@ func readImageFile(absPath, displayPath string) (*ReadResult, error) {
 	}, nil
 }
 
-// hashAndCountLines streams the file once, producing the same hash as
-// FileContentHash and the same line count as the previous in-memory logic.
-func hashAndCountLines(path string) (string, int, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer func() { _ = f.Close() }()
-
+func hashAndCountLinesBytes(data []byte) (string, int) {
 	w := &hashLineWriter{crc: crc32.NewIEEE()}
-	if _, err := io.Copy(w, f); err != nil {
-		return "", 0, err
-	}
+	_, _ = w.Write(data)
+	return w.result()
+}
+
+func (w *hashLineWriter) result() (string, int) {
 	lines := w.newlines
 	if w.size > 0 && !w.endsNewline {
 		lines++
 	}
-	return fmt.Sprintf("%08X", w.crc.Sum32()), lines, nil
+	return fmt.Sprintf("%08X", w.crc.Sum32()), lines
 }
 
 // hashLineWriter feeds a CRC32 with content whose per-line trailing
