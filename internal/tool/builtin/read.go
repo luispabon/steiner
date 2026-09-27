@@ -16,20 +16,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/deepnoodle-ai/dive/toolkit"
-
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// NewReadTool creates a ToolDef for the read tool backed by Dive's ReadFileTool.
+// NewReadTool creates a ToolDef for the read tool.
 // nolint:gocyclo // handler closure complexity is unavoidable with multi-branch file type logic and pagination
 func NewReadTool(env Env) tool.ToolDef {
-	readTool := toolkit.NewReadFileTool()
 	return tool.ToolDef{
 		Name:            "read",
 		ParallelSafe:    true,
-		Description:     "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Returns line-numbered content and pagination metadata for text files. Output is bounded; continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
+		Description:     "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Text line numbers are opt-in with `line_numbers`; output is bounded. Continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
 		ParameterSchema: ReadSchema(),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[ReadInput](input)
@@ -57,44 +54,22 @@ func NewReadTool(env Env) tool.ToolDef {
 				return readImageFile(absPath, displayPath)
 			}
 
-			diveResult, err := readTool.Call(ctx, &toolkit.ReadFileInput{
-				FilePath: absPath,
-				Offset:   in.Offset,
-				Limit:    in.Limit,
-			})
+			fileHash, totalLines, contentText, sourceCount, err := readTextRange(absPath, in.Offset, in.Limit)
 			if err != nil {
-				return nil, fmt.Errorf("read: %w", err)
+				if contentText == "" {
+					return nil, fmt.Errorf("read: %w", err)
+				}
+				return &ReadResult{Path: displayPath, Output: contentText}, nil
 			}
-
-			contentText := ""
-			if len(diveResult.Content) > 0 {
-				contentText = diveResult.Content[0].Text
+			lines := splitReadLines([]byte(contentText))
+			if in.LineNumbers {
+				for i := range lines {
+					lines[i] = fmt.Sprintf("%6d│%s", in.Offset+i, lines[i])
+				}
 			}
-
-			if diveResult.IsError {
-				return &ReadResult{
-					Path:   displayPath,
-					Output: contentText,
-				}, nil
-			}
-
-			fileHash, totalLines, err := hashAndCountLines(absPath)
-			if err != nil {
-				return nil, fmt.Errorf("read: %w", err)
-			}
-
-			outputLines := strings.Split(contentText, "\n")
-			if len(outputLines) > 0 && outputLines[len(outputLines)-1] == "" {
-				outputLines = outputLines[:len(outputLines)-1]
-			}
-
-			// Bound lines to cap per-line rune count.
-			boundedLines := boundLines(outputLines, lineBoundingConfig{
-				maxLineRunes:   readMaxLineRunes,
-				maxOutputRunes: readMaxOutputRunes,
-			})
-			boundedOutput := strings.Join(boundedLines, "\n")
-			numLines := len(boundedLines)
+			boundedLines := boundLines(lines, lineBoundingConfig{maxLineRunes: readMaxLineRunes, maxOutputRunes: readMaxOutputRunes})
+			boundedOutput := strings.Join(boundedLines, "")
+			numLines := sourceCount
 
 			startLine := in.Offset
 			endLine := startLine + numLines - 1

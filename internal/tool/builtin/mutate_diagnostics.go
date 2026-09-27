@@ -11,6 +11,11 @@ import (
 func buildNoMatchDiagnostics(prefix string, content []byte, oldText, absPath string) string {
 	var lines []string
 	lines = append(lines, fmt.Sprintf("%s: no match for old_string in %s", prefix, absPath))
+	oldLines := strings.Split(oldText, "\n")
+	nonBlank, prefixed := linePrefixCounts(oldLines)
+	if nonBlank > 0 && nonBlank == prefixed {
+		lines = append(lines, fmt.Sprintf("%s: old_string contains read line-number prefixes; remove them", prefix))
+	}
 
 	hasWhitespaceMismatch := normalizedWhitespaceMatchExists(content, oldText)
 	if hasWhitespaceMismatch {

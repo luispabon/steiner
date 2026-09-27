@@ -5,9 +5,10 @@ func ReadSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"path":   map[string]any{"type": "string", "description": "File path to read"},
-			"offset": map[string]any{"type": "integer", "description": "Starting line number (1-based)", "default": 1},
-			"limit":  map[string]any{"type": "integer", "description": "Max lines to read", "default": defaultReadLimit, "maximum": maxReadLimit},
+			"path":         map[string]any{"type": "string", "description": "File path to read"},
+			"offset":       map[string]any{"type": "integer", "description": "Starting line number (1-based)", "default": 1},
+			"limit":        map[string]any{"type": "integer", "description": "Max lines to read", "default": defaultReadLimit, "maximum": maxReadLimit},
+			"line_numbers": map[string]any{"type": "boolean", "description": "Include line numbers in read output", "default": false},
 		},
 		"required":             []string{"path"},
 		"additionalProperties": false,

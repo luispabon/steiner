@@ -157,7 +157,7 @@ func hasReadLineNumberPrefix(line string) bool {
 	if i == start {
 		return false
 	}
-	return i < len(line) && (line[i] == ' ' || line[i] == '\t')
+	return i < len(line) && (line[i] == ' ' || line[i] == '\t' || strings.HasPrefix(line[i:], "│"))
 }
 
 func hasReadLineNumberPrefixForLine(line string, lineNumber int) bool {
@@ -170,7 +170,7 @@ func hasReadLineNumberPrefixForLine(line string, lineNumber int) bool {
 		return false
 	}
 	i += len(prefix)
-	return i == len(line) || line[i] == ' ' || line[i] == '\t'
+	return i == len(line) || line[i] == ' ' || line[i] == '\t' || strings.HasPrefix(line[i:], "│")
 }
 
 func stripReadLineNumberPrefixForLine(line string, lineNumber int) string {
@@ -182,7 +182,9 @@ func stripReadLineNumberPrefixForLine(line string, lineNumber int) string {
 	if strings.HasPrefix(line[i:], prefix) {
 		i += len(prefix)
 	}
-	if i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+	if strings.HasPrefix(line[i:], "│") {
+		i += len("│")
+	} else if i < len(line) && (line[i] == ' ' || line[i] == '\t') {
 		i++
 	}
 	return line[i:]
