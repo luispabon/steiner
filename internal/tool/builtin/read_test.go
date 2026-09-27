@@ -3,7 +3,6 @@ package builtin
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -295,52 +294,21 @@ func TestReadTool(t *testing.T) {
 	})
 
 	t.Run("oversized paginated read rejected by size limit", func(t *testing.T) {
-		const lineCount = 80
-		const contentLength = 1896
-		lines := make([]string, lineCount)
-		for i := range lines {
-			lines[i] = fmt.Sprintf("%02d:%s", i, strings.Repeat("x", contentLength-3))
-		}
-		if err := os.WriteFile(filepath.Join(tmpDir, "paged-large.txt"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
-			t.Fatalf("write paged file: %v", err)
-		}
-		resultI, err := toolDef.Handler(ctx, map[string]any{"path": "paged-large.txt", "offset": 2, "limit": 1000})
-		if err != nil {
+		content := strings.Repeat("x", 100*1024+1)
+		path := filepath.Join(tmpDir, "paged-large.txt")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		result := resultI.(*ReadResult)
-		if !strings.Contains(result.Output, "file too large") {
-			t.Fatalf("output = %q, want size error", result.Output)
+		for _, args := range []map[string]any{{"path": "paged-large.txt"}, {"path": "paged-large.txt", "offset": 2}} {
+			got, err := toolDef.Handler(ctx, args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := got.(*ReadResult)
+			if !strings.Contains(result.Output, "file too large") {
+				t.Fatalf("output = %q", result.Output)
+			}
 		}
-		return
-		/*
-			offset := 1
-			var collected []string
-			for {
-				resultI, err := toolDef.Handler(ctx, map[string]any{"path": "paged-large.txt", "offset": offset, "limit": 1000, "line_numbers": true})
-				if err != nil {
-					t.Fatalf("read page at offset %d: %v", offset, err)
-				}
-				result := resultI.(ReadResult)
-				if result.StartLine != offset {
-					t.Fatalf("StartLine = %d, want %d", result.StartLine, offset)
-				}
-				for _, rendered := range strings.Split(strings.TrimSuffix(result.Output, "\n"), "\n") {
-					parts := strings.SplitN(rendered, "│", 2)
-					if len(parts) != 2 {
-						t.Fatalf("rendered line = %q, want line number and content", rendered)
-					}
-					collected = append(collected, parts[1])
-				}
-				if result.NextOffset == 0 {
-					break
-				}
-				if result.NextOffset <= offset || result.EndLine != result.NextOffset-1 {
-					t.Fatalf("page bounds: offset=%d end=%d next=%d", offset, result.EndLine, result.NextOffset)
-				}
-				offset = result.NextOffset
-		*/
-
 	})
 }
 
