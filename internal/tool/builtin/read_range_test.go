@@ -15,15 +15,21 @@ import (
 
 func TestReadTextRangeReturnsPageAndMetadataFromReadBytes(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		body  string
-		start int
-		limit int
-		want  string
+		name      string
+		body      string
+		start     int
+		limit     int
+		want      string
+		wantLines int
 	}{
-		{name: "selected lines", body: "one\ntwo\nthree\n", start: 2, limit: 1, want: "two\n"},
-		{name: "no trailing newline", body: "one\ntwo", start: 1, limit: 2, want: "one\ntwo"},
-		{name: "empty file", body: "", start: 1, limit: 2, want: ""},
+		{name: "selected lines", body: "one\ntwo\nthree\n", start: 2, limit: 1, want: "two\n", wantLines: 3},
+		{name: "no trailing newline", body: "one\ntwo", start: 1, limit: 2, want: "one\ntwo", wantLines: 2},
+		{name: "empty file", body: "", start: 1, limit: 2, want: "", wantLines: 0},
+		{name: "LF", body: "one\ntwo", start: 1, limit: 2, want: "one\ntwo", wantLines: 2},
+		{name: "CRLF", body: "one\r\ntwo\r\n", start: 1, limit: 2, want: "one\r\ntwo\r\n", wantLines: 2},
+		{name: "trailing newline", body: "one\n", start: 1, limit: 2, want: "one\n", wantLines: 1},
+		{name: "trailing whitespace including carriage return, spaces, and tabs", body: "one\r \t", start: 1, limit: 2, want: "one\r \t", wantLines: 1},
+		{name: "newline only", body: "\n", start: 1, limit: 2, want: "\n", wantLines: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "input.txt")
@@ -37,9 +43,9 @@ func TestReadTextRangeReturnsPageAndMetadataFromReadBytes(t *testing.T) {
 			if got := strings.Join(page, ""); got != tc.want {
 				t.Errorf("page = %q, want %q", got, tc.want)
 			}
-			wantHash, wantLines := hashAndCountLinesBytes([]byte(tc.body))
-			if gotHash != wantHash || gotLines != wantLines {
-				t.Errorf("metadata = (%q, %d), want (%q, %d)", gotHash, gotLines, wantHash, wantLines)
+			wantHash := FileContentHash([]byte(tc.body))
+			if gotHash != wantHash || gotLines != tc.wantLines {
+				t.Errorf("metadata = (%q, %d), want (%q, %d)", gotHash, gotLines, wantHash, tc.wantLines)
 			}
 		})
 	}
