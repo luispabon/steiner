@@ -141,6 +141,7 @@ func TestToolCallTraceWriter_MutateFailClassTaxonomy(t *testing.T) {
 		{"ambiguous match", "mutate: ambiguous match for old_string, 3 occurrences", "ambiguous_match"},
 		{"whitespace variant", "mutate: no match for old_string; a normalized whitespace match exists", "no_match_whitespace_variant_exists"},
 		{"target exists", "mutate: create failed, file already exists", "target_exists"},
+		{"missing operation type", "mutate: operation 1: type is required; valid types: create, write", "unknown_op_type"},
 		{"unrecognized", "mutate: something completely different went wrong", "other"},
 	}
 	for _, tt := range tests {

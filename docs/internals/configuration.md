@@ -74,6 +74,22 @@ Diagnostics are independent of `logging`. When disabled, no writer or directory 
 
 The `mutate` mode (`scripts/diagnostics_mutate.mjs`) reads the `tool` and `provider` streams and reports call/ops metrics, message grouping, failure reasons, a feature report and a cause taxonomy. An assistant message is a maximal run of tool records with the same `(run_id, source, agent_id)`, in `seq` order, with the same `turn`; a new message starts whenever `turn` changes, and a turn number that repeats after `/clear` starts a new message rather than rejoining an earlier one. Runs whose records lack `turn` fall back to the pre-attribution rule (the mutate records between two provider records) and are labelled approximate.
 
+Mutate failure reasons classify planner and commit errors for diagnostics. A missing parent directory remains `missing_file`, primarily because its error wraps `os.ErrNotExist`.
+
+- `no_match`
+- `ambiguous_match`
+- `missing_file`
+- `path_policy`
+- `approval_denied`
+- `stale_read`
+- `io_error`
+- `other`
+- `invalid_type`
+- `invalid_field`
+- `assertion_failed`
+- `already_exists`
+- `wrong_target`
+
 Failed `replace` operations with reason `no_match`, `ambiguous_match` or `stale_read` carry `failures[].match`, a fixed set of scalar features: `old_bytes`, `old_lines`, `nonblank_lines`, `lines_found`, `longest_run`, `exact_prefix_lines`, `trim_prefix_lines`, `ws_kind`, `indent_delta_max`, `tabs_vs_spaces`, `crlf_mismatch`, `unescape_matches`, `line_prefix`, `matches_original`, `match_count`, `read_state`, `turns_since_read`, `in_read_range`, `locus_line`, `file_lines`, `file_hash_supplied` and `truncated`. The field definitions live in `internal/tool/builtin/mutate_match_features.go`. Under `capture_bodies` the same failures also carry `failures[].sample`, the attempted `old_string` and a bounded file region.
 
 `coldturns` joins the `cache` and `tool` streams by time to identify turns that read nothing from cache, such as long delegated calls, prefix rewrites, or idle time. It requires both streams. See [cache statistics internals](cache-stats.md#diagnostics-and-analysis-machinery) for how to interpret the report.

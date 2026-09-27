@@ -46,6 +46,19 @@ test("session stats return empty reports for a missing directory", () => {
 	}
 });
 
+test("mutate stats classify missing operation types as unknown_op_type", () => {
+	const dir = tempDir();
+	try {
+		const result = JSON.stringify({ operations_failed: 1, output: "mutate: operation 1: type is required; valid types: create, write" });
+		writeFileSync(join(dir, "session.json"), JSON.stringify(sessionWithMutates([result])));
+		const stats = run(mutateScript, dir);
+		assert.equal(stats.failed_calls, 1);
+		assert.equal(stats.failure_class.unknown_op_type, 1);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("mutate stats classify result envelopes, not error text", () => {
 	const dir = tempDir();
 	try {

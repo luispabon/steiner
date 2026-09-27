@@ -323,7 +323,9 @@ var mutateFailClasses = []struct {
 	{"line_replace_missing_old_string", func(s string) bool { return strings.Contains(s, "requires old_string for safety") }},
 	{"empty_old_string", func(s string) bool { return strings.Contains(s, "old_string is empty") }},
 	{"wrong_field_for_op", func(s string) bool { return strings.Contains(s, "is not valid for this operation type") }},
-	{"unknown_op_type", func(s string) bool { return strings.Contains(s, "unsupported type") }},
+	{"unknown_op_type", func(s string) bool {
+		return strings.Contains(s, "type is required") || strings.Contains(s, "unsupported type")
+	}},
 	{"line_out_of_range", func(s string) bool {
 		return strings.Contains(s, "is outside file with") || strings.Contains(s, "exceeds file length")
 	}},

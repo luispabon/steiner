@@ -36,7 +36,7 @@ const FAIL_CLASSES = [
 	["line_replace_missing_old_string", (s) => s.includes("requires old_string for safety")],
 	["empty_old_string", (s) => s.includes("old_string is empty")],
 	["wrong_field_for_op", (s) => s.includes("is not valid for this operation type")],
-	["unknown_op_type", (s) => s.includes("unsupported type")],
+	["unknown_op_type", (s) => s.includes("type is required") || s.includes("unsupported type")],
 	["line_out_of_range", (s) => s.includes("is outside file with") || s.includes("exceeds file length")],
 	["bad_line_number", (s) => s.includes("line must be >=")],
 	["file_hash_stale", (s) => s.includes("file_hash")],
