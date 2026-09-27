@@ -41,11 +41,14 @@ func (s *ContextStateManager) ensureDefaults() {
 	s.annotationsConfigured = true
 }
 
-// PostIngestion normalizes tool output in the loaded conversation.
+// PostIngestion restores file-read tracking without changing loaded messages.
 func (s *ContextStateManager) PostIngestion(_ context.Context, state RunState) (RunState, error) {
-	s.ensureDefaults()
 	next := state.Clone()
-	next.Conversation = s.normalizeIngestedMessages(next.TurnCount, next.Conversation)
+	for _, message := range next.Conversation {
+		if message.Role == MessageRoleTool && message.Name == "read" && message.Turn > 0 {
+			s.fileTracker.RecordRead(message.Turn, message.Content)
+		}
+	}
 	next.Lineage = newConversationLineage(next.Conversation)
 	return next, nil
 }
@@ -64,11 +67,6 @@ func (s *ContextStateManager) ProcessAssistantResponse(_ int, content string) (s
 	return content, ""
 }
 
-// ObserveToolResult records heuristic context derived from a tool result.
-func (s *ContextStateManager) ObserveToolResult(turn int, toolName string, input map[string]any, content string) string {
-	return s.observeToolResult(turn, toolName, input, content)
-}
-
 // SetEventSink installs the sink used for context-management diagnostics.
 func (s *ContextStateManager) SetEventSink(sink output.EventSink) {
 	s.baseContextManager.SetEventSink(sink)
@@ -80,13 +78,6 @@ func (s *ContextStateManager) enrichContextState(state RunState) ContextState {
 	next.CompactionCount = state.Context.CompactionCount
 	next.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.latestMessages(), 3)
 	return next
-}
-
-func shapeIngestedToolResultForContextManager(cm *ContextStateManager, turn int, toolName string, input map[string]any, content string) string {
-	if cm == nil {
-		return content
-	}
-	return cm.ObserveToolResult(turn, toolName, input, content)
 }
 
 func shapeFreshToolResultForContextManager(cm *ContextStateManager, turn int, toolName string, input map[string]any, content string, prior []Message) string {

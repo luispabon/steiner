@@ -10,11 +10,11 @@ func (s *ContextStateManager) observeToolResult(turn int, toolName string, input
 	s.ensureDefaults()
 	base := &s.baseContextManager
 	normalizedToolName := strings.ToLower(strings.TrimSpace(toolName))
-	if normalizedToolName == "read" {
-		return base.observeReadToolResult(turn, content)
-	}
-
 	shaped := base.observeToolResult(turn, toolName, input, content)
+	if normalizedToolName == "read" {
+		s.fileTracker.RecordRead(turn, shaped)
+		return shaped
+	}
 	s.fileTracker.ObserveToolResult(turn, toolName, input, shaped)
 	return shaped
 }
@@ -26,23 +26,12 @@ func (s *ContextStateManager) observeFreshToolResult(turn int, toolName string, 
 	}
 
 	shaped := tool.ShapeIngestedToolResult(toolName, content)
-	if !s.annotationsEnabled() {
+	if !s.readAnnotations {
 		s.fileTracker.RecordRead(turn, shaped)
 		return shaped
 	}
 
-	finalContent, outcome := dedupReadResult(shaped, turn, prior)
+	finalContent, _ := dedupReadResult(shaped, turn, prior)
 	s.fileTracker.RecordRead(turn, finalContent)
-	result, _ := parseReadResult(finalContent)
-	observation := fileObservation{
-		Path:         result.Path,
-		Action:       outcome.Action,
-		Reason:       outcome.Reason,
-		PreviousRead: trackedFileRead{LastTurn: outcome.PreviousTurn},
-		HadPrevious:  outcome.PreviousTurn > 0,
-	}
-	if outcome.Action == "annotated" {
-		s.baseContextManager.emitFileAnnotationDiagnostics(turn, result, observation, shaped, finalContent)
-	}
 	return finalContent
 }

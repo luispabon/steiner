@@ -1039,7 +1039,7 @@ Baseline context management settings.
 
 | Field              | Type | Default | Description                                                                                                                                                                                      |
 | ------------------ | ---- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `read_annotations` | bool | `true`  | When `true`, file reads are annotated in the conversation with metadata (path, line range) to help the model track context provenance. Disable if annotations add unwanted noise for your model. |
+| `read_annotations` | bool | `true`  | When `true`, repeated file reads with the same `file_hash` and line range are annotated as unchanged since a prior turn. The decision uses read-result hashes, not current disk contents. Disable to keep full read results. |
 
 ```yaml
 context_management:

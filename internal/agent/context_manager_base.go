@@ -2,7 +2,6 @@ package agent
 
 import (
 	"slices"
-	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
@@ -27,8 +26,7 @@ type baseContextManager struct {
 		sandboxEnabled        bool
 		sandboxWritableMounts []string
 	}
-	minVisibleTurn int
-	events         output.EventSink
+	events output.EventSink
 }
 
 // CachedSystemPreamble returns the memoized system preamble for the given
@@ -95,123 +93,6 @@ func (b *baseContextManager) SetEventSink(sink output.EventSink) {
 	b.events = sink
 }
 
-func (b *baseContextManager) observeToolResult(turn int, toolName string, _ map[string]any, content string) string {
-	shaped := tool.ShapeIngestedToolResult(toolName, content)
-	if strings.EqualFold(strings.TrimSpace(toolName), "read") {
-		return b.observeReadToolResult(turn, shaped)
-	}
-	return shaped
-}
-
-func (b *baseContextManager) observeReadToolResult(turn int, shaped string) string {
-	result, _ := parseReadResult(shaped)
-	next, observation := b.observeReadToolResultWithObservation(turn, shaped)
-	b.emitFileAnnotationDiagnostics(turn, result, observation, shaped, next)
-	return next
-}
-
-func (b *baseContextManager) observeReadToolResultWithObservation(turn int, shaped string) (string, fileObservation) {
-	next, observation := b.fileTracker.ObserveRead(turn, shaped, b.annotationsEnabled())
-	if observation.Action == "annotated" {
-		if observation.PreviousRead.LastTurn <= 0 {
-			next = shaped
-			observation.Action = "full"
-			observation.Reason = "previous read turn not safely referenceable"
-		} else if b.minVisibleTurn > 0 && observation.PreviousRead.LastTurn < b.minVisibleTurn {
-			next = shaped
-			observation.Action = "full"
-			observation.Reason = "previous read no longer visible in context"
-		}
-	}
-	return next, observation
-}
-
-func (b *baseContextManager) annotationsEnabled() bool {
-	return b.readAnnotations
-}
-
-func (b *baseContextManager) emitFileAnnotationDiagnostics(turn int, result readResult, observation fileObservation, original, shaped string) {
-	if b.events == nil {
-		return
-	}
-	if strings.TrimSpace(result.Path) == "" {
-		return
-	}
-	if strings.TrimSpace(observation.Action) == "" {
-		return
-	}
-	if observation.Reason == "first read" {
-		return
-	}
-	if observation.Reason == "annotations disabled" {
-		return
-	}
-
-	notes := []string{result.rangeSummary()}
-	notes[0] = "range=" + notes[0]
-	if strings.TrimSpace(original) != strings.TrimSpace(shaped) {
-		notes = append(notes, "annotation produced")
-	}
-	notes = append(notes, observation.Notes...)
-
-	previousTurn := 0
-	if observation.HadPrevious {
-		previousTurn = observation.PreviousRead.LastTurn
-	}
-	emitEvent(b.events, output.NewFileAnnotationEvent(
-		turn,
-		strings.TrimSpace(result.Path),
-		observation.Action,
-		observation.Reason,
-		previousTurn,
-		notes...,
-	))
-}
-
-func (b *baseContextManager) normalizeIngestedMessages(turn int, messages []Message) []Message {
-	if len(messages) == 0 {
-		return nil
-	}
-	out := make([]Message, len(messages))
-	for i, message := range messages {
-		out[i] = b.normalizeIngestedMessage(turn, message)
-	}
-	return out
-}
-
-func (b *baseContextManager) normalizeIngestedMessage(turn int, message Message) Message {
-	if message.Role != MessageRoleTool {
-		return message
-	}
-	if message.Retention != nil && message.Retention.Kind == tool.RetentionKindDelegateSummary {
-		return message
-	}
-	if strings.TrimSpace(message.Content) == "" {
-		return message
-	}
-	messageTurn := message.Turn
-	if messageTurn <= 0 {
-		messageTurn = turn
-	}
-	if messageTurn <= 0 {
-		return message
-	}
-	if message.Ingested {
-		return b.restoreIngestedToolState(messageTurn, message)
-	}
-	message.Content = b.observeToolResult(messageTurn, message.Name, nil, message.Content)
-	message.Ingested = true
-	return message
-}
-
-// restoreIngestedToolState rebuilds FileTracker read state for a tool message
-// whose Content already reached the provider, without rewriting that Content.
-// ObserveRead is called with annotations disabled, so it can record the read
-// but cannot alter the bytes or emit annotation diagnostics. Other tools need
-// no tracker action.
-func (b *baseContextManager) restoreIngestedToolState(turn int, message Message) Message {
-	if strings.EqualFold(strings.TrimSpace(message.Name), "read") {
-		_, _ = b.fileTracker.ObserveRead(turn, message.Content, false)
-	}
-	return message
+func (b *baseContextManager) observeToolResult(_ int, toolName string, _ map[string]any, content string) string {
+	return tool.ShapeIngestedToolResult(toolName, content)
 }

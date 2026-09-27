@@ -35,7 +35,6 @@ func FileObservedCheckerFromContext(ctx context.Context) FileObservedChecker {
 type FileReadState struct {
 	Known            bool // a lookup was available; false means "unknown"
 	Observed         bool // a read is on record
-	Pruned           bool // a read existed but compaction pruned it
 	StartLine        int
 	EndLine          int
 	TotalLines       int

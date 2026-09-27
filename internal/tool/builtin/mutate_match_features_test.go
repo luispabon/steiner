@@ -281,15 +281,6 @@ func TestComputeMatchFailure_Features(t *testing.T) {
 			},
 		},
 		{
-			name: "read state pruned",
-			in:   matchFeatureInput{old: "x", content: []byte("y"), read: tool.FileReadState{Known: true, Pruned: true}},
-			check: func(t *testing.T, f tool.MatchFailure) {
-				if f.ReadState != "pruned" {
-					t.Errorf("read_state = %q, want pruned", f.ReadState)
-				}
-			},
-		},
-		{
 			name: "read state self mutated wins over external change",
 			in:   matchFeatureInput{old: "x", content: []byte("y"), read: tool.FileReadState{Known: true, Observed: true, MutatedSinceRead: true, ChangedSinceRead: true, TurnsSinceRead: 3}},
 			check: func(t *testing.T, f tool.MatchFailure) {

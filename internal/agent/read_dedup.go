@@ -16,8 +16,7 @@ type readDedupOutcome struct {
 	PreviousTurn int
 }
 
-func dedupReadResult(content string, turn int, prior []Message) (string, readDedupOutcome) {
-	_ = turn
+func dedupReadResult(content string, _ int, prior []Message) (string, readDedupOutcome) {
 	full := readDedupOutcome{Action: "full", Reason: "first read"}
 	var result builtin.ReadResult
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
@@ -28,7 +27,7 @@ func dedupReadResult(content string, turn int, prior []Message) (string, readDed
 		full.Reason = "no file_hash"
 		return content, full
 	}
-	if result.TotalLines == 0 {
+	if result.TotalLines == 0 || strings.HasPrefix(result.Output, fileUnchangedAnnotationPrefix) {
 		full.Reason = "no earlier full copy"
 		return content, full
 	}
@@ -36,11 +35,6 @@ func dedupReadResult(content string, turn int, prior []Message) (string, readDed
 		full.Reason = "line-capped read"
 		return content, full
 	}
-	if strings.HasPrefix(result.Output, fileUnchangedAnnotationPrefix) {
-		full.Reason = "no earlier full copy"
-		return content, full
-	}
-
 	currentPath, ok := normalizeTrackedPath(result.Path)
 	if !ok {
 		return content, full

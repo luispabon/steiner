@@ -485,9 +485,6 @@ func readStateFeatures(read tool.FileReadState) (state string, turnsSinceRead in
 	case !read.Known:
 		return "unknown", -1
 	case !read.Observed:
-		if read.Pruned {
-			return "pruned", -1
-		}
 		return "never_read", -1
 	case read.MutatedSinceRead:
 		return "self_mutated", read.TurnsSinceRead

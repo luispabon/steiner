@@ -146,11 +146,7 @@ func (t *FileTracker) ObserveToolResult(_ int, toolName string, input map[string
 		if !ok {
 			return workingFileUpdate{}, nil
 		}
-		observation := fileObservation{Action: "full"}
-		if strings.Contains(content, "file unchanged since turn") {
-			observation.Action = "annotated"
-		}
-		return t.observeReadHeuristics(result, observation, content)
+		return t.updateWorkingFile(sanitizeTrackedPath(result.Path), fmt.Sprintf("read %s (%s)", result.Path, result.rangeSummary())), nil
 	case "mutate":
 		return t.observeMutationHeuristics(toolName, input, content)
 	case "bash":
