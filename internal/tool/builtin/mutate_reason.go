@@ -75,6 +75,8 @@ func classifyMutateError(err error) string {
 		return ReasonAlreadyExists
 	case strings.Contains(msg, "is a directory"), strings.Contains(msg, "is not a directory"):
 		return ReasonWrongTarget
+	case strings.Contains(msg, " is required"):
+		return ReasonInvalidField
 	default:
 		return ReasonOther
 	}

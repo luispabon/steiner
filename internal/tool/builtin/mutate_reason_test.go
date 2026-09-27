@@ -162,7 +162,7 @@ func mutateErrorCases() []mutateErrorCase {
 				if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
 					t.Fatal(err)
 				}
-				return runMutate(t, newMutateTestTool(t, root), map[string]any{"operations": []any{map[string]any{"type": "write", "path": "a.txt", "content": "updated", "assert_present": []any{"absent"}}}})
+				return runMutate(t, newMutateTestTool(t, root), map[string]any{"operations": []any{map[string]any{"type": "write", "path": "a.txt", "content": "updated", "assert_present": []any{"path is required"}}}})
 			},
 			want: ReasonAssertionFailed,
 		},
@@ -194,6 +194,13 @@ func mutateErrorCases() []mutateErrorCase {
 				return runMutate(t, newMutateTestTool(t, t.TempDir()), map[string]any{"operations": []any{map[string]any{"path": "a.txt"}}})
 			},
 			want: ReasonInvalidType,
+		},
+		{
+			name: "path_required",
+			run: func(t *testing.T) *MutateResult {
+				return runMutate(t, newMutateTestTool(t, t.TempDir()), map[string]any{"operations": []any{map[string]any{"type": "replace", "old_string": "old", "new_string": "new"}}})
+			},
+			want: ReasonInvalidField,
 		},
 		{
 			name: "empty_old_string_is_invalid_field",
@@ -320,8 +327,12 @@ func TestMutateFailedOps_EmptyOperations(t *testing.T) {
 	if got.OperationsFailed == 0 {
 		t.Fatalf("OperationsFailed = 0, want nonzero")
 	}
-	if failures := got.FailedOps(); len(failures) == 0 {
+	failures := got.FailedOps()
+	if len(failures) == 0 {
 		t.Fatalf("FailedOps() is empty on a failed call; a failed mutate would be recorded as outcome %q", "ok")
+	}
+	if failures[0].Reason != ReasonInvalidField {
+		t.Errorf("FailedOps()[0].Reason = %q, want %q", failures[0].Reason, ReasonInvalidField)
 	}
 }
 

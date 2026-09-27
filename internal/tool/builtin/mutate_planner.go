@@ -40,7 +40,7 @@ var errMutateFatal = errors.New("mutate: fatal I/O error")
 
 func (p *mutatePlanner) run(in MutateInput) *MutateResult {
 	if len(in.Operations) == 0 {
-		p.recordFailureDetail("", "", ReasonOther)
+		p.recordFailureDetail("", "", ReasonInvalidField)
 		return p.fail("mutate: operations is required", 0)
 	}
 
