@@ -202,7 +202,8 @@ func (p *mutatePlanner) planOperation(index int, op MutateOperation) error {
 	if err := validateRequired(index, op); err != nil {
 		return err
 	}
-	switch strings.TrimSpace(op.Type) {
+	opType := strings.TrimSpace(op.Type)
+	switch opType {
 	case "create":
 		return p.planCreate(index, op)
 	case "write":
@@ -213,8 +214,10 @@ func (p *mutatePlanner) planOperation(index int, op MutateOperation) error {
 		return p.planDelete(index, op)
 	case "move":
 		return p.planMove(index, op)
+	case "":
+		return fmt.Errorf("mutate: operation %d: type is required; valid types: %s", index, strings.Join(validOpTypes, ", "))
 	default:
-		return fmt.Errorf("mutate: operation %d: unsupported type %q", index, op.Type)
+		return fmt.Errorf("mutate: operation %d: unsupported type %q; valid types: %s", index, op.Type, strings.Join(validOpTypes, ", "))
 	}
 }
 
