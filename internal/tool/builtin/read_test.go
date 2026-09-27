@@ -327,12 +327,41 @@ func TestReadOutputCapPaginationAndLineTruncation(t *testing.T) {
 	}
 	for _, numbered := range []bool{false, true} {
 		offset := 1
+		var seen []string
 		for {
 			got, err := def.Handler(context.Background(), map[string]any{"path": "cap.txt", "offset": offset, "limit": 1000, "line_numbers": numbered})
 			if err != nil {
 				t.Fatal(err)
 			}
 			r := got.(ReadResult)
+			if len([]rune(r.Output)) > readMaxOutputRunes {
+				t.Fatalf("output exceeds cap: %d", len([]rune(r.Output)))
+			}
+			emitted := strings.Split(strings.TrimSuffix(r.Output, "\n"), "\n")
+			if r.Output == "" {
+				emitted = nil
+			}
+			if len(emitted) != r.EndLine-r.StartLine+1 {
+				t.Fatalf("emitted %d lines; bounds %d-%d", len(emitted), r.StartLine, r.EndLine)
+			}
+			for i, line := range emitted {
+				line = strings.TrimSuffix(line, "\r")
+				if numbered {
+					parts := strings.SplitN(line, "│", 2)
+					if len(parts) != 2 {
+						t.Fatalf("numbered line = %q", line)
+					}
+					var actual int
+					if _, err := fmt.Sscanf(parts[0], "%d", &actual); err != nil {
+						t.Fatal(err)
+					}
+					if actual != offset+i {
+						t.Fatalf("line number = %d, want %d", actual, offset+i)
+					}
+					line = parts[1]
+				}
+				seen = append(seen, line)
+			}
 			if r.EndLine < offset {
 				t.Fatalf("page at %d emitted no lines", offset)
 			}
@@ -346,6 +375,14 @@ func TestReadOutputCapPaginationAndLineTruncation(t *testing.T) {
 				t.Fatalf("pagination did not advance: %d", offset)
 			}
 			offset = r.NextOffset
+		}
+		if len(seen) != len(lines) {
+			t.Fatalf("saw %d lines, want %d", len(seen), len(lines))
+		}
+		for i := range lines {
+			if seen[i] != lines[i] {
+				t.Fatalf("line %d differs across pages", i+1)
+			}
 		}
 	}
 

@@ -8,7 +8,7 @@ const defaultMaxLineRunes = 400
 const readMaxLineRunes = 2000
 
 // readMaxOutputRunes caps total read output per page (runes, not bytes).
-// When hit, read returns a contiguous prefix of complete lines and the
+// When hit, read returns a contiguous prefix of complete rendered lines and the
 // caller continues via NextOffset. Kept larger than readMaxLineRunes so a
 // page always returns at least one full line and NextOffset advances.
 const readMaxOutputRunes = 65536
@@ -27,7 +27,8 @@ type lineBoundingConfig struct {
 }
 
 // boundLines truncates individual lines by rune count and optionally caps
-// total output.
+// total output. Read preserves newline and CRLF bytes as part of each line;
+// the total cap conservatively reserves one extra rune between adjacent lines.
 func boundLines(lines []string, cfg lineBoundingConfig) []string {
 	if cfg.maxLineRunes <= 0 {
 		cfg.maxLineRunes = defaultMaxLineRunes
