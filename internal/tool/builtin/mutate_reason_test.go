@@ -162,7 +162,7 @@ func mutateErrorCases() []mutateErrorCase {
 				if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
 					t.Fatal(err)
 				}
-				return runMutate(t, newMutateTestTool(t, root), map[string]any{"operations": []any{map[string]any{"type": "write", "path": "a.txt", "content": "updated", "assert_present": []any{"absent"}}}})
+				return runMutate(t, newMutateTestTool(t, root), map[string]any{"operations": []any{map[string]any{"type": "write", "path": "a.txt", "content": "updated", "assert_present": []any{"path is required"}}}})
 			},
 			want: ReasonAssertionFailed,
 		},
