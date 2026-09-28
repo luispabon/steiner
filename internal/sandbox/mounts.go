@@ -11,71 +11,62 @@ import (
 
 // BuildArgs returns the bwrap argument list (excluding the trailing -- cmd args).
 func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts []config.HostMount, overlayArgs []string, tmpDir string, readOnlyProject bool, perms config.PermissionsConfig, bindHostCache bool) []string {
-	var args []string
-
-	// Namespace isolation: unshare all but share network.
-	args = append(args, "--unshare-all", "--share-net")
-
-	// Tie the sandbox lifetime to steiner's and detach from the controlling
-	// terminal so sandboxed processes cannot open /dev/tty (TIOCSTI injection).
-	args = append(args, "--die-with-parent", "--new-session")
-
-	// Root filesystem: entire root read-only (base layer).
-	args = append(args, "--ro-bind", "/", "/")
-
-	// System mounts.
-	args = append(args,
-		"--dev", "/dev",
-		"--proc", "/proc",
-	)
-	if tmpDir != "" && (!readOnlyProject || safeDirectoryPath(writableRoot, tmpDir) == nil) {
-		args = append(args, "--bind", tmpDir, "/tmp")
-	} else {
-		args = append(args, "--tmpfs", "/tmp")
+	args := buildSystemArgs(writableRoot, tmpDir, readOnlyProject)
+	args = appendProjectArgs(args, writableRoot, readOnlyProject)
+	args = appendSandboxCacheArgs(args, writableRoot, sandboxHome, userHome, readOnlyProject, bindHostCache)
+	args = appendHostMountArgs(args, hostMounts)
+	args = append(args, overlayArgs...)
+	if !perms.Docker {
+		args = append(args, dockerDenyArgs(dockerSocketCandidates())...)
 	}
+	return append(args, "--chdir", workDir)
+}
 
-	// Project workspace binding: read-only or writable depending on plan mode.
-	if readOnlyProject {
-		args = append(args, "--ro-bind", writableRoot, writableRoot)
-		for _, path := range planModeWritableBinds(writableRoot) {
-			args = append(args, "--bind", path, path)
-		}
-		// Plan mode keeps the working tree read-only but must still allow git
-		// metadata operations (branch/commit/stage) so a planning session can
-		// hand off to implementation. .git is existence-gated (unlike the
-		// plan-mode writable directories, it cannot be created) and bound whole
-		// rather than by path, since git writes transient lock files (index.lock,
-		// config.lock, packed-refs.new) that don't exist at mount time.
-		for _, gitBind := range gitWritableBinds(writableRoot) {
-			args = append(args, "--bind", gitBind, gitBind)
-		}
-	} else {
-		args = append(args, "--bind", writableRoot, writableRoot)
+func buildSystemArgs(root, tmpDir string, readOnlyProject bool) []string {
+	args := []string{"--unshare-all", "--share-net", "--die-with-parent", "--new-session", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"}
+	if tmpDir != "" && (!readOnlyProject || safeDirectoryPath(root, tmpDir) == nil) {
+		return append(args, "--bind", tmpDir, "/tmp")
 	}
+	return append(args, "--tmpfs", "/tmp")
+}
 
-	// Sandbox state directory writable at original absolute path.
-	sandboxHomeSafe := !readOnlyProject || safeDirectoryPath(writableRoot, sandboxHome) == nil
+func appendProjectArgs(args []string, root string, readOnlyProject bool) []string {
+	if !readOnlyProject {
+		return append(args, "--bind", root, root)
+	}
+	args = append(args, "--ro-bind", root, root)
+	for _, path := range planModeWritableBinds(root) {
+		args = append(args, "--bind", path, path)
+	}
+	for _, gitBind := range gitWritableBinds(root) {
+		args = append(args, "--bind", gitBind, gitBind)
+	}
+	return args
+}
+
+func appendSandboxCacheArgs(args []string, root, sandboxHome, userHome string, readOnlyProject, bindHostCache bool) []string {
+	sandboxHomeSafe := !readOnlyProject || safeDirectoryPath(root, sandboxHome) == nil
 	if sandboxHomeSafe {
 		args = append(args, "--bind", sandboxHome, sandboxHome)
 	}
-
-	// The cache location is backed by a sandbox-private directory unless the
-	// user opted in to the real host cache, which lets sandboxed tools poison
-	// caches (go-build, pip, uv) later consumed outside the sandbox.
-	if userHome != "" {
-		if cacheDir := cacheMountPath(userHome); cacheDir != "" {
-			src := privateCacheDir(sandboxHome)
-			if bindHostCache {
-				src = cacheDir
-			}
-			cacheSafe := !readOnlyProject || (sandboxHomeSafe && safeDirectoryPath(writableRoot, src) == nil && realDirectory(cacheDir))
-			if cacheSafe {
-				args = append(args, "--bind", src, cacheDir)
-			}
+	if cacheDir := cacheMountPath(userHome); cacheDir != "" && cacheBindSafe(root, sandboxHome, cacheDir, readOnlyProject, sandboxHomeSafe, bindHostCache) {
+		src := privateCacheDir(sandboxHome)
+		if bindHostCache {
+			src = cacheDir
 		}
+		args = append(args, "--bind", src, cacheDir)
 	}
+	return args
+}
 
-	// Additional host mounts from config.
+func cacheBindSafe(root, sandboxHome, cacheDir string, readOnlyProject, sandboxHomeSafe, bindHostCache bool) bool {
+	if !readOnlyProject || bindHostCache {
+		return realDirectory(cacheDir)
+	}
+	return sandboxHomeSafe && safeDirectoryPath(root, privateCacheDir(sandboxHome)) == nil && realDirectory(cacheDir)
+}
+
+func appendHostMountArgs(args []string, hostMounts []config.HostMount) []string {
 	for _, hm := range hostMounts {
 		flag := "--ro-bind"
 		if hm.Mode == "rw" {
@@ -83,22 +74,6 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 		}
 		args = append(args, flag, hm.Path, hm.Path)
 	}
-
-	args = append(args, overlayArgs...)
-
-	// Docker socket masking: appended after host mounts and overlay args, and
-	// immediately before --chdir, so no earlier bind — including a user
-	// host_mounts entry that rw-binds /run — can unmask the socket. Later
-	// bwrap operations win. When perms.Docker is true the socket is already
-	// reachable via the root bind and nothing is emitted; that asymmetry is
-	// the entire point of the permission.
-	if !perms.Docker {
-		args = append(args, dockerDenyArgs(dockerSocketCandidates())...)
-	}
-
-	// Set working directory to workspace after all mounts have been established.
-	args = append(args, "--chdir", workDir)
-
 	return args
 }
 

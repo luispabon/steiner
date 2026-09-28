@@ -601,6 +601,26 @@ func TestBuildArgs_DieWithParentAndNewSession(t *testing.T) {
 	}
 }
 
+func TestBuildArgs_PlanMode_BindsHostCache(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".steiner", "home"), 0o755); err != nil {
+		t.Fatalf("mkdir sandbox home: %v", err)
+	}
+	home := t.TempDir()
+	cacheDir := filepath.Join(home, ".cache")
+	if err := os.Mkdir(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache dir: %v", err)
+	}
+	resolved, err := filepath.EvalSymlinks(cacheDir)
+	if err != nil {
+		t.Fatalf("resolve cache dir: %v", err)
+	}
+	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), home, nil, nil, "", true, config.PermissionsConfig{}, true)
+	if !containsSeq(args, "--bind", resolved, resolved) {
+		t.Fatalf("expected plan-mode host cache bind %s, args=%v", resolved, args)
+	}
+}
+
 func TestBuildArgs_CacheBinding(t *testing.T) {
 	home := t.TempDir()
 	cacheDir := filepath.Join(home, ".cache")

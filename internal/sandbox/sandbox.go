@@ -107,43 +107,12 @@ func ensurePlanModeDir(path string) bool {
 // EnsureDirectoryPath verifies or creates path below root without following
 // symlinks. The root itself may be a symlink, but no child component may be.
 func EnsureDirectoryPath(root, path string) error {
-	resolvedRoot, err := filepath.EvalSymlinks(root)
+	resolvedRoot, rel, err := prepareDirectoryPath(root, path)
 	if err != nil {
-		return fmt.Errorf("resolve sandbox root: %w", err)
+		return err
 	}
-	rootInfo, err := os.Stat(root)
-	if err != nil || !rootInfo.IsDir() {
-		if err == nil {
-			err = fmt.Errorf("not a directory")
-		}
-		return fmt.Errorf("invalid sandbox root: %w", err)
-	}
-	rel, err := filepath.Rel(root, path)
-	if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("path %q is outside root %q", path, root)
-	}
-	current := root
-	for _, part := range strings.Split(rel, string(filepath.Separator)) {
-		if part == "." || part == "" {
-			continue
-		}
-		current = filepath.Join(current, part)
-		info, statErr := os.Lstat(current)
-		if statErr == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
-				return fmt.Errorf("path component %q is a symlink", current)
-			}
-			if !info.IsDir() {
-				return fmt.Errorf("path component %q is not a directory", current)
-			}
-			continue
-		}
-		if !os.IsNotExist(statErr) {
-			return fmt.Errorf("inspect path component %q: %w", current, statErr)
-		}
-		if err := os.Mkdir(current, 0o755); err != nil {
-			return fmt.Errorf("create path component %q: %w", current, err)
-		}
+	if err := ensureDirectoryComponents(root, rel); err != nil {
+		return err
 	}
 	resolvedPath, err := filepath.EvalSymlinks(path)
 	if err != nil || !pathWithin(resolvedRoot, resolvedPath) {
@@ -152,54 +121,80 @@ func EnsureDirectoryPath(root, path string) error {
 	return nil
 }
 
+func prepareDirectoryPath(root, path string) (string, string, error) {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve sandbox root: %w", err)
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil || !rootInfo.IsDir() {
+		if err == nil {
+			err = fmt.Errorf("not a directory")
+		}
+		return "", "", fmt.Errorf("invalid sandbox root: %w", err)
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("path %q is outside root %q", path, root)
+	}
+	return resolvedRoot, rel, nil
+}
+
+func ensureDirectoryComponents(root, rel string) error {
+	current := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "." || part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		if err := ensureDirectoryComponent(current); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureDirectoryComponent(path string) error {
+	info, err := os.Lstat(path)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path component %q is a symlink", path)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("path component %q is not a directory", path)
+		}
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect path component %q: %w", path, err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		return fmt.Errorf("create path component %q: %w", path, err)
+	}
+	return nil
+}
+
 // WrapCommandMode wraps cmd with bubblewrap, optionally with project read-only mode.
 // Returns cmd unchanged when sandbox is disabled. When enabled but bwrap could
 // not be resolved, it fails closed with an error instead of returning cmd.
 func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cmd, error) {
+	if err := s.validateWrap(readOnlyProject); err != nil {
+		return nil, err
+	}
 	if !s.cfg.Enabled {
 		return cmd, nil
 	}
-	if s.bwrapErr != nil {
-		return nil, fmt.Errorf("sandbox enabled but unavailable: %w", s.bwrapErr)
-	}
-
-	overlayFDBase := 3 + len(cmd.ExtraFiles)
-	overlay, err := prepareSSHOverlay(sshSystemConfigPath, overlayFDBase)
-	if err != nil {
-		if overlay != nil {
-			_ = overlay.Close() // Best-effort cleanup; overlay failures must not block sandboxing.
-		}
-		overlay = nil
-	}
-
-	if readOnlyProject {
-		ensurePlanModeDirs(s.root)
-	}
-
+	overlay := s.prepareOverlay(cmd)
 	sandboxHome := filepath.Join(s.root, ".steiner", "home")
-	if readOnlyProject {
-		if err := EnsureDirectoryPath(s.root, sandboxHome); err != nil {
-			if overlay != nil {
-				_ = overlay.Close()
-			}
-			return nil, fmt.Errorf("unsafe plan sandbox home: %w", err)
+	if err := s.prepareCache(sandboxHome, readOnlyProject); err != nil {
+		if overlay != nil {
+			_ = overlay.Close()
 		}
+		return nil, err
 	}
 	var overlayArgs []string
 	if overlay != nil {
 		overlayArgs = overlay.bwrapArgs
-	}
-	if !s.cfg.BindHostCache && s.userHome != "" && cacheMountPath(s.userHome) != "" {
-		cacheRoot := sandboxHome
-		if !readOnlyProject {
-			cacheRoot = s.root
-		}
-		if err := EnsureDirectoryPath(cacheRoot, privateCacheDir(sandboxHome)); err != nil {
-			if overlay != nil {
-				_ = overlay.Close() // Best-effort cleanup; overlay files will not be handed to a child process.
-			}
-			return nil, fmt.Errorf("create sandbox cache dir: %w", err)
-		}
 	}
 	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.cfg.HostMounts, overlayArgs, s.tmpDir, readOnlyProject, s.perms, s.cfg.BindHostCache)
 
@@ -234,6 +229,47 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cm
 		s.trackCommandResources(wrapped, overlay)
 	}
 	return wrapped, nil
+}
+
+func (s *Sandbox) validateWrap(readOnlyProject bool) error {
+	if !s.cfg.Enabled {
+		return nil
+	}
+	if s.bwrapErr != nil {
+		return fmt.Errorf("sandbox enabled but unavailable: %w", s.bwrapErr)
+	}
+	if readOnlyProject {
+		ensurePlanModeDirs(s.root)
+		if err := EnsureDirectoryPath(s.root, filepath.Join(s.root, ".steiner", "home")); err != nil {
+			return fmt.Errorf("unsafe plan sandbox home: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Sandbox) prepareOverlay(cmd *exec.Cmd) *sshOverlay {
+	overlay, err := prepareSSHOverlay(sshSystemConfigPath, 3+len(cmd.ExtraFiles))
+	if err != nil {
+		if overlay != nil {
+			_ = overlay.Close()
+		}
+		return nil
+	}
+	return overlay
+}
+
+func (s *Sandbox) prepareCache(sandboxHome string, readOnlyProject bool) error {
+	if s.cfg.BindHostCache || s.userHome == "" || cacheMountPath(s.userHome) == "" {
+		return nil
+	}
+	cacheRoot := s.root
+	if readOnlyProject {
+		cacheRoot = sandboxHome
+	}
+	if err := EnsureDirectoryPath(cacheRoot, privateCacheDir(sandboxHome)); err != nil {
+		return fmt.Errorf("create sandbox cache dir: %w", err)
+	}
+	return nil
 }
 
 func (s *Sandbox) trackCommandResources(cmd *exec.Cmd, overlay *sshOverlay) {
