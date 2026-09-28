@@ -274,6 +274,9 @@ func (m *Model) performClearConversationState() error {
 		m.status.context = ""
 	}
 	m.setCompaction(compactionState{})
+	if m.recorder != nil {
+		m.recorder.ResetSession()
+	}
 	m.syncSidebar()
 	var clearErr error
 	if m.controller != nil {

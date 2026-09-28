@@ -32,6 +32,46 @@ func TestNew_nilClockDefaultsToTimeNow(t *testing.T) {
 	}
 }
 
+func TestRecorderResetSession(t *testing.T) {
+	isolateTest(t)
+	r := New(fixedClock(baseTime))
+	r.Record(Observation{
+		ProviderAlias:   "p",
+		ProviderType:    "openai",
+		BackendModelID:  "m",
+		PromptTokens:    100,
+		CacheReadTokens: 50,
+		Source:          SourceParent,
+		At:              baseTime,
+	})
+
+	before := r.Window(time.Hour)
+	if len(before.Rows) != 1 {
+		t.Fatalf("Window rows before reset: got %d, want 1", len(before.Rows))
+	}
+	if rate, ok := r.SessionReportFor(SourceParent).HitRate(); !ok || rate != 0.5 {
+		t.Fatalf("parent HitRate before reset = %v, %v; want 0.5, true", rate, ok)
+	}
+
+	r.ResetSession()
+
+	parent := r.SessionReportFor(SourceParent)
+	if rate, ok := parent.HitRate(); ok || rate != 0 {
+		t.Fatalf("parent HitRate after reset = %v, %v; want 0, false", rate, ok)
+	}
+	if rate, ok := parent.LastHitRate(); ok || rate != 0 {
+		t.Fatalf("parent LastHitRate after reset = %v, %v; want 0, false", rate, ok)
+	}
+	if got := r.SessionReport(); got != (SessionReport{}) {
+		t.Fatalf("blended session report after reset = %+v, want zero", got)
+	}
+
+	after := r.Window(time.Hour)
+	if len(after.Rows) != 1 || after.Rows[0] != before.Rows[0] {
+		t.Fatalf("Window after reset = %+v, want persisted row %+v", after.Rows, before.Rows)
+	}
+}
+
 func TestRecord_bucketing(t *testing.T) {
 	tests := []struct {
 		name         string

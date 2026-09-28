@@ -30,7 +30,7 @@ Windows use wall-clock time and hourly buckets. Older data is pruned after 8 day
 
 ### In-session sidebar field
 
-The `PERFORMANCE` sidebar card includes two annotated cache-hit values: `cache hit` for the latest request and a blank, padded label line for the session rate. The latest-request value is labeled `latest req` at the sidebar's fixed width; the session value uses `session`. The scope formatters can fall back to `req` and `sess`, then a bare percentage, at constrained value widths, but the current sidebar does not resize dynamically. The session rate is token-weighted, for example `78.2%`, or `—` before the first cache-capable parent call. It updates after each model response. The sidebar covers the top-level orchestrator; sub-agent and advisor calls do not feed these fields.
+The `PERFORMANCE` sidebar card includes two annotated cache-hit values: `cache hit` for the latest request and a blank, padded label line for the session rate. The latest-request value is labeled `latest req` at the sidebar's fixed width; the session value uses `session`. The scope formatters can fall back to `req` and `sess`, then a bare percentage, at constrained value widths, but the current sidebar does not resize dynamically. The session rate is token-weighted, for example `78.2%`, or `—` before the first cache-capable parent call. It updates after each model response. The sidebar covers the top-level orchestrator; sub-agent and advisor calls do not feed these fields. `/clear` resets both in-session sidebar cache rates; persisted hourly window statistics remain available.
 
 ### Sub-agent and advisor tool boxes
 
@@ -42,7 +42,7 @@ Finished compaction banners show the one summarizer request's cache rate, for ex
 
 ### `/cache-stats` overlay
 
-The `/cache-stats` slash command opens a read-only overlay with one table for each fixed window. Columns are Provider, Model, Hit rate, Cached / Total, Uncached/req, and Cached/req. The last two averages explain whether a rate changed because uncached tokens grew or cached tokens shrank. `—` means no data. Scroll with ↑↓ and close with esc.
+The `/cache-stats` slash command opens a read-only overlay with one table for each fixed window. Columns are Provider, Model, Hit rate, Cached / Total, Uncached/req, and Cached/req. The last two averages explain whether a rate changed because uncached tokens grew or cached tokens shrank. `—` means no data. Scroll with ↑↓ and close with esc. `/clear` resets the in-session summary; persisted hourly window statistics are unchanged.
 
 ### Per-turn telemetry
 

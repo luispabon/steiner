@@ -50,7 +50,7 @@ Lever B would have cost about 14.6M prefix tokens in pings to save about 0.725M,
 
 Analysis note: every turn changes `prefix_hash`, so it cannot identify rewrites. `shared_prefix_messages` is the longest common message prefix with the previous request; it grows by each turn's new messages when the prefix is intact and drops on a rewrite. A cold turn after a rewrite is not explained by the rewrite alone: 192 of 216 rewrites stayed warm on the static prefix.
 
-The in-memory recorder also tracks latest-request input and cache-read tokens per source under its mutex. Source-scoped session reports expose the latest-request rate; the blended session report leaves those fields zero. This state is process-local and does not change the persisted schema. Window reports separate advisor-source rows; parent, sub-agent, and unknown sources share a group. The sidebar uses only the parent-scoped report for latest-request and session rates.
+The in-memory recorder also tracks latest-request input and cache-read tokens per source under its mutex. Source-scoped session reports expose the latest-request rate; the blended session report leaves those fields zero. This state is process-local and does not change the persisted schema. `/clear` calls `Recorder.ResetSession`, which clears these five in-memory maps while leaving persisted hourly buckets untouched. Window reports separate advisor-source rows; parent, sub-agent, and unknown sources share a group. The sidebar uses only the parent-scoped report for latest-request and session rates.
 
 ## Storage schema and concurrency
 

@@ -108,6 +108,36 @@ func TestSyncSidebarUsesParentOnlySessionReport(t *testing.T) {
 	}
 }
 
+func TestClearConversationStateResetsCacheStats(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	now := time.Unix(1000, 0)
+	rec := usagestats.New(func() time.Time { return now })
+	rec.Record(usagestats.Observation{
+		PromptTokens:    100,
+		CacheReadTokens: 100,
+		Source:          usagestats.SourceParent,
+		At:              now,
+	})
+
+	m := newSidebarTestModel(t)
+	m.recorder = rec
+	m.syncSidebar()
+	if !m.sidebar.sessionCacheHitRateOK || !m.sidebar.lastRequestCacheRateOK {
+		t.Fatal("cache rate flags should be true before clear")
+	}
+
+	if err := m.performClearConversationState(); err != nil {
+		t.Fatalf("performClearConversationState() error = %v", err)
+	}
+
+	if m.sidebar.sessionCacheHitRateOK || m.sidebar.lastRequestCacheRateOK {
+		t.Fatalf("cache rate flags after clear = session %v, latest %v; want both false", m.sidebar.sessionCacheHitRateOK, m.sidebar.lastRequestCacheRateOK)
+	}
+	if rate, ok := rec.SessionReportFor(usagestats.SourceParent).HitRate(); ok || rate != 0 {
+		t.Fatalf("parent HitRate after clear = %v, %v; want 0, false", rate, ok)
+	}
+}
+
 func newSidebarTestModel(t *testing.T) *Model {
 	t.Helper()
 	m := newModel(Config{

@@ -163,6 +163,18 @@ func (r *Recorder) Record(obs Observation) {
 	r.telemetry.record(obs, at)
 }
 
+// ResetSession clears in-memory session counters while preserving persisted
+// hourly buckets.
+func (r *Recorder) ResetSession() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	clear(r.sessionCacheRead)
+	clear(r.sessionTotalInput)
+	clear(r.sessionRequests)
+	clear(r.lastCacheRead)
+	clear(r.lastTotalInput)
+}
+
 // Window sums all buckets whose hour intersects the interval [now-d, now] and
 // returns a Report with one Row per (ProviderAlias, ProviderType, BackendModelID)
 // group. It uses hour-granularity buckets and may include up to one hour of
