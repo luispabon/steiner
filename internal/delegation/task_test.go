@@ -3,7 +3,6 @@ package delegation
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -24,11 +23,7 @@ func TestFailedDelegateReason_IncludesError(t *testing.T) {
 func TestFailedDelegateReason_CountsToolActivity(t *testing.T) {
 	t.Parallel()
 	err := errors.New("deadline exceeded")
-	state := agent.RunState{
-		Conversation: []agent.Message{
-			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "read"}}},
-		},
-	}
+	state := agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "read"}}}}}
 	reason := failedDelegateReason(err, state)
 	if !strings.Contains(reason, "activity before failure: 1 tool call(s)") {
 		t.Errorf("expected tool activity count in reason, got: %s", reason)
@@ -37,454 +32,69 @@ func TestFailedDelegateReason_CountsToolActivity(t *testing.T) {
 
 func TestFailedDelegateReason_CancellationSaysSessionPreserved(t *testing.T) {
 	t.Parallel()
-	err := context.Canceled
-	reason := failedDelegateReason(err, agent.RunState{})
-	if !strings.Contains(reason, "session is preserved") {
-		t.Fatalf("expected session-preserved note on cancellation, got: %s", reason)
-	}
-	if !strings.Contains(reason, "follow_up") {
-		t.Fatalf("expected follow_up hint on cancellation, got: %s", reason)
+	reason := failedDelegateReason(context.Canceled, agent.RunState{})
+	if !strings.Contains(reason, "session is preserved") || !strings.Contains(reason, "follow_up") {
+		t.Fatalf("expected preserved-session follow_up note, got: %s", reason)
 	}
 }
 
 func TestCancelledDelegateReason_ZeroTurnsTellsParentSessionIsPreserved(t *testing.T) {
 	t.Parallel()
-	reason := cancelledDelegateReason(agent.RunState{
-		StopReason: agent.StopReasonCancelled,
-	})
-	if !strings.Contains(reason, "session is preserved") {
-		t.Fatalf("expected session-preserved note for zero-turn cancellation, got: %s", reason)
-	}
-	if !strings.Contains(reason, "follow_up") {
-		t.Fatalf("expected follow_up hint for zero-turn cancellation, got: %s", reason)
+	reason := cancelledDelegateReason(agent.RunState{StopReason: agent.StopReasonCancelled})
+	if !strings.Contains(reason, "session is preserved") || !strings.Contains(reason, "follow_up") {
+		t.Fatalf("expected preserved-session follow_up note, got: %s", reason)
 	}
 }
 
 func TestCancelledDelegateReason_NamesLastToolWithoutArguments(t *testing.T) {
 	t.Parallel()
 	state := agent.RunState{
-		TurnCount:  3,
-		TokenCount: 1500,
-		StopReason: agent.StopReasonCancelled,
-		Conversation: []agent.Message{
-			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "glob", Arguments: map[string]any{"pattern": "**/*_test.go"}}}},
-		},
+		TurnCount: 3, TokenCount: 1500, StopReason: agent.StopReasonCancelled,
+		Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "glob", Arguments: map[string]any{"pattern": "**/*_test.go"}}}}},
 	}
 	reason := cancelledDelegateReason(state)
-	if !strings.Contains(reason, "last activity: glob;") {
-		t.Errorf("expected last tool name in reason, got: %s", reason)
-	}
-	if strings.Contains(reason, "**/*_test.go") {
-		t.Errorf("reason must not preview tool arguments, got: %s", reason)
-	}
-	if !strings.Contains(reason, "session is preserved") {
-		t.Errorf("expected session-preserved note, got: %s", reason)
+	if !strings.Contains(reason, "last activity: glob;") || strings.Contains(reason, "**/*_test.go") || !strings.Contains(reason, "session is preserved") {
+		t.Errorf("unexpected cancellation reason: %s", reason)
 	}
 }
 
-// extensionStubRunner provides pre-configured responses for Delegate Extension tests.
-type extensionStubRunner struct {
-	calls     int
-	responses []extensionStubResponse
-	requests  []agent.RunRequest
-}
-
-type extensionStubResponse struct {
-	state agent.RunState
-	err   error
-}
-
-const testTurnBudgetMarker = "[turn-budget-checkpoint]"
-
-func (r *extensionStubRunner) Run(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-	r.requests = append(r.requests, req)
-	if r.calls >= len(r.responses) {
-		return agent.RunState{}, fmt.Errorf("unexpected call #%d", r.calls)
-	}
-	resp := r.responses[r.calls]
-	r.calls++
-	if req.TurnBudgetNotice != nil {
-		notice := testTurnBudgetMarker + " " + req.TurnBudgetNotice(resp.state.TurnCount, req.Limits.MaxTurns)
-		resp.state.Conversation = supersedeOrAppendNoticeForTest(resp.state.Conversation, notice)
-	}
-	return resp.state, resp.err
-}
-
-// supersedeOrAppendNoticeForTest mirrors (without importing) the marker-based
-// supersede-in-place semantics of agent.injectTurnBudgetNoticeIfDue, so tests
-// can verify task.go's per-extension closures compose correctly with that
-// mechanism's contract.
-func supersedeOrAppendNoticeForTest(conversation []agent.Message, notice string) []agent.Message {
-	for i, m := range conversation {
-		if strings.HasPrefix(m.Content, testTurnBudgetMarker) {
-			out := append([]agent.Message(nil), conversation...)
-			out[i] = agent.Message{Role: agent.MessageRoleUser, Content: notice}
-			return out
-		}
-	}
-	return append(append([]agent.Message(nil), conversation...), agent.Message{Role: agent.MessageRoleUser, Content: notice})
-}
-
-func TestRunChildToCompletion_NoExtensionNeeded(t *testing.T) {
+func TestSpawnDelegateRunsChildOnceAtTurnLimit(t *testing.T) {
 	t.Parallel()
-	// State already done — loop exits immediately.
-	runner := &extensionStubRunner{}
+	calls := 0
 	state := agent.RunState{
-		StopReason:        agent.StopReasonComplete,
-		TurnCount:         1,
-		TokenCount:        10,
-		InputTokens:       7,
-		CacheReadTokens:   8,
-		CacheCreateTokens: 9,
+		StopReason:   agent.StopReasonMaxTurns,
+		TurnCount:    2,
+		TokenCount:   17,
+		Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{Name: "read"}}}},
 	}
-	req := agent.RunRequest{Limits: agent.Limits{MaxTurns: 5}}
-	tc := newTraceCollector("test-agent", "test task")
-
-	finalState, usage, granted, err := runChildToCompletion(
-		context.Background(), req, runner, 5, nil, tc, state, "test-agent",
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if granted != 0 {
-		t.Errorf("extensionsGranted = %d, want 0", granted)
-	}
-	if runner.calls != 0 {
-		t.Errorf("runner calls = %d, want 0", runner.calls)
-	}
-	if finalState.StopReason != agent.StopReasonComplete {
-		t.Errorf("state stop reason = %s, want %s", finalState.StopReason, agent.StopReasonComplete)
-	}
-	if usage != tokenUsageOf(state) {
-		t.Errorf("usage = %+v, want %+v (tokenUsageOf initial state)", usage, tokenUsageOf(state))
-	}
-}
-
-func TestRunChildToCompletion_OneExtensionThenComplete(t *testing.T) {
-	t.Parallel()
-	// One extension needed, then completes.
-	// Initial state triggers extension; single runner response is the completion.
-	runner := &extensionStubRunner{
-		responses: []extensionStubResponse{
-			{state: agent.RunState{
-				Conversation: []agent.Message{
-					{Role: agent.MessageRoleAssistant, Content: "done"},
-				},
-				StopReason: agent.StopReasonComplete,
-				TurnCount:  2,
-				TokenCount: 20,
-			}},
-		},
-	}
-	initialState := agent.RunState{
-		Conversation: []agent.Message{
-			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "t"}}},
-		},
-		StopReason: agent.StopReasonMaxTurns,
-		TurnCount:  1,
-		TokenCount: 10,
-	}
-	req := agent.RunRequest{Limits: agent.Limits{MaxTurns: 5}}
-	tc := newTraceCollector("test-agent", "test task")
-
-	finalState, _, granted, err := runChildToCompletion(
-		context.Background(), req, runner, 5, nil, tc, initialState, "test-agent",
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if granted != 1 {
-		t.Errorf("extensionsGranted = %d, want 1", granted)
-	}
-	if runner.calls != 1 {
-		t.Errorf("runner calls = %d, want 1", runner.calls)
-	}
-	if finalState.StopReason != agent.StopReasonComplete {
-		t.Errorf("state stop reason = %s, want %s", finalState.StopReason, agent.StopReasonComplete)
-	}
-	if finalState.TurnCount != 2 {
-		t.Errorf("final state TurnCount = %d, want 2", finalState.TurnCount)
-	}
-	// Verify MaxTurns growth: originalMaxTurns + state.TurnCount before extension
-	if len(runner.requests) > 0 && runner.requests[0].Limits.MaxTurns != 1+5 {
-		t.Errorf("extension MaxTurns = %d, want %d", runner.requests[0].Limits.MaxTurns, 1+5)
-	}
-}
-
-func TestRunChildToCompletion_MultipleExtensionsThenComplete(t *testing.T) {
-	t.Parallel()
-	// Needs 3 extensions before completing.
-	// Initial state triggers first extension; 2 more return needing more, final completes.
-	responses := []extensionStubResponse{
-		{state: agent.RunState{
-			Conversation: []agent.Message{
-				{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c1", Name: "t"}}},
-			},
-			StopReason:        agent.StopReasonMaxTurns,
-			TurnCount:         2,
-			TokenCount:        20,
-			InputTokens:       20,
-			CacheReadTokens:   200,
-			CacheCreateTokens: 2,
-		}},
-		{state: agent.RunState{
-			Conversation: []agent.Message{
-				{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c2", Name: "t"}}},
-			},
-			StopReason:        agent.StopReasonMaxTurns,
-			TurnCount:         3,
-			TokenCount:        30,
-			InputTokens:       30,
-			CacheReadTokens:   300,
-			CacheCreateTokens: 3,
-		}},
-		{state: agent.RunState{
-			Conversation: []agent.Message{
-				{Role: agent.MessageRoleAssistant, Content: "done"},
-			},
-			StopReason:        agent.StopReasonComplete,
-			TurnCount:         4,
-			TokenCount:        40,
-			InputTokens:       40,
-			CacheReadTokens:   400,
-			CacheCreateTokens: 4,
-		}},
-	}
-	runner := &extensionStubRunner{responses: responses}
-	initialState := agent.RunState{
-		Conversation: []agent.Message{
-			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "t"}}},
-		},
-		StopReason:        agent.StopReasonMaxTurns,
-		TurnCount:         1,
-		TokenCount:        10,
-		InputTokens:       10,
-		CacheReadTokens:   100,
-		CacheCreateTokens: 1,
-	}
-	req := agent.RunRequest{Limits: agent.Limits{MaxTurns: 5}}
-	tc := newTraceCollector("test-agent", "test task")
-
-	finalState, usage, granted, err := runChildToCompletion(
-		context.Background(), req, runner, 5, nil, tc, initialState, "test-agent",
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if granted != 3 {
-		t.Errorf("extensionsGranted = %d, want 3", granted)
-	}
-	if runner.calls != 3 {
-		t.Errorf("runner calls = %d, want 3", runner.calls)
-	}
-	if finalState.StopReason != agent.StopReasonComplete {
-		t.Errorf("state stop reason = %s, want %s", finalState.StopReason, agent.StopReasonComplete)
-	}
-	if finalState.TurnCount != 4 {
-		t.Errorf("final state TurnCount = %d, want 4", finalState.TurnCount)
-	}
-	wantUsage := tokenUsageOf(initialState).
-		Add(tokenUsageOf(responses[0].state)).
-		Add(tokenUsageOf(responses[1].state)).
-		Add(tokenUsageOf(responses[2].state))
-	if usage != wantUsage {
-		t.Errorf("usage = %+v, want %+v (sum across initial run and all extensions)", usage, wantUsage)
-	}
-}
-
-func TestRunChildToCompletion_CapsAtMaxExtensions(t *testing.T) {
-	t.Parallel()
-	// Always needs extension — caps at maxDelegateExtensions.
-	var responses []extensionStubResponse
-	for i := 0; i < maxDelegateExtensions; i++ {
-		responses = append(responses, extensionStubResponse{
-			state: agent.RunState{
-				Conversation: []agent.Message{
-					{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c", Name: "t"}}},
-				},
-				StopReason: agent.StopReasonMaxTurns,
-				TurnCount:  i + 2,
-				TokenCount: (i + 1) * 10,
-			},
-		})
-	}
-	runner := &extensionStubRunner{responses: responses}
-	initialState := agent.RunState{
-		Conversation: []agent.Message{
-			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c", Name: "t"}}},
-		},
-		StopReason: agent.StopReasonMaxTurns,
-		TurnCount:  1,
-		TokenCount: 10,
-	}
-	req := agent.RunRequest{Limits: agent.Limits{MaxTurns: 5}}
-	tc := newTraceCollector("test-agent", "test task")
-
-	finalState, _, granted, err := runChildToCompletion(
-		context.Background(), req, runner, 5, nil, tc, initialState, "test-agent",
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if granted != maxDelegateExtensions {
-		t.Errorf("extensionsGranted = %d, want %d", granted, maxDelegateExtensions)
-	}
-	if runner.calls != maxDelegateExtensions {
-		t.Errorf("runner calls = %d, want %d", runner.calls, maxDelegateExtensions)
-	}
-	// Final state should still have tools (no completion occurred).
-	if finalState.StopReason != agent.StopReasonMaxTurns {
-		t.Errorf("state stop reason = %s, want %s", finalState.StopReason, agent.StopReasonMaxTurns)
-	}
-
-	// Exactly one budget-notice-marked message should survive across all
-	// extensions (superseded in place, not accumulated).
-	var marked []agent.Message
-	for _, m := range finalState.Conversation {
-		if strings.HasPrefix(m.Content, testTurnBudgetMarker) {
-			marked = append(marked, m)
-		}
-	}
-	if len(marked) != 1 {
-		t.Fatalf("marked notice messages = %d, want 1; conversation = %+v", len(marked), finalState.Conversation)
-	}
-	// The surviving message must carry the last extension's numbers: the
-	// final call is ext = maxDelegateExtensions-1, so extensionsLeft = 0.
-	lastReq := runner.requests[len(runner.requests)-1]
-	lastResp := runner.responses[len(runner.responses)-1]
-	const wantSuffix = "0 extension(s) remaining"
-	if !strings.Contains(marked[0].Content, wantSuffix) {
-		t.Errorf("surviving notice = %q, want it to mention %q", marked[0].Content, wantSuffix)
-	}
-	wantTurns := fmt.Sprintf("used %d of %d turns", lastResp.state.TurnCount, lastReq.Limits.MaxTurns)
-	if !strings.Contains(marked[0].Content, wantTurns) {
-		t.Errorf("surviving notice = %q, want it to mention %q (last extension's turn counts)", marked[0].Content, wantTurns)
-	}
-}
-
-func TestRunChildToCompletion_ErrorDuringExtension(t *testing.T) {
-	t.Parallel()
-	// First extension succeeds (returns state that still needs extension),
-	// second extension fails during execution.
-	runner := &extensionStubRunner{
-		responses: []extensionStubResponse{
-			{state: agent.RunState{
-				Conversation: []agent.Message{
-					{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c1", Name: "t"}}},
-				},
-				StopReason:        agent.StopReasonMaxTurns,
-				TurnCount:         2,
-				TokenCount:        20,
-				InputTokens:       20,
-				CacheReadTokens:   200,
-				CacheCreateTokens: 2,
-			}},
-			{state: agent.RunState{TokenCount: 30, InputTokens: 30, CacheReadTokens: 300, CacheCreateTokens: 3}, err: fmt.Errorf("provider error")},
-		},
-	}
-	initialState := agent.RunState{
-		Conversation: []agent.Message{
-			{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "t"}}},
-		},
-		StopReason:        agent.StopReasonMaxTurns,
-		TurnCount:         1,
-		TokenCount:        10,
-		InputTokens:       10,
-		CacheReadTokens:   100,
-		CacheCreateTokens: 1,
-	}
-	req := agent.RunRequest{Limits: agent.Limits{MaxTurns: 5}}
-	tc := newTraceCollector("test-agent", "test task")
-
-	finalState, usage, granted, err := runChildToCompletion(
-		context.Background(), req, runner, 5, nil, tc, initialState, "test-agent",
-	)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if err.Error() != "provider error" {
-		t.Errorf("error = %q, want %q", err.Error(), "provider error")
-	}
-	// Two extensions were granted: first succeeded (state updated to TurnCount=2),
-	// second failed during execution (state before it was TurnCount=2).
-	if granted != 2 {
-		t.Errorf("extensionsGranted = %d, want 2", granted)
-	}
-	if runner.calls != 2 {
-		t.Errorf("runner calls = %d, want 2", runner.calls)
-	}
-	// State returned is the state before the failed run: TurnCount=2
-	// (result of the first successful extension).
-	if finalState.TurnCount != 2 {
-		t.Errorf("final state TurnCount = %d, want 2 (state before failed run)", finalState.TurnCount)
-	}
-	wantUsage := tokenUsageOf(initialState).Add(tokenUsageOf(runner.responses[0].state)).Add(tokenUsageOf(runner.responses[1].state))
-	if usage != wantUsage {
-		t.Errorf("usage = %+v, want %+v (usage through the failed run)", usage, wantUsage)
-	}
-}
-
-func TestSpawnDelegateAccumulatesExtensionUsage(t *testing.T) {
-	t.Parallel()
-	calls := 0
-	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 		calls++
-		if calls == 1 {
-			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{Name: "read"}}}}, StopReason: agent.StopReasonMaxTurns, TokenCount: 10}, nil
+		if req.Limits.MaxTurns != 2 {
+			t.Errorf("MaxTurns = %d, want 2", req.Limits.MaxTurns)
 		}
-		return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "done"}}, StopReason: agent.StopReasonComplete, TokenCount: 20}, nil
+		return state, nil
 	}}
 
-	result, _, usage, err := SpawnDelegate(context.Background(), Spec{AgentID: "extension-usage", Limits: Limits{MaxTurns: 1}}, agent.RunRequest{}, runner, nil, nil)
+	result, gotState, usage, err := SpawnDelegate(context.Background(), Spec{AgentID: "single-run", Limits: Limits{MaxTurns: 2}}, agent.RunRequest{Limits: agent.Limits{MaxTurns: 2}}, runner, nil, nil)
 	if err != nil {
 		t.Fatalf("SpawnDelegate error: %v", err)
 	}
-	got := result.Value.(Result)
-	if got.TokenCount != 30 || usage.OutputTokens != 30 {
-		t.Fatalf("output usage = (%d, %d), want (30, 30)", got.TokenCount, usage.OutputTokens)
+	if calls != 1 {
+		t.Fatalf("runner calls = %d, want 1", calls)
 	}
-}
-
-func TestSpawnDelegateAccumulatesErroredExtensionUsage(t *testing.T) {
-	t.Parallel()
-	calls := 0
-	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
-		calls++
-		if calls == 1 {
-			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{Name: "read"}}}}, StopReason: agent.StopReasonMaxTurns, TokenCount: 10}, nil
-		}
-		return agent.RunState{TokenCount: 20, InputTokens: 2, CacheReadTokens: 3, CacheCreateTokens: 4}, errors.New("extension failed")
-	}}
-
-	result, _, usage, err := SpawnDelegate(context.Background(), Spec{AgentID: "errored-extension", Limits: Limits{MaxTurns: 1}}, agent.RunRequest{}, runner, nil, nil)
-	if err != nil {
-		t.Fatalf("SpawnDelegate error: %v", err)
+	if gotState.StopReason != agent.StopReasonMaxTurns || usage != tokenUsageOf(state) {
+		t.Fatalf("state/usage = (%s, %+v), want max-turn state and %+v", gotState.StopReason, usage, tokenUsageOf(state))
 	}
-	got := result.Value.(Result)
-	if got.TokenCount != 30 || usage.OutputTokens != 30 || got.InputTokens != 2 || got.CacheReadTokens != 3 || got.CacheCreateTokens != 4 {
-		t.Fatalf("errored extension usage = result(%d,%d,%d,%d), usage output=%d; want (30,2,3,4), 30", got.TokenCount, got.InputTokens, got.CacheReadTokens, got.CacheCreateTokens, usage.OutputTokens)
+	if got := result.Value.(Result).TurnCount; got != state.TurnCount {
+		t.Fatalf("result turns = %d, want %d", got, state.TurnCount)
 	}
 }
 
 func TestTurnBudgetNoticeFunc(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		extensionsLeft int
-	}{
-		{extensionsLeft: 3},
-		{extensionsLeft: 1},
-		{extensionsLeft: 0},
-	}
-	for _, tt := range tests {
-		notice := turnBudgetNoticeFunc(tt.extensionsLeft)
-		text := notice(21, 30)
-		wantExt := fmt.Sprintf("%d extension(s) remaining", tt.extensionsLeft)
-		if !strings.Contains(text, wantExt) {
-			t.Errorf("extensionsLeft=%d: text = %q, want to contain %q", tt.extensionsLeft, text, wantExt)
-		}
-		if !strings.Contains(text, "used 21 of 30 turns (9 remaining)") {
-			t.Errorf("extensionsLeft=%d: text = %q, want turn counts", tt.extensionsLeft, text)
-		}
+	const want = "You have used 21 of 30 turns (9 remaining). Finish the highest-value remaining work now, then report status and what is left, rather than continuing to explore."
+	if got := turnBudgetNoticeFunc()(21, 30); got != want {
+		t.Fatalf("turn budget notice = %q, want %q", got, want)
 	}
 }
 
@@ -495,30 +105,24 @@ func TestSpawnDelegate_SetsInitialTurnBudgetNotice(t *testing.T) {
 		capturedReq = req
 		return successRunState(), nil
 	}}
-
 	_, _, _, err := SpawnDelegate(context.Background(), Spec{AgentID: "initial-notice"}, agent.RunRequest{}, runner, nil, nil)
 	if err != nil {
 		t.Fatalf("SpawnDelegate error: %v", err)
 	}
 	if capturedReq.TurnBudgetNotice == nil {
-		t.Fatal("expected TurnBudgetNotice to be set on the initial run")
+		t.Fatal("expected TurnBudgetNotice to be set on the child run")
 	}
-	text := capturedReq.TurnBudgetNotice(21, 30)
-	wantExt := fmt.Sprintf("%d extension(s) remaining", maxDelegateExtensions)
-	if !strings.Contains(text, wantExt) {
-		t.Errorf("initial notice = %q, want to contain %q", text, wantExt)
+	if got := capturedReq.TurnBudgetNotice(21, 30); !strings.Contains(got, "You have used 21 of 30 turns (9 remaining).") {
+		t.Errorf("unexpected turn budget notice: %q", got)
 	}
 }
 
 func TestSpawnDelegate_DoesNotEmitStartedEvent(t *testing.T) {
 	t.Parallel()
 	sink := &collectingSink{}
-	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
-		return successRunState(), nil
-	}}
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) { return successRunState(), nil }}
 	req := agent.RunRequest{ResolvedModel: provider.ResolvedModel{Alias: "inferx/deepseek-v4-flash"}}
 	spec := Spec{AgentID: "child-callid", Task: "inspect", ParentCallID: "call_parent"}
-
 	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
 	if err != nil {
 		t.Fatalf("SpawnDelegate error: %v", err)

@@ -18,31 +18,16 @@ type AgentRunner interface {
 	Run(ctx context.Context, req agent.RunRequest) (agent.RunState, error)
 }
 
-const maxDelegateExtensions = 3
-
 // usageLimitDelegateNotice tells the parent how to proceed when a child hit a
 // provider usage limit. It deliberately names neither times nor profiles.
 const usageLimitDelegateNotice = "To continue now, delegate a fresh sub-agent; new sub-agents use the currently configured model. If that also reports a usage limit, stop delegating and tell the user."
 
-// turnBudgetNoticeFunc builds an agent.RunRequest.TurnBudgetNotice closure
-// carrying extensionsLeft, the number of delegate extensions still available
-// after the run it is attached to.
-func turnBudgetNoticeFunc(extensionsLeft int) func(turnsUsed, maxTurns int) string {
+// turnBudgetNoticeFunc builds an agent.RunRequest.TurnBudgetNotice closure.
+func turnBudgetNoticeFunc() func(turnsUsed, maxTurns int) string {
 	return func(turnsUsed, maxTurns int) string {
-		return fmt.Sprintf("You have used %d of %d turns (%d remaining) with %d extension(s) remaining. Finish the highest-value remaining work now, then report status and what is left, rather than continuing to explore.",
-			turnsUsed, maxTurns, maxTurns-turnsUsed, extensionsLeft)
+		return fmt.Sprintf("You have used %d of %d turns (%d remaining). Finish the highest-value remaining work now, then report status and what is left, rather than continuing to explore.",
+			turnsUsed, maxTurns, maxTurns-turnsUsed)
 	}
-}
-
-func delegateNeedsExtension(state agent.RunState) bool {
-	if state.StopReason != agent.StopReasonMaxTurns {
-		return false
-	}
-	msg, ok := agent.LastAssistantMessage(state.Conversation)
-	if !ok {
-		return false
-	}
-	return len(msg.ToolCalls) > 0
 }
 
 func truncateTaskPreview(s string, max int) string {
@@ -146,27 +131,17 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 		"has_timeout": spec.Limits.Timeout > 0,
 	})
 
-	req.TurnBudgetNotice = turnBudgetNoticeFunc(maxDelegateExtensions)
+	req.TurnBudgetNotice = turnBudgetNoticeFunc()
 	state, err := runner.Run(childCtx, req)
-	if err != nil && o.onChildDone != nil {
-		o.onChildDone()
-	}
-
-	tc.add("child_run_complete", "initial run finished", runStateFields(childCtx, state, err))
-
-	if err != nil {
-		runUsage := tokenUsageOf(state)
-		failedResult := finalizeDelegateFailure(spec, state, runUsage, err, events, tc, logger)
-
-		return failedResult, state, runUsage, nil
-	}
-
-	state, runUsage, extensionsGranted, extErr := runChildToCompletion(childCtx, req, runner, spec.Limits.MaxTurns, events, tc, state, spec.AgentID)
 	if o.onChildDone != nil {
 		o.onChildDone()
 	}
-	if extErr != nil {
-		failedResult := finalizeDelegateFailure(spec, state, runUsage, extErr, events, tc, logger)
+
+	runUsage := tokenUsageOf(state)
+	tc.add("child_run_complete", "child run finished", runStateFields(childCtx, state, err))
+
+	if err != nil {
+		failedResult := finalizeDelegateFailure(spec, state, runUsage, err, events, tc, logger)
 
 		return failedResult, state, runUsage, nil
 	}
@@ -175,12 +150,11 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 	result.AdvisorBudget = spec.AdvisorBudget
 
 	tc.add("result", "status mapped", map[string]any{
-		"status":             string(result.Status),
-		"stop_reason":        string(state.StopReason),
-		"turns_used":         result.TurnCount,
-		"tokens_used":        result.TokenCount,
-		"extensions_granted": extensionsGranted,
-		"has_output":         strings.TrimSpace(result.Output) != "",
+		"status":      string(result.Status),
+		"stop_reason": string(state.StopReason),
+		"turns_used":  result.TurnCount,
+		"tokens_used": result.TokenCount,
+		"has_output":  strings.TrimSpace(result.Output) != "",
 	})
 
 	tc.add("result_final", "final result", map[string]any{"tokens_used": result.TokenCount, "status": string(result.Status)})
@@ -251,58 +225,6 @@ func applyRemediationResult(
 		result.SessionResumable = remediationResult.SessionResumable
 	}
 	return state, runUsage, result
-}
-
-// runChildToCompletion executes the Delegate Extension loop.
-// It re-runs the child agent when it stops with StopReasonMaxTurns and
-// pending tool calls, up to maxDelegateExtensions times.
-// Returns the final state, number of extensions granted, and any error
-// from the last extension run.
-func runChildToCompletion(
-	ctx context.Context,
-	req agent.RunRequest,
-	runner AgentRunner,
-	originalMaxTurns int,
-	events output.EventSink,
-	tc *traceCollector,
-	state agent.RunState,
-	agentID string,
-) (agent.RunState, TokenUsage, int, error) {
-	extensionsGranted := 0
-	usage := tokenUsageOf(state)
-	for ext := 0; ext < maxDelegateExtensions; ext++ {
-		if !delegateNeedsExtension(state) {
-			tc.add("extension_check", "extension not needed", map[string]any{
-				"iteration":          ext,
-				"stop_reason":        string(state.StopReason),
-				"last_msg_has_tools": lastMessageHasTools(state),
-			})
-			break
-		}
-		extensionsGranted++
-		tc.add("extension", "granting extension", map[string]any{
-			"iteration":      ext + 1,
-			"max_extensions": maxDelegateExtensions,
-			"new_max_turns":  state.TurnCount + originalMaxTurns,
-		})
-		if events != nil {
-			events.Emit(output.NewDelegationExtensionEvent(agentID, ext+1, maxDelegateExtensions))
-		}
-		req.Prompt.Conversation = agent.ToProviderMessages(state.Conversation)
-		req.Limits.MaxTurns = state.TurnCount + originalMaxTurns
-		req.TurnBudgetNotice = turnBudgetNoticeFunc(maxDelegateExtensions - (ext + 1))
-		nextState, extensionErr := runner.Run(ctx, req)
-
-		tc.add("extension_run_complete", fmt.Sprintf("extension %d finished", ext+1), runStateFields(ctx, nextState, extensionErr))
-
-		if extensionErr != nil {
-			usage = usage.Add(tokenUsageOf(nextState))
-			return state, usage, extensionsGranted, extensionErr
-		}
-		state = nextState
-		usage = usage.Add(tokenUsageOf(nextState))
-	}
-	return state, usage, extensionsGranted, nil
 }
 
 func finalizeDelegateFailure(spec Spec, state agent.RunState, runUsage TokenUsage, err error, events output.EventSink, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {

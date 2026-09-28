@@ -473,16 +473,6 @@ func NewDisplayFileEvent(payload DisplayFilePayload) Event {
 	return newEvent(EventTypeDisplayFile, payload)
 }
 
-// NewDelegationExtensionEvent creates a delegation_extension event when the
-// delegate auto-extends past its original max_turns budget.
-func NewDelegationExtensionEvent(agentID string, extension, maxExtensions int) Event {
-	return newEvent(EventTypeDelegationExtension, DelegationExtensionEvent{
-		AgentID:       agentID,
-		Extension:     extension,
-		MaxExtensions: maxExtensions,
-	})
-}
-
 // NewDelegationWorktreeDisposalEvent creates a worktree disposal event.
 func NewDelegationWorktreeDisposalEvent(agentID string, removed bool, errMsg string) Event {
 	return newEvent(EventTypeDelegationWorktreeDisposal, DelegationWorktreeDisposalEvent{

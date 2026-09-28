@@ -72,8 +72,6 @@ const (
 	EventTypeDelegationComplete = "delegation_complete"
 	// EventTypeDelegationFailed marks failed sub-agent completion.
 	EventTypeDelegationFailed = "delegation_failed"
-	// EventTypeDelegationExtension records delegation-specific auxiliary events.
-	EventTypeDelegationExtension = "delegation_extension"
 	// EventTypeDelegationWorktreeDisposal records disposal of a cancelled code agent worktree.
 	EventTypeDelegationWorktreeDisposal = "delegation_worktree_disposal"
 	// EventTypeDelegationCacheWaiting marks a sub-agent delegation gated behind a shared prompt-cache dispatch slot.
@@ -497,13 +495,6 @@ type DelegationFailedEvent struct {
 	AdvisorBudget int    `json:"advisor_budget,omitempty"`
 	AdvisorUses   int    `json:"advisor_uses,omitempty"`
 	AdvisorDenied int    `json:"advisor_denied,omitempty"`
-}
-
-// DelegationExtensionEvent is the payload for EventTypeDelegationExtension.
-type DelegationExtensionEvent struct {
-	AgentID       string `json:"agent_id"`
-	Extension     int    `json:"extension"`
-	MaxExtensions int    `json:"max_extensions"`
 }
 
 // DelegationWorktreeDisposalEvent records disposal of a cancelled code agent worktree.
