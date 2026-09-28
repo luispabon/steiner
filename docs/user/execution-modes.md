@@ -7,7 +7,7 @@ For prompt-prefix, executor, child propagation, and session restoration mechanic
 ## Mode semantics
 
 - **`build`**: the default mode. Normal workspace editing: `mutate`, `bash`, and the `code` sub-agent tool are available without restriction.
-- **`plan`**: project edits are restricted. Writes outside `.steiner/plans/` and `.steiner/security/` are denied; plan artifacts go under `.steiner/plans/` and security-audit reports under `.steiner/security/`. Plan mode also serves as chat and Q&A mode.
+- **`plan`**: project edits are restricted. Writes outside `.steiner/plans/` and `.steiner/security/` are denied; plan artifacts go under `.steiner/plans/` and security-audit reports under `.steiner/security/`. Plan-mode tool writes cannot traverse symlinks outside approved directories, and a symlink used as an approved directory is denied. Plan mode also serves as chat and Q&A mode.
 
 There is no third `chat` mode and no auto-detection. There is no `--mode` CLI flag; execution modes apply to interactive sessions only. Oneshot and non-interactive `exec` runs are unaffected. Use `--profile <name>` to select model assignments; it is separate from execution-mode selection.
 

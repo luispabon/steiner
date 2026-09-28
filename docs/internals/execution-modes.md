@@ -10,7 +10,7 @@ Mode switching therefore changes dynamic conversation content only. The mode not
 
 ## Enforcement call chain
 
-The write restriction for `mutate` and other path-writing tools, and the denial of `code` delegation in plan mode, are enforced in `internal/tool` and `internal/delegation` regardless of sandbox availability. Filesystem read-only behavior for `bash` and config-defined subprocess tools depends on the sandbox.
+The write restriction for `mutate` and other path-writing tools, and the denial of `code` delegation in plan mode, are enforced in `internal/tool` and `internal/delegation` regardless of sandbox availability. Plan-mode writes keep the lexical allowlist check, then resolve the target against the original approved directory under the resolved project root. This blocks symlink traversal outside approved directories and rejects symlinked approved directories themselves. Filesystem read-only behavior for `bash` and config-defined subprocess tools depends on the sandbox.
 
 The executor resolves the sandbox decision once per tool call in `internal/tool.Executor.runPipeline`. Both the `bash` and subprocess dispatch paths consume that same `readOnlyProject` decision. An earlier implementation computed the paths independently, which let a config-defined subprocess tool retain a writable project mount in plan mode while `bash` was read-only. The shared resolution now keeps those paths aligned.
 
