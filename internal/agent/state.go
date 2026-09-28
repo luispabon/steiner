@@ -245,6 +245,7 @@ type RunState struct {
 	Context             ContextState
 	WorkflowHandoff     *tool.WorkflowHandoffTransition
 	BudgetNoticesIssued int
+	BudgetStartTurn     int
 }
 
 // Clone returns a deep copy of the run state.
@@ -261,6 +262,7 @@ func (s RunState) Clone() RunState {
 		Context:             s.Context.Clone(),
 		WorkflowHandoff:     cloneWorkflowHandoffTransition(s.WorkflowHandoff),
 		BudgetNoticesIssued: s.BudgetNoticesIssued,
+		BudgetStartTurn:     s.BudgetStartTurn,
 	}
 }
 

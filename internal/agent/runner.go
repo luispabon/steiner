@@ -252,6 +252,7 @@ func initializeRunState(req RunRequest) RunState {
 		Lineage:      newConversationLineage(conversation),
 	}
 	state.TurnCount = initialConversationTurnCount(conversation)
+	state.BudgetStartTurn = state.TurnCount
 	return state
 }
 

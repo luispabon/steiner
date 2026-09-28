@@ -7,10 +7,12 @@ import (
 
 func TestInjectTurnBudgetNoticeIfDue_ThresholdSequences(t *testing.T) {
 	tests := []struct {
-		name      string
-		maxTurns  int
-		turns     []int
-		wantTurns []int
+		name       string
+		startTurn  int
+		maxTurns   int
+		turns      []int
+		wantTurns  []int
+		wantParams [][2]int
 	}{
 		{
 			name:      "120 turn cap",
@@ -30,18 +32,32 @@ func TestInjectTurnBudgetNoticeIfDue_ThresholdSequences(t *testing.T) {
 			turns:     []int{10, 10},
 			wantTurns: []int{10},
 		},
+		{
+			name:       "follow-up run measures from start turn",
+			startTurn:  120,
+			maxTurns:   240,
+			turns:      []int{121, 180, 210, 228},
+			wantTurns:  []int{180, 210, 228},
+			wantParams: [][2]int{{60, 120}, {90, 120}, {108, 120}},
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			original := []Message{{Role: MessageRoleUser, Content: "hello"}}
 			state := RunState{
-				Conversation: cloneMessages(original),
-				Lineage:      newConversationLineage(original),
+				TurnCount:       test.startTurn,
+				BudgetStartTurn: test.startTurn,
+				Conversation:    cloneMessages(original),
+				Lineage:         newConversationLineage(original),
 			}
+			var gotParams [][2]int
 			req := RunRequest{
-				Limits:           Limits{MaxTurns: test.maxTurns},
-				TurnBudgetNotice: func(_, _ int) string { return "notice" },
+				Limits: Limits{MaxTurns: test.maxTurns},
+				TurnBudgetNotice: func(turnsUsed, maxTurns int) string {
+					gotParams = append(gotParams, [2]int{turnsUsed, maxTurns})
+					return "notice"
+				},
 			}
 
 			var gotTurns []int
@@ -65,6 +81,9 @@ func TestInjectTurnBudgetNoticeIfDue_ThresholdSequences(t *testing.T) {
 			}
 			if !reflect.DeepEqual(gotTurns, test.wantTurns) {
 				t.Fatalf("notice turns = %v, want %v", gotTurns, test.wantTurns)
+			}
+			if test.wantParams != nil && !reflect.DeepEqual(gotParams, test.wantParams) {
+				t.Fatalf("notice callback params = %v, want %v", gotParams, test.wantParams)
 			}
 			if !reflect.DeepEqual(state.Conversation, state.Lineage.FullMessages()) {
 				t.Fatal("conversation and lineage diverged")
