@@ -1268,43 +1268,6 @@ func TestTwoDelegationStartedEventsBeforeParentToolCallsBindCorrectly(t *testing
 	}
 }
 
-func TestDelegationExtensionEventUpdatesCorrectEntryInGroup(t *testing.T) {
-	t.Parallel()
-	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
-	}
-
-	// Create a group with 2 entries
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "first"}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_2", map[string]any{"type": "code", "task": "second"}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
-
-	// Send DelegationExtensionEvent for entry 0
-	buffer.AppendEvent(output.Event{
-		Type: output.EventTypeDelegationExtension,
-		Payload: output.DelegationExtensionEvent{
-			AgentID:       "child-1",
-			Extension:     3,
-			MaxExtensions: 5,
-		},
-	})
-
-	group := buffer.segments[0].delegGroupData
-	// Entry 0 should be updated
-	if group.entries[0].extCurrent != 3 || group.entries[0].extMax != 5 {
-		t.Errorf("entry[0] ext = %d/%d, want 3/5", group.entries[0].extCurrent, group.entries[0].extMax)
-	}
-	// Entry 1 should be unchanged
-	if group.entries[1].extCurrent != 0 || group.entries[1].extMax != 5 {
-		t.Errorf("entry[1] ext = %d/%d, want 0/5", group.entries[1].extCurrent, group.entries[1].extMax)
-	}
-}
-
 func TestToolCallFinishedWithErrorMarksonlyGroupEntryFailed(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{

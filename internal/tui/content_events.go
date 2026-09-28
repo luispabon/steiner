@@ -239,8 +239,6 @@ type delegationDisplayState struct {
 	briefConstraints      []string
 	briefSuccessCriteria  []string
 	briefChecks           []string
-	extCurrent            int
-	extMax                int
 }
 
 type imagesAttachedRowData struct {
@@ -366,7 +364,6 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeDelegationComplete:     (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationCacheWaiting: (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationFailed:       (*contentBuffer).appendDelegationEvent,
-	output.EventTypeDelegationExtension:    (*contentBuffer).appendDelegationEvent,
 	output.EventTypeAdvisorStarted:         (*contentBuffer).appendAdvisorEvent,
 	output.EventTypeAdvisorComplete:        (*contentBuffer).appendAdvisorEvent,
 	output.EventTypeAdvisorBudgetExhausted: (*contentBuffer).appendAdvisorEvent,

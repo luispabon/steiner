@@ -9,8 +9,7 @@ import (
 )
 
 const (
-	delegationTranscriptLimit     = 100
-	defaultDelegationExtensionMax = 5
+	delegationTranscriptLimit = 100
 )
 
 // forEachDelegationReverse walks every delegation newest-first across both
@@ -46,8 +45,6 @@ func (b *contentBuffer) appendDelegationEvent(event output.Event) {
 		b.handleDelegationComplete(event)
 	case output.EventTypeDelegationFailed:
 		b.handleDelegationFailed(event)
-	case output.EventTypeDelegationExtension:
-		b.handleDelegationExtension(event)
 	default:
 		b.appendStyled(formatDelegationEvent(event), segmentPlain)
 	}
@@ -586,7 +583,6 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 			collapsed:       true,
 			isFollowUp:      true,
 			followUpAgentID: childAgentID,
-			extMax:          defaultDelegationExtensionMax,
 		}
 		loc.seg = b.appendDelegationSegment(loc.dd)
 	}
@@ -637,36 +633,12 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		parentArgs:      summary,
 		status:          "active",
 		collapsed:       true,
-		extMax:          defaultDelegationExtensionMax,
 	}
 	if brief != nil {
 		dd.applyStructuredBrief(*brief)
 	}
 	idx := b.appendDelegationSegment(dd)
 	b.pendingDelegateParents = append(b.pendingDelegateParents, delegationLocator{seg: idx, dd: dd})
-}
-
-func (b *contentBuffer) handleDelegationExtension(event output.Event) {
-	payload, ok := event.Payload.(output.DelegationExtensionEvent)
-	if !ok {
-		return
-	}
-	if loc, active := b.activeDelegations[payload.AgentID]; active {
-		if loc.dd != nil {
-			loc.dd.extCurrent = payload.Extension
-			loc.dd.extMax = payload.MaxExtensions
-			b.markDelegationDirty(loc.seg)
-		}
-		return
-	}
-	// Also check completed/failed segments that may no longer be active.
-	if loc, found := b.findDelegation(payload.AgentID); found {
-		if loc.dd != nil {
-			loc.dd.extCurrent = payload.Extension
-			loc.dd.extMax = payload.MaxExtensions
-			b.markDelegationDirty(loc.seg)
-		}
-	}
 }
 
 func (b *contentBuffer) handleDelegationCacheWaiting(event output.Event) {
@@ -717,7 +689,6 @@ func (b *contentBuffer) appendToolCallQueuedEvent(event output.Event) {
 		queuedForSlot:   true,
 		status:          "active",
 		collapsed:       true,
-		extMax:          defaultDelegationExtensionMax,
 	}
 	if brief != nil {
 		dd.applyStructuredBrief(*brief)
@@ -780,7 +751,6 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 		dd.startTime = nanoNow()
 		dd.status = "active"
 		dd.collapsed = true
-		dd.extMax = defaultDelegationExtensionMax
 		b.activeDelegations[payload.AgentID] = loc
 		b.markDelegationDirty(loc.seg)
 	}
@@ -809,7 +779,6 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 		startTime:       nanoNow(),
 		status:          "active",
 		collapsed:       true,
-		extMax:          defaultDelegationExtensionMax,
 	}
 	if modelAlias != "" {
 		dd.modelName, dd.reasoning = b.resolveAliasBadge(modelAlias)

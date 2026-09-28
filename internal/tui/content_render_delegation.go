@@ -575,9 +575,6 @@ func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string
 	if dd.cacheHitOK {
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Cache: %s", formatCacheHitRate(dd.cacheHitRate, dd.cacheHitOK))))
 	}
-	if dd.extMax > 0 {
-		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Extension: %d/%d", dd.extCurrent, dd.extMax)))
-	}
 	if advStats := b.renderDelegationStatsAdvisor(dd); advStats != "" {
 		parts = append(parts, advStats)
 	}
