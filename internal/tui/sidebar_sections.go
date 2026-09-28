@@ -237,8 +237,8 @@ func (s sidebarState) performanceSection(width int) []string {
 		cardFieldN("duration", keyW, s.styles.FgDim, fitText(formatDuration(s.perfDurationMs), w-keyW+7), s.styles),
 		cardFieldN("ttft", keyW, s.styles.FgDim, fitText(formatDuration(s.perfTTFTMs), w-keyW+7), s.styles),
 		cardFieldN("tps", keyW, s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w-keyW+7), s.styles),
-		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.lastRequestCacheRate, s.lastRequestCacheRateOK, "request"), w-keyW+7), s.styles),
-		cardFieldN("", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.sessionCacheHitRate, s.sessionCacheHitRateOK, "session"), w-keyW+7), s.styles),
+		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.lastRequestCacheRate, s.lastRequestCacheRateOK, "request", w-keyW+7), w-keyW+7), s.styles),
+		cardFieldN("", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.sessionCacheHitRate, s.sessionCacheHitRateOK, "session", w-keyW+7), w-keyW+7), s.styles),
 		s.sessionRow(w),
 	}
 }
@@ -269,14 +269,14 @@ func (s sidebarState) sessionRow(width int) string {
 }
 
 // formatCacheHitWithScope renders a cache hit rate with its scope when it fits.
-func formatCacheHitWithScope(rate float64, ok bool, scope string) string {
+func formatCacheHitWithScope(rate float64, ok bool, scope string, width int) string {
 	value := formatCacheHitRate(rate, ok)
 	full := value + " · " + scope
-	if len(full) <= sidebarWidth-sidebarPadH*2-10 {
+	if lipgloss.Width(full) <= width {
 		return full
 	}
 	short := value + " · " + map[string]string{"request": "req", "session": "sess"}[scope]
-	if len(short) <= sidebarWidth-sidebarPadH*2-10 {
+	if lipgloss.Width(short) <= width {
 		return short
 	}
 	return value

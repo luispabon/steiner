@@ -152,6 +152,20 @@ func TestHandleDelegationCompleteSetsCacheHitRateFromPayload(t *testing.T) {
 	}
 }
 
+func TestDelegationCompleteOverridesLiveCacheTotals(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	b.AppendEvent(output.NewDelegationStartedEvent("child-final-cache", "inspect"))
+	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 200, CacheReadTokens: 150, CompletionTokens: 4}), "child-final-cache"))
+	b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID: "child-final-cache", Status: "complete", InputTokens: 30, CacheReadTokens: 70, TokenCount: 10,
+	}))
+	dd := delegationStates(b)[0]
+	if dd.status != "complete" || dd.inputTokens != 30 || dd.cacheReadTokens != 70 || dd.cacheHitRate != 0.7 {
+		t.Fatalf("final delegation cache state = %#v, want authoritative 70/100 totals", dd)
+	}
+}
+
 func TestScopedDelegationEvents(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -431,12 +445,25 @@ func TestDelegationModelCallUsageKeepsLatestPromptContextFill(t *testing.T) {
 	b.AppendEvent(output.NewDelegationStartedEvent("child-live-cache", "inspect"))
 	b.AppendEvent(output.WithAgentScope(output.NewContextTokenBudgetEvent("conversation", 1, 100, 250, 1000, 10, 80, 0, 100, "ok", false), "child-live-cache"))
 	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 120, CacheReadTokens: 70, CompletionTokens: 8}), "child-live-cache"))
+	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 100, CacheReadTokens: 25, CompletionTokens: 3}), "child-live-cache"))
 	loc := b.activeDelegations["child-live-cache"]
+	if loc.dd.cacheReadTokens != 95 || loc.dd.inputTokens != 125 {
+		t.Fatalf("live cache totals = read %d input %d, want read 95 input 125", loc.dd.cacheReadTokens, loc.dd.inputTokens)
+	}
+	if !loc.dd.latestCacheHitOK || loc.dd.latestCacheHitRate != 0.25 {
+		t.Fatalf("latest cache = %v/%v, want 25%%", loc.dd.latestCacheHitRate, loc.dd.latestCacheHitOK)
+	}
+	if got := stripANSI(b.renderDelegationHeaderMeta(loc.dd)); !strings.Contains(got, "cache 43.2%") {
+		t.Fatalf("running header meta = %q, want visible accumulated cache rate", got)
+	}
+	if got := stripANSI(b.renderDelegationStatsRow(loc.dd)); !strings.Contains(got, "Cache: 25.0% latest req · 43.2% session") {
+		t.Fatalf("running stats row = %q, want latest and session cache rates", got)
+	}
 	if loc.dd.promptTokens != 250 {
 		t.Fatalf("promptTokens = %d after usage event, want latest context fill 250", loc.dd.promptTokens)
 	}
-	if loc.dd.tokenCount != 8 {
-		t.Fatalf("tokenCount = %d, want 8", loc.dd.tokenCount)
+	if loc.dd.tokenCount != 11 {
+		t.Fatalf("tokenCount = %d, want accumulated total 11", loc.dd.tokenCount)
 	}
 }
 

@@ -84,13 +84,13 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 				}
 
 				cachedTotal := row.CacheReadTokens + row.InputTokens + row.CacheCreateTokens
-				provider := row.ProviderAlias
+				model := row.BackendModelID
 				if row.Advisor {
-					provider += " (advisor)"
+					model += " (advisor)"
 				}
 				fmt.Fprintf(&sb, "| %s | %s | %s | %d / %d | %s | %s |\n",
-					provider,
-					row.BackendModelID,
+					row.ProviderAlias,
+					model,
 					hitRateStr,
 					row.CacheReadTokens,
 					cachedTotal,

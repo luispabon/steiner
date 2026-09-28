@@ -569,6 +569,28 @@ func TestFormatCacheHitRate(t *testing.T) {
 	}
 }
 
+func TestFormatCacheHitWithScopeWidth(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		width int
+		want  string
+	}{
+		{15, "78.2% · request"},
+		{11, "78.2% · req"},
+		{5, "78.2%"},
+		{12, "78.2% · sess"},
+	}
+	for _, tc := range cases {
+		scope := "request"
+		if tc.width == 12 {
+			scope = "session"
+		}
+		if got := formatCacheHitWithScope(0.782, true, scope, tc.width); got != tc.want {
+			t.Errorf("formatCacheHitWithScope width %d = %q, want %q", tc.width, got, tc.want)
+		}
+	}
+}
+
 func TestContextGaugeLine(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
