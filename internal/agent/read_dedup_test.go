@@ -43,7 +43,7 @@ func TestDedupReadResult(t *testing.T) {
 		{
 			name:       "newest matching read wins",
 			current:    makeContent(base),
-			prior:      []Message{priorRead(base, 4), priorRead(base, 2)},
+			prior:      []Message{priorRead(base, 2), priorRead(base, 4)},
 			wantAction: "annotated",
 			wantReason: "unchanged since turn 4",
 			wantTurn:   4,

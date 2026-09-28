@@ -2,7 +2,8 @@ package agent
 
 import "time"
 
-// Limits constrains a run by turns, tokens, and tool execution time.
+// Limits constrains a run by turns, tokens, and tool execution time. The
+// default sub-agent output token limit is 400000.
 type Limits struct {
 	MaxTurns    int
 	MaxTokens   int

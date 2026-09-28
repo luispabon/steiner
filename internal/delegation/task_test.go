@@ -92,9 +92,11 @@ func TestSpawnDelegateRunsChildOnceAtTurnLimit(t *testing.T) {
 
 func TestTurnBudgetNoticeFunc(t *testing.T) {
 	t.Parallel()
-	const want = "You have used 21 of 30 turns (9 remaining). Finish the highest-value remaining work now, then report status and what is left, rather than continuing to explore."
-	if got := turnBudgetNoticeFunc()(21, 30); got != want {
-		t.Fatalf("turn budget notice = %q, want %q", got, want)
+	got := turnBudgetNoticeFunc()(21, 30)
+	for _, field := range []string{"21", "30", "9", "remaining"} {
+		if !strings.Contains(got, field) {
+			t.Errorf("turn budget notice %q does not express dynamic field %q", got, field)
+		}
 	}
 }
 

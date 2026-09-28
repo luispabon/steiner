@@ -518,6 +518,9 @@ func TestPerformanceSection(t *testing.T) {
 			if !strings.Contains(joined, tc.wantCacheHitValue) {
 				t.Errorf("performanceSection() missing cache hit value %q in %q", tc.wantCacheHitValue, joined)
 			}
+			if !strings.Contains(joined, "cache hit") {
+				t.Errorf("performanceSection() missing cache hit label in %q", joined)
+			}
 		})
 	}
 }

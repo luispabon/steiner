@@ -73,16 +73,19 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 		} else {
 			// Sort rows deterministically
 			slices.SortFunc(report.Rows, func(a, b usagestats.Row) int {
-				if a.Advisor != b.Advisor {
-					if !a.Advisor {
-						return -1
-					}
-					return 1
-				}
 				if a.ProviderAlias != b.ProviderAlias {
 					return strings.Compare(a.ProviderAlias, b.ProviderAlias)
 				}
-				return strings.Compare(a.BackendModelID, b.BackendModelID)
+				if a.BackendModelID != b.BackendModelID {
+					return strings.Compare(a.BackendModelID, b.BackendModelID)
+				}
+				if a.Advisor == b.Advisor {
+					return 0
+				}
+				if !a.Advisor {
+					return -1
+				}
+				return 1
 			})
 
 			sb.WriteString("| Provider | Model | Hit rate | Cached / Total | Uncached/req | Cached/req |\n")

@@ -425,6 +425,21 @@ func TestUnknownDelegationTerminalEventsUseFallbackDisplay(t *testing.T) {
 	}
 }
 
+func TestDelegationModelCallUsageKeepsLatestPromptContextFill(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	b.AppendEvent(output.NewDelegationStartedEvent("child-live-cache", "inspect"))
+	b.AppendEvent(output.WithAgentScope(output.NewContextTokenBudgetEvent("conversation", 1, 100, 250, 1000, 10, 80, 0, 100, "ok", false), "child-live-cache"))
+	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 120, CacheReadTokens: 70, CompletionTokens: 8}), "child-live-cache"))
+	loc := b.activeDelegations["child-live-cache"]
+	if loc.dd.promptTokens != 250 {
+		t.Fatalf("promptTokens = %d after usage event, want latest context fill 250", loc.dd.promptTokens)
+	}
+	if loc.dd.tokenCount != 8 {
+		t.Fatalf("tokenCount = %d, want 8", loc.dd.tokenCount)
+	}
+}
+
 func TestDelegationContextUsesRawPromptTokensForFill(t *testing.T) {
 	t.Parallel()
 	b := newTestBuffer(t)

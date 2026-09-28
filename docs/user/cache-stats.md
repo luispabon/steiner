@@ -30,7 +30,7 @@ Windows use wall-clock time and hourly buckets. Older data is pruned after 8 day
 
 ### In-session sidebar field
 
-The `PERFORMANCE` sidebar card includes `cache hit`, alongside `duration`, `ttft`, and `tps`. It shows the current session's token-weighted rate, for example `78.2%`, or `—` before the first cache-capable parent call. It updates after each model response. The sidebar covers the top-level orchestrator; sub-agent and advisor calls do not feed this field.
+The `PERFORMANCE` sidebar card includes two annotated cache-hit values: `cache hit` for the latest request and a blank, padded label line for the session rate. The values use full `latest req` and `session` suffixes when space allows, falling back to narrow `req` and `sess` suffixes. The session rate is token-weighted, for example `78.2%`, or `—` before the first cache-capable parent call. It updates after each model response. The sidebar covers the top-level orchestrator; sub-agent and advisor calls do not feed these fields.
 
 ### Sub-agent and advisor tool boxes
 

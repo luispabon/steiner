@@ -237,8 +237,8 @@ func (s sidebarState) performanceSection(width int) []string {
 		cardFieldN("duration", keyW, s.styles.FgDim, fitText(formatDuration(s.perfDurationMs), w-keyW+7), s.styles),
 		cardFieldN("ttft", keyW, s.styles.FgDim, fitText(formatDuration(s.perfTTFTMs), w-keyW+7), s.styles),
 		cardFieldN("tps", keyW, s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w-keyW+7), s.styles),
-		cardFieldN("last req", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.lastRequestCacheRate, s.lastRequestCacheRateOK, "request"), w-keyW+7), s.styles),
-		cardFieldN("this session", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.sessionCacheHitRate, s.sessionCacheHitRateOK, "session"), w-keyW+7), s.styles),
+		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.lastRequestCacheRate, s.lastRequestCacheRateOK, "request"), w-keyW+7), s.styles),
+		cardFieldN("", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.sessionCacheHitRate, s.sessionCacheHitRateOK, "session"), w-keyW+7), s.styles),
 		s.sessionRow(w),
 	}
 }

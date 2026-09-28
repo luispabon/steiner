@@ -201,6 +201,9 @@ func renderModelCallFinishedEvent(payload ModelCallFinishedEvent) Segment {
 	parts = appendField(parts, "finish", payload.FinishReason)
 	parts = appendIntField(parts, "tool_calls", payload.ToolCalls)
 	parts = appendIntField(parts, "tokens", payload.CompletionTokens)
+	parts = appendIntField(parts, "prompt_tokens", payload.PromptTokens)
+	parts = appendIntField(parts, "cache_read_tokens", payload.CacheReadTokens)
+	parts = appendIntField(parts, "cache_create_tokens", payload.CacheCreateTokens)
 	channel, label := errorChannel(payload.Error != "")
 	if payload.Error != "" {
 		parts = append(parts, fmt.Sprintf("error=%s", payload.Error))

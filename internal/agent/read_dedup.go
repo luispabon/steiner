@@ -39,7 +39,8 @@ func dedupReadResult(content string, _ int, prior []Message) (string, readDedupO
 	if !ok {
 		return content, full
 	}
-	for _, message := range prior {
+	for i := len(prior) - 1; i >= 0; i-- {
+		message := prior[i]
 		if !matchesPriorRead(message, result, currentPath) {
 			continue
 		}
