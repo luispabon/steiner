@@ -405,6 +405,55 @@ func TestCompactionCacheDiagnosticDoesNotPromoteBaseline(t *testing.T) {
 	}
 }
 
+func TestCompleteCompactionCallEmitsDiagnosticWithoutPromotingBaseline(t *testing.T) {
+	resetColdStart(t)
+	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
+	store := NewCacheBaselineStore()
+	prov := &fakeProvider{responses: []provider.ChatResponse{{
+		Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "summary"},
+		Usage:   &provider.UsageStats{PromptTokens: 20, CompletionTokens: 4},
+	}}}
+	req := RunRequest{
+		Provider:       prov,
+		Diagnostics:    w,
+		CacheBaseline:  store,
+		PromptCacheKey: "key",
+		ResolvedModel:  provider.ResolvedModel{BackendModelID: "model"},
+		Events:         output.NoopSink{},
+	}
+	initial := []provider.Message{{Role: provider.MessageRoleUser, Content: "original"}}
+	initialStats := computeRequestCacheStats(req, initial)
+	promoteRequestCacheStats(req, initialStats)
+
+	compactionMessages := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "summary"},
+		{Role: provider.MessageRoleUser, Content: "compaction instruction"},
+	}
+	if _, err := completeCompactionCall(context.Background(), req, 2, provider.ChatRequest{Model: "model", Messages: compactionMessages}, prompt.ModelTokenBudget{}, nil); err != nil {
+		t.Fatalf("completeCompactionCall() error = %v", err)
+	}
+
+	records := readCacheRecords(t, dir)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	var payload cachePayload
+	if err := json.Unmarshal(mustMarshal(t, records[0].Payload), &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.CallKind != "compaction" {
+		t.Fatalf("CallKind = %q, want compaction", payload.CallKind)
+	}
+	if payload.MessageCount != len(compactionMessages) {
+		t.Fatalf("MessageCount = %d, want %d", payload.MessageCount, len(compactionMessages))
+	}
+
+	nextNormal := computeRequestCacheStats(req, append(initial, provider.Message{Role: provider.MessageRoleAssistant, Content: "next"}))
+	if !nextNormal.predecessorKnown || nextNormal.sharedPrefixMessages != len(initial) {
+		t.Fatalf("next normal stats = %+v, want baseline from before compaction", nextNormal)
+	}
+}
+
 func TestPromoteRequestCacheStats_NoOpWhenComparisonDisabled(t *testing.T) {
 	store := NewCacheBaselineStore()
 	req := RunRequest{CacheBaseline: store, ResolvedModel: provider.ResolvedModel{BackendModelID: "m"}}

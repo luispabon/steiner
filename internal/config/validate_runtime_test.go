@@ -74,6 +74,34 @@ func TestValidateToolsConfigReservedNames(t *testing.T) {
 	}
 }
 
+func TestValidateSubAgentConfigMinimumMaxTurns(t *testing.T) {
+	for maxTurns := 1; maxTurns < 15; maxTurns++ {
+		t.Run(fmt.Sprintf("max_turns_%d", maxTurns), func(t *testing.T) {
+			var problems []string
+			validateSubAgentConfig(&problems, SubAgentConfig{
+				Enabled:            true,
+				MaxParallel:        1,
+				MaxTurns:           maxTurns,
+				MaxTokens:          1,
+				MaxFollowUps:       1,
+				OrchestrationLevel: OrchestrationLevelStandard,
+			})
+			if !containsProblem(problems, "sub_agent.max_turns must be at least 15 when enabled") {
+				t.Fatalf("validateSubAgentConfig() problems = %v, want minimum max_turns error", problems)
+			}
+		})
+	}
+}
+
+func containsProblem(problems []string, want string) bool {
+	for _, problem := range problems {
+		if problem == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestValidateSubAgentConfigOrchestrationLevel(t *testing.T) {
 	tests := []struct {
 		name    string

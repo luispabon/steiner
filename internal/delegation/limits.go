@@ -5,11 +5,11 @@ import (
 )
 
 // DefaultLimits creates Limits from SubAgentConfig.
-// MaxTurns falls back to 15 for non-positive values, OutputLimitTokens from MaxTokens (default 400000),
-// Timeout defaults to 0 (no timeout).
+// MaxTurns has a hard minimum of 15 and falls back to 15 for non-positive values,
+// OutputLimitTokens from MaxTokens (default 400000), Timeout defaults to 0 (no timeout).
 func DefaultLimits(cfg config.SubAgentConfig) Limits {
 	maxTurns := cfg.MaxTurns
-	if maxTurns <= 0 {
+	if maxTurns < 15 {
 		maxTurns = 15
 	}
 

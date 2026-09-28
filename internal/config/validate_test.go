@@ -537,7 +537,7 @@ func TestValidate(t *testing.T) {
 				c.SubAgent.MaxTurns = 0
 				return c
 			}(),
-			wantErr: `max_turns must be at least 1 when enabled`,
+			wantErr: `max_turns must be at least 15 when enabled`,
 		},
 		{
 			name: "subagent zero max_tokens",

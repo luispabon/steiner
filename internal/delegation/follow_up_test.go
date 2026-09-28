@@ -133,8 +133,8 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 		t.Fatalf("handler returned error: %v", err)
 	}
 
-	if capturedReq.Limits.MaxTurns != 9 {
-		t.Fatalf("MaxTurns=%d, want 9 (session.TurnCount 2 + fresh MaxTurns 7)", capturedReq.Limits.MaxTurns)
+	if capturedReq.Limits.MaxTurns != 17 {
+		t.Fatalf("MaxTurns=%d, want 17 (session.TurnCount 2 + enforced fresh MaxTurns 15)", capturedReq.Limits.MaxTurns)
 	}
 	if capturedReq.Limits.MaxTokens != 77 {
 		t.Fatalf("MaxTokens=%d, want 77", capturedReq.Limits.MaxTokens)
@@ -260,7 +260,7 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 	if session.TurnCount != 5 {
 		t.Fatalf("stored TurnCount=%d, want 5", session.TurnCount)
 	}
-	if want := []int{1 + 5, 3 + 5}; len(maxTurns) != 2 || maxTurns[0] != want[0] || maxTurns[1] != want[1] {
+	if want := []int{1 + 15, 3 + 15}; len(maxTurns) != 2 || maxTurns[0] != want[0] || maxTurns[1] != want[1] {
 		t.Fatalf("follow-up MaxTurns=%v, want %v", maxTurns, want)
 	}
 	if session.TokenCount != 25 {
