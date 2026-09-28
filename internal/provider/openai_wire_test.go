@@ -1,12 +1,38 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
+	"net/url"
 	"reflect"
 	"testing"
 )
 
 func intPtr(v int) *int { return &v }
+
+func TestOpenAIWireOpencodeSessionHeaders(t *testing.T) {
+	baseURL, _ := url.Parse("https://example.test/v1")
+	wire := &openaiWire{baseURL: baseURL, headers: map[string]string{"X-Opencode-Session": "configured"}}
+	for _, tc := range []struct {
+		name, session, parent, wantSession, wantParent string
+	}{
+		{name: "empty transport preserves configured header", wantSession: "configured"},
+		{name: "explicit child transport and parent", session: "child-session", parent: "parent-session", wantSession: "child-session", wantParent: "parent-session"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := wire.HTTPRequest(context.Background(), ChatRequest{TransportSession: tc.session, ParentTransportSession: tc.parent}, nil, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := req.Header.Get("X-Opencode-Session"); got != tc.wantSession {
+				t.Errorf("X-Opencode-Session = %q, want %q", got, tc.wantSession)
+			}
+			if got := req.Header.Get("X-Parent-Session-Id"); got != tc.wantParent {
+				t.Errorf("X-Parent-Session-Id = %q, want %q", got, tc.wantParent)
+			}
+		})
+	}
+}
 
 func TestOpenAIUsageCacheFallbacks(t *testing.T) {
 	tests := []struct {

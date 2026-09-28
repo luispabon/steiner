@@ -24,6 +24,18 @@ import (
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
+func TestBuildChildRunRequestTransportSessions(t *testing.T) {
+	for _, tc := range []struct{ session, agentID, wantChild, wantParent string }{
+		{session: "parent-session", agentID: "agentID", wantChild: "parent-session-agentID", wantParent: "parent-session"},
+		{agentID: "agentID"},
+	} {
+		req := buildChildRunRequest(childRunRequestParams{SessionID: tc.session, AgentID: tc.agentID, VisibleReg: tool.NewRegistry(), ExecReg: tool.NewRegistry(), Sandbox: tool.Unsandboxed{}})
+		if req.TransportSession != tc.wantChild || req.ParentTransportSession != tc.wantParent {
+			t.Errorf("sessions = (%q, %q), want (%q, %q)", req.TransportSession, req.ParentTransportSession, tc.wantChild, tc.wantParent)
+		}
+	}
+}
+
 func TestWithAgentScopeAddsAgentType(t *testing.T) {
 	t.Parallel()
 	var got output.Event
