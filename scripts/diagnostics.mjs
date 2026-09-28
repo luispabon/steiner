@@ -265,6 +265,18 @@ function printCompareTable(title, rowsA, rowsB, columns) {
 // nonCached/cachedPerReq/uncachedPerReq/hitRate mirror
 // internal/usagestats/recorder.go / report.go exactly, so this script and
 // the Go /cache-stats surface agree on what "cached" means.
+function endpointSwitchCount(records) {
+	const conversations = groupBy(records.filter((r) => r.session_id && r.payload?.upstream_endpoint), (r) => `${r.run_id ?? ""}/${r.session_id}/${r.source ?? ""}/${r.agent_id ?? ""}`);
+	let switches = 0;
+	for (const calls of conversations.values()) {
+		calls.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+		for (let i = 1; i < calls.length; i++) {
+			if (calls[i - 1].payload.upstream_endpoint !== calls[i].payload.upstream_endpoint) switches++;
+		}
+	}
+	return switches;
+}
+
 function cacheMetrics(records) {
 	let promptSum = 0;
 	let cacheReadSum = 0;
@@ -303,8 +315,9 @@ function cacheMetrics(records) {
 		cachedPerReq: n > 0 ? cacheReadSum / n : 0,
 		uncachedPerReq: n > 0 ? (nonCachedSum + cacheCreateSum) / n : 0,
 		coldStarts,
-		callKinds: Object.fromEntries([...groupBy(records, (r) => r.payload?.call_kind || "normal")].map(([kind, xs]) => [kind, xs.length])),
+		callKinds: Object.fromEntries([...groupBy(records, (r) => r.payload?.call_kind || "turn")].map(([kind, xs]) => [kind, xs.length])),
 		endpoints: Object.fromEntries([...groupBy(records, (r) => r.payload?.upstream_endpoint || "(unknown)")].map(([endpoint, xs]) => [endpoint, xs.length])),
+		endpointSwitches: endpointSwitchCount(records),
 		coldWarmth: coldWarmthN > 0 ? coldWarmthSum / coldWarmthN : 0,
 	};
 }
@@ -315,6 +328,9 @@ const CACHE_COLUMNS = [
 	{ name: "uncached/req", value: (r) => r.metrics.uncachedPerReq, fmt: (v) => v.toFixed(0), fmtDelta: (d) => d.toFixed(0) },
 	{ name: "cold_starts", value: (r) => r.metrics.coldStarts, fmt: (v) => String(v), fmtDelta: (d) => d.toFixed(0) },
 	{ name: "cold_warmth", value: (r) => r.metrics.coldWarmth, fmt: (v) => (v * 100).toFixed(1) + "%", fmtDelta: (d) => (d * 100).toFixed(1) + "pp" },
+	{ name: "call_kinds", value: (r) => Object.entries(r.metrics.callKinds).map(([kind, count]) => `${kind}:${count}`).join(","), fmt: (v) => v || "-", fmtDelta: () => "-" },
+	{ name: "endpoints", value: (r) => Object.entries(r.metrics.endpoints).map(([endpoint, count]) => `${endpoint}:${count}`).join(","), fmt: (v) => v || "-", fmtDelta: () => "-" },
+	{ name: "endpoint_switches", value: (r) => r.metrics.endpointSwitches, fmt: (v) => String(v), fmtDelta: () => "-" },
 ];
 
 function cacheGroupRows(records, keyFn) {

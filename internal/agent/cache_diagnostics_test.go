@@ -102,8 +102,8 @@ func TestEmitCacheDiagnostic_FieldsAndColdStart(t *testing.T) {
 		CacheReadInputTokens:     40,
 		CacheCreationInputTokens: 5,
 	}
-	emitCacheDiagnostic(req, provider.ChatResponse{Usage: usage}, "", 3, requestCacheStats{prefixHash: "prefixhash", sharedPrefixMessages: 2})
-	emitCacheDiagnostic(req, provider.ChatResponse{Usage: usage}, "", 4, requestCacheStats{prefixHash: "prefixhash2", sharedPrefixMessages: 2})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: usage}, "", 3, requestCacheStats{prefixHash: "prefixhash", sharedPrefixMessages: 2, messageHashes: []string{"a", "b"}})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: usage}, "", 4, requestCacheStats{prefixHash: "prefixhash2", sharedPrefixMessages: 2, messageHashes: []string{"a", "b"}})
 
 	records := readCacheRecords(t, dir)
 	if len(records) != 2 {
@@ -133,8 +133,8 @@ func TestEmitCacheDiagnostic_FieldsAndColdStart(t *testing.T) {
 	if payload.PromptTokens != 100 || payload.CompletionTokens != 20 || payload.CacheReadTokens != 40 || payload.CacheCreateTokens != 5 {
 		t.Fatalf("token counts = %+v, want 100/20/40/5", payload)
 	}
-	if payload.MessageCount != 0 || payload.CallKind != "" || payload.UpstreamEndpoint != "" {
-		t.Fatalf("normal diagnostic metadata = %+v, want empty endpoint/kind and unset count", payload)
+	if payload.MessageCount != 2 || payload.CallKind != "" || payload.UpstreamEndpoint != "" {
+		t.Fatalf("normal diagnostic metadata = %+v, want message count 2 and empty endpoint/kind", payload)
 	}
 	if payload.CacheKeyHash == "" || payload.CacheKeyHash == "super-secret-key" {
 		t.Fatalf("CacheKeyHash = %q, want a non-empty hash that is not the key", payload.CacheKeyHash)

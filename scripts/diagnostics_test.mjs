@@ -36,11 +36,35 @@ test("cache mode: by-model row count and hand-computed hit rate", () => {
 	assert.equal(row.key, "claude-sonnet-5");
 	assert.equal(row.n, 6);
 	assert.equal(row.metrics.callKinds.compaction, 1);
+	assert.equal(row.metrics.callKinds.turn, 5);
 	assert.equal(row.metrics.endpoints["eu-west-1"], 1);
 	// Compaction records are included in cache mode aggregates.
 	// nonCached = max(prompt - read - create, 0) per record, summed = 0
 	// hit_rate = 2300 / (0 + 2300 + 3000) = 0.4339...
 	assert.ok(Math.abs(row.metrics.hitRate - 2320 / 5420) < 1e-9);
+});
+
+test("cache mode: table reports call kinds and per-endpoint counts", () => {
+	const out = execFileSync("node", [SCRIPT, "cache", "--dir", FIXTURES], { encoding: "utf8" });
+	assert.match(out, /call_kinds/);
+	assert.match(out, /turn:5,compaction:1/);
+	assert.match(out, /endpoints/);
+	assert.match(out, /eu-west-1:1/);
+});
+
+test("cache mode: counts endpoint switches only within identified conversations", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-cache-"));
+	try {
+		writeFileSync(join(dir, "cache.jsonl"), [
+			{ run_id: "run-1", session_id: "session-1", source: "parent", turn: 1, seq: 1, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "east" } },
+			{ run_id: "run-1", session_id: "session-1", source: "parent", turn: 2, seq: 2, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "west" } },
+			{ run_id: "run-2", source: "parent", turn: 1, seq: 1, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "west" } },
+		].map((record) => JSON.stringify(record)).join("\n") + "\n");
+		const out = run(["cache", "--dir", dir, "--json"]);
+		assert.equal(out["by model"][0].metrics.endpointSwitches, 1);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("cache mode: by-source groups parent and sub_agent separately", () => {
