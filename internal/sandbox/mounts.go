@@ -36,8 +36,7 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 	// Project workspace binding: read-only or writable depending on plan mode.
 	if readOnlyProject {
 		args = append(args, "--ro-bind", writableRoot, writableRoot)
-		for _, dir := range config.PlanModeWritableDirs() {
-			path := filepath.Join(writableRoot, filepath.FromSlash(dir))
+		for _, path := range planModeWritableBinds(writableRoot) {
 			args = append(args, "--bind", path, path)
 		}
 		// Plan mode keeps the working tree read-only but must still allow git
@@ -94,6 +93,44 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 	args = append(args, "--chdir", workDir)
 
 	return args
+}
+
+// planModeWritableBinds returns only existing, in-root plan directories safe to bind writable.
+func planModeWritableBinds(root string) []string {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil || !rootInfo.IsDir() {
+		return nil
+	}
+
+	steinerPath := filepath.Join(root, ".steiner")
+	steinerInfo, err := os.Lstat(steinerPath)
+	if err != nil || steinerInfo.Mode()&os.ModeSymlink != 0 || !steinerInfo.IsDir() {
+		return nil
+	}
+
+	var binds []string
+	for _, dir := range config.PlanModeWritableDirs() {
+		path := filepath.Join(root, filepath.FromSlash(dir))
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			continue
+		}
+		resolvedPath, err := filepath.EvalSymlinks(path)
+		if err != nil || !pathWithin(resolvedRoot, resolvedPath) {
+			continue
+		}
+		binds = append(binds, path)
+	}
+	return binds
+}
+
+func pathWithin(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // gitWritableBinds returns the absolute paths that must be bound writable

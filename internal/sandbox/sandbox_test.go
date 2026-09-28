@@ -116,6 +116,58 @@ func TestWrapCommandMode_True_CreatesSteinerdDir(t *testing.T) {
 	}
 }
 
+func TestEnsurePlanModeDirs_DoesNotFollowSymlinkedSteiner(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	if err := os.Symlink(external, filepath.Join(root, ".steiner")); err != nil {
+		t.Fatalf("symlink .steiner: %v", err)
+	}
+
+	ensurePlanModeDirs(root)
+
+	if _, err := os.Stat(filepath.Join(external, "plans")); !os.IsNotExist(err) {
+		t.Fatalf("expected no external plans directory, got err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(external, "security")); !os.IsNotExist(err) {
+		t.Fatalf("expected no external security directory, got err=%v", err)
+	}
+}
+
+func TestEnsurePlanModeDirs_DoesNotFollowSymlinkedLeaf(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".steiner"), 0o755); err != nil {
+		t.Fatalf("mkdir .steiner: %v", err)
+	}
+	external := t.TempDir()
+	if err := os.Symlink(external, filepath.Join(root, ".steiner", "plans")); err != nil {
+		t.Fatalf("symlink plans: %v", err)
+	}
+
+	ensurePlanModeDirs(root)
+
+	if _, err := os.Stat(filepath.Join(external, "plans")); !os.IsNotExist(err) {
+		t.Fatalf("expected no directory below external target, got err=%v", err)
+	}
+	if info, err := os.Lstat(filepath.Join(root, ".steiner", "plans")); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("expected plans symlink to remain unchanged, info=%v err=%v", info, err)
+	}
+	if info, err := os.Lstat(filepath.Join(root, ".steiner", "security")); err != nil || !info.IsDir() {
+		t.Fatalf("expected security directory to be created, info=%v err=%v", info, err)
+	}
+}
+
+func TestEnsurePlanModeDirs_CreatesNormalDirs(t *testing.T) {
+	root := t.TempDir()
+	ensurePlanModeDirs(root)
+
+	for _, dir := range config.PlanModeWritableDirs() {
+		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(dir)))
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			t.Errorf("expected normal plan directory %s, info=%v err=%v", dir, info, err)
+		}
+	}
+}
+
 func TestWrapCommand_Enabled_WrapsCommand(t *testing.T) {
 	restore := stubSandboxHooks(t, func(string) (string, error) {
 		return "/usr/bin/bwrap", nil

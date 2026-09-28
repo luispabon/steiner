@@ -72,12 +72,35 @@ func (s *Sandbox) TmpDir() string {
 }
 
 // ensurePlanModeDirs best-effort creates the plan-mode writable directories.
-// The binds fail if they still don't exist, but a failed create attempt must
-// not block sandboxing.
+// It never follows symlinks while creating .steiner or its leaf directories.
 func ensurePlanModeDirs(root string) {
-	for _, dir := range config.PlanModeWritableDirs() {
-		_ = os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755)
+	rootInfo, err := os.Stat(root)
+	if err != nil || !rootInfo.IsDir() {
+		return
 	}
+
+	steinerPath := filepath.Join(root, ".steiner")
+	if !ensurePlanModeDir(steinerPath) {
+		return
+	}
+	for _, dir := range config.PlanModeWritableDirs() {
+		path := filepath.Join(root, filepath.FromSlash(dir))
+		if filepath.Dir(path) != steinerPath {
+			continue
+		}
+		_ = ensurePlanModeDir(path)
+	}
+}
+
+func ensurePlanModeDir(path string) bool {
+	info, err := os.Lstat(path)
+	if err == nil {
+		return info.IsDir() && info.Mode()&os.ModeSymlink == 0
+	}
+	if !os.IsNotExist(err) {
+		return false
+	}
+	return os.Mkdir(path, 0o755) == nil
 }
 
 // WrapCommandMode wraps cmd with bubblewrap, optionally with project read-only mode.

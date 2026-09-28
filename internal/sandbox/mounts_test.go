@@ -213,6 +213,67 @@ func TestBuildArgs_ReadOnlyProject_BindsPlanModeWritableDirs(t *testing.T) {
 	}
 }
 
+func TestBuildArgs_ReadOnlyProject_SkipsSymlinkedPlanModeDirs(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	if err := os.Mkdir(filepath.Join(external, "plans"), 0o755); err != nil {
+		t.Fatalf("mkdir external plans: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".steiner"), 0o755); err != nil {
+		t.Fatalf("mkdir .steiner: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(external, "plans"), filepath.Join(root, ".steiner", "plans")); err != nil {
+		t.Fatalf("symlink plans: %v", err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, ".steiner", "security")); err != nil {
+		t.Fatalf("symlink security: %v", err)
+	}
+
+	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", true, config.PermissionsConfig{}, false)
+
+	for _, dir := range config.PlanModeWritableDirs() {
+		path := filepath.Join(root, filepath.FromSlash(dir))
+		if containsSeq(args, "--bind", path, path) {
+			t.Errorf("did not expect symlinked %s bind: %v", dir, args)
+		}
+	}
+}
+
+func TestBuildArgs_ReadOnlyProject_SkipsSymlinkedSteinerParent(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	if err := os.Mkdir(filepath.Join(external, "plans"), 0o755); err != nil {
+		t.Fatalf("mkdir external plans: %v", err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, ".steiner")); err != nil {
+		t.Fatalf("symlink .steiner: %v", err)
+	}
+
+	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", true, config.PermissionsConfig{}, false)
+
+	if containsSeq(args, "--bind", filepath.Join(root, ".steiner", "plans"), filepath.Join(root, ".steiner", "plans")) {
+		t.Errorf("did not expect plan bind through symlinked .steiner: %v", args)
+	}
+}
+
+func TestBuildArgs_ReadOnlyProject_SkipsDanglingPlanModeDir(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".steiner"), 0o755); err != nil {
+		t.Fatalf("mkdir .steiner: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, ".steiner", "plans")); err != nil {
+		t.Fatalf("symlink plans: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".steiner", "security"), 0o755); err != nil {
+		t.Fatalf("mkdir security: %v", err)
+	}
+
+	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", true, config.PermissionsConfig{}, false)
+	if containsSeq(args, "--bind", filepath.Join(root, ".steiner", "plans"), filepath.Join(root, ".steiner", "plans")) {
+		t.Errorf("did not expect dangling plan bind: %v", args)
+	}
+}
+
 func TestBuildArgs_ReadOnlyProject_False_UnchangedFromBefore(t *testing.T) {
 	root := "/test/root"
 	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", false, config.PermissionsConfig{}, false)
