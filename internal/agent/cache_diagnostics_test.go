@@ -405,6 +405,46 @@ func TestCompactionCacheDiagnosticDoesNotPromoteBaseline(t *testing.T) {
 	}
 }
 
+func TestBuildCompactionRequestWithModeCarriesCacheRouting(t *testing.T) {
+	conversation := []Message{
+		{Role: MessageRoleUser, Content: "hello"},
+		{Role: MessageRoleAssistant, Content: "world"},
+	}
+	state := RunState{
+		Conversation: conversation,
+		Lineage:      newConversationLineage(conversation),
+	}
+	req := RunRequest{
+		ResolvedModel:          provider.ResolvedModel{BackendModelID: "test-model"},
+		PromptCacheKey:         "cache-key",
+		TransportSession:       "session-id",
+		ParentTransportSession: "parent-session-id",
+		Events:                 output.NoopSink{},
+	}
+	candidate := ConversationCandidate{
+		GenerationID: 1,
+		View:         ConversationViewFull,
+		Messages:     conversation,
+	}
+
+	chatRequest, _, _, err := buildCompactionRequestWithMode(
+		context.Background(), req, state, candidate,
+		prompt.CompactionModeNormal, 128,
+	)
+	if err != nil {
+		t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+	}
+	if chatRequest.PromptCacheKey != req.PromptCacheKey {
+		t.Fatalf("PromptCacheKey = %q, want %q", chatRequest.PromptCacheKey, req.PromptCacheKey)
+	}
+	if chatRequest.TransportSession != req.TransportSession {
+		t.Fatalf("TransportSession = %q, want %q", chatRequest.TransportSession, req.TransportSession)
+	}
+	if chatRequest.ParentTransportSession != req.ParentTransportSession {
+		t.Fatalf("ParentTransportSession = %q, want %q", chatRequest.ParentTransportSession, req.ParentTransportSession)
+	}
+}
+
 func TestCompleteCompactionCallEmitsDiagnosticWithoutPromotingBaseline(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
