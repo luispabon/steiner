@@ -18,7 +18,7 @@ The sections below are the working sequence: run the review pass, classify findi
 ## Sequence
 
 1. Read `overview.md`, `plan.yaml`, and `execution.md` from the planning folder named in the seed conversation, plus the committed repository state.
-2. Run the review pass and classify findings (see Review Standard and Findings).
+2. Map coverage, run bounded review passes against the committed head, synthesize and verify findings, then classify them (see Review Standard, Review Pass, and Findings).
 3. For blocking findings, drive concrete fixes through delegation (see Review-Fix Loop) and rerun the narrowest covering checks.
 4. Run the mandatory advisor sanity check before marking final status.
 5. Write `review.md`, set the final status, and commit so the phase boundary sees a clean tree.
@@ -35,6 +35,12 @@ Compare these inputs:
 Focus on plan and scope adherence, obvious bugs or regressions, missing or weak verification, correctness against intent, and maintainability issues that materially affect correctness or future work.
 
 Review touched files and directly adjacent regression-risk areas — call sites, interfaces, tests, config, data paths, and package boundaries touched by or directly depending on the change. Do not broadly re-review unrelated code. Prefer evidence over speculation: findings should reference concrete code, artifacts, missing checks, or reproducible reasoning.
+
+## Review Pass
+
+Map changed files and plan outcomes to bounded behavior areas, including direct callers, interfaces, and tests. Review small changes alone; review larger areas with parallel `review` agents. Risk lenses cannot replace area coverage. Brief agents with the same committed head, relevant files, decisions, and checks. Require inspected scope, gaps, and concrete evidence in their built-in finding format, not fixes or a verdict. Reassess if the head changes.
+
+Synthesize cross-area contracts, verify material claims, and deduplicate. Retry or inspect incomplete coverage; unresolved material gaps block a pass and must be recorded as a blocker with status `fail`. Consolidate findings before fixes.
 
 ## Findings
 
@@ -60,7 +66,7 @@ You MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on i
 
 This restriction does not apply to the reviewer-owned `review.md`.
 
-Each review pass produces one consolidated fix plan mapping fixes to blocking finding ids and stating which verification will rerun. Dispatch a `code` sub-agent with only the approved findings, fix plan, relevant files, constraints, and verification strategy. Review-fix work is sequential — do not parallelize it. After fixes land, reuse the verification strategy in `overview.md` and rerun the narrowest checks covering the fixes and affected acceptance criteria. Repeat only while new blocking findings remain.
+Each review pass produces one consolidated fix plan mapping blocking finding ids to fixes, declared write scopes, and verification. Brief each `code` agent with its bounded fix, relevant findings, files, constraints, and checks. Parallelize only fixes with disjoint write scopes and settled shared contracts; sequence dependent fixes. Merge worktrees one at a time, resolve integration issues, then rerun `overview.md` checks covering fixes and affected criteria on the combined branch. Re-review affected boundaries. Repeat only while new blocking findings remain.
 
 ## Advisor Sanity Check
 
@@ -70,7 +76,7 @@ After the review-fix loop and before marking final status, you MUST call `adviso
 
 Write `review.md` to the planning folder. Keep it compact:
 
-- scope and inputs reviewed
+- scope and inputs reviewed, including areas covered and unresolved coverage gaps
 - review status: `fail`, `pass_with_notes`, or `pass`
 - blocking findings and resolution state
 - non-blocking notes
