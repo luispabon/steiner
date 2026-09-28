@@ -11,7 +11,7 @@ import (
 )
 
 func TestOpenAIStreamCacheUsageFallbacks(t *testing.T) {
-	payload := `{"usage":{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":0},"prompt_cache_hit_tokens":12,"cache_write_tokens":7}}`
+	payload := `{"usage":{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":7},"prompt_cache_hit_tokens":12}}`
 	var response openAIResponse
 	if err := json.Unmarshal([]byte(payload), &response); err != nil {
 		t.Fatal(err)

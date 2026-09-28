@@ -41,7 +41,9 @@ func (w *anthropicWire) HTTPRequest(ctx context.Context, chat ChatRequest, body 
 		headers[key] = value
 	}
 	if opencodeSessionHeader(headers) {
-		setHeaderCaseInsensitive(headers, "X-Opencode-Session", chat.TransportSession)
+		if chat.TransportSession != "" {
+			setHeaderCaseInsensitive(headers, "X-Opencode-Session", chat.TransportSession)
+		}
 		if chat.ParentTransportSession != "" {
 			headers["X-Parent-Session-Id"] = chat.ParentTransportSession
 		}
@@ -57,7 +59,12 @@ func (w *anthropicWire) DecodeResponse(resp *http.Response) (ChatResponse, error
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return ChatResponse{}, fmt.Errorf("%w: %w", errDecodeChatCompletionResponse, err)
 	}
-	return normalizeAnthropicChatResponse(&payload)
+	response, err := normalizeAnthropicChatResponse(&payload)
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	response.UpstreamEndpoint = resp.Header.Get("X-Opencode-Endpoint-Id")
+	return response, nil
 }
 
 func (w *anthropicWire) DecodeStream(ctx context.Context, body io.Reader, emit func(ChatChunk) error) error {

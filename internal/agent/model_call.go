@@ -458,6 +458,7 @@ func handleStreamingChunk(sink output.EventSink, turn int, source output.ChunkSo
 func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message) {
 	response.Usage = chunk.Usage
 	response.FinishReason = chunk.FinishReason
+	response.UpstreamEndpoint = chunk.UpstreamEndpoint
 	if content := chunk.Delta.Content; content != "" {
 		switch {
 		case message.Content == "":

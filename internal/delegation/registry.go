@@ -242,8 +242,10 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 			cacheKey:    advRuntime.cacheKey,
 			maxTokens:   advRuntime.maxTokens,
 		}
-		scopedRuntime.transportSession = "session-advisor"
-		scopedRuntime.parentTransportSession = deps.SessionID
+		if deps.SessionID != "" {
+			scopedRuntime.transportSession = deps.SessionID + "-advisor"
+			scopedRuntime.parentTransportSession = deps.SessionID
+		}
 		return scopedRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state), true
 	}
 	return advisorForChild, nil

@@ -46,6 +46,7 @@ func streamWithEvents(chunks <-chan provider.ChatChunk, sink output.EventSink) (
 		sawFinal = true
 		response.Usage = chunk.Usage
 		response.FinishReason = chunk.FinishReason
+		response.UpstreamEndpoint = chunk.UpstreamEndpoint
 		if content := chunk.Delta.Content; content != "" {
 			switch {
 			case message.Content == "":

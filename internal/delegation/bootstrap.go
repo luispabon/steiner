@@ -251,28 +251,26 @@ type childRunRequestParams struct {
 	// worktree path and TraceRoot stays anchored to the parent's actual
 	// project directory so trace files never appear as untracked changes
 	// inside the child's git checkout.
-	TraceRoot              string
-	AgentID                string
-	SessionID              string
-	TransportSession       string
-	ParentTransportSession string
-	Provider               provider.Provider
-	VisibleReg             *tool.Registry
-	ExecReg                *tool.Registry
-	BaseLimits             agent.Limits
-	Events                 output.EventSink
-	PromptOpts             prompt.AssemblyOptions
-	ResolvedModel          provider.ResolvedModel
-	ModelBudget            prompt.ModelTokenBudget
-	MaxTokens              *int
-	StreamingPreferred     bool
-	UsageRecorder          *usagestats.Recorder
-	ModeGetter             func() config.ExecutionMode
-	AgentType              AgentType
-	CacheKeyStore          *CacheKeyStore
-	CacheBaseline          *agent.CacheBaselineStore
-	SandboxTmpDir          string
-	Sandbox                tool.SandboxWrapper
+	TraceRoot          string
+	AgentID            string
+	SessionID          string
+	Provider           provider.Provider
+	VisibleReg         *tool.Registry
+	ExecReg            *tool.Registry
+	BaseLimits         agent.Limits
+	Events             output.EventSink
+	PromptOpts         prompt.AssemblyOptions
+	ResolvedModel      provider.ResolvedModel
+	ModelBudget        prompt.ModelTokenBudget
+	MaxTokens          *int
+	StreamingPreferred bool
+	UsageRecorder      *usagestats.Recorder
+	ModeGetter         func() config.ExecutionMode
+	AgentType          AgentType
+	CacheKeyStore      *CacheKeyStore
+	CacheBaseline      *agent.CacheBaselineStore
+	SandboxTmpDir      string
+	Sandbox            tool.SandboxWrapper
 	// Diagnostics is threaded onto the child run request and the child
 	// executor; see DelegateDeps.Diagnostics.
 	Diagnostics      *diagnostics.Writer
@@ -322,6 +320,10 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	// simply disables provider-side caching for this child run rather than
 	// failing bootstrap.
 	childCacheKey := cacheKeyOrMint(p.CacheKeyStore, p.AgentType)
+	transportSession := ""
+	if p.SessionID != "" {
+		transportSession = p.SessionID + "-" + p.AgentID
+	}
 
 	req := agent.RunRequest{
 		Provider:               p.Provider,
@@ -342,7 +344,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		Diagnostics:            p.Diagnostics,
 		AgentID:                p.AgentID,
 		AgentType:              string(p.AgentType),
-		TransportSession:       "parentSession-" + p.AgentID,
+		TransportSession:       transportSession,
 		ParentTransportSession: p.SessionID,
 	}
 	if p.UsageRecorder != nil {

@@ -130,7 +130,8 @@ type openAIStreamError struct {
 }
 
 type openAIPromptTokensDetails struct {
-	CachedTokens *int `json:"cached_tokens"`
+	CachedTokens     *int `json:"cached_tokens"`
+	CacheWriteTokens int  `json:"cache_write_tokens"`
 }
 
 // openAIUsage is the intermediate wire decode for OpenAI-compatible usage data.
@@ -141,7 +142,6 @@ type openAIUsage struct {
 	PromptTokensDetails  openAIPromptTokensDetails `json:"prompt_tokens_details"`
 	PromptCacheHitTokens *int                      `json:"prompt_cache_hit_tokens"`
 	CachedTokens         *int                      `json:"cached_tokens"`
-	CacheWriteTokens     int                       `json:"cache_write_tokens"`
 }
 
 func (u *openAIUsage) toUsageStats() *UsageStats {
@@ -156,7 +156,7 @@ func (u *openAIUsage) toUsageStats() *UsageStats {
 		PromptTokens:             u.PromptTokens,
 		CompletionTokens:         u.CompletionTokens,
 		TotalTokens:              u.TotalTokens,
-		CacheCreationInputTokens: u.CacheWriteTokens,
+		CacheCreationInputTokens: u.PromptTokensDetails.CacheWriteTokens,
 	}
 	if cached != nil {
 		stats.CacheReadInputTokens = *cached

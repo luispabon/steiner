@@ -50,7 +50,9 @@ func (w *openaiWire) HTTPRequest(ctx context.Context, chat ChatRequest, body []b
 		headers[key] = value
 	}
 	if opencodeSessionHeader(headers) {
-		setHeaderCaseInsensitive(headers, "X-Opencode-Session", chat.TransportSession)
+		if chat.TransportSession != "" {
+			setHeaderCaseInsensitive(headers, "X-Opencode-Session", chat.TransportSession)
+		}
 		if chat.ParentTransportSession != "" {
 			headers["X-Parent-Session-Id"] = chat.ParentTransportSession
 		}

@@ -22,7 +22,7 @@ The `ChatRequest.AdvisorCacheProfile` path is separate from this Codex behavior.
 
 ## OpenCode per-agent sessions
 
-OpenCode-compatible HTTP wires with a configured `X-Opencode-Session` header route each delegated agent to `parentSession-<agentID>` and advisor calls to `session-advisor`. They also send `X-Parent-Session-Id` when a parent session is available. Normal turns and compaction escalation reuse each run's transport session. Wires without the configured OpenCode header ignore these request fields, leaving other provider headers unchanged. The static parent provider session configured at the command root remains unchanged.
+OpenCode-compatible HTTP wires with a configured `X-Opencode-Session` header route each delegated agent to `<sessionID>-<agentID>` and advisor calls to `<sessionID>-advisor`, when a real session ID is available. They also send `X-Parent-Session-Id` with that session ID. Normal turns and compaction escalation reuse each run's transport session. Wires without the configured OpenCode header ignore these request fields, leaving other provider headers unchanged. An empty transport session preserves the configured static parent session header byte-for-byte.
 
 ## Superseded measurement history
 
