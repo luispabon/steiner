@@ -235,6 +235,9 @@ func (m *Model) clearConversationStateWithError() (tea.Model, bool, error) {
 		m.syncInputChrome()
 		return m, false, nil
 	}
+	if m.recorder != nil {
+		m.recorder.ResetSession()
+	}
 	err := m.performClearConversationState()
 	return m, true, err
 }
@@ -274,9 +277,6 @@ func (m *Model) performClearConversationState() error {
 		m.status.context = ""
 	}
 	m.setCompaction(compactionState{})
-	if m.recorder != nil {
-		m.recorder.ResetSession()
-	}
 	m.syncSidebar()
 	var clearErr error
 	if m.controller != nil {

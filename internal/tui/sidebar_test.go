@@ -108,6 +108,9 @@ func TestSyncSidebarUsesParentOnlySessionReport(t *testing.T) {
 	}
 }
 
+// TestClearConversationStateResetsCacheStats covers the /clear action path,
+// which owns the session cache reset. Workflow handoff uses the shared clear
+// implementation directly and must retain its cache stats.
 func TestClearConversationStateResetsCacheStats(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(1000, 0)
@@ -126,8 +129,12 @@ func TestClearConversationStateResetsCacheStats(t *testing.T) {
 		t.Fatal("cache rate flags should be true before clear")
 	}
 
-	if err := m.performClearConversationState(); err != nil {
-		t.Fatalf("performClearConversationState() error = %v", err)
+	_, cleared, err := m.clearConversationStateWithError()
+	if err != nil {
+		t.Fatalf("clearConversationStateWithError() error = %v", err)
+	}
+	if !cleared {
+		t.Fatal("clearConversationStateWithError() did not clear")
 	}
 
 	if m.sidebar.sessionCacheHitRateOK || m.sidebar.lastRequestCacheRateOK {
@@ -135,6 +142,27 @@ func TestClearConversationStateResetsCacheStats(t *testing.T) {
 	}
 	if rate, ok := rec.SessionReportFor(usagestats.SourceParent).HitRate(); ok || rate != 0 {
 		t.Fatalf("parent HitRate after clear = %v, %v; want 0, false", rate, ok)
+	}
+}
+
+func TestPerformClearConversationStatePreservesCacheStats(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	now := time.Unix(1000, 0)
+	rec := usagestats.New(func() time.Time { return now })
+	rec.Record(usagestats.Observation{
+		PromptTokens:    100,
+		CacheReadTokens: 100,
+		Source:          usagestats.SourceParent,
+		At:              now,
+	})
+
+	m := newSidebarTestModel(t)
+	m.recorder = rec
+	if err := m.performClearConversationState(); err != nil {
+		t.Fatalf("performClearConversationState() error = %v", err)
+	}
+	if rate, ok := rec.SessionReportFor(usagestats.SourceParent).HitRate(); !ok || rate != 1 {
+		t.Fatalf("parent HitRate after shared clear = %v, %v; want 1, true", rate, ok)
 	}
 }
 
