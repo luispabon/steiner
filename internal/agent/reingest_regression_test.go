@@ -12,9 +12,25 @@ import (
 )
 
 func TestPostIngestionNeverRewritesCarriedHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.txt")
+	fileContent := "line one\nline two\nline three\n"
+	if err := os.WriteFile(path, []byte(fileContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read := builtin.ReadResult{Path: path, StartLine: 1, EndLine: 3, TotalLines: 3, FileHash: "hash-1", Output: fileContent}
+	readJSON, err := json.Marshal(read)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	carried := []Message{
 		{Role: MessageRoleUser, Content: "inspect"},
-		{Role: MessageRoleTool, Name: "read", ToolCallID: "call_1", Turn: 1, Content: `{"path":"missing.txt","start_line":1,"end_line":1,"total_lines":1,"output":"historic full result"}`},
+		{Role: MessageRoleAssistant, Content: "reading the file",
+			ToolCalls: []ToolCall{{ID: "call_1", Name: "read"}}},
+		{Role: MessageRoleTool, Name: "read", ToolCallID: "call_1", Turn: 1, Content: string(readJSON)},
+		{Role: MessageRoleAssistant, Content: "reading it again",
+			ToolCalls: []ToolCall{{ID: "call_2", Name: "read"}}},
+		{Role: MessageRoleTool, Name: "read", ToolCallID: "call_2", Turn: 2, Content: string(readJSON)},
 	}
 	wire, err := json.Marshal(ToProviderMessages(carried))
 	if err != nil {
@@ -25,34 +41,39 @@ func TestPostIngestionNeverRewritesCarriedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	reloaded := fromProviderMessages(lossy)
-	before, err := json.Marshal(reloaded)
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := contentsOf(reloaded)
+
 	manager := NewContextStateManager()
 	state := RunState{TurnCount: 2, Conversation: reloaded, Lineage: newConversationLineage(reloaded)}
 	first, err := manager.PostIngestion(context.Background(), state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, err := json.Marshal(first.Conversation)
-	if err != nil {
-		t.Fatal(err)
+	after := contentsOf(first.Conversation)
+	for i := range before {
+		if after[i] != before[i] {
+			t.Fatalf("PostIngestion changed carried history at message %d:\nbefore %q\nafter  %q", i, before[i], after[i])
+		}
 	}
-	if string(after) != string(before) {
-		t.Fatalf("PostIngestion changed carried history:\nbefore %s\nafter  %s", before, after)
-	}
+
 	second, err := manager.PostIngestion(context.Background(), first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	twice, err := json.Marshal(second.Conversation)
-	if err != nil {
-		t.Fatal(err)
+	twice := contentsOf(second.Conversation)
+	for i := range after {
+		if twice[i] != after[i] {
+			t.Fatalf("second PostIngestion changed carried history at message %d:\nfirst  %q\nsecond %q", i, after[i], twice[i])
+		}
 	}
-	if string(twice) != string(after) {
-		t.Fatalf("second PostIngestion changed carried history:\nfirst  %s\nsecond %s", after, twice)
+}
+
+func contentsOf(messages []Message) []string {
+	out := make([]string, len(messages))
+	for i, message := range messages {
+		out[i] = message.Content
 	}
+	return out
 }
 
 func TestFreshReadDedupUsesResultHashNotDisk(t *testing.T) {
