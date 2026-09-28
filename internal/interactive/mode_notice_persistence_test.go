@@ -15,7 +15,8 @@ func TestSubmitPromptRetainsModeNoticeAfterRunFailure(t *testing.T) {
 	t.Parallel()
 	cfg := guardTestConfig()
 	cfg.Modes = config.ModesConfig{Default: config.ExecutionModePlan}
-	s := testNewSession(t, Dependencies{Config: cfg})
+	store := newMockSessionStore()
+	s := testNewSession(t, Dependencies{Config: cfg, SessionStore: store})
 
 	var runs [][]agent.Message
 	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conversation []agent.Message) (RunResult, error) {
@@ -30,6 +31,11 @@ func TestSubmitPromptRetainsModeNoticeAfterRunFailure(t *testing.T) {
 	notice := prompt.ModeNotice(config.ExecutionModePlan) + "\n\n"
 	assertModeNoticeMessage(t, s.Conversation(), notice, "first")
 	assertModeNoticeMessage(t, s.lineage.FullMessages(), notice, "first")
+	saved, ok := store.savedSessions[s.SessionID()]
+	if !ok {
+		t.Fatalf("saved session = %#v, want session %q", store.savedSessions, s.SessionID())
+	}
+	assertModeNoticeMessage(t, saved.Lineage.FullMessages(), notice, "first")
 
 	s.submitPrompt(context.Background(), "second", nil)
 	if len(runs) != 2 {
