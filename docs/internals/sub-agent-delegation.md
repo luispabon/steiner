@@ -31,7 +31,6 @@ Delegated tools retain full host `Result` records and retention metadata, while 
 │  │  - context timeout               │       │
 │  │  - emit DelegationStarted        │       │
 │  │  - runner.Run(childCtx, req)     │       │
-│  │  - auto-extension loop (≤3x)     │       │
 │  │  - emit DelegationFailed          │       │
 │  │  - emit DelegationComplete       │       │
 │  └──────────────┬───────────────────┘       │
@@ -50,7 +49,7 @@ Delegated tools retain full host `Result` records and retention metadata, while 
 | `internal/agent`      | Retention metadata on messages, runner interface                                                                                             |
 | `internal/tool`       | `ToolRetention` struct, `ExecutionResult.Retention` field, `Registry.Clone()`                                                                |
 | `internal/prompt`     | Delegation instructions preamble injected when delegation is enabled                                                                         |
-| `internal/output`     | Delegation lifecycle events (started, complete, failed, extension)                                                                           |
+| `internal/output`     | Delegation lifecycle events (started, complete, failed)                                                                           |
 | `internal/tui`        | Rendering of delegation events with spinner, lifecycle tracking, collapsible output                                                          |
 | `cmd/steiner`         | `buildActiveRegistry()` wires delegation tools into the active registry                                                                    |
 
@@ -107,7 +106,7 @@ The handler defers `ActiveController.Unregister` until after session persistence
 
 `BuildChildRun()` assembles the full `agent.RunRequest`:
 
-**1. Derive limits.** `deriveChildLimits()` combines `SubAgentConfig` defaults with spec-level overrides using tighten-only semantics — an override is applied only when it is more restrictive than the configured default. Defaults: `MaxTurns` 15, `MaxTokens` 100,000. `timeout` is accepted as an optional parameter and defaults to no timeout.
+**1. Derive limits.** `deriveChildLimits()` combines `SubAgentConfig` defaults with spec-level overrides using tighten-only semantics — an override is applied only when it is more restrictive than the configured default. The configured `MaxTurns` is a hard cap for the single child run; defaults are `MaxTurns` 120 and `MaxTokens` 400,000. `timeout` is accepted as an optional parameter and defaults to no timeout.
 
 **2. Build child prompt.** The child prompt is minimal: either the caller-provided `system_prompt` or a default, plus a single user message containing the assembled structured task brief. The brief is rendered from six required fields (`objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks`) in deterministic markdown format with fixed field order, omitting optional list fields if empty, to preserve prompt cache integrity. The system prompt is passed via `PromptOverrides` so the provider sees exactly one system message. When `Spec.Images` is non-empty, those images are attached to the first user message so the child model sees them immediately without spending a turn on a `read` call. The child also inherits the parent's sandbox state as plain values: `cmd/steiner` derives `SandboxEnabled` from the active runtime sandbox (`runtime.sandbox != nil && runtime.sandbox.Enabled()`) and the writable host-mount paths from `sandbox.host_mounts` (`Mode == "rw"`, in config order). The values are threaded `DelegateDeps` → `SubAgentHandlerDeps` as `SandboxEnabled` and `SandboxWritableMounts`; `buildChildPrompt` maps them to `AssemblyOptions.SandboxEnabled` and `AssemblyOptions.SandboxWritableMounts`, so the child's system preamble renders the same sandbox section as the parent's when the sandbox is active, unless a system prompt override replaces the standard preamble (an override drops the standard sections, including sandbox). Child executors carry the parent's sandbox wrapper directly: `cmd/steiner` resolves it once (`tool.Unsandboxed{}` when the runtime sandbox is off) and threads it `DelegateDeps` → `SubAgentHandlerDeps` as `Sandbox`, the same path `SandboxTmpDir` already follows. `buildChildRunRequest` passes it straight into `tool.NewExecutor` as the required `sandbox` parameter. From there, sandboxing for child `bash` and child subprocess-backed tools works exactly like the parent: `Executor.runPipeline` resolves a `ResolvedSandbox` (wrapper plus `readOnlyProject`) once per call and both dispatch paths consume it — there is no separate `CommandWrapper` closure for children.
 
@@ -162,16 +161,13 @@ Beyond key reuse, `CacheKeyStore` also **staggers concurrent same-key dispatches
 
 1. **Timeout**: if `spec.Limits.Timeout > 0`, wraps context with `context.WithTimeout`.
 2. **Emit** `DelegationStartedEvent` with agent ID, task preview (120 chars max), and the resolved model alias (`req.ResolvedModel.Alias`) so the tool box badge shows the alias assigned to the child instead of reverse-mapping its backend API ID.
-3. **Run** the child agent loop via the `AgentRunner` interface.
-4. **Auto-extension loop** (up to 3 iterations): if the child stopped due to `MaxTurns` AND its last message contains pending tool calls (mid-work), the loop extends by re-running with the accumulated conversation and an increased turn budget.
-5. **Build result** from final state (maps `StopReason` → `Status`). Token counters (input, cache, and output) are accumulated across extension re-runs and prior follow-ups (`Spec.PriorTokenUsage`) rather than taken from the final state alone.
-6. **Record the failure or cancellation reason**: on failure, the child's real error goes on the result's `reason` (with the tool-activity count and the preserved-session notice for cancellation); on cancellation, a deterministic sentence naming the tool count and the resume notice goes there instead. The reason is uncapped and needs no extra provider call.
-7. **Emit** `DelegationCompleteEvent` or `DelegationFailedEvent`. `DelegationCompleteEvent` carries `InputTokens`/`CacheReadTokens`/`CacheCreateTokens` alongside the existing turn/tool/token counts; it is constructed via `NewDelegationCompleteEvent`, which takes a `DelegationCompleteParams` struct rather than positional arguments, so the TUI can render the child agent's cumulative cache hit rate in the tool box.
-8. **Return** `tool.ExecutionResult` with `ToolRetention` metadata attached.
+3. **Run** the child agent loop once via the `AgentRunner` interface. `MaxTurns` is a hard cap; reaching it ends the run, including when the last assistant message has pending tool calls.
+4. **Build result** from final state (maps `StopReason` → `Status`). Token counters (input, cache, and output) are accumulated across the run and prior follow-ups (`Spec.PriorTokenUsage`) rather than taken from the final state alone.
+5. **Record the failure or cancellation reason**: on failure, the child's real error goes on the result's `reason` (with the tool-activity count and the preserved-session notice for cancellation); on cancellation, a deterministic sentence naming the tool count and the resume notice goes there instead. The reason is uncapped and needs no extra provider call.
+6. **Emit** `DelegationCompleteEvent` or `DelegationFailedEvent`. `DelegationCompleteEvent` carries `InputTokens`/`CacheReadTokens`/`CacheCreateTokens` alongside the existing turn/tool/token counts; it is constructed via `NewDelegationCompleteEvent`, which takes a `DelegationCompleteParams` struct rather than positional arguments, so the TUI can render the child agent's cumulative cache hit rate in the tool box.
+7. **Return** `tool.ExecutionResult` with `ToolRetention` metadata attached.
 
-A child "needs extension" when `StopReason == StopReasonMaxTurns` AND the last assistant message has pending tool calls (interrupted mid-action). This prevents early termination when a delegate is actively working but hit its turn cap.
-
-**Turn-budget checkpoint.** Independent of the extension loop, `internal/agent.Runner.Run` injects a convergence notice into the child's own conversation once it crosses 70% of the current run's `Limits.MaxTurns` (`turnBudgetNoticeFraction` in `internal/agent/turn_budget_notice.go`). This fires inside a single run, not only at an extension boundary, so even a run that never needs an extension gets the signal before it is too late. The notice text — "used N of M turns (R remaining) with E extension(s) remaining" — is built by `RunRequest.TurnBudgetNotice`, which only `internal/delegation` sets (`turnBudgetNoticeFunc` in `task.go`); the parent interactive run leaves it nil since `internal/agent` has no notion of delegate extensions. Because the closure is rebuilt fresh before every `runner.Run` call (the initial call in `SpawnDelegate` and each extension in `runChildToCompletion`), it always reports how many of `maxDelegateExtensions` remain at that point. The injected message is tagged by a content-prefix marker rather than `Message.Source`, because `Source` does not survive the `agent.Message` ↔ `provider.Message` round trip that the extension loop performs between runs; a later checkpoint supersedes the prior one in place rather than accumulating, so at most one such message is ever present in the conversation.
+**Turn-budget checkpoints.** During the single child run, `internal/agent.Runner.Run` appends checkpoint messages to the child's own conversation at 50%, 75%, and 90% of `Limits.MaxTurns`. These checkpoints are append-only and prompt the child to focus on completing its task; they do not change its turn limit or restart the run. Follow-up runs have their own configured budget and checkpoints. Follow-up resumes carry the child's native agent messages into `SourceConversation`, preserving message sources rather than converting through provider-message history.
 
 `StopReasonMaxTurns` and `StopReasonMaxTokens` map to `StatusPartial`. A partial result means the child's budget was exhausted before it could finish. Parent models must treat partial results conservatively — do not assume the delegated task succeeded, and retry or narrow scope rather than treating partial output as authoritative.
 
@@ -196,9 +192,9 @@ A parallel batch receives one shared pre-batch conversation snapshot. Siblings t
 | `Output`            | Last assistant message content                        |
 | `TurnCount`         | Turns consumed by the child                           |
 | `TokenCount`        | Tokens consumed by the child                          |
-| `InputTokens`       | Cumulative uncached prompt tokens consumed by the child across extensions and follow-ups   |
-| `CacheReadTokens`   | Cumulative cache-read tokens consumed by the child across extensions and follow-ups        |
-| `CacheCreateTokens` | Cumulative cache-create tokens consumed by the child across extensions and follow-ups      |
+| `InputTokens`       | Cumulative uncached prompt tokens consumed by the child across runs and follow-ups   |
+| `CacheReadTokens`   | Cumulative cache-read tokens consumed by the child across runs and follow-ups        |
+| `CacheCreateTokens` | Cumulative cache-create tokens consumed by the child across runs and follow-ups      |
 | `StopReason`        | Populated on partial: `"max_turns"`, `"max_tokens"`, or `"cancelled"`; on failed: `"usage_limit"` |
 
 The `follow_up` handler seeds `Spec.PriorTokenUsage` from the stored `ChildSession.TokenUsage`, so these token counters report the child agent's whole-life totals.
@@ -281,14 +277,13 @@ Events emitted during delegation (via `output.EventSink`):
 | `delegation_started`   | After registration, before dispatch gate  | `agent_id`, `agent_type`, `task_preview`, scoped agent/type  |
 | `delegation_cache_waiting` | While blocked at cache dispatch gate   | `agent_id`, `call_id`, `deadline`                            |
 | `stop_reason`          | Pre-dispatch stop                         | `reason: "cancelled"`, scoped agent/type                   |
-| `delegation_extension` | Each auto-extension iteration             | `agent_id`, `extension`, `max_extensions`                   |
 | `delegation_complete`  | After child terminal handling             | `agent_id`, `status`, `turn_count`, `token_count`, `output` |
 | `delegation_failed`    | On child run error                         | `agent_id`, `task_preview`, `error`                         |
 | `delegation_worktree_disposal` | After explicit code discard         | scoped `agent_id`, type, `removed`, `error`                 |
 
 Events emitted through the child request's event sink are scoped with the child agent ID and type. The started event is also scoped, and its payload carries the type as a plain string so consumers such as the TUI can render it without importing delegation. A pre-dispatch stop uses the scoped `stop_reason` event and no child run starts; otherwise existing complete or failed terminal events remain in use.
 
-The TUI renders delegation lifecycle events with a spinner during execution, lifecycle state labels, and collapsible output panels for completed delegations. Extension events update an always-visible counter in the status bar.
+The TUI renders delegation lifecycle events with a spinner during execution, lifecycle state labels, and collapsible output panels for completed delegations.
 
 ### Interactive cancellation and TUI state
 
@@ -329,9 +324,8 @@ Oneshot phases run under `DelegatedChildWorkflowMode()` but still orchestrate �
 5. **Model resolution**: non-explicit sub-agent aliases fall back to the selected profile's default assignment; specialised per-type model aliases resolve before the child run is built. Vision remains disabled when no vision assignment is configured. Startup `--model` and `STEINER_MODEL` overrides affect only the active orchestrator, not these profile role assignments.
 6. **Synchronous execution**: each delegate runs to completion before control returns to the parent.
 7. **Filesystem isolation by agent type**: `code` children operate in isolated runtime-provisioned git worktrees. Non-code agents do not receive worktree provisioning and use the parent workspace for their read-only work.
-8. **Extension cap**: maximum 3 auto-extensions to prevent runaway children.
-9. **No conversation leakage**: child conversation is not appended to parent; only the structured result and its retention metadata persist.
+8. **No conversation leakage**: child conversation is not appended to parent; only the structured result and its retention metadata persist.
 10. **Enforced allowlist**: `ChildBootstrapOverrides.AllowedTools` is enforced during child registry construction; only listed tools (minus `follow_up` and `workflow_handoff`) are visible and executable.
-11. **Per-type allowlists**: each specialised agent type has its own tool allowlist, resolved via `AgentAllowedTools(agentType)` and passed as `ChildBootstrapOverrides.AllowedTools` — there is no user-configurable global allowlist.
-12. **Extra tool projection**: `DelegateDeps.ExtraAllowedTools` adds per-agent-type registered tool names to child registries. Nil or empty projections grant nothing; unknown names are ignored by `Registry.Subset`; merged lists are sorted and deduplicated without mutating the built-in allowlists; original ToolDef handlers and MCP provenance are retained.
-13. **Parallel fan-out**: parent tool calls of the same class execute concurrently within their class-specific limit (`MaxParallelTools` for `ParallelClassTool`, `MaxParallelDelegations` for `ParallelClassDelegation`); child runs have only `ParallelClassTool` in their classifier (no `ParallelClassDelegation` since children cannot nest), so children respect only `MaxParallelTools`. Results are applied in call order against a shared pre-batch snapshot. A batch only groups adjacent calls of the same class; mixing classes breaks the run into separate batches under separate semaphores.
+10. **Per-type allowlists**: each specialised agent type has its own tool allowlist, resolved via `AgentAllowedTools(agentType)` and passed as `ChildBootstrapOverrides.AllowedTools` — there is no user-configurable global allowlist.
+11. **Extra tool projection**: `DelegateDeps.ExtraAllowedTools` adds per-agent-type registered tool names to child registries. Nil or empty projections grant nothing; unknown names are ignored by `Registry.Subset`; merged lists are sorted and deduplicated without mutating the built-in allowlists; original ToolDef handlers and MCP provenance are retained.
+12. **Parallel fan-out**: parent tool calls of the same class execute concurrently within their class-specific limit (`MaxParallelTools` for `ParallelClassTool`, `MaxParallelDelegations` for `ParallelClassDelegation`); child runs have only `ParallelClassTool` in their classifier (no `ParallelClassDelegation` since children cannot nest), so children respect only `MaxParallelTools`. Results are applied in call order against a shared pre-batch snapshot. A batch only groups adjacent calls of the same class; mixing classes breaks the run into separate batches under separate semaphores.

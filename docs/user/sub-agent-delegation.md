@@ -179,15 +179,13 @@ switches immediately when the conversation is empty and no oneshot run is in
 progress; otherwise it asks for confirmation first. The sidebar shows an
 ORCHESTRATION row whenever sub-agents are enabled.
 
-### Turn budget and extensions
+### Turn budget
 
-If a child hits `max_turns` mid-work (its last message still has pending tool
-calls), it is automatically re-run with a bumped turn budget, up to 3
-extensions. Independently of that, once a child crosses roughly 70% of its
-current turn budget, it receives a one-time notice in its own conversation
-telling it how many turns and extensions remain, so it can wrap up rather than
-keep exploring. That notice is updated in place — not appended again — if the
-child later gets an extension and crosses the threshold once more.
+Each child runs once. `max_turns` is a hard cap for that run; reaching it ends
+the child, even if its last message has pending tool calls. The child receives
+append-only checkpoints in its own conversation when it reaches 50%, 75%, and
+90% of its turn budget, so it can focus on finishing before the cap. Checkpoints
+do not extend the budget or restart the child.
 
 ### Recommended model tiers
 
