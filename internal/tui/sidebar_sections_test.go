@@ -586,19 +586,17 @@ func TestFormatCacheHitWithScopeWidth(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		width int
+		long  string
+		short string
 		want  string
 	}{
-		{15, "78.2% · request"},
-		{11, "78.2% · req"},
-		{5, "78.2%"},
-		{12, "78.2% · sess"},
+		{15, "request", "req", "78.2% · request"},
+		{11, "request", "req", "78.2% · req"},
+		{5, "request", "req", "78.2%"},
+		{12, "session", "sess", "78.2% · sess"},
 	}
 	for _, tc := range cases {
-		scope := "request"
-		if tc.width == 12 {
-			scope = "session"
-		}
-		if got := formatCacheHitWithScope(0.782, true, scope, tc.width); got != tc.want {
+		if got := formatCacheHitWithScope(0.782, true, tc.long, tc.short, tc.width); got != tc.want {
 			t.Errorf("formatCacheHitWithScope width %d = %q, want %q", tc.width, got, tc.want)
 		}
 	}
