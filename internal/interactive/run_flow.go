@@ -48,7 +48,7 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 		runner := s.currentRunner()
 		result, err := runner.Run(runCtx, conversation, drainSteers)
 
-		if !s.applyRunResult(startID, result) {
+		if !s.applyRunResult(startID, conversation, result) {
 			s.saveOrphanedRunResult(startID, startMeta, text, isFirstPrompt, result)
 		}
 
@@ -92,29 +92,37 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 // unless the session identity changed since the run started, in which case the
 // result belongs to a different session and is left out of memory (the caller
 // saves it under its original ID via saveOrphanedRunResult).
-func (s *Session) applyRunResult(startID string, result RunResult) bool {
+func (s *Session) applyRunResult(startID string, outgoing []agent.Message, result RunResult) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.sessionID != startID {
 		slog.Warn("session changed during run; discarding result", "run_session", startID, "current_session", s.sessionID)
 		return false
 	}
-	if len(result.Conversation) > 0 {
+	conversation := result.Conversation
+	if len(conversation) == 0 {
+		conversation = outgoing
+	}
+	if len(conversation) > 0 {
 		if result.WorkflowHandoff == nil {
-			s.conversation = result.Conversation
+			s.conversation = conversation
 		}
-		s.lineage = lineageFromResult(result)
+		s.lineage = lineageFromMessages(conversation)
 	}
 	return true
 }
 
-func lineageFromResult(result RunResult) agent.ConversationLineage {
+func lineageFromMessages(messages []agent.Message) agent.ConversationLineage {
 	return agent.ConversationLineage{
 		Generations: []agent.ConversationGeneration{
-			{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(result.Conversation)},
+			{ID: 1, SummaryPrefix: nil, Messages: cloneMessages(messages)},
 		},
 		NextGenerationID: 2,
 	}
+}
+
+func lineageFromResult(result RunResult) agent.ConversationLineage {
+	return lineageFromMessages(result.Conversation)
 }
 
 // runSessionMeta is the identity metadata of the session a run started in,

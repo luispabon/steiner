@@ -94,7 +94,7 @@ func TestApplyRunResultSkipsWhenSessionChanged(t *testing.T) {
 	if s.sessionChanged(startID) != true {
 		t.Fatal("sessionChanged = false after load")
 	}
-	if s.applyRunResult(startID, RunResult{Conversation: []agent.Message{userMsg("old convo")}}) {
+	if s.applyRunResult(startID, nil, RunResult{Conversation: []agent.Message{userMsg("old convo")}}) {
 		t.Fatal("applyRunResult applied a stale result")
 	}
 	conv := s.Conversation()
