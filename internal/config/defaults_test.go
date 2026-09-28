@@ -11,8 +11,8 @@ func TestDefaultSubAgentMaxTurns(t *testing.T) {
 	if cfg.SubAgent.MaxTurns != 120 {
 		t.Errorf("SubAgent.MaxTurns = %d, want 120", cfg.SubAgent.MaxTurns)
 	}
-	if cfg.SubAgent.MaxTokens != 400000 {
-		t.Errorf("SubAgent.MaxTokens = %d, want 400000", cfg.SubAgent.MaxTokens)
+	if cfg.SubAgent.MaxTokens != DefaultSubAgentMaxTokens {
+		t.Errorf("SubAgent.MaxTokens = %d, want %d", cfg.SubAgent.MaxTokens, DefaultSubAgentMaxTokens)
 	}
 	if cfg.SubAgent.MaxParallel != 3 {
 		t.Errorf("SubAgent.MaxParallel = %d, want 3", cfg.SubAgent.MaxParallel)

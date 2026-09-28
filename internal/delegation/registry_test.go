@@ -205,6 +205,70 @@ func TestBuildDelegateRegistryParentAdvisorUsesScopedTransportSession(t *testing
 	}
 }
 
+func TestBuildAdvisorToolsChildRuntimeCopiesTransportAndScopesEvents(t *testing.T) {
+	t.Parallel()
+	const parentSessionID = "parent-session-id"
+	prov := &fakeProvider{responses: []provider.ChatResponse{
+		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
+	}}
+	cfg := advisorTestConfig()
+	var events []output.Event
+	deps := DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		AdvisorCfg: config.AdvisorConfig{
+			Enabled:            true,
+			MaxUsesPerRun:      1,
+			MaxUsesPerSubAgent: 1,
+		},
+		Provider:           prov,
+		ProviderFactory:    func(provider.ResolvedModel, string) (provider.Provider, error) { return prov, nil },
+		WorkDir:            "/tmp/work",
+		SessionID:          parentSessionID,
+		Events:             output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+		Config:             cfg,
+		ResolveModel:       resolveModelFunc(cfg),
+		AdvisorBudgetStore: NewAdvisorBudgetStore(),
+	}
+
+	factory, err := buildAdvisorTools(tool.NewRegistry(), deps)
+	if err != nil {
+		t.Fatalf("buildAdvisorTools() error = %v", err)
+	}
+	if factory == nil {
+		t.Fatal("buildAdvisorTools() returned nil child factory")
+	}
+	childDef, ok := factory("child-agent")
+	if !ok {
+		t.Fatal("child advisor tool was not created")
+	}
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "hi"},
+	})
+	if _, err := childDef.Handler(ctx, map[string]any{"question": "child question"}); err != nil {
+		t.Fatalf("child advisor handler() error = %v", err)
+	}
+
+	if len(prov.requests) != 1 {
+		t.Fatalf("captured %d child requests, want 1", len(prov.requests))
+	}
+	if got := prov.requests[0].TransportSession; got != parentSessionID+"-advisor" {
+		t.Errorf("child advisor TransportSession = %q, want %q", got, parentSessionID+"-advisor")
+	}
+	if got := prov.requests[0].ParentTransportSession; got != parentSessionID {
+		t.Errorf("child advisor ParentTransportSession = %q, want %q", got, parentSessionID)
+	}
+	var started output.Event
+	for _, event := range events {
+		if event.Type == output.EventTypeAdvisorStarted {
+			started = event
+			break
+		}
+	}
+	if started.Scope.AgentID != "child-agent" {
+		t.Errorf("child advisor event scope = %q, want child-agent", started.Scope.AgentID)
+	}
+}
+
 func TestBuildDelegateRegistryAdvisorCacheKeyStableAcrossCalls(t *testing.T) {
 	t.Parallel()
 	store := NewCacheKeyStore()

@@ -9,13 +9,13 @@ import (
 // OutputLimitTokens from MaxTokens (default 400000), Timeout defaults to 0 (no timeout).
 func DefaultLimits(cfg config.SubAgentConfig) Limits {
 	maxTurns := cfg.MaxTurns
-	if maxTurns < 15 {
-		maxTurns = 15
+	if maxTurns < config.MinSubAgentMaxTurns {
+		maxTurns = config.MinSubAgentMaxTurns
 	}
 
 	maxTokens := cfg.MaxTokens
 	if maxTokens <= 0 {
-		maxTokens = 400000
+		maxTokens = config.DefaultSubAgentMaxTokens
 	}
 
 	return Limits{

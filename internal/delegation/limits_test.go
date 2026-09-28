@@ -18,8 +18,8 @@ func TestDefaultLimits(t *testing.T) {
 		{
 			name:        "zero config uses defaults",
 			cfg:         config.SubAgentConfig{},
-			wantTurns:   15,
-			wantTokens:  400000,
+			wantTurns:   config.MinSubAgentMaxTurns,
+			wantTokens:  config.DefaultSubAgentMaxTokens,
 			wantTimeout: 0,
 		},
 		{
@@ -37,8 +37,8 @@ func TestDefaultLimits(t *testing.T) {
 			cfg: config.SubAgentConfig{
 				MaxTurns: 10,
 			},
-			wantTurns:   15,
-			wantTokens:  400000,
+			wantTurns:   config.MinSubAgentMaxTurns,
+			wantTokens:  config.DefaultSubAgentMaxTokens,
 			wantTimeout: 0,
 		},
 	}
@@ -60,10 +60,10 @@ func TestDefaultLimits(t *testing.T) {
 }
 
 func TestDefaultLimitsEnforcesMinimumMaxTurns(t *testing.T) {
-	for maxTurns := 1; maxTurns < 15; maxTurns++ {
+	for maxTurns := 1; maxTurns < config.MinSubAgentMaxTurns; maxTurns++ {
 		got := DefaultLimits(config.SubAgentConfig{MaxTurns: maxTurns})
-		if got.MaxTurns < 15 {
-			t.Fatalf("DefaultLimits(MaxTurns=%d).MaxTurns = %d, want at least 15", maxTurns, got.MaxTurns)
+		if got.MaxTurns < config.MinSubAgentMaxTurns {
+			t.Fatalf("DefaultLimits(MaxTurns=%d).MaxTurns = %d, want at least %d", maxTurns, got.MaxTurns, config.MinSubAgentMaxTurns)
 		}
 	}
 }
