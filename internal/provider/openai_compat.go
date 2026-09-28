@@ -142,3 +142,35 @@ func copyHeaders(src map[string]string) map[string]string {
 	}
 	return dst
 }
+
+func prepareTransportSessionHeaders(headers map[string]string, chat ChatRequest) map[string]string {
+	headers = copyHeaders(headers)
+	if opencodeSessionHeader(headers) {
+		if chat.TransportSession != "" {
+			setHeaderCaseInsensitive(headers, "X-Opencode-Session", chat.TransportSession)
+		}
+		if chat.ParentTransportSession != "" {
+			headers["X-Parent-Session-Id"] = chat.ParentTransportSession
+		}
+	}
+	return headers
+}
+
+func setHeaderCaseInsensitive(headers map[string]string, name, value string) {
+	for key := range headers {
+		if strings.EqualFold(key, name) {
+			headers[key] = value
+			return
+		}
+	}
+	headers[name] = value
+}
+
+func opencodeSessionHeader(headers map[string]string) bool {
+	for key := range headers {
+		if strings.EqualFold(key, "X-Opencode-Session") {
+			return true
+		}
+	}
+	return false
+}

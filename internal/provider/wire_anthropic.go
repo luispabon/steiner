@@ -36,18 +36,7 @@ func (w *anthropicWire) HTTPRequest(ctx context.Context, chat ChatRequest, body 
 		req.Header.Set("x-api-key", w.apiKey)
 	}
 	req.Header.Set("anthropic-version", "2023-06-01")
-	headers := make(map[string]string, len(w.headers))
-	for key, value := range w.headers {
-		headers[key] = value
-	}
-	if opencodeSessionHeader(headers) {
-		if chat.TransportSession != "" {
-			setHeaderCaseInsensitive(headers, "X-Opencode-Session", chat.TransportSession)
-		}
-		if chat.ParentTransportSession != "" {
-			headers["X-Parent-Session-Id"] = chat.ParentTransportSession
-		}
-	}
+	headers := prepareTransportSessionHeaders(w.headers, chat)
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}

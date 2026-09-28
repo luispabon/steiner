@@ -45,38 +45,8 @@ func (w *openaiWire) Payload(request ChatRequest, stream bool) ([]byte, error) {
 }
 
 func (w *openaiWire) HTTPRequest(ctx context.Context, chat ChatRequest, body []byte, stream bool) (*http.Request, error) {
-	headers := make(map[string]string, len(w.headers))
-	for key, value := range w.headers {
-		headers[key] = value
-	}
-	if opencodeSessionHeader(headers) {
-		if chat.TransportSession != "" {
-			setHeaderCaseInsensitive(headers, "X-Opencode-Session", chat.TransportSession)
-		}
-		if chat.ParentTransportSession != "" {
-			headers["X-Parent-Session-Id"] = chat.ParentTransportSession
-		}
-	}
+	headers := prepareTransportSessionHeaders(w.headers, chat)
 	return buildJSONPostRequest(ctx, w.chatCompletionsURL(), body, stream, w.apiKey, headers)
-}
-
-func setHeaderCaseInsensitive(headers map[string]string, name, value string) {
-	for key := range headers {
-		if strings.EqualFold(key, name) {
-			headers[key] = value
-			return
-		}
-	}
-	headers[name] = value
-}
-
-func opencodeSessionHeader(headers map[string]string) bool {
-	for key := range headers {
-		if strings.EqualFold(key, "X-Opencode-Session") {
-			return true
-		}
-	}
-	return false
 }
 
 func (w *openaiWire) DecodeResponse(resp *http.Response) (ChatResponse, error) {
