@@ -1026,7 +1026,9 @@ full. The `tool` stream rotates at 20 MB with 3 generations kept, so a long
 collection window overwrites its oldest records; snapshot the diagnostics
 directory when the window matters.
 
-### Analyzing diagnostics
+### Cache diagnostics fields
+
+Usage-bearing responses produce `cache.jsonl` records when `streams.cache` is enabled. Cache payloads include `upstream_endpoint` when reported by the gateway, `message_count` for the exact outbound request, and `call_kind` (`compaction` for compaction escalation; omitted for normal calls). Compaction diagnostics report usage but do not advance the prefix-comparison baseline. These records never contain prompt content or the prompt cache key.
 
 See [Configuration internals](../internals/configuration.md#analyzing-diagnostics)
 for analysis modes and script checks.

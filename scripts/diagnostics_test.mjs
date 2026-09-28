@@ -34,13 +34,13 @@ test("cache mode: by-model row count and hand-computed hit rate", () => {
 	assert.equal(byModel.length, 1);
 	const row = byModel[0];
 	assert.equal(row.key, "claude-sonnet-5");
-	assert.equal(row.n, 5);
-	// prompt totals: 1000+1200+800+1000+1300 = 5300
-	// cache_read totals: 0+1000+0+100+1200 = 2300
-	// cache_create totals: 1000+200+800+900+100 = 3000
+	assert.equal(row.n, 6);
+	assert.equal(row.metrics.callKinds.compaction, 1);
+	assert.equal(row.metrics.endpoints["eu-west-1"], 1);
+	// Compaction records are included in cache mode aggregates.
 	// nonCached = max(prompt - read - create, 0) per record, summed = 0
 	// hit_rate = 2300 / (0 + 2300 + 3000) = 0.4339...
-	assert.ok(Math.abs(row.metrics.hitRate - 2300 / 5300) < 1e-9);
+	assert.ok(Math.abs(row.metrics.hitRate - 2320 / 5420) < 1e-9);
 });
 
 test("cache mode: by-source groups parent and sub_agent separately", () => {
@@ -48,8 +48,9 @@ test("cache mode: by-source groups parent and sub_agent separately", () => {
 	const bySource = out["by source"];
 	const parent = bySource.find((r) => r.key === "parent");
 	const subAgent = bySource.find((r) => r.key === "sub_agent");
-	assert.equal(parent.n, 4);
+	assert.equal(parent.n, 5);
 	assert.equal(subAgent.n, 1);
+	assert.equal(parent.metrics.callKinds.compaction, 1);
 	// Only one record per run_id may carry cold_start: true (see
 	// internal/agent/cache_diagnostics.go's coldStartRecorded latch); run-a's
 	// parent turn 1 claims it, so the sub_agent record in the same run must not.

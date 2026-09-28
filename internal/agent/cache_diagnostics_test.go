@@ -133,6 +133,9 @@ func TestEmitCacheDiagnostic_FieldsAndColdStart(t *testing.T) {
 	if payload.PromptTokens != 100 || payload.CompletionTokens != 20 || payload.CacheReadTokens != 40 || payload.CacheCreateTokens != 5 {
 		t.Fatalf("token counts = %+v, want 100/20/40/5", payload)
 	}
+	if payload.MessageCount != 0 || payload.CallKind != "" || payload.UpstreamEndpoint != "" {
+		t.Fatalf("normal diagnostic metadata = %+v, want empty endpoint/kind and unset count", payload)
+	}
 	if payload.CacheKeyHash == "" || payload.CacheKeyHash == "super-secret-key" {
 		t.Fatalf("CacheKeyHash = %q, want a non-empty hash that is not the key", payload.CacheKeyHash)
 	}
@@ -363,6 +366,42 @@ func TestComputeRequestCacheStats_ComparesWithoutPromoting(t *testing.T) {
 	second := computeRequestCacheStats(req, append(messages, provider.Message{Role: provider.MessageRoleAssistant, Content: "hi"}))
 	if !second.predecessorKnown || second.sharedPrefixMessages != 1 {
 		t.Fatalf("second = %+v, want known predecessor sharing 1 message", second)
+	}
+}
+
+func TestCompactionCacheDiagnosticDoesNotPromoteBaseline(t *testing.T) {
+	resetColdStart(t)
+	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
+	store := NewCacheBaselineStore()
+	req := RunRequest{Diagnostics: w, CacheBaseline: store, PromptCacheKey: "key", ResolvedModel: provider.ResolvedModel{BackendModelID: "model"}}
+	initial := []provider.Message{{Role: provider.MessageRoleUser, Content: "original"}}
+	initialStats := computeRequestCacheStats(req, initial)
+	promoteRequestCacheStats(req, initialStats)
+
+	compactionMessages := []provider.Message{{Role: provider.MessageRoleUser, Content: "summary"}, {Role: provider.MessageRoleUser, Content: "compaction instruction"}}
+	stats := computeRequestCacheStats(req, compactionMessages)
+	response := provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 20}, UpstreamEndpoint: "endpoint-a"}
+	emitCacheDiagnostic(req, response, "compaction", 2, stats)
+	if stats.messageHashes == nil || len(stats.messageHashes) != len(compactionMessages) {
+		t.Fatalf("message hashes count = %d, want %d", len(stats.messageHashes), len(compactionMessages))
+	}
+	if shared, known := store.Compare(stats.baselineKey, perMessageHashes(initial)); !known || shared != len(initial) {
+		t.Fatalf("baseline after compaction diagnostic = (%d, %v), want original baseline preserved", shared, known)
+	}
+	records := readCacheRecords(t, dir)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	payload, err := json.Marshal(records[0].Payload)
+	if err != nil {
+		t.Fatalf("marshal compaction payload: %v", err)
+	}
+	var decoded cachePayload
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal compaction payload: %v", err)
+	}
+	if decoded.CallKind != "compaction" || decoded.UpstreamEndpoint != "endpoint-a" || decoded.MessageCount != len(compactionMessages) {
+		t.Fatalf("compaction payload = %+v", decoded)
 	}
 }
 
