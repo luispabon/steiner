@@ -30,7 +30,7 @@ Windows use wall-clock time and hourly buckets. Older data is pruned after 8 day
 
 ### In-session sidebar field
 
-The `PERFORMANCE` sidebar card includes two annotated cache-hit values: `cache hit` for the latest request and a blank, padded label line for the session rate. The values use `request` and `session` suffixes when space allows, falling back to narrow `req` and `sess` suffixes. The session rate is token-weighted, for example `78.2%`, or `—` before the first cache-capable parent call. It updates after each model response. The sidebar covers the top-level orchestrator; sub-agent and advisor calls do not feed these fields.
+The `PERFORMANCE` sidebar card includes two annotated cache-hit values: `cache hit` for the latest request and a blank, padded label line for the session rate. The latest-request value is labeled `latest req` at the sidebar's fixed width; the session value uses `session`. The scope formatters can fall back to `req` and `sess`, then a bare percentage, at constrained value widths, but the current sidebar does not resize dynamically. The session rate is token-weighted, for example `78.2%`, or `—` before the first cache-capable parent call. It updates after each model response. The sidebar covers the top-level orchestrator; sub-agent and advisor calls do not feed these fields.
 
 ### Sub-agent and advisor tool boxes
 
@@ -56,7 +56,7 @@ steiner --exec < task.txt
 
 Usage records include timestamp, optional run id, source, provider and model identity, raw prompt tokens, cache-read and cache-create tokens, and completion tokens. `prompt_tokens` includes cached input. WebSocket records identify `dial` or `reconnect`, an optional reason, and an optional cache key. Each line is appended atomically and is intended for external analysis.
 
-Structured cache diagnostics are a separate opt-in stream: with `diagnostics.enabled: true` and `diagnostics.streams.cache: true`, one JSONL record per usage-bearing response is written to `<diagnostics.dir>/cache.jsonl`, covering the parent and delegated agents. Records contain model identity, token counts, source and run metadata, plus hashes and prefix comparison counts, never message content or the cache key itself. See the configuration reference for diagnostics settings.
+Structured cache diagnostics are a separate opt-in stream: with `diagnostics.enabled: true` and `diagnostics.streams.cache: true`, one JSONL record per usage-bearing response is written to `<diagnostics.dir>/cache.jsonl`, covering the parent and delegated agents. Records contain model identity, token counts, source and run metadata, plus hashes and prefix comparison counts, never message content or the cache key itself. Advisor records deliberately expose `prefix_message_count` rather than `message_count`; this field-name exception preserves the advisor diagnostics contract. See the configuration reference for diagnostics settings.
 
 ## Codex transport and pacing
 

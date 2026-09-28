@@ -237,7 +237,7 @@ func (s sidebarState) performanceSection(width int) []string {
 		cardFieldN("duration", keyW, s.styles.FgDim, fitText(formatDuration(s.perfDurationMs), w-keyW+7), s.styles),
 		cardFieldN("ttft", keyW, s.styles.FgDim, fitText(formatDuration(s.perfTTFTMs), w-keyW+7), s.styles),
 		cardFieldN("tps", keyW, s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w-keyW+7), s.styles),
-		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.lastRequestCacheRate, s.lastRequestCacheRateOK, "request", w-keyW+7), w-keyW+7), s.styles),
+		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.lastRequestCacheRate, s.lastRequestCacheRateOK, "latest req", w-keyW+7), w-keyW+7), s.styles),
 		cardFieldN("", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.sessionCacheHitRate, s.sessionCacheHitRateOK, "session", w-keyW+7), w-keyW+7), s.styles),
 		s.sessionRow(w),
 	}
@@ -275,7 +275,7 @@ func formatCacheHitWithScope(rate float64, ok bool, scope string, width int) str
 	if lipgloss.Width(full) <= width {
 		return full
 	}
-	short := value + " · " + map[string]string{"request": "req", "session": "sess"}[scope]
+	short := value + " · " + map[string]string{"latest req": "req", "request": "req", "session": "sess"}[scope]
 	if lipgloss.Width(short) <= width {
 		return short
 	}

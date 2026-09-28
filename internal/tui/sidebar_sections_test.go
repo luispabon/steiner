@@ -548,6 +548,19 @@ func TestSidebarOmitsOneshotSectionWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestPerformanceSectionUsesLatestRequestLabel(t *testing.T) {
+	t.Parallel()
+	s := sidebarState{
+		lastRequestCacheRate:   0.782,
+		lastRequestCacheRateOK: true,
+		styles:                 testStyles(theme.AccentAmber),
+	}
+	got := stripANSI(strings.Join(s.performanceSection(32), "\\n"))
+	if !strings.Contains(got, "78.2% · latest req") {
+		t.Errorf("performanceSection(32) missing normal latest-request label in %q", got)
+	}
+}
+
 func TestFormatCacheHitRate(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
