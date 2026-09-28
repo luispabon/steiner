@@ -17,6 +17,47 @@ import (
 	"time"
 )
 
+func TestOpenAIClientCapturesUpstreamEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Opencode-Endpoint-Id", "upstream-1")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
+	}))
+	defer server.Close()
+	client, err := NewOpenAICompat(ClientConfig{BaseURL: server.URL, Model: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.ChatCompletion(context.Background(), ChatRequest{Model: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.UpstreamEndpoint != "upstream-1" {
+		t.Fatalf("UpstreamEndpoint = %q, want upstream-1", response.UpstreamEndpoint)
+	}
+}
+
+func TestOpenAIClientCapturesStreamUpstreamEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Opencode-Endpoint-Id", "upstream-2")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	client, err := NewOpenAICompat(ClientConfig{BaseURL: server.URL, Model: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks, err := client.StreamChatCompletion(context.Background(), ChatRequest{Model: "test", Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for chunk := range chunks {
+		if chunk.Done && chunk.UpstreamEndpoint != "upstream-2" {
+			t.Fatalf("UpstreamEndpoint = %q, want upstream-2", chunk.UpstreamEndpoint)
+		}
+	}
+}
+
 // fakeWire is a Provider Wire that speaks no real format: it lets the engine
 // (retry, pacing, scheduling, stream bookkeeping) be exercised once, without
 // per-provider HTTP fixtures.

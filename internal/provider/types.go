@@ -115,6 +115,8 @@ type ChatResponse struct {
 	Message      Message     `json:"message"`
 	Usage        *UsageStats `json:"usage,omitempty"`
 	FinishReason string      `json:"finish_reason,omitempty"`
+	// UpstreamEndpoint is the upstream endpoint id reported by compatible gateways.
+	UpstreamEndpoint string `json:"-"`
 }
 
 // ChatChunk is a streamed response fragment from a provider.
@@ -129,4 +131,6 @@ type ChatChunk struct {
 	Severity      string      `json:"severity,omitempty"`
 	RetryReset    bool        `json:"retry_reset,omitempty"`
 	OriginalError error       `json:"-"` // preserves the original error type (not serialized)
+	// UpstreamEndpoint is the upstream endpoint id reported by compatible gateways.
+	UpstreamEndpoint string `json:"-"`
 }

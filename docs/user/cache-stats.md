@@ -12,7 +12,7 @@ hit_rate = CacheReadInputTokens / total_input_tokens
 
 `CacheReadInputTokens` is input tokens served from cache. `total_input_tokens` is non-cached input plus cache-read and cache-creation tokens. A provider's `prompt_tokens` is a raw total including cached input, so cached and cache-created counts are subtracted before calculating the non-cached portion.
 
-When a window contains no cache-capable calls or zero input tokens, the metric renders as `—`. A call with input tokens but zero cache reads is recorded normally and contributes 0.0%. Codex and OpenAI-compatible providers report cache-read tokens but no cache-creation tokens; Anthropic reports both.
+When a window contains no cache-capable calls or zero input tokens, the metric renders as `—`. A call with input tokens but zero cache reads is recorded normally and contributes 0.0%. Codex reports cache-read tokens but no cache-creation tokens. OpenAI-compatible providers map `cache_write_tokens` to cache creation when reported; cache-read tokens use the first present field in this order: `prompt_tokens_details.cached_tokens`, `prompt_cache_hit_tokens`, then top-level `cached_tokens`. Anthropic reports both.
 
 ## Fixed time windows
 

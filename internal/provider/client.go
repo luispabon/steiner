@@ -193,7 +193,11 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 		firstChunkAt = time.Time{}
 		lastRespHeaders = resp.Header
 
+		endpointID := resp.Header.Get("X-Opencode-Endpoint-Id")
 		err = c.wire.DecodeStream(ctx, resp.Body, func(chunk ChatChunk) error {
+			if chunk.Done {
+				chunk.UpstreamEndpoint = endpointID
+			}
 			if chunksReceived == 0 {
 				firstChunkAt = time.Now()
 			}

@@ -53,7 +53,12 @@ func (w *openaiWire) DecodeResponse(resp *http.Response) (ChatResponse, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return ChatResponse{}, fmt.Errorf("%w: %w", errDecodeChatCompletionResponse, err)
 	}
-	return normalizeChatResponse(&payload)
+	response, err := normalizeChatResponse(&payload)
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	response.UpstreamEndpoint = resp.Header.Get("X-Opencode-Endpoint-Id")
+	return response, nil
 }
 
 func (w *openaiWire) DecodeStream(ctx context.Context, body io.Reader, emit func(ChatChunk) error) error {

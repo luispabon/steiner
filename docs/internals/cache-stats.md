@@ -90,6 +90,10 @@ It attributes parent gaps to `no_prior_baseline`, `prefix_rewrite`, `delegation`
 
 Models that do not report cache reads are excluded rather than treated as cold. A backend omitting `prompt_tokens_details.cached_tokens` is indistinguishable from a backend with no hits, so counting it as 100% cold would fabricate a measurement. `--min-n` (default 10) prints `insufficient` for small delegation samples while always printing `n`. Rows group by backend model id, not provider type. The prefix signal cannot detect a partial rewrite because the stream has no message count; use session-log `prefix` mode for that case. That mode walks each agent's `api_request` events in append order, not by `payload.turn`, because an interactive prompt restarts the turn counter within the same agent group. Compaction/context-escalation calls do not emit `cache.jsonl` records even though they feed the aggregate store.
 
+## OpenAI-compatible usage fields
+
+OpenAI-compatible responses preserve `prompt_tokens` as the raw total. Cache reads fall back by presence, not nonzero value: `prompt_tokens_details.cached_tokens`, then `prompt_cache_hit_tokens`, then top-level `cached_tokens`. An explicit zero in an earlier field takes precedence. `cache_write_tokens` maps to cache creation tokens for both normal and streamed usage; providers that omit it report zero.
+
 ## Accounting invariant
 
 For every provider adapter, `prompt_tokens` is a raw total including cached input. The non-cached denominator is derived as `prompt_tokens - cache_read_tokens - cache_create_tokens`; otherwise cache reads are double-counted and the reported rate is deflated. Provider usage is recorded by `internal/usagestats`, persisted through its hourly store, and surfaced by the session, overlay, and diagnostics paths.

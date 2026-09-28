@@ -8,6 +8,31 @@ import (
 
 func intPtr(v int) *int { return &v }
 
+func TestOpenAIUsageCacheFallbacks(t *testing.T) {
+	tests := []struct {
+		name  string
+		json  string
+		read  int
+		write int
+	}{
+		{"deepseek details zero wins", `{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":0},"prompt_cache_hit_tokens":12,"cached_tokens":13,"cache_write_tokens":4}`, 0, 4},
+		{"kimi prompt cache hit", `{"prompt_tokens":100,"prompt_cache_hit_tokens":12,"cached_tokens":13,"cache_write_tokens":4}`, 12, 4},
+		{"openrouter top-level cached", `{"prompt_tokens":100,"cached_tokens":13,"cache_write_tokens":4}`, 13, 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var usage openAIUsage
+			if err := json.Unmarshal([]byte(tt.json), &usage); err != nil {
+				t.Fatal(err)
+			}
+			got := usage.toUsageStats()
+			if got.PromptTokens != 100 || got.CacheReadInputTokens != tt.read || got.CacheCreationInputTokens != tt.write {
+				t.Fatalf("usage = %+v, want prompt=100 read=%d write=%d", got, tt.read, tt.write)
+			}
+		})
+	}
+}
+
 func TestOpenAIMessages_SetsReasoningContentPointerWhenPresent(t *testing.T) {
 	msg := Message{
 		Role:             MessageRoleAssistant,
