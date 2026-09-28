@@ -28,7 +28,7 @@ Follow this sequence:
 
 1. Validate artifacts and branch state.
 2. Check out the expected feature branch.
-3. Run the review pass.
+3. Map coverage and synthesize bounded review passes.
 4. If blocking findings exist, ask approval for one consolidated fix plan.
 5. Run approved review-fix work through Steiner delegation.
 6. Rerun relevant checks.
@@ -47,7 +47,7 @@ Do not create `review.md` by default. Create it only when the user chooses to ke
 
 When created, `review.md` is a compact final-state file under the planning folder. It should record:
 
-- scope and inputs reviewed
+- scope and inputs reviewed, including coverage gaps
 - review status: `fail`, `pass_with_notes`, or `pass`
 - blocking findings and resolution state
 - non-blocking notes
@@ -74,11 +74,11 @@ Focus on:
 - correctness against accepted intent
 - maintainability issues that materially affect correctness or future work
 
-Review touched files and directly adjacent regression-risk areas: call sites, interfaces, tests, config, data paths, and package boundaries touched by or directly depending on the change. Do not broadly re-review unrelated code.
+## Review Pass
 
-For inspection, use native tools directly — `read` to examine files, `grep` and `glob` to locate code and call sites, `mutate` for `review.md`.
+Map changed files and plan outcomes to bounded areas, including direct callers, interfaces, and tests. Review small changes alone; review larger areas with parallel `review` agents. Risk lenses cannot replace area coverage. Brief agents with the same committed head, relevant files, decisions, and checks. Require inspected scope, gaps, and concrete evidence in their built-in finding format, not fixes or a verdict. Reassess if the head changes.
 
-Prefer evidence over speculation. Findings should reference concrete code, artifacts, missing checks, or reproducible reasoning.
+Synthesize cross-area contracts, verify material claims, and deduplicate. Fill incomplete coverage; material gaps block a pass. Do not re-review unrelated code. Use native tools for inspection and `mutate` for `review.md`.
 
 ## Findings
 
@@ -133,7 +133,7 @@ The review-fix delegated agent must:
 - avoid unrelated cleanup or scope expansion
 - not merge, rebase, or clean up reviewer-owned git state
 
-Review-fix work is sequential. Do not parallelize it.
+Parallelize approved fixes with disjoint write scopes and settled contracts only. Merge one worktree at a time; verify combined changes and re-review affected boundaries.
 
 ### Pre-Commit Checklist
 
@@ -154,13 +154,13 @@ Include the advisor's note in the final review status summary. When `review.md` 
 
 Before running `make check` or `golangci-lint run`, run `golangci-lint cache clean` to avoid false positives from stale cache entries pointing at deleted worktree paths.
 
-Reuse the verification strategy in `overview.md` by default. Rerun the narrowest checks that cover the fixes and any affected acceptance criteria.
+On the combined branch, rerun `overview.md` checks covering fixes and affected criteria; re-review affected boundaries.
 
 If verification fails, either run another approved review-fix pass or report a blocker. Do not silently downgrade failures.
 
 ## Steiner Delegation
 
-Steiner's sub-agent tools accept only `task`. When delegation is available, follow the briefing template in your system prompt, additionally including the pre-commit checklist from the Review-Fix Loop section.
+For delegation, follow the briefing template in your system prompt; include the pre-commit checklist in code-fix tasks.
 
 ## Closeout
 
