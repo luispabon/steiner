@@ -27,7 +27,7 @@ func (s *ContextStateManager) observeFreshToolResult(turn int, toolName string, 
 		return shaped
 	}
 
-	finalContent, outcome := dedupReadResult(shaped, turn, prior)
+	finalContent, outcome := dedupReadResult(shaped, prior)
 	s.fileTracker.RecordRead(turn, finalContent)
 	if outcome.Action == "annotated" {
 		if result, ok := parseReadResult(finalContent); ok {

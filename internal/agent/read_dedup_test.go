@@ -141,7 +141,7 @@ func TestDedupReadResult(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, outcome := dedupReadResult(test.current, 8, test.prior)
+			got, outcome := dedupReadResult(test.current, test.prior)
 			if outcome.Action != test.wantAction || outcome.Reason != test.wantReason || outcome.PreviousTurn != test.wantTurn {
 				t.Fatalf("outcome = %+v, want action=%q reason=%q previous turn=%d", outcome, test.wantAction, test.wantReason, test.wantTurn)
 			}

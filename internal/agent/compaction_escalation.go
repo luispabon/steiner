@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -203,7 +204,10 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 			}()
 		}
 	}
-	stats := computeRequestCacheStats(req, chatRequest.Messages)
+	stats := requestCacheStats{}
+	if req.Diagnostics.Enabled(diagnostics.KindCache) {
+		stats = computeRequestCacheStats(req, chatRequest.Messages)
+	}
 	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, nil)
 	if logger != nil {
 		if logErr := logger.LogResponse(response); logErr != nil {

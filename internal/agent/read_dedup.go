@@ -16,7 +16,7 @@ type readDedupOutcome struct {
 	PreviousTurn int
 }
 
-func dedupReadResult(content string, _ int, prior []Message) (string, readDedupOutcome) {
+func dedupReadResult(content string, prior []Message) (string, readDedupOutcome) {
 	full := readDedupOutcome{Action: "full", Reason: "first read"}
 	var result builtin.ReadResult
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
