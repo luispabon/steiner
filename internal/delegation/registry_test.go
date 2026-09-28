@@ -176,6 +176,35 @@ func TestBuildDelegateRegistryDisablesChildLSPGuidanceWithoutServers(t *testing.
 	}
 }
 
+func TestBuildDelegateRegistryParentAdvisorUsesScopedTransportSession(t *testing.T) {
+	t.Parallel()
+	const parentSessionID = "parent-session-id"
+	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "ok"}, FinishReason: "stop"}}}
+	cfg := advisorTestConfig()
+	reg, err := BuildDelegateRegistry(DelegateDeps{
+		BaseRegistry:    tool.NewRegistry(),
+		AdvisorCfg:      config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1},
+		Provider:        prov,
+		ProviderFactory: func(provider.ResolvedModel, string) (provider.Provider, error) { return prov, nil },
+		Events:          output.NoopSink{}, WorkDir: "/tmp/work", SessionID: parentSessionID,
+		ResolvedModel: provider.ResolvedModel{ProviderAlias: "testprov", EffectiveProviderType: config.ProviderTypeOpenAICompat},
+		Config:        cfg, ResolveModel: resolveModelFunc(cfg),
+	})
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+	callAdvisorHandler(t, reg)
+	if len(prov.requests) != 1 {
+		t.Fatalf("captured %d requests, want 1", len(prov.requests))
+	}
+	if got := prov.requests[0].TransportSession; got != parentSessionID+"-advisor" {
+		t.Errorf("advisor TransportSession = %q, want %q", got, parentSessionID+"-advisor")
+	}
+	if got := prov.requests[0].ParentTransportSession; got != parentSessionID {
+		t.Errorf("advisor ParentTransportSession = %q, want %q", got, parentSessionID)
+	}
+}
+
 func TestBuildDelegateRegistryAdvisorCacheKeyStableAcrossCalls(t *testing.T) {
 	t.Parallel()
 	store := NewCacheKeyStore()

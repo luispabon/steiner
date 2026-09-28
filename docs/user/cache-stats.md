@@ -30,11 +30,11 @@ Windows use wall-clock time and hourly buckets. Older data is pruned after 8 day
 
 ### In-session sidebar field
 
-The `PERFORMANCE` sidebar card includes two annotated cache-hit values: `cache hit` for the latest request and a blank, padded label line for the session rate. The values use full `latest req` and `session` suffixes when space allows, falling back to narrow `req` and `sess` suffixes. The session rate is token-weighted, for example `78.2%`, or `—` before the first cache-capable parent call. It updates after each model response. The sidebar covers the top-level orchestrator; sub-agent and advisor calls do not feed these fields.
+The `PERFORMANCE` sidebar card includes two annotated cache-hit values: `cache hit` for the latest request and a blank, padded label line for the session rate. The values use `request` and `session` suffixes when space allows, falling back to narrow `req` and `sess` suffixes. The session rate is token-weighted, for example `78.2%`, or `—` before the first cache-capable parent call. It updates after each model response. The sidebar covers the top-level orchestrator; sub-agent and advisor calls do not feed these fields.
 
 ### Sub-agent and advisor tool boxes
 
-Sub-agent boxes update their session cache rate as each model request finishes. Expanded stats show `Cache: NN.N% latest req · NN.N% session`; completed boxes retain the authoritative final session rate as `Cache: NN.N%`. Child rates are cumulative across extension reruns and follow-ups; advisor rates are per consultation. When there was no cache-bearing usage the cache rate is omitted. `—` is shown when there was no cache-bearing usage. Compaction and context-escalation calls are not included in these per-run counters.
+Sub-agent boxes update their session cache rate as each model request finishes. Expanded stats show `Cache: NN.N% latest req · NN.N% session`; completed boxes retain the authoritative final session rate as `Cache: NN.N%`. Child rates are cumulative across follow-ups; advisor rates are per consultation. When there was no cache-bearing usage the cache rate is omitted. `—` is shown when there was no cache-bearing usage. Compaction and context-escalation calls are not included in these per-run counters.
 
 ### Compaction banners
 

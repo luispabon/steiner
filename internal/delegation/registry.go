@@ -220,6 +220,10 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 	if err != nil {
 		return nil, err
 	}
+	if deps.SessionID != "" {
+		advRuntime.transportSession = deps.SessionID + "-advisor"
+		advRuntime.parentTransportSession = deps.SessionID
+	}
 	cloned.Register(advRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerRun, deps.AdvisorState))
 
 	if deps.AdvisorBudgetStore == nil {
