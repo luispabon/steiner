@@ -135,15 +135,17 @@ type DelegateDeps struct {
 
 // advisorRuntime holds the resolved advisor provider, model, and configuration.
 type advisorRuntime struct {
-	provider    provider.Provider
-	model       provider.ResolvedModel
-	events      output.EventSink
-	recorder    *usagestats.Recorder
-	diagnostics *diagnostics.Writer
-	workDir     string
-	pathPolicy  tool.PathPolicy
-	cacheKey    string
-	maxTokens   *int
+	provider               provider.Provider
+	model                  provider.ResolvedModel
+	events                 output.EventSink
+	recorder               *usagestats.Recorder
+	diagnostics            *diagnostics.Writer
+	workDir                string
+	pathPolicy             tool.PathPolicy
+	cacheKey               string
+	maxTokens              *int
+	transportSession       string
+	parentTransportSession string
 }
 
 // newAdvisorRuntime resolves the advisor model and provider, returning the runtime
@@ -190,12 +192,14 @@ func (r advisorRuntime) toolDef(maxUses int, state *advisor.SharedState) tool.To
 			MaxUsesPerRun: maxUses,
 			MaxTokens:     r.maxTokens,
 		},
-		UsageRecorder: r.recorder,
-		Diagnostics:   r.diagnostics,
-		WorkDir:       r.workDir,
-		PathPolicy:    &r.pathPolicy,
-		CacheKey:      r.cacheKey,
-		SharedState:   state,
+		UsageRecorder:          r.recorder,
+		Diagnostics:            r.diagnostics,
+		WorkDir:                r.workDir,
+		PathPolicy:             &r.pathPolicy,
+		CacheKey:               r.cacheKey,
+		SharedState:            state,
+		TransportSession:       r.transportSession,
+		ParentTransportSession: r.parentTransportSession,
 	}))
 }
 
@@ -238,6 +242,8 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 			cacheKey:    advRuntime.cacheKey,
 			maxTokens:   advRuntime.maxTokens,
 		}
+		scopedRuntime.transportSession = "session-advisor"
+		scopedRuntime.parentTransportSession = deps.SessionID
 		return scopedRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state), true
 	}
 	return advisorForChild, nil

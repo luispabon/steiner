@@ -71,6 +71,10 @@ type HandlerDeps struct {
 	// package keeps working standalone (e.g. in tests that construct
 	// HandlerDeps directly).
 	CacheKey string
+	// TransportSession routes advisor requests within supported transports.
+	TransportSession string
+	// ParentTransportSession identifies the parent session for supported transports.
+	ParentTransportSession string
 	// SharedState carries the advisor use counter across every NewHandler
 	// call it's passed to, so the budget in Config.MaxUsesPerRun is enforced
 	// for the session (the handler's caller decides the shared state's

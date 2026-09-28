@@ -23,7 +23,7 @@ func (w *anthropicWire) Payload(request ChatRequest, stream bool) ([]byte, error
 	return json.Marshal(anthropicRequestWire(request, w.model, stream))
 }
 
-func (w *anthropicWire) HTTPRequest(ctx context.Context, _ ChatRequest, body []byte, stream bool) (*http.Request, error) {
+func (w *anthropicWire) HTTPRequest(ctx context.Context, chat ChatRequest, body []byte, stream bool) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.messagesURL(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -36,7 +36,17 @@ func (w *anthropicWire) HTTPRequest(ctx context.Context, _ ChatRequest, body []b
 		req.Header.Set("x-api-key", w.apiKey)
 	}
 	req.Header.Set("anthropic-version", "2023-06-01")
+	headers := make(map[string]string, len(w.headers))
 	for key, value := range w.headers {
+		headers[key] = value
+	}
+	if opencodeSessionHeader(headers) {
+		setHeaderCaseInsensitive(headers, "X-Opencode-Session", chat.TransportSession)
+		if chat.ParentTransportSession != "" {
+			headers["X-Parent-Session-Id"] = chat.ParentTransportSession
+		}
+	}
+	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
 	return req, nil

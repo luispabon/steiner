@@ -57,6 +57,11 @@ type RunRequest struct {
 	// requests to the same cache shard across turns. Empty disables it.
 	PromptCacheKey string
 
+	// TransportSession routes this agent's requests within supported transports.
+	TransportSession string
+	// ParentTransportSession identifies the parent session for supported transports.
+	ParentTransportSession string
+
 	// CompactionLogPath is an optional file path for logging compaction request/response pairs.
 	// When non-empty, compaction calls write their full API request and final response to this file.
 	CompactionLogPath string

@@ -251,26 +251,28 @@ type childRunRequestParams struct {
 	// worktree path and TraceRoot stays anchored to the parent's actual
 	// project directory so trace files never appear as untracked changes
 	// inside the child's git checkout.
-	TraceRoot          string
-	AgentID            string
-	SessionID          string
-	Provider           provider.Provider
-	VisibleReg         *tool.Registry
-	ExecReg            *tool.Registry
-	BaseLimits         agent.Limits
-	Events             output.EventSink
-	PromptOpts         prompt.AssemblyOptions
-	ResolvedModel      provider.ResolvedModel
-	ModelBudget        prompt.ModelTokenBudget
-	MaxTokens          *int
-	StreamingPreferred bool
-	UsageRecorder      *usagestats.Recorder
-	ModeGetter         func() config.ExecutionMode
-	AgentType          AgentType
-	CacheKeyStore      *CacheKeyStore
-	CacheBaseline      *agent.CacheBaselineStore
-	SandboxTmpDir      string
-	Sandbox            tool.SandboxWrapper
+	TraceRoot              string
+	AgentID                string
+	SessionID              string
+	TransportSession       string
+	ParentTransportSession string
+	Provider               provider.Provider
+	VisibleReg             *tool.Registry
+	ExecReg                *tool.Registry
+	BaseLimits             agent.Limits
+	Events                 output.EventSink
+	PromptOpts             prompt.AssemblyOptions
+	ResolvedModel          provider.ResolvedModel
+	ModelBudget            prompt.ModelTokenBudget
+	MaxTokens              *int
+	StreamingPreferred     bool
+	UsageRecorder          *usagestats.Recorder
+	ModeGetter             func() config.ExecutionMode
+	AgentType              AgentType
+	CacheKeyStore          *CacheKeyStore
+	CacheBaseline          *agent.CacheBaselineStore
+	SandboxTmpDir          string
+	Sandbox                tool.SandboxWrapper
 	// Diagnostics is threaded onto the child run request and the child
 	// executor; see DelegateDeps.Diagnostics.
 	Diagnostics      *diagnostics.Writer
@@ -322,24 +324,26 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	childCacheKey := cacheKeyOrMint(p.CacheKeyStore, p.AgentType)
 
 	req := agent.RunRequest{
-		Provider:           p.Provider,
-		Executor:           scopedToolExecutor{inner: exec, agentID: p.AgentID, readOnlyBash: p.ReadOnlyBash},
-		Tools:              p.VisibleReg.ToProviderSpecs(),
-		Limits:             p.BaseLimits,
-		Events:             scopedEvents,
-		Prompt:             p.PromptOpts,
-		ResolvedModel:      p.ResolvedModel,
-		ModelBudget:        p.ModelBudget,
-		MaxTokens:          p.MaxTokens,
-		StreamingPreferred: p.StreamingPreferred,
-		CaveHuman:          p.PromptOpts.CaveHuman,
-		PromptCacheKey:     childCacheKey,
-		CacheBaseline:      p.CacheBaseline,
-		UsageSource:        usagestats.SourceSubAgent,
-		ContextManager:     agent.NewContextStateManager(p.ContextManagement),
-		Diagnostics:        p.Diagnostics,
-		AgentID:            p.AgentID,
-		AgentType:          string(p.AgentType),
+		Provider:               p.Provider,
+		Executor:               scopedToolExecutor{inner: exec, agentID: p.AgentID, readOnlyBash: p.ReadOnlyBash},
+		Tools:                  p.VisibleReg.ToProviderSpecs(),
+		Limits:                 p.BaseLimits,
+		Events:                 scopedEvents,
+		Prompt:                 p.PromptOpts,
+		ResolvedModel:          p.ResolvedModel,
+		ModelBudget:            p.ModelBudget,
+		MaxTokens:              p.MaxTokens,
+		StreamingPreferred:     p.StreamingPreferred,
+		CaveHuman:              p.PromptOpts.CaveHuman,
+		PromptCacheKey:         childCacheKey,
+		CacheBaseline:          p.CacheBaseline,
+		UsageSource:            usagestats.SourceSubAgent,
+		ContextManager:         agent.NewContextStateManager(p.ContextManagement),
+		Diagnostics:            p.Diagnostics,
+		AgentID:                p.AgentID,
+		AgentType:              string(p.AgentType),
+		TransportSession:       "parentSession-" + p.AgentID,
+		ParentTransportSession: p.SessionID,
 	}
 	if p.UsageRecorder != nil {
 		req.UsageRecorder = p.UsageRecorder

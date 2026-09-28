@@ -20,6 +20,10 @@ A non-streaming Responses request can fail with `400 "Stream must be set to true
 
 The `ChatRequest.AdvisorCacheProfile` path is separate from this Codex behavior. Anthropic breakpoint placement is described in the advisor internals page; the default main-agent and delegation cache profiles are not changed by it.
 
+## OpenCode per-agent sessions
+
+OpenCode-compatible HTTP wires with a configured `X-Opencode-Session` header route each delegated agent to `parentSession-<agentID>` and advisor calls to `session-advisor`. They also send `X-Parent-Session-Id` when a parent session is available. Normal turns and compaction escalation reuse each run's transport session. Wires without the configured OpenCode header ignore these request fields, leaving other provider headers unchanged. The static parent provider session configured at the command root remains unchanged.
+
 ## Superseded measurement history
 
 The following claims were re-measured on 2026-08-25 and did not reproduce.

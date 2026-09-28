@@ -20,6 +20,36 @@ func testOpenAIWire(t *testing.T, baseURL, model string) *openaiWire {
 	return &openaiWire{baseURL: parsed, model: model}
 }
 
+func TestOpenAIWireHTTPRequest_OpenCodeSessionRouting(t *testing.T) {
+	w := testOpenAIWire(t, "http://localhost:11434/v1", "gpt-4")
+	w.headers = map[string]string{"x-opencode-session": "static"}
+	req, err := w.HTTPRequest(t.Context(), ChatRequest{TransportSession: "child", ParentTransportSession: "parent"}, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Header.Get("X-Opencode-Session"); got != "child" {
+		t.Fatalf("session header = %q, want child", got)
+	}
+	if got := req.Header.Get("X-Parent-Session-Id"); got != "parent" {
+		t.Fatalf("parent header = %q, want parent", got)
+	}
+	if got := w.headers["x-opencode-session"]; got != "static" {
+		t.Fatalf("configured header mutated to %q", got)
+	}
+}
+
+func TestOpenAIWireHTTPRequest_LeavesOtherHeadersUnchanged(t *testing.T) {
+	w := testOpenAIWire(t, "http://localhost:11434/v1", "gpt-4")
+	w.headers = map[string]string{"X-Custom": "value"}
+	req, err := w.HTTPRequest(t.Context(), ChatRequest{TransportSession: "child", ParentTransportSession: "parent"}, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Header.Get("X-Opencode-Session") != "" || req.Header.Get("X-Parent-Session-Id") != "" || req.Header.Get("X-Custom") != "value" {
+		t.Fatalf("unexpected headers: %v", req.Header)
+	}
+}
+
 func TestOpenAIWirePayload_StreamFlags(t *testing.T) {
 	w := testOpenAIWire(t, "http://localhost:11434/v1", "gpt-4")
 	request := ChatRequest{

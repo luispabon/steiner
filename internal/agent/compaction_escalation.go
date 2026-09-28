@@ -166,13 +166,16 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 	// `tools` carried in ExtraParams leak through unfiltered, since the wire
 	// layer only sets (and thus overrides) the tools key when Tools is non-empty.
 	request := provider.ChatRequest{
-		Model:       req.ResolvedModel.BackendModelID,
-		Messages:    messages,
-		Tools:       provider.CloneTools(req.Tools),
-		Reasoning:   resolvedReasoningRequest(req.ResolvedModel),
-		Params:      req.ResolvedModel.Params,
-		ExtraParams: req.ResolvedModel.ExtraParams,
-		MaxTokens:   compactionMaxTokensForMode(maxTokens),
+		Model:                  req.ResolvedModel.BackendModelID,
+		Messages:               messages,
+		PromptCacheKey:         req.PromptCacheKey,
+		TransportSession:       req.TransportSession,
+		ParentTransportSession: req.ParentTransportSession,
+		Tools:                  provider.CloneTools(req.Tools),
+		Reasoning:              resolvedReasoningRequest(req.ResolvedModel),
+		Params:                 req.ResolvedModel.Params,
+		ExtraParams:            req.ResolvedModel.ExtraParams,
+		MaxTokens:              compactionMaxTokensForMode(maxTokens),
 	}
 	request = applyPromptSuffix(req.ResolvedModel.PromptSuffix, request)
 	request.IncludeEmptyReasoning = req.ResolvedModel.ReasoningEchoBack
