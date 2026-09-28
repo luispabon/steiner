@@ -235,21 +235,8 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 		}
 		state := deps.AdvisorBudgetStore.StateFor(agentID)
 		scopedEvents := withAgentScope(agentID, "", deps.Events)
-		scopedRuntime := advisorRuntime{
-			provider:    advRuntime.provider,
-			model:       advRuntime.model,
-			events:      scopedEvents,
-			recorder:    advRuntime.recorder,
-			diagnostics: advRuntime.diagnostics,
-			workDir:     advRuntime.workDir,
-			pathPolicy:  advRuntime.pathPolicy,
-			cacheKey:    advRuntime.cacheKey,
-			maxTokens:   advRuntime.maxTokens,
-		}
-		if deps.SessionID != "" {
-			scopedRuntime.transportSession = deps.SessionID + "-advisor"
-			scopedRuntime.parentTransportSession = deps.SessionID
-		}
+		scopedRuntime := advRuntime
+		scopedRuntime.events = scopedEvents
 		return scopedRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state), true
 	}
 	return advisorForChild, nil

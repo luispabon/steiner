@@ -41,7 +41,7 @@ func TestFreshReadDedupIngestionAndAnnotationEvent(t *testing.T) {
 		t.Fatalf("annotation event = %#v", events[0].Payload)
 	}
 
-	first, outcome := dedupReadResult(string(payload), 1, nil)
+	first, outcome := dedupReadResult(string(payload), nil)
 	if outcome.Reason != "first read" || first != string(payload) {
 		t.Fatalf("first read outcome = %+v content=%s", outcome, first)
 	}

@@ -354,6 +354,13 @@ type LimitsConfig struct {
 	MaxParallelTools int `yaml:"max_parallel_tools"`
 }
 
+const (
+	// MinSubAgentMaxTurns is the minimum allowed turn budget for an enabled sub-agent.
+	MinSubAgentMaxTurns = 15
+	// DefaultSubAgentMaxTokens is the fallback token budget for a sub-agent.
+	DefaultSubAgentMaxTokens = 400000
+)
+
 // SubAgentConfig controls delegated child-agent execution limits.
 type SubAgentConfig struct {
 	Enabled   bool `yaml:"enabled"`

@@ -119,20 +119,7 @@ func fromProviderMessage(message provider.Message) Message {
 			})
 		}
 	}
-	if len(message.Images) > 0 {
-		out.Images = make([]ImageBlock, 0, len(message.Images))
-		for _, img := range message.Images {
-			out.Images = append(out.Images, ImageBlock{
-				ID:        img.ID,
-				FilePath:  img.FilePath,
-				MediaType: img.MediaType,
-				Data:      img.Data,
-				Width:     img.Width,
-				Height:    img.Height,
-				SizeBytes: img.SizeBytes,
-			})
-		}
-	}
+	out.Images = ImageBlocksFromProvider(message.Images)
 	return out
 }
 

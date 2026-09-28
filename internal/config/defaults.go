@@ -106,7 +106,7 @@ func defaultConfig(env map[string]string) Config {
 		SubAgent: SubAgentConfig{
 			Enabled:            true,
 			MaxTurns:           120,
-			MaxTokens:          400000,
+			MaxTokens:          DefaultSubAgentMaxTokens,
 			MaxParallel:        3,
 			MaxFollowUps:       5,
 			OrchestrationLevel: OrchestrationLevelStandard,

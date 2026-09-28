@@ -69,7 +69,7 @@ func TestFreshReadDedupUsesResultHashNotDisk(t *testing.T) {
 	if err := os.WriteFile(path, []byte("changed on disk"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, outcome := dedupReadResult(string(content), 2, prior)
+	got, outcome := dedupReadResult(string(content), prior)
 	if outcome.Action != "annotated" || outcome.PreviousTurn != 1 {
 		t.Fatalf("outcome = %+v, want annotation using prior read hash", outcome)
 	}
