@@ -52,7 +52,7 @@ type Spec struct {
 	AgentType AgentType `json:"agent_type"`
 
 	// PriorTokenUsage carries the child agent's cumulative input, cache, and output
-	// tokens from runs before this spawn (extensions and prior follow-ups). The
+	// tokens from runs before this spawn and prior follow-ups. The
 	// follow_up handler seeds it from the stored ChildSession so reported token
 	// figures describe the agent's whole life rather than a single run.
 	// Zero for a fresh spawn.
@@ -95,7 +95,8 @@ type Result struct {
 	// TurnCount is the number of turns the child executed.
 	TurnCount int `json:"turn_count"`
 
-	// TokenCount is output/completion tokens used by the child, cumulative across extension, remediation, and retained-summary runs (and prior follow-ups).
+	// TokenCount is output/completion tokens used by the child, cumulative across
+	// remediation and retained-summary runs, and prior follow-ups.
 	TokenCount int `json:"token_count"`
 
 	// InputTokens is the total uncached prompt tokens used by the child.

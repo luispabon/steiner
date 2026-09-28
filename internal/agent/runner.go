@@ -57,6 +57,11 @@ type RunRequest struct {
 	// requests to the same cache shard across turns. Empty disables it.
 	PromptCacheKey string
 
+	// TransportSession routes this agent's requests within supported transports.
+	TransportSession string
+	// ParentTransportSession identifies the parent session for supported transports.
+	ParentTransportSession string
+
 	// CompactionLogPath is an optional file path for logging compaction request/response pairs.
 	// When non-empty, compaction calls write their full API request and final response to this file.
 	CompactionLogPath string
@@ -121,10 +126,9 @@ type RunRequest struct {
 	AgentID   string
 	AgentType string
 
-	// TurnBudgetNotice, when non-nil, is called once per run when the turn count
-	// crosses turnBudgetNoticeFraction of Limits.MaxTurns, to produce a message
-	// injected into the conversation. Nil disables the checkpoint entirely — the
-	// parent interactive run never sets this; only delegated children do.
+	// TurnBudgetNotice, when non-nil, produces a message appended to the
+	// conversation at each crossed turn-budget threshold. Nil disables notices.
+	// The parent interactive run never sets this; only delegated children do.
 	TurnBudgetNotice func(turnsUsed, maxTurns int) string
 }
 
@@ -248,6 +252,7 @@ func initializeRunState(req RunRequest) RunState {
 		Lineage:      newConversationLineage(conversation),
 	}
 	state.TurnCount = initialConversationTurnCount(conversation)
+	state.BudgetStartTurn = state.TurnCount
 	return state
 }
 

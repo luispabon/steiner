@@ -12,7 +12,7 @@ hit_rate = CacheReadInputTokens / total_input_tokens
 
 `CacheReadInputTokens` is input tokens served from cache. `total_input_tokens` is non-cached input plus cache-read and cache-creation tokens. A provider's `prompt_tokens` is a raw total including cached input, so cached and cache-created counts are subtracted before calculating the non-cached portion.
 
-When a window contains no cache-capable calls or zero input tokens, the metric renders as `—`. A call with input tokens but zero cache reads is recorded normally and contributes 0.0%. Codex and OpenAI-compatible providers report cache-read tokens but no cache-creation tokens; Anthropic reports both.
+When a window contains no cache-capable calls or zero input tokens, the metric renders as `—`. A call with input tokens but zero cache reads is recorded normally and contributes 0.0%. Codex reports cache-read tokens but no cache-creation tokens. OpenAI-compatible providers map `cache_write_tokens` to cache creation when reported; cache-read tokens use the first present field in this order: `prompt_tokens_details.cached_tokens`, `prompt_cache_hit_tokens`, then top-level `cached_tokens`. Anthropic reports both.
 
 ## Fixed time windows
 
@@ -30,11 +30,11 @@ Windows use wall-clock time and hourly buckets. Older data is pruned after 8 day
 
 ### In-session sidebar field
 
-The `PERFORMANCE` sidebar card includes `cache hit`, alongside `duration`, `ttft`, and `tps`. It shows the current session's token-weighted rate, for example `78.2%`, or `—` before the first cache-capable parent call. It updates after each model response. The sidebar covers the top-level orchestrator; sub-agent and advisor calls do not feed this field.
+The `PERFORMANCE` sidebar card includes two annotated cache-hit values: `cache hit` for the latest request and a blank, padded label line for the session rate. The latest-request value is labeled `latest req` at the sidebar's fixed width; the session value uses `session`. The scope formatters can fall back to `req` and `sess`, then a bare percentage, at constrained value widths, but the current sidebar does not resize dynamically. The session rate is token-weighted, for example `78.2%`, or `—` before the first cache-capable parent call. It updates after each model response. The sidebar covers the top-level orchestrator; sub-agent and advisor calls do not feed these fields.
 
 ### Sub-agent and advisor tool boxes
 
-Completed sub-agent and advisor boxes show cache metadata when available, for example `✓ complete · gpt-5.4-mini/high · cache 95.2% · 12.4s`. Expanded stats show token counts and `Cache: NN.N%`. Child rates are cumulative across extension reruns and follow-ups; advisor rates are per consultation. `—` is shown when there was no cache-bearing usage. Compaction and context-escalation calls are not included in these per-run counters.
+Sub-agent boxes update their session cache rate as each model request finishes. Expanded stats show `Cache: NN.N% latest req · NN.N% session`; completed boxes retain the authoritative final session rate as `Cache: NN.N%`. Child rates are cumulative across follow-ups; advisor rates are per consultation. When there was no cache-bearing usage, the cache rate is omitted. Compaction and context-escalation calls are not included in these per-run counters.
 
 ### Compaction banners
 
@@ -56,13 +56,15 @@ steiner --exec < task.txt
 
 Usage records include timestamp, optional run id, source, provider and model identity, raw prompt tokens, cache-read and cache-create tokens, and completion tokens. `prompt_tokens` includes cached input. WebSocket records identify `dial` or `reconnect`, an optional reason, and an optional cache key. Each line is appended atomically and is intended for external analysis.
 
-Structured cache diagnostics are a separate opt-in stream: with `diagnostics.enabled: true` and `diagnostics.streams.cache: true`, one JSONL record per usage-bearing response is written to `<diagnostics.dir>/cache.jsonl`, covering the parent and delegated agents. Records contain model identity, token counts, source and run metadata, plus hashes and prefix comparison counts, never message content or the cache key itself. See the configuration reference for diagnostics settings.
+Structured cache diagnostics are a separate opt-in stream: with `diagnostics.enabled: true` and `diagnostics.streams.cache: true`, one JSONL record per usage-bearing response is written to `<diagnostics.dir>/cache.jsonl`, covering the parent and delegated agents. Records contain model identity, token counts, source and run metadata, plus hashes and prefix comparison counts, never message content or the cache key itself. Advisor records deliberately expose `prefix_message_count` rather than `message_count`; this field-name exception preserves the advisor diagnostics contract. See the configuration reference for diagnostics settings.
 
 ## Codex transport and pacing
 
 Codex uses HTTP by default (`codex.transport: http`). WebSocket is an explicit opt-in (`codex.transport: websocket`) and does not fall back to HTTP when it fails. `/cache-stats` measures the actual result for either transport.
 
 `codex.min_request_interval` optionally enforces a minimum gap between consecutive Codex requests. It defaults to `0` (disabled), serializes bursts when positive, and can add substantial wall-clock time to batch runs. It does not guarantee a higher cache rate.
+
+The sidebar shows two parent-run rates: the latest request and the whole session. The in-session `This session` summary blends advisor traffic with other sources. `/cache-stats` window rows include advisor traffic as separate rows; parent, sub-agent, and legacy unknown-source traffic remain grouped together.
 
 ## Known limitations
 

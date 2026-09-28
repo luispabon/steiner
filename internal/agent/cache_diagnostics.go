@@ -23,6 +23,9 @@ var coldStartRecorded atomic.Bool
 type cachePayload struct {
 	ProviderAlias        string `json:"provider_alias,omitempty"`
 	BackendModelID       string `json:"backend_model_id,omitempty"`
+	UpstreamEndpoint     string `json:"upstream_endpoint,omitempty"`
+	MessageCount         int    `json:"message_count,omitempty"`
+	CallKind             string `json:"call_kind,omitempty"`
 	ProviderType         string `json:"provider_type,omitempty"`
 	PromptTokens         int    `json:"prompt_tokens,omitempty"`
 	CacheReadTokens      int    `json:"cache_read_tokens,omitempty"`
@@ -61,7 +64,8 @@ type requestCacheStats struct {
 // deliberately independent of req.UsageRecorder: the diagnostics stream and
 // the in-memory/persisted usagestats recorder are separate concerns gated by
 // separate config.
-func emitCacheDiagnostic(req RunRequest, usage *provider.UsageStats, turn int, stats requestCacheStats) {
+func emitCacheDiagnostic(req RunRequest, response provider.ChatResponse, callKind string, turn int, stats requestCacheStats) {
+	usage := response.Usage
 	if usage == nil || !req.Diagnostics.Enabled(diagnostics.KindCache) {
 		return
 	}
@@ -75,6 +79,9 @@ func emitCacheDiagnostic(req RunRequest, usage *provider.UsageStats, turn int, s
 		Payload: cachePayload{
 			ProviderAlias:           req.ResolvedModel.ProviderAlias,
 			BackendModelID:          req.ResolvedModel.BackendModelID,
+			UpstreamEndpoint:        response.UpstreamEndpoint,
+			MessageCount:            len(stats.messageHashes),
+			CallKind:                callKind,
 			ProviderType:            string(req.ResolvedModel.EffectiveProviderType),
 			PromptTokens:            usage.PromptTokens,
 			CacheReadTokens:         usage.CacheReadInputTokens,

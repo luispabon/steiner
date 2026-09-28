@@ -72,39 +72,17 @@ type scopedEventRunner struct {
 
 func (r *scopedEventRunner) Run(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 	r.calls++
-	if r.calls <= 2 {
-		if req.Events == nil {
-			return agent.RunState{}, fmt.Errorf("events sink missing")
-		}
-
-		req.Events.Emit(output.NewModelCallStartedEvent(r.calls, "child-model", 1))
-		req.Events.Emit(output.NewAssistantMessageEvent(r.calls, string(agent.MessageRoleAssistant), fmt.Sprintf("child turn %d", r.calls)))
+	if req.Events == nil {
+		return agent.RunState{}, fmt.Errorf("events sink missing")
 	}
 
-	if r.calls == 1 {
-		return agent.RunState{
-			Conversation: []agent.Message{
-				{
-					Role:    agent.MessageRoleAssistant,
-					Content: "extend me",
-					ToolCalls: []agent.ToolCall{
-						{ID: "call-1", Name: "helper", Arguments: map[string]any{}},
-					},
-				},
-			},
-			TurnCount:  1,
-			TokenCount: 10,
-			StopReason: agent.StopReasonMaxTurns,
-		}, nil
-	}
-
+	req.Events.Emit(output.NewModelCallStartedEvent(r.calls, "child-model", 1))
+	req.Events.Emit(output.NewAssistantMessageEvent(r.calls, string(agent.MessageRoleAssistant), fmt.Sprintf("child turn %d", r.calls)))
 	return agent.RunState{
-		Conversation: []agent.Message{
-			{Role: agent.MessageRoleAssistant, Content: "done"},
-		},
-		TurnCount:  2,
-		TokenCount: 20,
-		StopReason: agent.StopReasonComplete,
+		Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "done"}},
+		TurnCount:    1,
+		TokenCount:   10,
+		StopReason:   agent.StopReasonComplete,
 	}, nil
 }
 
@@ -264,13 +242,13 @@ func TestChildEventsAreScopedWhileLifecycleEventsStayTopLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if runner.calls != 2 {
-		t.Fatalf("runner.calls = %d, want 2", runner.calls)
+	if runner.calls != 1 {
+		t.Fatalf("runner.calls = %d, want 1", runner.calls)
 	}
 
 	for _, ev := range sink.events {
 		switch ev.Type {
-		case output.EventTypeDelegationStarted, output.EventTypeDelegationExtension, output.EventTypeDelegationComplete:
+		case output.EventTypeDelegationStarted, output.EventTypeDelegationComplete:
 			if ev.Scope.AgentID != "" {
 				t.Fatalf("%s scope = %q, want empty", ev.Type, ev.Scope.AgentID)
 			}
@@ -590,19 +568,6 @@ func (r *presetRunner) Run(_ context.Context, req agent.RunRequest) (agent.RunSt
 	return st, err
 }
 
-func maxTurnsStateWithTools(turnCount int) agent.RunState {
-	return agent.RunState{
-		TurnCount:  turnCount,
-		StopReason: agent.StopReasonMaxTurns,
-		Conversation: []agent.Message{
-			{
-				Role:      agent.MessageRoleAssistant,
-				ToolCalls: []agent.ToolCall{{ID: "tc-1", Name: "bash", Arguments: map[string]any{}}},
-			},
-		},
-	}
-}
-
 func completeState(content string) agent.RunState {
 	return agent.RunState{
 		TurnCount:  1,
@@ -613,374 +578,31 @@ func completeState(content string) agent.RunState {
 	}
 }
 
-func TestDelegateNeedsExtension(t *testing.T) {
+func TestChildMaxTurnsStopsAfterSingleRun(t *testing.T) {
 	t.Parallel()
-	toolCalls := []agent.ToolCall{{ID: "tc", Name: "bash"}}
-	cases := []struct {
-		name       string
-		stopReason agent.StopReason
-		toolCalls  []agent.ToolCall
-		want       bool
-	}{
-		{"max_turns with tool calls", agent.StopReasonMaxTurns, toolCalls, true},
-		{"max_turns no tool calls", agent.StopReasonMaxTurns, nil, false},
-		{"complete with tool calls", agent.StopReasonComplete, toolCalls, false},
-		{"complete no tool calls", agent.StopReasonComplete, nil, false},
-		{"cancelled with tool calls", agent.StopReasonCancelled, toolCalls, false},
-		{"no assistant message", agent.StopReasonMaxTurns, nil, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var msgs []agent.Message
-			if tc.name != "no assistant message" {
-				msgs = []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: tc.toolCalls}}
-			}
-			state := agent.RunState{StopReason: tc.stopReason, Conversation: msgs}
-			if got := delegateNeedsExtension(state); got != tc.want {
-				t.Errorf("delegateNeedsExtension = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestExtensionTriggersWhenMidWork(t *testing.T) {
-	t.Parallel()
-	spec := makeSpec("ext-agent-1", 10000)
-	sink := &collectingSink{}
-
-	runner := &presetRunner{
-		states: []agent.RunState{
-			maxTurnsStateWithTools(3),
-			completeState("final answer"),
-			completeState("summary of final answer"),
-		},
-	}
-
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
+	spec := makeSpec("single-run-child", 10000)
+	runner := &presetRunner{states: []agent.RunState{{
+		TurnCount:  3,
+		StopReason: agent.StopReasonMaxTurns,
+		Conversation: []agent.Message{{
+			Role:      agent.MessageRoleAssistant,
+			ToolCalls: []agent.ToolCall{{ID: "tc-1", Name: "bash"}},
+		}},
+	}}}
+	limits := agent.Limits{MaxTurns: 3}
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
 	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
+	req := testChildRunRequest(spec, prov, visibleReg, execReg, limits, nil)
 
-	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
+	_, state, _, err := SpawnDelegate(context.Background(), spec, req, runner, nil, nil)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("SpawnDelegate error: %v", err)
 	}
-
-	typedResult, ok := result.Value.(Result)
-	if !ok {
-		t.Fatalf("result.Value type = %T, want Result", result.Value)
+	if runner.calls != 1 {
+		t.Fatalf("runner calls = %d, want 1", runner.calls)
 	}
-	if typedResult.Output != "final answer" {
-		t.Errorf("Output = %q, want %q", typedResult.Output, "final answer")
-	}
-
-	var extEvents int
-	for _, ev := range sink.events {
-		if ev.Type == output.EventTypeDelegationExtension {
-			extEvents++
-		}
-	}
-	if extEvents != 1 {
-		t.Errorf("extension events = %d, want 1", extEvents)
-	}
-}
-
-func TestNoExtensionWhenComplete(t *testing.T) {
-	t.Parallel()
-	spec := makeSpec("ext-agent-2", 10000)
-	sink := &collectingSink{}
-
-	runner := &presetRunner{
-		states: []agent.RunState{
-			completeState("done"),
-			completeState("summary"),
-		},
-	}
-
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
-	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
-
-	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	for _, ev := range sink.events {
-		if ev.Type == output.EventTypeDelegationExtension {
-			t.Error("unexpected DelegationExtension event when delegate completed naturally")
-		}
-	}
-}
-
-func TestNoExtensionWhenNoToolCalls(t *testing.T) {
-	t.Parallel()
-	spec := makeSpec("ext-agent-3", 10000)
-	sink := &collectingSink{}
-
-	runner := &presetRunner{
-		states: []agent.RunState{
-			{
-				TurnCount:  3,
-				StopReason: agent.StopReasonMaxTurns,
-				Conversation: []agent.Message{
-					{Role: agent.MessageRoleAssistant, Content: "max turns but no tool calls"},
-				},
-			},
-			completeState("summary"),
-		},
-	}
-
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
-	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
-
-	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	for _, ev := range sink.events {
-		if ev.Type == output.EventTypeDelegationExtension {
-			t.Error("unexpected DelegationExtension event when last message has no tool calls")
-		}
-	}
-}
-
-func TestExtensionCapAtMaxExtensions(t *testing.T) {
-	t.Parallel()
-	spec := makeSpec("ext-agent-4", 10000)
-	sink := &collectingSink{}
-
-	// maxDelegateExtensions extension runs + 1 summary; provide enough states
-	states := make([]agent.RunState, 0, maxDelegateExtensions+2)
-	for i := 0; i < maxDelegateExtensions+1; i++ {
-		states = append(states, maxTurnsStateWithTools((i+1)*3))
-	}
-	// Last state for summary
-	states = append(states, completeState("summary"))
-
-	runner := &presetRunner{states: states}
-
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
-	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
-
-	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var extCount int
-	for _, ev := range sink.events {
-		if ev.Type == output.EventTypeDelegationExtension {
-			extCount++
-		}
-	}
-	if extCount != maxDelegateExtensions {
-		t.Errorf("extension event count = %d, want exactly %d", extCount, maxDelegateExtensions)
-	}
-}
-
-func TestExtensionMaxTurnsBumped(t *testing.T) {
-	t.Parallel()
-	spec := makeSpec("ext-agent-5", 10000)
-	sink := &collectingSink{}
-
-	firstState := maxTurnsStateWithTools(3)
-	runner := &presetRunner{
-		states: []agent.RunState{
-			firstState,
-			completeState("done"),
-			completeState("summary"),
-		},
-	}
-
-	originalMaxTurns := 5
-	agentLimits := agent.Limits{MaxTurns: originalMaxTurns, MaxTokens: 0}
-	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
-
-	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if runner.calls < 2 {
-		t.Fatalf("runner.calls = %d, want >= 2", runner.calls)
-	}
-	// reqs[1] is the first extension call
-	extReq := runner.reqs[1]
-	wantMaxTurns := firstState.TurnCount + originalMaxTurns
-	if extReq.Limits.MaxTurns != wantMaxTurns {
-		t.Errorf("extension req MaxTurns = %d, want %d", extReq.Limits.MaxTurns, wantMaxTurns)
-	}
-}
-
-func TestExtensionEventEmitted(t *testing.T) {
-	t.Parallel()
-	spec := makeSpec("ext-agent-6", 10000)
-	sink := &collectingSink{}
-
-	runner := &presetRunner{
-		states: []agent.RunState{
-			maxTurnsStateWithTools(3),
-			completeState("done"),
-			completeState("summary"),
-		},
-	}
-
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
-	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
-
-	_, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	for _, ev := range sink.events {
-		if ev.Type != output.EventTypeDelegationExtension {
-			continue
-		}
-		payload, ok := ev.Payload.(output.DelegationExtensionEvent)
-		if !ok {
-			t.Fatalf("payload type = %T, want DelegationExtensionEvent", ev.Payload)
-		}
-		if payload.Extension != 1 {
-			t.Errorf("Extension = %d, want 1", payload.Extension)
-		}
-		if payload.MaxExtensions != maxDelegateExtensions {
-			t.Errorf("MaxExtensions = %d, want %d", payload.MaxExtensions, maxDelegateExtensions)
-		}
-		if payload.AgentID != spec.AgentID {
-			t.Errorf("AgentID = %q, want %q", payload.AgentID, spec.AgentID)
-		}
-		return
-	}
-	t.Error("no DelegationExtension event emitted")
-}
-
-func TestExtensionErrorReturnsFailedStatusAndPreservesState(t *testing.T) {
-	t.Parallel()
-	spec := makeSpec("ext-agent-7", 10000)
-	sink := &collectingSink{}
-
-	firstState := maxTurnsStateWithTools(3)
-	runner := &presetRunner{
-		states: []agent.RunState{
-			firstState,
-			{},
-		},
-		errors: []error{
-			nil,
-			fmt.Errorf("extension run failed"),
-		},
-	}
-
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
-	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
-
-	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
-	if err != nil {
-		t.Fatalf("SpawnDelegate returned error: %v", err)
-	}
-
-	typedResult, ok := result.Value.(Result)
-	if !ok {
-		t.Fatalf("result.Value type = %T, want Result", result.Value)
-	}
-	if typedResult.Status != StatusFailed {
-		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusFailed)
-	}
-	if typedResult.TurnCount != firstState.TurnCount {
-		t.Fatalf("TurnCount = %d, want %d (from pre-error state)", typedResult.TurnCount, firstState.TurnCount)
-	}
-	if typedResult.Output != "" {
-		t.Fatalf("Output = %q, want preserved pre-error output", typedResult.Output)
-	}
-	if !strings.Contains(typedResult.Reason, "delegation failed: extension run failed") {
-		t.Fatalf("Reason = %q, want failure reason", typedResult.Reason)
-	}
-	if result.Retention == nil {
-		t.Fatal("result.Retention = nil, want failure retention")
-	}
-	if result.Retention.Status != string(StatusFailed) {
-		t.Fatalf("Retention.Status = %q, want %q", result.Retention.Status, StatusFailed)
-	}
-
-	var sawFailedEvent, sawCompleteEvent bool
-	for _, ev := range sink.events {
-		switch ev.Type {
-		case output.EventTypeDelegationFailed:
-			sawFailedEvent = true
-		case output.EventTypeDelegationComplete:
-			sawCompleteEvent = true
-		}
-	}
-	if !sawFailedEvent {
-		t.Fatal("expected delegation_failed event")
-	}
-	if sawCompleteEvent {
-		t.Fatal("unexpected delegation_complete event after failure")
-	}
-}
-
-func TestExtensionCancellationReturnsPartialStatus(t *testing.T) {
-	t.Parallel()
-	spec := makeSpec("ext-agent-cancelled", 10000)
-	sink := &collectingSink{}
-
-	firstState := maxTurnsStateWithTools(3)
-	runner := &presetRunner{
-		states: []agent.RunState{
-			firstState,
-			{},
-		},
-		errors: []error{
-			nil,
-			context.Canceled,
-		},
-	}
-
-	agentLimits := agent.Limits{MaxTurns: 5, MaxTokens: 0}
-	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "unused"}, FinishReason: "stop"}}}
-	visibleReg, execReg := testChildRegistries(tool.NewRegistry())
-	req := testChildRunRequest(spec, prov, visibleReg, execReg, agentLimits, sink)
-
-	result, _, _, err := SpawnDelegate(context.Background(), spec, req, runner, sink, nil)
-	if err != nil {
-		t.Fatalf("SpawnDelegate returned error: %v", err)
-	}
-
-	typedResult, ok := result.Value.(Result)
-	if !ok {
-		t.Fatalf("result.Value type = %T, want Result", result.Value)
-	}
-	if typedResult.Status != StatusPartial {
-		t.Fatalf("Status = %q, want %q", typedResult.Status, StatusPartial)
-	}
-	if result.Retention == nil {
-		t.Fatal("result.Retention = nil, want cancellation retention")
-	}
-	if result.Retention.Status != string(StatusPartial) {
-		t.Fatalf("Retention.Status = %q, want %q", result.Retention.Status, StatusPartial)
-	}
-	if !strings.Contains(typedResult.Reason, "delegation failed:") {
-		t.Fatalf("Reason = %q, want cancellation reason", typedResult.Reason)
-	}
-	if !strings.Contains(typedResult.Reason, "session is preserved") {
-		t.Fatalf("Reason = %q, want session-preserved note so parent does not conclude session is gone", typedResult.Reason)
-	}
-	if !typedResult.SessionResumable {
-		t.Fatalf("SessionResumable = false, want true so parent knows it can follow_up again")
+	if state.StopReason != agent.StopReasonMaxTurns {
+		t.Fatalf("stop reason = %q, want %q", state.StopReason, agent.StopReasonMaxTurns)
 	}
 }
 
@@ -1237,14 +859,17 @@ func TestFollowUpSanitizesSavedDanglingToolCalls(t *testing.T) {
 	}
 
 	req := runner.reqs[0]
-	if len(req.Prompt.Conversation) < 3 {
-		t.Fatalf("len(req.Prompt.Conversation) = %d, want >= 3", len(req.Prompt.Conversation))
+	if req.Prompt.Conversation != nil {
+		t.Fatalf("Prompt.Conversation = %#v, want nil", req.Prompt.Conversation)
 	}
-	if got := req.Prompt.Conversation[1].ToolCalls; len(got) != 0 {
+	if len(req.SourceConversation) < 3 {
+		t.Fatalf("len(req.SourceConversation) = %d, want >= 3", len(req.SourceConversation))
+	}
+	if got := req.SourceConversation[1].ToolCalls; len(got) != 0 {
 		t.Fatalf("follow-up request retained dangling tool calls: %#v", got)
 	}
-	last := req.Prompt.Conversation[len(req.Prompt.Conversation)-1]
-	if last.Role != provider.MessageRoleUser || last.Content != "continue" {
+	last := req.SourceConversation[len(req.SourceConversation)-1]
+	if last.Role != agent.MessageRoleUser || last.Content != "continue" {
 		t.Fatalf("last follow-up message = %#v, want appended user follow-up", last)
 	}
 }

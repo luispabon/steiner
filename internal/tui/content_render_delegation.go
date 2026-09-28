@@ -267,6 +267,9 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 	parts := []string{status}
 	switch dd.status {
 	case "active":
+		if dd.cacheHitOK {
+			parts = append(parts, b.styles.FgDim.Render("cache "+formatCacheHitRate(dd.cacheHitRate, dd.cacheHitOK)))
+		}
 		if dd.contextFillPct > 0 {
 			parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("ctx: %d%%", int(math.Round(dd.contextFillPct)))))
 		}
@@ -572,11 +575,10 @@ func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string
 	if ctx := delegationStatsContext(dd); ctx != "" {
 		parts = append(parts, b.styles.FgDim.Render(ctx))
 	}
-	if dd.cacheHitOK {
+	if dd.status == "active" && dd.latestCacheHitOK {
+		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Cache: %s latest req · %s session", formatCacheHitRate(dd.latestCacheHitRate, dd.latestCacheHitOK), formatCacheHitRate(dd.cacheHitRate, dd.cacheHitOK))))
+	} else if dd.cacheHitOK {
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Cache: %s", formatCacheHitRate(dd.cacheHitRate, dd.cacheHitOK))))
-	}
-	if dd.extMax > 0 {
-		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Extension: %d/%d", dd.extCurrent, dd.extMax)))
 	}
 	if advStats := b.renderDelegationStatsAdvisor(dd); advStats != "" {
 		parts = append(parts, advStats)

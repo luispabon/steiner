@@ -24,6 +24,18 @@ import (
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
+func TestBuildChildRunRequestTransportSessions(t *testing.T) {
+	for _, tc := range []struct{ session, agentID, wantChild, wantParent string }{
+		{session: "parent-session", agentID: "agentID", wantChild: "parent-session-agentID", wantParent: "parent-session"},
+		{agentID: "agentID"},
+	} {
+		req := buildChildRunRequest(childRunRequestParams{SessionID: tc.session, AgentID: tc.agentID, VisibleReg: tool.NewRegistry(), ExecReg: tool.NewRegistry(), Sandbox: tool.Unsandboxed{}})
+		if req.TransportSession != tc.wantChild || req.ParentTransportSession != tc.wantParent {
+			t.Errorf("sessions = (%q, %q), want (%q, %q)", req.TransportSession, req.ParentTransportSession, tc.wantChild, tc.wantParent)
+		}
+	}
+}
+
 func TestWithAgentScopeAddsAgentType(t *testing.T) {
 	t.Parallel()
 	var got output.Event
@@ -186,7 +198,7 @@ func TestDeriveChildLimits(t *testing.T) {
 			cfg:         config.SubAgentConfig{},
 			overrides:   Limits{},
 			wantTurns:   15,
-			wantTokens:  100000,
+			wantTokens:  400000,
 			wantTimeout: 0,
 		},
 		{
@@ -202,7 +214,7 @@ func TestDeriveChildLimits(t *testing.T) {
 			cfg:         config.SubAgentConfig{MaxTurns: 15},
 			overrides:   Limits{MaxTurns: 5},
 			wantTurns:   5,
-			wantTokens:  100000,
+			wantTokens:  400000,
 			wantTimeout: 0,
 		},
 		{
@@ -210,7 +222,7 @@ func TestDeriveChildLimits(t *testing.T) {
 			cfg:         config.SubAgentConfig{MaxTurns: 15},
 			overrides:   Limits{MaxTurns: 30},
 			wantTurns:   15,
-			wantTokens:  100000,
+			wantTokens:  400000,
 			wantTimeout: 0,
 		},
 		{
@@ -218,7 +230,7 @@ func TestDeriveChildLimits(t *testing.T) {
 			cfg:         config.SubAgentConfig{},
 			overrides:   Limits{Timeout: 30 * time.Second},
 			wantTurns:   15,
-			wantTokens:  100000,
+			wantTokens:  400000,
 			wantTimeout: 30 * time.Second,
 		},
 		{
@@ -1192,8 +1204,8 @@ func TestBuildChildRun(t *testing.T) {
 				if req.Limits.MaxTurns != 15 {
 					t.Errorf("MaxTurns=%d, want 15", req.Limits.MaxTurns)
 				}
-				if req.Limits.MaxTokens != 100000 {
-					t.Errorf("MaxTokens=%d, want 100000", req.Limits.MaxTokens)
+				if req.Limits.MaxTokens != 400000 {
+					t.Errorf("MaxTokens=%d, want 400000", req.Limits.MaxTokens)
 				}
 				if req.Prompt.PromptOverrides.System != "" {
 					t.Errorf("PromptOverrides.System=%q, want empty shared base", req.Prompt.PromptOverrides.System)

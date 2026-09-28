@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -537,7 +538,7 @@ func TestValidate(t *testing.T) {
 				c.SubAgent.MaxTurns = 0
 				return c
 			}(),
-			wantErr: `max_turns must be at least 1 when enabled`,
+			wantErr: fmt.Sprintf("max_turns must be at least %d when enabled", MinSubAgentMaxTurns),
 		},
 		{
 			name: "subagent zero max_tokens",

@@ -208,6 +208,27 @@ func TestFormatCacheStatsReportDeterministicOrdering(t *testing.T) {
 	}
 }
 
+func TestFormatCacheStatsReportAdvisorLabelAndOrdering(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	now := time.Unix(1000, 0)
+	rec := usagestats.New(func() time.Time { return now })
+	for _, observation := range []usagestats.Observation{
+		{ProviderAlias: "local", ProviderType: "local", BackendModelID: "model-a", PromptTokens: 10, At: now, Source: usagestats.SourceAdvisor},
+		{ProviderAlias: "local", ProviderType: "local", BackendModelID: "model-a", PromptTokens: 10, At: now},
+	} {
+		rec.Record(observation)
+	}
+	got := formatCacheStatsReport(rec)
+	want := "| local | model-a |"
+	advisor := "| local | model-a (advisor) |"
+	if !strings.Contains(got, want) || !strings.Contains(got, advisor) {
+		t.Fatalf("report = %q, want advisor label on model", got)
+	}
+	if strings.Index(got, want) >= strings.Index(got, advisor) {
+		t.Fatalf("report rows are not deterministically ordered: %q", got)
+	}
+}
+
 func TestFormatCacheStatsReportMultipleWindows(t *testing.T) {
 	// Not parallel: usagestats.New persists to a store file derived from
 	// XDG_STATE_HOME, which t.Setenv isolates per test. t.Setenv panics if

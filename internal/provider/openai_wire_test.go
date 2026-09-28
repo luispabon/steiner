@@ -1,12 +1,64 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
+	"net/url"
 	"reflect"
 	"testing"
 )
 
 func intPtr(v int) *int { return &v }
+
+func TestOpenAIWireOpencodeSessionHeaders(t *testing.T) {
+	baseURL, _ := url.Parse("https://example.test/v1")
+	wire := &openaiWire{baseURL: baseURL, headers: map[string]string{"X-Opencode-Session": "configured"}}
+	for _, tc := range []struct {
+		name, session, parent, wantSession, wantParent string
+	}{
+		{name: "empty transport preserves configured header", wantSession: "configured"},
+		{name: "explicit child transport and parent", session: "child-session", parent: "parent-session", wantSession: "child-session", wantParent: "parent-session"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := wire.HTTPRequest(context.Background(), ChatRequest{TransportSession: tc.session, ParentTransportSession: tc.parent}, nil, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := req.Header.Get("X-Opencode-Session"); got != tc.wantSession {
+				t.Errorf("X-Opencode-Session = %q, want %q", got, tc.wantSession)
+			}
+			if got := req.Header.Get("X-Parent-Session-Id"); got != tc.wantParent {
+				t.Errorf("X-Parent-Session-Id = %q, want %q", got, tc.wantParent)
+			}
+		})
+	}
+}
+
+func TestOpenAIUsageCacheFallbacks(t *testing.T) {
+	tests := []struct {
+		name  string
+		json  string
+		read  int
+		write int
+	}{
+		{"deepseek details zero wins", `{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":4},"prompt_cache_hit_tokens":12,"cached_tokens":13}`, 0, 4},
+		{"deepseek top-level fallback zero wins", `{"prompt_tokens":100,"prompt_tokens_details":{"cache_write_tokens":4},"prompt_cache_hit_tokens":0,"cached_tokens":13}`, 0, 4},
+		{"kimi prompt cache hit", `{"prompt_tokens":100,"prompt_tokens_details":{"cache_write_tokens":4},"prompt_cache_hit_tokens":12,"cached_tokens":13}`, 12, 4},
+		{"openrouter top-level cached", `{"prompt_tokens":100,"prompt_tokens_details":{"cache_write_tokens":4},"cached_tokens":13}`, 13, 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var usage openAIUsage
+			if err := json.Unmarshal([]byte(tt.json), &usage); err != nil {
+				t.Fatal(err)
+			}
+			got := usage.toUsageStats()
+			if got.PromptTokens != 100 || got.CacheReadInputTokens != tt.read || got.CacheCreationInputTokens != tt.write {
+				t.Fatalf("usage = %+v, want prompt=100 read=%d write=%d", got, tt.read, tt.write)
+			}
+		})
+	}
+}
 
 func TestOpenAIMessages_SetsReasoningContentPointerWhenPresent(t *testing.T) {
 	msg := Message{

@@ -23,6 +23,20 @@ func testAnthropicWire(t *testing.T, apiKey string, headers map[string]string) *
 	}
 }
 
+func TestAnthropicWireHTTPRequest_OpenCodeSessionRouting(t *testing.T) {
+	w := testAnthropicWire(t, "", map[string]string{"x-opencode-session": "static"})
+	req, err := w.HTTPRequest(t.Context(), ChatRequest{TransportSession: "advisor", ParentTransportSession: "parent"}, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Header.Get("X-Opencode-Session"); got != "advisor" {
+		t.Fatalf("session header = %q, want advisor", got)
+	}
+	if got := req.Header.Get("X-Parent-Session-Id"); got != "parent" {
+		t.Fatalf("parent header = %q, want parent", got)
+	}
+}
+
 func TestAnthropicWirePayload(t *testing.T) {
 	w := testAnthropicWire(t, "test-key", nil)
 

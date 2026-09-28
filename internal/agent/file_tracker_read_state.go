@@ -4,8 +4,7 @@ import "github.com/luispabon/steiner/internal/tool"
 
 // ReadState reports the tracker's record of its last read of path as seen at
 // currentTurn, for mutate's failure diagnostics. A path with no read entry
-// yields Observed=false and TurnsSinceRead=-1; Pruned distinguishes a read
-// dropped by PruneBeforeTurn from one that never happened.
+// yields Observed=false and TurnsSinceRead=-1.
 func (t *FileTracker) ReadState(path string, currentTurn int) tool.FileReadState {
 	canonicalPath, ok := normalizeTrackedPath(path)
 	if !ok {
@@ -13,8 +12,7 @@ func (t *FileTracker) ReadState(path string, currentTurn int) tool.FileReadState
 	}
 	read, observed := t.reads[canonicalPath]
 	if !observed {
-		_, pruned := t.pruned[canonicalPath]
-		return tool.FileReadState{Pruned: pruned, TurnsSinceRead: -1}
+		return tool.FileReadState{TurnsSinceRead: -1}
 	}
 	state := tool.FileReadState{
 		Observed:         true,

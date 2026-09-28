@@ -228,7 +228,7 @@ func TestSaveAndLoadPreservesToolCallTranscript(t *testing.T) {
 	}
 }
 
-func TestSaveAndLoadPreservesIngestedFlag(t *testing.T) {
+func TestSaveAndLoadPreservesToolMessageContents(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := NewStore(tmpDir)
 	if err != nil {
@@ -248,7 +248,7 @@ func TestSaveAndLoadPreservesIngestedFlag(t *testing.T) {
 					ID: 1,
 					Messages: []agent.Message{
 						{Role: agent.MessageRoleUser, Content: "inspect the file"},
-						{Role: agent.MessageRoleTool, Content: "full read payload", ToolCallID: "call_1", Name: "read", Ingested: true},
+						{Role: agent.MessageRoleTool, Content: "full read payload", ToolCallID: "call_1", Name: "read"},
 						{Role: agent.MessageRoleTool, Content: "legacy payload", ToolCallID: "call_2", Name: "read"},
 					},
 				},
@@ -269,11 +269,8 @@ func TestSaveAndLoadPreservesIngestedFlag(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("loaded conversation length = %d, want 3", len(got))
 	}
-	if !got[1].Ingested {
-		t.Fatalf("loaded tool message Ingested = false, want true preserved from persisted lineage")
-	}
-	if got[2].Ingested {
-		t.Fatalf("loaded unmarked tool message Ingested = true, want false")
+	if got[1].Content != "full read payload" || got[2].Content != "legacy payload" {
+		t.Fatalf("loaded tool message contents = %q, %q; want persisted contents", got[1].Content, got[2].Content)
 	}
 }
 

@@ -68,14 +68,17 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	}
 
 	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
-		Turn:             turn,
-		Model:            p.request.ResolvedModel.BackendModelID,
-		FinishReason:     response.FinishReason,
-		ToolCalls:        len(response.Message.ToolCalls),
-		CompletionTokens: turnTokens,
-		DurationMs:       durationMs,
-		TTFTMs:           ttftMs,
-		OutputTPS:        outputTPS,
+		Turn:              turn,
+		Model:             p.request.ResolvedModel.BackendModelID,
+		FinishReason:      response.FinishReason,
+		ToolCalls:         len(response.Message.ToolCalls),
+		CompletionTokens:  turnTokens,
+		PromptTokens:      promptUsageTokens(response.Usage),
+		CacheReadTokens:   cacheReadUsageTokens(response.Usage),
+		CacheCreateTokens: cacheCreateUsageTokens(response.Usage),
+		DurationMs:        durationMs,
+		TTFTMs:            ttftMs,
+		OutputTPS:         outputTPS,
 	}))
 	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
 		emitEvent(p.request.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
@@ -132,6 +135,27 @@ func (p *turnProgressor) normalizeModelResponse(_ RunState, turn int, response p
 		}))
 	}
 	return response
+}
+
+func promptUsageTokens(usage *provider.UsageStats) int {
+	if usage == nil {
+		return 0
+	}
+	return usage.PromptTokens
+}
+
+func cacheReadUsageTokens(usage *provider.UsageStats) int {
+	if usage == nil {
+		return 0
+	}
+	return usage.CacheReadInputTokens
+}
+
+func cacheCreateUsageTokens(usage *provider.UsageStats) int {
+	if usage == nil {
+		return 0
+	}
+	return usage.CacheCreationInputTokens
 }
 
 func (p *turnProgressor) finalizeModelCallState(state RunState, turn int, response provider.ChatResponse) (RunState, int) {
@@ -453,9 +477,9 @@ func calibratedToolDelta(delta, previousRaw, calibrated int) int {
 func (p *turnProgressor) appendToolOutcome(ctx context.Context, state RunState, turn int, call provider.ToolCall, result any, err error, emitFinished bool) RunState {
 	var toolMessage Message
 	if emitFinished {
-		toolMessage = p.buildToolMessage(turn, call, result, err)
+		toolMessage = p.buildToolMessage(turn, call, result, err, state.Lineage.latestMessages())
 	} else {
-		toolMessage = p.buildToolMessageWithEvent(turn, call, result, err, false)
+		toolMessage = p.buildToolMessageWithEvent(turn, call, result, err, false, state.Lineage.latestMessages())
 	}
 	state.Conversation = append(state.Conversation, toolMessage)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
@@ -497,11 +521,11 @@ func liveConversationSnapshot(state RunState) []provider.Message {
 	return ToReplaySafeProviderMessages(conversation)
 }
 
-func (p *turnProgressor) buildToolMessage(turn int, call provider.ToolCall, result any, err error) Message {
-	return p.buildToolMessageWithEvent(turn, call, result, err, true)
+func (p *turnProgressor) buildToolMessage(turn int, call provider.ToolCall, result any, err error, prior []Message) Message {
+	return p.buildToolMessageWithEvent(turn, call, result, err, true, prior)
 }
 
-func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolCall, result any, err error, emitFinished bool) Message {
+func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolCall, result any, err error, emitFinished bool, prior []Message) Message {
 	var toolContent string
 	var preview output.ToolPreview
 	normalizedResult := ToolResultEnvelope{}
@@ -526,23 +550,19 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 				toolContent = normalizedResult.Content
 			}
 		} else {
-			toolContent = shapeIngestedToolResultForContextManager(p.request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content)
+			toolContent = shapeFreshToolResultForContextManager(p.request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content, prior)
 		}
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
 		if emitFinished {
 			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
 		}
 	}
-	// Live tool results have already passed ingestion shaping, so freeze them:
-	// a later fresh-run PostIngestion must not reshape these provider-visible
-	// bytes (see baseContextManager.normalizeIngestedMessage).
 	toolMessage := Message{
 		Role:       MessageRoleTool,
 		Content:    toolContent,
 		ToolCallID: call.ID,
 		Name:       call.Name,
 		Turn:       turn,
-		Ingested:   true,
 	}
 	if err == nil {
 		toolMessage.Retention = cloneMessageRetention(normalizedResult.Retention)
@@ -760,13 +780,15 @@ func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (promp
 	slog.Debug("prompt zones", "turn", turn, "system_bytes", systemBytes, "conversation_bytes", conversationBytes)
 
 	chatRequest := provider.ChatRequest{
-		Model:          p.request.ResolvedModel.BackendModelID,
-		Messages:       assembly.Messages,
-		Tools:          provider.CloneTools(p.request.Tools),
-		PromptCacheKey: p.request.PromptCacheKey,
-		Reasoning:      resolvedReasoningRequest(p.request.ResolvedModel),
-		Params:         p.request.ResolvedModel.Params,
-		ExtraParams:    p.request.ResolvedModel.ExtraParams,
+		Model:                  p.request.ResolvedModel.BackendModelID,
+		Messages:               assembly.Messages,
+		Tools:                  provider.CloneTools(p.request.Tools),
+		PromptCacheKey:         p.request.PromptCacheKey,
+		TransportSession:       p.request.TransportSession,
+		ParentTransportSession: p.request.ParentTransportSession,
+		Reasoning:              resolvedReasoningRequest(p.request.ResolvedModel),
+		Params:                 p.request.ResolvedModel.Params,
+		ExtraParams:            p.request.ResolvedModel.ExtraParams,
 	}
 	chatRequest = applyPromptSuffix(p.request.ResolvedModel.PromptSuffix, chatRequest)
 	chatRequest.IncludeEmptyReasoning = p.request.ResolvedModel.ReasoningEchoBack

@@ -34,13 +34,40 @@ test("cache mode: by-model row count and hand-computed hit rate", () => {
 	assert.equal(byModel.length, 1);
 	const row = byModel[0];
 	assert.equal(row.key, "claude-sonnet-5");
-	assert.equal(row.n, 5);
-	// prompt totals: 1000+1200+800+1000+1300 = 5300
-	// cache_read totals: 0+1000+0+100+1200 = 2300
-	// cache_create totals: 1000+200+800+900+100 = 3000
-	// nonCached = max(prompt - read - create, 0) per record, summed = 0
-	// hit_rate = 2300 / (0 + 2300 + 3000) = 0.4339...
-	assert.ok(Math.abs(row.metrics.hitRate - 2300 / 5300) < 1e-9);
+	assert.equal(row.n, 6);
+	assert.equal(row.metrics.callKinds.compaction, 1);
+	assert.equal(row.metrics.callKinds.turn, 5);
+	assert.equal(row.metrics.endpoints["eu-west-1"], 1);
+	// Compaction records are included in cache mode aggregates.
+	// nonCached = max(prompt - read - create, 0) per record, summed = 0.
+	// hit_rate = 2320 / (0 + 2320 + 3100) = 0.4280...
+	assert.ok(Math.abs(row.metrics.hitRate - 2320 / 5420) < 1e-9);
+});
+
+test("cache mode: table reports call kinds and per-endpoint counts", () => {
+	const out = execFileSync("node", [SCRIPT, "cache", "--dir", FIXTURES], { encoding: "utf8" });
+	assert.match(out, /call_kinds/);
+	assert.match(out, /turn:5,compaction:1/);
+	assert.match(out, /endpoints/);
+	assert.match(out, /eu-west-1:1/);
+});
+
+test("cache mode: counts endpoint switches within run, source, and agent", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-cache-"));
+	try {
+		writeFileSync(join(dir, "cache.jsonl"), [
+			{ run_id: "run-1", source: "parent", turn: 1, seq: 1, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "east" } },
+			{ run_id: "run-1", source: "parent", turn: 2, seq: 2, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "west" } },
+			{ run_id: "run-1", source: "parent", agent_id: "agent-1", turn: 1, seq: 3, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "east" } },
+			{ run_id: "run-1", source: "sub_agent", agent_id: "agent-1", turn: 1, seq: 4, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "west" } },
+			{ run_id: "run-2", source: "parent", turn: 1, seq: 5, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "east" } },
+			{ source: "parent", turn: 1, seq: 6, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "west" } },
+		].map((record) => JSON.stringify(record)).join("\n") + "\n");
+		const out = run(["cache", "--dir", dir, "--json"]);
+		assert.equal(out["by model"][0].metrics.endpointSwitches, 1);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("cache mode: by-source groups parent and sub_agent separately", () => {
@@ -48,8 +75,9 @@ test("cache mode: by-source groups parent and sub_agent separately", () => {
 	const bySource = out["by source"];
 	const parent = bySource.find((r) => r.key === "parent");
 	const subAgent = bySource.find((r) => r.key === "sub_agent");
-	assert.equal(parent.n, 4);
+	assert.equal(parent.n, 5);
 	assert.equal(subAgent.n, 1);
+	assert.equal(parent.metrics.callKinds.compaction, 1);
 	// Only one record per run_id may carry cold_start: true (see
 	// internal/agent/cache_diagnostics.go's coldStartRecorded latch); run-a's
 	// parent turn 1 claims it, so the sub_agent record in the same run must not.
@@ -125,6 +153,24 @@ test("prefix mode: append-only and break-at-N verdicts", () => {
 	assert.equal(child[1].cached, 1);
 });
 
+test("prefix mode: compaction requests do not affect pairing", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-prefix-"));
+	try {
+		const records = [
+			{ type: "api_request", payload: { kind: "turn", turn: 1, message_count: 1, message_hashes: ["one"] } },
+			{ type: "api_request", payload: { kind: "compaction", turn: 1, message_count: 1, message_hashes: ["summary"] } },
+			{ type: "api_request", payload: { kind: "turn", turn: 2, message_count: 2, message_hashes: ["one", "two"] } },
+		];
+		const logfile = join(dir, "session.jsonl");
+		writeFileSync(logfile, records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+		const rows = run(["prefix", logfile, "--json"]);
+		assert.equal(rows.length, 2);
+		assert.deepEqual(rows.map((row) => row.verdict), ["-", "APPEND-ONLY"]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("prefix mode: interactive prompts that reset turn numbers stay in log order", () => {
 	const logfile = join(FIXTURES, "session_interactive.jsonl");
 	const rows = run(["prefix", logfile, "--json"]);
@@ -148,6 +194,23 @@ test("prefix mode: interactive prompts that reset turn numbers stay in log order
 // ---------------------------------------------------------------- coldturns
 
 const coldturns = (extra = []) => run(["coldturns", "--dir", COLDTURN_FIXTURES, "--json", ...extra]);
+
+test("coldturns: compaction records do not affect pairing", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-coldturns-"));
+	try {
+		writeFileSync(join(dir, "cache.jsonl"), [
+			{ ts: "2026-09-01T10:00:00Z", run_id: "run-1", source: "parent", seq: 1, payload: { backend_model_id: "model", prompt_tokens: 100, cache_read_tokens: 50 } },
+			{ ts: "2026-09-01T10:01:00Z", run_id: "run-1", source: "parent", seq: 2, payload: { backend_model_id: "model", prompt_tokens: 100, cache_read_tokens: 50, call_kind: "compaction" } },
+			{ ts: "2026-09-01T10:02:00Z", run_id: "run-1", source: "parent", seq: 3, payload: { backend_model_id: "model", prompt_tokens: 100, cache_read_tokens: 50 } },
+		].map((record) => JSON.stringify(record)).join("\n") + "\n");
+		writeFileSync(join(dir, "tool.jsonl"), "");
+		const out = run(["coldturns", "--dir", dir, "--json", "--min-n", "1"]);
+		const row = out.by_model.find((candidate) => candidate.key === "model");
+		assert.equal(row.n, 1);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
 
 test("coldturns: a model that never reports cache reads is excluded, not counted 100% cold", () => {
 	const out = coldturns();

@@ -38,15 +38,13 @@ func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (an
 // stores images only on its first message, and the provider has no server-side
 // image cache to fall back on.
 func buildContinuationRequest(base agent.RunRequest, conversation []agent.Message, message string, images []provider.ImageBlock, priorTurns int, freshLimits Limits) agent.RunRequest {
-	base.Prompt.Conversation = agent.ToReplaySafeProviderMessages(conversation)
-	final := provider.Message{
-		Role:    provider.MessageRoleUser,
+	final := agent.Message{
+		Role:    agent.MessageRoleUser,
 		Content: message,
+		Images:  agent.ImageBlocksFromProvider(images),
 	}
-	if len(images) > 0 {
-		final.Images = append([]provider.ImageBlock(nil), images...)
-	}
-	base.Prompt.Conversation = append(base.Prompt.Conversation, final)
+	base.SourceConversation = append(agent.ReplaySafeConversation(conversation), final)
+	base.Prompt.Conversation = nil
 	base.Limits.MaxTurns = priorTurns + freshLimits.MaxTurns
 	base.Limits.MaxTokens = freshLimits.OutputLimitTokens
 	base.Limits.TurnTimeout = freshLimits.Timeout

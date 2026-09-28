@@ -234,33 +234,35 @@ func (l ConversationLineage) HighestFidelityCandidate(fits func([]Message) bool)
 
 // RunState captures the mutable state of an in-flight run.
 type RunState struct {
-	TurnCount          int
-	TokenCount         int
-	InputTokens        int // uncached prompt tokens
-	CacheReadTokens    int
-	CacheCreateTokens  int
-	StopReason         StopReason
-	Conversation       []Message
-	Lineage            ConversationLineage
-	Context            ContextState
-	WorkflowHandoff    *tool.WorkflowHandoffTransition
-	BudgetNoticeIssued bool
+	TurnCount           int
+	TokenCount          int
+	InputTokens         int // uncached prompt tokens
+	CacheReadTokens     int
+	CacheCreateTokens   int
+	StopReason          StopReason
+	Conversation        []Message
+	Lineage             ConversationLineage
+	Context             ContextState
+	WorkflowHandoff     *tool.WorkflowHandoffTransition
+	BudgetNoticesIssued int
+	BudgetStartTurn     int
 }
 
 // Clone returns a deep copy of the run state.
 func (s RunState) Clone() RunState {
 	return RunState{
-		TurnCount:          s.TurnCount,
-		TokenCount:         s.TokenCount,
-		InputTokens:        s.InputTokens,
-		CacheReadTokens:    s.CacheReadTokens,
-		CacheCreateTokens:  s.CacheCreateTokens,
-		StopReason:         s.StopReason,
-		Conversation:       cloneMessages(s.Conversation),
-		Lineage:            s.Lineage.Clone(),
-		Context:            s.Context.Clone(),
-		WorkflowHandoff:    cloneWorkflowHandoffTransition(s.WorkflowHandoff),
-		BudgetNoticeIssued: s.BudgetNoticeIssued,
+		TurnCount:           s.TurnCount,
+		TokenCount:          s.TokenCount,
+		InputTokens:         s.InputTokens,
+		CacheReadTokens:     s.CacheReadTokens,
+		CacheCreateTokens:   s.CacheCreateTokens,
+		StopReason:          s.StopReason,
+		Conversation:        cloneMessages(s.Conversation),
+		Lineage:             s.Lineage.Clone(),
+		Context:             s.Context.Clone(),
+		WorkflowHandoff:     cloneWorkflowHandoffTransition(s.WorkflowHandoff),
+		BudgetNoticesIssued: s.BudgetNoticesIssued,
+		BudgetStartTurn:     s.BudgetStartTurn,
 	}
 }
 

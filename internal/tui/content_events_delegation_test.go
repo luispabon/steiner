@@ -152,6 +152,38 @@ func TestHandleDelegationCompleteSetsCacheHitRateFromPayload(t *testing.T) {
 	}
 }
 
+func TestDelegationCompleteOverridesLiveCacheTotals(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	b.AppendEvent(output.NewDelegationStartedEvent("child-final-cache", "inspect"))
+	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 200, CacheReadTokens: 150, CompletionTokens: 4}), "child-final-cache"))
+	b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID: "child-final-cache", Status: "complete", InputTokens: 30, CacheReadTokens: 70, TokenCount: 10,
+	}))
+	dd := delegationStates(b)[0]
+	if dd.status != "complete" || dd.inputTokens != 30 || dd.cacheReadTokens != 70 || dd.cacheHitRate != 0.7 {
+		t.Fatalf("final delegation cache state = %#v, want authoritative 70/100 totals", dd)
+	}
+}
+
+func TestAdvisorBoxDoesNotUseModelCallCacheEvents(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	b.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1, "question", nil))
+	b.AppendEvent(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 200, CacheReadTokens: 150}))
+
+	if len(b.segments) == 0 || b.segments[0].delegData == nil {
+		t.Fatal("advisor segment not found")
+	}
+	dd := b.segments[0].delegData
+	if !dd.isAdvisor {
+		t.Fatal("segment is not an advisor")
+	}
+	if dd.cacheHitOK || dd.latestCacheHitOK {
+		t.Fatalf("advisor cache state = %#v after model_call_finished, want no live cache rate", dd)
+	}
+}
+
 func TestScopedDelegationEvents(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -422,6 +454,34 @@ func TestUnknownDelegationTerminalEventsUseFallbackDisplay(t *testing.T) {
 	}
 	if states[1].agentID != "unknown-failed" || states[1].status != "failed" {
 		t.Fatalf("failed fallback = %#v", states[1])
+	}
+}
+
+func TestDelegationModelCallUsageKeepsLatestPromptContextFill(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	b.AppendEvent(output.NewDelegationStartedEvent("child-live-cache", "inspect"))
+	b.AppendEvent(output.WithAgentScope(output.NewContextTokenBudgetEvent("conversation", 1, 100, 250, 1000, 10, 80, 0, 100, "ok", false), "child-live-cache"))
+	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 120, CacheReadTokens: 70, CompletionTokens: 8}), "child-live-cache"))
+	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 100, CacheReadTokens: 25, CompletionTokens: 3}), "child-live-cache"))
+	loc := b.activeDelegations["child-live-cache"]
+	if loc.dd.cacheReadTokens != 95 || loc.dd.inputTokens != 125 {
+		t.Fatalf("live cache totals = read %d input %d, want read 95 input 125", loc.dd.cacheReadTokens, loc.dd.inputTokens)
+	}
+	if !loc.dd.latestCacheHitOK || loc.dd.latestCacheHitRate != 0.25 {
+		t.Fatalf("latest cache = %v/%v, want 25%%", loc.dd.latestCacheHitRate, loc.dd.latestCacheHitOK)
+	}
+	if got := stripANSI(b.renderDelegationHeaderMeta(loc.dd)); !strings.Contains(got, "cache 43.2%") {
+		t.Fatalf("running header meta = %q, want visible accumulated cache rate", got)
+	}
+	if got := stripANSI(b.renderDelegationStatsRow(loc.dd)); !strings.Contains(got, "Cache: 25.0% latest req · 43.2% session") {
+		t.Fatalf("running stats row = %q, want latest and session cache rates", got)
+	}
+	if loc.dd.promptTokens != 250 {
+		t.Fatalf("promptTokens = %d after usage event, want latest context fill 250", loc.dd.promptTokens)
+	}
+	if loc.dd.tokenCount != 11 {
+		t.Fatalf("tokenCount = %d, want accumulated total 11", loc.dd.tokenCount)
 	}
 }
 
@@ -1265,43 +1325,6 @@ func TestTwoDelegationStartedEventsBeforeParentToolCallsBindCorrectly(t *testing
 	}
 	if group.entries[1].agentID != "child-2" {
 		t.Errorf("entry[1].agentID = %q, want child-2", group.entries[1].agentID)
-	}
-}
-
-func TestDelegationExtensionEventUpdatesCorrectEntryInGroup(t *testing.T) {
-	t.Parallel()
-	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
-	}
-
-	// Create a group with 2 entries
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "first"}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_2", map[string]any{"type": "code", "task": "second"}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
-
-	// Send DelegationExtensionEvent for entry 0
-	buffer.AppendEvent(output.Event{
-		Type: output.EventTypeDelegationExtension,
-		Payload: output.DelegationExtensionEvent{
-			AgentID:       "child-1",
-			Extension:     3,
-			MaxExtensions: 5,
-		},
-	})
-
-	group := buffer.segments[0].delegGroupData
-	// Entry 0 should be updated
-	if group.entries[0].extCurrent != 3 || group.entries[0].extMax != 5 {
-		t.Errorf("entry[0] ext = %d/%d, want 3/5", group.entries[0].extCurrent, group.entries[0].extMax)
-	}
-	// Entry 1 should be unchanged
-	if group.entries[1].extCurrent != 0 || group.entries[1].extMax != 5 {
-		t.Errorf("entry[1] ext = %d/%d, want 0/5", group.entries[1].extCurrent, group.entries[1].extMax)
 	}
 }
 

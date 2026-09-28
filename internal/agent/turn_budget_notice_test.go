@@ -1,175 +1,113 @@
 package agent
 
 import (
-	"strings"
+	"reflect"
 	"testing"
 )
 
-func countMarkedMessages(messages []Message) int {
-	count := 0
-	for _, m := range messages {
-		if strings.HasPrefix(m.Content, turnBudgetNoticeMarker) {
-			count++
-		}
-	}
-	return count
-}
-
-func TestInjectTurnBudgetNoticeIfDue_FiresAtThreshold(t *testing.T) {
-	req := RunRequest{
-		Limits: Limits{MaxTurns: 10},
-		TurnBudgetNotice: func(_, _ int) string {
-			return "used it up"
+func TestInjectTurnBudgetNoticeIfDue_ThresholdSequences(t *testing.T) {
+	tests := []struct {
+		name       string
+		startTurn  int
+		maxTurns   int
+		turns      []int
+		wantTurns  []int
+		wantParams [][2]int
+	}{
+		{
+			name:      "120 turn cap",
+			maxTurns:  120,
+			turns:     []int{59, 60, 60, 89, 90, 107, 108, 120, 121},
+			wantTurns: []int{60, 90, 108},
+		},
+		{
+			name:      "ceil thresholds",
+			maxTurns:  7,
+			turns:     []int{3, 4, 5, 6, 7},
+			wantTurns: []int{4, 6, 7},
+		},
+		{
+			name:      "skipped thresholds emit once",
+			maxTurns:  10,
+			turns:     []int{10, 10},
+			wantTurns: []int{10},
+		},
+		{
+			name:       "follow-up run measures from start turn",
+			startTurn:  120,
+			maxTurns:   240,
+			turns:      []int{121, 180, 210, 228},
+			wantTurns:  []int{180, 210, 228},
+			wantParams: [][2]int{{60, 120}, {90, 120}, {108, 120}},
 		},
 	}
 
-	conversation := []Message{{Role: MessageRoleUser, Content: "hello"}}
-	state := RunState{
-		TurnCount:    6,
-		Conversation: conversation,
-		Lineage:      newConversationLineage(conversation),
-	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			original := []Message{{Role: MessageRoleUser, Content: "hello"}}
+			state := RunState{
+				TurnCount:       test.startTurn,
+				BudgetStartTurn: test.startTurn,
+				Conversation:    cloneMessages(original),
+				Lineage:         newConversationLineage(original),
+			}
+			var gotParams [][2]int
+			req := RunRequest{
+				Limits: Limits{MaxTurns: test.maxTurns},
+				TurnBudgetNotice: func(turnsUsed, maxTurns int) string {
+					gotParams = append(gotParams, [2]int{turnsUsed, maxTurns})
+					return "notice"
+				},
+			}
 
-	before := injectTurnBudgetNoticeIfDue(state, req)
-	if before.BudgetNoticeIssued {
-		t.Fatalf("BudgetNoticeIssued = true before threshold (TurnCount=%d)", before.TurnCount)
-	}
-	if countMarkedMessages(before.Conversation) != 0 {
-		t.Fatalf("expected no marked messages before threshold, got %d", countMarkedMessages(before.Conversation))
-	}
-
-	state.TurnCount = 7 // 70% of 10
-	after := injectTurnBudgetNoticeIfDue(state, req)
-	if !after.BudgetNoticeIssued {
-		t.Fatal("expected BudgetNoticeIssued = true at threshold")
-	}
-	if countMarkedMessages(after.Conversation) != 1 {
-		t.Fatalf("expected exactly 1 marked message at threshold, got %d", countMarkedMessages(after.Conversation))
+			var gotTurns []int
+			for _, turn := range test.turns {
+				state.TurnCount = turn
+				before := cloneMessages(state.Conversation)
+				state = injectTurnBudgetNoticeIfDue(state, req)
+				if !reflect.DeepEqual(state.Conversation[:len(before)], before) {
+					t.Fatalf("existing conversation changed at turn %d", turn)
+				}
+				if len(state.Conversation) > len(before) {
+					if len(state.Conversation) != len(before)+1 {
+						t.Fatalf("turn %d appended %d messages, want one", turn, len(state.Conversation)-len(before))
+					}
+					notice := state.Conversation[len(state.Conversation)-1]
+					if notice.Role != MessageRoleUser || notice.Turn != turn {
+						t.Fatalf("appended notice = %+v, want user message at turn %d", notice, turn)
+					}
+					gotTurns = append(gotTurns, notice.Turn)
+				}
+			}
+			if !reflect.DeepEqual(gotTurns, test.wantTurns) {
+				t.Fatalf("notice turns = %v, want %v", gotTurns, test.wantTurns)
+			}
+			if test.wantParams != nil && !reflect.DeepEqual(gotParams, test.wantParams) {
+				t.Fatalf("notice callback params = %v, want %v", gotParams, test.wantParams)
+			}
+			if !reflect.DeepEqual(state.Conversation, state.Lineage.FullMessages()) {
+				t.Fatal("conversation and lineage diverged")
+			}
+		})
 	}
 }
 
-func TestInjectTurnBudgetNoticeIfDue_NilCallbackIsNoop(t *testing.T) {
-	req := RunRequest{Limits: Limits{MaxTurns: 10}}
-	conversation := []Message{{Role: MessageRoleUser, Content: "hello"}}
-	state := RunState{
-		TurnCount:    9,
-		Conversation: conversation,
-		Lineage:      newConversationLineage(conversation),
-	}
-
-	got := injectTurnBudgetNoticeIfDue(state, req)
-	if got.BudgetNoticeIssued {
-		t.Fatal("expected no-op when TurnBudgetNotice is nil")
-	}
-	if countMarkedMessages(got.Conversation) != 0 {
-		t.Fatal("expected no marked messages when TurnBudgetNotice is nil")
-	}
-}
-
-func TestInjectTurnBudgetNoticeIfDue_SecondCallSupersedesNotAppends(t *testing.T) {
-	req := RunRequest{
-		Limits: Limits{MaxTurns: 10},
-		TurnBudgetNotice: func(_, _ int) string {
-			return "checkpoint reached"
-		},
-	}
-
-	conversation := []Message{{Role: MessageRoleUser, Content: "hello"}}
-	state := RunState{
-		TurnCount:    7,
-		Conversation: conversation,
-		Lineage:      newConversationLineage(conversation),
-	}
-
-	state = injectTurnBudgetNoticeIfDue(state, req)
-	if countMarkedMessages(state.Conversation) != 1 {
-		t.Fatalf("after first call: expected 1 marked message, got %d", countMarkedMessages(state.Conversation))
-	}
-
-	// Simulate a second turn past threshold within the same run — since
-	// BudgetNoticeIssued is now true, this should stay a no-op...
-	state.TurnCount = 8
-	state = injectTurnBudgetNoticeIfDue(state, req)
-	if countMarkedMessages(state.Conversation) != 1 {
-		t.Fatalf("after second call with issued flag set: expected 1 marked message, got %d", countMarkedMessages(state.Conversation))
-	}
-
-	// ...but if the flag is reset (as happens across an extension boundary,
-	// where a fresh RunState is created) and the marked message is still
-	// present in the carried-over conversation, the notice supersedes it in
-	// place rather than appending a second one.
-	state.BudgetNoticeIssued = false
-	state = injectTurnBudgetNoticeIfDue(state, req)
-	if countMarkedMessages(state.Conversation) != 1 {
-		t.Fatalf("after supersede: expected exactly 1 marked message, got %d", countMarkedMessages(state.Conversation))
-	}
-}
-
-func TestInjectTurnBudgetNoticeIfDue_ZeroMaxTurnsIsNoop(t *testing.T) {
-	req := RunRequest{
-		Limits: Limits{MaxTurns: 0},
-		TurnBudgetNotice: func(_, _ int) string {
-			return "should not fire"
-		},
-	}
-	conversation := []Message{{Role: MessageRoleUser, Content: "hello"}}
-	state := RunState{
-		TurnCount:    100,
-		Conversation: conversation,
-		Lineage:      newConversationLineage(conversation),
-	}
-	got := injectTurnBudgetNoticeIfDue(state, req)
-	if got.BudgetNoticeIssued {
-		t.Fatal("expected no-op when MaxTurns <= 0")
-	}
-}
-
-func TestInjectTurnBudgetNoticeIfDue_SurvivesReplaySafeConversion(t *testing.T) {
-	req := RunRequest{
-		Limits: Limits{MaxTurns: 10},
-		TurnBudgetNotice: func(_, _ int) string {
-			return "used it up"
-		},
-	}
-
-	// A realistic tail: assistant message with a pending tool call followed
-	// by its tool result, mirroring where the checkpoint actually injects
-	// (right after the previous turn's tool result was applied).
-	conversation := []Message{
-		{Role: MessageRoleUser, Content: "do the thing"},
-		{Role: MessageRoleAssistant, ToolCalls: []ToolCall{{ID: "c1", Name: "read"}}},
-		{Role: MessageRoleTool, ToolCallID: "c1", Content: "file contents"},
-	}
-	state := RunState{
-		TurnCount:    7,
-		Conversation: conversation,
-		Lineage:      newConversationLineage(conversation),
-	}
-
-	state = injectTurnBudgetNoticeIfDue(state, req)
-	if countMarkedMessages(state.Conversation) != 1 {
-		t.Fatalf("expected exactly 1 marked message before conversion, got %d", countMarkedMessages(state.Conversation))
-	}
-
-	roundTripped := fromProviderMessages(ToReplaySafeProviderMessages(state.Conversation))
-	if got := countMarkedMessages(roundTripped); got != 1 {
-		t.Fatalf("marked messages after ReplaySafeConversation round trip = %d, want 1 (conversation = %+v)", got, roundTripped)
-	}
-}
-
-func TestTurnBudgetNoticeMarker_SurvivesProviderMessageRoundTrip(t *testing.T) {
-	marked := Message{
-		Role:    MessageRoleUser,
-		Content: turnBudgetNoticeMarker + " you have used 7 of 10 turns",
-	}
-
-	providerMsgs := ToProviderMessages([]Message{marked})
-	roundTripped := fromProviderMessages(providerMsgs)
-
-	if len(roundTripped) != 1 {
-		t.Fatalf("round trip produced %d messages, want 1", len(roundTripped))
-	}
-	if !strings.HasPrefix(roundTripped[0].Content, turnBudgetNoticeMarker) {
-		t.Fatalf("round-tripped content = %q, want prefix %q", roundTripped[0].Content, turnBudgetNoticeMarker)
+func TestInjectTurnBudgetNoticeIfDue_Disabled(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		req  RunRequest
+	}{
+		{name: "nil callback", req: RunRequest{Limits: Limits{MaxTurns: 10}}},
+		{name: "zero cap", req: RunRequest{Limits: Limits{MaxTurns: 0}, TurnBudgetNotice: func(int, int) string { return "notice" }}},
+		{name: "negative cap", req: RunRequest{Limits: Limits{MaxTurns: -1}, TurnBudgetNotice: func(int, int) string { return "notice" }}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			messages := []Message{{Role: MessageRoleUser, Content: "unchanged"}}
+			state := RunState{TurnCount: 100, Conversation: cloneMessages(messages), Lineage: newConversationLineage(messages)}
+			got := injectTurnBudgetNoticeIfDue(state, test.req)
+			if !reflect.DeepEqual(got.Conversation, messages) || got.BudgetNoticesIssued != 0 {
+				t.Fatalf("state changed for disabled notice: %+v", got)
+			}
+		})
 	}
 }

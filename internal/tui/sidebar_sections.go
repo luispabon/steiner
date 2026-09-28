@@ -237,7 +237,8 @@ func (s sidebarState) performanceSection(width int) []string {
 		cardFieldN("duration", keyW, s.styles.FgDim, fitText(formatDuration(s.perfDurationMs), w-keyW+7), s.styles),
 		cardFieldN("ttft", keyW, s.styles.FgDim, fitText(formatDuration(s.perfTTFTMs), w-keyW+7), s.styles),
 		cardFieldN("tps", keyW, s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w-keyW+7), s.styles),
-		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitRate(s.sessionCacheHitRate, s.sessionCacheHitRateOK), w-keyW+7), s.styles),
+		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.lastRequestCacheRate, s.lastRequestCacheRateOK, "latest req", "req", w-keyW+7), w-keyW+7), s.styles),
+		cardFieldN("", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.sessionCacheHitRate, s.sessionCacheHitRateOK, "session", "sess", w-keyW+7), w-keyW+7), s.styles),
 		s.sessionRow(w),
 	}
 }
@@ -265,6 +266,21 @@ func (s sidebarState) sessionRow(width int) string {
 	keyStyle := s.styles.FgFaint.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 	valStyle := s.styles.FgDim.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 	return keyStyle.Render(fmt.Sprintf("%-*s", keyW, "session")) + valStyle.Render(fitText(hhmm, width-keyW+7-len(ss))) + keyStyle.Render(ss)
+}
+
+// formatCacheHitWithScope renders a cache hit rate with its scope when it
+// fits, falling back to the short scope label and then the bare value.
+func formatCacheHitWithScope(rate float64, ok bool, long, short string, width int) string {
+	value := formatCacheHitRate(rate, ok)
+	full := value + " · " + long
+	if lipgloss.Width(full) <= width {
+		return full
+	}
+	abbreviated := value + " · " + short
+	if lipgloss.Width(abbreviated) <= width {
+		return abbreviated
+	}
+	return value
 }
 
 // formatCacheHitRate renders the hit rate as "78.2%" or "—" when undefined.

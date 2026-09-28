@@ -495,8 +495,8 @@ func TestPerformanceSection(t *testing.T) {
 				sessionCacheHitRateOK: tc.sessionCacheHitRateOK,
 				styles:                testStyles(theme.AccentAmber),
 			}
-			if got, want := len(s.performanceSection(32)), 7; got != want {
-				t.Errorf("len(performanceSection()) = %d, want %d lines (blank line plus label plus five value rows)", got, want)
+			if got, want := len(s.performanceSection(32)), 8; got != want {
+				t.Errorf("len(performanceSection()) = %d, want %d lines (blank line plus label plus six value rows)", got, want)
 			}
 			got := s.performanceSection(32)
 			if len(got) == 0 {
@@ -517,6 +517,9 @@ func TestPerformanceSection(t *testing.T) {
 			}
 			if !strings.Contains(joined, tc.wantCacheHitValue) {
 				t.Errorf("performanceSection() missing cache hit value %q in %q", tc.wantCacheHitValue, joined)
+			}
+			if !strings.Contains(joined, "cache hit") {
+				t.Errorf("performanceSection() missing cache hit label in %q", joined)
 			}
 		})
 	}
@@ -545,6 +548,19 @@ func TestSidebarOmitsOneshotSectionWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestPerformanceSectionUsesLatestRequestLabel(t *testing.T) {
+	t.Parallel()
+	s := sidebarState{
+		lastRequestCacheRate:   0.782,
+		lastRequestCacheRateOK: true,
+		styles:                 testStyles(theme.AccentAmber),
+	}
+	got := stripANSI(strings.Join(s.performanceSection(32), "\\n"))
+	if !strings.Contains(got, "78.2% · latest req") {
+		t.Errorf("performanceSection(32) missing normal latest-request label in %q", got)
+	}
+}
+
 func TestFormatCacheHitRate(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -562,6 +578,26 @@ func TestFormatCacheHitRate(t *testing.T) {
 		got := formatCacheHitRate(tc.rate, tc.ok)
 		if got != tc.want {
 			t.Errorf("formatCacheHitRate(%f, %v) = %q, want %q", tc.rate, tc.ok, got, tc.want)
+		}
+	}
+}
+
+func TestFormatCacheHitWithScopeWidth(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		width int
+		long  string
+		short string
+		want  string
+	}{
+		{15, "request", "req", "78.2% · request"},
+		{11, "request", "req", "78.2% · req"},
+		{5, "request", "req", "78.2%"},
+		{12, "session", "sess", "78.2% · sess"},
+	}
+	for _, tc := range cases {
+		if got := formatCacheHitWithScope(0.782, true, tc.long, tc.short, tc.width); got != tc.want {
+			t.Errorf("formatCacheHitWithScope width %d = %q, want %q", tc.width, got, tc.want)
 		}
 	}
 }
@@ -692,7 +728,7 @@ func TestStaticLinesLineCount(t *testing.T) {
 		workingDir:            "/home/user/project",
 		styles:                styles,
 	}
-	const want = 29
+	const want = 30
 	if got := len(s.staticLines(32)); got != want {
 		t.Errorf("len(staticLines(32)) = %d, want %d", got, want)
 	}

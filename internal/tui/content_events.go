@@ -194,21 +194,23 @@ type delegationDisplayState struct {
 	status                  string // "active" | "complete" | "failed"
 	finalizedByCancellation bool   // true when cancellation finalized this display
 	// result fields (Complete)
-	resultStatus      string
-	turnCount         int
-	tokenCount        int
-	toolCallCount     int
-	cacheHitRate      float64
-	cacheHitOK        bool
-	cacheReadTokens   int
-	inputTokens       int
-	cacheCreateTokens int
-	modelName         string
-	reasoning         string
-	promptTokens      int
-	contextWindow     int
-	contextFillPct    float64 // last known context window occupancy %, 0 if unknown
-	outputTPS         float64 // latest per-turn output tokens/sec, 0 if unknown
+	resultStatus       string
+	turnCount          int
+	tokenCount         int
+	toolCallCount      int
+	cacheHitRate       float64
+	cacheHitOK         bool
+	latestCacheHitRate float64
+	latestCacheHitOK   bool
+	cacheReadTokens    int
+	inputTokens        int
+	cacheCreateTokens  int
+	modelName          string
+	reasoning          string
+	promptTokens       int
+	contextWindow      int
+	contextFillPct     float64 // last known context window occupancy %, 0 if unknown
+	outputTPS          float64 // latest per-turn output tokens/sec, 0 if unknown
 	// failure field
 	errMsg string
 	// output text and visibility
@@ -239,8 +241,6 @@ type delegationDisplayState struct {
 	briefConstraints      []string
 	briefSuccessCriteria  []string
 	briefChecks           []string
-	extCurrent            int
-	extMax                int
 }
 
 type imagesAttachedRowData struct {
@@ -366,7 +366,6 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeDelegationComplete:     (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationCacheWaiting: (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationFailed:       (*contentBuffer).appendDelegationEvent,
-	output.EventTypeDelegationExtension:    (*contentBuffer).appendDelegationEvent,
 	output.EventTypeAdvisorStarted:         (*contentBuffer).appendAdvisorEvent,
 	output.EventTypeAdvisorComplete:        (*contentBuffer).appendAdvisorEvent,
 	output.EventTypeAdvisorBudgetExhausted: (*contentBuffer).appendAdvisorEvent,

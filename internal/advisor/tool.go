@@ -71,6 +71,10 @@ type HandlerDeps struct {
 	// package keeps working standalone (e.g. in tests that construct
 	// HandlerDeps directly).
 	CacheKey string
+	// TransportSession routes advisor requests within supported transports.
+	TransportSession string
+	// ParentTransportSession identifies the parent session for supported transports.
+	ParentTransportSession string
 	// SharedState carries the advisor use counter across every NewHandler
 	// call it's passed to, so the budget in Config.MaxUsesPerRun is enforced
 	// for the session (the handler's caller decides the shared state's
@@ -160,7 +164,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses, in.Question, advisorDisplayPaths(files)))
 	messages := buildMessages(snapshot, in.Question, files)
 	diagnostic := &advisorDiagnosticContext{state: s, writer: deps.Diagnostics}
-	response, err := adviseWithMessages(ctx, deps.Provider, deps.Model, messages, deps.Config.MaxTokens, deps.Events, s.cacheKey, diagnostic)
+	response, err := adviseWithMessages(ctx, deps.Provider, deps.Model, messages, deps.Config.MaxTokens, deps.Events, s.cacheKey, diagnostic, deps.TransportSession, deps.ParentTransportSession)
 	if err != nil {
 		emitEvent(deps.Events, output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{
 			Model:     deps.Model.BackendModelID,
@@ -172,7 +176,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	}
 
 	recordAdvisorUsage(deps.UsageRecorder, deps.Model, response.Usage)
-	s.emitCacheDiagnosticWithContext(deps.Diagnostics, deps.Model, response.Usage, messages, diagnostic.fingerprint, diagnostic)
+	s.emitCacheDiagnosticWithContext(deps.Diagnostics, deps.Model, response, messages, diagnostic.fingerprint, diagnostic)
 
 	note := strings.TrimSpace(response.Message.Content)
 	truncated := response.FinishReason == "length"
@@ -241,7 +245,7 @@ type advisorDiagnosticContext struct {
 	prepared             bool
 }
 
-func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, messages []provider.Message, maxTokens *int, events output.EventSink, cacheKey string, diagnostic *advisorDiagnosticContext) (provider.ChatResponse, error) {
+func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider.ResolvedModel, messages []provider.Message, maxTokens *int, events output.EventSink, cacheKey string, diagnostic *advisorDiagnosticContext, transportSession, parentTransportSession string) (provider.ChatResponse, error) {
 	if prov == nil {
 		return provider.ChatResponse{}, fmt.Errorf("advisor: provider is required")
 	}
@@ -250,13 +254,15 @@ func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider
 	}
 
 	req := provider.ChatRequest{
-		Model:               rm.BackendModelID,
-		Messages:            messages,
-		MaxTokens:           maxTokens,
-		Params:              rm.Params,
-		ExtraParams:         rm.ExtraParams,
-		PromptCacheKey:      cacheKey,
-		AdvisorCacheProfile: true,
+		Model:                  rm.BackendModelID,
+		Messages:               messages,
+		MaxTokens:              maxTokens,
+		Params:                 rm.Params,
+		ExtraParams:            rm.ExtraParams,
+		PromptCacheKey:         cacheKey,
+		AdvisorCacheProfile:    true,
+		TransportSession:       transportSession,
+		ParentTransportSession: parentTransportSession,
 	}
 	if rm.ReasoningEffectiveEffort != "" {
 		req.Reasoning = &provider.ReasoningRequest{Effort: rm.ReasoningEffectiveEffort}

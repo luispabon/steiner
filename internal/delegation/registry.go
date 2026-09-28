@@ -135,15 +135,17 @@ type DelegateDeps struct {
 
 // advisorRuntime holds the resolved advisor provider, model, and configuration.
 type advisorRuntime struct {
-	provider    provider.Provider
-	model       provider.ResolvedModel
-	events      output.EventSink
-	recorder    *usagestats.Recorder
-	diagnostics *diagnostics.Writer
-	workDir     string
-	pathPolicy  tool.PathPolicy
-	cacheKey    string
-	maxTokens   *int
+	provider               provider.Provider
+	model                  provider.ResolvedModel
+	events                 output.EventSink
+	recorder               *usagestats.Recorder
+	diagnostics            *diagnostics.Writer
+	workDir                string
+	pathPolicy             tool.PathPolicy
+	cacheKey               string
+	maxTokens              *int
+	transportSession       string
+	parentTransportSession string
 }
 
 // newAdvisorRuntime resolves the advisor model and provider, returning the runtime
@@ -190,12 +192,14 @@ func (r advisorRuntime) toolDef(maxUses int, state *advisor.SharedState) tool.To
 			MaxUsesPerRun: maxUses,
 			MaxTokens:     r.maxTokens,
 		},
-		UsageRecorder: r.recorder,
-		Diagnostics:   r.diagnostics,
-		WorkDir:       r.workDir,
-		PathPolicy:    &r.pathPolicy,
-		CacheKey:      r.cacheKey,
-		SharedState:   state,
+		UsageRecorder:          r.recorder,
+		Diagnostics:            r.diagnostics,
+		WorkDir:                r.workDir,
+		PathPolicy:             &r.pathPolicy,
+		CacheKey:               r.cacheKey,
+		SharedState:            state,
+		TransportSession:       r.transportSession,
+		ParentTransportSession: r.parentTransportSession,
 	}))
 }
 
@@ -216,6 +220,10 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 	if err != nil {
 		return nil, err
 	}
+	if deps.SessionID != "" {
+		advRuntime.transportSession = deps.SessionID + "-advisor"
+		advRuntime.parentTransportSession = deps.SessionID
+	}
 	cloned.Register(advRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerRun, deps.AdvisorState))
 
 	if deps.AdvisorBudgetStore == nil {
@@ -227,17 +235,8 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 		}
 		state := deps.AdvisorBudgetStore.StateFor(agentID)
 		scopedEvents := withAgentScope(agentID, "", deps.Events)
-		scopedRuntime := advisorRuntime{
-			provider:    advRuntime.provider,
-			model:       advRuntime.model,
-			events:      scopedEvents,
-			recorder:    advRuntime.recorder,
-			diagnostics: advRuntime.diagnostics,
-			workDir:     advRuntime.workDir,
-			pathPolicy:  advRuntime.pathPolicy,
-			cacheKey:    advRuntime.cacheKey,
-			maxTokens:   advRuntime.maxTokens,
-		}
+		scopedRuntime := advRuntime
+		scopedRuntime.events = scopedEvents
 		return scopedRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state), true
 	}
 	return advisorForChild, nil

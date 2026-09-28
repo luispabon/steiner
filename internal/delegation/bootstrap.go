@@ -320,26 +320,32 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	// simply disables provider-side caching for this child run rather than
 	// failing bootstrap.
 	childCacheKey := cacheKeyOrMint(p.CacheKeyStore, p.AgentType)
+	transportSession := ""
+	if p.SessionID != "" {
+		transportSession = p.SessionID + "-" + p.AgentID
+	}
 
 	req := agent.RunRequest{
-		Provider:           p.Provider,
-		Executor:           scopedToolExecutor{inner: exec, agentID: p.AgentID, readOnlyBash: p.ReadOnlyBash},
-		Tools:              p.VisibleReg.ToProviderSpecs(),
-		Limits:             p.BaseLimits,
-		Events:             scopedEvents,
-		Prompt:             p.PromptOpts,
-		ResolvedModel:      p.ResolvedModel,
-		ModelBudget:        p.ModelBudget,
-		MaxTokens:          p.MaxTokens,
-		StreamingPreferred: p.StreamingPreferred,
-		CaveHuman:          p.PromptOpts.CaveHuman,
-		PromptCacheKey:     childCacheKey,
-		CacheBaseline:      p.CacheBaseline,
-		UsageSource:        usagestats.SourceSubAgent,
-		ContextManager:     agent.NewContextStateManager(p.ContextManagement),
-		Diagnostics:        p.Diagnostics,
-		AgentID:            p.AgentID,
-		AgentType:          string(p.AgentType),
+		Provider:               p.Provider,
+		Executor:               scopedToolExecutor{inner: exec, agentID: p.AgentID, readOnlyBash: p.ReadOnlyBash},
+		Tools:                  p.VisibleReg.ToProviderSpecs(),
+		Limits:                 p.BaseLimits,
+		Events:                 scopedEvents,
+		Prompt:                 p.PromptOpts,
+		ResolvedModel:          p.ResolvedModel,
+		ModelBudget:            p.ModelBudget,
+		MaxTokens:              p.MaxTokens,
+		StreamingPreferred:     p.StreamingPreferred,
+		CaveHuman:              p.PromptOpts.CaveHuman,
+		PromptCacheKey:         childCacheKey,
+		CacheBaseline:          p.CacheBaseline,
+		UsageSource:            usagestats.SourceSubAgent,
+		ContextManager:         agent.NewContextStateManager(p.ContextManagement),
+		Diagnostics:            p.Diagnostics,
+		AgentID:                p.AgentID,
+		AgentType:              string(p.AgentType),
+		TransportSession:       transportSession,
+		ParentTransportSession: p.SessionID,
 	}
 	if p.UsageRecorder != nil {
 		req.UsageRecorder = p.UsageRecorder

@@ -27,7 +27,7 @@ func TestInvokeToolInjectsFileReadLookup(t *testing.T) {
 	}
 
 	manager := NewContextStateManager()
-	manager.ObserveToolResult(1, "read", nil, string(readJSON))
+	manager.fileTracker.RecordRead(1, string(readJSON))
 
 	var got tool.FileReadState
 	var sawLookup bool

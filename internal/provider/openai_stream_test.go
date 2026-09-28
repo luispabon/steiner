@@ -3,11 +3,23 @@ package provider
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
 	"testing"
 )
+
+func TestOpenAIStreamCacheUsageFallbacks(t *testing.T) {
+	payload := `{"usage":{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":7},"prompt_cache_hit_tokens":12}}`
+	var response openAIResponse
+	if err := json.Unmarshal([]byte(payload), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Usage == nil || response.Usage.CacheReadInputTokens != 0 || response.Usage.CacheCreationInputTokens != 7 || response.Usage.PromptTokens != 100 {
+		t.Fatalf("usage = %+v", response.Usage)
+	}
+}
 
 // readSSEEvent tests
 

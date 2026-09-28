@@ -8,6 +8,19 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+func TestStreamWithEventsPreservesUpstreamEndpoint(t *testing.T) {
+	chunks := make(chan provider.ChatChunk, 1)
+	chunks <- provider.ChatChunk{Done: true, Delta: provider.Message{Content: "answer"}, UpstreamEndpoint: "upstream-1"}
+	close(chunks)
+	got, err := streamWithEvents(chunks, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UpstreamEndpoint != "upstream-1" {
+		t.Fatalf("UpstreamEndpoint = %q, want upstream-1", got.UpstreamEndpoint)
+	}
+}
+
 func TestStreamWithEventsWithoutSink(t *testing.T) {
 	tests := []struct {
 		name    string

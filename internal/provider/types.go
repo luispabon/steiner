@@ -92,16 +92,20 @@ type UsageStats struct {
 
 // ChatRequest is the normalized provider request payload.
 type ChatRequest struct {
-	Model                 string            `json:"model"`
-	Messages              []Message         `json:"messages"`
-	MaxTokens             *int              `json:"max_tokens,omitempty"`
-	Stream                bool              `json:"stream,omitempty"`
-	Tools                 []ToolSpec        `json:"tools,omitempty"`
-	PromptCacheKey        string            `json:"-"`
-	Params                map[string]any    `json:"-"` // Normalized generation params (temperature, top_p, etc.)
-	ExtraParams           map[string]any    `json:"-"` // Raw provider-specific passthrough
-	IncludeEmptyReasoning bool              `json:"-"` // Fill empty reasoning_content on assistant messages before sending
-	Reasoning             *ReasoningRequest `json:"-"` // Resolved reasoning effort; nil means provider default applies
+	// TransportSession routes this request within transports that support per-request sessions.
+	TransportSession string `json:"-"`
+	// ParentTransportSession identifies the parent session for supported transport routing.
+	ParentTransportSession string            `json:"-"`
+	Model                  string            `json:"model"`
+	Messages               []Message         `json:"messages"`
+	MaxTokens              *int              `json:"max_tokens,omitempty"`
+	Stream                 bool              `json:"stream,omitempty"`
+	Tools                  []ToolSpec        `json:"tools,omitempty"`
+	PromptCacheKey         string            `json:"-"`
+	Params                 map[string]any    `json:"-"` // Normalized generation params (temperature, top_p, etc.)
+	ExtraParams            map[string]any    `json:"-"` // Raw provider-specific passthrough
+	IncludeEmptyReasoning  bool              `json:"-"` // Fill empty reasoning_content on assistant messages before sending
+	Reasoning              *ReasoningRequest `json:"-"` // Resolved reasoning effort; nil means provider default applies
 	// AdvisorCacheProfile opts an Anthropic request into the advisor-shaped
 	// cache profile: an extended 1h cache TTL on breakpoints, and breakpoint
 	// placement redistributed across the reusable conversation tail instead
@@ -115,6 +119,8 @@ type ChatResponse struct {
 	Message      Message     `json:"message"`
 	Usage        *UsageStats `json:"usage,omitempty"`
 	FinishReason string      `json:"finish_reason,omitempty"`
+	// UpstreamEndpoint is the upstream endpoint id reported by compatible gateways.
+	UpstreamEndpoint string `json:"-"`
 }
 
 // ChatChunk is a streamed response fragment from a provider.
@@ -129,4 +135,6 @@ type ChatChunk struct {
 	Severity      string      `json:"severity,omitempty"`
 	RetryReset    bool        `json:"retry_reset,omitempty"`
 	OriginalError error       `json:"-"` // preserves the original error type (not serialized)
+	// UpstreamEndpoint is the upstream endpoint id reported by compatible gateways.
+	UpstreamEndpoint string `json:"-"`
 }

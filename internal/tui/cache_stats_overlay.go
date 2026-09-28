@@ -72,12 +72,7 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 			sb.WriteString("_No cache-capable calls in this window._\n")
 		} else {
 			// Sort rows deterministically
-			slices.SortFunc(report.Rows, func(a, b usagestats.Row) int {
-				if a.ProviderAlias != b.ProviderAlias {
-					return strings.Compare(a.ProviderAlias, b.ProviderAlias)
-				}
-				return strings.Compare(a.BackendModelID, b.BackendModelID)
-			})
+			slices.SortFunc(report.Rows, compareCacheStatsRows)
 
 			sb.WriteString("| Provider | Model | Hit rate | Cached / Total | Uncached/req | Cached/req |\n")
 			sb.WriteString("|----------|-------|----------|----------------|--------------|------------|\n")
@@ -89,9 +84,13 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 				}
 
 				cachedTotal := row.CacheReadTokens + row.InputTokens + row.CacheCreateTokens
+				model := row.BackendModelID
+				if row.Advisor {
+					model += " (advisor)"
+				}
 				fmt.Fprintf(&sb, "| %s | %s | %s | %d / %d | %s | %s |\n",
 					row.ProviderAlias,
-					row.BackendModelID,
+					model,
 					hitRateStr,
 					row.CacheReadTokens,
 					cachedTotal,
@@ -109,6 +108,22 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 	}
 
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+func compareCacheStatsRows(a, b usagestats.Row) int {
+	if a.ProviderAlias != b.ProviderAlias {
+		return strings.Compare(a.ProviderAlias, b.ProviderAlias)
+	}
+	if a.BackendModelID != b.BackendModelID {
+		return strings.Compare(a.BackendModelID, b.BackendModelID)
+	}
+	if a.Advisor == b.Advisor {
+		return 0
+	}
+	if !a.Advisor {
+		return -1
+	}
+	return 1
 }
 
 // formatPerRequest renders a per-request token average, or "—" when there

@@ -214,7 +214,7 @@ func TestSpawnDelegate_RemediationKeepsOutput(t *testing.T) {
 	remediationCalls := 0
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 		calls++
-		if len(req.Prompt.Conversation) > 0 && strings.Contains(req.Prompt.Conversation[len(req.Prompt.Conversation)-1].Content, "Pre-remediation HEAD") {
+		if len(req.SourceConversation) > 0 && strings.Contains(req.SourceConversation[len(req.SourceConversation)-1].Content, "Pre-remediation HEAD") {
 			remediationCalls++
 			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "committed changes"}}, StopReason: agent.StopReasonComplete, TurnCount: 2, TokenCount: 200}, nil
 		}

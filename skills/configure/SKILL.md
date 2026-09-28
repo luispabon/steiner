@@ -17,53 +17,53 @@ Use this skill when a user asks to understand or change Steiner configuration. A
 
 ## Configure Skill Reference
 
-Sole canonical compact reference for safe configuration edits; use this file as the source of truth.
+Canonical compact reference for safe configuration edits.
 
-**Targets/precedence.** Project: `.steiner/config.yaml` or `--config <path>`; global: `~/.config/steiner/config.yaml`. Order: defaults, global, project, env, CLI; later wins; project needs trust. `--profile <name>` selects a profile; `STEINER_MODEL`, then `--model <ref>`, select the active model; `--verbose` enables verbose logging; `--unsafe` forces `sandbox.enabled: false`. Scalar expansion: `${VAR}`, `${VAR:-default}`, `$VAR`, `$$`; undefined variables fail except `${VAR:-}`.
+**Targets/precedence.** Project: `.steiner/config.yaml` or `--config <path>`; global: `~/.config/steiner/config.yaml`. Order: defaults, global, project, env, CLI; later wins; project needs trust. `--profile <name>` selects a profile; `STEINER_MODEL`, then `--model <ref>`, select active model; `--verbose` enables verbose logging; `--unsafe` disables `sandbox.enabled`. Scalar expansion: `${VAR}`, `${VAR:-default}`, `$VAR`, `$$`; undefined variables fail except `${VAR:-}`.
 
-**Environment.** `STEINER_MODEL` -> active model; `STEINER_SUB_AGENTS_MAX_PARALLEL` -> `sub_agent.max_parallel`; `STEINER_TUI_FPS` -> `tui.fps`; `STEINER_MAX_TURNS`, `STEINER_MAX_TOKENS`, `STEINER_TOOL_OUTPUT_MAX_BYTES`, `STEINER_MAX_PARALLEL_TOOLS` -> matching `limits` fields; `STEINER_LOG_LEVEL`, `STEINER_LOG_FILE`, `STEINER_COMPACTION_LOG_FILE` -> matching `logging` fields. `GOOGLE_SEARCH_CX`, `GOOGLE_SEARCH_API_KEY`, `KAGI_API_KEY`, `BRAVE_API_KEY` fill empty matching `search` fields. Integer overrides must parse as integers.
+**Environment.** `STEINER_MODEL` -> active model; `STEINER_SUB_AGENTS_MAX_PARALLEL` -> `sub_agent.max_parallel`; `STEINER_TUI_FPS` -> `tui.fps`; `STEINER_MAX_TURNS`, `STEINER_MAX_TOKENS`, `STEINER_TOOL_OUTPUT_MAX_BYTES`, `STEINER_MAX_PARALLEL_TOOLS` -> `limits`; `STEINER_LOG_LEVEL`, `STEINER_LOG_FILE`, `STEINER_COMPACTION_LOG_FILE` -> `logging`. Search keys `GOOGLE_SEARCH_CX`, `GOOGLE_SEARCH_API_KEY`, `KAGI_API_KEY`, `BRAVE_API_KEY` fill empty fields. Integer overrides must parse.
 
-**Path notation.** `<name>`, `<alias>`, `<profile>`, `<server>`, `<tool>`, `<key>` are map keys; `<index>` is list index. `—` is unset/required.
+**Path notation.** Angle-bracket names are map keys; `<index>` is list index. `—` means unset/required.
 
 |Path|Type|Default|Semantics|
 |-|-|-|-
-| `providers.<name>.type`|string|—|`openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`. `gemini` passes validation but is unimplemented. |
+| `providers.<name>.type`|string|—|`openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`; `gemini` validates but is unimplemented. |
 | `providers.<name>.base_url`|string|local: `http://localhost:11434/v1`|API endpoint; required for `openai_compat`, `ollama`, `lmstudio`, `litellm`. |
-| `providers.<name>.api_key`|string|—|Literal credential; prefer `api_key_env`. Required unless `api_key_env` set. |
+| `providers.<name>.api_key`|string|—|Credential; prefer `api_key_env`, required if unset. |
 | `providers.<name>.api_key_env`|string|—|Environment variable containing credential. |
 | `providers.<name>.headers.<key>`|string|—|One extra header value. |
-| `providers.<name>.timeout`|duration|local: `30s`|Per-request timeout. |
-| `providers.<name>.codex.min_request_interval`|duration|`0s`|Min gap between Codex requests; positive enables pacing. |
-| `providers.<name>.codex.transport`|string|`http`|`http` or `websocket`; websocket is experimental and has no HTTP fallback. |
-| `models.discovery_enabled`|bool|`true`|Discover provider models, or use configured entries only when false. |
+| `providers.<name>.timeout`|duration|local: `30s`|Request timeout. |
+| `providers.<name>.codex.min_request_interval`|duration|`0s`|Positive values pace Codex requests. |
+| `providers.<name>.codex.transport`|string|`http`|`http` or experimental `websocket`; no HTTP fallback. |
+| `models.discovery_enabled`|bool|`true`|Discover provider models; false uses configured entries only. |
 | `models.definitions.<alias>.provider`|string|`local`|Provider name. |
 | `models.definitions.<alias>.id`|string|`qwen3-35b-a3b`|Model ID. |
-| `models.definitions.<alias>.params`|map[string]any|—|Request parameters. |
-| `models.definitions.<alias>.extra_params`|map[string]any|—|Provider parameters. |
+| `models.definitions.<alias>.params`|map[string]any|—|Request params. |
+| `models.definitions.<alias>.extra_params`|map[string]any|—|Provider params. |
 | `models.definitions.<alias>.prompt_suffix`|string|—|Appended to each user message. |
 | `models.definitions.<alias>.retry.enabled`|bool|`true`|Retry transient or rate-limit errors. |
 | `models.definitions.<alias>.retry.max_attempts`|int|`5`|Total attempts; at least 1. |
 | `models.definitions.<alias>.retry.initial_backoff`|duration|`250ms`|First retry wait. |
 | `models.definitions.<alias>.retry.max_backoff`|duration|`5s`|Exponential cap; not below initial backoff. |
-| `models.definitions.<alias>.retry.retry_after_max`|duration|`60s`|Max `Retry-After` wait; not below initial backoff. |
+| `models.definitions.<alias>.retry.retry_after_max`|duration|`60s`|Max `Retry-After`; not below initial backoff. |
 | `models.definitions.<alias>.prompts.system`|string|—|Replaces default system prompt. |
-| `models.definitions.<alias>.prompts.system_suffix`|string|—|Appends after default system prompt. |
+| `models.definitions.<alias>.prompts.system_suffix`|string|—|Appends to default system prompt. |
 | `models.definitions.<alias>.prompts.compaction`|string|—|Replaces compaction prompt. |
 | `models.definitions.<alias>.advanced.limits.context_window`|int|`32768`|Context window in tokens; explicit value wins over metadata. |
-| `models.definitions.<alias>.advanced.codex.use_max_context_window`|bool|`false`|Codex only; select positive catalog `max_context_window`, else normal `context_window`. |
-| `models.definitions.<alias>.advanced.limits.max_output_tokens`|int|`8192`|Per-response output-token ceiling. |
+| `models.definitions.<alias>.advanced.codex.use_max_context_window`|bool|`false`|Codex: use positive catalog `max_context_window`, else `context_window`. |
+| `models.definitions.<alias>.advanced.limits.max_output_tokens`|int|`8192`|Output-token ceiling per response. |
 | `models.definitions.<alias>.advanced.reasoning_echo_back`|bool or null|—|Provider reasoning echo control. |
-| `models.definitions.<alias>.advanced.transport`|string|`auto`|`auto`, `openai_compat`, or `anthropic`; explicit values override metadata. |
-| `models.definitions.<alias>.advanced.reasoning.effort`|string|—|Native reasoning effort. |
-| `models.definitions.<alias>.advanced.reasoning.supported_efforts`|[]string|—|Native efforts used for validation and selection. |
-| `models.definitions.<alias>.vision`|bool or null|null|Null assumes vision; false strips images. |
-| `models.profiles.<profile>.default_model`|string|default: `default`|Default model and role fallback; required for default profile. |
+| `models.definitions.<alias>.advanced.transport`|string|`auto`|`auto`, `openai_compat`, `anthropic`; explicit overrides metadata. |
+| `models.definitions.<alias>.advanced.reasoning.effort`|string|—|Native effort. |
+| `models.definitions.<alias>.advanced.reasoning.supported_efforts`|[]string|—|Native efforts for validation/selection. |
+| `models.definitions.<alias>.vision`|bool or null|null|Null assumes vision; false removes images. |
+| `models.profiles.<profile>.default_model`|string|default: `default`|Model and role fallback; required for default profile. |
 | `models.profiles.<profile>.advisor`|string|—|Advisor model. |
 | `models.profiles.<profile>.sub_agents.<key>`|string|—|Model by `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision`. |
 | `models.profiles.<profile>.oneshot.<key>`|string|—|Model by `plan`, `implement`, or `review`; missing uses profile default. |
 | `models.profiles.<profile>.workflow_handoff.<key>`|string|—|Model by `implement`, `review`, or `build`; missing uses profile default. |
 | `limits.max_turns`|int|`50`|Maximum turns; non-negative. |
-| `limits.max_tokens`|int|`500000`|Total input plus output tokens; at least 1. |
+| `limits.max_tokens`|int|`500000`|Input plus output tokens; at least 1. |
 | `limits.model_call_timeout`|duration|`10m`|Model-call limit. |
 | `limits.tool_timeout_default`|duration|`30s`|Default tool and MCP timeout; positive. |
 | `limits.tool_timeouts.<tool>`|duration|—|One per-tool timeout override. |
@@ -71,7 +71,7 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `limits.max_parallel_tools`|int|`4`|Concurrent ordinary tools; >=1. |
 | `sandbox`|block|see fields below|Bubblewrap sandbox settings. |
 | `sandbox.enabled`|bool|`true`|Enable bubblewrap; `--unsafe` forces false. |
-| `sandbox.warning_on_unsupported_platform`|bool|`true`|Warn if sandbox unavailable/bypassed. |
+| `sandbox.warning_on_unsupported_platform`|bool|`true`|Warn if unavailable/bypassed. |
 | `sandbox.env_passthrough`|[]string|`[]`|Extra env names; trailing `*` = prefix. |
 | `sandbox.env_passthrough_all`|bool|`false`|Disable env filtering (incl. credentials). |
 | `sandbox.bind_host_cache`|bool|`false`|Bind real `~/.cache` rw, not a private one. |
@@ -80,30 +80,30 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `permissions.docker`|bool|`false`|Allow Docker socket access; else masked. |
 | `sub_agent.enabled`|bool|`true`|Enable child agents. |
 | `sub_agent.orchestration_level`|string|`standard`|`low` or `standard` delegation steering. |
-| `sub_agent.max_turns`|int|`30`|Per-child turns (min 15). |
-| `sub_agent.max_tokens`|int|`100000`|Per-child token limit. |
+| `sub_agent.max_turns`|int|`120`|Enabled values 1-14 are rejected; effective cap is at least 15. |
+| `sub_agent.max_tokens`|int|`400000`|Maximum completion/output tokens per child run. |
 | `sub_agent.max_parallel`|int|`3`|Concurrent delegation calls. |
-| `sub_agent.max_follow_ups`|int|`5`|Follow-ups. |
+| `sub_agent.max_follow_ups`|int|`5`|Follow-up resumes per child; default accumulated turn budget max: `120 + 5×120 = 720`. |
 | `advisor.enabled`|bool|`false`|Enable advisor. |
 | `advisor.max_uses_per_run`|int|`3`|Session advisor cap (min 1). |
 | `advisor.max_uses_per_sub_agent`|int|`1`|Child advisor cap (min 1). |
 | `advisor.max_tokens`|int or null|nil|Optional positive advisor output-token ceiling. |
-| `advisor.timeout`|duration or null|`180s`|Optional positive advisor-only HTTP timeout. |
+| `advisor.timeout`|duration or null|`180s`|Optional positive advisor HTTP timeout. |
 | `oneshot.auto_pr`|bool|`false`|Allow oneshot closeout to push and open a PR/MR. |
 | `desktop_notifications.enabled`|bool|`false`|Enable desktop notifications. |
-| `desktop_notifications.duration`|int|`0`|0 persists, positive auto-dismisses, negative invalid. |
+| `desktop_notifications.duration`|int|`0`|0 persists; positive auto-dismisses; negative invalid. |
 | `update_check.enabled`|bool|`true`|Enable startup update check. |
 | `update_check.interval_hours`|int|`6`|Hours between checks; non-negative. |
 | `tools.<tool>.exec`|string|—|Executable; required. |
 | `tools.<tool>.subcommand`|string|—|First executable argument. |
-| `tools.<tool>.description`|string|—|Model-visible description. |
+| `tools.<tool>.description`|string|—|Description shown to model. |
 | `tools.<tool>.parameters`|map[string]any|—|JSON Schema input data. |
 | `tools.<tool>.timeout`|duration|—|Tool timeout overriding default; positive. |
 | `project_context.max_bytes`|int|`8000`|Extra-context byte budget; at least 1. |
 | `project_context.max_tokens`|int|—|Deprecated alias; if max_bytes is unset, becomes `max_tokens * 4`. |
 | `project_context.extra_files`|[]string|—|Project-root-relative context files. |
-| `project_context.ignore_files`|[]string|—|Excludes entries from extra_files. |
-| `paths.project_root_only`|bool|`true`|Restrict tool paths to project root. |
+| `project_context.ignore_files`|[]string|—|Exclude extra_files entries. |
+| `paths.project_root_only`|bool|`true`|Confine tool paths to project root. |
 | `paths.writable_paths`|[]string|`[]`|Extra paths mutation tools may write. |
 | `paths.blocked_paths`|[]string|`[]`|Always-denied paths. |
 | `paths.exclude_paths`|[]string|—|Excluded from listings and glob results. |
@@ -113,15 +113,15 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `logging.file`|string|`~/.local/share/steiner/steiner.log`|Log path; may contain prompts/tool output. |
 | `logging.thinking_chunk`|bool|`false`|Include reasoning tokens in logs. |
 | `logging.assistant_chunk`|bool|`false`|—|
-| `logging.compaction_log_file`|string|—|Separate compaction-event log path. |
+| `logging.compaction_log_file`|string|—|Separate compaction log. |
 | `diagnostics.enabled`|bool|`false`|Structured diagnostics capture; nothing created when false. |
-| `diagnostics.dir`|string|`$XDG_STATE_HOME/steiner/diagnostics`|JSONL stream dir; never from `logging.file`; rejected inside project root. |
+| `diagnostics.dir`|string|`$XDG_STATE_HOME/steiner/diagnostics`|JSONL dir, independent of `logging.file`; rejected inside project root. |
 | `diagnostics.retention_days`|int|`30`|Drop older records on open; must be > 0 when enabled. |
-| `diagnostics.streams.cache`|bool|`false`|Prompt-cache stream. |
-| `diagnostics.streams.provider`|bool|`false`|Per-model-call stream; subsumes stream-error log. |
+| `diagnostics.streams.cache`|bool|`false`|Prompt-cache stream; records message count, call kind, reported upstream endpoint, never prompt content or cache key. |
+| `diagnostics.streams.provider`|bool|`false`|Per-call stream; subsumes stream-error log. |
 | `diagnostics.streams.tool`|bool|`false`|Tool/delegation stream; subsumes delegation log. |
-| `diagnostics.capture_bodies`|bool|`false`|Full message/tool/block content not scalars; incl. mutate failure samples and prompts. |
-| `context_management.read_annotations`|bool|`true`|Annotate reads with path and line range. |
+| `diagnostics.capture_bodies`|bool|`false`|Capture full message/tool/block content, mutate failure samples, and prompts, not scalars. |
+| `context_management.read_annotations`|bool|`true`|Annotate a read only when an earlier identical full read with the same tool-result `file_hash` and range exists in carried conversation. |
 | `search.backend`|string|—|`searxng`, `google`, `kagi`, or `brave`; selects requirements. |
 | `search.searxng_url`|string|—|Required for `searxng`. |
 | `search.google_cx`|string|—|Required for `google`. |
@@ -139,10 +139,10 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `mcp.servers.<server>.headers`|map[string]string|—|HTTP headers for http; empty for stdio. |
 | `mcp.servers.<server>.headers.<key>`|string|—|One HTTP header. |
 | `mcp.servers.<server>.approval`|string|`ask`|`ask`, `allow`, or `deny`; allow becomes ask in plan mode. |
-| `mcp.servers.<server>.trust_annotations`|bool|`false`|Annotated read-only tools may skip approval. |
-| `mcp.servers.<server>.connect_timeout`|duration|`15s`|Zero uses 15s; negative invalid. |
-| `mcp.servers.<server>.allowed_tools`|[]string|—|Native-name allowlist; explicit `[]` denies all. |
-| `mcp.servers.<server>.blocked_tools`|[]string|—|Native-name denylist after allowlist. |
+| `mcp.servers.<server>.trust_annotations`|bool|`false`|Read-only annotated tools may skip approval. |
+| `mcp.servers.<server>.connect_timeout`|duration|`15s`|Zero uses 15s; negatives invalid. |
+| `mcp.servers.<server>.allowed_tools`|[]string|—|Native-name allowlist; `[]` denies all. |
+| `mcp.servers.<server>.blocked_tools`|[]string|—|Native-name denylist, applied after allowlist. |
 | `mcp.servers.<server>.sub_agents`|[]string|closed|Allowed types: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`. |
 | `lsp.enabled`|bool|`false`|—|
 | `lsp.idle_timeout`|duration|`5m`|—|
@@ -159,7 +159,7 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `lsp.servers.<name>.file_extensions`|[]string|—|—|
 | `lsp.servers.<name>.root_markers`|[]string|—|—|
 | `lsp.servers.<name>.initialization_options`|map[string]any|—|—|
-| `modes.default`|string|`build`|`plan` or `build`; plan limits edits to `.steiner/plans/`. |
+| `modes.default`|string|`build`|`plan`/`build`; plan edits only `.steiner/plans/`. |
 | `tui.fps`|int|`60`|Interactive renderer rate, 1 through 120. |
 | `cave_human`|bool|`false`|Add terse output and anti-AI-writing-tells instructions. |
 

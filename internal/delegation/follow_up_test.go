@@ -133,20 +133,23 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 		t.Fatalf("handler returned error: %v", err)
 	}
 
-	if capturedReq.Limits.MaxTurns != 9 {
-		t.Fatalf("MaxTurns=%d, want 9 (session.TurnCount 2 + fresh MaxTurns 7)", capturedReq.Limits.MaxTurns)
+	if capturedReq.Limits.MaxTurns != 17 {
+		t.Fatalf("MaxTurns=%d, want 17 (session.TurnCount 2 + enforced fresh MaxTurns 15)", capturedReq.Limits.MaxTurns)
 	}
 	if capturedReq.Limits.MaxTokens != 77 {
 		t.Fatalf("MaxTokens=%d, want 77", capturedReq.Limits.MaxTokens)
 	}
-	if len(capturedReq.Prompt.Conversation) != 3 {
-		t.Fatalf("conversation length = %d, want 3", len(capturedReq.Prompt.Conversation))
+	if capturedReq.Prompt.Conversation != nil {
+		t.Fatalf("Prompt.Conversation = %#v, want nil for native history", capturedReq.Prompt.Conversation)
 	}
-	if capturedReq.Prompt.Conversation[0].Content != "initial task" || capturedReq.Prompt.Conversation[1].Content != "first answer" {
-		t.Fatalf("prior conversation was not retained: %#v", capturedReq.Prompt.Conversation)
+	if len(capturedReq.SourceConversation) != 3 {
+		t.Fatalf("source conversation length = %d, want 3", len(capturedReq.SourceConversation))
 	}
-	last := capturedReq.Prompt.Conversation[len(capturedReq.Prompt.Conversation)-1]
-	if last.Role != provider.MessageRoleUser || last.Content != "continue with more detail" {
+	if capturedReq.SourceConversation[0].Content != "initial task" || capturedReq.SourceConversation[1].Content != "first answer" {
+		t.Fatalf("prior conversation was not retained: %#v", capturedReq.SourceConversation)
+	}
+	last := capturedReq.SourceConversation[len(capturedReq.SourceConversation)-1]
+	if last.Role != agent.MessageRoleUser || last.Content != "continue with more detail" {
 		t.Fatalf("last follow-up message = %#v, want appended user follow-up", last)
 	}
 
@@ -257,7 +260,7 @@ func TestFollowUpHandler_MultipleFollowUpsAccumulateStats(t *testing.T) {
 	if session.TurnCount != 5 {
 		t.Fatalf("stored TurnCount=%d, want 5", session.TurnCount)
 	}
-	if want := []int{1 + 5, 3 + 5}; len(maxTurns) != 2 || maxTurns[0] != want[0] || maxTurns[1] != want[1] {
+	if want := []int{1 + 15, 3 + 15}; len(maxTurns) != 2 || maxTurns[0] != want[0] || maxTurns[1] != want[1] {
 		t.Fatalf("follow-up MaxTurns=%v, want %v", maxTurns, want)
 	}
 	if session.TokenCount != 25 {
@@ -341,10 +344,10 @@ func TestFollowUpHandler_ResumesFailedChildWhenSessionExists(t *testing.T) {
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if len(req.Prompt.Conversation) != 1 {
+			if len(req.SourceConversation) != 1 {
 				return agent.RunState{}, errors.New("expected follow-up to start from appended user message")
 			}
-			last := req.Prompt.Conversation[0]
+			last := req.SourceConversation[0]
 			if last.Content != "retry with narrower scope" {
 				return agent.RunState{}, errors.New("expected follow-up message to be appended")
 			}
@@ -457,7 +460,7 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 				SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
 				SessionStore: store,
 				Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-					if len(req.Prompt.Conversation) > 0 && strings.Contains(req.Prompt.Conversation[len(req.Prompt.Conversation)-1].Content, "Pre-remediation HEAD") {
+					if len(req.SourceConversation) > 0 && strings.Contains(req.SourceConversation[len(req.SourceConversation)-1].Content, "Pre-remediation HEAD") {
 						remediationCalls++
 						remediationRequest = req
 					}
@@ -485,7 +488,7 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 				if !strings.Contains(result.Output, "<remediation note: committed remaining changes; worktree left clean>") {
 					t.Fatalf("output = %q, missing remediation note", result.Output)
 				}
-				prompt := remediationRequest.Prompt.Conversation[len(remediationRequest.Prompt.Conversation)-1].Content
+				prompt := remediationRequest.SourceConversation[len(remediationRequest.SourceConversation)-1].Content
 				if !strings.Contains(prompt, wantExpectedPath) || !strings.Contains(prompt, tt.wantExpectedBranch) {
 					t.Fatalf("remediation prompt = %q, want path %q and branch %q", prompt, wantExpectedPath, tt.wantExpectedBranch)
 				}
@@ -1716,7 +1719,7 @@ func TestFollowUpHandler_ReattachesVisionImagesOnly(t *testing.T) {
 				t.Fatalf("handler returned error: %v", err)
 			}
 
-			last := capturedReq.Prompt.Conversation[len(capturedReq.Prompt.Conversation)-1]
+			last := capturedReq.SourceConversation[len(capturedReq.SourceConversation)-1]
 			if last.Content != "another question" {
 				t.Fatalf("last message content = %q, want appended follow-up", last.Content)
 			}

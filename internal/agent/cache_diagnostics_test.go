@@ -53,7 +53,7 @@ func TestEmitCacheDiagnostic_NoOpWhenStreamDisabled(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: false})
 	req := RunRequest{Diagnostics: w}
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, requestCacheStats{prefixHash: "abcd1234"})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}, "", 1, requestCacheStats{prefixHash: "abcd1234"})
 
 	if got := readCacheRecords(t, dir); len(got) != 0 {
 		t.Fatalf("records = %d, want 0 when the cache stream is disabled", len(got))
@@ -64,7 +64,7 @@ func TestEmitCacheDiagnostic_NoOpWhenUsageNil(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
 	req := RunRequest{Diagnostics: w}
-	emitCacheDiagnostic(req, nil, 1, requestCacheStats{prefixHash: "abcd1234"})
+	emitCacheDiagnostic(req, provider.ChatResponse{}, "", 1, requestCacheStats{prefixHash: "abcd1234"})
 
 	if got := readCacheRecords(t, dir); len(got) != 0 {
 		t.Fatalf("records = %d, want 0 for a nil-usage response", len(got))
@@ -75,7 +75,7 @@ func TestEmitCacheDiagnostic_NotGatedByUsageRecorder(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
 	req := RunRequest{Diagnostics: w, UsageRecorder: nil}
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, requestCacheStats{prefixHash: "abcd1234"})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}, "", 1, requestCacheStats{prefixHash: "abcd1234"})
 
 	if got := readCacheRecords(t, dir); len(got) != 1 {
 		t.Fatalf("records = %d, want 1 even with no UsageRecorder configured", len(got))
@@ -102,8 +102,8 @@ func TestEmitCacheDiagnostic_FieldsAndColdStart(t *testing.T) {
 		CacheReadInputTokens:     40,
 		CacheCreationInputTokens: 5,
 	}
-	emitCacheDiagnostic(req, usage, 3, requestCacheStats{prefixHash: "prefixhash", sharedPrefixMessages: 2})
-	emitCacheDiagnostic(req, usage, 4, requestCacheStats{prefixHash: "prefixhash2", sharedPrefixMessages: 2})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: usage}, "", 3, requestCacheStats{prefixHash: "prefixhash", sharedPrefixMessages: 2, messageHashes: []string{"a", "b"}})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: usage}, "", 4, requestCacheStats{prefixHash: "prefixhash2", sharedPrefixMessages: 2, messageHashes: []string{"a", "b"}})
 
 	records := readCacheRecords(t, dir)
 	if len(records) != 2 {
@@ -132,6 +132,9 @@ func TestEmitCacheDiagnostic_FieldsAndColdStart(t *testing.T) {
 	}
 	if payload.PromptTokens != 100 || payload.CompletionTokens != 20 || payload.CacheReadTokens != 40 || payload.CacheCreateTokens != 5 {
 		t.Fatalf("token counts = %+v, want 100/20/40/5", payload)
+	}
+	if payload.MessageCount != 2 || payload.CallKind != "" || payload.UpstreamEndpoint != "" {
+		t.Fatalf("normal diagnostic metadata = %+v, want message count 2 and empty endpoint/kind", payload)
 	}
 	if payload.CacheKeyHash == "" || payload.CacheKeyHash == "super-secret-key" {
 		t.Fatalf("CacheKeyHash = %q, want a non-empty hash that is not the key", payload.CacheKeyHash)
@@ -298,8 +301,8 @@ func TestEmitCacheDiagnostic_PredecessorKnownAlwaysEmitted(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
 	req := RunRequest{Diagnostics: w}
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, requestCacheStats{prefixHash: "aaaa"})
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 2, requestCacheStats{prefixHash: "bbbb", sharedPrefixMessages: 1, predecessorKnown: true})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}, "", 1, requestCacheStats{prefixHash: "aaaa"})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}, "", 2, requestCacheStats{prefixHash: "bbbb", sharedPrefixMessages: 1, predecessorKnown: true})
 
 	records := readCacheRecords(t, dir)
 	if len(records) != 2 {
@@ -317,8 +320,8 @@ func TestEmitCacheDiagnostic_ComparisonEnabledEmitted(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
 	req := RunRequest{Diagnostics: w}
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, requestCacheStats{prefixHash: "aaaa", comparisonEnabled: true})
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 2, requestCacheStats{prefixHash: "bbbb"})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}, "", 1, requestCacheStats{prefixHash: "aaaa", comparisonEnabled: true})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}, "", 2, requestCacheStats{prefixHash: "bbbb"})
 
 	records := readCacheRecords(t, dir)
 	if len(records) != 2 {
@@ -363,6 +366,131 @@ func TestComputeRequestCacheStats_ComparesWithoutPromoting(t *testing.T) {
 	second := computeRequestCacheStats(req, append(messages, provider.Message{Role: provider.MessageRoleAssistant, Content: "hi"}))
 	if !second.predecessorKnown || second.sharedPrefixMessages != 1 {
 		t.Fatalf("second = %+v, want known predecessor sharing 1 message", second)
+	}
+}
+
+func TestCompactionCacheDiagnosticDoesNotPromoteBaseline(t *testing.T) {
+	resetColdStart(t)
+	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
+	store := NewCacheBaselineStore()
+	req := RunRequest{Diagnostics: w, CacheBaseline: store, PromptCacheKey: "key", ResolvedModel: provider.ResolvedModel{BackendModelID: "model"}}
+	initial := []provider.Message{{Role: provider.MessageRoleUser, Content: "original"}}
+	initialStats := computeRequestCacheStats(req, initial)
+	promoteRequestCacheStats(req, initialStats)
+
+	compactionMessages := []provider.Message{{Role: provider.MessageRoleUser, Content: "summary"}, {Role: provider.MessageRoleUser, Content: "compaction instruction"}}
+	stats := computeRequestCacheStats(req, compactionMessages)
+	response := provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 20}, UpstreamEndpoint: "endpoint-a"}
+	emitCacheDiagnostic(req, response, "compaction", 2, stats)
+	if stats.messageHashes == nil || len(stats.messageHashes) != len(compactionMessages) {
+		t.Fatalf("message hashes count = %d, want %d", len(stats.messageHashes), len(compactionMessages))
+	}
+	if shared, known := store.Compare(stats.baselineKey, perMessageHashes(initial)); !known || shared != len(initial) {
+		t.Fatalf("baseline after compaction diagnostic = (%d, %v), want original baseline preserved", shared, known)
+	}
+	records := readCacheRecords(t, dir)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	payload, err := json.Marshal(records[0].Payload)
+	if err != nil {
+		t.Fatalf("marshal compaction payload: %v", err)
+	}
+	var decoded cachePayload
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal compaction payload: %v", err)
+	}
+	if decoded.CallKind != "compaction" || decoded.UpstreamEndpoint != "endpoint-a" || decoded.MessageCount != len(compactionMessages) {
+		t.Fatalf("compaction payload = %+v", decoded)
+	}
+}
+
+func TestBuildCompactionRequestWithModeCarriesCacheRouting(t *testing.T) {
+	conversation := []Message{
+		{Role: MessageRoleUser, Content: "hello"},
+		{Role: MessageRoleAssistant, Content: "world"},
+	}
+	state := RunState{
+		Conversation: conversation,
+		Lineage:      newConversationLineage(conversation),
+	}
+	req := RunRequest{
+		ResolvedModel:          provider.ResolvedModel{BackendModelID: "test-model"},
+		PromptCacheKey:         "cache-key",
+		TransportSession:       "session-id",
+		ParentTransportSession: "parent-session-id",
+		Events:                 output.NoopSink{},
+	}
+	candidate := ConversationCandidate{
+		GenerationID: 1,
+		View:         ConversationViewFull,
+		Messages:     conversation,
+	}
+
+	chatRequest, _, _, err := buildCompactionRequestWithMode(
+		context.Background(), req, state, candidate,
+		prompt.CompactionModeNormal, 128,
+	)
+	if err != nil {
+		t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+	}
+	if chatRequest.PromptCacheKey != req.PromptCacheKey {
+		t.Fatalf("PromptCacheKey = %q, want %q", chatRequest.PromptCacheKey, req.PromptCacheKey)
+	}
+	if chatRequest.TransportSession != req.TransportSession {
+		t.Fatalf("TransportSession = %q, want %q", chatRequest.TransportSession, req.TransportSession)
+	}
+	if chatRequest.ParentTransportSession != req.ParentTransportSession {
+		t.Fatalf("ParentTransportSession = %q, want %q", chatRequest.ParentTransportSession, req.ParentTransportSession)
+	}
+}
+
+func TestCompleteCompactionCallEmitsDiagnosticWithoutPromotingBaseline(t *testing.T) {
+	resetColdStart(t)
+	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
+	store := NewCacheBaselineStore()
+	prov := &fakeProvider{responses: []provider.ChatResponse{{
+		Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "summary"},
+		Usage:   &provider.UsageStats{PromptTokens: 20, CompletionTokens: 4},
+	}}}
+	req := RunRequest{
+		Provider:       prov,
+		Diagnostics:    w,
+		CacheBaseline:  store,
+		PromptCacheKey: "key",
+		ResolvedModel:  provider.ResolvedModel{BackendModelID: "model"},
+		Events:         output.NoopSink{},
+	}
+	initial := []provider.Message{{Role: provider.MessageRoleUser, Content: "original"}}
+	initialStats := computeRequestCacheStats(req, initial)
+	promoteRequestCacheStats(req, initialStats)
+
+	compactionMessages := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "summary"},
+		{Role: provider.MessageRoleUser, Content: "compaction instruction"},
+	}
+	if _, err := completeCompactionCall(context.Background(), req, 2, provider.ChatRequest{Model: "model", Messages: compactionMessages}, prompt.ModelTokenBudget{}, nil); err != nil {
+		t.Fatalf("completeCompactionCall() error = %v", err)
+	}
+
+	records := readCacheRecords(t, dir)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	var payload cachePayload
+	if err := json.Unmarshal(mustMarshal(t, records[0].Payload), &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.CallKind != "compaction" {
+		t.Fatalf("CallKind = %q, want compaction", payload.CallKind)
+	}
+	if payload.MessageCount != len(compactionMessages) {
+		t.Fatalf("MessageCount = %d, want %d", payload.MessageCount, len(compactionMessages))
+	}
+
+	nextNormal := computeRequestCacheStats(req, append(initial, provider.Message{Role: provider.MessageRoleAssistant, Content: "next"}))
+	if !nextNormal.predecessorKnown || nextNormal.sharedPrefixMessages != len(initial) {
+		t.Fatalf("next normal stats = %+v, want baseline from before compaction", nextNormal)
 	}
 }
 

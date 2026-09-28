@@ -2,8 +2,26 @@ package output
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
+
+func TestRenderModelCallFinishedIncludesNonzeroCacheTokens(t *testing.T) {
+	seg := renderEvent(Event{Payload: ModelCallFinishedEvent{
+		Turn: 2, PromptTokens: 120, CacheReadTokens: 80, CacheCreateTokens: 10,
+	}})
+	for _, field := range []string{"prompt_tokens=120", "cache_read_tokens=80", "cache_create_tokens=10"} {
+		if !strings.Contains(seg.Text, field) {
+			t.Errorf("rendered event %q missing %q", seg.Text, field)
+		}
+	}
+	zero := renderEvent(Event{Payload: ModelCallFinishedEvent{Turn: 2}})
+	for _, field := range []string{"prompt_tokens=", "cache_read_tokens=", "cache_create_tokens="} {
+		if strings.Contains(zero.Text, field) {
+			t.Errorf("rendered zero fields in %q", zero.Text)
+		}
+	}
+}
 
 func TestRenderConfigWarningEvent(t *testing.T) {
 	tests := []struct {

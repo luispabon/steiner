@@ -751,9 +751,7 @@ func TestRunnerContextStateManagerSanitizesRecentToolCallSummaries(t *testing.T)
 // read(full) -> read(after disk change) transcript, then replays it as the
 // SourceConversation of a fresh run. The historical tool-result bytes the
 // first run sent must reach the provider unchanged: a fresh FileTracker must
-// not reannotate provider-visible content. Without Message.Ingested the second
-// read is rewritten to an unchanged-file annotation and the byte comparison
-// fails.
+// not rewrite historical provider-visible content.
 func TestRunnerFreshRunRetainsIngestedProviderVisibleToolResultBytes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")

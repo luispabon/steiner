@@ -418,6 +418,38 @@ func TestSessionReport(t *testing.T) {
 // (which only touched internal/agent's turn_progression.go accumulation).
 // For a turn with 100 total prompt tokens where 50 were served from cache,
 // the recorded hit rate must be 50/100 = 50%, not 50/150.
+func TestSessionReportFor_lastRequestAndWindowAdvisorRows(t *testing.T) {
+	isolateTest(t)
+	r := New(fixedClock(baseTime))
+	r.Record(Observation{ProviderAlias: "p", BackendModelID: "m", PromptTokens: 100, CacheReadTokens: 50, Source: SourceParent, At: baseTime})
+	r.Record(Observation{ProviderAlias: "p", BackendModelID: "m", PromptTokens: 200, CacheReadTokens: 100, Source: SourceParent, At: baseTime})
+	r.Record(Observation{ProviderAlias: "p", BackendModelID: "m", PromptTokens: 20, Source: SourceAdvisor, At: baseTime})
+
+	parent := r.SessionReportFor(SourceParent)
+	if parent.LastCacheReadTokens != 100 || parent.LastTotalInputTokens != 200 {
+		t.Fatalf("parent last input = %d/%d, want 100/200", parent.LastCacheReadTokens, parent.LastTotalInputTokens)
+	}
+	if rate, ok := parent.LastHitRate(); !ok || rate != 0.5 {
+		t.Fatalf("parent last rate = %v, %v; want 0.5, true", rate, ok)
+	}
+	if got := r.SessionReport(); got.LastCacheReadTokens != 0 || got.LastTotalInputTokens != 0 {
+		t.Fatalf("blended last fields = %d/%d, want zero", got.LastCacheReadTokens, got.LastTotalInputTokens)
+	}
+	rows := r.Window(time.Hour).Rows
+	if len(rows) != 2 {
+		t.Fatalf("window rows = %d, want parent/advisor split", len(rows))
+	}
+	advisorRows := 0
+	for _, row := range rows {
+		if row.Advisor {
+			advisorRows++
+		}
+	}
+	if advisorRows != 1 {
+		t.Fatalf("advisor rows = %d, want 1", advisorRows)
+	}
+}
+
 func TestRecord_fix0RegressionRecorderAlreadyCorrect(t *testing.T) {
 	isolateTest(t)
 	r := New(fixedClock(baseTime))

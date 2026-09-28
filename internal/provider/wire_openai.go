@@ -44,8 +44,9 @@ func (w *openaiWire) Payload(request ChatRequest, stream bool) ([]byte, error) {
 	return json.Marshal(wire)
 }
 
-func (w *openaiWire) HTTPRequest(ctx context.Context, _ ChatRequest, body []byte, stream bool) (*http.Request, error) {
-	return buildJSONPostRequest(ctx, w.chatCompletionsURL(), body, stream, w.apiKey, w.headers)
+func (w *openaiWire) HTTPRequest(ctx context.Context, chat ChatRequest, body []byte, stream bool) (*http.Request, error) {
+	headers := prepareTransportSessionHeaders(w.headers, chat)
+	return buildJSONPostRequest(ctx, w.chatCompletionsURL(), body, stream, w.apiKey, headers)
 }
 
 func (w *openaiWire) DecodeResponse(resp *http.Response) (ChatResponse, error) {
@@ -53,7 +54,12 @@ func (w *openaiWire) DecodeResponse(resp *http.Response) (ChatResponse, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return ChatResponse{}, fmt.Errorf("%w: %w", errDecodeChatCompletionResponse, err)
 	}
-	return normalizeChatResponse(&payload)
+	response, err := normalizeChatResponse(&payload)
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	response.UpstreamEndpoint = resp.Header.Get("X-Opencode-Endpoint-Id")
+	return response, nil
 }
 
 func (w *openaiWire) DecodeStream(ctx context.Context, body io.Reader, emit func(ChatChunk) error) error {

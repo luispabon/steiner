@@ -27,8 +27,9 @@ func TestAdvisorCacheDiagnosticsFieldsAndSharedPrefix(t *testing.T) {
 	}
 	defer func() { _ = writer.Close() }()
 	providerStub := &fakeProvider{response: provider.ChatResponse{
-		Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "advice"},
-		Usage:   &provider.UsageStats{PromptTokens: 100, CacheReadInputTokens: 70, CacheCreationInputTokens: 10, CompletionTokens: 8},
+		Message:          provider.Message{Role: provider.MessageRoleAssistant, Content: "advice"},
+		UpstreamEndpoint: "eu-west-1",
+		Usage:            &provider.UsageStats{PromptTokens: 100, CacheReadInputTokens: 70, CacheCreationInputTokens: 10, CompletionTokens: 8},
 	}}
 	sharedState := NewSharedState()
 	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{{Role: provider.MessageRoleUser, Content: "context"}})
@@ -64,7 +65,7 @@ func TestAdvisorCacheDiagnosticsFieldsAndSharedPrefix(t *testing.T) {
 	if records[0].Kind != diagnostics.KindCache || records[0].Source != diagnostics.SourceAdvisor {
 		t.Fatalf("record identity = %#v, want cache/advisor", records[0])
 	}
-	if first.ProviderAlias != "alias" || first.BackendModelID != "model" || first.PromptTokens != 100 || first.CacheReadTokens != 70 || first.CacheCreateTokens != 10 || first.CompletionTokens != 8 {
+	if first.ProviderAlias != "alias" || first.BackendModelID != "model" || first.UpstreamEndpoint != "eu-west-1" || first.PromptTokens != 100 || first.CacheReadTokens != 70 || first.CacheCreateTokens != 10 || first.CompletionTokens != 8 {
 		t.Fatalf("metadata = %#v", first)
 	}
 	if first.CacheKeyHash == "" || first.PrefixHash == "" || first.PrefixMessageCount == 0 {
@@ -92,7 +93,7 @@ func TestAdvisorCacheDiagnosticsFieldsAndSharedPrefix(t *testing.T) {
 
 func TestAdvisorCacheDiagnosticsGatingAndNilWriter(t *testing.T) {
 	state := &handlerState{cacheKey: "key"}
-	state.emitCacheDiagnostic(nil, provider.ResolvedModel{}, nil, []provider.Message{{Role: provider.MessageRoleUser, Content: "x"}})
+	state.emitCacheDiagnostic(nil, provider.ResolvedModel{}, provider.ChatResponse{}, []provider.Message{{Role: provider.MessageRoleUser, Content: "x"}})
 	if state.shared != nil {
 		t.Fatal("nil diagnostics initialized shared cache baseline")
 	}
@@ -101,7 +102,7 @@ func TestAdvisorCacheDiagnosticsGatingAndNilWriter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("diagnostics.New() error = %v", err)
 	}
-	state.emitCacheDiagnostic(writer, provider.ResolvedModel{}, nil, []provider.Message{{Role: provider.MessageRoleUser, Content: "x"}})
+	state.emitCacheDiagnostic(writer, provider.ResolvedModel{}, provider.ChatResponse{}, []provider.Message{{Role: provider.MessageRoleUser, Content: "x"}})
 	if err := writer.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
@@ -119,8 +120,8 @@ func TestAdvisorCacheDiagnosticsDistinctHandlersDoNotSharePrefix(t *testing.T) {
 	a := &handlerState{cacheKey: "same"}
 	b := &handlerState{cacheKey: "same"}
 	messages := []provider.Message{{Role: provider.MessageRoleSystem, Content: "stable"}, {Role: provider.MessageRoleUser, Content: "suffix"}}
-	a.emitCacheDiagnostic(w, provider.ResolvedModel{}, nil, messages)
-	b.emitCacheDiagnostic(w, provider.ResolvedModel{}, nil, messages)
+	a.emitCacheDiagnostic(w, provider.ResolvedModel{}, provider.ChatResponse{}, messages)
+	b.emitCacheDiagnostic(w, provider.ResolvedModel{}, provider.ChatResponse{}, messages)
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}

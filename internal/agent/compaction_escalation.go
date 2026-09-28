@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -166,13 +167,16 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 	// `tools` carried in ExtraParams leak through unfiltered, since the wire
 	// layer only sets (and thus overrides) the tools key when Tools is non-empty.
 	request := provider.ChatRequest{
-		Model:       req.ResolvedModel.BackendModelID,
-		Messages:    messages,
-		Tools:       provider.CloneTools(req.Tools),
-		Reasoning:   resolvedReasoningRequest(req.ResolvedModel),
-		Params:      req.ResolvedModel.Params,
-		ExtraParams: req.ResolvedModel.ExtraParams,
-		MaxTokens:   compactionMaxTokensForMode(maxTokens),
+		Model:                  req.ResolvedModel.BackendModelID,
+		Messages:               messages,
+		PromptCacheKey:         req.PromptCacheKey,
+		TransportSession:       req.TransportSession,
+		ParentTransportSession: req.ParentTransportSession,
+		Tools:                  provider.CloneTools(req.Tools),
+		Reasoning:              resolvedReasoningRequest(req.ResolvedModel),
+		Params:                 req.ResolvedModel.Params,
+		ExtraParams:            req.ResolvedModel.ExtraParams,
+		MaxTokens:              compactionMaxTokensForMode(maxTokens),
 	}
 	request = applyPromptSuffix(req.ResolvedModel.PromptSuffix, request)
 	request.IncludeEmptyReasoning = req.ResolvedModel.ReasoningEchoBack
@@ -200,6 +204,10 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 			}()
 		}
 	}
+	stats := requestCacheStats{}
+	if req.Diagnostics.Enabled(diagnostics.KindCache) {
+		stats = computeRequestCacheStats(req, chatRequest.Messages)
+	}
 	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, nil)
 	if logger != nil {
 		if logErr := logger.LogResponse(response); logErr != nil {
@@ -208,6 +216,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 	}
 	if err == nil {
 		recordModelUsage(req, response.Usage)
+		emitCacheDiagnostic(req, response, "compaction", turn, stats)
 	}
 	return response, err
 }
