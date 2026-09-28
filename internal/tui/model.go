@@ -347,6 +347,9 @@ func (m *Model) syncSidebar() {
 		rate, ok := sr.HitRate()
 		m.sidebar.sessionCacheHitRate = rate
 		m.sidebar.sessionCacheHitRateOK = ok
+		lastRate, lastOK := sr.LastHitRate()
+		m.sidebar.lastRequestCacheRate = lastRate
+		m.sidebar.lastRequestCacheRateOK = lastOK
 	}
 	m.sidebar.sessionActive = m.sessionStartedAt != nil
 	m.sidebar.sessionElapsedSec = 0

@@ -9,6 +9,8 @@ type Row struct {
 	ProviderType string
 	// BackendModelID is the model identifier as reported by the backend.
 	BackendModelID string
+	// Advisor marks rows sourced from advisor calls.
+	Advisor bool
 
 	// Requests is the total number of API calls in this group.
 	Requests int
@@ -69,6 +71,19 @@ type SessionReport struct {
 	TotalInputTokens int64
 	// Requests is the total number of API calls seen this session.
 	Requests int64
+	// LastCacheReadTokens and LastTotalInputTokens describe the latest request
+	// for a source-scoped report; blended reports leave them zero.
+	LastCacheReadTokens  int64
+	LastTotalInputTokens int64
+}
+
+// LastHitRate returns the latest request's hit rate. When its input total is
+// zero, ok is false and rate is 0.
+func (s SessionReport) LastHitRate() (rate float64, ok bool) {
+	if s.LastTotalInputTokens == 0 {
+		return 0, false
+	}
+	return float64(s.LastCacheReadTokens) / float64(s.LastTotalInputTokens), true
 }
 
 // HitRate returns the token-weighted cache hit rate for the session.

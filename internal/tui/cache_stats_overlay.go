@@ -73,6 +73,12 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 		} else {
 			// Sort rows deterministically
 			slices.SortFunc(report.Rows, func(a, b usagestats.Row) int {
+				if a.Advisor != b.Advisor {
+					if !a.Advisor {
+						return -1
+					}
+					return 1
+				}
 				if a.ProviderAlias != b.ProviderAlias {
 					return strings.Compare(a.ProviderAlias, b.ProviderAlias)
 				}
@@ -89,8 +95,12 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 				}
 
 				cachedTotal := row.CacheReadTokens + row.InputTokens + row.CacheCreateTokens
+				provider := row.ProviderAlias
+				if row.Advisor {
+					provider += " (advisor)"
+				}
 				fmt.Fprintf(&sb, "| %s | %s | %s | %d / %d | %s | %s |\n",
-					row.ProviderAlias,
+					provider,
 					row.BackendModelID,
 					hitRateStr,
 					row.CacheReadTokens,

@@ -80,6 +80,8 @@ type Recorder struct {
 	sessionCacheRead  map[Source]int64
 	sessionTotalInput map[Source]int64
 	sessionRequests   map[Source]int64
+	lastCacheRead     map[Source]int64
+	lastTotalInput    map[Source]int64
 
 	now   func() time.Time
 	store *store
@@ -99,6 +101,8 @@ func New(now func() time.Time) *Recorder {
 		sessionCacheRead:  make(map[Source]int64),
 		sessionTotalInput: make(map[Source]int64),
 		sessionRequests:   make(map[Source]int64),
+		lastCacheRead:     make(map[Source]int64),
+		lastTotalInput:    make(map[Source]int64),
 		now:               now,
 		store:             st,
 		telemetry:         newTelemetryFromEnv(),
@@ -141,6 +145,8 @@ func (r *Recorder) Record(obs Observation) {
 	r.sessionCacheRead[obs.Source] += int64(obs.CacheReadTokens)
 	r.sessionTotalInput[obs.Source] += int64(nonCached + obs.CacheReadTokens + obs.CacheCreateTokens)
 	r.sessionRequests[obs.Source]++
+	r.lastCacheRead[obs.Source] = int64(obs.CacheReadTokens)
+	r.lastTotalInput[obs.Source] = int64(nonCached + obs.CacheReadTokens + obs.CacheCreateTokens)
 	r.mu.Unlock()
 
 	// Persist this observation's delta. Wrap in a bucket for write path.
@@ -171,6 +177,7 @@ func (r *Recorder) Window(d time.Duration) Report {
 		providerAlias  string
 		providerType   string
 		backendModelID string
+		advisor        bool
 	}
 
 	r.mu.Lock()
@@ -184,6 +191,7 @@ func (r *Recorder) Window(d time.Duration) Report {
 				providerAlias:  k.providerAlias,
 				providerType:   k.providerType,
 				backendModelID: k.backendModelID,
+				advisor:        k.source == SourceAdvisor,
 			}
 			g, ok := groups[gk]
 			if !ok {
@@ -204,6 +212,7 @@ func (r *Recorder) Window(d time.Duration) Report {
 			ProviderAlias:     gk.providerAlias,
 			ProviderType:      gk.providerType,
 			BackendModelID:    gk.backendModelID,
+			Advisor:           gk.advisor,
 			Requests:          g.Requests,
 			InputTokens:       g.InputTokens,
 			CacheReadTokens:   g.CacheReadTokens,
@@ -237,8 +246,10 @@ func (r *Recorder) SessionReportFor(source Source) SessionReport {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return SessionReport{
-		CacheReadTokens:  r.sessionCacheRead[source],
-		TotalInputTokens: r.sessionTotalInput[source],
-		Requests:         r.sessionRequests[source],
+		CacheReadTokens:      r.sessionCacheRead[source],
+		TotalInputTokens:     r.sessionTotalInput[source],
+		Requests:             r.sessionRequests[source],
+		LastCacheReadTokens:  r.lastCacheRead[source],
+		LastTotalInputTokens: r.lastTotalInput[source],
 	}
 }

@@ -495,8 +495,8 @@ func TestPerformanceSection(t *testing.T) {
 				sessionCacheHitRateOK: tc.sessionCacheHitRateOK,
 				styles:                testStyles(theme.AccentAmber),
 			}
-			if got, want := len(s.performanceSection(32)), 7; got != want {
-				t.Errorf("len(performanceSection()) = %d, want %d lines (blank line plus label plus five value rows)", got, want)
+			if got, want := len(s.performanceSection(32)), 8; got != want {
+				t.Errorf("len(performanceSection()) = %d, want %d lines (blank line plus label plus six value rows)", got, want)
 			}
 			got := s.performanceSection(32)
 			if len(got) == 0 {
@@ -692,7 +692,7 @@ func TestStaticLinesLineCount(t *testing.T) {
 		workingDir:            "/home/user/project",
 		styles:                styles,
 	}
-	const want = 29
+	const want = 30
 	if got := len(s.staticLines(32)); got != want {
 		t.Errorf("len(staticLines(32)) = %d, want %d", got, want)
 	}

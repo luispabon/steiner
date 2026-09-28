@@ -18,51 +18,53 @@ const (
 )
 
 type sidebarState struct {
-	expanded              bool
-	model                 string
-	reasoning             string
-	version               string
-	updateAvailable       bool
-	latestVersion         string
-	profile               string
-	provider              string
-	providerName          string
-	homeDir               string
-	promptUsed            int
-	budgetUsed            int
-	contextBudget         int
-	currentTurn           int
-	maxTurns              int
-	compaction            compactionState
-	branch                string
-	dirty                 bool
-	ahead                 int
-	modifiedFiles         []gitModifiedFile
-	workingDir            string
-	activeSkill           string
-	styles                *theme.Styles
-	tickCount             int
-	perfDurationMs        int64
-	perfTTFTMs            int64
-	perfOutputTPS         float64
-	sessionCacheHitRate   float64
-	sessionCacheHitRateOK bool
-	sessionActive         bool
-	sessionElapsedSec     int64
-	oneshotPhase          string
-	sandboxStatus         string
-	orchestrationLevel    string
-	execMode              string // execution mode: "plan" or "build"
-	mcpConnected          int
-	mcpTotal              int
-	mcpConnecting         bool
-	mcpFailed             bool
-	lspServers            []LSPServerStatus
-	lspActive             int // N: servers with >=1 ready session
-	lspTotalKnown         int // M: servers with >=1 active (starting/ready/failed) session this poll
-	lspStarting           bool
-	lspFailed             bool
-	lspSingleName         string // comma-joined names of active servers, unfitted
+	expanded               bool
+	model                  string
+	reasoning              string
+	version                string
+	updateAvailable        bool
+	latestVersion          string
+	profile                string
+	provider               string
+	providerName           string
+	homeDir                string
+	promptUsed             int
+	budgetUsed             int
+	contextBudget          int
+	currentTurn            int
+	maxTurns               int
+	compaction             compactionState
+	branch                 string
+	dirty                  bool
+	ahead                  int
+	modifiedFiles          []gitModifiedFile
+	workingDir             string
+	activeSkill            string
+	styles                 *theme.Styles
+	tickCount              int
+	perfDurationMs         int64
+	perfTTFTMs             int64
+	perfOutputTPS          float64
+	sessionCacheHitRate    float64
+	sessionCacheHitRateOK  bool
+	lastRequestCacheRate   float64
+	lastRequestCacheRateOK bool
+	sessionActive          bool
+	sessionElapsedSec      int64
+	oneshotPhase           string
+	sandboxStatus          string
+	orchestrationLevel     string
+	execMode               string // execution mode: "plan" or "build"
+	mcpConnected           int
+	mcpTotal               int
+	mcpConnecting          bool
+	mcpFailed              bool
+	lspServers             []LSPServerStatus
+	lspActive              int // N: servers with >=1 ready session
+	lspTotalKnown          int // M: servers with >=1 active (starting/ready/failed) session this poll
+	lspStarting            bool
+	lspFailed              bool
+	lspSingleName          string // comma-joined names of active servers, unfitted
 }
 
 func newSidebarState() sidebarState {

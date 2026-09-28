@@ -46,6 +46,8 @@ Lever B would have cost about 14.6M prefix tokens in pings to save about 0.725M,
 
 Analysis note: every turn changes `prefix_hash`, so it cannot identify rewrites. `shared_prefix_messages` is the longest common message prefix with the previous request; it grows by each turn's new messages when the prefix is intact and drops on a rewrite. A cold turn after a rewrite is not explained by the rewrite alone: 192 of 216 rewrites stayed warm on the static prefix.
 
+The in-memory recorder also tracks latest-request input and cache-read tokens per source under its mutex. Source-scoped session reports expose the latest-request rate; the blended session report leaves those fields zero. This state is process-local and does not change the persisted schema. Window reports separate advisor-source rows; parent, sub-agent, and unknown sources share a group. The sidebar uses only the parent-scoped report for latest-request and session rates.
+
 ## Storage schema and concurrency
 
 The global file is `$XDG_STATE_HOME/steiner/cache-stats.json`, falling back to `~/.local/state/steiner/cache-stats.json`. It is durable state, not a cache. A sibling `cache-stats.json.lock` holds the write lock and has mode `0600`; it is created on first write, persists, contains no data, and is safe to delete when no Steiner process is running.

@@ -64,6 +64,8 @@ Codex uses HTTP by default (`codex.transport: http`). WebSocket is an explicit o
 
 `codex.min_request_interval` optionally enforces a minimum gap between consecutive Codex requests. It defaults to `0` (disabled), serializes bursts when positive, and can add substantial wall-clock time to batch runs. It does not guarantee a higher cache rate.
 
+The sidebar shows two parent-run rates: the latest request and the whole session. `/cache-stats` includes advisor traffic as separate rows; parent, sub-agent, and legacy unknown-source traffic remain grouped together.
+
 ## Known limitations
 
 - Trailing content longer than 500 tokens can miss cache reuse because of a provider-side bug.
