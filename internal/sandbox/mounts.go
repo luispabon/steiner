@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,7 +28,7 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 		"--dev", "/dev",
 		"--proc", "/proc",
 	)
-	if tmpDir != "" {
+	if tmpDir != "" && (!readOnlyProject || safeDirectoryPath(writableRoot, tmpDir) == nil) {
 		args = append(args, "--bind", tmpDir, "/tmp")
 	} else {
 		args = append(args, "--tmpfs", "/tmp")
@@ -53,7 +54,10 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 	}
 
 	// Sandbox state directory writable at original absolute path.
-	args = append(args, "--bind", sandboxHome, sandboxHome)
+	sandboxHomeSafe := !readOnlyProject || safeDirectoryPath(writableRoot, sandboxHome) == nil
+	if sandboxHomeSafe {
+		args = append(args, "--bind", sandboxHome, sandboxHome)
+	}
 
 	// The cache location is backed by a sandbox-private directory unless the
 	// user opted in to the real host cache, which lets sandboxed tools poison
@@ -64,7 +68,10 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 			if bindHostCache {
 				src = cacheDir
 			}
-			args = append(args, "--bind", src, cacheDir)
+			cacheSafe := !readOnlyProject || (sandboxHomeSafe && safeDirectoryPath(writableRoot, src) == nil && realDirectory(cacheDir))
+			if cacheSafe {
+				args = append(args, "--bind", src, cacheDir)
+			}
 		}
 	}
 
@@ -131,6 +138,45 @@ func planModeWritableBinds(root string) []string {
 func pathWithin(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func safeDirectoryPath(root, path string) error {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil || !rootInfo.IsDir() {
+		return fmt.Errorf("root is not a directory")
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || filepath.IsAbs(rel) || !pathWithin(root, filepath.Clean(path)) {
+		return fmt.Errorf("path is outside root")
+	}
+	current := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "." || part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("path component is not a real directory")
+		}
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil || !pathWithin(resolvedRoot, resolvedPath) {
+		return fmt.Errorf("path resolves outside root")
+	}
+	return nil
+}
+
+func realDirectory(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
 }
 
 // gitWritableBinds returns the absolute paths that must be bound writable

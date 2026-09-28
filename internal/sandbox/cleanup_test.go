@@ -37,6 +37,17 @@ func TestCleanupOrphans(t *testing.T) {
 	}
 }
 
+func TestCleanupOrphans_SymlinkBaseDir(t *testing.T) {
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "sandbox-tmp")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink base dir: %v", err)
+	}
+	if count := CleanupOrphans(link, time.Hour); count != 0 {
+		t.Fatalf("count = %d, want 0", count)
+	}
+}
+
 func TestCleanupOrphans_BaseDirNotExist(t *testing.T) {
 	missingDir := filepath.Join(t.TempDir(), "missing-base-dir")
 	count := CleanupOrphans(missingDir, 1*time.Hour)

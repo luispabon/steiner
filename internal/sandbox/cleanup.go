@@ -12,6 +12,10 @@ import (
 // or cannot be read — this function is best-effort startup cleanup and never
 // reports errors to the caller.
 func CleanupOrphans(baseDir string, maxAge time.Duration) int {
+	info, err := os.Lstat(baseDir)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return 0
+	}
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
 		return 0

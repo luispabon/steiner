@@ -156,6 +156,31 @@ func TestEnsurePlanModeDirs_DoesNotFollowSymlinkedLeaf(t *testing.T) {
 	}
 }
 
+func TestEnsureDirectoryPath_DoesNotFollowSymlink(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	if err := os.Symlink(external, filepath.Join(root, ".steiner")); err != nil {
+		t.Fatalf("symlink .steiner: %v", err)
+	}
+	if err := EnsureDirectoryPath(root, filepath.Join(root, ".steiner", "home")); err == nil {
+		t.Fatal("expected symlinked .steiner to be rejected")
+	}
+	if _, err := os.Stat(filepath.Join(external, "home")); !os.IsNotExist(err) {
+		t.Fatalf("expected no external home directory, got err=%v", err)
+	}
+}
+
+func TestEnsureDirectoryPath_CreatesNormalPath(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".steiner", "tmp", "sandbox-tmp")
+	if err := EnsureDirectoryPath(root, path); err != nil {
+		t.Fatalf("EnsureDirectoryPath: %v", err)
+	}
+	if info, err := os.Stat(path); err != nil || !info.IsDir() {
+		t.Fatalf("expected directory, info=%v err=%v", info, err)
+	}
+}
+
 func TestEnsurePlanModeDirs_CreatesNormalDirs(t *testing.T) {
 	root := t.TempDir()
 	ensurePlanModeDirs(root)
