@@ -16,6 +16,7 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 	args = appendSandboxCacheArgs(args, writableRoot, sandboxHome, userHome, readOnlyProject, bindHostCache)
 	args = appendHostMountArgs(args, hostMounts)
 	args = append(args, overlayArgs...)
+	// Apply Docker masking last so earlier host mounts cannot unmask the socket.
 	if !perms.Docker {
 		args = append(args, dockerDenyArgs(dockerSocketCandidates())...)
 	}
@@ -23,6 +24,8 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 }
 
 func buildSystemArgs(root, tmpDir string, readOnlyProject bool) []string {
+	// --die-with-parent and --new-session prevent sandboxed processes from
+	// opening /dev/tty after Steiner exits or injecting terminal input.
 	args := []string{"--unshare-all", "--share-net", "--die-with-parent", "--new-session", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"}
 	if tmpDir != "" && (!readOnlyProject || safeDirectoryPath(root, tmpDir) == nil) {
 		return append(args, "--bind", tmpDir, "/tmp")
@@ -31,6 +34,9 @@ func buildSystemArgs(root, tmpDir string, readOnlyProject bool) []string {
 }
 
 func appendProjectArgs(args []string, root string, readOnlyProject bool) []string {
+	// Plan mode overlays only validated writable paths after the project
+	// ro-bind. Git metadata is existence-gated because bwrap rejects missing
+	// sources, and git creates lock files absent at mount time.
 	if !readOnlyProject {
 		return append(args, "--bind", root, root)
 	}
@@ -45,6 +51,8 @@ func appendProjectArgs(args []string, root string, readOnlyProject bool) []strin
 }
 
 func appendSandboxCacheArgs(args []string, root, sandboxHome, userHome string, readOnlyProject, bindHostCache bool) []string {
+	// Use a private cache by default so sandboxed tools cannot poison the host
+	// cache. bindHostCache explicitly opts into the real host cache.
 	sandboxHomeSafe := !readOnlyProject || safeDirectoryPath(root, sandboxHome) == nil
 	if sandboxHomeSafe {
 		args = append(args, "--bind", sandboxHome, sandboxHome)
