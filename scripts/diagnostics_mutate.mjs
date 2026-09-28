@@ -436,7 +436,6 @@ export function taxonomyBucket(failure) {
 	if (f.read_state === "self_mutated") return "stale_after_own_edit";
 	if (f.read_state === "external_change") return "changed_externally";
 	if (f.read_state === "never_read") return "never_read";
-	if (f.read_state === "pruned") return "read_pruned";
 	if (f.in_read_range === "no") return "outside_read_range";
 	if (f.lines_found === f.nonblank_lines && f.nonblank_lines > 0) return "lines_real_sequence_wrong";
 	if (f.lines_found === 0) return "fabricated_or_wrong_file";

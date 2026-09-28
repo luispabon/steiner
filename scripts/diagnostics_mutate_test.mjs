@@ -180,7 +180,6 @@ test("taxonomyBucket assigns the first matching bucket", () => {
 		["self_mutated", failure({ read_state: "self_mutated" }), "stale_after_own_edit"],
 		["external_change", failure({ read_state: "external_change" }), "changed_externally"],
 		["never_read", failure({ read_state: "never_read" }), "never_read"],
-		["pruned", failure({ read_state: "pruned" }), "read_pruned"],
 		// A concrete difference outranks the read state that also matches.
 		["self_mutated_whitespace", failure({ read_state: "self_mutated", ws_kind: "internal_spacing" }), "whitespace:internal_spacing"],
 		["self_mutated_crlf", failure({ read_state: "self_mutated", crlf_mismatch: true }), "encoding:crlf"],
@@ -235,7 +234,7 @@ test("baseline windows use the injected ancestry resolver and cache per sha", ()
 	};
 	const { report } = analyze({ toolRecords, providerRecords, baselineSha: "base", resolveAncestor });
 	assert.equal(report.windows.pre_baseline.calls, 2);
-	assert.equal(report.windows.post_baseline.calls, 16);
+	assert.equal(report.windows.post_baseline.calls, 15);
 	assert.equal(report.windows.unknown.calls, 0);
 	// Two distinct shas, one resolver call each, despite 18 records.
 	assert.deepEqual([...new Set(seen)].sort(), ["aaaa1111", "bbbb2222"]);
@@ -245,27 +244,27 @@ test("baseline windows use the injected ancestry resolver and cache per sha", ()
 test("a sha git does not know lands in the unknown window", () => {
 	const tool = forRun(toolRecords, "run-attr").map((r) => ({ ...r, build_sha: "deadbeef" }));
 	const { report } = analyze({ toolRecords: tool, providerRecords, baselineSha: "base", resolveAncestor: () => null });
-	assert.equal(report.windows.unknown.calls, 16);
+	assert.equal(report.windows.unknown.calls, 15);
 	assert.equal(report.windows.post_baseline.calls, 0);
 });
 
 test("--exclude-run and --model filter before grouping", () => {
 	const excluded = analyze({ toolRecords, providerRecords, excludeRun: "run-legacy" });
 	assert.ok(excluded.messages.every((m) => m.runID === "run-attr"));
-	assert.equal(excluded.report.windows.all.calls, 16);
+	assert.equal(excluded.report.windows.all.calls, 15);
 
 	const matched = analyze({ toolRecords, providerRecords, model: "gpt-5.6" });
-	assert.equal(matched.report.windows.all.calls, 18);
+	assert.equal(matched.report.windows.all.calls, 17);
 	const none = analyze({ toolRecords, providerRecords, model: "zzz" });
 	assert.equal(none.report.windows.all.calls, 0);
 });
 
 test("the featured subset keeps only calls carrying a match block", () => {
 	const { report, messages } = analyze({ toolRecords, providerRecords });
-	assert.equal(report.windows.all.calls, 18);
-	assert.equal(report.windows.featured.calls, 14);
-	assert.equal(report.windows.featured.features.total, 15);
-	assert.equal(messages.flatMap((m) => m.calls).filter((c) => (c.payload.failures ?? []).some((f) => f.match)).length, 14);
+	assert.equal(report.windows.all.calls, 17);
+	assert.equal(report.windows.featured.calls, 13);
+	assert.equal(report.windows.featured.features.total, 14);
+	assert.equal(messages.flatMap((m) => m.calls).filter((c) => (c.payload.failures ?? []).some((f) => f.match)).length, 13);
 });
 
 test("samples come from capture_bodies records and filter by cause", () => {
@@ -286,10 +285,10 @@ function run(args) {
 test("CLI mutate --json parses fixtures and reports both groupings", () => {
 	const out = run(["mutate", "--dir", FIXTURES, "--json"]);
 	assert.equal(out.grouping, "mixed");
-	assert.equal(out.windows.all.calls, 18);
-	assert.equal(out.windows.featured.calls, 14);
+	assert.equal(out.windows.all.calls, 17);
+	assert.equal(out.windows.featured.calls, 13);
 	const terra = out.windows.all.by_model.find((r) => r.key === "gpt-5.6-terra");
-	assert.equal(terra.n, 18);
+	assert.equal(terra.n, 17);
 });
 
 test("CLI mutate --samples --cause prints the raw body", () => {
