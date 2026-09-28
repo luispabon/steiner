@@ -52,13 +52,16 @@ test("cache mode: table reports call kinds and per-endpoint counts", () => {
 	assert.match(out, /eu-west-1:1/);
 });
 
-test("cache mode: counts endpoint switches only within identified conversations", () => {
+test("cache mode: counts endpoint switches within run, source, and agent", () => {
 	const dir = mkdtempSync(join(tmpdir(), "diagnostics-cache-"));
 	try {
 		writeFileSync(join(dir, "cache.jsonl"), [
-			{ run_id: "run-1", session_id: "session-1", source: "parent", turn: 1, seq: 1, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "east" } },
-			{ run_id: "run-1", session_id: "session-1", source: "parent", turn: 2, seq: 2, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "west" } },
-			{ run_id: "run-2", source: "parent", turn: 1, seq: 1, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "west" } },
+			{ run_id: "run-1", source: "parent", turn: 1, seq: 1, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "east" } },
+			{ run_id: "run-1", source: "parent", turn: 2, seq: 2, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "west" } },
+			{ run_id: "run-1", source: "parent", agent_id: "agent-1", turn: 1, seq: 3, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "east" } },
+			{ run_id: "run-1", source: "sub_agent", agent_id: "agent-1", turn: 1, seq: 4, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "west" } },
+			{ run_id: "run-2", source: "parent", turn: 1, seq: 5, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "east" } },
+			{ source: "parent", turn: 1, seq: 6, kind: "cache", payload: { backend_model_id: "model", upstream_endpoint: "west" } },
 		].map((record) => JSON.stringify(record)).join("\n") + "\n");
 		const out = run(["cache", "--dir", dir, "--json"]);
 		assert.equal(out["by model"][0].metrics.endpointSwitches, 1);

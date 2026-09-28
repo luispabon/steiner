@@ -266,7 +266,7 @@ function printCompareTable(title, rowsA, rowsB, columns) {
 // internal/usagestats/recorder.go / report.go exactly, so this script and
 // the Go /cache-stats surface agree on what "cached" means.
 function endpointSwitchCount(records) {
-	const conversations = groupBy(records.filter((r) => r.session_id && r.payload?.upstream_endpoint), (r) => `${r.run_id ?? ""}/${r.session_id}/${r.source ?? ""}/${r.agent_id ?? ""}`);
+	const conversations = groupBy(records.filter((r) => r.run_id && r.payload?.upstream_endpoint), (r) => `${r.run_id}/${r.source ?? ""}/${r.agent_id ?? ""}`);
 	let switches = 0;
 	for (const calls of conversations.values()) {
 		calls.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
