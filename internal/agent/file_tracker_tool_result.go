@@ -141,12 +141,6 @@ func (t *FileTracker) observeGenericToolHeuristics(toolName string, content stri
 // workingFileUpdate and any decision facts derived from the result.
 func (t *FileTracker) ObserveToolResult(_ int, toolName string, input map[string]any, content string) (workingFileUpdate, []string) {
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
-	case "read":
-		result, ok := parseReadResult(content)
-		if !ok {
-			return workingFileUpdate{}, nil
-		}
-		return t.updateWorkingFile(sanitizeTrackedPath(result.Path), fmt.Sprintf("read %s (%s)", result.Path, result.rangeSummary())), nil
 	case "mutate":
 		return t.observeMutationHeuristics(toolName, input, content)
 	case "bash":
