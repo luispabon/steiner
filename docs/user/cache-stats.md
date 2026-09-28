@@ -34,7 +34,7 @@ The `PERFORMANCE` sidebar card includes `cache hit`, alongside `duration`, `ttft
 
 ### Sub-agent and advisor tool boxes
 
-Completed sub-agent and advisor boxes show cache metadata when available, for example `✓ complete · gpt-5.4-mini/high · cache 95.2% · 12.4s`. Expanded stats show token counts and `Cache: NN.N%`. Child rates are cumulative across extension reruns and follow-ups; advisor rates are per consultation. `—` is shown when there was no cache-bearing usage. Compaction and context-escalation calls are not included in these per-run counters.
+Sub-agent boxes update their session cache rate as each model request finishes. Expanded stats show `Cache: NN.N% latest req · NN.N% session`; completed boxes retain the authoritative final session rate as `Cache: NN.N%`. Child rates are cumulative across extension reruns and follow-ups; advisor rates are per consultation. When there was no cache-bearing usage the cache rate is omitted. `—` is shown when there was no cache-bearing usage. Compaction and context-escalation calls are not included in these per-run counters.
 
 ### Compaction banners
 

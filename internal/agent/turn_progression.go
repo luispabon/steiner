@@ -68,14 +68,17 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	}
 
 	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
-		Turn:             turn,
-		Model:            p.request.ResolvedModel.BackendModelID,
-		FinishReason:     response.FinishReason,
-		ToolCalls:        len(response.Message.ToolCalls),
-		CompletionTokens: turnTokens,
-		DurationMs:       durationMs,
-		TTFTMs:           ttftMs,
-		OutputTPS:        outputTPS,
+		Turn:              turn,
+		Model:             p.request.ResolvedModel.BackendModelID,
+		FinishReason:      response.FinishReason,
+		ToolCalls:         len(response.Message.ToolCalls),
+		CompletionTokens:  turnTokens,
+		PromptTokens:      promptUsageTokens(response.Usage),
+		CacheReadTokens:   cacheReadUsageTokens(response.Usage),
+		CacheCreateTokens: cacheCreateUsageTokens(response.Usage),
+		DurationMs:        durationMs,
+		TTFTMs:            ttftMs,
+		OutputTPS:         outputTPS,
 	}))
 	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
 		emitEvent(p.request.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
@@ -132,6 +135,27 @@ func (p *turnProgressor) normalizeModelResponse(_ RunState, turn int, response p
 		}))
 	}
 	return response
+}
+
+func promptUsageTokens(usage *provider.UsageStats) int {
+	if usage == nil {
+		return 0
+	}
+	return usage.PromptTokens
+}
+
+func cacheReadUsageTokens(usage *provider.UsageStats) int {
+	if usage == nil {
+		return 0
+	}
+	return usage.CacheReadInputTokens
+}
+
+func cacheCreateUsageTokens(usage *provider.UsageStats) int {
+	if usage == nil {
+		return 0
+	}
+	return usage.CacheCreationInputTokens
 }
 
 func (p *turnProgressor) finalizeModelCallState(state RunState, turn int, response provider.ChatResponse) (RunState, int) {
