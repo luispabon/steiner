@@ -37,7 +37,7 @@ func TestDefaultLimits(t *testing.T) {
 			cfg: config.SubAgentConfig{
 				MaxTurns: 10,
 			},
-			wantTurns:   10,
+			wantTurns:   15,
 			wantTokens:  400000,
 			wantTimeout: 0,
 		},
@@ -56,6 +56,15 @@ func TestDefaultLimits(t *testing.T) {
 				t.Errorf("Timeout=%v, want %v", got.Timeout, tt.wantTimeout)
 			}
 		})
+	}
+}
+
+func TestDefaultLimitsEnforcesMinimumMaxTurns(t *testing.T) {
+	for maxTurns := 1; maxTurns < 15; maxTurns++ {
+		got := DefaultLimits(config.SubAgentConfig{MaxTurns: maxTurns})
+		if got.MaxTurns < 15 {
+			t.Fatalf("DefaultLimits(MaxTurns=%d).MaxTurns = %d, want at least 15", maxTurns, got.MaxTurns)
+		}
 	}
 }
 
