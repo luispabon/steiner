@@ -83,6 +83,27 @@ func TestDedupReadResult(t *testing.T) {
 			wantReason: "no earlier full copy",
 		},
 		{
+			name:       "prior read without hash is ineligible",
+			current:    makeContent(base),
+			prior:      []Message{priorRead(builtin.ReadResult{Path: base.Path, StartLine: 1, EndLine: 2, TotalLines: 2, Output: base.Output}, 4)},
+			wantAction: "full",
+			wantReason: "no earlier full copy",
+		},
+		{
+			name:       "prior line capped read is ineligible",
+			current:    makeContent(base),
+			prior:      []Message{priorRead(builtin.ReadResult{Path: base.Path, StartLine: 1, EndLine: 2, TotalLines: 2, FileHash: base.FileHash, Output: base.Output + builtin.LineTruncationMarker}, 4)},
+			wantAction: "full",
+			wantReason: "no earlier full copy",
+		},
+		{
+			name:       "prior read without turn is ineligible",
+			current:    makeContent(base),
+			prior:      []Message{priorRead(base, 0)},
+			wantAction: "full",
+			wantReason: "no earlier full copy",
+		},
+		{
 			name:       "missing copy",
 			current:    makeContent(base),
 			prior:      []Message{{Role: MessageRoleTool, Name: "grep", Turn: 4, Content: makeContent(base)}},

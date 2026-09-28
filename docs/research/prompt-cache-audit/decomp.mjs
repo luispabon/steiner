@@ -20,6 +20,7 @@ function convsSteiner() {
   for (const r of recs) {
     if (since && r.ts < since) continue;
     const p = r.payload;
+    if (p?.call_kind === 'compaction') continue;
     if (filterModel && !p.backend_model_id.includes(filterModel)) continue;
     const key = `${r.run_id}|${r.source}|${r.agent_id || ''}|${p.backend_model_id}`;
     if (!convs.has(key)) convs.set(key, { model: p.backend_model_id, source: r.source + (r.agent_type ? ':' + r.agent_type : ''), reqs: [] });

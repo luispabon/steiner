@@ -166,6 +166,24 @@ func TestDelegationCompleteOverridesLiveCacheTotals(t *testing.T) {
 	}
 }
 
+func TestAdvisorBoxDoesNotUseModelCallCacheEvents(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	b.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1, "question", nil))
+	b.AppendEvent(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 200, CacheReadTokens: 150}))
+
+	if len(b.segments) == 0 || b.segments[0].delegData == nil {
+		t.Fatal("advisor segment not found")
+	}
+	dd := b.segments[0].delegData
+	if !dd.isAdvisor {
+		t.Fatal("segment is not an advisor")
+	}
+	if dd.cacheHitOK || dd.latestCacheHitOK {
+		t.Fatalf("advisor cache state = %#v after model_call_finished, want no live cache rate", dd)
+	}
+}
+
 func TestScopedDelegationEvents(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

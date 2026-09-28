@@ -213,17 +213,18 @@ func TestFormatCacheStatsReportAdvisorLabelAndOrdering(t *testing.T) {
 	now := time.Unix(1000, 0)
 	rec := usagestats.New(func() time.Time { return now })
 	for _, observation := range []usagestats.Observation{
-		{ProviderAlias: "local", ProviderType: "local", BackendModelID: "model-z", PromptTokens: 10, At: now, Source: usagestats.SourceAdvisor},
+		{ProviderAlias: "local", ProviderType: "local", BackendModelID: "model-a", PromptTokens: 10, At: now, Source: usagestats.SourceAdvisor},
 		{ProviderAlias: "local", ProviderType: "local", BackendModelID: "model-a", PromptTokens: 10, At: now},
 	} {
 		rec.Record(observation)
 	}
 	got := formatCacheStatsReport(rec)
 	want := "| local | model-a |"
-	if !strings.Contains(got, want) || !strings.Contains(got, "| local | model-z (advisor) |") {
+	advisor := "| local | model-a (advisor) |"
+	if !strings.Contains(got, want) || !strings.Contains(got, advisor) {
 		t.Fatalf("report = %q, want advisor label on model", got)
 	}
-	if strings.Index(got, want) >= strings.Index(got, "| local | model-z (advisor) |") {
+	if strings.Index(got, want) >= strings.Index(got, advisor) {
 		t.Fatalf("report rows are not deterministically ordered: %q", got)
 	}
 }

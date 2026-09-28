@@ -42,6 +42,7 @@ func TestOpenAIUsageCacheFallbacks(t *testing.T) {
 		write int
 	}{
 		{"deepseek details zero wins", `{"prompt_tokens":100,"prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":4},"prompt_cache_hit_tokens":12,"cached_tokens":13}`, 0, 4},
+		{"deepseek top-level fallback zero wins", `{"prompt_tokens":100,"prompt_tokens_details":{"cache_write_tokens":4},"prompt_cache_hit_tokens":0,"cached_tokens":13}`, 0, 4},
 		{"kimi prompt cache hit", `{"prompt_tokens":100,"prompt_tokens_details":{"cache_write_tokens":4},"prompt_cache_hit_tokens":12,"cached_tokens":13}`, 12, 4},
 		{"openrouter top-level cached", `{"prompt_tokens":100,"prompt_tokens_details":{"cache_write_tokens":4},"cached_tokens":13}`, 13, 4},
 	}
