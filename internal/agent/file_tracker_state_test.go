@@ -45,6 +45,100 @@ func TestFileTrackerGenerationLifecycleIsFileWide(t *testing.T) {
 	}
 }
 
+type stubMutationResult struct {
+	Paths   []string `json:"paths"`
+	mutated bool
+}
+
+func (r stubMutationResult) WasMutated() bool { return r.mutated }
+
+func TestFileTrackerSkipsFailedMutationGeneration(t *testing.T) {
+	tests := []struct {
+		name           string
+		mutated        bool
+		wantGeneration bool
+	}{
+		{name: "successful mutation bumps generation", mutated: true, wantGeneration: true},
+		{name: "failed mutation leaves generation untouched", mutated: false, wantGeneration: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "note.txt")
+			if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			content, err := json.Marshal(readResult{Path: path, StartLine: 1, EndLine: 3, TotalLines: 3, Output: "one\ntwo\nthree\n"})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			cm := &ContextStateManager{}
+			cm.fileTracker.RecordRead(1, string(content))
+
+			result := stubMutationResult{Paths: []string{path}, mutated: tt.mutated}
+			recordMutationForContextManager(cm, "mutate", nil, result)
+
+			if got := len(cm.fileTracker.generations); (got != 0) != tt.wantGeneration {
+				t.Fatalf("generation entries = %d, want bumped=%v", got, tt.wantGeneration)
+			}
+			if got := cm.fileTracker.ReadState(path, 1); got.MutatedSinceRead != tt.wantGeneration {
+				t.Fatalf("MutatedSinceRead = %v, want %v", got.MutatedSinceRead, tt.wantGeneration)
+			}
+		})
+	}
+}
+
+func TestFileTrackerObserveToolResultBash(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      map[string]any
+		content    string
+		wantPrefix string
+		wantFact   bool
+	}{
+		{
+			name:       "non-test command no fact",
+			input:      map[string]any{"command": "ls -la"},
+			content:    `{"exit_code":0,"output":"file.go","truncated":false}`,
+			wantPrefix: "bash:",
+			wantFact:   false,
+		},
+		{
+			name:       "test command produces fact",
+			input:      map[string]any{"command": "go test ./..."},
+			content:    `{"exit_code":0,"output":"ok","truncated":false}`,
+			wantPrefix: "bash:",
+			wantFact:   true,
+		},
+		{
+			name:       "failed test produces fact",
+			input:      map[string]any{"command": "go test ./..."},
+			content:    `{"exit_code":1,"output":"FAIL","truncated":false}`,
+			wantPrefix: "bash:",
+			wantFact:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var tracker FileTracker
+			update, facts := tracker.ObserveToolResult(1, "bash", tt.input, tt.content)
+			if !strings.HasPrefix(update.LastAction, tt.wantPrefix) {
+				t.Errorf("LastAction = %q, want prefix %q", update.LastAction, tt.wantPrefix)
+			}
+			if update.Path != "" {
+				t.Errorf("Path = %q, want empty for bash", update.Path)
+			}
+			if tt.wantFact && len(facts) == 0 {
+				t.Errorf("facts empty, want a test fact")
+			}
+			if !tt.wantFact && len(facts) != 0 {
+				t.Errorf("facts = %v, want none", facts)
+			}
+		})
+	}
+}
+
 func TestFileTrackerReadStateAndBehavior(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "note.txt")
 	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {
