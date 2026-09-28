@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,66 +11,70 @@ import (
 
 // BuildArgs returns the bwrap argument list (excluding the trailing -- cmd args).
 func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts []config.HostMount, overlayArgs []string, tmpDir string, readOnlyProject bool, perms config.PermissionsConfig, bindHostCache bool) []string {
-	var args []string
-
-	// Namespace isolation: unshare all but share network.
-	args = append(args, "--unshare-all", "--share-net")
-
-	// Tie the sandbox lifetime to steiner's and detach from the controlling
-	// terminal so sandboxed processes cannot open /dev/tty (TIOCSTI injection).
-	args = append(args, "--die-with-parent", "--new-session")
-
-	// Root filesystem: entire root read-only (base layer).
-	args = append(args, "--ro-bind", "/", "/")
-
-	// System mounts.
-	args = append(args,
-		"--dev", "/dev",
-		"--proc", "/proc",
-	)
-	if tmpDir != "" {
-		args = append(args, "--bind", tmpDir, "/tmp")
-	} else {
-		args = append(args, "--tmpfs", "/tmp")
+	args := buildSystemArgs(writableRoot, tmpDir, readOnlyProject)
+	args = appendProjectArgs(args, writableRoot, readOnlyProject)
+	args = appendSandboxCacheArgs(args, writableRoot, sandboxHome, userHome, readOnlyProject, bindHostCache)
+	args = appendHostMountArgs(args, hostMounts)
+	args = append(args, overlayArgs...)
+	// Apply Docker masking last so earlier host mounts cannot unmask the socket.
+	if !perms.Docker {
+		args = append(args, dockerDenyArgs(dockerSocketCandidates())...)
 	}
+	return append(args, "--chdir", workDir)
+}
 
-	// Project workspace binding: read-only or writable depending on plan mode.
-	if readOnlyProject {
-		args = append(args, "--ro-bind", writableRoot, writableRoot)
-		for _, dir := range config.PlanModeWritableDirs() {
-			path := filepath.Join(writableRoot, filepath.FromSlash(dir))
-			args = append(args, "--bind", path, path)
-		}
-		// Plan mode keeps the working tree read-only but must still allow git
-		// metadata operations (branch/commit/stage) so a planning session can
-		// hand off to implementation. .git is existence-gated (unlike the
-		// plan-mode writable directories, it cannot be created) and bound whole
-		// rather than by path, since git writes transient lock files (index.lock,
-		// config.lock, packed-refs.new) that don't exist at mount time.
-		for _, gitBind := range gitWritableBinds(writableRoot) {
-			args = append(args, "--bind", gitBind, gitBind)
-		}
-	} else {
-		args = append(args, "--bind", writableRoot, writableRoot)
+func buildSystemArgs(root, tmpDir string, readOnlyProject bool) []string {
+	// --die-with-parent and --new-session prevent sandboxed processes from
+	// opening /dev/tty after Steiner exits or injecting terminal input.
+	args := []string{"--unshare-all", "--share-net", "--die-with-parent", "--new-session", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"}
+	if tmpDir != "" && (!readOnlyProject || safeDirectoryPath(root, tmpDir) == nil) {
+		return append(args, "--bind", tmpDir, "/tmp")
 	}
+	return append(args, "--tmpfs", "/tmp")
+}
 
-	// Sandbox state directory writable at original absolute path.
-	args = append(args, "--bind", sandboxHome, sandboxHome)
-
-	// The cache location is backed by a sandbox-private directory unless the
-	// user opted in to the real host cache, which lets sandboxed tools poison
-	// caches (go-build, pip, uv) later consumed outside the sandbox.
-	if userHome != "" {
-		if cacheDir := cacheMountPath(userHome); cacheDir != "" {
-			src := privateCacheDir(sandboxHome)
-			if bindHostCache {
-				src = cacheDir
-			}
-			args = append(args, "--bind", src, cacheDir)
-		}
+func appendProjectArgs(args []string, root string, readOnlyProject bool) []string {
+	// Plan mode overlays only validated writable paths after the project
+	// ro-bind. Git metadata is existence-gated because bwrap rejects missing
+	// sources, and git creates lock files absent at mount time.
+	if !readOnlyProject {
+		return append(args, "--bind", root, root)
 	}
+	args = append(args, "--ro-bind", root, root)
+	for _, path := range planModeWritableBinds(root) {
+		args = append(args, "--bind", path, path)
+	}
+	for _, gitBind := range gitWritableBinds(root) {
+		args = append(args, "--bind", gitBind, gitBind)
+	}
+	return args
+}
 
-	// Additional host mounts from config.
+func appendSandboxCacheArgs(args []string, root, sandboxHome, userHome string, readOnlyProject, bindHostCache bool) []string {
+	// Use a private cache by default so sandboxed tools cannot poison the host
+	// cache. bindHostCache explicitly opts into the real host cache.
+	sandboxHomeSafe := !readOnlyProject || safeDirectoryPath(root, sandboxHome) == nil
+	if sandboxHomeSafe {
+		args = append(args, "--bind", sandboxHome, sandboxHome)
+	}
+	if cacheDir := cacheMountPath(userHome); cacheDir != "" && cacheBindSafe(root, sandboxHome, cacheDir, readOnlyProject, sandboxHomeSafe, bindHostCache) {
+		src := privateCacheDir(sandboxHome)
+		if bindHostCache {
+			src = cacheDir
+		}
+		args = append(args, "--bind", src, cacheDir)
+	}
+	return args
+}
+
+func cacheBindSafe(root, sandboxHome, cacheDir string, readOnlyProject, sandboxHomeSafe, bindHostCache bool) bool {
+	if !readOnlyProject || bindHostCache {
+		return realDirectory(cacheDir)
+	}
+	return sandboxHomeSafe && safeDirectoryPath(root, privateCacheDir(sandboxHome)) == nil && realDirectory(cacheDir)
+}
+
+func appendHostMountArgs(args []string, hostMounts []config.HostMount) []string {
 	for _, hm := range hostMounts {
 		flag := "--ro-bind"
 		if hm.Mode == "rw" {
@@ -77,23 +82,84 @@ func BuildArgs(writableRoot, workDir, sandboxHome, userHome string, hostMounts [
 		}
 		args = append(args, flag, hm.Path, hm.Path)
 	}
+	return args
+}
 
-	args = append(args, overlayArgs...)
-
-	// Docker socket masking: appended after host mounts and overlay args, and
-	// immediately before --chdir, so no earlier bind — including a user
-	// host_mounts entry that rw-binds /run — can unmask the socket. Later
-	// bwrap operations win. When perms.Docker is true the socket is already
-	// reachable via the root bind and nothing is emitted; that asymmetry is
-	// the entire point of the permission.
-	if !perms.Docker {
-		args = append(args, dockerDenyArgs(dockerSocketCandidates())...)
+// planModeWritableBinds returns only existing, in-root plan directories safe to bind writable.
+func planModeWritableBinds(root string) []string {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil || !rootInfo.IsDir() {
+		return nil
 	}
 
-	// Set working directory to workspace after all mounts have been established.
-	args = append(args, "--chdir", workDir)
+	steinerPath := filepath.Join(root, ".steiner")
+	steinerInfo, err := os.Lstat(steinerPath)
+	if err != nil || steinerInfo.Mode()&os.ModeSymlink != 0 || !steinerInfo.IsDir() {
+		return nil
+	}
 
-	return args
+	var binds []string
+	for _, dir := range config.PlanModeWritableDirs() {
+		path := filepath.Join(root, filepath.FromSlash(dir))
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			continue
+		}
+		resolvedPath, err := filepath.EvalSymlinks(path)
+		if err != nil || !pathWithin(resolvedRoot, resolvedPath) {
+			continue
+		}
+		binds = append(binds, path)
+	}
+	return binds
+}
+
+func pathWithin(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func safeDirectoryPath(root, path string) error {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil || !rootInfo.IsDir() {
+		return fmt.Errorf("root is not a directory")
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || filepath.IsAbs(rel) || !pathWithin(root, filepath.Clean(path)) {
+		return fmt.Errorf("path is outside root")
+	}
+	current := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "." || part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("path component is not a real directory")
+		}
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil || !pathWithin(resolvedRoot, resolvedPath) {
+		return fmt.Errorf("path resolves outside root")
+	}
+	return nil
+}
+
+func realDirectory(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
 }
 
 // gitWritableBinds returns the absolute paths that must be bound writable

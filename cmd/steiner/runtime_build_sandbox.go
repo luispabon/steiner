@@ -55,12 +55,20 @@ func createSandboxTmpDir(parentDir string) (string, error) {
 	}
 	id := fmt.Sprintf("%x", idBuf[:])
 	tmpDir := filepath.Join(parentDir, id)
-	if _, err := os.Stat(tmpDir); err == nil {
+	if err := sandbox.EnsureDirectoryPath(filepath.Dir(filepath.Dir(filepath.Dir(parentDir))), parentDir); err != nil {
+		return "", fmt.Errorf("unsafe sandbox tmp parent: %w", err)
+	}
+	if info, err := os.Lstat(tmpDir); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return "", fmt.Errorf("unsafe sandbox tmp dir: %s is not a real directory", tmpDir)
+		}
 		if err := os.RemoveAll(tmpDir); err != nil {
 			return "", fmt.Errorf("remove stale sandbox tmp dir: %w", err)
 		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("inspect sandbox tmp dir: %w", err)
 	}
-	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+	if err := os.Mkdir(tmpDir, 0o755); err != nil {
 		return "", fmt.Errorf("create sandbox tmp dir: %w", err)
 	}
 	return tmpDir, nil
@@ -81,6 +89,9 @@ func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome stri
 	// Session-scoped tmp directory.
 	parentDir := filepath.Join(projectRoot, ".steiner", "tmp", "sandbox-tmp")
 
+	if err := sandbox.EnsureDirectoryPath(projectRoot, parentDir); err != nil {
+		return nil, "", fmt.Errorf("sandbox setup: unsafe temporary directory: %w", err)
+	}
 	cleanupSandboxTmpOrphans(parentDir, 48*time.Hour)
 	tmpDir, err := createSandboxTmpDir(parentDir)
 	if err != nil {

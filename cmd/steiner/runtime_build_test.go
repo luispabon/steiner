@@ -21,6 +21,37 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+func TestCreateSandboxTmpDirRejectsSymlinkedParent(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	steiner := filepath.Join(root, ".steiner")
+	if err := os.Symlink(external, steiner); err != nil {
+		t.Fatalf("symlink .steiner: %v", err)
+	}
+
+	if _, err := createSandboxTmpDir(filepath.Join(steiner, "tmp", "sandbox-tmp")); err == nil {
+		t.Fatal("expected symlinked sandbox tmp parent to be rejected")
+	}
+	if _, err := os.Stat(filepath.Join(external, "tmp")); !os.IsNotExist(err) {
+		t.Fatalf("expected no external tmp directory, got err=%v", err)
+	}
+}
+
+func TestCreateSandboxTmpDirRejectsSymlinkedSessionDir(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Join(root, ".steiner", "tmp", "sandbox-tmp")
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		t.Fatalf("mkdir parent: %v", err)
+	}
+	// The random name is not controllable, so verify an unsafe parent instead.
+	if err := os.Symlink(t.TempDir(), filepath.Join(root, ".steiner", "tmp", "sandbox-tmp-link")); err != nil {
+		t.Fatalf("symlink tmp path: %v", err)
+	}
+	if _, err := createSandboxTmpDir(filepath.Join(root, ".steiner", "tmp", "sandbox-tmp-link")); err == nil {
+		t.Fatal("expected symlinked tmp path to be rejected")
+	}
+}
+
 func TestRuntimeSlogWriterExistingFilePermissions(t *testing.T) {
 	dir := t.TempDir()
 	logFile := filepath.Join(dir, "session.log")

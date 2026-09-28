@@ -74,7 +74,7 @@ sandbox:
 
 ## Mount layout
 
-The host root is read-only. The workspace and sandbox home are writable according to policy, `/dev` is minimal, `/proc` is fresh, and session temporary files are mounted at `/tmp`. Host paths keep their original locations. `sandbox.host_mounts` adds paths at their existing locations.
+The host root is read-only. The workspace and sandbox home are writable according to policy, `/dev` is minimal, `/proc` is fresh, and session temporary files are mounted at `/tmp`. Host paths keep their original locations. `sandbox.host_mounts` adds paths at their existing locations. In plan mode, `.steiner/plans/` and `.steiner/security/` are bound writable only when they are real directories under the workspace; symlinked or invalid plan directories are left unbound. Symlinked `.steiner`, sandbox home, or sandbox temporary paths are rejected rather than created, removed, or bound writable.
 
 ## Environment variables
 

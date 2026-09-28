@@ -193,6 +193,14 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 	if path == "" {
 		return fmt.Errorf("path is required")
 	}
+	planWriteAllowed := writable && p.writePathAllowed(path)
+	if writable && len(p.writeAllowlist) > 0 && !planWriteAllowed {
+		return &PathPolicyError{
+			Path:       path,
+			Reason:     planModeWriteDenial(),
+			Promptable: false,
+		}
+	}
 	if !p.allowed(path, writable) {
 		return &PathPolicyError{
 			Path:       path,
@@ -209,17 +217,8 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 			}
 		}
 	}
-	if writable && len(p.writeAllowlist) > 0 {
-		for _, allowed := range p.writeAllowlist {
-			if pathWithinRoot(allowed, path) {
-				return nil
-			}
-		}
-		return &PathPolicyError{
-			Path:       path,
-			Reason:     planModeWriteDenial(),
-			Promptable: false,
-		}
+	if planWriteAllowed {
+		return nil
 	}
 	if writable && len(p.writablePaths) > 0 {
 		for _, allowed := range p.writablePaths {
@@ -234,6 +233,19 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 		}
 	}
 	return nil
+}
+
+func (p PathPolicy) writePathAllowed(path string) bool {
+	for _, allowed := range p.writeAllowlist {
+		if !pathWithinRoot(allowed, path) {
+			continue
+		}
+		within, err := canonicalWritePathWithin(p.root, allowed, path)
+		if err == nil && within {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateToolInput normalizes path-bearing tool arguments.
@@ -397,6 +409,58 @@ func expandTilde(path string) string {
 // are expected to be cleaned absolute paths; symlinks are not resolved.
 func PathWithinRoot(root, path string) bool {
 	return pathWithinRoot(root, path)
+}
+
+// canonicalWritePathWithin reports whether path resolves under the lexical
+// allowlist prefix's intended location beneath the resolved policy root. The
+// allowlist prefix itself is not resolved, so a symlink in that prefix cannot
+// silently redefine the directory that plan mode permits.
+func canonicalWritePathWithin(root, allowed, path string) (bool, error) {
+	resolvedRoot, err := resolvePathWithMissing(root)
+	if err != nil {
+		return false, fmt.Errorf("resolve policy root: %w", err)
+	}
+	rel, err := filepath.Rel(root, allowed)
+	if err != nil || !pathWithinRoot(root, allowed) {
+		return false, fmt.Errorf("allowlist prefix is outside policy root")
+	}
+	intended := filepath.Join(resolvedRoot, rel)
+	resolvedPath, err := resolvePathWithMissing(path)
+	if err != nil {
+		return false, fmt.Errorf("resolve policy path: %w", err)
+	}
+	return pathWithinRoot(intended, resolvedPath), nil
+}
+
+// resolvePathWithMissing resolves path, preserving its missing suffix after
+// resolving the nearest existing ancestor. It fails on errors other than a
+// missing path component.
+func resolvePathWithMissing(path string) (string, error) {
+	target := filepath.Clean(path)
+	var missing []string
+	for {
+		resolved, err := filepath.EvalSymlinks(target)
+		if err == nil {
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		if _, lstatErr := os.Lstat(target); lstatErr == nil {
+			return "", fmt.Errorf("resolve symlink %q: %w", target, err)
+		} else if !os.IsNotExist(lstatErr) {
+			return "", lstatErr
+		}
+		parent := filepath.Dir(target)
+		if parent == target {
+			return "", err
+		}
+		missing = append(missing, filepath.Base(target))
+		target = parent
+	}
 }
 
 // canonicalPathWithin reports whether path, after resolving symlinks in itself

@@ -213,6 +213,95 @@ func TestBuildArgs_ReadOnlyProject_BindsPlanModeWritableDirs(t *testing.T) {
 	}
 }
 
+func TestBuildArgs_ReadOnlyProject_SkipsSymlinkedPlanModeDirs(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	if err := os.Mkdir(filepath.Join(external, "plans"), 0o755); err != nil {
+		t.Fatalf("mkdir external plans: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".steiner"), 0o755); err != nil {
+		t.Fatalf("mkdir .steiner: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(external, "plans"), filepath.Join(root, ".steiner", "plans")); err != nil {
+		t.Fatalf("symlink plans: %v", err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, ".steiner", "security")); err != nil {
+		t.Fatalf("symlink security: %v", err)
+	}
+
+	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", true, config.PermissionsConfig{}, false)
+
+	for _, dir := range config.PlanModeWritableDirs() {
+		path := filepath.Join(root, filepath.FromSlash(dir))
+		if containsSeq(args, "--bind", path, path) {
+			t.Errorf("did not expect symlinked %s bind: %v", dir, args)
+		}
+	}
+}
+
+func TestBuildArgs_ReadOnlyProject_SkipsSymlinkedSteinerParent(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	if err := os.Mkdir(filepath.Join(external, "plans"), 0o755); err != nil {
+		t.Fatalf("mkdir external plans: %v", err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, ".steiner")); err != nil {
+		t.Fatalf("symlink .steiner: %v", err)
+	}
+
+	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", true, config.PermissionsConfig{}, false)
+
+	if containsSeq(args, "--bind", filepath.Join(root, ".steiner", "plans"), filepath.Join(root, ".steiner", "plans")) {
+		t.Errorf("did not expect plan bind through symlinked .steiner: %v", args)
+	}
+}
+
+func TestBuildArgs_ReadOnlyProject_SkipsUnsafeSandboxHome(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	if err := os.Symlink(external, filepath.Join(root, ".steiner")); err != nil {
+		t.Fatalf("symlink .steiner: %v", err)
+	}
+	sandboxHome := filepath.Join(root, ".steiner", "home")
+	args := BuildArgs(root, root, sandboxHome, "", nil, nil, "", true, config.PermissionsConfig{}, false)
+	if containsSeq(args, "--bind", sandboxHome, sandboxHome) {
+		t.Fatalf("did not expect unsafe sandbox home bind: %v", args)
+	}
+}
+
+func TestBuildArgs_ReadOnlyProject_SkipsUnsafeTmpBind(t *testing.T) {
+	root := t.TempDir()
+	tmpDir := filepath.Join(root, ".steiner", "tmp", "sandbox-tmp", "session")
+	if err := os.MkdirAll(filepath.Dir(tmpDir), 0o755); err != nil {
+		t.Fatalf("mkdir tmp parent: %v", err)
+	}
+	if err := os.Symlink(t.TempDir(), tmpDir); err != nil {
+		t.Fatalf("symlink tmp dir: %v", err)
+	}
+	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "", nil, nil, tmpDir, true, config.PermissionsConfig{}, false)
+	if containsSeq(args, "--bind", tmpDir, "/tmp") {
+		t.Fatalf("did not expect unsafe tmp bind: %v", args)
+	}
+}
+
+func TestBuildArgs_ReadOnlyProject_SkipsDanglingPlanModeDir(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".steiner"), 0o755); err != nil {
+		t.Fatalf("mkdir .steiner: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, ".steiner", "plans")); err != nil {
+		t.Fatalf("symlink plans: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".steiner", "security"), 0o755); err != nil {
+		t.Fatalf("mkdir security: %v", err)
+	}
+
+	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", true, config.PermissionsConfig{}, false)
+	if containsSeq(args, "--bind", filepath.Join(root, ".steiner", "plans"), filepath.Join(root, ".steiner", "plans")) {
+		t.Errorf("did not expect dangling plan bind: %v", args)
+	}
+}
+
 func TestBuildArgs_ReadOnlyProject_False_UnchangedFromBefore(t *testing.T) {
 	root := "/test/root"
 	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), "/home/user", nil, nil, "/tmp/sandbox-tmp", false, config.PermissionsConfig{}, false)
@@ -509,6 +598,26 @@ func TestBuildArgs_DieWithParentAndNewSession(t *testing.T) {
 		if !slices.Contains(args, flag) {
 			t.Errorf("expected %s in args: %v", flag, args)
 		}
+	}
+}
+
+func TestBuildArgs_PlanMode_BindsHostCache(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".steiner", "home"), 0o755); err != nil {
+		t.Fatalf("mkdir sandbox home: %v", err)
+	}
+	home := t.TempDir()
+	cacheDir := filepath.Join(home, ".cache")
+	if err := os.Mkdir(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache dir: %v", err)
+	}
+	resolved, err := filepath.EvalSymlinks(cacheDir)
+	if err != nil {
+		t.Fatalf("resolve cache dir: %v", err)
+	}
+	args := BuildArgs(root, root, filepath.Join(root, ".steiner", "home"), home, nil, nil, "", true, config.PermissionsConfig{}, true)
+	if !containsSeq(args, "--bind", resolved, resolved) {
+		t.Fatalf("expected plan-mode host cache bind %s, args=%v", resolved, args)
 	}
 }
 

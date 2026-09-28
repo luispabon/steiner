@@ -2,6 +2,7 @@ package tool
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1154,5 +1155,171 @@ func TestPolicy_ResolvePath_AllowsSymlinkWithinRoot(t *testing.T) {
 	path := filepath.Join(root, "link", "file.txt")
 	if _, err := policy.ResolvePath(path, true); err != nil {
 		t.Fatalf("ResolvePath(%q) error = %v", path, err)
+	}
+}
+
+func TestPolicy_RestrictWritesTo_DeniesSymlinkedAllowlistParent(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "real", "plans"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "real"), filepath.Join(root, ".steiner")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	policy := NewPathPolicy(root, config.PathsConfig{})
+	restricted := policy.RestrictWritesTo(filepath.Join(root, ".steiner", "plans"))
+	_, err := restricted.ResolvePath(filepath.Join(root, ".steiner", "plans", "plan.md"), true)
+	if err == nil {
+		t.Fatal("write through symlinked allowlist parent = nil, want error")
+	}
+	var policyErr *PathPolicyError
+	if !errors.As(err, &policyErr) || policyErr.Promptable {
+		t.Fatalf("error = %v, want non-promptable *PathPolicyError", err)
+	}
+}
+
+func TestPolicy_RestrictWritesTo_DeniesSymlinkedAllowlistLeaf(t *testing.T) {
+	root := t.TempDir()
+	plans := filepath.Join(root, ".steiner", "plans")
+	if err := os.MkdirAll(plans, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "source"), 0o755); err != nil {
+		t.Fatalf("mkdir source: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "source"), filepath.Join(plans, "link")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	policy := NewPathPolicy(root, config.PathsConfig{})
+	restricted := policy.RestrictWritesTo(plans)
+	_, err := restricted.ResolvePath(filepath.Join(plans, "link", "plan.md"), true)
+	if err == nil {
+		t.Fatal("write through symlinked allowlist leaf = nil, want error")
+	}
+	var policyErr *PathPolicyError
+	if !errors.As(err, &policyErr) || policyErr.Promptable {
+		t.Fatalf("error = %v, want non-promptable *PathPolicyError", err)
+	}
+}
+
+func TestPolicy_RestrictWritesTo_DeniesDanglingSymlinkLeaf(t *testing.T) {
+	root := t.TempDir()
+	plans := filepath.Join(root, ".steiner", "plans")
+	if err := os.MkdirAll(plans, 0o755); err != nil {
+		t.Fatalf("mkdir plans: %v", err)
+	}
+	link := filepath.Join(plans, "dangling")
+	if err := os.Symlink(filepath.Join(root, "missing"), link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	policy := NewPathPolicy(root, config.PathsConfig{})
+	restricted := policy.RestrictWritesTo(plans)
+	_, err := restricted.ResolvePath(filepath.Join(plans, "dangling"), true)
+	if err == nil {
+		t.Fatal("write through dangling leaf symlink = nil, want error")
+	}
+	var policyErr *PathPolicyError
+	if !errors.As(err, &policyErr) || policyErr.Promptable {
+		t.Fatalf("error = %v, want non-promptable *PathPolicyError", err)
+	}
+}
+
+func TestPolicy_RestrictWritesTo_DeniesDanglingNestedSymlink(t *testing.T) {
+	root := t.TempDir()
+	plans := filepath.Join(root, ".steiner", "plans")
+	if err := os.MkdirAll(plans, 0o755); err != nil {
+		t.Fatalf("mkdir plans: %v", err)
+	}
+	link := filepath.Join(plans, "nested")
+	if err := os.Symlink(filepath.Join(root, "missing"), link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	policy := NewPathPolicy(root, config.PathsConfig{})
+	restricted := policy.RestrictWritesTo(plans)
+	_, err := restricted.ResolvePath(filepath.Join(plans, "nested", "plan.md"), true)
+	if err == nil {
+		t.Fatal("write through dangling nested symlink = nil, want error")
+	}
+	var policyErr *PathPolicyError
+	if !errors.As(err, &policyErr) || policyErr.Promptable {
+		t.Fatalf("error = %v, want non-promptable *PathPolicyError", err)
+	}
+}
+
+func TestPolicy_RestrictWritesTo_DeniesExternalSymlinkRegardlessOfProjectRootOnly(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	plans := filepath.Join(root, ".steiner", "plans")
+	if err := os.MkdirAll(plans, 0o755); err != nil {
+		t.Fatalf("mkdir plans: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(plans, "escape")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	for _, projectRootOnly := range []bool{true, false} {
+		t.Run(fmt.Sprintf("project_root_only=%t", projectRootOnly), func(t *testing.T) {
+			policy := NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: projectRootOnly})
+			restricted := policy.RestrictWritesTo(plans)
+			_, err := restricted.ResolvePath(filepath.Join(plans, "escape", "file.txt"), true)
+			if err == nil {
+				t.Fatal("write through external symlink = nil, want error")
+			}
+			var policyErr *PathPolicyError
+			if !errors.As(err, &policyErr) || policyErr.Promptable {
+				t.Fatalf("error = %v, want non-promptable *PathPolicyError", err)
+			}
+		})
+	}
+}
+
+func TestPolicy_RestrictWritesTo_AllowsMissingRootAndDirectories(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing-root")
+	policy := NewPathPolicy(root, config.PathsConfig{})
+	restricted := policy.RestrictWritesTo(filepath.Join(root, ".steiner", "plans"))
+	path := filepath.Join(root, ".steiner", "plans", "new", "plan.md")
+	if _, err := restricted.ResolvePath(path, true); err != nil {
+		t.Fatalf("ResolvePath(%q) error = %v", path, err)
+	}
+}
+
+func TestPolicy_RestrictWritesTo_AllowsSymlinkedRoot(t *testing.T) {
+	realRoot := t.TempDir()
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(realRoot, root); err != nil {
+		t.Fatalf("symlink root: %v", err)
+	}
+
+	policy := NewPathPolicy(root, config.PathsConfig{})
+	restricted := policy.RestrictWritesTo(filepath.Join(root, ".steiner", "plans"))
+	path := filepath.Join(root, ".steiner", "plans", "plan.md")
+	if _, err := restricted.ResolvePath(path, true); err != nil {
+		t.Fatalf("ResolvePath(%q) error = %v", path, err)
+	}
+}
+
+func TestPolicy_RestrictWritesTo_ReadsIgnoreSymlinkGate(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "file.txt"), []byte("ok"), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	plans := filepath.Join(root, ".steiner", "plans")
+	if err := os.MkdirAll(plans, 0o755); err != nil {
+		t.Fatalf("mkdir plans: %v", err)
+	}
+	link := filepath.Join(plans, "link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	policy := NewPathPolicy(root, config.PathsConfig{})
+	restricted := policy.RestrictWritesTo(plans)
+	if _, err := restricted.ResolvePath(filepath.Join(link, "file.txt"), false); err != nil {
+		t.Fatalf("ResolvePath(read %q) error = %v, want nil", link, err)
 	}
 }

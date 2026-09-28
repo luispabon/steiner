@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -72,50 +73,128 @@ func (s *Sandbox) TmpDir() string {
 }
 
 // ensurePlanModeDirs best-effort creates the plan-mode writable directories.
-// The binds fail if they still don't exist, but a failed create attempt must
-// not block sandboxing.
+// It never follows symlinks while creating .steiner or its leaf directories.
 func ensurePlanModeDirs(root string) {
-	for _, dir := range config.PlanModeWritableDirs() {
-		_ = os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755)
+	rootInfo, err := os.Stat(root)
+	if err != nil || !rootInfo.IsDir() {
+		return
 	}
+
+	steinerPath := filepath.Join(root, ".steiner")
+	if !ensurePlanModeDir(steinerPath) {
+		return
+	}
+	for _, dir := range config.PlanModeWritableDirs() {
+		path := filepath.Join(root, filepath.FromSlash(dir))
+		if filepath.Dir(path) != steinerPath {
+			continue
+		}
+		_ = ensurePlanModeDir(path)
+	}
+}
+
+func ensurePlanModeDir(path string) bool {
+	info, err := os.Lstat(path)
+	if err == nil {
+		return info.IsDir() && info.Mode()&os.ModeSymlink == 0
+	}
+	if !os.IsNotExist(err) {
+		return false
+	}
+	return os.Mkdir(path, 0o755) == nil
+}
+
+// EnsureDirectoryPath verifies or creates path below root without following
+// symlinks. The root itself may be a symlink, but no child component may be.
+func EnsureDirectoryPath(root, path string) error {
+	resolvedRoot, rel, err := prepareDirectoryPath(root, path)
+	if err != nil {
+		return err
+	}
+	if err := ensureDirectoryComponents(root, rel); err != nil {
+		return err
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil || !pathWithin(resolvedRoot, resolvedPath) {
+		return fmt.Errorf("path %q resolves outside root %q", path, root)
+	}
+	return nil
+}
+
+func prepareDirectoryPath(root, path string) (string, string, error) {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve sandbox root: %w", err)
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil || !rootInfo.IsDir() {
+		if err == nil {
+			err = fmt.Errorf("not a directory")
+		}
+		return "", "", fmt.Errorf("invalid sandbox root: %w", err)
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("path %q is outside root %q", path, root)
+	}
+	return resolvedRoot, rel, nil
+}
+
+func ensureDirectoryComponents(root, rel string) error {
+	current := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "." || part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		if err := ensureDirectoryComponent(current); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureDirectoryComponent(path string) error {
+	info, err := os.Lstat(path)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path component %q is a symlink", path)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("path component %q is not a directory", path)
+		}
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect path component %q: %w", path, err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		return fmt.Errorf("create path component %q: %w", path, err)
+	}
+	return nil
 }
 
 // WrapCommandMode wraps cmd with bubblewrap, optionally with project read-only mode.
 // Returns cmd unchanged when sandbox is disabled. When enabled but bwrap could
 // not be resolved, it fails closed with an error instead of returning cmd.
 func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cmd, error) {
+	if err := s.validateWrap(readOnlyProject); err != nil {
+		return nil, err
+	}
 	if !s.cfg.Enabled {
 		return cmd, nil
 	}
-	if s.bwrapErr != nil {
-		return nil, fmt.Errorf("sandbox enabled but unavailable: %w", s.bwrapErr)
-	}
-
-	overlayFDBase := 3 + len(cmd.ExtraFiles)
-	overlay, err := prepareSSHOverlay(sshSystemConfigPath, overlayFDBase)
-	if err != nil {
-		if overlay != nil {
-			_ = overlay.Close() // Best-effort cleanup; overlay failures must not block sandboxing.
-		}
-		overlay = nil
-	}
-
-	if readOnlyProject {
-		ensurePlanModeDirs(s.root)
-	}
-
+	overlay := s.prepareOverlay(cmd)
 	sandboxHome := filepath.Join(s.root, ".steiner", "home")
+	if err := s.prepareCache(sandboxHome, readOnlyProject); err != nil {
+		if overlay != nil {
+			_ = overlay.Close()
+		}
+		return nil, err
+	}
 	var overlayArgs []string
 	if overlay != nil {
 		overlayArgs = overlay.bwrapArgs
-	}
-	if !s.cfg.BindHostCache && s.userHome != "" && cacheMountPath(s.userHome) != "" {
-		if err := os.MkdirAll(privateCacheDir(sandboxHome), 0o755); err != nil {
-			if overlay != nil {
-				_ = overlay.Close() // Best-effort cleanup; overlay files will not be handed to a child process.
-			}
-			return nil, fmt.Errorf("create sandbox cache dir: %w", err)
-		}
 	}
 	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.cfg.HostMounts, overlayArgs, s.tmpDir, readOnlyProject, s.perms, s.cfg.BindHostCache)
 
@@ -152,6 +231,47 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cm
 	return wrapped, nil
 }
 
+func (s *Sandbox) validateWrap(readOnlyProject bool) error {
+	if !s.cfg.Enabled {
+		return nil
+	}
+	if s.bwrapErr != nil {
+		return fmt.Errorf("sandbox enabled but unavailable: %w", s.bwrapErr)
+	}
+	if readOnlyProject {
+		ensurePlanModeDirs(s.root)
+		if err := EnsureDirectoryPath(s.root, filepath.Join(s.root, ".steiner", "home")); err != nil {
+			return fmt.Errorf("unsafe plan sandbox home: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Sandbox) prepareOverlay(cmd *exec.Cmd) *sshOverlay {
+	overlay, err := prepareSSHOverlay(sshSystemConfigPath, 3+len(cmd.ExtraFiles))
+	if err != nil {
+		if overlay != nil {
+			_ = overlay.Close()
+		}
+		return nil
+	}
+	return overlay
+}
+
+func (s *Sandbox) prepareCache(sandboxHome string, readOnlyProject bool) error {
+	if s.cfg.BindHostCache || s.userHome == "" || cacheMountPath(s.userHome) == "" {
+		return nil
+	}
+	cacheRoot := s.root
+	if readOnlyProject {
+		cacheRoot = sandboxHome
+	}
+	if err := EnsureDirectoryPath(cacheRoot, privateCacheDir(sandboxHome)); err != nil {
+		return fmt.Errorf("create sandbox cache dir: %w", err)
+	}
+	return nil
+}
+
 func (s *Sandbox) trackCommandResources(cmd *exec.Cmd, overlay *sshOverlay) {
 	if overlay == nil {
 		return
@@ -186,7 +306,7 @@ func (s *Sandbox) WrapCommand(cmd *exec.Cmd) (*exec.Cmd, error) {
 // EnsureHome creates .steiner/home/ inside workspaceDir.
 func (s *Sandbox) EnsureHome() error {
 	sandboxHome := filepath.Join(s.root, ".steiner", "home")
-	if err := os.MkdirAll(sandboxHome, 0o755); err != nil {
+	if err := EnsureDirectoryPath(s.root, sandboxHome); err != nil {
 		return fmt.Errorf("create sandbox home dir: %w", err)
 	}
 	return nil
@@ -195,7 +315,7 @@ func (s *Sandbox) EnsureHome() error {
 // Cleanup removes the session-scoped tmp directory.
 // No-op when tmpDir is empty.
 func (s *Sandbox) Cleanup() error {
-	if s.tmpDir == "" {
+	if s.tmpDir == "" || (s.root != "" && safeDirectoryPath(s.root, s.tmpDir) != nil) {
 		return nil
 	}
 	if err := os.RemoveAll(s.tmpDir); err != nil {
@@ -207,7 +327,7 @@ func (s *Sandbox) Cleanup() error {
 // ResetTmp removes all entries inside tmpDir but keeps the directory.
 // No-op when tmpDir is empty. If tmpDir does not exist, returns nil.
 func (s *Sandbox) ResetTmp() error {
-	if s.tmpDir == "" {
+	if s.tmpDir == "" || (s.root != "" && safeDirectoryPath(s.root, s.tmpDir) != nil) {
 		return nil
 	}
 	entries, err := os.ReadDir(s.tmpDir)
