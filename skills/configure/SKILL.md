@@ -3,15 +3,15 @@ name: configure
 description: Safely inspect and edit Steiner YAML configuration with focused scope, minimal textual mutations, secret handling, validation, and restart guidance.
 ---
 
-Use this skill for Steiner configuration questions or edits. These workflow limits are not policy guarantees.
+Use this skill when a user asks to understand or change Steiner configuration. Access limits below are instructions for this workflow, not policy guarantees.
 
-**Set outcome and scope.** Ask desired result, project or global scope, and setting/provider. Project: `.steiner/config.yaml`; global: `~/.config/steiner/config.yaml`. Global edits target only that path, never tokens, global skills, or secrets. Do not invent paths. Preserve `/config` compiled-config modal.
+**Establish outcome and scope.** Ask what result the user wants, whether it applies to the current project or all projects, and which setting or provider is involved. Treat `.steiner/config.yaml` as project scope. Treat `~/.config/steiner/config.yaml` as global scope. Global changes are limited to that exact path; never target tokens, global skills, or secrets. Do not invent another config path. Preserve the existing `/config` compiled-config modal.
 
-**Ask only needed questions:** scope, YAML path, value, and whether sensitive values can use an environment reference. Avoid full config reads when a focused path or excerpt suffices.
+**Ask focused questions.** Resolve only questions needed for the requested change: target scope, exact YAML path, desired value, and whether an environment-variable reference is available for sensitive values. Do not read the full config when a focused path or user-provided excerpt is enough.
 
-**Protect secrets.** Never inspect or reveal tokens, global skills, or existing secrets. Get consent before full reads that may contain secrets. Prefer `api_key_env` or `${VAR}`. Write literal secrets only with user confirmation; never echo them in responses, diffs, logs, or commands. Redact resolved output by default; get separate consent to show it in full.
+**Handle secrets safely.** Never inspect or reveal tokens, global skills, or existing secrets. Obtain consent before any full read that may contain secrets. Prefer an environment reference such as `api_key_env` or `${VAR}`. Write a literal secret only after the user confirms that choice; never echo the literal or an existing secret in a response, diff, log, or command. Redact secret-bearing resolved output by default and obtain separate consent before showing it in full.
 
-**Edit minimally.** Change only requested YAML text; preserve comments, formatting, order, and other settings. Use `mutate`, not `bash`. Global edits use exact-path mutate approval, with no sandbox exception. Do not claim this skill enforces filesystem or secret policy. Report paths and explain precedence when both scopes may apply.
+**Edit minimally.** Make the smallest YAML text mutation for the requested path. Preserve comments, formatting, ordering, and unrelated settings. Use `mutate`, never `bash`, to edit files. For global edits, use the existing exact-path mutate approval; there is no sandbox exception. Do not claim this skill enforces filesystem or secret access policy. Report changed paths and explain precedence when both scopes may work.
 
 **Validate and close.** After the user consents to validation, run `steiner config >/dev/null` as the safe validation command. Report any load errors emitted on stderr, and explain that this validates the effective merged configuration chain for the invocation directory, not one file alone. Do not print resolved configuration unless the user consents and sensitive values are redacted, or the user explicitly consents to a full secret-bearing read. Tell the user that a restart of `steiner` is required for configuration changes to take effect.
 
