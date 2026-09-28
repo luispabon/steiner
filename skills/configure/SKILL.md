@@ -80,10 +80,10 @@ Sole canonical compact reference for safe configuration edits; use this file as 
 | `permissions.docker`|bool|`false`|Allow Docker socket access; else masked. |
 | `sub_agent.enabled`|bool|`true`|Enable child agents. |
 | `sub_agent.orchestration_level`|string|`standard`|`low` or `standard` delegation steering. |
-| `sub_agent.max_turns`|int|`30`|Per-child turns (min 15). |
-| `sub_agent.max_tokens`|int|`100000`|Per-child token limit. |
+| `sub_agent.max_turns`|int|`120`|Hard cap per child run; floor 15. An explicit `30` from the former default remains a 30-turn cap. |
+| `sub_agent.max_tokens`|int|`400000`|Cumulative input and output token limit per child run. |
 | `sub_agent.max_parallel`|int|`3`|Concurrent delegation calls. |
-| `sub_agent.max_follow_ups`|int|`5`|Follow-ups. |
+| `sub_agent.max_follow_ups`|int|`5`|Follow-up resumes per child; at defaults, worst-case accumulated turn budget is `120 + 5×120 = 720`. |
 | `advisor.enabled`|bool|`false`|Enable advisor. |
 | `advisor.max_uses_per_run`|int|`3`|Session advisor cap (min 1). |
 | `advisor.max_uses_per_sub_agent`|int|`1`|Child advisor cap (min 1). |
