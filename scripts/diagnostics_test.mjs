@@ -39,8 +39,8 @@ test("cache mode: by-model row count and hand-computed hit rate", () => {
 	assert.equal(row.metrics.callKinds.turn, 5);
 	assert.equal(row.metrics.endpoints["eu-west-1"], 1);
 	// Compaction records are included in cache mode aggregates.
-	// nonCached = max(prompt - read - create, 0) per record, summed = 0
-	// hit_rate = 2300 / (0 + 2300 + 3000) = 0.4339...
+	// nonCached = max(prompt - read - create, 0) per record, summed = 0.
+	// hit_rate = 2320 / (0 + 2320 + 3100) = 0.4280...
 	assert.ok(Math.abs(row.metrics.hitRate - 2320 / 5420) < 1e-9);
 });
 

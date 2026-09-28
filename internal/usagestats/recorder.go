@@ -9,9 +9,8 @@ import (
 // Source identifies which call surface produced an Observation, for
 // session-scoped attribution (e.g. sidebar orchestrator-only reporting) and,
 // since schema version 2, for per-source breakdown in the persisted store's
-// buckets. It does not affect Window's grouping: rows there stay aggregated
-// across sources, so the /cache-stats overlay never sprouts duplicate rows
-// per provider/model.
+// buckets. Window splits advisor traffic into separate rows while combining
+// parent, sub-agent, and unknown-source traffic by provider and model.
 type Source int
 
 const (

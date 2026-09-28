@@ -8,6 +8,43 @@ import (
 	"testing"
 )
 
+func TestFileTrackerGenerationLifecycleIsFileWide(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\nfour\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read := func(start, end int) string {
+		content, err := json.Marshal(readResult{Path: path, StartLine: start, EndLine: end, TotalLines: 4})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(content)
+	}
+
+	var tracker FileTracker
+	tracker.RecordRead(1, read(1, 2))
+	tracker.RecordRead(2, read(3, 4))
+	if got := tracker.ReadState(path, 2); got.StartLine != 3 || got.EndLine != 4 || got.MutatedSinceRead {
+		t.Fatalf("latest read state = %+v, want lines 3-4 and no mutation", got)
+	}
+
+	if !tracker.BumpGeneration(path) {
+		t.Fatal("generation bump failed")
+	}
+	if got := tracker.ReadState(path, 2); !got.MutatedSinceRead {
+		t.Fatalf("state after file mutation = %+v, want mutation", got)
+	}
+
+	tracker.RecordRead(3, read(1, 2))
+	if got := tracker.ReadState(path, 3); got.MutatedSinceRead {
+		t.Fatalf("state after reread = %+v, want mutation cleared", got)
+	}
+	tracker.RecordMutation(path)
+	if got := tracker.ReadState(path, 3); !got.MutatedSinceRead {
+		t.Fatalf("state after second mutation = %+v, want mutation", got)
+	}
+}
+
 func TestFileTrackerReadStateAndBehavior(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "note.txt")
 	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o644); err != nil {

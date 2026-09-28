@@ -75,7 +75,7 @@ Harness-vs-harness on the same gateway: OpenCode's own sessions on `opencode-go/
 `internal/delegation/task.go:291` (`runChildToCompletion`) rebuilds the child request with
 `req.Prompt.Conversation = agent.ToProviderMessages(state.Conversation)` and calls `runner.Run` again with the **same** `ContextStateManager`. `provider.Message` has no `Ingested` field, so the flag is lost; `initializeRunState` → `PostIngestion` → `normalizeIngestedMessages` then re-runs `observeToolResult` on every historic tool message. For `read` results, `FileTracker.ObserveRead` compares against its existing tracker entry and the **current on-disk hash**, so historic reads — including the *first* full read of a file — are replaced by `[file unchanged since turn N: …]` stubs.
 
-Reproduced deterministically: `internal/agent/cache_audit_reingest_test.go` (worktree, intentionally failing):
+Reproduced deterministically: `internal/agent/reingest_regression_test.go` (worktree, intentionally failing):
 
 ```
 message 2 rewritten:

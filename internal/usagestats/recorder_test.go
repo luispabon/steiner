@@ -418,7 +418,7 @@ func TestSessionReport(t *testing.T) {
 // (which only touched internal/agent's turn_progression.go accumulation).
 // For a turn with 100 total prompt tokens where 50 were served from cache,
 // the recorded hit rate must be 50/100 = 50%, not 50/150.
-func TestSessionReportFor_lastRequestAndAdvisorGrouping(t *testing.T) {
+func TestSessionReportFor_lastRequestAndWindowAdvisorRows(t *testing.T) {
 	isolateTest(t)
 	r := New(fixedClock(baseTime))
 	r.Record(Observation{ProviderAlias: "p", BackendModelID: "m", PromptTokens: 100, CacheReadTokens: 50, Source: SourceParent, At: baseTime})

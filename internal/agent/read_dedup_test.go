@@ -30,7 +30,6 @@ func TestDedupReadResult(t *testing.T) {
 		wantAction string
 		wantReason string
 		wantTurn   int
-		wantOutput string
 	}{
 		{
 			name:       "identical earlier full read",
