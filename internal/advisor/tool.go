@@ -176,7 +176,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	}
 
 	recordAdvisorUsage(deps.UsageRecorder, deps.Model, response.Usage)
-	s.emitCacheDiagnosticWithContext(deps.Diagnostics, deps.Model, response.Usage, messages, diagnostic.fingerprint, diagnostic)
+	s.emitCacheDiagnosticWithContext(deps.Diagnostics, deps.Model, response, messages, diagnostic.fingerprint, diagnostic)
 
 	note := strings.TrimSpace(response.Message.Content)
 	truncated := response.FinishReason == "length"

@@ -16,6 +16,7 @@ import (
 type cachePayload struct {
 	ProviderAlias        string `json:"provider_alias,omitempty"`
 	BackendModelID       string `json:"backend_model_id,omitempty"`
+	UpstreamEndpoint     string `json:"upstream_endpoint,omitempty"`
 	ProviderType         string `json:"provider_type,omitempty"`
 	PromptTokens         int    `json:"prompt_tokens,omitempty"`
 	CacheReadTokens      int    `json:"cache_read_tokens,omitempty"`
@@ -40,12 +41,13 @@ type cachePayload struct {
 }
 
 //nolint:unparam // model remains part of the diagnostic emission seam.
-func (s *handlerState) emitCacheDiagnostic(writer *diagnostics.Writer, model provider.ResolvedModel, usage *provider.UsageStats, messages []provider.Message, fingerprints ...provider.WireCacheDiagnostics) {
+func (s *handlerState) emitCacheDiagnostic(writer *diagnostics.Writer, model provider.ResolvedModel, response provider.ChatResponse, messages []provider.Message, fingerprints ...provider.WireCacheDiagnostics) {
 	diagnostic := &advisorDiagnosticContext{state: s, writer: writer}
-	s.emitCacheDiagnosticWithContext(writer, model, usage, messages, firstFingerprint(fingerprints), diagnostic)
+	s.emitCacheDiagnosticWithContext(writer, model, response, messages, firstFingerprint(fingerprints), diagnostic)
 }
 
-func (s *handlerState) emitCacheDiagnosticWithContext(writer *diagnostics.Writer, model provider.ResolvedModel, usage *provider.UsageStats, messages []provider.Message, fingerprint provider.WireCacheDiagnostics, diagnostic *advisorDiagnosticContext) {
+func (s *handlerState) emitCacheDiagnosticWithContext(writer *diagnostics.Writer, model provider.ResolvedModel, response provider.ChatResponse, messages []provider.Message, fingerprint provider.WireCacheDiagnostics, diagnostic *advisorDiagnosticContext) {
+	usage := response.Usage
 	if writer == nil || !writer.Enabled(diagnostics.KindCache) || diagnostic == nil {
 		return
 	}
@@ -64,7 +66,7 @@ func (s *handlerState) emitCacheDiagnosticWithContext(writer *diagnostics.Writer
 		prompt, read, create, completion = usage.PromptTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens, usage.CompletionTokens
 	}
 	writer.Write(diagnostics.Record{Kind: diagnostics.KindCache, Source: diagnostics.SourceAdvisor, Payload: cachePayload{
-		ProviderAlias: model.ProviderAlias, BackendModelID: model.BackendModelID, ProviderType: string(model.EffectiveProviderType),
+		ProviderAlias: model.ProviderAlias, BackendModelID: model.BackendModelID, UpstreamEndpoint: response.UpstreamEndpoint, ProviderType: string(model.EffectiveProviderType),
 		PromptTokens: prompt, CacheReadTokens: read, CacheCreateTokens: create, CompletionTokens: completion,
 		CacheKeyHash: shortHash(s.cacheKey), PrefixHash: hashMessages(prefixMessages(messages)), PrefixMessageCount: len(diagnostic.prefixHashes), SharedPrefixMessages: diagnostic.sharedPrefixMessages,
 		CacheablePrefixHash: fingerprint.CacheablePrefixHash, SharedPrefixHash: fingerprint.SharedPrefixHash,

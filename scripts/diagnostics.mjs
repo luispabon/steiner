@@ -303,6 +303,8 @@ function cacheMetrics(records) {
 		cachedPerReq: n > 0 ? cacheReadSum / n : 0,
 		uncachedPerReq: n > 0 ? (nonCachedSum + cacheCreateSum) / n : 0,
 		coldStarts,
+		callKinds: Object.fromEntries([...groupBy(records, (r) => r.payload?.call_kind || "normal")].map(([kind, xs]) => [kind, xs.length])),
+		endpoints: Object.fromEntries([...groupBy(records, (r) => r.payload?.upstream_endpoint || "(unknown)")].map(([endpoint, xs]) => [endpoint, xs.length])),
 		coldWarmth: coldWarmthN > 0 ? coldWarmthSum / coldWarmthN : 0,
 	};
 }
@@ -778,6 +780,7 @@ function excludedModelRows(cacheRecords, excluded) {
 }
 
 function runColdTurns(cacheRecords, toolRecords) {
+	cacheRecords = cacheRecords.filter((r) => (r.payload?.call_kind ?? "") !== "compaction");
 	const excluded = modelsWithoutCacheReporting(cacheRecords);
 	const included = cacheRecords.filter((r) => !excluded.has(r.payload?.backend_model_id));
 	const pairs = parentTurnPairs(included, toolRecords);
@@ -819,7 +822,7 @@ function longestCommonPrefixLen(prev, cur) {
 // an interactive prompt starts a fresh turn counter, so turn numbers reset
 // within one agent group and sorting by them interleaves unrelated requests.
 function computePrefixRows(logfile) {
-	const events = readJsonl(logfile).filter((e) => e.type === "api_request");
+	const events = readJsonl(logfile).filter((e) => e.type === "api_request" && e.payload?.kind !== "compaction");
 	const groups = groupBy(events, (e) => e.scope?.agent_id ?? "");
 	const out = [];
 	for (const [agentID, evs] of groups) {

@@ -53,7 +53,7 @@ func TestEmitCacheDiagnostic_NoOpWhenStreamDisabled(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: false})
 	req := RunRequest{Diagnostics: w}
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, requestCacheStats{prefixHash: "abcd1234"})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}, "", 1, requestCacheStats{prefixHash: "abcd1234"})
 
 	if got := readCacheRecords(t, dir); len(got) != 0 {
 		t.Fatalf("records = %d, want 0 when the cache stream is disabled", len(got))
@@ -64,7 +64,7 @@ func TestEmitCacheDiagnostic_NoOpWhenUsageNil(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
 	req := RunRequest{Diagnostics: w}
-	emitCacheDiagnostic(req, nil, 1, requestCacheStats{prefixHash: "abcd1234"})
+	emitCacheDiagnostic(req, provider.ChatResponse{}, "", 1, requestCacheStats{prefixHash: "abcd1234"})
 
 	if got := readCacheRecords(t, dir); len(got) != 0 {
 		t.Fatalf("records = %d, want 0 for a nil-usage response", len(got))
@@ -75,7 +75,7 @@ func TestEmitCacheDiagnostic_NotGatedByUsageRecorder(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
 	req := RunRequest{Diagnostics: w, UsageRecorder: nil}
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, requestCacheStats{prefixHash: "abcd1234"})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}, "", 1, requestCacheStats{prefixHash: "abcd1234"})
 
 	if got := readCacheRecords(t, dir); len(got) != 1 {
 		t.Fatalf("records = %d, want 1 even with no UsageRecorder configured", len(got))
@@ -102,8 +102,8 @@ func TestEmitCacheDiagnostic_FieldsAndColdStart(t *testing.T) {
 		CacheReadInputTokens:     40,
 		CacheCreationInputTokens: 5,
 	}
-	emitCacheDiagnostic(req, usage, 3, requestCacheStats{prefixHash: "prefixhash", sharedPrefixMessages: 2})
-	emitCacheDiagnostic(req, usage, 4, requestCacheStats{prefixHash: "prefixhash2", sharedPrefixMessages: 2})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: usage}, "", 3, requestCacheStats{prefixHash: "prefixhash", sharedPrefixMessages: 2})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: usage}, "", 4, requestCacheStats{prefixHash: "prefixhash2", sharedPrefixMessages: 2})
 
 	records := readCacheRecords(t, dir)
 	if len(records) != 2 {
@@ -298,8 +298,8 @@ func TestEmitCacheDiagnostic_PredecessorKnownAlwaysEmitted(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
 	req := RunRequest{Diagnostics: w}
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, requestCacheStats{prefixHash: "aaaa"})
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 2, requestCacheStats{prefixHash: "bbbb", sharedPrefixMessages: 1, predecessorKnown: true})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}, "", 1, requestCacheStats{prefixHash: "aaaa"})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}, "", 2, requestCacheStats{prefixHash: "bbbb", sharedPrefixMessages: 1, predecessorKnown: true})
 
 	records := readCacheRecords(t, dir)
 	if len(records) != 2 {
@@ -317,8 +317,8 @@ func TestEmitCacheDiagnostic_ComparisonEnabledEmitted(t *testing.T) {
 	resetColdStart(t)
 	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
 	req := RunRequest{Diagnostics: w}
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 1, requestCacheStats{prefixHash: "aaaa", comparisonEnabled: true})
-	emitCacheDiagnostic(req, &provider.UsageStats{PromptTokens: 10}, 2, requestCacheStats{prefixHash: "bbbb"})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}, "", 1, requestCacheStats{prefixHash: "aaaa", comparisonEnabled: true})
+	emitCacheDiagnostic(req, provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}, "", 2, requestCacheStats{prefixHash: "bbbb"})
 
 	records := readCacheRecords(t, dir)
 	if len(records) != 2 {

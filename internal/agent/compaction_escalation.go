@@ -203,6 +203,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 			}()
 		}
 	}
+	stats := computeRequestCacheStats(req, chatRequest.Messages)
 	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, nil)
 	if logger != nil {
 		if logErr := logger.LogResponse(response); logErr != nil {
@@ -211,6 +212,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 	}
 	if err == nil {
 		recordModelUsage(req, response.Usage)
+		emitCacheDiagnostic(req, response, "compaction", turn, stats)
 	}
 	return response, err
 }

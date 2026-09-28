@@ -255,7 +255,7 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 	response, firstChunkTime, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream, onIssue)
 	if err == nil {
 		recordModelUsage(req, response.Usage)
-		emitCacheDiagnostic(req, response.Usage, turn, stats)
+		emitCacheDiagnostic(req, response, "", turn, stats)
 		// The provider accepted this request, so it is safe to advance the
 		// baseline now. Each baseline key scopes one conversation whose turns
 		// run one after another, so promoting here (rather than atomically with
@@ -306,7 +306,7 @@ func completeModelCall(ctx context.Context, req RunRequest, turn int, chatReques
 	retryResp, retryFirst, retryErr := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream, onIssue)
 	if retryErr == nil {
 		recordModelUsage(req, retryResp.Usage)
-		emitCacheDiagnostic(req, retryResp.Usage, turn, stats)
+		emitCacheDiagnostic(req, retryResp, "", turn, stats)
 		// See the comment on the first-attempt promote above: this retry's
 		// stats overwrote the earlier (rejected) attempt's stats via the shared
 		// onIssue closure, so promoting here still only advances the baseline
