@@ -139,14 +139,17 @@ func TestFollowUpHandler_RetainsConversationAndResetsBudget(t *testing.T) {
 	if capturedReq.Limits.MaxTokens != 77 {
 		t.Fatalf("MaxTokens=%d, want 77", capturedReq.Limits.MaxTokens)
 	}
-	if len(capturedReq.Prompt.Conversation) != 3 {
-		t.Fatalf("conversation length = %d, want 3", len(capturedReq.Prompt.Conversation))
+	if capturedReq.Prompt.Conversation != nil {
+		t.Fatalf("Prompt.Conversation = %#v, want nil for native history", capturedReq.Prompt.Conversation)
 	}
-	if capturedReq.Prompt.Conversation[0].Content != "initial task" || capturedReq.Prompt.Conversation[1].Content != "first answer" {
-		t.Fatalf("prior conversation was not retained: %#v", capturedReq.Prompt.Conversation)
+	if len(capturedReq.SourceConversation) != 3 {
+		t.Fatalf("source conversation length = %d, want 3", len(capturedReq.SourceConversation))
 	}
-	last := capturedReq.Prompt.Conversation[len(capturedReq.Prompt.Conversation)-1]
-	if last.Role != provider.MessageRoleUser || last.Content != "continue with more detail" {
+	if capturedReq.SourceConversation[0].Content != "initial task" || capturedReq.SourceConversation[1].Content != "first answer" {
+		t.Fatalf("prior conversation was not retained: %#v", capturedReq.SourceConversation)
+	}
+	last := capturedReq.SourceConversation[len(capturedReq.SourceConversation)-1]
+	if last.Role != agent.MessageRoleUser || last.Content != "continue with more detail" {
 		t.Fatalf("last follow-up message = %#v, want appended user follow-up", last)
 	}
 
@@ -341,10 +344,10 @@ func TestFollowUpHandler_ResumesFailedChildWhenSessionExists(t *testing.T) {
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
 		SessionStore: store,
 		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			if len(req.Prompt.Conversation) != 1 {
+			if len(req.SourceConversation) != 1 {
 				return agent.RunState{}, errors.New("expected follow-up to start from appended user message")
 			}
-			last := req.Prompt.Conversation[0]
+			last := req.SourceConversation[0]
 			if last.Content != "retry with narrower scope" {
 				return agent.RunState{}, errors.New("expected follow-up message to be appended")
 			}
@@ -1716,7 +1719,7 @@ func TestFollowUpHandler_ReattachesVisionImagesOnly(t *testing.T) {
 				t.Fatalf("handler returned error: %v", err)
 			}
 
-			last := capturedReq.Prompt.Conversation[len(capturedReq.Prompt.Conversation)-1]
+			last := capturedReq.SourceConversation[len(capturedReq.SourceConversation)-1]
 			if last.Content != "another question" {
 				t.Fatalf("last message content = %q, want appended follow-up", last.Content)
 			}

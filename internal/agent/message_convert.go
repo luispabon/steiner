@@ -25,6 +25,26 @@ func ToReplaySafeProviderMessages(messages []Message) []provider.Message {
 	return ToProviderMessages(ReplaySafeConversation(messages))
 }
 
+// ImageBlocksFromProvider converts provider image blocks to agent image blocks.
+func ImageBlocksFromProvider(images []provider.ImageBlock) []ImageBlock {
+	if len(images) == 0 {
+		return nil
+	}
+	out := make([]ImageBlock, len(images))
+	for i, image := range images {
+		out[i] = ImageBlock{
+			ID:        image.ID,
+			FilePath:  image.FilePath,
+			MediaType: image.MediaType,
+			Data:      image.Data,
+			Width:     image.Width,
+			Height:    image.Height,
+			SizeBytes: image.SizeBytes,
+		}
+	}
+	return out
+}
+
 func fromProviderMessages(messages []provider.Message) []Message {
 	if len(messages) == 0 {
 		return nil

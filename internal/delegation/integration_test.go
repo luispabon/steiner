@@ -859,14 +859,17 @@ func TestFollowUpSanitizesSavedDanglingToolCalls(t *testing.T) {
 	}
 
 	req := runner.reqs[0]
-	if len(req.Prompt.Conversation) < 3 {
-		t.Fatalf("len(req.Prompt.Conversation) = %d, want >= 3", len(req.Prompt.Conversation))
+	if req.Prompt.Conversation != nil {
+		t.Fatalf("Prompt.Conversation = %#v, want nil", req.Prompt.Conversation)
 	}
-	if got := req.Prompt.Conversation[1].ToolCalls; len(got) != 0 {
+	if len(req.SourceConversation) < 3 {
+		t.Fatalf("len(req.SourceConversation) = %d, want >= 3", len(req.SourceConversation))
+	}
+	if got := req.SourceConversation[1].ToolCalls; len(got) != 0 {
 		t.Fatalf("follow-up request retained dangling tool calls: %#v", got)
 	}
-	last := req.Prompt.Conversation[len(req.Prompt.Conversation)-1]
-	if last.Role != provider.MessageRoleUser || last.Content != "continue" {
+	last := req.SourceConversation[len(req.SourceConversation)-1]
+	if last.Role != agent.MessageRoleUser || last.Content != "continue" {
 		t.Fatalf("last follow-up message = %#v, want appended user follow-up", last)
 	}
 }
