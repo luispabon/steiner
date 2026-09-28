@@ -449,6 +449,11 @@ func resolvePathWithMissing(path string) (string, error) {
 		if !os.IsNotExist(err) {
 			return "", err
 		}
+		if _, lstatErr := os.Lstat(target); lstatErr == nil {
+			return "", fmt.Errorf("resolve symlink %q: %w", target, err)
+		} else if !os.IsNotExist(lstatErr) {
+			return "", lstatErr
+		}
 		parent := filepath.Dir(target)
 		if parent == target {
 			return "", err
