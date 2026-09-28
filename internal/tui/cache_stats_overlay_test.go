@@ -220,7 +220,7 @@ func TestFormatCacheStatsReportAdvisorLabelAndOrdering(t *testing.T) {
 	}
 	got := formatCacheStatsReport(rec)
 	want := "| local | model-a |"
-	if strings.Index(got, want) < 0 || strings.Index(got, "| local | model-z (advisor) |") < 0 {
+	if !strings.Contains(got, want) || !strings.Contains(got, "| local | model-z (advisor) |") {
 		t.Fatalf("report = %q, want advisor label on model", got)
 	}
 	if strings.Index(got, want) >= strings.Index(got, "| local | model-z (advisor) |") {
