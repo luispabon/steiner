@@ -460,7 +460,7 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 				SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
 				SessionStore: store,
 				Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-					if len(req.Prompt.Conversation) > 0 && strings.Contains(req.Prompt.Conversation[len(req.Prompt.Conversation)-1].Content, "Pre-remediation HEAD") {
+					if len(req.SourceConversation) > 0 && strings.Contains(req.SourceConversation[len(req.SourceConversation)-1].Content, "Pre-remediation HEAD") {
 						remediationCalls++
 						remediationRequest = req
 					}
@@ -488,7 +488,7 @@ func TestFollowUpHandler_CodeRemediationOnlyForProvisionedCodeSession(t *testing
 				if !strings.Contains(result.Output, "<remediation note: committed remaining changes; worktree left clean>") {
 					t.Fatalf("output = %q, missing remediation note", result.Output)
 				}
-				prompt := remediationRequest.Prompt.Conversation[len(remediationRequest.Prompt.Conversation)-1].Content
+				prompt := remediationRequest.SourceConversation[len(remediationRequest.SourceConversation)-1].Content
 				if !strings.Contains(prompt, wantExpectedPath) || !strings.Contains(prompt, tt.wantExpectedBranch) {
 					t.Fatalf("remediation prompt = %q, want path %q and branch %q", prompt, wantExpectedPath, tt.wantExpectedBranch)
 				}
