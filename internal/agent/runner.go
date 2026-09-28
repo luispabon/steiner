@@ -121,10 +121,9 @@ type RunRequest struct {
 	AgentID   string
 	AgentType string
 
-	// TurnBudgetNotice, when non-nil, is called once per run when the turn count
-	// crosses turnBudgetNoticeFraction of Limits.MaxTurns, to produce a message
-	// injected into the conversation. Nil disables the checkpoint entirely — the
-	// parent interactive run never sets this; only delegated children do.
+	// TurnBudgetNotice, when non-nil, produces a message appended to the
+	// conversation at each crossed turn-budget threshold. Nil disables notices.
+	// The parent interactive run never sets this; only delegated children do.
 	TurnBudgetNotice func(turnsUsed, maxTurns int) string
 }
 
