@@ -37,7 +37,7 @@ func validateSubAgentConfig(problems *[]string, cfg SubAgentConfig) {
 		return
 	}
 	if cfg.MaxTurns < MinSubAgentMaxTurns {
-		*problems = append(*problems, "sub_agent.max_turns must be at least 15 when enabled")
+		*problems = append(*problems, fmt.Sprintf("sub_agent.max_turns must be at least %d when enabled", MinSubAgentMaxTurns))
 	}
 	if cfg.MaxTokens < 1 {
 		*problems = append(*problems, "sub_agent.max_tokens must be at least 1 when enabled")
