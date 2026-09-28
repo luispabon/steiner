@@ -80,7 +80,7 @@ Canonical compact reference for safe configuration edits.
 | `permissions.docker`|bool|`false`|Allow Docker socket access; else masked. |
 | `sub_agent.enabled`|bool|`true`|Enable child agents. |
 | `sub_agent.orchestration_level`|string|`standard`|`low` or `standard` delegation steering. |
-| `sub_agent.max_turns`|int|`120`|Hard cap per child run; floor 15. Explicit former default `30` remains a 30-turn cap. |
+| `sub_agent.max_turns`|int|`120`|Hard cap per child run; must be positive when enabled. |
 | `sub_agent.max_tokens`|int|`400000`|Cumulative input and output token limit per child run. |
 | `sub_agent.max_parallel`|int|`3`|Concurrent delegation calls. |
 | `sub_agent.max_follow_ups`|int|`5`|Follow-up resumes per child; default accumulated turn budget max: `120 + 5×120 = 720`. |
@@ -121,7 +121,7 @@ Canonical compact reference for safe configuration edits.
 | `diagnostics.streams.provider`|bool|`false`|Per-call stream; subsumes stream-error log. |
 | `diagnostics.streams.tool`|bool|`false`|Tool/delegation stream; subsumes delegation log. |
 | `diagnostics.capture_bodies`|bool|`false`|Capture full message/tool/block content, mutate failure samples, and prompts, not scalars. |
-| `context_management.read_annotations`|bool|`true`|Annotate reads with path and line range. |
+| `context_management.read_annotations`|bool|`true`|Annotate a read only when an earlier identical full read with the same tool-result `file_hash` and range exists in carried conversation. |
 | `search.backend`|string|—|`searxng`, `google`, `kagi`, or `brave`; selects requirements. |
 | `search.searxng_url`|string|—|Required for `searxng`. |
 | `search.google_cx`|string|—|Required for `google`. |

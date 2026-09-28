@@ -19,7 +19,7 @@ func TestDefaultLimits(t *testing.T) {
 			name:        "zero config uses defaults",
 			cfg:         config.SubAgentConfig{},
 			wantTurns:   15,
-			wantTokens:  100000,
+			wantTokens:  400000,
 			wantTimeout: 0,
 		},
 		{
@@ -38,7 +38,7 @@ func TestDefaultLimits(t *testing.T) {
 				MaxTurns: 10,
 			},
 			wantTurns:   10,
-			wantTokens:  100000,
+			wantTokens:  400000,
 			wantTimeout: 0,
 		},
 	}

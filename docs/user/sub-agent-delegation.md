@@ -142,9 +142,9 @@ sub_agent:
   # Master switch — set to false to remove all sub-agent tools from the model.
   enabled: true
 
-  # Default limits for all sub-agents (the code applies a floor of 15 turns).
-  max_turns: 30
-  max_tokens: 100000
+  # Default limits for all sub-agents.
+  max_turns: 120
+  max_tokens: 400000
 
 models:
   profiles:
