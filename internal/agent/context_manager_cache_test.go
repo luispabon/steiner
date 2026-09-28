@@ -46,8 +46,9 @@ func TestCachedSystemPreambleCacheAndInvalidation(t *testing.T) {
 
 func TestCachedSystemPreambleMaterialInputsInvalidateCache(t *testing.T) {
 	cases := []struct {
-		name   string
-		change func(*baseContextManager) string
+		name     string
+		baseline func(*baseContextManager) string
+		change   func(*baseContextManager) string
 	}{
 		{name: "delegation enabled", change: func(manager *baseContextManager) string {
 			return manager.CachedSystemPreamble("", true, config.OrchestrationLevelStandard, false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
@@ -55,7 +56,9 @@ func TestCachedSystemPreambleMaterialInputsInvalidateCache(t *testing.T) {
 		{name: "advisor enabled", change: func(manager *baseContextManager) string {
 			return manager.CachedSystemPreamble("", false, config.OrchestrationLevel(""), true, false, prompt.ParentWorkflowMode(), false, "", false, nil)
 		}},
-		{name: "orchestration level", change: func(manager *baseContextManager) string {
+		{name: "orchestration level", baseline: func(manager *baseContextManager) string {
+			return manager.CachedSystemPreamble("", true, config.OrchestrationLevelStandard, false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
+		}, change: func(manager *baseContextManager) string {
 			return manager.CachedSystemPreamble("", true, config.OrchestrationLevelLow, false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
 		}},
 		{name: "workflow mode", change: func(manager *baseContextManager) string {
@@ -72,6 +75,9 @@ func TestCachedSystemPreambleMaterialInputsInvalidateCache(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := &baseContextManager{}
 			first := manager.CachedSystemPreamble("", false, config.OrchestrationLevel(""), false, false, prompt.ParentWorkflowMode(), false, "", false, nil)
+			if tt.baseline != nil {
+				first = tt.baseline(manager)
+			}
 			if got := tt.change(manager); got == first {
 				t.Fatal("changed input did not invalidate preamble")
 			}
