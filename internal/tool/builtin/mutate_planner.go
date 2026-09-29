@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -19,7 +20,15 @@ type mutatePlanner struct {
 }
 
 type mutateFileState struct {
-	path           string
+	path string
+	// writePath is where content is committed when path is a symlink: the
+	// fully resolved target, already re-validated through the path policy.
+	// Empty for regular files. delete_file and move act on path (the link
+	// itself), never on writePath.
+	writePath string
+	// linkDest is the raw Readlink value when path is a symlink, kept so a
+	// rolled-back delete_file can recreate the link.
+	linkDest       string
 	displayPath    string
 	originalExists bool
 	originalIsDir  bool
@@ -279,6 +288,9 @@ func (p *mutatePlanner) stateFor(rawPath string) (*mutateFileState, error) {
 		return state, nil
 	}
 	state := &mutateFileState{path: absPath, displayPath: p.displayPathFor(absPath)}
+	if err := p.resolveSymlink(state); err != nil {
+		return nil, err
+	}
 	info, err := os.Stat(absPath)
 	switch {
 	case err == nil:
@@ -302,6 +314,46 @@ func (p *mutatePlanner) stateFor(rawPath string) (*mutateFileState, error) {
 	}
 	p.states[absPath] = state
 	return state, nil
+}
+
+// resolveSymlink records the write target of state.path when it is a symlink.
+// The policy check in resolvePath covers the link path (and canonical
+// containment), but blocked and writable-allowlist prefixes are lexical, so the
+// resolved target is passed back through the same policy as a writable path.
+// A dangling link is rejected: writing would otherwise create a file at a
+// location the caller never named.
+func (p *mutatePlanner) resolveSymlink(state *mutateFileState) error {
+	fi, err := os.Lstat(state.path)
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		return nil // absent or not a link; stateFor's stat handles the rest
+	}
+	dest, err := os.Readlink(state.path)
+	if err != nil {
+		return fmt.Errorf("read symlink %q: %w: %w", state.displayPath, errMutateFatal, err)
+	}
+	target, err := filepath.EvalSymlinks(state.path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%s is a dangling symlink to %q; refusing to write through it", state.displayPath, dest)
+		}
+		return fmt.Errorf("resolve symlink %q: %w: %w", state.displayPath, errMutateFatal, err)
+	}
+	if p.env.PathPolicy != nil {
+		if target, err = p.env.PathPolicy.ResolvePath(target, true); err != nil {
+			return fmt.Errorf("symlink %s target: %w", state.displayPath, err)
+		}
+	}
+	state.linkDest = dest
+	state.writePath = target
+	return nil
+}
+
+// commitPath is the filesystem path content is written to.
+func (s *mutateFileState) commitPath() string {
+	if s.writePath != "" {
+		return s.writePath
+	}
+	return s.path
 }
 
 // displayPathFor mirrors the display-path resolution stateFor applies when
