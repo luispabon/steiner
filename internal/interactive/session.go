@@ -34,8 +34,11 @@ type Session struct {
 	handoffCoordinator  *WorkflowHandoffCoordinator
 	// conversation and lineage mirror the driver's state as of its last save.
 	// The driver is the only writer of the conversation during a session.
-	conversation       []agent.Message
-	lineage            agent.ConversationLineage
+	conversation []agent.Message
+	lineage      agent.ConversationLineage
+	// ledger mirrors the supervisor's outstanding sub-agents as of the driver's
+	// last save; it is persisted with the session so a restart can report them lost.
+	ledger             []agent.SubAgentLedgerEntry
 	driver             *driverHandle
 	sessionID          string
 	promptCacheKey     string

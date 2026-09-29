@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -25,7 +26,7 @@ type driverHandle struct {
 // newDriverLocked builds and starts a driver over conv and lineage. The caller
 // stores the handle in s.driver.
 func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.ConversationLineage) *driverHandle {
-	h := &driverHandle{lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage}}
+	h := &driverHandle{lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: s.ledger}}
 	h.drv = agent.NewConversationDriver(agent.DriverOptions{
 		Run:         s.driverRun,
 		Background:  s.deps.Background,
@@ -33,7 +34,11 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 		Save:        s.driverSave(h),
 		Events:      s.events,
 		PrepareTurn: s.prepareTurn,
+		Clock:       s.deps.Clock,
 	}, conv, lineage)
+	if s.deps.SetCompletionSink != nil {
+		s.deps.SetCompletionSink(h.drv)
+	}
 	h.drv.Start(context.Background())
 	return h
 }
@@ -50,6 +55,7 @@ func (s *Session) swapDriverLocked(apply func()) *driverHandle {
 	// The steer queue belongs to the live session: without this the old driver
 	// would drain steers meant for its successor, or for a oneshot run.
 	old.drv.DetachSteers()
+	s.ledger = nil
 	apply()
 	s.driver = s.newDriverLocked(s.conversation, s.lineage)
 	return old
@@ -101,6 +107,7 @@ func (s *Session) driverSave(h *driverHandle) func(context.Context, agent.Driver
 		if live {
 			s.conversation = snap.Conversation
 			s.lineage = snap.Lineage
+			s.ledger = snap.Ledger
 		}
 		s.mu.Unlock()
 
@@ -151,7 +158,8 @@ func snapshotUnchanged(previous *agent.DriverSnapshot, snap agent.DriverSnapshot
 		return true
 	}
 	return reflect.DeepEqual(previous.Conversation, snap.Conversation) &&
-		reflect.DeepEqual(previous.Lineage, snap.Lineage)
+		reflect.DeepEqual(previous.Lineage, snap.Lineage) &&
+		slices.Equal(previous.Ledger, snap.Ledger)
 }
 
 // saveSnapshotAs persists lineage under a session identity that is no longer

@@ -86,6 +86,7 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 	}
 	if rt.delegationSupervisor != nil {
 		sessDeps.Background = rt.delegationSupervisor
+		sessDeps.SetCompletionSink = rt.delegationSupervisor.SetCompletionSink
 	}
 	return interactive.NewSession(sessDeps)
 }
@@ -106,7 +107,7 @@ func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) cliRuntim
 			rt.mcpManager.UpdatePlanMode(m == config.ExecutionModePlan)
 		}
 	})
-	registry := runtimeRegistryWithSinkAndMode(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox, rt.mcpManager, rt.lspManager)
+	registry := runtimeRegistryWithSinkAndMode(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox, rt.mcpManager, rt.lspManager, withPendingSubAgents(rt.delegationSupervisor))
 	rt.registry = registry
 	rt.toolNames = registry.Names()
 	rt.mcpInit = &mcpInitOnce{}

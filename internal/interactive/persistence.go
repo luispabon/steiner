@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -58,6 +59,7 @@ func (s *Session) saveSession() error {
 	sess.PromptCacheKey = s.promptCacheKey
 	sess.Mode = string(s.mode)
 	sess.Skills = s.skills.Snapshot()
+	sess.SubAgentLedger = slices.Clone(s.ledger)
 	if s.sessionTitle != "" {
 		sess = sess.WithTitle(s.sessionTitle)
 	}
@@ -168,6 +170,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		s.sessionTitle = sess.Title
 		s.sessionGroup = strings.TrimSpace(sess.Group)
 		s.mode = mode
+		s.ledger = slices.Clone(sess.SubAgentLedger)
 		s.skills.Reset()
 		for _, name := range sess.Skills {
 			s.skills.Set(name, true)
@@ -175,8 +178,11 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	})
 	listener := s.modeListener
 	msgs := append([]agent.Message(nil), s.conversation...)
+	drv := s.driver.drv
 	s.mu.Unlock()
 	s.retireDriver(old)
+
+	deliverLostSubAgents(drv, sess.SubAgentLedger)
 
 	s.bindImageStore(sess.ID, agent.NextImageIDFloor(sess.Lineage))
 
@@ -235,6 +241,20 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}))
 
 	return nil
+}
+
+// deliverLostSubAgents records each ledger entry of a loaded session as lost:
+// the previous process's sub-agents are gone. The driver settles them without
+// a run and saves with the supervisor's (empty) ledger, clearing the stored one.
+func deliverLostSubAgents(drv *agent.ConversationDriver, ledger []agent.SubAgentLedgerEntry) {
+	if len(ledger) == 0 {
+		return
+	}
+	lost := make([]agent.SubAgentCompletion, len(ledger))
+	for i, entry := range ledger {
+		lost[i] = agent.LostSubAgentCompletion(entry)
+	}
+	drv.DeliverCompletions(lost)
 }
 
 // bindImageStore scopes the image store to sessionID, emitting a non-fatal

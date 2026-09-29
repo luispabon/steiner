@@ -154,7 +154,11 @@ func TestAsyncSubAgentGroupDeliveredTogetherAfterSeal(t *testing.T) {
 
 	sup.SealBatch("batch-1")
 	batch := recvBatch(t, sink)
-	if len(batch) != 2 || batch[0].AgentID != ids[0] || batch[1].AgentID != ids[1] {
+	if len(batch) != 2 || batch[0].Seq >= batch[1].Seq {
+		t.Fatalf("batch = %+v, want two completions in ascending Seq order", batch)
+	}
+	got := map[string]bool{batch[0].AgentID: true, batch[1].AgentID: true}
+	if !got[ids[0]] || !got[ids[1]] {
 		t.Fatalf("batch = %+v, want both agents %v together", batch, ids)
 	}
 }

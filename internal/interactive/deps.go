@@ -127,4 +127,9 @@ type Dependencies struct {
 	// Background is the sub-agent supervisor the conversation driver consults.
 	// Nil when the session has no sub-agents.
 	Background agent.BackgroundAgents
+	// SetCompletionSink installs the driver as the supervisor's completion
+	// sink each time the session builds one, replacing a retired driver.
+	SetCompletionSink func(agent.CompletionSink)
+	// Clock drives the driver's completion coalescing window; nil is real time.
+	Clock agent.Clock
 }

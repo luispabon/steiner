@@ -95,7 +95,9 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	rt.streamErrorLog = streamErrorLog
 	providerFactory := buildRuntimeProviderFactory(httpClient, streamErrorLog)
 	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
-	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir)
+	delegationActiveController := delegation.NewActiveController()
+	delegationSupervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: max(cfg.SubAgent.MaxParallel, 1), Controller: delegationActiveController, Events: events})
+	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir, delegationSupervisor)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
 	if err != nil {
 		closeRuntime(&rt)
@@ -154,7 +156,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 
 	// Rebuild registry with sandbox, MCP and LSP tools now that workDir and homeDir are known.
 	if sb != nil || mcpMgr != nil || lspMgr != nil {
-		registry = buildRuntimeRegistryWithSandbox(cfg, workDir, sb, mcpMgr, lspMgr)
+		registry = buildRuntimeRegistryWithSandbox(cfg, workDir, sb, mcpMgr, lspMgr, delegationSupervisor)
 	}
 	historyWriter, sessionStore, err := buildRuntimeSessionStores(homeDir)
 	if err != nil {
@@ -165,7 +167,6 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	closeFn = joinClosers(closeFn, approvalClose)
 	rt.closeFn = closeFn
 
-	delegationActiveController := delegation.NewActiveController()
 	return cliRuntime{
 		cfg:                          cfg,
 		sandboxStatus:                status,
@@ -200,7 +201,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		delegationSessionStore:       delegation.NewSessionStore(),
 		delegationCacheKeyStore:      delegation.NewCacheKeyStore(),
 		delegationActiveController:   delegationActiveController,
-		delegationSupervisor:         delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: max(cfg.SubAgent.MaxParallel, 1), Controller: delegationActiveController, Events: events}),
+		delegationSupervisor:         delegationSupervisor,
 		delegationAdvisorBudgetStore: delegation.NewAdvisorBudgetStore(),
 		advisorState:                 advisor.NewSharedState(),
 		compactionLogFile:            compactionLogFile,
@@ -246,14 +247,14 @@ func runtimeHTTPClient() *http.Client {
 	}
 }
 
-func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox, workDir string) (string, *tool.Registry) {
-	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, nil, nil)
+func buildRuntimeRegistry(cfg config.Config, sb *sandbox.Sandbox, workDir string, sup *delegation.Supervisor) (string, *tool.Registry) {
+	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, nil, nil, withPendingSubAgents(sup))
 	return workDir, registry
 }
 
 // buildRuntimeRegistryWithSandbox rebuilds the registry for a known workDir with a sandbox, MCP and LSP tools.
-func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox, mcpMgr *mcp.Manager, lspMgr *lsp.Manager) *tool.Registry {
-	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, mcpMgr, lspMgr)
+func buildRuntimeRegistryWithSandbox(cfg config.Config, workDir string, sb *sandbox.Sandbox, mcpMgr *mcp.Manager, lspMgr *lsp.Manager, sup *delegation.Supervisor) *tool.Registry {
+	registry := runtimeRegistryWithSinkAndMode(cfg, workDir, nil, false, nil, sb, mcpMgr, lspMgr, withPendingSubAgents(sup))
 	return registry
 }
 
