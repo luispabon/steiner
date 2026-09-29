@@ -459,7 +459,8 @@ func TestConversationDriverCompactionDeferredWhileGenerating(t *testing.T) {
 	compacted := make(chan []Message, 1)
 	h.d.RequestCompaction(func(_ context.Context, conv []Message) ([]Message, ConversationLineage, error) {
 		compacted <- conv
-		return []Message{{Role: MessageRoleUser, Content: "summary"}}, ConversationLineage{}, nil
+		summary := []Message{{Role: MessageRoleUser, Content: "summary"}}
+		return summary, newConversationLineage(summary), nil
 	})
 	select {
 	case <-compacted:
@@ -487,6 +488,14 @@ func TestConversationDriverCompactionDeferredWhileGenerating(t *testing.T) {
 			}
 			if snap.Conversation[0].Content != "summary" {
 				t.Fatalf("conversation = %+v, want summary first", snap.Conversation)
+			}
+			lineage := snap.Lineage.FullMessages()
+			if len(lineage) != 2 || lineage[1].Content != snap.Conversation[1].Content {
+				t.Fatalf("snapshot lineage = %+v, want summary plus pending message", lineage)
+			}
+			reloaded := NewConversationDriver(DriverOptions{}, snap.Conversation, snap.Lineage).Snapshot()
+			if got := reloaded.Lineage.FullMessages(); len(got) != 2 || got[1].Content != snap.Conversation[1].Content {
+				t.Fatalf("reloaded lineage = %+v, want summary plus pending message", got)
 			}
 			return
 		}
