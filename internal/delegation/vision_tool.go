@@ -67,7 +67,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			return nil, childSetupError(err)
 		}
 		spec.Limits = limits
-		plan := &delegatePlan{req: req, limits: limits, modelAlias: req.ResolvedModel.Alias}
+		plan := &delegatePlan{req: req, limits: limits, modelAlias: req.ResolvedModel.Alias, group: inputGroup(input)}
 		result, err := runRegisteredDelegate(ctx, deps, spec, plan, "vision", func(result tool.ExecutionResult) tool.ExecutionResult {
 			return result
 		})

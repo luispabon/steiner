@@ -2,6 +2,7 @@ package delegation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 
@@ -57,6 +58,8 @@ type delegatePlan struct {
 	// supervisor goroutine before the child is registered.
 	provision   func(ctx context.Context, plan *delegatePlan) error
 	provisioned bool
+	// group is the optional async result-group label from the tool input.
+	group string
 }
 
 // ready reports whether the plan's request and worktree are populated.
@@ -64,14 +67,16 @@ func (p *delegatePlan) ready() bool {
 	return p.provision == nil || p.provisioned
 }
 
-// superviseDelegate runs a child through the supervisor and blocks for its
-// result. prepare, when set, provisions the worktree at dequeue time.
-// setupFailed runs when the child never started (rejected at enqueue or failed
-// to prepare).
+// superviseDelegate runs a child through the supervisor. In blocking mode it
+// waits for the result; with deps.AsyncSubAgents it returns an ack and the
+// result is delivered later through the completion sink. prepare, when set,
+// provisions the worktree at dequeue time. setupFailed runs when the child
+// never started (rejected at enqueue or failed to prepare).
 func superviseDelegate(
 	ctx context.Context,
 	deps SubAgentHandlerDeps,
 	spec Spec,
+	group string,
 	worktree CodeWorktree,
 	prepare func(childCtx context.Context) (CodeWorktree, error),
 	execute func(childCtx context.Context) (tool.ExecutionResult, error),
@@ -79,10 +84,11 @@ func superviseDelegate(
 	setupFailed func(),
 ) (tool.ExecutionResult, error) {
 	var began atomic.Bool
-	result, err := deps.Supervisor.SpawnAndWait(ctx, ChildJob{
+	job := ChildJob{
 		AgentID:          spec.AgentID,
 		AgentType:        spec.AgentType,
 		ParentCallID:     spec.ParentCallID,
+		Group:            group,
 		ObjectivePreview: truncateTaskPreview(spec.Task, 120),
 		Worktree:         worktree,
 		Prepare:          prepare,
@@ -94,7 +100,21 @@ func superviseDelegate(
 			began.Store(true)
 			return cancelledBeforeStart()
 		},
-	})
+	}
+	if deps.AsyncSubAgents {
+		ticket, err := deps.Supervisor.Spawn(ctx, job)
+		if err == nil {
+			return ackExecutionResult(ticket), nil
+		}
+		if setupFailed != nil {
+			setupFailed()
+		}
+		if errors.Is(err, ErrOutstandingCap) {
+			return tool.ExecutionResult{}, err
+		}
+		return tool.ExecutionResult{}, childSetupError(err)
+	}
+	result, err := deps.Supervisor.SpawnAndWait(ctx, job)
 	if err == nil {
 		return result, nil
 	}
@@ -127,7 +147,7 @@ func runRegisteredDelegate(
 			return plan.worktree, nil
 		}
 	}
-	return superviseDelegate(ctx, sub, spec, plan.worktree, prepare,
+	return superviseDelegate(ctx, sub, spec, plan.group, plan.worktree, prepare,
 		func(childCtx context.Context) (tool.ExecutionResult, error) {
 			return executeRegisteredDelegate(childCtx, sub, spec, plan, failureLabel, decorate)
 		},

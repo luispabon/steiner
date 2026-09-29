@@ -169,13 +169,22 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 	}, nil
 }
 
+// lastUserPrompt returns the run preview: the last real user message, or
+// "sub-agent results (N)" when the trailing user message only delivers results.
 func lastUserPrompt(messages []agent.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == agent.MessageRoleUser {
+		if agent.IsRealUserMessage(messages[i]) {
 			return strings.TrimSpace(messages[i].Content)
+		}
+		if messages[i].Role == agent.MessageRoleUser {
+			return fmt.Sprintf("sub-agent results (%d)", countSubAgentResults(messages[i].Content))
 		}
 	}
 	return ""
+}
+
+func countSubAgentResults(content string) int {
+	return max(strings.Count(content, "<steiner-sub-agent-result"), 1)
 }
 
 func toProviderConversation(messages []agent.Message) []provider.Message {

@@ -1210,3 +1210,27 @@ type stubChatProvider struct{ provider.Provider }
 func (stubChatProvider) ChatCompletion(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
 	return provider.ChatResponse{}, nil
 }
+
+func TestLastUserPromptSkipsSubAgentResults(t *testing.T) {
+	results := agent.Message{
+		Role:    agent.MessageRoleUser,
+		Source:  agent.MessageSourceSubAgentResult,
+		Content: "<steiner-sub-agent-result agent_id=\"a\">x</steiner-sub-agent-result>\n\n<steiner-sub-agent-result agent_id=\"b\">y</steiner-sub-agent-result>",
+	}
+	tests := []struct {
+		name string
+		msgs []agent.Message
+		want string
+	}{
+		{name: "real user last", msgs: []agent.Message{{Role: agent.MessageRoleUser, Content: " hi "}}, want: "hi"},
+		{name: "results only", msgs: []agent.Message{{Role: agent.MessageRoleUser, Content: "hi"}, {Role: agent.MessageRoleAssistant, Content: "ok"}, results}, want: "sub-agent results (2)"},
+		{name: "empty", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := lastUserPrompt(tt.msgs); got != tt.want {
+				t.Errorf("lastUserPrompt = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

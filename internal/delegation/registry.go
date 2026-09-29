@@ -109,6 +109,10 @@ type DelegateDeps struct {
 	// Supervisor runs child delegations. When nil, a private one is created from
 	// SubAgentCfg.MaxParallel over ActiveController.
 	Supervisor *Supervisor
+	// AsyncSubAgents switches sub_agent and follow_up to non-blocking spawns and
+	// adds the optional group parameter to the sub_agent schema. It is fixed for
+	// the session so tool definitions stay stable.
+	AsyncSubAgents bool
 	// ChildEvents receives child and Delegation* events. Children outlive the
 	// run that spawned them, so callers pass a runtime-lifetime sink here rather
 	// than a per-run one. When nil, Events is used.
@@ -322,6 +326,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		SessionStore:          store,
 		ActiveController:      deps.ActiveController,
 		Supervisor:            deps.Supervisor,
+		AsyncSubAgents:        deps.AsyncSubAgents,
 		ExtraAllowedTools:     deps.ExtraAllowedTools,
 		UsageRecorder:         deps.UsageRecorder,
 		SandboxTmpDir:         deps.SandboxTmpDir,

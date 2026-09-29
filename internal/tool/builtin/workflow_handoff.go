@@ -102,6 +102,11 @@ func NewWorkflowHandoffTool(env Env) tool.ToolDef {
 }
 
 func handleWorkflowHandoff(ctx context.Context, env Env, input map[string]any) (any, error) {
+	if env.PendingSubAgents != nil {
+		if n := env.PendingSubAgents(); n > 0 {
+			return nil, fmt.Errorf("workflow_handoff: %d sub-agent(s) are still outstanding; wait for their results or cancel them before handing off", n)
+		}
+	}
 	in, err := decodeInput[WorkflowHandoffInput](input)
 	if err != nil {
 		return nil, fmt.Errorf("workflow_handoff: %w", err)

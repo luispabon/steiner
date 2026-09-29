@@ -15,7 +15,7 @@ Sub-agent delegation is **enabled by default**. When it is, the model sees two a
 
 | Tool        | What it does                                                                     | Parameters                                                                           | Can mutate?            |
 |-------------|-------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------|------------------------|
-| `sub_agent` | Dispatch a specialized sub-agent by type: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision` | `type` enum + `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks`, and optionally `image_id` (required for type `vision`) | Depends on type; only `code` can mutate |
+| `sub_agent` | Dispatch a specialized sub-agent by type: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision` | `type` enum + `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks`, and optionally `image_id` (required for type `vision`) and, in async sessions, `group` | Depends on type; only `code` can mutate |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                                                  | No (resumes existing)  |
 
 The `sub_agent` tool routes to type-specific handlers with purpose-built system prompts and tool allowlists. Delegation results sent to the provider use a compact envelope with exact `output`, optional `status` and `reason` (the real error on failure, or the cancellation explanation), and optional persisted-session continuation. On usage-limit failures, the reason also includes fixed guidance: the parent is told to delegate a fresh sub-agent to continue or stop delegating and inform the user. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
@@ -55,6 +55,14 @@ Every sub-agent receives AGENTS.md (global + project) except `vision`, which can
 | `sanity_check` | Yes       | No                            |
 | `review`       | Yes       | Yes                           |
 | `vision`       | No        | No                            |
+
+### Async delegation
+
+In async sessions `sub_agent` (every type, including `vision`) and `follow_up` return an ack immediately instead of blocking: status `running`, or `queued` when `sub_agent.max_parallel` children are already running, plus the `agent_id` in `continuation`. The result arrives later as a separate message. Non-interactive `exec` runs stay blocking. Oneshot phases stay blocking until they are moved onto the async path.
+
+Async `sub_agent` accepts an optional `group` label. Calls made in the same assistant response that share a label are delivered together once all of them have finished; groups never span responses. Calls without a label deliver as each finishes. The `group` parameter is part of the tool schema only in async sessions, so the tool definitions stay identical across turns.
+
+Running plus queued sub-agents are capped at twice `max_parallel`; a spawn over the cap fails with a tool error. `follow_up` fails with a tool error while the target agent is running, queued, or finished with a result not yet delivered. `workflow_handoff` fails while any sub-agent is still outstanding.
 
 ### `follow_up`
 

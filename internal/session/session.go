@@ -26,6 +26,8 @@ type Session struct {
 	// shares its parent's value, so two session files can carry the same key.
 	// Empty on records written before this field existed; always read via CacheKey.
 	PromptCacheKey string `json:"prompt_cache_key,omitempty"`
+	// SubAgentLedger records sub-agents still outstanding when the session was saved.
+	SubAgentLedger []agent.SubAgentLedgerEntry `json:"sub_agent_ledger,omitempty"`
 }
 
 // CacheKey returns the session's prompt cache key, falling back to the session ID

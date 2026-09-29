@@ -60,6 +60,9 @@ func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, inpu
 }
 
 func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandlerDeps) (any, error) {
+	if pendingID, _ := input["agent_id"].(string); deps.AsyncSubAgents && deps.Supervisor.IsPending(pendingID) {
+		return nil, fmt.Errorf("follow_up: agent %s is still running, queued, or has a result you have not received yet; wait for its result or cancel it first", pendingID)
+	}
 	agentID, message, session, err := validateFollowUp(input, deps)
 	if err != nil {
 		return nil, err
@@ -100,7 +103,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			Branch: session.Remediation.ExpectedBranch,
 		}
 	}
-	result, err := superviseDelegate(ctx, deps, spec, worktree, nil,
+	result, err := superviseDelegate(ctx, deps, spec, "", worktree, nil,
 		func(childCtx context.Context) (tool.ExecutionResult, error) {
 			return executeFollowUp(childCtx, deps, spec, req, session, isCode)
 		},

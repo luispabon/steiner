@@ -731,3 +731,31 @@ func toString(v any) string {
 	}
 	return string(data)
 }
+
+func TestWorkflowHandoffToolRefusesWhileSubAgentsPending(t *testing.T) {
+	tests := []struct {
+		name    string
+		pending func() int
+		wantErr bool
+	}{
+		{name: "nil counter", pending: nil},
+		{name: "zero pending", pending: func() int { return 0 }},
+		{name: "outstanding", pending: func() int { return 2 }, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env, events := workflowHandoffTestEnv(t, false, nil)
+			env.PendingSubAgents = tt.pending
+			_, err := NewWorkflowHandoffTool(env).Handler(context.Background(), map[string]any{
+				"next":   "review",
+				"target": ".steiner/plans/step-1",
+			})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if len(*events) != 0 {
+				t.Fatalf("events len = %d, want 0", len(*events))
+			}
+		})
+	}
+}

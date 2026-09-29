@@ -74,50 +74,58 @@ func SubAgentToolDef(deps SpecializedToolDeps, excludeTypes []AgentType) tool.To
 
 	typeDescription := strings.Join(typeDescriptionParts, " | ")
 
+	properties := map[string]any{
+		"type": map[string]any{
+			"type":        "string",
+			"enum":        enumValues,
+			"description": typeDescription,
+		},
+		"objective": map[string]any{
+			"type":        "string",
+			"description": "The single outcome this child must achieve.",
+		},
+		"context": map[string]any{
+			"type":        "string",
+			"description": "Relevant paths, symbols, excerpts and background: why this task exists, how it fits the caller's larger plan, decisions already made and approaches ruled out. The child cannot see the caller's conversation and will not otherwise learn any of this.",
+		},
+		"deliverable": map[string]any{
+			"type":        "string",
+			"description": "The exact artifact or answer to return, and its shape.",
+		},
+		"constraints": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Boundaries, preserved behaviour, allowed scope, prohibited actions.",
+		},
+		"success_criteria": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Observable conditions for completion.",
+		},
+		"checks": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Applicable commands or validations to run.",
+		},
+		"image_id": map[string]any{
+			"type":        "string",
+			"description": "Required when type is \"vision\". The image ID to examine (e.g. 'img-1'). Shown in the image placeholder in the conversation.",
+		},
+	}
+	if deps.AsyncSubAgents {
+		properties["group"] = map[string]any{
+			"type":        "string",
+			"description": "Optional label grouping calls made in the same response so their results arrive together.",
+		}
+	}
+
 	return tool.ToolDef{
 		Name:        SubAgentToolName,
 		Description: "Spawn a specialized sub-agent of the given type; see the type parameter for what each type does.",
 		ParameterSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"type": map[string]any{
-					"type":        "string",
-					"enum":        enumValues,
-					"description": typeDescription,
-				},
-				"objective": map[string]any{
-					"type":        "string",
-					"description": "The single outcome this child must achieve.",
-				},
-				"context": map[string]any{
-					"type":        "string",
-					"description": "Relevant paths, symbols, excerpts and background: why this task exists, how it fits the caller's larger plan, decisions already made and approaches ruled out. The child cannot see the caller's conversation and will not otherwise learn any of this.",
-				},
-				"deliverable": map[string]any{
-					"type":        "string",
-					"description": "The exact artifact or answer to return, and its shape.",
-				},
-				"constraints": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "string"},
-					"description": "Boundaries, preserved behaviour, allowed scope, prohibited actions.",
-				},
-				"success_criteria": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "string"},
-					"description": "Observable conditions for completion.",
-				},
-				"checks": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "string"},
-					"description": "Applicable commands or validations to run.",
-				},
-				"image_id": map[string]any{
-					"type":        "string",
-					"description": "Required when type is \"vision\". The image ID to examine (e.g. 'img-1'). Shown in the image placeholder in the conversation.",
-				},
-			},
-			"required": []any{"type", "objective", "context", "deliverable", "constraints", "success_criteria", "checks"},
+			"type":       "object",
+			"properties": properties,
+			"required":   []any{"type", "objective", "context", "deliverable", "constraints", "success_criteria", "checks"},
 		},
 		Handler: newSubAgentDispatchHandler(deps, excluded),
 	}
@@ -287,6 +295,11 @@ func applyCodeWorktreeResult(result tool.ExecutionResult, worktree CodeWorktree,
 		result.Value = delegationResult
 	}
 	return result
+}
+
+func inputGroup(input map[string]any) string {
+	group, _ := input["group"].(string)
+	return strings.TrimSpace(group)
 }
 
 func nonEmptyLines(s string) []string {
@@ -479,6 +492,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			spec.Limits = limits
 		}
 		plan.modelAlias = resolvedModel.Alias
+		plan.group = inputGroup(input)
 		result, err := runRegisteredDelegate(ctx, deps, spec, plan, string(agentType), func(result tool.ExecutionResult) tool.ExecutionResult {
 			if dr, ok := result.Value.(Result); ok {
 				dr.AdvisorBudget = spec.AdvisorBudget
