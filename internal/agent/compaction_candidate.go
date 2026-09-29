@@ -13,27 +13,29 @@ func makeCompactionCandidate(candidate ConversationCandidate, source, retained [
 }
 
 func selectCompactionCandidate(lineage ConversationLineage, skipped map[string]bool) (ConversationCandidate, bool) {
-	candidates := lineage.Candidates()
-	if len(candidates) == 0 {
+	latest, ok := lineage.Latest()
+	if !ok {
 		return ConversationCandidate{}, false
 	}
 
-	bestIndex := -1
-	for i, candidate := range candidates {
-		if len(candidate.Messages) == 0 {
+	var best ConversationCandidate
+	found := false
+	for _, candidate := range lineage.Candidates() {
+		if candidate.GenerationID != latest.ID || len(candidate.Messages) == 0 {
 			continue
 		}
 		if skipped != nil && skipped[compactionCandidateKey(candidate)] {
 			continue
 		}
-		if bestIndex < 0 || richerCandidate(candidate, candidates[bestIndex]) {
-			bestIndex = i
+		if !found || richerCandidate(candidate, best) {
+			best = candidate
+			found = true
 		}
 	}
-	if bestIndex < 0 {
+	if !found {
 		return ConversationCandidate{}, false
 	}
-	return candidates[bestIndex], true
+	return best, true
 }
 
 func richerCandidate(a, b ConversationCandidate) bool {
