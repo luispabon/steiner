@@ -189,6 +189,12 @@ func (state *openAIStreamState) toolCallAccumulator(toolCall openAIToolCall, pos
 		if toolCall.ID == "" && len(accumulators) > 0 {
 			return accumulators[0]
 		}
+		if toolCall.ID == "" {
+			if acc := state.priorIndexlessToolCall(position, *toolCall.Index); acc != nil {
+				state.bindToolCall(acc, toolCall.Index, position)
+				return acc
+			}
+		}
 		acc := &openAIToolCallAccumulator{}
 		state.toolCalls[*toolCall.Index] = append(accumulators, acc)
 		state.bindToolCallID(acc, toolCall.ID)
@@ -225,6 +231,33 @@ func (state *openAIStreamState) anonymousToolCall(index *int, position int) *ope
 		}
 	}
 	return nil
+}
+
+// priorIndexlessToolCall returns the earlier index-less accumulator at position
+// that an indexed, ID-less fragment continues, or nil when it must not be
+// reused. The fragment is merged only when no other index-less call occupies
+// the fragment's index and the candidate is not already bound to a different
+// index; either case signals a parallel call whose position cannot be
+// reconciled.
+func (state *openAIStreamState) priorIndexlessToolCall(position, index int) *openAIToolCallAccumulator {
+	acc := state.indexlessToolCallsByPosition[position]
+	if acc == nil {
+		return nil
+	}
+	if other := state.indexlessToolCallsByPosition[index]; other != nil && other != acc {
+		return nil
+	}
+	for existingIndex, accumulators := range state.toolCalls {
+		if existingIndex == index {
+			continue
+		}
+		for _, existing := range accumulators {
+			if existing == acc {
+				return nil
+			}
+		}
+	}
+	return acc
 }
 
 func (state *openAIStreamState) bindToolCall(acc *openAIToolCallAccumulator, index *int, position int) {
