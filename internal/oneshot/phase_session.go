@@ -3,6 +3,7 @@ package oneshot
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -39,23 +40,27 @@ func (p *phaseSession) id() string {
 
 // save persists a driver snapshot to the phase session.
 func (p *phaseSession) save(_ context.Context, snap agent.DriverSnapshot) error {
-	return p.saveLineage(lineageOf(snap.Lineage, snap.Conversation))
+	return p.saveState(lineageOf(snap.Lineage, snap.Conversation), snap.Ledger)
 }
 
 // saveResult does the final save from a finished run. A result without any
-// conversation leaves what the driver already saved untouched.
+// conversation leaves what the driver already saved, ledger included, untouched.
 func (p *phaseSession) saveResult(result RunResult) error {
 	lineage := lineageOf(result.Lineage, result.Conversation)
 	if lineage.Empty() {
 		return nil
 	}
-	return p.saveLineage(lineage)
+	p.mu.Lock()
+	ledger := p.sess.SubAgentLedger
+	p.mu.Unlock()
+	return p.saveState(lineage, ledger)
 }
 
-func (p *phaseSession) saveLineage(lineage agent.ConversationLineage) error {
+func (p *phaseSession) saveState(lineage agent.ConversationLineage, ledger []agent.SubAgentLedgerEntry) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	next := p.sess.WithLineage(lineage)
+	next.SubAgentLedger = slices.Clone(ledger)
 	if err := p.store.Save(next); err != nil {
 		return fmt.Errorf("save phase session: %w", err)
 	}

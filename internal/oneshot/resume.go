@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/session"
 )
 
 // Resume reopens the run described by the manifest and restarts from the first incomplete phase.
@@ -76,6 +78,8 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 		return Manifest{}, fmt.Errorf("resume run: %s is already complete", manifest.RunID)
 	}
 
+	o.reportOrphanedWorktrees(manifest, startPhase)
+
 	interruptCtx, interruptStop := o.deps.InterruptFactory(ctx)
 	defer interruptStop()
 
@@ -133,6 +137,35 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 	o.finalizeRun(ctx, store, &manifest, planningPath)
 
 	return manifest, nil
+}
+
+// sessionLoader is the optional read side of a SessionStore; stores that
+// cannot load sessions simply yield no orphan report.
+type sessionLoader interface {
+	Load(id string) (session.Session, error)
+}
+
+// reportOrphanedWorktrees lists the worktrees of sub-agents that were still
+// running when the interrupted phase died. The phase is restarted regardless
+// and lost envelopes are never delivered; agents without a worktree are
+// skipped since there is nothing on disk to inspect.
+func (o *Orchestrator) reportOrphanedWorktrees(manifest Manifest, phase Phase) {
+	id := strings.TrimSpace(manifest.PhaseSessionIDs[phase])
+	loader, ok := o.deps.SessionStore.(sessionLoader)
+	if id == "" || !ok {
+		return
+	}
+	sess, err := loader.Load(id)
+	if err != nil {
+		return
+	}
+	for _, entry := range sess.SubAgentLedger {
+		if strings.TrimSpace(entry.WorktreePath) == "" {
+			continue
+		}
+		emitPhaseIndicator(o.deps.Events, manifest.RunID, phase, phaseIndicatorOrphaned,
+			fmt.Sprintf("worktree left by interrupted sub-agent %s: %s", entry.AgentID, entry.WorktreePath))
+	}
 }
 
 func firstIncompletePhase(manifest Manifest) (Phase, bool) {

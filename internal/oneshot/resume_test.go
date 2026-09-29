@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -661,5 +663,54 @@ func TestListResumableRuns(t *testing.T) {
 	}
 	if got, want := runs[1].LockState, lockStateStale.String(); got != want {
 		t.Fatalf("runs[1].LockState = %q, want %q", got, want)
+	}
+}
+
+type loadingSessionStore struct {
+	*recordingSessionStore
+	seeded map[string]session.Session
+}
+
+func (s loadingSessionStore) Load(id string) (session.Session, error) {
+	if sess, ok := s.seeded[id]; ok {
+		return sess, nil
+	}
+	return session.Session{}, os.ErrNotExist
+}
+
+func TestResumeReportsOrphanedWorktreesAndRestartsPhase(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "orphan123", Slug: "orphan-report"}
+	manifest, store, recording, orch := setupResumeTestFixture(t, projectRoot, identity)
+	manifest.PhaseSessionIDs = map[Phase]string{PhaseImplement: "old-session"}
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("rewrite manifest: %v", err)
+	}
+	orch.deps.SessionStore = loadingSessionStore{
+		recordingSessionStore: recording,
+		seeded: map[string]session.Session{"old-session": {ID: "old-session", SubAgentLedger: []agent.SubAgentLedgerEntry{
+			{AgentID: "a1", AgentType: "code", ParentCallID: "c1", WorktreePath: "/wt/a1"},
+			{AgentID: "a2", AgentType: "research", ParentCallID: "c2"},
+		}}},
+	}
+	var messages []string
+	orch.deps.Events = output.SinkFunc(func(event output.Event) {
+		if payload, ok := event.Payload.(output.PhaseIndicatorEvent); ok && payload.State == phaseIndicatorOrphaned {
+			messages = append(messages, payload.Message)
+		}
+	})
+
+	updated, err := orch.Resume(context.Background())
+	if err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0], "/wt/a1") || !strings.Contains(messages[0], "a1") {
+		t.Fatalf("orphan reports = %q, want one entry naming a1 and /wt/a1", messages)
+	}
+	if got := updated.PhaseStatuses[PhaseImplement]; got != PhaseStatusDone {
+		t.Fatalf("implement status = %q, want restarted phase done", got)
+	}
+	if got := updated.PhaseSessionIDs[PhaseImplement]; got == "old-session" || got == "" {
+		t.Fatalf("implement session id = %q, want a fresh session", got)
 	}
 }

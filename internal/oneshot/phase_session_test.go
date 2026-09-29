@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -144,5 +145,41 @@ func TestRunPhaseSessionCreateFailureSkipsRunner(t *testing.T) {
 	}
 	if got := params.Manifest.PhaseStatuses[PhasePlan]; got != PhaseStatusFailed {
 		t.Fatalf("phase status = %q, want failed", got)
+	}
+}
+
+func TestPhaseSessionPersistsLedger(t *testing.T) {
+	sessions := &recordingSessionStore{}
+	o := &Orchestrator{deps: Dependencies{SessionStore: sessions, Identity: RunIdentity{ID: "abc123"}, Task: "t"}}
+	ps, err := o.newPhaseSession(PhaseImplement, "m")
+	if err != nil {
+		t.Fatalf("newPhaseSession: %v", err)
+	}
+	entries := []agent.SubAgentLedgerEntry{{AgentID: "a1", AgentType: "code", ParentCallID: "c1", WorktreePath: "/wt/a1"}}
+	steps := []struct {
+		name string
+		do   func() error
+		want []agent.SubAgentLedgerEntry
+	}{
+		{"snapshot with outstanding ledger", func() error {
+			return ps.save(context.Background(), agent.DriverSnapshot{Conversation: userMessages("x"), Ledger: entries})
+		}, entries},
+		{"final result save keeps ledger", func() error {
+			return ps.saveResult(RunResult{Conversation: userMessages("x", "y")})
+		}, entries},
+		{"snapshot after delivery clears ledger", func() error {
+			return ps.save(context.Background(), agent.DriverSnapshot{Conversation: userMessages("x", "y")})
+		}, nil},
+		{"final result save stays empty", func() error {
+			return ps.saveResult(RunResult{Conversation: userMessages("x", "y")})
+		}, nil},
+	}
+	for _, step := range steps {
+		if err := step.do(); err != nil {
+			t.Fatalf("%s: %v", step.name, err)
+		}
+		if got := sessions.sessions[0].SubAgentLedger; !slices.Equal(got, step.want) {
+			t.Fatalf("%s: ledger = %+v, want %+v", step.name, got, step.want)
+		}
 	}
 }
