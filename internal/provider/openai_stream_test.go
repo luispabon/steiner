@@ -284,6 +284,54 @@ func TestOpenAIStreamDecodeChatStreamWithHandler_SeparatesIndexlessToolCalls(t *
 	}
 }
 
+func TestOpenAIStreamDecodeChatStreamWithHandler_ReusesIndexlessToolCallID(t *testing.T) {
+	body := strings.NewReader(
+		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_repeat\",\"type\":\"function\",\"function\":{\"name\":\"repeat\",\"arguments\":\"{\\\"value\\\":\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_repeat\",\"function\":{\"arguments\":\"1}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+			"data: [DONE]\n\n",
+	)
+
+	chunks, err := collectOpenAIStreamChunks(t, body)
+	if err != nil {
+		t.Fatalf("decodeChatStreamWithHandler() error = %v", err)
+	}
+	calls := chunks[len(chunks)-1].Delta.ToolCalls
+	if got, want := len(calls), 1; got != want {
+		t.Fatalf("tool calls len = %d, want %d", got, want)
+	}
+	if got, want := calls[0].Arguments["value"], float64(1); got != want {
+		t.Fatalf("tool call arguments = %#v, want value %v", calls[0].Arguments, want)
+	}
+}
+
+func TestOpenAIStreamDecodeChatStreamWithHandler_SeparatesIndexedZeroAndIndexlessToolCalls(t *testing.T) {
+	body := strings.NewReader(
+		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_indexed\",\"type\":\"function\",\"function\":{\"name\":\"indexed\",\"arguments\":\"{\\\"value\\\":0}\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"type\":\"function\",\"function\":{\"name\":\"indexless\",\"arguments\":\"{\\\"value\\\":1}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+			"data: [DONE]\n\n",
+	)
+
+	chunks, err := collectOpenAIStreamChunks(t, body)
+	if err != nil {
+		t.Fatalf("decodeChatStreamWithHandler() error = %v", err)
+	}
+	calls := chunks[len(chunks)-1].Delta.ToolCalls
+	if got, want := len(calls), 2; got != want {
+		t.Fatalf("tool calls len = %d, want %d", got, want)
+	}
+	for i, want := range []struct {
+		name  string
+		value float64
+	}{
+		{name: "indexed", value: 0},
+		{name: "indexless", value: 1},
+	} {
+		if got := calls[i]; got.Name != want.name || got.Arguments["value"] != want.value {
+			t.Fatalf("tool call %d = %#v, want name %q and value %v", i, got, want.name, want.value)
+		}
+	}
+}
+
 func TestOpenAIStreamDecodeChatStreamWithHandler_EOFBeforeFinalChunkIsRetryable(t *testing.T) {
 	body := strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"\"}]}\n")
 

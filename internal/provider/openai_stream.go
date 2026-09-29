@@ -20,22 +20,26 @@ type openAIToolCallAccumulator struct {
 }
 
 type openAIStreamState struct {
-	content       strings.Builder
-	thinking      strings.Builder
-	toolCalls     map[int][]*openAIToolCallAccumulator
-	finishReason  string
-	usage         *UsageStats
-	sawContent    bool
-	sawToolCall   bool
-	sawThinking   bool
-	assistantRole bool
-	sawDone       bool
+	content                 strings.Builder
+	thinking                strings.Builder
+	toolCalls               map[int][]*openAIToolCallAccumulator
+	indexlessToolCalls      []*openAIToolCallAccumulator
+	indexlessToolCallsByID  map[string]*openAIToolCallAccumulator
+	latestIndexlessToolCall *openAIToolCallAccumulator
+	finishReason            string
+	usage                   *UsageStats
+	sawContent              bool
+	sawToolCall             bool
+	sawThinking             bool
+	assistantRole           bool
+	sawDone                 bool
 }
 
 func decodeChatStreamWithHandler(_ context.Context, body io.Reader, emit func(ChatChunk) error) error {
 	reader := bufio.NewReader(body)
 	state := openAIStreamState{
-		toolCalls: make(map[int][]*openAIToolCallAccumulator),
+		toolCalls:              make(map[int][]*openAIToolCallAccumulator),
+		indexlessToolCallsByID: make(map[string]*openAIToolCallAccumulator),
 	}
 
 	for {
@@ -148,7 +152,7 @@ func handleStreamChoiceToolCalls(state *openAIStreamState, toolCalls []openAIToo
 	}
 	state.sawToolCall = true
 	for _, toolCall := range toolCalls {
-		acc := state.toolCallAccumulator(toolCall.Index, toolCall.ID != "")
+		acc := state.toolCallAccumulator(toolCall)
 		if toolCall.ID != "" {
 			acc.ID = toolCall.ID
 		}
@@ -165,13 +169,33 @@ func handleStreamChoiceToolCalls(state *openAIStreamState, toolCalls []openAIToo
 	return nil
 }
 
-func (state *openAIStreamState) toolCallAccumulator(index int, newCall bool) *openAIToolCallAccumulator {
-	accumulators := state.toolCalls[index]
-	if len(accumulators) > 0 && !newCall {
-		return accumulators[len(accumulators)-1]
+func (state *openAIStreamState) toolCallAccumulator(toolCall openAIToolCall) *openAIToolCallAccumulator {
+	if toolCall.Index != nil {
+		accumulators := state.toolCalls[*toolCall.Index]
+		if len(accumulators) > 0 {
+			return accumulators[0]
+		}
+		acc := &openAIToolCallAccumulator{}
+		state.toolCalls[*toolCall.Index] = append(accumulators, acc)
+		return acc
 	}
+
+	if toolCall.ID != "" {
+		if acc := state.indexlessToolCallsByID[toolCall.ID]; acc != nil {
+			state.latestIndexlessToolCall = acc
+			return acc
+		}
+	}
+	if toolCall.ID == "" && state.latestIndexlessToolCall != nil {
+		return state.latestIndexlessToolCall
+	}
+
 	acc := &openAIToolCallAccumulator{}
-	state.toolCalls[index] = append(accumulators, acc)
+	state.indexlessToolCalls = append(state.indexlessToolCalls, acc)
+	state.latestIndexlessToolCall = acc
+	if toolCall.ID != "" {
+		state.indexlessToolCallsByID[toolCall.ID] = acc
+	}
 	return acc
 }
 
@@ -192,6 +216,11 @@ func flushStreamState(emit func(ChatChunk) error, state openAIStreamState) error
 		if err != nil {
 			return err
 		}
+		indexlessToolCalls, err := finalizeToolCallAccumulators(state.indexlessToolCalls)
+		if err != nil {
+			return err
+		}
+		toolCalls = append(toolCalls, indexlessToolCalls...)
 		message.ToolCalls = toolCalls
 	}
 
@@ -212,26 +241,36 @@ func finalizeToolCalls(toolCalls map[int][]*openAIToolCallAccumulator) ([]ToolCa
 
 	calls := make([]ToolCall, 0, len(toolCalls))
 	for _, index := range indexes {
-		for _, acc := range toolCalls[index] {
-			arguments := make(map[string]any)
-			rawArgs := strings.TrimSpace(acc.Arguments.String())
-			sanitizedRawArgs := ""
-			if rawArgs != "" {
-				sanitizedRawArgs = sanitizeToolCallJSON(rawArgs)
-				if err := json.Unmarshal([]byte(sanitizedRawArgs), &arguments); err != nil {
-					return nil, fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, acc.Name, err)
-				}
-			}
-			call := ToolCall{
-				ID:        acc.ID,
-				Name:      acc.Name,
-				Arguments: arguments,
-			}
-			if sanitizedRawArgs != "" {
-				call.RawArguments = sanitizedRawArgs
-			}
-			calls = append(calls, call)
+		finalized, err := finalizeToolCallAccumulators(toolCalls[index])
+		if err != nil {
+			return nil, err
 		}
+		calls = append(calls, finalized...)
+	}
+	return calls, nil
+}
+
+func finalizeToolCallAccumulators(accumulators []*openAIToolCallAccumulator) ([]ToolCall, error) {
+	calls := make([]ToolCall, 0, len(accumulators))
+	for _, acc := range accumulators {
+		arguments := make(map[string]any)
+		rawArgs := strings.TrimSpace(acc.Arguments.String())
+		sanitizedRawArgs := ""
+		if rawArgs != "" {
+			sanitizedRawArgs = sanitizeToolCallJSON(rawArgs)
+			if err := json.Unmarshal([]byte(sanitizedRawArgs), &arguments); err != nil {
+				return nil, fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, acc.Name, err)
+			}
+		}
+		call := ToolCall{
+			ID:        acc.ID,
+			Name:      acc.Name,
+			Arguments: arguments,
+		}
+		if sanitizedRawArgs != "" {
+			call.RawArguments = sanitizedRawArgs
+		}
+		calls = append(calls, call)
 	}
 	return calls, nil
 }

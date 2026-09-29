@@ -93,7 +93,7 @@ type openAIToolFunction struct {
 
 type openAIToolCall struct {
 	ID       string                 `json:"id,omitempty"`
-	Index    int                    `json:"index,omitempty"`
+	Index    *int                   `json:"index,omitempty"`
 	Type     string                 `json:"type,omitempty"`
 	Function openAIToolCallFunction `json:"function"`
 }
