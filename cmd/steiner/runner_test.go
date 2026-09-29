@@ -175,7 +175,7 @@ func TestNewDelegateDepsUsesSharedActiveController(t *testing.T) {
 	controller := delegation.NewActiveController()
 	r := cliRunner{runtime: cliRuntime{delegationActiveController: controller}}
 
-	childCtx, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
+	childCtx, err := registerChild(controller, "child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
@@ -194,7 +194,7 @@ func TestNewDelegateDepsUsesSharedActiveController(t *testing.T) {
 
 func TestDelegationCancellerReportsFinishedDelegate(t *testing.T) {
 	controller := delegation.NewActiveController()
-	if _, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{}); err != nil {
+	if _, err := registerChild(controller, "child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{}); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
 	if !controller.MarkComplete("child-1") {
@@ -210,7 +210,7 @@ func TestDelegationCancellerReportsFinishedDelegate(t *testing.T) {
 
 func TestDelegationCancellerTargetsSharedController(t *testing.T) {
 	controller := delegation.NewActiveController()
-	childCtx, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
+	childCtx, err := registerChild(controller, "child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
@@ -1085,4 +1085,45 @@ func codeDelegationResponses() []provider.ChatResponse {
 		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "child summary"}, FinishReason: "stop"},
 		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "parent answer"}, FinishReason: "stop"},
 	}
+}
+
+//revive:disable-next-line context-as-argument
+func registerChild(c *delegation.ActiveController, agentID string, parent context.Context, agentType delegation.AgentType, worktree delegation.CodeWorktree) (context.Context, error) {
+	child, cancel := context.WithCancel(parent)
+	if err := c.RegisterWithCancel(agentID, cancel, agentType, worktree); err != nil {
+		cancel()
+		return nil, err
+	}
+	return child, nil
+}
+
+func TestLoggingProviderWithEventSinkLeavesParentSinkUnchanged(t *testing.T) {
+	t.Parallel()
+	var got []output.Event
+	parent := loggingProvider{inner: stubChatProvider{}, sink: output.SinkFunc(func(e output.Event) { got = append(got, e) })}
+	scoped := parent.WithEventSink(func(sink output.EventSink) output.EventSink {
+		return output.SinkFunc(func(e output.Event) { sink.Emit(output.WithAgentScope(e, "child-1")) })
+	})
+
+	if _, err := scoped.ChatCompletion(context.Background(), provider.ChatRequest{}); err != nil {
+		t.Fatalf("scoped ChatCompletion: %v", err)
+	}
+	if _, err := parent.ChatCompletion(context.Background(), provider.ChatRequest{}); err != nil {
+		t.Fatalf("parent ChatCompletion: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("events = %d, want 2", len(got))
+	}
+	if got[0].Scope.AgentID != "child-1" {
+		t.Errorf("scoped event agent = %q, want child-1", got[0].Scope.AgentID)
+	}
+	if got[1].Scope.AgentID != "" {
+		t.Errorf("parent event agent = %q, want empty", got[1].Scope.AgentID)
+	}
+}
+
+type stubChatProvider struct{ provider.Provider }
+
+func (stubChatProvider) ChatCompletion(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+	return provider.ChatResponse{}, nil
 }

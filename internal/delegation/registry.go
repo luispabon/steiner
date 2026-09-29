@@ -106,6 +106,9 @@ type DelegateDeps struct {
 	SessionStore *SessionStore
 	// ActiveController tracks and cancels active child delegations.
 	ActiveController *ActiveController
+	// Supervisor runs child delegations. When nil, a private one is created from
+	// SubAgentCfg.MaxParallel over ActiveController.
+	Supervisor *Supervisor
 	// ExtraAllowedTools provides per-agent-type extra tool names that should be
 	// included in child registries beyond the built-in allowlists. Keys are agent
 	// types; values are sorted, deduplicated registered tool names. Nil or empty
@@ -269,6 +272,13 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		deps.ActiveController = NewActiveController()
 	}
 
+	if deps.Supervisor == nil {
+		deps.Supervisor = NewSupervisor(SupervisorOptions{
+			MaxParallel: max(deps.SubAgentCfg.MaxParallel, 1),
+			Controller:  deps.ActiveController,
+		})
+	}
+
 	mt := deps.MaxTokens
 	store := deps.SessionStore
 	if store == nil {
@@ -300,6 +310,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		Diagnostics:           deps.Diagnostics,
 		SessionStore:          store,
 		ActiveController:      deps.ActiveController,
+		Supervisor:            deps.Supervisor,
 		ExtraAllowedTools:     deps.ExtraAllowedTools,
 		UsageRecorder:         deps.UsageRecorder,
 		SandboxTmpDir:         deps.SandboxTmpDir,

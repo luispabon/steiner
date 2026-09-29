@@ -246,7 +246,7 @@ func delegationParentResponse(names ...string) provider.ChatResponse {
 
 func runParallelParent(ctx context.Context, h *parallelHarness, max int, base *tool.Registry) (agent.RunState, error) {
 	events := output.EventSink(eventChSink{ch: h.events, preResponse: h.preResponse, preResponseOnce: &h.preResponseOnce, preResponseContinue: h.preResponseContinue, preResponseReturned: h.preResponseReturned, preResponseReturnOnce: &h.preResponseReturnOnce})
-	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxFollowUps: 100}, Provider: h.provider, Config: config.Config{}, WorkDir: h.workDir, Events: events, StreamingPreferred: true})
+	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxFollowUps: 100, MaxParallel: max}, Provider: h.provider, Config: config.Config{}, WorkDir: h.workDir, Events: events, StreamingPreferred: true})
 	if err != nil {
 		return agent.RunState{}, err
 	}
@@ -261,7 +261,7 @@ func runParallelParent(ctx context.Context, h *parallelHarness, max int, base *t
 
 func runParallelParentGated(ctx context.Context, h *parallelHarness, max int, base *tool.Registry, store *CacheKeyStore) (agent.RunState, error) {
 	events := output.EventSink(eventChSink{ch: h.events, preResponse: h.preResponse, preResponseOnce: &h.preResponseOnce, preResponseContinue: h.preResponseContinue, preResponseReturned: h.preResponseReturned, preResponseReturnOnce: &h.preResponseReturnOnce})
-	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxFollowUps: 100}, Provider: h.provider, Config: config.Config{}, WorkDir: h.workDir, Events: events, CacheKeyStore: store, StreamingPreferred: true})
+	reg, err := BuildDelegateRegistry(DelegateDeps{BaseRegistry: base, SubAgentCfg: config.SubAgentConfig{Enabled: true, MaxTurns: 1, MaxTokens: 1000, MaxFollowUps: 100, MaxParallel: max}, Provider: h.provider, Config: config.Config{}, WorkDir: h.workDir, Events: events, CacheKeyStore: store, StreamingPreferred: true})
 	if err != nil {
 		return agent.RunState{}, err
 	}

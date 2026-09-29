@@ -83,7 +83,7 @@ func successRunState() agent.RunState {
 func minimalDeps(runner AgentRunner) SpecializedToolDeps {
 	return SpecializedToolDeps{
 		SubAgentHandlerDeps: SubAgentHandlerDeps{
-			SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
+			SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100, MaxParallel: 4},
 			Provider:    stubProvider{},
 			ParentReg:   tool.NewRegistry(),
 			Runner:      runner,
@@ -373,8 +373,7 @@ func TestSpecializedHandler_CancelledBeforeDispatchCleansToolCallTrace(t *testin
 	idGen = func() string { return agentID }
 	t.Cleanup(func() { idGen = originalIDGen })
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	controller := NewActiveController()
 
 	var traceWriter *toolCallTraceWriter
 	events := output.SinkFunc(func(event output.Event) {
@@ -384,16 +383,17 @@ func TestSpecializedHandler_CancelledBeforeDispatchCleansToolCallTrace(t *testin
 		toolCallTraceRegistryMu.Lock()
 		traceWriter = toolCallTraceRegistry[agentID]
 		toolCallTraceRegistryMu.Unlock()
-		cancel()
+		controller.CancelAgent(agentID)
 	})
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		t.Fatal("runner called after cancellation before dispatch")
 		return agent.RunState{}, nil
 	}})
 	deps.Events = events
+	deps.ActiveController = controller
 	deps.WorkDir = t.TempDir()
 
-	raw, err := SubAgentToolDef(deps, nil).Handler(ctx, subAgentTask(AgentTypeExplore, "explore"))
+	raw, err := SubAgentToolDef(deps, nil).Handler(context.Background(), subAgentTask(AgentTypeExplore, "explore"))
 	if err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
@@ -705,7 +705,7 @@ func TestSpecializedHandler_RegisterFailureCleansCodeWorktree(t *testing.T) {
 
 	controller := NewActiveController()
 	const agentID = "duplicate-code"
-	if _, err := controller.Register(agentID, context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
+	if _, err := registerChild(controller, agentID, context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
 		t.Fatalf("pre-register agent: %v", err)
 	}
 
@@ -740,7 +740,7 @@ func TestSpecializedHandler_RegisterFailureCleansCodeWorktree(t *testing.T) {
 func TestSpecializedHandler_RegisterFailureDoesNotCreateNonCodeWorktree(t *testing.T) {
 	controller := NewActiveController()
 	const agentID = "duplicate-explore"
-	if _, err := controller.Register(agentID, context.Background(), AgentTypeExplore, CodeWorktree{}); err != nil {
+	if _, err := registerChild(controller, agentID, context.Background(), AgentTypeExplore, CodeWorktree{}); err != nil {
 		t.Fatalf("pre-register agent: %v", err)
 	}
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
@@ -2412,23 +2412,23 @@ func TestSpecializedHandler_CodeCancelledBeforeDispatchRetainsPath(t *testing.T)
 
 	repo := setupTestRepo(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	controller := NewActiveController()
 
 	events := output.SinkFunc(func(event output.Event) {
 		if event.Type != output.EventTypeDelegationStarted {
 			return
 		}
-		cancel()
+		controller.CancelAgent(agentID)
 	})
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
 		t.Fatal("runner called after cancellation before dispatch")
 		return agent.RunState{}, nil
 	}})
 	deps.Events = events
+	deps.ActiveController = controller
 	deps.WorkDir = repo
 
-	raw, err := SubAgentToolDef(deps, nil).Handler(ctx, subAgentTask(AgentTypeCode, "implement a feature"))
+	raw, err := SubAgentToolDef(deps, nil).Handler(context.Background(), subAgentTask(AgentTypeCode, "implement a feature"))
 	if err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
@@ -2728,7 +2728,7 @@ func TestVisionHandler_ParentCallIDFromContext(t *testing.T) {
 func TestSpecializedHandler_RegisterFailureClosesTraceWriter(t *testing.T) {
 	controller := NewActiveController()
 	const agentID = "duplicate-trace"
-	if _, err := controller.Register(agentID, context.Background(), AgentTypeExplore, CodeWorktree{}); err != nil {
+	if _, err := registerChild(controller, agentID, context.Background(), AgentTypeExplore, CodeWorktree{}); err != nil {
 		t.Fatalf("pre-register agent: %v", err)
 	}
 	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {

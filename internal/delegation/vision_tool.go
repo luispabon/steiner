@@ -18,9 +18,7 @@ import (
 //
 //nolint:gocyclo // handler lifecycle branches cover setup, gating, execution, and cleanup.
 func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
-	if deps.ActiveController == nil {
-		deps.ActiveController = NewActiveController()
-	}
+	ensureSupervisor(&deps.SubAgentHandlerDeps)
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		brief, err := parseStructuredBrief(string(AgentTypeVision), input)
 		if err != nil {
@@ -50,7 +48,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			Images:       []provider.ImageBlock{imgBlock},
 		}
 
-		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(AgentTypeVision, deps)
+		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(AgentTypeVision, agentID, deps)
 		if err != nil {
 			emitDelegateFailed(deps.Events, spec, AgentTypeVision, err.Error())
 			return nil, childSetupError(err)

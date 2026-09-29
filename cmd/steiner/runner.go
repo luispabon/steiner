@@ -280,3 +280,12 @@ func (p loggingProvider) StreamChatCompletion(ctx context.Context, req provider.
 func (p loggingProvider) SupportsUsageStats() bool {
 	return p.inner.SupportsUsageStats()
 }
+
+// WithEventSink implements delegation.EventSinkScoper so child runs can tag
+// provider events with their agent scope without mutating the parent's provider.
+func (p loggingProvider) WithEventSink(wrap func(output.EventSink) output.EventSink) provider.Provider {
+	if p.sink == nil {
+		return p
+	}
+	return loggingProvider{inner: p.inner, sink: wrap(p.sink)}
+}

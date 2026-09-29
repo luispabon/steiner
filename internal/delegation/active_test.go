@@ -13,11 +13,11 @@ func TestActiveDelegateCancellationIsolation(t *testing.T) {
 	controller := NewActiveController()
 	parent := context.Background()
 	alphaWorktree := CodeWorktree{Path: "/tmp/alpha", Branch: "delegate/alpha"}
-	alpha, err := controller.Register("alpha", parent, AgentTypeCode, alphaWorktree)
+	alpha, err := registerChild(controller, "alpha", parent, AgentTypeCode, alphaWorktree)
 	if err != nil {
 		t.Fatalf("Register(alpha) returned error: %v", err)
 	}
-	beta, err := controller.Register("beta", parent, AgentTypeExplore, CodeWorktree{})
+	beta, err := registerChild(controller, "beta", parent, AgentTypeExplore, CodeWorktree{})
 	if err != nil {
 		t.Fatalf("Register(beta) returned error: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestActiveDelegateCancelAllKeepsMetadata(t *testing.T) {
 		"review": AgentTypeReview,
 	}
 	for _, agentID := range []string{"code", "review"} {
-		ctx, err := controller.Register(agentID, context.Background(), types[agentID], worktrees[agentID])
+		ctx, err := registerChild(controller, agentID, context.Background(), types[agentID], worktrees[agentID])
 		if err != nil {
 			t.Fatalf("Register(%q) returned error: %v", agentID, err)
 		}
@@ -104,7 +104,7 @@ func TestActiveDelegateCancelAllKeepsMetadata(t *testing.T) {
 func TestActiveDelegateCancellationOutcomeLinearizesAgainstCompletion(t *testing.T) {
 	t.Parallel()
 	controller := NewActiveController()
-	if _, err := controller.Register("child", context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
+	if _, err := registerChild(controller, "child", context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
 		t.Fatalf("Register(child) returned error: %v", err)
 	}
 	if got := controller.CancelAgentWithDiscard("child", true); got != CancelAccepted {
@@ -134,7 +134,7 @@ func TestActiveDelegateDiscardRequestLifecycle(t *testing.T) {
 		t.Fatal("DiscardRequested(missing) returned true, want false")
 	}
 
-	if _, err := controller.Register("child", context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
+	if _, err := registerChild(controller, "child", context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
 		t.Fatalf("Register(child) returned error: %v", err)
 	}
 	if controller.DiscardRequested("child") {
@@ -156,7 +156,7 @@ func TestActiveDelegateCancelAllDoesNotRequestDiscard(t *testing.T) {
 	t.Parallel()
 	controller := NewActiveController()
 	for _, id := range []string{"alpha", "beta"} {
-		if _, err := controller.Register(id, context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
+		if _, err := registerChild(controller, id, context.Background(), AgentTypeCode, CodeWorktree{}); err != nil {
 			t.Fatalf("Register(%q) returned error: %v", id, err)
 		}
 	}
@@ -180,7 +180,7 @@ func TestActiveDelegateDuplicateConcurrentRegistration(t *testing.T) {
 	for range attempts {
 		go func() {
 			defer wg.Done()
-			ctx, err := controller.Register("same", context.Background(), AgentTypeExplore, CodeWorktree{})
+			ctx, err := registerChild(controller, "same", context.Background(), AgentTypeExplore, CodeWorktree{})
 			if err != nil {
 				errorsSeen <- err
 				return
@@ -219,7 +219,7 @@ func TestActiveDelegateConcurrentRegisterAndCancel(t *testing.T) {
 	for i := range agentCount {
 		go func(i int) {
 			defer registerWG.Done()
-			ctx, err := controller.Register(fmt.Sprintf("agent-%d", i), context.Background(), AgentTypeExplore, CodeWorktree{})
+			ctx, err := registerChild(controller, fmt.Sprintf("agent-%d", i), context.Background(), AgentTypeExplore, CodeWorktree{})
 			if err != nil {
 				t.Errorf("Register(agent-%d) returned error: %v", i, err)
 				return
@@ -304,4 +304,14 @@ func TestActiveControllerRegisterWithCancel(t *testing.T) {
 	if !errors.Is(err, ErrAgentAlreadyActive) {
 		t.Fatalf("duplicate RegisterWithCancel returned %v, want ErrAgentAlreadyActive", err)
 	}
+}
+
+//revive:disable-next-line context-as-argument
+func registerChild(c *ActiveController, agentID string, parent context.Context, agentType AgentType, worktree CodeWorktree) (context.Context, error) {
+	child, cancel := context.WithCancel(parent)
+	if err := c.RegisterWithCancel(agentID, cancel, agentType, worktree); err != nil {
+		cancel()
+		return nil, err
+	}
+	return child, nil
 }

@@ -133,9 +133,6 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 
 	req.TurnBudgetNotice = turnBudgetNoticeFunc()
 	state, err := runner.Run(childCtx, req)
-	if o.onChildDone != nil {
-		o.onChildDone()
-	}
 
 	runUsage := tokenUsageOf(state)
 	tc.add("child_run_complete", "child run finished", runStateFields(childCtx, state, err))

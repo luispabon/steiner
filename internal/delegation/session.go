@@ -40,6 +40,9 @@ type SubAgentHandlerDeps struct {
 	Diagnostics      *diagnostics.Writer
 	SessionStore     *SessionStore
 	ActiveController *ActiveController
+	// Supervisor runs every child. When nil, handlers default a private one
+	// sized from SubAgentCfg.MaxParallel over ActiveController.
+	Supervisor *Supervisor
 	// ExtraAllowedTools provides per-agent-type extra tool names included in
 	// child registries beyond the built-in allowlists. Nil or empty map grants
 	// no extra tools.

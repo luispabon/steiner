@@ -53,9 +53,7 @@ func buildContinuationRequest(base agent.RunRequest, conversation []agent.Messag
 
 // NewFollowUpHandler returns the in-process handler for the follow-up tool.
 func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, input map[string]any) (any, error) {
-	if deps.ActiveController == nil {
-		deps.ActiveController = NewActiveController()
-	}
+	ensureSupervisor(&deps)
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		return runFollowUp(ctx, input, deps)
 	}
@@ -102,11 +100,28 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			Branch: session.Remediation.ExpectedBranch,
 		}
 	}
-	childCtx, err := deps.ActiveController.Register(agentID, ctx, spec.AgentType, worktree)
+	result, err := superviseDelegate(ctx, deps, spec, worktree,
+		func(childCtx context.Context) (tool.ExecutionResult, error) {
+			return executeFollowUp(childCtx, deps, spec, req, session, isCode)
+		},
+		func() tool.ExecutionResult {
+			emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, spec.AgentType)
+			emitDelegateStopped(deps.Events, spec, spec.AgentType)
+			result := cancelledBeforeDispatchResult(agentID)
+			applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, agentID, &result)
+			return result
+		},
+		nil,
+	)
 	if err != nil {
-		return nil, childSetupError(err)
+		return nil, err
 	}
-	defer deps.ActiveController.Unregister(agentID)
+	return result, nil
+}
+
+// executeFollowUp resumes the child on the supervisor-owned goroutine.
+func executeFollowUp(childCtx context.Context, deps SubAgentHandlerDeps, spec Spec, req agent.RunRequest, session *ChildSession, isCode bool) (tool.ExecutionResult, error) {
+	agentID := spec.AgentID
 	reopenFollowUpTrace(agentID)
 	emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, spec.AgentType)
 
@@ -114,7 +129,6 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	if isCode {
 		opts = append(opts, WithRemediation(session.Remediation))
 	}
-	opts = append(opts, withChildDone(func() { deps.ActiveController.MarkComplete(agentID) }))
 	result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
 	if err == nil {
 		updatedOK := deps.SessionStore.Update(agentID, SessionUpdateParams{
@@ -126,7 +140,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 		})
 		updated, ok := deps.SessionStore.Get(agentID)
 		if !updatedOK || !ok {
-			return nil, fmt.Errorf("follow_up: session disappeared for agent %q", agentID)
+			return tool.ExecutionResult{}, fmt.Errorf("follow_up: session disappeared for agent %q", agentID)
 		}
 		if delegationResult, ok := result.Value.(Result); ok {
 			delegationResult.FollowUpCount = updated.FollowUpCount
@@ -140,9 +154,8 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 		if result != (tool.ExecutionResult{}) {
 			return result, nil
 		}
-		return nil, fmt.Errorf("follow_up failed: %w", err)
+		return tool.ExecutionResult{}, fmt.Errorf("follow_up failed: %w", err)
 	}
-
 	return result, nil
 }
 

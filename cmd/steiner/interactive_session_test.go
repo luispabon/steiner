@@ -111,7 +111,7 @@ func TestResetSandboxTmpEmitsWarning(t *testing.T) {
 
 func TestBuildInteractiveSessionUsesSharedDelegationController(t *testing.T) {
 	controller := delegation.NewActiveController()
-	childCtx, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
+	childCtx, err := registerChild(controller, "child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}

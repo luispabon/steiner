@@ -32,7 +32,7 @@ func TestFinalizeDelegateCancellationKeepsSessionAndWorktree(t *testing.T) {
 		t.Fatalf("ProvisionCodeWorktree: %v", err)
 	}
 	controller := NewActiveController()
-	if _, err := controller.Register("keep-child", context.Background(), AgentTypeCode, wt); err != nil {
+	if _, err := registerChild(controller, "keep-child", context.Background(), AgentTypeCode, wt); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 	store := NewSessionStore()
@@ -67,10 +67,10 @@ func TestFinalizeDelegateCancellationDiscardsSelectedWorktree(t *testing.T) {
 		t.Fatalf("Provision sibling worktree: %v", err)
 	}
 	controller := NewActiveController()
-	if _, err := controller.Register("discard-child", context.Background(), AgentTypeCode, selected); err != nil {
+	if _, err := registerChild(controller, "discard-child", context.Background(), AgentTypeCode, selected); err != nil {
 		t.Fatalf("Register selected: %v", err)
 	}
-	if _, err := controller.Register("sibling-child", context.Background(), AgentTypeCode, sibling); err != nil {
+	if _, err := registerChild(controller, "sibling-child", context.Background(), AgentTypeCode, sibling); err != nil {
 		t.Fatalf("Register sibling: %v", err)
 	}
 	if got := controller.CancelAgentWithDiscard("discard-child", true); got != CancelAccepted {
@@ -133,7 +133,7 @@ func TestFinalizeDelegateCancellationRetainsLateDiscardOutcome(t *testing.T) {
 		t.Fatalf("ProvisionCodeWorktree: %v", err)
 	}
 	controller := NewActiveController()
-	if _, err := controller.Register("complete-child", context.Background(), AgentTypeCode, wt); err != nil {
+	if _, err := registerChild(controller, "complete-child", context.Background(), AgentTypeCode, wt); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 	store := NewSessionStore()
@@ -175,7 +175,7 @@ func TestFinalizeDelegateCancellationReportsPruneFailure(t *testing.T) {
 	}
 	runCmd(t, repo, "git", "worktree", "add", "-b", "foreign-child", path, "HEAD")
 	controller := NewActiveController()
-	if _, err := controller.Register("failed-child", context.Background(), AgentTypeCode, CodeWorktree{Path: path, Branch: "foreign-child"}); err != nil {
+	if _, err := registerChild(controller, "failed-child", context.Background(), AgentTypeCode, CodeWorktree{Path: path, Branch: "foreign-child"}); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 	if got := controller.CancelAgentWithDiscard("failed-child", true); got != CancelAccepted {
