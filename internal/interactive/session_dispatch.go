@@ -28,6 +28,9 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 }
 
 func (s *Session) handleImmediateAction(ctx context.Context, action Action) (bool, error) {
+	if handled, err := s.routeToPhase(action); handled {
+		return true, err
+	}
 	switch a := action.(type) {
 	case SubmitPrompt:
 		s.submitPrompt(ctx, a.Text, a.Images)
@@ -47,15 +50,9 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 		s.currentDriver().StopTurn()
 		return true, nil
 	case CancelDelegate:
-		if s.delegateCanceller == nil {
-			return true, fmt.Errorf("no active delegate cancellation available")
-		}
-		return true, s.delegateCanceller.CancelAgent(a.AgentID, a.Discard)
+		return true, s.cancelDelegate(a)
 	case CancelAllDelegates:
-		if s.delegateCanceller == nil {
-			return true, fmt.Errorf("no active delegate cancellation available")
-		}
-		return true, s.delegateCanceller.CancelAll()
+		return true, s.cancelAllDelegates()
 	case RequestContextReport:
 		s.emitContextReport(ctx)
 		return true, nil
@@ -77,6 +74,20 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 		return true, nil
 	}
 	return false, nil
+}
+
+func (s *Session) cancelDelegate(a CancelDelegate) error {
+	if s.delegateCanceller == nil {
+		return fmt.Errorf("no active delegate cancellation available")
+	}
+	return s.delegateCanceller.CancelAgent(a.AgentID, a.Discard)
+}
+
+func (s *Session) cancelAllDelegates() error {
+	if s.delegateCanceller == nil {
+		return fmt.Errorf("no active delegate cancellation available")
+	}
+	return s.delegateCanceller.CancelAll()
 }
 
 func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, error) {

@@ -239,7 +239,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	tuiCfg.Recorder = rt.usageRecorder
 	tuiCfg.ImageStore = rt.imageStore
 	tuiCfg.VisionCapabilities = rt.visionCapabilities
-	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink(), sess.CurrentEffective, sess.OrchestrationLevel)
+	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink(), sess.CurrentEffective, sess.OrchestrationLevel, sess.ActiveRunController().SteerQueue())
 	tuiCfg.Notifier = notify.New(notify.Options{
 		Enabled:  rt.cfg.DesktopNotifications.Enabled,
 		Duration: time.Duration(rt.cfg.DesktopNotifications.Duration) * time.Second,
@@ -615,7 +615,7 @@ func sortedProfileNames(profiles map[string]config.ModelProfile) []string {
 // newOneshotRunnerFactoryBuilder returns a builder that binds a oneshot phase
 // runner factory to a specific run identity. The interactive TUI mints a fresh
 // identity per launch or resume, so the factory must be constructed per run.
-func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, projectRoot string, events output.EventSink, currentEffective func() config.EffectiveModelAssignments, orchestrationLevel func() config.OrchestrationLevel) tui.OneshotRunnerFactoryBuilder {
+func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, projectRoot string, events output.EventSink, currentEffective func() config.EffectiveModelAssignments, orchestrationLevel func() config.OrchestrationLevel, steers *agent.SteerQueue) tui.OneshotRunnerFactoryBuilder {
 	return func(identity oneshot.RunIdentity) oneshot.PhaseRunnerFactory {
 		return phaseRunnerFactory{
 			cmd:                cmd,
@@ -627,6 +627,7 @@ func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, project
 			currentEffective:   currentEffective,
 			orchestrationLevel: orchestrationLevel,
 			baseline:           agent.NewCacheBaselineStore(),
+			steers:             steers,
 		}
 	}
 }

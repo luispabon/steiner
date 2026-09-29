@@ -20,8 +20,20 @@ type PhaseRunInput struct {
 	// Session is the phase session, created and linked in the manifest before
 	// the phase runs; the runner saves every driver snapshot to it.
 	Session PhaseSession
-	// DrainSteers is kept only until the interactive host owns steering (#818 step-12b).
-	DrainSteers func() []agent.SteerMessage
+	// RegisterControl exposes the phase to user control for as long as it runs.
+	// The runner calls it once its driver is live and calls the returned
+	// release when the phase ends. Nil when nothing takes control, as in a
+	// headless run.
+	RegisterControl func(PhaseControl) (release func())
+}
+
+// PhaseControl routes user control to an active phase.
+type PhaseControl interface {
+	Submit(text string, images []agent.ImageBlock)
+	NotifySteer()
+	StopTurn()
+	CancelAgent(agentID string, discard bool) error
+	CancelAll() error
 }
 
 // PhaseSession identifies a phase's persistent session and saves to it.

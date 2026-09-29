@@ -221,9 +221,9 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	conversation := phaseConversation(o.deps.Identity, o.deps.Task, p.Phase, p.WorktreePath, p.PlanningPath)
 	stopHeartbeat := o.startPhaseHeartbeat(p.Lock, cancel)
 	result, runErr := runner.RunPhase(phaseCtx, PhaseRunInput{
-		Conversation: conversation,
-		Session:      PhaseSession{ID: sessionID, Save: phaseSession.save},
-		DrainSteers:  o.deps.DrainSteers,
+		Conversation:    conversation,
+		Session:         PhaseSession{ID: sessionID, Save: phaseSession.save},
+		RegisterControl: o.deps.RegisterControl,
 	})
 	hbErr := stopHeartbeat()
 	if hbErr != nil {

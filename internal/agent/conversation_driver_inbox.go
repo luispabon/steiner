@@ -54,6 +54,13 @@ func (d *ConversationDriver) DetachSteers() {
 	d.opts.Steers = nil
 }
 
+// AttachSteers makes the driver read q again after a DetachSteers.
+func (d *ConversationDriver) AttachSteers(q *SteerQueue) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.opts.Steers = q
+}
+
 // DeliverCompletions implements CompletionSink. Completions are buffered until
 // the next drain; while held they accumulate without waking the model.
 func (d *ConversationDriver) DeliverCompletions(cs []SubAgentCompletion) {

@@ -33,6 +33,8 @@ var listOneshotRuns = oneshot.ListRuns
 
 type phaseRunner struct {
 	runner cliRunner
+	// steers is the launching session's steer queue, or nil when headless.
+	steers *agent.SteerQueue
 }
 
 type phaseRunnerParams struct {
@@ -56,6 +58,8 @@ type phaseRunnerParams struct {
 	// CacheBaseline is the baseline store shared by every phase of one oneshot
 	// execution; see phaseRunnerFactory.baseline.
 	CacheBaseline *agent.CacheBaselineStore
+	// Steers is the launching session's steer queue; nil for a headless run.
+	Steers *agent.SteerQueue
 }
 
 // buildPhaseRuntime is the runtime constructor used by newPhaseRunner; tests
@@ -110,7 +114,7 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 			return alias
 		}
 	}
-	return phaseRunner{runner: runner}, nil
+	return phaseRunner{runner: runner, steers: params.Steers}, nil
 }
 
 func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (oneshot.RunResult, error) {
@@ -122,17 +126,19 @@ func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (on
 	rt := &r.runner.runtime
 	rec := &driverRunRecord{}
 	host := phaseDriverHost{
-		run:    r.runner.driverRun(in.SkillNames, in.DrainSteers, rec),
+		run:    r.runner.driverRun(in.SkillNames, rec),
 		record: rec,
 		shutdown: func(ctx context.Context, cause delegation.CancelCause) {
 			shutdownDelegation(ctx, rt, cause)
 		},
 		events:              rt.events,
 		maxTokensPerEpisode: rt.cfg.Limits.MaxTokens,
+		steers:              r.steers,
 	}
 	if sup := rt.delegationSupervisor; sup != nil {
 		host.background = sup
 		host.setSink = sup.SetCompletionSink
+		host.canceller = delegationCanceller{s: sup}
 	}
 	return runPhaseOnDriver(ctx, in, host)
 }
@@ -283,6 +289,8 @@ type phaseRunnerFactory struct {
 	// runner the factory builds, so sequential phases of one run compare against
 	// each other's outbound requests under the same oneshot cache identity.
 	baseline *agent.CacheBaselineStore
+	// steers is the launching session's steer queue; nil for a headless run.
+	steers *agent.SteerQueue
 }
 
 // phaseParams builds the runner parameters for a phase, including the phase
@@ -311,6 +319,7 @@ func (f phaseRunnerFactory) phaseParams(phase oneshot.Phase, modelAlias string, 
 		CurrentEffective:   f.currentEffective,
 		OrchestrationLevel: f.orchestrationLevel,
 		CacheBaseline:      f.baseline,
+		Steers:             f.steers,
 	}, nil
 }
 

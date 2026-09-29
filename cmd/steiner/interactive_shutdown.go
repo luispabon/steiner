@@ -30,6 +30,7 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	stopInteractiveProgram(p)
 	wait()
 	runQuitSequence(quitSequence{
+		cancelBackground:   sess.CancelBackground,
 		shutdownDelegation: func() { shutdownDelegation(context.Background(), rt, delegation.CancelCauseUser) },
 		awaitRuns:          func() { awaitSessionRuns(cmd, sess, rt) },
 		closeSession:       func() { closeSession(sess) },
@@ -48,6 +49,7 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 
 // quitSequence holds the quit steps in the order they must run.
 type quitSequence struct {
+	cancelBackground   func()
 	shutdownDelegation func()
 	awaitRuns          func()
 	closeSession       func()
@@ -56,11 +58,14 @@ type quitSequence struct {
 	closeRuntime       func()
 }
 
-// runQuitSequence stops sub-agents first so tracked runs blocked on them can
+// runQuitSequence first cancels background runs, a TUI-launched oneshot among
+// them: its cancellation path shuts its phase's sub-agents down and settles
+// its driver, and awaitRuns joins it. Then it stops sub-agents so tracked runs blocked on them can
 // finish inside the drain window and the supervisor's cancelled results reach
 // the driver; then the driver settles and saves; only then are unprotected
 // worktrees pruned and the runtime closed.
 func runQuitSequence(q quitSequence) {
+	q.cancelBackground()
 	q.shutdownDelegation()
 	q.awaitRuns()
 	q.closeSession()

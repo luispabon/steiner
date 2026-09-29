@@ -49,7 +49,12 @@ type Session struct {
 	sessionDate        prompt.SessionDate
 	done               chan struct{}
 	runs               runGroup
-	exitOnce           sync.Once
+	// phase is the oneshot phase control in effect; see SetActivePhaseControl.
+	phase *phaseHandle
+	// background is cancelled by CancelBackground, at quit.
+	background       context.Context
+	cancelBackground context.CancelFunc
+	exitOnce         sync.Once
 }
 
 // NewSession creates a new interactive Session with the given dependencies.
@@ -77,7 +82,10 @@ func NewSession(deps Dependencies) (*Session, error) {
 		orchestrationLevel = config.OrchestrationLevelStandard
 	}
 	now := time.Now
+	background, cancelBackground := context.WithCancel(context.Background())
 	sess := &Session{
+		background:          background,
+		cancelBackground:    cancelBackground,
 		deps:                deps,
 		events:              events,
 		displaySink:         displaySink,

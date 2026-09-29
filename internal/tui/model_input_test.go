@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -170,6 +171,39 @@ func TestSteerActionRecordsPromptHistory(t *testing.T) {
 	}
 }
 
+func TestSteerActionDuringOneshotNotifiesTheController(t *testing.T) {
+	t.Parallel()
+	input := newModelInput()
+	input.SetValue("steer the phase")
+
+	ctrl := &testController{}
+	styles := testStyles(theme.AccentAmber)
+	m := &Model{
+		oneshotRunning: true,
+		steers:         agent.NewSteerQueue(),
+		controller:     ctrl,
+		input:          input,
+		content: contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+			styles:        styles,
+		},
+		styles: styles,
+	}
+
+	m.executeSteerAction()
+
+	ctrl.mu.Lock()
+	actions := ctrl.actions
+	ctrl.mu.Unlock()
+	if len(actions) != 2 {
+		t.Fatalf("controller actions = %d, want 2 (NotifySteer, RecordPromptHistory)", len(actions))
+	}
+	if _, ok := actions[0].(interactive.NotifySteer); !ok {
+		t.Fatalf("action[0] = %T, want interactive.NotifySteer routed to the phase by the session", actions[0])
+	}
+}
+
 func TestSteerActionWhitespaceOnlyInputDoesNothing(t *testing.T) {
 	t.Parallel()
 	input := newModelInput()
@@ -269,8 +303,10 @@ func TestSteerQueueSharedBetweenComposerAndOneshotRun(t *testing.T) {
 	m := newModel(Config{Controller: sess, SteerQueue: queue}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
-	// Queue twice while an oneshot run is active. The session's conversation
-	// driver must leave the queue to the oneshot run.
+	// Queue twice while an oneshot run is active. The session routes the
+	// notices to the running phase and its own driver leaves the queue alone.
+	phase := &notifyCountingPhase{}
+	defer sess.SetActivePhaseControl(phase)()
 	m.oneshotRunning = true
 	m.input.SetValue("first oneshot steer")
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -283,30 +319,18 @@ func TestSteerQueueSharedBetweenComposerAndOneshotRun(t *testing.T) {
 	if len(got) != 2 || got[0].Text != "first oneshot steer" || got[1].Text != "second oneshot steer" {
 		t.Fatalf("Drain() = %+v, want [{first oneshot steer} {second oneshot steer}]", got)
 	}
-}
-
-func TestSteerActionDuringOneshotDoesNotNotifyDriver(t *testing.T) {
-	t.Parallel()
-	q := agent.NewSteerQueue()
-	ctrl := &testController{}
-	m := newMinimalModel("steer the oneshot")
-	m.steers = q
-	m.controller = ctrl
-	m.oneshotRunning = true
-
-	m.executeSteerAction()
-
-	ctrl.mu.Lock()
-	defer ctrl.mu.Unlock()
-	for _, action := range ctrl.actions {
-		if _, ok := action.(interactive.NotifySteer); ok {
-			t.Fatal("NotifySteer dispatched during a oneshot run")
-		}
-	}
-	if q.Len() != 1 {
-		t.Fatalf("steer queue len = %d, want 1", q.Len())
+	if n := phase.notices.Load(); n != 2 {
+		t.Fatalf("phase notices = %d, want 2", n)
 	}
 }
+
+type notifyCountingPhase struct{ notices atomic.Int32 }
+
+func (p *notifyCountingPhase) Submit(string, []agent.ImageBlock) {}
+func (p *notifyCountingPhase) NotifySteer()                      { p.notices.Add(1) }
+func (p *notifyCountingPhase) StopTurn()                         {}
+func (p *notifyCountingPhase) CancelAgent(string, bool) error    { return nil }
+func (p *notifyCountingPhase) CancelAll() error                  { return nil }
 
 func newMinimalModel(inputValue string) *Model {
 	inp := newModelInput()

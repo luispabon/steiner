@@ -76,6 +76,8 @@ Before a phase runs, the orchestrator creates the phase session, records its id 
 3. `MaxTokensPerEpisode` is `limits.max_tokens`. `ErrEpisodeBudgetExhausted` (budget spent, children still pending) fails the phase.
 4. On budget exhaustion, a failed run, phase cancellation or heartbeat loss, the supervisor is shut down first (`CancelCauseSystem`), then the driver is closed: it settles the cancelled results into the conversation without calling the model and saves. Only then does the deferred `closeRuntime` run, whose own shutdown is a no-op. The driver's loop is always joined before `RunPhase` returns.
 
+When the run is launched from the TUI, `phaseRunner` builds its driver with `Steers` set to the session's `SteerQueue`, and `PhaseRunInput.RegisterControl` (from `oneshot.Dependencies.RegisterControl`) exposes the phase: once the driver is live, `runPhaseOnDriver` registers a `PhaseControl` (`Submit`, `NotifySteer`, `StopTurn`, `CancelAgent`, `CancelAll`) backed by the driver and the phase `Supervisor`, and releases it when the function returns, after the driver has closed. Cancellation uses `CancelCauseUser`. Headless runs pass no queue and no callback.
+
 Driver conversation-state events are not forwarded to the launching session's sink; they describe the phase's private conversation.
 
 ### Run Manifest
@@ -194,12 +196,22 @@ run as a steering message:
 - Allowlist: `/exit`, `/thinking`, `/accent`.
 - All other input (including `/oneshot <task>`, which would otherwise
   launch a second concurrent run) is added to the session's steering
-  queue, which the oneshot run drains at each turn boundary.
+  queue, which the running phase's driver drains at each turn boundary.
 
 The composer returns to the normal command surface on completion. The TUI
 emits an `OneshotFinishedEvent` from the run goroutine when the run ends
 (both success and error paths) and the `applyEvent` handler clears
 `oneshotRunning`, `oneshotPhase`, and the chrome fields.
+
+#### Control routing
+
+`Session.SetActivePhaseControl(pc)` routes `SubmitPrompt`, `NotifySteer`, `InterruptActiveRun` (stop current turn), `CancelDelegate` and `CancelAllDelegates` to `pc` until the returned release runs. Setting and releasing are atomic under the session mutex, a second set replaces the first, and releasing a replaced handle does nothing. The session's own driver receives none of these.
+
+The session driver and the phase driver read the same `SteerQueue`. While a control is set the session driver is detached (`ConversationDriver.DetachSteers`) and any driver built meanwhile (clear, rotate, load) starts without the queue; release re-attaches the live driver (`AttachSteers`).
+
+A TUI launch registers one `interactive.PhaseRouter` for the whole run and gives the orchestrator `router.Register` as its per-phase callback. The router swaps its target atomically when a phase registers or releases, so between phases the session stays detached: steers wait in the queue for the next phase, and cancel requests report that no phase is active. The router is released when the orchestrator goroutine ends.
+
+The orchestrator goroutine runs under `Session.RunBackground`, which tracks it in the session run group with a context that `Session.CancelBackground` cancels. Quit (`runQuitSequence`) cancels it first, which takes the cancellation path above (phase supervisor shutdown, then driver close and save); `awaitRuns` joins it before the worktree prune.
 
 ### Concurrent Runs
 

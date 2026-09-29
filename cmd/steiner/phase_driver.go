@@ -23,6 +23,45 @@ type phaseDriverHost struct {
 	shutdown            func(ctx context.Context, cause delegation.CancelCause)
 	events              output.EventSink
 	maxTokensPerEpisode int
+	// steers is the queue the driver reads user steers from; nil when headless.
+	steers *agent.SteerQueue
+	// canceller cancels sub-agents on the user's behalf.
+	canceller phaseCanceller
+}
+
+// phaseCanceller cancels a phase's sub-agents.
+type phaseCanceller interface {
+	CancelAgent(agentID string, discard bool) error
+	CancelAll() error
+}
+
+// phaseControl is the user's handle on a running phase: its driver takes
+// prompts, steers and stop-turn, its supervisor takes sub-agent cancellation.
+type phaseControl struct {
+	driver    *agent.ConversationDriver
+	canceller phaseCanceller
+}
+
+func (c phaseControl) Submit(text string, images []agent.ImageBlock) {
+	c.driver.Submit(text, images, agent.SubmitMeta{})
+}
+
+func (c phaseControl) NotifySteer() { c.driver.NotifySteer() }
+
+func (c phaseControl) StopTurn() { c.driver.StopTurn() }
+
+func (c phaseControl) CancelAgent(agentID string, discard bool) error {
+	if c.canceller == nil {
+		return errors.New("no active delegate cancellation available")
+	}
+	return c.canceller.CancelAgent(agentID, discard)
+}
+
+func (c phaseControl) CancelAll() error {
+	if c.canceller == nil {
+		return errors.New("no active delegate cancellation available")
+	}
+	return c.canceller.CancelAll()
 }
 
 // runPhaseOnDriver runs one phase on a ConversationDriver and returns once the
@@ -42,6 +81,7 @@ func runPhaseOnDriver(ctx context.Context, in oneshot.PhaseRunInput, host phaseD
 	driver := agent.NewConversationDriver(agent.DriverOptions{
 		Run:                 host.run,
 		Background:          host.background,
+		Steers:              host.steers,
 		Save:                in.Session.Save,
 		Events:              phaseDriverEvents(host.events),
 		MaxTokensPerEpisode: host.maxTokensPerEpisode,
@@ -52,6 +92,12 @@ func runPhaseOnDriver(ctx context.Context, in oneshot.PhaseRunInput, host phaseD
 	// The loop outlives phase cancellation so the shutdown below can still hand
 	// it the children's cancelled results; Close is what stops it.
 	driver.Start(context.WithoutCancel(ctx))
+	if in.RegisterControl != nil {
+		// The release runs when this function returns, after Close, so control stays with
+		// this phase until its driver has settled.
+		release := in.RegisterControl(phaseControl{driver: driver, canceller: host.canceller})
+		defer release()
+	}
 	driver.Submit(prompt.Content, prompt.Images, agent.SubmitMeta{})
 
 	waitErr := driver.WaitQuiescent(hostCtx)

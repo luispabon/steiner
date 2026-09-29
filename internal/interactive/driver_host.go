@@ -29,7 +29,7 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 	h.drv = agent.NewConversationDriver(agent.DriverOptions{
 		Run:         s.driverRun,
 		Background:  s.deps.Background,
-		Steers:      s.runController.SteerQueue(),
+		Steers:      s.steersForNewDriverLocked(),
 		Save:        s.driverSave(h),
 		Events:      s.events,
 		PrepareTurn: s.prepareTurn,

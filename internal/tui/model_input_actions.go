@@ -424,6 +424,16 @@ func runOrchestratorAndReport(sink output.EventSink, runID, failureLabel string,
 	sink.Emit(output.NewOneshotFinishedEvent(runID, err))
 }
 
+// routeControlToOneshot points the session's prompt, steer, stop and cancel
+// actions at the oneshot run being launched, from now until release. register
+// is the per-phase callback: it moves control to the phase that is starting
+// and, between phases, leaves steers queued for the next one.
+func routeControlToOneshot(sess *interactive.Session) (register func(oneshot.PhaseControl) func(), release func()) {
+	router := &interactive.PhaseRouter{}
+	release = sess.SetActivePhaseControl(router)
+	return func(pc oneshot.PhaseControl) func() { return router.Register(pc) }, release
+}
+
 // prepareOneshotRun applies the guard checks and run-state setup shared
 // by launch and resume. ok is false when a guard failed and m already
 // carries the corresponding status message and reset input.
@@ -484,8 +494,9 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Spawn orchestrator goroutine
-	go func() {
+	register, releaseControl := routeControlToOneshot(sess)
+	sess.RunBackground(func(ctx context.Context) {
+		defer releaseControl()
 		oneshotSessionStore, ok := oneshotSessionStoreOrEmit(sessionStore, sess.EventSink(), runIdentity.ID)
 		if !ok {
 			return
@@ -499,7 +510,7 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 			SessionStore:     oneshotSessionStore,
 			RunnerFactory:    m.oneshotRunnerFactory(runIdentity),
 			Events:           sess.EventSink(),
-			DrainSteers:      sess.ActiveRunController().SteerQueue().Drain,
+			RegisterControl:  register,
 			InterruptFactory: context.WithCancel,
 		}
 
@@ -511,9 +522,9 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		}
 
 		runOrchestratorAndReport(sess.EventSink(), runIdentity.ID, "oneshot run failed", func() (oneshot.Manifest, error) {
-			return orchestrator.Run(context.Background())
+			return orchestrator.Run(ctx)
 		})
-	}()
+	})
 
 	m.content.AppendLine(fmt.Sprintf("status: launching oneshot run for: %s", task))
 	m.input.Reset()
@@ -540,8 +551,9 @@ func (m *Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 	}
 	projectRoot := sess.ProjectRoot()
 
-	// Spawn orchestrator goroutine
-	go func() {
+	register, releaseControl := routeControlToOneshot(sess)
+	sess.RunBackground(func(ctx context.Context) {
+		defer releaseControl()
 		manifest, err := oneshot.ListRuns(projectRoot)
 		if err != nil {
 			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("resume oneshot failed: %v", err)))
@@ -582,7 +594,7 @@ func (m *Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 			SessionStore:     oneshotSessionStore,
 			RunnerFactory:    m.oneshotRunnerFactory(identity),
 			Events:           sess.EventSink(),
-			DrainSteers:      sess.ActiveRunController().SteerQueue().Drain,
+			RegisterControl:  register,
 			InterruptFactory: context.WithCancel,
 		}
 
@@ -594,9 +606,9 @@ func (m *Model) executeResumeOneshotAction(runID string) (tea.Model, tea.Cmd) {
 		}
 
 		runOrchestratorAndReport(sess.EventSink(), identity.ID, "oneshot resume failed", func() (oneshot.Manifest, error) {
-			return orchestrator.Resume(context.Background())
+			return orchestrator.Resume(ctx)
 		})
-	}()
+	})
 
 	m.content.AppendLine(fmt.Sprintf("status: resuming oneshot run: %s", runID))
 	m.input.Reset()

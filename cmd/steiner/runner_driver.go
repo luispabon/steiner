@@ -48,23 +48,11 @@ func (r *driverRunRecord) record(res runResult, err error) {
 }
 
 // driverRun adapts the runner to agent.DriverRunFunc without installing a
-// signal handler: the driver's host owns cancellation. drainSteers is the
-// legacy steer source, consulted whenever the driver's inbox has nothing.
-func (r cliRunner) driverRun(skillNames []string, drainSteers func() []agent.SteerMessage, rec *driverRunRecord) agent.DriverRunFunc {
-	legacy := agent.SteerInboxDrain(drainSteers)
+// signal handler: the driver's host owns cancellation.
+func (r cliRunner) driverRun(skillNames []string, rec *driverRunRecord) agent.DriverRunFunc {
 	return func(ctx context.Context, in agent.DriverRunInput) (agent.DriverRunOutput, error) {
-		drain := in.DrainInbox
-		if legacy != nil {
-			inner := in.DrainInbox
-			drain = func() agent.InboxDrain {
-				if d := inner(); d.Message != nil {
-					return d
-				}
-				return legacy()
-			}
-		}
 		res, err := r.run(ctx, in.Conversation, skillNames, runHooks{
-			drainInbox:       drain,
+			drainInbox:       in.DrainInbox,
 			onToolBatchDone:  in.OnToolBatchDone,
 			pendingSubAgents: in.PendingSubAgents,
 			maxTokens:        in.MaxTokens,
