@@ -3,6 +3,7 @@ package interactive
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -29,9 +30,6 @@ func generateSessionID() (string, error) {
 // LoadSessionByID loads a saved session with the given ID, replacing the current
 // conversation with the restored lineage.
 func (s *Session) LoadSessionByID(ctx context.Context, sessionID string) error {
-	if err := s.refuseWhilePending("load session"); err != nil {
-		return err
-	}
 	return s.loadSession(ctx, sessionID)
 }
 
@@ -122,14 +120,39 @@ func (s *Session) refuseRunInProgress(action string) error {
 // still running, surfacing the reason as an overlay notice and error. Callers
 // that also refuse during a run check that separately: clear and rotate stay
 // allowed mid-run because a workflow handoff rotates from inside one.
-func (s *Session) refuseWhilePending(action string) error {
-	if s.deps.Background == nil || !s.deps.Background.HasPending() {
+func (s *Session) loadSessionGuardLocked() error {
+	if s.runActiveLocked() {
+		return fmt.Errorf("load session: %w", errRunInProgress)
+	}
+	return s.pendingRefusalLocked("load session")
+}
+
+func (s *Session) pendingRefusalLocked(action string) error {
+	if s.deps.Background == nil {
 		return nil
 	}
-	n := len(s.deps.Background.Pending())
-	msg := fmt.Sprintf("%d sub-agents still running; wait for them or stop them first", n)
-	s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("%s: %s", action, msg)))
+	pending := s.deps.Background.Pending()
+	if len(pending) == 0 {
+		return nil
+	}
+	msg := fmt.Sprintf("%d sub-agents still running; wait for them or stop them first", len(pending))
 	return fmt.Errorf("%s: %s", action, msg)
+}
+
+func (s *Session) refuseWhilePending(action string) error {
+	err := s.pendingRefusalLocked(action)
+	if err != nil {
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", err.Error()))
+	}
+	return err
+}
+
+func (s *Session) reportLoadGuardError(err error) error {
+	if errors.Is(err, errRunInProgress) {
+		return s.refuseRunInProgress("load session")
+	}
+	s.events.Emit(output.NewOverlayReportEvent("Context Report", err.Error()))
+	return err
 }
 
 // loadSession replaces the current conversation and lineage with a previously
@@ -160,9 +183,9 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}
 
 	s.mu.Lock()
-	if s.runActiveLocked() {
+	if err := s.loadSessionGuardLocked(); err != nil {
 		s.mu.Unlock()
-		return s.refuseRunInProgress("load session")
+		return s.reportLoadGuardError(err)
 	}
 	old := s.swapDriverLocked(func() {
 		s.lineage = sess.Lineage
