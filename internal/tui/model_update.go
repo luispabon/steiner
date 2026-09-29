@@ -649,7 +649,9 @@ func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) 
 		}
 	} else {
 		m.selection = m.selection.clear()
-		m.handleLeftClick(msg.y)
+		if m.activeRegion == regionViewport && msg.y >= m.viewportContentTopRow() && msg.y <= m.viewportContentBottomRow() {
+			m.handleLeftClick(msg.y)
+		}
 	}
 	m.mousePressX = -1
 	m.mousePressY = -1
