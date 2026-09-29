@@ -278,3 +278,30 @@ func equalStrings(got, want []string) bool {
 	}
 	return true
 }
+
+func TestActiveControllerRegisterWithCancel(t *testing.T) {
+	t.Parallel()
+	controller := NewActiveController()
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := controller.RegisterWithCancel("agent1", cancel, AgentTypeCode, CodeWorktree{Path: "/tmp/test"})
+	if err != nil {
+		t.Fatalf("RegisterWithCancel returned error: %v", err)
+	}
+
+	worktree, ok := controller.WorktreeFor("agent1")
+	if !ok || worktree.Path != "/tmp/test" {
+		t.Fatalf("WorktreeFor returned %v, %t, want /tmp/test, true", worktree, ok)
+	}
+
+	agentType, ok := controller.TypeFor("agent1")
+	if !ok || agentType != AgentTypeCode {
+		t.Fatalf("TypeFor returned %q, %t, want %q, true", agentType, ok, AgentTypeCode)
+	}
+
+	err = controller.RegisterWithCancel("agent1", cancel, AgentTypeCode, CodeWorktree{})
+	if !errors.Is(err, ErrAgentAlreadyActive) {
+		t.Fatalf("duplicate RegisterWithCancel returned %v, want ErrAgentAlreadyActive", err)
+	}
+}
