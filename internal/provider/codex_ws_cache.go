@@ -36,8 +36,7 @@ func NewCachingCodexWS(cache *CodexWSCache, key string, build func() (Provider, 
 		return nil, err
 	}
 
-	wrapped := &CachingCodexWS{cache: cache, inner: built, key: key}
-	wrapped.idle = sync.NewCond(&wrapped.mu)
+	wrapped := &CachingCodexWS{cache: cache, inner: built, key: key, idle: make(chan struct{})}
 
 	cache.mu.Lock()
 	if existing, ok := cache.instances[key]; ok {
@@ -60,7 +59,7 @@ type CachingCodexWS struct {
 	key   string
 
 	mu      sync.Mutex
-	idle    *sync.Cond
+	idle    chan struct{}
 	active  bool
 	retired bool
 }
@@ -74,24 +73,38 @@ func isContextCanceledErr(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-func (p *CachingCodexWS) begin() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (p *CachingCodexWS) begin(ctx context.Context) error {
+	for {
+		p.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			p.mu.Unlock()
+			return err
+		}
+		if p.retired {
+			p.mu.Unlock()
+			return errCachingCodexWSEvicted
+		}
+		if !p.active {
+			p.active = true
+			p.mu.Unlock()
+			return nil
+		}
+		idle := p.idle
+		p.mu.Unlock()
 
-	for p.active {
-		p.idle.Wait()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-idle:
+		}
 	}
-	if p.retired {
-		return errCachingCodexWSEvicted
-	}
-	p.active = true
-	return nil
 }
 
 func (p *CachingCodexWS) end() {
 	p.mu.Lock()
 	p.active = false
-	p.idle.Broadcast()
+	close(p.idle)
+	p.idle = make(chan struct{})
 	p.mu.Unlock()
 }
 
@@ -118,9 +131,10 @@ func (p *CachingCodexWS) evict() {
 }
 
 // ChatCompletion delegates to the wrapped provider, evicting p from the
-// cache on any non-context-cancellation error.
+// cache on any non-context-cancellation error. Calls queued behind an active
+// request return promptly when their context is canceled.
 func (p *CachingCodexWS) ChatCompletion(ctx context.Context, req ChatRequest) (ChatResponse, error) {
-	if err := p.begin(); err != nil {
+	if err := p.begin(ctx); err != nil {
 		return ChatResponse{}, err
 	}
 	defer p.end()
@@ -136,7 +150,7 @@ func (p *CachingCodexWS) ChatCompletion(ctx context.Context, req ChatRequest) (C
 // cache on stream setup failure or the first stream chunk carrying a
 // non-context-cancellation error.
 func (p *CachingCodexWS) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-chan ChatChunk, error) {
-	if err := p.begin(); err != nil {
+	if err := p.begin(ctx); err != nil {
 		return nil, err
 	}
 
