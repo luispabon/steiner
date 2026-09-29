@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -192,6 +193,12 @@ func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatReques
 		result, err := p.sendRequest(ctx, request, emitter)
 		if err == nil {
 			return result, sendAttempts, nil
+		}
+
+		// A failed response is a definitive server verdict on this request;
+		// resending it would only repeat the failure at full cost.
+		if errors.Is(err, errResponsesStreamFailed) {
+			return ChatResponse{}, sendAttempts, err
 		}
 
 		// A usage limit is a refusal, not a dead connection: the socket is
