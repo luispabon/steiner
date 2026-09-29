@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,6 +51,11 @@ func testNewSession(t *testing.T, deps Dependencies) *Session {
 	if err != nil {
 		t.Fatalf("NewSession failed: %v", err)
 	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		s.Close(ctx)
+	})
 	return s
 }
 
@@ -170,21 +176,21 @@ func TestActiveRunControllerInterrupt(t *testing.T) {
 	}
 }
 
-func TestActiveRunControllerClear(t *testing.T) {
+func TestActiveRunControllerRelease(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	ctrl := &ActiveRunController{}
 	tok := ctrl.Set(cancel)
-	ctrl.Clear(tok)
+	ctrl.Release(tok)
 
 	if ctrl.HasCancel() {
-		t.Fatal("expected HasCancel to be false after Clear")
+		t.Fatal("expected HasCancel to be false after Release")
 	}
 
 	ctrl.Interrupt()
 	select {
 	case <-ctx.Done():
-		t.Fatal("expected Interrupt to be a no-op after Clear")
+		t.Fatal("expected Interrupt to be a no-op after Release")
 	default:
 	}
 }
@@ -722,7 +728,7 @@ func TestSubmitPromptAppendsUserMessage(t *testing.T) {
 		}),
 	})
 
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 
 	s.mu.Lock()
 	conv := s.conversation
@@ -746,7 +752,7 @@ func TestSubmitPromptDelegatesToRunner(t *testing.T) {
 		}),
 	})
 
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 
 	if !called {
 		t.Fatal("expected Runner.Run to be called")
@@ -764,7 +770,7 @@ func TestSubmitPromptUpdatesConversationOnSuccess(t *testing.T) {
 		}),
 	})
 
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 
 	if got := s.Conversation(); len(got) != 2 {
 		t.Fatalf("conversation length = %d, want 2", len(got))
@@ -788,7 +794,7 @@ func TestSubmitPromptSkipsConversationUpdateOnWorkflowHandoff(t *testing.T) {
 		}),
 	})
 
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 
 	// s.conversation must NOT be updated from result on workflow_handoff.
 	// The TUI sends ClearConversation before this goroutine finishes; skipping
@@ -844,7 +850,7 @@ func TestSubmitPromptSavesSessionOnWorkflowHandoff(t *testing.T) {
 		},
 	})
 
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 
 	saved, ok := mockStore.savedSessions[s.SessionID()]
 	if !ok {
@@ -883,7 +889,7 @@ func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 		}),
 	})
 
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 
 	var found bool
 	for _, event := range events {
@@ -918,7 +924,7 @@ func TestSubmitPromptSavesSessionOnRunError(t *testing.T) {
 		}),
 	})
 
-	s.submitPrompt(context.Background(), "test prompt", nil)
+	submitAndWait(t, s, "test prompt", nil)
 
 	if len(mockStore.savedSessions) != 1 {
 		t.Fatalf("saved sessions count = %d, want 1", len(mockStore.savedSessions))
@@ -975,7 +981,7 @@ func TestSubmitPromptRecordsHistory(t *testing.T) {
 		},
 	})
 
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 
 	if recorded != "hello" {
 		t.Fatalf("recorded prompt = %q, want %q", recorded, "hello")
@@ -1014,7 +1020,7 @@ func TestSubmitPromptRecordsHistoryBeforeRun(t *testing.T) {
 		},
 	})
 
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 
 	if !recordedBeforeRun.Load() {
 		t.Fatal("expected HistoryWriter.Record to be called before Runner.Run started")
@@ -1051,7 +1057,7 @@ func TestSubmitPromptRecordsHistoryWhenRunFails(t *testing.T) {
 				},
 			})
 
-			s.submitPrompt(context.Background(), "hello", nil)
+			submitAndWait(t, s, "hello", nil)
 
 			if len(recorded) != 1 || recorded[0] != "hello" {
 				t.Fatalf("recorded = %v, want [hello]", recorded)
@@ -1163,7 +1169,7 @@ func TestSubmitPromptRunWithInterruptOwnershipCancelsActiveRun(t *testing.T) {
 		}
 	}()
 
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 
 	if !cancelled {
 		t.Fatal("expected active run to be cancelled on interrupt")
@@ -1219,8 +1225,47 @@ func newRunExecutorFunc(run func(context.Context, []agent.Message) (RunResult, e
 	return &runExecutorFunc{run: run}
 }
 
-func (f *runExecutorFunc) Run(ctx context.Context, conversation []agent.Message, _ func() []agent.SteerMessage) (RunResult, error) {
-	return f.run(ctx, conversation)
+func (f *runExecutorFunc) Run(ctx context.Context, in RunInput) (RunResult, error) {
+	return f.run(ctx, in.Conversation)
+}
+
+// seedConversation moves the session onto conv and lineage the way a load
+// does, so the conversation driver starts from them.
+func seedConversation(s *Session, conv []agent.Message, lineage agent.ConversationLineage) {
+	s.mu.Lock()
+	old := s.swapDriverLocked(func() {
+		s.conversation = cloneMessages(conv)
+		s.lineage = lineage
+	})
+	s.mu.Unlock()
+	s.retireDriver(old)
+}
+
+// waitSettled waits until the conversation driver is idle and has saved.
+func waitSettled(t *testing.T, s *Session) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if !s.WaitRuns(ctx) {
+		t.Fatal("session did not settle")
+	}
+}
+
+// compactAndWait runs a manual compaction and waits for it to finish.
+func compactAndWait(t *testing.T, s *Session, steering string) {
+	t.Helper()
+	if err := s.Handle(context.Background(), TriggerManualCompaction{Steering: steering}); err != nil {
+		t.Fatalf("TriggerManualCompaction: %v", err)
+	}
+	waitSettled(t, s)
+}
+
+// submitAndWait submits a prompt and waits until the conversation driver has
+// run it and saved the result.
+func submitAndWait(t *testing.T, s *Session, text string, images []agent.ImageBlock) {
+	t.Helper()
+	s.submitPrompt(context.Background(), text, images)
+	waitSettled(t, s)
 }
 
 func (f *runExecutorFunc) Compact(ctx context.Context, conversation []agent.Message, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
@@ -2123,6 +2168,7 @@ func TestSaveSessionPersistsRawModelReference(t *testing.T) {
 
 // mockSessionStore is a minimal mock sessionStore for testing.
 type mockSessionStore struct {
+	mu             sync.Mutex
 	savedSessions  map[string]session.Session
 	loadedSessions map[string]session.Session
 }
@@ -2135,12 +2181,16 @@ func newMockSessionStore() *mockSessionStore {
 }
 
 func (m *mockSessionStore) Save(s session.Session) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.savedSessions[s.ID] = s
 	m.loadedSessions[s.ID] = s
 	return nil
 }
 
 func (m *mockSessionStore) Load(id string) (session.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if s, ok := m.loadedSessions[id]; ok {
 		return s, nil
 	}
@@ -2334,7 +2384,7 @@ func TestLoadSessionRestoresMode(t *testing.T) {
 			}
 
 			if tc.want == config.ExecutionModeBuild {
-				s.submitPrompt(context.Background(), "next prompt", nil)
+				submitAndWait(t, s, "next prompt", nil)
 
 				if len(capturedConversations) != 1 {
 					t.Fatalf("expected 1 captured conversation after next turn, got %d", len(capturedConversations))
@@ -2622,7 +2672,7 @@ func TestSubmitPromptWithImages(t *testing.T) {
 				}),
 			})
 
-			s.submitPrompt(context.Background(), "hello", tt.images)
+			submitAndWait(t, s, "hello", tt.images)
 
 			if len(got) != 1 {
 				t.Fatalf("runner conversation length = %d, want 1", len(got))
@@ -3901,7 +3951,7 @@ func TestModeNoticeStickyBuildModeRunner(t *testing.T) {
 	}
 	s := testNewSession(t, deps)
 
-	s.submitPrompt(context.Background(), "first prompt", nil)
+	submitAndWait(t, s, "first prompt", nil)
 
 	if len(capturedConversations) != 1 {
 		t.Fatalf("expected 1 captured conversation, got %d", len(capturedConversations))
@@ -4143,10 +4193,10 @@ func TestModeNoticeStickinessPlanMode(t *testing.T) {
 	s := testNewSession(t, deps)
 
 	// Turn 1: submit first prompt
-	s.submitPrompt(context.Background(), "first prompt", nil)
+	submitAndWait(t, s, "first prompt", nil)
 
 	// Turn 2: submit second prompt
-	s.submitPrompt(context.Background(), "second prompt", nil)
+	submitAndWait(t, s, "second prompt", nil)
 
 	if len(capturedConversations) != 2 {
 		t.Fatalf("expected 2 captured conversations, got %d", len(capturedConversations))
@@ -4216,10 +4266,10 @@ func TestCacheByteIdentity(t *testing.T) {
 	s := testNewSession(t, deps)
 
 	// Turn 1
-	s.submitPrompt(context.Background(), "first", nil)
+	submitAndWait(t, s, "first", nil)
 
 	// Turn 2
-	s.submitPrompt(context.Background(), "second", nil)
+	submitAndWait(t, s, "second", nil)
 
 	if len(sentConversations) != 2 {
 		t.Fatalf("expected 2 sent conversations, got %d", len(sentConversations))

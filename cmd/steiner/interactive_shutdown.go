@@ -32,6 +32,7 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	// Stop children first so tracked runs blocked on them can finish inside the drain window.
 	shutdownDelegation(context.Background(), rt, delegation.CancelCauseUser)
 	awaitSessionRuns(cmd, sess, rt)
+	closeSession(sess)
 	pruneWorktreesOnExit(cmd, sess, rt)
 	clearTerminalScreen(cmd.OutOrStdout())
 	if err == nil && sess.SessionTitle() != "" {
@@ -69,6 +70,18 @@ func awaitSessionRuns(cmd *cobra.Command, sess *interactive.Session, rt *cliRunt
 	}
 	// best-effort: terminal write
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: session shutdown: %v.\n", warning)
+}
+
+// closeSession stops the session's conversation driver, cancelling a run that
+// outlived the drain window and saving the settled conversation, bounded by the
+// same window. A nil session is a no-op.
+func closeSession(sess *interactive.Session) {
+	if sess == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sessionRunDrainTimeout)
+	defer cancel()
+	sess.Close(ctx)
 }
 
 // shutdownDelegation cancels every sub-agent and waits, bounded by the

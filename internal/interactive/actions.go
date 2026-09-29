@@ -29,6 +29,12 @@ type SubmitPrompt struct {
 
 func (SubmitPrompt) isInteractiveAction() {}
 
+// NotifySteer tells the session that text was added to the steer queue, so the
+// conversation driver delivers it even when no run is active.
+type NotifySteer struct{}
+
+func (NotifySteer) isInteractiveAction() {}
+
 // RecordPromptHistory records a prompt that bypassed SubmitPrompt (for example
 // a steer message queued during an active run) in prompt history.
 type RecordPromptHistory struct {

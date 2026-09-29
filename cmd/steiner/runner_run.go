@@ -255,7 +255,17 @@ func retainDiagnosticEvents(base output.EventSink) (output.EventSink, *[]output.
 	return events, &diagnostics
 }
 
-func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, drainSteers func() []agent.SteerMessage) agent.RunRequest {
+// runHooks are the per-run hooks a conversation driver or steer queue supplies.
+// The zero value runs without a boundary inbox.
+type runHooks struct {
+	drainInbox       func() agent.InboxDrain
+	onToolBatchDone  func(batchID string)
+	pendingSubAgents func() []agent.PendingSubAgent
+	// maxTokens tightens the configured token limit when positive.
+	maxTokens int
+}
+
+func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, hooks runHooks) agent.RunRequest {
 	maxTokens := setup.resolvedModel.EffectiveLimits.MaxOutputTokens
 	sandboxTmpDir := ""
 	if r.sandboxEnabled() {
@@ -290,7 +300,9 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		ContextManager:     agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
 		StreamingPreferred: r.streamingPreferred,
 		CompactionLogPath:  r.runtime.compactionLogFile,
-		DrainInbox:         agent.SteerInboxDrain(drainSteers),
+		DrainInbox:         hooks.drainInbox,
+		OnToolBatchDone:    hooks.onToolBatchDone,
+		PendingSubAgents:   hooks.pendingSubAgents,
 		PromptCacheKey:     r.promptCacheKey(),
 		CacheBaseline:      r.cacheBaseline,
 		VisionCapabilities: visionCapabilities,
@@ -309,6 +321,9 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 			return agent.ParallelClassTool
 		}
 		return agent.ParallelClassNone
+	}
+	if hooks.maxTokens > 0 && (req.Limits.MaxTokens <= 0 || hooks.maxTokens < req.Limits.MaxTokens) {
+		req.Limits.MaxTokens = hooks.maxTokens
 	}
 	req.MaxParallelTools = r.runtime.cfg.Limits.MaxParallelTools
 	req.MaxParallelDelegations = r.runtime.cfg.SubAgent.MaxParallel

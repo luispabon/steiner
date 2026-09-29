@@ -68,24 +68,28 @@ func (s *Session) saveSession() error {
 // rotateSession assigns a fresh session identity and optionally updates the group.
 func (s *Session) rotateSession(group string, updateGroup bool) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.deps.SessionStore == nil {
+		s.mu.Unlock()
 		return nil
 	}
 
 	id, err := generateSessionID()
 	if err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("rotate session id: %w", err)
 	}
-	s.sessionID = id
-	s.promptCacheKey = id
-	s.bindImageStore(id, 1)
-	s.sessionDate = prompt.NewSessionDate(s.now())
-	s.sessionTitle = ""
-	if updateGroup {
-		s.sessionGroup = strings.TrimSpace(group)
-	}
+	old := s.swapDriverLocked(func() {
+		s.sessionID = id
+		s.promptCacheKey = id
+		s.bindImageStore(id, 1)
+		s.sessionDate = prompt.NewSessionDate(s.now())
+		s.sessionTitle = ""
+		if updateGroup {
+			s.sessionGroup = strings.TrimSpace(group)
+		}
+	})
+	s.mu.Unlock()
+	s.retireDriver(old)
 	return nil
 }
 
@@ -137,25 +141,28 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}
 
 	s.mu.Lock()
-	if s.activeRuns > 0 {
+	if s.runActiveLocked() {
 		s.mu.Unlock()
 		return s.refuseRunInProgress("load session")
 	}
-	s.lineage = sess.Lineage
-	s.conversation = sess.Lineage.FullMessages()
-	s.sessionID = sess.ID
-	s.promptCacheKey = sess.CacheKey()
-	s.sessionDate = prompt.NewSessionDate(s.now())
-	s.sessionTitle = sess.Title
-	s.sessionGroup = strings.TrimSpace(sess.Group)
-	s.mode = mode
+	old := s.swapDriverLocked(func() {
+		s.lineage = sess.Lineage
+		s.conversation = sess.Lineage.FullMessages()
+		s.sessionID = sess.ID
+		s.promptCacheKey = sess.CacheKey()
+		s.sessionDate = prompt.NewSessionDate(s.now())
+		s.sessionTitle = sess.Title
+		s.sessionGroup = strings.TrimSpace(sess.Group)
+		s.mode = mode
+		s.skills.Reset()
+		for _, name := range sess.Skills {
+			s.skills.Set(name, true)
+		}
+	})
 	listener := s.modeListener
-	s.skills.Reset()
-	for _, name := range sess.Skills {
-		s.skills.Set(name, true)
-	}
 	msgs := append([]agent.Message(nil), s.conversation...)
 	s.mu.Unlock()
+	s.retireDriver(old)
 
 	s.bindImageStore(sess.ID, agent.NextImageIDFloor(sess.Lineage))
 

@@ -84,6 +84,9 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 	if rt.imageStore != nil {
 		sessDeps.ImageStore = rt.imageStore
 	}
+	if rt.delegationSupervisor != nil {
+		sessDeps.Background = rt.delegationSupervisor
+	}
 	return interactive.NewSession(sessDeps)
 }
 
@@ -707,17 +710,23 @@ func (r sessionRunner) Compact(ctx context.Context, conversation []agent.Message
 	return r.runner.Compact(ctx, conversation, nil, tools, steering)
 }
 
-func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, drainSteers func() []agent.SteerMessage) (interactive.RunResult, error) {
+func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (interactive.RunResult, error) {
 	if r.mcpInit != nil {
 		r.mcpInit.once.Do(func() { r.mcpInit.run(ctx, r.runner.runtime) })
 		if r.mcpInit.err != nil {
 			return interactive.RunResult{}, r.mcpInit.err
 		}
 	}
-	result, err := r.runner.Run(ctx, conversation, nil, drainSteers)
+	result, err := r.runner.RunWithHooks(ctx, in.Conversation, nil, runHooks{
+		drainInbox:       in.DrainInbox,
+		onToolBatchDone:  in.OnToolBatchDone,
+		pendingSubAgents: in.PendingSubAgents,
+		maxTokens:        in.MaxTokens,
+	})
 	return interactive.RunResult{
 		Conversation:    result.Conversation,
 		WorkflowHandoff: result.WorkflowHandoff,
+		Lineage:         result.Lineage,
 		TokenCount:      result.TokenCount,
 		StopReason:      result.StopReason,
 	}, err

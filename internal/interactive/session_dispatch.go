@@ -10,7 +10,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-// Handle processes an interactive action. Handles SubmitPrompt,
+// Handle processes an interactive action. Handles SubmitPrompt, NotifySteer,
 // RecordPromptHistory, InterruptActiveRun, CancelDelegate, CancelAllDelegates,
 // ClearConversation, RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
@@ -29,13 +29,10 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 func (s *Session) handleImmediateAction(ctx context.Context, action Action) (bool, error) {
 	switch a := action.(type) {
 	case SubmitPrompt:
-		endRun := s.beginRun()
-		s.runs.Add(1)
-		go func() {
-			defer s.runs.Done()
-			defer endRun()
-			s.submitPrompt(ctx, a.Text, a.Images)
-		}()
+		s.submitPrompt(ctx, a.Text, a.Images)
+		return true, nil
+	case NotifySteer:
+		s.currentDriver().NotifySteer()
 		return true, nil
 	case RecordPromptHistory:
 		s.runs.Add(1)
@@ -46,6 +43,7 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 		return true, nil
 	case InterruptActiveRun:
 		s.runController.Interrupt()
+		s.currentDriver().StopTurn()
 		return true, nil
 	case CancelDelegate:
 		if s.delegateCanceller == nil {
@@ -65,20 +63,15 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 		return true, nil
 	case TriggerManualCompaction:
 		s.mu.Lock()
-		if s.activeRuns > 0 {
+		if s.runActiveLocked() {
 			s.mu.Unlock()
 			s.events.Emit(output.NewOverlayReportEvent("Context Report", errRunInProgress.Error()))
 			return true, fmt.Errorf("compact: %w", errRunInProgress)
 		}
 		s.activeRuns++
+		drv := s.driver.drv
 		s.mu.Unlock()
-		endRun := s.endRun
-		s.runs.Add(1)
-		go func() {
-			defer s.runs.Done()
-			defer endRun()
-			s.manualCompaction(ctx, a.Steering)
-		}()
+		drv.RequestCompaction(s.manualCompaction(drv, a.Steering))
 		return true, nil
 	case RequestExit:
 		s.exitOnce.Do(func() { close(s.done) })
@@ -93,8 +86,9 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 	switch a := action.(type) {
 	case ClearConversation:
 		s.mu.Lock()
-		s.resetConversationLocked()
+		old := s.swapDriverLocked(s.resetConversationLocked)
 		s.mu.Unlock()
+		s.retireDriver(old)
 		s.skills.Reset()
 		return true, s.rotateSession("", false)
 	case SetSkillEnabled:

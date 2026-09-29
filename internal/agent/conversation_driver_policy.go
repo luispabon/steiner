@@ -46,7 +46,7 @@ func (d *ConversationDriver) quietSettleableLocked() bool {
 // delivered, saves and moves to waiting or idle. It never calls Run.
 func (d *ConversationDriver) settleQuietLocked(ctx context.Context) bool {
 	if drain := d.drainLocked(DeliveryParts{}); drain.Message != nil {
-		d.conv = append(d.conv, *drain.Message)
+		d.appendLocked(*drain.Message)
 	}
 	d.settleLocked()
 	return d.saveAndUnlock(ctx, false)

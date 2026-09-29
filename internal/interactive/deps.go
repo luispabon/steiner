@@ -16,17 +16,34 @@ import (
 type RunResult struct {
 	Conversation    []agent.Message
 	WorkflowHandoff *tool.WorkflowHandoffTransition
-	TokenCount      int
-	StopReason      agent.StopReason
+	// Lineage is the run's own lineage; it may be empty, in which case the
+	// session derives one from Conversation.
+	Lineage    agent.ConversationLineage
+	TokenCount int
+	StopReason agent.StopReason
+}
+
+// RunInput is what the session hands a runExecutor for one turn sequence.
+type RunInput struct {
+	Conversation []agent.Message
+	// DrainInbox returns the next boundary delivery for the run.
+	DrainInbox func() agent.InboxDrain
+	// OnToolBatchDone is called after every tool batch; nil when the session
+	// has no sub-agents.
+	OnToolBatchDone func(batchID string)
+	// PendingSubAgents lists the sub-agents still running; nil when the session
+	// has no sub-agents.
+	PendingSubAgents func() []agent.PendingSubAgent
+	// MaxTokens caps the run's tokens; 0 means the runner default.
+	MaxTokens int
 }
 
 // runExecutor starts and manages model-in-the-loop runs. Consumer-defined to
 // avoid coupling to internal/agent or cmd/steiner.
 type runExecutor interface {
-	// Run executes a model run with the given conversation.
-	// drainSteers drains all queued between-turn steering messages; pass nil when unavailable.
-	// Returns the updated conversation on success.
-	Run(ctx context.Context, conversation []agent.Message, drainSteers func() []agent.SteerMessage) (RunResult, error)
+	// Run executes one model run over in.Conversation and returns the updated
+	// conversation.
+	Run(ctx context.Context, in RunInput) (RunResult, error)
 
 	// Compact reduces the conversation through the same runner seam used by
 	// normal runs.
@@ -107,4 +124,7 @@ type Dependencies struct {
 	// Required wherever a resolved model's metadata (e.g. context window) is
 	// needed outside the main run loop.
 	ResolveModel func(alias string) (provider.ResolvedModel, error)
+	// Background is the sub-agent supervisor the conversation driver consults.
+	// Nil when the session has no sub-agents.
+	Background agent.BackgroundAgents
 }

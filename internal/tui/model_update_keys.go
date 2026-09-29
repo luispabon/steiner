@@ -451,6 +451,14 @@ func (m *Model) executeSteerAction() tea.Model {
 		m.steers.Add(agent.SteerMessage{Text: text, Images: images})
 	}
 	if m.controller != nil {
+		// The session's conversation driver drains the steer queue; the notice
+		// wakes it when its run has already passed its last boundary. A oneshot
+		// run drains the same queue itself, so the driver must stay out of it.
+		if !m.oneshotRunning {
+			if err := m.controller.Handle(context.Background(), interactive.NotifySteer{}); err != nil {
+				m.appendError(err)
+			}
+		}
 		if err := m.controller.Handle(context.Background(), interactive.RecordPromptHistory{Text: text}); err != nil {
 			m.appendError(err)
 		}

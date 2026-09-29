@@ -63,7 +63,7 @@ func (r cliRunner) driverRun(skillNames []string, drainSteers func() []agent.Ste
 				return legacy()
 			}
 		}
-		res, err := r.runWithHooks(ctx, in.Conversation, skillNames, runHooks{
+		res, err := r.run(ctx, in.Conversation, skillNames, runHooks{
 			drainInbox:       drain,
 			onToolBatchDone:  in.OnToolBatchDone,
 			pendingSubAgents: in.PendingSubAgents,

@@ -53,9 +53,13 @@ type DriverSnapshot struct {
 	Ledger       []SubAgentLedgerEntry
 }
 
-// SubmitMeta carries host side effects attached to a submitted prompt. It has
-// no fields yet; the interactive host extends it.
-type SubmitMeta struct{}
+// SubmitMeta carries host side effects attached to a submitted prompt.
+type SubmitMeta struct {
+	// SkillBlocks are rendered skill envelopes delivered ahead of this prompt's
+	// text. When any queued prompt carries blocks they replace the blocks
+	// PrepareTurn computed for the same delivery.
+	SkillBlocks []string
+}
 
 // DriverOptions configures a ConversationDriver.
 type DriverOptions struct {
@@ -100,10 +104,13 @@ type ConversationDriver struct {
 	cancel      context.CancelFunc
 	compacting  bool
 	users       []SteerMessage
+	userBlocks  []string
 	completions []SubAgentCompletion
 	compactions []compactionFunc
 	started     bool
 	closing     bool
+
+	saving int // saves in flight; WaitQuiescent waits for them
 
 	episodeUsed   int
 	exhausted     bool
@@ -222,13 +229,18 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 		d.unlockEmit()
 		return false
 	}
-	drain := d.drainLocked(parts)
+	drain, steerText := d.drainItemsLocked(parts)
 	if drain.Message == nil {
 		// The wake item was taken back between the check and the drain.
 		d.settleLocked()
 		return d.saveAndUnlock(ctx, false)
 	}
-	d.conv = append(d.conv, *drain.Message)
+	d.appendLocked(*drain.Message)
+	if steerText != "" {
+		// A steer that starts a sequence never passes the runner's boundary
+		// drain, so announce it here for the UI to render.
+		d.pendingEvents = append(d.pendingEvents, output.NewSteerReceivedEvent(steerText))
+	}
 	d.state = DriverGenerating
 	d.epoch++
 	runCtx, cancel := context.WithCancel(ctx)
@@ -286,11 +298,23 @@ func (d *ConversationDriver) finish(ctx context.Context, out DriverRunOutput, er
 	d.saveAndUnlock(ctx, false)
 }
 
+// appendLocked adds msg to the conversation and to the latest lineage
+// generation so the two never drift.
+func (d *ConversationDriver) appendLocked(msg Message) {
+	d.conv = append(d.conv, msg)
+	d.lineage = d.lineage.WithAppendedMessages([]Message{msg})
+}
+
 // saveAndUnlock snapshots under the held lock, releases it and saves.
+// WaitQuiescent does not return until the save has finished.
 func (d *ConversationDriver) saveAndUnlock(ctx context.Context, more bool) bool {
 	snap := d.snapshotLocked()
+	d.saving++
 	d.unlockEmit()
 	d.save(ctx, snap)
+	d.mu.Lock()
+	d.saving--
+	d.unlockEmit()
 	return more
 }
 
@@ -344,7 +368,7 @@ func (d *ConversationDriver) finalize(ctx context.Context) {
 	d.disarmWindowLocked()
 	d.compactions = nil
 	if drain := d.drainLocked(DeliveryParts{}); drain.Message != nil {
-		d.conv = append(d.conv, *drain.Message)
+		d.appendLocked(*drain.Message)
 	}
 	d.held = false
 	d.settleLocked()

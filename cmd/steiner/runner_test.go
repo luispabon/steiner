@@ -43,7 +43,7 @@ func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 				Limits:   config.LimitsConfig{MaxParallelTools: tt.width},
 			}}}
 			reg := tool.NewRegistry(tool.ToolDef{Name: "read", ParallelSafe: true})
-			req := buildRunRequest(r, runnerSetup{}, reg, nil, nil)
+			req := buildRunRequest(r, runnerSetup{}, reg, nil, runHooks{})
 			if req.ParallelClassOf == nil {
 				t.Fatal("ParallelClassOf = nil, want set")
 			}
@@ -69,7 +69,7 @@ func TestBuildRunRequestSnapshotsVisionCapabilities(t *testing.T) {
 	shared.LatchIncapable("latched")
 	r := cliRunner{runtime: cliRuntime{visionCapabilities: shared}}
 
-	first := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
+	first := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, runHooks{})
 	if first.VisionCapabilities == nil {
 		t.Fatal("first request vision capabilities = nil, want snapshot")
 	}
@@ -98,7 +98,7 @@ func TestBuildRunRequestSnapshotsVisionCapabilities(t *testing.T) {
 		t.Fatal("first request vision capabilities changed after runtime update")
 	}
 
-	second := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
+	second := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, runHooks{})
 	if second.VisionCapabilities == nil {
 		t.Fatal("second request vision capabilities = nil, want snapshot")
 	}
@@ -131,7 +131,7 @@ func TestBuildRunRequestLimitsModelCallTimeout(t *testing.T) {
 			r := cliRunner{runtime: cliRuntime{cfg: config.Config{
 				Limits: config.LimitsConfig{ModelCallTimeout: timeout},
 			}}}
-			req := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
+			req := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, runHooks{})
 			if req.Limits.ModelCallTimeout != tt.wantTimeout {
 				t.Errorf("ModelCallTimeout = %v, want %v", req.Limits.ModelCallTimeout, tt.wantTimeout)
 			}

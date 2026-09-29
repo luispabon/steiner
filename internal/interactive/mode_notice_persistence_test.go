@@ -27,7 +27,7 @@ func TestSubmitPromptRetainsModeNoticeAfterRunFailure(t *testing.T) {
 		return RunResult{Conversation: conversation}, nil
 	}))
 
-	s.submitPrompt(context.Background(), "first", nil)
+	submitAndWait(t, s, "first", nil)
 	notice := prompt.ModeNotice(config.ExecutionModePlan) + "\n\n"
 	assertModeNoticeMessage(t, s.Conversation(), notice, "first")
 	assertModeNoticeMessage(t, s.lineage.FullMessages(), notice, "first")
@@ -37,7 +37,7 @@ func TestSubmitPromptRetainsModeNoticeAfterRunFailure(t *testing.T) {
 	}
 	assertModeNoticeMessage(t, saved.Lineage.FullMessages(), notice, "first")
 
-	s.submitPrompt(context.Background(), "second", nil)
+	submitAndWait(t, s, "second", nil)
 	if len(runs) != 2 {
 		t.Fatalf("runner calls = %d, want 2", len(runs))
 	}

@@ -155,12 +155,15 @@ func TestSteerActionRecordsPromptHistory(t *testing.T) {
 	ctrl.mu.Lock()
 	actions := ctrl.actions
 	ctrl.mu.Unlock()
-	if len(actions) != 1 {
-		t.Fatalf("controller actions = %d, want 1", len(actions))
+	if len(actions) != 2 {
+		t.Fatalf("controller actions = %d, want 2 (NotifySteer, RecordPromptHistory)", len(actions))
 	}
-	recorded, ok := actions[0].(interactive.RecordPromptHistory)
+	if _, ok := actions[0].(interactive.NotifySteer); !ok {
+		t.Fatalf("action[0] = %T, want interactive.NotifySteer", actions[0])
+	}
+	recorded, ok := actions[1].(interactive.RecordPromptHistory)
 	if !ok {
-		t.Fatalf("action = %T, want interactive.RecordPromptHistory", actions[0])
+		t.Fatalf("action[1] = %T, want interactive.RecordPromptHistory", actions[1])
 	}
 	if recorded.Text != "steer this" {
 		t.Errorf("recorded text = %q, want %q", recorded.Text, "steer this")
@@ -266,21 +269,42 @@ func TestSteerQueueSharedBetweenComposerAndOneshotRun(t *testing.T) {
 	m := newModel(Config{Controller: sess, SteerQueue: queue}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
-	// Queue during a regular busy run.
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m.input.SetValue("steer during regular run")
-	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
-
-	// Queue again while simulating an active oneshot run.
+	// Queue twice while an oneshot run is active. The session's conversation
+	// driver must leave the queue to the oneshot run.
 	m.oneshotRunning = true
-	m.input.SetValue("steer during oneshot")
+	m.input.SetValue("first oneshot steer")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m.input.SetValue("second oneshot steer")
 	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	// Both messages must land in the exact queue instance the oneshot run
 	// drains from — proving the composer never uses a second instance.
 	got := sess.ActiveRunController().SteerQueue().Drain()
-	if len(got) != 2 || got[0].Text != "steer during regular run" || got[1].Text != "steer during oneshot" {
-		t.Fatalf("Drain() = %+v, want [{steer during regular run} {steer during oneshot}]", got)
+	if len(got) != 2 || got[0].Text != "first oneshot steer" || got[1].Text != "second oneshot steer" {
+		t.Fatalf("Drain() = %+v, want [{first oneshot steer} {second oneshot steer}]", got)
+	}
+}
+
+func TestSteerActionDuringOneshotDoesNotNotifyDriver(t *testing.T) {
+	t.Parallel()
+	q := agent.NewSteerQueue()
+	ctrl := &testController{}
+	m := newMinimalModel("steer the oneshot")
+	m.steers = q
+	m.controller = ctrl
+	m.oneshotRunning = true
+
+	m.executeSteerAction()
+
+	ctrl.mu.Lock()
+	defer ctrl.mu.Unlock()
+	for _, action := range ctrl.actions {
+		if _, ok := action.(interactive.NotifySteer); ok {
+			t.Fatal("NotifySteer dispatched during a oneshot run")
+		}
+	}
+	if q.Len() != 1 {
+		t.Fatalf("steer queue len = %d, want 1", q.Len())
 	}
 }
 

@@ -584,7 +584,7 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := sr.Run(ctx, nil, nil); err == nil {
+	if _, err := sr.Run(ctx, interactive.RunInput{}); err == nil {
 		t.Fatal("Run() error = nil, want fast failure after MCP init")
 	}
 	// Measured from Connect: the fixture re-exec is a slow-starting test binary,
@@ -1093,7 +1093,7 @@ type blockedCleanupTestRunner struct {
 	release chan struct{}
 }
 
-func (r *blockedCleanupTestRunner) Run(context.Context, []agent.Message, func() []agent.SteerMessage) (interactive.RunResult, error) {
+func (r *blockedCleanupTestRunner) Run(context.Context, interactive.RunInput) (interactive.RunResult, error) {
 	close(r.started)
 	<-r.release
 	return interactive.RunResult{}, nil
@@ -1165,7 +1165,7 @@ func TestSessionRunnerForwardsNilStaticSkillNames(t *testing.T) {
 	adapter := sessionRunner{runner: runner}
 	conversation := []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}
 
-	if _, err := adapter.Run(context.Background(), conversation, nil); err != nil {
+	if _, err := adapter.Run(context.Background(), interactive.RunInput{Conversation: conversation}); err != nil {
 		t.Fatalf("sessionRunner.Run() error = %v", err)
 	}
 	if got := lastRequestContents(t, providerStub); strings.Contains(got, "review skill instructions") {
@@ -1198,7 +1198,7 @@ func TestSessionRunnerReturnsTokenCountAndStopReason(t *testing.T) {
 		homeDir:  t.TempDir(),
 		events:   output.NoopSink{},
 	}}}
-	result, err := adapter.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "hi"}}, nil)
+	result, err := adapter.Run(context.Background(), interactive.RunInput{Conversation: []agent.Message{{Role: agent.MessageRoleUser, Content: "hi"}}})
 	if err != nil {
 		t.Fatalf("sessionRunner.Run() error = %v", err)
 	}

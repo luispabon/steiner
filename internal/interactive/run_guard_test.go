@@ -30,9 +30,9 @@ func userMsg(text string) agent.Message {
 }
 
 // startBlockedRun dispatches a prompt whose runner blocks until release is closed.
-func startBlockedRun(t *testing.T, s *Session) (started chan struct{}, release chan struct{}) {
+func startBlockedRun(t *testing.T, s *Session) (release chan struct{}) {
 	t.Helper()
-	started = make(chan struct{})
+	started := make(chan struct{})
 	release = make(chan struct{})
 	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
 		close(started)
@@ -43,7 +43,7 @@ func startBlockedRun(t *testing.T, s *Session) (started chan struct{}, release c
 		t.Fatalf("SubmitPrompt: %v", err)
 	}
 	<-started
-	return started, release
+	return release
 }
 
 func TestSessionMutationsRefusedDuringRun(t *testing.T) {
@@ -52,7 +52,7 @@ func TestSessionMutationsRefusedDuringRun(t *testing.T) {
 	store.loadedSessions["other"] = session.Session{ID: "other", Lineage: lineageOf(userMsg("other"))}
 	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
 	origID := s.SessionID()
-	_, release := startBlockedRun(t, s)
+	release := startBlockedRun(t, s)
 
 	actions := []Action{
 		LoadSession{SessionID: "other"},
@@ -81,64 +81,34 @@ func TestSessionMutationsRefusedDuringRun(t *testing.T) {
 	}
 }
 
-func TestApplyRunResultSkipsWhenSessionChanged(t *testing.T) {
+func TestRunResultSavedUnderOriginalSessionWhenSessionRotatesMidRun(t *testing.T) {
 	t.Parallel()
 	store := newMockSessionStore()
-	store.loadedSessions["new"] = session.Session{ID: "new", Lineage: lineageOf(userMsg("new convo"))}
 	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
 	startID := s.SessionID()
-	// Bypass the dispatch guard: no run is registered, so loadSession succeeds.
-	if err := s.loadSession(context.Background(), "new"); err != nil {
-		t.Fatalf("loadSession: %v", err)
-	}
-	if s.sessionChanged(startID) != true {
-		t.Fatal("sessionChanged = false after load")
-	}
-	if s.applyRunResult(startID, nil, RunResult{Conversation: []agent.Message{userMsg("old convo")}}) {
-		t.Fatal("applyRunResult applied a stale result")
-	}
-	conv := s.Conversation()
-	if len(conv) != 1 || conv[0].Content != "new convo" {
-		t.Fatalf("conversation = %+v, want the loaded session's", conv)
-	}
-	if got := s.lineage.FullMessages(); len(got) != 1 || got[0].Content != "new convo" {
-		t.Fatalf("lineage = %+v, want the loaded session's", got)
-	}
-	if _, ok := store.savedSessions["new"]; ok {
-		t.Fatal("new session was saved by the stale run")
-	}
-}
+	release := startBlockedRun(t, s)
 
-func TestSubmitPromptDoesNotSaveUnderChangedSession(t *testing.T) {
-	t.Parallel()
-	store := newMockSessionStore()
-	store.loadedSessions["new"] = session.Session{ID: "new", Lineage: lineageOf(userMsg("new convo"))}
-	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
-	startID := s.SessionID()
-	started := make(chan struct{})
-	release := make(chan struct{})
-	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
-		close(started)
-		<-release
-		return RunResult{Conversation: conv}, nil
-	}))
-	done := make(chan struct{})
-	go func() { defer close(done); s.submitPrompt(context.Background(), "hi", nil) }()
-	<-started
-	if err := s.loadSession(context.Background(), "new"); err != nil { // guard bypassed: not via dispatch
-		// beginRun was not called by submitPrompt directly, so this succeeds.
-		t.Fatalf("loadSession: %v", err)
+	// Rotation is not guarded, unlike load/fork/compaction.
+	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
+		t.Fatalf("RotateSession: %v", err)
 	}
+	newID := s.SessionID()
 	close(release)
-	<-done
-	if _, ok := store.savedSessions["new"]; ok {
+	waitSettled(t, s)
+
+	if _, ok := store.savedSessions[newID]; ok {
 		t.Fatal("stale run saved under the new session ID")
 	}
-	if _, ok := store.savedSessions[startID]; !ok {
+	saved, ok := store.savedSessions[startID]
+	if !ok {
 		t.Fatal("stale run's result was not saved under its original session ID")
 	}
-	if conv := s.Conversation(); len(conv) != 1 || conv[0].Content != "new convo" {
-		t.Fatalf("conversation = %+v", conv)
+	msgs := saved.Lineage.FullMessages()
+	if len(msgs) == 0 || msgs[len(msgs)-1].Content != "old answer" {
+		t.Fatalf("saved lineage = %+v, want it to end with the run's answer", msgs)
+	}
+	if conv := s.Conversation(); len(conv) != 1 || conv[0].Content != "hi" {
+		t.Fatalf("live conversation = %+v, want only the prompt (the stale run must not be adopted)", conv)
 	}
 }
 
@@ -146,10 +116,7 @@ func TestClearConversationResetsLineage(t *testing.T) {
 	t.Parallel()
 	store := newMockSessionStore()
 	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
-	s.mu.Lock()
-	s.conversation = []agent.Message{userMsg("secret")}
-	s.lineage = lineageOf(userMsg("secret"))
-	s.mu.Unlock()
+	seedConversation(s, []agent.Message{userMsg("secret")}, lineageOf(userMsg("secret")))
 	oldID := s.SessionID()
 	if err := s.saveSession(); err != nil {
 		t.Fatalf("saveSession before clear: %v", err)
@@ -182,7 +149,7 @@ func TestClearConversationResetsLineage(t *testing.T) {
 	}
 }
 
-func TestActiveRunControllerClearRequiresOwnerToken(t *testing.T) {
+func TestActiveRunControllerReleaseRequiresOwnerToken(t *testing.T) {
 	t.Parallel()
 	c := NewActiveRunController()
 	cancelledA, cancelledB := false, false
@@ -192,20 +159,20 @@ func TestActiveRunControllerClearRequiresOwnerToken(t *testing.T) {
 		t.Fatal("tokens must differ")
 	}
 	c.SteerQueue().Add(agent.SteerMessage{Text: "keep"})
-	c.Clear(tokA)
+	c.Release(tokA)
 	if !c.HasCancel() {
-		t.Fatal("stale Clear removed the newer cancel func")
+		t.Fatal("stale Release removed the newer cancel func")
 	}
 	if len(c.SteerQueue().Drain()) != 1 {
-		t.Fatal("stale Clear dropped steer queue")
+		t.Fatal("stale Release dropped steer queue")
 	}
 	c.Interrupt()
 	if cancelledA || !cancelledB {
 		t.Fatalf("cancelled A=%v B=%v, want only B", cancelledA, cancelledB)
 	}
-	c.Clear(tokB)
+	c.Release(tokB)
 	if c.HasCancel() {
-		t.Fatal("owner Clear did not release cancel")
+		t.Fatal("owner Release did not release cancel")
 	}
 }
 
@@ -224,8 +191,7 @@ func TestHandoffClearRotateStillSavesFinalTurnUnderOriginalSession(t *testing.T)
 		final := append(append([]agent.Message{}, conv...), agent.Message{Role: agent.MessageRoleAssistant, Content: "final plan turn"})
 		return RunResult{Conversation: final}, nil
 	}))
-	done := make(chan struct{})
-	go func() { defer close(done); s.submitPrompt(context.Background(), handoffPrompt, nil) }()
+	s.submitPrompt(context.Background(), handoffPrompt, nil)
 	<-started
 
 	// The TUI's accept path: clear the conversation, then rotate the session.
@@ -240,7 +206,7 @@ func TestHandoffClearRotateStillSavesFinalTurnUnderOriginalSession(t *testing.T)
 		t.Fatal("session ID did not rotate")
 	}
 	close(release)
-	<-done
+	waitSettled(t, s)
 
 	saved, ok := store.savedSessions[startID]
 	if !ok {

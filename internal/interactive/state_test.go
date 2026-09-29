@@ -80,18 +80,6 @@ func TestActiveRunControllerSteerQueue(t *testing.T) {
 			},
 		},
 		{
-			name: "Clear empties the queue",
-			test: func(t *testing.T) {
-				c := NewActiveRunController()
-				c.SteerQueue().Add(agent.SteerMessage{Text: "pending"})
-				c.Clear(c.Set(func() {}))
-				got := c.SteerQueue().Drain()
-				if len(got) != 0 {
-					t.Errorf("after Clear(), Drain() = %+v, want empty", got)
-				}
-			},
-		},
-		{
 			name: "Release preserves the queue and does not clear a successor",
 			test: func(t *testing.T) {
 				c := NewActiveRunController()

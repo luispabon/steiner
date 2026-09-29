@@ -32,22 +32,25 @@ type Session struct {
 	snapshots           *SnapshotStore
 	approvalCoordinator *ApprovalCoordinator
 	handoffCoordinator  *WorkflowHandoffCoordinator
-	conversation        []agent.Message
-	lineage             agent.ConversationLineage
-	sessionID           string
-	promptCacheKey      string
-	sessionTitle        string
-	sessionGroup        string
-	reasoningOverrides  map[string]provider.ReasoningOverride
-	mode                config.ExecutionMode
-	modeListener        func(config.ExecutionMode)
-	orchestrationLevel  config.OrchestrationLevel
-	now                 func() time.Time
-	sessionDate         prompt.SessionDate
-	done                chan struct{}
-	runs                runGroup
-	activeRuns          int // prompt/compaction runs in flight; guarded by mu
-	exitOnce            sync.Once
+	// conversation and lineage mirror the driver's state as of its last save.
+	// The driver is the only writer of the conversation during a session.
+	conversation       []agent.Message
+	lineage            agent.ConversationLineage
+	driver             *driverHandle
+	sessionID          string
+	promptCacheKey     string
+	sessionTitle       string
+	sessionGroup       string
+	reasoningOverrides map[string]provider.ReasoningOverride
+	mode               config.ExecutionMode
+	modeListener       func(config.ExecutionMode)
+	orchestrationLevel config.OrchestrationLevel
+	now                func() time.Time
+	sessionDate        prompt.SessionDate
+	done               chan struct{}
+	runs               runGroup
+	activeRuns         int // manual compactions in flight; guarded by mu
+	exitOnce           sync.Once
 }
 
 // NewSession creates a new interactive Session with the given dependencies.
@@ -95,6 +98,7 @@ func NewSession(deps Dependencies) (*Session, error) {
 		sessionDate:         prompt.NewSessionDate(now()),
 		done:                make(chan struct{}),
 	}
+	sess.driver = sess.newDriverLocked(nil, agent.ConversationLineage{})
 	sess.bindImageStore(sessionID, 1)
 	return sess, nil
 }
@@ -252,11 +256,13 @@ func (s *Session) Conversation() []agent.Message {
 	return cloneMessages(s.conversation)
 }
 
-// SetConversation replaces the current conversation with a defensive copy.
+// SetConversation replaces the current conversation with a defensive copy. The
+// lineage is left as it is.
 func (s *Session) SetConversation(conversation []agent.Message) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.conversation = cloneMessages(conversation)
+	old := s.swapDriverLocked(func() { s.conversation = cloneMessages(conversation) })
+	s.mu.Unlock()
+	s.retireDriver(old)
 }
 
 // resetConversationLocked clears the conversation and its lineage together so
@@ -270,26 +276,23 @@ func (s *Session) resetConversationLocked() {
 // while a prompt or compaction run is active.
 var errRunInProgress = errors.New("cannot change the session while a run is in progress")
 
-// beginRun registers an in-flight run under s.mu, the same lock the mutation
-// guards use, so there is no check-then-act gap. The returned func ends it.
-func (s *Session) beginRun() (end func()) {
-	s.mu.Lock()
-	s.activeRuns++
-	s.mu.Unlock()
-	return s.endRun
-}
-
 func (s *Session) endRun() {
 	s.mu.Lock()
 	s.activeRuns--
 	s.mu.Unlock()
 }
 
-// runActive reports whether a prompt or compaction run is in flight.
+// runActive reports whether a prompt run or manual compaction is in flight.
 func (s *Session) runActive() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.activeRuns > 0
+	return s.runActiveLocked()
+}
+
+// runActiveLocked is runActive for callers that hold s.mu. Unlike the old
+// counter it also covers a prompt the driver has queued but not yet started.
+func (s *Session) runActiveLocked() bool {
+	return s.activeRuns > 0 || s.driverBusyLocked()
 }
 
 // SetRunner replaces the session's run executor. This allows the CLI adapter
@@ -407,7 +410,7 @@ func (s *Session) SetOrchestrationLevel(l config.OrchestrationLevel) error {
 	return nil
 }
 
-// runGroup tracks in-flight session run goroutines. It wraps sync.WaitGroup
+// runGroup tracks in-flight session goroutines (history writes, retiring drivers). It wraps sync.WaitGroup
 // with an atomic active count so callers can tell synchronously whether any
 // run is in flight, which WaitGroup.Wait cannot answer without blocking.
 type runGroup struct {
@@ -432,30 +435,30 @@ func (g *runGroup) Wait() { g.wg.Wait() }
 // idle reports whether no run goroutine is in flight.
 func (g *runGroup) idle() bool { return g.active.Load() == 0 }
 
-// WaitRuns waits for all run goroutines launched by this session to exit,
-// or for the context to be done. A run set that has already finished wins
-// over an already-cancelled context: it reports completion synchronously
-// rather than racing the waiter goroutine against ctx.Done().
+// WaitRuns waits for the session's tracked goroutines and for its conversation
+// driver to go quiet, or for the context to be done. Work that has already
+// finished wins over an already-cancelled context: it reports completion
+// synchronously rather than racing a waiter goroutine against ctx.Done().
 func (s *Session) WaitRuns(ctx context.Context) bool {
-	if s.runs.idle() {
-		return true
+	if !s.runs.idle() {
+		done := make(chan struct{})
+		go func() {
+			s.runs.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return false
+		}
 	}
-	done := make(chan struct{})
-	go func() {
-		s.runs.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return true
-	case <-ctx.Done():
-		return false
-	}
+	err := s.currentDriver().WaitQuiescent(ctx)
+	return err == nil || errors.Is(err, agent.ErrEpisodeBudgetExhausted)
 }
 
 // modeNotice returns the mode notice string for injection into user messages.
 // The notice is sticky: it is returned on every call in both plan and build
-// mode, so run_flow prepends it to every outgoing user message. Returns empty
+// mode, so the driver prepends it to every sequence it starts. Returns empty
 // string for any mode ModeNotice does not cover.
 func (s *Session) modeNotice() string {
 	s.mu.RLock()

@@ -92,27 +92,18 @@ func (r cliRunner) orchestrationLevel() config.OrchestrationLevel {
 }
 
 func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {
+	return r.RunWithHooks(ctx, conversation, skillNames, runHooks{drainInbox: agent.SteerInboxDrain(drainSteers)})
+}
+
+// RunWithHooks is Run with the boundary hooks of a conversation driver.
+func (r cliRunner) RunWithHooks(ctx context.Context, conversation []agent.Message, skillNames []string, hooks runHooks) (runResult, error) {
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	return r.run(runCtx, conversation, skillNames, drainSteers)
+	return r.run(runCtx, conversation, skillNames, hooks)
 }
 
-func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {
-	return r.runWithHooks(ctx, conversation, skillNames, runHooks{drainInbox: agent.SteerInboxDrain(drainSteers)})
-}
-
-// runHooks are the per-run inbox and budget hooks a conversation driver
-// supplies; the zero value is a plain run.
-type runHooks struct {
-	drainInbox       func() agent.InboxDrain
-	onToolBatchDone  func(batchID string)
-	pendingSubAgents func() []agent.PendingSubAgent
-	// maxTokens overrides the configured run token limit when positive.
-	maxTokens int
-}
-
-func (r cliRunner) runWithHooks(ctx context.Context, conversation []agent.Message, skillNames []string, hooks runHooks) (runResult, error) {
+func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillNames []string, hooks runHooks) (runResult, error) {
 	setup, err := r.prepareRun(conversation, skillNames)
 	if err != nil {
 		return runResult{}, err
@@ -151,14 +142,7 @@ func (r cliRunner) runWithHooks(ctx context.Context, conversation []agent.Messag
 		return runResult{}, err
 	}
 	runner := agent.NewRunner()
-	req := buildRunRequest(r, setup, activeRegistry, events, nil)
-	req.DrainInbox = hooks.drainInbox
-	req.OnToolBatchDone = hooks.onToolBatchDone
-	req.PendingSubAgents = hooks.pendingSubAgents
-	if hooks.maxTokens > 0 {
-		req.Limits.MaxTokens = hooks.maxTokens
-	}
-	state, err := runner.Run(ctx, req)
+	state, err := runner.Run(ctx, buildRunRequest(r, setup, activeRegistry, events, hooks))
 	reason := string(state.StopReason)
 	if reason == "" && err != nil {
 		reason = string(agent.StopReasonError)

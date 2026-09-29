@@ -34,6 +34,14 @@ func (d *ConversationDriver) State() (DriverState, bool) {
 	return d.state, d.held
 }
 
+// Busy reports whether a run or compaction is in flight or a submitted prompt
+// is queued and not yet started.
+func (d *ConversationDriver) Busy() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.state == DriverGenerating || d.compacting || len(d.compactions) > 0 || len(d.users) > 0
+}
+
 // Snapshot returns a copy of the driver's durable state.
 func (d *ConversationDriver) Snapshot() DriverSnapshot {
 	d.mu.Lock()
@@ -125,7 +133,7 @@ func (d *ConversationDriver) WaitQuiescent(ctx context.Context) error {
 }
 
 func (d *ConversationDriver) quiescentLocked() bool {
-	return d.state == DriverIdle && !d.compacting && len(d.compactions) == 0 &&
+	return d.state == DriverIdle && d.saving == 0 && !d.compacting && len(d.compactions) == 0 &&
 		len(d.users) == 0 && d.opts.Steers.Len() == 0 && !d.hasPendingLocked()
 }
 

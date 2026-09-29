@@ -17,15 +17,6 @@ func (s *Session) compactRunner(conversation []agent.Message, steering string) f
 	}
 }
 
-func (s *Session) setCompactedConversation(conversation []agent.Message) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	prefix, rest := splitSummaryPrefix(conversation)
-	s.lineage = s.lineage.WithNewGeneration(prefix, rest)
-	s.conversation = s.lineage.FullMessages()
-}
-
 func splitSummaryPrefix(messages []agent.Message) (prefix, rest []agent.Message) {
 	for i, msg := range messages {
 		if msg.Role != agent.MessageRoleSummary {
