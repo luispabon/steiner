@@ -59,6 +59,7 @@ Configuration values support shell-style environment variable expansion. The exp
 - Undefined references are not silently dropped; every undefined variable in every config file is reported together in a single error listing the file, line, YAML path, and variable name.
 - `${VAR:-}` with an empty default is valid and does not error even if `VAR` is undefined.
 - Expanded values round-trip through YAML correctly, including those that look numeric (e.g. `PORT: "${PORT}"` remains a string after expansion).
+- An unquoted expansion is re-typed after substitution, so it can set numeric and boolean fields (e.g. `max_attempts: ${RETRIES:-5}`, `enabled: ${FLAG:-true}`).
 
 **Example:**
 

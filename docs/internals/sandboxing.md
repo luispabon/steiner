@@ -6,7 +6,7 @@ User-facing documentation: [Tool Sandboxing](../user/sandboxing.md).
 
 Every tool call is resolved once by `internal/tool.Executor.runPipeline` into a `ResolvedSandbox`: the active `SandboxWrapper` and whether the project must be mounted read-only. Both tool handlers and subprocess execution consume this decision from context. A handler invoked outside the pipeline without a resolved decision fails closed. Unsafe mode uses explicit `internal/tool.Unsandboxed{}` rather than a nil wrapper; parent and child executors always carry a wrapper.
 
-The same pipeline keeps bash and config-defined subprocess tools consistent. In plan mode both receive a read-only project mount. MCP stdio wrapping is wired from runtime construction and applies only to locally launched processes.
+The same pipeline keeps bash and config-defined subprocess tools consistent. In plan mode both receive a read-only project mount, and an approved retry after a sandbox denial keeps that read-only wrapper instead of running unsandboxed. Subprocess tools are rebuilt with `exec.CommandContext` after wrapping, because the sandbox wrapper returns a context-less command; cancellation and tool timeouts kill the whole process group. MCP stdio wrapping is wired from runtime construction and applies only to locally launched processes.
 
 ## Mount resolution
 

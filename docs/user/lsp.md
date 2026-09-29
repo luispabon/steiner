@@ -101,7 +101,7 @@ The standard unavailable messages explain the cause:
 - `No language server is configured for .ext. Configure one under lsp.servers to enable this tool.` means no enabled server handles the extension.
 - `No language server is enabled. Configure one under lsp.servers to enable this tool.` applies to workspace symbol search when no server is enabled.
 - `Language server <name> failed to start: <error>.` means the executable was missing, failed to start, or crashed during initialization.
-- `Language server <name> exited unexpectedly.` means a running server crashed during a request.
+- `Language server <name> exited unexpectedly.` means a running server crashed during a request. The next LSP call respawns it.
 - `Language server <name> does not support this request.` means an optional method is not implemented by an otherwise healthy server.
 
 If a server fails, check that its executable is installed and its root markers match the project. Readiness can leave results incomplete while indexing. Subprocess stderr is discarded in interactive mode unless a session log is configured, and is sent to process stderr in non-interactive mode.

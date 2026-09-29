@@ -73,13 +73,21 @@ func TestFailedCloseoutIsPersistedListedAndRetriedOnResume(t *testing.T) {
 		t.Fatalf("run %s missing from ListResumableRuns: %+v", identity.ID, runs)
 	}
 
+	// A retry that fails again must surface as an error, not success.
+	if _, err := orch.Resume(context.Background()); err == nil {
+		t.Fatal("Resume with failing closeout returned nil error")
+	}
+	if calls != 2 {
+		t.Fatalf("closeout calls after failed resume = %d, want 2", calls)
+	}
+
 	runnerErr = nil
 	updated, err := orch.Resume(context.Background())
 	if err != nil {
 		t.Fatalf("Resume failed: %v", err)
 	}
-	if calls != 2 {
-		t.Errorf("closeout calls after resume = %d, want 2", calls)
+	if calls != 3 {
+		t.Errorf("closeout calls after resume = %d, want 3", calls)
 	}
 	if updated.CloseoutState != closeoutStateCreated || updated.CloseoutURL == "" {
 		t.Errorf("closeout state=%q url=%q, want created with url", updated.CloseoutState, updated.CloseoutURL)

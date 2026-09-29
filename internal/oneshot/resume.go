@@ -67,6 +67,9 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 	if !ok && closeoutRetryable(manifest) {
 		// All phases finished but closeout failed: re-run closeout only.
 		o.finalizeRun(ctx, store, &manifest, o.deps.Identity.PlanningPath(worktree.Path))
+		if closeoutRetryable(manifest) {
+			return manifest, fmt.Errorf("resume run: closeout for %s failed again: %s", manifest.RunID, manifest.CloseoutNote)
+		}
 		return manifest, nil
 	}
 	if !ok {
