@@ -2,6 +2,8 @@ package builtin
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -150,6 +152,35 @@ func TestLSTool(t *testing.T) {
 		}
 	})
 
+}
+
+func TestLSRecursive_ReturnsRootErrors(t *testing.T) {
+	t.Run("returns missing root error", func(t *testing.T) {
+		_, err := lsRecursive(context.Background(), filepath.Join(t.TempDir(), "missing"), defaultLSLimit, 0, tool.PathExcluder{})
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("lsRecursive error = %v, want not exist error", err)
+		}
+	})
+
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("permission-based traversal failure test is unix-oriented")
+	}
+
+	t.Run("returns inaccessible root error", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.Chmod(root, 0o000); err != nil {
+			t.Fatalf("chmod root: %v", err)
+		}
+		defer func() { _ = os.Chmod(root, 0o755) }()
+		if _, err := os.ReadDir(root); err == nil {
+			t.Skip("filesystem does not deny directory traversal after chmod 000")
+		}
+
+		_, err := lsRecursive(context.Background(), root, defaultLSLimit, 0, tool.PathExcluder{})
+		if !errors.Is(err, fs.ErrPermission) {
+			t.Fatalf("lsRecursive error = %v, want permission error", err)
+		}
+	})
 }
 
 func TestLSRecursive_SkipsInaccessibleDirectories(t *testing.T) {

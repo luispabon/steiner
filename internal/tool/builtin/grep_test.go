@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -632,6 +633,22 @@ func TestGrepSearch_SkipsInaccessibleEntries(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("permission-based traversal/read failure test is unix-oriented")
 	}
+
+	t.Run("returns inaccessible root error", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.Chmod(root, 0o000); err != nil {
+			t.Fatalf("chmod root: %v", err)
+		}
+		defer func() { _ = os.Chmod(root, 0o755) }()
+		if _, err := os.ReadDir(root); err == nil {
+			t.Skip("filesystem does not deny directory traversal after chmod 000")
+		}
+
+		_, err := grepSearch(context.Background(), grepSearchParams{root: root, displayPath: root, pattern: "needle"})
+		if !errors.Is(err, fs.ErrPermission) {
+			t.Fatalf("grepSearch error = %v, want permission error", err)
+		}
+	})
 
 	t.Run("skips unreadable files", func(t *testing.T) {
 		tmpDir := t.TempDir()
