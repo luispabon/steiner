@@ -124,7 +124,12 @@ func lsRecursive(ctx context.Context, absPath string, limit, offset int, exclude
 	var allEntries []string
 
 	err := filepath.WalkDir(absPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+		switch {
+		case walkEntryError(d, err):
+			return filepath.SkipDir
+		case skippedEntryError(err):
+			return nil
+		case err != nil:
 			return err
 		}
 		if ctx.Err() != nil {

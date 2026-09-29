@@ -628,72 +628,77 @@ func TestGrepTool_ContentColumnRendering(t *testing.T) {
 	}
 }
 
-func TestGrepSearch_ReturnsTraversalAndReadErrors(t *testing.T) {
-	if runtime.GOOS == "windows" {
+func TestGrepSearch_SkipsInaccessibleEntries(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("permission-based traversal/read failure test is unix-oriented")
 	}
 
-	t.Run("returns read errors", func(t *testing.T) {
+	t.Run("skips unreadable files", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		filePath := filepath.Join(tmpDir, "blocked.txt")
-		if err := os.WriteFile(filePath, []byte("needle\n"), 0o644); err != nil {
+		visiblePath := filepath.Join(tmpDir, "visible.txt")
+		if err := os.WriteFile(visiblePath, []byte("needle\n"), 0o644); err != nil {
+			t.Fatalf("write visible file: %v", err)
+		}
+		blockedPath := filepath.Join(tmpDir, "blocked.txt")
+		if err := os.WriteFile(blockedPath, []byte("needle\n"), 0o644); err != nil {
 			t.Fatalf("write blocked file: %v", err)
 		}
-		if err := os.Chmod(filePath, 0o000); err != nil {
+		if err := os.Chmod(blockedPath, 0o000); err != nil {
 			t.Fatalf("chmod blocked file: %v", err)
 		}
-		defer func() {
-			_ = os.Chmod(filePath, 0o644)
-		}()
-
-		if _, err := os.ReadFile(filePath); err == nil {
+		defer func() { _ = os.Chmod(blockedPath, 0o644) }()
+		if _, err := os.ReadFile(blockedPath); err == nil {
 			t.Skip("filesystem does not deny file reads after chmod 000")
 		}
 
-		_, err := grepSearch(context.Background(), grepSearchParams{root: tmpDir, displayPath: tmpDir, pattern: "needle"})
-		if err == nil {
-			t.Fatal("expected read error, got nil")
+		results, err := grepSearch(context.Background(), grepSearchParams{root: tmpDir, displayPath: tmpDir, pattern: "needle"})
+		if err != nil {
+			t.Fatalf("grepSearch: %v", err)
 		}
-		if !strings.Contains(err.Error(), "read blocked.txt") {
-			t.Fatalf("error = %v, want read blocked.txt context", err)
-		}
-		if !errors.Is(err, os.ErrPermission) {
-			t.Fatalf("error = %v, want permission error", err)
+		if len(results) != 1 || results[0].file != "visible.txt" {
+			t.Fatalf("results = %#v, want only visible.txt", results)
 		}
 	})
 
-	t.Run("returns traversal errors", func(t *testing.T) {
+	t.Run("skips inaccessible directories", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		visiblePath := filepath.Join(tmpDir, "visible.txt")
+		if err := os.WriteFile(visiblePath, []byte("needle\n"), 0o644); err != nil {
+			t.Fatalf("write visible file: %v", err)
+		}
 		blockedDir := filepath.Join(tmpDir, "blocked")
 		if err := os.Mkdir(blockedDir, 0o755); err != nil {
 			t.Fatalf("mkdir blocked dir: %v", err)
 		}
-		secretPath := filepath.Join(blockedDir, "secret.txt")
-		if err := os.WriteFile(secretPath, []byte("needle\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(blockedDir, "secret.txt"), []byte("needle\n"), 0o644); err != nil {
 			t.Fatalf("write blocked child file: %v", err)
 		}
 		if err := os.Chmod(blockedDir, 0o000); err != nil {
 			t.Fatalf("chmod blocked dir: %v", err)
 		}
-		defer func() {
-			_ = os.Chmod(blockedDir, 0o755)
-		}()
-
+		defer func() { _ = os.Chmod(blockedDir, 0o755) }()
 		if _, err := os.ReadDir(blockedDir); err == nil {
 			t.Skip("filesystem does not deny directory traversal after chmod 000")
 		}
 
-		_, err := grepSearch(context.Background(), grepSearchParams{root: tmpDir, displayPath: tmpDir, pattern: "needle"})
-		if err == nil {
-			t.Fatal("expected traversal error, got nil")
+		results, err := grepSearch(context.Background(), grepSearchParams{root: tmpDir, displayPath: tmpDir, pattern: "needle"})
+		if err != nil {
+			t.Fatalf("grepSearch: %v", err)
 		}
-		if !strings.Contains(err.Error(), "walk:") {
-			t.Fatalf("error = %v, want walk wrapper", err)
-		}
-		if !errors.Is(err, os.ErrPermission) {
-			t.Fatalf("error = %v, want permission error", err)
+		if len(results) != 1 || results[0].file != "visible.txt" {
+			t.Fatalf("results = %#v, want only visible.txt", results)
 		}
 	})
+}
+
+func TestGrepSearch_Cancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := grepSearch(ctx, grepSearchParams{root: t.TempDir(), displayPath: ".", pattern: "needle"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context canceled", err)
+	}
 }
 
 func TestGrepTool_PaginationAndMetadata(t *testing.T) {
