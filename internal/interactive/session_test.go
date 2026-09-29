@@ -1190,11 +1190,15 @@ func TestInterruptActiveRunCancelsRun(t *testing.T) {
 func TestClearConversationResetsSkills(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{})
+	oldID := s.SessionID()
 	s.SetConversation([]agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}})
 	s.skills.Set("skill-a", true)
 
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
 		t.Fatalf("Handle(ClearConversation) = %v, want nil", err)
+	}
+	if s.SessionID() != oldID {
+		t.Fatalf("session ID changed from %q to %q without a session store", oldID, s.SessionID())
 	}
 	if got := s.Conversation(); got != nil {
 		t.Fatalf("conversation after ClearConversation = %v, want nil", got)
