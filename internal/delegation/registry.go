@@ -61,6 +61,12 @@ type DelegateDeps struct {
 	// ResolveModel resolves a model alias to its provider and model metadata,
 	// backed by the session's shared Resolver (memoized, single-flight). Required.
 	ResolveModel func(string) (provider.ResolvedModel, error)
+	// CurrentEffectiveModelAssignments returns the session's live effective model
+	// assignments. When non-nil, specialized sub-agents spawned after the registry
+	// is built resolve their per-type aliases and default model from it, so a
+	// mid-run profile switch reaches later spawns. Nil falls back to the
+	// build-time snapshot in Config.Models.Effective.
+	CurrentEffectiveModelAssignments func() config.EffectiveModelAssignments
 	// ProviderFactory builds providers for resolved child models when one is required.
 	ProviderFactory func(provider.ResolvedModel, string) (provider.Provider, error)
 	// Searcher provides the web search backend when available.
@@ -328,11 +334,12 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	// Skip research agent when no search backend is configured.
 	// Skip vision agent when no vision model is configured.
 	specializedDeps := SpecializedToolDeps{
-		SubAgentHandlerDeps: subAgentDeps,
-		ModelResolver:       modelResolver,
-		ImageStore:          deps.ImageStore,
-		AgentModels:         deps.Config.Models.Effective.SubAgents,
-		DefaultModel:        deps.Config.Models.Effective.DefaultModel,
+		SubAgentHandlerDeps:         subAgentDeps,
+		ModelResolver:               modelResolver,
+		ImageStore:                  deps.ImageStore,
+		AgentModels:                 deps.Config.Models.Effective.SubAgents,
+		DefaultModel:                deps.Config.Models.Effective.DefaultModel,
+		CurrentEffectiveAssignments: deps.CurrentEffectiveModelAssignments,
 	}
 	var excludeTypes []AgentType
 	if deps.Searcher == nil {

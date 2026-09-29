@@ -245,6 +245,12 @@ func TestNewDelegateDepsUsesCurrentEffectiveAssignments(t *testing.T) {
 	}
 
 	deps := r.newDelegateDeps(runnerSetup{}, nil, nil, nil, "")
+	if deps.CurrentEffectiveModelAssignments == nil {
+		t.Fatal("CurrentEffectiveModelAssignments accessor not wired")
+	}
+	if got := deps.CurrentEffectiveModelAssignments(); !reflect.DeepEqual(got, live) {
+		t.Fatalf("CurrentEffectiveModelAssignments() = %#v, want %#v", got, live)
+	}
 	if !reflect.DeepEqual(deps.Config.Models.Effective, live) {
 		t.Fatalf("delegate effective assignments = %#v, want %#v", deps.Config.Models.Effective, live)
 	}

@@ -24,6 +24,12 @@ type SpecializedToolDeps struct {
 	AgentModels map[string]string
 	// DefaultModel is the selected profile's fallback model alias.
 	DefaultModel string
+	// CurrentEffectiveAssignments, when non-nil, supplies the session's live
+	// effective model assignments at spawn time, so a sub-agent spawned after a
+	// mid-run profile switch uses the new profile's sub-agent aliases and default
+	// model. It is read once per resolveModel call. When nil, AgentModels and
+	// DefaultModel are used as captured at registry-build time.
+	CurrentEffectiveAssignments func() config.EffectiveModelAssignments
 }
 
 // specializedDescription returns a short description for each agent type.
@@ -174,17 +180,25 @@ func availableAgentTypeNames(excluded map[AgentType]bool) []string {
 }
 
 // resolveModel resolves the provider and model for a specific agent type,
-// applying per-type model alias overrides when configured.
+// applying per-type model alias overrides when configured. Effective
+// assignments are read once per call, so a sub-agent spawned after a mid-run
+// profile switch uses the new profile's aliases while earlier spawns keep the
+// assignments captured when the registry was built.
 func resolveModel(agentType AgentType, deps SpecializedToolDeps) (provider.Provider, provider.ResolvedModel, error) {
 	if deps.ModelResolver == nil {
 		return deps.Provider, deps.ResolvedModel, nil
 	}
-	alias := strings.TrimSpace(deps.AgentModels[string(agentType)])
+	agentModels, defaultModel := deps.AgentModels, deps.DefaultModel
+	if deps.CurrentEffectiveAssignments != nil {
+		effective := deps.CurrentEffectiveAssignments()
+		agentModels, defaultModel = effective.SubAgents, effective.DefaultModel
+	}
+	alias := strings.TrimSpace(agentModels[string(agentType)])
 	if alias == "" {
 		if agentType == AgentTypeVision {
 			return deps.Provider, deps.ResolvedModel, nil
 		}
-		alias = strings.TrimSpace(deps.DefaultModel)
+		alias = strings.TrimSpace(defaultModel)
 		if alias == "" {
 			return deps.Provider, deps.ResolvedModel, nil
 		}
