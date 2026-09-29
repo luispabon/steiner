@@ -36,8 +36,8 @@ func NewCachingCodexWS(cache *CodexWSCache, key string, build func() (Provider, 
 		return nil, err
 	}
 
-	wrapped := &CachingCodexWS{cache: cache, key: key}
-	wrapped.inner = built
+	wrapped := &CachingCodexWS{cache: cache, inner: built, key: key}
+	wrapped.idle = sync.NewCond(&wrapped.mu)
 
 	cache.mu.Lock()
 	if existing, ok := cache.instances[key]; ok {
@@ -58,7 +58,14 @@ type CachingCodexWS struct {
 	inner Provider
 	cache *CodexWSCache
 	key   string
+
+	mu      sync.Mutex
+	idle    *sync.Cond
+	active  bool
+	retired bool
 }
+
+var errCachingCodexWSEvicted = errors.New("codex websocket cache entry evicted")
 
 // isContextCanceledErr reports whether err is a wrapped context.Canceled or
 // context.DeadlineExceeded, which surface from routine cancellations (e.g. a
@@ -67,17 +74,42 @@ func isContextCanceledErr(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
+func (p *CachingCodexWS) begin() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for p.active {
+		p.idle.Wait()
+	}
+	if p.retired {
+		return errCachingCodexWSEvicted
+	}
+	p.active = true
+	return nil
+}
+
+func (p *CachingCodexWS) end() {
+	p.mu.Lock()
+	p.active = false
+	p.idle.Broadcast()
+	p.mu.Unlock()
+}
+
 func (p *CachingCodexWS) evict() {
+	p.mu.Lock()
+	if p.retired {
+		p.mu.Unlock()
+		return
+	}
+	p.retired = true
+
 	p.cache.mu.Lock()
-	evicted := p.cache.instances[p.key] == p
-	if evicted {
+	if p.cache.instances[p.key] == p {
 		delete(p.cache.instances, p.key)
 	}
 	p.cache.mu.Unlock()
+	p.mu.Unlock()
 
-	if !evicted {
-		return
-	}
 	if inner, ok := p.inner.(*codexWSProvider); ok {
 		inner.mu.Lock()
 		inner.closeConn()
@@ -88,6 +120,11 @@ func (p *CachingCodexWS) evict() {
 // ChatCompletion delegates to the wrapped provider, evicting p from the
 // cache on any non-context-cancellation error.
 func (p *CachingCodexWS) ChatCompletion(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+	if err := p.begin(); err != nil {
+		return ChatResponse{}, err
+	}
+	defer p.end()
+
 	resp, err := p.inner.ChatCompletion(ctx, req)
 	if err != nil && !isContextCanceledErr(err) {
 		p.evict()
@@ -99,16 +136,30 @@ func (p *CachingCodexWS) ChatCompletion(ctx context.Context, req ChatRequest) (C
 // cache on stream setup failure or the first stream chunk carrying a
 // non-context-cancellation error.
 func (p *CachingCodexWS) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-chan ChatChunk, error) {
+	if err := p.begin(); err != nil {
+		return nil, err
+	}
+
 	chunks, err := p.inner.StreamChatCompletion(ctx, req)
 	if err != nil {
 		if !isContextCanceledErr(err) {
 			p.evict()
 		}
+		p.end()
 		return chunks, err
 	}
 	out := make(chan ChatChunk)
 	go func() {
+		ended := false
+		end := func() {
+			if !ended {
+				p.end()
+				ended = true
+			}
+		}
+		defer end()
 		defer close(out)
+
 		evicted := false
 		for chunk := range chunks {
 			if !evicted && chunk.Error != "" {
@@ -116,6 +167,9 @@ func (p *CachingCodexWS) StreamChatCompletion(ctx context.Context, req ChatReque
 					p.evict()
 					evicted = true
 				}
+			}
+			if chunk.Done {
+				end()
 			}
 			select {
 			case out <- chunk:
