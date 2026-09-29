@@ -132,7 +132,7 @@ func TestSupervisorCancelledQueuedJobNeverExecutes(t *testing.T) {
 			if got.err != nil || got.result.Value != "not-started:b" {
 				t.Fatalf("b result = %+v, want OnCancelledBeforeStart result", got)
 			}
-			if s.CauseFor("b") == CancelCauseNone {
+			if causeFor(s, "b") == CancelCauseNone {
 				t.Fatal("cause for queued job was not recorded")
 			}
 			select {

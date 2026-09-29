@@ -199,6 +199,7 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
 		DelegationEnabled:         r.runtime.cfg.SubAgent.Enabled,
 		OrchestrationLevel:        r.orchestrationLevel(),
+		AsyncSubAgents:            r.asyncSubAgents(),
 		AdvisorEnabled:            r.runtime.cfg.Advisor.Enabled,
 		LSPEnabled:                r.runtime.cfg.LSP.Enabled && len(r.runtime.cfg.LSP.Servers) > 0,
 		SandboxEnabled:            r.sandboxEnabled(),
@@ -226,6 +227,12 @@ func (r cliRunner) sandboxWrapper() tool.SandboxWrapper {
 		return tool.Unsandboxed{}
 	}
 	return r.runtime.sandbox
+}
+
+// asyncSubAgents reports whether sub_agent and follow_up return acks with
+// results delivered later; exec keeps them blocking.
+func (r cliRunner) asyncSubAgents() bool {
+	return r.normalizedRunMode() != "exec"
 }
 
 func (r cliRunner) normalizedRunMode() string {

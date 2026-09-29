@@ -247,7 +247,7 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		SandboxWritableMounts:            sandbox.WritableHostMounts(r.runtime.cfg.Sandbox),
 		Sandbox:                          r.sandboxWrapper(),
 		ModeGetter:                       r.modeGetterFunc,
-		AsyncSubAgents:                   r.normalizedRunMode() != "exec",
+		AsyncSubAgents:                   r.asyncSubAgents(),
 	}
 }
 

@@ -101,6 +101,15 @@ func waitOutstanding(t *testing.T, s *Supervisor, n int) {
 	}
 }
 
+func causeFor(s *Supervisor, agentID string) CancelCause {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if state, ok := s.jobs[agentID]; ok {
+		return state.cause
+	}
+	return CancelCauseNone
+}
+
 func newTestSupervisor(maxParallel int, joinTimeout time.Duration) (*Supervisor, *ActiveController) {
 	controller := NewActiveController()
 	return NewSupervisor(SupervisorOptions{MaxParallel: maxParallel, Controller: controller, JoinTimeout: joinTimeout}), controller
@@ -156,7 +165,7 @@ func TestSupervisorCauseRecordedBeforeContextCancelled(t *testing.T) {
 				Execute: func(ctx context.Context) (tool.ExecutionResult, error) {
 					close(started)
 					<-ctx.Done()
-					observed <- s.CauseFor("a")
+					observed <- causeFor(s, "a")
 					return tool.ExecutionResult{}, nil
 				},
 			}
@@ -192,7 +201,7 @@ func TestSupervisorCancelOutcomes(t *testing.T) {
 	if out := s.CancelAgent("a", false, CancelCauseSystem); out != CancelAccepted {
 		t.Fatalf("running agent, second cancel = %v, want CancelAccepted (Execute has not returned)", out)
 	}
-	if got := s.CauseFor("a"); got != CancelCauseUser {
+	if got := causeFor(s, "a"); got != CancelCauseUser {
 		t.Fatalf("cause = %v, want first cause CancelCauseUser", got)
 	}
 
@@ -217,7 +226,7 @@ func TestSupervisorSpawnAndWaitForwardsHandlerCancellation(t *testing.T) {
 	if got.err != nil || got.result.Value != "cancelled:a" {
 		t.Fatalf("result = %+v, want the child's own cancelled result", got)
 	}
-	if cause := s.CauseFor("a"); cause != CancelCauseUser {
+	if cause := causeFor(s, "a"); cause != CancelCauseUser {
 		t.Fatalf("cause = %v, want CancelCauseUser", cause)
 	}
 }

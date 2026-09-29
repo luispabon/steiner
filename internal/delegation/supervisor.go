@@ -297,16 +297,6 @@ func (s *Supervisor) CancelAll(cause CancelCause) {
 	}
 }
 
-// CauseFor returns the recorded cancellation cause for a child.
-func (s *Supervisor) CauseFor(agentID string) CancelCause {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if state, ok := s.jobs[agentID]; ok {
-		return state.cause
-	}
-	return CancelCauseNone
-}
-
 // Closed reports whether Shutdown has completed.
 func (s *Supervisor) Closed() bool {
 	s.mu.Lock()

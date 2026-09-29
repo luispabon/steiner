@@ -59,7 +59,7 @@ func TestDelegationInstructionsOrchestrationLevel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			content := delegationInstructions(tc.level)
+			content := delegationInstructions(tc.level, true)
 
 			last := -1
 			for _, marker := range tc.wantOrder {
@@ -91,8 +91,8 @@ func TestDelegationInstructionsOrchestrationLevel(t *testing.T) {
 func TestDelegationInstructionsZeroValueMatchesStandard(t *testing.T) {
 	t.Parallel()
 
-	zero := delegationInstructions(config.OrchestrationLevel(""))
-	standard := delegationInstructions(config.OrchestrationLevelStandard)
+	zero := delegationInstructions(config.OrchestrationLevel(""), true)
+	standard := delegationInstructions(config.OrchestrationLevelStandard, true)
 	if zero != standard {
 		t.Fatalf("zero-value orchestration level output differs from standard:\nzero:\n%s\n\nstandard:\n%s", zero, standard)
 	}
@@ -101,7 +101,7 @@ func TestDelegationInstructionsZeroValueMatchesStandard(t *testing.T) {
 func TestDelegationInstructionsLowIncludesAllSpecialists(t *testing.T) {
 	t.Parallel()
 
-	content := delegationInstructions(config.OrchestrationLevelLow)
+	content := delegationInstructions(config.OrchestrationLevelLow, true)
 	for _, name := range SpecialistNames() {
 		row := "| `" + name + "` | "
 		if !strings.Contains(content, row) {
@@ -169,5 +169,51 @@ func TestOverridePreambleOrchestrationLevelLow(t *testing.T) {
 	}
 	if !strings.Contains(content, "## Your sub-agents") {
 		t.Fatalf("override preamble missing sub-agent roster at low level in %q", content)
+	}
+}
+
+func TestDelegationInstructionsAsyncStructure(t *testing.T) {
+	t.Parallel()
+
+	const asyncHeading = "## Async results"
+	const resultTag = "<steiner-sub-agent-result"
+
+	for _, level := range []config.OrchestrationLevel{config.OrchestrationLevelStandard, config.OrchestrationLevelLow} {
+		async := delegationInstructions(level, true)
+		blocking := delegationInstructions(level, false)
+
+		if !strings.Contains(async, asyncHeading) || !strings.Contains(async, resultTag) {
+			t.Errorf("level %q async canon lacks %q section or %q tag", level, asyncHeading, resultTag)
+		}
+		if strings.Contains(blocking, asyncHeading) || strings.Contains(blocking, resultTag) {
+			t.Errorf("level %q blocking canon contains async section or result tag", level)
+		}
+		if strings.Contains(blocking, "<steiner-sub-agents-pending>") {
+			t.Errorf("level %q blocking canon mentions the pending line", level)
+		}
+		for _, heading := range []string{"## Your sub-agents", "## Continuing sub-agents", "## Briefing a sub-agent"} {
+			if !strings.Contains(async, heading) || !strings.Contains(blocking, heading) {
+				t.Errorf("level %q missing shared heading %q", level, heading)
+			}
+		}
+		if async == blocking {
+			t.Errorf("level %q renders identically for async and blocking", level)
+		}
+	}
+}
+
+func TestSystemPreambleAsyncDeterministic(t *testing.T) {
+	t.Parallel()
+
+	for _, async := range []bool{true, false} {
+		params := SystemPreambleParams{DelegationEnabled: true, AsyncSubAgents: async, Mode: workflowModeParent}
+		first := systemPreambleWithAdvisor(params).Content
+		second := systemPreambleWithAdvisor(params).Content
+		if first != second {
+			t.Errorf("async=%v preamble differs between renders", async)
+		}
+		if got := strings.Contains(first, "## Async results"); got != async {
+			t.Errorf("async=%v preamble contains async section = %v", async, got)
+		}
 	}
 }

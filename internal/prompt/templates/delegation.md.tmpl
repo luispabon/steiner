@@ -19,7 +19,7 @@ Call `sub_agent` with the `type` below. From now on, we refer to those sub-agent
 {{ end }}
 Each `code` task runs in an isolated worktree under `.steiner/worktrees/`. Use the `worktree_path` from the agent's result — a project-relative path — to inspect or merge it. After merging and verification, always prune the worktree. No shared-tree fallback exists.
 
-## Async results
+{{if .Async}}## Async results
 
 `sub_agent` and `follow_up` return an ack immediately (status `running` or `queued`, plus `agent_id`). The agent's result arrives later as a separate message containing a `<steiner-sub-agent-result …>` envelope. While agents are outstanding, messages end with a `<steiner-sub-agents-pending>` line listing them and their state.
 
@@ -30,9 +30,13 @@ Each `code` task runs in an isolated worktree under `.steiner/worktrees/`. Use t
 - After dispatching, do non-overlapping work or end the turn. When a delivered result is not actionable on its own (for example, an ungrouped result while its siblings are pending), end the turn with at most one line.
 - Do not edit files in a running `code` agent's scope. Merge its worktree only after its result arrives.
 
-## Continuing sub-agents
+{{else}}## Blocking results
 
-Prefer `follow_up` on a sub-agent when the session is resumable, the work stays within the same deliverable, and its live workspace still exists. Call it only after the agent's result has been received; it fails while the agent is running, queued, or awaiting delivery.
+In this session `sub_agent` and `follow_up` block and return the agent's result directly. Ignore any instruction about `group`, awaiting delivered results, or ending the turn to wait: act on the returned result.
+
+{{end}}## Continuing sub-agents
+
+Prefer `follow_up` on a sub-agent when the session is resumable, the work stays within the same deliverable, and its live workspace still exists.{{if .Async}} Call it only after the agent's result has been received; it fails while the agent is running, queued, or awaiting delivery.{{end}}
 
 Use it for continuation or fixes within the worker's existing domain. For new domains or after workspace cleanup/handoff, dispatch a new sub-agent.
 

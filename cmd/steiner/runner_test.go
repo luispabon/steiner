@@ -193,35 +193,51 @@ func TestNewDelegateDepsUsesSharedActiveController(t *testing.T) {
 }
 
 type childCancelObservation struct {
-	cause   delegation.CancelCause
+	quiet   bool
 	discard bool
+}
+
+type completionCapture chan agent.SubAgentCompletion
+
+func (c completionCapture) DeliverCompletions(cs []agent.SubAgentCompletion) {
+	for _, completion := range cs {
+		c <- completion
+	}
 }
 
 // spawnBlockedChild runs a child through sup that blocks until its context is
 // cancelled. The returned channel yields what the supervisor and controller
-// recorded for the child at the moment cancellation reached it.
-func spawnBlockedChild(t *testing.T, sup *delegation.Supervisor, controller *delegation.ActiveController, id string) <-chan childCancelObservation {
+// recorded for the child at the moment cancellation reached it. The capture
+// sink is returned so callers that install another sink can restore it.
+func spawnBlockedChild(t *testing.T, sup *delegation.Supervisor, controller *delegation.ActiveController, id string) (<-chan childCancelObservation, completionCapture) {
 	t.Helper()
 	started := make(chan struct{})
-	cause := make(chan childCancelObservation, 1)
-	go func() {
-		_, _ = sup.SpawnAndWait(context.Background(), delegation.ChildJob{
-			AgentID:   id,
-			AgentType: delegation.AgentTypeCode,
-			Execute: func(ctx context.Context) (tool.ExecutionResult, error) {
-				close(started)
-				<-ctx.Done()
-				cause <- childCancelObservation{cause: sup.CauseFor(id), discard: controller.DiscardRequested(id)}
-				return tool.ExecutionResult{}, nil
-			},
-		})
-	}()
+	discard := make(chan bool, 1)
+	completions := make(completionCapture, 1)
+	sup.SetCompletionSink(completions)
+	if _, err := sup.Spawn(context.Background(), delegation.ChildJob{
+		AgentID:   id,
+		AgentType: delegation.AgentTypeCode,
+		Execute: func(ctx context.Context) (tool.ExecutionResult, error) {
+			close(started)
+			<-ctx.Done()
+			discard <- controller.DiscardRequested(id)
+			return tool.ExecutionResult{}, ctx.Err()
+		},
+	}); err != nil {
+		t.Fatalf("Spawn() error = %v", err)
+	}
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("child did not start")
 	}
-	return cause
+	observed := make(chan childCancelObservation, 1)
+	go func() {
+		d := <-discard
+		observed <- childCancelObservation{quiet: (<-completions).Quiet, discard: d}
+	}()
+	return observed, completions
 }
 
 func TestDelegationCancellerReportsFinishedDelegate(t *testing.T) {
@@ -254,15 +270,15 @@ func TestDelegationCancellerRecordsUserCause(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			controller := delegation.NewActiveController()
 			sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
-			observed := spawnBlockedChild(t, sup, controller, "child-1")
+			observed, _ := spawnBlockedChild(t, sup, controller, "child-1")
 
 			if err := tc.cancel(delegationCanceller{s: sup}); err != nil {
 				t.Fatalf("cancel error = %v", err)
 			}
 			select {
 			case got := <-observed:
-				if got.cause != delegation.CancelCauseUser {
-					t.Fatalf("recorded cause = %v, want CancelCauseUser", got.cause)
+				if !got.quiet {
+					t.Fatal("cancellation was not recorded as a user cause (completion not quiet)")
 				}
 			case <-time.After(5 * time.Second):
 				t.Fatal("child was not cancelled")
@@ -274,7 +290,7 @@ func TestDelegationCancellerRecordsUserCause(t *testing.T) {
 func TestDelegationCancellerRequestsDiscard(t *testing.T) {
 	controller := delegation.NewActiveController()
 	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
-	observed := spawnBlockedChild(t, sup, controller, "child-1")
+	observed, _ := spawnBlockedChild(t, sup, controller, "child-1")
 
 	if err := (delegationCanceller{s: sup}).CancelAgent("child-1", true); err != nil {
 		t.Fatalf("CancelAgent() error = %v", err)

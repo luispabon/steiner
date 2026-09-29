@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -25,6 +27,26 @@ func TestNewDelegateDepsAsyncFollowsRunMode(t *testing.T) {
 			deps := (cliRunner{runMode: tc.runMode}).newDelegateDeps(runnerSetup{}, nil, nil, nil, "")
 			if deps.AsyncSubAgents != tc.wantAsync {
 				t.Fatalf("AsyncSubAgents = %v, want %v", deps.AsyncSubAgents, tc.wantAsync)
+			}
+		})
+	}
+}
+
+func TestPromptAssemblyAsyncFollowsRunMode(t *testing.T) {
+	tests := []struct {
+		runMode   string
+		wantAsync bool
+	}{
+		{runMode: "", wantAsync: false},
+		{runMode: "exec", wantAsync: false},
+		{runMode: "interactive", wantAsync: true},
+		{runMode: "oneshot", wantAsync: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.runMode, func(t *testing.T) {
+			opts := (cliRunner{runMode: tc.runMode}).promptAssembly(nil, nil, prompt.ModelTokenBudget{}, config.ModelPrompts{})
+			if opts.AsyncSubAgents != tc.wantAsync {
+				t.Fatalf("AsyncSubAgents = %v, want %v", opts.AsyncSubAgents, tc.wantAsync)
 			}
 		})
 	}

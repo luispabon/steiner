@@ -439,9 +439,9 @@ func TestSystemPreambleWorkflowMethodologyMatrix(t *testing.T) {
 func TestDelegationCanonIndependentOfAdvisor(t *testing.T) {
 	t.Parallel()
 
-	canon := strings.TrimSpace(delegationInstructions(config.OrchestrationLevelStandard))
+	canon := strings.TrimSpace(delegationInstructions(config.OrchestrationLevelStandard, true))
 	for _, advisor := range []bool{false, true} {
-		content := systemPreambleWithAdvisor(SystemPreambleParams{DelegationEnabled: true, AdvisorEnabled: advisor, Mode: workflowModeParent}).Content
+		content := systemPreambleWithAdvisor(SystemPreambleParams{DelegationEnabled: true, AsyncSubAgents: true, AdvisorEnabled: advisor, Mode: workflowModeParent}).Content
 		if !strings.Contains(content, canon) {
 			t.Fatalf("delegation canon missing with advisor enabled=%v in %q", advisor, content)
 		}

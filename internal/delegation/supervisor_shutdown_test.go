@@ -31,8 +31,8 @@ func TestSupervisorShutdownCleanJoin(t *testing.T) {
 	if got := recv(t, resB, "b result"); got.result.Value != "not-started:b" {
 		t.Fatalf("b result = %+v, want OnCancelledBeforeStart result", got)
 	}
-	if s.CauseFor("a") != CancelCauseSystem {
-		t.Fatalf("cause = %v, want CancelCauseSystem", s.CauseFor("a"))
+	if causeFor(s, "a") != CancelCauseSystem {
+		t.Fatalf("cause = %v, want CancelCauseSystem", causeFor(s, "a"))
 	}
 	if ids := controller.ActiveAgentIDs(); len(ids) != 0 {
 		t.Fatalf("active after shutdown = %v, want none", ids)
@@ -93,8 +93,8 @@ func TestSupervisorShutdownIdempotent(t *testing.T) {
 	if len(first.Unjoined) != 1 || !reflect.DeepEqual(first, second) {
 		t.Fatalf("reports differ: first=%+v second=%+v", first, second)
 	}
-	if s.CauseFor("stuck") != CancelCauseSystem {
-		t.Fatalf("second Shutdown changed cause to %v", s.CauseFor("stuck"))
+	if causeFor(s, "stuck") != CancelCauseSystem {
+		t.Fatalf("second Shutdown changed cause to %v", causeFor(s, "stuck"))
 	}
 	close(stuck.release)
 }

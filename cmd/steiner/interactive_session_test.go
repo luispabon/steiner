@@ -112,7 +112,7 @@ func TestResetSandboxTmpEmitsWarning(t *testing.T) {
 func TestBuildInteractiveSessionCancelsThroughRuntimeSupervisor(t *testing.T) {
 	controller := delegation.NewActiveController()
 	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
-	observed := spawnBlockedChild(t, sup, controller, "child-1")
+	observed, capture := spawnBlockedChild(t, sup, controller, "child-1")
 	sess, err := buildInteractiveSession(cliRuntime{
 		events:               output.NoopSink{},
 		workDir:              t.TempDir(),
@@ -122,13 +122,14 @@ func TestBuildInteractiveSessionCancelsThroughRuntimeSupervisor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildInteractiveSession() error = %v", err)
 	}
+	sup.SetCompletionSink(capture)
 	if err := sess.Handle(context.Background(), interactive.CancelDelegate{AgentID: "child-1"}); err != nil {
 		t.Fatalf("Handle(CancelDelegate) error = %v", err)
 	}
 	select {
 	case got := <-observed:
-		if got.cause != delegation.CancelCauseUser {
-			t.Fatalf("recorded cause = %v, want CancelCauseUser", got.cause)
+		if !got.quiet {
+			t.Fatal("cancellation was not recorded as a user cause (completion not quiet)")
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("interactive cancellation did not cancel the supervised child")

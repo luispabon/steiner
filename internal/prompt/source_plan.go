@@ -80,6 +80,7 @@ func preambleStep(opts AssemblyOptions) sourcePlanStep {
 					Override:              opts.PromptOverrides.System,
 					DelegationEnabled:     opts.DelegationEnabled,
 					OrchestrationLevel:    opts.OrchestrationLevel,
+					AsyncSubAgents:        opts.AsyncSubAgents,
 					SandboxEnabled:        opts.SandboxEnabled,
 					SandboxWritableMounts: opts.SandboxWritableMounts,
 					AdvisorEnabled:        opts.AdvisorEnabled,
