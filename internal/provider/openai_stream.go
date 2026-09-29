@@ -300,7 +300,7 @@ func flushStreamState(emit func(ChatChunk) error, state openAIStreamState) error
 			return err
 		}
 		indexlessToolCalls, err := finalizeToolCallAccumulators(
-			indexlessToolCallAccumulators(state.indexlessToolCalls, toolCalls),
+			indexlessToolCallAccumulators(state.indexlessToolCalls, indexedAccumulatorSet(state.toolCalls)),
 		)
 		if err != nil {
 			return err
@@ -318,19 +318,29 @@ func flushStreamState(emit func(ChatChunk) error, state openAIStreamState) error
 	return emit(chunk)
 }
 
-func indexlessToolCallAccumulators(accumulators []*openAIToolCallAccumulator, indexedCalls []ToolCall) []*openAIToolCallAccumulator {
-	indexedIDs := make(map[string]struct{}, len(indexedCalls))
-	for _, toolCall := range indexedCalls {
-		if toolCall.ID != "" {
-			indexedIDs[toolCall.ID] = struct{}{}
+// indexedAccumulatorSet returns the identities of every accumulator the indexed
+// pass emits, so the index-less pass can skip them regardless of whether they
+// carry an ID.
+func indexedAccumulatorSet(toolCalls map[int][]*openAIToolCallAccumulator) map[*openAIToolCallAccumulator]struct{} {
+	indexed := make(map[*openAIToolCallAccumulator]struct{})
+	for _, accumulators := range toolCalls {
+		for _, acc := range accumulators {
+			indexed[acc] = struct{}{}
 		}
 	}
+	return indexed
+}
 
+// indexlessToolCallAccumulators filters out accumulators already emitted by the
+// indexed pass. Identity, not ID, is the dedupe key: an anonymous call promoted
+// to an index keeps an empty ID yet must be emitted exactly once.
+func indexlessToolCallAccumulators(accumulators []*openAIToolCallAccumulator, indexed map[*openAIToolCallAccumulator]struct{}) []*openAIToolCallAccumulator {
 	indexless := make([]*openAIToolCallAccumulator, 0, len(accumulators))
 	for _, acc := range accumulators {
-		if _, indexed := indexedIDs[acc.ID]; !indexed || acc.ID == "" {
-			indexless = append(indexless, acc)
+		if _, ok := indexed[acc]; ok {
+			continue
 		}
+		indexless = append(indexless, acc)
 	}
 	return indexless
 }
