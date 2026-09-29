@@ -176,6 +176,10 @@ func (w *Writer) Path() string {
 }
 
 // Load reads the stored prompts from the history file.
+// historyUnescaper reverses Record's escaping in a single pass, so an escaped
+// backslash before n or t is not re-read as a newline or tab escape.
+var historyUnescaper = strings.NewReplacer("\\\\", "\\", "\\n", "\n", "\\t", "\t")
+
 func (w *Writer) Load() ([]string, error) {
 	var prompts []string
 	err := w.withLock(func() error {
@@ -196,11 +200,7 @@ func (w *Writer) Load() ([]string, error) {
 				continue
 			}
 			prompt := parts[1]
-			// Use NewReplacer for single-pass unescape: it processes each position
-			// left to right without rescanning replaced output, avoiding the bug where
-			// sequential ReplaceAll on e.g. "C:\\new" matches "\n" before "\\":
-			// C:\\new -> C:\n ew (wrong). NewReplacer handles it correctly in one pass.
-			prompt = strings.NewReplacer("\\\\", "\\", "\\n", "\n", "\\t", "\t").Replace(prompt)
+			prompt = historyUnescaper.Replace(prompt)
 			prompts = append(prompts, prompt)
 		}
 		if len(prompts) > maxEntries {
