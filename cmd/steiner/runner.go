@@ -157,7 +157,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		err,
 	))
 	if err != nil {
-		return runResult{Conversation: state.Conversation}, err
+		return runResult{Conversation: state.Conversation, TokenCount: state.TokenCount, StopReason: state.StopReason}, err
 	}
 
 	return runResult{
@@ -166,6 +166,8 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		Diagnostics:     cloneEvents(*diagnostics),
 		WorkflowHandoff: state.WorkflowHandoff,
 		Lineage:         state.Lineage,
+		TokenCount:      state.TokenCount,
+		StopReason:      state.StopReason,
 	}, nil
 }
 

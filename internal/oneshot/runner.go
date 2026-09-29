@@ -20,4 +20,6 @@ type RunResult struct {
 	Diagnostics     []output.Event
 	WorkflowHandoff *tool.WorkflowHandoffTransition
 	Lineage         agent.ConversationLineage
+	TokenCount      int
+	StopReason      agent.StopReason
 }

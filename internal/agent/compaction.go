@@ -102,6 +102,10 @@ func (s summarizeCompactionStages) run(
 	retentionBase := compactionRetentionBaseMessages(state.Lineage, candidate)
 	normalSource, normalRetained := compactionSourceAndRetention(fullMessages, retentionBase, normalCompactionRetainTurns)
 	emergencySource, emergencyRetained := compactionSourceAndRetention(fullMessages, retentionBase, emergencyCompactionRetainTurns)
+	normalSource, normalRetained, err := s.anchorRealUserRetention(ctx, req, state, fullMessages, normalSource, normalRetained)
+	if err != nil {
+		return CompactionOutcome{}, err
+	}
 
 	normalOutcome, err := s.stageRunner(ctx, req, state, turn, candidate, summarizeCompactionStageParams{
 		sourceMessages:   normalSource,
@@ -322,6 +326,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 	}
 
 	*state = outcome.State
+	appendPendingSubAgentsLine(req, state)
 	if compactionCount != nil {
 		*compactionCount += outcome.StageCount
 		emitCompactionDiagnostics(req.Events, compactionDiagnosticsParams{
@@ -392,4 +397,18 @@ func compactionNotAppliedOutcome(candidate ConversationCandidate, fit prompt.Req
 		Applied:            false,
 		SummaryText:        "",
 	}
+}
+
+// appendPendingSubAgentsLine restates the pending sub-agents at the tail after
+// compaction; retained messages are never rewritten.
+func appendPendingSubAgentsLine(req RunRequest, state *RunState) {
+	if req.PendingSubAgents == nil {
+		return
+	}
+	msg, ok := BuildDeliveryMessage(DeliveryParts{Pending: req.PendingSubAgents()})
+	if !ok {
+		return
+	}
+	state.Conversation = append(state.Conversation, msg)
+	state.Lineage = state.Lineage.WithAppendedMessages([]Message{msg})
 }

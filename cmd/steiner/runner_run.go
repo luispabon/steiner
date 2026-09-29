@@ -290,7 +290,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		ContextManager:     agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
 		StreamingPreferred: r.streamingPreferred,
 		CompactionLogPath:  r.runtime.compactionLogFile,
-		DrainSteers:        drainSteers,
+		DrainInbox:         agent.SteerInboxDrain(drainSteers),
 		PromptCacheKey:     r.promptCacheKey(),
 		CacheBaseline:      r.cacheBaseline,
 		VisionCapabilities: visionCapabilities,

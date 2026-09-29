@@ -718,5 +718,7 @@ func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, dr
 	return interactive.RunResult{
 		Conversation:    result.Conversation,
 		WorkflowHandoff: result.WorkflowHandoff,
+		TokenCount:      result.TokenCount,
+		StopReason:      result.StopReason,
 	}, err
 }

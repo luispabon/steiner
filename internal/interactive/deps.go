@@ -16,6 +16,8 @@ import (
 type RunResult struct {
 	Conversation    []agent.Message
 	WorkflowHandoff *tool.WorkflowHandoffTransition
+	TokenCount      int
+	StopReason      agent.StopReason
 }
 
 // runExecutor starts and manages model-in-the-loop runs. Consumer-defined to

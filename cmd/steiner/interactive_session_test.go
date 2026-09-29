@@ -1181,3 +1181,28 @@ func TestSessionRunnerForwardsNilStaticSkillNames(t *testing.T) {
 		t.Fatalf("control run missing static skill content:\n%s", got)
 	}
 }
+
+func TestSessionRunnerReturnsTokenCountAndStopReason(t *testing.T) {
+	providerStub := &fakeProvider{responses: []provider.ChatResponse{
+		{
+			Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"},
+			FinishReason: "stop",
+			Usage:        &provider.UsageStats{CompletionTokens: 7, TotalTokens: 7},
+		},
+	}}
+	adapter := sessionRunner{runner: cliRunner{runtime: cliRuntime{
+		cfg:      testRuntimeConfig("test-model"),
+		provider: providerStub,
+		registry: tool.NewRegistry(),
+		workDir:  t.TempDir(),
+		homeDir:  t.TempDir(),
+		events:   output.NoopSink{},
+	}}}
+	result, err := adapter.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("sessionRunner.Run() error = %v", err)
+	}
+	if result.TokenCount != 7 || result.StopReason != agent.StopReasonComplete {
+		t.Fatalf("result = {TokenCount:%d StopReason:%q}, want {7 %q}", result.TokenCount, result.StopReason, agent.StopReasonComplete)
+	}
+}

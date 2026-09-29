@@ -25,7 +25,7 @@ import (
 )
 
 // runRequestsEqualIgnoringFuncFields compares two RunRequest values for
-// equality, ignoring func-typed fields (e.g. ParallelClassOf, DrainSteers):
+// equality, ignoring func-typed fields (e.g. ParallelClassOf, DrainInbox):
 // reflect.DeepEqual on func values reports non-nil funcs as unequal even when
 // both come from the same struct copy, which would otherwise make this
 // comparison spuriously fail once a request always carries a non-nil
@@ -33,8 +33,12 @@ import (
 func runRequestsEqualIgnoringFuncFields(a, b agent.RunRequest) bool {
 	a.ParallelClassOf = nil
 	b.ParallelClassOf = nil
-	a.DrainSteers = nil
-	b.DrainSteers = nil
+	a.DrainInbox = nil
+	b.DrainInbox = nil
+	a.OnToolBatchDone = nil
+	b.OnToolBatchDone = nil
+	a.PendingSubAgents = nil
+	b.PendingSubAgents = nil
 	a.TurnBudgetNotice = nil
 	b.TurnBudgetNotice = nil
 	return reflect.DeepEqual(a, b)
