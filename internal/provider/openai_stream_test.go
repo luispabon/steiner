@@ -256,6 +256,34 @@ func TestOpenAIStreamDecodeChatStreamWithHandler_UsesReasoningDetailsAndEOFWithF
 	}
 }
 
+func TestOpenAIStreamDecodeChatStreamWithHandler_SeparatesIndexlessToolCalls(t *testing.T) {
+	body := strings.NewReader(
+		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_first\",\"type\":\"function\",\"function\":{\"name\":\"first\",\"arguments\":\"{\\\"value\\\":\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"1}\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_second\",\"type\":\"function\",\"function\":{\"name\":\"second\",\"arguments\":\"{\\\"value\\\":\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"2}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+			"data: [DONE]\n\n",
+	)
+
+	chunks, err := collectOpenAIStreamChunks(t, body)
+	if err != nil {
+		t.Fatalf("decodeChatStreamWithHandler() error = %v", err)
+	}
+	final := chunks[len(chunks)-1]
+	if got, want := len(final.Delta.ToolCalls), 2; got != want {
+		t.Fatalf("tool calls len = %d, want %d", got, want)
+	}
+	for i, want := range []ToolCall{
+		{ID: "call_first", Name: "first", Arguments: map[string]any{"value": float64(1)}},
+		{ID: "call_second", Name: "second", Arguments: map[string]any{"value": float64(2)}},
+	} {
+		got := final.Delta.ToolCalls[i]
+		if got.ID != want.ID || got.Name != want.Name || got.Arguments["value"] != want.Arguments["value"] {
+			t.Fatalf("tool call %d = %#v, want %#v", i, got, want)
+		}
+	}
+}
+
 func TestOpenAIStreamDecodeChatStreamWithHandler_EOFBeforeFinalChunkIsRetryable(t *testing.T) {
 	body := strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"\"}]}\n")
 
@@ -273,8 +301,8 @@ func TestOpenAIStreamDecodeChatStreamWithHandler_EOFBeforeFinalChunkIsRetryable(
 func TestOpenAIStreamFinalizeToolCalls_ValidJSONArguments(t *testing.T) {
 	var args strings.Builder
 	args.WriteString(`{"city":"London","units":"metric"}`)
-	toolCalls := map[int]*openAIToolCallAccumulator{
-		0: {ID: "call_1", Name: "get_weather", Arguments: args},
+	toolCalls := map[int][]*openAIToolCallAccumulator{
+		0: {{ID: "call_1", Name: "get_weather", Arguments: args}},
 	}
 	calls, err := finalizeToolCalls(toolCalls)
 	if err != nil {
@@ -297,8 +325,8 @@ func TestOpenAIStreamFinalizeToolCalls_ValidJSONArguments(t *testing.T) {
 func TestOpenAIStreamFinalizeToolCalls_MalformedJSON(t *testing.T) {
 	var args strings.Builder
 	args.WriteString(`{invalid}`)
-	toolCalls := map[int]*openAIToolCallAccumulator{
-		0: {ID: "call_1", Name: "get_weather", Arguments: args},
+	toolCalls := map[int][]*openAIToolCallAccumulator{
+		0: {{ID: "call_1", Name: "get_weather", Arguments: args}},
 	}
 	_, err := finalizeToolCalls(toolCalls)
 	if err == nil {
@@ -307,8 +335,8 @@ func TestOpenAIStreamFinalizeToolCalls_MalformedJSON(t *testing.T) {
 }
 
 func TestOpenAIStreamFinalizeToolCalls_EmptyArguments(t *testing.T) {
-	toolCalls := map[int]*openAIToolCallAccumulator{
-		0: {ID: "call_1", Name: "get_weather"},
+	toolCalls := map[int][]*openAIToolCallAccumulator{
+		0: {{ID: "call_1", Name: "get_weather"}},
 	}
 	calls, err := finalizeToolCalls(toolCalls)
 	if err != nil {
@@ -323,7 +351,7 @@ func TestOpenAIStreamFinalizeToolCalls_EmptyArguments(t *testing.T) {
 }
 
 func TestOpenAIStreamFinalizeToolCalls_EmptyMap(t *testing.T) {
-	toolCalls := map[int]*openAIToolCallAccumulator{}
+	toolCalls := map[int][]*openAIToolCallAccumulator{}
 	calls, err := finalizeToolCalls(toolCalls)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -336,8 +364,8 @@ func TestOpenAIStreamFinalizeToolCalls_EmptyMap(t *testing.T) {
 func TestOpenAIStreamFinalizeToolCalls_TrailingCommaInArguments(t *testing.T) {
 	var args strings.Builder
 	args.WriteString(`{"operations":[{"type":"write","path":"foo.md"},]}`)
-	toolCalls := map[int]*openAIToolCallAccumulator{
-		0: {ID: "call_1", Name: "mutate", Arguments: args},
+	toolCalls := map[int][]*openAIToolCallAccumulator{
+		0: {{ID: "call_1", Name: "mutate", Arguments: args}},
 	}
 	calls, err := finalizeToolCalls(toolCalls)
 	if err != nil {
@@ -354,8 +382,8 @@ func TestOpenAIStreamFinalizeToolCalls_TrailingCommaInArguments(t *testing.T) {
 func TestOpenAIStreamFinalizeToolCalls_TrailingCommaInNestedObject(t *testing.T) {
 	var args strings.Builder
 	args.WriteString(`{"operations":[{"type":"write","path":"a.go","content":"x",},]}`)
-	toolCalls := map[int]*openAIToolCallAccumulator{
-		0: {ID: "call_1", Name: "mutate", Arguments: args},
+	toolCalls := map[int][]*openAIToolCallAccumulator{
+		0: {{ID: "call_1", Name: "mutate", Arguments: args}},
 	}
 	calls, err := finalizeToolCalls(toolCalls)
 	if err != nil {
