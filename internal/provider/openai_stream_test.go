@@ -333,6 +333,46 @@ func TestOpenAIStreamDecodeChatStreamWithHandler_ReusesIndexlessToolCallID(t *te
 	}
 }
 
+func TestOpenAIToolCallIndexPresence_AnonymousIndexlessFragmentReceivesID(t *testing.T) {
+	body := strings.NewReader(
+		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"value\\\":\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_lookup\",\"function\":{\"arguments\":\"1}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+			"data: [DONE]\n\n",
+	)
+
+	chunks, err := collectOpenAIStreamChunks(t, body)
+	if err != nil {
+		t.Fatalf("decodeChatStreamWithHandler() error = %v", err)
+	}
+	calls := chunks[len(chunks)-1].Delta.ToolCalls
+	if got, want := len(calls), 1; got != want {
+		t.Fatalf("tool calls len = %d, want %d", got, want)
+	}
+	if got, want := calls[0], (ToolCall{ID: "call_lookup", Name: "lookup", Arguments: map[string]any{"value": float64(1)}}); got.ID != want.ID || got.Name != want.Name || got.Arguments["value"] != want.Arguments["value"] {
+		t.Fatalf("tool call = %#v, want %#v", got, want)
+	}
+}
+
+func TestOpenAIToolCallIndexPresence_IndexedThenIndexlessIDReusesCall(t *testing.T) {
+	body := strings.NewReader(
+		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_lookup\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"value\\\":\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_lookup\",\"function\":{\"arguments\":\"1}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+			"data: [DONE]\n\n",
+	)
+
+	chunks, err := collectOpenAIStreamChunks(t, body)
+	if err != nil {
+		t.Fatalf("decodeChatStreamWithHandler() error = %v", err)
+	}
+	calls := chunks[len(chunks)-1].Delta.ToolCalls
+	if got, want := len(calls), 1; got != want {
+		t.Fatalf("tool calls len = %d, want %d", got, want)
+	}
+	if got, want := calls[0], (ToolCall{ID: "call_lookup", Name: "lookup", Arguments: map[string]any{"value": float64(1)}}); got.ID != want.ID || got.Name != want.Name || got.Arguments["value"] != want.Arguments["value"] {
+		t.Fatalf("tool call = %#v, want %#v", got, want)
+	}
+}
+
 func TestOpenAIStreamDecodeChatStreamWithHandler_SeparatesIndexedZeroAndIndexlessToolCalls(t *testing.T) {
 	body := strings.NewReader(
 		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_indexed\",\"type\":\"function\",\"function\":{\"name\":\"indexed\",\"arguments\":\"{\\\"value\\\":0}\"}}]}}]}\n\n" +

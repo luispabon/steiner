@@ -23,8 +23,8 @@ type openAIStreamState struct {
 	content                      strings.Builder
 	thinking                     strings.Builder
 	toolCalls                    map[int][]*openAIToolCallAccumulator
+	toolCallsByID                map[string]*openAIToolCallAccumulator
 	indexlessToolCalls           []*openAIToolCallAccumulator
-	indexlessToolCallsByID       map[string]*openAIToolCallAccumulator
 	indexlessToolCallsByPosition map[int]*openAIToolCallAccumulator
 	latestIndexlessToolCall      *openAIToolCallAccumulator
 	finishReason                 string
@@ -40,7 +40,7 @@ func decodeChatStreamWithHandler(_ context.Context, body io.Reader, emit func(Ch
 	reader := bufio.NewReader(body)
 	state := openAIStreamState{
 		toolCalls:                    make(map[int][]*openAIToolCallAccumulator),
-		indexlessToolCallsByID:       make(map[string]*openAIToolCallAccumulator),
+		toolCallsByID:                make(map[string]*openAIToolCallAccumulator),
 		indexlessToolCallsByPosition: make(map[int]*openAIToolCallAccumulator),
 	}
 
@@ -172,41 +172,81 @@ func handleStreamChoiceToolCalls(state *openAIStreamState, toolCalls []openAIToo
 }
 
 func (state *openAIStreamState) toolCallAccumulator(toolCall openAIToolCall, position int) *openAIToolCallAccumulator {
+	if toolCall.ID != "" {
+		if acc := state.toolCallsByID[toolCall.ID]; acc != nil {
+			state.bindToolCall(acc, toolCall.Index, position)
+			return acc
+		}
+		if acc := state.anonymousToolCall(toolCall.Index, position); acc != nil {
+			state.bindToolCallID(acc, toolCall.ID)
+			state.bindToolCall(acc, toolCall.Index, position)
+			return acc
+		}
+	}
+
 	if toolCall.Index != nil {
 		accumulators := state.toolCalls[*toolCall.Index]
-		if len(accumulators) > 0 {
+		if toolCall.ID == "" && len(accumulators) > 0 {
 			return accumulators[0]
 		}
 		acc := &openAIToolCallAccumulator{}
 		state.toolCalls[*toolCall.Index] = append(accumulators, acc)
+		state.bindToolCallID(acc, toolCall.ID)
 		return acc
 	}
 
-	if toolCall.ID != "" {
-		if acc := state.indexlessToolCallsByID[toolCall.ID]; acc != nil {
-			state.indexlessToolCallsByPosition[position] = acc
-			state.latestIndexlessToolCall = acc
-			return acc
-		}
-	}
 	if toolCall.ID == "" {
 		if acc := state.indexlessToolCallsByPosition[position]; acc != nil {
 			return acc
 		}
-		if state.latestIndexlessToolCall != nil {
-			state.indexlessToolCallsByPosition[position] = state.latestIndexlessToolCall
-			return state.latestIndexlessToolCall
-		}
+	}
+	if toolCall.ID == "" && state.latestIndexlessToolCall != nil {
+		state.indexlessToolCallsByPosition[position] = state.latestIndexlessToolCall
+		return state.latestIndexlessToolCall
 	}
 
 	acc := &openAIToolCallAccumulator{}
 	state.indexlessToolCalls = append(state.indexlessToolCalls, acc)
-	state.indexlessToolCallsByPosition[position] = acc
-	state.latestIndexlessToolCall = acc
-	if toolCall.ID != "" {
-		state.indexlessToolCallsByID[toolCall.ID] = acc
-	}
+	state.bindToolCall(acc, nil, position)
+	state.bindToolCallID(acc, toolCall.ID)
 	return acc
+}
+
+func (state *openAIStreamState) anonymousToolCall(index *int, position int) *openAIToolCallAccumulator {
+	if acc := state.indexlessToolCallsByPosition[position]; acc != nil && acc.ID == "" {
+		return acc
+	}
+	if index == nil {
+		return nil
+	}
+	for _, acc := range state.toolCalls[*index] {
+		if acc.ID == "" {
+			return acc
+		}
+	}
+	return nil
+}
+
+func (state *openAIStreamState) bindToolCall(acc *openAIToolCallAccumulator, index *int, position int) {
+	if index == nil {
+		state.indexlessToolCallsByPosition[position] = acc
+		state.latestIndexlessToolCall = acc
+		return
+	}
+	for _, existing := range state.toolCalls[*index] {
+		if existing == acc {
+			return
+		}
+	}
+	state.toolCalls[*index] = append(state.toolCalls[*index], acc)
+}
+
+func (state *openAIStreamState) bindToolCallID(acc *openAIToolCallAccumulator, id string) {
+	if id == "" {
+		return
+	}
+	acc.ID = id
+	state.toolCallsByID[id] = acc
 }
 
 func flushStreamState(emit func(ChatChunk) error, state openAIStreamState) error {
@@ -226,7 +266,9 @@ func flushStreamState(emit func(ChatChunk) error, state openAIStreamState) error
 		if err != nil {
 			return err
 		}
-		indexlessToolCalls, err := finalizeToolCallAccumulators(state.indexlessToolCalls)
+		indexlessToolCalls, err := finalizeToolCallAccumulators(
+			indexlessToolCallAccumulators(state.indexlessToolCalls, toolCalls),
+		)
 		if err != nil {
 			return err
 		}
@@ -243,6 +285,23 @@ func flushStreamState(emit func(ChatChunk) error, state openAIStreamState) error
 	return emit(chunk)
 }
 
+func indexlessToolCallAccumulators(accumulators []*openAIToolCallAccumulator, indexedCalls []ToolCall) []*openAIToolCallAccumulator {
+	indexedIDs := make(map[string]struct{}, len(indexedCalls))
+	for _, toolCall := range indexedCalls {
+		if toolCall.ID != "" {
+			indexedIDs[toolCall.ID] = struct{}{}
+		}
+	}
+
+	indexless := make([]*openAIToolCallAccumulator, 0, len(accumulators))
+	for _, acc := range accumulators {
+		if _, indexed := indexedIDs[acc.ID]; !indexed || acc.ID == "" {
+			indexless = append(indexless, acc)
+		}
+	}
+	return indexless
+}
+
 func finalizeToolCalls(toolCalls map[int][]*openAIToolCallAccumulator) ([]ToolCall, error) {
 	if len(toolCalls) == 0 {
 		return nil, nil
@@ -250,8 +309,17 @@ func finalizeToolCalls(toolCalls map[int][]*openAIToolCallAccumulator) ([]ToolCa
 	indexes := sortedIntKeys(toolCalls)
 
 	calls := make([]ToolCall, 0, len(toolCalls))
+	seen := make(map[*openAIToolCallAccumulator]struct{})
 	for _, index := range indexes {
-		finalized, err := finalizeToolCallAccumulators(toolCalls[index])
+		accumulators := make([]*openAIToolCallAccumulator, 0, len(toolCalls[index]))
+		for _, acc := range toolCalls[index] {
+			if _, ok := seen[acc]; ok {
+				continue
+			}
+			seen[acc] = struct{}{}
+			accumulators = append(accumulators, acc)
+		}
+		finalized, err := finalizeToolCallAccumulators(accumulators)
 		if err != nil {
 			return nil, err
 		}
