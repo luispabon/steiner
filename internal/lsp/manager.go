@@ -193,6 +193,21 @@ func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config
 		switch ent.state.Status {
 		case ServerStatusReady:
 			sess := ent.session
+			if sess != nil {
+				select {
+				case <-sess.Exited():
+					// The server crashed or was killed: nothing else flips
+					// the status, so retire the dead session here and loop
+					// to respawn it (a failed respawn lands in
+					// ServerStatusFailed and honours spawnFailureBackoff).
+					ent.state.Status = ServerStatusStopped
+					ent.session = nil
+					ent.mu.Unlock()
+					m.closeExitedSession(sess)
+					continue
+				default:
+				}
+			}
 			ent.mu.Unlock()
 			return ent, sess, nil
 		case ServerStatusStarting:
@@ -247,6 +262,15 @@ func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config
 			return nil, nil, fmt.Errorf("unexpected server status: %s", status)
 		}
 	}
+}
+
+// closeExitedSession releases the resources (connection, pipes, reaped
+// process) of a session whose server process has already exited, using the
+// same bounded Close the idle reaper uses.
+func (m *Manager) closeExitedSession(sess session) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = sess.Close(ctx) // best-effort: the process is already gone
 }
 
 // resolveSessionKey computes the (server, root) session key for a file without

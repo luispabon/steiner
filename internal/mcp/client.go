@@ -86,6 +86,7 @@ type Session struct {
 	reconnectDone       chan struct{} // closed when the in-flight reconnect resolves
 	reconnectOutcome    error         // non-nil when the reconnect ended unavailable
 	consecutiveFailures int           // consecutive failed reconnect attempts
+	closed              bool          // Close was called; failed calls no longer kick a reconnect
 }
 
 // SessionOptions configures the lifecycle behaviour of a Session.
@@ -303,33 +304,47 @@ func (s *Session) Tools() []*mcpsdk.Tool {
 // IsError on the result with a nil Go error; transport errors return non-nil.
 //
 // Call flow (D16, locked decisions 2-3): if a reconnect is in flight, block on
-// its outcome future bounded by ctx; then dispatch on the current SDK session
-// while holding the session mutex for the whole invocation, so a concurrent
-// reconnect swap or Close cannot race it. On a classified transport error the
+// its outcome future bounded by ctx; then snapshot the current SDK session
+// under the mutex and dispatch on it WITHOUT holding the mutex, so concurrent
+// calls run in parallel, a caller's ctx is always honoured, and Close or a
+// reconnect swap never blocks behind a hung call (a swapped-out or closed SDK
+// session just errors the in-flight call). On a classified transport error the
 // call is NOT replayed: it returns a "disconnected, verify state" error and
 // kicks a background reconnect (unless the consecutive-failure cap is already
-// reached, in which case the server is unavailable and no worker spawns).
+// reached, in which case the server is unavailable and no worker spawns). The
+// failure only counts against the session when the SDK session the call used is
+// still current and the session is open; otherwise a concurrent call, reconnect
+// or Close already handled it.
 func (s *Session) Call(ctx context.Context, toolName string, args map[string]any) (*mcpsdk.CallToolResult, error) {
 	if err := s.waitForReconnect(ctx); err != nil {
 		return nil, err
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	result, err := s.sdk.CallTool(ctx, &mcpsdk.CallToolParams{Name: toolName, Arguments: args})
-	if err != nil {
-		if !isTransportError(err) {
-			return nil, err
-		}
-		if s.consecutiveFailures >= maxReconnectAttempts {
-			// Cap already reached: the server is unavailable; never spawn
-			// another worker.
-			return nil, fmt.Errorf("mcp server %q unavailable after %d consecutive failed reconnect attempts; last failure: %w", s.name, maxReconnectAttempts, err)
-		}
-		s.kickReconnectLocked()
-		return nil, fmt.Errorf("mcp server %q disconnected; the call may or may not have been applied, verify state before retrying: %w", s.name, err)
+	sdk := s.sdk
+	s.mu.Unlock()
+
+	result, err := sdk.CallTool(ctx, &mcpsdk.CallToolParams{Name: toolName, Arguments: args})
+	if err == nil {
+		return result, nil
 	}
-	return result, nil
+	if !isTransportError(err) {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	disconnected := fmt.Errorf("mcp server %q disconnected; the call may or may not have been applied, verify state before retrying: %w", s.name, err)
+	if s.closed || s.sdk != sdk {
+		return nil, disconnected
+	}
+	if s.consecutiveFailures >= maxReconnectAttempts {
+		// Cap already reached: the server is unavailable; never spawn
+		// another worker.
+		return nil, fmt.Errorf("mcp server %q unavailable after %d consecutive failed reconnect attempts; last failure: %w", s.name, maxReconnectAttempts, err)
+	}
+	s.kickReconnectLocked()
+	return nil, disconnected
 }
 
 // waitForReconnect blocks on the in-flight reconnect outcome future, bounded by
@@ -509,6 +524,8 @@ func isTransportError(err error) bool {
 // server process. Safe to call concurrently with Call and reconnect swaps.
 func (s *Session) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.sdk.Close()
+	s.closed = true
+	sdk := s.sdk
+	s.mu.Unlock()
+	return sdk.Close()
 }
