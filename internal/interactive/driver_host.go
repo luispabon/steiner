@@ -93,7 +93,7 @@ func (s *Session) currentDriver() *agent.ConversationDriver {
 // driverBusyLocked reports whether the live driver has a run, compaction or
 // queued prompt. The caller must hold s.mu.
 func (s *Session) driverBusyLocked() bool {
-	return s.driver.drv.Busy()
+	return s.driverAdmissions > 0 || s.driver.drv.Busy()
 }
 
 // driverSave persists a driver snapshot. A live driver refreshes the session's
