@@ -28,7 +28,7 @@ Research is required by default when the task depends on information that may be
 
 Research may be skipped when the task is repo-local, stable, and sufficiently understood from nearby code and repository instructions.
 
-When research is required, delegate it — do not substitute your own reasoning. Call the `sub_agent` tool with type `research` and a self-contained brief that states the exact questions, known constraints and decisions, relevant paths/APIs already known, the expected output, and the scope boundaries.
+When research is required, delegate it — do not substitute your own reasoning. Call the `sub_agent` tool with type `research` and a self-contained brief that states the exact questions, known constraints and decisions, relevant paths/APIs already known, the expected output, and the scope boundaries. The result arrives later as a separate message: end the turn after dispatching and continue when it arrives.
 
 If `sub_agent` type `research` is unavailable (no search backend configured), record that as a bounded assumption in the Decision Log and continue without research.
 

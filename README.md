@@ -12,6 +12,7 @@ A minimal, local-first Go coding agent with bounded context and sandboxed execut
 
 - Local and cloud providers with one configuration shape. See [Configuration](docs/user/configuration.md).
 - Bounded context through delegation, budgets, and compaction. See [Context management](docs/user/context-management.md).
+- Async sub-agents: in interactive sessions `sub_agent` and `follow_up` return an ack immediately and each result arrives later as a separate message, so you can keep talking to the orchestrator while the conversation shows a Waiting state. Calls sharing a `group` label deliver their results together. See [Sub-agent delegation](docs/user/sub-agent-delegation.md).
 - Structured tools, optional language-server and MCP integrations. Read output omits line numbers by default; set `line_numbers: true` to include them. See [Tools](docs/user/tools.md), [LSP](docs/user/lsp.md), and [MCP](docs/user/mcp.md).
 - Plan/build execution modes and resumable autonomous runs. See [Execution modes](docs/user/execution-modes.md) and [Oneshot](docs/user/oneshot.md).
 - Static, read-only security audits of a diff or repository, with adversarial verification. See [Security audit](docs/user/security-audit.md).

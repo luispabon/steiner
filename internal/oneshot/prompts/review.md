@@ -66,7 +66,7 @@ You MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on i
 
 This restriction does not apply to the reviewer-owned `review.md`.
 
-Each review pass produces one consolidated fix plan mapping blocking finding ids to fixes, declared write scopes, and verification. Brief each `code` agent with its bounded fix, relevant findings, files, constraints, and checks. Parallelize only fixes with disjoint write scopes and settled shared contracts; sequence dependent fixes. Merge worktrees one at a time, resolve integration issues, then rerun `overview.md` checks covering fixes and affected criteria on the combined branch. Re-review affected boundaries. Repeat only while new blocking findings remain.
+Each review pass produces one consolidated fix plan mapping blocking finding ids to fixes, declared write scopes, and verification. Brief each `code` agent with its bounded fix, relevant findings, files, constraints, and checks. Parallelize only fixes with disjoint write scopes and settled shared contracts, dispatched with a shared `group` (results arrive as one message; end the turn after dispatching); sequence dependent fixes. Merge worktrees one at a time, resolve integration issues, then rerun `overview.md` checks covering fixes and affected criteria on the combined branch. Re-review affected boundaries. Repeat only while new blocking findings remain.
 
 ## Advisor Sanity Check
 

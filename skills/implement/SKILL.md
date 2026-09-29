@@ -29,7 +29,7 @@ Follow this sequence:
 2. Check out the expected feature branch.
 3. Load verification strategy from `overview.md`.
 4. Create or resume compact `execution.md`.
-5. Execute ready implementation steps — dispatch one sub-agent per step via the delegation model. Do not implement directly unless the step is marked `no_delegate`, in that case make sure to state explicitly why the change is not being delegated.
+5. Execute ready implementation steps — dispatch one sub-agent per step via the delegation model: end the turn after dispatch and act when the result arrives. Do not implement directly unless the step is marked `no_delegate`, in that case make sure to state explicitly why the change is not being delegated.
 6. Run planned verification and fix failures.
 7. Ask for manual verification only when the plan or risk requires it.
 8. If planning artifacts are version-controlled, commit final executor state. Hand off to review.
@@ -141,14 +141,14 @@ Resume a suitable warm agent before cold dispatch only when it remains available
 
 Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.
 
-1. Read `worktree_path` from the delegation result — a project-relative path (e.g. `.steiner/worktrees/<process>/<branch>/<agent>`) and the sole worktree locator returned to you. The branch name and any dirty-tree warnings are host-only and not returned; if you need the branch name, read it from the worktree itself: `git -C <worktree-path> branch --show-current`.
+1. Read `worktree_path` from the arrived result — a project-relative path (e.g. `.steiner/worktrees/<process>/<branch>/<agent>`) and the sole worktree locator returned to you. The branch name and any dirty-tree warnings are host-only and not returned; if you need the branch name, read it from the worktree itself: `git -C <worktree-path> branch --show-current`.
 2. `follow_up` results also carry `worktree_path` for the same code agent, resolving to the same worktree as the initial `code` result.
 3. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <branch-name>` (from step 1).
 
 ### Delegation Steps
 
 1. dispatch the scoped task to a `code` sub-agent
-2. read the result: `worktree_path`
+2. read the arrived result: `worktree_path`
 3. review the result against the step contract
 4. merge the returned branch into the feature branch
 5. run required verification for that point in the flow

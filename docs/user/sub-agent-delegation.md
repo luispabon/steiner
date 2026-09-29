@@ -235,6 +235,10 @@ models:
         vision: anthropic/<vision-model-id>
 ```
 
+## Downgrading
+
+Sessions that contain async sub-agent history (result envelopes delivered as separate messages) are not guarded against being opened by an older binary. An older version shows those `<steiner-sub-agent-result>` envelopes as ordinary user text.
+
 ---
 
 For architecture and implementation details, see [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md).
