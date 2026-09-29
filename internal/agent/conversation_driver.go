@@ -354,7 +354,7 @@ func (d *ConversationDriver) compact(ctx context.Context) bool {
 		d.lineage = lineage.Clone()
 		if d.opts.Background != nil {
 			if msg, ok := BuildDeliveryMessage(DeliveryParts{Pending: d.opts.Background.Pending()}); ok {
-				d.conv = append(d.conv, msg)
+				d.appendLocked(msg)
 			}
 		}
 	case !errors.Is(err, context.Canceled):
