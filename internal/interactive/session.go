@@ -22,7 +22,17 @@ import (
 // run lifecycle, approvals, model switches, execution mode, compaction, enabled skills,
 // and the core event bus composition.
 type Session struct {
-	mu                  sync.RWMutex
+	mu sync.RWMutex
+	// driverAdmissions counts actions that selected the live driver and are
+	// still in the driver call. Session replacement refuses while one is active,
+	// so a selected driver cannot receive an action after replacement.
+	driverAdmissions int
+	// submitSelectionHook is a test seam for the gap between driver selection and
+	// admission. It is nil in production.
+	submitSelectionHook func()
+	// submitAdmissionHook is a test seam for the interval after Submit admits a
+	// prompt and before its admission is released. It is nil in production.
+	submitAdmissionHook func()
 	deps                Dependencies
 	events              output.EventSink
 	displaySink         *output.ForwardSink

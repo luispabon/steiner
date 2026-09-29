@@ -159,6 +159,78 @@ func TestLoadSessionByIDPendingTransitionBeforeReplacement(t *testing.T) {
 	}
 }
 
+func TestSubmitSelectedBeforeLoadCannotAdmitToRetiredDriver(t *testing.T) {
+	t.Parallel()
+	store := newMockSessionStore()
+	store.loadedSessions["other"] = session.Session{ID: "other", Lineage: lineageOf(userMsg("other"))}
+	runner := newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
+		return RunResult{Conversation: conv}, nil
+	})
+	s := testNewSession(t, Dependencies{SessionStore: store, Runner: runner})
+	selected := make(chan struct{})
+	release := make(chan struct{})
+	s.mu.Lock()
+	s.submitSelectionHook = func() {
+		close(selected)
+		<-release
+	}
+	s.mu.Unlock()
+
+	submitted := make(chan struct{})
+	go func() {
+		s.submitPrompt(context.Background(), "late prompt", nil)
+		close(submitted)
+	}()
+	<-selected
+
+	loaded := make(chan error, 1)
+	go func() { loaded <- s.LoadSessionByID(context.Background(), "other") }()
+	err := <-loaded
+	if err != nil {
+		t.Fatalf("LoadSessionByID() = %v, want load to replace before admission", err)
+	}
+	close(release)
+	<-submitted
+	if got := s.SessionID(); got != "other" {
+		t.Fatalf("session ID = %q, want loaded session", got)
+	}
+	if got := s.Conversation(); len(got) != 1 || got[0].Content != "other" {
+		t.Fatalf("conversation admitted late prompt: %#v", got)
+	}
+}
+
+func TestSubmitAdmissionMakesConcurrentLoadRefuse(t *testing.T) {
+	t.Parallel()
+	store := newMockSessionStore()
+	store.loadedSessions["other"] = session.Session{ID: "other", Lineage: lineageOf(userMsg("other"))}
+	runner := newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
+		return RunResult{Conversation: conv}, nil
+	})
+	s := testNewSession(t, Dependencies{SessionStore: store, Runner: runner})
+	admitted := make(chan struct{})
+	release := make(chan struct{})
+	s.mu.Lock()
+	s.submitAdmissionHook = func() {
+		close(admitted)
+		<-release
+	}
+	s.mu.Unlock()
+
+	submitted := make(chan struct{})
+	go func() {
+		s.submitPrompt(context.Background(), "prompt", nil)
+		close(submitted)
+	}()
+	<-admitted
+
+	err := s.LoadSessionByID(context.Background(), "other")
+	if err == nil || !strings.Contains(err.Error(), errRunInProgress.Error()) {
+		t.Fatalf("LoadSessionByID() = %v, want admission refusal", err)
+	}
+	close(release)
+	<-submitted
+}
+
 func TestLoadSessionByIDRefusedWhilePending(t *testing.T) {
 	t.Parallel()
 	bg := &stubBackground{}

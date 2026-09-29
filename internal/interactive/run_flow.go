@@ -21,13 +21,33 @@ func (s *Session) submitPrompt(ctx context.Context, text string, images []agent.
 	blocks := s.skillDeltaBlocks(ctx, s.Conversation())
 
 	s.mu.Lock()
+	drv := s.driver.drv
+	selectionHook := s.submitSelectionHook
+	s.mu.Unlock()
+	if selectionHook != nil {
+		selectionHook()
+	}
+
+	s.mu.Lock()
+	if s.driver.drv != drv {
+		s.mu.Unlock()
+		return
+	}
 	if s.deps.SessionStore != nil && len(s.conversation) == 0 && s.sessionTitle == "" {
 		s.sessionTitle = session.TitleFromPrompt(text)
 	}
-	drv := s.driver.drv
+	s.driverAdmissions++
+	admissionHook := s.submitAdmissionHook
 	s.mu.Unlock()
-
+	defer func() {
+		s.mu.Lock()
+		s.driverAdmissions--
+		s.mu.Unlock()
+	}()
 	drv.Submit(text, images, agent.SubmitMeta{SkillBlocks: blocks})
+	if admissionHook != nil {
+		admissionHook()
+	}
 }
 
 // runSessionMeta is the identity metadata of a session, captured when a driver
