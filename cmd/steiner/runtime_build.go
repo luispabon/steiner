@@ -165,6 +165,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	closeFn = joinClosers(closeFn, approvalClose)
 	rt.closeFn = closeFn
 
+	delegationActiveController := delegation.NewActiveController()
 	return cliRuntime{
 		cfg:                          cfg,
 		sandboxStatus:                status,
@@ -198,7 +199,8 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		diagnostics:                  diagnosticsWriter,
 		delegationSessionStore:       delegation.NewSessionStore(),
 		delegationCacheKeyStore:      delegation.NewCacheKeyStore(),
-		delegationActiveController:   delegation.NewActiveController(),
+		delegationActiveController:   delegationActiveController,
+		delegationSupervisor:         delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: max(cfg.SubAgent.MaxParallel, 1), Controller: delegationActiveController}),
 		delegationAdvisorBudgetStore: delegation.NewAdvisorBudgetStore(),
 		advisorState:                 advisor.NewSharedState(),
 		compactionLogFile:            compactionLogFile,

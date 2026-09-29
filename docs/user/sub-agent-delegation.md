@@ -74,7 +74,7 @@ Key behaviours:
 
 ### Parallel fan-out
 
-Multiple delegation calls made in one turn execute concurrently. The fan-out width is bounded independently by `sub_agent.max_parallel` (default `3`, minimum `1`), separate from ordinary parallel-safe tool calls (read/grep/glob/ls/fetch_url/web_search/lsp_definitions/lsp_implementations/lsp_type_definitions/lsp_references/lsp_diagnostics/lsp_hover/lsp_symbols), which are bounded by `limits.max_parallel_tools` (default `4`, minimum `1`) — see [Configuration](configuration.md#limits-block). A value of `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
+Multiple delegation calls made in one turn execute concurrently. The number of sub-agents running at once is capped session-wide by `sub_agent.max_parallel` (default `3`, minimum `1`); further spawns queue in order, and at most twice that many may be outstanding (running plus queued) before a spawn fails with a tool error. This is separate from ordinary parallel-safe tool calls (read/grep/glob/ls/fetch_url/web_search/lsp_definitions/lsp_implementations/lsp_type_definitions/lsp_references/lsp_diagnostics/lsp_hover/lsp_symbols), which are bounded by `limits.max_parallel_tools` (default `4`, minimum `1`) — see [Configuration](configuration.md#limits-block). A value of `1` runs sub-agents one at a time. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
 
 ### Stopping active delegates
 

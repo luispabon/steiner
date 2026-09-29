@@ -109,17 +109,15 @@ func TestResetSandboxTmpEmitsWarning(t *testing.T) {
 	}
 }
 
-func TestBuildInteractiveSessionUsesSharedDelegationController(t *testing.T) {
+func TestBuildInteractiveSessionCancelsThroughRuntimeSupervisor(t *testing.T) {
 	controller := delegation.NewActiveController()
-	childCtx, err := registerChild(controller, "child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
-	if err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
+	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
+	observed := spawnBlockedChild(t, sup, controller, "child-1")
 	sess, err := buildInteractiveSession(cliRuntime{
-		events:                     output.NoopSink{},
-		workDir:                    t.TempDir(),
-		homeDir:                    t.TempDir(),
-		delegationActiveController: controller,
+		events:               output.NoopSink{},
+		workDir:              t.TempDir(),
+		homeDir:              t.TempDir(),
+		delegationSupervisor: sup,
 	})
 	if err != nil {
 		t.Fatalf("buildInteractiveSession() error = %v", err)
@@ -128,9 +126,12 @@ func TestBuildInteractiveSessionUsesSharedDelegationController(t *testing.T) {
 		t.Fatalf("Handle(CancelDelegate) error = %v", err)
 	}
 	select {
-	case <-childCtx.Done():
-	default:
-		t.Fatal("interactive cancellation did not cancel registered child")
+	case got := <-observed:
+		if got.cause != delegation.CancelCauseUser {
+			t.Fatalf("recorded cause = %v, want CancelCauseUser", got.cause)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("interactive cancellation did not cancel the supervised child")
 	}
 }
 

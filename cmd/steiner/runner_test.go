@@ -192,15 +192,49 @@ func TestNewDelegateDepsUsesSharedActiveController(t *testing.T) {
 	}
 }
 
+type childCancelObservation struct {
+	cause   delegation.CancelCause
+	discard bool
+}
+
+// spawnBlockedChild runs a child through sup that blocks until its context is
+// cancelled. The returned channel yields what the supervisor and controller
+// recorded for the child at the moment cancellation reached it.
+func spawnBlockedChild(t *testing.T, sup *delegation.Supervisor, controller *delegation.ActiveController, id string) <-chan childCancelObservation {
+	t.Helper()
+	started := make(chan struct{})
+	cause := make(chan childCancelObservation, 1)
+	go func() {
+		_, _ = sup.SpawnAndWait(context.Background(), delegation.ChildJob{
+			AgentID:   id,
+			AgentType: delegation.AgentTypeCode,
+			Execute: func(ctx context.Context) (tool.ExecutionResult, error) {
+				close(started)
+				<-ctx.Done()
+				cause <- childCancelObservation{cause: sup.CauseFor(id), discard: controller.DiscardRequested(id)}
+				return tool.ExecutionResult{}, nil
+			},
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("child did not start")
+	}
+	return cause
+}
+
 func TestDelegationCancellerReportsFinishedDelegate(t *testing.T) {
 	controller := delegation.NewActiveController()
-	if _, err := registerChild(controller, "child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{}); err != nil {
-		t.Fatalf("Register() error = %v", err)
+	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
+	if _, err := sup.SpawnAndWait(context.Background(), delegation.ChildJob{
+		AgentID:   "child-1",
+		AgentType: delegation.AgentTypeCode,
+		Execute:   func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil },
+	}); err != nil {
+		t.Fatalf("SpawnAndWait() error = %v", err)
 	}
-	if !controller.MarkComplete("child-1") {
-		t.Fatal("MarkComplete() returned false")
-	}
-	if err := (delegationCanceller{c: controller}).CancelAgent("child-1", true); err == nil || !strings.Contains(err.Error(), "already finished") || !strings.Contains(err.Error(), "worktree retained") {
+	if err := (delegationCanceller{s: sup}).CancelAgent("child-1", true); err == nil || !strings.Contains(err.Error(), "already finished") || !strings.Contains(err.Error(), "worktree retained") {
 		t.Fatalf("CancelAgent() error = %v, want already-finished retained-worktree feedback", err)
 	}
 	if controller.DiscardRequested("child-1") {
@@ -208,23 +242,72 @@ func TestDelegationCancellerReportsFinishedDelegate(t *testing.T) {
 	}
 }
 
-func TestDelegationCancellerTargetsSharedController(t *testing.T) {
-	controller := delegation.NewActiveController()
-	childCtx, err := registerChild(controller, "child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
-	if err != nil {
-		t.Fatalf("Register() error = %v", err)
+func TestDelegationCancellerRecordsUserCause(t *testing.T) {
+	tests := []struct {
+		name   string
+		cancel func(delegationCanceller) error
+	}{
+		{name: "cancel agent", cancel: func(c delegationCanceller) error { return c.CancelAgent("child-1", true) }},
+		{name: "cancel all", cancel: func(c delegationCanceller) error { return c.CancelAll() }},
 	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			controller := delegation.NewActiveController()
+			sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
+			observed := spawnBlockedChild(t, sup, controller, "child-1")
 
-	if err := (delegationCanceller{c: controller}).CancelAgent("child-1", true); err != nil {
+			if err := tc.cancel(delegationCanceller{s: sup}); err != nil {
+				t.Fatalf("cancel error = %v", err)
+			}
+			select {
+			case got := <-observed:
+				if got.cause != delegation.CancelCauseUser {
+					t.Fatalf("recorded cause = %v, want CancelCauseUser", got.cause)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("child was not cancelled")
+			}
+		})
+	}
+}
+
+func TestDelegationCancellerRequestsDiscard(t *testing.T) {
+	controller := delegation.NewActiveController()
+	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
+	observed := spawnBlockedChild(t, sup, controller, "child-1")
+
+	if err := (delegationCanceller{s: sup}).CancelAgent("child-1", true); err != nil {
 		t.Fatalf("CancelAgent() error = %v", err)
 	}
-	select {
-	case <-childCtx.Done():
-	default:
-		t.Fatal("CancelAgent() did not cancel registered child")
-	}
-	if !controller.DiscardRequested("child-1") {
+	if got := <-observed; !got.discard {
 		t.Fatal("CancelAgent(discard=true) did not request worktree discard")
+	}
+}
+
+func TestDelegationCancellerWithoutSupervisor(t *testing.T) {
+	if err := (delegationCanceller{}).CancelAgent("child-1", false); err == nil {
+		t.Error("CancelAgent() with nil supervisor returned nil error")
+	}
+	if err := (delegationCanceller{}).CancelAll(); err == nil {
+		t.Error("CancelAll() with nil supervisor returned nil error")
+	}
+}
+
+func TestNewDelegateDepsWiresSupervisorAndRuntimeChildEvents(t *testing.T) {
+	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
+	var runtimeEvents, perRunEvents []output.Event
+	runtimeSink := output.SinkFunc(func(e output.Event) { runtimeEvents = append(runtimeEvents, e) })
+	perRunSink := output.SinkFunc(func(e output.Event) { perRunEvents = append(perRunEvents, e) })
+	r := cliRunner{runtime: cliRuntime{delegationSupervisor: sup, events: runtimeSink}}
+
+	deps := r.newDelegateDeps(runnerSetup{}, perRunSink, nil, nil, "")
+	if deps.Supervisor != sup {
+		t.Error("newDelegateDeps did not pass the runtime supervisor")
+	}
+	deps.ChildEvents.Emit(output.NewConfigWarningEvent("child"))
+	deps.Events.Emit(output.NewConfigWarningEvent("parent"))
+	if len(runtimeEvents) != 1 || len(perRunEvents) != 1 {
+		t.Fatalf("runtime sink got %d events, per-run sink got %d; want 1 each", len(runtimeEvents), len(perRunEvents))
 	}
 }
 

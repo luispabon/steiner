@@ -30,16 +30,16 @@ import (
 	"github.com/luispabon/steiner/internal/update"
 )
 
-type delegationCanceller struct{ c *delegation.ActiveController }
+type delegationCanceller struct{ s *delegation.Supervisor }
 
 func (d delegationCanceller) CancelAgent(agentID string, discard bool) error {
-	if d.c == nil {
+	if d.s == nil {
 		return errors.New("no active delegate cancellation available")
 	}
 	if agentID == "" {
 		return errors.New("cancel delegate: agent id required")
 	}
-	switch d.c.CancelAgentWithDiscard(agentID, discard) {
+	switch d.s.CancelAgent(agentID, discard, delegation.CancelCauseUser) {
 	case delegation.CancelAccepted:
 		return nil
 	case delegation.CancelAlreadyFinished:
@@ -50,10 +50,10 @@ func (d delegationCanceller) CancelAgent(agentID string, discard bool) error {
 }
 
 func (d delegationCanceller) CancelAll() error {
-	if d.c == nil {
+	if d.s == nil {
 		return errors.New("no active delegate cancellation available")
 	}
-	d.c.CancelAll()
+	d.s.CancelAll(delegation.CancelCauseUser)
 	return nil
 }
 
@@ -68,7 +68,7 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 		WorkDir:           rt.workDir,
 		SessionStore:      rt.sessionStore,
 		SkillLoader:       skill.Loader{RootDirs: prompt.SkillRoots(rt.homeDir, rt.projectRoot), BundledFS: rt.skillBundledFS},
-		DelegateCanceller: delegationCanceller{c: rt.delegationActiveController},
+		DelegateCanceller: delegationCanceller{s: rt.delegationSupervisor},
 		CompactionLogPath: rt.compactionLogFile,
 		RecordModelSwitch: modelPopularityRecorder(rt.modelPopularity),
 		ResolveModel:      rt.resolveModel,

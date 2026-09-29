@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -28,6 +29,8 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	stop()
 	stopInteractiveProgram(p)
 	wait()
+	// Stop children first so tracked runs blocked on them can finish inside the drain window.
+	shutdownDelegation(context.Background(), rt, delegation.CancelCauseUser)
 	awaitSessionRuns(cmd, sess, rt)
 	pruneWorktreesOnExit(cmd, sess, rt)
 	clearTerminalScreen(cmd.OutOrStdout())
@@ -68,6 +71,31 @@ func awaitSessionRuns(cmd *cobra.Command, sess *interactive.Session, rt *cliRunt
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: session shutdown: %v.\n", warning)
 }
 
+// shutdownDelegation cancels every sub-agent and waits, bounded by the
+// supervisor's join timeout, for them to stop. Children that do not stop are
+// reported as a session-health warning and their worktrees stay protected from
+// pruning. It is a no-op once the supervisor has shut down.
+func shutdownDelegation(ctx context.Context, rt *cliRuntime, cause delegation.CancelCause) {
+	if rt == nil || rt.delegationSupervisor == nil || rt.delegationSupervisor.Closed() {
+		return
+	}
+	report := rt.delegationSupervisor.Shutdown(ctx, cause)
+	if rt.events == nil {
+		return
+	}
+	for _, child := range report.Unjoined {
+		emitCloseWarning(rt.events, "sub-agent shutdown", fmt.Errorf("%s %q did not stop in time", child.AgentType, child.AgentID))
+	}
+}
+
+// protectedWorktrees returns the worktrees of sub-agents that did not stop in time.
+func protectedWorktrees(s *delegation.Supervisor) []string {
+	if s == nil {
+		return nil
+	}
+	return s.ProtectedWorktrees()
+}
+
 var worktreeCleanupJoinTimeout = 5 * time.Second
 
 func pruneWorktreesOnExit(cmd *cobra.Command, sess *interactive.Session, rt *cliRuntime) {
@@ -93,6 +121,10 @@ func pruneWorktreesOnExit(cmd *cobra.Command, sess *interactive.Session, rt *cli
 	pruneCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	n, err := rt.worktreeCleanup.Prune(pruneCtx)
+	// best-effort: terminal write
+	for _, path := range protectedWorktrees(rt.delegationSupervisor) {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Kept %s: sub-agent did not stop in time.\n", path)
+	}
 	if err != nil {
 		if rt.events != nil {
 			emitCloseWarning(rt.events, "worktree cleanup", err)

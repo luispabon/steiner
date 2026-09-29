@@ -109,6 +109,10 @@ type DelegateDeps struct {
 	// Supervisor runs child delegations. When nil, a private one is created from
 	// SubAgentCfg.MaxParallel over ActiveController.
 	Supervisor *Supervisor
+	// ChildEvents receives child and Delegation* events. Children outlive the
+	// run that spawned them, so callers pass a runtime-lifetime sink here rather
+	// than a per-run one. When nil, Events is used.
+	ChildEvents output.EventSink
 	// ExtraAllowedTools provides per-agent-type extra tool names that should be
 	// included in child registries beyond the built-in allowlists. Keys are agent
 	// types; values are sorted, deduplicated registered tool names. Nil or empty
@@ -243,7 +247,11 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 			return tool.ToolDef{}, false
 		}
 		state := deps.AdvisorBudgetStore.StateFor(agentID)
-		scopedEvents := withAgentScope(agentID, "", deps.Events)
+		childEvents := deps.ChildEvents
+		if childEvents == nil {
+			childEvents = deps.Events
+		}
+		scopedEvents := withAgentScope(agentID, "", childEvents)
 		scopedRuntime := advRuntime
 		scopedRuntime.events = scopedEvents
 		return scopedRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state), true
@@ -272,6 +280,9 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		deps.ActiveController = NewActiveController()
 	}
 
+	if deps.ChildEvents == nil {
+		deps.ChildEvents = deps.Events
+	}
 	if deps.Supervisor == nil {
 		deps.Supervisor = NewSupervisor(SupervisorOptions{
 			MaxParallel: max(deps.SubAgentCfg.MaxParallel, 1),
@@ -296,7 +307,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		Provider:              deps.Provider,
 		ParentReg:             extendedBase,
 		SubAgentCfg:           deps.SubAgentCfg,
-		Events:                deps.Events,
+		Events:                deps.ChildEvents,
 		Runner:                agent.NewRunner(),
 		WorkDir:               deps.WorkDir,
 		HomeDir:               deps.HomeDir,

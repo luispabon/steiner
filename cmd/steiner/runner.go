@@ -225,6 +225,8 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		UsageRecorder:                    r.runtime.usageRecorder,
 		SessionStore:                     r.runtime.delegationSessionStore,
 		ActiveController:                 r.runtime.delegationActiveController,
+		Supervisor:                       r.runtime.delegationSupervisor,
+		ChildEvents:                      r.runtime.events,
 		ImageStore:                       r.runtime.imageStore,
 		ExtraAllowedTools:                extraAllowedTools,
 		CacheKeyStore:                    r.runtime.delegationCacheKeyStore,

@@ -491,8 +491,8 @@ func verifyCodeWorktree(ctx context.Context, worktreePath, wantBranch string) er
 // PruneProcessCodeWorktrees prunes delegation-owned code worktrees created by this process.
 // It continues after per-worktree errors and returns the number of worktrees git
 // deregistered, counting a worktree even when its post-removal cleanup failed and an
-// aggregated error is returned.
-func PruneProcessCodeWorktrees(ctx context.Context, projectRoot string) (int, error) {
+// aggregated error is returned. Worktrees at the protected paths are left in place.
+func PruneProcessCodeWorktrees(ctx context.Context, projectRoot string, protected ...string) (int, error) {
 	worktreeMu.Lock()
 	defer worktreeMu.Unlock()
 
@@ -509,7 +509,14 @@ func PruneProcessCodeWorktrees(ctx context.Context, projectRoot string) (int, er
 	delegationBase := filepath.Join(projectRoot, ".steiner", "worktrees")
 	var errs []error
 	removedCount := 0
+	skip := make(map[string]struct{}, len(protected))
+	for _, path := range protected {
+		skip[filepath.Clean(path)] = struct{}{}
+	}
 	for _, worktree := range processWorktrees {
+		if _, kept := skip[filepath.Clean(worktree.Path)]; kept {
+			continue
+		}
 		relID, err := filepath.Rel(delegationBase, worktree.Path)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("extract relative worktree ID: %w", err))

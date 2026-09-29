@@ -366,8 +366,10 @@ type SubAgentConfig struct {
 	Enabled   bool `yaml:"enabled"`
 	MaxTurns  int  `yaml:"max_turns"`
 	MaxTokens int  `yaml:"max_tokens"`
-	// MaxParallel bounds how many concurrent delegation-tool calls (specialized
-	// sub-agent spawns, follow_up) may run within one parent turn. Distinct
+	// MaxParallel is the session-wide cap on concurrently running delegated
+	// children (specialized sub-agent spawns, follow_up). Further spawns queue
+	// FIFO; more than 2x MaxParallel outstanding (running plus queued) is a tool
+	// error. Distinct
 	// from limits.max_parallel_tools, which bounds ordinary parallel-safe tool
 	// calls (read, glob, grep, ls, fetch_url, web_search) in the same turn —
 	// see internal/agent.ParallelClass.

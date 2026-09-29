@@ -104,6 +104,7 @@ type cliRuntime struct {
 	delegationSessionStore       *delegation.SessionStore
 	delegationCacheKeyStore      *delegation.CacheKeyStore
 	delegationActiveController   *delegation.ActiveController
+	delegationSupervisor         *delegation.Supervisor
 	delegationAdvisorBudgetStore *delegation.AdvisorBudgetStore
 	advisorState                 *advisor.SharedState
 	delegationLogger             *delegation.TraceLogger
@@ -149,6 +150,9 @@ func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlag
 }
 
 func closeRuntime(rt *cliRuntime) {
+	// Children must stop before the resources they use (sandbox tmp dir, LSP,
+	// MCP) are torn down. Idempotent, so a prior interactive shutdown makes this a no-op.
+	shutdownDelegation(context.Background(), rt, delegation.CancelCauseSystem)
 	if rt.imageStore != nil {
 		emitCloseWarning(rt.events, "close image store", rt.imageStore.Cleanup())
 	}
