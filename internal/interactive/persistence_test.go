@@ -186,6 +186,37 @@ func TestForkSessionCarriesEnabledSkills(t *testing.T) {
 	}
 }
 
+func TestForkSessionPreservesMode(t *testing.T) {
+	t.Parallel()
+	mockStore := newMockSessionStore()
+	s := testNewSession(t, Dependencies{
+		SessionStore: mockStore,
+		Config: config.Config{
+			Models: config.ModelsConfig{
+				Effective: config.EffectiveModelAssignments{
+					DefaultModel:            "test-model",
+					ActiveOrchestratorModel: "test-model",
+				},
+			},
+			Modes: config.ModesConfig{Default: config.ExecutionModeBuild},
+		},
+	})
+	s.mu.Lock()
+	s.sessionTitle = "Plan Session"
+	s.mode = config.ExecutionModePlan
+	s.mu.Unlock()
+
+	if err := s.handleForkSession(context.Background()); err != nil {
+		t.Fatalf("handleForkSession() = %v, want nil", err)
+	}
+	s.mu.RLock()
+	got := s.mode
+	s.mu.RUnlock()
+	if got != config.ExecutionModePlan {
+		t.Fatalf("mode after fork = %q, want %q", got, config.ExecutionModePlan)
+	}
+}
+
 func equal(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

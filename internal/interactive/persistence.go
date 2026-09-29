@@ -267,6 +267,7 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 		ID:             s.sessionID,
 		Title:          s.sessionTitle,
 		Model:          currentModelConfig(s.deps.Config).ID,
+		Mode:           string(s.mode),
 		Group:          s.sessionGroup,
 		Lineage:        s.lineage,
 		PromptCacheKey: s.promptCacheKey,

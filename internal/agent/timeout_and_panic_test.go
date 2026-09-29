@@ -255,3 +255,25 @@ func TestTurnTimeoutDuringToolsStopsWithError(t *testing.T) {
 		})
 	}
 }
+
+func TestRunnerCancelDuringRetryBackoffReportsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	orig := runnerRetrySleepFn
+	runnerRetrySleepFn = func(ctx context.Context, _ time.Duration) error {
+		cancel()
+		return ctx.Err()
+	}
+	t.Cleanup(func() { runnerRetrySleepFn = orig })
+
+	providerStub := &fakeProvider{chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+		return provider.ChatResponse{}, &provider.HTTPError{StatusCode: 429, Status: "429 Too Many Requests"}
+	}}
+	state, err := NewRunner().Run(ctx, timeoutTestRequest(providerStub, Limits{MaxTurns: 4, MaxTokens: 50}))
+	if err != nil {
+		t.Fatalf("Run() error = %v, want nil (matches other cancel paths)", err)
+	}
+	if state.StopReason != StopReasonCancelled {
+		t.Fatalf("StopReason = %q, want %q", state.StopReason, StopReasonCancelled)
+	}
+}

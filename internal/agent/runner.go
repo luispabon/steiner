@@ -201,6 +201,12 @@ func (r *Runner) run(ctx context.Context, req RunRequest) (RunState, error) {
 		if outcome.Error != nil {
 			if shouldRetry, retryErr := handleTransientProviderRetry(ctx, req.Events, state.TurnCount, outcome.Error, &runnerRetries); shouldRetry {
 				if retryErr != nil {
+					if ctx.Err() != nil {
+						// Cancelled during backoff: report like any other cancellation.
+						state.StopReason = StopReasonCancelled
+						emitStop(req.Events, state, nil)
+						return state, nil
+					}
 					emitStop(req.Events, state, outcome.Error)
 					return state, outcome.Error
 				}

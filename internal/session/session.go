@@ -118,6 +118,7 @@ func Fork(s Session) (Session, error) {
 		UpdatedAt: now,
 		Title:     forkTitle,
 		Model:     s.Model,
+		Mode:      s.Mode,
 		Group:     strings.TrimSpace(s.Group),
 		Skills:    s.Skills,
 		Lineage:   s.Lineage.Clone(),
