@@ -157,7 +157,20 @@ func (h *driverHarness) save(_ context.Context, snap DriverSnapshot) error {
 	return h.saveE
 }
 
+// closeDriver joins the loop goroutine, so every save and event it produced
+// has landed.
+func (h *driverHarness) closeDriver() {
+	h.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), driverTestTimeout)
+	defer cancel()
+	h.d.Close(ctx)
+}
+
+// saveLens closes the driver first so the loop's last save has landed; the
+// result therefore ends with Close's own settle save.
 func (h *driverHarness) saveLens() []int {
+	h.t.Helper()
+	h.closeDriver()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	lens := make([]int, len(h.saves))
@@ -263,7 +276,7 @@ func TestConversationDriverIdleSubmitGeneratingIdle(t *testing.T) {
 	if len(snap.Conversation) != 3 || snap.Conversation[2].Content != "ok" {
 		t.Fatalf("conversation = %+v, want earlier, hello, ok", snap.Conversation)
 	}
-	if got, want := h.saveLens(), []int{2, 3}; !slices.Equal(got, want) {
+	if got, want := h.saveLens(), []int{2, 3}; len(got) < len(want) || !slices.Equal(got[:len(want)], want) {
 		t.Fatalf("save conversation lengths = %v, want %v (first-message append, then adoption)", got, want)
 	}
 }
@@ -646,7 +659,7 @@ func TestConversationDriverSaveSequence(t *testing.T) {
 	h.waitQuiescent()
 
 	// first message; adoption of run 1; second sequence's first message; adoption of run 2.
-	if got, want := h.saveLens(), []int{1, 2, 3, 4}; !slices.Equal(got, want) {
+	if got, want := h.saveLens(), []int{1, 2, 3, 4}; len(got) < len(want) || !slices.Equal(got[:len(want)], want) {
 		t.Fatalf("save conversation lengths = %v, want %v", got, want)
 	}
 }
@@ -663,6 +676,7 @@ func TestConversationDriverSaveErrorDoesNotStopLoop(t *testing.T) {
 	h.nextRun().finish()
 	h.waitQuiescent()
 
+	h.closeDriver()
 	warnings := 0
 	for len(h.events) > 0 {
 		if e := <-h.events; e.Type == output.EventTypeConversationWarning {
@@ -714,10 +728,16 @@ func TestConversationDriverRunOutcomes(t *testing.T) {
 			call := h.nextRun()
 			call.release <- tt.result(call.in)
 			h.waitQuiescent()
+			gotLen := len(h.d.Snapshot().Conversation)
 
-			if got := len(h.d.Snapshot().Conversation); got != tt.wantLen {
-				t.Fatalf("conversation length = %d, want %d", got, tt.wantLen)
+			h.d.Submit("again", nil, SubmitMeta{})
+			h.nextRun().finish()
+			h.waitQuiescent()
+
+			if gotLen != tt.wantLen {
+				t.Fatalf("conversation length = %d, want %d", gotLen, tt.wantLen)
 			}
+			h.closeDriver()
 			warned := false
 			for len(h.events) > 0 {
 				if e := <-h.events; e.Type == output.EventTypeConversationWarning {
@@ -727,10 +747,6 @@ func TestConversationDriverRunOutcomes(t *testing.T) {
 			if warned != tt.wantWarns {
 				t.Fatalf("warning emitted = %v, want %v", warned, tt.wantWarns)
 			}
-
-			h.d.Submit("again", nil, SubmitMeta{})
-			h.nextRun().finish()
-			h.waitQuiescent()
 		})
 	}
 }
