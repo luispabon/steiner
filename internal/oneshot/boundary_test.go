@@ -1,7 +1,10 @@
 package oneshot
 
 import (
+	"context"
+	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -79,5 +82,61 @@ func TestRequiredArtifactsForPhaseReview(t *testing.T) {
 	}
 	if required[3] != expectedReview {
 		t.Errorf("review phase required[3] = %q, want %q", required[3], expectedReview)
+	}
+}
+
+func TestPorcelainPaths(t *testing.T) {
+	tests := []struct {
+		name string
+		out  string
+		want []string
+	}{
+		{"unstaged first line", " M a/b.go\n", []string{"a/b.go"}},
+		{"staged", "M  a/b.go\n", []string{"a/b.go"}},
+		{"untracked", "?? new.go\n", []string{"new.go"}},
+		{"rename", "R  old -> new\n", []string{"new"}},
+		{"steiner first line", " M .steiner/x\n M a.go\n", []string{"a.go"}},
+		{"steiner later line", " M a.go\n M .steiner/x\n?? .steiner/y\n", []string{"a.go"}},
+		{"mixed", " M a/b.go\nM  c.go\n?? d.go\nR  e -> f.go\n", []string{"a/b.go", "c.go", "d.go", "f.go"}},
+		{"empty", "", []string{}},
+		{"blank lines", "\n M a.go\n\n", []string{"a.go"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := porcelainPaths(tt.out)
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("porcelainPaths(%q) = %q, want %q", tt.out, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDirtyPathsAndChangedFilesKeepUnstagedPaths(t *testing.T) {
+	repo := setupLocalGitRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".steiner"), 0o755); err != nil {
+		t.Fatalf("mkdir .steiner: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".steiner", "x"), []byte("x\n"), 0o644); err != nil {
+		t.Fatalf("write .steiner/x: %v", err)
+	}
+
+	want := []string{"README.md"}
+	dirty, err := dirtyPaths(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("dirtyPaths failed: %v", err)
+	}
+	if !slices.Equal(dirty, want) {
+		t.Fatalf("dirtyPaths = %q, want %q", dirty, want)
+	}
+
+	changed, ok, err := collectChangedFiles(context.Background(), repo, "HEAD")
+	if err != nil {
+		t.Fatalf("collectChangedFiles failed: %v", err)
+	}
+	if !ok || !slices.Equal(changed, want) {
+		t.Fatalf("collectChangedFiles = %q (%t), want %q", changed, ok, want)
 	}
 }

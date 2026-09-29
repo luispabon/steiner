@@ -344,3 +344,111 @@ func TestUndefinedVarError(t *testing.T) {
 		t.Fatalf("error message missing line 61: %v", err)
 	}
 }
+
+func TestExpandNodeTree_TypedExpansion(t *testing.T) {
+	// Regression test for typed env expansion bug: when a plain scalar is expanded,
+	// the tag must be cleared so YAML re-resolves the type. Without this,
+	// "max_attempts: ${N:-5}" expands to "5" but stays marked as !!str,
+	// causing unmarshal into int to fail.
+	tests := []struct {
+		name      string
+		yamlInput string
+		env       map[string]string
+		wantType  string // "int", "bool", or "string"
+		wantVal   interface{}
+	}{
+		{
+			name:      "int from env var default",
+			yamlInput: "max_attempts: ${N:-5}",
+			env:       map[string]string{},
+			wantType:  "int",
+			wantVal:   5,
+		},
+		{
+			name:      "int from set env var",
+			yamlInput: "max_attempts: ${N}",
+			env:       map[string]string{"N": "10"},
+			wantType:  "int",
+			wantVal:   10,
+		},
+		{
+			name:      "bool true from env var default",
+			yamlInput: "enabled: ${FLAG:-true}",
+			env:       map[string]string{},
+			wantType:  "bool",
+			wantVal:   true,
+		},
+		{
+			name:      "bool false from env var default",
+			yamlInput: "enabled: ${FLAG:-false}",
+			env:       map[string]string{},
+			wantType:  "bool",
+			wantVal:   false,
+		},
+		{
+			name:      "quoted expansion stays string",
+			yamlInput: "message: \"${TEXT:-hello}\"",
+			env:       map[string]string{},
+			wantType:  "string",
+			wantVal:   "hello",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var root yaml.Node
+			if err := yaml.Unmarshal([]byte(tt.yamlInput), &root); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+
+			_ = expandNodeTree(&root, func(name string) (string, bool) {
+				v, ok := tt.env[name]
+				return v, ok
+			})
+
+			// Re-marshal the expanded tree and unmarshal into a map to check types.
+			expanded, err := yaml.Marshal(&root)
+			if err != nil {
+				t.Fatalf("Marshal expanded tree: %v", err)
+			}
+
+			var data map[string]interface{}
+			if err := yaml.Unmarshal(expanded, &data); err != nil {
+				t.Fatalf("Unmarshal expanded tree: %v", err)
+			}
+
+			var val interface{}
+			for _, v := range data {
+				val = v
+				break
+			}
+
+			switch tt.wantType {
+			case "int":
+				got, ok := val.(int)
+				if !ok {
+					t.Fatalf("value is %T (value: %v), want int", val, val)
+				}
+				if got != tt.wantVal {
+					t.Errorf("value = %d, want %v", got, tt.wantVal)
+				}
+			case "bool":
+				got, ok := val.(bool)
+				if !ok {
+					t.Fatalf("value is %T (value: %v), want bool", val, val)
+				}
+				if got != tt.wantVal {
+					t.Errorf("value = %v, want %v", got, tt.wantVal)
+				}
+			case "string":
+				got, ok := val.(string)
+				if !ok {
+					t.Fatalf("value is %T (value: %v), want string", val, val)
+				}
+				if got != tt.wantVal {
+					t.Errorf("value = %q, want %q", got, tt.wantVal)
+				}
+			}
+		})
+	}
+}

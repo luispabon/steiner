@@ -125,8 +125,7 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 	// Resolve the sandbox decision for this call once, so bash and
 	// subprocess-backed tools apply the same read-only-project rule instead of
 	// computing it independently.
-	readOnlyProject := mode == config.ExecutionModePlan || ctx.Value(BashReadOnlyProjectKey{}) == true
-	toolCtx = context.WithValue(toolCtx, SandboxWrapperKey{}, ResolvedSandbox{Wrapper: e.sandbox, ReadOnlyProject: readOnlyProject})
+	toolCtx = context.WithValue(toolCtx, SandboxWrapperKey{}, ResolvedSandbox{Wrapper: e.sandbox, ReadOnlyProject: readOnlyProjectFor(toolCtx)})
 
 	ec := executionContext{
 		Def:             def,
@@ -136,6 +135,18 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 
 	toolCtx = context.WithValue(toolCtx, ExecutionCallIDKey{}, ec.CallID)
 	return e.executeTool(toolCtx, &ec)
+}
+
+// readOnlyProjectFor reports whether the project must stay mounted read-only
+// for this call: a child forced read-only via BashReadOnlyProjectKey, or plan
+// mode (carried as ExecutionModeKey). runPipeline and handleSandboxDenial both
+// use it so an approval retry cannot escape enforcement the first run had.
+func readOnlyProjectFor(ctx context.Context) bool {
+	if ctx.Value(BashReadOnlyProjectKey{}) == true {
+		return true
+	}
+	mode, ok := ctx.Value(ExecutionModeKey{}).(config.ExecutionMode)
+	return ok && mode == config.ExecutionModePlan
 }
 
 // isBashDenial reports whether output contains sandbox denial signals.
@@ -234,7 +245,7 @@ func (e *Executor) handleSandboxDenial(ctx context.Context, ec *executionContext
 			// retry via this approval escape hatch, so it keeps its read-only
 			// wrapper instead of falling back to Unsandboxed{}.
 			retry := ResolvedSandbox{Wrapper: Unsandboxed{}}
-			if ctx.Value(BashReadOnlyProjectKey{}) == true {
+			if readOnlyProjectFor(ctx) {
 				retry = ResolvedSandbox{Wrapper: e.sandbox, ReadOnlyProject: true}
 			}
 			retryCtx := context.WithValue(ctx, SandboxWrapperKey{}, retry)
@@ -294,7 +305,7 @@ func (e *Executor) executeTool(ctx context.Context, ec *executionContext) (any, 
 		}
 	}
 
-	stdout, _, metadata, runErr := runSubprocess(execCtx, ec.Def, payload, workDir, e.outputLimit, resolved)
+	stdout, metadata, runErr := runSubprocess(execCtx, ec.Def, payload, workDir, e.outputLimit, resolved)
 	if runErr != nil && !isExitStatusError(runErr) {
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			return nil, runErr
@@ -369,9 +380,9 @@ func decodeExecutionOutput(stdout []byte, metadata ExecutionMetadata, toolName s
 	}, nil
 }
 
-func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string, limit int, resolved ResolvedSandbox) ([]byte, []byte, ExecutionMetadata, error) {
+func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string, limit int, resolved ResolvedSandbox) ([]byte, ExecutionMetadata, error) {
 	if def.ExecPath == "" {
-		return nil, nil, ExecutionMetadata{}, &ToolExecutionError{
+		return nil, ExecutionMetadata{}, &ToolExecutionError{
 			Tool:    def.Name,
 			Kind:    "invalid_definition",
 			Message: "tool exec path is empty",
@@ -387,10 +398,11 @@ func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir str
 	if workDir != "" {
 		cmd.Dir = workDir
 	}
-	cmd, err := resolved.Wrap(cmd)
+	tracked, err := resolved.Wrap(cmd)
 	if err != nil {
-		return nil, nil, ExecutionMetadata{}, fmt.Errorf("wrap command: %w", err)
+		return nil, ExecutionMetadata{}, fmt.Errorf("wrap command: %w", err)
 	}
+	cmd = rebuildWithContext(ctx, tracked)
 	cmd.Stdin = bytes.NewReader(payload)
 
 	stdoutCapture := newBoundedCapture(limit)
@@ -399,7 +411,9 @@ func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir str
 	cmd.Stderr = stderrCapture
 
 	err = cmd.Start()
-	resolved.ReleaseCommandResources(cmd)
+	// The sandbox tracks per-command resources against the command it
+	// returned, not the rebuilt one.
+	resolved.ReleaseCommandResources(tracked)
 	if err == nil {
 		err = cmd.Wait()
 	}
@@ -409,10 +423,32 @@ func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir str
 		Stderr:   stderrCapture.Capture(),
 	}
 	if err != nil && ctx.Err() != nil {
-		return stdoutCapture.Bytes(), stderrCapture.Bytes(), metadata, ctx.Err()
+		return stdoutCapture.Bytes(), metadata, ctx.Err()
 	}
 
-	return stdoutCapture.Bytes(), stderrCapture.Bytes(), metadata, err
+	return stdoutCapture.Bytes(), metadata, err
+}
+
+// rebuildWithContext returns a command bound to ctx carrying wrapped's
+// program, arguments, environment, stdio, extra files and directory, with
+// process-group cancellation applied. Sandbox wrappers return a fresh
+// exec.Cmd literal that has no context, so cancellation and tool timeouts would
+// otherwise never kill the process. Process-group setup must come after the
+// rebuild because it would be discarded by a wrapper.
+func rebuildWithContext(ctx context.Context, wrapped *exec.Cmd) *exec.Cmd {
+	var args []string
+	if len(wrapped.Args) > 0 {
+		args = wrapped.Args[1:]
+	}
+	cmd := exec.CommandContext(ctx, wrapped.Path, args...)
+	cmd.Env = wrapped.Env
+	cmd.Stdin = wrapped.Stdin
+	cmd.Stdout = wrapped.Stdout
+	cmd.Stderr = wrapped.Stderr
+	cmd.ExtraFiles = wrapped.ExtraFiles
+	cmd.Dir = wrapped.Dir
+	applySubprocessGroup(cmd)
+	return cmd
 }
 
 func exitCodeFromError(err error) int {

@@ -32,10 +32,7 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 		o.reportFailureIfNeeded(ctx, &manifest, err)
 	}()
 
-	store := o.deps.ManifestStore
-	if store == nil {
-		store = NewManifestStore(o.deps.Identity.ManifestPath(o.deps.ProjectRoot))
-	}
+	store := o.manifestStore()
 
 	lock, err := o.deps.RunLockFactory(o.deps.ProjectRoot, o.deps.Identity)
 	if err != nil {
@@ -108,8 +105,15 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 // a non-nil error on a manifest that has already been assigned a RunID.
 func (o *Orchestrator) reportFailureIfNeeded(ctx context.Context, manifest *Manifest, err error) {
 	if err != nil && manifest.RunID != "" {
-		o.tryFailureReport(ctx, manifest)
+		o.tryFailureReport(ctx, o.manifestStore(), manifest)
 	}
+}
+
+func (o *Orchestrator) manifestStore() *ManifestStore {
+	if o.deps.ManifestStore != nil {
+		return o.deps.ManifestStore
+	}
+	return NewManifestStore(o.deps.Identity.ManifestPath(o.deps.ProjectRoot))
 }
 
 // runPhaseParams bundles the arguments to runPhase. worktreePath/planningPath
@@ -347,7 +351,7 @@ func cloneAgentMessages(messages []agent.Message) []agent.Message {
 }
 
 // tryFailureReport attempts to generate a failure report on error.
-func (o *Orchestrator) tryFailureReport(ctx context.Context, manifest *Manifest) {
+func (o *Orchestrator) tryFailureReport(ctx context.Context, store *ManifestStore, manifest *Manifest) {
 	if manifest == nil || strings.TrimSpace(manifest.RunID) == "" {
 		return
 	}
@@ -361,6 +365,11 @@ func (o *Orchestrator) tryFailureReport(ctx context.Context, manifest *Manifest)
 		return
 	}
 	manifest.ReportPath = report.ReportPath
+	if store != nil {
+		if err := store.Write(*manifest); err != nil {
+			emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("write manifest with failure report: %v", err))
+		}
+	}
 }
 
 // finalizeRun generates the final report and runs closeout for a successful run.
@@ -382,6 +391,9 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 		return
 	}
 	manifest.ReportPath = report.ReportPath
+	if err := store.Write(*manifest); err != nil {
+		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("write manifest with report path: %v", err))
+	}
 
 	overview := ""
 	if data, readErr := os.ReadFile(filepath.Join(planningPath, "overview.md")); readErr == nil {
@@ -401,6 +413,11 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 	result, closeoutErr := Closeout(ctx, o.deps.Config, input)
 	if closeoutErr != nil {
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("closeout: %v", closeoutErr))
+		manifest.CloseoutState = closeoutStateFailed
+		manifest.CloseoutNote = closeoutErr.Error()
+		if err := store.Write(*manifest); err != nil {
+			emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("write manifest with failed closeout: %v", err))
+		}
 		return
 	}
 	manifest.CloseoutURL = result.URL

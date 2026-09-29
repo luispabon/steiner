@@ -149,6 +149,11 @@ func expandNode(node *yaml.Node, path string, expander *envExpander, result *[]u
 		}
 	case yaml.ScalarNode:
 		expanded, missing := expander.expand(node.Value)
+		if expanded != node.Value && node.Style == 0 {
+			// Re-resolve the type of an expanded plain scalar so ${N:-5} can
+			// decode into an int or bool field; quoted scalars stay strings.
+			node.Tag = ""
+		}
 		node.Value = expanded
 		for _, name := range missing {
 			*result = append(*result, undefinedVar{

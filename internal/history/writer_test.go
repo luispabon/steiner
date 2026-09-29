@@ -536,3 +536,43 @@ func TestNewWriter_Tightens0644To0600(t *testing.T) {
 
 	_ = w
 }
+
+func TestRecord_RoundTripEscape(t *testing.T) {
+	// Regression test for unescape order bug: sequential ReplaceAll would
+	// incorrectly decode e.g. "C:\\new" as "C:\n ew" because it matched "\n"
+	// before "\\". NewReplacer does single-pass replacement without rescanning.
+	tests := []struct {
+		name string
+		in   string
+	}{
+		{name: "windows path", in: `C:\new\tmp`},
+		{name: "printf-like escape", in: `printf "a\nb"`},
+		{name: "double backslash", in: `a\\nb`},
+		{name: "line1 newline line2", in: "line1\nline2"},
+		{name: "tab in middle", in: "tab\there"},
+		{name: "trailing backslash", in: `trailing\`},
+		{name: "backslash newline mix", in: `\\\n`},
+		{name: "mixed escapes", in: "a\tb\nc\\d"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := mustOpenWriter(t, t.TempDir())
+
+			if err := w.Record(tt.in); err != nil {
+				t.Fatalf("Record: %v", err)
+			}
+
+			got, err := w.Load()
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("loaded %d prompts, want 1", len(got))
+			}
+			if got[0] != tt.in {
+				t.Errorf("round-trip failed: got %q, want %q", got[0], tt.in)
+			}
+		})
+	}
+}

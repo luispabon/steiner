@@ -115,20 +115,27 @@ func dirtyPaths(ctx context.Context, worktreePath string) ([]string, error) {
 		return nil, fmt.Errorf("git status: %w: %s", err, msg)
 	}
 
-	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
-	dirty := make([]string, 0, len(lines))
+	return porcelainPaths(stdout.String()), nil
+}
+
+// porcelainPaths parses `git status --porcelain=v1` output into paths,
+// skipping empty lines and anything under .steiner/. Lines are never
+// left-trimmed because the leading column of the XY status may be a space.
+func porcelainPaths(out string) []string {
+	lines := strings.Split(strings.TrimRight(out, "\r\n"), "\n")
+	paths := make([]string, 0, len(lines))
 	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		path := porcelainPath(line)
 		if path == "" || strings.HasPrefix(path, ".steiner/") || path == ".steiner" {
 			continue
 		}
-		dirty = append(dirty, path)
+		paths = append(paths, path)
 	}
-	return dirty, nil
+	return paths
 }
 
 func porcelainPath(line string) string {

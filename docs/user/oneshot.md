@@ -68,6 +68,6 @@ A run is resumable if its manifest exists and is readable, its branch exists, at
 
 ## Error handling
 
-If a phase fails, the failure is recorded in the manifest with a timestamp. SIGINT aborts without rerunning previous phases. Inspect the worktree, fix issues, and resume with `--resume <id>`.
+If a phase fails, the failure is recorded in the manifest with a timestamp. SIGINT aborts without rerunning previous phases. Inspect the worktree, fix issues, and resume with `--resume <id>`. If the run finished but closeout (PR/MR push) failed, the manifest records `closeout_state: failed` and `--resume <id>` re-runs only closeout.
 
 For architecture, manifest schema, and phase contracts, see [Oneshot Internals](../internals/oneshot.md).

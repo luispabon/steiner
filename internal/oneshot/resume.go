@@ -14,10 +14,7 @@ func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error
 		return Manifest{}, fmt.Errorf("orchestrator is required")
 	}
 
-	store := o.deps.ManifestStore
-	if store == nil {
-		store = NewManifestStore(o.deps.Identity.ManifestPath(o.deps.ProjectRoot))
-	}
+	store := o.manifestStore()
 
 	manifest, err = store.Read()
 	if err != nil {
@@ -67,6 +64,14 @@ func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error
 //nolint:gocyclo
 func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestStore, manifest Manifest, worktree Worktree, lock *RunLock) (ret Manifest, retErr error) {
 	startPhase, ok := firstIncompletePhase(manifest)
+	if !ok && closeoutRetryable(manifest) {
+		// All phases finished but closeout failed: re-run closeout only.
+		o.finalizeRun(ctx, store, &manifest, o.deps.Identity.PlanningPath(worktree.Path))
+		if closeoutRetryable(manifest) {
+			return manifest, fmt.Errorf("resume run: closeout for %s failed again: %s", manifest.RunID, manifest.CloseoutNote)
+		}
+		return manifest, nil
+	}
 	if !ok {
 		return Manifest{}, fmt.Errorf("resume run: %s is already complete", manifest.RunID)
 	}
@@ -78,7 +83,7 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 
 	defer func() {
 		if retErr != nil && manifest.RunID != "" {
-			o.tryFailureReport(ctx, &manifest)
+			o.tryFailureReport(ctx, store, &manifest)
 		}
 	}()
 
@@ -140,6 +145,18 @@ func firstIncompletePhase(manifest Manifest) (Phase, bool) {
 		}
 	}
 	return "", false
+}
+
+// phaseCloseout labels the closeout-only resume step in run listings.
+const phaseCloseout Phase = "closeout"
+
+// closeoutRetryable reports whether every phase is finished but closeout
+// failed, so resume can re-run just the closeout step.
+func closeoutRetryable(manifest Manifest) bool {
+	if _, incomplete := firstIncompletePhase(manifest); incomplete {
+		return false
+	}
+	return manifest.CloseoutState == closeoutStateFailed
 }
 
 func previousPhaseBefore(phase Phase) Phase {

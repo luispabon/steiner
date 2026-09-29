@@ -60,8 +60,12 @@ func ListResumableRuns(projectRoot string) ([]ResumableRun, error) {
 		}
 
 		resumePhase, ok := firstIncompletePhase(manifest)
-		if !ok {
+		retryCloseout := !ok && closeoutRetryable(manifest)
+		if !ok && !retryCloseout {
 			continue
+		}
+		if retryCloseout {
+			resumePhase = phaseCloseout
 		}
 
 		identity := RunIdentity{ID: manifest.RunID, Slug: manifest.Slug}
@@ -83,7 +87,7 @@ func ListResumableRuns(projectRoot string) ([]ResumableRun, error) {
 			ResumePhase:   resumePhase,
 			PhaseStatuses: clonePhaseStatuses(manifest.PhaseStatuses),
 			LockState:     lockState.String(),
-			Status:        resumableRunStatus(resumePhase, lockState),
+			Status:        resumableRunStatus(resumePhase, lockState, retryCloseout),
 			CreatedAt:     manifest.CreatedAt,
 			UpdatedAt:     manifest.UpdatedAt,
 		})
@@ -138,7 +142,13 @@ func resumableRunLockState(path string) (lockState, error) {
 	return lockStateLive, nil
 }
 
-func resumableRunStatus(phase Phase, state lockState) string {
+func resumableRunStatus(phase Phase, state lockState, retryCloseout bool) string {
+	if retryCloseout {
+		if state == lockStateStale {
+			return "retry closeout (stale lock)"
+		}
+		return "retry closeout"
+	}
 	switch state {
 	case lockStateStale:
 		return fmt.Sprintf("resume at %s (stale lock)", phase)

@@ -530,3 +530,17 @@ func TestTitleFromPromptUTF8(t *testing.T) {
 		})
 	}
 }
+
+func TestForkPreservesMode(t *testing.T) {
+	for _, mode := range []string{"", "plan", "build"} {
+		t.Run("mode="+mode, func(t *testing.T) {
+			forked, err := Fork(Session{ID: "orig", Title: "t", Mode: mode})
+			if err != nil {
+				t.Fatalf("Fork failed: %v", err)
+			}
+			if forked.Mode != mode {
+				t.Errorf("forked Mode = %q, want %q", forked.Mode, mode)
+			}
+		})
+	}
+}
