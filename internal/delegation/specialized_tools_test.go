@@ -1415,6 +1415,59 @@ func TestResolveModel_VisionEmptyAliasDoesNotUseProfileDefault(t *testing.T) {
 	}
 }
 
+func TestResolveModel_ReadsCurrentEffectiveAssignmentsPerCall(t *testing.T) {
+	t.Parallel()
+	var resolved []string
+	deps := minimalDeps(nil)
+	deps.ModelResolver = func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+		resolved = append(resolved, alias)
+		return stubProvider{}, provider.ResolvedModel{Alias: alias}, nil
+	}
+	deps.AgentModels = map[string]string{string(AgentTypeCode): "static-code"}
+	deps.DefaultModel = "static-default"
+	effective := config.EffectiveModelAssignments{
+		SubAgents:    map[string]string{string(AgentTypeCode): "first-code"},
+		DefaultModel: "first-default",
+	}
+	deps.CurrentEffectiveAssignments = func() config.EffectiveModelAssignments { return effective }
+
+	if _, _, err := resolveModel(AgentTypeCode, deps); err != nil {
+		t.Fatalf("first resolveModel() error = %v", err)
+	}
+	// A later profile switch changes both the per-type alias and the fallback.
+	effective = config.EffectiveModelAssignments{DefaultModel: "second-default"}
+	if _, _, err := resolveModel(AgentTypeCode, deps); err != nil {
+		t.Fatalf("second resolveModel() error = %v", err)
+	}
+
+	if want := []string{"first-code", "second-default"}; !slices.Equal(resolved, want) {
+		t.Fatalf("resolved aliases = %v, want %v", resolved, want)
+	}
+}
+
+func TestResolveModel_NilCurrentEffectiveAssignmentsUsesStaticAssignments(t *testing.T) {
+	t.Parallel()
+	var resolved []string
+	deps := minimalDeps(nil)
+	deps.ModelResolver = func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+		resolved = append(resolved, alias)
+		return stubProvider{}, provider.ResolvedModel{Alias: alias}, nil
+	}
+	deps.AgentModels = map[string]string{string(AgentTypeCode): "static-code"}
+	deps.DefaultModel = "static-default"
+
+	if _, _, err := resolveModel(AgentTypeCode, deps); err != nil {
+		t.Fatalf("resolveModel(code) error = %v", err)
+	}
+	if _, _, err := resolveModel(AgentTypeReview, deps); err != nil {
+		t.Fatalf("resolveModel(review) error = %v", err)
+	}
+
+	if want := []string{"static-code", "static-default"}; !slices.Equal(resolved, want) {
+		t.Fatalf("resolved aliases = %v, want %v", resolved, want)
+	}
+}
+
 func TestSpecializedHandler_ModelResolverError(t *testing.T) {
 	t.Parallel()
 	// ModelResolver returns an error.

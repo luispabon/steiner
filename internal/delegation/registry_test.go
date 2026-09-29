@@ -129,6 +129,80 @@ func TestBuildDelegateRegistryChildFactoryKeepsParentSessionSeparateFromCacheKey
 	}
 }
 
+func TestBuildDelegateRegistryResolvesSubAgentModelFromLiveEffectiveAssignments(t *testing.T) {
+	t.Parallel()
+	childProvider := &fakeProvider{responses: []provider.ChatResponse{
+		{Message: provider.Message{Content: "child result"}, FinishReason: "stop"},
+	}}
+	cfg := advisorTestConfig()
+	cfg.Models.Effective.SubAgents = map[string]string{string(AgentTypeExplore): "first-explore"}
+	cfg.Models.Definitions["first-explore"] = config.ModelConfig{
+		Provider: "testprov",
+		ID:       "first-model",
+		Advanced: config.AdvancedConfig{Limits: config.AdvancedLimitsConfig{ContextWindow: 8192, MaxOutputTokens: 1024}},
+	}
+	cfg.Models.Definitions["second-explore"] = config.ModelConfig{
+		Provider: "testprov",
+		ID:       "second-model",
+		Advanced: config.AdvancedConfig{Limits: config.AdvancedLimitsConfig{ContextWindow: 8192, MaxOutputTokens: 1024}},
+	}
+	resolve := resolveModelFunc(cfg)
+
+	var resolvedAliases []string
+	secondProfile := false
+	deps := DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: true, MaxFollowUps: 1},
+		Provider:     childProvider,
+		Events:       output.NoopSink{},
+		WorkDir:      t.TempDir(),
+		HomeDir:      t.TempDir(),
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "testprov",
+			EffectiveProviderType: config.ProviderTypeOpenAICompat,
+		},
+		MaxTokens: 1024,
+		Config:    cfg,
+		ResolveModel: func(alias string) (provider.ResolvedModel, error) {
+			resolvedAliases = append(resolvedAliases, alias)
+			return resolve(alias)
+		},
+		ProviderFactory: func(provider.ResolvedModel, string) (provider.Provider, error) { return childProvider, nil },
+		CacheKeyStore:   NewCacheKeyStore(),
+		Sandbox:         tool.Unsandboxed{},
+		CurrentEffectiveModelAssignments: func() config.EffectiveModelAssignments {
+			if secondProfile {
+				return config.EffectiveModelAssignments{
+					SubAgents:    map[string]string{string(AgentTypeExplore): "second-explore"},
+					DefaultModel: "second-default",
+				}
+			}
+			return config.EffectiveModelAssignments{
+				SubAgents:    map[string]string{string(AgentTypeExplore): "first-explore"},
+				DefaultModel: "first-default",
+			}
+		},
+	}
+
+	registry, err := BuildDelegateRegistry(deps)
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+	// Simulate a profile switch after the registry was built; the next spawn
+	// must resolve from the live assignments, not the build-time snapshot.
+	secondProfile = true
+	def, ok := registry.Get(SubAgentToolName)
+	if !ok {
+		t.Fatal("sub_agent tool not registered")
+	}
+	if _, err := def.Handler(context.Background(), subAgentTask(AgentTypeExplore, "inspect the codebase")); err != nil {
+		t.Fatalf("sub_agent handler() error = %v", err)
+	}
+	if want := []string{"second-explore"}; !reflect.DeepEqual(resolvedAliases, want) {
+		t.Fatalf("resolved aliases = %v, want %v from the live effective assignments", resolvedAliases, want)
+	}
+}
+
 func TestBuildDelegateRegistryDisablesChildLSPGuidanceWithoutServers(t *testing.T) {
 	t.Parallel()
 	for _, servers := range []map[string]config.LSPServerConfig{nil, {}} {
