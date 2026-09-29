@@ -69,10 +69,20 @@ func isContextCanceledErr(err error) bool {
 
 func (p *CachingCodexWS) evict() {
 	p.cache.mu.Lock()
-	if p.cache.instances[p.key] == p {
+	evicted := p.cache.instances[p.key] == p
+	if evicted {
 		delete(p.cache.instances, p.key)
 	}
 	p.cache.mu.Unlock()
+
+	if !evicted {
+		return
+	}
+	if inner, ok := p.inner.(*codexWSProvider); ok {
+		inner.mu.Lock()
+		inner.closeConn()
+		inner.mu.Unlock()
+	}
 }
 
 // ChatCompletion delegates to the wrapped provider, evicting p from the
