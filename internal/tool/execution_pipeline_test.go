@@ -1142,7 +1142,7 @@ func TestRunSubprocessSandboxedHonorsCancellation(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		def := ToolDef{Name: "slow", ExecPath: sleep, Subcommand: "30"}
-		_, _, _, runErr := runSubprocess(ctx, def, nil, t.TempDir(), 1024, ResolvedSandbox{Wrapper: sb})
+		_, _, runErr := runSubprocess(ctx, def, nil, t.TempDir(), 1024, ResolvedSandbox{Wrapper: sb})
 		done <- runErr
 	}()
 	select {

@@ -305,7 +305,7 @@ func (e *Executor) executeTool(ctx context.Context, ec *executionContext) (any, 
 		}
 	}
 
-	stdout, _, metadata, runErr := runSubprocess(execCtx, ec.Def, payload, workDir, e.outputLimit, resolved)
+	stdout, metadata, runErr := runSubprocess(execCtx, ec.Def, payload, workDir, e.outputLimit, resolved)
 	if runErr != nil && !isExitStatusError(runErr) {
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
 			return nil, runErr
@@ -380,9 +380,9 @@ func decodeExecutionOutput(stdout []byte, metadata ExecutionMetadata, toolName s
 	}, nil
 }
 
-func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string, limit int, resolved ResolvedSandbox) ([]byte, []byte, ExecutionMetadata, error) {
+func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir string, limit int, resolved ResolvedSandbox) ([]byte, ExecutionMetadata, error) {
 	if def.ExecPath == "" {
-		return nil, nil, ExecutionMetadata{}, &ToolExecutionError{
+		return nil, ExecutionMetadata{}, &ToolExecutionError{
 			Tool:    def.Name,
 			Kind:    "invalid_definition",
 			Message: "tool exec path is empty",
@@ -400,7 +400,7 @@ func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir str
 	}
 	tracked, err := resolved.Wrap(cmd)
 	if err != nil {
-		return nil, nil, ExecutionMetadata{}, fmt.Errorf("wrap command: %w", err)
+		return nil, ExecutionMetadata{}, fmt.Errorf("wrap command: %w", err)
 	}
 	cmd = rebuildWithContext(ctx, tracked)
 	cmd.Stdin = bytes.NewReader(payload)
@@ -423,10 +423,10 @@ func runSubprocess(ctx context.Context, def ToolDef, payload []byte, workDir str
 		Stderr:   stderrCapture.Capture(),
 	}
 	if err != nil && ctx.Err() != nil {
-		return stdoutCapture.Bytes(), stderrCapture.Bytes(), metadata, ctx.Err()
+		return stdoutCapture.Bytes(), metadata, ctx.Err()
 	}
 
-	return stdoutCapture.Bytes(), stderrCapture.Bytes(), metadata, err
+	return stdoutCapture.Bytes(), metadata, err
 }
 
 // rebuildWithContext returns a command bound to ctx carrying wrapped's

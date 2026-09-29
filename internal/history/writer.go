@@ -175,11 +175,11 @@ func (w *Writer) Path() string {
 	return w.path
 }
 
-// Load reads the stored prompts from the history file.
 // historyUnescaper reverses Record's escaping in a single pass, so an escaped
 // backslash before n or t is not re-read as a newline or tab escape.
 var historyUnescaper = strings.NewReplacer("\\\\", "\\", "\\n", "\n", "\\t", "\t")
 
+// Load reads the stored prompts from the history file.
 func (w *Writer) Load() ([]string, error) {
 	var prompts []string
 	err := w.withLock(func() error {
