@@ -436,7 +436,9 @@ func (g *runGroup) Wait() { g.wg.Wait() }
 func (g *runGroup) idle() bool { return g.active.Load() == 0 }
 
 // WaitRuns waits for the session's tracked goroutines and for its conversation
-// driver to go quiet, or for the context to be done. Work that has already
+// driver to stop working (running, compacting, saving), or for the context to
+// be done. Sub-agents still running and steers left queued by an interrupt do
+// not hold it. Work that has already
 // finished wins over an already-cancelled context: it reports completion
 // synchronously rather than racing a waiter goroutine against ctx.Done().
 func (s *Session) WaitRuns(ctx context.Context) bool {
@@ -452,8 +454,7 @@ func (s *Session) WaitRuns(ctx context.Context) bool {
 			return false
 		}
 	}
-	err := s.currentDriver().WaitQuiescent(ctx)
-	return err == nil || errors.Is(err, agent.ErrEpisodeBudgetExhausted)
+	return s.currentDriver().WaitIdle(ctx) == nil
 }
 
 // modeNotice returns the mode notice string for injection into user messages.

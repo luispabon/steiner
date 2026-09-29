@@ -173,3 +173,79 @@ func TestConversationDriverBusy(t *testing.T) {
 		t.Fatal("Busy() = true after the run settled")
 	}
 }
+
+func TestConversationDriverStopParksQueuedSteers(t *testing.T) {
+	t.Parallel()
+	h := newDriverHarness(t, nil, nil)
+	h.start()
+
+	h.d.Submit("first", nil, SubmitMeta{})
+	h.nextRun()
+	h.steers.Add(SteerMessage{Text: "queued before stop"})
+	h.d.StopTurn()
+	// The harness run returns on cancellation. A driver that kept generating
+	// for the queued steer would never settle here.
+	h.waitSettled(DriverIdle, false)
+	h.noRun()
+	if got := h.steers.Len(); got != 1 {
+		t.Fatalf("steer queue len = %d, want the steer kept, not delivered or dropped", got)
+	}
+	if err := h.d.WaitIdle(context.Background()); err != nil {
+		t.Fatalf("WaitIdle: %v", err)
+	}
+
+	h.d.NotifySteer()
+	next := h.nextRun()
+	if got := lastContent(next); got != "queued before stop" {
+		t.Fatalf("run after NotifySteer last message = %q, want the parked steer", got)
+	}
+	next.finish()
+	h.waitQuiescent()
+}
+
+func TestConversationDriverDetachSteers(t *testing.T) {
+	t.Parallel()
+	h := newDriverHarness(t, nil, nil)
+	h.start()
+
+	h.d.Submit("first", nil, SubmitMeta{})
+	call := h.nextRun()
+	h.d.DetachSteers()
+	h.steers.Add(SteerMessage{Text: "for the successor"})
+	if drain := call.in.DrainInbox(); drain.Message != nil {
+		t.Fatalf("boundary drain = %+v, want nothing from a detached queue", drain.Message)
+	}
+	h.d.NotifySteer()
+	call.finish()
+	if err := h.d.WaitIdle(context.Background()); err != nil {
+		t.Fatalf("WaitIdle: %v", err)
+	}
+	h.noRun()
+	if got := h.steers.Len(); got != 1 {
+		t.Fatalf("steer queue len = %d, want the steer left for its owner", got)
+	}
+}
+
+func TestConversationDriverWaitIdleIgnoresPendingAndParkedSteers(t *testing.T) {
+	t.Parallel()
+	h := newDriverHarness(t, nil, nil)
+	h.bg.setPending("child")
+	h.start()
+
+	h.d.Submit("go", nil, SubmitMeta{})
+	h.nextRun()
+	h.steers.Add(SteerMessage{Text: "parked"})
+	h.d.StopTurn()
+	h.waitSettled(DriverWaiting, true)
+
+	ctx, cancel := context.WithTimeout(context.Background(), driverTestTimeout)
+	defer cancel()
+	if err := h.d.WaitIdle(ctx); err != nil {
+		t.Fatalf("WaitIdle = %v, want nil while a child is pending and a steer is queued", err)
+	}
+	short, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer shortCancel()
+	if err := h.d.WaitQuiescent(short); err == nil {
+		t.Fatal("WaitQuiescent returned with a child pending and a steer queued")
+	}
+}

@@ -24,6 +24,7 @@ func (d *ConversationDriver) Submit(text string, images []ImageBlock, meta Submi
 		}
 	}
 	d.held = false
+	d.steersParked = false
 	d.resetEpisodeLocked()
 	d.unlockEmit()
 	d.signalWake()
@@ -39,9 +40,18 @@ func (d *ConversationDriver) NotifySteer() {
 	}
 	if d.opts.Steers.Len() > 0 {
 		d.held = false
+		d.steersParked = false
 	}
 	d.unlockEmit()
 	d.signalWake()
+}
+
+// DetachSteers stops the driver reading the steer queue. A replaced driver
+// calls it so it cannot take steers meant for its successor or a oneshot run.
+func (d *ConversationDriver) DetachSteers() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.opts.Steers = nil
 }
 
 // DeliverCompletions implements CompletionSink. Completions are buffered until

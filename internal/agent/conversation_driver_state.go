@@ -103,9 +103,37 @@ func (d *ConversationDriver) stopEpoch(epoch uint64) {
 
 func (d *ConversationDriver) stopLocked() {
 	d.held = true
+	d.steersParked = true
 	if d.cancel != nil {
 		d.cancel()
 	}
+}
+
+// WaitIdle blocks until the driver is not generating, compacting or saving and
+// has no prompt to start, or ctx ends. Unlike WaitQuiescent it ignores pending
+// sub-agents and the steer queue, which a stop parks and a oneshot run or take-back
+// may own, so it returns when the model is done, not when the whole
+// conversation is at rest. A steer only counts once NotifySteer woke the loop.
+func (d *ConversationDriver) WaitIdle(ctx context.Context) error {
+	for {
+		d.mu.Lock()
+		if d.idleLocked() {
+			d.mu.Unlock()
+			return nil
+		}
+		changed := d.changed
+		d.mu.Unlock()
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (d *ConversationDriver) idleLocked() bool {
+	return d.state != DriverGenerating && d.saving == 0 && !d.compacting && len(d.compactions) == 0 &&
+		len(d.users) == 0
 }
 
 // WaitQuiescent blocks until the driver is idle, has nothing queued and no

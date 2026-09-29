@@ -23,7 +23,7 @@ func (d *ConversationDriver) hasWakeCompletionLocked() bool {
 // current sequence now. While generating, a wake completion counts at once;
 // while stopped it counts only after the coalescing window expired.
 func (d *ConversationDriver) wakeReadyLocked() bool {
-	if len(d.users) > 0 || d.opts.Steers.Len() > 0 {
+	if len(d.users) > 0 || (d.opts.Steers.Len() > 0 && !d.steersParked) {
 		return true
 	}
 	if d.held || d.exhausted || !d.hasWakeCompletionLocked() {

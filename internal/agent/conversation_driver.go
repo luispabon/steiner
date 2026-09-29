@@ -111,6 +111,9 @@ type ConversationDriver struct {
 	closing     bool
 
 	saving int // saves in flight; WaitQuiescent waits for them
+	// steersParked keeps steers already queued when the user stopped a turn
+	// from starting a run. A later Submit or NotifySteer releases them.
+	steersParked bool
 
 	episodeUsed   int
 	exhausted     bool

@@ -373,3 +373,87 @@ func TestCloseAndRetireDoNotRewriteUntouchedSessions(t *testing.T) {
 		})
 	}
 }
+
+func TestInterruptWithQueuedSteerStopsInsteadOfRestarting(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{})
+	steers := s.ActiveRunController().SteerQueue()
+	started := make(chan struct{})
+	var calls atomic.Int32
+	s.SetRunner(&inputRunner{run: func(ctx context.Context, in RunInput) (RunResult, error) {
+		calls.Add(1)
+		close(started)
+		<-ctx.Done()
+		return RunResult{Conversation: in.Conversation}, nil
+	}})
+
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "long task"}); err != nil {
+		t.Fatalf("SubmitPrompt: %v", err)
+	}
+	recv(t, started, "run start")
+	steers.Add(agent.SteerMessage{Text: "queued steer"})
+	if err := s.Handle(context.Background(), InterruptActiveRun{}); err != nil {
+		t.Fatalf("InterruptActiveRun: %v", err)
+	}
+	waitSettled(t, s)
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("Run calls = %d, want 1: the interrupt must stop the model, not restart it on the steer", got)
+	}
+	if got := steers.Len(); got != 1 {
+		t.Fatalf("steer queue len = %d, want the steer kept for take-back", got)
+	}
+}
+
+func TestRotateLeavesSteerQueueToItsOwner(t *testing.T) {
+	t.Parallel()
+	store := newMockSessionStore()
+	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
+	steers := s.ActiveRunController().SteerQueue()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	drained := make(chan agent.InboxDrain, 1)
+	s.SetRunner(&inputRunner{run: func(_ context.Context, in RunInput) (RunResult, error) {
+		close(started)
+		<-release
+		drained <- in.DrainInbox()
+		return withAnswer(in, "answer"), nil
+	}})
+
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "hi"}); err != nil {
+		t.Fatalf("SubmitPrompt: %v", err)
+	}
+	recv(t, started, "run start")
+	if err := s.Handle(context.Background(), RotateSessionWithGroup{Group: "phase-2"}); err != nil {
+		t.Fatalf("RotateSessionWithGroup: %v", err)
+	}
+	steers.Add(agent.SteerMessage{Text: "for the new phase"})
+	close(release)
+	if drain := recv(t, drained, "retired driver's boundary drain"); drain.Message != nil {
+		t.Fatalf("retired driver drained %+v from the shared steer queue", drain.Message)
+	}
+	waitSettled(t, s)
+	if got := steers.Len(); got != 1 {
+		t.Fatalf("steer queue len = %d, want the steer left in place", got)
+	}
+}
+
+func TestIdleRotateDoesNotDrainSteerQueue(t *testing.T) {
+	t.Parallel()
+	store := newMockSessionStore()
+	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
+	steers := s.ActiveRunController().SteerQueue()
+	steers.Add(agent.SteerMessage{Text: "queued for a oneshot phase"})
+
+	if err := s.Handle(context.Background(), RotateSessionWithGroup{Group: "phase-1"}); err != nil {
+		t.Fatalf("RotateSessionWithGroup: %v", err)
+	}
+	waitSettled(t, s)
+
+	if got := steers.Len(); got != 1 {
+		t.Fatalf("steer queue len = %d, want 1: rotation must not settle steers into the old conversation", got)
+	}
+	if conv := s.Conversation(); len(conv) != 0 {
+		t.Fatalf("conversation = %+v, want empty", conv)
+	}
+}

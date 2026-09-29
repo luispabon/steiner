@@ -47,6 +47,9 @@ func (s *Session) swapDriverLocked(apply func()) *driverHandle {
 	old := s.driver
 	meta := s.sessionMetaLocked()
 	old.retired = &meta
+	// The steer queue belongs to the live session: without this the old driver
+	// would drain steers meant for its successor, or for a oneshot run.
+	old.drv.DetachSteers()
 	apply()
 	s.driver = s.newDriverLocked(s.conversation, s.lineage)
 	return old
@@ -66,8 +69,9 @@ func (s *Session) retireDriver(old *driverHandle) {
 	s.runs.Add(1)
 	go func() {
 		defer s.runs.Done()
-		// The only error is an exhausted episode budget; Close settles that too.
-		_ = old.drv.WaitQuiescent(context.Background())
+		// Only its own run matters: the session-wide sub-agents belong to the
+		// live driver.
+		_ = old.drv.WaitIdle(context.Background())
 		old.drv.Close(context.Background())
 	}()
 }
