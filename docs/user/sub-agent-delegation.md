@@ -84,8 +84,11 @@ The selector lists each active delegate as **bold, tool-box-coloured type · age
 
 - **Stop one** — confirm stopping the selected delegate. For a code delegate, the default is **stop and keep worktree**; the confirmation also offers **stop and discard worktree** or **keep working**. For other delegate types, choose **stop** or **keep working**.
 - **Stop all delegates** — confirm stopping every active delegate. All code worktrees are retained.
-- **Stop entire run** — confirm the existing whole-run interrupt, which also stops its delegates through the parent run context.
+- **Stop current turn** — shown first, and only while the parent is generating. Stops the parent's current turn but leaves delegates running; the conversation then pauses (see below).
+- **Stop entire run** — confirm stopping every delegate (running and queued) and the current turn.
 - **Dismiss** — close the dialog without stopping anything. **Keep working** on a confirmation screen returns to the selector.
+
+While delegates run in the background, the activity row shows `waiting on N sub-agents`. After **Stop current turn** it shows `paused — N results waiting; send a message to continue`: results are held until you send a message. If the token budget is reached with sub-agents still running, the row shows `token budget reached — N sub-agents still running`. Queued delegates appear as queued rows and count as active for the stop dialog. A delegate with no activity for 5 minutes is shown as `stalled Nm` in its row and in the dialog; this is display-only and the model is not told. While results are pending, `/new`, `/clear`, session switching and forking are refused; model, profile and mode switches and manual `/compact` are still allowed while waiting.
 
 Stopping a delegate does not automatically remove its worktree. A targeted code stop keeps its worktree by default, and stop-all keeps every code worktree. Discard is available only through the explicit targeted discard choice. Discarding a code session makes it non-resumable with `follow_up` and removes its delegation worktree and branch; it is not an automatic cleanup path. A code delegate stopped while waiting for cache warm-up never started, so it has no follow-up session; its empty worktree is retained by default and can be discarded from the stop dialog or removed later.
 

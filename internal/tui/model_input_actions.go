@@ -54,7 +54,7 @@ func (m *Model) executeClearAction() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) executeCompactAction(action inputAction) (tea.Model, tea.Cmd) {
-	if m.sessionBusy() {
+	if m.compactBusy() {
 		m.refuseWhileBusy("compact")
 		return m, nil
 	}

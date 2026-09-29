@@ -286,6 +286,9 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 				parts = append(parts, b.styles.FgDim.Render(formatElapsed(dd.startTime, nanoNow())))
 			}
 		}
+		if n := b.stalledMinutes(dd, timeNow()); n > 0 {
+			parts = append(parts, b.styles.Warn.Render(fmt.Sprintf("stalled %dm", n)))
+		}
 	case "complete":
 		metaParts := delegationCompleteMeta(dd)
 		parts = append(parts, b.renderStyledDelegationMeta(metaParts))

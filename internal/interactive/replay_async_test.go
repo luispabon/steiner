@@ -246,6 +246,16 @@ func TestReplayAsyncUnresolvedAckShownAsNoResult(t *testing.T) {
 		{Role: agent.MessageRoleAssistant, Content: "waiting"},
 	})
 
+	queued := eventsOfType(events, output.EventTypeDelegationQueued)
+	if len(queued) != 1 {
+		t.Fatalf("queued events = %d, want 1", len(queued))
+	}
+	if p := queued[0].Payload.(output.DelegationQueuedEvent); p.AgentID != "agent-a" || p.CallID != "call-1" {
+		t.Errorf("queued = %+v", p)
+	}
+	if n := len(eventsOfType(events, output.EventTypeDelegationStarted)); n != 0 {
+		t.Errorf("started events = %d, want 0 for a queued ack", n)
+	}
 	if n := len(eventsOfType(events, output.EventTypeDelegationComplete)); n != 0 {
 		t.Errorf("complete events = %d, want 0", n)
 	}

@@ -308,3 +308,81 @@ func TestDelegateCancelModalShortcutOpensOnlyWithActiveDelegate(t *testing.T) {
 }
 
 var _ interactive.Controller = (*testController)(nil)
+
+func TestDelegateCancelModalStopCurrentTurnOnlyWhileGenerating(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		state string
+		want  bool
+	}{
+		{state: "generating", want: true},
+		{state: "waiting"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.state, func(t *testing.T) {
+			t.Parallel()
+			m := newModel(Config{}, nil)
+			m.width, m.height = 100, 30
+			m.applyEvent(output.NewDelegationStartedEventWithType("explore-1", "look", "call-1", "", "explore"))
+			m.applyEvent(output.NewConversationStateEvent(tt.state, false, 1, false))
+			m = m.openDelegateCancelModal()
+			if got := m.delegateCancelModal.stopTurn; got != tt.want {
+				t.Fatalf("stopTurn = %v, want %v", got, tt.want)
+			}
+			if got := strings.Contains(m.renderDelegateCancelModal(), "Stop current turn"); got != tt.want {
+				t.Errorf("rendered Stop current turn = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDelegateCancelModalOptionsDispatchActions(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		state    string
+		selected int // selector order: [stop turn when generating], rows, stop all, stop run, dismiss
+		confirm  bool
+		want     []interactive.Action
+	}{
+		{name: "stop current turn", state: "generating", selected: 0, want: []interactive.Action{interactive.InterruptActiveRun{}}},
+		{name: "stop all delegates", state: "generating", selected: 2, confirm: true, want: []interactive.Action{interactive.CancelAllDelegates{}}},
+		{name: "stop entire run", state: "generating", selected: 3, confirm: true, want: []interactive.Action{interactive.CancelAllDelegates{}, interactive.InterruptActiveRun{}}},
+		{name: "stop entire run while waiting", state: "waiting", selected: 2, confirm: true, want: []interactive.Action{interactive.CancelAllDelegates{}, interactive.InterruptActiveRun{}}},
+		{name: "dismiss", state: "generating", selected: 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := &testController{}
+			m := newModel(Config{}, nil)
+			m.controller = ctrl
+			m.width, m.height = 100, 30
+			m.applyEvent(output.NewDelegationStartedEventWithType("explore-1", "look", "call-1", "", "explore"))
+			m.applyEvent(output.NewConversationStateEvent(tt.state, false, 1, false))
+			m = m.openDelegateCancelModal()
+			m.delegateCancelModal.selected = tt.selected
+			m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+			if tt.confirm {
+				if !m.delegateCancelModal.IsOpen() {
+					t.Fatal("option did not open its confirmation screen")
+				}
+				m.delegateCancelModal.selected = 0
+				m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+			}
+			if m.delegateCancelModal.IsOpen() {
+				t.Fatal("modal left open")
+			}
+			ctrl.mu.Lock()
+			defer ctrl.mu.Unlock()
+			if len(ctrl.actions) != len(tt.want) {
+				t.Fatalf("actions = %#v, want %#v", ctrl.actions, tt.want)
+			}
+			for i := range tt.want {
+				if ctrl.actions[i] != tt.want[i] {
+					t.Errorf("action[%d] = %#v, want %#v", i, ctrl.actions[i], tt.want[i])
+				}
+			}
+		})
+	}
+}

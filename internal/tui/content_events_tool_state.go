@@ -215,7 +215,9 @@ func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
 
 func (b *contentBuffer) appendStopReasonEvent(event output.Event) {
 	b.finishStreaming()
-	if payload, ok := event.Payload.(output.StopReasonEvent); ok && payload.Reason == "cancelled" {
+	// In async mode a parent cancel never finalises delegations: their own
+	// terminal events do. Otherwise only an unscoped (parent) stop applies.
+	if payload, ok := event.Payload.(output.StopReasonEvent); ok && payload.Reason == "cancelled" && !b.asyncMode && event.Scope.AgentID == "" {
 		for agentID := range b.activeDelegations {
 			b.finalizeActiveDelegation(agentID)
 		}

@@ -206,7 +206,11 @@ func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[strin
 	} else if pending, ok := pendingDelegates[msg.ToolCallID]; ok {
 		state := buildReplayedDelegationState(msg.ToolCallID, msg.Retention, msg.Content)
 		task := taskFromArgs(pending.Arguments)
-		s.events.Emit(output.NewDelegationStartedEvent(state.agentID, task))
+		if state.status == "queued" {
+			s.events.Emit(output.NewDelegationQueuedEvent(state.agentID, msg.ToolCallID, "", task))
+		} else {
+			s.events.Emit(output.NewDelegationStartedEvent(state.agentID, task))
+		}
 		switch {
 		case isAckStatus(state.status):
 			acks.add(msg.ToolCallID, state.agentID, task)

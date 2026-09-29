@@ -215,7 +215,7 @@ func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
 // sessionBusy reports whether a run, tool call, delegation, compaction or
 // oneshot is in flight, so session-mutating actions must be refused.
 func (m *Model) sessionBusy() bool {
-	return m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.activity.busy() || m.compaction.Active() || m.oneshotRunning
+	return m.asyncConversationBusy() || m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.activity.busy() || m.compaction.Active() || m.oneshotRunning
 }
 
 // refuseWhileBusy appends the busy notice for the named action and resets the
