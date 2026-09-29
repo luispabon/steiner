@@ -2,10 +2,12 @@ package delegation
 
 import (
 	"context"
-	"time"
+	"sort"
+
+	"github.com/luispabon/steiner/internal/tool"
 )
 
-// UnjoinedChild describes a child that did not complete before Shutdown's timeout.
+// UnjoinedChild describes a child that did not exit before Shutdown's timeout.
 type UnjoinedChild struct {
 	AgentID      string
 	AgentType    AgentType
@@ -18,93 +20,63 @@ type ShutdownReport struct {
 	Unjoined []UnjoinedChild
 }
 
-// Shutdown stops accepting new spawns, cancels all children, waits with a timeout,
-// reports any unjoin and their protected worktrees, and closes the supervisor.
-// It is idempotent and returns the same report on subsequent calls.
+// Shutdown rejects new spawns, cancels every child and waits up to
+// min(ctx, JoinTimeout) for their goroutines to exit. Children still running
+// are reported as unjoined and their worktrees protected; their late results are
+// dropped and their waiters receive ErrSupervisorClosed. Shutdown never
+// finalises a child itself. It is idempotent: later calls return the first report.
 func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownReport {
-	var report ShutdownReport
-
-	s.shutdownOnce.Do(func() {
+	s.shutdown.Do(func() {
 		s.mu.Lock()
 		s.closing = true
-		s.shuttingDown = true
-		s.shutdownCause = cause
 		s.mu.Unlock()
 
 		s.CancelAll(cause)
 
-		timeout := s.joinTimeout
-		if deadline, ok := ctx.Deadline(); ok {
-			remaining := time.Until(deadline)
-			if remaining < timeout {
-				timeout = remaining
-			}
-		}
-
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-
-		s.waitForIdle(shutdownCtx)
-
 		s.mu.Lock()
-		for agentID, state := range s.jobs {
-			if !state.finished {
-				var worktreePath string
-				if c, ok := s.controller.WorktreeFor(agentID); ok {
-					worktreePath = c.Path
-				}
-				agentType, _ := s.controller.TypeFor(agentID)
-				var parentCallID string
-				if _, exists := s.jobs[agentID]; exists {
-					for _, q := range s.queue {
-						if q.job.AgentID == agentID {
-							parentCallID = q.job.ParentCallID
-							break
-						}
-					}
-					if parentCallID == "" {
-						parentCallID = agentID
-					}
-				}
-
-				report.Unjoined = append(report.Unjoined, UnjoinedChild{
-					AgentID:      agentID,
-					AgentType:    agentType,
-					ParentCallID: parentCallID,
-					WorktreePath: worktreePath,
-				})
-
-				if worktreePath != "" {
-					s.protected[worktreePath] = struct{}{}
-				}
-
-				if !state.finished {
-					state.err = ErrSupervisorClosed
-					if !state.doneClosed {
-						state.doneClosed = true
-						s.jobs[agentID] = state
-						close(state.done)
-					}
-				}
+		var exits []chan struct{}
+		for _, state := range s.jobs {
+			if state.phase == phaseRunning {
+				exits = append(exits, state.exited)
 			}
 		}
 		s.mu.Unlock()
 
-		s.shutdownReport = &report
+		waitCtx, cancel := context.WithTimeout(ctx, s.joinTimeout)
+		defer cancel()
+	wait:
+		for _, exited := range exits {
+			select {
+			case <-exited:
+			case <-waitCtx.Done():
+				break wait
+			}
+		}
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, state := range s.jobs {
+			if state.phase != phaseRunning {
+				continue
+			}
+			s.report.Unjoined = append(s.report.Unjoined, UnjoinedChild{
+				AgentID:      state.job.AgentID,
+				AgentType:    state.job.AgentType,
+				ParentCallID: state.job.ParentCallID,
+				WorktreePath: state.job.Worktree.Path,
+			})
+			if state.job.Worktree.Path != "" {
+				s.protected[state.job.Worktree.Path] = struct{}{}
+			}
+			deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
+		}
+		sort.Slice(s.report.Unjoined, func(i, j int) bool {
+			return s.report.Unjoined[i].AgentID < s.report.Unjoined[j].AgentID
+		})
+		s.closed = true
 	})
 
-	if s.shutdownReport != nil {
-		return *s.shutdownReport
-	}
-	return report
-}
-
-// waitForIdle blocks until all running jobs have finished, or ctx times out.
-func (s *Supervisor) waitForIdle(ctx context.Context) {
-	select {
-	case <-s.idle:
-		return
-	case <-ctx.Done():
-		return
-	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return ShutdownReport{Unjoined: append([]UnjoinedChild(nil), s.report.Unjoined...)}
 }

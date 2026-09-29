@@ -1,4 +1,74 @@
 package delegation
 
-// This file is reserved for queue-related operations. The queuedJob type
-// is defined in supervisor.go along with queue management logic.
+import (
+	"context"
+	"errors"
+	"fmt"
+)
+
+// ErrOutstandingCap indicates that too many sub-agents are already outstanding.
+var ErrOutstandingCap = errors.New("sub-agent outstanding cap exceeded")
+
+type outstandingCapError struct{ outstanding int }
+
+func (e outstandingCapError) Error() string {
+	return fmt.Sprintf("%d sub-agents already outstanding; wait for results before dispatching more", e.outstanding)
+}
+
+func (e outstandingCapError) Is(target error) bool { return target == ErrOutstandingCap }
+
+// enqueue applies the outstanding cap, registers the job with the controller and
+// either starts it (running < MaxParallel) or appends it to the FIFO queue.
+func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob) (*jobState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closing {
+		return nil, ErrSupervisorClosed
+	}
+	if existing, ok := s.jobs[job.AgentID]; ok && existing.phase != phaseDone {
+		return nil, ErrAgentAlreadyActive
+	}
+	if outstanding := s.running + len(s.queue); outstanding >= 2*s.maxParallel {
+		return nil, outstandingCapError{outstanding: outstanding}
+	}
+
+	childCtx, cancel := context.WithCancel(context.WithoutCancel(handlerCtx))
+	if err := s.controller.RegisterWithCancel(job.AgentID, cancel, job.AgentType, job.Worktree); err != nil {
+		cancel()
+		return nil, err
+	}
+
+	state := &jobState{
+		job:      job,
+		childCtx: childCtx,
+		cancel:   cancel,
+		phase:    phaseQueued,
+		done:     make(chan struct{}),
+		exited:   make(chan struct{}),
+	}
+	s.jobs[job.AgentID] = state
+	s.queue = append(s.queue, state)
+	s.startQueuedLocked()
+	return state, nil
+}
+
+// startQueuedLocked starts queued jobs in FIFO order while slots are free.
+func (s *Supervisor) startQueuedLocked() {
+	for s.running < s.maxParallel && len(s.queue) > 0 {
+		state := s.queue[0]
+		s.queue = s.queue[1:]
+		state.phase = phaseRunning
+		s.running++
+		go s.run(state)
+	}
+}
+
+func (s *Supervisor) removeQueuedLocked(state *jobState) {
+	for i, queued := range s.queue {
+		if queued == state {
+			s.queue = append(s.queue[:i], s.queue[i+1:]...)
+			return
+		}
+	}
+}

@@ -2,127 +2,136 @@ package delegation
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"testing"
 	"time"
-
-	"github.com/luispabon/steiner/internal/tool"
 )
 
-func TestSupervisorShutdownBlocksNewSpawns(t *testing.T) {
+func TestSupervisorShutdownCleanJoin(t *testing.T) {
 	t.Parallel()
 
-	controller := NewActiveController()
-	s := NewSupervisor(SupervisorOptions{
-		MaxParallel: 1,
-		Controller:  controller,
-	})
+	s, controller := newTestSupervisor(1, 0)
+	a, b := newFakeChild("a", true), newFakeChild("b", false)
+	resA := spawn(context.Background(), s, a.job)
+	waitClosed(t, a.started, "a start")
+	resB := spawn(context.Background(), s, b.job)
+	waitOutstanding(t, s, 2)
 
-	blocked := make(chan struct{})
-	done := make(chan struct{})
-
-	go func() {
-		childJob := ChildJob{
-			AgentID:      "agent",
-			AgentType:    AgentTypeCode,
-			ParentCallID: "parent",
-			Worktree:     CodeWorktree{Path: "/tmp/test"},
-			Execute: func(ctx context.Context) (tool.ExecutionResult, error) {
-				close(blocked)
-				<-done
-				return tool.ExecutionResult{Value: "done"}, nil
-			},
-			OnCancelledBeforeStart: func() tool.ExecutionResult {
-				return tool.ExecutionResult{Value: "cancelled"}
-			},
-		}
-		_, _ = s.SpawnAndWait(context.Background(), childJob)
-	}()
-
-	<-blocked
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer shutdownCancel()
-
-	s.Shutdown(shutdownCtx, CancelCauseSystem)
-
-	job2 := ChildJob{
-		AgentID:      "agent2",
-		AgentType:    AgentTypeCode,
-		ParentCallID: "parent2",
-		Worktree:     CodeWorktree{Path: "/tmp/test2"},
-		Execute: func(ctx context.Context) (tool.ExecutionResult, error) {
-			return tool.ExecutionResult{Value: "done"}, nil
-		},
-		OnCancelledBeforeStart: func() tool.ExecutionResult {
-			return tool.ExecutionResult{Value: "cancelled"}
-		},
+	report := s.Shutdown(context.Background(), CancelCauseSystem)
+	if len(report.Unjoined) != 0 {
+		t.Fatalf("unjoined = %+v, want none", report.Unjoined)
 	}
-	_, err := s.SpawnAndWait(context.Background(), job2)
-
-	if err != ErrSupervisorClosed {
-		t.Fatalf("spawn after shutdown returned %v, want ErrSupervisorClosed", err)
+	if !s.Closed() {
+		t.Fatal("Closed() = false after Shutdown")
 	}
-
-	close(done)
+	if got := recv(t, resA, "a result"); got.result.Value != "cancelled:a" {
+		t.Fatalf("a result = %+v, want the child's own cancelled result", got)
+	}
+	if got := recv(t, resB, "b result"); got.result.Value != "not-started:b" {
+		t.Fatalf("b result = %+v, want OnCancelledBeforeStart result", got)
+	}
+	if s.CauseFor("a") != CancelCauseSystem {
+		t.Fatalf("cause = %v, want CancelCauseSystem", s.CauseFor("a"))
+	}
+	if ids := controller.ActiveAgentIDs(); len(ids) != 0 {
+		t.Fatalf("active after shutdown = %v, want none", ids)
+	}
+	if paths := s.ProtectedWorktrees(); len(paths) != 0 {
+		t.Fatalf("protected = %v, want none", paths)
+	}
 }
 
-func TestSupervisorShutdownReportsUnjoinedWorktrees(t *testing.T) {
+func TestSupervisorShutdownReportsUnjoinedChild(t *testing.T) {
 	t.Parallel()
 
-	controller := NewActiveController()
-	s := NewSupervisor(SupervisorOptions{
-		MaxParallel: 1,
-		Controller:  controller,
-		JoinTimeout: 50 * time.Millisecond,
-	})
+	s, _ := newTestSupervisor(1, 50*time.Millisecond)
+	stuck := newFakeChild("stuck", false)
+	res := spawn(context.Background(), s, stuck.job)
+	waitClosed(t, stuck.started, "start")
 
-	blocked := make(chan struct{})
-	done := make(chan struct{})
+	report := s.Shutdown(context.Background(), CancelCauseSystem)
+	want := []UnjoinedChild{{AgentID: "stuck", AgentType: AgentTypeCode, ParentCallID: "call-stuck", WorktreePath: "/wt/stuck"}}
+	if !reflect.DeepEqual(report.Unjoined, want) {
+		t.Fatalf("unjoined = %+v, want %+v", report.Unjoined, want)
+	}
+	if paths := s.ProtectedWorktrees(); !reflect.DeepEqual(paths, []string{"/wt/stuck"}) {
+		t.Fatalf("protected = %v, want [/wt/stuck]", paths)
+	}
+	if !s.Closed() {
+		t.Fatal("Closed() = false after Shutdown")
+	}
 
-	go func() {
-		childJob := ChildJob{
-			AgentID:      "agent",
-			AgentType:    AgentTypeCode,
-			ParentCallID: "parent",
-			Worktree:     CodeWorktree{Path: "/tmp/wt-test", Branch: "delegate/test"},
-			Execute: func(ctx context.Context) (tool.ExecutionResult, error) {
-				close(blocked)
-				<-done
-				return tool.ExecutionResult{Value: "done"}, nil
-			},
-			OnCancelledBeforeStart: func() tool.ExecutionResult {
-				return tool.ExecutionResult{Value: "cancelled"}
-			},
-		}
-		_, _ = s.SpawnAndWait(context.Background(), childJob)
-	}()
+	got := recv(t, res, "waiter")
+	if !errors.Is(got.err, ErrSupervisorClosed) {
+		t.Fatalf("waiter err = %v, want ErrSupervisorClosed", got.err)
+	}
 
-	<-blocked
+	s.mu.Lock()
+	exited := s.jobs["stuck"].exited
+	s.mu.Unlock()
+	close(stuck.release)
+	waitClosed(t, exited, "late-returning job to exit")
+	if got.result.Value != nil {
+		t.Fatalf("late result delivered: %+v", got.result)
+	}
+	if got := s.CancelAgent("stuck", false, CancelCauseUser); got != CancelAlreadyFinished {
+		t.Fatalf("CancelAgent after late exit = %v, want CancelAlreadyFinished", got)
+	}
+}
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer shutdownCancel()
+func TestSupervisorShutdownIdempotent(t *testing.T) {
+	t.Parallel()
 
-	report := s.Shutdown(shutdownCtx, CancelCauseSystem)
+	s, _ := newTestSupervisor(1, 20*time.Millisecond)
+	stuck := newFakeChild("stuck", false)
+	spawn(context.Background(), s, stuck.job)
+	waitClosed(t, stuck.started, "start")
 
+	first := s.Shutdown(context.Background(), CancelCauseSystem)
+	second := s.Shutdown(context.Background(), CancelCauseUser)
+	if len(first.Unjoined) != 1 || !reflect.DeepEqual(first, second) {
+		t.Fatalf("reports differ: first=%+v second=%+v", first, second)
+	}
+	if s.CauseFor("stuck") != CancelCauseSystem {
+		t.Fatalf("second Shutdown changed cause to %v", s.CauseFor("stuck"))
+	}
+	close(stuck.release)
+}
+
+func TestSupervisorShutdownBoundedByContext(t *testing.T) {
+	t.Parallel()
+
+	s, _ := newTestSupervisor(1, time.Hour)
+	stuck := newFakeChild("stuck", false)
+	spawn(context.Background(), s, stuck.job)
+	waitClosed(t, stuck.started, "start")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	report := s.Shutdown(ctx, CancelCauseSystem)
 	if len(report.Unjoined) != 1 {
-		t.Fatalf("unjoined count = %d, want 1", len(report.Unjoined))
+		t.Fatalf("unjoined = %+v, want the stuck child", report.Unjoined)
 	}
+	close(stuck.release)
+}
 
-	if report.Unjoined[0].WorktreePath != "/tmp/wt-test" {
-		t.Fatalf("worktree path = %q, want /tmp/wt-test", report.Unjoined[0].WorktreePath)
-	}
+func TestSupervisorSpawnAfterShutdownErrors(t *testing.T) {
+	t.Parallel()
 
-	protected := s.ProtectedWorktrees()
-	found := false
-	for _, p := range protected {
-		if p == "/tmp/wt-test" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("protected worktrees %v missing /tmp/wt-test", protected)
-	}
+	s, controller := newTestSupervisor(1, 0)
+	s.Shutdown(context.Background(), CancelCauseSystem)
 
-	close(done)
+	child := newFakeChild("a", false)
+	if _, err := s.SpawnAndWait(context.Background(), child.job); !errors.Is(err, ErrSupervisorClosed) {
+		t.Fatalf("err = %v, want ErrSupervisorClosed", err)
+	}
+	select {
+	case <-child.executed:
+		t.Fatal("job executed after shutdown")
+	default:
+	}
+	if ids := controller.ActiveAgentIDs(); len(ids) != 0 {
+		t.Fatalf("registered after rejected spawn = %v", ids)
+	}
 }

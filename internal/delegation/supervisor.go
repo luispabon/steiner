@@ -3,7 +3,6 @@ package delegation
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -12,9 +11,6 @@ import (
 
 // ErrSupervisorClosed indicates that the supervisor has been shut down.
 var ErrSupervisorClosed = errors.New("supervisor is closed")
-
-// ErrOutstandingCap indicates that too many sub-agents are already outstanding.
-var ErrOutstandingCap = errors.New("sub-agent outstanding cap exceeded")
 
 // SupervisorOptions configures a new Supervisor.
 type SupervisorOptions struct {
@@ -35,42 +31,45 @@ type ChildJob struct {
 	OnCancelledBeforeStart func() tool.ExecutionResult
 }
 
+type jobPhase uint8
+
+const (
+	phaseQueued jobPhase = iota
+	phaseRunning
+	phaseDone
+)
+
+// jobState is guarded by Supervisor.mu. result and err are written once, before
+// done is closed, and read only after <-done.
+type jobState struct {
+	job       ChildJob
+	childCtx  context.Context
+	cancel    context.CancelFunc
+	phase     jobPhase
+	cause     CancelCause
+	delivered bool
+	done      chan struct{}
+	exited    chan struct{}
+	result    tool.ExecutionResult
+	err       error
+}
+
 // Supervisor owns detached sub-agent lifecycles for one runtime.
 type Supervisor struct {
-	mu             sync.Mutex
-	maxParallel    int
-	controller     *ActiveController
-	joinTimeout    time.Duration
-	closing        bool
-	shuttingDown   bool
-	shutdownOnce   sync.Once
-	shutdownReport *ShutdownReport
-	shutdownCause  CancelCause
+	mu          sync.Mutex
+	maxParallel int
+	controller  *ActiveController
+	joinTimeout time.Duration
 
-	running    int
-	idleClosed bool
-	queue      []*queuedJob
-	jobs       map[string]*jobState
-	idle       chan struct{}
-	causes     map[string]CancelCause
-	protected  map[string]struct{}
-}
+	closing  bool
+	closed   bool
+	shutdown sync.Once
+	report   ShutdownReport
 
-type jobState struct {
-	queued      bool
-	running     bool
-	finished    bool
-	delivered   bool
-	doneClosed  bool
-	done        chan struct{}
-	result      tool.ExecutionResult
-	err         error
-}
-
-type queuedJob struct {
-	job        ChildJob
-	startFn    func()
-	handlerCtx context.Context
+	running   int
+	queue     []*jobState
+	jobs      map[string]*jobState
+	protected map[string]struct{}
 }
 
 // NewSupervisor returns an initialized Supervisor.
@@ -79,280 +78,167 @@ func NewSupervisor(opts SupervisorOptions) *Supervisor {
 	if timeout == 0 {
 		timeout = 10 * time.Second
 	}
+	controller := opts.Controller
+	if controller == nil {
+		controller = NewActiveController()
+	}
 	return &Supervisor{
 		maxParallel: opts.MaxParallel,
-		controller:  opts.Controller,
+		controller:  controller,
 		joinTimeout: timeout,
 		jobs:        make(map[string]*jobState),
-		causes:      make(map[string]CancelCause),
 		protected:   make(map[string]struct{}),
-		idle:        make(chan struct{}),
 	}
 }
 
-// SpawnAndWait enqueues a job and waits for its result.
-// If handlerCtx is cancelled, it calls CancelAgent(id, false, CancelCauseUser)
-// and keeps waiting for the final result, which preserves blocking cancel semantics.
+// SpawnAndWait enqueues a job and waits for its result. If handlerCtx is
+// cancelled it cancels the child with CancelCauseUser and keeps waiting for the
+// final result, preserving blocking-cancel semantics.
 func (s *Supervisor) SpawnAndWait(handlerCtx context.Context, job ChildJob) (tool.ExecutionResult, error) {
 	state, err := s.enqueue(handlerCtx, job)
 	if err != nil {
 		return tool.ExecutionResult{}, err
 	}
-	return s.wait(handlerCtx, state, job.AgentID)
-}
 
-// enqueue checks caps, registers the job, and either starts it or queues it.
-func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob) (*jobState, error) {
-	startFn := func() { s.startJob(handlerCtx, job) }
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.closing {
-		return nil, ErrSupervisorClosed
-	}
-
-	if _, exists := s.jobs[job.AgentID]; exists {
-		return nil, ErrAgentAlreadyActive
-	}
-
-	if s.running+len(s.queue) >= 2*s.maxParallel {
-		return nil, fmt.Errorf("%d sub-agents already outstanding; wait for results before dispatching more: %w", s.running+len(s.queue), ErrOutstandingCap)
-	}
-
-	state := &jobState{
-		done: make(chan struct{}),
-	}
-	s.jobs[job.AgentID] = state
-
-	if s.running < s.maxParallel {
-		s.running++
-		state.running = true
-		go startFn()
-	} else {
-		state.queued = true
-		s.queue = append(s.queue, &queuedJob{
-			job:        job,
-			startFn:    startFn,
-			handlerCtx: handlerCtx,
-		})
-	}
-
-	return state, nil
-}
-
-// startJob creates a child context and runs Execute.
-func (s *Supervisor) startJob(handlerCtx context.Context, job ChildJob) {
-	childCtx, cancel := context.WithCancel(context.WithoutCancel(handlerCtx))
-	if err := s.controller.RegisterWithCancel(job.AgentID, cancel, job.AgentType, job.Worktree); err != nil {
-		s.mu.Lock()
-		state := s.jobs[job.AgentID]
-		state.err = err
-		state.finished = true
-		close(state.done)
-		s.running--
-		s.dequeueAndStart()
-		s.mu.Unlock()
-		return
-	}
-
-	result, err := job.Execute(childCtx)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !s.markFinished(job.AgentID, result, err) {
-		return
-	}
-
-	state := s.jobs[job.AgentID]
-	if !state.doneClosed {
-		state.doneClosed = true
-		s.jobs[job.AgentID] = state
-		close(state.done)
-	}
-
-	s.controller.MarkComplete(job.AgentID)
-	s.controller.Unregister(job.AgentID)
-	cancel()
-	s.running--
-	s.dequeueAndStart()
-}
-
-// markFinished updates job state under the lock.
-// Returns false if the job was already marked as unjoined by Shutdown.
-func (s *Supervisor) markFinished(agentID string, result tool.ExecutionResult, err error) bool {
-	state, exists := s.jobs[agentID]
-	if !exists {
-		return false
-	}
-
-	if state.finished {
-		return false
-	}
-
-	state.finished = true
-	state.result = result
-	state.err = err
-	s.jobs[agentID] = state
-
-	return true
-}
-
-// dequeueAndStart removes one job from the queue and starts it, if any remain and we're not closing.
-// Must be called with s.mu held.
-func (s *Supervisor) dequeueAndStart() {
-	if s.closing || len(s.queue) == 0 {
-		if s.running == 0 && !s.idleClosed {
-			s.idleClosed = true
-			close(s.idle)
-		}
-		return
-	}
-
-	queued := s.queue[0]
-	s.queue = s.queue[1:]
-
-	state := s.jobs[queued.job.AgentID]
-	state.queued = false
-	state.running = true
-
-	s.running++
-	go queued.startFn()
-}
-
-// wait blocks for the job result, forwarding handlerCtx cancellation.
-func (s *Supervisor) wait(handlerCtx context.Context, state *jobState, agentID string) (tool.ExecutionResult, error) {
+	cancelled := handlerCtx.Done()
 	for {
 		select {
 		case <-state.done:
-			s.mu.Lock()
-			result := state.result
-			err := state.err
-			s.mu.Unlock()
-			return result, err
-
-		case <-handlerCtx.Done():
-			s.CancelAgent(agentID, false, CancelCauseUser)
+			return state.result, state.err
+		case <-cancelled:
+			cancelled = nil
+			s.CancelAgent(job.AgentID, false, CancelCauseUser)
 		}
 	}
 }
 
-// CancelAgent cancels a child by ID, recording the cause.
-// Returns the outcome: NotActive, Accepted, or AlreadyFinished.
+// run is the single goroutine for a started job.
+func (s *Supervisor) run(state *jobState) {
+	defer close(state.exited)
+
+	result, err := state.job.Execute(state.childCtx)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.controller.MarkComplete(state.job.AgentID)
+	s.controller.Unregister(state.job.AgentID)
+	state.cancel()
+	state.phase = phaseDone
+	s.running--
+	if s.closed {
+		result, err = tool.ExecutionResult{}, ErrSupervisorClosed
+	}
+	deliverLocked(state, result, err)
+	s.startQueuedLocked()
+}
+
+// finishCancelled completes a job that was cancelled while queued. The caller
+// must already have removed it from the queue and marked it done.
+func (s *Supervisor) finishCancelled(state *jobState) {
+	var result tool.ExecutionResult
+	if state.job.OnCancelledBeforeStart != nil {
+		result = state.job.OnCancelledBeforeStart()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.controller.MarkComplete(state.job.AgentID)
+	s.controller.Unregister(state.job.AgentID)
+	deliverLocked(state, result, nil)
+}
+
+func deliverLocked(state *jobState, result tool.ExecutionResult, err error) {
+	if state.delivered {
+		return
+	}
+	state.delivered = true
+	state.result = result
+	state.err = err
+	close(state.done)
+}
+
+// CancelAgent cancels a child by ID, recording the cause before cancelling.
 func (s *Supervisor) CancelAgent(agentID string, discard bool, cause CancelCause) CancelOutcome {
 	s.mu.Lock()
-
-	state, exists := s.jobs[agentID]
-	if !exists {
+	state, ok := s.jobs[agentID]
+	if !ok {
 		s.mu.Unlock()
 		return CancelNotActive
 	}
-
-	if state.finished {
+	if state.phase == phaseDone {
 		s.mu.Unlock()
 		return CancelAlreadyFinished
 	}
-
-	s.causes[agentID] = cause
-
-	var result tool.ExecutionResult
-	var deliverResult bool
-	var queued *ChildJob
-
-	if state.queued {
-		for i, q := range s.queue {
-			if q.job.AgentID == agentID {
-				queued = &q.job
-				copy(s.queue[i:], s.queue[i+1:])
-				s.queue = s.queue[:len(s.queue)-1]
-				break
-			}
-		}
-		if queued != nil {
-			if queued.OnCancelledBeforeStart != nil {
-				result = queued.OnCancelledBeforeStart()
-			}
-			deliverResult = true
-			state.queued = false
-		}
+	if state.cause == CancelCauseNone {
+		state.cause = cause
 	}
 
-	if state.running {
-		s.controller.CancelAgentWithDiscard(agentID, discard)
+	if state.phase == phaseQueued {
+		s.removeQueuedLocked(state)
+		state.phase = phaseDone
+		state.cancel()
+		s.mu.Unlock()
+		s.finishCancelled(state)
+		return CancelAccepted
 	}
 
+	outcome := s.controller.CancelAgentWithDiscard(agentID, discard)
 	s.mu.Unlock()
-
-	if deliverResult {
-		state.result = result
-		if !state.doneClosed {
-			close(state.done)
-		}
-	}
-
-	return CancelAccepted
+	return outcome
 }
 
-// CancelAll cancels every child, recording the cause.
+// CancelAll cancels every running and queued child, recording cause first.
 func (s *Supervisor) CancelAll(cause CancelCause) {
 	s.mu.Lock()
-
-	for agentID := range s.jobs {
-		s.causes[agentID] = cause
+	var cancelled []*jobState
+	for _, state := range s.jobs {
+		if state.phase == phaseDone {
+			continue
+		}
+		if state.cause == CancelCauseNone {
+			state.cause = cause
+		}
+		if state.phase == phaseQueued {
+			state.phase = phaseDone
+			cancelled = append(cancelled, state)
+		}
+		state.cancel()
 	}
-
-	queuedJobs := make([]*queuedJob, len(s.queue))
-	copy(queuedJobs, s.queue)
-	s.queue = s.queue[:0]
-
-	s.controller.CancelAll()
-
+	s.queue = nil
 	s.mu.Unlock()
 
-	for _, queued := range queuedJobs {
-		result := tool.ExecutionResult{}
-		if queued.job.OnCancelledBeforeStart != nil {
-			result = queued.job.OnCancelledBeforeStart()
-		}
-		s.mu.Lock()
-		if state, exists := s.jobs[queued.job.AgentID]; exists && !state.finished {
-			state.queued = false
-			state.result = result
-			if !state.doneClosed {
-				state.doneClosed = true
-				s.jobs[queued.job.AgentID] = state
-				close(state.done)
-			}
-		}
-		s.mu.Unlock()
+	for _, state := range cancelled {
+		s.finishCancelled(state)
 	}
 }
 
-// CauseFor returns the cancellation cause for a child.
+// CauseFor returns the recorded cancellation cause for a child.
 func (s *Supervisor) CauseFor(agentID string) CancelCause {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.causes[agentID]
+	if state, ok := s.jobs[agentID]; ok {
+		return state.cause
+	}
+	return CancelCauseNone
 }
 
-// Closed reports whether the supervisor is closed.
+// Closed reports whether Shutdown has completed.
 func (s *Supervisor) Closed() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.closing
+	return s.closed
 }
 
-// ProtectedWorktrees returns the list of worktree paths that should not be pruned.
+// ProtectedWorktrees returns worktree paths of unjoined children, which must not be pruned.
 func (s *Supervisor) ProtectedWorktrees() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	result := make([]string, 0, len(s.protected))
+	paths := make([]string, 0, len(s.protected))
 	for path := range s.protected {
-		if path != "" {
-			result = append(result, path)
-		}
+		paths = append(paths, path)
 	}
-	return result
+	return paths
 }
