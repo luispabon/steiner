@@ -339,8 +339,8 @@ func collectChangedFiles(ctx context.Context, worktreePath, baseCommit string) (
 	for _, line := range strings.Split(strings.TrimSpace(diffOut), "\n") {
 		add(line)
 	}
-	for _, line := range strings.Split(strings.TrimSpace(statusOut), "\n") {
-		add(porcelainPath(line))
+	for _, path := range porcelainPaths(statusOut) {
+		add(path)
 	}
 
 	return sanitizeStrings(changed, finalReportItemLimit), len(changed) > 0, nil

@@ -147,6 +147,8 @@ After the review phase completes with a passing verdict:
 
 The PR/MR title comes from the first H1 (`# `) heading in `overview.md`, falling back to the task string if no H1 is present. The body is `overview.md` (with the H1 line removed) followed by a `---` separator and the full `review.md` content, verbatim — there is no commit list, since every forge already lists a PR's commits natively. The body is capped at 60,000 characters; an oversized body is truncated at a line boundary with a notice naming the planning folder. When closeout succeeds, the manifest records `closeout_url`, `closeout_provider`, `closeout_state`, and `closeout_note` for visibility in the final run record.
 
+If closeout errors (for example an expired `gh` login or a failed push), the manifest is still persisted with `report_path`, `closeout_state: failed`, and the error in `closeout_note`. A run whose phases are all done but whose closeout state is `failed` stays resumable: the resumable-run listing shows it as `retry closeout` and resuming it skips every phase and re-runs only report generation and closeout.
+
 ### TUI Visibility and Interactive Behaviour
 
 In interactive mode, oneshot runs are first-class and visible in real time:
