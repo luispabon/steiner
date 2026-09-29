@@ -112,9 +112,6 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 	case SwitchOrchestrationLevel:
 		return true, s.SetOrchestrationLevel(a.Level)
 	case LoadSession:
-		if err := s.refuseWhilePending("load session"); err != nil {
-			return true, err
-		}
 		return true, s.loadSession(ctx, a.SessionID)
 
 	case RotateSession:

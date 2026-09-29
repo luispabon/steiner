@@ -111,6 +111,54 @@ func TestGuardedActionsRefusedWhilePending(t *testing.T) {
 	}
 }
 
+type blockingLoadStore struct {
+	sessionStore
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingLoadStore) Load(id string) (session.Session, error) {
+	close(s.entered)
+	<-s.release
+	return s.sessionStore.Load(id)
+}
+
+func TestLoadSessionByIDPendingTransitionBeforeReplacement(t *testing.T) {
+	t.Parallel()
+	base := newMockSessionStore()
+	base.loadedSessions["other"] = session.Session{ID: "other", Lineage: lineageOf(userMsg("other"))}
+	store := &blockingLoadStore{
+		sessionStore: base,
+		entered:      make(chan struct{}),
+		release:      make(chan struct{}),
+	}
+	bg := &stubBackground{}
+	s := testNewSession(t, Dependencies{SessionStore: store, Background: bg})
+	origID := s.SessionID()
+	origDriver := s.currentDriver()
+	origConversation := s.Conversation()
+
+	loaded := make(chan error, 1)
+	go func() { loaded <- s.LoadSessionByID(context.Background(), "other") }()
+	<-store.entered
+	bg.setPending("late")
+	close(store.release)
+
+	err := <-loaded
+	if err == nil || !strings.Contains(err.Error(), "1 sub-agents still running; wait for them or stop them first") {
+		t.Fatalf("LoadSessionByID() = %v, want pending refusal", err)
+	}
+	if got := s.SessionID(); got != origID {
+		t.Fatalf("session ID changed to %q while pending", got)
+	}
+	if got := s.currentDriver(); got != origDriver {
+		t.Fatal("driver changed while pending")
+	}
+	if got := s.Conversation(); !reflect.DeepEqual(got, origConversation) {
+		t.Fatalf("conversation changed while pending: got %#v, want %#v", got, origConversation)
+	}
+}
+
 func TestLoadSessionByIDRefusedWhilePending(t *testing.T) {
 	t.Parallel()
 	bg := &stubBackground{}
