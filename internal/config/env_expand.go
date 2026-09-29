@@ -149,6 +149,12 @@ func expandNode(node *yaml.Node, path string, expander *envExpander, result *[]u
 		}
 	case yaml.ScalarNode:
 		expanded, missing := expander.expand(node.Value)
+		if expanded != node.Value && node.Style == 0 {
+			// Value was expanded and the node is plain (unquoted).
+			// Clear the tag so YAML re-resolves the type based on the new value.
+			// This allows "${VAR:-5}" to unmarshal as an int instead of a string.
+			node.Tag = ""
+		}
 		node.Value = expanded
 		for _, name := range missing {
 			*result = append(*result, undefinedVar{

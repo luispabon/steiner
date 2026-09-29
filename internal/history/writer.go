@@ -196,9 +196,11 @@ func (w *Writer) Load() ([]string, error) {
 				continue
 			}
 			prompt := parts[1]
-			prompt = strings.ReplaceAll(prompt, "\\n", "\n")
-			prompt = strings.ReplaceAll(prompt, "\\t", "\t")
-			prompt = strings.ReplaceAll(prompt, "\\\\", "\\")
+			// Use NewReplacer for single-pass unescape: it processes each position
+			// left to right without rescanning replaced output, avoiding the bug where
+			// sequential ReplaceAll on e.g. "C:\\new" matches "\n" before "\\":
+			// C:\\new -> C:\n ew (wrong). NewReplacer handles it correctly in one pass.
+			prompt = strings.NewReplacer("\\\\", "\\", "\\n", "\n", "\\t", "\t").Replace(prompt)
 			prompts = append(prompts, prompt)
 		}
 		if len(prompts) > maxEntries {
