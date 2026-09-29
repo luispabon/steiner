@@ -1113,3 +1113,74 @@ func TestExecuteToolSubprocess_MissingSandboxWrapperKey_FailsClosed(t *testing.T
 		})
 	}
 }
+
+// freshCmdSandbox returns a context-less exec.Cmd literal, like the real
+// sandbox wrapper, and records what it was asked to release.
+type freshCmdSandbox struct {
+	wrapped  *exec.Cmd
+	released []*exec.Cmd
+}
+
+func (s *freshCmdSandbox) Enabled() bool { return true }
+func (s *freshCmdSandbox) WrapCommandMode(cmd *exec.Cmd, _ bool) (*exec.Cmd, error) {
+	s.wrapped = &exec.Cmd{Path: cmd.Path, Args: cmd.Args, Dir: cmd.Dir, Env: []string{"WRAPPED=1"}}
+	return s.wrapped, nil
+}
+func (s *freshCmdSandbox) ReleaseCommandResources(cmd *exec.Cmd) {
+	s.released = append(s.released, cmd)
+}
+
+func TestRunSubprocessSandboxedHonorsCancellation(t *testing.T) {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("sleep not available")
+	}
+	sb := &freshCmdSandbox{}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		def := ToolDef{Name: "slow", ExecPath: sleep, Subcommand: "30"}
+		_, _, _, runErr := runSubprocess(ctx, def, nil, t.TempDir(), 1024, ResolvedSandbox{Wrapper: sb})
+		done <- runErr
+	}()
+	select {
+	case runErr := <-done:
+		if !errors.Is(runErr, context.DeadlineExceeded) {
+			t.Fatalf("runSubprocess() error = %v, want context.DeadlineExceeded", runErr)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("runSubprocess() did not return after context timeout; sandboxed command ignores cancellation")
+	}
+	if len(sb.released) != 1 || sb.released[0] != sb.wrapped {
+		t.Fatalf("released = %v, want exactly the wrapper-returned command %p", sb.released, sb.wrapped)
+	}
+}
+
+func TestExecuteTool_BashDenialRetry_PlanModeKeepsReadOnlySandbox(t *testing.T) {
+	approver := &mockApprover{response: ApprovalResponse{Allow: true}}
+	var callContexts []context.Context
+	reg := NewRegistry(ToolDef{
+		Name: "bash",
+		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+			callContexts = append(callContexts, ctx)
+			return &mockBashResult{exitCode: 1, output: "Permission denied /host/path"}, nil
+		},
+	})
+	sb := &testSandbox{}
+	executor := NewExecutor(reg, config.Config{}, approver, t.TempDir(), "", sb)
+	executor.modeGetter = func() config.ExecutionMode { return config.ExecutionModePlan }
+	if _, err := executor.Execute(context.Background(), "bash", "", map[string]any{"command": "cat /host/path"}); err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+	if len(callContexts) != 2 {
+		t.Fatalf("handler call count = %d, want 2", len(callContexts))
+	}
+	for i, c := range callContexts {
+		resolved, ok := ResolvedSandboxFrom(c)
+		if !ok || resolved.Wrapper != SandboxWrapper(sb) || !resolved.ReadOnlyProject {
+			t.Fatalf("call %d sandbox = %+v (ok=%v), want read-only project sandbox wrapper", i, resolved, ok)
+		}
+	}
+}
