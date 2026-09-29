@@ -408,10 +408,14 @@ func (s *Session) reconnectWorker() {
 		newSDK, newCmd, err := s.reconnectOnce()
 		if err == nil {
 			s.mu.Lock()
-			if s.managerCtx.Err() != nil {
+			if s.managerCtx.Err() != nil || s.closed {
 				s.mu.Unlock()
 				_ = newSDK.Close()
-				s.resolveReconnect(fmt.Errorf("reconnect aborted: manager closed: %w", s.managerCtx.Err()), ServerStatusUnavailable)
+				abortErr := errors.New("reconnect aborted: session closed")
+				if ctxErr := s.managerCtx.Err(); ctxErr != nil {
+					abortErr = fmt.Errorf("reconnect aborted: manager closed: %w", ctxErr)
+				}
+				s.resolveReconnect(abortErr, ServerStatusUnavailable)
 				return
 			}
 			old := s.sdk
