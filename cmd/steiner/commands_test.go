@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -514,21 +515,122 @@ func TestFormatRelativeTime(t *testing.T) {
 	}
 }
 
-func TestResumeWithExecRejected(t *testing.T) {
+func TestResumeBareListsSessions(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
 	cmd := newRootCommand()
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"--resume", "some-uuid", "--exec"})
+	cmd.SetArgs([]string{"--resume"})
 
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("Execute() error = nil, want error for --resume with --exec")
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got, want := stdout.String(), "no sessions\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestResumeWithExecRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "equals",
+			args: []string{"--resume=some-uuid", "--exec"},
+		},
+		{
+			name: "space separated",
+			args: normalizeRootResumeArgs([]string{"--resume", "some-uuid", "--exec"}),
+		},
 	}
 
-	errMsg := err.Error()
-	if !strings.Contains(errMsg, "unsupported") {
-		t.Fatalf("error message = %q, want 'unsupported' in message", errMsg)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newRootCommand()
+			var stdout, stderr bytes.Buffer
+			cmd.SetOut(&stdout)
+			cmd.SetErr(&stderr)
+			cmd.SetArgs(tt.args)
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("Execute() error = nil, want error for --resume with --exec")
+			}
+
+			errMsg := err.Error()
+			if !strings.Contains(errMsg, "unsupported") {
+				t.Fatalf("error message = %q, want 'unsupported' in message", errMsg)
+			}
+		})
+	}
+}
+
+func TestResumeBareDoesNotConsumeFollowingOption(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cmd := newRootCommand()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs(normalizeRootResumeArgs([]string{"--resume", "--exec", "prompt"}))
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got, want := stdout.String(), "no sessions\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeRootResumeArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "bare",
+			args: []string{"--resume"},
+			want: []string{"--resume"},
+		},
+		{
+			name: "equals",
+			args: []string{"--resume=session-id"},
+			want: []string{"--resume=session-id"},
+		},
+		{
+			name: "space separated",
+			args: []string{"--resume", "session-id"},
+			want: []string{"--resume=session-id"},
+		},
+		{
+			name: "next option",
+			args: []string{"--resume", "--exec", "prompt"},
+			want: []string{"--resume", "--exec", "prompt"},
+		},
+		{
+			name: "dash boundary",
+			args: []string{"--resume", "--", "prompt"},
+			want: []string{"--resume", "--", "prompt"},
+		},
+		{
+			name: "oneshot resume unchanged",
+			args: []string{"oneshot", "--resume", "run-id"},
+			want: []string{"oneshot", "--resume", "run-id"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizeRootResumeArgs(tt.args); !slices.Equal(got, tt.want) {
+				t.Fatalf("normalizeRootResumeArgs(%q) = %q, want %q", tt.args, got, tt.want)
+			}
+		})
 	}
 }
 

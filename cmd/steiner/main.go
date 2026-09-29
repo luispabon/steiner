@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -31,7 +32,31 @@ var newCodexResponsesWS = func(cfg provider.ClientConfig) (provider.Provider, er
 }
 
 func main() {
-	if err := newRootCommand().Execute(); err != nil {
+	if err := executeRootCommand(os.Args[1:]); err != nil {
 		os.Exit(1)
 	}
+}
+
+func executeRootCommand(args []string) error {
+	cmd := newRootCommand()
+	cmd.SetArgs(normalizeRootResumeArgs(args))
+	return cmd.Execute()
+}
+
+func normalizeRootResumeArgs(args []string) []string {
+	normalized := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" || arg == "oneshot" {
+			normalized = append(normalized, args[i:]...)
+			break
+		}
+		if arg == "--resume" && i+1 < len(args) && args[i+1] != "--" && !strings.HasPrefix(args[i+1], "-") {
+			normalized = append(normalized, "--resume="+args[i+1])
+			i++
+			continue
+		}
+		normalized = append(normalized, arg)
+	}
+	return normalized
 }
