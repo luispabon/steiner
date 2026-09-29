@@ -84,6 +84,7 @@ func TestConversationDriverPendingLineExcludesDeliveredAgent(t *testing.T) {
 	h.start()
 
 	h.d.DeliverCompletions([]SubAgentCompletion{completionFor(1, "a")})
+	h.clock.fire()
 	call := h.nextRun()
 	content := lastContent(call)
 	pendingLine := content[strings.Index(content, "<steiner-sub-agents-pending>"):strings.Index(content, "</steiner-sub-agents-pending>")]

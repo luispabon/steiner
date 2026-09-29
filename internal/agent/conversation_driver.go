@@ -74,6 +74,9 @@ type DriverOptions struct {
 	// PrepareTurn supplies the mode notice and skill deltas prefixed to the
 	// first message of each started sequence.
 	PrepareTurn func(ctx context.Context, conv []Message) DeliveryParts
+	// MaxTokensPerEpisode caps the completion tokens one episode may use; 0 is
+	// unlimited. See episodeBudget.
+	MaxTokensPerEpisode int
 }
 
 type compactionFunc func(ctx context.Context, conv []Message) ([]Message, ConversationLineage, error)
@@ -101,6 +104,12 @@ type ConversationDriver struct {
 	compactions []compactionFunc
 	started     bool
 	closing     bool
+
+	episodeUsed   int
+	exhausted     bool
+	window        Timer
+	windowGen     uint64
+	windowExpired bool
 
 	lastEmitted   driverStateKey
 	emitted       bool
@@ -185,13 +194,20 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 	if !between && len(d.compactions) > 0 {
 		return d.compact(ctx)
 	}
-	if d.held || !d.hasWakeLocked() {
-		if !between {
-			d.unlockEmit()
-			return false
+	if d.held || !d.wakeReadyLocked() {
+		if between {
+			d.settleLocked()
+			return d.saveAndUnlock(ctx, true)
 		}
-		d.settleLocked()
-		return d.saveAndUnlock(ctx, true)
+		if d.quietSettleableLocked() {
+			return d.settleQuietLocked(ctx)
+		}
+		d.unlockEmit()
+		return false
+	}
+	if d.budgetSpentLocked() {
+		d.exhausted = true
+		return d.settleQuietLocked(ctx)
 	}
 	conv := slices.Clone(d.conv)
 	d.unlockEmit()
@@ -223,6 +239,7 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 		DrainInbox:       d.drainForRun,
 		OnToolBatchDone:  d.sealer(),
 		PendingSubAgents: d.pendingFn(),
+		MaxTokens:        d.runMaxTokensLocked(),
 	}
 	snap := d.snapshotLocked()
 	d.unlockEmit()
@@ -262,7 +279,8 @@ func (d *ConversationDriver) finish(ctx context.Context, out DriverRunOutput, er
 	if err != nil && !errors.Is(err, context.Canceled) {
 		d.warnLocked(fmt.Sprintf("run failed: %v", err))
 	}
-	if d.closing || d.held || !d.hasWakeLocked() {
+	d.recordRunLocked(out)
+	if d.closing || d.held || !d.wakeReadyLocked() {
 		d.settleLocked()
 	}
 	d.saveAndUnlock(ctx, false)
@@ -323,6 +341,7 @@ func (d *ConversationDriver) compact(ctx context.Context) bool {
 func (d *ConversationDriver) finalize(ctx context.Context) {
 	d.mu.Lock()
 	d.closing = true
+	d.disarmWindowLocked()
 	d.compactions = nil
 	if drain := d.drainLocked(DeliveryParts{}); drain.Message != nil {
 		d.conv = append(d.conv, *drain.Message)

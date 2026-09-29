@@ -24,6 +24,7 @@ type driverStateKey struct {
 	state   DriverState
 	held    bool
 	pending int
+	budget  bool
 }
 
 // State returns the driver state and whether completions are held.
@@ -64,6 +65,7 @@ func (d *ConversationDriver) settleLocked() {
 		return
 	}
 	d.state = DriverIdle
+	d.resetEpisodeLocked()
 }
 
 // StopTurn cancels the current run and holds completions: they accumulate
@@ -99,10 +101,15 @@ func (d *ConversationDriver) stopLocked() {
 }
 
 // WaitQuiescent blocks until the driver is idle, has nothing queued and no
-// sub-agent is pending, or ctx ends.
+// sub-agent is pending, or ctx ends. It returns ErrEpisodeBudgetExhausted when
+// the episode budget is spent while sub-agents are still pending.
 func (d *ConversationDriver) WaitQuiescent(ctx context.Context) error {
 	for {
 		d.mu.Lock()
+		if d.budgetBlockedLocked() {
+			d.mu.Unlock()
+			return ErrEpisodeBudgetExhausted
+		}
 		if d.quiescentLocked() {
 			d.mu.Unlock()
 			return nil
@@ -139,7 +146,7 @@ func (d *ConversationDriver) unlockEmit() {
 		d.mu.Unlock()
 		return
 	}
-	key := driverStateKey{state: d.state, held: d.held}
+	key := driverStateKey{state: d.state, held: d.held, budget: d.exhausted}
 	if d.opts.Background != nil {
 		key.pending = len(d.opts.Background.Pending())
 	}
@@ -147,7 +154,7 @@ func (d *ConversationDriver) unlockEmit() {
 		d.emitted = true
 		d.lastEmitted = key
 		d.pendingEvents = append(d.pendingEvents,
-			output.NewConversationStateEvent(string(key.state), key.held, key.pending, false))
+			output.NewConversationStateEvent(string(key.state), key.held, key.pending, key.budget))
 	}
 	events := d.pendingEvents
 	d.pendingEvents = nil

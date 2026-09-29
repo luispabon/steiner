@@ -101,6 +101,7 @@ type driverHarness struct {
 	steers *SteerQueue
 	calls  chan *runCall
 	events chan output.Event
+	clock  *fakeClock
 
 	mu    sync.Mutex
 	saves []DriverSnapshot
@@ -109,21 +110,32 @@ type driverHarness struct {
 
 func newDriverHarness(t *testing.T, conv []Message, prepare func(context.Context, []Message) DeliveryParts) *driverHarness {
 	t.Helper()
+	return newDriverHarnessOpts(t, conv, prepare, nil)
+}
+
+func newDriverHarnessOpts(t *testing.T, conv []Message, prepare func(context.Context, []Message) DeliveryParts, mutate func(*DriverOptions)) *driverHarness {
+	t.Helper()
 	h := &driverHarness{
+		clock:  &fakeClock{},
 		t:      t,
 		bg:     &fakeBackground{},
 		steers: NewSteerQueue(),
 		calls:  make(chan *runCall, 16),
 		events: make(chan output.Event, 1024),
 	}
-	h.d = NewConversationDriver(DriverOptions{
+	opts := DriverOptions{
+		Clock:       h.clock,
 		Run:         h.run,
 		Background:  h.bg,
 		Steers:      h.steers,
 		Save:        h.save,
 		Events:      output.SinkFunc(func(e output.Event) { h.events <- e }),
 		PrepareTurn: prepare,
-	}, conv, ConversationLineage{})
+	}
+	if mutate != nil {
+		mutate(&opts)
+	}
+	h.d = NewConversationDriver(opts, conv, ConversationLineage{})
 	return h
 }
 
@@ -306,6 +318,7 @@ func TestConversationDriverCompletionWhileIdleStartsRun(t *testing.T) {
 	h.start()
 
 	h.d.DeliverCompletions([]SubAgentCompletion{completionFor(1, "a")})
+	h.clock.fire()
 	call := h.nextRun()
 	msg := call.in.Conversation[len(call.in.Conversation)-1]
 	if msg.Source != MessageSourceSubAgentResult || !strings.Contains(msg.Content, `agent_id="a"`) {
@@ -514,6 +527,8 @@ func TestConversationDriverCompactionCompletionsWait(t *testing.T) {
 	<-inCompaction
 	h.d.DeliverCompletions([]SubAgentCompletion{completionFor(1, "a")})
 	h.noRun()
+	h.clock.fire()
+	h.noRun()
 	close(finishCompaction)
 
 	call := h.nextRun()
@@ -538,6 +553,7 @@ func TestConversationDriverWaitQuiescent(t *testing.T) {
 	}
 
 	h.d.DeliverCompletions([]SubAgentCompletion{completionFor(1, "a")})
+	h.clock.fire()
 	done := make(chan error, 1)
 	go func() { done <- h.d.WaitQuiescent(context.Background()) }()
 	call := h.nextRun()

@@ -1,6 +1,9 @@
 package agent
 
-import "context"
+import (
+	"context"
+	"slices"
+)
 
 // Submit queues a user prompt. It lifts a hold and wakes the loop; the prompt
 // is delivered together with everything else buffered. Empty prompts and
@@ -16,6 +19,7 @@ func (d *ConversationDriver) Submit(text string, images []ImageBlock, _ SubmitMe
 	}
 	d.users = append(d.users, SteerMessage{Text: text, Images: images})
 	d.held = false
+	d.resetEpisodeLocked()
 	d.unlockEmit()
 	d.signalWake()
 }
@@ -47,6 +51,7 @@ func (d *ConversationDriver) DeliverCompletions(cs []SubAgentCompletion) {
 		return
 	}
 	d.completions = append(d.completions, cs...)
+	d.armWindowLocked(cs)
 	d.unlockEmit()
 	d.signalWake()
 }
@@ -62,12 +67,6 @@ func (d *ConversationDriver) RequestCompaction(fn func(ctx context.Context, conv
 	d.compactions = append(d.compactions, fn)
 	d.unlockEmit()
 	d.signalWake()
-}
-
-// hasWakeLocked reports whether any inbox item should start a sequence.
-// Every prompt, steer and completion wakes; step-6 refines this.
-func (d *ConversationDriver) hasWakeLocked() bool {
-	return len(d.users) > 0 || len(d.completions) > 0 || d.opts.Steers.Len() > 0
 }
 
 // drainForRun is the DrainInbox handed to the runner. While held or closing
@@ -121,5 +120,10 @@ func (d *ConversationDriver) drainLocked(prefix DeliveryParts) InboxDrain {
 	if !ok {
 		return InboxDrain{}
 	}
-	return InboxDrain{Message: &msg, Wake: true, UserText: parts.UserText}
+	d.disarmWindowLocked()
+	wake := len(items) > 0
+	if !d.exhausted {
+		wake = wake || slices.ContainsFunc(completions, func(c SubAgentCompletion) bool { return !c.Quiet })
+	}
+	return InboxDrain{Message: &msg, Wake: wake, UserText: parts.UserText}
 }
