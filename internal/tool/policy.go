@@ -185,20 +185,9 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 	if path == "" {
 		return fmt.Errorf("path is required")
 	}
-	planWriteAllowed := false
-	if writable {
-		var err error
-		planWriteAllowed, err = p.writePathAllowed(path)
-		if err != nil {
-			return p.policyResolutionError(path, err)
-		}
-	}
-	if writable && len(p.writeAllowlist) > 0 && !planWriteAllowed {
-		return &PathPolicyError{
-			Path:       path,
-			Reason:     planModeWriteDenial(),
-			Promptable: false,
-		}
+	planWriteAllowed, err := p.ensurePlanWriteAllowed(path, writable)
+	if err != nil {
+		return err
 	}
 	allowed, err := p.allowed(path, writable)
 	if err != nil {
@@ -216,26 +205,45 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 	} else if blocked {
 		return p.blockedPathError(path)
 	}
-	if planWriteAllowed {
-		return nil
+	return p.ensureWritablePathAllowed(path, writable, planWriteAllowed)
+}
+
+func (p PathPolicy) ensurePlanWriteAllowed(path string, writable bool) (bool, error) {
+	if !writable {
+		return false, nil
 	}
-	if writable && len(p.writablePaths) > 0 {
-		for _, allowed := range p.writablePaths {
-			within, err := pathWithinPolicyPrefix(allowed, path)
-			if err != nil {
-				return p.policyResolutionError(path, err)
-			}
-			if within {
-				return nil
-			}
-		}
-		return &PathPolicyError{
+	allowed, err := p.writePathAllowed(path)
+	if err != nil {
+		return false, p.policyResolutionError(path, err)
+	}
+	if len(p.writeAllowlist) > 0 && !allowed {
+		return false, &PathPolicyError{
 			Path:       path,
-			Reason:     fmt.Sprintf("path %q is not in the writable allowlist", path),
+			Reason:     planModeWriteDenial(),
 			Promptable: false,
 		}
 	}
-	return nil
+	return allowed, nil
+}
+
+func (p PathPolicy) ensureWritablePathAllowed(path string, writable, planWriteAllowed bool) error {
+	if planWriteAllowed || !writable || len(p.writablePaths) == 0 {
+		return nil
+	}
+	for _, allowed := range p.writablePaths {
+		within, err := pathWithinPolicyPrefix(allowed, path)
+		if err != nil {
+			return p.policyResolutionError(path, err)
+		}
+		if within {
+			return nil
+		}
+	}
+	return &PathPolicyError{
+		Path:       path,
+		Reason:     fmt.Sprintf("path %q is not in the writable allowlist", path),
+		Promptable: false,
+	}
 }
 
 func (p PathPolicy) writePathAllowed(path string) (bool, error) {
