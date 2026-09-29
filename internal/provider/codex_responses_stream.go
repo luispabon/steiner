@@ -108,8 +108,10 @@ func processResponsesStreamEvent(state *responsesStreamState, event string, emit
 		return false, nil
 	case "response.output_item.done":
 		return handleResponsesOutputItemDone(state, payload.Item)
-	case "response.completed":
+	case "response.completed", "response.incomplete":
 		return handleResponsesCompleted(state, payload.Response)
+	case "response.failed":
+		return false, responsesFailedError(payload.Response)
 	}
 	return false, nil
 }
@@ -153,6 +155,37 @@ func handleResponsesOutputItemDone(state *responsesStreamState, item responsesIt
 	state.toolCalls = append(state.toolCalls, call)
 	state.sawToolCall = true
 	return false, nil
+}
+
+func responsesFailedError(response responsesResponse) error {
+	msg, code := "", ""
+	if response.Error != nil {
+		msg = response.Error.Message
+		code = strings.Trim(strings.TrimSpace(string(response.Error.Code)), `"`)
+		if code == "null" {
+			code = ""
+		}
+	}
+	sentinel := errResponsesStreamFailed
+	if transientResponsesFailureCodes[code] {
+		sentinel = errResponsesStreamFailedTransient
+	}
+	switch {
+	case msg != "" && code != "":
+		return fmt.Errorf("%w: %s (code %s)", sentinel, msg, code)
+	case msg != "":
+		return fmt.Errorf("%w: %s", sentinel, msg)
+	case code != "":
+		return fmt.Errorf("%w: code %s", sentinel, code)
+	}
+	return sentinel
+}
+
+// transientResponsesFailureCodes are response.failed error codes that reflect
+// server load rather than a verdict on the request, so a resend may succeed.
+var transientResponsesFailureCodes = map[string]bool{
+	"server_error":        true,
+	"rate_limit_exceeded": true,
 }
 
 func handleResponsesCompleted(state *responsesStreamState, response responsesResponse) (bool, error) {

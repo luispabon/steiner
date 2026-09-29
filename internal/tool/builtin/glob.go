@@ -79,11 +79,14 @@ func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.Pat
 			return err
 		}
 
-		excludePath := path
-		if policy != nil {
-			excludePath = policy.DisplayPath(path)
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
 		}
-		if excluder.ShouldExclude(excludePath) {
+		// Exclusion is evaluated on the path relative to the walk root so that
+		// ancestors of the root (e.g. /srv/build/proj, .steiner/worktrees/x)
+		// never blind the walk. The root itself is never excluded.
+		if rel != "." && excluder.ShouldExclude(filepath.ToSlash(rel)) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -94,17 +97,14 @@ func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.Pat
 			return nil
 		}
 
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
 		if !matchesAnyGlob(matchers, filepath.ToSlash(rel)) {
 			return nil
 		}
 
-		_, err = policy.ResolveReadPath(path)
-		if err != nil {
-			return nil
+		if policy != nil {
+			if _, err := policy.ResolveReadPath(path); err != nil {
+				return nil
+			}
 		}
 
 		matches = append(matches, rel)

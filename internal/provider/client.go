@@ -316,8 +316,11 @@ func classifyProviderError(err error, retryAfterMax time.Duration) retryDecision
 	if _, ok := AsUsageLimit(err); ok {
 		return retryDecision{}
 	}
-	if errors.Is(err, errDecodeChatCompletionResponse) {
+	if errors.Is(err, errDecodeChatCompletionResponse) || errors.Is(err, errResponsesStreamFailed) {
 		return retryDecision{}
+	}
+	if errors.Is(err, errResponsesStreamFailedTransient) {
+		return retryDecision{retry: true, reason: err.Error()}
 	}
 	if errors.Is(err, errDecodeToolCallArguments) {
 		return retryDecision{retry: true, reason: err.Error()}

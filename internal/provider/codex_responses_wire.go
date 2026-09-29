@@ -89,6 +89,10 @@ type responsesResponse struct {
 	IncompleteDetail *struct {
 		Reason string `json:"reason"`
 	} `json:"incomplete_details,omitempty"`
+	Error *struct {
+		Code    json.RawMessage `json:"code"`
+		Message string          `json:"message"`
+	} `json:"error,omitempty"`
 }
 
 type responsesUsage struct {

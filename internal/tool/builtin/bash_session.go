@@ -148,7 +148,7 @@ func (s *BashSession) execute(ctx context.Context, command string) (stdout, stde
 	// ";" on the same line as the user's command would corrupt heredocs, here-strings, and
 	// trailing comments, whose terminators must appear alone on their line.
 	script := fmt.Sprintf(
-		"{\n%s\n} ; __exit__=$? ; echo %s ; echo %s >&2 ; echo %s:$__exit__ ; unset __exit__\n",
+		"{\n%s\n} </dev/null ; __exit__=$? ; echo %s ; echo %s >&2 ; echo %s:$__exit__ ; unset __exit__\n",
 		command,
 		stdoutMarker,
 		stderrMarker,

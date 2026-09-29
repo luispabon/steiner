@@ -42,10 +42,11 @@ func (p *mutatePlanner) commit() (dirtyPaths []string, failure mutateCommitFailu
 				if mode == 0 {
 					mode = 0o644
 				}
-				writeErr = writeFileAtomic(state.path, state.content, mode)
+				writeErr = writeFileAtomic(state.commitPath(), state.content, mode)
 			}
 		} else {
 			opType = "delete_file"
+			// Removes the link itself, never its target.
 			writeErr = os.Remove(state.path)
 			if errors.Is(writeErr, os.ErrNotExist) {
 				writeErr = nil
@@ -77,11 +78,20 @@ func rollbackMutate(committed []*mutateFileState, snapshots map[string]*mutateFi
 			if snapshot.originalIsDir {
 				continue
 			}
+			if !snapshot.exists && snapshot.linkDest != "" {
+				// A deleted symlink is restored as a link, not a regular file.
+				err = os.Symlink(snapshot.linkDest, snapshot.path)
+				if err != nil {
+					errs = append(errs, err.Error())
+					failedPaths = append(failedPaths, snapshot.displayPath)
+				}
+				continue
+			}
 			mode := snapshot.originalMode
 			if mode == 0 {
 				mode = 0o644
 			}
-			err = os.WriteFile(snapshot.path, snapshot.original, mode)
+			err = os.WriteFile(snapshot.commitPath(), snapshot.original, mode)
 		} else {
 			err = os.Remove(snapshot.path)
 			if errors.Is(err, os.ErrNotExist) {
