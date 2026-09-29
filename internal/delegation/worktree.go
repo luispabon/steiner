@@ -124,6 +124,28 @@ func sanitizeBranchName(name string) string {
 	return name
 }
 
+// checkCodeWorktreeFeasible runs the checks that can fail before any git
+// worktree work, so callers can surface them synchronously ahead of dequeue-time
+// provisioning.
+func checkCodeWorktreeFeasible(ctx context.Context, projectRoot string) error {
+	_, _, err := worktreeIdentity(ctx, projectRoot)
+	return err
+}
+
+// worktreeIdentity derives the sanitized parent branch name and process hash
+// that make worktree paths collision-free.
+func worktreeIdentity(ctx context.Context, projectRoot string) (sanitizedBranch, processHash string, err error) {
+	parentBranch, err := getParentBranchName(ctx, projectRoot)
+	if err != nil {
+		return "", "", fmt.Errorf("provision code worktree: %w", errors.Join(ErrWorktreeProvisioning, err))
+	}
+	processHash, err = getProcessHash()
+	if err != nil {
+		return "", "", fmt.Errorf("provision code worktree: %w", errors.Join(ErrWorktreeProvisioning, fmt.Errorf("get process hash: %w", err)))
+	}
+	return sanitizeBranchName(parentBranch), processHash, nil
+}
+
 // ProvisionCodeWorktree provisions a new code worktree for the given agentID,
 // branching from the current HEAD. It holds worktreeMu for the entire
 // provisioning and verification critical section to serialize concurrent
@@ -134,15 +156,9 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 	worktreeMu.Lock()
 	defer worktreeMu.Unlock()
 
-	// Derive the parent branch name and process hash for collision-free identity.
-	parentBranch, err := getParentBranchName(ctx, projectRoot)
+	sanitizedBranch, processHash, err := worktreeIdentity(ctx, projectRoot)
 	if err != nil {
-		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", errors.Join(ErrWorktreeProvisioning, err))
-	}
-	sanitizedBranch := sanitizeBranchName(parentBranch)
-	processHash, err := getProcessHash()
-	if err != nil {
-		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", errors.Join(ErrWorktreeProvisioning, fmt.Errorf("get process hash: %w", err)))
+		return CodeWorktree{}, err
 	}
 
 	// Construct the nested worktree path and branch name.

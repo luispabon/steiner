@@ -443,6 +443,17 @@ func NewDelegationStartedEventWithType(agentID, taskPreview, callID, modelAlias,
 	return newEvent(EventTypeDelegationStarted, payload)
 }
 
+// NewDelegationQueuedEvent creates the event marking a sub-agent queued behind
+// the running-agent cap.
+func NewDelegationQueuedEvent(agentID, callID, agentType, taskPreview string) Event {
+	return newEvent(EventTypeDelegationQueued, DelegationQueuedEvent{
+		AgentID:     agentID,
+		CallID:      callID,
+		AgentType:   agentType,
+		TaskPreview: TruncateWithEllipsis(taskPreview, 120),
+	})
+}
+
 // NewDelegationCacheWaitingEvent creates the event marking a gated delegation follower.
 func NewDelegationCacheWaitingEvent(agentID, callID string, deadline time.Time) Event {
 	return newEvent(EventTypeDelegationCacheWaiting, DelegationCacheWaitingEvent{

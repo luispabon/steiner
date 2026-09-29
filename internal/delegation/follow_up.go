@@ -100,7 +100,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			Branch: session.Remediation.ExpectedBranch,
 		}
 	}
-	result, err := superviseDelegate(ctx, deps, spec, worktree,
+	result, err := superviseDelegate(ctx, deps, spec, worktree, nil,
 		func(childCtx context.Context) (tool.ExecutionResult, error) {
 			return executeFollowUp(childCtx, deps, spec, req, session, isCode)
 		},

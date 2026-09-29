@@ -101,6 +101,7 @@ func TestSpecializedHandlerMaxParallelOneRunsBatchSerially(t *testing.T) {
 	}})
 	deps.SubAgentCfg.MaxParallel = 1
 	deps.ActiveController = NewActiveController()
+	deps.Supervisor = NewSupervisor(SupervisorOptions{MaxParallel: 1, Controller: deps.ActiveController})
 	handler := SubAgentToolDef(deps, nil).Handler
 
 	errs := make(chan error, 2)
@@ -111,7 +112,7 @@ func TestSpecializedHandlerMaxParallelOneRunsBatchSerially(t *testing.T) {
 	go call()
 	<-entered
 	go call()
-	for len(deps.ActiveController.ActiveAgentIDs()) < 2 {
+	for len(deps.Supervisor.Pending()) < 2 {
 		runtime.Gosched()
 	}
 	close(release)
@@ -162,7 +163,7 @@ func TestCancelDuringRemediationIsAccepted(t *testing.T) {
 	}
 	done := make(chan outcome, 1)
 	go func() {
-		result, err := runRegisteredDelegate(context.Background(), deps, spec, agent.RunRequest{}, CodeWorktree{}, nil, remediation, "code", func(r tool.ExecutionResult) tool.ExecutionResult { return r })
+		result, err := runRegisteredDelegate(context.Background(), deps, spec, &delegatePlan{remediation: remediation}, "code", func(r tool.ExecutionResult) tool.ExecutionResult { return r })
 		done <- outcome{result, err}
 	}()
 

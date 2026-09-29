@@ -313,15 +313,33 @@ func resolveToolsAndModel(agentType AgentType, agentID string, deps SpecializedT
 	return allowedTools, scopeProviderEvents(resolvedProvider, agentID, agentType), resolvedModel, nil
 }
 
-func specializedWorktree(ctx context.Context, agentType AgentType, workDir, agentID string) (CodeWorktree, []string, error) {
-	if agentType != AgentTypeCode {
-		return CodeWorktree{}, nil, nil
-	}
-	worktree, warnings, err := provisionCodeWorktreeAndWarnings(ctx, workDir, agentID)
+// buildSpecializedRun bootstraps the child request for a specialized agent.
+func buildSpecializedRun(ctx context.Context, spec Spec, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, worktree CodeWorktree) (agent.RunRequest, Limits, error) {
+	handlerDeps, override := specializedBootstrapDeps(spec.AgentType, deps, resolvedProvider, resolvedModel, allowedTools, worktree)
+	req, limits, err := BuildChildRun(ctx, handlerDeps, override, spec)
 	if err != nil {
-		return CodeWorktree{}, nil, fmt.Errorf("%s: %w", agentType, err)
+		return agent.RunRequest{}, Limits{}, fmt.Errorf("%s: build child run: %w", spec.AgentType, err)
 	}
-	return worktree, warnings, nil
+	return req, limits, nil
+}
+
+// provisionCodePlan provisions a code agent's isolated worktree and builds its
+// request. It runs at dequeue time on the supervisor goroutine.
+func provisionCodePlan(ctx context.Context, plan *delegatePlan, spec Spec, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string) error {
+	worktree, warnings, err := provisionCodeWorktreeAndWarnings(ctx, deps.WorkDir, spec.AgentID)
+	if err != nil {
+		return fmt.Errorf("%s: %w", spec.AgentType, err)
+	}
+	plan.worktree = worktree
+	plan.warnings = warnings
+	req, limits, err := buildSpecializedRun(ctx, spec, deps, resolvedProvider, resolvedModel, allowedTools, worktree)
+	if err != nil {
+		return err
+	}
+	plan.req = req
+	plan.limits = limits
+	plan.remediation = codeRemediationConfig(worktree)
+	return nil
 }
 
 func codeRemediationConfig(worktree CodeWorktree) *RemediationConfig {
@@ -440,23 +458,28 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		spec.SystemSuffix = AgentSystemSuffix(agentType, advisorAvailable, lspAvailable)
 		spec.AdvisorBudget = effectiveAdvisorBudget(advisorAvailable, deps.AdvisorSubAgentBudget)
 
-		provisionedWorktree, warnings, err := specializedWorktree(ctx, agentType, deps.WorkDir, agentID)
-		if err != nil {
-			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
-			return nil, childSetupError(err)
+		plan := &delegatePlan{}
+		if agentType == AgentTypeCode {
+			if err := checkCodeWorktreeFeasible(ctx, deps.WorkDir); err != nil {
+				err = fmt.Errorf("%s: %w", agentType, err)
+				emitDelegateFailed(deps.Events, spec, agentType, err.Error())
+				return nil, childSetupError(err)
+			}
+			plan.provision = func(childCtx context.Context, plan *delegatePlan) error {
+				return provisionCodePlan(childCtx, plan, spec, deps, resolvedProvider, resolvedModel, allowedTools)
+			}
+		} else {
+			req, limits, err := buildSpecializedRun(ctx, spec, deps, resolvedProvider, resolvedModel, allowedTools, CodeWorktree{})
+			if err != nil {
+				emitDelegateFailed(deps.Events, spec, agentType, err.Error())
+				return nil, childSetupError(err)
+			}
+			plan.req = req
+			plan.limits = limits
+			spec.Limits = limits
 		}
-
-		handlerDeps, override := specializedBootstrapDeps(agentType, deps, resolvedProvider, resolvedModel, allowedTools, provisionedWorktree)
-
-		req, limits, err := BuildChildRun(ctx, handlerDeps, override, spec)
-		if err != nil {
-			err = fmt.Errorf("%s: build child run: %w", agentType, err)
-			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
-			return nil, childSetupError(err)
-		}
-		spec.Limits = limits
-		remediation := codeRemediationConfig(provisionedWorktree)
-		result, err := runRegisteredDelegate(ctx, deps, spec, req, provisionedWorktree, warnings, remediation, string(agentType), func(result tool.ExecutionResult) tool.ExecutionResult {
+		plan.modelAlias = resolvedModel.Alias
+		result, err := runRegisteredDelegate(ctx, deps, spec, plan, string(agentType), func(result tool.ExecutionResult) tool.ExecutionResult {
 			if dr, ok := result.Value.(Result); ok {
 				dr.AdvisorBudget = spec.AdvisorBudget
 				result.Value = dr

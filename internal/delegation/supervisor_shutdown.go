@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -23,7 +24,9 @@ type ShutdownReport struct {
 // Shutdown rejects new spawns, cancels every child and waits up to
 // min(ctx, JoinTimeout) for their goroutines to exit. Children still running
 // are reported as unjoined and their worktrees protected; their late results are
-// dropped and their waiters receive ErrSupervisorClosed. Shutdown never
+// dropped and their waiters receive ErrSupervisorClosed. Unjoined children are
+// posted once to the completion sink as quiet cancelled completions before the
+// supervisor closes; nothing is posted afterwards. Shutdown never
 // finalises a child itself. It is idempotent: later calls return the first report.
 func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownReport {
 	s.shutdown.Do(func() {
@@ -54,26 +57,47 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 		}
 
 		s.mu.Lock()
-		defer s.mu.Unlock()
+		var unjoined []*jobState
 		for _, state := range s.jobs {
-			if state.phase != phaseRunning {
-				continue
+			if state.phase == phaseRunning {
+				unjoined = append(unjoined, state)
 			}
+		}
+		sort.Slice(unjoined, func(i, j int) bool {
+			return unjoined[i].job.AgentID < unjoined[j].job.AgentID
+		})
+		var batch []agent.SubAgentCompletion
+		for _, state := range unjoined {
+			path := state.worktree.Path
 			s.report.Unjoined = append(s.report.Unjoined, UnjoinedChild{
 				AgentID:      state.job.AgentID,
 				AgentType:    state.job.AgentType,
 				ParentCallID: state.job.ParentCallID,
-				WorktreePath: state.job.Worktree.Path,
+				WorktreePath: path,
 			})
-			if state.job.Worktree.Path != "" {
-				s.protected[state.job.Worktree.Path] = struct{}{}
+			if path != "" {
+				s.protected[path] = struct{}{}
+			}
+			if state.completion == nil {
+				completion := s.newCompletionLocked(state)
+				completion.Status = string(StatusCancelled)
+				completion.Quiet = true
+				completion.Body = agent.FailureBody(completion.Status, "sub-agent did not stop before shutdown")
+				state.completion = completion
+				if !state.blocking {
+					batch = append(batch, *completion)
+				}
 			}
 			deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
 		}
-		sort.Slice(s.report.Unjoined, func(i, j int) bool {
-			return s.report.Unjoined[i].AgentID < s.report.Unjoined[j].AgentID
-		})
+		var posts postList
+		if s.sink != nil && len(batch) > 0 {
+			posts = postList{sink: s.sink, batches: [][]agent.SubAgentCompletion{batch}}
+		}
 		s.closed = true
+		s.mu.Unlock()
+
+		posts.deliver()
 	})
 
 	s.mu.Lock()

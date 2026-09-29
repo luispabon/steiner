@@ -83,8 +83,8 @@ func TestSupervisorOutstandingCapRejection(t *testing.T) {
 			if want := "sub-agents already outstanding; wait for results before dispatching more"; !strings.Contains(err.Error(), want) {
 				t.Fatalf("err = %q, want it to contain %q", err, want)
 			}
-			if got := len(controller.ActiveAgentIDs()); got != limit {
-				t.Fatalf("registered = %d, want %d (queued jobs register at enqueue)", got, limit)
+			if got := len(controller.ActiveAgentIDs()); got != tt.maxParallel {
+				t.Fatalf("registered = %d, want %d (only started jobs register)", got, tt.maxParallel)
 			}
 
 			for i, child := range children {

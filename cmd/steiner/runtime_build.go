@@ -200,7 +200,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		delegationSessionStore:       delegation.NewSessionStore(),
 		delegationCacheKeyStore:      delegation.NewCacheKeyStore(),
 		delegationActiveController:   delegationActiveController,
-		delegationSupervisor:         delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: max(cfg.SubAgent.MaxParallel, 1), Controller: delegationActiveController}),
+		delegationSupervisor:         delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: max(cfg.SubAgent.MaxParallel, 1), Controller: delegationActiveController, Events: events}),
 		delegationAdvisorBudgetStore: delegation.NewAdvisorBudgetStore(),
 		advisorState:                 advisor.NewSharedState(),
 		compactionLogFile:            compactionLogFile,

@@ -2750,3 +2750,54 @@ func TestSpecializedHandler_RegisterFailureClosesTraceWriter(t *testing.T) {
 		t.Fatal("trace writer still registered after register failure; file handle leaked")
 	}
 }
+
+func TestCheckCodeWorktreeFeasible(t *testing.T) {
+	unborn := t.TempDir()
+	runCmd(t, unborn, "git", "init")
+	tests := []struct {
+		name    string
+		dir     func(t *testing.T) string
+		wantErr error
+	}{
+		{"committed repo", setupTestRepo, nil},
+		{"not a repository", func(t *testing.T) string { return t.TempDir() }, ErrWorktreeProvisioning},
+		{"unborn HEAD", func(*testing.T) string { return unborn }, ErrCodeWorktreeRequiresCommit},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkCodeWorktreeFeasible(context.Background(), tt.dir(t))
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Fatalf("checkCodeWorktreeFeasible: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSpecializedHandler_CodeFeasibilityFailureIsSynchronous(t *testing.T) {
+	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		t.Fatal("runner called after a worktree feasibility failure")
+		return agent.RunState{}, nil
+	}})
+	deps.WorkDir = t.TempDir()
+	events := &recordingEventSink{}
+	deps.Events = events
+	sup := NewSupervisor(SupervisorOptions{MaxParallel: 1})
+	deps.Supervisor = sup
+
+	_, err := newSpecializedHandler(AgentTypeCode, deps)(context.Background(), validStructuredTask("feasibility"))
+	if !errors.Is(err, ErrWorktreeProvisioning) {
+		t.Fatalf("handler error = %v, want ErrWorktreeProvisioning", err)
+	}
+	if sup.HasPending() {
+		t.Fatal("feasibility failure must not enqueue a child")
+	}
+	if got := len(events.Events()); got != 1 {
+		t.Fatalf("events = %d, want the single delegation_failed", got)
+	}
+}

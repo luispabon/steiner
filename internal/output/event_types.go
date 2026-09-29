@@ -68,6 +68,8 @@ const (
 	EventTypeContextDiagnostics = "context_diagnostics"
 	// EventTypeDelegationStarted marks the start of sub-agent delegation.
 	EventTypeDelegationStarted = "delegation_started"
+	// EventTypeDelegationQueued marks a sub-agent accepted but waiting for a running slot.
+	EventTypeDelegationQueued = "delegation_queued"
 	// EventTypeDelegationComplete marks successful sub-agent completion.
 	EventTypeDelegationComplete = "delegation_complete"
 	// EventTypeDelegationFailed marks failed sub-agent completion.
@@ -463,6 +465,14 @@ type DelegationStartedEvent struct {
 	CallID      string `json:"call_id,omitempty"`
 	ModelAlias  string `json:"model_alias,omitempty"`
 	AgentType   string `json:"agent_type,omitempty"`
+}
+
+// DelegationQueuedEvent records a delegated child task waiting for a running slot.
+type DelegationQueuedEvent struct {
+	AgentID     string `json:"agent_id"`
+	CallID      string `json:"call_id,omitempty"`
+	AgentType   string `json:"agent_type,omitempty"`
+	TaskPreview string `json:"task_preview"`
 }
 
 // DelegationCacheWaitingEvent records a sub-agent delegation waiting behind a
