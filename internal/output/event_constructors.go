@@ -454,6 +454,23 @@ func NewDelegationQueuedEvent(agentID, callID, agentType, taskPreview string) Ev
 	})
 }
 
+// NewConversationStateEvent creates the event reporting the conversation
+// driver's state, held flag and pending sub-agent count.
+func NewConversationStateEvent(state string, held bool, pending int, budgetExhausted bool) Event {
+	return newEvent(EventTypeConversationState, ConversationStateEvent{
+		State:           state,
+		Held:            held,
+		Pending:         pending,
+		BudgetExhausted: budgetExhausted,
+	})
+}
+
+// NewConversationWarningEvent creates the event reporting a non-fatal
+// conversation driver failure such as a failed save.
+func NewConversationWarningEvent(message string) Event {
+	return newEvent(EventTypeConversationWarning, ConversationWarningEvent{Message: message})
+}
+
 // NewDelegationCacheWaitingEvent creates the event marking a gated delegation follower.
 func NewDelegationCacheWaitingEvent(agentID, callID string, deadline time.Time) Event {
 	return newEvent(EventTypeDelegationCacheWaiting, DelegationCacheWaitingEvent{

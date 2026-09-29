@@ -70,6 +70,10 @@ const (
 	EventTypeDelegationStarted = "delegation_started"
 	// EventTypeDelegationQueued marks a sub-agent accepted but waiting for a running slot.
 	EventTypeDelegationQueued = "delegation_queued"
+	// EventTypeConversationState marks a conversation driver state or held change.
+	EventTypeConversationState = "conversation_state"
+	// EventTypeConversationWarning marks a non-fatal conversation driver failure.
+	EventTypeConversationWarning = "conversation_warning"
 	// EventTypeDelegationComplete marks successful sub-agent completion.
 	EventTypeDelegationComplete = "delegation_complete"
 	// EventTypeDelegationFailed marks failed sub-agent completion.
@@ -473,6 +477,20 @@ type DelegationQueuedEvent struct {
 	CallID      string `json:"call_id,omitempty"`
 	AgentType   string `json:"agent_type,omitempty"`
 	TaskPreview string `json:"task_preview"`
+}
+
+// ConversationStateEvent is the conversation driver's state for the UI: State
+// is "idle", "generating" or "waiting", Pending counts undelivered sub-agents.
+type ConversationStateEvent struct {
+	State           string `json:"state"`
+	Held            bool   `json:"held"`
+	Pending         int    `json:"pending"`
+	BudgetExhausted bool   `json:"budget_exhausted"`
+}
+
+// ConversationWarningEvent records a non-fatal conversation driver failure.
+type ConversationWarningEvent struct {
+	Message string `json:"message"`
 }
 
 // DelegationCacheWaitingEvent records a sub-agent delegation waiting behind a
