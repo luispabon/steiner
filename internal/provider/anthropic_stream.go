@@ -208,6 +208,10 @@ func handleAnthropicContentBlockDelta(state *anthropicStreamState, index int, de
 			state.signature = delta.Signature
 		}
 		return emitAnthropicThinkingDelta(state, delta.Thinking, emit)
+	case "signature_delta":
+		if delta.Signature != "" {
+			state.signature = delta.Signature
+		}
 	case "input_json_delta":
 		acc := state.toolUseAccumulator(index)
 		acc.Input.WriteString(delta.PartialJSON)
