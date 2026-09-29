@@ -3,6 +3,7 @@ package interactive
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -107,6 +108,32 @@ func TestGuardedActionsRefusedWhilePending(t *testing.T) {
 		if err := s.Handle(context.Background(), a); err != nil {
 			t.Errorf("Handle(%T) without pending = %v", a, err)
 		}
+	}
+}
+
+func TestLoadSessionByIDRefusedWhilePending(t *testing.T) {
+	t.Parallel()
+	bg := &stubBackground{}
+	runner := newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
+		return RunResult{Conversation: append(slices.Clone(conv), agent.Message{Role: agent.MessageRoleAssistant, Content: "ok"})}, nil
+	})
+	s := newWaitingSession(t, runner, bg)
+	origID := s.SessionID()
+	origDriver := s.currentDriver()
+	origConversation := s.Conversation()
+
+	err := s.LoadSessionByID(context.Background(), "other")
+	if err == nil || !strings.Contains(err.Error(), "1 sub-agents still running; wait for them or stop them first") {
+		t.Fatalf("LoadSessionByID() = %v, want pending refusal", err)
+	}
+	if got := s.SessionID(); got != origID {
+		t.Fatalf("session ID changed to %q while pending", got)
+	}
+	if got := s.currentDriver(); got != origDriver {
+		t.Fatal("driver changed while pending")
+	}
+	if got := s.Conversation(); !reflect.DeepEqual(got, origConversation) {
+		t.Fatalf("conversation changed while pending: got %#v, want %#v", got, origConversation)
 	}
 }
 

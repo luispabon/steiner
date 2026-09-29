@@ -29,6 +29,9 @@ func generateSessionID() (string, error) {
 // LoadSessionByID loads a saved session with the given ID, replacing the current
 // conversation with the restored lineage.
 func (s *Session) LoadSessionByID(ctx context.Context, sessionID string) error {
+	if err := s.refuseWhilePending("load session"); err != nil {
+		return err
+	}
 	return s.loadSession(ctx, sessionID)
 }
 
