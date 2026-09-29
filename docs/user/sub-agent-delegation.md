@@ -58,7 +58,7 @@ Every sub-agent receives AGENTS.md (global + project) except `vision`, which can
 
 ### Async delegation
 
-In async sessions `sub_agent` (every type, including `vision`) and `follow_up` return an ack immediately instead of blocking: status `running`, or `queued` when `sub_agent.max_parallel` children are already running, plus the `agent_id` in `continuation`. The result arrives later as a separate message. Non-interactive `exec` runs stay blocking. Oneshot phases stay blocking until they are moved onto the async path.
+In async sessions `sub_agent` (every type, including `vision`) and `follow_up` return an ack immediately instead of blocking: status `running`, or `queued` when `sub_agent.max_parallel` children are already running, plus the `agent_id` in `continuation`. The result arrives later as a separate message. Interactive sessions and oneshot phases are async; non-interactive `exec` runs stay blocking.
 
 Async `sub_agent` accepts an optional `group` label. Calls made in the same assistant response that share a label are delivered together once all of them have finished; groups never span responses. Calls without a label deliver as each finishes. The `group` parameter is part of the tool schema only in async sessions, so the tool definitions stay identical across turns.
 
