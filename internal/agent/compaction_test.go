@@ -162,7 +162,7 @@ func TestCompactionEscalationPolicy(t *testing.T) {
 	}
 }
 
-func TestCompactionCandidateFallbackKeepsRicherGenerationWhenAvailable(t *testing.T) {
+func TestCompactionCandidateFallbackPrefersLatestGeneration(t *testing.T) {
 	t.Parallel()
 
 	lineage := ConversationLineage{
@@ -186,28 +186,51 @@ func TestCompactionCandidateFallbackKeepsRicherGenerationWhenAvailable(t *testin
 		},
 	}
 
-	candidate, ok := selectCompactionCandidate(lineage, map[string]bool{
-		compactionCandidateKey(ConversationCandidate{GenerationID: 1, View: ConversationViewFull}): true,
-	})
-	if !ok {
-		t.Fatal("selectCompactionCandidate() ok = false, want true")
-	}
-	if got, want := candidate.GenerationID, 2; got != want {
-		t.Fatalf("candidate generation = %d, want %d", got, want)
-	}
-	if got, want := candidate.View, ConversationViewFull; got != want {
-		t.Fatalf("candidate view = %q, want %q", got, want)
+	tests := []struct {
+		name    string
+		skipped map[string]bool
+		want    ConversationCandidate
+		wantOK  bool
+	}{
+		{
+			name:   "latest full view wins over richer older generation",
+			want:   ConversationCandidate{GenerationID: 3, View: ConversationViewFull},
+			wantOK: true,
+		},
+		{
+			name: "skipped latest full view uses latest stripped view",
+			skipped: map[string]bool{
+				"3:full": true,
+			},
+			want:   ConversationCandidate{GenerationID: 3, View: ConversationViewSummaryPrefixStripped},
+			wantOK: true,
+		},
+		{
+			name: "all latest views skipped does not use older generation",
+			skipped: map[string]bool{
+				"3:full":                    true,
+				"3:summary_prefix_stripped": true,
+			},
+			wantOK: false,
+		},
 	}
 
-	retained := retainedMessagesForCandidate(lineage, candidate)
-	if got, want := len(retained), 2; got != want {
-		t.Fatalf("retained messages = %d, want %d", got, want)
-	}
-	if got, want := retained[0].Content, "gen2 retained user"; got != want {
-		t.Fatalf("retained[0] = %q, want %q", got, want)
-	}
-	if got, want := retained[1].Content, "gen2 retained assistant"; got != want {
-		t.Fatalf("retained[1] = %q, want %q", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			candidate, ok := selectCompactionCandidate(lineage, tt.skipped)
+			if got, want := ok, tt.wantOK; got != want {
+				t.Fatalf("selectCompactionCandidate() ok = %v, want %v", got, want)
+			}
+			if !ok {
+				return
+			}
+			if got, want := candidate.GenerationID, tt.want.GenerationID; got != want {
+				t.Fatalf("candidate generation = %d, want %d", got, want)
+			}
+			if got, want := candidate.View, tt.want.View; got != want {
+				t.Fatalf("candidate view = %q, want %q", got, want)
+			}
+		})
 	}
 }
 

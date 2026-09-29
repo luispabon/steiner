@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 )
@@ -106,7 +108,7 @@ func TestDecodeAnthropicStreamWithHandler_EmitsTextThinkingToolUseAndFinalChunk(
 	}
 }
 
-func TestDecodeAnthropicStreamWithHandler_FlushesOnEOFWithoutMessageStop(t *testing.T) {
+func TestDecodeAnthropicStreamWithHandler_ReturnsUnexpectedEOFWithoutMessageStop(t *testing.T) {
 	stream := strings.Join([]string{
 		"event: message_start",
 		`data: {"type":"message_start","message":{"role":"assistant","usage":{"input_tokens":5}}}`,
@@ -127,31 +129,17 @@ func TestDecodeAnthropicStreamWithHandler_FlushesOnEOFWithoutMessageStop(t *test
 		chunks = append(chunks, chunk)
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("decodeAnthropicStreamWithHandler() error = %v", err)
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("decodeAnthropicStreamWithHandler() error = %v, want error wrapping io.ErrUnexpectedEOF", err)
 	}
-	if len(chunks) != 2 {
-		t.Fatalf("chunks = %d, want 2", len(chunks))
+	if len(chunks) != 1 {
+		t.Fatalf("chunks = %d, want 1", len(chunks))
 	}
-
-	// First chunk is the text delta
 	if got, want := chunks[0].Delta.Content, "hello"; got != want {
 		t.Fatalf("text chunk = %q, want %q", got, want)
 	}
-
-	// Second chunk should be the final chunk flushed on EOF
-	final := chunks[1]
-	if !final.Done {
-		t.Fatal("final chunk Done = false, want true")
-	}
-	if got, want := final.Delta.Content, "hello"; got != want {
-		t.Fatalf("final content = %q, want %q", got, want)
-	}
-	if final.Usage == nil {
-		t.Fatal("final usage = nil, want usage stats")
-	}
-	if got, want := final.Usage.PromptTokens, 5; got != want {
-		t.Fatalf("prompt tokens = %d, want %d", got, want)
+	if chunks[0].Done {
+		t.Fatal("text chunk Done = true, want false")
 	}
 }
 

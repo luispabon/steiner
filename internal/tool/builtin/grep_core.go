@@ -141,8 +141,8 @@ func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline 
 	var results []grepFileResult
 
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+		if handled, walkErr := walkDirEntryError(path, root, d, err); handled {
+			return walkErr
 		}
 
 		if err := ctx.Err(); err != nil {
@@ -165,6 +165,9 @@ func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline 
 
 		file, hasMatches, err := grepSearchFile(ctx, path, relPath, re, multiline)
 		if err != nil {
+			if skippedEntryError(err) {
+				return nil
+			}
 			return err
 		}
 		if hasMatches {
@@ -181,6 +184,31 @@ func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline 
 	}
 
 	return results, nil
+}
+
+func walkDirEntryError(path, root string, d fs.DirEntry, err error) (bool, error) {
+	if err == nil {
+		return false, nil
+	}
+	if path == root {
+		return true, err
+	}
+	switch {
+	case walkEntryError(d, err):
+		return true, filepath.SkipDir
+	case skippedEntryError(err):
+		return true, nil
+	default:
+		return true, err
+	}
+}
+
+func walkEntryError(d fs.DirEntry, err error) bool {
+	return d != nil && d.IsDir() && skippedEntryError(err)
+}
+
+func skippedEntryError(err error) bool {
+	return errors.Is(err, fs.ErrPermission) || errors.Is(err, fs.ErrNotExist)
 }
 
 func grepRootExcluded(root, displayPath string, excluder *tool.PathExcluder, policy *tool.PathPolicy) bool {

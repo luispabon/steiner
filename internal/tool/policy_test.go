@@ -1139,6 +1139,48 @@ func TestPolicy_ResolvePath_RejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestPolicy_ResolveReadPath_RejectsResolvedBlockedPaths(t *testing.T) {
+	root := t.TempDir()
+	blocked := filepath.Join(root, "secrets")
+	outside := t.TempDir()
+	if err := os.Mkdir(blocked, 0o755); err != nil {
+		t.Fatalf("mkdir blocked directory: %v", err)
+	}
+	if err := os.Symlink(blocked, filepath.Join(outside, "into-blocked")); err != nil {
+		t.Fatalf("create outside symlink: %v", err)
+	}
+	policy := NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
+	path := filepath.Join(outside, "into-blocked", "secret.txt")
+	if _, err := policy.ResolveReadPath(path); err == nil {
+		t.Fatalf("ResolveReadPath(%q) = nil, want blocked-path error", path)
+	}
+}
+
+func TestPolicy_ResolvePath_RejectsWritableSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	writable := filepath.Join(root, "output")
+	if err := os.Mkdir(writable, 0o755); err != nil {
+		t.Fatalf("mkdir writable directory: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(writable, "escape")); err != nil {
+		t.Fatalf("create writable symlink: %v", err)
+	}
+	if err := os.Symlink(writable, filepath.Join(root, "other")); err != nil {
+		t.Fatalf("create non-writable symlink: %v", err)
+	}
+
+	policy := NewPathPolicy(root, config.PathsConfig{WritablePaths: []string{"output"}})
+	for _, path := range []string{
+		filepath.Join(writable, "escape", "new.txt"),
+		filepath.Join(root, "other", "new.txt"),
+	} {
+		if _, err := policy.ResolvePath(path, true); err == nil {
+			t.Fatalf("ResolvePath(%q, writable) = nil, want writable-path error", path)
+		}
+	}
+}
+
 func TestPolicy_ResolvePath_AllowsSymlinkWithinRoot(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "real"), 0o755); err != nil {

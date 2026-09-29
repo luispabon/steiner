@@ -96,7 +96,7 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		s.resetConversationLocked()
 		s.mu.Unlock()
 		s.skills.Reset()
-		return true, nil
+		return true, s.rotateSession("", false)
 	case SetSkillEnabled:
 		return true, s.setSkillEnabled(ctx, a.Name, a.Enabled)
 	case SubmitApproval:

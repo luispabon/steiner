@@ -15,6 +15,8 @@ import (
 	"github.com/luispabon/steiner/internal/session"
 )
 
+const resumeListValue = "__list_sessions__"
+
 func newRootCommand() *cobra.Command {
 	flags := &cliFlags{}
 
@@ -24,6 +26,9 @@ func newRootCommand() *cobra.Command {
 		SilenceUsage: true,
 		Args:         cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if flags.resume == resumeListValue {
+				flags.resume = ""
+			}
 			if flags.resume != "" && flags.resume != strings.TrimSpace(flags.resume) {
 				flags.resume = strings.TrimSpace(flags.resume)
 			}
@@ -60,7 +65,7 @@ func newRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().BoolVar(&flags.dev, "dev", false, "select the dev release channel for `steiner update`")
 	rootCmd.PersistentFlags().BoolVar(&flags.trustProjectConfig, "trust-project-config", false, "trust this project's config for this run without prompting")
 	rootCmd.Flags().StringVar(&flags.resume, "resume", "", "resume a saved session by ID; omit value to list sessions")
-	rootCmd.Flag("resume").NoOptDefVal = ""
+	rootCmd.Flag("resume").NoOptDefVal = resumeListValue
 
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newConfigCommand(flags))

@@ -2,8 +2,11 @@ package builtin
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -149,4 +152,70 @@ func TestLSTool(t *testing.T) {
 		}
 	})
 
+}
+
+func TestLSRecursive_ReturnsRootErrors(t *testing.T) {
+	t.Run("returns missing root error", func(t *testing.T) {
+		_, err := lsRecursive(context.Background(), filepath.Join(t.TempDir(), "missing"), defaultLSLimit, 0, tool.PathExcluder{})
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("lsRecursive error = %v, want not exist error", err)
+		}
+	})
+
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("permission-based traversal failure test is unix-oriented")
+	}
+
+	t.Run("returns inaccessible root error", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.Chmod(root, 0o000); err != nil {
+			t.Fatalf("chmod root: %v", err)
+		}
+		defer func() { _ = os.Chmod(root, 0o755) }()
+		if _, err := os.ReadDir(root); err == nil {
+			t.Skip("filesystem does not deny directory traversal after chmod 000")
+		}
+
+		_, err := lsRecursive(context.Background(), root, defaultLSLimit, 0, tool.PathExcluder{})
+		if !errors.Is(err, fs.ErrPermission) {
+			t.Fatalf("lsRecursive error = %v, want permission error", err)
+		}
+	})
+}
+
+func TestLSRecursive_SkipsInaccessibleDirectories(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("permission-based traversal failure test is unix-oriented")
+	}
+
+	tmpDir := t.TempDir()
+	visiblePath := filepath.Join(tmpDir, "visible.txt")
+	if err := os.WriteFile(visiblePath, []byte("visible"), 0o644); err != nil {
+		t.Fatalf("write visible file: %v", err)
+	}
+	blockedDir := filepath.Join(tmpDir, "blocked")
+	if err := os.Mkdir(blockedDir, 0o755); err != nil {
+		t.Fatalf("mkdir blocked dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(blockedDir, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write blocked child file: %v", err)
+	}
+	if err := os.Chmod(blockedDir, 0o000); err != nil {
+		t.Fatalf("chmod blocked dir: %v", err)
+	}
+	defer func() { _ = os.Chmod(blockedDir, 0o755) }()
+	if _, err := os.ReadDir(blockedDir); err == nil {
+		t.Skip("filesystem does not deny directory traversal after chmod 000")
+	}
+
+	result, err := lsRecursive(context.Background(), tmpDir, defaultLSLimit, 0, tool.PathExcluder{})
+	if err != nil {
+		t.Fatalf("lsRecursive: %v", err)
+	}
+	if !strings.Contains(result.Output, "visible.txt") {
+		t.Fatalf("Output missing visible file: %q", result.Output)
+	}
+	if strings.Contains(result.Output, "blocked/secret.txt") {
+		t.Fatalf("Output contains inaccessible directory child: %q", result.Output)
+	}
 }

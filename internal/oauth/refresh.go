@@ -46,6 +46,7 @@ func (r *RefreshableTokenSource) Token() (*oauth2.Token, error) {
 		return nil, err
 	}
 
+	tok = preserveTokenMetadata(tok, r.last)
 	if r.last == nil || !tokenPersistenceEqual(tok, r.last) {
 		if err := r.store.Save(tok); err != nil {
 			return nil, fmt.Errorf("save refreshed token: %w", err)
@@ -53,6 +54,20 @@ func (r *RefreshableTokenSource) Token() (*oauth2.Token, error) {
 		r.last = cloneToken(tok)
 	}
 	return tok, nil
+}
+
+func preserveTokenMetadata(token, previous *oauth2.Token) *oauth2.Token {
+	extra := make(map[string]any)
+	for _, key := range []string{"id_token", chatGPTAccountIDExtraKey, OpenAIAPIKeyExtraKey} {
+		value := tokenExtraString(token, key)
+		if value == "" {
+			value = tokenExtraString(previous, key)
+		}
+		if value != "" {
+			extra[key] = value
+		}
+	}
+	return token.WithExtra(extra)
 }
 
 func tokenPersistenceEqual(a, b *oauth2.Token) bool {

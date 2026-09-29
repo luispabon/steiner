@@ -10,6 +10,32 @@ import (
 
 func intPtr(v int) *int { return &v }
 
+func TestOpenAIToolCallIndexPresence(t *testing.T) {
+	tests := []struct {
+		name      string
+		payload   string
+		wantIndex *int
+	}{
+		{name: "explicit zero", payload: `{"index":0}`, wantIndex: intPtr(0)},
+		{name: "omitted", payload: `{}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var call openAIToolCall
+			if err := json.Unmarshal([]byte(tt.payload), &call); err != nil {
+				t.Fatal(err)
+			}
+			if (call.Index == nil) != (tt.wantIndex == nil) {
+				t.Fatalf("Index = %v, want %v", call.Index, tt.wantIndex)
+			}
+			if call.Index != nil && *call.Index != *tt.wantIndex {
+				t.Fatalf("Index = %d, want %d", *call.Index, *tt.wantIndex)
+			}
+		})
+	}
+}
+
 func TestOpenAIWireOpencodeSessionHeaders(t *testing.T) {
 	baseURL, _ := url.Parse("https://example.test/v1")
 	wire := &openaiWire{baseURL: baseURL, headers: map[string]string{"X-Opencode-Session": "configured"}}

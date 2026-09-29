@@ -129,14 +129,10 @@ func (p PathPolicy) ResolveReadPath(raw string) (string, error) {
 		return "", fmt.Errorf("path is required")
 	}
 	normalized = p.rewriteTmpPath(normalized)
-	for _, blocked := range p.blockedPaths {
-		if pathWithinRoot(blocked, normalized) {
-			return "", &PathPolicyError{
-				Path:       normalized,
-				Reason:     fmt.Sprintf("path %q is blocked by policy", normalized),
-				Promptable: false,
-			}
-		}
+	if blocked, err := p.blocked(normalized); err != nil {
+		return "", p.policyResolutionError(normalized, err)
+	} else if blocked {
+		return "", p.blockedPathError(normalized)
 	}
 	if err := rejectSpecialFile(normalized); err != nil {
 		return "", err
@@ -171,81 +167,131 @@ func (p PathPolicy) pathWithinSandboxTmp(path string) bool {
 	return pathWithinRoot(p.sandboxTmpDir, path)
 }
 
-// allowed reports whether a path is inside the project root, or, for a
-// writable operation, inside the configured sandbox tmp dir. Containment is
-// only enforced when the policy root is set and project_root_only is on.
-func (p PathPolicy) allowed(path string, writable bool) bool {
+// allowed reports whether path is lexically and resolved-path contained by the
+// project root or, for a writable operation, the configured sandbox tmp dir.
+// Containment is only enforced when the policy root is set and project_root_only
+// is on.
+func (p PathPolicy) allowed(path string, writable bool) (bool, error) {
 	if p.root == "" || !p.projectRootOnly {
-		return true
+		return true, nil
 	}
 	if writable && p.pathWithinSandboxTmp(path) {
-		return true
+		return pathWithinPolicyPrefix(p.sandboxTmpDir, path)
 	}
-	within, err := canonicalPathWithin(p.root, path)
-	if err != nil {
-		// Symlink resolution is defense in depth; fall back to the lexical check.
-		return pathWithinRoot(p.root, path)
-	}
-	return within
+	return pathWithinPolicyPrefix(p.root, path)
 }
 
 func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 	if path == "" {
 		return fmt.Errorf("path is required")
 	}
-	planWriteAllowed := writable && p.writePathAllowed(path)
-	if writable && len(p.writeAllowlist) > 0 && !planWriteAllowed {
-		return &PathPolicyError{
-			Path:       path,
-			Reason:     planModeWriteDenial(),
-			Promptable: false,
-		}
+	planWriteAllowed, err := p.ensurePlanWriteAllowed(path, writable)
+	if err != nil {
+		return err
 	}
-	if !p.allowed(path, writable) {
+	allowed, err := p.allowed(path, writable)
+	if err != nil {
+		return p.policyResolutionError(path, err)
+	}
+	if !allowed {
 		return &PathPolicyError{
 			Path:       path,
 			Reason:     fmt.Sprintf("path %q is outside project root %q", path, p.root),
 			Promptable: true,
 		}
 	}
-	for _, blocked := range p.blockedPaths {
-		if pathWithinRoot(blocked, path) {
-			return &PathPolicyError{
-				Path:       path,
-				Reason:     fmt.Sprintf("path %q is blocked by policy", path),
-				Promptable: false,
-			}
-		}
+	if blocked, err := p.blocked(path); err != nil {
+		return p.policyResolutionError(path, err)
+	} else if blocked {
+		return p.blockedPathError(path)
 	}
-	if planWriteAllowed {
-		return nil
+	return p.ensureWritablePathAllowed(path, writable, planWriteAllowed)
+}
+
+func (p PathPolicy) ensurePlanWriteAllowed(path string, writable bool) (bool, error) {
+	if !writable {
+		return false, nil
 	}
-	if writable && len(p.writablePaths) > 0 {
-		for _, allowed := range p.writablePaths {
-			if pathWithinRoot(allowed, path) {
-				return nil
-			}
-		}
-		return &PathPolicyError{
+	allowed, err := p.writePathAllowed(path)
+	if err != nil {
+		return false, p.policyResolutionError(path, err)
+	}
+	if len(p.writeAllowlist) > 0 && !allowed {
+		return false, &PathPolicyError{
 			Path:       path,
-			Reason:     fmt.Sprintf("path %q is not in the writable allowlist", path),
+			Reason:     planModeWriteDenial(),
 			Promptable: false,
 		}
 	}
-	return nil
+	return allowed, nil
 }
 
-func (p PathPolicy) writePathAllowed(path string) bool {
+func (p PathPolicy) ensureWritablePathAllowed(path string, writable, planWriteAllowed bool) error {
+	if planWriteAllowed || !writable || len(p.writablePaths) == 0 {
+		return nil
+	}
+	for _, allowed := range p.writablePaths {
+		within, err := pathWithinPolicyPrefix(allowed, path)
+		if err != nil {
+			return p.policyResolutionError(path, err)
+		}
+		if within {
+			return nil
+		}
+	}
+	return &PathPolicyError{
+		Path:       path,
+		Reason:     fmt.Sprintf("path %q is not in the writable allowlist", path),
+		Promptable: false,
+	}
+}
+
+func (p PathPolicy) writePathAllowed(path string) (bool, error) {
 	for _, allowed := range p.writeAllowlist {
 		if !pathWithinRoot(allowed, path) {
 			continue
 		}
 		within, err := canonicalWritePathWithin(p.root, allowed, path)
-		if err == nil && within {
-			return true
+		if err != nil {
+			return false, err
+		}
+		if within {
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
+}
+
+func (p PathPolicy) blocked(path string) (bool, error) {
+	for _, blocked := range p.blockedPaths {
+		if pathWithinRoot(blocked, path) {
+			return true, nil
+		}
+		within, err := resolvedPathWithin(blocked, path)
+		if err != nil {
+			return false, err
+		}
+		if within {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (p PathPolicy) blockedPathError(path string) *PathPolicyError {
+	return &PathPolicyError{
+		Path:       path,
+		Reason:     fmt.Sprintf("path %q is blocked by policy", path),
+		Promptable: false,
+	}
+}
+
+func (p PathPolicy) policyResolutionError(path string, err error) *PathPolicyError {
+	return &PathPolicyError{
+		Path:       path,
+		Reason:     fmt.Sprintf("resolve path for policy check: %v", err),
+		Promptable: false,
+	}
 }
 
 // ValidateToolInput normalizes path-bearing tool arguments.
@@ -463,30 +509,28 @@ func resolvePathWithMissing(path string) (string, error) {
 	}
 }
 
-// canonicalPathWithin reports whether path, after resolving symlinks in itself
-// (or in its nearest existing ancestor, for paths not yet created), is
-// contained within root (also resolved). It errors when root or an existing
-// path component cannot be resolved.
-func canonicalPathWithin(root, path string) (bool, error) {
-	resolvedRoot, err := filepath.EvalSymlinks(root)
+// pathWithinPolicyPrefix reports whether path is contained within prefix both
+// lexically and after resolving symlinks. The lexical check retains configured
+// path boundaries while the resolved check prevents a symlink from escaping one.
+func pathWithinPolicyPrefix(prefix, path string) (bool, error) {
+	if !pathWithinRoot(prefix, path) {
+		return false, nil
+	}
+	return resolvedPathWithin(prefix, path)
+}
+
+// resolvedPathWithin reports whether path is contained within prefix after
+// resolving symlinks while preserving any missing suffix.
+func resolvedPathWithin(prefix, path string) (bool, error) {
+	resolvedPrefix, err := resolvePathWithMissing(prefix)
 	if err != nil {
-		return false, fmt.Errorf("resolve policy root: %w", err)
+		return false, fmt.Errorf("resolve policy prefix: %w", err)
 	}
-	target := path
-	for {
-		resolved, resolveErr := filepath.EvalSymlinks(target)
-		if resolveErr == nil {
-			return pathWithinRoot(resolvedRoot, filepath.Clean(resolved)), nil
-		}
-		if !os.IsNotExist(resolveErr) {
-			return false, fmt.Errorf("resolve policy path: %w", resolveErr)
-		}
-		parent := filepath.Dir(target)
-		if parent == target {
-			return false, nil
-		}
-		target = parent
+	resolvedPath, err := resolvePathWithMissing(path)
+	if err != nil {
+		return false, fmt.Errorf("resolve policy path: %w", err)
 	}
+	return pathWithinRoot(resolvedPrefix, resolvedPath), nil
 }
 
 func pathWithinRoot(root, path string) bool {

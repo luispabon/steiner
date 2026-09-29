@@ -150,12 +150,22 @@ func TestClearConversationResetsLineage(t *testing.T) {
 	s.conversation = []agent.Message{userMsg("secret")}
 	s.lineage = lineageOf(userMsg("secret"))
 	s.mu.Unlock()
+	oldID := s.SessionID()
+	if err := s.saveSession(); err != nil {
+		t.Fatalf("saveSession before clear: %v", err)
+	}
 
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
 		t.Fatalf("ClearConversation: %v", err)
 	}
+	if s.SessionID() == oldID {
+		t.Fatal("session ID did not rotate")
+	}
 	if err := s.saveSession(); err != nil {
 		t.Fatalf("saveSession: %v", err)
+	}
+	if got := store.savedSessions[oldID].Lineage.FullMessages(); len(got) != 1 || got[0].Content != "secret" {
+		t.Fatalf("original saved lineage = %+v, want secret", got)
 	}
 	saved := store.savedSessions[s.SessionID()]
 	if got := saved.Lineage.FullMessages(); len(got) != 0 {

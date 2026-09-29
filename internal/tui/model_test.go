@@ -752,6 +752,51 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 	}
 }
 
+func TestModelComposerClickDoesNotToggleOffscreenTool(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	for i := 0; i < 30; i++ {
+		m.content.AppendLine("filler")
+	}
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"})})
+
+	toolIndex := len(m.content.segments) - 1
+	tool := m.content.segments[toolIndex].toolData
+	if tool == nil {
+		t.Fatal("toolData = nil, want standalone tool call")
+	}
+	if !tool.collapsed {
+		t.Fatal("standalone tool call should start collapsed")
+	}
+
+	m.syncViewport()
+	toolLine, ok := m.content.contentLineForSegmentRow(toolIndex, 0)
+	if !ok {
+		t.Fatal("tool header row was not found")
+	}
+	composerX, _ := m.regionXBounds(regionInput)
+	composerY := m.height - 1 - m.inputChromeHeight(m.contentWidth())
+	offset := toolLine - composerY + m.contentTopPad + m.viewportContentTopOffset()
+	m.viewport.SetYOffset(offset)
+	if m.viewport.YOffset() == 0 {
+		t.Fatal("viewport offset = 0, want nonzero offset")
+	}
+	if got := m.detectRegion(composerX, composerY); got != regionInput {
+		t.Fatalf("composer region = %v, want %v", got, regionInput)
+	}
+	if screenY := m.screenYAtContentLine(toolLine); screenY >= m.viewportContentTopRow() && screenY <= m.viewportContentBottomRow() {
+		t.Fatalf("tool header screen row = %d, want outside viewport content", screenY)
+	}
+
+	m = updateModel(t, m, mouseClickMsg{x: composerX, y: composerY})
+	updateModel(t, m, mouseReleaseMsg{x: composerX, y: composerY})
+
+	if !tool.collapsed {
+		t.Fatal("composer click should not toggle offscreen tool")
+	}
+}
+
 func TestModelMouseDragDoesNotToggle(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)

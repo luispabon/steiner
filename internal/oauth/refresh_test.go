@@ -181,6 +181,7 @@ func TestRefreshableTokenSourcePreservesMetadataWhenResponseOmitsIt(t *testing.T
 	}).WithExtra(map[string]any{
 		"id_token":               "existing-id",
 		chatGPTAccountIDExtraKey: "existing-account",
+		OpenAIAPIKeyExtraKey:     "existing-api-key",
 	})
 
 	if err := store.Save(token); err != nil {
@@ -209,6 +210,15 @@ func TestRefreshableTokenSourcePreservesMetadataWhenResponseOmitsIt(t *testing.T
 	if retrieved.AccessToken != "new_token" {
 		t.Errorf("AccessToken = %q, want 'new_token'", retrieved.AccessToken)
 	}
+	if retrieved.Extra("id_token") != "existing-id" {
+		t.Errorf("Extra(id_token) = %v, want existing-id", retrieved.Extra("id_token"))
+	}
+	if retrieved.Extra(chatGPTAccountIDExtraKey) != "existing-account" {
+		t.Errorf("Extra(account_id) = %v, want existing-account", retrieved.Extra(chatGPTAccountIDExtraKey))
+	}
+	if retrieved.Extra(OpenAIAPIKeyExtraKey) != "existing-api-key" {
+		t.Errorf("Extra(openai_api_key) = %v, want existing-api-key", retrieved.Extra(OpenAIAPIKeyExtraKey))
+	}
 
 	reloaded, err := store.Load()
 	if err != nil {
@@ -220,6 +230,34 @@ func TestRefreshableTokenSourcePreservesMetadataWhenResponseOmitsIt(t *testing.T
 	}
 	if reloaded.Extra(chatGPTAccountIDExtraKey) != "existing-account" {
 		t.Errorf("persisted Extra(account_id) = %v, want existing-account", reloaded.Extra(chatGPTAccountIDExtraKey))
+	}
+	if reloaded.Extra(OpenAIAPIKeyExtraKey) != "existing-api-key" {
+		t.Errorf("persisted Extra(openai_api_key) = %v, want existing-api-key", reloaded.Extra(OpenAIAPIKeyExtraKey))
+	}
+}
+
+func TestRefreshableTokenSourcePreservesFreshMetadata(t *testing.T) {
+	previous := (&oauth2.Token{}).WithExtra(map[string]any{
+		"id_token":               "previous-id",
+		chatGPTAccountIDExtraKey: "previous-account",
+		OpenAIAPIKeyExtraKey:     "previous-api-key",
+	})
+	fresh := (&oauth2.Token{}).WithExtra(map[string]any{
+		"id_token":               "fresh-id",
+		chatGPTAccountIDExtraKey: "fresh-account",
+		OpenAIAPIKeyExtraKey:     "fresh-api-key",
+	})
+
+	merged := preserveTokenMetadata(fresh, previous)
+
+	for key, want := range map[string]string{
+		"id_token":               "fresh-id",
+		chatGPTAccountIDExtraKey: "fresh-account",
+		OpenAIAPIKeyExtraKey:     "fresh-api-key",
+	} {
+		if got := tokenExtraString(merged, key); got != want {
+			t.Errorf("Extra(%q) = %q, want %q", key, got, want)
+		}
 	}
 }
 
