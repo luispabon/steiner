@@ -65,6 +65,19 @@ Each phase is a fresh agent run with empty model context and a clean scrollback.
 - Refinement: full advisor loops enabled. A final `advisor` sanity check on residual risk is mandatory before the verdict is marked (skipped only if the per-run advisor budget is exhausted); its note is recorded in `review.md`.
 - Output: `review.md` (scope, status, findings, reruns, residual risk, advisor note), final commit. The engine then writes the structured `final-report.json` and runs closeout (PR push if `auto_pr` is enabled).
 
+### Phase Driver and Persistence-First Sessions
+
+Before a phase runs, the orchestrator creates the phase session, records its id in `phase_session_ids` and writes the manifest. It then calls `PhaseRunner.RunPhase(ctx, PhaseRunInput)`; `PhaseRunInput.Session` carries the id and a `Save` that updates that one record. The final `persistPhaseSession` step is only a last save to the same session, skipped when the run produced no conversation, so a failed or interrupted phase keeps its partial session for inspection and no second session is ever created. Resume restarts the interrupted phase and gives it a new session; the old one stays on disk.
+
+`phaseRunner.RunPhase` (`cmd/steiner/phase_driver.go`) hosts the phase on an `agent.ConversationDriver`:
+
+1. The runtime's `Supervisor` is the driver's `Background` and, via `SetCompletionSink`, the source of its completions.
+2. The phase prompt is submitted and `WaitQuiescent` blocks until the driver is idle with no sub-agent pending. `CheckBoundary` runs only after that.
+3. `MaxTokensPerEpisode` is `limits.max_tokens`. `ErrEpisodeBudgetExhausted` (budget spent, children still pending) fails the phase.
+4. On budget exhaustion, a failed run, phase cancellation or heartbeat loss, the supervisor is shut down first (`CancelCauseSystem`), then the driver is closed: it settles the cancelled results into the conversation without calling the model and saves. Only then does the deferred `closeRuntime` run, whose own shutdown is a no-op. The driver's loop is always joined before `RunPhase` returns.
+
+Driver conversation-state events are not forwarded to the launching session's sink; they describe the phase's private conversation.
+
 ### Run Manifest
 
 The manifest is a durable JSON record at `.steiner/oneshot/<id>/run.json`:

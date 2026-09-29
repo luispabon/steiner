@@ -13,6 +13,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -112,9 +113,28 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 	return phaseRunner{runner: runner}, nil
 }
 
-func (r phaseRunner) RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (oneshot.RunResult, error) {
+func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (oneshot.RunResult, error) {
+	// closeRuntime runs after runPhaseOnDriver has already shut the sub-agents
+	// down and settled the driver, so its own shutdown is a no-op on failure.
 	defer closeRuntime(&r.runner.runtime)
-	return r.runner.RunPhase(ctx, conversation, skillNames, drainSteers)
+	resetFallbackModelWarnings()
+
+	rt := &r.runner.runtime
+	rec := &driverRunRecord{}
+	host := phaseDriverHost{
+		run:    r.runner.driverRun(in.SkillNames, in.DrainSteers, rec),
+		record: rec,
+		shutdown: func(ctx context.Context, cause delegation.CancelCause) {
+			shutdownDelegation(ctx, rt, cause)
+		},
+		events:              rt.events,
+		maxTokensPerEpisode: rt.cfg.Limits.MaxTokens,
+	}
+	if sup := rt.delegationSupervisor; sup != nil {
+		host.background = sup
+		host.setSink = sup.SetCompletionSink
+	}
+	return runPhaseOnDriver(ctx, in, host)
 }
 
 // requireSubAgentsForOneshot returns an error if sub-agents are disabled in

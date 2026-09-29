@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
-	"github.com/luispabon/steiner/internal/session"
 )
 
 // Run executes the autonomous plan -> implement -> review loop.
@@ -200,9 +199,32 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 		})
 	}
 
+	// The session exists and is linked in the manifest before the phase runs,
+	// so a crash or failed phase leaves its partial conversation inspectable.
+	phaseSession, err := o.newPhaseSession(p.Phase, modelAlias)
+	if err != nil {
+		return o.finalizePhaseFailure(p, cancel, err, phaseFailureOptions{
+			IndicatorState:   phaseIndicatorBoundary,
+			IndicatorMessage: err.Error(),
+		})
+	}
+	sessionID := phaseSession.id()
+	p.Manifest.PhaseSessionIDs[p.Phase] = sessionID
+	if err := p.Store.Write(*p.Manifest); err != nil {
+		return o.finalizePhaseFailure(p, cancel, err, phaseFailureOptions{
+			IndicatorState:    phaseIndicatorBoundary,
+			IndicatorMessage:  err.Error(),
+			SkipManifestWrite: true,
+		})
+	}
+
 	conversation := phaseConversation(o.deps.Identity, o.deps.Task, p.Phase, p.WorktreePath, p.PlanningPath)
 	stopHeartbeat := o.startPhaseHeartbeat(p.Lock, cancel)
-	result, runErr := runner.RunPhase(phaseCtx, conversation, nil, o.deps.DrainSteers)
+	result, runErr := runner.RunPhase(phaseCtx, PhaseRunInput{
+		Conversation: conversation,
+		Session:      PhaseSession{ID: sessionID, Save: phaseSession.save},
+		DrainSteers:  o.deps.DrainSteers,
+	})
 	hbErr := stopHeartbeat()
 	if hbErr != nil {
 		// The heartbeat cancelled phaseCtx, so runErr is usually a context
@@ -210,15 +232,13 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 		runErr = hbErr
 	}
 
-	sessionID, saveErr := o.persistPhaseSession(p.Phase, modelAlias, result)
-	if saveErr != nil {
+	if saveErr := phaseSession.saveResult(result); saveErr != nil {
 		return o.finalizePhaseFailure(p, cancel, saveErr, phaseFailureOptions{
 			IndicatorState:    phaseIndicatorBoundary,
 			IndicatorMessage:  saveErr.Error(),
 			SkipManifestWrite: errors.Is(hbErr, errLockLost),
 		})
 	}
-	p.Manifest.PhaseSessionIDs[p.Phase] = sessionID
 
 	if runErr != nil {
 		return o.finalizePhaseFailure(p, cancel, runErr, phaseFailureOptions{
@@ -303,31 +323,6 @@ func (o *Orchestrator) startPhaseHeartbeat(lock *RunLock, cancel context.CancelF
 		<-exited
 		return hbErr
 	}
-}
-
-func (o *Orchestrator) persistPhaseSession(phase Phase, modelAlias string, result RunResult) (string, error) {
-	lineage := result.Lineage
-	if lineage.Empty() && len(result.Conversation) > 0 {
-		lineage = agent.ConversationLineage{
-			Generations: []agent.ConversationGeneration{
-				{
-					ID:       1,
-					Messages: cloneAgentMessages(result.Conversation),
-				},
-			},
-			NextGenerationID: 2,
-		}
-	}
-
-	sess, err := session.NewSession(strings.TrimSpace(modelAlias), lineage, o.deps.Identity.ID)
-	if err != nil {
-		return "", fmt.Errorf("create phase session: %w", err)
-	}
-	sess = sess.WithTitle(fmt.Sprintf("%s phase: %s", phase, o.deps.Task))
-	if err := o.deps.SessionStore.Save(sess); err != nil {
-		return "", fmt.Errorf("save phase session: %w", err)
-	}
-	return sess.ID, nil
 }
 
 func phaseConversation(identity RunIdentity, task string, phase Phase, worktreePath, planningPath string) []agent.Message {

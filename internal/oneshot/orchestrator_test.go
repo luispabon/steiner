@@ -64,6 +64,14 @@ type recordingSessionStore struct {
 func (s *recordingSessionStore) Save(sess session.Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A phase saves to one session repeatedly; sessions holds each distinct
+	// session once, at its latest state.
+	for i := range s.sessions {
+		if s.sessions[i].ID == sess.ID {
+			s.sessions[i] = sess
+			return nil
+		}
+	}
 	s.sessions = append(s.sessions, sess)
 	return nil
 }
@@ -77,7 +85,8 @@ type phaseRunnerStub struct {
 	started       chan struct{}
 }
 
-func (r phaseRunnerStub) RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (RunResult, error) {
+func (r phaseRunnerStub) RunPhase(ctx context.Context, in PhaseRunInput) (RunResult, error) {
+	conversation, skillNames, drainSteers := in.Conversation, in.SkillNames, in.DrainSteers
 	if r.factory != nil {
 		r.factory.mu.Lock()
 		if r.factory.calls == nil {
@@ -575,7 +584,8 @@ type steerDrainingPhaseRunner struct {
 	steers       []agent.SteerMessage
 }
 
-func (r *steerDrainingPhaseRunner) RunPhase(_ context.Context, conversation []agent.Message, _ []string, drainSteers func() []agent.SteerMessage) (RunResult, error) {
+func (r *steerDrainingPhaseRunner) RunPhase(_ context.Context, in PhaseRunInput) (RunResult, error) {
+	conversation, drainSteers := in.Conversation, in.DrainSteers
 	if drainSteers != nil {
 		r.steers = append(r.steers, drainSteers()...)
 	}

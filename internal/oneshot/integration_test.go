@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -43,7 +42,8 @@ type fixturePhaseRunner struct {
 	started           chan struct{}
 }
 
-func (r fixturePhaseRunner) RunPhase(ctx context.Context, conversation []agent.Message, _ []string, _ func() []agent.SteerMessage) (RunResult, error) {
+func (r fixturePhaseRunner) RunPhase(ctx context.Context, in PhaseRunInput) (RunResult, error) {
+	conversation := in.Conversation
 	if !r.skipPlanArtifacts {
 		if err := os.MkdirAll(r.planningPath, 0o755); err != nil {
 			return RunResult{}, err
