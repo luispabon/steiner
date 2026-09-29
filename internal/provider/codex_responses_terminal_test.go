@@ -16,6 +16,7 @@ func TestResponsesStreamTerminalEvents(t *testing.T) {
 		name       string
 		body       string
 		wantErr    string
+		wantRetry  bool
 		wantFinish string
 		wantText   string
 	}{
@@ -28,8 +29,20 @@ func TestResponsesStreamTerminalEvents(t *testing.T) {
 		},
 		{
 			name:    "failed with message and code",
-			body:    "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"server_error\",\"message\":\"model exploded\"}}}\n\n",
-			wantErr: "model exploded (code server_error)",
+			body:    "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"invalid_prompt\",\"message\":\"prompt rejected\"}}}\n\n",
+			wantErr: "prompt rejected (code invalid_prompt)",
+		},
+		{
+			name:      "failed with transient server error retries",
+			body:      "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"server_error\",\"message\":\"model exploded\"}}}\n\n",
+			wantErr:   "model exploded (code server_error)",
+			wantRetry: true,
+		},
+		{
+			name:      "failed with rate limit retries",
+			body:      "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"slow down\"}}}\n\n",
+			wantErr:   "slow down",
+			wantRetry: true,
 		},
 		{
 			name:    "failed without error object",
@@ -44,11 +57,11 @@ func TestResponsesStreamTerminalEvents(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
 				}
-				if !errors.Is(err, errResponsesStreamFailed) {
-					t.Fatalf("error %v does not wrap errResponsesStreamFailed", err)
+				if !errors.Is(err, errResponsesStreamFailed) && !errors.Is(err, errResponsesStreamFailedTransient) {
+					t.Fatalf("error %v does not wrap a responses-failed sentinel", err)
 				}
-				if decision := classifyProviderError(err, time.Second); decision.retry {
-					t.Fatalf("classifyProviderError retry = true, want false: %v", err)
+				if decision := classifyProviderError(err, time.Second); decision.retry != tt.wantRetry {
+					t.Fatalf("classifyProviderError retry = %v, want %v: %v", decision.retry, tt.wantRetry, err)
 				}
 				return
 			}
@@ -105,7 +118,7 @@ func TestCodexWSTerminalEvents(t *testing.T) {
 				"type": "response.failed",
 				"response": map[string]any{
 					"status": "failed",
-					"error":  map[string]any{"code": "server_error", "message": "model exploded"},
+					"error":  map[string]any{"code": "invalid_prompt", "message": "model exploded"},
 				},
 			},
 			wantErr: "model exploded",

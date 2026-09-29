@@ -166,15 +166,26 @@ func responsesFailedError(response responsesResponse) error {
 			code = ""
 		}
 	}
+	sentinel := errResponsesStreamFailed
+	if transientResponsesFailureCodes[code] {
+		sentinel = errResponsesStreamFailedTransient
+	}
 	switch {
 	case msg != "" && code != "":
-		return fmt.Errorf("%w: %s (code %s)", errResponsesStreamFailed, msg, code)
+		return fmt.Errorf("%w: %s (code %s)", sentinel, msg, code)
 	case msg != "":
-		return fmt.Errorf("%w: %s", errResponsesStreamFailed, msg)
+		return fmt.Errorf("%w: %s", sentinel, msg)
 	case code != "":
-		return fmt.Errorf("%w: code %s", errResponsesStreamFailed, code)
+		return fmt.Errorf("%w: code %s", sentinel, code)
 	}
-	return errResponsesStreamFailed
+	return sentinel
+}
+
+// transientResponsesFailureCodes are response.failed error codes that reflect
+// server load rather than a verdict on the request, so a resend may succeed.
+var transientResponsesFailureCodes = map[string]bool{
+	"server_error":        true,
+	"rate_limit_exceeded": true,
 }
 
 func handleResponsesCompleted(state *responsesStreamState, response responsesResponse) (bool, error) {
