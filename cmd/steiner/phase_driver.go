@@ -83,7 +83,7 @@ func runPhaseOnDriver(ctx context.Context, in oneshot.PhaseRunInput, host phaseD
 		Background:          host.background,
 		Steers:              host.steers,
 		Save:                in.Session.Save,
-		Events:              phaseDriverEvents(host.events),
+		Events:              phaseDriverEvents(host.events, in.RegisterControl != nil),
 		MaxTokensPerEpisode: host.maxTokensPerEpisode,
 	}, history, agent.ConversationLineage{})
 	if host.setSink != nil {
@@ -144,15 +144,15 @@ func splitPhasePrompt(conversation []agent.Message) ([]agent.Message, agent.Mess
 	return conversation[:last], conversation[last], true
 }
 
-// phaseDriverEvents forwards driver events except conversation state, which
-// describes the phase's private conversation and must not be mistaken for the
-// launching session's.
-func phaseDriverEvents(sink output.EventSink) output.EventSink {
+// phaseDriverEvents forwards driver events to the launching session when the
+// phase has interactive control. Headless phases keep conversation state private
+// so it cannot overwrite an unrelated session's state.
+func phaseDriverEvents(sink output.EventSink, interactive bool) output.EventSink {
 	if sink == nil {
 		return nil
 	}
 	return output.SinkFunc(func(event output.Event) {
-		if event.Type == output.EventTypeConversationState {
+		if event.Type == output.EventTypeConversationState && !interactive {
 			return
 		}
 		sink.Emit(event)
