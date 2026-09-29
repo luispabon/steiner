@@ -29,18 +29,44 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	stop()
 	stopInteractiveProgram(p)
 	wait()
-	// Stop children first so tracked runs blocked on them can finish inside the drain window.
-	shutdownDelegation(context.Background(), rt, delegation.CancelCauseUser)
-	awaitSessionRuns(cmd, sess, rt)
-	closeSession(sess)
-	pruneWorktreesOnExit(cmd, sess, rt)
-	clearTerminalScreen(cmd.OutOrStdout())
-	if err == nil && sess.SessionTitle() != "" {
-		// best-effort: terminal write
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nResume this session:\n  steiner --resume %s\n\n", sess.SessionID())
-	}
-	closeRuntime(rt)
+	runQuitSequence(quitSequence{
+		shutdownDelegation: func() { shutdownDelegation(context.Background(), rt, delegation.CancelCauseUser) },
+		awaitRuns:          func() { awaitSessionRuns(cmd, sess, rt) },
+		closeSession:       func() { closeSession(sess) },
+		prune:              func() { pruneWorktreesOnExit(cmd, sess, rt) },
+		farewell: func() {
+			clearTerminalScreen(cmd.OutOrStdout())
+			if err == nil && sess.SessionTitle() != "" {
+				// best-effort: terminal write
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nResume this session:\n  steiner --resume %s\n\n", sess.SessionID())
+			}
+		},
+		closeRuntime: func() { closeRuntime(rt) },
+	})
 	return err
+}
+
+// quitSequence holds the quit steps in the order they must run.
+type quitSequence struct {
+	shutdownDelegation func()
+	awaitRuns          func()
+	closeSession       func()
+	prune              func()
+	farewell           func()
+	closeRuntime       func()
+}
+
+// runQuitSequence stops sub-agents first so tracked runs blocked on them can
+// finish inside the drain window and the supervisor's cancelled results reach
+// the driver; then the driver settles and saves; only then are unprotected
+// worktrees pruned and the runtime closed.
+func runQuitSequence(q quitSequence) {
+	q.shutdownDelegation()
+	q.awaitRuns()
+	q.closeSession()
+	q.prune()
+	q.farewell()
+	q.closeRuntime()
 }
 
 // sessionRunDrainTimeout bounds how long ordinary interactive shutdown waits for

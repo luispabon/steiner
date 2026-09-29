@@ -49,7 +49,6 @@ type Session struct {
 	sessionDate        prompt.SessionDate
 	done               chan struct{}
 	runs               runGroup
-	activeRuns         int // manual compactions in flight; guarded by mu
 	exitOnce           sync.Once
 }
 
@@ -276,12 +275,6 @@ func (s *Session) resetConversationLocked() {
 // while a prompt or compaction run is active.
 var errRunInProgress = errors.New("cannot change the session while a run is in progress")
 
-func (s *Session) endRun() {
-	s.mu.Lock()
-	s.activeRuns--
-	s.mu.Unlock()
-}
-
 // runActive reports whether a prompt run or manual compaction is in flight.
 func (s *Session) runActive() bool {
 	s.mu.RLock()
@@ -289,10 +282,10 @@ func (s *Session) runActive() bool {
 	return s.runActiveLocked()
 }
 
-// runActiveLocked is runActive for callers that hold s.mu. Unlike the old
-// counter it also covers a prompt the driver has queued but not yet started.
+// runActiveLocked is runActive for callers that hold s.mu. It also covers a
+// prompt the driver has queued but not yet started.
 func (s *Session) runActiveLocked() bool {
-	return s.activeRuns > 0 || s.driverBusyLocked()
+	return s.driverBusyLocked()
 }
 
 // SetRunner replaces the session's run executor. This allows the CLI adapter

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
@@ -62,15 +63,11 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 		s.emitConfigReport()
 		return true, nil
 	case TriggerManualCompaction:
-		s.mu.Lock()
-		if s.runActiveLocked() {
-			s.mu.Unlock()
+		drv := s.currentDriver()
+		if state, _ := drv.State(); state == agent.DriverGenerating {
 			s.events.Emit(output.NewOverlayReportEvent("Context Report", errRunInProgress.Error()))
 			return true, fmt.Errorf("compact: %w", errRunInProgress)
 		}
-		s.activeRuns++
-		drv := s.driver.drv
-		s.mu.Unlock()
 		drv.RequestCompaction(s.manualCompaction(drv, a.Steering))
 		return true, nil
 	case RequestExit:
@@ -85,12 +82,7 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, error) {
 	switch a := action.(type) {
 	case ClearConversation:
-		s.mu.Lock()
-		old := s.swapDriverLocked(s.resetConversationLocked)
-		s.mu.Unlock()
-		s.retireDriver(old)
-		s.skills.Reset()
-		return true, s.rotateSession("", false)
+		return true, s.clearConversation()
 	case SetSkillEnabled:
 		return true, s.setSkillEnabled(ctx, a.Name, a.Enabled)
 	case SubmitApproval:
@@ -109,18 +101,40 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 	case SwitchOrchestrationLevel:
 		return true, s.SetOrchestrationLevel(a.Level)
 	case LoadSession:
+		if err := s.refuseWhilePending("load session"); err != nil {
+			return true, err
+		}
 		return true, s.loadSession(ctx, a.SessionID)
 
 	case RotateSession:
-		return true, s.rotateSession("", false)
+		return true, s.rotateGuarded("", false)
 	case RotateSessionWithGroup:
-		return true, s.rotateSession(a.Group, true)
+		return true, s.rotateGuarded(a.Group, true)
 	case ForkSession:
 		return true, s.handleForkSession(ctx)
 	case ForkSavedSession:
 		return true, s.handleForkSavedSession(ctx, a.SessionID)
 	}
 	return false, nil
+}
+
+func (s *Session) clearConversation() error {
+	if err := s.refuseWhilePending("clear conversation"); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	old := s.swapDriverLocked(s.resetConversationLocked)
+	s.mu.Unlock()
+	s.retireDriver(old)
+	s.skills.Reset()
+	return s.rotateSession("", false)
+}
+
+func (s *Session) rotateGuarded(group string, updateGroup bool) error {
+	if err := s.refuseWhilePending("rotate session"); err != nil {
+		return err
+	}
+	return s.rotateSession(group, updateGroup)
 }
 
 func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOverride) error {

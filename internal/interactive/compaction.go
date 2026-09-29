@@ -14,7 +14,6 @@ import (
 // compaction leaves the conversation as it was.
 func (s *Session) manualCompaction(drv *agent.ConversationDriver, steering string) func(context.Context, []agent.Message) ([]agent.Message, agent.ConversationLineage, error) {
 	return func(ctx context.Context, conversation []agent.Message) ([]agent.Message, agent.ConversationLineage, error) {
-		defer s.endRun()
 		lineage := drv.Snapshot().Lineage
 		compacted, ok := s.compactConversation(ctx, conversation, steering)
 		if !ok {

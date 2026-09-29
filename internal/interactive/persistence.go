@@ -113,6 +113,20 @@ func (s *Session) refuseRunInProgress(action string) error {
 	return fmt.Errorf("%s: %w", action, errRunInProgress)
 }
 
+// refuseWhilePending refuses a session-replacing action while sub-agents are
+// still running, surfacing the reason as an overlay notice and error. Callers
+// that also refuse during a run check that separately: clear and rotate stay
+// allowed mid-run because a workflow handoff rotates from inside one.
+func (s *Session) refuseWhilePending(action string) error {
+	if s.deps.Background == nil || !s.deps.Background.HasPending() {
+		return nil
+	}
+	n := len(s.deps.Background.Pending())
+	msg := fmt.Sprintf("%d sub-agents still running; wait for them or stop them first", n)
+	s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("%s: %s", action, msg)))
+	return fmt.Errorf("%s: %s", action, msg)
+}
+
 // loadSession replaces the current conversation and lineage with a previously
 // saved session, following the ClearConversation pattern but seeding from stored lineage.
 func (s *Session) loadSession(ctx context.Context, sessionID string) error {
@@ -259,6 +273,9 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 	if s.runActive() {
 		return s.refuseRunInProgress("fork session")
 	}
+	if err := s.refuseWhilePending("fork session"); err != nil {
+		return err
+	}
 	if s.deps.SessionStore == nil {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))
 		return nil
@@ -304,6 +321,9 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 func (s *Session) handleForkSavedSession(ctx context.Context, sessionID string) error {
 	if s.runActive() {
 		return s.refuseRunInProgress("fork saved session")
+	}
+	if err := s.refuseWhilePending("fork saved session"); err != nil {
+		return err
 	}
 	if s.deps.SessionStore == nil {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))
