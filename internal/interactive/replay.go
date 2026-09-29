@@ -113,6 +113,7 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 	startedToolCalls := map[string]struct{}{}
 	pendingDelegates := map[string]agent.ToolCall{}
 	pendingAdvisors := map[string]agent.ToolCall{}
+	acks := &replayAcks{}
 	for _, msg := range msgs {
 		if msg.Content == "" && len(msg.ToolCalls) == 0 && msg.ToolCallID == "" {
 			continue
@@ -120,19 +121,23 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 		switch msg.Role {
 		case agent.MessageRoleUser:
 			images := convertImageBlocks(msg.Images)
-			_, blocks, rest := prompt.SplitSkillBlocks(msg.Content)
-			for _, block := range blocks {
+			parts := prompt.SplitMessageBlocks(msg.Content)
+			for _, block := range parts.SkillBlocks {
 				state := output.SkillStateDisabled
 				if block.State == prompt.SkillBlockActive {
 					state = output.SkillStateEnabled
 				}
 				s.events.Emit(output.NewSkillStateEvent(block.Name, state))
 			}
-			// rest already excludes the mode notice prefix and every block
-			// envelope, so it replaces StripModeNotice here. Emit the input
-			// event only when user text or images remain.
-			if strings.TrimSpace(rest) != "" || len(images) > 0 {
-				s.events.Emit(output.NewUserInputEvent(rest, "resume", images))
+			for _, envelope := range parts.ResultEnvelopes {
+				s.replaySubAgentResult(envelope, acks)
+			}
+			// Rest already excludes the mode notice prefix, every block, the
+			// pending line and every result envelope, so it replaces
+			// StripModeNotice here. Emit the input event only when user text or
+			// images remain.
+			if strings.TrimSpace(parts.Rest) != "" || len(images) > 0 {
+				s.events.Emit(output.NewUserInputEvent(parts.Rest, "resume", images))
 			}
 		case agent.MessageRoleAssistant:
 			if msg.ReasoningContent != "" {
@@ -147,9 +152,10 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 				SummaryText: msg.Content,
 			}))
 		case agent.MessageRoleTool:
-			s.replayToolResult(msg, pendingDelegates, pendingAdvisors, startedToolCalls)
+			s.replayToolResult(msg, pendingDelegates, pendingAdvisors, startedToolCalls, acks)
 		}
 	}
+	s.replayUnresolvedAcks(acks)
 }
 
 // replayAssistantToolCalls emits events for each tool call in an assistant message.
@@ -191,7 +197,7 @@ func pairedToolResultIDs(msgs []agent.Message) map[string]struct{} {
 }
 
 // replayToolResult emits the completion event for a tool result message.
-func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[string]agent.ToolCall, pendingAdvisors map[string]agent.ToolCall, startedToolCalls map[string]struct{}) {
+func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[string]agent.ToolCall, pendingAdvisors map[string]agent.ToolCall, startedToolCalls map[string]struct{}, acks *replayAcks) {
 	if pending, ok := pendingAdvisors[msg.ToolCallID]; ok {
 		question, files := advisorQuestionAndFilesFromArgs(pending.Arguments)
 		s.events.Emit(output.NewAdvisorStartedEvent("", 0, 0, question, files))
@@ -201,13 +207,16 @@ func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[strin
 		state := buildReplayedDelegationState(msg.ToolCallID, msg.Retention, msg.Content)
 		task := taskFromArgs(pending.Arguments)
 		s.events.Emit(output.NewDelegationStartedEvent(state.agentID, task))
-		if state.status == "failed" {
+		switch {
+		case isAckStatus(state.status):
+			acks.add(msg.ToolCallID, state.agentID, task)
+		case state.status == "failed":
 			s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
 				AgentID:     state.agentID,
 				TaskPreview: task,
 				Error:       state.error,
 			}))
-		} else {
+		default:
 			s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 				AgentID:           state.agentID,
 				Status:            state.status,
