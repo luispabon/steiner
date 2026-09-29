@@ -20,26 +20,28 @@ type openAIToolCallAccumulator struct {
 }
 
 type openAIStreamState struct {
-	content                 strings.Builder
-	thinking                strings.Builder
-	toolCalls               map[int][]*openAIToolCallAccumulator
-	indexlessToolCalls      []*openAIToolCallAccumulator
-	indexlessToolCallsByID  map[string]*openAIToolCallAccumulator
-	latestIndexlessToolCall *openAIToolCallAccumulator
-	finishReason            string
-	usage                   *UsageStats
-	sawContent              bool
-	sawToolCall             bool
-	sawThinking             bool
-	assistantRole           bool
-	sawDone                 bool
+	content                      strings.Builder
+	thinking                     strings.Builder
+	toolCalls                    map[int][]*openAIToolCallAccumulator
+	indexlessToolCalls           []*openAIToolCallAccumulator
+	indexlessToolCallsByID       map[string]*openAIToolCallAccumulator
+	indexlessToolCallsByPosition map[int]*openAIToolCallAccumulator
+	latestIndexlessToolCall      *openAIToolCallAccumulator
+	finishReason                 string
+	usage                        *UsageStats
+	sawContent                   bool
+	sawToolCall                  bool
+	sawThinking                  bool
+	assistantRole                bool
+	sawDone                      bool
 }
 
 func decodeChatStreamWithHandler(_ context.Context, body io.Reader, emit func(ChatChunk) error) error {
 	reader := bufio.NewReader(body)
 	state := openAIStreamState{
-		toolCalls:              make(map[int][]*openAIToolCallAccumulator),
-		indexlessToolCallsByID: make(map[string]*openAIToolCallAccumulator),
+		toolCalls:                    make(map[int][]*openAIToolCallAccumulator),
+		indexlessToolCallsByID:       make(map[string]*openAIToolCallAccumulator),
+		indexlessToolCallsByPosition: make(map[int]*openAIToolCallAccumulator),
 	}
 
 	for {
@@ -151,8 +153,8 @@ func handleStreamChoiceToolCalls(state *openAIStreamState, toolCalls []openAIToo
 		return nil
 	}
 	state.sawToolCall = true
-	for _, toolCall := range toolCalls {
-		acc := state.toolCallAccumulator(toolCall)
+	for position, toolCall := range toolCalls {
+		acc := state.toolCallAccumulator(toolCall, position)
 		if toolCall.ID != "" {
 			acc.ID = toolCall.ID
 		}
@@ -169,7 +171,7 @@ func handleStreamChoiceToolCalls(state *openAIStreamState, toolCalls []openAIToo
 	return nil
 }
 
-func (state *openAIStreamState) toolCallAccumulator(toolCall openAIToolCall) *openAIToolCallAccumulator {
+func (state *openAIStreamState) toolCallAccumulator(toolCall openAIToolCall, position int) *openAIToolCallAccumulator {
 	if toolCall.Index != nil {
 		accumulators := state.toolCalls[*toolCall.Index]
 		if len(accumulators) > 0 {
@@ -182,16 +184,24 @@ func (state *openAIStreamState) toolCallAccumulator(toolCall openAIToolCall) *op
 
 	if toolCall.ID != "" {
 		if acc := state.indexlessToolCallsByID[toolCall.ID]; acc != nil {
+			state.indexlessToolCallsByPosition[position] = acc
 			state.latestIndexlessToolCall = acc
 			return acc
 		}
 	}
-	if toolCall.ID == "" && state.latestIndexlessToolCall != nil {
-		return state.latestIndexlessToolCall
+	if toolCall.ID == "" {
+		if acc := state.indexlessToolCallsByPosition[position]; acc != nil {
+			return acc
+		}
+		if state.latestIndexlessToolCall != nil {
+			state.indexlessToolCallsByPosition[position] = state.latestIndexlessToolCall
+			return state.latestIndexlessToolCall
+		}
 	}
 
 	acc := &openAIToolCallAccumulator{}
 	state.indexlessToolCalls = append(state.indexlessToolCalls, acc)
+	state.indexlessToolCallsByPosition[position] = acc
 	state.latestIndexlessToolCall = acc
 	if toolCall.ID != "" {
 		state.indexlessToolCallsByID[toolCall.ID] = acc

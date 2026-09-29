@@ -284,6 +284,35 @@ func TestOpenAIStreamDecodeChatStreamWithHandler_SeparatesIndexlessToolCalls(t *
 	}
 }
 
+func TestOpenAIStreamDecodeChatStreamWithHandler_RoutesIndexlessToolCallsByPosition(t *testing.T) {
+	body := strings.NewReader(
+		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_first\",\"type\":\"function\",\"function\":{\"name\":\"first\",\"arguments\":\"{\\\"value\\\":\"}},{\"id\":\"call_second\",\"type\":\"function\",\"function\":{\"name\":\"second\",\"arguments\":\"{\\\"value\\\":\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"1}\"}},{\"function\":{\"arguments\":\"2}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+			"data: [DONE]\n\n",
+	)
+
+	chunks, err := collectOpenAIStreamChunks(t, body)
+	if err != nil {
+		t.Fatalf("decodeChatStreamWithHandler() error = %v", err)
+	}
+	calls := chunks[len(chunks)-1].Delta.ToolCalls
+	if got, want := len(calls), 2; got != want {
+		t.Fatalf("tool calls len = %d, want %d", got, want)
+	}
+	for i, want := range []struct {
+		id    string
+		name  string
+		value float64
+	}{
+		{id: "call_first", name: "first", value: 1},
+		{id: "call_second", name: "second", value: 2},
+	} {
+		if got := calls[i]; got.ID != want.id || got.Name != want.name || got.Arguments["value"] != want.value {
+			t.Fatalf("tool call %d = %#v, want ID %q, name %q, and value %v", i, got, want.id, want.name, want.value)
+		}
+	}
+}
+
 func TestOpenAIStreamDecodeChatStreamWithHandler_ReusesIndexlessToolCallID(t *testing.T) {
 	body := strings.NewReader(
 		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_repeat\",\"type\":\"function\",\"function\":{\"name\":\"repeat\",\"arguments\":\"{\\\"value\\\":\"}}]}}]}\n\n" +
