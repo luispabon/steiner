@@ -129,12 +129,20 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		detail := strings.TrimSpace(payload.FinishReason)
 		m.activity = m.activity.waiting("receiving response", detail)
 	case output.ContextBudgetEvent:
+		if output.ContextDiagnosticKind(payload) == "session_loaded" {
+			m.clearReplayActivity()
+		}
 		m.applyContextBudget(payload)
 	case output.ContextCompactionEvent:
 		m.applyCompactionEvent(payload)
 	case output.ContextSessionHealthEvent:
 		m.applySessionHealthEvent(payload)
+	case output.SubAgentResultsUnansweredEvent:
+		m.applyStrandedResults(payload)
 	case output.ContextDiagnosticsEvent:
+		if payload.Kind == "session_loaded" {
+			m.clearReplayActivity()
+		}
 		if budget, ok := output.AsContextBudgetEvent(payload); ok {
 			m.applyContextBudget(budget)
 		}

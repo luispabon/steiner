@@ -194,6 +194,7 @@ type Model struct {
 	convState                    output.ConversationStateEvent
 	convStateSeen                bool
 	convLabelShown               bool
+	strandedResults              int // sub-agent results delivered but never answered; drives the activity-row warning
 	suppressWorkflowHandoffRun   bool
 	pendingWorkflowHandoffLaunch *workflowHandoffLaunch
 	contentDirty                 bool

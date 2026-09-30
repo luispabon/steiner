@@ -33,6 +33,8 @@ const (
 	segmentDelegationGroup
 	segmentStatus
 	segmentImagesAttached
+	segmentSubAgentsFinished
+	segmentStrandedResults
 )
 
 type thinkingBlockData struct {
@@ -214,7 +216,8 @@ type delegationDisplayState struct {
 	contextFillPct     float64 // last known context window occupancy %, 0 if unknown
 	outputTPS          float64 // latest per-turn output tokens/sec, 0 if unknown
 	// failure field
-	errMsg string
+	errMsg        string
+	failureReason string // raw failure text from DelegationFailed; feeds the delivery row only, never rendered in the box
 	// output text and visibility
 	output    string
 	collapsed bool
@@ -270,6 +273,8 @@ type contentSegment struct {
 	delegData          *delegationDisplayState // non-nil only for segmentDelegation
 	delegGroupData     *delegationGroupSegment // non-nil only for segmentDelegationGroup
 	imagesAttachedData *imagesAttachedData     // non-nil only for segmentImagesAttached
+	deliveredData      *deliveredRows          // non-nil only for segmentSubAgentsFinished
+	strandedData       *strandedResultsData    // non-nil only for segmentStrandedResults
 	// render cache
 	cachedRender      string
 	cachedRenderWidth int
@@ -364,34 +369,36 @@ func (b *contentBuffer) resolveAliasBadge(alias string) (string, string) {
 type contentEventHandler func(*contentBuffer, output.Event)
 
 var contentEventHandlers = map[string]contentEventHandler{
-	output.EventTypeThinkingChunk:          (*contentBuffer).appendThinkingChunkEvent,
-	output.EventTypeAssistantChunk:         (*contentBuffer).appendAssistantChunkEvent,
-	output.EventTypeApprovalRequested:      (*contentBuffer).appendApprovalRequestedEvent,
-	output.EventTypeApprovalAccepted:       (*contentBuffer).appendApprovalDecisionEvent,
-	output.EventTypeApprovalDenied:         (*contentBuffer).appendApprovalDecisionEvent,
-	output.EventTypeDelegationStarted:      (*contentBuffer).appendDelegationEvent,
-	output.EventTypeDelegationComplete:     (*contentBuffer).appendDelegationEvent,
-	output.EventTypeDelegationQueued:       (*contentBuffer).appendDelegationEvent,
-	output.EventTypeDelegationCacheWaiting: (*contentBuffer).appendDelegationEvent,
-	output.EventTypeDelegationFailed:       (*contentBuffer).appendDelegationEvent,
-	output.EventTypeAdvisorStarted:         (*contentBuffer).appendAdvisorEvent,
-	output.EventTypeAdvisorComplete:        (*contentBuffer).appendAdvisorEvent,
-	output.EventTypeAdvisorBudgetExhausted: (*contentBuffer).appendAdvisorEvent,
-	output.EventTypeProviderDiagnostic:     (*contentBuffer).appendProviderDiagnosticEvent,
-	output.EventTypeToolCallStarted:        (*contentBuffer).appendToolCallStartedEvent,
-	output.EventTypeToolCallQueued:         (*contentBuffer).appendToolCallQueuedEvent,
-	output.EventTypeToolCallFinished:       (*contentBuffer).appendToolCallFinishedEvent,
-	output.EventTypeDisplayFile:            (*contentBuffer).appendDisplayFileEvent,
-	output.EventTypeStopReason:             (*contentBuffer).appendStopReasonEvent,
-	output.EventTypeAssistantMessage:       (*contentBuffer).appendAssistantMessageEvent,
-	output.EventTypeContextReport:          (*contentBuffer).appendContextReportEvent,
-	output.EventTypeModelCallStarted:       (*contentBuffer).appendModelCallDiagnosticsEvent,
-	output.EventTypeModelCallFinished:      (*contentBuffer).appendModelCallDiagnosticsEvent,
-	output.EventTypeContextDiagnostics:     (*contentBuffer).appendModelCallDiagnosticsEvent,
-	output.EventTypeUserInput:              (*contentBuffer).appendUserInputEvent,
-	output.EventTypePhaseTransition:        (*contentBuffer).appendPhaseTransitionEvent,
-	output.EventTypeRunStarted:             func(*contentBuffer, output.Event) {},
-	output.EventTypeRunFinished:            func(*contentBuffer, output.Event) {},
+	output.EventTypeThinkingChunk:             (*contentBuffer).appendThinkingChunkEvent,
+	output.EventTypeAssistantChunk:            (*contentBuffer).appendAssistantChunkEvent,
+	output.EventTypeApprovalRequested:         (*contentBuffer).appendApprovalRequestedEvent,
+	output.EventTypeApprovalAccepted:          (*contentBuffer).appendApprovalDecisionEvent,
+	output.EventTypeApprovalDenied:            (*contentBuffer).appendApprovalDecisionEvent,
+	output.EventTypeDelegationStarted:         (*contentBuffer).appendDelegationEvent,
+	output.EventTypeDelegationComplete:        (*contentBuffer).appendDelegationEvent,
+	output.EventTypeDelegationQueued:          (*contentBuffer).appendDelegationEvent,
+	output.EventTypeDelegationCacheWaiting:    (*contentBuffer).appendDelegationEvent,
+	output.EventTypeDelegationFailed:          (*contentBuffer).appendDelegationEvent,
+	output.EventTypeSubAgentsDelivered:        (*contentBuffer).appendSubAgentsDeliveredEvent,
+	output.EventTypeSubAgentResultsUnanswered: (*contentBuffer).appendSubAgentResultsUnansweredEvent,
+	output.EventTypeAdvisorStarted:            (*contentBuffer).appendAdvisorEvent,
+	output.EventTypeAdvisorComplete:           (*contentBuffer).appendAdvisorEvent,
+	output.EventTypeAdvisorBudgetExhausted:    (*contentBuffer).appendAdvisorEvent,
+	output.EventTypeProviderDiagnostic:        (*contentBuffer).appendProviderDiagnosticEvent,
+	output.EventTypeToolCallStarted:           (*contentBuffer).appendToolCallStartedEvent,
+	output.EventTypeToolCallQueued:            (*contentBuffer).appendToolCallQueuedEvent,
+	output.EventTypeToolCallFinished:          (*contentBuffer).appendToolCallFinishedEvent,
+	output.EventTypeDisplayFile:               (*contentBuffer).appendDisplayFileEvent,
+	output.EventTypeStopReason:                (*contentBuffer).appendStopReasonEvent,
+	output.EventTypeAssistantMessage:          (*contentBuffer).appendAssistantMessageEvent,
+	output.EventTypeContextReport:             (*contentBuffer).appendContextReportEvent,
+	output.EventTypeModelCallStarted:          (*contentBuffer).appendModelCallDiagnosticsEvent,
+	output.EventTypeModelCallFinished:         (*contentBuffer).appendModelCallDiagnosticsEvent,
+	output.EventTypeContextDiagnostics:        (*contentBuffer).appendModelCallDiagnosticsEvent,
+	output.EventTypeUserInput:                 (*contentBuffer).appendUserInputEvent,
+	output.EventTypePhaseTransition:           (*contentBuffer).appendPhaseTransitionEvent,
+	output.EventTypeRunStarted:                func(*contentBuffer, output.Event) {},
+	output.EventTypeRunFinished:               func(*contentBuffer, output.Event) {},
 	// ModeChanged transcript lines are appended explicitly by model_events.go
 	// so the "mode → x" wording matches other status-line conventions.
 	output.EventTypeModeChanged: func(*contentBuffer, output.Event) {},

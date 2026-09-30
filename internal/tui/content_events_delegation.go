@@ -886,6 +886,7 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 			if dd.startTime > 0 {
 				dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 			}
+			dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 			dd.output = payload.Output
 			dd.advisorBudget = payload.AdvisorBudget
 			dd.advisorUses = payload.AdvisorUses
@@ -910,6 +911,7 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 		advisorUses:   payload.AdvisorUses,
 		advisorDenied: payload.AdvisorDenied,
 	}
+	dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 	dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
 	b.appendDelegationSegment(dd)
 }
@@ -923,9 +925,11 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 	if loc, active := b.activeDelegations[payload.AgentID]; active {
 		if dd := loc.dd; dd != nil {
 			dd.status = "failed"
+			dd.failureReason = payload.Error
 			if dd.startTime > 0 {
 				dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 			}
+			dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 			if payload.AdvisorBudget > 0 {
 				dd.advisorBudget = payload.AdvisorBudget
 				dd.advisorUses = payload.AdvisorUses
@@ -941,6 +945,8 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 			loc.dd.agentID = payload.AgentID
 			loc.dd.agentType = event.Scope.AgentType
 			loc.dd.status = "failed"
+			loc.dd.failureReason = payload.Error
+			loc.dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 			b.markDelegationDirty(loc.seg)
 			return
 		}
@@ -952,11 +958,13 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 		agentID:       payload.AgentID,
 		parentCallID:  payload.CallID,
 		status:        "failed",
+		failureReason: payload.Error,
 		collapsed:     true,
 		advisorBudget: payload.AdvisorBudget,
 		advisorUses:   payload.AdvisorUses,
 		advisorDenied: payload.AdvisorDenied,
 	}
+	dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 	idx := b.appendDelegationSegment(dd)
 	if payload.CallID != "" {
 		b.pendingDelegationStarts = append(b.pendingDelegationStarts, delegationLocator{seg: idx, dd: dd})
@@ -1072,4 +1080,16 @@ func (b *contentBuffer) captureChildBaselineStats(agentID string) (turns, toolCa
 		return loc.dd.turnCount, loc.dd.toolCallCount
 	}
 	return 0, 0
+}
+
+// fillFromTerminalEvent completes display fields a Complete/Failed event can
+// supply: the type label when replay or compaction left it blank, and the
+// elapsed text when the event carries a recorded duration.
+func (dd *delegationDisplayState) fillFromTerminalEvent(agentType string, durationMs int64) {
+	if dd.agentType == "" && dd.toolLabel == "" {
+		dd.agentType = agentType
+	}
+	if durationMs > 0 {
+		dd.elapsed = formatElapsed(0, durationMs*1_000_000)
+	}
 }
