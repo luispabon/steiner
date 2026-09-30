@@ -369,6 +369,9 @@ func (m *Model) handleDelegationClick(seg *contentSegment, rowInSegment int) boo
 	if seg == nil || seg.kind != segmentDelegation || seg.delegData == nil {
 		return false
 	}
+	if seg.delegationJoinedAbove && rowInSegment == 0 {
+		return false
+	}
 	row := m.delegationRowInSegment(seg.delegData, rowInSegment)
 	switch row {
 	case 0:
