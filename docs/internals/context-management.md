@@ -30,6 +30,8 @@ Child agents use the same prompt assembly and compaction path as the parent for 
 
 ## Prompt assembly
 
+Codex conversation replay preserves assistant message boundaries and per-message `phase` (`commentary` or `final_answer`), along with message/function-call order, in provider-native metadata stored with session messages. The adapter reconciles streamed text with completed output to recover missing text without duplication. Legacy messages without this metadata retain their existing replay behavior. Phase preservation does not guarantee narration before tool calls.
+
 Each turn, steiner assembles the full context through a 7-step ordered plan. The order is intentional — static sources come first to maximize KV-cache reuse in local inference servers:
 
 | Step | Source | Budget | Bypasses budget? |

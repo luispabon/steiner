@@ -104,6 +104,7 @@ func cloneMessageProviderMetadata(metadata *MessageProviderMetadata) *MessagePro
 	}
 	if metadata.Codex != nil {
 		codex := *metadata.Codex
+		codex.Blocks = append([]CodexMessageBlock(nil), metadata.Codex.Blocks...)
 		cloned.Codex = &codex
 	}
 	return cloned

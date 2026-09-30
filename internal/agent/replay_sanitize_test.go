@@ -1,6 +1,36 @@
 package agent
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
+
+func TestReplaySafeConversation_PreservesCodexBlockMetadataAndOrder(t *testing.T) {
+	conversation := []Message{{
+		Role:    MessageRoleAssistant,
+		Content: "visible response",
+		ProviderMetadata: &MessageProviderMetadata{Codex: &CodexMessageMetadata{
+			ReasoningID: "reason_xyz",
+			Blocks: []CodexMessageBlock{
+				{Kind: "message", Phase: "analysis", Text: "thinking"},
+				{Kind: "message", Phase: "commentary", Text: "searching"},
+				{Kind: "function_call", CallID: "call-1"},
+				{Kind: "message", Phase: "final_answer", Text: "done"},
+			},
+		}},
+	}}
+
+	got := ReplaySafeConversation(conversation)
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+	if got[0].ProviderMetadata == nil || got[0].ProviderMetadata.Codex == nil {
+		t.Fatalf("got Codex metadata = %#v, want preserved", got[0].ProviderMetadata)
+	}
+	if !reflect.DeepEqual(got[0].ProviderMetadata.Codex, conversation[0].ProviderMetadata.Codex) {
+		t.Fatalf("got Codex metadata = %#v, want %#v", got[0].ProviderMetadata.Codex, conversation[0].ProviderMetadata.Codex)
+	}
+}
 
 func TestReplaySafeConversation_StripsDanglingToolCalls(t *testing.T) {
 	conversation := []Message{

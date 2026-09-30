@@ -8,6 +8,48 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+func TestStreamWithEventsReconcilesFinalContent(t *testing.T) {
+	tests := []struct {
+		name            string
+		streamed        string
+		final           string
+		want            string
+		contentSnapshot bool
+		codexMetadata   bool
+	}{
+		{name: "empty streamed content", final: "XAB", want: "XAB"},
+		{name: "equal content", streamed: "AB", final: "AB", want: "AB"},
+		{name: "final is superset", streamed: "AB", final: "ABC", want: "ABC"},
+		{name: "final is prefix", streamed: "ABC", final: "AB", want: "ABC"},
+		{name: "snapshot shorter prefix", streamed: "ABC", final: "AB", want: "AB", contentSnapshot: true},
+		{name: "empty snapshot clears content", streamed: "ABC", want: "", contentSnapshot: true},
+		{name: "generic suffix final", streamed: "hel", final: "lo", want: "hello"},
+		{name: "snapshot divergent final without metadata", streamed: "AB", final: "XAB", want: "XAB", contentSnapshot: true},
+		{name: "metadata alone keeps generic suffix behavior", streamed: "AB", final: "XAB", want: "ABXAB", codexMetadata: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			chunks := make(chan provider.ChatChunk, 2)
+			if tc.streamed != "" {
+				chunks <- provider.ChatChunk{Delta: provider.Message{Content: tc.streamed}}
+			}
+			final := provider.Message{Content: tc.final}
+			if tc.codexMetadata {
+				final.ProviderMetadata = &provider.MessageProviderMetadata{Codex: &provider.CodexMessageMetadata{ReasoningID: "reasoning-id"}}
+			}
+			chunks <- provider.ChatChunk{Done: true, Delta: final, ContentSnapshot: tc.contentSnapshot}
+			close(chunks)
+			got, err := streamWithEvents(chunks, nil)
+			if err != nil {
+				t.Fatalf("streamWithEvents() error = %v", err)
+			}
+			if got.Message.Content != tc.want {
+				t.Errorf("Content = %q, want %q", got.Message.Content, tc.want)
+			}
+		})
+	}
+}
+
 func TestStreamWithEventsPreservesUpstreamEndpoint(t *testing.T) {
 	chunks := make(chan provider.ChatChunk, 1)
 	chunks <- provider.ChatChunk{Done: true, Delta: provider.Message{Content: "answer"}, UpstreamEndpoint: "upstream-1"}

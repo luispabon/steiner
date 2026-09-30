@@ -96,7 +96,10 @@ func TestCloneMessagesFidelity(t *testing.T) {
 				Role: MessageRoleAssistant,
 				ProviderMetadata: &MessageProviderMetadata{
 					Anthropic: &AnthropicMessageMetadata{ThinkingSignature: "ts"},
-					Codex:     &CodexMessageMetadata{ReasoningID: "rid"},
+					Codex: &CodexMessageMetadata{
+						ReasoningID: "rid",
+						Blocks:      []CodexMessageBlock{{Kind: "message", Phase: "analysis", Text: "thinking"}, {Kind: "function_call", CallID: "call-1"}},
+					},
 				},
 			},
 		},
@@ -138,6 +141,10 @@ func TestCloneMessagesFidelity(t *testing.T) {
 				}
 				if tt.message.ProviderMetadata.Codex != nil && cloned.ProviderMetadata.Codex == tt.message.ProviderMetadata.Codex {
 					t.Error("Codex metadata pointer shared with original")
+				}
+				if tt.message.ProviderMetadata.Codex != nil && len(tt.message.ProviderMetadata.Codex.Blocks) > 0 &&
+					&cloned.ProviderMetadata.Codex.Blocks[0] == &tt.message.ProviderMetadata.Codex.Blocks[0] {
+					t.Error("Codex blocks backing array shared with original")
 				}
 			}
 		})
@@ -183,6 +190,12 @@ func TestCloneMessageMutationIndependence(t *testing.T) {
 	}
 	if first, ok := originalList[0].(map[string]any); !ok || first["a"] != 1 {
 		t.Errorf("original list element mutated: %#v", originalList[0])
+	}
+	original.ProviderMetadata = &MessageProviderMetadata{Codex: &CodexMessageMetadata{Blocks: []CodexMessageBlock{{Kind: "message", Phase: "analysis", Text: "thinking"}}}}
+	cloned = cloneMessage(original)
+	cloned.ProviderMetadata.Codex.Blocks[0].Text = "changed"
+	if got := original.ProviderMetadata.Codex.Blocks[0].Text; got != "thinking" {
+		t.Fatalf("original Codex block text = %q, want unchanged", got)
 	}
 }
 

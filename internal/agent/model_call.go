@@ -459,7 +459,14 @@ func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource
 	response.Usage = chunk.Usage
 	response.FinishReason = chunk.FinishReason
 	response.UpstreamEndpoint = chunk.UpstreamEndpoint
-	if content := chunk.Delta.Content; content != "" {
+	content := chunk.Delta.Content
+	if chunk.ContentSnapshot {
+		wasEmpty := message.Content == ""
+		message.Content = content
+		if wasEmpty && content != "" {
+			emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
+		}
+	} else if content != "" {
 		switch {
 		case message.Content == "":
 			message.Content = content

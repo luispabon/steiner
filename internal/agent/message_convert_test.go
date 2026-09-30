@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -189,7 +190,15 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 					{ID: "call-1", Name: "grep", Arguments: map[string]any{"pattern": "foo"}},
 				},
 				ProviderMetadata: &MessageProviderMetadata{
-					Codex: &CodexMessageMetadata{ReasoningID: "reason_xyz"},
+					Codex: &CodexMessageMetadata{
+						ReasoningID: "reason_xyz",
+						Blocks: []CodexMessageBlock{
+							{Kind: "message", Phase: "analysis", Text: "thinking"},
+							{Kind: "message", Phase: "commentary", Text: "searching"},
+							{Kind: "function_call", CallID: "call-1"},
+							{Kind: "message", Phase: "final_answer", Text: "done"},
+						},
+					},
 				},
 			},
 			{Role: MessageRoleTool, Content: "match", ToolCallID: "call-1"},
@@ -206,10 +215,52 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 		if got, want := result[1].ProviderMetadata.Codex.ReasoningID, "reason_xyz"; got != want {
 			t.Fatalf("result[1] reasoning ID = %q, want %q", got, want)
 		}
+		wantBlocks := []provider.CodexMessageBlock{
+			{Kind: "message", Phase: "analysis", Text: "thinking"},
+			{Kind: "message", Phase: "commentary", Text: "searching"},
+			{Kind: "function_call", CallID: "call-1"},
+			{Kind: "message", Phase: "final_answer", Text: "done"},
+		}
+		if got := result[1].ProviderMetadata.Codex.Blocks; !reflect.DeepEqual(got, wantBlocks) {
+			t.Fatalf("result[1] Codex blocks = %#v, want %#v", got, wantBlocks)
+		}
 		if got, want := result[2].ToolCallID, "call-1"; got != want {
 			t.Fatalf("result[2].ToolCallID = %q, want %q", got, want)
 		}
 	})
+}
+
+func TestMessageConvert_CodexMetadataFromProvider(t *testing.T) {
+	want := []CodexMessageBlock{
+		{Kind: "message", Phase: "analysis", Text: "thinking"},
+		{Kind: "message", Phase: "commentary", Text: "searching"},
+		{Kind: "function_call", CallID: "call-1"},
+		{Kind: "message", Phase: "final_answer", Text: "done"},
+	}
+	got := fromProviderMessage(provider.Message{ProviderMetadata: &provider.MessageProviderMetadata{
+		Codex: &provider.CodexMessageMetadata{
+			ReasoningID: "reason_xyz",
+			Blocks: []provider.CodexMessageBlock{
+				{Kind: "message", Phase: "analysis", Text: "thinking"},
+				{Kind: "message", Phase: "commentary", Text: "searching"},
+				{Kind: "function_call", CallID: "call-1"},
+				{Kind: "message", Phase: "final_answer", Text: "done"},
+			},
+		},
+	}})
+	if got.ProviderMetadata == nil || got.ProviderMetadata.Codex == nil {
+		t.Fatalf("Codex metadata = %#v, want preserved", got.ProviderMetadata)
+	}
+	if got.ProviderMetadata.Codex.ReasoningID != "reason_xyz" || !reflect.DeepEqual(got.ProviderMetadata.Codex.Blocks, want) {
+		t.Fatalf("Codex metadata = %#v, want reasoning ID and ordered blocks", got.ProviderMetadata.Codex)
+	}
+
+	legacy := fromProviderMessage(provider.Message{ProviderMetadata: &provider.MessageProviderMetadata{
+		Codex: &provider.CodexMessageMetadata{ReasoningID: "legacy"},
+	}})
+	if legacy.ProviderMetadata.Codex.ReasoningID != "legacy" || len(legacy.ProviderMetadata.Codex.Blocks) != 0 {
+		t.Fatalf("legacy Codex metadata = %#v, want ReasoningID-only metadata", legacy.ProviderMetadata.Codex)
+	}
 }
 
 func TestMessageConvert_FromProviderMessages(t *testing.T) {

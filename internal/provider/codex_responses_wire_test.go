@@ -241,8 +241,8 @@ func TestNormalizeResponsesResponseNoReasoning(t *testing.T) {
 	if resp.Message.ReasoningContent != "" {
 		t.Fatalf("ReasoningContent = %q, want empty", resp.Message.ReasoningContent)
 	}
-	if resp.Message.ProviderMetadata != nil {
-		t.Fatalf("ProviderMetadata = %v, want nil", resp.Message.ProviderMetadata)
+	if resp.Message.ProviderMetadata == nil || resp.Message.ProviderMetadata.Codex == nil || len(resp.Message.ProviderMetadata.Codex.Blocks) != 2 {
+		t.Fatalf("ProviderMetadata = %v, want ordered Codex blocks", resp.Message.ProviderMetadata)
 	}
 }
 
