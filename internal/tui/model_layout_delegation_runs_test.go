@@ -21,6 +21,7 @@ func TestJoinedDelegationDividerAndSourceClicks(t *testing.T) {
 	if !m.handleDelegationClick(&standalone, 0) || !first.collapsed {
 		t.Fatal("standalone top border did not toggle its source")
 	}
+	firstCollapsed := first.collapsed
 
 	// Header and prompt-header rows belong to source content at rows 1 and 2.
 	if !m.handleDelegationClick(&joined, 1) || !second.collapsed {
@@ -30,7 +31,7 @@ func TestJoinedDelegationDividerAndSourceClicks(t *testing.T) {
 	if !m.handleDelegationClick(&joined, 2) || !second.promptCollapsed {
 		t.Fatal("joined source prompt header did not toggle the second source prompt")
 	}
-	if first.collapsed {
+	if first.collapsed != firstCollapsed {
 		t.Fatal("second source click changed the first source")
 	}
 }
