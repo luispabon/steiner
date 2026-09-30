@@ -273,6 +273,8 @@ type contentSegment struct {
 	delegData             *delegationDisplayState // non-nil only for segmentDelegation
 	delegGroupData        *delegationGroupSegment // non-nil only for segmentDelegationGroup
 	delegationJoinedAbove bool
+	delegationRunFinal    bool
+	delegationRunMutable  bool
 	imagesAttachedData    *imagesAttachedData  // non-nil only for segmentImagesAttached
 	deliveredData         *deliveredRows       // non-nil only for segmentSubAgentsFinished
 	strandedData          *strandedResultsData // non-nil only for segmentStrandedResults
@@ -335,8 +337,7 @@ type contentBuffer struct {
 	// gen is bumped whenever an existing segment is mutated in place (never on
 	// append). It invalidates the settled-prefix cache below so a retroactive
 	// mutation of an already-settled segment cannot serve stale output.
-	gen              int
-	delegationRunKey string
+	gen int
 
 	// Settled-prefix cache: the joined render of segments [0, prefixCacheLen),
 	// reused across dirty frames so streaming only re-walks the changing tail
