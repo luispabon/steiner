@@ -25,7 +25,6 @@ func groupOf(label string, statuses ...string) *delegationGroupSegment {
 
 func TestRenderDelegationGroupTopBorder(t *testing.T) {
 	t.Parallel()
-	useTrueColor(t)
 	tests := []struct {
 		name     string
 		group    *delegationGroupSegment
@@ -46,6 +45,9 @@ func TestRenderDelegationGroupTopBorder(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			// Lock per subtest: a parent holding tuiProfileMu while its parallel
+			// subtests wait for a slot deadlocks once lock waiters fill them all.
+			useTrueColor(t)
 			line := b.renderDelegationGroupTopBorder(tt.group, tt.inner, lipgloss.Color("#00aa88"))
 			plain := ansi.Strip(line)
 			if got := lipgloss.Width(plain); got != tt.inner+2 {
