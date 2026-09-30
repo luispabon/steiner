@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -294,7 +295,8 @@ func TestCtrlF1TogglesHelpWithoutChangingPrompt(t *testing.T) {
 	for _, value := range []string{"", "   ", "draft"} {
 		t.Run(value, func(t *testing.T) {
 			t.Parallel()
-			m := newModel(Config{}, nil)
+			m := newModel(Config{Controller: &testController{}}, nil)
+			m.status.mode = "running"
 			m.input.SetValue(value)
 			m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyF1, Mod: tea.ModCtrl})
 			if !m.helpVisible {
@@ -311,6 +313,33 @@ func TestCtrlF1TogglesHelpWithoutChangingPrompt(t *testing.T) {
 				t.Fatalf("input = %q after close, want unchanged %q", got, value)
 			}
 		})
+	}
+}
+
+func TestCtrlF1RespectsOverlayAndApprovalPrecedence(t *testing.T) {
+	t.Parallel()
+	for _, initiallyOpen := range []bool{false, true} {
+		for _, kind := range []string{"picker", "approval"} {
+			t.Run(kind+"/help-open="+strconv.FormatBool(initiallyOpen), func(t *testing.T) {
+				m := newModel(Config{ModelNames: []string{"one", "two"}}, nil)
+				m.helpVisible = initiallyOpen
+				if kind == "picker" {
+					m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
+				} else {
+					m.approval = approvalState{active: true, tool: "write", mode: "prompt", identity: "call-1"}
+				}
+				m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyF1, Mod: tea.ModCtrl})
+				if m.helpVisible != initiallyOpen {
+					t.Fatalf("helpVisible = %t, want unchanged %t", m.helpVisible, initiallyOpen)
+				}
+				if kind == "picker" && !m.modelPicker.IsOpen() {
+					t.Fatal("picker closed after Ctrl+F1")
+				}
+				if kind == "approval" && !m.approval.active {
+					t.Fatal("approval closed after Ctrl+F1")
+				}
+			})
+		}
 	}
 }
 

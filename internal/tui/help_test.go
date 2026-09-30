@@ -15,7 +15,7 @@ func TestRenderHelpWidthCapAndMinimum(t *testing.T) {
 	for _, tc := range []struct {
 		width int
 		want  int
-	}{{20, 20}, {60, 60}, {120, 100}} {
+	}{{10, 20}, {20, 20}, {60, 60}, {120, 100}} {
 		got := lipgloss.Width(renderHelp(&styles, tc.width))
 		if got != tc.want {
 			t.Errorf("renderHelp width %d = %d, want %d", tc.width, got, tc.want)

@@ -280,7 +280,7 @@ func TestViewportViewCacheBypassedWhenHelpVisible(t *testing.T) {
 		t.Fatal("base frame empty; test setup broken")
 	}
 
-	// Simulate the '?' key handler: help toggles without syncViewport.
+	// Simulate the Ctrl+F1 key handler: help toggles without syncViewport.
 	m.helpVisible = true
 	withHelp := m.renderViewportView(contentWidth)
 	if withHelp == base {
@@ -297,6 +297,36 @@ func TestViewportViewCacheBypassedWhenHelpVisible(t *testing.T) {
 // TestViewportViewCacheRefreshedOnScroll proves scrolling invalidates the
 // cached frame via the scrollY key: the frame rendered after scrollUp must
 // show the scrolled content, not the cached top-of-content frame.
+func TestHelpOverlayFitsSidebarAndNarrowTerminal(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		width   int
+		sidebar bool
+	}{{name: "sidebar-visible", width: 150, sidebar: true}, {name: "narrow", width: 35}} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			if tc.sidebar {
+				m.sidebar.SetExpanded(true)
+			}
+			m = updateModelDirect(m, tea.WindowSizeMsg{Width: tc.width, Height: 24})
+			m.helpVisible = true
+			frame := m.View().Content
+			contentWidth := m.contentWidth()
+			if got := lipgloss.Width(frame); got != tc.width {
+				t.Fatalf("frame width = %d, want terminal width %d", got, tc.width)
+			}
+			viewport := m.renderViewportView(contentWidth)
+			if got := lipgloss.Width(viewport); got > contentWidth {
+				t.Fatalf("help viewport width = %d, exceeds content width %d", got, contentWidth)
+			}
+			if got := lipgloss.Width(renderHelp(m.styles, max(20, contentWidth-4))); got > contentWidth {
+				t.Fatalf("help panel width = %d, exceeds content width %d", got, contentWidth)
+			}
+		})
+	}
+}
+
 func TestViewportViewCacheRefreshedOnScroll(t *testing.T) {
 	t.Parallel()
 	m := &Model{
