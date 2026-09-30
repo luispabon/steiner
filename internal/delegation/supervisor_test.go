@@ -101,6 +101,18 @@ func waitOutstanding(t *testing.T, s *Supervisor, n int) {
 	}
 }
 
+func jobFor(s *Supervisor, agentID string) *jobState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.jobs[agentID]
+}
+
+func causeOf(s *Supervisor, state *jobState) CancelCause {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return state.cause
+}
+
 func causeFor(s *Supervisor, agentID string) CancelCause {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -207,8 +219,8 @@ func TestSupervisorCancelOutcomes(t *testing.T) {
 
 	close(child.release)
 	recv(t, res, "result")
-	if out := s.CancelAgent("a", false, CancelCauseUser); out != CancelAlreadyFinished {
-		t.Fatalf("after Execute returned = %v, want CancelAlreadyFinished", out)
+	if out := s.CancelAgent("a", false, CancelCauseUser); out != CancelNotActive {
+		t.Fatalf("after Execute returned = %v, want CancelNotActive", out)
 	}
 }
 
@@ -220,13 +232,14 @@ func TestSupervisorSpawnAndWaitForwardsHandlerCancellation(t *testing.T) {
 	handlerCtx, cancel := context.WithCancel(context.Background())
 	res := spawn(handlerCtx, s, child.job)
 	waitClosed(t, child.started, "start")
+	state := jobFor(s, "a")
 
 	cancel()
 	got := recv(t, res, "result")
 	if got.err != nil || got.result.Value != "cancelled:a" {
 		t.Fatalf("result = %+v, want the child's own cancelled result", got)
 	}
-	if cause := causeFor(s, "a"); cause != CancelCauseUser {
+	if cause := causeOf(s, state); cause != CancelCauseUser {
 		t.Fatalf("cause = %v, want CancelCauseUser", cause)
 	}
 }

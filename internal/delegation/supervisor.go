@@ -146,6 +146,7 @@ func (s *Supervisor) SpawnAndWait(handlerCtx context.Context, job ChildJob) (too
 		case <-state.done:
 			s.mu.Lock()
 			state.acked = true
+			s.pruneLocked(state)
 			s.mu.Unlock()
 			return state.result, state.err
 		case <-cancelled:
@@ -175,6 +176,7 @@ func (s *Supervisor) run(state *jobState) {
 		posts = s.routeLocked(state)
 	}
 	deliverLocked(state, result, err)
+	s.pruneLocked(state)
 	s.startQueuedLocked()
 	s.mu.Unlock()
 
@@ -221,6 +223,7 @@ func (s *Supervisor) finishCancelled(state *jobState) {
 		posts = s.routeLocked(state)
 	}
 	deliverLocked(state, result, nil)
+	s.pruneLocked(state)
 	s.mu.Unlock()
 
 	posts.deliver()
@@ -234,6 +237,15 @@ func deliverLocked(state *jobState, result tool.ExecutionResult, err error) {
 	state.result = result
 	state.err = err
 	close(state.done)
+}
+
+// pruneLocked drops a job from the table once it is both acknowledged and
+// finished. The identity check keeps a stale state from removing a newer job
+// that reused the agent ID.
+func (s *Supervisor) pruneLocked(state *jobState) {
+	if state.acked && state.phase == phaseDone && s.jobs[state.job.AgentID] == state {
+		delete(s.jobs, state.job.AgentID)
+	}
 }
 
 // CancelAgent cancels a child by ID, recording the cause before cancelling.

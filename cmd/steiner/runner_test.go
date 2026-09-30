@@ -241,20 +241,49 @@ func spawnBlockedChild(t *testing.T, sup *delegation.Supervisor, controller *del
 }
 
 func TestDelegationCancellerReportsFinishedDelegate(t *testing.T) {
-	controller := delegation.NewActiveController()
-	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
-	if _, err := sup.SpawnAndWait(context.Background(), delegation.ChildJob{
-		AgentID:   "child-1",
-		AgentType: delegation.AgentTypeCode,
-		Execute:   func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil },
-	}); err != nil {
-		t.Fatalf("SpawnAndWait() error = %v", err)
+	tests := []struct {
+		name      string
+		delivered bool
+		want      []string
+	}{
+		{"finished and undelivered", false, []string{"already finished", "worktree retained"}},
+		{"finished and delivered", true, []string{"no active delegate"}},
 	}
-	if err := (delegationCanceller{s: sup}).CancelAgent("child-1", true); err == nil || !strings.Contains(err.Error(), "already finished") || !strings.Contains(err.Error(), "worktree retained") {
-		t.Fatalf("CancelAgent() error = %v, want already-finished retained-worktree feedback", err)
-	}
-	if controller.DiscardRequested("child-1") {
-		t.Fatal("late cancellation requested discard")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			controller := delegation.NewActiveController()
+			sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
+			completions := make(completionCapture, 1)
+			sup.SetCompletionSink(completions)
+			if _, err := sup.Spawn(context.Background(), delegation.ChildJob{
+				AgentID:      "child-1",
+				AgentType:    delegation.AgentTypeCode,
+				ParentCallID: "call-1",
+				Execute:      func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil },
+			}); err != nil {
+				t.Fatalf("Spawn() error = %v", err)
+			}
+			select {
+			case <-completions:
+			case <-time.After(5 * time.Second):
+				t.Fatal("child did not complete")
+			}
+			if tt.delivered {
+				sup.MarkDelivered([]string{"call-1"})
+			}
+			err := (delegationCanceller{s: sup}).CancelAgent("child-1", true)
+			if err == nil {
+				t.Fatal("CancelAgent() error = nil, want feedback")
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("CancelAgent() error = %v, want it to contain %q", err, want)
+				}
+			}
+			if controller.DiscardRequested("child-1") {
+				t.Fatal("late cancellation requested discard")
+			}
+		})
 	}
 }
 

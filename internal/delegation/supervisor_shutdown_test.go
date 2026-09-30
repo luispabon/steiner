@@ -17,6 +17,7 @@ func TestSupervisorShutdownCleanJoin(t *testing.T) {
 	waitClosed(t, a.started, "a start")
 	resB := spawn(context.Background(), s, b.job)
 	waitOutstanding(t, s, 2)
+	stateA := jobFor(s, "a")
 
 	report := s.Shutdown(context.Background(), CancelCauseSystem)
 	if len(report.Unjoined) != 0 {
@@ -31,8 +32,8 @@ func TestSupervisorShutdownCleanJoin(t *testing.T) {
 	if got := recv(t, resB, "b result"); got.result.Value != "not-started:b" {
 		t.Fatalf("b result = %+v, want OnCancelledBeforeStart result", got)
 	}
-	if causeFor(s, "a") != CancelCauseSystem {
-		t.Fatalf("cause = %v, want CancelCauseSystem", causeFor(s, "a"))
+	if cause := causeOf(s, stateA); cause != CancelCauseSystem {
+		t.Fatalf("cause = %v, want CancelCauseSystem", cause)
 	}
 	if ids := controller.ActiveAgentIDs(); len(ids) != 0 {
 		t.Fatalf("active after shutdown = %v, want none", ids)
@@ -75,8 +76,8 @@ func TestSupervisorShutdownReportsUnjoinedChild(t *testing.T) {
 	if got.result.Value != nil {
 		t.Fatalf("late result delivered: %+v", got.result)
 	}
-	if got := s.CancelAgent("stuck", false, CancelCauseUser); got != CancelAlreadyFinished {
-		t.Fatalf("CancelAgent after late exit = %v, want CancelAlreadyFinished", got)
+	if got := s.CancelAgent("stuck", false, CancelCauseUser); got != CancelNotActive {
+		t.Fatalf("CancelAgent after late exit = %v, want CancelNotActive", got)
 	}
 }
 

@@ -125,6 +125,7 @@ func TestSupervisorCancelledQueuedJobNeverExecutes(t *testing.T) {
 			waitClosed(t, a.started, "a start")
 			resB := spawn(context.Background(), s, b.job)
 			waitOutstanding(t, s, 2)
+			stateB := jobFor(s, "b")
 
 			tt.cancel(s)
 
@@ -132,7 +133,7 @@ func TestSupervisorCancelledQueuedJobNeverExecutes(t *testing.T) {
 			if got.err != nil || got.result.Value != "not-started:b" {
 				t.Fatalf("b result = %+v, want OnCancelledBeforeStart result", got)
 			}
-			if causeFor(s, "b") == CancelCauseNone {
+			if causeOf(s, stateB) == CancelCauseNone {
 				t.Fatal("cause for queued job was not recorded")
 			}
 			select {

@@ -49,6 +49,7 @@ func (s *Supervisor) MarkDelivered(parentCallIDs []string) {
 	for _, state := range s.jobs {
 		if state.completion != nil && !state.held && slices.Contains(parentCallIDs, state.job.ParentCallID) {
 			state.acked = true
+			s.pruneLocked(state)
 		}
 	}
 }
