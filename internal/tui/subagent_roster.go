@@ -71,11 +71,17 @@ func (r *subAgentRoster) begin(agentID, agentType, callID, status string, now in
 		return
 	}
 	e := r.upsert(agentID)
-	if e.finished() {
-		return
+	restarting := e.finished()
+	if restarting {
+		e.status = status
+		e.startTime = now
+		e.finishTime = 0
+		e.delivered = false
 	}
-	if t := strings.TrimSpace(agentType); t != "" {
-		e.agentType = t
+	if !restarting {
+		if t := strings.TrimSpace(agentType); t != "" {
+			e.agentType = t
+		}
 	}
 	if e.group == "" {
 		e.group = r.groups[callID]

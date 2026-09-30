@@ -74,8 +74,8 @@ func TestDeliveredEventRendersRowWithGroupAndReason(t *testing.T) {
 	t.Parallel()
 	b := newDeliveryBuffer()
 	b.segments = append(b.segments,
-		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c4", parentCallID: "call-4", group: "g", status: "failed", failureReason: "boom: exploded\nstack"}},
-		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c5", parentCallID: "call-5", group: "g", status: "complete"}},
+		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c4", parentCallID: "call-4", group: "g", status: "failed", failureReason: "boom: exploded\nstack", batch: 0}},
+		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c5", parentCallID: "call-5", group: "g", status: "complete", batch: 0}},
 		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c6", parentCallID: "call-6", group: "g", status: "active"}},
 	)
 	b.AppendEvent(output.Event{Type: output.EventTypeSubAgentsDelivered, Payload: output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{
@@ -94,6 +94,33 @@ func TestDeliveredEventRendersRowWithGroupAndReason(t *testing.T) {
 	}
 	if strings.Contains(out, "stack") {
 		t.Errorf("reason should be first line only:\n%s", out)
+	}
+}
+
+func TestDeliveredLookupGroupSizeIsScopedToBatch(t *testing.T) {
+	t.Parallel()
+	b := newDeliveryBuffer()
+	for i, callID := range []string{"old-1", "old-2", "new-1", "new-2"} {
+		if i == 2 {
+			b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", "next batch"))
+		}
+		id := "c" + string(rune('1'+i))
+		b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{
+			agentID: id, parentCallID: callID, group: "reused", status: "complete", batch: b.delegationBatch,
+		}})
+	}
+	items := []output.DeliveredSubAgent{
+		{AgentID: "c3", AgentType: "review", Status: "complete", ParentCallID: "new-1"},
+		{AgentID: "c4", AgentType: "review", Status: "complete", ParentCallID: "new-2"},
+	}
+	rows := buildDeliveredRows(items, b.deliveredLookup)
+	if len(rows.members) != 2 || rows.header != "group reused (2 of 2)" {
+		t.Fatalf("delivered rows = %+v, want group reused (2 of 2)", rows)
+	}
+	for _, item := range items {
+		if got := b.deliveredLookup(item).groupSize; got != 2 {
+			t.Errorf("groupSize for %s = %d, want 2", item.AgentID, got)
+		}
 	}
 }
 

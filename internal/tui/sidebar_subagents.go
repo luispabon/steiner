@@ -81,7 +81,7 @@ func visibleRosterEntries(entries []rosterEntry) ([]rosterEntry, int) {
 	}
 	slots := max(0, subAgentsMaxRows-len(active))
 	hidden := 0
-	if len(done) > subAgentsMaxRows && len(done) > slots {
+	if len(active)+len(done) > subAgentsMaxRows && len(done) > slots {
 		hidden = len(done) - slots
 		done = done[:slots]
 	}

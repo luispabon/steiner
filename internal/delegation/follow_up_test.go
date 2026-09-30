@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,7 +58,15 @@ func TestFollowUpToolDef(t *testing.T) {
 
 func TestFollowUpHandler_UnknownAgentID(t *testing.T) {
 	t.Parallel()
-	handler := NewFollowUpHandler(SubAgentHandlerDeps{SessionStore: NewSessionStore()})
+	var runCount atomic.Int32
+	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) {
+		runCount.Add(1)
+		return successRunState(), nil
+	}})
+	deps.AsyncSubAgents = true
+	deps.SessionStore = NewSessionStore()
+	deps.Supervisor, _ = newAsyncSupervisor(deps.SubAgentCfg.MaxParallel, nil)
+	handler := NewFollowUpHandler(deps.SubAgentHandlerDeps)
 
 	_, err := handler(context.Background(), map[string]any{
 		"agent_id": "missing",
@@ -68,6 +77,12 @@ func TestFollowUpHandler_UnknownAgentID(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), `"missing"`) {
 		t.Fatalf("error = %q, want it to name the agent", err)
+	}
+	if got := runCount.Load(); got != 0 {
+		t.Fatalf("runner calls = %d, want 0 for unknown agent", got)
+	}
+	if pending := deps.Supervisor.Pending(); len(pending) != 0 {
+		t.Fatalf("supervised agents = %+v, want none for unknown agent", pending)
 	}
 }
 

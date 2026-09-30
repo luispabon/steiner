@@ -58,6 +58,20 @@ func TestRosterTransitions(t *testing.T) {
 			group: map[string]string{"c1": "final-review", "c2": ""},
 		},
 		{
+			name: "restarted after delivered completion",
+			events: []output.Event{
+				ev(output.ToolCallQueuedEvent{CallID: "first", Arguments: map[string]any{"group": "batch"}}),
+				ev(output.DelegationStartedEvent{AgentID: "c1", AgentType: "review", CallID: "first"}),
+				ev(output.DelegationCompleteEvent{AgentID: "c1", AgentType: "review", Status: "completed", DurationMs: 5000}),
+				ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "c1", AgentType: "review", Status: "complete"}}}),
+				ev(output.ToolCallQueuedEvent{CallID: "second", Arguments: map[string]any{"group": "other"}}),
+				ev(output.DelegationStartedEvent{AgentID: "c1", AgentType: "code", CallID: "second"}),
+				ev(output.DelegationCompleteEvent{AgentID: "c1", AgentType: "code", Status: "completed", DurationMs: 3000}),
+			},
+			want:  map[string]string{"c1": rosterDone},
+			group: map[string]string{"c1": "batch"},
+		},
+		{
 			name: "advisor excluded",
 			events: []output.Event{
 				ev(output.DelegationStartedEvent{AgentID: "adv", AgentType: "advisor"}),
@@ -87,6 +101,12 @@ func TestRosterTransitions(t *testing.T) {
 			var r subAgentRoster
 			for i, e := range tc.events {
 				r.observe(e, int64(i+1)*1_000_000_000)
+				if tc.name == "restarted after delivered completion" && i == 5 {
+					entry := r.entries["c1"]
+					if entry.status != rosterRunning || entry.startTime != 6_000_000_000 || entry.finishTime != 0 || entry.delivered || entry.agentType != "review" || entry.group != "batch" {
+						t.Fatalf("entry after restart = %+v, want running with reset timing and preserved review/batch", entry)
+					}
+				}
 			}
 			got := statusesByID(&r)
 			if len(got) != len(tc.want) {
@@ -100,6 +120,9 @@ func TestRosterTransitions(t *testing.T) {
 			for _, e := range r.snapshot() {
 				if want, ok := tc.group[e.agentID]; ok && e.group != want {
 					t.Errorf("%s group = %q, want %q", e.agentID, e.group, want)
+				}
+				if tc.name == "restarted after delivered completion" && (e.status != rosterDone || e.agentType != "review" || e.group != "batch" || e.startTime != 6_000_000_000 || e.finishTime != 9_000_000_000 || e.delivered) {
+					t.Errorf("restarted entry = %+v, want complete with second timing and preserved review/batch", e)
 				}
 			}
 		})
@@ -201,6 +224,44 @@ func TestSubAgentsSectionRender(t *testing.T) {
 			t.Errorf("last finished entry should be collapsed:\n%s", out)
 		}
 	})
+}
+
+func TestVisibleRosterEntries(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name                    string
+		active, done            int
+		wantVisible, wantHidden int
+	}{
+		{"under limit", 2, 3, 5, 0},
+		{"active and done exceed limit", 5, 6, 8, 3},
+		{"active alone exceeds limit", 9, 3, 9, 3},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			entries := make([]rosterEntry, 0, tc.active+tc.done)
+			for i := 0; i < tc.active; i++ {
+				entries = append(entries, rosterEntry{agentID: "active", status: rosterRunning})
+			}
+			for i := 0; i < tc.done; i++ {
+				entries = append(entries, rosterEntry{agentID: "done", status: rosterDone})
+			}
+			visible, hidden := visibleRosterEntries(entries)
+			if len(visible) != tc.wantVisible || hidden != tc.wantHidden {
+				t.Fatalf("visible/hidden = %d/%d, want %d/%d", len(visible), hidden, tc.wantVisible, tc.wantHidden)
+			}
+			active := 0
+			for _, entry := range visible {
+				if !entry.finished() {
+					active++
+				}
+			}
+			if active != tc.active {
+				t.Errorf("visible active = %d, want all %d", active, tc.active)
+			}
+		})
+	}
 }
 
 func TestStatusSubAgentsChip(t *testing.T) {

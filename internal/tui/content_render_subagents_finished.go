@@ -46,7 +46,7 @@ func (b *contentBuffer) deliveredLookup(item output.DeliveredSubAgent) delivered
 	info := deliveredLookup{group: found.group, reason: found.failureReason, elapsed: found.elapsed}
 	if found.group != "" {
 		b.forEachDelegationReverse(func(loc delegationLocator) bool {
-			if loc.dd != nil && loc.dd.group == found.group {
+			if loc.dd != nil && loc.dd.group == found.group && loc.dd.batch == found.batch {
 				info.groupSize++
 			}
 			return false
