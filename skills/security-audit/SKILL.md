@@ -61,7 +61,7 @@ Every git call uses `git --no-pager`. Every `git diff` and `git show` call adds 
    git --no-pager diff --no-index --no-ext-diff --no-textconv --no-color --numstat -- /dev/null <path>   # per untracked path; exit 1 on a non-empty file is expected
    ```
 
-7. Exclude and list with reasons: binary paths, files over 1 MiB, submodules, and anything under `.steiner/`. Never drop an exclusion silently.
+7. Exclude and list with reasons: binary paths, files over 1 MiB, submodules, and anything under `.steiner/`.
 
 ### Repo Mode
 
@@ -96,7 +96,7 @@ Git diff form: git --no-pager diff --no-ext-diff --no-textconv --no-color --igno
 Git show form: git --no-pager show --no-ext-diff --no-textconv --no-color <rev>:<path>
 ```
 
-Dispatch a phase's independent sub-agents in parallel (several `sub_agent` calls in one turn, bounded by `sub_agent.max_parallel`).
+Dispatch a phase's independent sub-agents in one turn (max `sub_agent.max_parallel`) under one `group` label; results arrive together; the next phase starts after.
 
 ## Phase: Map
 
