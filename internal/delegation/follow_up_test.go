@@ -66,8 +66,8 @@ func TestFollowUpHandler_UnknownAgentID(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unknown agent id")
 	}
-	if got, want := err.Error(), `follow_up: no session for agent "missing"`; got != want {
-		t.Fatalf("error = %q, want %q", got, want)
+	if !strings.Contains(err.Error(), `"missing"`) {
+		t.Fatalf("error = %q, want it to name the agent", err)
 	}
 }
 

@@ -172,6 +172,15 @@ func followUpImages(session *ChildSession) []provider.ImageBlock {
 	return nil
 }
 
+// errFollowUpNoSession is the denial for an agent whose session is not held by
+// this process. Sessions do not survive a restart, so the model is pointed at a
+// fresh sub_agent instead.
+func errFollowUpNoSession(agentID string) error {
+	return fmt.Errorf(
+		"follow_up: agent %q has no session in this process (sessions do not survive a restart); dispatch a fresh sub_agent with the context it needs instead",
+		agentID)
+}
+
 func validateFollowUp(input map[string]any, deps SubAgentHandlerDeps) (string, string, *ChildSession, error) {
 	agentID, _ := input["agent_id"].(string)
 	if agentID == "" {
@@ -182,11 +191,11 @@ func validateFollowUp(input map[string]any, deps SubAgentHandlerDeps) (string, s
 		return "", "", nil, fmt.Errorf("follow_up: message is required")
 	}
 	if deps.SessionStore == nil {
-		return "", "", nil, fmt.Errorf("follow_up: no session for agent %q", agentID)
+		return "", "", nil, errFollowUpNoSession(agentID)
 	}
 	session, ok := deps.SessionStore.Get(agentID)
 	if !ok {
-		return "", "", nil, fmt.Errorf("follow_up: no session for agent %q", agentID)
+		return "", "", nil, errFollowUpNoSession(agentID)
 	}
 	return agentID, message, session, nil
 }

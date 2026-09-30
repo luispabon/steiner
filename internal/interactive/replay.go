@@ -129,8 +129,24 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 				}
 				s.events.Emit(output.NewSkillStateEvent(block.Name, state))
 			}
+			var delivered []output.DeliveredSubAgent
 			for _, envelope := range parts.ResultEnvelopes {
-				s.replaySubAgentResult(envelope, acks)
+				parsed, ok := agent.ParseSubAgentResultEnvelope(envelope)
+				if !ok {
+					continue
+				}
+				s.replaySubAgentResult(parsed, acks)
+				_, usage := splitResultEnvelopeInner(parsed.Inner)
+				delivered = append(delivered, output.DeliveredSubAgent{
+					AgentID:      parsed.AgentID,
+					AgentType:    parsed.AgentType,
+					Status:       parsed.Status,
+					ParentCallID: parsed.CallID,
+					DurationMs:   usage.duration.Milliseconds(),
+				})
+			}
+			if len(delivered) > 0 {
+				s.events.Emit(output.NewSubAgentsDeliveredEvent(delivered))
 			}
 			// Rest already excludes the mode notice prefix, every block, the
 			// pending line and every result envelope, so it replaces
