@@ -41,13 +41,17 @@ func segmentHasActiveDelegation(seg *contentSegment) bool {
 
 //nolint:gocyclo // cache, visibility, and fragment dispatch all converge here.
 func (b *contentBuffer) String(width int) string {
-	b.updateDelegationRuns(width)
-
-	// Check if we can return cached result.
+	// Check the full-string cache before preparing delegation topology. The
+	// generation and shape guards catch mutations that do not mark a segment
+	// dirty, while checkBufferDirty handles active per-frame content.
 	isBufferDirty := b.checkBufferDirty(width)
-	if !isBufferDirty && b.stringCacheWidth == width && b.stringCacheRendered != "" {
+	if !isBufferDirty && b.stringCacheWidth == width && b.stringCacheRendered != "" &&
+		b.stringCacheGen == b.gen && b.stringCacheLen == len(b.segments) &&
+		b.stringCacheShowThinking == b.showThinking {
 		return b.stringCacheRendered
 	}
+
+	b.updateDelegationRuns(width)
 
 	// Extend the segment-height slice in place; heights of the cached prefix are
 	// retained from the previous render, so streaming frames do not reallocate
@@ -71,22 +75,19 @@ func (b *contentBuffer) String(width int) string {
 
 	parts := make([]string, 0, 8)
 	kinds := make([]contentSegmentKind, 0, 8)
-	anyRerender := false
 	for i := start; i < len(b.segments); i++ {
 		if b.skipHiddenSegment(i) {
 			continue
 		}
-		if b.processSegment(i, width, &parts, &kinds) {
-			anyRerender = true
-		}
+		b.processSegment(i, width, &parts, &kinds)
 	}
 
 	// Fold the freshly settled tail into the prefix cache so the next dirty
 	// frame only walks the genuinely changing tail (preview, spinners, live
 	// segments). Anything that re-rendered this frame stays in the tail.
 	segmentJoin := joinWithUserMargin(parts, kinds)
-	if !anyRerender && start < len(b.segments) && !containsDelegationKind(kinds) {
-		b.foldPrefix(parts, kinds, prefix, prefixLastKind, width)
+	if boundary := b.settledPrefixBoundary(start, width); boundary > start {
+		b.foldPrefix(width, boundary)
 	}
 
 	result := segmentJoin
@@ -101,6 +102,9 @@ func (b *contentBuffer) String(width int) string {
 
 	b.stringCacheWidth = width
 	b.stringCacheRendered = result
+	b.stringCacheGen = b.gen
+	b.stringCacheLen = len(b.segments)
+	b.stringCacheShowThinking = b.showThinking
 	return result
 }
 
@@ -125,26 +129,71 @@ func (b *contentBuffer) prefixCacheValid(width int) bool {
 		b.prefixCacheLen <= len(b.segments)
 }
 
-// foldPrefix extends the settled-prefix cache to cover the whole buffer after a
-// dirty frame in which nothing in the tail re-rendered. parts/kinds must be the
-// tail's segment parts (no preview sentinel).
-func (b *contentBuffer) foldPrefix(parts []string, kinds []contentSegmentKind, prefix string, prefixLastKind contentSegmentKind, width int) {
-	segmentJoin := joinWithUserMargin(parts, kinds)
-	switch {
-	case prefix != "" && len(parts) > 0:
-		b.prefixCacheRendered = prefix + joinSeparator(prefixLastKind, kinds[0]) + segmentJoin
-		b.prefixCacheLastKind = kinds[len(kinds)-1]
-	case prefix != "":
-		b.prefixCacheRendered = prefix
-	default:
-		b.prefixCacheRendered = segmentJoin
-		b.prefixCacheLastKind = lastPartKind(kinds)
+// foldPrefix extends the settled-prefix cache through boundary. Run boundaries
+// are chosen before calling so a delegation run is never split.
+func (b *contentBuffer) foldPrefix(width, boundary int) {
+	parts := make([]string, 0, boundary)
+	kinds := make([]contentSegmentKind, 0, boundary)
+	for i := 0; i < boundary; i++ {
+		if b.skipHiddenSegment(i) {
+			continue
+		}
+		stripped := strings.TrimRight(b.segments[i].cachedRender, "\n")
+		if stripped == "" {
+			continue
+		}
+		parts = append(parts, stripped)
+		kinds = append(kinds, b.segments[i].kind)
 	}
+	b.prefixCacheRendered = joinWithUserMargin(parts, kinds)
+	b.prefixCacheLastKind = lastPartKind(kinds)
 	b.prefixCacheSet = true
-	b.prefixCacheLen = len(b.segments)
+	b.prefixCacheLen = boundary
 	b.prefixCacheWidth = width
 	b.prefixCacheShowThinking = b.showThinking
 	b.prefixCacheGen = b.gen
+}
+
+// settledPrefixBoundary returns the furthest complete settled source boundary
+// from start. Delegation runs are admitted or rejected as a whole.
+func (b *contentBuffer) settledPrefixBoundary(start, width int) int {
+	boundary := start
+	for i := start; i < len(b.segments); {
+		if b.skipHiddenSegment(i) {
+			i++
+			boundary = i
+			continue
+		}
+		if isDelegationRunSegment(&b.segments[i]) {
+			runEnd := i
+			settled := true
+			for j := i; j < len(b.segments); j++ {
+				if b.skipHiddenSegment(j) {
+					continue
+				}
+				if !isDelegationRunSegment(&b.segments[j]) {
+					break
+				}
+				seg := &b.segments[j]
+				if seg.delegationRunMutable || b.segmentNeedsRender(seg, width) {
+					settled = false
+				}
+				runEnd = j + 1
+			}
+			if !settled {
+				return boundary
+			}
+			boundary = runEnd
+			i = runEnd
+			continue
+		}
+		if b.segmentNeedsRender(&b.segments[i], width) {
+			return boundary
+		}
+		boundary = i + 1
+		i++
+	}
+	return boundary
 }
 
 // rebuildPrefix caches the joined render of every settled segment up to the
@@ -153,23 +202,57 @@ func (b *contentBuffer) foldPrefix(parts []string, kinds []contentSegmentKind, p
 func (b *contentBuffer) rebuildPrefix(width int) (boundary int, prefix string, prefixLastKind contentSegmentKind) {
 	parts := make([]string, 0, 8)
 	kinds := make([]contentSegmentKind, 0, 8)
-	for i := range b.segments {
+	for i := 0; i < len(b.segments); {
 		if b.skipHiddenSegment(i) {
+			i++
+			boundary = i
 			continue
 		}
 		if isDelegationRunSegment(&b.segments[i]) {
-			break
+			runEnd := i
+			settled := true
+			for j := i; j < len(b.segments); j++ {
+				if b.skipHiddenSegment(j) {
+					continue
+				}
+				if !isDelegationRunSegment(&b.segments[j]) {
+					break
+				}
+				seg := &b.segments[j]
+				if seg.delegationRunMutable || b.segmentNeedsRender(seg, width) {
+					settled = false
+				}
+				runEnd = j + 1
+			}
+			if !settled {
+				break
+			}
+			for j := i; j < runEnd; j++ {
+				if b.skipHiddenSegment(j) {
+					continue
+				}
+				stripped := strings.TrimRight(b.segments[j].cachedRender, "\\n")
+				b.segmentHeights[j] = strings.Count(stripped, "\\n") + 1
+				if stripped != "" {
+					parts = append(parts, stripped)
+					kinds = append(kinds, b.segments[j].kind)
+				}
+			}
+			boundary = runEnd
+			i = runEnd
+			continue
 		}
 		if b.segmentNeedsRender(&b.segments[i], width) {
 			break
 		}
-		stripped := strings.TrimRight(b.segments[i].cachedRender, "\n")
-		b.segmentHeights[i] = strings.Count(stripped, "\n") + 1
+		stripped := strings.TrimRight(b.segments[i].cachedRender, "\\n")
+		b.segmentHeights[i] = strings.Count(stripped, "\\n") + 1
 		if stripped != "" {
 			parts = append(parts, stripped)
 			kinds = append(kinds, b.segments[i].kind)
 		}
 		boundary = i + 1
+		i++
 	}
 	b.prefixCacheSet = true
 	b.prefixCacheLen = boundary
@@ -184,7 +267,7 @@ func (b *contentBuffer) rebuildPrefix(width int) (boundary int, prefix string, p
 // segmentNeedsRender reports whether processSegment would re-render seg instead
 // of reusing its cached render. Must stay in sync with processSegment.
 func (b *contentBuffer) segmentNeedsRender(seg *contentSegment, width int) bool {
-	if seg.renderDirty || isDelegationRunSegment(seg) {
+	if seg.renderDirty {
 		return true
 	}
 	if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {

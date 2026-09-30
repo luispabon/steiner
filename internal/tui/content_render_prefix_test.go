@@ -220,3 +220,43 @@ func TestActiveDelegationStaysOutsidePrefix(t *testing.T) {
 		t.Fatalf("prefixCacheLen = %d after delegation completes, want 1 (mutable delegation run tail must stay out of prefix)", b.prefixCacheLen)
 	}
 }
+
+func TestSettledDelegationRunCanExtendPrefixBeforeMutableRun(t *testing.T) {
+	t.Parallel()
+	useTrueColor(t)
+	b := delegationRunTestBuffer()
+	first := delegationRunTestSegment("settled")
+	first.delegationRunFinal = true
+	b.segments = []contentSegment{first}
+	b.String(80)
+	if b.prefixCacheLen != 1 {
+		t.Fatalf("initial settled run prefix length = %d, want 1", b.prefixCacheLen)
+	}
+
+	settled := delegationRunTestSegment("historical")
+	settled.delegationRunFinal = true
+	active := delegationRunTestSegment("active")
+	active.delegationRunMutable = true
+	b.segments = append(b.segments, settled, active)
+	got := b.String(80)
+	if b.prefixCacheLen != 2 {
+		t.Fatalf("prefix length = %d, want 2 (include closed run, exclude mutable run)", b.prefixCacheLen)
+	}
+	if !strings.Contains(got, "historical") || !strings.Contains(got, "active") {
+		t.Fatalf("output omitted run content: %q", got)
+	}
+}
+
+func TestUnchangedStringCacheSkipsDelegationTopologyPrep(t *testing.T) {
+	t.Parallel()
+	useTrueColor(t)
+	b := delegationRunTestBuffer()
+	b.segments = []contentSegment{delegationRunTestSegment("settled")}
+	b.String(80)
+	cachedKey := b.delegationRunKey
+	b.segments[0].delegationJoinedAbove = true
+	b.String(80)
+	if !b.segments[0].delegationJoinedAbove || b.delegationRunKey != cachedKey {
+		t.Fatal("unchanged full-string cache hit prepared delegation topology")
+	}
+}
