@@ -2498,10 +2498,10 @@ func TestModelEscClosesHelpDuringActiveConversation(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
 
-	// Open help via ? key during active conversation.
-	m = updateModel(t, m, tea.KeyPressMsg{Code: '?', Text: "?"})
+	// Open help via Ctrl+F1 during active conversation.
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyF1, Mod: tea.ModCtrl})
 	if !m.helpVisible {
-		t.Fatal("helpVisible = false, want true after ? key")
+		t.Fatal("helpVisible = false, want true after Ctrl+F1")
 	}
 
 	// ESC should close help, not interrupt.

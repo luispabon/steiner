@@ -289,6 +289,54 @@ func TestApprovalShortcutsWithoutDelegateKeepApprovalBehavior(t *testing.T) {
 	}
 }
 
+func TestCtrlF1TogglesHelpWithoutChangingPrompt(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{"", "   ", "draft"} {
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+			m := newModel(Config{}, nil)
+			m.input.SetValue(value)
+			m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyF1, Mod: tea.ModCtrl})
+			if !m.helpVisible {
+				t.Fatal("helpVisible = false after Ctrl+F1")
+			}
+			if got := m.input.Value(); got != value {
+				t.Fatalf("input = %q, want unchanged %q", got, value)
+			}
+			m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyF1, Mod: tea.ModCtrl})
+			if m.helpVisible {
+				t.Fatal("helpVisible = true after second Ctrl+F1")
+			}
+			if got := m.input.Value(); got != value {
+				t.Fatalf("input = %q after close, want unchanged %q", got, value)
+			}
+		})
+	}
+}
+
+func TestQuestionMarkTypesAndPlainF1DoesNotToggleHelp(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '?', Text: "?"})
+	if got := m.input.Value(); got != "?" {
+		t.Fatalf("input = %q, want question mark", got)
+	}
+	if m.helpVisible {
+		t.Fatal("plain question mark opened help")
+	}
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyF1})
+	if m.helpVisible {
+		t.Fatal("plain F1 opened help")
+	}
+	if got := m.input.Value(); got != "?" {
+		t.Fatalf("input = %q after plain F1, want question mark", got)
+	}
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input = %q after Backspace, want empty", got)
+	}
+}
+
 func TestEscapeClosesHelpBeforeDelegateStopModal(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)

@@ -64,7 +64,7 @@ func (s statusState) view(width int) string {
 
 	// Segments 2-3: stable commands and navigation
 	parts = append(parts, s.styles.KeyChip.Render("^B")+" sidebar")
-	parts = append(parts, s.styles.KeyChip.Render("?")+" help")
+	parts = append(parts, s.styles.KeyChip.Render("Ctrl+F1")+" help")
 
 	// Segment 6: ctx (static, infrequently changing)
 	if s.contextBudget > 0 || s.promptUsed > 0 {

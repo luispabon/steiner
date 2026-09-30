@@ -265,7 +265,7 @@ func TestViewportViewCacheServesStoredFrame(t *testing.T) {
 }
 
 // TestViewportViewCacheBypassedWhenHelpVisible is the regression test for the
-// help overlay: toggling helpVisible (the '?' key path) never calls
+// help overlay: toggling helpVisible never calls
 // syncViewport, so the only thing preventing a stale frame is the cache-hit
 // guard. With help visible the frame must be re-rendered with the overlay.
 func TestViewportViewCacheBypassedWhenHelpVisible(t *testing.T) {

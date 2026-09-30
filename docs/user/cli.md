@@ -71,7 +71,7 @@ Common flags; `steiner --help` lists all of them.
 
 ## Interactive commands
 
-Type `/` to open the command and skill list, and `?` to toggle the help overlay with keybindings.
+Type `/` to open the command and skill list, and press Ctrl+F1 to toggle the help overlay with keybindings.
 
 Use `/compact` or `/compact <focus text>` to compact the conversation. Use `/model` to change the active orchestrator model. For example, enter `/model ollama/qwen2.5-coder:14b` to select a raw reference. Use `/profile <name>` to select a profile for future role assignments. Use `/mode [plan|build]` to switch execution mode. See [Execution modes](execution-modes.md).
 
