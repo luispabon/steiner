@@ -170,6 +170,10 @@ func (r *subAgentRoster) deliver(item output.DeliveredSubAgent, now int64) {
 		}
 		r.finish(id, item.AgentType, status, item.DurationMs, now)
 		e = r.entries[id]
+		if e.group == "" {
+			// An entry recreated after a prune has no group of its own.
+			e.group = r.groups[item.ParentCallID]
+		}
 		if e.status != status && status == rosterLost {
 			e.status = rosterLost
 		}
@@ -177,10 +181,22 @@ func (r *subAgentRoster) deliver(item output.DeliveredSubAgent, now int64) {
 	e.delivered = true
 }
 
-// prune drops finished entries; running and queued ones stay.
+// prune drops every finished entry; running and queued ones stay. It is used
+// when replayed history is discarded.
 func (r *subAgentRoster) prune() {
+	r.dropWhere(func(e *rosterEntry) bool { return e.finished() })
+}
+
+// pruneDelivered drops finished entries whose result has been delivered. A
+// finished entry still awaiting delivery stays, so it keeps its group when the
+// delivery arrives.
+func (r *subAgentRoster) pruneDelivered() {
+	r.dropWhere(func(e *rosterEntry) bool { return e.finished() && e.delivered })
+}
+
+func (r *subAgentRoster) dropWhere(drop func(*rosterEntry) bool) {
 	for id, e := range r.entries {
-		if e.finished() {
+		if drop(e) {
 			delete(r.entries, id)
 		}
 	}
@@ -241,9 +257,10 @@ func (m *Model) observeRoster(event output.Event) {
 	m.roster.observe(event, nanoNow())
 }
 
-// pruneRosterOnPrompt clears finished entries when the user submits a prompt.
+// pruneRosterOnPrompt clears delivered, finished entries when the user submits
+// a prompt.
 func (m *Model) pruneRosterOnPrompt() {
-	m.roster.prune()
+	m.roster.pruneDelivered()
 	m.syncRoster()
 }
 

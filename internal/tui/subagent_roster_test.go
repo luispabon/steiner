@@ -117,7 +117,10 @@ func TestRosterPrune(t *testing.T) {
 		return r
 	}
 	for name, fn := range map[string]func(*subAgentRoster){
-		"prompt":         func(r *subAgentRoster) { r.prune() },
+		"prompt": func(r *subAgentRoster) {
+			r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "bad", AgentType: "code", Status: "failed"}, {AgentID: "ok", AgentType: "code", Status: "complete"}}}), 5)
+			r.pruneDelivered()
+		},
 		"session_loaded": func(r *subAgentRoster) { r.observe(ev(output.ContextDiagnosticsEvent{Kind: "session_loaded"}), 9) },
 		"session_loaded_budget": func(r *subAgentRoster) {
 			e := output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{Kind: "session_loaded", ContextWindow: 4096})
@@ -282,5 +285,50 @@ func TestSyncRosterFrameAdvancesOnlyWhileRunning(t *testing.T) {
 	}
 	if m.roster.hasRunning() {
 		t.Fatal("hasRunning should be false after completion")
+	}
+}
+
+func TestRosterPromptKeepsUndeliveredGroup(t *testing.T) {
+	t.Parallel()
+	var r subAgentRoster
+	for i, e := range []output.Event{
+		ev(output.ToolCallQueuedEvent{CallID: "a", Arguments: map[string]any{"group": "g"}}),
+		ev(output.ToolCallQueuedEvent{CallID: "b", Arguments: map[string]any{"group": "g"}}),
+		ev(output.DelegationStartedEvent{AgentID: "c1", AgentType: "code", CallID: "a"}),
+		ev(output.DelegationStartedEvent{AgentID: "c2", AgentType: "code", CallID: "b"}),
+		ev(output.DelegationCompleteEvent{AgentID: "c1", AgentType: "code", Status: "completed", DurationMs: 7000}),
+	} {
+		r.observe(e, int64(i+1)*1_000_000_000)
+	}
+	r.pruneDelivered() // user prompt while c1 is finished but undelivered
+	if got := statusesByID(&r); got["c1"] != rosterDone {
+		t.Fatalf("undelivered finished entry pruned on prompt: %v", got)
+	}
+	r.observe(ev(output.DelegationCompleteEvent{AgentID: "c2", AgentType: "code", Status: "completed", DurationMs: 9000}), 9e9)
+	r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{
+		{AgentID: "c1", AgentType: "code", Status: "complete", ParentCallID: "a"},
+		{AgentID: "c2", AgentType: "code", Status: "complete", ParentCallID: "b"},
+	}}), 10e9)
+	for _, e := range r.snapshot() {
+		if e.group != "g" {
+			t.Errorf("%s group = %q, want g", e.agentID, e.group)
+		}
+	}
+	r.pruneDelivered()
+	if got := statusesByID(&r); len(got) != 0 {
+		t.Errorf("delivered entries survived the next prompt: %v", got)
+	}
+}
+
+func TestRosterDeliveryRecoversGroupAfterPrune(t *testing.T) {
+	t.Parallel()
+	var r subAgentRoster
+	r.observe(ev(output.ToolCallQueuedEvent{CallID: "a", Arguments: map[string]any{"group": "g"}}), 1)
+	r.observe(ev(output.DelegationStartedEvent{AgentID: "keep", AgentType: "code", CallID: "z"}), 1)
+	r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "late", AgentType: "code", Status: "complete", ParentCallID: "a"}}}), 2)
+	for _, e := range r.snapshot() {
+		if e.agentID == "late" && e.group != "g" {
+			t.Errorf("late group = %q, want g", e.group)
+		}
 	}
 }
