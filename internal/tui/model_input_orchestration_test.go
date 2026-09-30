@@ -9,6 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/output"
 )
 
 // conversationTestController extends testController with a fake
@@ -129,19 +130,32 @@ func TestRequestOrchestrationLevelSameAsCurrentIsNoop(t *testing.T) {
 	}
 }
 
-func TestRequestOrchestrationLevelConversationWaitKeepsImmediateSwitchBehavior(t *testing.T) {
+func TestRequestOrchestrationLevelConversationWaitKeepsNoAfterTurnText(t *testing.T) {
 	t.Parallel()
-	ctrl := &conversationTestController{}
+	ctrl := &conversationTestController{conversation: []agent.Message{{Role: "user", Content: "continue"}}}
 	m := newModel(Config{Controller: ctrl, SubAgentsEnabled: true, OrchestrationLevel: "standard"}, nil)
 	applyConversationStateEvent(t, m, conversationStateWaiting, false, 1, false)
 
 	m.requestOrchestrationLevel(config.OrchestrationLevelLow)
 
-	if actions := ctrl.switchOrchestrationLevelActions(); len(actions) != 1 {
-		t.Fatalf("switch actions = %#v, want immediate switch while only waiting", actions)
+	if !m.orchestrationConfirm.IsOpen() {
+		t.Fatal("confirmation did not open for non-empty conversation")
 	}
-	if m.orchestrationConfirm.IsOpen() {
-		t.Fatal("confirmation opened while only waiting on sub-agents")
+	if got, want := m.orchestrationConfirm.spec.Body, "Invalidates the prompt cache."; got != want {
+		t.Fatalf("waiting confirmation body = %q, want %q", got, want)
+	}
+
+	m.applyEvent(output.NewModelCallStartedEvent(1, "model", 1))
+	m.syncInputChrome()
+	m.requestOrchestrationLevel(config.OrchestrationLevelLow)
+	if got, want := m.orchestrationConfirm.spec.Body, "Invalidates the prompt cache. Applies after this turn."; got != want {
+		t.Fatalf("parent model-call confirmation body = %q, want %q", got, want)
+	}
+	if got, want := m.input.Placeholder, "working… esc to interrupt, or type to steer"; got != want {
+		t.Fatalf("parent model-call placeholder = %q, want %q", got, want)
+	}
+	if !m.status.streaming {
+		t.Fatal("status.streaming = false during parent model call")
 	}
 }
 
