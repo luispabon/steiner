@@ -70,6 +70,10 @@ const (
 	EventTypeDelegationStarted = "delegation_started"
 	// EventTypeDelegationQueued marks a sub-agent accepted but waiting for a running slot.
 	EventTypeDelegationQueued = "delegation_queued"
+	// EventTypeSubAgentsDelivered marks sub-agent results delivered to the model in one message.
+	EventTypeSubAgentsDelivered = "sub_agents_delivered"
+	// EventTypeSubAgentResultsUnanswered marks delivered sub-agent results the model never answered.
+	EventTypeSubAgentResultsUnanswered = "sub_agent_results_unanswered"
 	// EventTypeConversationState marks a conversation driver state or held change.
 	EventTypeConversationState = "conversation_state"
 	// EventTypeConversationWarning marks a non-fatal conversation driver failure.
@@ -479,6 +483,28 @@ type DelegationQueuedEvent struct {
 	TaskPreview string `json:"task_preview"`
 }
 
+// DeliveredSubAgent is one sub-agent result inside a SubAgentsDeliveredEvent.
+type DeliveredSubAgent struct {
+	AgentID      string `json:"agent_id"`
+	AgentType    string `json:"agent_type,omitempty"`
+	Status       string `json:"status"`
+	ParentCallID string `json:"parent_call_id,omitempty"`
+	DurationMs   int64  `json:"duration_ms,omitempty"`
+}
+
+// SubAgentsDeliveredEvent records sub-agent results delivered to the model, in
+// delivery order.
+type SubAgentsDeliveredEvent struct {
+	Items []DeliveredSubAgent `json:"items"`
+}
+
+// SubAgentResultsUnansweredEvent records sub-agent results in the conversation
+// tail that no assistant message followed. Reason is the run error, if any.
+type SubAgentResultsUnansweredEvent struct {
+	AgentIDs []string `json:"agent_ids"`
+	Reason   string   `json:"reason,omitempty"`
+}
+
 // ConversationStateEvent is the conversation driver's state for the UI: State
 // is "idle", "generating" or "waiting", Pending counts undelivered sub-agents.
 type ConversationStateEvent struct {
@@ -504,6 +530,8 @@ type DelegationCacheWaitingEvent struct {
 // DelegationCompleteEvent records a successful delegated child task.
 type DelegationCompleteEvent struct {
 	AgentID           string `json:"agent_id"`
+	AgentType         string `json:"agent_type,omitempty"`
+	DurationMs        int64  `json:"duration_ms,omitempty"`
 	Status            string `json:"status"`
 	TurnCount         int    `json:"turn_count"`
 	TokenCount        int    `json:"token_count"`
@@ -520,6 +548,8 @@ type DelegationCompleteEvent struct {
 // DelegationFailedEvent records a failed delegated child task.
 type DelegationFailedEvent struct {
 	AgentID       string `json:"agent_id"`
+	AgentType     string `json:"agent_type,omitempty"`
+	DurationMs    int64  `json:"duration_ms,omitempty"`
 	CallID        string `json:"call_id,omitempty"`
 	TaskPreview   string `json:"task_preview"`
 	Error         string `json:"error"`

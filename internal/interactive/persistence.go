@@ -221,8 +221,6 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	s.mu.Unlock()
 	s.retireDriver(old)
 
-	deliverLostSubAgents(drv, sess.SubAgentLedger)
-
 	s.bindImageStore(sess.ID, agent.NextImageIDFloor(sess.Lineage))
 
 	// Notify after releasing the lock: the listener is caller-supplied and may
@@ -232,6 +230,10 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}
 
 	s.replaySessionMessages(msgs)
+	s.emitUnansweredResults(msgs, "")
+	// Lost sub-agents settle only after replay so their delivered event lands
+	// after the replayed transcript, not before it.
+	deliverLostSubAgents(drv, sess.SubAgentLedger)
 
 	// Emit a context-diagnostics event so the TUI can populate the sidebar
 	// token bar and the status bar with the model's context budget.
