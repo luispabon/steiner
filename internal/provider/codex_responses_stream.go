@@ -50,8 +50,6 @@ type responsesStreamState struct {
 	finishReason             string
 	reasoningID              string
 	sawDone                  bool
-	sawContent               bool
-	sawToolCall              bool
 	sawThinking              bool
 	pendingThinkingSeparator bool
 	ledger                   []responsesLedgerEntry
@@ -82,11 +80,10 @@ func decodeResponsesStreamWithHandler(_ context.Context, body io.Reader, emit fu
 		}
 	}
 
-	hadUsableFinalChunk := state.sawDone || state.finishReason != ""
 	if err := flushResponsesStreamState(emit, state); err != nil {
 		return err
 	}
-	if !hadUsableFinalChunk {
+	if !state.sawDone && state.finishReason == "" {
 		return fmt.Errorf("stream completed without a final chunk: %w", io.ErrUnexpectedEOF)
 	}
 	return nil
@@ -162,7 +159,6 @@ func handleResponsesTextDelta(state *responsesStreamState, payload responsesStre
 	}
 	entry.appendPart(part, delta)
 	state.content.WriteString(delta)
-	state.sawContent = true
 	return false, emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: delta}})
 }
 
@@ -212,15 +208,20 @@ func handleResponsesOutputItemDone(state *responsesStreamState, item responsesIt
 	if item.Type != "function_call" {
 		return false, nil
 	}
-	call, err := responsesToolCall(item)
+	entry, err := state.resolve("function_call", item.ID, outputIndex, item.CallID, false)
 	if err != nil {
 		return false, err
 	}
-	entry, err := state.resolve("function_call", item.ID, outputIndex, item.CallID, true)
+	callItem := item
+	if callItem.CallID == "" {
+		callItem.CallID = entry.callID
+	}
+	call, err := responsesToolCall(callItem)
 	if err != nil {
 		return false, err
 	}
 	mergeResponsesToolCall(entry, call)
+	state.current = nil
 	entry.completed = true
 	state.current = nil
 	return false, nil
@@ -377,7 +378,7 @@ func handleResponsesCompleted(state *responsesStreamState, response responsesRes
 		if err != nil {
 			return false, err
 		}
-		_, calls, text := (&responsesStreamState{ledger: ledger}).projected()
+		_, _, text := (&responsesStreamState{ledger: ledger}).projected()
 		streamed := state.content.String()
 		if strings.HasPrefix(text, streamed) && len(text) > len(streamed) {
 			if err := emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: text[len(streamed):]}}); err != nil {
@@ -386,24 +387,19 @@ func handleResponsesCompleted(state *responsesStreamState, response responsesRes
 		}
 		state.content.Reset()
 		state.content.WriteString(text)
-		state.sawContent = text != ""
 		state.ledger = ledger
-		state.sawToolCall = len(calls) > 0
 	} else {
 		_, _, text := state.projected()
 		state.content.Reset()
 		state.content.WriteString(text)
-		state.sawContent = text != ""
 		if text == "" && resp.Message.Content != "" {
 			state.content.WriteString(resp.Message.Content)
-			state.sawContent = true
 		}
 		if len(resp.Message.ToolCalls) > 0 {
 			for _, call := range resp.Message.ToolCalls {
 				e := responsesLedgerEntry{kind: "function_call", call: &call, callID: call.ID, completed: true}
 				state.ledger = append(state.ledger, e)
 			}
-			state.sawToolCall = true
 		}
 	}
 	if resp.Message.ReasoningContent != "" && !state.sawThinking {
@@ -419,7 +415,8 @@ func handleResponsesCompleted(state *responsesStreamState, response responsesRes
 }
 
 func flushResponsesStreamState(emit func(ChatChunk) error, state responsesStreamState) error {
-	if !state.sawContent && !state.sawToolCall && !state.sawThinking && state.finishReason == "" && state.usage == nil {
+	_, calls, content := state.projected()
+	if content == "" && len(calls) == 0 && !state.sawThinking && state.finishReason == "" && state.usage == nil {
 		return nil
 	}
 	return emit(responsesStreamStateToChatChunk(state))
@@ -437,7 +434,7 @@ func hasCodexPhase(blocks []CodexMessageBlock) bool {
 func responsesStreamStateToChatChunk(state responsesStreamState) ChatChunk {
 	message := Message{Role: MessageRoleAssistant}
 	blocks, calls, content := state.projected()
-	if state.sawContent {
+	if content != "" {
 		message.Content = content
 	}
 	if state.sawThinking {

@@ -60,11 +60,17 @@ func completedResponsesItems(output []responsesItem, streamed []responsesLedgerE
 				entry.phase = streamedPhase(streamed, used, item.ID, outputIndex)
 			}
 		case "function_call":
-			call, err := responsesToolCall(item)
+			callItem := item
+			if callItem.CallID == "" {
+				if existing := streamedCallByItemID(streamed, item.ID); existing != nil {
+					callItem.CallID = existing.callID
+				}
+			}
+			call, err := responsesToolCall(callItem)
 			if err != nil {
 				return nil, err
 			}
-			entry = responsesLedgerEntry{kind: "function_call", itemID: item.ID, callID: item.CallID, call: &call, completed: true}
+			entry = responsesLedgerEntry{kind: "function_call", itemID: item.ID, callID: callItem.CallID, call: &call, completed: true}
 			if entry.callID == "" {
 				entry.callID = call.ID
 			}
@@ -78,6 +84,25 @@ func completedResponsesItems(output []responsesItem, streamed []responsesLedgerE
 		result = append(result, entry)
 	}
 	return result, nil
+}
+
+func streamedCallByItemID(streamed []responsesLedgerEntry, id string) *responsesLedgerEntry {
+	if id == "" {
+		return nil
+	}
+	found := -1
+	for i := range streamed {
+		if streamed[i].kind == "function_call" && streamed[i].itemID == id {
+			if found >= 0 {
+				return nil
+			}
+			found = i
+		}
+	}
+	if found < 0 {
+		return nil
+	}
+	return &streamed[found]
 }
 
 func streamedPhase(streamed []responsesLedgerEntry, used []bool, id string, index int) string {
