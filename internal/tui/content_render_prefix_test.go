@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -224,30 +225,73 @@ func TestActiveDelegationStaysOutsidePrefix(t *testing.T) {
 func TestSettledDelegationRunCanExtendPrefixBeforeMutableRun(t *testing.T) {
 	t.Parallel()
 	useTrueColor(t)
-	b := delegationRunTestBuffer()
-	first := delegationRunTestSegment("settled")
-	first.delegationRunFinal = true
-	b.segments = []contentSegment{first, {kind: segmentPlain, text: "barrier", renderDirty: true}}
-	b.String(80)
-	if b.prefixCacheLen != 2 {
-		t.Fatalf("initial settled prefix length = %d, want 2", b.prefixCacheLen)
+	warm := delegationRunTestBuffer()
+	warm.segments = []contentSegment{
+		delegationRunTestSegment("warm historical"),
+		{kind: segmentPlain, text: "warm boundary", renderDirty: true},
+	}
+	warm.String(80)
+	warm.String(80)
+	if warm.prefixCacheLen != 2 {
+		t.Fatalf("initial settled prefix length = %d, want 2", warm.prefixCacheLen)
 	}
 
-	settled := delegationRunTestSegment("historical")
-	settled.delegationRunFinal = true
-	active := delegationRunTestSegment("active")
-	active.delegData.status = "active"
-	b.segments = append(b.segments,
-		settled,
-		contentSegment{kind: segmentPlain, text: "second barrier", renderDirty: true},
-		active,
+	warm.segments = append(warm.segments,
+		delegationRunTestSegment("closed appended run"),
+		contentSegment{kind: segmentPlain, text: "visible boundary", renderDirty: true},
+		delegationRunTestSegment("active appended run"),
 	)
-	got := b.String(80)
-	if b.prefixCacheLen != 4 {
-		t.Fatalf("prefix length = %d, want 4 (include closed run, exclude mutable run)", b.prefixCacheLen)
+	warm.segments[4].delegData.status = "active"
+	got := warm.String(80)
+	gotHeights := append([]int(nil), warm.segmentHeights...)
+	if warm.prefixCacheLen != 4 {
+		t.Fatalf("prefix length = %d, want 4 (include closed run and boundary, exclude active run)", warm.prefixCacheLen)
 	}
-	if !strings.Contains(got, "historical") || !strings.Contains(got, "active") {
-		t.Fatalf("output omitted run content: %q", got)
+
+	cold := delegationRunTestBuffer()
+	cold.segments = []contentSegment{
+		delegationRunTestSegment("warm historical"),
+		{kind: segmentPlain, text: "warm boundary", renderDirty: true},
+		delegationRunTestSegment("closed appended run"),
+		{kind: segmentPlain, text: "visible boundary", renderDirty: true},
+		delegationRunTestSegment("active appended run"),
+	}
+	cold.segments[4].delegData.status = "active"
+	want := cold.String(80)
+	if got != want {
+		t.Fatalf("warm output differs from cold render:\\n--- warm ---\\n%s\\n--- cold ---\\n%s", got, want)
+	}
+	if !slices.Equal(gotHeights, cold.segmentHeights) {
+		t.Fatalf("warm heights = %v, cold heights = %v", gotHeights, cold.segmentHeights)
+	}
+}
+
+func TestPrefixRebuildCountsCleanMultilineHeight(t *testing.T) {
+	t.Parallel()
+	useTrueColor(t)
+	b := delegationRunTestBuffer()
+	b.segments = []contentSegment{
+		{kind: segmentPlain, text: "first\nsecond\nthird", renderDirty: true},
+		{kind: segmentPlain, text: "tail", renderDirty: true},
+	}
+	b.String(80)
+	b.String(80)
+	warmHeight := b.segmentHeights[0]
+	if warmHeight < 3 {
+		t.Fatalf("rendered multiline height = %d, want at least 3", warmHeight)
+	}
+	b.String(40)
+	if got := b.segmentHeights[0]; got != warmHeight {
+		t.Fatalf("rebuilt multiline height = %d, warm height = %d", got, warmHeight)
+	}
+	cold := delegationRunTestBuffer()
+	cold.segments = []contentSegment{
+		{kind: segmentPlain, text: "first\nsecond\nthird", renderDirty: true},
+		{kind: segmentPlain, text: "tail", renderDirty: true},
+	}
+	cold.String(40)
+	if got := b.String(40); got != cold.String(40) {
+		t.Fatal("rebuilt warm output differs from cold render")
 	}
 }
 

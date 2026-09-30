@@ -231,8 +231,8 @@ func (b *contentBuffer) rebuildPrefix(width int) (boundary int, prefix string, p
 				if b.skipHiddenSegment(j) {
 					continue
 				}
-				stripped := strings.TrimRight(b.segments[j].cachedRender, "\\n")
-				b.segmentHeights[j] = strings.Count(stripped, "\\n") + 1
+				stripped := strings.TrimRight(b.segments[j].cachedRender, "\n")
+				b.segmentHeights[j] = strings.Count(stripped, "\n") + 1
 				if stripped != "" {
 					parts = append(parts, stripped)
 					kinds = append(kinds, b.segments[j].kind)
@@ -245,8 +245,8 @@ func (b *contentBuffer) rebuildPrefix(width int) (boundary int, prefix string, p
 		if b.segmentNeedsRender(&b.segments[i], width) {
 			break
 		}
-		stripped := strings.TrimRight(b.segments[i].cachedRender, "\\n")
-		b.segmentHeights[i] = strings.Count(stripped, "\\n") + 1
+		stripped := strings.TrimRight(b.segments[i].cachedRender, "\n")
+		b.segmentHeights[i] = strings.Count(stripped, "\n") + 1
 		if stripped != "" {
 			parts = append(parts, stripped)
 			kinds = append(kinds, b.segments[i].kind)
