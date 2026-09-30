@@ -39,10 +39,19 @@ type AnthropicMessageMetadata struct {
 	ThinkingSignature string `json:"thinking_signature,omitempty"`
 }
 
+// CodexMessageBlock stores one ordered Codex output item for replay.
+type CodexMessageBlock struct {
+	Kind   string `json:"kind"`
+	Phase  string `json:"phase,omitempty"`
+	Text   string `json:"text,omitempty"`
+	CallID string `json:"call_id,omitempty"`
+}
+
 // CodexMessageMetadata carries Codex-native replay fields that must be
 // preserved on specific assistant messages.
 type CodexMessageMetadata struct {
-	ReasoningID string `json:"reasoning_id,omitempty"`
+	ReasoningID string              `json:"reasoning_id,omitempty"`
+	Blocks      []CodexMessageBlock `json:"blocks,omitempty"`
 }
 
 // MessageProviderMetadata stores provider-native message fields needed for

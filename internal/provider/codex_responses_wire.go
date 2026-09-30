@@ -66,6 +66,7 @@ type responsesItem struct {
 	Name    string                 `json:"name,omitempty"`
 	Args    string                 `json:"arguments,omitempty"`
 	Output  string                 `json:"output,omitempty"`
+	Phase   string                 `json:"phase,omitempty"`
 }
 
 type responsesContentPart struct {
@@ -184,6 +185,7 @@ func responsesRequestWire(request ChatRequest, defaultModel string, stream bool)
 	return wire, nil
 }
 
+//nolint:gocyclo,unparam // Replay preserves ordered blocks; errors remain part of the existing converter contract.
 func messageToResponsesItems(msg Message) ([]responsesItem, error) {
 	switch msg.Role {
 	case MessageRoleUser:
@@ -205,24 +207,55 @@ func messageToResponsesItems(msg Message) ([]responsesItem, error) {
 				Summary: []responsesContentPart{{Type: "summary_text", Text: msg.ReasoningContent}},
 			})
 		}
-		if msg.Content != "" || len(msg.Images) > 0 {
-			items = append(items, messageItem("assistant", outputContentParts(msg.Content)))
+		var blocks []CodexMessageBlock
+		if msg.ProviderMetadata != nil && msg.ProviderMetadata.Codex != nil {
+			blocks = msg.ProviderMetadata.Codex.Blocks
 		}
-		for _, call := range msg.ToolCalls {
-			args := call.RawArguments
-			if args == "" {
-				data, err := json.Marshal(call.Arguments)
-				if err != nil {
-					return nil, fmt.Errorf("encode tool call %q arguments: %w", call.Name, err)
-				}
-				args = string(data)
+		if len(blocks) == 0 {
+			if msg.Content != "" || len(msg.Images) > 0 {
+				items = append(items, messageItem("assistant", outputContentParts(msg.Content)))
 			}
-			items = append(items, responsesItem{
-				Type:   "function_call",
-				CallID: call.ID,
-				Name:   call.Name,
-				Args:   args,
-			})
+			for _, call := range msg.ToolCalls {
+				items = append(items, responsesFunctionCallItem(call))
+			}
+			return items, nil
+		}
+		callIndex := 0
+		usedCalls := make([]bool, len(msg.ToolCalls))
+		for _, block := range blocks {
+			if block.Kind == "message" {
+				items = append(items, responsesItem{Type: "message", Role: "assistant", Content: outputContentParts(block.Text), Phase: block.Phase})
+				continue
+			}
+			if block.Kind != "function_call" {
+				continue
+			}
+			found := -1
+			if block.CallID != "" {
+				for i := range msg.ToolCalls {
+					if !usedCalls[i] && msg.ToolCalls[i].ID == block.CallID {
+						found = i
+						break
+					}
+				}
+			} else {
+				for callIndex < len(msg.ToolCalls) && usedCalls[callIndex] {
+					callIndex++
+				}
+				if callIndex < len(msg.ToolCalls) {
+					found = callIndex
+					callIndex++
+				}
+			}
+			if found >= 0 {
+				usedCalls[found] = true
+				items = append(items, responsesFunctionCallItem(msg.ToolCalls[found]))
+			}
+		}
+		for i, call := range msg.ToolCalls {
+			if !usedCalls[i] {
+				items = append(items, responsesFunctionCallItem(call))
+			}
 		}
 		return items, nil
 	case MessageRoleTool:
@@ -238,6 +271,15 @@ func messageToResponsesItems(msg Message) ([]responsesItem, error) {
 	default:
 		return []responsesItem{messageItem(string(msg.Role), inputContentParts(msg))}, nil
 	}
+}
+
+func responsesFunctionCallItem(call ToolCall) responsesItem {
+	args := call.RawArguments
+	if args == "" {
+		data, _ := json.Marshal(call.Arguments)
+		args = string(data)
+	}
+	return responsesItem{Type: "function_call", CallID: call.ID, Name: call.Name, Args: args}
 }
 
 func messageItem(role string, content []responsesContentPart) responsesItem {
@@ -265,25 +307,31 @@ func outputContentParts(content string) []responsesContentPart {
 	return []responsesContentPart{{Type: "output_text", Text: content}}
 }
 
+//nolint:gocyclo // Response normalization builds ordered blocks and legacy flattened fields together.
 func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error) {
 	message := Message{Role: MessageRoleAssistant}
 	var content strings.Builder
 	var reasoning strings.Builder
 	var reasoningID string
+	var blocks []CodexMessageBlock
 	for _, item := range payload.Output {
 		switch item.Type {
 		case "message":
+			var blockText strings.Builder
 			for _, part := range item.Content {
 				if part.Type == "output_text" || part.Type == "text" {
 					content.WriteString(part.Text)
+					blockText.WriteString(part.Text)
 				}
 			}
+			blocks = append(blocks, CodexMessageBlock{Kind: "message", Phase: item.Phase, Text: blockText.String()})
 		case "function_call":
 			call, err := responsesToolCall(item)
 			if err != nil {
 				return ChatResponse{}, err
 			}
 			message.ToolCalls = append(message.ToolCalls, call)
+			blocks = append(blocks, CodexMessageBlock{Kind: "function_call", CallID: call.ID})
 		case "reasoning":
 			for _, part := range item.Summary {
 				if part.Type == "summary_text" {
@@ -294,10 +342,25 @@ func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error)
 		}
 	}
 	message.Content = content.String()
+	if len(blocks) > 0 {
+		informative := len(blocks) > 1
+		for _, block := range blocks {
+			informative = informative || block.Phase != ""
+		}
+		if informative {
+			message.ProviderMetadata = &MessageProviderMetadata{Codex: &CodexMessageMetadata{Blocks: blocks}}
+		}
+	}
 	if reasoning.Len() > 0 {
 		message.ReasoningContent = reasoning.String()
 		if reasoningID != "" {
-			message.ProviderMetadata = &MessageProviderMetadata{Codex: &CodexMessageMetadata{ReasoningID: reasoningID}}
+			if message.ProviderMetadata == nil {
+				message.ProviderMetadata = &MessageProviderMetadata{}
+			}
+			if message.ProviderMetadata.Codex == nil {
+				message.ProviderMetadata.Codex = &CodexMessageMetadata{}
+			}
+			message.ProviderMetadata.Codex.ReasoningID = reasoningID
 		}
 	}
 

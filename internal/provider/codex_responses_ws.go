@@ -113,10 +113,11 @@ func (p *codexWSProvider) streamOnce(ctx context.Context, request ChatRequest, o
 
 	if err == nil {
 		sendChunk(ctx, out, ChatChunk{
-			Delta:        result.Message,
-			Usage:        result.Usage,
-			Done:         true,
-			FinishReason: result.FinishReason,
+			Delta:           result.Message,
+			ContentSnapshot: true,
+			Usage:           result.Usage,
+			Done:            true,
+			FinishReason:    result.FinishReason,
 		})
 		return
 	}

@@ -134,8 +134,13 @@ func toProviderMessageMetadata(metadata *MessageProviderMetadata) *provider.Mess
 		}
 	}
 	if metadata.Codex != nil {
+		blocks := make([]provider.CodexMessageBlock, len(metadata.Codex.Blocks))
+		for i, block := range metadata.Codex.Blocks {
+			blocks[i] = provider.CodexMessageBlock{Kind: block.Kind, Phase: block.Phase, Text: block.Text, CallID: block.CallID}
+		}
 		out.Codex = &provider.CodexMessageMetadata{
 			ReasoningID: metadata.Codex.ReasoningID,
+			Blocks:      blocks,
 		}
 	}
 	return out
@@ -152,8 +157,13 @@ func fromProviderMessageMetadata(metadata *provider.MessageProviderMetadata) *Me
 		}
 	}
 	if metadata.Codex != nil {
+		blocks := make([]CodexMessageBlock, len(metadata.Codex.Blocks))
+		for i, block := range metadata.Codex.Blocks {
+			blocks[i] = CodexMessageBlock{Kind: block.Kind, Phase: block.Phase, Text: block.Text, CallID: block.CallID}
+		}
 		out.Codex = &CodexMessageMetadata{
 			ReasoningID: metadata.Codex.ReasoningID,
+			Blocks:      blocks,
 		}
 	}
 	return out

@@ -44,7 +44,16 @@ type AnthropicMessageMetadata struct {
 // CodexMessageMetadata carries Codex-native replay fields that must be
 // preserved on specific assistant messages.
 type CodexMessageMetadata struct {
-	ReasoningID string `json:"reasoning_id,omitempty"`
+	ReasoningID string              `json:"reasoning_id,omitempty"`
+	Blocks      []CodexMessageBlock `json:"blocks,omitempty"`
+}
+
+// CodexMessageBlock preserves the ordered output-item structure of a Codex response.
+type CodexMessageBlock struct {
+	Kind   string `json:"kind"`
+	Phase  string `json:"phase,omitempty"`
+	Text   string `json:"text,omitempty"`
+	CallID string `json:"call_id,omitempty"`
 }
 
 // MessageProviderMetadata stores provider-native message fields needed for
@@ -125,16 +134,18 @@ type ChatResponse struct {
 
 // ChatChunk is a streamed response fragment from a provider.
 type ChatChunk struct {
-	Delta         Message     `json:"delta"`
-	Thinking      string      `json:"thinking,omitempty"`
-	Usage         *UsageStats `json:"usage,omitempty"`
-	Done          bool        `json:"done,omitempty"`
-	FinishReason  string      `json:"finish_reason,omitempty"`
-	Error         string      `json:"error,omitempty"`
-	Diagnostic    string      `json:"diagnostic,omitempty"`
-	Severity      string      `json:"severity,omitempty"`
-	RetryReset    bool        `json:"retry_reset,omitempty"`
-	OriginalError error       `json:"-"` // preserves the original error type (not serialized)
+	Delta Message `json:"delta"`
+	// ContentSnapshot marks Delta.Content as the complete authoritative assistant text, not a fragment.
+	ContentSnapshot bool        `json:"content_snapshot,omitempty"`
+	Thinking        string      `json:"thinking,omitempty"`
+	Usage           *UsageStats `json:"usage,omitempty"`
+	Done            bool        `json:"done,omitempty"`
+	FinishReason    string      `json:"finish_reason,omitempty"`
+	Error           string      `json:"error,omitempty"`
+	Diagnostic      string      `json:"diagnostic,omitempty"`
+	Severity        string      `json:"severity,omitempty"`
+	RetryReset      bool        `json:"retry_reset,omitempty"`
+	OriginalError   error       `json:"-"` // preserves the original error type (not serialized)
 	// UpstreamEndpoint is the upstream endpoint id reported by compatible gateways.
 	UpstreamEndpoint string `json:"-"`
 }

@@ -74,6 +74,58 @@ func TestCompleteModelCallEmitsAssistantChunkSource(t *testing.T) {
 	}
 }
 
+func TestHandleFinalChunkContentReconciliation(t *testing.T) {
+	tests := []struct {
+		name            string
+		streamed        string
+		final           string
+		want            string
+		wantEmitted     string
+		contentSnapshot bool
+		codexMetadata   bool
+	}{
+		{name: "empty streamed content", final: "XAB", want: "XAB", wantEmitted: "XAB"},
+		{name: "equal content", streamed: "AB", final: "AB", want: "AB"},
+		{name: "final is superset", streamed: "AB", final: "ABC", want: "ABC"},
+		{name: "final is prefix", streamed: "ABC", final: "AB", want: "ABC"},
+		{name: "snapshot shorter prefix", streamed: "ABC", final: "AB", want: "AB", contentSnapshot: true},
+		{name: "empty snapshot clears content", streamed: "ABC", want: "", contentSnapshot: true},
+		{name: "generic suffix final", streamed: "hel", final: "lo", want: "hello", wantEmitted: "lo"},
+		{name: "snapshot divergent final without metadata", streamed: "AB", final: "XAB", want: "XAB", contentSnapshot: true},
+		{name: "metadata alone keeps generic suffix behavior", streamed: "AB", final: "XAB", want: "ABXAB", wantEmitted: "XAB", codexMetadata: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var emitted []string
+			sink := output.SinkFunc(func(event output.Event) {
+				if chunk, ok := event.Payload.(output.AssistantChunkEvent); ok {
+					emitted = append(emitted, chunk.Content)
+				}
+			})
+			message := provider.Message{Role: provider.MessageRoleAssistant, Content: tc.streamed}
+			final := provider.Message{Content: tc.final}
+			if tc.codexMetadata {
+				final.ProviderMetadata = &provider.MessageProviderMetadata{Codex: &provider.CodexMessageMetadata{ReasoningID: "reasoning-id"}}
+			}
+			handleFinalChunk(sink, 1, output.ChunkSourceAssistant, provider.ChatChunk{
+				Done:            true,
+				Delta:           final,
+				ContentSnapshot: tc.contentSnapshot,
+			}, &provider.ChatResponse{}, &message)
+			if message.Content != tc.want {
+				t.Errorf("Content = %q, want %q", message.Content, tc.want)
+			}
+			if len(emitted) != 0 {
+				if len(emitted) != 1 || emitted[0] != tc.wantEmitted {
+					t.Errorf("emitted assistant chunks = %q, want %q", emitted, tc.wantEmitted)
+				}
+			} else if tc.wantEmitted != "" {
+				t.Errorf("emitted assistant chunks = %q, want %q", emitted, tc.wantEmitted)
+			}
+		})
+	}
+}
+
 func TestHandleFinalChunkCopiesReasoningContent(t *testing.T) {
 	tests := []struct {
 		name                  string

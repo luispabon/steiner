@@ -74,6 +74,7 @@ func CloneMessageMetadata(metadata *MessageProviderMetadata) *MessageProviderMet
 	}
 	if metadata.Codex != nil {
 		codex := *metadata.Codex
+		codex.Blocks = slices.Clone(metadata.Codex.Blocks)
 		cloned.Codex = &codex
 	}
 	return cloned

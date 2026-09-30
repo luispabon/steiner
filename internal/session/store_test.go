@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -40,6 +41,15 @@ func TestSaveAndLoad(t *testing.T) {
 				ID: 1,
 				Messages: []agent.Message{
 					{Role: agent.MessageRoleUser, Content: "hello"},
+					{Role: agent.MessageRoleAssistant, ProviderMetadata: &agent.MessageProviderMetadata{Codex: &agent.CodexMessageMetadata{
+						ReasoningID: "reason_xyz",
+						Blocks: []agent.CodexMessageBlock{
+							{Kind: "message", Phase: "analysis", Text: "thinking"},
+							{Kind: "message", Phase: "commentary", Text: "searching"},
+							{Kind: "function_call", CallID: "call-1"},
+							{Kind: "message", Phase: "final_answer", Text: "done"},
+						},
+					}}},
 				},
 			},
 		},
@@ -89,8 +99,18 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 
 	gen := loaded.Lineage.Generations[0]
-	if len(gen.Messages) != 1 || gen.Messages[0].Content != "hello" {
-		t.Errorf("Message content mismatch: got %v, want [hello]", gen.Messages)
+	if len(gen.Messages) != 2 || gen.Messages[0].Content != "hello" {
+		t.Errorf("Message content mismatch: got %v, want user and assistant messages", gen.Messages)
+	}
+	codex := gen.Messages[1].ProviderMetadata.Codex
+	wantBlocks := []agent.CodexMessageBlock{
+		{Kind: "message", Phase: "analysis", Text: "thinking"},
+		{Kind: "message", Phase: "commentary", Text: "searching"},
+		{Kind: "function_call", CallID: "call-1"},
+		{Kind: "message", Phase: "final_answer", Text: "done"},
+	}
+	if codex == nil || codex.ReasoningID != "reason_xyz" || !reflect.DeepEqual(codex.Blocks, wantBlocks) {
+		t.Fatalf("loaded Codex metadata = %#v, want reasoning ID and ordered blocks %#v", codex, wantBlocks)
 	}
 }
 
