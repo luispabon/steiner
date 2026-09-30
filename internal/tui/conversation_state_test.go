@@ -40,9 +40,41 @@ func TestConversationStateWaitingLabels(t *testing.T) {
 			t.Errorf("%s: label %q duplicates another state's label", tt.name, label)
 		}
 		seen[label] = true
-		if m.activity.busy() {
-			t.Errorf("%s: waiting label must not spin", tt.name)
+		if tt.held || tt.budget {
+			if m.activity.busy() {
+				t.Errorf("%s: held/budget label must not spin", tt.name)
+			}
+		} else if !m.activity.busy() {
+			t.Errorf("%s: ordinary waiting label must spin", tt.name)
 		}
+	}
+}
+
+func TestConversationWaitingSpinnerRestoresAfterRunTerminalEvents(t *testing.T) {
+	t.Parallel()
+	for _, event := range []output.Event{
+		output.NewRunFinishedEvent(1, "complete", "", "", nil),
+		output.NewStopReasonEvent(1, "cancelled", nil),
+	} {
+		m := newModel(Config{}, nil)
+		applyConversationStateEvent(t, m, conversationStateWaiting, false, 2, false)
+		m.activity = m.activity.static("stopped", "")
+		m.applyEvent(event)
+		if !m.activity.busy() || m.activity.label != conversationWaitingLabel(m.convState) {
+			t.Errorf("after %s: activity = %+v, want restored conversation spinner", event.Type, m.activity)
+		}
+	}
+}
+
+func TestConversationWaitingKeepsInputChromeIdle(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	applyConversationStateEvent(t, m, conversationStateWaiting, false, 1, false)
+	if m.status.streaming {
+		t.Fatal("status.streaming = true while only waiting on sub-agents")
+	}
+	if got, want := m.input.Placeholder, "ask steiner — / for commands, @ for files"; got != want {
+		t.Fatalf("placeholder = %q, want %q", got, want)
 	}
 }
 
@@ -54,6 +86,9 @@ func TestConversationStateLeavingWaitingClearsLabel(t *testing.T) {
 		t.Fatal("waiting did not set a label")
 	}
 	applyConversationStateEvent(t, m, "idle", false, 0, false)
+	if m.activity.busy() {
+		t.Error("activity still spinning after idle")
+	}
 	if m.activity.label != "" {
 		t.Errorf("label after idle = %q, want empty", m.activity.label)
 	}
