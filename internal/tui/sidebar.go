@@ -18,6 +18,8 @@ const (
 )
 
 type sidebarState struct {
+	subAgents              []rosterEntry // roster snapshot; excluded from sidebarStateComparable
+	subAgentsNow           int64         // unix nano, second resolution, for running elapsed
 	expanded               bool
 	model                  string
 	reasoning              string

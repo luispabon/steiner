@@ -349,7 +349,9 @@ func (m *Model) executeSubmitAction(submitText string, displayText string) (tea.
 		}
 	}
 	m.imageMarkers = nil
+	m.clearStrandedResults()
 	m.content.AppendUser(displayText)
+	m.pruneRosterOnPrompt()
 	if len(images) > 0 {
 		m.content.AppendImagesAttached(images, m.sidebar.workingDir, m.sidebar.homeDir)
 	}

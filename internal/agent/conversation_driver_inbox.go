@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"slices"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 // Submit queues a user prompt. It lifts a hold and wakes the loop; the prompt
@@ -156,6 +158,19 @@ func (d *ConversationDriver) drainItemsLocked(prefix DeliveryParts) (InboxDrain,
 		return InboxDrain{}, ""
 	}
 	d.disarmWindowLocked()
+	if len(completions) > 0 {
+		delivered := make([]output.DeliveredSubAgent, len(completions))
+		for i, c := range completions {
+			delivered[i] = output.DeliveredSubAgent{
+				AgentID:      c.AgentID,
+				AgentType:    c.AgentType,
+				Status:       c.Status,
+				ParentCallID: c.ParentCallID,
+				DurationMs:   c.Duration.Milliseconds(),
+			}
+		}
+		d.pendingEvents = append(d.pendingEvents, output.NewSubAgentsDeliveredEvent(delivered))
+	}
 	wake := len(items) > 0
 	if !d.exhausted {
 		wake = wake || slices.ContainsFunc(completions, func(c SubAgentCompletion) bool { return !c.Quiet })

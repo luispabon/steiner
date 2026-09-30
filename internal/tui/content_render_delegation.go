@@ -52,7 +52,7 @@ func (b *contentBuffer) renderDelegationGroupSegment(segment contentSegment, wid
 		width = 12
 	}
 
-	parts := make([]string, 0, len(group.entries)*2-1)
+	parts := make([]string, 0, len(group.entries)*2)
 	dividerWidth := width - 4
 	if dividerWidth < 1 {
 		dividerWidth = 1
@@ -68,8 +68,10 @@ func (b *contentBuffer) renderDelegationGroupSegment(segment contentSegment, wid
 
 	borderLabel := delegationGroupBorderLabel(group)
 	_, borderStyle := b.delegationStyles(borderLabel)
-	box := renderStyledBox(strings.Join(parts, "\n"), borderStyle.GetForeground(), lipgloss.Color(b.styles.Palette.ContentBG), width) + "\n"
-	return box
+	box := renderStyledBox(strings.Join(parts, "\n"), borderStyle.GetForeground(), lipgloss.Color(b.styles.Palette.ContentBG), width)
+	boxLines := strings.Split(box, "\n")
+	boxLines[0] = b.renderDelegationGroupTopBorder(group, lipgloss.Width(boxLines[0])-2, borderStyle.GetForeground())
+	return strings.Join(boxLines, "\n") + "\n"
 }
 
 // delegationGroupBorderLabel returns the shared toolLabel of every entry, or ""

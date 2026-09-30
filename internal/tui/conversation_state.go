@@ -18,6 +18,9 @@ const (
 func (m *Model) applyConversationState(payload output.ConversationStateEvent) {
 	m.convState = payload
 	m.convStateSeen = true
+	if payload.State == conversationStateGenerating {
+		m.clearStrandedResults()
+	}
 	m.content.asyncMode = true
 	m.applyConversationLabel()
 	m.syncInputChrome()

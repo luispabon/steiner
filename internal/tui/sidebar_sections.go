@@ -40,6 +40,7 @@ func (s sidebarState) staticLines(width int) []string {
 	lines = append(lines, s.modelSection(width)...)
 	lines = append(lines, s.contextSection(width)...)
 	lines = append(lines, s.statusSection(width)...)
+	lines = append(lines, s.subAgentsSection(width)...)
 	lines = append(lines, s.performanceSection(width)...)
 	if s.oneshotPhase != "" {
 		lines = append(lines, s.oneshotSection(width)...)

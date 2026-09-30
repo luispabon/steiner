@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -52,12 +53,8 @@ func isFailedResultStatus(status string) bool {
 }
 
 // replaySubAgentResult emits the completion or failure event for one result
-// envelope, correlating it to its ack by call_id.
-func (s *Session) replaySubAgentResult(raw string, acks *replayAcks) {
-	parsed, ok := agent.ParseSubAgentResultEnvelope(raw)
-	if !ok {
-		return
-	}
+// envelope (already parsed), correlating it to its ack by call_id.
+func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *replayAcks) {
 	ack, _ := acks.take(parsed.CallID)
 	state := replayedDelegationState{agentID: parsed.AgentID, status: "complete"}
 	body, usage := splitResultEnvelopeInner(parsed.Inner)
@@ -81,6 +78,8 @@ func (s *Session) replaySubAgentResult(raw string, acks *replayAcks) {
 		}
 		s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
 			AgentID:     state.agentID,
+			AgentType:   parsed.AgentType,
+			DurationMs:  usage.duration.Milliseconds(),
 			TaskPreview: ack.task,
 			Error:       msg,
 		}))
@@ -91,6 +90,8 @@ func (s *Session) replaySubAgentResult(raw string, acks *replayAcks) {
 	}
 	s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 		AgentID:       state.agentID,
+		AgentType:     parsed.AgentType,
+		DurationMs:    usage.duration.Milliseconds(),
 		Status:        state.status,
 		TurnCount:     state.turnCount,
 		TokenCount:    state.tokenCount,
@@ -113,8 +114,9 @@ func (s *Session) replayUnresolvedAcks(acks *replayAcks) {
 }
 
 type resultEnvelopeUsage struct {
-	turns  int
-	tokens int
+	turns    int
+	tokens   int
+	duration time.Duration
 }
 
 // splitResultEnvelopeInner returns the body of an envelope's inner text (after
@@ -127,6 +129,11 @@ func splitResultEnvelopeInner(inner string) (string, resultEnvelopeUsage) {
 	}
 	line, body, _ := strings.Cut(after, "\n\n")
 	_, _ = fmt.Sscanf(line, "turns=%d tokens=%d", &usage.turns, &usage.tokens) // partial usage is fine
+	if _, dur, ok := strings.Cut(line, " duration="); ok {
+		if d, err := time.ParseDuration(strings.TrimSpace(dur)); err == nil && d > 0 {
+			usage.duration = d
+		}
+	}
 	return body, usage
 }
 

@@ -1,9 +1,12 @@
 package interactive
 
 import (
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestDecodeReplayedDelegateResult(t *testing.T) {
@@ -355,4 +358,88 @@ func TestApplyRetainedDelegationState(t *testing.T) {
 			t.Errorf("applyRetainedDelegationState(zero retention) = %+v, want unchanged %+v", state, want)
 		}
 	})
+}
+
+func TestSplitResultEnvelopeInnerUsage(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		inner string
+		want  resultEnvelopeUsage
+		body  string
+	}{
+		{name: "full line", inner: "x\nusage: turns=3 tokens=120 duration=1m2s\n\nbody", want: resultEnvelopeUsage{3, 120, 62 * time.Second}, body: "body"},
+		{name: "zero duration", inner: "x\nusage: turns=1 tokens=5 duration=0s\n\nbody", want: resultEnvelopeUsage{1, 5, 0}, body: "body"},
+		{name: "legacy without duration", inner: "x\nusage: turns=2 tokens=9\n\nbody", want: resultEnvelopeUsage{2, 9, 0}, body: "body"},
+		{name: "bad duration", inner: "x\nusage: turns=2 tokens=9 duration=abc\n\nbody", want: resultEnvelopeUsage{2, 9, 0}, body: "body"},
+		{name: "no usage line", inner: "plain", body: "plain"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body, usage := splitResultEnvelopeInner(tc.inner)
+			if body != tc.body || usage != tc.want {
+				t.Fatalf("got (%q, %+v), want (%q, %+v)", body, usage, tc.body, tc.want)
+			}
+		})
+	}
+}
+
+func TestReplaySubAgentResultCarriesTypeAndDuration(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{"completed", "failed"} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			events := replayEvents(t, []agent.Message{
+				{Role: agent.MessageRoleUser, Content: resultEnvelope(t, "call-1", status, "res", 1)},
+			})
+			var typ string
+			var ms int64
+			if status == "failed" {
+				p := eventsOfType(events, output.EventTypeDelegationFailed)[0].Payload.(output.DelegationFailedEvent)
+				typ, ms = p.AgentType, p.DurationMs
+			} else {
+				p := eventsOfType(events, output.EventTypeDelegationComplete)[0].Payload.(output.DelegationCompleteEvent)
+				typ, ms = p.AgentType, p.DurationMs
+			}
+			if typ != "explore" || ms != 2000 {
+				t.Fatalf("type=%q durationMs=%d, want explore/2000", typ, ms)
+			}
+		})
+	}
+}
+
+func TestReplayDeliveryEmitsDeliveredEventBeforeUserInput(t *testing.T) {
+	t.Parallel()
+	msg, ok := agent.BuildDeliveryMessage(agent.DeliveryParts{
+		Completions: []agent.SubAgentCompletion{
+			{Seq: 1, ParentCallID: "call-1", AgentID: "a", AgentType: "explore", Status: "complete", Duration: 3 * time.Second, Body: `{"output":"x"}`},
+			{Seq: 2, ParentCallID: "call-2", AgentID: "b", AgentType: "code", Status: "failed", Body: agent.FailureBody("failed", "no")},
+		},
+		UserText: "continue",
+	})
+	if !ok {
+		t.Fatal("BuildDeliveryMessage returned !ok")
+	}
+	events := replayEvents(t, []agent.Message{msg})
+	delivIdx, inputIdx := -1, -1
+	for i, e := range events {
+		switch e.Type {
+		case output.EventTypeSubAgentsDelivered:
+			delivIdx = i
+		case output.EventTypeUserInput:
+			inputIdx = i
+		}
+	}
+	if delivIdx < 0 || inputIdx < 0 || delivIdx > inputIdx {
+		t.Fatalf("delivered index %d, input index %d; want delivered first", delivIdx, inputIdx)
+	}
+	items := events[delivIdx].Payload.(output.SubAgentsDeliveredEvent).Items
+	want := []output.DeliveredSubAgent{
+		{AgentID: "a", AgentType: "explore", Status: "complete", ParentCallID: "call-1", DurationMs: 3000},
+		{AgentID: "b", AgentType: "code", Status: "failed", ParentCallID: "call-2"},
+	}
+	if !reflect.DeepEqual(items, want) {
+		t.Fatalf("items = %+v, want %+v", items, want)
+	}
 }

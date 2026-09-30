@@ -16,6 +16,7 @@ type activityState struct {
 	label    string
 	detail   string
 	spinning bool
+	warn     bool // label renders in the warning colour
 	accent   color.Color
 	spinner  spinner.Model
 }
@@ -54,7 +55,11 @@ func (a activityState) view(width int, styles *theme.Styles) string {
 		parts = append(parts, a.spinner.View())
 	}
 	if label := strings.TrimSpace(a.label); label != "" {
-		parts = append(parts, styles.FgMute.Render(label))
+		if a.warn {
+			parts = append(parts, styles.Warn.Render(label))
+		} else {
+			parts = append(parts, styles.FgMute.Render(label))
+		}
 	}
 	if detail := strings.TrimSpace(a.detail); detail != "" {
 		parts = append(parts, styles.Accent.Render(detail))
@@ -80,6 +85,7 @@ type activityCacheKey struct {
 	label        string
 	detail       string
 	spinning     bool
+	warn         bool
 	spinnerFrame string
 	styles       *theme.Styles
 }
@@ -91,22 +97,28 @@ type activityCacheKey struct {
 // reflected the next time this is called — there is no separate
 // invalidation path to keep in sync.
 func (m *Model) renderActivityRow(contentWidth int) string {
+	activity := m.activity
+	if m.strandedResults > 0 && !m.driverGenerating() && !activity.spinning {
+		activity = activity.static(strandedActivityLabel(m.strandedResults), "")
+		activity.warn = true
+	}
 	frame := ""
-	if m.activity.spinning {
-		frame = m.activity.spinner.View()
+	if activity.spinning {
+		frame = activity.spinner.View()
 	}
 	key := activityCacheKey{
 		width:        contentWidth,
-		label:        m.activity.label,
-		detail:       m.activity.detail,
-		spinning:     m.activity.spinning,
+		label:        activity.label,
+		detail:       activity.detail,
+		spinning:     activity.spinning,
+		warn:         activity.warn,
 		spinnerFrame: frame,
 		styles:       m.styles,
 	}
 	if m.activityViewCacheSet && m.activityViewCacheKey == key {
 		return m.activityViewCacheRendered
 	}
-	rendered := m.activity.view(contentWidth, m.styles)
+	rendered := activity.view(contentWidth, m.styles)
 	m.activityViewCacheSet = true
 	m.activityViewCacheKey = key
 	m.activityViewCacheRendered = rendered
@@ -122,6 +134,7 @@ func (a activityState) advance() activityState {
 }
 
 func (a activityState) waiting(label, detail string) activityState {
+	a.warn = false
 	if !a.spinning {
 		a.spinner = newActivitySpinner(a.accent)
 	}
@@ -132,6 +145,7 @@ func (a activityState) waiting(label, detail string) activityState {
 }
 
 func (a activityState) static(label, detail string) activityState {
+	a.warn = false
 	a.label = label
 	a.detail = detail
 	a.spinning = false
@@ -142,6 +156,7 @@ func (a activityState) clear() activityState {
 	a.label = ""
 	a.detail = ""
 	a.spinning = false
+	a.warn = false
 	return a
 }
 

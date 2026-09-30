@@ -1909,11 +1909,18 @@ func TestFollowUpToUnfindableDelegationFallsBackToAgentType(t *testing.T) {
 	buffer.AppendEvent(output.NewToolCallStartedEvent(0, "follow_up", "call_2",
 		map[string]any{"agent_id": "child-1", "message": "check again"}))
 	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "preview", "call_2", "", "review"))
+	loc, found := buffer.findDelegation("child-1")
+	if !found || loc.dd == nil {
+		t.Fatal("delegation not found immediately after start")
+	}
+	if got := loc.dd.effectiveTypeLabel(); got != "review" {
+		t.Fatalf("started effectiveTypeLabel() = %q, want review", got)
+	}
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 		AgentID: "child-1", Status: "complete",
 	}))
 
-	loc, found := buffer.findDelegation("child-1")
+	loc, found = buffer.findDelegation("child-1")
 	if !found || loc.dd == nil {
 		t.Fatal("delegation not found")
 	}

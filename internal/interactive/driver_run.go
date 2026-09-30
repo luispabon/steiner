@@ -2,6 +2,7 @@ package interactive
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -21,6 +22,13 @@ func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput) (agent
 	})
 	if err != nil {
 		s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
+		if !errors.Is(err, context.Canceled) {
+			conv := result.Conversation
+			if len(conv) == 0 {
+				conv = in.Conversation
+			}
+			s.emitUnansweredResults(conv, err.Error())
+		}
 	}
 
 	out := agent.DriverRunOutput{

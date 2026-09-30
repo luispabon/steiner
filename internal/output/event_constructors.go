@@ -454,6 +454,21 @@ func NewDelegationQueuedEvent(agentID, callID, agentType, taskPreview string) Ev
 	})
 }
 
+// NewSubAgentsDeliveredEvent creates the event reporting sub-agent results
+// delivered to the model in one message.
+func NewSubAgentsDeliveredEvent(items []DeliveredSubAgent) Event {
+	return newEvent(EventTypeSubAgentsDelivered, SubAgentsDeliveredEvent{Items: append([]DeliveredSubAgent(nil), items...)})
+}
+
+// NewSubAgentResultsUnansweredEvent creates the event reporting delivered
+// sub-agent results the model never answered.
+func NewSubAgentResultsUnansweredEvent(agentIDs []string, reason string) Event {
+	return newEvent(EventTypeSubAgentResultsUnanswered, SubAgentResultsUnansweredEvent{
+		AgentIDs: append([]string(nil), agentIDs...),
+		Reason:   reason,
+	})
+}
+
 // NewConversationStateEvent creates the event reporting the conversation
 // driver's state, held flag and pending sub-agent count.
 func NewConversationStateEvent(state string, held bool, pending int, budgetExhausted bool) Event {
@@ -483,6 +498,8 @@ func NewDelegationCacheWaitingEvent(agentID, callID string, deadline time.Time) 
 // DelegationCompleteParams holds the arguments for NewDelegationCompleteEvent.
 type DelegationCompleteParams struct {
 	AgentID           string
+	AgentType         string
+	DurationMs        int64
 	Status            string
 	TurnCount         int
 	TokenCount        int
@@ -524,6 +541,8 @@ func NewSteerReceivedEvent(text string) Event {
 // DelegationFailedParams holds the arguments for NewDelegationFailedEvent.
 type DelegationFailedParams struct {
 	AgentID       string
+	AgentType     string
+	DurationMs    int64
 	CallID        string
 	TaskPreview   string
 	Error         string
@@ -536,6 +555,8 @@ type DelegationFailedParams struct {
 func NewDelegationFailedEvent(p DelegationFailedParams) Event {
 	return newEvent(EventTypeDelegationFailed, DelegationFailedEvent{
 		AgentID:       p.AgentID,
+		AgentType:     p.AgentType,
+		DurationMs:    p.DurationMs,
 		CallID:        p.CallID,
 		TaskPreview:   TruncateWithEllipsis(p.TaskPreview, 120),
 		Error:         p.Error,

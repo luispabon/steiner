@@ -454,7 +454,7 @@ func (b *contentBuffer) appendAdjacentDelegation(dd *delegationDisplayState) (in
 	last := &b.segments[len(b.segments)-1]
 	switch last.kind {
 	case segmentDelegation:
-		if last.delegData == nil || last.delegData.isAdvisor {
+		if last.delegData == nil || last.delegData.isAdvisor || !sameDelegationGroup(last.delegData, dd) {
 			return 0, false
 		}
 		last.delegGroupData = &delegationGroupSegment{entries: []*delegationDisplayState{last.delegData, dd}}
@@ -464,7 +464,7 @@ func (b *contentBuffer) appendAdjacentDelegation(dd *delegationDisplayState) (in
 		b.gen++
 		return len(b.segments) - 1, true
 	case segmentDelegationGroup:
-		if last.delegGroupData == nil {
+		if last.delegGroupData == nil || len(last.delegGroupData.entries) == 0 || !sameDelegationGroup(last.delegGroupData.entries[0], dd) {
 			return 0, false
 		}
 		last.delegGroupData.entries = append(last.delegGroupData.entries, dd)
@@ -476,7 +476,23 @@ func (b *contentBuffer) appendAdjacentDelegation(dd *delegationDisplayState) (in
 	}
 }
 
+// sameDelegationGroup reports whether next may join the box that holds prev:
+// same tool batch, and either both ungrouped or the same non-empty label.
+func sameDelegationGroup(prev, next *delegationDisplayState) bool {
+	if prev.batch != next.batch {
+		return false
+	}
+	return prev.group == next.group
+}
+
+// delegationGroupArg extracts the trimmed "group" label from sub_agent args.
+func delegationGroupArg(args map[string]any) string {
+	g, _ := args["group"].(string)
+	return strings.TrimSpace(g)
+}
+
 func (b *contentBuffer) appendDelegationSegment(dd *delegationDisplayState) int {
+	dd.batch = b.delegationBatch
 	if idx, merged := b.appendAdjacentDelegation(dd); merged {
 		return idx
 	}
@@ -555,6 +571,9 @@ func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload ou
 	dd := loc.dd
 	dd.parentCallID = payload.CallID
 	dd.parentArgs = summarizeArgs(payload.Tool, payload.Arguments)
+	if g := delegationGroupArg(payload.Arguments); g != "" {
+		dd.group = g
+	}
 	toolLabel, promptText, brief := delegateCallDetails(payload.Tool, payload.Arguments)
 	if brief != nil {
 		dd.applyStructuredBrief(*brief)
@@ -643,6 +662,7 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		promptCollapsed: true,
 		parentCallID:    payload.CallID,
 		parentArgs:      summary,
+		group:           delegationGroupArg(payload.Arguments),
 		status:          "active",
 		collapsed:       true,
 	}
@@ -698,6 +718,7 @@ func (b *contentBuffer) appendToolCallQueuedEvent(event output.Event) {
 		promptCollapsed: true,
 		parentCallID:    payload.CallID,
 		parentArgs:      summary,
+		group:           delegationGroupArg(payload.Arguments),
 		queuedForSlot:   true,
 		status:          "active",
 		collapsed:       true,
@@ -865,6 +886,7 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 			if dd.startTime > 0 {
 				dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 			}
+			dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 			dd.output = payload.Output
 			dd.advisorBudget = payload.AdvisorBudget
 			dd.advisorUses = payload.AdvisorUses
@@ -889,6 +911,7 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 		advisorUses:   payload.AdvisorUses,
 		advisorDenied: payload.AdvisorDenied,
 	}
+	dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 	dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
 	b.appendDelegationSegment(dd)
 }
@@ -902,9 +925,11 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 	if loc, active := b.activeDelegations[payload.AgentID]; active {
 		if dd := loc.dd; dd != nil {
 			dd.status = "failed"
+			dd.failureReason = payload.Error
 			if dd.startTime > 0 {
 				dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 			}
+			dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 			if payload.AdvisorBudget > 0 {
 				dd.advisorBudget = payload.AdvisorBudget
 				dd.advisorUses = payload.AdvisorUses
@@ -920,6 +945,8 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 			loc.dd.agentID = payload.AgentID
 			loc.dd.agentType = event.Scope.AgentType
 			loc.dd.status = "failed"
+			loc.dd.failureReason = payload.Error
+			loc.dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 			b.markDelegationDirty(loc.seg)
 			return
 		}
@@ -931,11 +958,13 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 		agentID:       payload.AgentID,
 		parentCallID:  payload.CallID,
 		status:        "failed",
+		failureReason: payload.Error,
 		collapsed:     true,
 		advisorBudget: payload.AdvisorBudget,
 		advisorUses:   payload.AdvisorUses,
 		advisorDenied: payload.AdvisorDenied,
 	}
+	dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 	idx := b.appendDelegationSegment(dd)
 	if payload.CallID != "" {
 		b.pendingDelegationStarts = append(b.pendingDelegationStarts, delegationLocator{seg: idx, dd: dd})
@@ -1051,4 +1080,16 @@ func (b *contentBuffer) captureChildBaselineStats(agentID string) (turns, toolCa
 		return loc.dd.turnCount, loc.dd.toolCallCount
 	}
 	return 0, 0
+}
+
+// fillFromTerminalEvent completes display fields a Complete/Failed event can
+// supply: the type label when replay or compaction left it blank, and the
+// elapsed text when the event carries a recorded duration.
+func (dd *delegationDisplayState) fillFromTerminalEvent(agentType string, durationMs int64) {
+	if dd.agentType == "" && dd.toolLabel == "" {
+		dd.agentType = agentType
+	}
+	if durationMs > 0 {
+		dd.elapsed = formatElapsed(0, durationMs*1_000_000)
+	}
 }
