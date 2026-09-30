@@ -27,6 +27,7 @@ func (b *contentBuffer) appendAssistantChunkEvent(event output.Event) {
 }
 
 func (b *contentBuffer) appendAssistantMessageEvent(event output.Event) {
+	b.delegationBatch++
 	if b.compaction.SuppressThinking() {
 		return
 	}
