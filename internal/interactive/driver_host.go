@@ -28,13 +28,14 @@ type driverHandle struct {
 func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.ConversationLineage) *driverHandle {
 	h := &driverHandle{lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: s.ledger}}
 	h.drv = agent.NewConversationDriver(agent.DriverOptions{
-		Run:         s.driverRun,
-		Background:  s.deps.Background,
-		Steers:      s.steersForNewDriverLocked(),
-		Save:        s.driverSave(h),
-		Events:      s.events,
-		PrepareTurn: s.prepareTurn,
-		Clock:       s.deps.Clock,
+		Run:                 s.driverRun,
+		Background:          s.deps.Background,
+		Steers:              s.steersForNewDriverLocked(),
+		Save:                s.driverSave(h),
+		Events:              s.events,
+		PrepareTurn:         s.prepareTurn,
+		Clock:               s.deps.Clock,
+		MaxTokensPerEpisode: s.deps.MaxTokensPerEpisode,
 	}, conv, lineage)
 	if s.deps.SetCompletionSink != nil {
 		s.deps.SetCompletionSink(h.drv)

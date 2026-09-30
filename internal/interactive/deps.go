@@ -132,4 +132,6 @@ type Dependencies struct {
 	SetCompletionSink func(agent.CompletionSink)
 	// Clock drives the driver's completion coalescing window; nil is real time.
 	Clock agent.Clock
+	// MaxTokensPerEpisode caps completion tokens per conversation episode; 0 is unlimited.
+	MaxTokensPerEpisode int
 }

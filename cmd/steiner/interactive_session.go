@@ -61,17 +61,18 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 	sessionCfg := rt.cfg
 
 	sessDeps := interactive.Dependencies{
-		BaseEvents:        rt.events,
-		SkillNames:        rt.skillNames,
-		Config:            sessionCfg,
-		HomeDir:           rt.homeDir,
-		WorkDir:           rt.workDir,
-		SessionStore:      rt.sessionStore,
-		SkillLoader:       skill.Loader{RootDirs: prompt.SkillRoots(rt.homeDir, rt.projectRoot), BundledFS: rt.skillBundledFS},
-		DelegateCanceller: delegationCanceller{s: rt.delegationSupervisor},
-		CompactionLogPath: rt.compactionLogFile,
-		RecordModelSwitch: modelPopularityRecorder(rt.modelPopularity),
-		ResolveModel:      rt.resolveModel,
+		BaseEvents:          rt.events,
+		SkillNames:          rt.skillNames,
+		Config:              sessionCfg,
+		HomeDir:             rt.homeDir,
+		WorkDir:             rt.workDir,
+		SessionStore:        rt.sessionStore,
+		SkillLoader:         skill.Loader{RootDirs: prompt.SkillRoots(rt.homeDir, rt.projectRoot), BundledFS: rt.skillBundledFS},
+		DelegateCanceller:   delegationCanceller{s: rt.delegationSupervisor},
+		CompactionLogPath:   rt.compactionLogFile,
+		RecordModelSwitch:   modelPopularityRecorder(rt.modelPopularity),
+		ResolveModel:        rt.resolveModel,
+		MaxTokensPerEpisode: sessionCfg.Limits.MaxTokens,
 		OnEffectiveAssignmentsChanged: func(effective config.EffectiveModelAssignments) {
 			if rt.visionCapabilities != nil {
 				rt.visionCapabilities.SetSubAgentConfigured(effective.SubAgents["vision"] != "")

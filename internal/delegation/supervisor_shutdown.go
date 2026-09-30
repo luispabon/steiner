@@ -26,7 +26,8 @@ type ShutdownReport struct {
 // are reported as unjoined and their worktrees protected; their late results are
 // dropped and their waiters receive ErrSupervisorClosed. Unjoined children are
 // posted once to the completion sink as quiet cancelled completions before the
-// supervisor closes; nothing is posted afterwards. Shutdown never
+// supervisor closes, together with any results still held by a group that will
+// never be sealed or completed; nothing is posted afterwards. Shutdown never
 // finalises a child itself. It is idempotent: later calls return the first report.
 func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownReport {
 	s.shutdown.Do(func() {
@@ -84,12 +85,18 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 				completion.Quiet = true
 				completion.Body = agent.FailureBody(completion.Status, "sub-agent did not stop before shutdown")
 				state.completion = completion
-				if !state.blocking {
+				switch {
+				case state.blocking:
+				case state.group != nil:
+					state.held = true
+				default:
 					batch = append(batch, *completion)
 				}
 			}
 			deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
 		}
+		batch = append(batch, s.releaseAllGroupsLocked()...)
+		sort.Slice(batch, func(i, j int) bool { return batch[i].Seq < batch[j].Seq })
 		var posts postList
 		if s.sink != nil && len(batch) > 0 {
 			posts = postList{sink: s.sink, batches: [][]agent.SubAgentCompletion{batch}}
@@ -103,4 +110,28 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return ShutdownReport{Unjoined: append([]UnjoinedChild(nil), s.report.Unjoined...)}
+}
+
+// releaseAllGroupsLocked force-releases every remaining group in creation
+// order, returning the completions still held. Blocking jobs never post.
+func (s *Supervisor) releaseAllGroupsLocked() []agent.SubAgentCompletion {
+	if s.sink == nil {
+		return nil
+	}
+	groups := make([]*jobGroup, 0, len(s.groups))
+	for _, group := range s.groups {
+		groups = append(groups, group)
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i].order < groups[j].order })
+	var released []agent.SubAgentCompletion
+	for _, group := range groups {
+		for _, member := range group.members {
+			if member.completion != nil && member.held && !member.blocking {
+				released = append(released, *member.completion)
+				member.held = false
+			}
+		}
+		delete(s.groups, group.key)
+	}
+	return released
 }

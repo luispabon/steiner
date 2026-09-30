@@ -224,3 +224,57 @@ func TestLoadWithLedgerRecordsLostOnceWithoutARun(t *testing.T) {
 		t.Fatalf("runs after reload = %d, want 0", runs.Load())
 	}
 }
+
+func TestEpisodeBudgetReachesTheRunner(t *testing.T) {
+	t.Parallel()
+	const budget, used = 1000, 300
+	tests := []struct {
+		name   string
+		budget int
+		want   [3]int
+	}{
+		{name: "limited budget is shared then reset", budget: budget, want: [3]int{budget, budget - used, budget}},
+		{name: "unlimited budget passes zero", budget: 0, want: [3]int{0, 0, 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := &sinkRecorder{}
+			clock := &manualClock{}
+			bg := &ledgerBackground{}
+			bg.setPending("a1", "a2")
+			s := testNewSession(t, Dependencies{
+				SessionStore:        newMockSessionStore(),
+				Background:          bg,
+				SetCompletionSink:   rec.set,
+				Clock:               clock,
+				MaxTokensPerEpisode: tt.budget,
+			})
+			inputs := make(chan RunInput, 3)
+			s.SetRunner(&inputRunner{run: func(_ context.Context, in RunInput) (RunResult, error) {
+				inputs <- in
+				res := withAnswer(in, "ok")
+				res.TokenCount = used
+				return res, nil
+			}})
+
+			submitAndWait(t, s, "first", nil)
+			if got := recv(t, inputs, "first run").MaxTokens; got != tt.want[0] {
+				t.Fatalf("first run MaxTokens = %d, want %d", got, tt.want[0])
+			}
+			rec.get().DeliverCompletions([]agent.SubAgentCompletion{{
+				ParentCallID: "call-1", AgentID: "a1", AgentType: "explore", Status: "complete",
+				Body: agent.FailureBody("complete", "done"),
+			}})
+			clock.fireAll()
+			if got := recv(t, inputs, "wake run").MaxTokens; got != tt.want[1] {
+				t.Fatalf("wake run MaxTokens = %d, want %d", got, tt.want[1])
+			}
+			waitForState(t, s, agent.DriverWaiting)
+			submitAndWait(t, s, "second", nil)
+			if got := recv(t, inputs, "second run").MaxTokens; got != tt.want[2] {
+				t.Fatalf("run after Submit MaxTokens = %d, want %d", got, tt.want[2])
+			}
+		})
+	}
+}
