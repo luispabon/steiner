@@ -140,6 +140,10 @@ func (r *subAgentRoster) observe(event output.Event, now int64) {
 		if p.Kind == "session_loaded" {
 			r.prune()
 		}
+	case output.ContextBudgetEvent:
+		if output.ContextDiagnosticKind(p) == "session_loaded" {
+			r.prune()
+		}
 	}
 }
 

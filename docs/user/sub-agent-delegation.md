@@ -62,7 +62,16 @@ In async sessions `sub_agent` (every type, including `vision`) and `follow_up` r
 
 Async `sub_agent` accepts an optional `group` label. Calls made in the same assistant response that share a label are delivered together once all of them have finished; groups never span responses. Calls without a label deliver as each finishes. The `group` parameter is part of the tool schema only in async sessions, so the tool definitions stay identical across turns.
 
-Running plus queued sub-agents are capped at twice `max_parallel`; a spawn over the cap fails with a tool error. `follow_up` fails with a tool error while the target agent is running, queued, or finished with a result not yet delivered. `workflow_handoff` fails while any sub-agent is still outstanding.
+Running plus queued sub-agents are capped at twice `max_parallel`; a spawn over the cap fails with a tool error. `follow_up` fails with a tool error while the target agent is running, queued, or finished with a result not yet delivered. Following up on an agent from a previous process also fails, with an error telling the model to dispatch a fresh `sub_agent`. `workflow_handoff` fails while any sub-agent is still outstanding.
+
+#### Async UX in the TUI
+
+- **Delegate boxes** are grouped per tool batch and by `group` label, under a `group <label>` header. The same label used in separate batches does not merge.
+- **Delivery rows.** Each delivery adds a "sub-agent(s) finished" row to the conversation: a single line for one agent, a header plus one line per member for several. Each shows its outcome (`✓` complete, `✗` failed, `?` lost when the session restarted), with a failure reason clipped.
+- **Sidebar.** The SUB-AGENTS section lists running, queued and finished agents, grouped. Finished entries stay until the next prompt is submitted. The list collapses past about 8 rows.
+- **Status bar chip.** `sub-agents finished/total` shows progress, with the queued count and `✗` on failures. It is the first item dropped when space is tight (after ctx, help and the sidebar hints on narrow terminals).
+- **Stranded results.** If the orchestrator's turn fails after results were delivered, or on resume, a `⚠` row and an activity-row warning say results are waiting. Send a message to continue.
+- **Resume** shows real durations and labelled follow-up boxes, and no stale "running tool" footer.
 
 ### `follow_up`
 
