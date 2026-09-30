@@ -10,10 +10,10 @@ import (
 
 func TestBuildDeliveredRows(t *testing.T) {
 	t.Parallel()
-	grp := func(o output.DeliveredSubAgent) deliveredLookup {
+	grp := func(_ output.DeliveredSubAgent) deliveredLookup {
 		return deliveredLookup{group: "final-review", groupSize: 3}
 	}
-	failed := func(o output.DeliveredSubAgent) deliveredLookup {
+	failed := func(_ output.DeliveredSubAgent) deliveredLookup {
 		return deliveredLookup{reason: "make check: 2 failing packages\nmore detail"}
 	}
 	item := func(id, typ, status string, ms int64) output.DeliveredSubAgent {

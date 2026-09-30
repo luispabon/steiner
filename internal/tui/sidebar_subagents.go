@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -22,33 +23,9 @@ func (s sidebarState) subAgentsSection(width int) []string {
 		return nil
 	}
 	c := countRoster(s.subAgents)
-	label := fmt.Sprintf("sub-agents · %d running", c.running)
-	switch {
-	case c.running == 0 && c.queued > 0:
-		label = fmt.Sprintf("sub-agents · %d queued", c.queued)
-	case c.running == 0:
-		label = fmt.Sprintf("sub-agents · %d finished", c.finished)
-	case c.queued > 0:
-		label = fmt.Sprintf("sub-agents · %d running · %d queued", c.running, c.queued)
-	}
-	lines := []string{"", cardLabel(label, s.styles)}
+	lines := []string{"", cardLabel(rosterLabel(c), s.styles)}
 
-	active := make([]rosterEntry, 0, len(s.subAgents))
-	var done []rosterEntry
-	for _, e := range s.subAgents {
-		if e.finished() {
-			done = append(done, e)
-		} else {
-			active = append(active, e)
-		}
-	}
-	slots := max(0, subAgentsMaxRows-len(active))
-	hidden := 0
-	if len(done) > subAgentsMaxRows && len(done) > slots {
-		hidden = len(done) - slots
-		done = done[:slots]
-	}
-	visible := append(active, done...)
+	visible, hidden := visibleRosterEntries(s.subAgents)
 
 	typeW := 0
 	for _, e := range visible {
@@ -75,6 +52,40 @@ func (s sidebarState) subAgentsSection(width int) []string {
 		lines = append(lines, s.styledWithBg(s.styles.FgMute, fmt.Sprintf("+%d finished", hidden)))
 	}
 	return lines
+}
+
+// rosterLabel builds the section heading from the roster counts.
+func rosterLabel(c rosterCounts) string {
+	switch {
+	case c.running == 0 && c.queued > 0:
+		return fmt.Sprintf("sub-agents · %d queued", c.queued)
+	case c.running == 0:
+		return fmt.Sprintf("sub-agents · %d finished", c.finished)
+	case c.queued > 0:
+		return fmt.Sprintf("sub-agents · %d running · %d queued", c.running, c.queued)
+	}
+	return fmt.Sprintf("sub-agents · %d running", c.running)
+}
+
+// visibleRosterEntries orders active entries before finished ones and
+// collapses finished entries beyond the row budget, returning the hidden count.
+func visibleRosterEntries(entries []rosterEntry) ([]rosterEntry, int) {
+	active := make([]rosterEntry, 0, len(entries))
+	var done []rosterEntry
+	for _, e := range entries {
+		if e.finished() {
+			done = append(done, e)
+		} else {
+			active = append(active, e)
+		}
+	}
+	slots := max(0, subAgentsMaxRows-len(active))
+	hidden := 0
+	if len(done) > subAgentsMaxRows && len(done) > slots {
+		hidden = len(done) - slots
+		done = done[:slots]
+	}
+	return slices.Concat(active, done), hidden
 }
 
 func (s sidebarState) rosterRow(e rosterEntry, prefix string, typeW, width int) string {
