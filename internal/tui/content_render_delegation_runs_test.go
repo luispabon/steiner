@@ -11,9 +11,9 @@ func TestDelegationRunHiddenThinkingJoinsAndRevealSplits(t *testing.T) {
 	useTrueColor(t)
 	b := delegationRunTestBuffer()
 	b.segments = []contentSegment{
-		delegationRunTestSegment("first", "complete"),
+		delegationRunTestSegment("first"),
 		{kind: segmentThinkingBlock, thinkData: &thinkingBlockData{body: "thought", collapsed: true}, renderDirty: true},
-		delegationRunTestSegment("second", "complete"),
+		delegationRunTestSegment("second"),
 	}
 	joined := b.String(80)
 	if b.segmentHeights[0] == 0 || b.segmentHeights[2] == 0 {
@@ -44,18 +44,18 @@ func TestDelegationRunHiddenThinkingJoinsAndRevealSplits(t *testing.T) {
 func TestDelegationRunWarmPrefixMatchesColdAfterAppend(t *testing.T) {
 	useTrueColor(t)
 	warm := delegationRunTestBuffer()
-	warm.segments = []contentSegment{delegationRunTestSegment("first", "complete")}
+	warm.segments = []contentSegment{delegationRunTestSegment("first")}
 	warm.String(80)
 	warm.streaming = true
 	warm.streamBuffer = "preview"
 	warm.String(80)
 	warm.streaming = false
 	warm.streamBuffer = ""
-	warm.segments = append(warm.segments, delegationRunTestSegment("second", "complete"))
+	warm.segments = append(warm.segments, delegationRunTestSegment("second"))
 	got := warm.String(80)
 
 	cold := delegationRunTestBuffer()
-	cold.segments = []contentSegment{delegationRunTestSegment("first", "complete"), delegationRunTestSegment("second", "complete")}
+	cold.segments = []contentSegment{delegationRunTestSegment("first"), delegationRunTestSegment("second")}
 	want := cold.String(80)
 	if got != want {
 		t.Fatalf("warm output differs from cold render:\n--- warm ---\n%s\n--- cold ---\n%s", got, want)
@@ -72,9 +72,9 @@ func delegationRunTestBuffer() *contentBuffer {
 	return &contentBuffer{styles: testStyles(theme.AccentAmber), collapseState: make(map[int]bool), showThinking: false}
 }
 
-func delegationRunTestSegment(prompt, status string) contentSegment {
+func delegationRunTestSegment(prompt string) contentSegment {
 	return contentSegment{
 		kind: segmentDelegation, renderDirty: true,
-		delegData: &delegationDisplayState{agentType: "explore", group: "shared", status: status, promptText: prompt, promptCollapsed: false, collapsed: false},
+		delegData: &delegationDisplayState{agentType: "explore", group: "shared", status: "complete", promptText: prompt, promptCollapsed: false, collapsed: false},
 	}
 }
