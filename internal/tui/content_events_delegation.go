@@ -808,11 +808,7 @@ func (b *contentBuffer) bindDelegation(agentID, callID, agentType, taskPreview, 
 	bind := func(loc delegationLocator) {
 		dd := loc.dd
 		dd.agentID = agentID
-		if dd.isFollowUp {
-			if dd.agentType == "" && dd.toolLabel == "" {
-				dd.agentType = agentType
-			}
-		} else if agentType != "" {
+		if agentType != "" {
 			dd.agentType = agentType
 		}
 		if preview != "" {
