@@ -56,12 +56,12 @@ func TestDelegationGrouping(t *testing.T) {
 	}{
 		{"ungrouped pair in one batch merges", []groupStep{{callID: "a"}, {callID: "b"}}, 1},
 		{"same label in one batch merges", []groupStep{{callID: "a", group: "g"}, {callID: "b", group: "g"}}, 1},
-		{"different labels split", []groupStep{{callID: "a", group: "g1"}, {callID: "b", group: "g2"}}, 2},
-		{"labelled and ungrouped split", []groupStep{{callID: "a", group: "g"}, {callID: "b"}}, 2},
-		{"same label across batches splits", []groupStep{{callID: "a", group: "g"}, {callID: "b", group: "g", newBatch: true}}, 2},
-		{"ungrouped across batches splits", []groupStep{{callID: "a"}, {callID: "b", newBatch: true}}, 2},
+		{"different labels merge", []groupStep{{callID: "a", group: "g1"}, {callID: "b", group: "g2"}}, 1},
+		{"labelled and ungrouped merge", []groupStep{{callID: "a", group: "g"}, {callID: "b"}}, 1},
+		{"same label across batches merges", []groupStep{{callID: "a", group: "g"}, {callID: "b", group: "g", newBatch: true}}, 1},
+		{"ungrouped across batches merges", []groupStep{{callID: "a"}, {callID: "b", newBatch: true}}, 1},
 		{"replay path groups the same", []groupStep{{callID: "a", group: "g", replay: true}, {callID: "b", group: "g", replay: true}}, 1},
-		{"replay path splits labels", []groupStep{{callID: "a", group: "g1", replay: true}, {callID: "b", group: "g2", replay: true}}, 2},
+		{"replay path merges labels", []groupStep{{callID: "a", group: "g1", replay: true}, {callID: "b", group: "g2", replay: true}}, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -69,7 +69,7 @@ func TestDelegationGrouping(t *testing.T) {
 			b := newGroupTestBuffer()
 			for i, st := range tt.steps {
 				if st.newBatch {
-					b.AppendEvent(output.NewAssistantMessageEvent(i, "assistant", "next turn"))
+					b.delegationBatch++
 				}
 				args := subAgentArgs(st.group)
 				if !st.replay {

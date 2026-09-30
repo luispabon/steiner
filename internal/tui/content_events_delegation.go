@@ -454,7 +454,7 @@ func (b *contentBuffer) appendAdjacentDelegation(dd *delegationDisplayState) (in
 	last := &b.segments[len(b.segments)-1]
 	switch last.kind {
 	case segmentDelegation:
-		if last.delegData == nil || last.delegData.isAdvisor || !sameDelegationGroup(last.delegData, dd) {
+		if last.delegData == nil || last.delegData.isAdvisor || dd.isAdvisor {
 			return 0, false
 		}
 		last.delegGroupData = &delegationGroupSegment{entries: []*delegationDisplayState{last.delegData, dd}}
@@ -464,7 +464,7 @@ func (b *contentBuffer) appendAdjacentDelegation(dd *delegationDisplayState) (in
 		b.gen++
 		return len(b.segments) - 1, true
 	case segmentDelegationGroup:
-		if last.delegGroupData == nil || len(last.delegGroupData.entries) == 0 || !sameDelegationGroup(last.delegGroupData.entries[0], dd) {
+		if last.delegGroupData == nil || len(last.delegGroupData.entries) == 0 || dd.isAdvisor {
 			return 0, false
 		}
 		last.delegGroupData.entries = append(last.delegGroupData.entries, dd)
@@ -474,15 +474,6 @@ func (b *contentBuffer) appendAdjacentDelegation(dd *delegationDisplayState) (in
 	default:
 		return 0, false
 	}
-}
-
-// sameDelegationGroup reports whether next may join the box that holds prev:
-// same tool batch, and either both ungrouped or the same non-empty label.
-func sameDelegationGroup(prev, next *delegationDisplayState) bool {
-	if prev.batch != next.batch {
-		return false
-	}
-	return prev.group == next.group
 }
 
 // delegationGroupArg extracts the trimmed "group" label from sub_agent args.

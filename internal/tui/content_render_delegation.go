@@ -70,7 +70,7 @@ func (b *contentBuffer) renderDelegationGroupSegment(segment contentSegment, wid
 	_, borderStyle := b.delegationStyles(borderLabel)
 	box := renderStyledBox(strings.Join(parts, "\n"), borderStyle.GetForeground(), lipgloss.Color(b.styles.Palette.ContentBG), width)
 	boxLines := strings.Split(box, "\n")
-	if strings.TrimSpace(group.entries[0].group) != "" {
+	if delegationGroupFooterEligible(group) {
 		boxLines[len(boxLines)-1] = b.renderDelegationGroupFooter(group, lipgloss.Width(boxLines[0])-2, borderStyle.GetForeground())
 	}
 	return strings.Join(boxLines, "\n") + "\n"
@@ -93,6 +93,25 @@ func delegationGroupBorderLabel(group *delegationGroupSegment) string {
 		}
 	}
 	return first
+}
+
+// delegationGroupFooterEligible allows a named aggregate footer only when all
+// entries belong to the same non-empty group and tool batch. It runs at render
+// time because group labels may bind after the cards are appended.
+func delegationGroupFooterEligible(group *delegationGroupSegment) bool {
+	if group == nil || len(group.entries) == 0 {
+		return false
+	}
+	first := group.entries[0]
+	if first == nil || strings.TrimSpace(first.group) == "" {
+		return false
+	}
+	for _, dd := range group.entries[1:] {
+		if dd == nil || dd.group != first.group || dd.batch != first.batch {
+			return false
+		}
+	}
+	return true
 }
 
 func (b *contentBuffer) renderDelegationBoxRows(dd *delegationDisplayState, width int) []string {
