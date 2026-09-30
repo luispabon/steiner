@@ -98,7 +98,7 @@ func TestRenderDelegationGroupFooter(t *testing.T) {
 	}
 }
 
-func TestRenderDelegationGroupFooterRequiresSharedGroupAndBatch(t *testing.T) {
+func TestRenderDelegationGroupFooterRequiresSharedGroup(t *testing.T) {
 	t.Parallel()
 	useTrueColor(t)
 	b := groupTestBuffer()
@@ -109,7 +109,7 @@ func TestRenderDelegationGroupFooterRequiresSharedGroupAndBatch(t *testing.T) {
 	}{
 		{"same group and batch", func(*delegationGroupSegment) {}, true},
 		{"different group", func(g *delegationGroupSegment) { g.entries[1].group = "other" }, false},
-		{"different batch", func(g *delegationGroupSegment) { g.entries[1].batch++ }, false},
+		{"same group across batches", func(g *delegationGroupSegment) { g.entries[1].batch++ }, true},
 		{"empty group", func(g *delegationGroupSegment) { g.entries[0].group = "" }, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,6 +118,9 @@ func TestRenderDelegationGroupFooterRequiresSharedGroupAndBatch(t *testing.T) {
 			out := ansi.Strip(b.renderDelegationGroupSegment(contentSegment{kind: segmentDelegationGroup, delegGroupData: g}, 60))
 			if got := strings.Contains(out, "discovery"); got != tc.wantNamed {
 				t.Errorf("named footer = %v, want %v: %q", got, tc.wantNamed, out)
+			}
+			if tc.name == "same group across batches" && (!strings.Contains(out, "2 agents") || !strings.Contains(out, "2/2")) {
+				t.Errorf("cross-batch footer missing aggregate totals: %q", out)
 			}
 			if !tc.wantNamed && !strings.HasSuffix(strings.TrimSuffix(out, "\n"), "┘") {
 				t.Errorf("ineligible footer did not use plain bottom border: %q", out)
