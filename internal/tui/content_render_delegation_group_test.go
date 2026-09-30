@@ -98,6 +98,34 @@ func TestRenderDelegationGroupFooter(t *testing.T) {
 	}
 }
 
+func TestRenderDelegationGroupFooterRequiresSharedGroupAndBatch(t *testing.T) {
+	t.Parallel()
+	useTrueColor(t)
+	b := groupTestBuffer()
+	for _, tc := range []struct {
+		name      string
+		mutate    func(*delegationGroupSegment)
+		wantNamed bool
+	}{
+		{"same group and batch", func(*delegationGroupSegment) {}, true},
+		{"different group", func(g *delegationGroupSegment) { g.entries[1].group = "other" }, false},
+		{"different batch", func(g *delegationGroupSegment) { g.entries[1].batch++ }, false},
+		{"empty group", func(g *delegationGroupSegment) { g.entries[0].group = "" }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := groupOf("discovery", "complete", "complete")
+			tc.mutate(g)
+			out := ansi.Strip(b.renderDelegationGroupSegment(contentSegment{kind: segmentDelegationGroup, delegGroupData: g}, 60))
+			if got := strings.Contains(out, "discovery"); got != tc.wantNamed {
+				t.Errorf("named footer = %v, want %v: %q", got, tc.wantNamed, out)
+			}
+			if !tc.wantNamed && !strings.HasSuffix(strings.TrimSuffix(out, "\n"), "┘") {
+				t.Errorf("ineligible footer did not use plain bottom border: %q", out)
+			}
+		})
+	}
+}
+
 func TestRenderDelegationGroupSegmentTitleInFooter(t *testing.T) {
 	t.Parallel()
 	useTrueColor(t)
