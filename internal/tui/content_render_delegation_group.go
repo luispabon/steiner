@@ -67,6 +67,24 @@ func (b *contentBuffer) groupGlyphStyle(agg groupAggregate) lipgloss.Style {
 	}
 }
 
+// delegationVisualGroupName returns the shared, trimmed non-empty group label
+// for a rendered box. Unlike delivery grouping, this is independent of batch.
+func delegationVisualGroupName(group *delegationGroupSegment) string {
+	if group == nil || len(group.entries) == 0 || group.entries[0] == nil {
+		return ""
+	}
+	name := strings.TrimSpace(group.entries[0].group)
+	if name == "" {
+		return ""
+	}
+	for _, dd := range group.entries[1:] {
+		if dd == nil || strings.TrimSpace(dd.group) != name {
+			return ""
+		}
+	}
+	return name
+}
+
 func (b *contentBuffer) groupNameStyle(group *delegationGroupSegment) lipgloss.Style {
 	style := b.styles.FgDim.Foreground(b.styles.AccentColor).Background(lipgloss.Color(b.styles.Palette.ContentBG)).Bold(true)
 	key := strings.ToLower(strings.TrimSpace(delegationGroupBorderLabel(group)))
@@ -83,7 +101,7 @@ func (b *contentBuffer) groupNameStyle(group *delegationGroupSegment) lipgloss.S
 func (b *contentBuffer) renderDelegationGroupFooter(group *delegationGroupSegment, innerWidth int, borderColor color.Color) string {
 	bg := lipgloss.Color(b.styles.Palette.ContentBG)
 	border := lipgloss.NewStyle().Foreground(borderColor).Background(bg)
-	name := strings.TrimSpace(group.entries[0].group)
+	name := delegationVisualGroupName(group)
 	agg := aggregateDelegationGroup(group)
 	glyph, stateText := b.groupTitleStats(agg)
 	noun := "agents"
