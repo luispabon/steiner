@@ -127,14 +127,14 @@ func (b *contentBuffer) renderDelegationRunFragment(index, width int) string {
 	for i, dd := range entries {
 		rows = append(rows, b.renderDelegationBoxRows(dd, width)...)
 		if i < len(entries)-1 {
-			rows = append(rows, b.renderToolCallDivider(max(1, width-4)))
+			rows = append(rows, renderDelegationFragmentDivider(width))
 		}
 	}
 	_, borderStyle := b.delegationStyles(delegationRunBorderLabel(b, index))
 	box := renderStyledBox(strings.Join(rows, "\n"), borderStyle.GetForeground(), lipgloss.Color(b.styles.Palette.ContentBG), width)
 	lines := strings.Split(box, "\n")
 	if seg.delegationJoinedAbove {
-		lines[0] = b.renderToolCallDivider(max(1, width-4))
+		lines[0] = renderDelegationFragmentDivider(lipgloss.Width(lines[0]))
 	}
 	isFinal := true
 	var full []*delegationDisplayState
@@ -163,7 +163,7 @@ func (b *contentBuffer) renderDelegationRunFragment(index, width int) string {
 		}
 		group := &delegationGroupSegment{entries: full}
 		if delegationVisualGroupName(group) != "" {
-			lines[len(lines)-1] = b.renderDelegationGroupFooter(group, lipgloss.Width(lines[0])-2, borderStyle.GetForeground())
+			lines[len(lines)-1] = b.renderDelegationGroupFooter(group, width-2, borderStyle.GetForeground())
 		}
 	} else {
 		lines = lines[:len(lines)-1]
@@ -171,16 +171,26 @@ func (b *contentBuffer) renderDelegationRunFragment(index, width int) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+func renderDelegationFragmentDivider(width int) string {
+	if width < 2 {
+		width = 2
+	}
+	return "│" + strings.Repeat("─", width-2) + "│"
+}
+
 func delegationRunBorderLabel(b *contentBuffer, index int) string {
 	entries := append([]*delegationDisplayState(nil), delegationSegmentEntries(&b.segments[index])...)
+	if !b.segments[index].delegationJoinedAbove {
+		return delegationGroupBorderLabel(&delegationGroupSegment{entries: entries})
+	}
 	for i := index - 1; i >= 0; i-- {
 		if b.isSegmentHidden(i) {
 			continue
 		}
-		previous := delegationSegmentEntries(&b.segments[i])
-		if len(previous) == 0 {
+		if !isDelegationRunSegment(&b.segments[i]) {
 			break
 		}
+		previous := delegationSegmentEntries(&b.segments[i])
 		entries = append(previous, entries...)
 		if !b.segments[i].delegationJoinedAbove {
 			break
