@@ -74,6 +74,16 @@ func (f *fakeBackground) setPending(ids ...string) {
 	}
 }
 
+func (f *fakeBackground) markFinished(ids ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.pending {
+		if slices.Contains(ids, f.pending[i].AgentID) {
+			f.pending[i].State = SubAgentFinished
+		}
+	}
+}
+
 func completionFor(seq uint64, id string) SubAgentCompletion {
 	return SubAgentCompletion{
 		Seq: seq, ParentCallID: "call-" + id, AgentID: id, AgentType: "code",

@@ -65,6 +65,32 @@ func (d *ConversationDriver) armWindowLocked(cs []SubAgentCompletion) {
 	d.window = d.clock.AfterFunc(completionCoalesceWindow, func() { d.windowFired(gen) })
 }
 
+// updateCompletionWindowLocked keeps a wake buffered only while unfinished
+// siblings can still complete. Finished results remain eligible for delivery.
+func (d *ConversationDriver) updateCompletionWindowLocked() {
+	if d.state == DriverGenerating || d.held || d.exhausted || !d.hasWakeCompletionLocked() {
+		return
+	}
+	if d.hasUnfinishedSiblingsLocked() {
+		d.armWindowLocked(d.completions)
+		return
+	}
+	d.disarmWindowLocked()
+	d.windowExpired = true
+}
+
+func (d *ConversationDriver) hasUnfinishedSiblingsLocked() bool {
+	if d.opts.Background == nil {
+		return false
+	}
+	for _, pending := range d.opts.Background.Pending() {
+		if pending.State == SubAgentRunning || pending.State == SubAgentQueued {
+			return true
+		}
+	}
+	return false
+}
+
 // disarmWindowLocked cancels the window and invalidates its callback.
 func (d *ConversationDriver) disarmWindowLocked() {
 	if d.window != nil {

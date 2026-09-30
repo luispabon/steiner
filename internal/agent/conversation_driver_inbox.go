@@ -75,7 +75,7 @@ func (d *ConversationDriver) DeliverCompletions(cs []SubAgentCompletion) {
 		return
 	}
 	d.completions = append(d.completions, cs...)
-	d.armWindowLocked(cs)
+	d.updateCompletionWindowLocked()
 	d.unlockEmit()
 	d.signalWake()
 }
