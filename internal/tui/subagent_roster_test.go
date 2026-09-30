@@ -119,6 +119,13 @@ func TestRosterPrune(t *testing.T) {
 	for name, fn := range map[string]func(*subAgentRoster){
 		"prompt":         func(r *subAgentRoster) { r.prune() },
 		"session_loaded": func(r *subAgentRoster) { r.observe(ev(output.ContextDiagnosticsEvent{Kind: "session_loaded"}), 9) },
+		"session_loaded_budget": func(r *subAgentRoster) {
+			e := output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{Kind: "session_loaded", ContextWindow: 4096})
+			if _, ok := e.Payload.(output.ContextBudgetEvent); !ok {
+				t.Fatalf("payload = %T, want ContextBudgetEvent", e.Payload)
+			}
+			r.observe(e, 9)
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
