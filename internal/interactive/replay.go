@@ -120,41 +120,7 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 		}
 		switch msg.Role {
 		case agent.MessageRoleUser:
-			images := convertImageBlocks(msg.Images)
-			parts := prompt.SplitMessageBlocks(msg.Content)
-			for _, block := range parts.SkillBlocks {
-				state := output.SkillStateDisabled
-				if block.State == prompt.SkillBlockActive {
-					state = output.SkillStateEnabled
-				}
-				s.events.Emit(output.NewSkillStateEvent(block.Name, state))
-			}
-			var delivered []output.DeliveredSubAgent
-			for _, envelope := range parts.ResultEnvelopes {
-				parsed, ok := agent.ParseSubAgentResultEnvelope(envelope)
-				if !ok {
-					continue
-				}
-				s.replaySubAgentResult(parsed, acks)
-				_, usage := splitResultEnvelopeInner(parsed.Inner)
-				delivered = append(delivered, output.DeliveredSubAgent{
-					AgentID:      parsed.AgentID,
-					AgentType:    parsed.AgentType,
-					Status:       parsed.Status,
-					ParentCallID: parsed.CallID,
-					DurationMs:   usage.duration.Milliseconds(),
-				})
-			}
-			if len(delivered) > 0 {
-				s.events.Emit(output.NewSubAgentsDeliveredEvent(delivered))
-			}
-			// Rest already excludes the mode notice prefix, every block, the
-			// pending line and every result envelope, so it replaces
-			// StripModeNotice here. Emit the input event only when user text or
-			// images remain.
-			if strings.TrimSpace(parts.Rest) != "" || len(images) > 0 {
-				s.events.Emit(output.NewUserInputEvent(parts.Rest, "resume", images))
-			}
+			s.replayUserMessage(msg, acks)
 		case agent.MessageRoleAssistant:
 			if msg.ReasoningContent != "" {
 				s.events.Emit(output.NewThinkingChunkEventWithSource(0, msg.ReasoningContent, output.ChunkSourceAssistant))
@@ -172,6 +138,46 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 		}
 	}
 	s.replayUnresolvedAcks(acks)
+}
+
+// replayUserMessage emits skill state, sub-agent delivery and user input
+// events for one replayed user message.
+func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks) {
+	images := convertImageBlocks(msg.Images)
+	parts := prompt.SplitMessageBlocks(msg.Content)
+	for _, block := range parts.SkillBlocks {
+		state := output.SkillStateDisabled
+		if block.State == prompt.SkillBlockActive {
+			state = output.SkillStateEnabled
+		}
+		s.events.Emit(output.NewSkillStateEvent(block.Name, state))
+	}
+	var delivered []output.DeliveredSubAgent
+	for _, envelope := range parts.ResultEnvelopes {
+		parsed, ok := agent.ParseSubAgentResultEnvelope(envelope)
+		if !ok {
+			continue
+		}
+		s.replaySubAgentResult(parsed, acks)
+		_, usage := splitResultEnvelopeInner(parsed.Inner)
+		delivered = append(delivered, output.DeliveredSubAgent{
+			AgentID:      parsed.AgentID,
+			AgentType:    parsed.AgentType,
+			Status:       parsed.Status,
+			ParentCallID: parsed.CallID,
+			DurationMs:   usage.duration.Milliseconds(),
+		})
+	}
+	if len(delivered) > 0 {
+		s.events.Emit(output.NewSubAgentsDeliveredEvent(delivered))
+	}
+	// Rest already excludes the mode notice prefix, every block, the
+	// pending line and every result envelope, so it replaces
+	// StripModeNotice here. Emit the input event only when user text or
+	// images remain.
+	if strings.TrimSpace(parts.Rest) != "" || len(images) > 0 {
+		s.events.Emit(output.NewUserInputEvent(parts.Rest, "resume", images))
+	}
 }
 
 // replayAssistantToolCalls emits events for each tool call in an assistant message.

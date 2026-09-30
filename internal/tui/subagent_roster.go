@@ -113,23 +113,15 @@ func (r *subAgentRoster) finish(agentID, agentType, status string, durationMs, n
 func (r *subAgentRoster) observe(event output.Event, now int64) {
 	switch p := event.Payload.(type) {
 	case output.ToolCallQueuedEvent:
-		if event.Scope.AgentID == "" {
-			r.recordGroup(p.CallID, p.Arguments)
-		}
+		r.recordParentGroup(event, p.CallID, p.Arguments)
 	case output.ToolCallStartedEvent:
-		if event.Scope.AgentID == "" {
-			r.recordGroup(p.CallID, p.Arguments)
-		}
+		r.recordParentGroup(event, p.CallID, p.Arguments)
 	case output.DelegationQueuedEvent:
 		r.begin(p.AgentID, p.AgentType, p.CallID, rosterQueued, now)
 	case output.DelegationStartedEvent:
 		r.begin(p.AgentID, p.AgentType, p.CallID, rosterRunning, now)
 	case output.DelegationCompleteEvent:
-		status := rosterDone
-		if p.Status == "failed" || p.Status == "error" {
-			status = rosterFailed
-		}
-		r.finish(p.AgentID, p.AgentType, status, p.DurationMs, now)
+		r.finish(p.AgentID, p.AgentType, completionStatus(p.Status), p.DurationMs, now)
 	case output.DelegationFailedEvent:
 		r.finish(p.AgentID, p.AgentType, rosterFailed, p.DurationMs, now)
 	case output.SubAgentsDeliveredEvent:
@@ -145,6 +137,21 @@ func (r *subAgentRoster) observe(event output.Event, now int64) {
 			r.prune()
 		}
 	}
+}
+
+// recordParentGroup records the group of a parent-scoped tool call.
+func (r *subAgentRoster) recordParentGroup(event output.Event, callID string, args map[string]any) {
+	if event.Scope.AgentID == "" {
+		r.recordGroup(callID, args)
+	}
+}
+
+// completionStatus maps a delegation completion status to a roster status.
+func completionStatus(status string) string {
+	if status == "failed" || status == "error" {
+		return rosterFailed
+	}
+	return rosterDone
 }
 
 func (r *subAgentRoster) deliver(item output.DeliveredSubAgent, now int64) {
