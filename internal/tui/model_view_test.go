@@ -265,7 +265,7 @@ func TestViewportViewCacheServesStoredFrame(t *testing.T) {
 }
 
 // TestViewportViewCacheBypassedWhenHelpVisible is the regression test for the
-// help overlay: toggling helpVisible (the '?' key path) never calls
+// help overlay: toggling helpVisible never calls
 // syncViewport, so the only thing preventing a stale frame is the cache-hit
 // guard. With help visible the frame must be re-rendered with the overlay.
 func TestViewportViewCacheBypassedWhenHelpVisible(t *testing.T) {
@@ -280,7 +280,7 @@ func TestViewportViewCacheBypassedWhenHelpVisible(t *testing.T) {
 		t.Fatal("base frame empty; test setup broken")
 	}
 
-	// Simulate the '?' key handler: help toggles without syncViewport.
+	// Simulate the Ctrl+F1 key handler: help toggles without syncViewport.
 	m.helpVisible = true
 	withHelp := m.renderViewportView(contentWidth)
 	if withHelp == base {
@@ -291,6 +291,49 @@ func TestViewportViewCacheBypassedWhenHelpVisible(t *testing.T) {
 	m.helpVisible = false
 	if got := m.renderViewportView(contentWidth); got != base {
 		t.Fatal("frame changed after help dismissed; expected the cached pre-help frame")
+	}
+}
+
+func TestHelpOverlayFitsSidebarAndNarrowTerminal(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		width   int
+		sidebar bool
+	}{{name: "sidebar-visible", width: 110, sidebar: true}, {name: "narrow", width: 35}} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			if tc.sidebar {
+				m.sidebar.SetExpanded(true)
+			}
+			m = updateModelDirect(m, tea.WindowSizeMsg{Width: tc.width, Height: 80})
+			m.helpVisible = true
+			frame := m.View().Content
+			contentWidth := m.contentWidth()
+			if got := lipgloss.Width(frame); got != tc.width {
+				t.Fatalf("frame width = %d, want terminal width %d", got, tc.width)
+			}
+			viewport := m.renderViewportView(contentWidth)
+			if got := lipgloss.Width(viewport); got > contentWidth {
+				t.Fatalf("help viewport width = %d, exceeds content width %d", got, contentWidth)
+			}
+			wantPanelWidth := min(100, max(20, contentWidth-4))
+			panelWidth := 0
+			for _, line := range strings.Split(stripANSI(frame), "\n") {
+				start := strings.Index(line, "┌")
+				if start < 0 {
+					continue
+				}
+				end := strings.Index(line[start:], "┐")
+				if end >= 0 {
+					panelWidth = lipgloss.Width(line[start : start+end+len("┐")])
+					break
+				}
+			}
+			if panelWidth != wantPanelWidth {
+				t.Fatalf("rendered help panel width = %d, want %d (content width %d): %q", panelWidth, wantPanelWidth, contentWidth, stripANSI(frame))
+			}
+		})
 	}
 }
 

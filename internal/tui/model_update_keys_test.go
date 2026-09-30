@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -286,6 +287,82 @@ func TestApprovalShortcutsWithoutDelegateKeepApprovalBehavior(t *testing.T) {
 				t.Fatal("Ctrl shortcut did not preserve interrupt approval behavior")
 			}
 		})
+	}
+}
+
+func TestCtrlF1TogglesHelpWithoutChangingPrompt(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{"", "   ", "draft"} {
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+			m := newModel(Config{Controller: &testController{}}, nil)
+			m.status.mode = "running"
+			m.input.SetValue(value)
+			m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyF1, Mod: tea.ModCtrl})
+			if !m.helpVisible {
+				t.Fatal("helpVisible = false after Ctrl+F1")
+			}
+			if got := m.input.Value(); got != value {
+				t.Fatalf("input = %q, want unchanged %q", got, value)
+			}
+			m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyF1, Mod: tea.ModCtrl})
+			if m.helpVisible {
+				t.Fatal("helpVisible = true after second Ctrl+F1")
+			}
+			if got := m.input.Value(); got != value {
+				t.Fatalf("input = %q after close, want unchanged %q", got, value)
+			}
+		})
+	}
+}
+
+func TestCtrlF1RespectsOverlayAndApprovalPrecedence(t *testing.T) {
+	t.Parallel()
+	for _, initiallyOpen := range []bool{false, true} {
+		for _, kind := range []string{"picker", "approval"} {
+			t.Run(kind+"/help-open="+strconv.FormatBool(initiallyOpen), func(t *testing.T) {
+				m := newModel(Config{ModelNames: []string{"one", "two"}}, nil)
+				m.helpVisible = initiallyOpen
+				if kind == "picker" {
+					m.modelPicker = m.modelPicker.Open(m.modelNames, m.primaryModel)
+				} else {
+					m.approval = approvalState{active: true, tool: "write", mode: "prompt", identity: "call-1"}
+				}
+				m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyF1, Mod: tea.ModCtrl})
+				if m.helpVisible != initiallyOpen {
+					t.Fatalf("helpVisible = %t, want unchanged %t", m.helpVisible, initiallyOpen)
+				}
+				if kind == "picker" && !m.modelPicker.IsOpen() {
+					t.Fatal("picker closed after Ctrl+F1")
+				}
+				if kind == "approval" && !m.approval.active {
+					t.Fatal("approval closed after Ctrl+F1")
+				}
+			})
+		}
+	}
+}
+
+func TestQuestionMarkTypesAndPlainF1DoesNotToggleHelp(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.KeyPressMsg{Code: '?', Text: "?"})
+	if got := m.input.Value(); got != "?" {
+		t.Fatalf("input = %q, want question mark", got)
+	}
+	if m.helpVisible {
+		t.Fatal("plain question mark opened help")
+	}
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyF1})
+	if m.helpVisible {
+		t.Fatal("plain F1 opened help")
+	}
+	if got := m.input.Value(); got != "?" {
+		t.Fatalf("input = %q after plain F1, want question mark", got)
+	}
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input = %q after Backspace, want empty", got)
 	}
 }
 

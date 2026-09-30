@@ -89,10 +89,6 @@ func (m *Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation
 	if activeConversation && msg.Code == tea.KeyEnter && !m.approval.active && !key.Matches(msg, m.input.KeyMap.InsertNewline) {
 		return true, m.executeSteerAction()
 	}
-	if msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "" {
-		m.helpVisible = !m.helpVisible
-		return true, m
-	}
 	return false, m
 }
 
@@ -122,6 +118,9 @@ func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, te
 			return true, m, nil
 		}
 		return true, m.openExitModal(), nil
+	case msg.Code == tea.KeyF1 && msg.Mod&tea.ModCtrl != 0:
+		m.helpVisible = !m.helpVisible
+		return true, m, nil
 	case isCtrl(msg, 'b'):
 		m.sidebar.Toggle()
 		m.layout()

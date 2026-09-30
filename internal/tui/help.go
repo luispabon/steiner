@@ -12,8 +12,8 @@ import (
 func renderHelp(styles *theme.Styles, width int) string {
 	// Constrain panel width
 	panelWidth := width
-	if panelWidth > 50 {
-		panelWidth = 50
+	if panelWidth > 100 {
+		panelWidth = 100
 	}
 	if panelWidth < 20 {
 		panelWidth = 20
@@ -63,7 +63,7 @@ func renderHelp(styles *theme.Styles, width int) string {
 				for _, hb := range projectHelpLines() {
 					bb = append(bb, binding(hb))
 				}
-				bb = append(bb, binding{"?", "toggle help"})
+				bb = append(bb, binding{"ctrl+f1", "toggle help"})
 				return bb
 			}(),
 		},

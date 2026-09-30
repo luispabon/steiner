@@ -69,7 +69,7 @@ Running plus queued sub-agents are capped at twice `max_parallel`; a spawn over 
 - **Delegate boxes** are grouped per tool batch and by `group` label, in one frame whose top border carries the group label in bold and an aggregate status (`N agents · ✓ 2/2`, a spinner while any are running, `✗ N failed`). The same label used in separate batches does not merge.
 - **Delivery rows.** Each delivery adds a "sub-agent(s) finished" row to the conversation: a single line for one agent, a header plus one line per member for several. Each shows its outcome (`✓` complete, `✗` failed, `?` lost when the session restarted), with a failure reason clipped.
 - **Sidebar.** The SUB-AGENTS section lists running, queued and finished agents, grouped. Finished entries stay until their result has been delivered and the next prompt is submitted. The list collapses past about 8 rows.
-- **Status bar chip.** `sub-agents finished/total` shows progress, with the queued count and `✗` on failures. It sits right after the sandbox badge; when space is tight, truncation from the right drops it only after ctx, `? help` and `^B sidebar`.
+- **Status bar chip.** `sub-agents finished/total` shows progress, with the queued count and `✗` on failures. It sits right after the sandbox badge; when space is tight, truncation from the right drops it only after ctx, `Ctrl+F1 help` and `^B sidebar`.
 - **Stranded results.** If the orchestrator's turn fails after results were delivered, or on resume, a `⚠` row and an activity-row warning say results are waiting. Send a message to continue.
 - **Resume** shows real durations and labelled follow-up boxes, and no stale "running tool" footer.
 

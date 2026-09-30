@@ -80,6 +80,6 @@ Inspect resolved configuration before doing real work:
 steiner config
 ```
 
-In the interactive TUI, `/` opens the command and skill list, and `?` toggles help. `steiner --help` lists all flags.
+In the interactive TUI, `/` opens the command and skill list, and Ctrl+F1 toggles help. `steiner --help` lists all flags.
 
 For provider-specific connections, raw model references, optional aliases, profiles, and runtime selection, see [Provider and model setup](provider-and-model-setup.md). See [Configuration](configuration.md) for every field. Contributors and unsupported platforms can use the [source-build fallback](installation.md#build-from-source).

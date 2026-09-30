@@ -313,6 +313,9 @@ func TestStatusChipTruncationPriority(t *testing.T) {
 		subAgentsTotal: 3, subAgentsFinished: 1, promptUsed: 100, contextBudget: 1000,
 	}
 	full := lipgloss.Width(s.view(0))
+	if out := stripANSI(s.view(0)); !strings.Contains(out, "Ctrl+F1") || !strings.Contains(out, "help") {
+		t.Fatalf("full status bar = %q, want Ctrl+F1 help chip", out)
+	}
 	sawChipWithoutTrailing := false
 	for w := full; w > 10; w-- {
 		out := stripANSI(s.view(w))
