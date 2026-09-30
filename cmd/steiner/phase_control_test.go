@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -49,8 +50,12 @@ func TestPhaseControlRoutesToDriverAndSupervisor(t *testing.T) {
 	var runs atomic.Int32
 	host := h.host(func(ctx context.Context, in agent.DriverRunInput) (agent.DriverRunOutput, error) {
 		prompts <- in.Conversation[len(in.Conversation)-1].Content
-		if runs.Add(1) == 1 {
+		n := runs.Add(1)
+		if n == 1 {
 			<-ctx.Done()
+		}
+		if n == 2 {
+			h.bg.MarkDelivered([]string{"call-a1"})
 		}
 		return agent.DriverRunOutput{Conversation: assistantReply("done", in.Conversation)}, nil
 	})
@@ -81,11 +86,13 @@ func TestPhaseControlRoutesToDriverAndSupervisor(t *testing.T) {
 		t.Fatalf("canceller calls = %v, want %v", canceller.calls, want)
 	}
 
+	// A pending agent keeps the stopped driver held so the phase stays open for the next prompt.
+	h.bg.addPending("a1")
 	ctl.StopTurn()
 	ctl.Submit("next", nil)
 	select {
 	case got := <-prompts:
-		if got != "next" {
+		if !strings.HasSuffix(got, "next") {
 			t.Fatalf("second prompt = %q, want the submitted text", got)
 		}
 	case <-time.After(phaseDriverTestTimeout):
