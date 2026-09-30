@@ -15,6 +15,7 @@ import (
 type responsesStreamEvent struct {
 	Type         string            `json:"type"`
 	Delta        string            `json:"delta,omitempty"`
+	Text         string            `json:"text,omitempty"`
 	ItemID       string            `json:"item_id,omitempty"`
 	OutputIndex  *int              `json:"output_index,omitempty"`
 	ContentIndex *int              `json:"content_index,omitempty"`
@@ -30,10 +31,21 @@ type responsesStreamEvent struct {
 	Headers    map[string]json.RawMessage `json:"headers,omitempty"`
 }
 
+type responsesLedgerEntry struct {
+	kind        string
+	itemID      string
+	outputIndex *int
+	callID      string
+	phase       string
+	parts       map[int]string
+	partOrder   []int
+	call        *ToolCall
+	completed   bool
+}
+
 type responsesStreamState struct {
 	content                  strings.Builder
 	thinking                 strings.Builder
-	toolCalls                []ToolCall
 	usage                    *UsageStats
 	finishReason             string
 	reasoningID              string
@@ -42,15 +54,8 @@ type responsesStreamState struct {
 	sawToolCall              bool
 	sawThinking              bool
 	pendingThinkingSeparator bool
-	blocks                   []CodexMessageBlock
-	currentBlock             int
-	blockByID                map[string]int
-	blockByOutputIndex       map[int]int
-	seenCalls                map[string]bool
-	blockIDs                 []string
-	blockOutputIndexes       []*int
-	anonymousTextBlock       int
-	hasAnonymousTextBlock    bool
+	ledger                   []responsesLedgerEntry
+	current                  *int
 }
 
 func decodeResponsesStreamWithHandler(_ context.Context, body io.Reader, emit func(ChatChunk) error) error {
@@ -113,18 +118,20 @@ func processResponsesStreamEvent(state *responsesStreamState, event string, emit
 
 	switch payload.Type {
 	case "response.output_item.added":
-		switch payload.Item.Type {
-		case "message":
-			block := state.currentTextBlock(payload.Item.ID, payload.OutputIndex)
-			if payload.Item.Phase != "" {
-				state.blocks[block].Phase = payload.Item.Phase
+		if payload.Item.Type == "message" || payload.Item.Type == "function_call" {
+			entry, err := state.resolve(payload.Item.Type, payload.Item.ID, payload.OutputIndex, payload.Item.CallID, payload.Item.Type == "function_call")
+			if err != nil {
+				return false, err
 			}
-		case "function_call":
-			state.currentCallBlock(payload.Item, payload.OutputIndex)
+			if payload.Item.Phase != "" {
+				entry.phase = payload.Item.Phase
+			}
 		}
 		return false, nil
 	case "response.output_text.delta":
 		return handleResponsesTextDelta(state, payload, emit)
+	case "response.output_text.done":
+		return handleResponsesTextDone(state, payload)
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 		return handleResponsesReasoningDelta(state, payload.Delta, emit)
 	case "response.reasoning_summary_part.added", "response.reasoning_summary_text.done":
@@ -145,10 +152,17 @@ func handleResponsesTextDelta(state *responsesStreamState, payload responsesStre
 	if delta == "" {
 		return false, nil
 	}
+	entry, err := state.resolve("message", payload.ItemID, payload.OutputIndex, "", false)
+	if err != nil {
+		return false, err
+	}
+	part := 0
+	if payload.ContentIndex != nil {
+		part = *payload.ContentIndex
+	}
+	entry.appendPart(part, delta)
 	state.content.WriteString(delta)
 	state.sawContent = true
-	block := state.currentTextBlock(payload.ItemID, payload.OutputIndex)
-	state.blocks[block].Text += delta
 	return false, emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: delta}})
 }
 
@@ -166,27 +180,33 @@ func handleResponsesReasoningDelta(state *responsesStreamState, delta string, em
 	return false, emit(ChatChunk{Thinking: prefix + delta})
 }
 
-//nolint:gocyclo // Item completion updates message or call identity records.
+//nolint:gocyclo // Item completion updates the ledger entry resolved by all aliases.
 func handleResponsesOutputItemDone(state *responsesStreamState, item responsesItem, outputIndex *int) (bool, error) {
 	if item.Type == "reasoning" {
 		state.reasoningID = item.ID
 		state.pendingThinkingSeparator = true
+		state.current = nil
 		return false, nil
 	}
 	if item.Type == "message" {
-		block := state.currentTextBlock(item.ID, outputIndex)
-		if item.Phase != "" {
-			state.blocks[block].Phase = item.Phase
+		entry, err := state.resolve("message", item.ID, outputIndex, "", true)
+		if err != nil {
+			return false, err
 		}
-		var text strings.Builder
-		for _, part := range item.Content {
-			if part.Type == "output_text" || part.Type == "text" {
-				text.WriteString(part.Text)
+		if item.Phase != "" {
+			entry.phase = item.Phase
+		}
+		if item.Content != nil {
+			entry.parts = make(map[int]string)
+			entry.partOrder = nil
+			for i, part := range item.Content {
+				if part.Type == "output_text" || part.Type == "text" {
+					entry.parts[i] = part.Text
+					entry.partOrder = append(entry.partOrder, i)
+				}
 			}
 		}
-		if text.Len() > 0 {
-			state.blocks[block].Text = text.String()
-		}
+		state.current = nil
 		return false, nil
 	}
 	if item.Type != "function_call" {
@@ -196,72 +216,122 @@ func handleResponsesOutputItemDone(state *responsesStreamState, item responsesIt
 	if err != nil {
 		return false, err
 	}
-	block := state.currentCallBlock(item, outputIndex)
-	callIndex := 0
-	for i := 0; i < block; i++ {
-		if state.blocks[i].Kind == "function_call" {
-			callIndex++
-		}
+	entry, err := state.resolve("function_call", item.ID, outputIndex, item.CallID, true)
+	if err != nil {
+		return false, err
 	}
-	if callIndex >= 0 && callIndex < len(state.toolCalls) {
-		if call.ID != "" {
-			state.toolCalls[callIndex].ID = call.ID
-		}
-		if call.Name != "" {
-			state.toolCalls[callIndex].Name = call.Name
-		}
-		if call.RawArguments != "" {
-			state.toolCalls[callIndex].RawArguments = call.RawArguments
-			state.toolCalls[callIndex].Arguments = call.Arguments
-		}
-		state.blocks[block].CallID = state.toolCalls[callIndex].ID
-		return false, nil
-	}
-	if call.ID != "" {
-		if state.seenCalls == nil {
-			state.seenCalls = make(map[string]bool)
-		}
-		if state.seenCalls[call.ID] {
-			return false, nil
-		}
-		state.seenCalls[call.ID] = true
-	}
-	state.toolCalls = append(state.toolCalls, call)
-	state.blocks[block].CallID = call.ID
-	state.sawToolCall = true
+	mergeResponsesToolCall(entry, call)
+	entry.completed = true
+	state.current = nil
 	return false, nil
 }
 
-func (state *responsesStreamState) currentCallBlock(item responsesItem, outputIndex *int) int {
-	if state.blockByID == nil {
-		state.blockByID = make(map[string]int)
-		state.blockByOutputIndex = make(map[int]int)
+func mergeResponsesToolCall(entry *responsesLedgerEntry, call ToolCall) {
+	if entry.call == nil {
+		entry.call = &ToolCall{}
 	}
-	if item.ID != "" {
-		if i, ok := state.blockByID[item.ID]; ok {
-			return i
+	if call.ID != "" {
+		entry.call.ID = call.ID
+	}
+	if call.Name != "" {
+		entry.call.Name = call.Name
+	}
+	if call.RawArguments != "" {
+		entry.call.RawArguments = call.RawArguments
+		entry.call.Arguments = call.Arguments
+	}
+	if entry.call.ID != "" {
+		entry.callID = entry.call.ID
+	}
+}
+
+func (entry *responsesLedgerEntry) appendPart(index int, text string) {
+	if entry.parts == nil {
+		entry.parts = make(map[int]string)
+	}
+	if _, ok := entry.parts[index]; !ok {
+		entry.partOrder = append(entry.partOrder, index)
+	}
+	entry.parts[index] += text
+}
+
+func handleResponsesTextDone(state *responsesStreamState, payload responsesStreamEvent) (bool, error) {
+	entry, err := state.resolve("message", payload.ItemID, payload.OutputIndex, "", false)
+	if err != nil {
+		return false, err
+	}
+	index := 0
+	if payload.ContentIndex != nil {
+		index = *payload.ContentIndex
+	}
+	if entry.parts == nil {
+		entry.parts = make(map[int]string)
+	}
+	if _, ok := entry.parts[index]; !ok {
+		entry.partOrder = append(entry.partOrder, index)
+	}
+	text := payload.Text
+	if text == "" {
+		text = payload.Delta
+	}
+	entry.parts[index] = text
+	return false, nil
+}
+
+//nolint:gocyclo // Resolve all aliases and validate every conflict before binding.
+func (state *responsesStreamState) resolve(kind, id string, outputIndex *int, callID string, closeBoundary bool) (*responsesLedgerEntry, error) {
+	matches, err := resolveAliasMatches(state, id, outputIndex, callID)
+	if err != nil {
+		return nil, err
+	}
+	idx := -1
+	if len(matches) == 1 {
+		idx = matches[0]
+	}
+	if idx < 0 {
+		idx = state.currentCandidate(kind, id, outputIndex, callID)
+	}
+	if idx >= 0 {
+		e := &state.ledger[idx]
+		if e.kind != kind || (id != "" && e.itemID != "" && e.itemID != id) || (outputIndex != nil && e.outputIndex != nil && *e.outputIndex != *outputIndex) || (callID != "" && e.callID != "" && e.callID != callID) {
+			return nil, fmt.Errorf("conflicting Codex item kind or identity")
 		}
+		if id != "" {
+			e.itemID = id
+		}
+		if outputIndex != nil {
+			v := *outputIndex
+			e.outputIndex = &v
+		}
+		if callID != "" {
+			e.callID = callID
+		}
+		v := idx
+		state.current = &v
+		if closeBoundary {
+			state.current = nil
+		}
+		return e, nil
+	}
+	e := responsesLedgerEntry{kind: kind}
+	if id != "" {
+		e.itemID = id
 	}
 	if outputIndex != nil {
-		if i, ok := state.blockByOutputIndex[*outputIndex]; ok {
-			if item.ID != "" {
-				state.blockByID[item.ID] = i
-				state.blockIDs[i] = item.ID
-			}
-			return i
-		}
+		v := *outputIndex
+		e.outputIndex = &v
 	}
-	block := len(state.blocks)
-	state.blocks = append(state.blocks, CodexMessageBlock{Kind: "function_call", CallID: item.CallID})
-	state.blockIDs = append(state.blockIDs, item.ID)
-	state.blockOutputIndexes = append(state.blockOutputIndexes, outputIndex)
-	if item.ID != "" {
-		state.blockByID[item.ID] = block
+	if callID != "" {
+		e.callID = callID
 	}
-	if outputIndex != nil {
-		state.blockByOutputIndex[*outputIndex] = block
+	state.ledger = append(state.ledger, e)
+	idx = len(state.ledger) - 1
+	v := idx
+	state.current = &v
+	if closeBoundary {
+		state.current = nil
 	}
-	return block
+	return &state.ledger[idx], nil
 }
 
 func responsesFailedError(response responsesResponse) error {
@@ -295,51 +365,7 @@ var transientResponsesFailureCodes = map[string]bool{
 	"rate_limit_exceeded": true,
 }
 
-//nolint:gocyclo // Identity aliases must resolve to one output item across sparse event shapes.
-func (state *responsesStreamState) currentTextBlock(id string, index *int) int {
-	if state.blockByID == nil {
-		state.blockByID = make(map[string]int)
-		state.blockByOutputIndex = make(map[int]int)
-	}
-	block, found := -1, false
-	if id != "" {
-		block, found = state.blockByID[id]
-	}
-	if !found && index != nil {
-		block, found = state.blockByOutputIndex[*index]
-	}
-	if !found && state.hasAnonymousTextBlock {
-		candidate := state.anonymousTextBlock
-		if candidate < len(state.blockIDs) && state.blockIDs[candidate] == "" {
-			block, found = candidate, true
-		}
-	}
-	if !found {
-		block = len(state.blocks)
-		state.blocks = append(state.blocks, CodexMessageBlock{Kind: "message"})
-		state.blockIDs = append(state.blockIDs, "")
-		state.blockOutputIndexes = append(state.blockOutputIndexes, nil)
-	}
-	if state.blocks[block].Kind == "message" && state.blockIDs[block] == "" {
-		state.anonymousTextBlock, state.hasAnonymousTextBlock = block, true
-	}
-	if id != "" || index != nil {
-		state.anonymousTextBlock, state.hasAnonymousTextBlock = block, true
-	}
-	if id != "" {
-		state.blockByID[id] = block
-		state.blockIDs[block] = id
-	}
-	if index != nil {
-		state.blockByOutputIndex[*index] = block
-		v := *index
-		state.blockOutputIndexes[block] = &v
-	}
-	state.currentBlock = block
-	return block
-}
-
-//nolint:gocyclo // Terminal response recovery combines authoritative text, calls, and metadata.
+//nolint:gocyclo // Terminal recovery preserves response and streamed state semantics.
 func handleResponsesCompleted(state *responsesStreamState, response responsesResponse, emit func(ChatChunk) error) (bool, error) {
 	state.sawDone = true
 	resp, err := normalizeResponsesResponse(response)
@@ -347,39 +373,45 @@ func handleResponsesCompleted(state *responsesStreamState, response responsesRes
 		return false, err
 	}
 	if len(response.Output) > 0 {
-		blocks, calls, content, err := completedResponsesItems(response.Output, state.blocks, state.blockIDs, state.blockOutputIndexes)
+		ledger, err := completedResponsesItems(response.Output, state.ledger)
 		if err != nil {
 			return false, err
 		}
+		_, calls, text := (&responsesStreamState{ledger: ledger}).projected()
 		streamed := state.content.String()
-		if strings.HasPrefix(content, streamed) && len(content) > len(streamed) {
-			if err := emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: content[len(streamed):]}}); err != nil {
+		if strings.HasPrefix(text, streamed) && len(text) > len(streamed) {
+			if err := emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: text[len(streamed):]}}); err != nil {
 				return false, err
 			}
 		}
 		state.content.Reset()
-		state.content.WriteString(content)
-		state.sawContent = content != ""
-		state.blocks = blocks
-		state.toolCalls = calls
-	} else if resp.Message.Content != "" && !state.sawContent {
-		state.content.WriteString(resp.Message.Content)
-		state.sawContent = true
-	}
-	if len(response.Output) > 0 {
-		state.sawToolCall = len(state.toolCalls) > 0
-	} else if len(resp.Message.ToolCalls) > 0 && !state.sawToolCall {
-		state.toolCalls = append(state.toolCalls, resp.Message.ToolCalls...)
-		state.sawToolCall = true
+		state.content.WriteString(text)
+		state.sawContent = text != ""
+		state.ledger = ledger
+		state.sawToolCall = len(calls) > 0
+	} else {
+		_, _, text := state.projected()
+		state.content.Reset()
+		state.content.WriteString(text)
+		state.sawContent = text != ""
+		if text == "" && resp.Message.Content != "" {
+			state.content.WriteString(resp.Message.Content)
+			state.sawContent = true
+		}
+		if len(resp.Message.ToolCalls) > 0 {
+			for _, call := range resp.Message.ToolCalls {
+				e := responsesLedgerEntry{kind: "function_call", call: &call, callID: call.ID, completed: true}
+				state.ledger = append(state.ledger, e)
+			}
+			state.sawToolCall = true
+		}
 	}
 	if resp.Message.ReasoningContent != "" && !state.sawThinking {
 		state.thinking.WriteString(resp.Message.ReasoningContent)
 		state.sawThinking = true
 	}
-	if resp.Message.ProviderMetadata != nil && resp.Message.ProviderMetadata.Codex != nil {
-		if resp.Message.ProviderMetadata.Codex.ReasoningID != "" && state.reasoningID == "" {
-			state.reasoningID = resp.Message.ProviderMetadata.Codex.ReasoningID
-		}
+	if resp.Message.ProviderMetadata != nil && resp.Message.ProviderMetadata.Codex != nil && resp.Message.ProviderMetadata.Codex.ReasoningID != "" && state.reasoningID == "" {
+		state.reasoningID = resp.Message.ProviderMetadata.Codex.ReasoningID
 	}
 	state.usage = resp.Usage
 	state.finishReason = resp.FinishReason
@@ -404,17 +436,18 @@ func hasCodexPhase(blocks []CodexMessageBlock) bool {
 
 func responsesStreamStateToChatChunk(state responsesStreamState) ChatChunk {
 	message := Message{Role: MessageRoleAssistant}
+	blocks, calls, content := state.projected()
 	if state.sawContent {
-		message.Content = state.content.String()
+		message.Content = content
 	}
 	if state.sawThinking {
 		message.ReasoningContent = state.thinking.String()
 	}
-	if state.reasoningID != "" || len(state.blocks) > 1 || hasCodexPhase(state.blocks) || len(state.toolCalls) > 0 {
-		message.ProviderMetadata = &MessageProviderMetadata{Codex: &CodexMessageMetadata{ReasoningID: state.reasoningID, Blocks: state.blocks}}
+	if state.reasoningID != "" || len(blocks) > 1 || hasCodexPhase(blocks) || len(calls) > 0 {
+		message.ProviderMetadata = &MessageProviderMetadata{Codex: &CodexMessageMetadata{ReasoningID: state.reasoningID, Blocks: blocks}}
 	}
-	if state.sawToolCall {
-		message.ToolCalls = state.toolCalls
+	if len(calls) > 0 {
+		message.ToolCalls = calls
 	}
 	return ChatChunk{
 		Delta:           message,

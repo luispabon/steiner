@@ -1,72 +1,148 @@
 package provider
 
-import "strings"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
-// completedResponsesItems builds the authoritative ordered item ledger and
-// carries streamed phase metadata forward only through item identity aliases.
-//
-//nolint:gocyclo // Build ordered message/call blocks while matching only explicit identities.
-func completedResponsesItems(output []responsesItem, streamed []CodexMessageBlock, ids []string, indexes []*int) ([]CodexMessageBlock, []ToolCall, string, error) {
-	blocks := make([]CodexMessageBlock, 0, len(output))
-	calls := make([]ToolCall, 0)
-	var content strings.Builder
-	used := make([]bool, len(streamed))
-	streamedCalls := make([]ToolCall, 0)
-	for _, block := range streamed {
-		if block.Kind == "function_call" {
-			streamedCalls = append(streamedCalls, ToolCall{ID: block.CallID})
+func (state *responsesStreamState) currentCandidate(kind, id string, outputIndex *int, callID string) int {
+	if state.current == nil {
+		return -1
+	}
+	i := *state.current
+	if i < 0 || i >= len(state.ledger) {
+		return -1
+	}
+	e := state.ledger[i]
+	if e.kind != kind {
+		return -1
+	}
+	if id == "" && outputIndex == nil && callID == "" {
+		return i
+	}
+	if kind == "message" && e.itemID == "" && e.outputIndex == nil {
+		return i
+	}
+	return -1
+}
+
+func resolveAliasMatches(state *responsesStreamState, id string, outputIndex *int, callID string) ([]int, error) {
+	matches := make([]int, 0, 1)
+	for i := range state.ledger {
+		e := &state.ledger[i]
+		if (id != "" && e.itemID == id) || (outputIndex != nil && e.outputIndex != nil && *outputIndex == *e.outputIndex) || (callID != "" && e.callID == callID) {
+			matches = append(matches, i)
 		}
 	}
-	usedCalls := make([]bool, len(streamedCalls))
-	callPosition := 0
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("conflicting Codex item aliases resolve to separate ledger entries")
+	}
+	return matches, nil
+}
+
+// completedResponsesItems creates an authoritative ledger from a nonempty final output.
+func completedResponsesItems(output []responsesItem, streamed []responsesLedgerEntry) ([]responsesLedgerEntry, error) {
+	result := make([]responsesLedgerEntry, 0, len(output))
+	used := make([]bool, len(streamed))
 	for outputIndex, item := range output {
+		var entry responsesLedgerEntry
 		switch item.Type {
 		case "message":
-			var text strings.Builder
-			for _, part := range item.Content {
+			entry = responsesLedgerEntry{kind: "message", itemID: item.ID, phase: item.Phase, parts: make(map[int]string)}
+			for i, part := range item.Content {
 				if part.Type == "output_text" || part.Type == "text" {
-					text.WriteString(part.Text)
+					entry.parts[i] = part.Text
+					entry.partOrder = append(entry.partOrder, i)
 				}
 			}
-			block := CodexMessageBlock{Kind: "message", Phase: item.Phase, Text: text.String()}
-			for i, old := range streamed {
-				if used[i] || old.Kind != "message" || i >= len(ids) {
-					continue
-				}
-				matched := item.ID != "" && ids[i] == item.ID
-				if !matched && i < len(indexes) && indexes[i] != nil && *indexes[i] == outputIndex {
-					matched = true
-				}
-				if matched {
-					used[i] = true
-					if block.Phase == "" {
-						block.Phase = old.Phase
-					}
-					break
-				}
+			if entry.phase == "" {
+				entry.phase = streamedPhase(streamed, used, item.ID, outputIndex)
 			}
-			blocks = append(blocks, block)
-			content.WriteString(block.Text)
 		case "function_call":
 			call, err := responsesToolCall(item)
 			if err != nil {
-				return nil, nil, "", err
+				return nil, err
 			}
-			for callPosition < len(streamedCalls) && usedCalls[callPosition] {
-				callPosition++
+			entry = responsesLedgerEntry{kind: "function_call", itemID: item.ID, callID: item.CallID, call: &call, completed: true}
+			if entry.callID == "" {
+				entry.callID = call.ID
 			}
-			if callPosition < len(streamedCalls) {
-				old := streamedCalls[callPosition]
-				if call.ID == "" || old.ID == "" || call.ID == old.ID {
-					usedCalls[callPosition] = true
-					callPosition++
-				}
-			}
-			calls = append(calls, call)
-			blocks = append(blocks, CodexMessageBlock{Kind: "function_call", CallID: call.ID})
 		case "reasoning":
-			// Reasoning remains governed by the existing reasoning policy.
+			continue
+		default:
+			continue
+		}
+		idx := outputIndex
+		entry.outputIndex = &idx
+		result = append(result, entry)
+	}
+	return result, nil
+}
+
+func streamedPhase(streamed []responsesLedgerEntry, used []bool, id string, index int) string {
+	if id != "" {
+		found := -1
+		for i, entry := range streamed {
+			if entry.kind == "message" && entry.itemID == id {
+				if found >= 0 {
+					return ""
+				}
+				found = i
+			}
+		}
+		if found >= 0 {
+			used[found] = true
+			return streamed[found].phase
 		}
 	}
-	return blocks, calls, content.String(), nil
+	for i, entry := range streamed {
+		if !used[i] && entry.kind == "message" && entry.outputIndex != nil && *entry.outputIndex == index && (id == "" || entry.itemID == "" || entry.itemID == id) {
+			used[i] = true
+			return entry.phase
+		}
+	}
+	return ""
+}
+
+func (state *responsesStreamState) projected() ([]CodexMessageBlock, []ToolCall, string) {
+	order := make([]int, len(state.ledger))
+	for i := range order {
+		order[i] = i
+	}
+	indexedPositions := make([]int, 0, len(order))
+	indexedEntries := make([]int, 0, len(order))
+	for position, entryIndex := range order {
+		if state.ledger[entryIndex].outputIndex != nil {
+			indexedPositions = append(indexedPositions, position)
+			indexedEntries = append(indexedEntries, entryIndex)
+		}
+	}
+	sort.SliceStable(indexedEntries, func(i, j int) bool {
+		return *state.ledger[indexedEntries[i]].outputIndex < *state.ledger[indexedEntries[j]].outputIndex
+	})
+	for i, position := range indexedPositions {
+		order[position] = indexedEntries[i]
+	}
+	blocks := make([]CodexMessageBlock, 0, len(order))
+	calls := make([]ToolCall, 0)
+	var content strings.Builder
+	for _, i := range order {
+		entry := state.ledger[i]
+		if entry.kind == "message" {
+			var text strings.Builder
+			parts := append([]int(nil), entry.partOrder...)
+			sort.Ints(parts)
+			for _, part := range parts {
+				text.WriteString(entry.parts[part])
+			}
+			block := CodexMessageBlock{Kind: "message", Phase: entry.phase, Text: text.String()}
+			blocks = append(blocks, block)
+			content.WriteString(block.Text)
+		} else if entry.kind == "function_call" && entry.completed && entry.call != nil {
+			blocks = append(blocks, CodexMessageBlock{Kind: "function_call", CallID: entry.call.ID})
+			calls = append(calls, *entry.call)
+		}
+	}
+	return blocks, calls, content.String()
 }
