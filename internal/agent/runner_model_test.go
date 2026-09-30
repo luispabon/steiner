@@ -13,17 +13,20 @@ import (
 )
 
 func TestRunnerResetsTurnTimeoutEachTurn(t *testing.T) {
-	const turnTimeout = 100 * time.Millisecond
-	const turnDelay = 60 * time.Millisecond
+	const turnTimeout = time.Minute
 
+	var deadlines [2]time.Time
 	providerStub := &fakeProvider{}
 	providerStub.chatFn = func(ctx context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
 		callNum := len(providerStub.requests)
-		select {
-		case <-time.After(turnDelay):
-		case <-ctx.Done():
-			return provider.ChatResponse{}, ctx.Err()
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			return provider.ChatResponse{}, errors.New("provider context has no deadline")
 		}
+		if callNum < 1 || callNum > len(deadlines) {
+			return provider.ChatResponse{}, fmt.Errorf("unexpected request %d", callNum)
+		}
+		deadlines[callNum-1] = deadline
 
 		switch callNum {
 		case 1:
@@ -60,7 +63,6 @@ func TestRunnerResetsTurnTimeoutEachTurn(t *testing.T) {
 		},
 	}
 
-	start := time.Now()
 	state, err := NewRunner().Run(context.Background(), RunRequest{
 		Provider: providerStub,
 		Executor: executor,
@@ -69,7 +71,6 @@ func TestRunnerResetsTurnTimeoutEachTurn(t *testing.T) {
 		},
 		Limits: Limits{MaxTurns: 4, MaxTokens: 50, TurnTimeout: turnTimeout},
 	})
-	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -79,11 +80,8 @@ func TestRunnerResetsTurnTimeoutEachTurn(t *testing.T) {
 	if got, want := len(providerStub.requests), 2; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
 	}
-	if elapsed < 2*turnDelay {
-		t.Fatalf("elapsed = %v, want at least %v for two completed turns", elapsed, 2*turnDelay)
-	}
-	if elapsed < turnTimeout {
-		t.Fatalf("elapsed = %v, want to exceed a single turn timeout budget", elapsed)
+	if !deadlines[1].After(deadlines[0]) {
+		t.Fatalf("second turn deadline = %v, want after first turn deadline %v", deadlines[1], deadlines[0])
 	}
 }
 

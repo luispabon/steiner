@@ -35,7 +35,10 @@ func TestStdio(t *testing.T) {
 		skipIfBwrapUnavailable(t)
 
 		repoRoot := t.TempDir()
-		sandboxTmp := t.TempDir()
+		sandboxTmp := filepath.Join(repoRoot, "sandbox-tmp")
+		if err := os.MkdirAll(sandboxTmp, 0o755); err != nil {
+			t.Fatalf("create sandbox temp dir: %v", err)
+		}
 		stageSandboxFixture(t, sandboxTmp)
 
 		s := newSandbox(t, repoRoot, sandboxTmp)
@@ -86,7 +89,10 @@ func TestStdio(t *testing.T) {
 		skipIfBwrapUnavailable(t)
 
 		repoRoot := t.TempDir()
-		sandboxTmp := t.TempDir()
+		sandboxTmp := filepath.Join(repoRoot, "sandbox-tmp")
+		if err := os.MkdirAll(sandboxTmp, 0o755); err != nil {
+			t.Fatalf("create sandbox temp dir: %v", err)
+		}
 		stageSandboxFixture(t, sandboxTmp)
 		// recordPath is the HOST path used to read the record back; the
 		// fixture itself is given the SANDBOX-side path below, since

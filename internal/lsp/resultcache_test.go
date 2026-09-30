@@ -151,7 +151,7 @@ func TestResultCache_ProvisionalNotCached_Navigate(t *testing.T) {
 		MaxResults:       100,
 		RequestTimeout:   config.MustDuration("2s"),
 		ReadyTimeout:     config.MustDuration("50ms"),
-		ReadyGracePeriod: config.MustDuration("10ms"),
+		ReadyGracePeriod: config.MustDuration("1h"),
 		Servers: map[string]config.LSPServerConfig{
 			"go": {Enabled: true, FileExtensions: []string{".go"}},
 		},
