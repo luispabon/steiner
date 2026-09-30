@@ -20,6 +20,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.applyConversationState(payload)
 		return nil
 	}
+	m.observeRoster(event)
 	if m.shouldSuppressInterruptedRunEvent(event) {
 		return nil
 	}

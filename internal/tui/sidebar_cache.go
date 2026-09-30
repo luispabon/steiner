@@ -64,6 +64,7 @@ type sidebarStateComparable struct {
 	lspStarting            bool
 	lspFailed              bool
 	lspSingleName          string
+	subAgentsNow           int64
 }
 
 // comparable projects s onto its comparable fields (everything but
@@ -115,6 +116,7 @@ func (s sidebarState) comparable() sidebarStateComparable {
 		lspStarting:            s.lspStarting,
 		lspFailed:              s.lspFailed,
 		lspSingleName:          s.lspSingleName,
+		subAgentsNow:           s.subAgentsNow,
 	}
 }
 
@@ -140,13 +142,15 @@ type sidebarCacheKey struct {
 func (m *Model) renderSidebar(width, height int) string {
 	key := sidebarCacheKey{width: width, height: height, state: m.sidebar.comparable()}
 	if m.sidebarViewCacheSet && m.sidebarViewCacheKey == key &&
-		slices.Equal(m.sidebarViewCacheFiles, m.sidebar.modifiedFiles) {
+		slices.Equal(m.sidebarViewCacheFiles, m.sidebar.modifiedFiles) &&
+		slices.Equal(m.sidebarViewCacheRoster, m.sidebar.subAgents) {
 		return m.sidebarViewCacheRendered
 	}
 	rendered := m.sidebar.View(width, height)
 	m.sidebarViewCacheSet = true
 	m.sidebarViewCacheKey = key
 	m.sidebarViewCacheFiles = append([]gitModifiedFile(nil), m.sidebar.modifiedFiles...)
+	m.sidebarViewCacheRoster = append([]rosterEntry(nil), m.sidebar.subAgents...)
 	m.sidebarViewCacheRendered = rendered
 	return rendered
 }

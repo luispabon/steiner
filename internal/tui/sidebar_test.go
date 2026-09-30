@@ -29,7 +29,7 @@ func TestSidebarStateComparableFieldParity(t *testing.T) {
 	stateFields := map[string]reflect.Type{}
 	for i := range stateType.NumField() {
 		f := stateType.Field(i)
-		if f.Name == "modifiedFiles" || f.Name == "lspServers" {
+		if f.Name == "modifiedFiles" || f.Name == "lspServers" || f.Name == "subAgents" {
 			continue
 		}
 		stateFields[f.Name] = f.Type
@@ -343,7 +343,7 @@ func TestSidebarComparableCopiesEveryField(t *testing.T) {
 	sv := reflect.ValueOf(&s).Elem()
 	for i := range sv.NumField() {
 		name := sv.Type().Field(i).Name
-		if name == "modifiedFiles" || name == "lspServers" {
+		if name == "modifiedFiles" || name == "lspServers" || name == "subAgents" {
 			continue
 		}
 		setDistinctValue(t, sv.Field(i), i)

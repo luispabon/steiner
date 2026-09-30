@@ -23,6 +23,12 @@ type statusState struct {
 	contextBudget  int
 	oneshotPhase   string
 	sandboxStatus  string
+
+	subAgentsFinished int
+	subAgentsTotal    int
+	subAgentsQueued   int
+	subAgentsFailed   int
+	spinnerFrame      int
 }
 
 //nolint:gocyclo // fan-out by segment is structural, not accidental
@@ -49,6 +55,11 @@ func (s statusState) view(width int) string {
 	// Segment 1c: sandbox status badge
 	if badge := renderSandboxBadge(s.styles, s.sandboxStatus); badge != "" {
 		parts = append(parts, badge)
+	}
+
+	// Segment 1d: sub-agent chip (dropped only after ctx, help and sidebar)
+	if chip := s.subAgentsChip(); chip != "" {
+		parts = append(parts, chip)
 	}
 
 	// Segments 2-3: stable commands and navigation
@@ -121,4 +132,29 @@ func (m *Model) renderStatus(width int) string {
 	m.statusViewCacheWidth = width
 	m.statusViewCacheRendered = rendered
 	return rendered
+}
+
+// subAgentsChip renders the sub-agent progress chip, empty when none were
+// dispatched since the last prompt.
+func (s statusState) subAgentsChip() string {
+	if s.subAgentsTotal == 0 {
+		return ""
+	}
+	count := fmt.Sprintf("%d/%d", s.subAgentsFinished, s.subAgentsTotal)
+	if s.subAgentsQueued > 0 {
+		count += fmt.Sprintf(" \u00b7 %d queued", s.subAgentsQueued)
+	}
+	label := s.styles.FgDim.Render("sub-agents ")
+	if s.subAgentsFinished >= s.subAgentsTotal {
+		icon := s.styles.SuccessStyle.Render("\u2713")
+		if s.subAgentsFailed > 0 {
+			icon = s.styles.ErrorStyle.Render("\u2717")
+		}
+		return icon + " " + label + count
+	}
+	icon := lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(spinnerFrames[s.spinnerFrame%len(spinnerFrames)])
+	if s.subAgentsFailed > 0 {
+		count = s.styles.ErrorStyle.Render("\u2717") + " " + count
+	}
+	return icon + " " + label + count
 }

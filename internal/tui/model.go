@@ -255,6 +255,8 @@ type Model struct {
 	sidebarViewCacheSet      bool
 	sidebarViewCacheKey      sidebarCacheKey
 	sidebarViewCacheFiles    []gitModifiedFile
+	sidebarViewCacheRoster   []rosterEntry
+	roster                   subAgentRoster
 	sidebarViewCacheRendered string
 
 	activityViewCacheSet      bool
@@ -354,6 +356,7 @@ func (m *Model) syncSidebar() {
 		m.sidebar.lastRequestCacheRate = lastRate
 		m.sidebar.lastRequestCacheRateOK = lastOK
 	}
+	m.syncRoster()
 	m.sidebar.sessionActive = m.sessionStartedAt != nil
 	m.sidebar.sessionElapsedSec = 0
 	if m.sessionStartedAt != nil {
@@ -681,6 +684,7 @@ func (m *Model) needsTicking() bool {
 		m.content.HasActiveCompactions() ||
 		m.sidebar.mcpConnecting ||
 		m.sidebar.lspStarting ||
+		m.roster.hasRunning() ||
 		m.contentDirty
 }
 

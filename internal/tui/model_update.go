@@ -366,6 +366,7 @@ func (m *Model) handleComposerBlinkMsg(_ composerBlinkMsg) (tea.Model, tea.Cmd) 
 func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	m.content.tickCount++
 	m.sidebar.tickCount = m.content.tickCount
+	m.syncRoster()
 	if m.pollLSPStatesFunc != nil {
 		m.lspServers = m.pollLSPStatesFunc()
 		m.syncSidebar()
