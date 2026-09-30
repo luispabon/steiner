@@ -454,7 +454,7 @@ func (b *contentBuffer) appendAdjacentDelegation(dd *delegationDisplayState) (in
 	last := &b.segments[len(b.segments)-1]
 	switch last.kind {
 	case segmentDelegation:
-		if last.delegData == nil || last.delegData.isAdvisor {
+		if last.delegData == nil || last.delegData.isAdvisor || !sameDelegationGroup(last.delegData, dd) {
 			return 0, false
 		}
 		last.delegGroupData = &delegationGroupSegment{entries: []*delegationDisplayState{last.delegData, dd}}
@@ -464,7 +464,7 @@ func (b *contentBuffer) appendAdjacentDelegation(dd *delegationDisplayState) (in
 		b.gen++
 		return len(b.segments) - 1, true
 	case segmentDelegationGroup:
-		if last.delegGroupData == nil {
+		if last.delegGroupData == nil || len(last.delegGroupData.entries) == 0 || !sameDelegationGroup(last.delegGroupData.entries[0], dd) {
 			return 0, false
 		}
 		last.delegGroupData.entries = append(last.delegGroupData.entries, dd)
@@ -476,7 +476,23 @@ func (b *contentBuffer) appendAdjacentDelegation(dd *delegationDisplayState) (in
 	}
 }
 
+// sameDelegationGroup reports whether next may join the box that holds prev:
+// same tool batch, and either both ungrouped or the same non-empty label.
+func sameDelegationGroup(prev, next *delegationDisplayState) bool {
+	if prev.batch != next.batch {
+		return false
+	}
+	return prev.group == next.group
+}
+
+// delegationGroupArg extracts the trimmed "group" label from sub_agent args.
+func delegationGroupArg(args map[string]any) string {
+	g, _ := args["group"].(string)
+	return strings.TrimSpace(g)
+}
+
 func (b *contentBuffer) appendDelegationSegment(dd *delegationDisplayState) int {
+	dd.batch = b.delegationBatch
 	if idx, merged := b.appendAdjacentDelegation(dd); merged {
 		return idx
 	}
@@ -555,6 +571,9 @@ func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload ou
 	dd := loc.dd
 	dd.parentCallID = payload.CallID
 	dd.parentArgs = summarizeArgs(payload.Tool, payload.Arguments)
+	if g := delegationGroupArg(payload.Arguments); g != "" {
+		dd.group = g
+	}
 	toolLabel, promptText, brief := delegateCallDetails(payload.Tool, payload.Arguments)
 	if brief != nil {
 		dd.applyStructuredBrief(*brief)
@@ -643,6 +662,7 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		promptCollapsed: true,
 		parentCallID:    payload.CallID,
 		parentArgs:      summary,
+		group:           delegationGroupArg(payload.Arguments),
 		status:          "active",
 		collapsed:       true,
 	}
@@ -698,6 +718,7 @@ func (b *contentBuffer) appendToolCallQueuedEvent(event output.Event) {
 		promptCollapsed: true,
 		parentCallID:    payload.CallID,
 		parentArgs:      summary,
+		group:           delegationGroupArg(payload.Arguments),
 		queuedForSlot:   true,
 		status:          "active",
 		collapsed:       true,

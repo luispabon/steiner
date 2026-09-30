@@ -52,7 +52,10 @@ func (b *contentBuffer) renderDelegationGroupSegment(segment contentSegment, wid
 		width = 12
 	}
 
-	parts := make([]string, 0, len(group.entries)*2-1)
+	parts := make([]string, 0, len(group.entries)*2)
+	if label := group.entries[0].group; label != "" {
+		parts = append(parts, b.styles.FgDim.Render("group "+label))
+	}
 	dividerWidth := width - 4
 	if dividerWidth < 1 {
 		dividerWidth = 1

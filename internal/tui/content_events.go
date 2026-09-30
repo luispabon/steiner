@@ -185,7 +185,9 @@ type delegationDisplayState struct {
 	promptCollapsed         bool
 	parentCallID            string
 	parentArgs              string
-	startTime               int64 // unix nano, set on DelegationStarted
+	group                   string // sub_agent "group" argument; "" when ungrouped
+	batch                   int    // contentBuffer.delegationBatch at creation
+	startTime               int64  // unix nano, set on DelegationStarted
 	cacheWaiting            bool
 	queuedForSlot           bool
 	cacheWaitDeadline       int64  // unix nano, valid only when cacheWaiting
@@ -282,6 +284,9 @@ type contentSegment struct {
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type contentBuffer struct {
+	// delegationBatch identifies the current tool batch for delegate grouping;
+	// bumped on each AssistantMessage and whenever a non-delegation segment lands.
+	delegationBatch   int
 	segments          []contentSegment
 	streaming         bool
 	hadChunks         bool
