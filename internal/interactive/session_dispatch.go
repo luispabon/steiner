@@ -127,21 +127,33 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 }
 
 func (s *Session) clearConversation() error {
-	if err := s.refuseWhilePending("clear conversation"); err != nil {
-		return err
-	}
 	s.mu.Lock()
-	old := s.swapDriverLocked(s.resetConversationLocked)
+	if err := s.replacementGuardLocked("clear conversation", false, true); err != nil {
+		s.mu.Unlock()
+		return s.reportReplacementGuardError("clear conversation", err)
+	}
+	var id string
+	if s.deps.SessionStore != nil {
+		var err error
+		id, err = generateSessionID()
+		if err != nil {
+			s.mu.Unlock()
+			return fmt.Errorf("clear conversation: generate session id: %w", err)
+		}
+	}
+	old := s.swapDriverLocked(func() {
+		s.resetConversationLocked()
+		s.skills.Reset()
+		if id != "" {
+			s.applyRotationLocked(id, "", false)
+		}
+	})
 	s.mu.Unlock()
 	s.retireDriver(old)
-	s.skills.Reset()
-	return s.rotateSession("", false)
+	return nil
 }
 
 func (s *Session) rotateGuarded(group string, updateGroup bool) error {
-	if err := s.refuseWhilePending("rotate session"); err != nil {
-		return err
-	}
 	return s.rotateSession(group, updateGroup)
 }
 

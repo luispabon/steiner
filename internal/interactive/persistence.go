@@ -71,6 +71,10 @@ func (s *Session) saveSession() error {
 // rotateSession assigns a fresh session identity and optionally updates the group.
 func (s *Session) rotateSession(group string, updateGroup bool) error {
 	s.mu.Lock()
+	if err := s.replacementGuardLocked("rotate session", false, true); err != nil {
+		s.mu.Unlock()
+		return s.reportReplacementGuardError("rotate session", err)
+	}
 	if s.deps.SessionStore == nil {
 		s.mu.Unlock()
 		return nil
@@ -81,19 +85,23 @@ func (s *Session) rotateSession(group string, updateGroup bool) error {
 		s.mu.Unlock()
 		return fmt.Errorf("rotate session id: %w", err)
 	}
-	old := s.swapDriverLocked(func() {
-		s.sessionID = id
-		s.promptCacheKey = id
-		s.bindImageStore(id, 1)
-		s.sessionDate = prompt.NewSessionDate(s.now())
-		s.sessionTitle = ""
-		if updateGroup {
-			s.sessionGroup = strings.TrimSpace(group)
-		}
-	})
+	old := s.swapDriverLocked(func() { s.applyRotationLocked(id, group, updateGroup) })
 	s.mu.Unlock()
 	s.retireDriver(old)
 	return nil
+}
+
+// applyRotationLocked updates identity metadata after replacement has passed
+// its guard and the new driver swap is in progress.
+func (s *Session) applyRotationLocked(id, group string, updateGroup bool) {
+	s.sessionID = id
+	s.promptCacheKey = id
+	s.bindImageStore(id, 1)
+	s.sessionDate = prompt.NewSessionDate(s.now())
+	s.sessionTitle = ""
+	if updateGroup {
+		s.sessionGroup = strings.TrimSpace(group)
+	}
 }
 
 // resolveFallbackContextWindow resolves the current model's context window
@@ -121,10 +129,15 @@ func (s *Session) refuseRunInProgress(action string) error {
 // that also refuse during a run check that separately: clear and rotate stay
 // allowed mid-run because a workflow handoff rotates from inside one.
 func (s *Session) loadSessionGuardLocked() error {
-	if s.runActiveLocked() {
-		return fmt.Errorf("load session: %w", errRunInProgress)
+	return s.replacementGuardLocked("load session", true, true)
+}
+
+func (s *Session) reportReplacementGuardError(action string, err error) error {
+	if errors.Is(err, errRunInProgress) {
+		return s.refuseRunInProgress(action)
 	}
-	return s.pendingRefusalLocked("load session")
+	s.events.Emit(output.NewOverlayReportEvent("Context Report", err.Error()))
+	return err
 }
 
 func (s *Session) pendingRefusalLocked(action string) error {

@@ -277,9 +277,14 @@ func (s *Session) Conversation() []agent.Message {
 }
 
 // SetConversation replaces the current conversation with a defensive copy. The
-// lineage is left as it is.
+// lineage is left as it is. It does nothing while a prompt is admitted or
+// sub-agents are pending.
 func (s *Session) SetConversation(conversation []agent.Message) {
 	s.mu.Lock()
+	if s.replacementGuardLocked("set conversation", false, true) != nil {
+		s.mu.Unlock()
+		return
+	}
 	old := s.swapDriverLocked(func() { s.conversation = cloneMessages(conversation) })
 	s.mu.Unlock()
 	s.retireDriver(old)

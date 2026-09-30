@@ -257,6 +257,80 @@ func TestLoadSessionByIDRefusedWhilePending(t *testing.T) {
 	}
 }
 
+func TestSelectedPromptCannotReachReplacedDriver(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		action Action
+	}{
+		{name: "clear", action: ClearConversation{}},
+		{name: "rotate", action: RotateSession{}},
+		{name: "set conversation", action: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := testNewSession(t, Dependencies{SessionStore: newMockSessionStore(), Config: guardTestConfig()})
+			selected := make(chan struct{})
+			release := make(chan struct{})
+			s.mu.Lock()
+			s.submitSelectionHook = func() { close(selected); <-release }
+			s.mu.Unlock()
+			submitted := make(chan struct{})
+			go func() { s.submitPrompt(context.Background(), "late prompt", nil); close(submitted) }()
+			<-selected
+			if tc.name == "set conversation" {
+				s.SetConversation([]agent.Message{userMsg("replacement")})
+			} else if err := s.Handle(context.Background(), tc.action); err != nil {
+				t.Fatalf("replacement: %v", err)
+			}
+			close(release)
+			<-submitted
+			for _, msg := range s.Conversation() {
+				if msg.Content == "late prompt" {
+					t.Fatal("selected stale driver received prompt")
+				}
+			}
+		})
+	}
+}
+
+func TestAdmittedPromptBlocksDriverReplacement(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		action Action
+	}{
+		{name: "clear", action: ClearConversation{}},
+		{name: "rotate", action: RotateSession{}},
+		{name: "set conversation", action: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := testNewSession(t, Dependencies{SessionStore: newMockSessionStore(), Config: guardTestConfig()})
+			s.SetConversation([]agent.Message{userMsg("original")})
+			oldDriver := s.currentDriver()
+			oldID := s.SessionID()
+			admitted := make(chan struct{})
+			release := make(chan struct{})
+			s.mu.Lock()
+			s.submitAdmissionHook = func() { close(admitted); <-release }
+			s.mu.Unlock()
+			submitted := make(chan struct{})
+			go func() { s.submitPrompt(context.Background(), "prompt", nil); close(submitted) }()
+			<-admitted
+			if tc.name == "set conversation" {
+				s.SetConversation([]agent.Message{userMsg("replacement")})
+			} else if err := s.Handle(context.Background(), tc.action); !errors.Is(err, errRunInProgress) {
+				t.Fatalf("replacement error = %v, want errRunInProgress", err)
+			}
+			if s.currentDriver() != oldDriver || s.SessionID() != oldID {
+				t.Fatal("driver replacement mutated session during admission")
+			}
+			if got := s.Conversation(); len(got) != 1 || got[0].Content != "original" {
+				t.Fatalf("conversation changed during admission: %#v", got)
+			}
+			close(release)
+			<-submitted
+		})
+	}
+}
+
 func TestCompactionWhileWaitingRunsAndCompletionFollows(t *testing.T) {
 	t.Parallel()
 	bg := &stubBackground{}
@@ -275,8 +349,11 @@ func TestCompactionWhileWaitingRunsAndCompletionFollows(t *testing.T) {
 		<-release
 		return []agent.Message{{Role: agent.MessageRoleSummary, Content: "summary"}}
 	}}
-	s := newWaitingSession(t, execer, bg)
+	s := testNewSession(t, Dependencies{SessionStore: newMockSessionStore(), Config: guardTestConfig(), Runner: execer, Background: bg})
 	s.SetConversation(twoTurnConversation())
+	bg.setPending("a")
+	submitAndWait(t, s, "hi", nil)
+	waitForState(t, s, agent.DriverWaiting)
 
 	if err := s.Handle(context.Background(), TriggerManualCompaction{}); err != nil {
 		t.Fatalf("compaction while waiting: %v", err)
