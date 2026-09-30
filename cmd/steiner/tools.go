@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/output"
@@ -18,7 +19,7 @@ import (
 // sb, if non-nil and enabled, contributes the sandbox temp directory used for
 // /tmp path rewriting. Sandbox command wrapping itself is resolved per tool call
 // by the executor (see internal/tool/execution_pipeline.go), not here.
-func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox, lspMgr *lsp.Manager) []tool.ToolDef {
+func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox, lspMgr *lsp.Manager, envOpts ...func(*builtin.Env)) []tool.ToolDef {
 	var sandboxTmpDir string
 	if sb != nil && sb.Enabled() {
 		sandboxTmpDir = sb.TmpDir()
@@ -32,6 +33,9 @@ func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.E
 		EventSink:                displaySink,
 		Interactive:              interactive,
 		WorkflowHandoffResponder: handoffResponder,
+	}
+	for _, opt := range envOpts {
+		opt(&env)
 	}
 	if lspMgr != nil {
 		env.MutateDiagnostics = func(ctx context.Context, files []string) string {
@@ -55,8 +59,8 @@ func runtimeRegistryWithSink(cfg config.Config, workDir string, displaySink outp
 // interactive flag. Used in interactive mode. mcpMgr and lspMgr, if non-nil, contribute
 // MCP and LSP tool definitions after built-ins and config tools. Execution-mode-aware
 // sandbox wrapping is resolved per tool call by the executor, not here.
-func runtimeRegistryWithSinkAndMode(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox, mcpMgr *mcp.Manager, lspMgr *lsp.Manager) *tool.Registry {
-	registry := tool.NewRegistry(coreToolDefinitions(cfg, workDir, displaySink, interactive, handoffResponder, sb, lspMgr)...)
+func runtimeRegistryWithSinkAndMode(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox, mcpMgr *mcp.Manager, lspMgr *lsp.Manager, envOpts ...func(*builtin.Env)) *tool.Registry {
+	registry := tool.NewRegistry(coreToolDefinitions(cfg, workDir, displaySink, interactive, handoffResponder, sb, lspMgr, envOpts...)...)
 	for _, def := range tool.NewRegistryFromConfig(cfg).Definitions() {
 		registry.Register(def)
 	}
@@ -77,4 +81,14 @@ func runtimeRegistryWithSinkAndMode(cfg config.Config, workDir string, displaySi
 		}
 	}
 	return registry
+}
+
+// withPendingSubAgents guards workflow_handoff on the supervisor's outstanding
+// sub-agents. A nil supervisor leaves the guard off.
+func withPendingSubAgents(sup *delegation.Supervisor) func(*builtin.Env) {
+	return func(env *builtin.Env) {
+		if sup != nil {
+			env.PendingSubAgents = func() int { return len(sup.Pending()) }
+		}
+	}
 }

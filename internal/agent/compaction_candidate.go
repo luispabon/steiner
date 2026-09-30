@@ -1,6 +1,9 @@
 package agent
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 func makeCompactionCandidate(candidate ConversationCandidate, source, retained []Message) ConversationCandidate {
 	next := candidate
@@ -150,4 +153,34 @@ func retainRecentTurns(messages []Message, retainTurns int) []Message {
 		out = append(out, cloneMessages(turn)...)
 	}
 	return out
+}
+
+// anchorRealUserRetention extends the retained tail back to the latest real
+// user message when the N-chunk rule left it in the source, so assistant-led
+// wake sequences cannot evict the prompt. It keeps the extension only when the
+// extended tail still fits the budget and something is left to summarize;
+// otherwise the N-chunk result is returned unchanged.
+func (s summarizeCompactionStages) anchorRealUserRetention(ctx context.Context, req RunRequest, state RunState, full, source, retained []Message) ([]Message, []Message, error) {
+	if len(retained) == 0 || len(retained) >= len(full) {
+		return source, retained, nil
+	}
+	anchor := -1
+	for i := len(full) - 1; i >= 0; i-- {
+		if IsRealUserMessage(full[i]) {
+			anchor = i
+			break
+		}
+	}
+	if anchor <= 0 || anchor >= len(full)-len(retained) {
+		return source, retained, nil
+	}
+	extended := cloneMessages(full[anchor:])
+	fit, err := s.fitRunner(ctx, req, state.WithConversation(extended))
+	if err != nil {
+		return nil, nil, fmt.Errorf("fit anchored retention: %w", err)
+	}
+	if !fit.Fits {
+		return source, retained, nil
+	}
+	return cloneMessages(full[:anchor]), extended, nil
 }

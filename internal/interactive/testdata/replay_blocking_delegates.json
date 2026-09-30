@@ -1,0 +1,15 @@
+[
+  {"role": "user", "content": "investigate the flaky test"},
+  {"role": "assistant", "content": "delegating", "tool_calls": [
+    {"id": "call-1", "name": "sub_agent", "arguments": {"type": "explore", "task": "find the flaky test"}},
+    {"id": "call-2", "name": "sub_agent", "arguments": {"type": "explore", "task": "check the CI config"}}
+  ]},
+  {"role": "tool", "tool_call_id": "call-1", "name": "sub_agent", "content": "{\"output\":\"found it in foo_test.go\",\"continuation\":{\"agent_id\":\"agent-a\"}}", "retention": {"kind": "delegate_summary", "agent_id": "agent-a", "status": "complete", "turn_count": 3, "token_count": 900}},
+  {"role": "tool", "tool_call_id": "call-2", "name": "sub_agent", "content": "{\"output\":\"crashed\",\"status\":\"failed\",\"reason\":\"child crashed\",\"continuation\":{\"agent_id\":\"agent-b\"}}"},
+  {"role": "assistant", "content": "following up", "tool_calls": [
+    {"id": "call-3", "name": "follow_up", "arguments": {"agent_id": "agent-a", "task": "fix it"}}
+  ]},
+  {"role": "tool", "tool_call_id": "call-3", "name": "follow_up", "content": "{\"agent_id\":\"agent-a\",\"status\":\"complete\",\"output\":\"fixed\",\"turn_count\":5,\"token_count\":1500,\"tool_call_count\":4}"},
+  {"role": "assistant", "content": "all done"},
+  {"role": "user", "content": "thanks"}
+]

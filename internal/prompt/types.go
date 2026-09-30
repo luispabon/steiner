@@ -110,6 +110,7 @@ type AssemblyOptions struct {
 	ProjectContextIgnoreFiles []string
 	Policy                    AssemblyPolicy
 	DelegationEnabled         bool
+	AsyncSubAgents            bool
 	// OrchestrationLevel controls how strongly the delegation canon steers
 	// the orchestrator toward delegating; see config.OrchestrationLevel.
 	OrchestrationLevel config.OrchestrationLevel

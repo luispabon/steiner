@@ -443,6 +443,34 @@ func NewDelegationStartedEventWithType(agentID, taskPreview, callID, modelAlias,
 	return newEvent(EventTypeDelegationStarted, payload)
 }
 
+// NewDelegationQueuedEvent creates the event marking a sub-agent queued behind
+// the running-agent cap.
+func NewDelegationQueuedEvent(agentID, callID, agentType, taskPreview string) Event {
+	return newEvent(EventTypeDelegationQueued, DelegationQueuedEvent{
+		AgentID:     agentID,
+		CallID:      callID,
+		AgentType:   agentType,
+		TaskPreview: TruncateWithEllipsis(taskPreview, 120),
+	})
+}
+
+// NewConversationStateEvent creates the event reporting the conversation
+// driver's state, held flag and pending sub-agent count.
+func NewConversationStateEvent(state string, held bool, pending int, budgetExhausted bool) Event {
+	return newEvent(EventTypeConversationState, ConversationStateEvent{
+		State:           state,
+		Held:            held,
+		Pending:         pending,
+		BudgetExhausted: budgetExhausted,
+	})
+}
+
+// NewConversationWarningEvent creates the event reporting a non-fatal
+// conversation driver failure such as a failed save.
+func NewConversationWarningEvent(message string) Event {
+	return newEvent(EventTypeConversationWarning, ConversationWarningEvent{Message: message})
+}
+
 // NewDelegationCacheWaitingEvent creates the event marking a gated delegation follower.
 func NewDelegationCacheWaitingEvent(agentID, callID string, deadline time.Time) Event {
 	return newEvent(EventTypeDelegationCacheWaiting, DelegationCacheWaitingEvent{

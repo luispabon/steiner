@@ -2187,3 +2187,55 @@ func TestRunStageAndFitNotAppliedThatFitsIsNoOpSuccess(t *testing.T) {
 		})
 	}
 }
+
+func TestAnchorRealUserRetention(t *testing.T) {
+	call := func(id string) []ToolCall { return []ToolCall{{ID: id, Name: "read"}} }
+	prior := []Message{
+		{Role: MessageRoleUser, Content: "old user"},
+		{Role: MessageRoleAssistant, Content: "old assistant"},
+	}
+	wake := []Message{
+		{Role: MessageRoleUser, Content: "prompt"},
+		{Role: MessageRoleAssistant, ToolCalls: call("c1")},
+		{Role: MessageRoleTool, ToolCallID: "c1", Content: "r1"},
+		{Role: MessageRoleAssistant, ToolCalls: call("c2")},
+		{Role: MessageRoleTool, ToolCallID: "c2", Content: "r2"},
+		{Role: MessageRoleAssistant, ToolCalls: call("c3")},
+		{Role: MessageRoleTool, ToolCallID: "c3", Content: "r3"},
+		{Role: MessageRoleAssistant, Content: "a4"},
+	}
+	tests := []struct {
+		name       string
+		full       []Message
+		fits       bool
+		wantSource int
+		wantFirst  string
+	}{
+		{"real user evicted by chunk rule is retained", append(append([]Message{}, prior...), wake...), true, 2, "prompt"},
+		{"fallback when extension does not fit", append(append([]Message{}, prior...), wake...), false, 2 + 1 + 2, ""},
+		{"anchor at conversation start keeps chunk result", wake, true, 3, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stages := summarizeCompactionStages{
+				fitRunner: func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error) {
+					return prompt.RequestTokenBudget{Fits: tt.fits}, nil
+				},
+			}
+			source, retained := compactionSourceAndRetention(tt.full, tt.full, normalCompactionRetainTurns)
+			source, retained, err := stages.anchorRealUserRetention(context.Background(), RunRequest{}, RunState{}, tt.full, source, retained)
+			if err != nil {
+				t.Fatalf("anchorRealUserRetention() error = %v", err)
+			}
+			if len(source)+len(retained) != len(tt.full) {
+				t.Fatalf("source+retained = %d, want %d", len(source)+len(retained), len(tt.full))
+			}
+			if len(source) != tt.wantSource {
+				t.Fatalf("source len = %d, want %d", len(source), tt.wantSource)
+			}
+			if tt.wantFirst != "" && retained[0].Content != tt.wantFirst {
+				t.Fatalf("retained[0] = %q, want %q", retained[0].Content, tt.wantFirst)
+			}
+		})
+	}
+}

@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-// Handle processes an interactive action. Handles SubmitPrompt,
+// Handle processes an interactive action. Handles SubmitPrompt, NotifySteer,
 // RecordPromptHistory, InterruptActiveRun, CancelDelegate, CancelAllDelegates,
 // ClearConversation, RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
@@ -27,15 +28,15 @@ func (s *Session) Handle(ctx context.Context, action Action) error {
 }
 
 func (s *Session) handleImmediateAction(ctx context.Context, action Action) (bool, error) {
+	if handled, err := s.routeToPhase(action); handled {
+		return true, err
+	}
 	switch a := action.(type) {
 	case SubmitPrompt:
-		endRun := s.beginRun()
-		s.runs.Add(1)
-		go func() {
-			defer s.runs.Done()
-			defer endRun()
-			s.submitPrompt(ctx, a.Text, a.Images)
-		}()
+		s.submitPrompt(ctx, a.Text, a.Images)
+		return true, nil
+	case NotifySteer:
+		s.currentDriver().NotifySteer()
 		return true, nil
 	case RecordPromptHistory:
 		s.runs.Add(1)
@@ -46,17 +47,12 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 		return true, nil
 	case InterruptActiveRun:
 		s.runController.Interrupt()
+		s.currentDriver().StopTurn()
 		return true, nil
 	case CancelDelegate:
-		if s.delegateCanceller == nil {
-			return true, fmt.Errorf("no active delegate cancellation available")
-		}
-		return true, s.delegateCanceller.CancelAgent(a.AgentID, a.Discard)
+		return true, s.cancelDelegate(a)
 	case CancelAllDelegates:
-		if s.delegateCanceller == nil {
-			return true, fmt.Errorf("no active delegate cancellation available")
-		}
-		return true, s.delegateCanceller.CancelAll()
+		return true, s.cancelAllDelegates()
 	case RequestContextReport:
 		s.emitContextReport(ctx)
 		return true, nil
@@ -64,21 +60,12 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 		s.emitConfigReport()
 		return true, nil
 	case TriggerManualCompaction:
-		s.mu.Lock()
-		if s.activeRuns > 0 {
-			s.mu.Unlock()
+		drv := s.currentDriver()
+		if state, _ := drv.State(); state == agent.DriverGenerating {
 			s.events.Emit(output.NewOverlayReportEvent("Context Report", errRunInProgress.Error()))
 			return true, fmt.Errorf("compact: %w", errRunInProgress)
 		}
-		s.activeRuns++
-		s.mu.Unlock()
-		endRun := s.endRun
-		s.runs.Add(1)
-		go func() {
-			defer s.runs.Done()
-			defer endRun()
-			s.manualCompaction(ctx, a.Steering)
-		}()
+		drv.RequestCompaction(s.manualCompaction(drv, a.Steering))
 		return true, nil
 	case RequestExit:
 		s.exitOnce.Do(func() { close(s.done) })
@@ -89,14 +76,24 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 	return false, nil
 }
 
+func (s *Session) cancelDelegate(a CancelDelegate) error {
+	if s.delegateCanceller == nil {
+		return fmt.Errorf("no active delegate cancellation available")
+	}
+	return s.delegateCanceller.CancelAgent(a.AgentID, a.Discard)
+}
+
+func (s *Session) cancelAllDelegates() error {
+	if s.delegateCanceller == nil {
+		return fmt.Errorf("no active delegate cancellation available")
+	}
+	return s.delegateCanceller.CancelAll()
+}
+
 func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, error) {
 	switch a := action.(type) {
 	case ClearConversation:
-		s.mu.Lock()
-		s.resetConversationLocked()
-		s.mu.Unlock()
-		s.skills.Reset()
-		return true, s.rotateSession("", false)
+		return true, s.clearConversation()
 	case SetSkillEnabled:
 		return true, s.setSkillEnabled(ctx, a.Name, a.Enabled)
 	case SubmitApproval:
@@ -118,15 +115,46 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		return true, s.loadSession(ctx, a.SessionID)
 
 	case RotateSession:
-		return true, s.rotateSession("", false)
+		return true, s.rotateGuarded("", false)
 	case RotateSessionWithGroup:
-		return true, s.rotateSession(a.Group, true)
+		return true, s.rotateGuarded(a.Group, true)
 	case ForkSession:
 		return true, s.handleForkSession(ctx)
 	case ForkSavedSession:
 		return true, s.handleForkSavedSession(ctx, a.SessionID)
 	}
 	return false, nil
+}
+
+func (s *Session) clearConversation() error {
+	s.mu.Lock()
+	if err := s.replacementGuardLocked("clear conversation", false); err != nil {
+		s.mu.Unlock()
+		return s.reportReplacementGuardError("clear conversation", err)
+	}
+	var id string
+	if s.deps.SessionStore != nil {
+		var err error
+		id, err = generateSessionID()
+		if err != nil {
+			s.mu.Unlock()
+			return fmt.Errorf("clear conversation: generate session id: %w", err)
+		}
+	}
+	old := s.swapDriverLocked(func() {
+		s.resetConversationLocked()
+		s.skills.Reset()
+		if id != "" {
+			s.applyRotationLocked(id, "", false)
+		}
+	})
+	s.mu.Unlock()
+	s.retireDriver(old)
+	return nil
+}
+
+func (s *Session) rotateGuarded(group string, updateGroup bool) error {
+	return s.rotateSession(group, updateGroup)
 }
 
 func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOverride) error {

@@ -39,7 +39,8 @@ type recordingRunner struct {
 	convos [][]agent.Message
 }
 
-func (r *recordingRunner) Run(_ context.Context, conversation []agent.Message, _ func() []agent.SteerMessage) (RunResult, error) {
+func (r *recordingRunner) Run(_ context.Context, in RunInput) (RunResult, error) {
+	conversation := in.Conversation
 	r.convos = append(r.convos, cloneMessages(conversation))
 	result := append(cloneMessages(conversation), agent.Message{Role: agent.MessageRoleAssistant, Content: "ok"})
 	return RunResult{Conversation: result}, nil
@@ -89,14 +90,14 @@ func TestSkillActivationInjectedOnFirstSubmitOnly(t *testing.T) {
 	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "review", Enabled: true}); err != nil {
 		t.Fatalf("enable review: %v", err)
 	}
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 
 	want := prompt.PrependSkillBlocks([]string{activationBlock(t, "review", "REVIEW BODY")}, "hello")
 	if got := runner.lastUserContent(t); got != want {
 		t.Fatalf("first submit content =\n%q\nwant\n%q", got, want)
 	}
 
-	s.submitPrompt(context.Background(), "again", nil)
+	submitAndWait(t, s, "again", nil)
 	if got := runner.lastUserContent(t); got != "again" {
 		t.Fatalf("second submit content = %q, want no re-injection", got)
 	}
@@ -115,7 +116,7 @@ func TestSkillEnableDisableProducesNoDelta(t *testing.T) {
 		t.Fatalf("disable review: %v", err)
 	}
 
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 	if got := runner.lastUserContent(t); got != "hello" {
 		t.Fatalf("content = %q, want no block for never-effective skill", got)
 	}
@@ -133,7 +134,7 @@ func TestSkillSwitchDeactivatesThenActivates(t *testing.T) {
 	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "alpha", Enabled: true}); err != nil {
 		t.Fatalf("enable alpha: %v", err)
 	}
-	s.submitPrompt(context.Background(), "one", nil)
+	submitAndWait(t, s, "one", nil)
 	if got, want := runner.lastUserContent(t), prompt.PrependSkillBlocks([]string{activationBlock(t, "alpha", "ALPHA BODY")}, "one"); got != want {
 		t.Fatalf("first content = %q, want %q", got, want)
 	}
@@ -144,7 +145,7 @@ func TestSkillSwitchDeactivatesThenActivates(t *testing.T) {
 	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "beta", Enabled: true}); err != nil {
 		t.Fatalf("enable beta: %v", err)
 	}
-	s.submitPrompt(context.Background(), "two", nil)
+	submitAndWait(t, s, "two", nil)
 
 	want := prompt.PrependSkillBlocks([]string{
 		prompt.RenderSkillDeactivation("alpha"),
@@ -166,7 +167,7 @@ func TestLegacyRestoredSkillInjectedOnNextSubmit(t *testing.T) {
 	s.SetConversation([]agent.Message{{Role: agent.MessageRoleUser, Content: "legacy prompt"}})
 	s.skills.Set("review", true)
 
-	s.submitPrompt(context.Background(), "next", nil)
+	submitAndWait(t, s, "next", nil)
 	want := prompt.PrependSkillBlocks([]string{activationBlock(t, "review", "REVIEW BODY")}, "next")
 	if got := runner.lastUserContent(t); got != want {
 		t.Fatalf("content =\n%q\nwant\n%q", got, want)
@@ -193,8 +194,8 @@ func TestSkillInjectionPrefixStability(t *testing.T) {
 					t.Fatalf("enable review: %v", err)
 				}
 			}
-			s.submitPrompt(context.Background(), "first", nil)
-			s.submitPrompt(context.Background(), "second", nil)
+			submitAndWait(t, s, "first", nil)
+			submitAndWait(t, s, "second", nil)
 
 			if len(runner.convos) != 2 {
 				t.Fatalf("recorded %d conversations, want 2", len(runner.convos))
@@ -276,7 +277,7 @@ func TestSkillInjectionNilLoaderIsSafe(t *testing.T) {
 	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "review", Enabled: true}); err != nil {
 		t.Fatalf("enable review: %v", err)
 	}
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 	if got := runner.lastUserContent(t); got != "hello" {
 		t.Fatalf("content = %q, want no injection with nil loader", got)
 	}
@@ -291,11 +292,11 @@ func TestSkillActivationProviderPrefixStable(t *testing.T) {
 	runner := &recordingRunner{}
 	s := skillTestSession(t, runner, loader, "review")
 
-	s.submitPrompt(context.Background(), "first", nil)
+	submitAndWait(t, s, "first", nil)
 	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "review", Enabled: true}); err != nil {
 		t.Fatalf("enable review: %v", err)
 	}
-	s.submitPrompt(context.Background(), "second", nil)
+	submitAndWait(t, s, "second", nil)
 
 	if len(runner.convos) != 2 {
 		t.Fatalf("recorded %d conversations, want 2", len(runner.convos))
@@ -325,14 +326,14 @@ func TestSkillSwitchProviderPrefixStable(t *testing.T) {
 	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "alpha", Enabled: true}); err != nil {
 		t.Fatalf("enable alpha: %v", err)
 	}
-	s.submitPrompt(context.Background(), "one", nil)
+	submitAndWait(t, s, "one", nil)
 	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "alpha", Enabled: false}); err != nil {
 		t.Fatalf("disable alpha: %v", err)
 	}
 	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "beta", Enabled: true}); err != nil {
 		t.Fatalf("enable beta: %v", err)
 	}
-	s.submitPrompt(context.Background(), "two", nil)
+	submitAndWait(t, s, "two", nil)
 
 	if len(runner.convos) != 2 {
 		t.Fatalf("recorded %d conversations, want 2", len(runner.convos))
@@ -375,7 +376,7 @@ func TestSkillBlocksFollowModeNotice(t *testing.T) {
 	if err := s.Handle(context.Background(), SetSkillEnabled{Name: "review", Enabled: true}); err != nil {
 		t.Fatalf("enable review: %v", err)
 	}
-	s.submitPrompt(context.Background(), "hello", nil)
+	submitAndWait(t, s, "hello", nil)
 
 	content := runner.lastUserContent(t)
 	notice := prompt.ModeNotice(config.ExecutionModePlan)

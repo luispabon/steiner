@@ -43,7 +43,7 @@ func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 				Limits:   config.LimitsConfig{MaxParallelTools: tt.width},
 			}}}
 			reg := tool.NewRegistry(tool.ToolDef{Name: "read", ParallelSafe: true})
-			req := buildRunRequest(r, runnerSetup{}, reg, nil, nil)
+			req := buildRunRequest(r, runnerSetup{}, reg, nil, runHooks{})
 			if req.ParallelClassOf == nil {
 				t.Fatal("ParallelClassOf = nil, want set")
 			}
@@ -69,7 +69,7 @@ func TestBuildRunRequestSnapshotsVisionCapabilities(t *testing.T) {
 	shared.LatchIncapable("latched")
 	r := cliRunner{runtime: cliRuntime{visionCapabilities: shared}}
 
-	first := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
+	first := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, runHooks{})
 	if first.VisionCapabilities == nil {
 		t.Fatal("first request vision capabilities = nil, want snapshot")
 	}
@@ -98,7 +98,7 @@ func TestBuildRunRequestSnapshotsVisionCapabilities(t *testing.T) {
 		t.Fatal("first request vision capabilities changed after runtime update")
 	}
 
-	second := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
+	second := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, runHooks{})
 	if second.VisionCapabilities == nil {
 		t.Fatal("second request vision capabilities = nil, want snapshot")
 	}
@@ -131,7 +131,7 @@ func TestBuildRunRequestLimitsModelCallTimeout(t *testing.T) {
 			r := cliRunner{runtime: cliRuntime{cfg: config.Config{
 				Limits: config.LimitsConfig{ModelCallTimeout: timeout},
 			}}}
-			req := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, nil)
+			req := buildRunRequest(r, runnerSetup{}, tool.NewRegistry(), nil, runHooks{})
 			if req.Limits.ModelCallTimeout != tt.wantTimeout {
 				t.Errorf("ModelCallTimeout = %v, want %v", req.Limits.ModelCallTimeout, tt.wantTimeout)
 			}
@@ -175,7 +175,7 @@ func TestNewDelegateDepsUsesSharedActiveController(t *testing.T) {
 	controller := delegation.NewActiveController()
 	r := cliRunner{runtime: cliRuntime{delegationActiveController: controller}}
 
-	childCtx, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
+	childCtx, err := registerChild(controller, "child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
@@ -192,39 +192,167 @@ func TestNewDelegateDepsUsesSharedActiveController(t *testing.T) {
 	}
 }
 
-func TestDelegationCancellerReportsFinishedDelegate(t *testing.T) {
-	controller := delegation.NewActiveController()
-	if _, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{}); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
-	if !controller.MarkComplete("child-1") {
-		t.Fatal("MarkComplete() returned false")
-	}
-	if err := (delegationCanceller{c: controller}).CancelAgent("child-1", true); err == nil || !strings.Contains(err.Error(), "already finished") || !strings.Contains(err.Error(), "worktree retained") {
-		t.Fatalf("CancelAgent() error = %v, want already-finished retained-worktree feedback", err)
-	}
-	if controller.DiscardRequested("child-1") {
-		t.Fatal("late cancellation requested discard")
+type childCancelObservation struct {
+	quiet   bool
+	discard bool
+}
+
+type completionCapture chan agent.SubAgentCompletion
+
+func (c completionCapture) DeliverCompletions(cs []agent.SubAgentCompletion) {
+	for _, completion := range cs {
+		c <- completion
 	}
 }
 
-func TestDelegationCancellerTargetsSharedController(t *testing.T) {
-	controller := delegation.NewActiveController()
-	childCtx, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
-	if err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
-
-	if err := (delegationCanceller{c: controller}).CancelAgent("child-1", true); err != nil {
-		t.Fatalf("CancelAgent() error = %v", err)
+// spawnBlockedChild runs a child through sup that blocks until its context is
+// cancelled. The returned channel yields what the supervisor and controller
+// recorded for the child at the moment cancellation reached it. The capture
+// sink is returned so callers that install another sink can restore it.
+func spawnBlockedChild(t *testing.T, sup *delegation.Supervisor, controller *delegation.ActiveController, id string) (<-chan childCancelObservation, completionCapture) {
+	t.Helper()
+	started := make(chan struct{})
+	discard := make(chan bool, 1)
+	completions := make(completionCapture, 1)
+	sup.SetCompletionSink(completions)
+	if _, err := sup.Spawn(context.Background(), delegation.ChildJob{
+		AgentID:   id,
+		AgentType: delegation.AgentTypeCode,
+		Execute: func(ctx context.Context) (tool.ExecutionResult, error) {
+			close(started)
+			<-ctx.Done()
+			discard <- controller.DiscardRequested(id)
+			return tool.ExecutionResult{}, ctx.Err()
+		},
+	}); err != nil {
+		t.Fatalf("Spawn() error = %v", err)
 	}
 	select {
-	case <-childCtx.Done():
-	default:
-		t.Fatal("CancelAgent() did not cancel registered child")
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("child did not start")
 	}
-	if !controller.DiscardRequested("child-1") {
+	observed := make(chan childCancelObservation, 1)
+	go func() {
+		d := <-discard
+		observed <- childCancelObservation{quiet: (<-completions).Quiet, discard: d}
+	}()
+	return observed, completions
+}
+
+func TestDelegationCancellerReportsFinishedDelegate(t *testing.T) {
+	tests := []struct {
+		name      string
+		delivered bool
+		want      []string
+	}{
+		{"finished and undelivered", false, []string{"already finished", "worktree retained"}},
+		{"finished and delivered", true, []string{"no active delegate"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			controller := delegation.NewActiveController()
+			sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
+			completions := make(completionCapture, 1)
+			sup.SetCompletionSink(completions)
+			if _, err := sup.Spawn(context.Background(), delegation.ChildJob{
+				AgentID:      "child-1",
+				AgentType:    delegation.AgentTypeCode,
+				ParentCallID: "call-1",
+				Execute:      func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil },
+			}); err != nil {
+				t.Fatalf("Spawn() error = %v", err)
+			}
+			select {
+			case <-completions:
+			case <-time.After(5 * time.Second):
+				t.Fatal("child did not complete")
+			}
+			if tt.delivered {
+				sup.MarkDelivered([]string{"call-1"})
+			}
+			err := (delegationCanceller{s: sup}).CancelAgent("child-1", true)
+			if err == nil {
+				t.Fatal("CancelAgent() error = nil, want feedback")
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("CancelAgent() error = %v, want it to contain %q", err, want)
+				}
+			}
+			if controller.DiscardRequested("child-1") {
+				t.Fatal("late cancellation requested discard")
+			}
+		})
+	}
+}
+
+func TestDelegationCancellerRecordsUserCause(t *testing.T) {
+	tests := []struct {
+		name   string
+		cancel func(delegationCanceller) error
+	}{
+		{name: "cancel agent", cancel: func(c delegationCanceller) error { return c.CancelAgent("child-1", true) }},
+		{name: "cancel all", cancel: func(c delegationCanceller) error { return c.CancelAll() }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			controller := delegation.NewActiveController()
+			sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
+			observed, _ := spawnBlockedChild(t, sup, controller, "child-1")
+
+			if err := tc.cancel(delegationCanceller{s: sup}); err != nil {
+				t.Fatalf("cancel error = %v", err)
+			}
+			select {
+			case got := <-observed:
+				if !got.quiet {
+					t.Fatal("cancellation was not recorded as a user cause (completion not quiet)")
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("child was not cancelled")
+			}
+		})
+	}
+}
+
+func TestDelegationCancellerRequestsDiscard(t *testing.T) {
+	controller := delegation.NewActiveController()
+	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
+	observed, _ := spawnBlockedChild(t, sup, controller, "child-1")
+
+	if err := (delegationCanceller{s: sup}).CancelAgent("child-1", true); err != nil {
+		t.Fatalf("CancelAgent() error = %v", err)
+	}
+	if got := <-observed; !got.discard {
 		t.Fatal("CancelAgent(discard=true) did not request worktree discard")
+	}
+}
+
+func TestDelegationCancellerWithoutSupervisor(t *testing.T) {
+	if err := (delegationCanceller{}).CancelAgent("child-1", false); err == nil {
+		t.Error("CancelAgent() with nil supervisor returned nil error")
+	}
+	if err := (delegationCanceller{}).CancelAll(); err == nil {
+		t.Error("CancelAll() with nil supervisor returned nil error")
+	}
+}
+
+func TestNewDelegateDepsWiresSupervisorAndRuntimeChildEvents(t *testing.T) {
+	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
+	var runtimeEvents, perRunEvents []output.Event
+	runtimeSink := output.SinkFunc(func(e output.Event) { runtimeEvents = append(runtimeEvents, e) })
+	perRunSink := output.SinkFunc(func(e output.Event) { perRunEvents = append(perRunEvents, e) })
+	r := cliRunner{runtime: cliRuntime{delegationSupervisor: sup, events: runtimeSink}}
+
+	deps := r.newDelegateDeps(runnerSetup{}, perRunSink, nil, nil, "")
+	if deps.Supervisor != sup {
+		t.Error("newDelegateDeps did not pass the runtime supervisor")
+	}
+	deps.ChildEvents.Emit(output.NewConfigWarningEvent("child"))
+	deps.Events.Emit(output.NewConfigWarningEvent("parent"))
+	if len(runtimeEvents) != 1 || len(perRunEvents) != 1 {
+		t.Fatalf("runtime sink got %d events, per-run sink got %d; want 1 each", len(runtimeEvents), len(perRunEvents))
 	}
 }
 
@@ -1084,5 +1212,70 @@ func codeDelegationResponses() []provider.ChatResponse {
 		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "child answer"}, FinishReason: "stop"},
 		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "child summary"}, FinishReason: "stop"},
 		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "parent answer"}, FinishReason: "stop"},
+	}
+}
+
+//revive:disable-next-line context-as-argument
+func registerChild(c *delegation.ActiveController, agentID string, parent context.Context, agentType delegation.AgentType, worktree delegation.CodeWorktree) (context.Context, error) {
+	child, cancel := context.WithCancel(parent)
+	if err := c.RegisterWithCancel(agentID, cancel, agentType, worktree); err != nil {
+		cancel()
+		return nil, err
+	}
+	return child, nil
+}
+
+func TestLoggingProviderWithEventSinkLeavesParentSinkUnchanged(t *testing.T) {
+	t.Parallel()
+	var got []output.Event
+	parent := loggingProvider{inner: stubChatProvider{}, sink: output.SinkFunc(func(e output.Event) { got = append(got, e) })}
+	scoped := parent.WithEventSink(func(sink output.EventSink) output.EventSink {
+		return output.SinkFunc(func(e output.Event) { sink.Emit(output.WithAgentScope(e, "child-1")) })
+	})
+
+	if _, err := scoped.ChatCompletion(context.Background(), provider.ChatRequest{}); err != nil {
+		t.Fatalf("scoped ChatCompletion: %v", err)
+	}
+	if _, err := parent.ChatCompletion(context.Background(), provider.ChatRequest{}); err != nil {
+		t.Fatalf("parent ChatCompletion: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("events = %d, want 2", len(got))
+	}
+	if got[0].Scope.AgentID != "child-1" {
+		t.Errorf("scoped event agent = %q, want child-1", got[0].Scope.AgentID)
+	}
+	if got[1].Scope.AgentID != "" {
+		t.Errorf("parent event agent = %q, want empty", got[1].Scope.AgentID)
+	}
+}
+
+type stubChatProvider struct{ provider.Provider }
+
+func (stubChatProvider) ChatCompletion(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+	return provider.ChatResponse{}, nil
+}
+
+func TestLastUserPromptSkipsSubAgentResults(t *testing.T) {
+	results := agent.Message{
+		Role:    agent.MessageRoleUser,
+		Source:  agent.MessageSourceSubAgentResult,
+		Content: "<steiner-sub-agent-result agent_id=\"a\">x</steiner-sub-agent-result>\n\n<steiner-sub-agent-result agent_id=\"b\">y</steiner-sub-agent-result>",
+	}
+	tests := []struct {
+		name string
+		msgs []agent.Message
+		want string
+	}{
+		{name: "real user last", msgs: []agent.Message{{Role: agent.MessageRoleUser, Content: " hi "}}, want: "hi"},
+		{name: "results only", msgs: []agent.Message{{Role: agent.MessageRoleUser, Content: "hi"}, {Role: agent.MessageRoleAssistant, Content: "ok"}, results}, want: "sub-agent results (2)"},
+		{name: "empty", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := lastUserPrompt(tt.msgs); got != tt.want {
+				t.Errorf("lastUserPrompt = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

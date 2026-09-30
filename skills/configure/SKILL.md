@@ -81,8 +81,8 @@ Canonical compact reference for safe configuration edits.
 | `sub_agent.enabled`|bool|`true`|Enable child agents. |
 | `sub_agent.orchestration_level`|string|`standard`|`low` or `standard` delegation steering. |
 | `sub_agent.max_turns`|int|`120`|Enabled values 1-14 are rejected; effective cap is at least 15. |
-| `sub_agent.max_tokens`|int|`400000`|Maximum completion/output tokens per child run. |
-| `sub_agent.max_parallel`|int|`3`|Concurrent delegation calls. |
+| `sub_agent.max_tokens`|int|`400000`|Max completion tokens per child run. |
+| `sub_agent.max_parallel`|int|`3`|Session-wide running cap; extras queue (2x max).|
 | `sub_agent.max_follow_ups`|int|`5`|Follow-up resumes per child; default accumulated turn budget max: `120 + 5×120 = 720`. |
 | `advisor.enabled`|bool|`false`|Enable advisor. |
 | `advisor.max_uses_per_run`|int|`3`|Session advisor cap (min 1). |

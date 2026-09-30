@@ -451,6 +451,12 @@ func (m *Model) executeSteerAction() tea.Model {
 		m.steers.Add(agent.SteerMessage{Text: text, Images: images})
 	}
 	if m.controller != nil {
+		// The active driver drains the steer queue; the notice wakes it when
+		// its run has already passed its last boundary. During a oneshot run
+		// the session routes it to the running phase.
+		if err := m.controller.Handle(context.Background(), interactive.NotifySteer{}); err != nil {
+			m.appendError(err)
+		}
 		if err := m.controller.Handle(context.Background(), interactive.RecordPromptHistory{Text: text}); err != nil {
 			m.appendError(err)
 		}

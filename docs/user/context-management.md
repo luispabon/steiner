@@ -27,6 +27,8 @@ Auto-compaction is never steered; it always uses an empty steering value.
 - The system prompt and tool definitions (always in full)
 - Summaries from previous compactions (chained forward)
 - The most recent 1–3 conversation turns (verbatim)
+- Your latest message, verbatim, when it fits the context budget even if it is older than those turns
+- A restatement of any sub-agents still pending, added after the summary
 
 ### Skills in interactive sessions
 

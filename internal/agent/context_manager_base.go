@@ -17,6 +17,7 @@ type baseContextManager struct {
 		content               string
 		override              string
 		delegationEnabled     bool
+		asyncSubAgents        bool
 		orchestrationLevel    config.OrchestrationLevel
 		advisorEnabled        bool
 		lspEnabled            bool
@@ -35,10 +36,11 @@ type baseContextManager struct {
 // which is required for prompt-cache reuse; orchestrationLevel changing
 // (e.g. via a mid-session /orchestration switch) is one of the inputs that
 // invalidates the cache like any other.
-func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, orchestrationLevel config.OrchestrationLevel, advisorEnabled bool, lspEnabled bool, workflowMode prompt.WorkflowMode, caveHuman bool, systemSuffix string, sandboxEnabled bool, sandboxWritableMounts []string) string {
+func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, asyncSubAgents bool, orchestrationLevel config.OrchestrationLevel, advisorEnabled bool, lspEnabled bool, workflowMode prompt.WorkflowMode, caveHuman bool, systemSuffix string, sandboxEnabled bool, sandboxWritableMounts []string) string {
 	if b.cachedPreamble.content == "" ||
 		b.cachedPreamble.override != override ||
 		b.cachedPreamble.delegationEnabled != delegationEnabled ||
+		b.cachedPreamble.asyncSubAgents != asyncSubAgents ||
 		b.cachedPreamble.orchestrationLevel != orchestrationLevel ||
 		b.cachedPreamble.advisorEnabled != advisorEnabled ||
 		b.cachedPreamble.lspEnabled != lspEnabled ||
@@ -50,6 +52,7 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 		b.cachedPreamble.content = prompt.SystemPreambleWithAdvisor(prompt.SystemPreambleParams{
 			Override:              override,
 			DelegationEnabled:     delegationEnabled,
+			AsyncSubAgents:        asyncSubAgents,
 			OrchestrationLevel:    orchestrationLevel,
 			AdvisorEnabled:        advisorEnabled,
 			LSPEnabled:            lspEnabled,
@@ -61,6 +64,7 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 		}).Content
 		b.cachedPreamble.override = override
 		b.cachedPreamble.delegationEnabled = delegationEnabled
+		b.cachedPreamble.asyncSubAgents = asyncSubAgents
 		b.cachedPreamble.orchestrationLevel = orchestrationLevel
 		b.cachedPreamble.advisorEnabled = advisorEnabled
 		b.cachedPreamble.lspEnabled = lspEnabled

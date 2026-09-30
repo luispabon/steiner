@@ -74,50 +74,58 @@ func SubAgentToolDef(deps SpecializedToolDeps, excludeTypes []AgentType) tool.To
 
 	typeDescription := strings.Join(typeDescriptionParts, " | ")
 
+	properties := map[string]any{
+		"type": map[string]any{
+			"type":        "string",
+			"enum":        enumValues,
+			"description": typeDescription,
+		},
+		"objective": map[string]any{
+			"type":        "string",
+			"description": "The single outcome this child must achieve.",
+		},
+		"context": map[string]any{
+			"type":        "string",
+			"description": "Relevant paths, symbols, excerpts and background: why this task exists, how it fits the caller's larger plan, decisions already made and approaches ruled out. The child cannot see the caller's conversation and will not otherwise learn any of this.",
+		},
+		"deliverable": map[string]any{
+			"type":        "string",
+			"description": "The exact artifact or answer to return, and its shape.",
+		},
+		"constraints": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Boundaries, preserved behaviour, allowed scope, prohibited actions.",
+		},
+		"success_criteria": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Observable conditions for completion.",
+		},
+		"checks": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Applicable commands or validations to run.",
+		},
+		"image_id": map[string]any{
+			"type":        "string",
+			"description": "Required when type is \"vision\". The image ID to examine (e.g. 'img-1'). Shown in the image placeholder in the conversation.",
+		},
+	}
+	if deps.AsyncSubAgents {
+		properties["group"] = map[string]any{
+			"type":        "string",
+			"description": "Optional label grouping calls made in the same response so their results arrive together.",
+		}
+	}
+
 	return tool.ToolDef{
 		Name:        SubAgentToolName,
 		Description: "Spawn a specialized sub-agent of the given type; see the type parameter for what each type does.",
 		ParameterSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"type": map[string]any{
-					"type":        "string",
-					"enum":        enumValues,
-					"description": typeDescription,
-				},
-				"objective": map[string]any{
-					"type":        "string",
-					"description": "The single outcome this child must achieve.",
-				},
-				"context": map[string]any{
-					"type":        "string",
-					"description": "Relevant paths, symbols, excerpts and background: why this task exists, how it fits the caller's larger plan, decisions already made and approaches ruled out. The child cannot see the caller's conversation and will not otherwise learn any of this.",
-				},
-				"deliverable": map[string]any{
-					"type":        "string",
-					"description": "The exact artifact or answer to return, and its shape.",
-				},
-				"constraints": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "string"},
-					"description": "Boundaries, preserved behaviour, allowed scope, prohibited actions.",
-				},
-				"success_criteria": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "string"},
-					"description": "Observable conditions for completion.",
-				},
-				"checks": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "string"},
-					"description": "Applicable commands or validations to run.",
-				},
-				"image_id": map[string]any{
-					"type":        "string",
-					"description": "Required when type is \"vision\". The image ID to examine (e.g. 'img-1'). Shown in the image placeholder in the conversation.",
-				},
-			},
-			"required": []any{"type", "objective", "context", "deliverable", "constraints", "success_criteria", "checks"},
+			"type":       "object",
+			"properties": properties,
+			"required":   []any{"type", "objective", "context", "deliverable", "constraints", "success_criteria", "checks"},
 		},
 		Handler: newSubAgentDispatchHandler(deps, excluded),
 	}
@@ -126,6 +134,7 @@ func SubAgentToolDef(deps SpecializedToolDeps, excludeTypes []AgentType) tool.To
 // newSubAgentDispatchHandler returns a handler that routes to the appropriate
 // sub-agent handler based on the type parameter.
 func newSubAgentDispatchHandler(deps SpecializedToolDeps, excluded map[AgentType]bool) func(ctx context.Context, input map[string]any) (any, error) {
+	ensureSupervisor(&deps.SubAgentHandlerDeps)
 	handlers := make(map[AgentType]func(ctx context.Context, input map[string]any) (any, error))
 	for _, agentType := range AllAgentTypes() {
 		if excluded[agentType] {
@@ -288,6 +297,11 @@ func applyCodeWorktreeResult(result tool.ExecutionResult, worktree CodeWorktree,
 	return result
 }
 
+func inputGroup(input map[string]any) string {
+	group, _ := input["group"].(string)
+	return strings.TrimSpace(group)
+}
+
 func nonEmptyLines(s string) []string {
 	var lines []string
 	for _, line := range strings.Split(s, "\n") {
@@ -299,25 +313,46 @@ func nonEmptyLines(s string) []string {
 }
 
 // resolveToolsAndModel resolves the allowed tools list and model for the agent type.
-func resolveToolsAndModel(agentType AgentType, deps SpecializedToolDeps) ([]string, provider.Provider, provider.ResolvedModel, error) {
+func resolveToolsAndModel(agentType AgentType, agentID string, deps SpecializedToolDeps) ([]string, provider.Provider, provider.ResolvedModel, error) {
 	allowedTools := AgentAllowedTools(agentType)
 	if deps.ExtraAllowedTools != nil {
 		allowedTools = mergedAllowedTools(allowedTools, deps.ExtraAllowedTools[agentType])
 	}
 
 	resolvedProvider, resolvedModel, err := resolveModel(agentType, deps)
-	return allowedTools, resolvedProvider, resolvedModel, err
+	if err != nil {
+		return allowedTools, resolvedProvider, resolvedModel, err
+	}
+	return allowedTools, scopeProviderEvents(resolvedProvider, agentID, agentType), resolvedModel, nil
 }
 
-func specializedWorktree(ctx context.Context, agentType AgentType, workDir, agentID string) (CodeWorktree, []string, error) {
-	if agentType != AgentTypeCode {
-		return CodeWorktree{}, nil, nil
-	}
-	worktree, warnings, err := provisionCodeWorktreeAndWarnings(ctx, workDir, agentID)
+// buildSpecializedRun bootstraps the child request for a specialized agent.
+func buildSpecializedRun(ctx context.Context, spec Spec, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, worktree CodeWorktree) (agent.RunRequest, Limits, error) {
+	handlerDeps, override := specializedBootstrapDeps(spec.AgentType, deps, resolvedProvider, resolvedModel, allowedTools, worktree)
+	req, limits, err := BuildChildRun(ctx, handlerDeps, override, spec)
 	if err != nil {
-		return CodeWorktree{}, nil, fmt.Errorf("%s: %w", agentType, err)
+		return agent.RunRequest{}, Limits{}, fmt.Errorf("%s: build child run: %w", spec.AgentType, err)
 	}
-	return worktree, warnings, nil
+	return req, limits, nil
+}
+
+// provisionCodePlan provisions a code agent's isolated worktree and builds its
+// request. It runs at dequeue time on the supervisor goroutine.
+func provisionCodePlan(ctx context.Context, plan *delegatePlan, spec Spec, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string) error {
+	worktree, warnings, err := provisionCodeWorktreeAndWarnings(ctx, deps.WorkDir, spec.AgentID)
+	if err != nil {
+		return fmt.Errorf("%s: %w", spec.AgentType, err)
+	}
+	plan.worktree = worktree
+	plan.warnings = warnings
+	req, limits, err := buildSpecializedRun(ctx, spec, deps, resolvedProvider, resolvedModel, allowedTools, worktree)
+	if err != nil {
+		return err
+	}
+	plan.req = req
+	plan.limits = limits
+	plan.remediation = codeRemediationConfig(worktree)
+	return nil
 }
 
 func codeRemediationConfig(worktree CodeWorktree) *RemediationConfig {
@@ -374,66 +409,6 @@ func cleanupRegistrationWorktree(agentType AgentType, workDir string, worktree C
 	_, _ = pruneCodeWorktree(workDir, worktree)
 }
 
-func runRegisteredDelegate(
-	ctx context.Context,
-	deps SpecializedToolDeps,
-	spec Spec,
-	req agent.RunRequest,
-	worktree CodeWorktree,
-	warnings []string,
-	remediation *RemediationConfig,
-	failureLabel string,
-	decorate func(tool.ExecutionResult) tool.ExecutionResult,
-) (tool.ExecutionResult, error) {
-	childCtx, err := deps.ActiveController.Register(spec.AgentID, ctx, spec.AgentType, worktree)
-	if err != nil {
-		removeAndCloseToolCallTraceWriter(spec.AgentID)
-		cleanupRegistrationWorktree(spec.AgentType, deps.WorkDir, worktree)
-		return tool.ExecutionResult{}, childSetupError(err)
-	}
-	defer deps.ActiveController.Unregister(spec.AgentID)
-	emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, spec.AgentType)
-
-	var gateRelease func()
-	req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
-	defer gateRelease()
-	if childCtx.Err() != nil {
-		removeAndCloseToolCallTraceWriter(spec.AgentID)
-		emitDelegateStopped(deps.Events, spec, spec.AgentType)
-		result := cancelledBeforeDispatchResult(spec.AgentID)
-		result = decorate(result)
-		result = applySpecializedWorktreeResult(spec.AgentType, result, worktree, warnings, deps.WorkDir)
-		if deps.SessionStore != nil && deps.SessionStore.Save(&ChildSession{Spec: spec, Request: req, Remediation: remediation}) {
-			markResultPersisted(&result)
-		}
-		applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
-		return result, nil
-	}
-
-	var opts []spawnOption
-	if remediation != nil {
-		opts = append(opts, WithRemediation(remediation))
-	}
-	opts = append(opts, withChildDone(func() { deps.ActiveController.MarkComplete(spec.AgentID) }))
-	result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
-	if err == nil && deps.SessionStore != nil {
-		if saveChildSession(deps.SessionStore, spec, req, state, runUsage, remediation) {
-			markResultPersisted(&result)
-		}
-	}
-	if err != nil {
-		if result != (tool.ExecutionResult{}) {
-			return result, nil
-		}
-		return tool.ExecutionResult{}, fmt.Errorf("%s failed: %w", failureLabel, err)
-	}
-
-	result = decorate(result)
-	result = applySpecializedWorktreeResult(spec.AgentType, result, worktree, warnings, deps.WorkDir)
-	applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
-	return result, nil
-}
-
 func markResultPersisted(result *tool.ExecutionResult) {
 	if dr, ok := result.Value.(Result); ok {
 		dr.persisted = true
@@ -462,9 +437,7 @@ func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, res
 //
 //nolint:gocyclo // handler lifecycle branches cover setup, gating, execution, and cleanup.
 func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
-	if deps.ActiveController == nil {
-		deps.ActiveController = NewActiveController()
-	}
+	ensureSupervisor(&deps.SubAgentHandlerDeps)
 	return func(ctx context.Context, input map[string]any) (any, error) {
 		if err := checkPlanModeCodeDenial(ctx, agentType); err != nil {
 			return nil, err
@@ -487,7 +460,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			AgentID:      agentID,
 		}
 
-		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(agentType, deps)
+		allowedTools, resolvedProvider, resolvedModel, err := resolveToolsAndModel(agentType, agentID, deps)
 		if err != nil {
 			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
 			return nil, childSetupError(err)
@@ -498,23 +471,29 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		spec.SystemSuffix = AgentSystemSuffix(agentType, advisorAvailable, lspAvailable)
 		spec.AdvisorBudget = effectiveAdvisorBudget(advisorAvailable, deps.AdvisorSubAgentBudget)
 
-		provisionedWorktree, warnings, err := specializedWorktree(ctx, agentType, deps.WorkDir, agentID)
-		if err != nil {
-			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
-			return nil, childSetupError(err)
+		plan := &delegatePlan{}
+		if agentType == AgentTypeCode {
+			if err := checkCodeWorktreeFeasible(ctx, deps.WorkDir); err != nil {
+				err = fmt.Errorf("%s: %w", agentType, err)
+				emitDelegateFailed(deps.Events, spec, agentType, err.Error())
+				return nil, childSetupError(err)
+			}
+			plan.provision = func(childCtx context.Context, plan *delegatePlan) error {
+				return provisionCodePlan(childCtx, plan, spec, deps, resolvedProvider, resolvedModel, allowedTools)
+			}
+		} else {
+			req, limits, err := buildSpecializedRun(ctx, spec, deps, resolvedProvider, resolvedModel, allowedTools, CodeWorktree{})
+			if err != nil {
+				emitDelegateFailed(deps.Events, spec, agentType, err.Error())
+				return nil, childSetupError(err)
+			}
+			plan.req = req
+			plan.limits = limits
+			spec.Limits = limits
 		}
-
-		handlerDeps, override := specializedBootstrapDeps(agentType, deps, resolvedProvider, resolvedModel, allowedTools, provisionedWorktree)
-
-		req, limits, err := BuildChildRun(ctx, handlerDeps, override, spec)
-		if err != nil {
-			err = fmt.Errorf("%s: build child run: %w", agentType, err)
-			emitDelegateFailed(deps.Events, spec, agentType, err.Error())
-			return nil, childSetupError(err)
-		}
-		spec.Limits = limits
-		remediation := codeRemediationConfig(provisionedWorktree)
-		result, err := runRegisteredDelegate(ctx, deps, spec, req, provisionedWorktree, warnings, remediation, string(agentType), func(result tool.ExecutionResult) tool.ExecutionResult {
+		plan.modelAlias = resolvedModel.Alias
+		plan.group = inputGroup(input)
+		result, err := runRegisteredDelegate(ctx, deps, spec, plan, string(agentType), func(result tool.ExecutionResult) tool.ExecutionResult {
 			if dr, ok := result.Value.(Result); ok {
 				dr.AdvisorBudget = spec.AdvisorBudget
 				result.Value = dr

@@ -85,8 +85,10 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	}
 	assistant := fromProviderMessage(response.Message)
 	assistant.Turn = turn
-	state.Conversation = append(state.Conversation, assistant)
-	state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
+	if !isStrictlyEmptyAssistant(assistant) {
+		state.Conversation = append(state.Conversation, assistant)
+		state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})
+	}
 
 	if len(response.Message.ToolCalls) == 0 {
 		return p.finishAssistantOnlyTurn(ctx, state, turn, response), nil
@@ -209,6 +211,13 @@ func finalizeImagesAtRunExitForRequest(req RunRequest, state RunState) RunState 
 func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, response provider.ChatResponse) turnOutcome {
 	turn := state.TurnCount
 	calls := response.Message.ToolCalls
+	if len(calls) > 0 {
+		batchID := calls[0].ID
+		ctx = WithToolBatchID(ctx, batchID)
+		if p.request.OnToolBatchDone != nil && batchID != "" {
+			defer p.request.OnToolBatchDone(batchID)
+		}
+	}
 	p.queuedDelegations = p.queueDelegationCalls(turn, calls)
 	defer p.drainQueuedDelegations(turn)
 	for i := 0; i < len(calls); {
@@ -823,4 +832,10 @@ func visionCapabilityContextForRequest(req RunRequest) (VisionState, bool) {
 		return VisionUnknown, false
 	}
 	return vc.Get(req.ResolvedModel.Alias), vc.SubAgentConfigured()
+}
+
+// isStrictlyEmptyAssistant reports whether m carries nothing at all: no
+// content, tool calls, reasoning or provider metadata.
+func isStrictlyEmptyAssistant(m Message) bool {
+	return m.Content == "" && len(m.ToolCalls) == 0 && m.ReasoningContent == "" && m.ProviderMetadata == nil
 }

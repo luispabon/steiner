@@ -1,0 +1,14 @@
+user_input {"content":"investigate the flaky test","mode":"resume"}
+assistant_message {"role":"assistant","content":"delegating"}
+tool_call_started {"turn":0,"tool":"sub_agent","call_id":"call-1","arguments":{"task":"find the flaky test","type":"explore"}}
+tool_call_started {"turn":0,"tool":"sub_agent","call_id":"call-2","arguments":{"task":"check the CI config","type":"explore"}}
+delegation_started {"agent_id":"agent-a","task_preview":"find the flaky test"}
+delegation_complete {"agent_id":"agent-a","status":"complete","turn_count":3,"token_count":900,"tool_call_count":0,"output":"found it in foo_test.go"}
+delegation_started {"agent_id":"agent-b","task_preview":"check the CI config"}
+delegation_failed {"agent_id":"agent-b","task_preview":"check the CI config","error":"child crashed"}
+assistant_message {"role":"assistant","content":"following up"}
+tool_call_started {"turn":0,"tool":"follow_up","call_id":"call-3","arguments":{"agent_id":"agent-a","task":"fix it"}}
+delegation_started {"agent_id":"agent-a","task_preview":"fix it"}
+delegation_complete {"agent_id":"agent-a","status":"complete","turn_count":5,"token_count":1500,"tool_call_count":4,"output":"fixed"}
+assistant_message {"role":"assistant","content":"all done"}
+user_input {"content":"thanks","mode":"resume"}

@@ -52,6 +52,7 @@ const (
 type sectionContext struct {
 	delegationEnabled     bool
 	orchestrationLevel    config.OrchestrationLevel
+	asyncSubAgents        bool
 	sandboxEnabled        bool
 	sandboxWritableMounts []string
 	advisorEnabled        bool
@@ -90,7 +91,7 @@ var systemSections = map[sectionID]sectionRenderer{
 		if !ctx.delegationEnabled {
 			return ""
 		}
-		return delegationInstructions(ctx.orchestrationLevel)
+		return delegationInstructions(ctx.orchestrationLevel, ctx.asyncSubAgents)
 	},
 	sectionAdvisor: func(ctx sectionContext) string {
 		if !ctx.advisorEnabled {
@@ -152,14 +153,18 @@ var overrideSectionOrder = []sectionID{
 // the advisor section and is discretionary. The "## Your role" and
 // "## Delegation vs direct work" sections are omitted when level is
 // config.OrchestrationLevelLow; any other value, including the zero value,
-// renders the standard (full) canon.
-func delegationInstructions(level config.OrchestrationLevel) string {
+// renders the standard (full) canon. The "## Async results" section and the
+// async wording are rendered only when async is true; otherwise a single line
+// states that sub_agent and follow_up block and return the result directly.
+func delegationInstructions(level config.OrchestrationLevel, async bool) string {
 	return renderTemplate(templateDelegation, struct {
 		Specialists []specialistView
 		Orchestrate bool
+		Async       bool
 	}{
 		Specialists: specialistViews(),
 		Orchestrate: level != config.OrchestrationLevelLow,
+		Async:       async,
 	})
 }
 
@@ -171,9 +176,11 @@ func renderSandboxInstruction(mounts []string) string {
 
 // SystemPreambleParams holds the inputs used to build the system preamble.
 type SystemPreambleParams struct {
-	Override              string
-	DelegationEnabled     bool
-	OrchestrationLevel    config.OrchestrationLevel
+	Override           string
+	DelegationEnabled  bool
+	OrchestrationLevel config.OrchestrationLevel
+	// AsyncSubAgents selects the async delegation canon; fixed per session.
+	AsyncSubAgents        bool
 	SandboxEnabled        bool
 	SandboxWritableMounts []string
 	AdvisorEnabled        bool
@@ -192,6 +199,7 @@ func systemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
 	ctx := sectionContext{
 		delegationEnabled:     params.DelegationEnabled,
 		orchestrationLevel:    params.OrchestrationLevel,
+		asyncSubAgents:        params.AsyncSubAgents,
 		sandboxEnabled:        params.SandboxEnabled,
 		sandboxWritableMounts: params.SandboxWritableMounts,
 		advisorEnabled:        params.AdvisorEnabled,

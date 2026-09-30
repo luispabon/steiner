@@ -2,10 +2,133 @@ package interactive
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
 )
+
+const replayNoResultMessage = "no result"
+
+type replayAck struct {
+	callID  string
+	agentID string
+	task    string
+}
+
+// replayAcks tracks acknowledged async sub-agents awaiting a result envelope,
+// in ack order.
+type replayAcks struct {
+	order []replayAck
+}
+
+func (r *replayAcks) add(callID, agentID, task string) {
+	r.order = append(r.order, replayAck{callID: callID, agentID: agentID, task: task})
+}
+
+func (r *replayAcks) take(callID string) (replayAck, bool) {
+	for i, ack := range r.order {
+		if ack.callID == callID {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			return ack, true
+		}
+	}
+	return replayAck{}, false
+}
+
+func isAckStatus(status string) bool {
+	return status == "running" || status == "queued"
+}
+
+// isFailedResultStatus reports whether a result envelope status replays as a
+// failed delegation.
+func isFailedResultStatus(status string) bool {
+	switch status {
+	case "failed", "lost", "cancelled", "timeout":
+		return true
+	}
+	return false
+}
+
+// replaySubAgentResult emits the completion or failure event for one result
+// envelope, correlating it to its ack by call_id.
+func (s *Session) replaySubAgentResult(raw string, acks *replayAcks) {
+	parsed, ok := agent.ParseSubAgentResultEnvelope(raw)
+	if !ok {
+		return
+	}
+	ack, _ := acks.take(parsed.CallID)
+	state := replayedDelegationState{agentID: parsed.AgentID, status: "complete"}
+	body, usage := splitResultEnvelopeInner(parsed.Inner)
+	state.output = body
+	state.error = body
+	state.turnCount, state.tokenCount = usage.turns, usage.tokens
+	var decoded replayedDelegateResult
+	if d, ok := decodeReplayedDelegateResult(body); ok {
+		decoded = d
+		applyDecodedDelegationState(&state, d)
+		state.agentID = parsed.AgentID
+		state.turnCount, state.tokenCount = usage.turns, usage.tokens
+	}
+	if isFailedResultStatus(parsed.Status) || isFailedResultStatus(state.status) {
+		msg := decoded.Reason
+		if msg == "" {
+			msg = decoded.Error
+		}
+		if msg == "" {
+			msg = state.output
+		}
+		s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
+			AgentID:     state.agentID,
+			TaskPreview: ack.task,
+			Error:       msg,
+		}))
+		return
+	}
+	if parsed.Status != "" {
+		state.status = parsed.Status
+	}
+	s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		AgentID:       state.agentID,
+		Status:        state.status,
+		TurnCount:     state.turnCount,
+		TokenCount:    state.tokenCount,
+		ToolCallCount: state.toolCallCount,
+		Output:        state.output,
+	}))
+}
+
+// replayUnresolvedAcks shows acknowledged sub-agents that never received a
+// result envelope (crashed or pre-ledger sessions) as failed with no result.
+func (s *Session) replayUnresolvedAcks(acks *replayAcks) {
+	for _, ack := range acks.order {
+		s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
+			AgentID:     ack.agentID,
+			TaskPreview: ack.task,
+			Error:       replayNoResultMessage,
+		}))
+	}
+	acks.order = nil
+}
+
+type resultEnvelopeUsage struct {
+	turns  int
+	tokens int
+}
+
+// splitResultEnvelopeInner returns the body of an envelope's inner text (after
+// the usage line and its blank line) and the usage counters on that line.
+func splitResultEnvelopeInner(inner string) (string, resultEnvelopeUsage) {
+	var usage resultEnvelopeUsage
+	_, after, ok := strings.Cut(inner, "\nusage: ")
+	if !ok {
+		return inner, usage
+	}
+	line, body, _ := strings.Cut(after, "\n\n")
+	_, _ = fmt.Sscanf(line, "turns=%d tokens=%d", &usage.turns, &usage.tokens) // partial usage is fine
+	return body, usage
+}
 
 type replayedDelegateResult struct {
 	AgentID           string `json:"agent_id"`

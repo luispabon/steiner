@@ -285,3 +285,107 @@ func TestEffectiveSkills(t *testing.T) {
 		})
 	}
 }
+
+func TestSplitMessageBlocksSkillsWithEnvelopes(t *testing.T) {
+	t.Parallel()
+
+	a, _ := RenderSkillActivation("plan", "plan body")
+	modePrefix := ModeNotice(config.ExecutionModePlan) + "\n\n"
+
+	// Build a message with skills, pending line, and result envelopes
+	user := "user text"
+
+	// Create minimal envelope strings manually (without importing agent package)
+	// bytes value is the length of inner content WITHOUT the trailing newline before </close>
+	envelope1 := `<steiner-sub-agent-result agent_id="code-1" type="code" status="ok" call_id="call-1" bytes="21">
+This is a test result
+</steiner-sub-agent-result>`
+
+	full := modePrefix + a + "\n\n<steiner-sub-agents-pending>code-1 (code, running)</steiner-sub-agents-pending>\n\n" +
+		envelope1 + "\n\n" + user
+
+	mb := SplitMessageBlocks(full)
+
+	if mb.ModePrefix != modePrefix {
+		t.Errorf("ModePrefix = %q, want %q", mb.ModePrefix, modePrefix)
+	}
+	if len(mb.SkillBlocks) != 1 || mb.SkillBlocks[0].Name != "plan" {
+		t.Errorf("SkillBlocks parsing failed: got %d blocks", len(mb.SkillBlocks))
+	}
+	if !strings.Contains(mb.PendingLine, "code-1") {
+		t.Errorf("PendingLine missing code-1: %q", mb.PendingLine)
+	}
+	if len(mb.ResultEnvelopes) != 1 {
+		t.Errorf("ResultEnvelopes = %d, want 1", len(mb.ResultEnvelopes))
+	}
+	if mb.Rest != user {
+		t.Errorf("Rest = %q, want %q", mb.Rest, user)
+	}
+}
+
+func TestSplitMessageBlocksBackwardCompatibility(t *testing.T) {
+	t.Parallel()
+
+	// Test that SplitSkillBlocks still works with envelopes following (treats them as rest)
+	a, _ := RenderSkillActivation("code", "code body")
+
+	envelope := `<steiner-sub-agent-result agent_id="a" type="code" status="ok" call_id="c1" bytes="4">
+body
+</steiner-sub-agent-result>`
+
+	full := a + "\n\n" + envelope
+
+	_, blocks, rest := SplitSkillBlocks(full)
+	if len(blocks) != 1 {
+		t.Errorf("SplitSkillBlocks: got %d blocks", len(blocks))
+	}
+	// The envelope should be part of rest
+	if !strings.Contains(rest, "steiner-sub-agent-result") {
+		t.Error("envelope not in rest")
+	}
+}
+
+func TestSplitMessageBlocksNoSkillsWithPendingAndEnvelopes(t *testing.T) {
+	t.Parallel()
+
+	pending := "<steiner-sub-agents-pending>code-1 (code, running)</steiner-sub-agents-pending>"
+	envelope := `<steiner-sub-agent-result agent_id="code-1" type="code" status="ok" call_id="c" bytes="1">
+x
+</steiner-sub-agent-result>`
+
+	full := pending + "\n\n" + envelope
+
+	mb := SplitMessageBlocks(full)
+
+	if mb.ModePrefix != "" {
+		t.Errorf("ModePrefix should be empty")
+	}
+	if len(mb.SkillBlocks) != 0 {
+		t.Errorf("SkillBlocks should be empty")
+	}
+	if !strings.Contains(mb.PendingLine, "code-1") {
+		t.Errorf("PendingLine missing: %q", mb.PendingLine)
+	}
+	if len(mb.ResultEnvelopes) != 1 {
+		t.Errorf("ResultEnvelopes = %d, want 1", len(mb.ResultEnvelopes))
+	}
+}
+
+func TestSplitMessageBlocksOversizedBytes(t *testing.T) {
+	t.Parallel()
+
+	// An oversized bytes value should stop parsing
+	oversized := `<steiner-sub-agent-result agent_id="a" type="code" status="ok" call_id="c" bytes="9999">
+x
+</steiner-sub-agent-result>`
+
+	mb := SplitMessageBlocks(oversized)
+
+	if len(mb.ResultEnvelopes) != 0 {
+		t.Errorf("Oversized bytes should not parse")
+	}
+	// The malformed envelope should be in Rest
+	if !strings.Contains(mb.Rest, "steiner-sub-agent-result") {
+		t.Error("malformed envelope not in Rest")
+	}
+}

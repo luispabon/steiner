@@ -16,6 +16,10 @@ import (
 
 //nolint:gocyclo // event fan-out stays centralized here
 func (m *Model) applyEvent(event output.Event) tea.Cmd {
+	if payload, ok := event.Payload.(output.ConversationStateEvent); ok {
+		m.applyConversationState(payload)
+		return nil
+	}
 	if m.shouldSuppressInterruptedRunEvent(event) {
 		return nil
 	}
@@ -100,10 +104,12 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.RunFinishedEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
 		m.activity = m.activity.static("run finished", strings.TrimSpace(payload.Reason))
+		m.applyConversationLabel()
 		m.resetTopLevelTerminalState(true)
 	case output.StopReasonEvent:
 		m.status.mode = strings.TrimSpace(payload.Reason)
 		m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
+		m.applyConversationLabel()
 		m.resetTopLevelTerminalState(true)
 	case output.ModelCallStartedEvent:
 		m.activity = m.activity.waiting("waiting", "")
@@ -415,7 +421,7 @@ func (m *Model) workflowHandoffModelSelection(destination string) interactive.Wo
 }
 
 func (m *Model) shouldSuppressInterruptedRunEvent(event output.Event) bool {
-	if !m.interruptPending {
+	if !m.interruptPending || m.keepsFlowingWhileInterrupted(event) {
 		return false
 	}
 	switch event.Type {

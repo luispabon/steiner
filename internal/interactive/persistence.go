@@ -3,8 +3,10 @@ package interactive
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -58,6 +60,7 @@ func (s *Session) saveSession() error {
 	sess.PromptCacheKey = s.promptCacheKey
 	sess.Mode = string(s.mode)
 	sess.Skills = s.skills.Snapshot()
+	sess.SubAgentLedger = slices.Clone(s.ledger)
 	if s.sessionTitle != "" {
 		sess = sess.WithTitle(s.sessionTitle)
 	}
@@ -68,16 +71,29 @@ func (s *Session) saveSession() error {
 // rotateSession assigns a fresh session identity and optionally updates the group.
 func (s *Session) rotateSession(group string, updateGroup bool) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	if err := s.replacementGuardLocked("rotate session", false); err != nil {
+		s.mu.Unlock()
+		return s.reportReplacementGuardError("rotate session", err)
+	}
 	if s.deps.SessionStore == nil {
+		s.mu.Unlock()
 		return nil
 	}
 
 	id, err := generateSessionID()
 	if err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("rotate session id: %w", err)
 	}
+	old := s.swapDriverLocked(func() { s.applyRotationLocked(id, group, updateGroup) })
+	s.mu.Unlock()
+	s.retireDriver(old)
+	return nil
+}
+
+// applyRotationLocked updates identity metadata after replacement has passed
+// its guard and the new driver swap is in progress.
+func (s *Session) applyRotationLocked(id, group string, updateGroup bool) {
 	s.sessionID = id
 	s.promptCacheKey = id
 	s.bindImageStore(id, 1)
@@ -86,7 +102,6 @@ func (s *Session) rotateSession(group string, updateGroup bool) error {
 	if updateGroup {
 		s.sessionGroup = strings.TrimSpace(group)
 	}
-	return nil
 }
 
 // resolveFallbackContextWindow resolves the current model's context window
@@ -107,6 +122,50 @@ func (s *Session) resolveFallbackContextWindow() int {
 func (s *Session) refuseRunInProgress(action string) error {
 	s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("%s: %s", action, errRunInProgress)))
 	return fmt.Errorf("%s: %w", action, errRunInProgress)
+}
+
+// refuseWhilePending refuses a session-replacing action while sub-agents are
+// still running, surfacing the reason as an overlay notice and error. Callers
+// that also refuse during a run check that separately: clear and rotate stay
+// allowed mid-run because a workflow handoff rotates from inside one.
+func (s *Session) loadSessionGuardLocked() error {
+	return s.replacementGuardLocked("load session", true)
+}
+
+func (s *Session) reportReplacementGuardError(action string, err error) error {
+	if errors.Is(err, errRunInProgress) {
+		return s.refuseRunInProgress(action)
+	}
+	s.events.Emit(output.NewOverlayReportEvent("Context Report", err.Error()))
+	return err
+}
+
+func (s *Session) pendingRefusalLocked(action string) error {
+	if s.deps.Background == nil {
+		return nil
+	}
+	pending := s.deps.Background.Pending()
+	if len(pending) == 0 {
+		return nil
+	}
+	msg := fmt.Sprintf("%d sub-agents still running; wait for them or stop them first", len(pending))
+	return fmt.Errorf("%s: %s", action, msg)
+}
+
+func (s *Session) refuseWhilePending(action string) error {
+	err := s.pendingRefusalLocked(action)
+	if err != nil {
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", err.Error()))
+	}
+	return err
+}
+
+func (s *Session) reportLoadGuardError(err error) error {
+	if errors.Is(err, errRunInProgress) {
+		return s.refuseRunInProgress("load session")
+	}
+	s.events.Emit(output.NewOverlayReportEvent("Context Report", err.Error()))
+	return err
 }
 
 // loadSession replaces the current conversation and lineage with a previously
@@ -137,25 +196,32 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}
 
 	s.mu.Lock()
-	if s.activeRuns > 0 {
+	if err := s.loadSessionGuardLocked(); err != nil {
 		s.mu.Unlock()
-		return s.refuseRunInProgress("load session")
+		return s.reportLoadGuardError(err)
 	}
-	s.lineage = sess.Lineage
-	s.conversation = sess.Lineage.FullMessages()
-	s.sessionID = sess.ID
-	s.promptCacheKey = sess.CacheKey()
-	s.sessionDate = prompt.NewSessionDate(s.now())
-	s.sessionTitle = sess.Title
-	s.sessionGroup = strings.TrimSpace(sess.Group)
-	s.mode = mode
+	old := s.swapDriverLocked(func() {
+		s.lineage = sess.Lineage
+		s.conversation = sess.Lineage.FullMessages()
+		s.sessionID = sess.ID
+		s.promptCacheKey = sess.CacheKey()
+		s.sessionDate = prompt.NewSessionDate(s.now())
+		s.sessionTitle = sess.Title
+		s.sessionGroup = strings.TrimSpace(sess.Group)
+		s.mode = mode
+		s.ledger = slices.Clone(sess.SubAgentLedger)
+		s.skills.Reset()
+		for _, name := range sess.Skills {
+			s.skills.Set(name, true)
+		}
+	})
 	listener := s.modeListener
-	s.skills.Reset()
-	for _, name := range sess.Skills {
-		s.skills.Set(name, true)
-	}
 	msgs := append([]agent.Message(nil), s.conversation...)
+	drv := s.driver.drv
 	s.mu.Unlock()
+	s.retireDriver(old)
+
+	deliverLostSubAgents(drv, sess.SubAgentLedger)
 
 	s.bindImageStore(sess.ID, agent.NextImageIDFloor(sess.Lineage))
 
@@ -216,6 +282,20 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// deliverLostSubAgents records each ledger entry of a loaded session as lost:
+// the previous process's sub-agents are gone. The driver settles them without
+// a run and saves with the supervisor's (empty) ledger, clearing the stored one.
+func deliverLostSubAgents(drv *agent.ConversationDriver, ledger []agent.SubAgentLedgerEntry) {
+	if len(ledger) == 0 {
+		return
+	}
+	lost := make([]agent.SubAgentCompletion, len(ledger))
+	for i, entry := range ledger {
+		lost[i] = agent.LostSubAgentCompletion(entry)
+	}
+	drv.DeliverCompletions(lost)
+}
+
 // bindImageStore scopes the image store to sessionID, emitting a non-fatal
 // warning through the session event sink when binding fails.
 func (s *Session) bindImageStore(sessionID string, minNext int) {
@@ -251,6 +331,9 @@ func (s *Session) copySessionImages(fromID, toID string) {
 func (s *Session) handleForkSession(ctx context.Context) error {
 	if s.runActive() {
 		return s.refuseRunInProgress("fork session")
+	}
+	if err := s.refuseWhilePending("fork session"); err != nil {
+		return err
 	}
 	if s.deps.SessionStore == nil {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))
@@ -297,6 +380,9 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 func (s *Session) handleForkSavedSession(ctx context.Context, sessionID string) error {
 	if s.runActive() {
 		return s.refuseRunInProgress("fork saved session")
+	}
+	if err := s.refuseWhilePending("fork saved session"); err != nil {
+		return err
 	}
 	if s.deps.SessionStore == nil {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))

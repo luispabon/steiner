@@ -119,7 +119,7 @@ Resume a suitable warm agent before cold dispatch only when it remains available
 
 Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.
 
-1. Read `worktree_path` from the delegation result — a project-relative path (e.g. `.steiner/worktrees/<process>/<branch>/<agent>`) and the sole worktree locator returned to you. The branch name and any dirty-tree warnings are host-only and not returned; if you need the branch name, read it from the worktree itself: `git -C <worktree-path> branch --show-current`.
+1. Read `worktree_path` from the arrived result — a project-relative path (e.g. `.steiner/worktrees/<process>/<branch>/<agent>`) and the sole worktree locator returned to you. The branch name and any dirty-tree warnings are host-only and not returned; if you need the branch name, read it from the worktree itself: `git -C <worktree-path> branch --show-current`.
 2. `follow_up` results also carry `worktree_path` for the same code agent, resolving to the same worktree as the initial `code` result.
 3. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <branch-name>` (from step 1).
 
@@ -133,7 +133,7 @@ The review-fix delegated agent must:
 - avoid unrelated cleanup or scope expansion
 - not merge, rebase, or clean up reviewer-owned git state
 
-Parallelize approved fixes with disjoint write scopes and settled contracts only. Merge one worktree at a time; verify combined changes and re-review affected boundaries.
+Parallelize approved fixes with disjoint write scopes and settled contracts only, sharing a `group`. Merge one worktree at a time; verify combined changes and re-review affected boundaries.
 
 ### Pre-Commit Checklist
 

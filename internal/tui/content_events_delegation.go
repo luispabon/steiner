@@ -39,6 +39,8 @@ func (b *contentBuffer) appendDelegationEvent(event output.Event) {
 	switch event.Type {
 	case output.EventTypeDelegationStarted:
 		b.handleDelegationStarted(event)
+	case output.EventTypeDelegationQueued:
+		b.handleDelegationQueued(event)
 	case output.EventTypeDelegationCacheWaiting:
 		b.handleDelegationCacheWaiting(event)
 	case output.EventTypeDelegationComplete:
@@ -88,6 +90,7 @@ func (b *contentBuffer) handleScopedDelegationEventAt(loc delegationLocator, eve
 		loc.dd.cacheWaiting = false
 		b.markDelegationDirty(loc.seg)
 	}
+	b.noteDelegationEvent(event.Scope.AgentID)
 	handled := b.applyScopedDelegationEvent(loc.dd, event)
 	if handled {
 		b.markDelegationDirty(loc.seg)
@@ -738,16 +741,54 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 		b.appendStyled(formatDelegationEvent(event), segmentPlain)
 		return
 	}
-	preview := payload.TaskPreview
-	modelAlias := strings.TrimSpace(payload.ModelAlias)
+	b.bindDelegation(payload.AgentID, payload.CallID, payload.AgentType, payload.TaskPreview, payload.ModelAlias, false)
+}
+
+// handleDelegationQueued binds a queued sub-agent to a delegation segment
+// through the same path as a started one; DelegationStarted later activates it.
+func (b *contentBuffer) handleDelegationQueued(event output.Event) {
+	payload, ok := event.Payload.(output.DelegationQueuedEvent)
+	if !ok {
+		b.appendStyled(formatDelegationEvent(event), segmentPlain)
+		return
+	}
+	b.bindDelegation(payload.AgentID, payload.CallID, payload.AgentType, payload.TaskPreview, "", true)
+}
+
+// findDelegationToBind locates the existing segment a queued or started event
+// belongs to: the queued or cache-waiting box for that agent, else a pending
+// parent delegate call.
+func (b *contentBuffer) findDelegationToBind(agentID, callID string, queued bool) (delegationLocator, bool) {
+	if loc, active := b.activeDelegations[agentID]; active && loc.dd != nil {
+		if !queued && loc.dd.queuedForSlot {
+			return loc, true
+		}
+		if loc.dd.cacheWaiting && loc.dd.parentCallID == callID {
+			return loc, true
+		}
+	}
+	if loc, found := b.dequeuePendingDelegateParentByCallID(callID); found {
+		return loc, true
+	}
+	if loc, found := b.dequeuePendingDelegateParentByFollowUpAgentID(agentID); found {
+		return loc, true
+	}
+	return b.dequeuePendingDelegateParentSegment()
+}
+
+func (b *contentBuffer) bindDelegation(agentID, callID, agentType, taskPreview, modelAlias string, queued bool) {
+	preview := taskPreview
+	modelAlias = strings.TrimSpace(modelAlias)
 	if runes := []rune(preview); len(runes) > 80 {
 		preview = string(runes[:77]) + "..."
 	}
+	now := nanoNow()
+	b.noteDelegationEvent(agentID)
 	bind := func(loc delegationLocator) {
 		dd := loc.dd
-		dd.agentID = payload.AgentID
-		if payload.AgentType != "" {
-			dd.agentType = payload.AgentType
+		dd.agentID = agentID
+		if agentType != "" {
+			dd.agentType = agentType
 		}
 		if preview != "" {
 			dd.taskPreview = preview
@@ -756,45 +797,38 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 			dd.modelName, dd.reasoning = b.resolveAliasBadge(modelAlias)
 		}
 		dd.cacheWaiting = false
-		dd.queuedForSlot = false
-		dd.startTime = nanoNow()
+		dd.queuedForSlot = queued
+		if !queued {
+			dd.startTime = now
+		}
 		dd.status = "active"
 		dd.collapsed = true
-		b.activeDelegations[payload.AgentID] = loc
+		b.activeDelegations[agentID] = loc
 		b.markDelegationDirty(loc.seg)
 	}
-	if loc, active := b.activeDelegations[payload.AgentID]; active && loc.dd != nil && loc.dd.cacheWaiting && loc.dd.parentCallID == payload.CallID {
-		bind(loc)
-		return
-	}
-	if loc, found := b.dequeuePendingDelegateParentByCallID(payload.CallID); found {
-		bind(loc)
-		return
-	}
-	if loc, found := b.dequeuePendingDelegateParentByFollowUpAgentID(payload.AgentID); found {
-		bind(loc)
-		return
-	}
-	if loc, found := b.dequeuePendingDelegateParentSegment(); found {
+	if loc, found := b.findDelegationToBind(agentID, callID, queued); found {
 		bind(loc)
 		return
 	}
 	dd := &delegationDisplayState{
-		agentID:         payload.AgentID,
-		agentType:       payload.AgentType,
+		agentID:         agentID,
+		agentType:       agentType,
 		taskPreview:     preview,
 		promptText:      preview,
 		promptCollapsed: true,
-		startTime:       nanoNow(),
+		queuedForSlot:   queued,
 		status:          "active",
 		collapsed:       true,
+	}
+	if !queued {
+		dd.startTime = now
 	}
 	if modelAlias != "" {
 		dd.modelName, dd.reasoning = b.resolveAliasBadge(modelAlias)
 	}
 	idx := b.appendDelegationSegment(dd)
 	loc := delegationLocator{seg: idx, dd: dd}
-	b.activeDelegations[payload.AgentID] = loc
+	b.activeDelegations[agentID] = loc
 	b.pendingDelegationStarts = append(b.pendingDelegationStarts, loc)
 }
 
@@ -916,11 +950,14 @@ type delegateActiveRow struct {
 	agentType   string // lifecycle agent type; tool-label fallback for legacy events
 	taskPreview string
 	isCode      bool
+	queued      bool
+	stalledMin  int
 }
 
 // ActiveDelegateRows returns active, identified delegates in transcript order.
 func (b *contentBuffer) ActiveDelegateRows() []delegateActiveRow {
 	rows := make([]delegateActiveRow, 0)
+	now := timeNow()
 	appendRow := func(dd *delegationDisplayState) {
 		if dd == nil || dd.isAdvisor || dd.agentID == "" || dd.status != "active" {
 			return
@@ -934,6 +971,8 @@ func (b *contentBuffer) ActiveDelegateRows() []delegateActiveRow {
 			agentType:   agentType,
 			taskPreview: dd.taskPreview,
 			isCode:      agentType == "code",
+			queued:      dd.queuedForSlot,
+			stalledMin:  b.stalledMinutes(dd, now),
 		})
 	}
 	for _, seg := range b.segments {

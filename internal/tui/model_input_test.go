@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -155,15 +156,51 @@ func TestSteerActionRecordsPromptHistory(t *testing.T) {
 	ctrl.mu.Lock()
 	actions := ctrl.actions
 	ctrl.mu.Unlock()
-	if len(actions) != 1 {
-		t.Fatalf("controller actions = %d, want 1", len(actions))
+	if len(actions) != 2 {
+		t.Fatalf("controller actions = %d, want 2 (NotifySteer, RecordPromptHistory)", len(actions))
 	}
-	recorded, ok := actions[0].(interactive.RecordPromptHistory)
+	if _, ok := actions[0].(interactive.NotifySteer); !ok {
+		t.Fatalf("action[0] = %T, want interactive.NotifySteer", actions[0])
+	}
+	recorded, ok := actions[1].(interactive.RecordPromptHistory)
 	if !ok {
-		t.Fatalf("action = %T, want interactive.RecordPromptHistory", actions[0])
+		t.Fatalf("action[1] = %T, want interactive.RecordPromptHistory", actions[1])
 	}
 	if recorded.Text != "steer this" {
 		t.Errorf("recorded text = %q, want %q", recorded.Text, "steer this")
+	}
+}
+
+func TestSteerActionDuringOneshotNotifiesTheController(t *testing.T) {
+	t.Parallel()
+	input := newModelInput()
+	input.SetValue("steer the phase")
+
+	ctrl := &testController{}
+	styles := testStyles(theme.AccentAmber)
+	m := &Model{
+		oneshotRunning: true,
+		steers:         agent.NewSteerQueue(),
+		controller:     ctrl,
+		input:          input,
+		content: contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+			styles:        styles,
+		},
+		styles: styles,
+	}
+
+	m.executeSteerAction()
+
+	ctrl.mu.Lock()
+	actions := ctrl.actions
+	ctrl.mu.Unlock()
+	if len(actions) != 2 {
+		t.Fatalf("controller actions = %d, want 2 (NotifySteer, RecordPromptHistory)", len(actions))
+	}
+	if _, ok := actions[0].(interactive.NotifySteer); !ok {
+		t.Fatalf("action[0] = %T, want interactive.NotifySteer routed to the phase by the session", actions[0])
 	}
 }
 
@@ -266,23 +303,34 @@ func TestSteerQueueSharedBetweenComposerAndOneshotRun(t *testing.T) {
 	m := newModel(Config{Controller: sess, SteerQueue: queue}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 
-	// Queue during a regular busy run.
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-	m.input.SetValue("steer during regular run")
-	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
-
-	// Queue again while simulating an active oneshot run.
+	// Queue twice while an oneshot run is active. The session routes the
+	// notices to the running phase and its own driver leaves the queue alone.
+	phase := &notifyCountingPhase{}
+	defer sess.SetActivePhaseControl(phase)()
 	m.oneshotRunning = true
-	m.input.SetValue("steer during oneshot")
+	m.input.SetValue("first oneshot steer")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m.input.SetValue("second oneshot steer")
 	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	// Both messages must land in the exact queue instance the oneshot run
 	// drains from — proving the composer never uses a second instance.
 	got := sess.ActiveRunController().SteerQueue().Drain()
-	if len(got) != 2 || got[0].Text != "steer during regular run" || got[1].Text != "steer during oneshot" {
-		t.Fatalf("Drain() = %+v, want [{steer during regular run} {steer during oneshot}]", got)
+	if len(got) != 2 || got[0].Text != "first oneshot steer" || got[1].Text != "second oneshot steer" {
+		t.Fatalf("Drain() = %+v, want [{first oneshot steer} {second oneshot steer}]", got)
+	}
+	if n := phase.notices.Load(); n != 2 {
+		t.Fatalf("phase notices = %d, want 2", n)
 	}
 }
+
+type notifyCountingPhase struct{ notices atomic.Int32 }
+
+func (p *notifyCountingPhase) Submit(string, []agent.ImageBlock) {}
+func (p *notifyCountingPhase) NotifySteer()                      { p.notices.Add(1) }
+func (p *notifyCountingPhase) StopTurn()                         {}
+func (p *notifyCountingPhase) CancelAgent(string, bool) error    { return nil }
+func (p *notifyCountingPhase) CancelAll() error                  { return nil }
 
 func newMinimalModel(inputValue string) *Model {
 	inp := newModelInput()

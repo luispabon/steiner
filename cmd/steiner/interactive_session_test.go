@@ -45,7 +45,7 @@ func TestNewOneshotRunnerFactoryBuilderRetainsLiveEffectiveCallback(t *testing.T
 	}
 	builder := newOneshotRunnerFactoryBuilder(cmd, flags, t.TempDir(), output.NoopSink{}, func() config.EffectiveModelAssignments {
 		return live
-	}, nil)
+	}, nil, nil)
 
 	factory, ok := builder(identity).(phaseRunnerFactory)
 	if !ok {
@@ -109,28 +109,30 @@ func TestResetSandboxTmpEmitsWarning(t *testing.T) {
 	}
 }
 
-func TestBuildInteractiveSessionUsesSharedDelegationController(t *testing.T) {
+func TestBuildInteractiveSessionCancelsThroughRuntimeSupervisor(t *testing.T) {
 	controller := delegation.NewActiveController()
-	childCtx, err := controller.Register("child-1", context.Background(), delegation.AgentTypeCode, delegation.CodeWorktree{})
-	if err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
+	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
+	observed, capture := spawnBlockedChild(t, sup, controller, "child-1")
 	sess, err := buildInteractiveSession(cliRuntime{
-		events:                     output.NoopSink{},
-		workDir:                    t.TempDir(),
-		homeDir:                    t.TempDir(),
-		delegationActiveController: controller,
+		events:               output.NoopSink{},
+		workDir:              t.TempDir(),
+		homeDir:              t.TempDir(),
+		delegationSupervisor: sup,
 	})
 	if err != nil {
 		t.Fatalf("buildInteractiveSession() error = %v", err)
 	}
+	sup.SetCompletionSink(capture)
 	if err := sess.Handle(context.Background(), interactive.CancelDelegate{AgentID: "child-1"}); err != nil {
 		t.Fatalf("Handle(CancelDelegate) error = %v", err)
 	}
 	select {
-	case <-childCtx.Done():
-	default:
-		t.Fatal("interactive cancellation did not cancel registered child")
+	case got := <-observed:
+		if !got.quiet {
+			t.Fatal("cancellation was not recorded as a user cause (completion not quiet)")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("interactive cancellation did not cancel the supervised child")
 	}
 }
 
@@ -583,7 +585,7 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := sr.Run(ctx, nil, nil); err == nil {
+	if _, err := sr.Run(ctx, interactive.RunInput{}); err == nil {
 		t.Fatal("Run() error = nil, want fast failure after MCP init")
 	}
 	// Measured from Connect: the fixture re-exec is a slow-starting test binary,
@@ -1092,7 +1094,7 @@ type blockedCleanupTestRunner struct {
 	release chan struct{}
 }
 
-func (r *blockedCleanupTestRunner) Run(context.Context, []agent.Message, func() []agent.SteerMessage) (interactive.RunResult, error) {
+func (r *blockedCleanupTestRunner) Run(context.Context, interactive.RunInput) (interactive.RunResult, error) {
 	close(r.started)
 	<-r.release
 	return interactive.RunResult{}, nil
@@ -1164,7 +1166,7 @@ func TestSessionRunnerForwardsNilStaticSkillNames(t *testing.T) {
 	adapter := sessionRunner{runner: runner}
 	conversation := []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}
 
-	if _, err := adapter.Run(context.Background(), conversation, nil); err != nil {
+	if _, err := adapter.Run(context.Background(), interactive.RunInput{Conversation: conversation}); err != nil {
 		t.Fatalf("sessionRunner.Run() error = %v", err)
 	}
 	if got := lastRequestContents(t, providerStub); strings.Contains(got, "review skill instructions") {
@@ -1178,5 +1180,30 @@ func TestSessionRunnerForwardsNilStaticSkillNames(t *testing.T) {
 	}
 	if got := lastRequestContents(t, providerStub); !strings.Contains(got, "review skill instructions") {
 		t.Fatalf("control run missing static skill content:\n%s", got)
+	}
+}
+
+func TestSessionRunnerReturnsTokenCountAndStopReason(t *testing.T) {
+	providerStub := &fakeProvider{responses: []provider.ChatResponse{
+		{
+			Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"},
+			FinishReason: "stop",
+			Usage:        &provider.UsageStats{CompletionTokens: 7, TotalTokens: 7},
+		},
+	}}
+	adapter := sessionRunner{runner: cliRunner{runtime: cliRuntime{
+		cfg:      testRuntimeConfig("test-model"),
+		provider: providerStub,
+		registry: tool.NewRegistry(),
+		workDir:  t.TempDir(),
+		homeDir:  t.TempDir(),
+		events:   output.NoopSink{},
+	}}}
+	result, err := adapter.Run(context.Background(), interactive.RunInput{Conversation: []agent.Message{{Role: agent.MessageRoleUser, Content: "hi"}}})
+	if err != nil {
+		t.Fatalf("sessionRunner.Run() error = %v", err)
+	}
+	if result.TokenCount != 7 || result.StopReason != agent.StopReasonComplete {
+		t.Fatalf("result = {TokenCount:%d StopReason:%q}, want {7 %q}", result.TokenCount, result.StopReason, agent.StopReasonComplete)
 	}
 }

@@ -303,6 +303,8 @@ type contentBuffer struct {
 	tickCount         int   // incremented by 500ms tick, used for cursor blink
 	lastRenderErr     error // captures the last render error for logging
 	// delegation tracking
+	lastDelegationEvent     map[string]int64             // agentID → unix nano of the last event seen (stall display)
+	asyncMode               bool                         // set once a ConversationState event is seen; parent cancels no longer finalise delegations
 	activeDelegations       map[string]delegationLocator // agentID → delegation locator (for in-flight delegations)
 	activeToolCalls         map[string]toolCallLocator   // callID → regular tool-call locator
 	pendingDelegateParents  []delegationLocator          // delegations awaiting DelegationStartedEvent binding
@@ -364,6 +366,7 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeApprovalDenied:         (*contentBuffer).appendApprovalDecisionEvent,
 	output.EventTypeDelegationStarted:      (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationComplete:     (*contentBuffer).appendDelegationEvent,
+	output.EventTypeDelegationQueued:       (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationCacheWaiting: (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationFailed:       (*contentBuffer).appendDelegationEvent,
 	output.EventTypeAdvisorStarted:         (*contentBuffer).appendAdvisorEvent,

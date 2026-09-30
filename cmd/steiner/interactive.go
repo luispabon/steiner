@@ -63,7 +63,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 			return len(worktrees), err
 		},
 		func(ctx context.Context) (int, error) {
-			return delegation.PruneProcessCodeWorktrees(ctx, rt.projectRoot)
+			return delegation.PruneProcessCodeWorktrees(ctx, rt.projectRoot, protectedWorktrees(rt.delegationSupervisor)...)
 		},
 	)
 	tuiApp, err := buildInteractiveApp(cmd, flags, rt, sess)

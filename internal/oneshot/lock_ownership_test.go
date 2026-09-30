@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
+
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/session"
@@ -110,7 +111,7 @@ func writeStolenLock(t *testing.T, path string, record LockRecord) {
 // funcRunner adapts a function to PhaseRunner.
 type funcRunner func(ctx context.Context) (RunResult, error)
 
-func (f funcRunner) RunPhase(ctx context.Context, _ []agent.Message, _ []string, _ func() []agent.SteerMessage) (RunResult, error) {
+func (f funcRunner) RunPhase(ctx context.Context, _ PhaseRunInput) (RunResult, error) {
 	return f(ctx)
 }
 
@@ -288,9 +289,17 @@ func TestRunPhaseFinalManifestWriteFailureEmitsFailureEvents(t *testing.T) {
 	}
 }
 
-type failingSessionStore struct{}
+// failingSessionStore accepts the first save, which creates the phase session
+// before the phase runs, and fails every later one.
+type failingSessionStore struct{ saved bool }
 
-func (failingSessionStore) Save(session.Session) error { return errors.New("disk full") }
+func (s *failingSessionStore) Save(session.Session) error {
+	if !s.saved {
+		s.saved = true
+		return nil
+	}
+	return errors.New("disk full")
+}
 
 func TestRunPhaseLockLostWithSessionSaveFailureSkipsManifestWrite(t *testing.T) {
 	dir := t.TempDir()
@@ -308,11 +317,11 @@ func TestRunPhaseLockLostWithSessionSaveFailureSkipsManifestWrite(t *testing.T) 
 	runner := funcRunner(func(ctx context.Context) (RunResult, error) {
 		writeStolenLock(t, path, LockRecord{Owner: "other", AcquiredAt: ours.AcquiredAt, UpdatedAt: ours.UpdatedAt})
 		<-ctx.Done()
-		return RunResult{}, ctx.Err()
+		return RunResult{Conversation: []agent.Message{{Role: agent.MessageRoleUser, Content: "seed"}}}, ctx.Err()
 	})
 	var events []output.Event
 	o := newHeartbeatTestOrchestrator(runner, &events)
-	o.deps.SessionStore = failingSessionStore{}
+	o.deps.SessionStore = &failingSessionStore{}
 	manifest := &Manifest{RunID: "run-1", PhaseStatuses: map[Phase]PhaseStatus{PhasePlan: PhaseStatusRunning}, PhaseSessionIDs: map[Phase]string{}}
 	store := NewManifestStore(filepath.Join(dir, "manifest.json"))
 	if err := store.Write(*manifest); err != nil {

@@ -416,6 +416,35 @@ func TestPruneProcessCodeWorktrees_LeavesForeignProcess(t *testing.T) {
 	}
 }
 
+func TestPruneProcessCodeWorktrees_SkipsProtected(t *testing.T) {
+	ctx := context.Background()
+	repo := setupTestRepo(t)
+	t.Cleanup(resetProcessHashForTesting)
+
+	kept, err := ProvisionCodeWorktree(ctx, repo, "kept-agent")
+	if err != nil {
+		t.Fatalf("ProvisionCodeWorktree kept failed: %v", err)
+	}
+	pruned, err := ProvisionCodeWorktree(ctx, repo, "pruned-agent")
+	if err != nil {
+		t.Fatalf("ProvisionCodeWorktree pruned failed: %v", err)
+	}
+
+	removedCount, err := PruneProcessCodeWorktrees(ctx, repo, kept.Path)
+	if err != nil {
+		t.Fatalf("PruneProcessCodeWorktrees failed: %v", err)
+	}
+	if removedCount != 1 {
+		t.Fatalf("PruneProcessCodeWorktrees returned %d, want 1", removedCount)
+	}
+	if _, err := os.Stat(kept.Path); err != nil {
+		t.Errorf("protected worktree %q was removed: %v", kept.Path, err)
+	}
+	if _, err := os.Stat(pruned.Path); !os.IsNotExist(err) {
+		t.Errorf("unprotected worktree %q still exists", pruned.Path)
+	}
+}
+
 func TestPruneProcessCodeWorktrees_ContinuesAfterPruneError(t *testing.T) {
 	ctx := context.Background()
 	repo := setupTestRepo(t)

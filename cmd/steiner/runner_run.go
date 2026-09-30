@@ -199,6 +199,7 @@ func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []str
 		ProjectContextIgnoreFiles: append([]string(nil), r.runtime.cfg.ProjectContext.IgnoreFiles...),
 		DelegationEnabled:         r.runtime.cfg.SubAgent.Enabled,
 		OrchestrationLevel:        r.orchestrationLevel(),
+		AsyncSubAgents:            r.asyncSubAgents(),
 		AdvisorEnabled:            r.runtime.cfg.Advisor.Enabled,
 		LSPEnabled:                r.runtime.cfg.LSP.Enabled && len(r.runtime.cfg.LSP.Servers) > 0,
 		SandboxEnabled:            r.sandboxEnabled(),
@@ -228,6 +229,12 @@ func (r cliRunner) sandboxWrapper() tool.SandboxWrapper {
 	return r.runtime.sandbox
 }
 
+// asyncSubAgents reports whether sub_agent and follow_up return acks with
+// results delivered later; exec keeps them blocking.
+func (r cliRunner) asyncSubAgents() bool {
+	return r.normalizedRunMode() != "exec"
+}
+
 func (r cliRunner) normalizedRunMode() string {
 	runMode := strings.TrimSpace(r.runMode)
 	if runMode == "" {
@@ -255,7 +262,17 @@ func retainDiagnosticEvents(base output.EventSink) (output.EventSink, *[]output.
 	return events, &diagnostics
 }
 
-func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, drainSteers func() []agent.SteerMessage) agent.RunRequest {
+// runHooks are the per-run hooks a conversation driver or steer queue supplies.
+// The zero value runs without a boundary inbox.
+type runHooks struct {
+	drainInbox       func() agent.InboxDrain
+	onToolBatchDone  func(batchID string)
+	pendingSubAgents func() []agent.PendingSubAgent
+	// maxTokens tightens the configured token limit when positive.
+	maxTokens int
+}
+
+func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, hooks runHooks) agent.RunRequest {
 	maxTokens := setup.resolvedModel.EffectiveLimits.MaxOutputTokens
 	sandboxTmpDir := ""
 	if r.sandboxEnabled() {
@@ -290,7 +307,9 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		ContextManager:     agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
 		StreamingPreferred: r.streamingPreferred,
 		CompactionLogPath:  r.runtime.compactionLogFile,
-		DrainSteers:        drainSteers,
+		DrainInbox:         hooks.drainInbox,
+		OnToolBatchDone:    hooks.onToolBatchDone,
+		PendingSubAgents:   hooks.pendingSubAgents,
 		PromptCacheKey:     r.promptCacheKey(),
 		CacheBaseline:      r.cacheBaseline,
 		VisionCapabilities: visionCapabilities,
@@ -309,6 +328,9 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 			return agent.ParallelClassTool
 		}
 		return agent.ParallelClassNone
+	}
+	if hooks.maxTokens > 0 && (req.Limits.MaxTokens <= 0 || hooks.maxTokens < req.Limits.MaxTokens) {
+		req.Limits.MaxTokens = hooks.maxTokens
 	}
 	req.MaxParallelTools = r.runtime.cfg.Limits.MaxParallelTools
 	req.MaxParallelDelegations = r.runtime.cfg.SubAgent.MaxParallel

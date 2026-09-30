@@ -15,7 +15,7 @@ Sub-agent delegation is **enabled by default**. When it is, the model sees two a
 
 | Tool        | What it does                                                                     | Parameters                                                                           | Can mutate?            |
 |-------------|-------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------|------------------------|
-| `sub_agent` | Dispatch a specialized sub-agent by type: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision` | `type` enum + `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks`, and optionally `image_id` (required for type `vision`) | Depends on type; only `code` can mutate |
+| `sub_agent` | Dispatch a specialized sub-agent by type: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision` | `type` enum + `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks`, and optionally `image_id` (required for type `vision`) and, in async sessions, `group` | Depends on type; only `code` can mutate |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`                                                                  | No (resumes existing)  |
 
 The `sub_agent` tool routes to type-specific handlers with purpose-built system prompts and tool allowlists. Delegation results sent to the provider use a compact envelope with exact `output`, optional `status` and `reason` (the real error on failure, or the cancellation explanation), and optional persisted-session continuation. On usage-limit failures, the reason also includes fixed guidance: the parent is told to delegate a fresh sub-agent to continue or stop delegating and inform the user. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
@@ -56,6 +56,14 @@ Every sub-agent receives AGENTS.md (global + project) except `vision`, which can
 | `review`       | Yes       | Yes                           |
 | `vision`       | No        | No                            |
 
+### Async delegation
+
+In async sessions `sub_agent` (every type, including `vision`) and `follow_up` return an ack immediately instead of blocking: status `running`, or `queued` when `sub_agent.max_parallel` children are already running, plus the `agent_id` in `continuation`. The result arrives later as a separate message. Interactive sessions and oneshot phases are async; non-interactive `exec` runs stay blocking.
+
+Async `sub_agent` accepts an optional `group` label. Calls made in the same assistant response that share a label are delivered together once all of them have finished; groups never span responses. Calls without a label deliver as each finishes. The `group` parameter is part of the tool schema only in async sessions, so the tool definitions stay identical across turns.
+
+Running plus queued sub-agents are capped at twice `max_parallel`; a spawn over the cap fails with a tool error. `follow_up` fails with a tool error while the target agent is running, queued, or finished with a result not yet delivered. `workflow_handoff` fails while any sub-agent is still outstanding.
+
 ### `follow_up`
 
 The `follow_up` tool lets the parent model send a new user message to an existing child session identified by `agent_id`. This is useful when a sub-agent's initial response leads to follow-up questions or iterative refinement.
@@ -74,7 +82,7 @@ Key behaviours:
 
 ### Parallel fan-out
 
-Multiple delegation calls made in one turn execute concurrently. The fan-out width is bounded independently by `sub_agent.max_parallel` (default `3`, minimum `1`), separate from ordinary parallel-safe tool calls (read/grep/glob/ls/fetch_url/web_search/lsp_definitions/lsp_implementations/lsp_type_definitions/lsp_references/lsp_diagnostics/lsp_hover/lsp_symbols), which are bounded by `limits.max_parallel_tools` (default `4`, minimum `1`) — see [Configuration](configuration.md#limits-block). A value of `1` runs calls serially. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
+Multiple delegation calls made in one turn execute concurrently. The number of sub-agents running at once is capped session-wide by `sub_agent.max_parallel` (default `3`, minimum `1`); further spawns queue in order, and at most twice that many may be outstanding (running plus queued) before a spawn fails with a tool error. This is separate from ordinary parallel-safe tool calls (read/grep/glob/ls/fetch_url/web_search/lsp_definitions/lsp_implementations/lsp_type_definitions/lsp_references/lsp_diagnostics/lsp_hover/lsp_symbols), which are bounded by `limits.max_parallel_tools` (default `4`, minimum `1`) — see [Configuration](configuration.md#limits-block). A value of `1` runs sub-agents one at a time. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
 
 ### Stopping active delegates
 
@@ -84,8 +92,11 @@ The selector lists each active delegate as **bold, tool-box-coloured type · age
 
 - **Stop one** — confirm stopping the selected delegate. For a code delegate, the default is **stop and keep worktree**; the confirmation also offers **stop and discard worktree** or **keep working**. For other delegate types, choose **stop** or **keep working**.
 - **Stop all delegates** — confirm stopping every active delegate. All code worktrees are retained.
-- **Stop entire run** — confirm the existing whole-run interrupt, which also stops its delegates through the parent run context.
+- **Stop current turn** — shown first, and only while the parent is generating. Stops the parent's current turn but leaves delegates running; the conversation then pauses (see below).
+- **Stop entire run** — confirm stopping every delegate (running and queued) and the current turn.
 - **Dismiss** — close the dialog without stopping anything. **Keep working** on a confirmation screen returns to the selector.
+
+While delegates run in the background, the activity row shows `waiting on N sub-agents`. After **Stop current turn** it shows `paused — N results waiting; send a message to continue`: results are held until you send a message. If the token budget is reached with sub-agents still running, the row shows `token budget reached — N sub-agents still running`. Queued delegates appear as queued rows and count as active for the stop dialog. A delegate with no activity for 5 minutes is shown as `stalled Nm` in its row and in the dialog; this is display-only and the model is not told. While results are pending, `/new`, `/clear`, session switching and forking are refused; model, profile and mode switches and manual `/compact` are still allowed while waiting.
 
 Stopping a delegate does not automatically remove its worktree. A targeted code stop keeps its worktree by default, and stop-all keeps every code worktree. Discard is available only through the explicit targeted discard choice. Discarding a code session makes it non-resumable with `follow_up` and removes its delegation worktree and branch; it is not an automatic cleanup path. A code delegate stopped while waiting for cache warm-up never started, so it has no follow-up session; its empty worktree is retained by default and can be discarded from the stop dialog or removed later.
 
@@ -234,6 +245,10 @@ models:
       sub_agents:
         vision: anthropic/<vision-model-id>
 ```
+
+## Downgrading
+
+Sessions that contain async sub-agent history (result envelopes delivered as separate messages) are not guarded against being opened by an older binary. An older version shows those `<steiner-sub-agent-result>` envelopes as ordinary user text.
 
 ---
 

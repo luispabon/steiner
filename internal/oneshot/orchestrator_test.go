@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -50,7 +51,6 @@ func configWithEffectiveModels(defaultModel string, oneShot map[string]string) c
 type recordedPhaseInput struct {
 	conversation []agent.Message
 	skillNames   []string
-	drainSteers  func() []agent.SteerMessage
 	modelAlias   string
 	advisorCfg   config.AdvisorConfig
 	approver     tool.ApprovalResponder
@@ -64,6 +64,14 @@ type recordingSessionStore struct {
 func (s *recordingSessionStore) Save(sess session.Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A phase saves to one session repeatedly; sessions holds each distinct
+	// session once, at its latest state.
+	for i := range s.sessions {
+		if s.sessions[i].ID == sess.ID {
+			s.sessions[i] = sess
+			return nil
+		}
+	}
 	s.sessions = append(s.sessions, sess)
 	return nil
 }
@@ -77,7 +85,12 @@ type phaseRunnerStub struct {
 	started       chan struct{}
 }
 
-func (r phaseRunnerStub) RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (RunResult, error) {
+func (r phaseRunnerStub) RunPhase(ctx context.Context, in PhaseRunInput) (RunResult, error) {
+	conversation, skillNames := in.Conversation, in.SkillNames
+	if in.RegisterControl != nil {
+		release := in.RegisterControl(noopPhaseControl{})
+		defer release()
+	}
 	if r.factory != nil {
 		r.factory.mu.Lock()
 		if r.factory.calls == nil {
@@ -86,7 +99,6 @@ func (r phaseRunnerStub) RunPhase(ctx context.Context, conversation []agent.Mess
 		r.factory.calls[r.phase] = recordedPhaseInput{
 			conversation: cloneAgentMessages(conversation),
 			skillNames:   append([]string(nil), skillNames...),
-			drainSteers:  drainSteers,
 			modelAlias:   r.factory.calls[r.phase].modelAlias,
 			advisorCfg:   r.factory.calls[r.phase].advisorCfg,
 			approver:     r.factory.calls[r.phase].approver,
@@ -138,7 +150,6 @@ func (r phaseRunnerStub) RunPhase(ctx context.Context, conversation []agent.Mess
 	}
 
 	_ = skillNames
-	_ = drainSteers
 	return RunResult{
 		Conversation: conversation,
 		Reply:        string(r.phase),
@@ -203,7 +214,7 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 		Enabled:       false,
 	}
 
-	drainCh := make(chan agent.SteerMessage, 1)
+	var controlLog []string
 	orch, err := NewOrchestrator(Dependencies{
 		ProjectRoot:   projectRoot,
 		Identity:      identity,
@@ -213,23 +224,14 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 		RunnerFactory: runnerFactory,
 		ManifestStore: NewManifestStore(identity.ManifestPath(projectRoot)),
 		Events:        output.SinkFunc(func(event output.Event) { events = append(events, event) }),
-		DrainSteers: func() []agent.SteerMessage {
-			var msgs []agent.SteerMessage
-			for {
-				select {
-				case m := <-drainCh:
-					msgs = append(msgs, m)
-				default:
-					return msgs
-				}
-			}
+		RegisterControl: func(PhaseControl) func() {
+			controlLog = append(controlLog, "register")
+			return func() { controlLog = append(controlLog, "release") }
 		},
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator failed: %v", err)
 	}
-	drainCh <- agent.SteerMessage{Text: "stay focused"}
-
 	manifest, err := orch.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
@@ -316,12 +318,9 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 	if got := planCall.conversation[0].Content; !strings.Contains(got, "Planning artifacts:") || !strings.Contains(got, "Build the parser") {
 		t.Fatalf("plan seed conversation = %q, want task and artifact pointers", got)
 	}
-	if planCall.drainSteers == nil {
-		t.Fatal("plan drainSteers is nil")
-	}
-	steered := planCall.drainSteers()
-	if len(steered) != 1 || steered[0].Text != "stay focused" {
-		t.Fatalf("drainSteers() = %+v, want [stay focused]", steered)
+	wantLog := []string{"register", "release", "register", "release", "register", "release"}
+	if !slices.Equal(controlLog, wantLog) {
+		t.Fatalf("control registrations = %v, want %v: each phase registers after the previous released", controlLog, wantLog)
 	}
 }
 
@@ -569,114 +568,14 @@ func TestOrchestratorConcurrentRunsGetDistinctWorktrees(t *testing.T) {
 	}
 }
 
-type steerDrainingPhaseRunner struct {
-	phase        Phase
-	planningPath string
-	steers       []agent.SteerMessage
-}
+// noopPhaseControl is a PhaseControl that does nothing.
+type noopPhaseControl struct{}
 
-func (r *steerDrainingPhaseRunner) RunPhase(_ context.Context, conversation []agent.Message, _ []string, drainSteers func() []agent.SteerMessage) (RunResult, error) {
-	if drainSteers != nil {
-		r.steers = append(r.steers, drainSteers()...)
-	}
-	if err := os.MkdirAll(r.planningPath, 0o755); err != nil {
-		return RunResult{}, err
-	}
-	switch r.phase {
-	case PhasePlan:
-		if err := os.WriteFile(filepath.Join(r.planningPath, "overview.md"), []byte("overview\n"), 0o644); err != nil {
-			return RunResult{}, err
-		}
-		if err := os.WriteFile(filepath.Join(r.planningPath, "plan.yaml"), []byte("steps: []\n"), 0o644); err != nil {
-			return RunResult{}, err
-		}
-	case PhaseImplement:
-		if err := os.WriteFile(filepath.Join(r.planningPath, "execution.md"), []byte("execution\n"), 0o644); err != nil {
-			return RunResult{}, err
-		}
-	case PhaseReview:
-		if err := os.WriteFile(filepath.Join(r.planningPath, "review.md"), []byte("review\n"), 0o644); err != nil {
-			return RunResult{}, err
-		}
-	}
-	return RunResult{Conversation: conversation, Reply: string(r.phase)}, nil
-}
-
-type steerDrainingRunnerFactory struct {
-	planningPath string
-	runner       *steerDrainingPhaseRunner
-}
-
-func (f *steerDrainingRunnerFactory) NewPhaseRunner(_ context.Context, phase Phase, _ string, _ tool.ApprovalResponder, _ config.AdvisorConfig) (PhaseRunner, error) {
-	f.runner.phase = phase
-	f.runner.planningPath = f.planningPath
-	return f.runner, nil
-}
-
-func TestOrchestratorDrainSteersPreservesImages(t *testing.T) {
-	projectRoot := setupGitRepo(t)
-	identity := RunIdentity{ID: "img123", Slug: "image-task"}
-	t.Cleanup(func() {
-		_ = CleanupWorktree(context.Background(), projectRoot, identity)
-	})
-
-	planningPath := identity.PlanningPath(identity.WorktreePath(projectRoot))
-	sessionStore := &recordingSessionStore{}
-	runner := &steerDrainingPhaseRunner{}
-	runnerFactory := &steerDrainingRunnerFactory{
-		planningPath: planningPath,
-		runner:       runner,
-	}
-
-	drainCh := make(chan agent.SteerMessage, 4)
-	drainCh <- agent.SteerMessage{
-		Text:   "see [Image 1]",
-		Images: []agent.ImageBlock{{MediaType: "image/png", Data: "steer-image-data"}},
-	}
-
-	orch, err := NewOrchestrator(Dependencies{
-		ProjectRoot:   projectRoot,
-		Identity:      identity,
-		Task:          "Analyze the image",
-		Config:        configWithEffectiveModels("fallback-model", nil),
-		SessionStore:  sessionStore,
-		RunnerFactory: runnerFactory,
-		ManifestStore: NewManifestStore(identity.ManifestPath(projectRoot)),
-		DrainSteers: func() []agent.SteerMessage {
-			var msgs []agent.SteerMessage
-			for {
-				select {
-				case m := <-drainCh:
-					msgs = append(msgs, m)
-				default:
-					return msgs
-				}
-			}
-		},
-	})
-	if err != nil {
-		t.Fatalf("NewOrchestrator failed: %v", err)
-	}
-
-	_, err = orch.Run(context.Background())
-	if err != nil {
-		t.Fatalf("Run failed: %v", err)
-	}
-
-	if len(runner.steers) != 1 {
-		t.Fatalf("drained steers = %d, want 1", len(runner.steers))
-	}
-	steer := runner.steers[0]
-	if steer.Text != "see [Image 1]" {
-		t.Errorf("steer text = %q, want %q", steer.Text, "see [Image 1]")
-	}
-	if len(steer.Images) != 1 {
-		t.Fatalf("steer images = %d, want 1", len(steer.Images))
-	}
-	if steer.Images[0].Data != "steer-image-data" {
-		t.Errorf("steer image data = %q, want %q", steer.Images[0].Data, "steer-image-data")
-	}
-}
+func (noopPhaseControl) Submit(string, []agent.ImageBlock) {}
+func (noopPhaseControl) NotifySteer()                      {}
+func (noopPhaseControl) StopTurn()                         {}
+func (noopPhaseControl) CancelAgent(string, bool) error    { return nil }
+func (noopPhaseControl) CancelAll() error                  { return nil }
 
 func TestPhaseModelSelectionUsesEffectiveAssignments(t *testing.T) {
 	cfg := configWithEffectiveModels("profile-default", map[string]string{

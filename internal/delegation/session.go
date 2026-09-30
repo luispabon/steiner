@@ -40,6 +40,13 @@ type SubAgentHandlerDeps struct {
 	Diagnostics      *diagnostics.Writer
 	SessionStore     *SessionStore
 	ActiveController *ActiveController
+	// Supervisor runs every child. When nil, handlers default a private one
+	// sized from SubAgentCfg.MaxParallel over ActiveController.
+	Supervisor *Supervisor
+	// AsyncSubAgents makes sub_agent and follow_up return an ack immediately
+	// and deliver the result later through the supervisor's completion sink.
+	// False keeps the blocking behaviour.
+	AsyncSubAgents bool
 	// ExtraAllowedTools provides per-agent-type extra tool names included in
 	// child registries beyond the built-in allowlists. Nil or empty map grants
 	// no extra tools.

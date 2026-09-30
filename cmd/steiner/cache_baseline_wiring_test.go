@@ -22,8 +22,8 @@ func TestBuildRunRequestSharesSessionCacheBaseline(t *testing.T) {
 	setup := runnerSetup{resolvedModel: provider.ResolvedModel{BackendModelID: "model"}}
 	registry := tool.NewRegistry()
 
-	first := buildRunRequest(runner, setup, registry, nil, nil)
-	second := buildRunRequest(runner, setup, registry, nil, nil)
+	first := buildRunRequest(runner, setup, registry, nil, runHooks{})
+	second := buildRunRequest(runner, setup, registry, nil, runHooks{})
 	if first.CacheBaseline != store {
 		t.Fatalf("first run CacheBaseline = %p, want session store %p", first.CacheBaseline, store)
 	}
@@ -42,8 +42,8 @@ func TestBuildRunRequestCacheBaselineIsPerConstructionScope(t *testing.T) {
 	interactive := cliRunner{runtime: cliRuntime{}, cacheBaseline: agent.NewCacheBaselineStore()}
 	exec := cliRunner{runtime: cliRuntime{}, cacheBaseline: agent.NewCacheBaselineStore()}
 
-	interactiveReq := buildRunRequest(interactive, setup, registry, nil, nil)
-	execReq := buildRunRequest(exec, setup, registry, nil, nil)
+	interactiveReq := buildRunRequest(interactive, setup, registry, nil, runHooks{})
+	execReq := buildRunRequest(exec, setup, registry, nil, runHooks{})
 	if interactiveReq.CacheBaseline == nil || execReq.CacheBaseline == nil {
 		t.Fatalf("CacheBaseline = %p/%p, want non-nil stores", interactiveReq.CacheBaseline, execReq.CacheBaseline)
 	}

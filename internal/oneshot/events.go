@@ -11,6 +11,7 @@ const (
 	phaseIndicatorCompleted  = "completed"
 	phaseIndicatorBoundary   = "boundary"
 	phaseIndicatorCancelled  = "cancelled"
+	phaseIndicatorOrphaned   = "orphaned"
 )
 
 func emitPhaseTransition(sink output.EventSink, runID string, from, to Phase, status, model, sessionID string) {

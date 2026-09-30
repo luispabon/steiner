@@ -191,6 +191,9 @@ type Model struct {
 	delegateCancelModal          delegateCancelModalState
 	sessionStore                 SessionLister
 	interruptPending             bool
+	convState                    output.ConversationStateEvent
+	convStateSeen                bool
+	convLabelShown               bool
 	suppressWorkflowHandoffRun   bool
 	pendingWorkflowHandoffLaunch *workflowHandoffLaunch
 	contentDirty                 bool

@@ -154,8 +154,7 @@ func TestVisionHandler_CancelledBeforeDispatchCleansTraceWriter(t *testing.T) {
 	store := agent.NewImageStore(dir)
 	ref := store.Register(imgPath, "image/png", 10, 20, 15)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	controller := NewActiveController()
 	var runCount atomic.Int32
 	startedAgentID := ""
 	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) {
@@ -164,10 +163,11 @@ func TestVisionHandler_CancelledBeforeDispatchCleansTraceWriter(t *testing.T) {
 	}})
 	deps.WorkDir = dir
 	deps.ImageStore = store
+	deps.ActiveController = controller
 	deps.Events = output.SinkFunc(func(event output.Event) {
 		if event.Type == output.EventTypeDelegationStarted {
 			startedAgentID = event.Scope.AgentID
-			cancel()
+			controller.CancelAgent(startedAgentID)
 		}
 	})
 
@@ -180,7 +180,7 @@ func TestVisionHandler_CancelledBeforeDispatchCleansTraceWriter(t *testing.T) {
 		"checks":           []any{},
 		"image_id":         ref.ID,
 	}
-	if _, err := newVisionHandler(deps)(ctx, input); err != nil {
+	if _, err := newVisionHandler(deps)(context.Background(), input); err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
 	if startedAgentID == "" {

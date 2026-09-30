@@ -159,3 +159,105 @@ func withoutSkill(blocks []SkillBlock, name string) []SkillBlock {
 	}
 	return out
 }
+
+// MessageBlocks is the result of parsing a message with skill blocks, pending line, and sub-agent result envelopes.
+type MessageBlocks struct {
+	ModePrefix      string
+	SkillBlocks     []SkillBlock
+	PendingLine     string
+	ResultEnvelopes []string // raw envelope strings, including tags
+	Rest            string
+}
+
+// pendingLineRE matches a pending line anchored at the start.
+var pendingLineRE = regexp.MustCompile(`\A<steiner-sub-agents-pending>.*?</steiner-sub-agents-pending>`)
+
+// SplitMessageBlocks splits content into mode prefix, skill blocks, pending line, sub-agent result envelopes, and rest.
+// This is a superset of SplitSkillBlocks; use this when you need to parse envelopes.
+// SplitSkillBlocks remains unchanged for backward compatibility and efficiency.
+func SplitMessageBlocks(content string) MessageBlocks {
+	modePrefix := modeNoticePrefix(content)
+	pos := len(modePrefix)
+
+	// Parse skill blocks
+	var blocks []SkillBlock
+	for pos < len(content) {
+		block, next, ok := parseSkillBlockAt(content, pos)
+		if !ok {
+			break
+		}
+		blocks = append(blocks, block)
+		pos = next
+		if strings.HasPrefix(content[pos:], "\n\n") {
+			pos += 2
+		}
+	}
+
+	// Parse pending line (optional, single)
+	var pendingLine string
+	if strings.HasPrefix(content[pos:], "<steiner-sub-agents-pending>") {
+		m := pendingLineRE.FindStringIndex(content[pos:])
+		if m != nil {
+			pendingLine = content[pos+m[0] : pos+m[1]]
+			pos += m[1]
+			if strings.HasPrefix(content[pos:], "\n\n") {
+				pos += 2
+			}
+		}
+	}
+
+	// Parse result envelopes (zero or more)
+	var envelopes []string
+	for pos < len(content) {
+		envelope, next, ok := parseSubAgentResultEnvelopeAt(content, pos)
+		if !ok {
+			break
+		}
+		envelopes = append(envelopes, envelope)
+		pos = next
+		if strings.HasPrefix(content[pos:], "\n\n") {
+			pos += 2
+		}
+	}
+
+	return MessageBlocks{
+		ModePrefix:      modePrefix,
+		SkillBlocks:     blocks,
+		PendingLine:     pendingLine,
+		ResultEnvelopes: envelopes,
+		Rest:            content[pos:],
+	}
+}
+
+// parseSubAgentResultEnvelopeAt parses one result envelope starting at pos.
+// It returns the raw envelope (open tag through close tag), the offset just past close tag, and whether parsing succeeded.
+func parseSubAgentResultEnvelopeAt(content string, pos int) (string, int, bool) {
+	// Match open tag
+	m := regexp.MustCompile(
+		`\A<steiner-sub-agent-result agent_id=("(?:[^"\\]|\\.)*") type=("(?:[^"\\]|\\.)*") status=("(?:[^"\\]|\\.)*") call_id=("(?:[^"\\]|\\.)*") bytes="(\d+)">\n`,
+	).FindStringSubmatchIndex(content[pos:])
+	if m == nil {
+		return "", pos, false
+	}
+
+	// Extract size
+	size, err := strconv.Atoi(content[pos+m[10] : pos+m[11]])
+	if err != nil || size < 0 {
+		return "", pos, false
+	}
+
+	innerStart := pos + m[1]
+	// Guard before addition
+	if size > len(content)-innerStart {
+		return "", pos, false
+	}
+
+	innerEnd := innerStart + size
+	const closeTag = "\n</steiner-sub-agent-result>"
+	if !strings.HasPrefix(content[innerEnd:], closeTag) {
+		return "", pos, false
+	}
+
+	end := innerEnd + len(closeTag)
+	return content[pos:end], end, true
+}

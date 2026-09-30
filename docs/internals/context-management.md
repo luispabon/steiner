@@ -104,6 +104,12 @@ Both stages work the same way:
 
 `ConversationLineage` keeps all generations — nothing is ever pruned. This means the full conversation history is theoretically recoverable, but subsequent turns only see the latest generation.
 
+### Retention anchor and pending re-injection
+
+After the last-N-chunks rule picks the normal-stage retained tail, `anchorRealUserRetention` extends it back to the latest real user message (`IsRealUserMessage`: user role, `Source` not `sub_agent_result`) when the chunk rule left that message in the source. Assistant-led wake sequences would otherwise evict the prompt. The extension reuses `fitRunner`, the same fit check the stage applies to retained messages, and is discarded if the extended tail does not fit or would leave nothing to summarise (the anchor is the first message). The emergency stages keep their plain chunk retention.
+
+After a compaction applies inside a run, `appendPendingSubAgentsLine` appends one `sub_agent_result` user message built by `BuildDeliveryMessage` with only the pending list, when `RunRequest.PendingSubAgents` is set and returns a non-empty list. It is appended at the tail; retained messages are never rewritten.
+
 ### Skills through compaction
 
 Both normal and emergency stages strip skill envelopes from the retained messages, then re-inject the currently active envelopes verbatim as a single leading user message ahead of the retained turns; stale activations and deactivations are dropped. `activeSkillBlocks` scans the full generation, so it sees early activations alongside any late switch retained in the tail. An enabled skill thus survives compaction, while a disabled skill disappears at the next compaction.

@@ -66,9 +66,16 @@ type RunRequest struct {
 	// When non-empty, compaction calls write their full API request and final response to this file.
 	CompactionLogPath string
 
-	// DrainSteers drains all queued between-turn steering messages.
-	// Non-nil only in interactive mode; sub-agents receive nil.
-	DrainSteers func() []SteerMessage
+	// DrainInbox returns the next boundary delivery. Nil for sub-agents.
+	DrainInbox func() InboxDrain
+
+	// OnToolBatchDone is called after every tool batch with the batch id
+	// stamped via WithToolBatchID.
+	OnToolBatchDone func(batchID string)
+
+	// PendingSubAgents returns the current pending list for post-compaction
+	// re-injection. Nil disables it.
+	PendingSubAgents func() []PendingSubAgent
 
 	// UsageRecorder records cache-hit-rate observations per usage-bearing model
 	// response. Nil disables recording (tests, unwired paths).
@@ -132,6 +139,33 @@ type RunRequest struct {
 	TurnBudgetNotice func(turnsUsed, maxTurns int) string
 }
 
+// InboxDrain is one boundary delivery to the run.
+type InboxDrain struct {
+	// Message is appended to the conversation when non-nil.
+	Message *Message
+	// Wake forces another turn after a complete assistant-only turn.
+	Wake bool
+	// UserText is the user-typed text carried by Message; it alone is the
+	// SteerReceived payload. Empty emits no event.
+	UserText string
+}
+
+// SteerInboxDrain adapts a steer queue drain to DrainInbox. Every non-empty
+// drain is a wake delivery.
+func SteerInboxDrain(drain func() []SteerMessage) func() InboxDrain {
+	if drain == nil {
+		return nil
+	}
+	return func() InboxDrain {
+		steers := drain()
+		if len(steers) == 0 {
+			return InboxDrain{}
+		}
+		merged := MergeSteers(steers)
+		return InboxDrain{Message: &merged, Wake: true, UserText: merged.Content}
+	}
+}
+
 // Runner executes the main turn loop for an agent run.
 type Runner struct{}
 
@@ -186,16 +220,17 @@ func (r *Runner) run(ctx context.Context, req RunRequest) (RunState, error) {
 			cancel()
 		}
 		state = outcome.State
-		// Drain all queued steering messages at turn boundary.
-		hadSteers := false
-		if req.DrainSteers != nil {
-			steers := req.DrainSteers()
-			if len(steers) > 0 {
-				hadSteers = true
-				merged := MergeSteers(steers)
-				state.Conversation = append(state.Conversation, merged)
-				state.Lineage = state.Lineage.WithAppendedMessages([]Message{merged})
-				emitEvent(req.Events, output.NewSteerReceivedEvent(merged.Content))
+		// Drain the inbox once at each turn boundary.
+		wake := false
+		if req.DrainInbox != nil {
+			drain := req.DrainInbox()
+			wake = drain.Wake
+			if drain.Message != nil {
+				state.Conversation = append(state.Conversation, *drain.Message)
+				state.Lineage = state.Lineage.WithAppendedMessages([]Message{*drain.Message})
+			}
+			if drain.UserText != "" {
+				emitEvent(req.Events, output.NewSteerReceivedEvent(drain.UserText))
 			}
 		}
 		if outcome.Error != nil {
@@ -225,9 +260,9 @@ func (r *Runner) run(ctx context.Context, req RunRequest) (RunState, error) {
 		}
 		runnerRetries = 0
 		if outcome.Stop {
-			// If the user queued steers during an assistant-only completion,
-			// continue so the queued messages are actually sent.
-			if hadSteers && state.StopReason == StopReasonComplete {
+			// If a wake delivery arrived during an assistant-only completion,
+			// continue so it is actually sent.
+			if wake && state.StopReason == StopReasonComplete {
 				continue
 			}
 			if state.StopReason == StopReasonComplete {
@@ -297,6 +332,7 @@ func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 	basePrompt.CachedPreamble = manager.CachedSystemPreamble(
 		basePrompt.PromptOverrides.System,
 		basePrompt.DelegationEnabled,
+		basePrompt.AsyncSubAgents,
 		basePrompt.OrchestrationLevel,
 		basePrompt.AdvisorEnabled,
 		basePrompt.LSPEnabled,

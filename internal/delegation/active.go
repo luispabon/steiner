@@ -3,7 +3,6 @@ package delegation
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 )
 
@@ -32,21 +31,15 @@ func NewActiveController() *ActiveController {
 	}
 }
 
-// Register registers an agent and returns its dedicated child context.
-//
-//revive:disable-next-line context-as-argument
-func (c *ActiveController) Register(agentID string, parent context.Context, agentType AgentType, worktree CodeWorktree) (context.Context, error) {
+// RegisterWithCancel registers an agent with a pre-made cancel function.
+func (c *ActiveController) RegisterWithCancel(agentID string, cancel context.CancelFunc, agentType AgentType, worktree CodeWorktree) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if _, ok := c.delegates[agentID]; ok {
-		return nil, ErrAgentAlreadyActive
-	}
-	if parent == nil {
-		return nil, fmt.Errorf("register active agent: parent context is nil")
+		return ErrAgentAlreadyActive
 	}
 
-	child, cancel := context.WithCancel(parent)
 	if c.delegates == nil {
 		c.delegates = make(map[string]activeDelegate)
 	}
@@ -56,7 +49,7 @@ func (c *ActiveController) Register(agentID string, parent context.Context, agen
 		worktree:  worktree,
 	}
 	c.order = append(c.order, agentID)
-	return child, nil
+	return nil
 }
 
 // CancelOutcome reports whether targeted cancellation was accepted.

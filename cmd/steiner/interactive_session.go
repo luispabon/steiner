@@ -30,16 +30,16 @@ import (
 	"github.com/luispabon/steiner/internal/update"
 )
 
-type delegationCanceller struct{ c *delegation.ActiveController }
+type delegationCanceller struct{ s *delegation.Supervisor }
 
 func (d delegationCanceller) CancelAgent(agentID string, discard bool) error {
-	if d.c == nil {
+	if d.s == nil {
 		return errors.New("no active delegate cancellation available")
 	}
 	if agentID == "" {
 		return errors.New("cancel delegate: agent id required")
 	}
-	switch d.c.CancelAgentWithDiscard(agentID, discard) {
+	switch d.s.CancelAgent(agentID, discard, delegation.CancelCauseUser) {
 	case delegation.CancelAccepted:
 		return nil
 	case delegation.CancelAlreadyFinished:
@@ -50,10 +50,10 @@ func (d delegationCanceller) CancelAgent(agentID string, discard bool) error {
 }
 
 func (d delegationCanceller) CancelAll() error {
-	if d.c == nil {
+	if d.s == nil {
 		return errors.New("no active delegate cancellation available")
 	}
-	d.c.CancelAll()
+	d.s.CancelAll(delegation.CancelCauseUser)
 	return nil
 }
 
@@ -61,17 +61,18 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 	sessionCfg := rt.cfg
 
 	sessDeps := interactive.Dependencies{
-		BaseEvents:        rt.events,
-		SkillNames:        rt.skillNames,
-		Config:            sessionCfg,
-		HomeDir:           rt.homeDir,
-		WorkDir:           rt.workDir,
-		SessionStore:      rt.sessionStore,
-		SkillLoader:       skill.Loader{RootDirs: prompt.SkillRoots(rt.homeDir, rt.projectRoot), BundledFS: rt.skillBundledFS},
-		DelegateCanceller: delegationCanceller{c: rt.delegationActiveController},
-		CompactionLogPath: rt.compactionLogFile,
-		RecordModelSwitch: modelPopularityRecorder(rt.modelPopularity),
-		ResolveModel:      rt.resolveModel,
+		BaseEvents:          rt.events,
+		SkillNames:          rt.skillNames,
+		Config:              sessionCfg,
+		HomeDir:             rt.homeDir,
+		WorkDir:             rt.workDir,
+		SessionStore:        rt.sessionStore,
+		SkillLoader:         skill.Loader{RootDirs: prompt.SkillRoots(rt.homeDir, rt.projectRoot), BundledFS: rt.skillBundledFS},
+		DelegateCanceller:   delegationCanceller{s: rt.delegationSupervisor},
+		CompactionLogPath:   rt.compactionLogFile,
+		RecordModelSwitch:   modelPopularityRecorder(rt.modelPopularity),
+		ResolveModel:        rt.resolveModel,
+		MaxTokensPerEpisode: sessionCfg.Limits.MaxTokens,
 		OnEffectiveAssignmentsChanged: func(effective config.EffectiveModelAssignments) {
 			if rt.visionCapabilities != nil {
 				rt.visionCapabilities.SetSubAgentConfigured(effective.SubAgents["vision"] != "")
@@ -83,6 +84,10 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 	}
 	if rt.imageStore != nil {
 		sessDeps.ImageStore = rt.imageStore
+	}
+	if rt.delegationSupervisor != nil {
+		sessDeps.Background = rt.delegationSupervisor
+		sessDeps.SetCompletionSink = rt.delegationSupervisor.SetCompletionSink
 	}
 	return interactive.NewSession(sessDeps)
 }
@@ -103,7 +108,7 @@ func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) cliRuntim
 			rt.mcpManager.UpdatePlanMode(m == config.ExecutionModePlan)
 		}
 	})
-	registry := runtimeRegistryWithSinkAndMode(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox, rt.mcpManager, rt.lspManager)
+	registry := runtimeRegistryWithSinkAndMode(rt.cfg, rt.workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), rt.sandbox, rt.mcpManager, rt.lspManager, withPendingSubAgents(rt.delegationSupervisor))
 	rt.registry = registry
 	rt.toolNames = registry.Names()
 	rt.mcpInit = &mcpInitOnce{}
@@ -236,7 +241,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	tuiCfg.Recorder = rt.usageRecorder
 	tuiCfg.ImageStore = rt.imageStore
 	tuiCfg.VisionCapabilities = rt.visionCapabilities
-	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink(), sess.CurrentEffective, sess.OrchestrationLevel)
+	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink(), sess.CurrentEffective, sess.OrchestrationLevel, sess.ActiveRunController().SteerQueue())
 	tuiCfg.Notifier = notify.New(notify.Options{
 		Enabled:  rt.cfg.DesktopNotifications.Enabled,
 		Duration: time.Duration(rt.cfg.DesktopNotifications.Duration) * time.Second,
@@ -612,7 +617,7 @@ func sortedProfileNames(profiles map[string]config.ModelProfile) []string {
 // newOneshotRunnerFactoryBuilder returns a builder that binds a oneshot phase
 // runner factory to a specific run identity. The interactive TUI mints a fresh
 // identity per launch or resume, so the factory must be constructed per run.
-func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, projectRoot string, events output.EventSink, currentEffective func() config.EffectiveModelAssignments, orchestrationLevel func() config.OrchestrationLevel) tui.OneshotRunnerFactoryBuilder {
+func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, projectRoot string, events output.EventSink, currentEffective func() config.EffectiveModelAssignments, orchestrationLevel func() config.OrchestrationLevel, steers *agent.SteerQueue) tui.OneshotRunnerFactoryBuilder {
 	return func(identity oneshot.RunIdentity) oneshot.PhaseRunnerFactory {
 		return phaseRunnerFactory{
 			cmd:                cmd,
@@ -624,6 +629,7 @@ func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, project
 			currentEffective:   currentEffective,
 			orchestrationLevel: orchestrationLevel,
 			baseline:           agent.NewCacheBaselineStore(),
+			steers:             steers,
 		}
 	}
 }
@@ -707,16 +713,24 @@ func (r sessionRunner) Compact(ctx context.Context, conversation []agent.Message
 	return r.runner.Compact(ctx, conversation, nil, tools, steering)
 }
 
-func (r sessionRunner) Run(ctx context.Context, conversation []agent.Message, drainSteers func() []agent.SteerMessage) (interactive.RunResult, error) {
+func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (interactive.RunResult, error) {
 	if r.mcpInit != nil {
 		r.mcpInit.once.Do(func() { r.mcpInit.run(ctx, r.runner.runtime) })
 		if r.mcpInit.err != nil {
 			return interactive.RunResult{}, r.mcpInit.err
 		}
 	}
-	result, err := r.runner.Run(ctx, conversation, nil, drainSteers)
+	result, err := r.runner.RunWithHooks(ctx, in.Conversation, nil, runHooks{
+		drainInbox:       in.DrainInbox,
+		onToolBatchDone:  in.OnToolBatchDone,
+		pendingSubAgents: in.PendingSubAgents,
+		maxTokens:        in.MaxTokens,
+	})
 	return interactive.RunResult{
 		Conversation:    result.Conversation,
 		WorkflowHandoff: result.WorkflowHandoff,
+		Lineage:         result.Lineage,
+		TokenCount:      result.TokenCount,
+		StopReason:      result.StopReason,
 	}, err
 }

@@ -20,7 +20,8 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 			data: struct {
 				Specialists []specialistView
 				Orchestrate bool
-			}{Specialists: specialistViews(), Orchestrate: true},
+				Async       bool
+			}{Specialists: specialistViews(), Orchestrate: true, Async: true},
 		},
 		{name: templateAdvisor},
 		{name: templateCodeChild},

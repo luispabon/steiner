@@ -92,20 +92,18 @@ func (r cliRunner) orchestrationLevel() config.OrchestrationLevel {
 }
 
 func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {
+	return r.RunWithHooks(ctx, conversation, skillNames, runHooks{drainInbox: agent.SteerInboxDrain(drainSteers)})
+}
+
+// RunWithHooks is Run with the boundary hooks of a conversation driver.
+func (r cliRunner) RunWithHooks(ctx context.Context, conversation []agent.Message, skillNames []string, hooks runHooks) (runResult, error) {
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	return r.run(runCtx, conversation, skillNames, drainSteers)
+	return r.run(runCtx, conversation, skillNames, hooks)
 }
 
-// RunPhase executes a single phase run without installing a signal handler.
-// The caller owns cancellation and interrupt handling for phase orchestration.
-func (r cliRunner) RunPhase(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {
-	resetFallbackModelWarnings()
-	return r.run(ctx, conversation, skillNames, drainSteers)
-}
-
-func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {
+func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillNames []string, hooks runHooks) (runResult, error) {
 	setup, err := r.prepareRun(conversation, skillNames)
 	if err != nil {
 		return runResult{}, err
@@ -144,7 +142,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		return runResult{}, err
 	}
 	runner := agent.NewRunner()
-	state, err := runner.Run(ctx, buildRunRequest(r, setup, activeRegistry, events, drainSteers))
+	state, err := runner.Run(ctx, buildRunRequest(r, setup, activeRegistry, events, hooks))
 	reason := string(state.StopReason)
 	if reason == "" && err != nil {
 		reason = string(agent.StopReasonError)
@@ -157,7 +155,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		err,
 	))
 	if err != nil {
-		return runResult{Conversation: state.Conversation}, err
+		return runResult{Conversation: state.Conversation, TokenCount: state.TokenCount, StopReason: state.StopReason}, err
 	}
 
 	return runResult{
@@ -166,16 +164,27 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		Diagnostics:     cloneEvents(*diagnostics),
 		WorkflowHandoff: state.WorkflowHandoff,
 		Lineage:         state.Lineage,
+		TokenCount:      state.TokenCount,
+		StopReason:      state.StopReason,
 	}, nil
 }
 
+// lastUserPrompt returns the run preview: the last real user message, or
+// "sub-agent results (N)" when the trailing user message only delivers results.
 func lastUserPrompt(messages []agent.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == agent.MessageRoleUser {
+		if agent.IsRealUserMessage(messages[i]) {
 			return strings.TrimSpace(messages[i].Content)
+		}
+		if messages[i].Role == agent.MessageRoleUser {
+			return fmt.Sprintf("sub-agent results (%d)", countSubAgentResults(messages[i].Content))
 		}
 	}
 	return ""
+}
+
+func countSubAgentResults(content string) int {
+	return max(strings.Count(content, "<steiner-sub-agent-result"), 1)
 }
 
 func toProviderConversation(messages []agent.Message) []provider.Message {
@@ -225,6 +234,8 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		UsageRecorder:                    r.runtime.usageRecorder,
 		SessionStore:                     r.runtime.delegationSessionStore,
 		ActiveController:                 r.runtime.delegationActiveController,
+		Supervisor:                       r.runtime.delegationSupervisor,
+		ChildEvents:                      r.runtime.events,
 		ImageStore:                       r.runtime.imageStore,
 		ExtraAllowedTools:                extraAllowedTools,
 		CacheKeyStore:                    r.runtime.delegationCacheKeyStore,
@@ -236,6 +247,7 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		SandboxWritableMounts:            sandbox.WritableHostMounts(r.runtime.cfg.Sandbox),
 		Sandbox:                          r.sandboxWrapper(),
 		ModeGetter:                       r.modeGetterFunc,
+		AsyncSubAgents:                   r.asyncSubAgents(),
 	}
 }
 
@@ -279,4 +291,13 @@ func (p loggingProvider) StreamChatCompletion(ctx context.Context, req provider.
 
 func (p loggingProvider) SupportsUsageStats() bool {
 	return p.inner.SupportsUsageStats()
+}
+
+// WithEventSink implements delegation.EventSinkScoper so child runs can tag
+// provider events with their agent scope without mutating the parent's provider.
+func (p loggingProvider) WithEventSink(wrap func(output.EventSink) output.EventSink) provider.Provider {
+	if p.sink == nil {
+		return p
+	}
+	return loggingProvider{inner: p.inner, sink: wrap(p.sink)}
 }

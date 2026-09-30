@@ -96,7 +96,7 @@ Git diff form: git --no-pager diff --no-ext-diff --no-textconv --no-color --igno
 Git show form: git --no-pager show --no-ext-diff --no-textconv --no-color <rev>:<path>
 ```
 
-Dispatch a phase's independent sub-agents in parallel (several `sub_agent` calls in one turn, bounded by `sub_agent.max_parallel`).
+Dispatch a phase's independent sub-agents in one turn (max `sub_agent.max_parallel`) under one `group` label; results arrive together; the next phase starts after.
 
 ## Phase: Map
 

@@ -196,16 +196,18 @@ func TestSetRunnerConcurrentWithRunAndCompaction(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			s.manualCompaction(context.Background())
+			// Refused while a prompt runs; the race is what matters here.
+			_ = s.Handle(context.Background(), TriggerManualCompaction{})
 		}()
 	}
 	wg.Wait()
+	waitSettled(t, s)
 
 	// The last swap must be the executor the next turn uses.
 	var used atomic.Int64
 	marker := &concurrentRunExecutor{calls: &used}
 	s.SetRunner(marker)
-	s.submitPrompt(context.Background(), "after swap", nil)
+	submitAndWait(t, s, "after swap", nil)
 	if got := used.Load(); got != 1 {
 		t.Fatalf("runner invocations after SetRunner = %d, want 1", got)
 	}
@@ -217,7 +219,7 @@ type concurrentRunExecutor struct {
 	calls *atomic.Int64
 }
 
-func (e *concurrentRunExecutor) Run(context.Context, []agent.Message, func() []agent.SteerMessage) (RunResult, error) {
+func (e *concurrentRunExecutor) Run(context.Context, RunInput) (RunResult, error) {
 	e.calls.Add(1)
 	return RunResult{}, nil
 }

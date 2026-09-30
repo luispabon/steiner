@@ -49,13 +49,13 @@ func TestSteerInjection(t *testing.T) {
 				Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}},
 			},
 			Limits: Limits{MaxTurns: 4, MaxTokens: 100},
-			DrainSteers: func() []SteerMessage {
+			DrainInbox: SteerInboxDrain(func() []SteerMessage {
 				steerCallCount++
 				if steerCallCount == 1 {
 					return []SteerMessage{{Text: "please focus on correctness"}}
 				}
 				return nil
-			},
+			}),
 			Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 		})
 		if err != nil {
@@ -129,8 +129,8 @@ func TestSteerInjection(t *testing.T) {
 			Prompt: prompt.AssemblyOptions{
 				Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
 			},
-			Limits:      Limits{MaxTurns: 2, MaxTokens: 100},
-			DrainSteers: nil,
+			Limits:     Limits{MaxTurns: 2, MaxTokens: 100},
+			DrainInbox: nil,
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
@@ -161,9 +161,9 @@ func TestSteerInjection(t *testing.T) {
 			Prompt: prompt.AssemblyOptions{
 				Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
 			},
-			Limits:      Limits{MaxTurns: 2, MaxTokens: 100},
-			DrainSteers: func() []SteerMessage { return nil },
-			Events:      output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+			Limits:     Limits{MaxTurns: 2, MaxTokens: 100},
+			DrainInbox: SteerInboxDrain(func() []SteerMessage { return nil }),
+			Events:     output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 		})
 		if err != nil {
 			t.Fatalf("Run() error = %v", err)
@@ -219,13 +219,13 @@ func TestSteerInjectionWithImages(t *testing.T) {
 				Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}},
 			},
 			Limits: Limits{MaxTurns: 4, MaxTokens: 100},
-			DrainSteers: func() []SteerMessage {
+			DrainInbox: SteerInboxDrain(func() []SteerMessage {
 				if drained {
 					return nil
 				}
 				drained = true
 				return []SteerMessage{{Text: "see [Image 1]", Images: []ImageBlock{{MediaType: "image/png", Data: "steer-image-data"}}}}
-			},
+			}),
 			ResolvedModel: provider.ResolvedModel{
 				Alias:  "test-model",
 				Vision: &vision,
@@ -301,7 +301,7 @@ func TestSteerInjectionMultipleImages(t *testing.T) {
 				Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}},
 			},
 			Limits: Limits{MaxTurns: 4, MaxTokens: 100},
-			DrainSteers: func() []SteerMessage {
+			DrainInbox: SteerInboxDrain(func() []SteerMessage {
 				if drained {
 					return nil
 				}
@@ -312,7 +312,7 @@ func TestSteerInjectionMultipleImages(t *testing.T) {
 					{Text: "third queued message [Image 1]", Images: []ImageBlock{{MediaType: "image/png", Data: "third-image-data"}}},
 					{Text: "fourth queued message [Image 1]", Images: []ImageBlock{{MediaType: "image/png", Data: "fourth-image-data"}}},
 				}
-			},
+			}),
 			ResolvedModel: provider.ResolvedModel{
 				Alias:  "test-model",
 				Vision: &vision,
@@ -390,7 +390,7 @@ func TestSteerInjectionAtAssistantOnlyStop(t *testing.T) {
 				Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}},
 			},
 			Limits: Limits{MaxTurns: 4, MaxTokens: 100},
-			DrainSteers: func() []SteerMessage {
+			DrainInbox: SteerInboxDrain(func() []SteerMessage {
 				if drained {
 					return nil
 				}
@@ -401,7 +401,7 @@ func TestSteerInjectionAtAssistantOnlyStop(t *testing.T) {
 					{Text: "third queued message [Image 1]", Images: []ImageBlock{{MediaType: "image/png", Data: "third-image-data"}}},
 					{Text: "fourth queued message [Image 1]", Images: []ImageBlock{{MediaType: "image/png", Data: "fourth-image-data"}}},
 				}
-			},
+			}),
 			ResolvedModel: provider.ResolvedModel{
 				Alias:  "test-model",
 				Vision: &vision,

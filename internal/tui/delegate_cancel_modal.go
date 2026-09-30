@@ -28,6 +28,9 @@ type delegateCancelModalState struct {
 	rows     []delegateActiveRow
 	selected int
 	target   int
+	// stopTurn adds a leading "Stop current turn" option, offered only while
+	// the driver is generating.
+	stopTurn bool
 }
 
 func openDelegateCancelModal(width, height int, rows []delegateActiveRow) delegateCancelModalState {
@@ -41,6 +44,19 @@ func openDelegateCancelModal(width, height int, rows []delegateActiveRow) delega
 		screen:       delegateCancelScreenSelector,
 		rows:         append([]delegateActiveRow(nil), rows...),
 	}
+}
+
+func (s delegateCancelModalState) withStopTurn(on bool) delegateCancelModalState {
+	s.stopTurn = on
+	return s
+}
+
+// optionOffset is the number of selector entries before the delegate rows.
+func (s delegateCancelModalState) optionOffset() int {
+	if s.stopTurn {
+		return 1
+	}
+	return 0
 }
 
 func (s delegateCancelModalState) close() delegateCancelModalState {
@@ -59,7 +75,7 @@ func (s delegateCancelModalState) moveSelection(delta int) delegateCancelModalSt
 
 func (s delegateCancelModalState) delegateCancelSelectionCount() int {
 	if s.screen == delegateCancelScreenSelector {
-		return len(s.rows) + 3
+		return s.optionOffset() + len(s.rows) + 3
 	}
 	switch s.screen {
 	case delegateCancelScreenConfirmTarget, delegateCancelScreenConfirmAll, delegateCancelScreenConfirmRun:
@@ -76,7 +92,7 @@ func (m *Model) openDelegateCancelModal() *Model {
 	if len(rows) == 0 {
 		return m
 	}
-	m.delegateCancelModal = openDelegateCancelModal(m.width, m.height, rows)
+	m.delegateCancelModal = openDelegateCancelModal(m.width, m.height, rows).withStopTurn(m.driverGenerating())
 	return m
 }
 
@@ -116,14 +132,20 @@ func (m *Model) delegateCancelHeading(text string, contentWidth int) string {
 func (m *Model) renderDelegateCancelSelector(contentWidth int) string {
 	const markerWidth = 2
 
-	lines := make([]string, 0, len(m.delegateCancelModal.rows)+3)
-	for i, row := range m.delegateCancelModal.rows {
+	s := m.delegateCancelModal
+	offset := s.optionOffset()
+	lines := make([]string, 0, len(s.rows)+4)
+	if s.stopTurn {
+		line := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render("Stop current turn")
+		lines = append(lines, m.renderDelegateCancelSelectorLine(line, s.selected == 0, contentWidth))
+	}
+	for i, row := range s.rows {
 		line := m.renderDelegateCancelRow(row, max(0, contentWidth-markerWidth))
-		lines = append(lines, m.renderDelegateCancelSelectorLine(line, i == m.delegateCancelModal.selected, contentWidth))
+		lines = append(lines, m.renderDelegateCancelSelectorLine(line, i+offset == s.selected, contentWidth))
 	}
 	labels := []string{"Stop all delegates", "Stop entire run", "Dismiss"}
 	for i, label := range labels {
-		index := len(m.delegateCancelModal.rows) + i
+		index := offset + len(s.rows) + i
 		line := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Render(label)
 		lines = append(lines, m.renderDelegateCancelSelectorLine(line, index == m.delegateCancelModal.selected, contentWidth))
 	}
@@ -152,7 +174,14 @@ func (m *Model) renderDelegateCancelRow(row delegateActiveRow, contentWidth int)
 	styledType := typeStyle.Render(typeLabel)
 	prefixWidth := lipgloss.Width(styledType) + 3 + lipgloss.Width(row.agentID) + 3
 	preview := truncateOverlayText(row.taskPreview, max(1, contentWidth-prefixWidth))
-	return styledType + " · " + row.agentID + " · " + preview
+	line := styledType + " · " + row.agentID + " · " + preview
+	switch {
+	case row.stalledMin > 0:
+		line += " · " + m.styles.Warn.Render(fmt.Sprintf("stalled %dm", row.stalledMin))
+	case row.queued:
+		line += " · " + m.styles.FgMute.Render("queued")
+	}
+	return line
 }
 
 func (m *Model) delegateCancelTargetBody(contentWidth int) string {
@@ -223,18 +252,24 @@ func (m *Model) refreshDelegateCancelSelector() {
 		return
 	}
 	m.delegateCancelModal.rows = rows
+	m.delegateCancelModal.stopTurn = m.driverGenerating()
 	m.delegateCancelModal.screen = delegateCancelScreenSelector
 	m.delegateCancelModal.selected = 0
 	m.delegateCancelModal.target = 0
 }
 
-func (m *Model) executeDelegateCancelAction(action interactive.Action) *Model {
-	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), action); err != nil {
-			m.appendError(err)
-			m.syncViewport()
-		}
+func (m *Model) dispatchDelegateCancelAction(action interactive.Action) {
+	if m.controller == nil {
+		return
 	}
+	if err := m.controller.Handle(context.Background(), action); err != nil {
+		m.appendError(err)
+		m.syncViewport()
+	}
+}
+
+func (m *Model) executeDelegateCancelAction(action interactive.Action) *Model {
+	m.dispatchDelegateCancelAction(action)
 	m.delegateCancelModal = m.delegateCancelModal.close()
 	return m
 }
@@ -268,6 +303,14 @@ func (m *Model) confirmDelegateCancelModal() tea.Cmd {
 
 func (m *Model) confirmDelegateCancelSelector() {
 	s := m.delegateCancelModal
+	if s.stopTurn {
+		if s.selected == 0 {
+			m.delegateCancelModal = s.close()
+			m.executeInterruptAction()
+			return
+		}
+		s.selected--
+	}
 	switch {
 	case s.selected < len(s.rows):
 		s.target = s.selected
@@ -341,10 +384,19 @@ func (m *Model) confirmDelegateCancelAction() {
 		m.refreshDelegateCancelSelector()
 	case delegateCancelScreenConfirmRun:
 		if s.selected == 0 {
-			m.executeInterruptAction()
-			m.delegateCancelModal = m.delegateCancelModal.close()
+			m.stopEntireRun()
 			return
 		}
 		m.refreshDelegateCancelSelector()
 	}
+}
+
+func (m *Model) stopEntireRun() {
+	m.dispatchDelegateCancelAction(interactive.CancelAllDelegates{})
+	if m.driverGenerating() || !m.content.asyncMode {
+		m.executeInterruptAction()
+	} else {
+		m.dispatchDelegateCancelAction(interactive.InterruptActiveRun{})
+	}
+	m.delegateCancelModal = m.delegateCancelModal.close()
 }

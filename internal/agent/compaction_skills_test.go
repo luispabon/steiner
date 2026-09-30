@@ -334,3 +334,56 @@ func TestSummarizeCompactorRetainedMessagesExcludeDroppedSkillOnlyMessage(t *tes
 		t.Fatalf("persisted skill envelopes = %d, want 1 reinjection", got)
 	}
 }
+
+func TestActiveSkillBlocksWithEnvelopes(t *testing.T) {
+	t.Parallel()
+
+	a1 := mustSkillActivation(t, "alpha", "body")
+
+	// Create a message with skill followed by result envelopes (as strings, since agent tests would import this package)
+	envelope := `<steiner-sub-agent-result agent_id="code-1" type="code" status="ok" call_id="call-1" bytes="4">
+test
+</steiner-sub-agent-result>`
+
+	all := []Message{
+		{Role: MessageRoleUser, Content: prompt.PrependSkillBlocks([]string{a1}, "start")},
+		{Role: MessageRoleAssistant, Content: "ack"},
+		{Role: MessageRoleUser, Content: a1 + "\n\n" + envelope + "\n\nmore text"},
+	}
+
+	state := stateFromMessages(all)
+	active := activeSkillBlocks(state)
+
+	if len(active) != 1 || active[0].Name != "alpha" {
+		t.Errorf("activeSkillBlocks failed with envelopes: got %d blocks", len(active))
+	}
+}
+
+func TestStripRetainedSkillBlocksPreservesEnvelopes(t *testing.T) {
+	t.Parallel()
+
+	a1 := mustSkillActivation(t, "alpha", "body")
+
+	// Create a message that contains both skills and what looks like an envelope-ish content
+	envelope := `<steiner-sub-agent-result agent_id="code-1" type="code" status="ok" call_id="call-1" bytes="4">
+test
+</steiner-sub-agent-result>`
+
+	messages := []Message{
+		{Role: MessageRoleUser, Content: a1 + "\n\n" + envelope},
+		{Role: MessageRoleAssistant, Content: "response"},
+		{Role: MessageRoleUser, Content: "plain user text"},
+	}
+
+	retained := stripRetainedSkillBlocks(messages)
+
+	// The first message should have the skill stripped but content preserved if possible
+	if strings.Contains(retained[0].Content, "steiner-skill") {
+		t.Error("skill envelope should be stripped")
+	}
+
+	// The envelope should still be there since it's not a skill block
+	if !strings.Contains(retained[0].Content, "steiner-sub-agent-result") {
+		t.Error("sub-agent result envelope was removed (should be preserved)")
+	}
+}
