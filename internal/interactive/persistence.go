@@ -71,7 +71,7 @@ func (s *Session) saveSession() error {
 // rotateSession assigns a fresh session identity and optionally updates the group.
 func (s *Session) rotateSession(group string, updateGroup bool) error {
 	s.mu.Lock()
-	if err := s.replacementGuardLocked("rotate session", false, true); err != nil {
+	if err := s.replacementGuardLocked("rotate session", false); err != nil {
 		s.mu.Unlock()
 		return s.reportReplacementGuardError("rotate session", err)
 	}
@@ -129,7 +129,7 @@ func (s *Session) refuseRunInProgress(action string) error {
 // that also refuse during a run check that separately: clear and rotate stay
 // allowed mid-run because a workflow handoff rotates from inside one.
 func (s *Session) loadSessionGuardLocked() error {
-	return s.replacementGuardLocked("load session", true, true)
+	return s.replacementGuardLocked("load session", true)
 }
 
 func (s *Session) reportReplacementGuardError(action string, err error) error {

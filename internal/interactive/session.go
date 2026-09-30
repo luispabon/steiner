@@ -281,7 +281,7 @@ func (s *Session) Conversation() []agent.Message {
 // sub-agents are pending.
 func (s *Session) SetConversation(conversation []agent.Message) {
 	s.mu.Lock()
-	if s.replacementGuardLocked("set conversation", false, true) != nil {
+	if s.replacementGuardLocked("set conversation", false) != nil {
 		s.mu.Unlock()
 		return
 	}

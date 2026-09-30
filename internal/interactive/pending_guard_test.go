@@ -257,6 +257,56 @@ func TestLoadSessionByIDRefusedWhilePending(t *testing.T) {
 	}
 }
 
+func TestSetConversationRefusedWhilePending(t *testing.T) {
+	bg := &stubBackground{}
+	runner := newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
+		return RunResult{Conversation: conv}, nil
+	})
+	s := newWaitingSession(t, runner, bg)
+	original := s.Conversation()
+	driver := s.currentDriver()
+	state, _ := driver.State()
+	bg.setPending("pending")
+
+	s.SetConversation([]agent.Message{userMsg("replacement")})
+
+	if got := s.currentDriver(); got != driver {
+		t.Fatal("driver changed while sub-agents were pending")
+	}
+	if got := s.Conversation(); !reflect.DeepEqual(got, original) {
+		t.Fatalf("conversation changed while pending: got %#v, want %#v", got, original)
+	}
+	if got, _ := driver.State(); got != state {
+		t.Fatalf("driver state changed while pending: got %q, want %q", got, state)
+	}
+}
+
+func TestRotateSessionDirectCallRefusedWhilePending(t *testing.T) {
+	bg := &stubBackground{}
+	runner := newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
+		return RunResult{Conversation: conv}, nil
+	})
+	s := newWaitingSession(t, runner, bg)
+	original := s.Conversation()
+	driver := s.currentDriver()
+	id := s.SessionID()
+	bg.setPending("pending")
+
+	err := s.rotateSession("group", true)
+	if err == nil || !strings.Contains(err.Error(), "1 sub-agents still running; wait for them or stop them first") {
+		t.Fatalf("rotateSession() = %v, want pending refusal", err)
+	}
+	s.mu.RLock()
+	group := s.sessionGroup
+	s.mu.RUnlock()
+	if s.currentDriver() != driver || s.SessionID() != id || group != "" {
+		t.Fatal("rotation mutated session while sub-agents were pending")
+	}
+	if got := s.Conversation(); !reflect.DeepEqual(got, original) {
+		t.Fatalf("conversation changed while pending: got %#v, want %#v", got, original)
+	}
+}
+
 func TestSelectedPromptCannotReachReplacedDriver(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -302,7 +352,10 @@ func TestAdmittedPromptBlocksDriverReplacement(t *testing.T) {
 		{name: "set conversation", action: nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := testNewSession(t, Dependencies{SessionStore: newMockSessionStore(), Config: guardTestConfig()})
+			runner := newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
+				return RunResult{Conversation: conv}, nil
+			})
+			s := testNewSession(t, Dependencies{SessionStore: newMockSessionStore(), Config: guardTestConfig(), Runner: runner})
 			s.SetConversation([]agent.Message{userMsg("original")})
 			oldDriver := s.currentDriver()
 			oldID := s.SessionID()
@@ -322,11 +375,9 @@ func TestAdmittedPromptBlocksDriverReplacement(t *testing.T) {
 			if s.currentDriver() != oldDriver || s.SessionID() != oldID {
 				t.Fatal("driver replacement mutated session during admission")
 			}
-			if got := s.Conversation(); len(got) != 1 || got[0].Content != "original" {
-				t.Fatalf("conversation changed during admission: %#v", got)
-			}
 			close(release)
 			<-submitted
+			waitSettled(t, s)
 		})
 	}
 }

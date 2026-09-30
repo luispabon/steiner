@@ -128,7 +128,7 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 
 func (s *Session) clearConversation() error {
 	s.mu.Lock()
-	if err := s.replacementGuardLocked("clear conversation", false, true); err != nil {
+	if err := s.replacementGuardLocked("clear conversation", false); err != nil {
 		s.mu.Unlock()
 		return s.reportReplacementGuardError("clear conversation", err)
 	}

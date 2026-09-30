@@ -92,17 +92,14 @@ func (s *Session) currentDriver() *agent.ConversationDriver {
 
 // replacementGuardLocked checks whether a driver replacement may proceed. The
 // caller must hold s.mu and keep it held through the swap.
-func (s *Session) replacementGuardLocked(action string, refuseRun, refusePending bool) error {
+func (s *Session) replacementGuardLocked(action string, refuseRun bool) error {
 	if s.driverAdmissions > 0 {
 		return fmt.Errorf("%s: %w", action, errRunInProgress)
 	}
 	if refuseRun && s.driver.drv.Busy() {
 		return fmt.Errorf("%s: %w", action, errRunInProgress)
 	}
-	if refusePending {
-		return s.pendingRefusalLocked(action)
-	}
-	return nil
+	return s.pendingRefusalLocked(action)
 }
 
 // driverBusyLocked reports whether the live driver has a run, compaction or
