@@ -118,12 +118,13 @@ func TestDelegationGroupNameOnlyWithLabel(t *testing.T) {
 			t.Fatalf("label %q: want one group segment, got %d", tt.label, len(b.segments))
 		}
 		out := b.renderDelegationGroupSegment(b.segments[0], 60)
-		top := ansi.Strip(strings.SplitN(out, "\n", 2)[0])
-		if !strings.Contains(top, "2 agents") {
-			t.Errorf("label %q: top border missing aggregate: %q", tt.label, top)
+		lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+		footer := ansi.Strip(lines[len(lines)-2])
+		if !strings.Contains(footer, "2 agents") {
+			t.Errorf("label %q: footer missing aggregate: %q", tt.label, footer)
 		}
-		if got := strings.Contains(top, "final-review"); got != tt.want {
-			t.Errorf("label %q: name in top border = %v, want %v: %q", tt.label, got, tt.want, top)
+		if got := strings.Contains(footer, "final-review"); got != tt.want {
+			t.Errorf("label %q: name in footer = %v, want %v: %q", tt.label, got, tt.want, footer)
 		}
 	}
 }
