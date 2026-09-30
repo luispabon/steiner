@@ -70,7 +70,9 @@ func (b *contentBuffer) renderDelegationGroupSegment(segment contentSegment, wid
 	_, borderStyle := b.delegationStyles(borderLabel)
 	box := renderStyledBox(strings.Join(parts, "\n"), borderStyle.GetForeground(), lipgloss.Color(b.styles.Palette.ContentBG), width)
 	boxLines := strings.Split(box, "\n")
-	boxLines[len(boxLines)-1] = b.renderDelegationGroupFooter(group, lipgloss.Width(boxLines[0])-2, borderStyle.GetForeground())
+	if strings.TrimSpace(group.entries[0].group) != "" {
+		boxLines[len(boxLines)-1] = b.renderDelegationGroupFooter(group, lipgloss.Width(boxLines[0])-2, borderStyle.GetForeground())
+	}
 	return strings.Join(boxLines, "\n") + "\n"
 }
 

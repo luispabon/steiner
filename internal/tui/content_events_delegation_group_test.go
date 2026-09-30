@@ -120,8 +120,20 @@ func TestDelegationGroupNameOnlyWithLabel(t *testing.T) {
 		out := b.renderDelegationGroupSegment(b.segments[0], 60)
 		lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
 		footer := ansi.Strip(lines[len(lines)-2])
-		if !strings.Contains(footer, "2 agents") {
+		if tt.want && !strings.Contains(footer, "2 agents") {
 			t.Errorf("label %q: footer missing aggregate: %q", tt.label, footer)
+		}
+		if !tt.want {
+			plain := ansi.Strip(out)
+			if strings.Contains(plain, "2 agents") || strings.Contains(plain, "1/2") {
+				t.Errorf("label %q: ungrouped box has aggregate footer: %q", tt.label, plain)
+			}
+			if !strings.HasPrefix(plain, "┌") || !strings.HasSuffix(strings.TrimSuffix(plain, "\n"), "┘") {
+				t.Errorf("label %q: ungrouped merged box lost full border: %q", tt.label, plain)
+			}
+			if !strings.Contains(plain, "│ "+strings.Repeat("─", 10)) {
+				t.Errorf("label %q: ungrouped merged box lost divider: %q", tt.label, plain)
+			}
 		}
 		if got := strings.Contains(footer, "final-review"); got != tt.want {
 			t.Errorf("label %q: name in footer = %v, want %v: %q", tt.label, got, tt.want, footer)
