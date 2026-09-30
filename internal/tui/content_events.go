@@ -261,20 +261,21 @@ type imagesAttachedData struct {
 }
 
 type contentSegment struct {
-	kind               contentSegmentKind
-	text               string
-	timestamp          time.Time
-	thinkData          *thinkingBlockData      // non-nil only for segmentThinkingBlock
-	toolData           *toolCallSegment        // non-nil only for segmentToolCall
-	toolGroupData      *toolCallGroupSegment   // non-nil only for segmentToolCallGroup
-	approvalData       *approvalPillData       // non-nil only for segmentApprovalPill
-	compactionData     *compactionBannerData   // non-nil only for segmentCompactionBanner
-	separatorData      *separatorData          // non-nil only for segmentSeparator
-	delegData          *delegationDisplayState // non-nil only for segmentDelegation
-	delegGroupData     *delegationGroupSegment // non-nil only for segmentDelegationGroup
-	imagesAttachedData *imagesAttachedData     // non-nil only for segmentImagesAttached
-	deliveredData      *deliveredRows          // non-nil only for segmentSubAgentsFinished
-	strandedData       *strandedResultsData    // non-nil only for segmentStrandedResults
+	kind                  contentSegmentKind
+	text                  string
+	timestamp             time.Time
+	thinkData             *thinkingBlockData      // non-nil only for segmentThinkingBlock
+	toolData              *toolCallSegment        // non-nil only for segmentToolCall
+	toolGroupData         *toolCallGroupSegment   // non-nil only for segmentToolCallGroup
+	approvalData          *approvalPillData       // non-nil only for segmentApprovalPill
+	compactionData        *compactionBannerData   // non-nil only for segmentCompactionBanner
+	separatorData         *separatorData          // non-nil only for segmentSeparator
+	delegData             *delegationDisplayState // non-nil only for segmentDelegation
+	delegGroupData        *delegationGroupSegment // non-nil only for segmentDelegationGroup
+	delegationJoinedAbove bool
+	imagesAttachedData    *imagesAttachedData  // non-nil only for segmentImagesAttached
+	deliveredData         *deliveredRows       // non-nil only for segmentSubAgentsFinished
+	strandedData          *strandedResultsData // non-nil only for segmentStrandedResults
 	// render cache
 	cachedRender      string
 	cachedRenderWidth int
@@ -334,7 +335,8 @@ type contentBuffer struct {
 	// gen is bumped whenever an existing segment is mutated in place (never on
 	// append). It invalidates the settled-prefix cache below so a retroactive
 	// mutation of an already-settled segment cannot serve stale output.
-	gen int
+	gen              int
+	delegationRunKey string
 
 	// Settled-prefix cache: the joined render of segments [0, prefixCacheLen),
 	// reused across dirty frames so streaming only re-walks the changing tail

@@ -216,7 +216,7 @@ func TestActiveDelegationStaysOutsidePrefix(t *testing.T) {
 	}))
 	_ = b.String(80)
 	_ = b.String(80)
-	if b.prefixCacheLen != 2 {
-		t.Fatalf("prefixCacheLen = %d after delegation completes, want 2 (prefix should re-fold)", b.prefixCacheLen)
+	if b.prefixCacheLen != 1 {
+		t.Fatalf("prefixCacheLen = %d after delegation completes, want 1 (mutable delegation run tail must stay out of prefix)", b.prefixCacheLen)
 	}
 }

@@ -39,7 +39,10 @@ func segmentHasActiveDelegation(seg *contentSegment) bool {
 	}
 }
 
+//nolint:gocyclo // cache, visibility, and fragment dispatch all converge here.
 func (b *contentBuffer) String(width int) string {
+	b.updateDelegationRuns(width)
+
 	// Check if we can return cached result.
 	isBufferDirty := b.checkBufferDirty(width)
 	if !isBufferDirty && b.stringCacheWidth == width && b.stringCacheRendered != "" {
@@ -82,7 +85,7 @@ func (b *contentBuffer) String(width int) string {
 	// frame only walks the genuinely changing tail (preview, spinners, live
 	// segments). Anything that re-rendered this frame stays in the tail.
 	segmentJoin := joinWithUserMargin(parts, kinds)
-	if !anyRerender && start < len(b.segments) {
+	if !anyRerender && start < len(b.segments) && !containsDelegationKind(kinds) {
 		b.foldPrefix(parts, kinds, prefix, prefixLastKind, width)
 	}
 
@@ -154,6 +157,9 @@ func (b *contentBuffer) rebuildPrefix(width int) (boundary int, prefix string, p
 		if b.skipHiddenSegment(i) {
 			continue
 		}
+		if isDelegationRunSegment(&b.segments[i]) {
+			break
+		}
 		if b.segmentNeedsRender(&b.segments[i], width) {
 			break
 		}
@@ -178,7 +184,7 @@ func (b *contentBuffer) rebuildPrefix(width int) (boundary int, prefix string, p
 // segmentNeedsRender reports whether processSegment would re-render seg instead
 // of reusing its cached render. Must stay in sync with processSegment.
 func (b *contentBuffer) segmentNeedsRender(seg *contentSegment, width int) bool {
-	if seg.renderDirty {
+	if seg.renderDirty || isDelegationRunSegment(seg) {
 		return true
 	}
 	if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
@@ -220,7 +226,12 @@ func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]c
 		}
 		return false
 	}
-	rendered := b.renderSegment(*seg, width)
+	rendered := ""
+	if isDelegationRunSegment(seg) {
+		rendered = b.renderDelegationRunFragment(i, width)
+	} else {
+		rendered = b.renderSegment(*seg, width)
+	}
 	rendered = strings.TrimRight(rendered, "\n")
 	seg.cachedRender = rendered
 	seg.cachedRenderWidth = width
