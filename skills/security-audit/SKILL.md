@@ -61,7 +61,7 @@ Every git call uses `git --no-pager`. Every `git diff` and `git show` call adds 
    git --no-pager diff --no-index --no-ext-diff --no-textconv --no-color --numstat -- /dev/null <path>   # per untracked path; exit 1 on a non-empty file is expected
    ```
 
-7. Exclude and list with reasons: binary paths, files over 1 MiB, submodules, and anything under `.steiner/`.
+7. Exclude and list with reasons: binary paths, files over 1 MiB, submodules, and anything under `.steiner/`. Never drop an exclusion silently.
 
 ### Repo Mode
 
