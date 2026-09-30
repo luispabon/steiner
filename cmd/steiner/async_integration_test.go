@@ -250,8 +250,7 @@ func submit(t *testing.T, sess *interactive.Session, text string) {
 	}
 }
 
-// fireAndAwaitWake fires the coalescing window and waits for the wake run the
-// delivery starts, then for the session to settle.
+// fireAndAwaitWake fires the shared coalescing window and waits for the run.
 func fireAndAwaitWake(t *testing.T, sess *interactive.Session, p *asyncScript, clock *asyncClock) {
 	t.Helper()
 	for len(p.turns) > 0 {
@@ -262,6 +261,31 @@ func fireAndAwaitWake(t *testing.T, sess *interactive.Session, p *asyncScript, c
 	case <-p.turns:
 	case <-time.After(10 * time.Second):
 		t.Fatal("delivery did not wake a parent run")
+	}
+	waitRuns(t, sess)
+}
+
+// clearTurnNotifications drops notifications from parent runs that have
+// already settled before a child completion is released.
+func clearTurnNotifications(p *asyncScript) {
+	for len(p.turns) > 0 {
+		<-p.turns
+	}
+}
+
+// awaitImmediateWake waits for a completion with no unfinished sibling to
+// start its parent run without arming the coalescing window.
+func awaitImmediateWake(t *testing.T, sess *interactive.Session, p *asyncScript, clock *asyncClock) {
+	t.Helper()
+	select {
+	case <-p.turns:
+	case <-time.After(10 * time.Second):
+		t.Fatal("delivery did not wake a parent run")
+	}
+	select {
+	case <-clock.armed:
+		t.Fatal("coalescing window armed despite no unfinished sibling")
+	default:
 	}
 	waitRuns(t, sess)
 }
@@ -329,8 +353,9 @@ func TestAsyncSubAgentsThroughInteractiveWiring(t *testing.T) {
 		}
 
 		recvStarted(t, prov, "task-two")
+		clearTurnNotifications(prov)
 		prov.release("task-two")
-		fireAndAwaitWake(t, sess, prov, clock)
+		awaitImmediateWake(t, sess, prov, clock)
 		if n := len(subAgentResultMessages(sess.Conversation())); n != 2 {
 			t.Fatalf("%d result messages after both children finished, want 2", n)
 		}
@@ -351,8 +376,9 @@ func TestAsyncSubAgentsThroughInteractiveWiring(t *testing.T) {
 		if n := len(subAgentResultMessages(sess.Conversation())); n != 0 {
 			t.Fatalf("%d result messages after one grouped child finished, want 0", n)
 		}
+		clearTurnNotifications(prov)
 		prov.release("task-beta")
-		fireAndAwaitWake(t, sess, prov, clock)
+		awaitImmediateWake(t, sess, prov, clock)
 
 		results := subAgentResultMessages(sess.Conversation())
 		if len(results) != 1 {

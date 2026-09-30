@@ -137,36 +137,140 @@ func TestConversationDriverQuietCompletionWhileGeneratingDoesNotContinue(t *test
 func TestConversationDriverCoalescingWindow(t *testing.T) {
 	t.Parallel()
 	h := newDriverHarness(t, nil, nil)
-	h.bg.setPending("a", "b")
+	h.bg.setPending("a", "b", "c")
 	h.start()
 
 	h.d.Submit("go", nil, SubmitMeta{})
 	h.nextRun().finish()
 	h.waitSettled(DriverWaiting, false)
 
+	h.bg.markFinished("a")
 	h.d.DeliverCompletions([]SubAgentCompletion{completionFor(1, "a")})
 	if got := h.clock.armed(); got != 1 {
 		t.Fatalf("armed timers = %d, want 1", got)
 	}
 	h.noRun()
+	h.bg.markFinished("b")
 	h.d.DeliverCompletions([]SubAgentCompletion{completionFor(2, "b")})
 	if got := h.clock.armed(); got != 1 {
-		t.Fatalf("armed timers = %d, want the window shared", got)
+		t.Fatalf("armed timers = %d, want the shared window while c runs", got)
 	}
 	if got := h.clock.delays; len(got) != 1 || got[0] != completionCoalesceWindow {
 		t.Fatalf("window delays = %v, want [%v]", got, completionCoalesceWindow)
 	}
 	h.noRun()
-
-	h.clock.fire()
+	h.bg.markFinished("c")
+	h.d.DeliverCompletions([]SubAgentCompletion{quietCompletionFor(3, "c")})
+	if got := h.clock.armed(); got != 0 {
+		t.Fatalf("armed timers = %d, want the window cancelled", got)
+	}
 	call := h.nextRun()
 	msg := lastContent(call)
-	if !strings.Contains(msg, `agent_id="a"`) || !strings.Contains(msg, `agent_id="b"`) {
-		t.Fatalf("message = %q, want both envelopes in one run", msg)
+	if !strings.Contains(msg, `agent_id="a"`) || !strings.Contains(msg, `agent_id="b"`) || !strings.Contains(msg, `agent_id="c"`) {
+		t.Fatalf("message = %q, want all envelopes in one run", msg)
 	}
 	call.finish()
 	h.waitQuiescent()
 	h.noRun()
+}
+
+func TestConversationDriverLoneCompletionStartsWithoutWindow(t *testing.T) {
+	t.Parallel()
+	h := newDriverHarness(t, nil, nil)
+	h.bg.setPending("a")
+	h.bg.markFinished("a")
+	h.start()
+
+	h.d.DeliverCompletions([]SubAgentCompletion{completionFor(1, "a")})
+	if got := h.clock.armed(); got != 0 {
+		t.Fatalf("armed timers = %d, want none without unfinished siblings", got)
+	}
+	call := h.nextRun()
+	if !strings.Contains(lastContent(call), `agent_id="a"`) {
+		t.Fatalf("message = %q, want envelope for a", lastContent(call))
+	}
+	call.finish()
+	h.waitQuiescent()
+}
+
+func TestConversationDriverQueuedSiblingKeepsSharedWindow(t *testing.T) {
+	t.Parallel()
+	h := newDriverHarness(t, nil, nil)
+	h.bg.setPending("a", "b")
+	h.bg.markFinished("a")
+	h.bg.mu.Lock()
+	h.bg.pending[1].State = SubAgentQueued
+	h.bg.mu.Unlock()
+	h.start()
+
+	h.d.DeliverCompletions([]SubAgentCompletion{completionFor(1, "a")})
+	if got := h.clock.armed(); got != 1 {
+		t.Fatalf("armed timers = %d, want 1 for queued sibling", got)
+	}
+	h.bg.markFinished("b")
+	h.d.DeliverCompletions([]SubAgentCompletion{quietCompletionFor(2, "b")})
+	if got := h.clock.armed(); got != 0 {
+		t.Fatalf("armed timers = %d, want cancelled after last sibling", got)
+	}
+	call := h.nextRun()
+	if !strings.Contains(lastContent(call), `agent_id="a"`) || !strings.Contains(lastContent(call), `agent_id="b"`) {
+		t.Fatalf("message = %q, want both envelopes", lastContent(call))
+	}
+	call.finish()
+	h.waitQuiescent()
+}
+
+func TestConversationDriverNilBackgroundCompletionStartsImmediately(t *testing.T) {
+	t.Parallel()
+	h := newDriverHarnessOpts(t, nil, nil, func(opts *DriverOptions) { opts.Background = nil })
+	h.start()
+
+	h.d.DeliverCompletions([]SubAgentCompletion{completionFor(1, "a")})
+	if got := h.clock.armed(); got != 0 {
+		t.Fatalf("armed timers = %d, want none without background", got)
+	}
+	call := h.nextRun()
+	call.finish()
+	h.waitQuiescent()
+}
+
+func TestConversationDriverStaleWindowCallbackAfterLastSiblingIsHarmless(t *testing.T) {
+	t.Parallel()
+	h := newDriverHarness(t, nil, nil)
+	h.bg.setPending("a", "b")
+	h.bg.markFinished("a")
+
+	h.d.DeliverCompletions([]SubAgentCompletion{completionFor(1, "a")})
+	if got := h.clock.armed(); got != 1 {
+		t.Fatalf("armed timers = %d, want 1", got)
+	}
+	h.d.mu.Lock()
+	armedGen := h.d.windowGen
+	h.d.mu.Unlock()
+	h.bg.markFinished("b")
+	h.d.DeliverCompletions([]SubAgentCompletion{quietCompletionFor(2, "b")})
+	if got := h.clock.armed(); got != 0 {
+		t.Fatalf("armed timers = %d, want cancelled after last sibling", got)
+	}
+	h.d.mu.Lock()
+	gen := h.d.windowGen
+	ready := h.d.windowExpired
+	h.d.mu.Unlock()
+	if gen == armedGen {
+		t.Fatalf("window generation = %d, want invalidation after early release", gen)
+	}
+	if !ready {
+		t.Fatal("last completion did not make buffered wake ready")
+	}
+
+	// Fire the stopped callback before any drain can invalidate it again.
+	h.clock.fireStopped()
+	h.d.mu.Lock()
+	ready = h.d.windowExpired
+	h.d.mu.Unlock()
+	if !ready {
+		t.Fatal("stale callback cleared readiness after the last sibling")
+	}
 }
 
 func TestConversationDriverSubmitDuringWindowStartsAtOnce(t *testing.T) {
