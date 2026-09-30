@@ -129,6 +129,22 @@ func TestRequestOrchestrationLevelSameAsCurrentIsNoop(t *testing.T) {
 	}
 }
 
+func TestRequestOrchestrationLevelConversationWaitKeepsImmediateSwitchBehavior(t *testing.T) {
+	t.Parallel()
+	ctrl := &conversationTestController{}
+	m := newModel(Config{Controller: ctrl, SubAgentsEnabled: true, OrchestrationLevel: "standard"}, nil)
+	applyConversationStateEvent(t, m, conversationStateWaiting, false, 1, false)
+
+	m.requestOrchestrationLevel(config.OrchestrationLevelLow)
+
+	if actions := ctrl.switchOrchestrationLevelActions(); len(actions) != 1 {
+		t.Fatalf("switch actions = %#v, want immediate switch while only waiting", actions)
+	}
+	if m.orchestrationConfirm.IsOpen() {
+		t.Fatal("confirmation opened while only waiting on sub-agents")
+	}
+}
+
 func TestRequestOrchestrationLevelEmptyConversationSwitchesImmediately(t *testing.T) {
 	t.Parallel()
 	ctrl := &conversationTestController{}

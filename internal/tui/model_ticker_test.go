@@ -85,6 +85,19 @@ func TestHandleTickMsgAdvancesSidebarTickCountWhenMCPConnecting(t *testing.T) {
 	}
 }
 
+func TestHandleTickMsgAdvancesConversationWaitingSpinner(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	applyConversationStateEvent(t, m, conversationStateWaiting, false, 1, false)
+	before := m.activity.spinner.View()
+
+	m.handleTickMsg(tickMsg{})
+
+	if after := m.activity.spinner.View(); after == before {
+		t.Fatalf("conversation spinner frame = %q after tick, want it to advance", after)
+	}
+}
+
 func TestHandleTickMsgAdvancesRegularToolSpinnerAndStopsAfterFinish(t *testing.T) {
 	originalNanoNow := nanoNow
 	now := int64(70_000_000_000)

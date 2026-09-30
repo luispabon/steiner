@@ -658,7 +658,7 @@ func (m *Model) syncInputChrome() {
 		m.input.Placeholder = "steering — esc to interrupt (or /exit, /thinking, /accent)"
 	case m.approval.active:
 		m.input.Placeholder = "approval pending above — use arrows, tab, enter, or esc"
-	case m.activity.busy():
+	case m.activity.busy() && !m.ordinaryConversationWaiting():
 		pending := 0
 		if m.steers != nil {
 			pending = m.steers.Len()
@@ -672,7 +672,7 @@ func (m *Model) syncInputChrome() {
 		m.input.Placeholder = "ask steiner — / for commands, @ for files"
 	}
 	m.status.approvalActive = m.approval.active
-	m.status.streaming = m.activity.busy() && !m.approval.active
+	m.status.streaming = m.activity.busy() && !m.ordinaryConversationWaiting() && !m.approval.active
 }
 
 // needsTicking reports whether the ticker needs to keep firing.
