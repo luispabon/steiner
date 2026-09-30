@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"image/color"
 	"reflect"
 	"strings"
 	"testing"
@@ -36,22 +38,86 @@ func TestStatusBarRendersModelReasoningEffort(t *testing.T) {
 	styles := testStyles(theme.AccentAmber)
 	for _, tc := range []struct {
 		name      string
+		model     string
 		reasoning string
 		want      string
-		noSuffix  bool
 	}{
-		{name: "reasoning effort", reasoning: "medium", want: "gpt/medium"},
-		{name: "no reasoning effort", want: "gpt", noSuffix: true},
+		{name: "reasoning effort", model: "gpt", reasoning: "medium", want: "gpt/medium"},
+		{name: "no reasoning effort", model: "gpt", want: "gpt"},
+		{name: "trimmed model", model: "  gpt  ", reasoning: "high", want: "gpt/high"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			s := statusState{model: "gpt", reasoning: tc.reasoning, styles: styles}
+			s := statusState{model: tc.model, reasoning: tc.reasoning, styles: styles}
 			got := stripANSI(s.view(120))
 			if !strings.Contains(got, tc.want) {
 				t.Fatalf("status bar = %q, want %q", got, tc.want)
 			}
-			if tc.noSuffix && strings.Contains(got, "gpt/") {
-				t.Fatalf("status bar = %q, must not contain a reasoning suffix", got)
+			if strings.Contains(got, "model ") {
+				t.Fatalf("status bar = %q, must not include model prefix", got)
+			}
+		})
+	}
+	t.Run("whitespace-only model omitted", func(t *testing.T) {
+		s := statusState{model: " \t ", styles: styles}
+		if got := stripANSI(s.view(120)); strings.Contains(got, "\t") {
+			t.Fatalf("status bar = %q, whitespace-only model must be omitted", got)
+		}
+	})
+}
+
+func TestStatusBarContextCounts(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	cases := []struct {
+		name   string
+		used   int
+		budget int
+		want   string
+	}{
+		{name: "compact boundaries", used: 2425, budget: 1050000, want: "2.4k / 1.1m · 0%"},
+		{name: "large counts and percentage", used: 92000, budget: 1000000, want: "92k / 1.0m · 9%"},
+		{name: "small counts", used: 42, budget: 999, want: "42 / 999 · 4%"},
+		{name: "zero used", budget: 1000, want: "0 / 1.0k · 0%"},
+		{name: "unknown budget", used: 12, want: "12 / 0 · 0%"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := statusState{promptUsed: tc.used, contextBudget: tc.budget, styles: styles}
+			got := stripANSI(s.view(120))
+			if !strings.Contains(got, "ctx "+tc.want) {
+				t.Fatalf("status bar = %q, want context %q", got, tc.want)
+			}
+		})
+	}
+	if got := stripANSI((statusState{styles: styles}).view(120)); strings.Contains(got, "ctx ") {
+		t.Fatalf("status bar = %q, context should be omitted when counts are zero", got)
+	}
+}
+
+func TestStatusBarContextColourThresholds(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	cases := []struct {
+		name   string
+		used   int
+		budget int
+		color  color.Color
+	}{
+		{name: "seventy stays accent", used: 70, budget: 100, color: styles.AccentColor},
+		{name: "over seventy warns", used: 71, budget: 100, color: lipgloss.Color(theme.Warn)},
+		{name: "ninety stays warning", used: 90, budget: 100, color: lipgloss.Color(theme.Warn)},
+		{name: "over ninety errors", used: 91, budget: 100, color: lipgloss.Color(theme.Removed)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := statusState{promptUsed: tc.used, contextBudget: tc.budget, styles: styles}
+			got := s.view(120)
+			want := lipgloss.NewStyle().Foreground(tc.color).Render(fmt.Sprintf("%s / %s · %d%%", formatCompactCount(tc.used), formatCompactCount(tc.budget), tc.used))
+			if !strings.Contains(got, want) {
+				t.Fatalf("status bar does not contain expected colored context %q: %q", want, got)
 			}
 		})
 	}

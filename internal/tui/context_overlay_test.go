@@ -61,10 +61,10 @@ func TestContextOverlayRendersMarkdownAndKeepsBaseVisible(t *testing.T) {
 	}
 
 	composed := stripANSI(composeCenteredOverlay(base, m.renderContextOverlay(), m.width, m.height))
-	if !strings.Contains(composed, "base top") || !strings.Contains(composed, "model gpt-test") {
+	if !strings.Contains(composed, "base top") || !strings.Contains(composed, "gpt-test") {
 		t.Fatalf("composed view = %q, want transcript content and sidebar visible outside overlay", composed)
 	}
-	if !strings.Contains(stripANSI(base), "model gpt-test") {
+	if !strings.Contains(stripANSI(base), "gpt-test") {
 		t.Fatalf("base view = %q, want sidebar content in the underlying screen", base)
 	}
 }

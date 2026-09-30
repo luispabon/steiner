@@ -1246,7 +1246,7 @@ func TestModelStatusBarKeepsPrimaryModelDuringOtherRuntimeCalls(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAPIRequestEvent("other-runtime-model", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)})
 
 	statusLine := stripANSI(m.status.view(m.viewport.Width()))
-	if !strings.Contains(statusLine, "model main-model") {
+	if !strings.Contains(statusLine, "main-model") {
 		t.Fatalf("status line = %q, want primary model badge", statusLine)
 	}
 	if strings.Contains(statusLine, "other-runtime-model") {
@@ -6146,13 +6146,13 @@ func TestClearConversationStateRenderClearsChrome(t *testing.T) {
 	m.syncViewport()
 
 	before := stripANSI(m.View().Content)
-	if !strings.Contains(before, "stopped") || !strings.Contains(before, "1.2s") || !strings.Contains(before, "64000/128000") {
+	if !strings.Contains(before, "stopped") || !strings.Contains(before, "1.2s") || !strings.Contains(before, "64k / 128k · 50%") {
 		t.Fatalf("rendered stale chrome = %q, want activity, performance, and footer token occupancy values", before)
 	}
 
 	m.clearConversationState()
 	after := stripANSI(m.View().Content)
-	if strings.Contains(after, "stopped") || strings.Contains(after, "1.2s") || strings.Contains(after, "64000/128000") {
+	if strings.Contains(after, "stopped") || strings.Contains(after, "1.2s") || strings.Contains(after, "64k / 128k · 50%") {
 		t.Fatalf("rendered chrome after clear = %q, contains stale values", after)
 	}
 }

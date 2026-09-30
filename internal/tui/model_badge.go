@@ -44,12 +44,12 @@ func renderSandboxBadge(styles *theme.Styles, status string) string {
 	}
 	switch status {
 	case "active":
-		return styles.Added.Render("sbx active")
+		return styles.Added.Render("sbx ✓")
 	case "unavailable":
-		return styles.Warn.Render("sbx unavailable")
+		return styles.Warn.Render("sbx ✗")
 	case "bypassed":
-		return styles.Removed.Render("sbx bypassed")
+		return styles.Removed.Render("sbx ✗")
 	default:
-		return styles.FgDim.Render("sbx " + status)
+		return styles.FgDim.Render("sbx ✗")
 	}
 }
