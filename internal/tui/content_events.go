@@ -331,8 +331,11 @@ type contentBuffer struct {
 	homeDir                 string                       // home directory for resolving ~ paths
 
 	// Render cache.
-	stringCacheWidth    int
-	stringCacheRendered string
+	stringCacheWidth        int
+	stringCacheRendered     string
+	stringCacheGen          int
+	stringCacheLen          int
+	stringCacheShowThinking bool
 
 	// gen is bumped whenever an existing segment is mutated in place (never on
 	// append). It invalidates the settled-prefix cache below so a retroactive
