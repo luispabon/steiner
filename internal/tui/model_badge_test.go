@@ -30,6 +30,36 @@ func TestFormatModelEffort(t *testing.T) {
 	}
 }
 
+func TestRenderSandboxBadge(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	cases := []struct {
+		name   string
+		status string
+		want   string
+		style  string
+	}{
+		{name: "active", status: "active", want: "sbx ✓", style: styles.Added.Render("sbx ✓")},
+		{name: "unavailable", status: "unavailable", want: "sbx ✗", style: styles.Warn.Render("sbx ✗")},
+		{name: "bypassed", status: "bypassed", want: "sbx ✗", style: styles.Removed.Render("sbx ✗")},
+		{name: "unknown", status: "other", want: "sbx ✗", style: styles.FgDim.Render("sbx ✗")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := renderSandboxBadge(styles, tc.status)
+			if stripANSI(got) != tc.want || got != tc.style {
+				t.Fatalf("renderSandboxBadge(%q) = %q, want %q with expected style", tc.status, got, tc.want)
+			}
+		})
+	}
+	for _, status := range []string{"", " \t "} {
+		if got := renderSandboxBadge(styles, status); got != "" {
+			t.Errorf("renderSandboxBadge(%q) = %q, want empty", status, got)
+		}
+	}
+}
+
 func TestRenderModelBadge(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)

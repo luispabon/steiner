@@ -43,8 +43,8 @@ func (s statusState) view(width int) string {
 		parts = append(parts, lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(phaseStr))
 	}
 	// Segment 1: model (stable left)
-	if s.model != "" {
-		parts = append(parts, renderModelBadge(s.styles, s.model, s.reasoning))
+	if model := strings.TrimSpace(s.model); model != "" {
+		parts = append(parts, lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(formatModelEffort(model, s.reasoning)))
 	}
 
 	// Segment 1b: execution mode badge
@@ -81,7 +81,7 @@ func (s statusState) view(width int) string {
 		default:
 			ctxColor = s.styles.AccentColor
 		}
-		ctxStr := fmt.Sprintf("%d/%d · %d%%", s.promptUsed, s.contextBudget, pct)
+		ctxStr := fmt.Sprintf("%s / %s · %d%%", formatCompactCount(s.promptUsed), formatCompactCount(s.contextBudget), pct)
 		label := s.styles.FgMute.Render("ctx ")
 		val := lipgloss.NewStyle().Foreground(ctxColor).Render(ctxStr)
 		parts = append(parts, label+val)
