@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -85,16 +86,61 @@ func TestHandleTickMsgAdvancesSidebarTickCountWhenMCPConnecting(t *testing.T) {
 	}
 }
 
-func TestHandleTickMsgAdvancesConversationWaitingSpinner(t *testing.T) {
+func TestConversationWaitingTickerLifecycleThroughEvents(t *testing.T) {
 	t.Parallel()
-	m := newModel(Config{}, nil)
-	applyConversationStateEvent(t, m, conversationStateWaiting, false, 1, false)
+	m := newActivityTestModel(t)
+	m.ticking = false
+
+	updated, cmd := m.Update(runtimeEventMsg{Event: output.NewConversationStateEvent(conversationStateWaiting, false, 1, false)})
+	m = updated.(*Model)
+	if cmd == nil || !m.ticking {
+		t.Fatal("waiting event did not start ticker")
+	}
+	waitingRow := stripANSI(m.renderActivityRow(m.contentWidth()))
+	if spinner := stripANSI(m.activity.spinner.View()); !strings.Contains(waitingRow, spinner) {
+		t.Fatalf("waiting activity row %q lacks MiniDot spinner %q", waitingRow, spinner)
+	}
 	before := m.activity.spinner.View()
 
-	m.handleTickMsg(tickMsg{})
-
+	updated, cmd = m.Update(tickMsg{})
+	m = updated.(*Model)
+	if cmd == nil || !m.ticking {
+		t.Fatal("tick during conversation wait did not schedule another tick")
+	}
 	if after := m.activity.spinner.View(); after == before {
-		t.Fatalf("conversation spinner frame = %q after tick, want it to advance", after)
+		t.Fatalf("conversation spinner frame = %q after event-driven tick, want it to advance", after)
+	}
+
+	updated, _ = m.Update(runtimeEventMsg{Event: output.NewConversationStateEvent(conversationStateIdle, false, 0, false)})
+	m = updated.(*Model)
+	updated, cmd = m.Update(tickMsg{})
+	m = updated.(*Model)
+	if cmd != nil || m.ticking {
+		t.Fatalf("idle tick ticker = (cmd %v, ticking %v), want stopped", cmd != nil, m.ticking)
+	}
+
+	for _, tt := range []struct {
+		name   string
+		held   bool
+		budget bool
+	}{
+		{name: "held", held: true},
+		{name: "budget", budget: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newActivityTestModel(t)
+			m.ticking = false
+			updated, _ := m.Update(runtimeEventMsg{Event: output.NewConversationStateEvent(conversationStateWaiting, tt.held, 1, tt.budget)})
+			m = updated.(*Model)
+			updated, cmd := m.Update(tickMsg{})
+			m = updated.(*Model)
+			if cmd != nil || m.ticking || m.activity.busy() {
+				t.Fatalf("%s wait unexpectedly spins: cmd=%v ticking=%v activity=%+v", tt.name, cmd != nil, m.ticking, m.activity)
+			}
+			if got := stripANSI(m.renderActivityRow(m.contentWidth())); !strings.Contains(got, m.activity.label) {
+				t.Fatalf("%s activity row = %q, want static label %q", tt.name, got, m.activity.label)
+			}
+		})
 	}
 }
 
