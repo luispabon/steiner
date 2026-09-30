@@ -227,20 +227,24 @@ func TestSettledDelegationRunCanExtendPrefixBeforeMutableRun(t *testing.T) {
 	b := delegationRunTestBuffer()
 	first := delegationRunTestSegment("settled")
 	first.delegationRunFinal = true
-	b.segments = []contentSegment{first}
+	b.segments = []contentSegment{first, {kind: segmentPlain, text: "barrier", renderDirty: true}}
 	b.String(80)
-	if b.prefixCacheLen != 1 {
-		t.Fatalf("initial settled run prefix length = %d, want 1", b.prefixCacheLen)
+	if b.prefixCacheLen != 2 {
+		t.Fatalf("initial settled prefix length = %d, want 2", b.prefixCacheLen)
 	}
 
 	settled := delegationRunTestSegment("historical")
 	settled.delegationRunFinal = true
 	active := delegationRunTestSegment("active")
-	active.delegationRunMutable = true
-	b.segments = append(b.segments, settled, active)
+	active.delegData.status = "active"
+	b.segments = append(b.segments,
+		settled,
+		contentSegment{kind: segmentPlain, text: "second barrier", renderDirty: true},
+		active,
+	)
 	got := b.String(80)
-	if b.prefixCacheLen != 2 {
-		t.Fatalf("prefix length = %d, want 2 (include closed run, exclude mutable run)", b.prefixCacheLen)
+	if b.prefixCacheLen != 4 {
+		t.Fatalf("prefix length = %d, want 4 (include closed run, exclude mutable run)", b.prefixCacheLen)
 	}
 	if !strings.Contains(got, "historical") || !strings.Contains(got, "active") {
 		t.Fatalf("output omitted run content: %q", got)
@@ -253,10 +257,11 @@ func TestUnchangedStringCacheSkipsDelegationTopologyPrep(t *testing.T) {
 	b := delegationRunTestBuffer()
 	b.segments = []contentSegment{delegationRunTestSegment("settled")}
 	b.String(80)
-	cachedKey := b.delegationRunKey
 	b.segments[0].delegationJoinedAbove = true
+	b.segments[0].delegationRunFinal = false
+	b.segments[0].delegationRunMutable = false
 	b.String(80)
-	if !b.segments[0].delegationJoinedAbove || b.delegationRunKey != cachedKey {
+	if !b.segments[0].delegationJoinedAbove || b.segments[0].delegationRunFinal || b.segments[0].delegationRunMutable {
 		t.Fatal("unchanged full-string cache hit prepared delegation topology")
 	}
 }
