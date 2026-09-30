@@ -56,12 +56,12 @@ func TestDelegationGrouping(t *testing.T) {
 	}{
 		{"ungrouped pair in one batch merges", []groupStep{{callID: "a"}, {callID: "b"}}, 1},
 		{"same label in one batch merges", []groupStep{{callID: "a", group: "g"}, {callID: "b", group: "g"}}, 1},
-		{"different labels split", []groupStep{{callID: "a", group: "g1"}, {callID: "b", group: "g2"}}, 2},
-		{"labelled and ungrouped split", []groupStep{{callID: "a", group: "g"}, {callID: "b"}}, 2},
-		{"same label across batches splits", []groupStep{{callID: "a", group: "g"}, {callID: "b", group: "g", newBatch: true}}, 2},
-		{"ungrouped across batches splits", []groupStep{{callID: "a"}, {callID: "b", newBatch: true}}, 2},
+		{"different labels merge", []groupStep{{callID: "a", group: "g1"}, {callID: "b", group: "g2"}}, 1},
+		{"labelled and ungrouped merge", []groupStep{{callID: "a", group: "g"}, {callID: "b"}}, 1},
+		{"same label across batches merges", []groupStep{{callID: "a", group: "g"}, {callID: "b", group: "g", newBatch: true}}, 1},
+		{"ungrouped across batches merges", []groupStep{{callID: "a"}, {callID: "b", newBatch: true}}, 1},
 		{"replay path groups the same", []groupStep{{callID: "a", group: "g", replay: true}, {callID: "b", group: "g", replay: true}}, 1},
-		{"replay path splits labels", []groupStep{{callID: "a", group: "g1", replay: true}, {callID: "b", group: "g2", replay: true}}, 2},
+		{"replay path merges labels", []groupStep{{callID: "a", group: "g1", replay: true}, {callID: "b", group: "g2", replay: true}}, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -69,7 +69,7 @@ func TestDelegationGrouping(t *testing.T) {
 			b := newGroupTestBuffer()
 			for i, st := range tt.steps {
 				if st.newBatch {
-					b.AppendEvent(output.NewAssistantMessageEvent(i, "assistant", "next turn"))
+					b.delegationBatch++
 				}
 				args := subAgentArgs(st.group)
 				if !st.replay {
@@ -101,6 +101,59 @@ func TestDelegationDrawOrderWithInterleavedStream(t *testing.T) {
 		kinds[1] == int(segmentDelegation) || kinds[2] == int(segmentDelegation) ||
 		kinds[1] == int(segmentDelegationGroup) || kinds[2] == int(segmentDelegationGroup) {
 		t.Fatalf("segment kinds = %v, want delegation, thinking, text, delegation", kinds)
+	}
+}
+
+func TestDelegationGroupingAcrossAssistantMessageBoundaries(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name  string
+		group string
+		label string
+	}{
+		{name: "ungrouped"},
+		{name: "shared label", group: "research", label: "research"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := newGroupTestBuffer()
+			b.styles = testStyles("#5599ff")
+			b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-1", subAgentArgs(tt.group)))
+			b.AppendEvent(output.NewDelegationStartedEvent("child-1", "first task", "call-1"))
+			b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", ""))
+			b.AppendEvent(output.NewToolCallStartedEvent(2, "sub_agent", "call-2", subAgentArgs(tt.group)))
+			b.AppendEvent(output.NewDelegationStartedEvent("child-2", "second task", "call-2"))
+
+			if len(b.segments) != 1 || b.segments[0].kind != segmentDelegationGroup {
+				t.Fatalf("segments = %d, want one delegation group", len(b.segments))
+			}
+			group := b.segments[0].delegGroupData
+			if group == nil || len(group.entries) != 2 {
+				t.Fatalf("group entries = %v, want two", group)
+			}
+			first, second := group.entries[0], group.entries[1]
+			if first.agentID != "child-1" || second.agentID != "child-2" {
+				t.Fatalf("entry agent IDs = %q, %q, want child-1, child-2", first.agentID, second.agentID)
+			}
+			if first.parentCallID != "call-1" || second.parentCallID != "call-2" {
+				t.Fatalf("entry call IDs = %q, %q, want call-1, call-2", first.parentCallID, second.parentCallID)
+			}
+			if first.batch == second.batch {
+				t.Fatalf("entry batches = %d, %d, want different batches", first.batch, second.batch)
+			}
+			out := ansi.Strip(b.renderDelegationGroupSegment(b.segments[0], 60))
+			if strings.Count(out, "┌") != 1 {
+				t.Errorf("render has %d frames, want one: %q", strings.Count(out, "┌"), out)
+			}
+			if tt.label != "" {
+				if !strings.Contains(out, "2 agents") {
+					t.Errorf("render missing aggregate footer: %q", out)
+				}
+				if !strings.Contains(out, tt.label) {
+					t.Errorf("render missing shared label %q: %q", tt.label, out)
+				}
+			}
+		})
 	}
 }
 

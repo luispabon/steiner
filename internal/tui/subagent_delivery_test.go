@@ -208,6 +208,23 @@ func TestStrandedRowRenders(t *testing.T) {
 	}
 }
 
+func TestStrandedWarningOverridesConversationWaitButNotActiveSpinner(t *testing.T) {
+	t.Parallel()
+	m := newActivityTestModel(t)
+	unanswered := output.Event{Type: output.EventTypeSubAgentResultsUnanswered, Payload: output.SubAgentResultsUnansweredEvent{AgentIDs: []string{"a"}}}
+	m.applyEvent(unanswered)
+	applyConversationStateEvent(t, m, conversationStateWaiting, false, 1, false)
+
+	if got := stripANSI(m.renderActivityRow(m.contentWidth())); !strings.Contains(got, "not acted on") {
+		t.Fatalf("activity row = %q, want stranded warning over conversation wait", got)
+	}
+
+	m.activity = m.activity.waiting("manual compaction", "")
+	if got := stripANSI(m.renderActivityRow(m.contentWidth())); strings.Contains(got, "not acted on") {
+		t.Fatalf("activity row = %q, manual spinner should win", got)
+	}
+}
+
 func TestStrandedActivityWarningSetsAndClears(t *testing.T) {
 	t.Parallel()
 	unanswered := output.Event{Type: output.EventTypeSubAgentResultsUnanswered, Payload: output.SubAgentResultsUnansweredEvent{AgentIDs: []string{"a", "b"}}}

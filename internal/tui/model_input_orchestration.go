@@ -101,7 +101,7 @@ func (m *Model) requestOrchestrationLevel(level config.OrchestrationLevel) tea.C
 		return m.applyOrchestrationLevel(level)
 	}
 	body := "Invalidates the prompt cache."
-	if m.activity.busy() || m.oneshotRunning {
+	if (m.activity.busy() && !m.ordinaryConversationWaiting()) || m.oneshotRunning {
 		body += " Applies after this turn."
 	}
 	m.pendingOrchestrationLevel = level

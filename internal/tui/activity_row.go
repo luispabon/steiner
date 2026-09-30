@@ -98,7 +98,7 @@ type activityCacheKey struct {
 // invalidation path to keep in sync.
 func (m *Model) renderActivityRow(contentWidth int) string {
 	activity := m.activity
-	if m.strandedResults > 0 && !m.driverGenerating() && !activity.spinning {
+	if m.strandedResults > 0 && !m.driverGenerating() && (!activity.spinning || m.ordinaryConversationWaiting()) {
 		activity = activity.static(strandedActivityLabel(m.strandedResults), "")
 		activity.warn = true
 	}

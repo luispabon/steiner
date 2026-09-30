@@ -36,7 +36,11 @@ func (m *Model) applyConversationLabel() {
 		return
 	}
 	if label := conversationWaitingLabel(m.convState); label != "" {
-		m.activity = m.activity.static(label, "")
+		if m.convState.Held || m.convState.BudgetExhausted {
+			m.activity = m.activity.static(label, "")
+		} else {
+			m.activity = m.activity.waiting(label, "")
+		}
 		m.convLabelShown = true
 		return
 	}
@@ -58,6 +62,14 @@ func conversationWaitingLabel(s output.ConversationStateEvent) string {
 	default:
 		return fmt.Sprintf("waiting on %d sub-agents", s.Pending)
 	}
+}
+
+// ordinaryConversationWaiting reports whether the activity row shows the
+// ordinary conversation wait rather than a later parent operation.
+func (m *Model) ordinaryConversationWaiting() bool {
+	return m.convStateSeen && m.convLabelShown &&
+		m.convState.State == conversationStateWaiting && !m.convState.Held && !m.convState.BudgetExhausted &&
+		m.activity.label == conversationWaitingLabel(m.convState)
 }
 
 // driverGenerating reports whether the conversation driver is mid-turn.
