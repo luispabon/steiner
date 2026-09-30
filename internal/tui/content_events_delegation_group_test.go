@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -102,7 +104,7 @@ func TestDelegationDrawOrderWithInterleavedStream(t *testing.T) {
 	}
 }
 
-func TestDelegationGroupHeaderOnlyWithLabel(t *testing.T) {
+func TestDelegationGroupNameOnlyWithLabel(t *testing.T) {
 	useTrueColor(t)
 	for _, tt := range []struct {
 		label string
@@ -116,11 +118,12 @@ func TestDelegationGroupHeaderOnlyWithLabel(t *testing.T) {
 			t.Fatalf("label %q: want one group segment, got %d", tt.label, len(b.segments))
 		}
 		out := b.renderDelegationGroupSegment(b.segments[0], 60)
-		if got := strings.Contains(out, "group"); got != tt.want {
-			t.Errorf("label %q: header present = %v, want %v", tt.label, got, tt.want)
+		top := ansi.Strip(strings.SplitN(out, "\n", 2)[0])
+		if !strings.Contains(top, "2 agents") {
+			t.Errorf("label %q: top border missing aggregate: %q", tt.label, top)
 		}
-		if tt.want && !strings.Contains(out, tt.label) {
-			t.Errorf("label %q missing from render", tt.label)
+		if got := strings.Contains(top, "final-review"); got != tt.want {
+			t.Errorf("label %q: name in top border = %v, want %v: %q", tt.label, got, tt.want, top)
 		}
 	}
 }

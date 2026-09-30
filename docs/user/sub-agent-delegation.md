@@ -66,7 +66,7 @@ Running plus queued sub-agents are capped at twice `max_parallel`; a spawn over 
 
 #### Async UX in the TUI
 
-- **Delegate boxes** are grouped per tool batch and by `group` label, under a `group <label>` header. The same label used in separate batches does not merge.
+- **Delegate boxes** are grouped per tool batch and by `group` label, in one frame whose top border carries the group label in bold and an aggregate status (`N agents · ✓ 2/2`, a spinner while any are running, `✗ N failed`). The same label used in separate batches does not merge.
 - **Delivery rows.** Each delivery adds a "sub-agent(s) finished" row to the conversation: a single line for one agent, a header plus one line per member for several. Each shows its outcome (`✓` complete, `✗` failed, `?` lost when the session restarted), with a failure reason clipped.
 - **Sidebar.** The SUB-AGENTS section lists running, queued and finished agents, grouped. Finished entries stay until their result has been delivered and the next prompt is submitted. The list collapses past about 8 rows.
 - **Status bar chip.** `sub-agents finished/total` shows progress, with the queued count and `✗` on failures. It is the first item dropped when space is tight (after ctx, help and the sidebar hints on narrow terminals).
