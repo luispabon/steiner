@@ -8,8 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// groupAggregate summarises the children of a delegation group for the title
-// embedded in its top border.
+// groupAggregate summarises the children of a delegation group for its footer tab.
 type groupAggregate struct {
 	total, complete, failed, budget int
 	active                          *delegationDisplayState // first active child, nil when none
@@ -68,12 +67,20 @@ func (b *contentBuffer) groupGlyphStyle(agg groupAggregate) lipgloss.Style {
 	}
 }
 
-// renderDelegationGroupTopBorder builds the top border line of a group box with
-// the group name (bold) and aggregate status embedded in it. innerWidth is the
-// number of cells between the two corner glyphs. When space is short the name
-// is truncated first, then the stats are dropped, then the name; the line is
-// always exactly innerWidth+2 cells wide.
-func (b *contentBuffer) renderDelegationGroupTopBorder(group *delegationGroupSegment, innerWidth int, borderColor color.Color) string {
+func (b *contentBuffer) groupNameStyle(group *delegationGroupSegment) lipgloss.Style {
+	style := b.styles.FgDim.Foreground(b.styles.AccentColor).Background(lipgloss.Color(b.styles.Palette.ContentBG)).Bold(true)
+	key := strings.ToLower(strings.TrimSpace(delegationGroupBorderLabel(group)))
+	if tag, ok := b.styles.DelegateTagStyles[key]; ok {
+		style = style.Foreground(tag.GetForeground())
+	}
+	return style
+}
+
+// renderDelegationGroupFooter builds the bottom border and an outlined,
+// right-aligned title tab with rounded bottom corners. Each line is exactly
+// innerWidth+2 cells wide. When space is short the name is truncated first,
+// then the stats are dropped.
+func (b *contentBuffer) renderDelegationGroupFooter(group *delegationGroupSegment, innerWidth int, borderColor color.Color) string {
 	bg := lipgloss.Color(b.styles.Palette.ContentBG)
 	border := lipgloss.NewStyle().Foreground(borderColor).Background(bg)
 	name := strings.TrimSpace(group.entries[0].group)
@@ -85,9 +92,8 @@ func (b *contentBuffer) renderDelegationGroupTopBorder(group *delegationGroupSeg
 	}
 	statsPlain := fmt.Sprintf("%d %s · %s %s", agg.total, noun, glyph, stateText)
 
-	// Fixed cells: "─ " before the first piece, " " after the last, plus the
-	// " ─ " between name and stats when both are shown.
-	const lead, trail, join = 2, 1, 3
+	// One padding cell on each side, plus " · " between name and stats.
+	const lead, trail, join = 1, 1, 3
 	showStats := true
 	avail := innerWidth - lead - trail
 	statsWidth := lipgloss.Width(statsPlain)
@@ -107,29 +113,42 @@ func (b *contentBuffer) renderDelegationGroupTopBorder(group *delegationGroupSeg
 		showStats = false
 	}
 
+	if name == "" && !showStats {
+		return border.Render("└" + strings.Repeat("─", innerWidth) + "┘")
+	}
+
+	label := b.styles.FgDim.Background(bg)
 	var title strings.Builder
 	used := 0
 	write := func(s string, style lipgloss.Style) {
-		title.WriteString(style.Background(bg).Render(s))
+		title.WriteString(style.Render(s))
 		used += lipgloss.Width(s)
 	}
-	if name != "" || showStats {
-		write("─ ", border)
-	}
+	write(" ", label)
 	if name != "" {
-		write(name, b.styles.FgDim.Bold(true))
+		write(name, b.groupNameStyle(group))
 	}
 	if name != "" && showStats {
-		write(" ─ ", border)
+		write(" · ", label)
 	}
 	if showStats {
-		write(fmt.Sprintf("%d %s · ", agg.total, noun), b.styles.FgDim)
-		write(glyph, b.groupGlyphStyle(agg))
-		write(" "+stateText, b.styles.FgDim)
+		write(fmt.Sprintf("%d %s · ", agg.total, noun), label)
+		write(glyph, b.groupGlyphStyle(agg).Background(bg))
+		write(" "+stateText, label)
 	}
-	if used > 0 {
-		write(" ", border)
+	write(" ", label)
+
+	indent := innerWidth - used
+	leftCorner := "┬"
+	if indent == 0 {
+		leftCorner = "├"
 	}
-	fill := max(0, innerWidth-used)
-	return border.Render("┌") + title.String() + border.Render(strings.Repeat("─", fill)+"┐")
+	bottom := border.Render("└" + strings.Repeat("─", max(0, indent-1)))
+	if indent == 0 {
+		bottom = ""
+	}
+	bottom += border.Render(leftCorner + strings.Repeat("─", used) + "┤")
+	padding := lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", indent))
+	return bottom + "\n" + padding + border.Render("│") + title.String() + border.Render("│") +
+		"\n" + padding + border.Render("╰"+strings.Repeat("─", used)+"╯")
 }
