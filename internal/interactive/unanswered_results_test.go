@@ -72,7 +72,7 @@ func TestDriverRunEmitsUnansweredResultsOnError(t *testing.T) {
 				{Role: agent.MessageRoleAssistant, Content: "ok"},
 				{Role: agent.MessageRoleUser, Content: envelopeFor("a")},
 			}}
-			if _, err := s.driverRun(context.Background(), in); err != nil {
+			if _, err := s.driverRun(context.Background(), in, ""); err != nil {
 				t.Fatalf("driverRun: %v", err)
 			}
 			got := eventsOfType(events, output.EventTypeSubAgentResultsUnanswered)

@@ -12,13 +12,14 @@ import (
 // driverRun is the ConversationDriver's run function: it adapts the session's
 // runExecutor to one turn sequence. A run error is reported as a stop-reason
 // event here and not returned, so the driver does not warn a second time.
-func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput) (agent.DriverRunOutput, error) {
+func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope string) (agent.DriverRunOutput, error) {
 	result, err := s.currentRunner().Run(ctx, RunInput{
-		Conversation:     in.Conversation,
-		DrainInbox:       in.DrainInbox,
-		OnToolBatchDone:  in.OnToolBatchDone,
-		PendingSubAgents: in.PendingSubAgents,
-		MaxTokens:        in.MaxTokens,
+		Conversation:         in.Conversation,
+		DrainInbox:           in.DrainInbox,
+		OnToolBatchDone:      in.OnToolBatchDone,
+		PendingSubAgents:     in.PendingSubAgents,
+		MaxTokens:            in.MaxTokens,
+		DelegationGroupScope: scope,
 	})
 	if err != nil {
 		s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))

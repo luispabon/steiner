@@ -13,7 +13,8 @@ import (
 
 // driverHandle ties one ConversationDriver to the session identity it serves.
 type driverHandle struct {
-	drv *agent.ConversationDriver
+	drv        *agent.ConversationDriver
+	groupScope string
 	// retired is set under Session.mu when the session moves to another
 	// conversation. From then on the driver saves under that identity and
 	// leaves the live session state alone.
@@ -30,10 +31,16 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 	if s.delegationGroups != nil {
 		groupLedger = s.delegationGroups.Clone()
 	}
-	h := &driverHandle{lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: slices.Clone(s.ledger), GroupLedger: groupLedger.Clone()}}
-	h.drv = agent.NewConversationDriver(agent.DriverOptions{
-		GroupLedger:         groupLedger,
-		Run:                 s.driverRun,
+	scope := ""
+	if s.deps.NewGroupScope != nil {
+		scope = s.deps.NewGroupScope(groupLedger.Clone())
+	}
+	h := &driverHandle{groupScope: scope, lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: slices.Clone(s.ledger), GroupLedger: groupLedger.Clone()}}
+	options := agent.DriverOptions{
+		GroupLedger: groupLedger,
+		Run: func(ctx context.Context, in agent.DriverRunInput) (agent.DriverRunOutput, error) {
+			return s.driverRun(ctx, in, scope)
+		},
 		Background:          s.deps.Background,
 		Steers:              s.steersForNewDriverLocked(),
 		Save:                s.driverSave(h),
@@ -41,7 +48,14 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 		PrepareTurn:         s.prepareTurn,
 		Clock:               s.deps.Clock,
 		MaxTokensPerEpisode: s.deps.MaxTokensPerEpisode,
-	}, conv, lineage)
+	}
+	if s.deps.SnapshotGroupLedger != nil {
+		options.SnapshotDelegationGroups = func() agent.DelegationGroupLedger { return s.deps.SnapshotGroupLedger(scope) }
+	}
+	if s.deps.SealGroupBatch != nil {
+		options.SealDelegationBatch = func(batchID string) { s.deps.SealGroupBatch(scope, batchID) }
+	}
+	h.drv = agent.NewConversationDriver(options, conv, lineage)
 	if s.deps.SetCompletionSink != nil {
 		s.deps.SetCompletionSink(h.drv)
 	}
@@ -57,6 +71,10 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 func (s *Session) swapDriverLocked(apply func()) *driverHandle {
 	old := s.driver
 	meta := s.sessionMetaLocked()
+	if s.deps.SnapshotGroupLedger != nil {
+		ledger := s.deps.SnapshotGroupLedger(old.groupScope)
+		s.delegationGroups = &ledger
+	}
 	old.retired = &meta
 	// The steer queue belongs to the live session: without this the old driver
 	// would drain steers meant for its successor, or for a oneshot run.
@@ -76,6 +94,7 @@ func (s *Session) retireDriver(old *driverHandle) {
 	}
 	if !old.drv.Busy() {
 		old.drv.Close(context.Background())
+		s.releaseDriverGroupScope(old)
 		return
 	}
 	s.runs.Add(1)
@@ -85,7 +104,14 @@ func (s *Session) retireDriver(old *driverHandle) {
 		// live driver.
 		_ = old.drv.WaitIdle(context.Background())
 		old.drv.Close(context.Background())
+		s.releaseDriverGroupScope(old)
 	}()
+}
+
+func (s *Session) releaseDriverGroupScope(h *driverHandle) {
+	if s.deps.ReleaseGroupScope != nil && h.groupScope != "" {
+		s.deps.ReleaseGroupScope(h.groupScope)
+	}
 }
 
 // currentDriver returns the live driver. Callers invoke its methods without
