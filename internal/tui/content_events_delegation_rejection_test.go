@@ -57,6 +57,43 @@ func TestDelegationRejectionPreservesAcceptedAndUnknownCards(t *testing.T) {
 	}
 }
 
+func TestModelRejectedFollowUpPreservesOriginalChildAndRoster(t *testing.T) {
+	m := &Model{content: contentBuffer{}, roster: subAgentRoster{entries: map[string]*rosterEntry{}}, styles: testStyles("#5599ff")}
+	accepted := output.NewDelegationAcceptedEvent("original", "child", "batch", "prior")
+	m.applyEvent(accepted)
+	m.applyEvent(output.NewDelegationQueuedEvent("child", "original", "explore", "original task"))
+	m.applyEvent(output.NewDelegationStartedEventWithType("child", "original task", "original", "", "explore"))
+	originalCard := m.content.segments[0].delegData
+	before := m.roster.entries["child"]
+	if originalCard == nil || before == nil || before.status != rosterRunning || before.currentCallID != "original" {
+		t.Fatalf("original run setup: card=%#v roster=%#v", originalCard, before)
+	}
+
+	m.applyEvent(output.NewToolCallStartedEvent(1, "follow_up", "follow-up", map[string]any{"agent_id": "child", "message": "continue"}))
+	followUp := m.content.segments[len(m.content.segments)-1].delegData
+	if followUp == nil || !followUp.isFollowUp {
+		t.Fatalf("follow-up provisional card = %#v", followUp)
+	}
+	m.applyEvent(output.NewToolCallFinishedEventWithAdmission(1, "follow_up", "follow-up", "", errors.New("not admitted"), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected"}))
+
+	if findDelegationSegment(m.content.segments, originalCard) < 0 || findDelegationSegment(m.content.segments, followUp) >= 0 {
+		t.Fatalf("content cards after rejection = %#v", m.content.segments)
+	}
+	after := m.roster.entries["child"]
+	if after != before || after.currentCallID != "original" || after.status != rosterRunning || !after.accepted || after.group != "prior" || after.batchID != "batch" || len(m.roster.entries) != 1 {
+		t.Fatalf("roster changed for rejected follow-up: before=%#v after=%#v entries=%#v", before, after, m.roster.entries)
+	}
+
+	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "child", Status: "completed"}))
+	if findDelegationSegment(m.content.segments, originalCard) < 0 || originalCard.agentID != "child" || originalCard.status != "complete" {
+		t.Fatalf("late lifecycle event changed original card: %#v", originalCard)
+	}
+	after = m.roster.entries["child"]
+	if after != before || after.currentCallID != "original" || after.status != rosterDone || after.group != "prior" || len(m.roster.entries) != 1 {
+		t.Fatalf("late lifecycle event corrupted roster: %#v", m.roster.entries)
+	}
+}
+
 func TestDelegationRejectedErrorRetainsExactText(t *testing.T) {
 	for _, message := range []string{"api: provider failed", "turn /status: failed", "status: rejected by policy", "ordinary rejection error"} {
 		t.Run(message, func(t *testing.T) {
