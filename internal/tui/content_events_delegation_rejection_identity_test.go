@@ -10,9 +10,6 @@ import (
 func TestDelegationRejectionIdentityKeepsAcceptedCardAndError(t *testing.T) {
 	accepted := &delegationDisplayState{parentCallID: "accepted-call", groupAccepted: true, batchID: "accepted-batch", group: "accepted-group"}
 	b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: accepted}}, activeDelegations: map[string]delegationLocator{"child": {seg: 0, dd: accepted}}}
-	if accepted == nil {
-		t.Fatal("accepted card missing")
-	}
 	const rejection = "provider: current call rejected"
 	b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "accepted-call", "", errors.New(rejection), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected"}))
 	if b.activeDelegations["child"].dd != accepted || findDelegationSegment(b.segments, accepted) < 0 {

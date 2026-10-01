@@ -743,6 +743,11 @@ func (b *contentBuffer) findDelegationToBind(agentID, callID string, queued bool
 }
 
 func (b *contentBuffer) bindDelegation(agentID, callID, agentType, taskPreview, modelAlias string, queued bool) {
+	if !queued {
+		if loc, active := b.activeDelegations[agentID]; active && loc.dd != nil && loc.dd.status == "active" && loc.dd.parentCallID != "" && loc.dd.parentCallID != callID {
+			return
+		}
+	}
 	preview := taskPreview
 	modelAlias = strings.TrimSpace(modelAlias)
 	if runes := []rune(preview); len(runes) > 80 {
