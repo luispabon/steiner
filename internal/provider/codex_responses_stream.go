@@ -70,6 +70,9 @@ func decodeResponsesStreamWithHandler(_ context.Context, body io.Reader, emit fu
 			if errors.Is(err, io.EOF) {
 				break
 			}
+			if flushErr := flushPendingResponsesText(&state, emit); flushErr != nil {
+				return flushErr
+			}
 			return err
 		}
 		if len(event) == 0 {
@@ -146,6 +149,9 @@ func processResponsesStreamEvent(state *responsesStreamState, event string, emit
 	case "response.completed", "response.incomplete":
 		return handleResponsesCompleted(state, payload.Response, emit)
 	case "response.failed":
+		if err := flushPendingResponsesText(state, emit); err != nil {
+			return false, err
+		}
 		return false, responsesFailedError(payload.Response)
 	}
 	return false, nil
