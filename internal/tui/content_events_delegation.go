@@ -525,9 +525,6 @@ func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload ou
 	dd := loc.dd
 	dd.parentCallID = payload.CallID
 	dd.parentArgs = summarizeArgs(payload.Tool, payload.Arguments)
-	if accepted, ok := b.acceptedDelegations[payload.CallID]; ok {
-		dd.groupAccepted, dd.batchID, dd.group = true, accepted.BatchID, strings.TrimSpace(accepted.Group)
-	}
 	toolLabel, promptText, brief := delegateCallDetails(payload.Tool, payload.Arguments)
 	if brief != nil {
 		dd.applyStructuredBrief(*brief)
@@ -778,9 +775,6 @@ func (b *contentBuffer) bindDelegation(agentID, callID, agentType, taskPreview, 
 		}
 		dd.status = "active"
 		dd.collapsed = true
-		if accepted, ok := b.acceptedDelegations[dd.parentCallID]; ok {
-			dd.groupAccepted, dd.batchID, dd.group = true, accepted.BatchID, strings.TrimSpace(accepted.Group)
-		}
 		b.activeDelegations[agentID] = loc
 		b.markDelegationDirty(loc.seg)
 	}
@@ -803,9 +797,6 @@ func (b *contentBuffer) bindDelegation(agentID, callID, agentType, taskPreview, 
 	}
 	if modelAlias != "" {
 		dd.modelName, dd.reasoning = b.resolveAliasBadge(modelAlias)
-	}
-	if accepted, ok := b.acceptedDelegations[callID]; ok {
-		dd.groupAccepted, dd.batchID, dd.group = true, accepted.BatchID, strings.TrimSpace(accepted.Group)
 	}
 	idx := b.appendDelegationSegment(dd)
 	loc := delegationLocator{seg: idx, dd: dd}

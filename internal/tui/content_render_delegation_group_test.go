@@ -17,7 +17,7 @@ func groupOf(label string, statuses ...string) *delegationGroupSegment {
 	for i, st := range statuses {
 		g.entries = append(g.entries, &delegationDisplayState{
 			agentID: "child-" + string(rune('1'+i)), toolLabel: "explore",
-			group: label, status: st, collapsed: true,
+			group: label, groupAccepted: label != "", batchID: "render-batch", status: st, collapsed: true,
 		})
 	}
 	return g
@@ -107,10 +107,39 @@ func TestRenderDelegationGroupFooterRequiresSharedGroup(t *testing.T) {
 		mutate    func(*delegationGroupSegment)
 		wantNamed bool
 	}{
-		{"same group and batch", func(*delegationGroupSegment) {}, true},
-		{"different group", func(g *delegationGroupSegment) { g.entries[1].group = "other" }, false},
-		{"same group across batches", func(g *delegationGroupSegment) { g.entries[1].batch++ }, true},
-		{"empty group", func(g *delegationGroupSegment) { g.entries[0].group = "" }, false},
+		{"same accepted group and batch", func(g *delegationGroupSegment) {
+			for _, dd := range g.entries {
+				dd.groupAccepted = true
+				dd.batchID = "batch"
+			}
+		}, true},
+		{"different group", func(g *delegationGroupSegment) {
+			for _, dd := range g.entries {
+				dd.groupAccepted = true
+				dd.batchID = "batch"
+			}
+			g.entries[1].group = "other"
+		}, false},
+		{"different accepted batches", func(g *delegationGroupSegment) {
+			for _, dd := range g.entries {
+				dd.groupAccepted = true
+				dd.batchID = "batch"
+			}
+			g.entries[1].batchID = "other"
+		}, false},
+		{"unknown membership", func(g *delegationGroupSegment) {
+			for _, dd := range g.entries {
+				dd.groupAccepted = false
+				dd.batchID = ""
+			}
+		}, false},
+		{"empty group", func(g *delegationGroupSegment) {
+			for _, dd := range g.entries {
+				dd.groupAccepted = true
+				dd.batchID = "batch"
+			}
+			g.entries[0].group = ""
+		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			g := groupOf("discovery", "complete", "complete")
@@ -119,8 +148,8 @@ func TestRenderDelegationGroupFooterRequiresSharedGroup(t *testing.T) {
 			if got := strings.Contains(out, "discovery"); got != tc.wantNamed {
 				t.Errorf("named footer = %v, want %v: %q", got, tc.wantNamed, out)
 			}
-			if tc.name == "same group across batches" && (!strings.Contains(out, "2 agents") || !strings.Contains(out, "2/2")) {
-				t.Errorf("cross-batch footer missing aggregate totals: %q", out)
+			if tc.wantNamed && (!strings.Contains(out, "2 agents") || !strings.Contains(out, "2/2")) {
+				t.Errorf("accepted group footer missing aggregate totals: %q", out)
 			}
 			if !tc.wantNamed && !strings.HasSuffix(strings.TrimSuffix(out, "\n"), "┘") {
 				t.Errorf("ineligible footer did not use plain bottom border: %q", out)

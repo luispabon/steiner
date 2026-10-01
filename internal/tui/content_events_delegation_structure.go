@@ -23,18 +23,20 @@ func (b *contentBuffer) appendDelegationAcceptedEvent(event output.Event) {
 	if !ok || payload.CallID == "" {
 		return
 	}
-	if b.acceptedDelegations == nil {
-		b.acceptedDelegations = make(map[string]output.DelegationAcceptedEvent)
-	}
-	b.acceptedDelegations[payload.CallID] = payload
+	var target *delegationDisplayState
 	b.forEachDelegationReverse(func(loc delegationLocator) bool {
 		if loc.dd != nil && loc.dd.parentCallID == payload.CallID {
-			loc.dd.groupAccepted = true
-			loc.dd.batchID = payload.BatchID
-			loc.dd.group = strings.TrimSpace(payload.Group)
+			target = loc.dd
+			return true
 		}
 		return false
 	})
+	if target == nil {
+		return
+	}
+	target.groupAccepted = true
+	target.batchID = payload.BatchID
+	target.group = strings.TrimSpace(payload.Group)
 	b.regroupAcceptedDelegations()
 }
 
