@@ -132,14 +132,36 @@ func TestUndispatchedDelegationOutcomesCarryRejectedMetadata(t *testing.T) {
 	t.Run("parallel gate waiting calls", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		entered := make(chan string, 2)
 		var events []output.Event
 		req := RunRequest{
-			Executor:        parallelTestExecutor{fn: func(context.Context, string) (any, error) { cancel(); return nil, context.Canceled }},
-			ParallelClassOf: classifier, MaxParallelDelegations: 1,
+			Executor: parallelTestExecutor{fn: func(ctx context.Context, name string) (any, error) {
+				entered <- name
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}},
+			ParallelClassOf: classifier, MaxParallelDelegations: 2,
 			Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 		}
 		p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
-		state := p.executeToolCalls(ctx, cancelDrainState("delegate-first", "delegate-waiting"), parallelCalls("delegate-first", "delegate-waiting")).State
+		done := make(chan RunState, 1)
+		go func() {
+			done <- p.executeToolCalls(ctx, cancelDrainState("delegate-first", "delegate-second", "delegate-waiting"), parallelCalls("delegate-first", "delegate-second", "delegate-waiting")).State
+		}()
+		for range 2 {
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("parallel delegation calls did not occupy both slots")
+			}
+		}
+		cancel()
+		var state RunState
+		select {
+		case state = <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("tool calls did not finish after cancellation")
+		}
 		assertRejectedDelegationMessage(t, state, "delegate-waiting")
 		assertRejectedFinishedEvent(t, events, "delegate-waiting")
 	})
