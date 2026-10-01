@@ -481,14 +481,16 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 				return provisionCodePlan(childCtx, plan, spec, deps, resolvedProvider, resolvedModel, allowedTools)
 			}
 		} else {
-			req, limits, err := buildSpecializedRun(ctx, spec, deps, resolvedProvider, resolvedModel, allowedTools, CodeWorktree{})
-			if err != nil {
-				emitDelegateFailed(deps.Events, spec, agentType, err.Error())
-				return nil, childSetupError(err)
+			plan.provision = func(childCtx context.Context, plan *delegatePlan) error {
+				req, limits, err := buildSpecializedRun(childCtx, spec, deps, resolvedProvider, resolvedModel, allowedTools, CodeWorktree{})
+				if err != nil {
+					return err
+				}
+				plan.req = req
+				plan.limits = limits
+				spec.Limits = limits
+				return nil
 			}
-			plan.req = req
-			plan.limits = limits
-			spec.Limits = limits
 		}
 		plan.modelAlias = resolvedModel.Alias
 		plan.group = inputGroup(input)
