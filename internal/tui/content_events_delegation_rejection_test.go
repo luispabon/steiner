@@ -94,6 +94,43 @@ func TestModelRejectedFollowUpPreservesOriginalChildAndRoster(t *testing.T) {
 	}
 }
 
+func TestUnknownAdmissionErrorCleansEligibleEmptyAgentCard(t *testing.T) {
+	const message = "turn /status: launch failed"
+	dd := &delegationDisplayState{parentCallID: "call"}
+	b := &contentBuffer{
+		segments:               []contentSegment{{kind: segmentDelegation, delegData: dd}},
+		pendingDelegateParents: []delegationLocator{{seg: 0, dd: dd}},
+		queuedDelegations:      map[string]delegationLocator{"call": {seg: 0, dd: dd}},
+	}
+
+	b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(message), output.ToolPreview{}, &output.DelegationAdmission{Status: "unknown"}))
+
+	if dd.status != "failed" || len(b.pendingDelegateParents) != 0 {
+		t.Fatalf("eligible failure not cleaned: status=%q pending=%#v", dd.status, b.pendingDelegateParents)
+	}
+	if _, ok := b.queuedDelegations["call"]; ok {
+		t.Fatalf("queued call remains: %#v", b.queuedDelegations)
+	}
+	if len(b.segments) != 2 || b.segments[1].text != message {
+		t.Fatalf("unknown admission evidence = %#v, want exact error once", b.segments)
+	}
+}
+
+func TestUnknownAdmissionErrorKeepsIdentifiedAcceptedRunningCard(t *testing.T) {
+	const message = "api: delayed error"
+	dd := &delegationDisplayState{agentID: "child", parentCallID: "call", status: "active", groupAccepted: true}
+	b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: dd}}}
+
+	b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(message), output.ToolPreview{}, &output.DelegationAdmission{Status: "unknown"}))
+
+	if dd.status != "active" || dd.agentID != "child" || findDelegationSegment(b.segments, dd) != 0 {
+		t.Fatalf("identified accepted run changed: card=%#v segments=%#v", dd, b.segments)
+	}
+	if len(b.segments) != 2 || b.segments[1].text != message {
+		t.Fatalf("unknown admission evidence = %#v, want exact error", b.segments)
+	}
+}
+
 func TestDelegationRejectedErrorRetainsExactText(t *testing.T) {
 	for _, message := range []string{"api: provider failed", "turn /status: failed", "status: rejected by policy", "ordinary rejection error"} {
 		t.Run(message, func(t *testing.T) {

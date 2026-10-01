@@ -27,7 +27,9 @@ func (b *contentBuffer) handleDelegationAdmissionFinish(payload output.ToolCallF
 		return removed
 	default:
 		b.appendAdmissionError(payload.Error)
-		return payload.Error != ""
+		// Let the ordinary finish path clear eligible empty-agent pending cards.
+		// It does not append the error, so exact evidence is still emitted once.
+		return false
 	}
 }
 
