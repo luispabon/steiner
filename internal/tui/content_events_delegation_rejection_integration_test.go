@@ -1,10 +1,95 @@
 package tui
 
 import (
+	"errors"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/output"
 )
+
+func TestRejectedToolFinishFlushesLiveAnswerAndThinkingBeforeExactEvidence(t *testing.T) {
+	const rejection = "api: provider /status:run failed"
+	b := &contentBuffer{collapseState: make(map[int]bool)}
+	b.AppendEvent(output.NewAssistantChunkEventWithSource(1, "buffered answer", output.ChunkSourceAssistant))
+	b.AppendEvent(output.NewThinkingChunkEventWithSource(1, "buffered thought", output.ChunkSourceAssistant))
+	b.appendToolCallStartedEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call", map[string]any{"type": "explore"}))
+
+	b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(rejection), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected", PolicyNotice: true}))
+
+	if b.streaming {
+		t.Fatal("tool finish left stream open")
+	}
+	if len(b.segments) < 3 {
+		t.Fatalf("finished segments = %#v", b.segments)
+	}
+	if b.segments[0].kind != segmentAssistantMarkdown || b.segments[0].text != "buffered answer" {
+		t.Fatalf("answer segment = %#v, want buffered answer first", b.segments[0])
+	}
+	if b.segments[1].kind != segmentThinkingBlock || b.segments[1].thinkData == nil || b.segments[1].thinkData.body != "buffered thought" {
+		t.Fatalf("thinking segment = %#v, want buffered thought second", b.segments[1])
+	}
+	if b.segments[2].kind != segmentStatus || b.segments[2].text != "Delegation rejected by policy." {
+		t.Fatalf("policy notice = %#v", b.segments[2])
+	}
+	if len(b.segments) != 4 || b.segments[3].kind != segmentTool || b.segments[3].text != rejection {
+		t.Fatalf("rejection evidence = %#v, want exact error after stream and notice", b.segments)
+	}
+}
+
+func TestRejectedErrorPrefixesRemainExactAndPolicyNoticeTyped(t *testing.T) {
+	for _, message := range []string{"api: provider failed", "turn /status:run failed", "status: provider failed"} {
+		t.Run(message, func(t *testing.T) {
+			b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: &delegationDisplayState{parentCallID: "call"}}}}
+			b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(message), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected", PolicyNotice: true}))
+			if len(b.segments) != 2 || b.segments[0].kind != segmentStatus || b.segments[0].text != "Delegation rejected by policy." || b.segments[1].kind != segmentTool || b.segments[1].text != message {
+				t.Fatalf("notice/error = %#v, want typed notice and exact %q", b.segments, message)
+			}
+		})
+	}
+}
+
+func TestRejectedCurrentCardRemovalClearsSelectionAndDrag(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "rejected-call", map[string]any{"type": "explore"}))
+	m.syncViewport()
+	idx := len(m.content.segments) - 1
+	anchor := m.content.selectionAnchorForSegmentRow(idx, 0)
+	if !anchor.ok {
+		t.Fatal("test setup: provisional card has no selection anchor")
+	}
+	line, ok := m.content.contentLineForSegmentRow(idx, 0)
+	if !ok {
+		t.Fatal("test setup: provisional card has no content line")
+	}
+	m.activeRegion = regionViewport
+	m.selection = selectionState{
+		start:       selectionPoint{line: line, col: 0},
+		end:         selectionPoint{line: line, col: 1},
+		active:      true,
+		startAnchor: anchor,
+		endAnchor:   anchor,
+	}
+	m.mousePressX, m.mousePressY = 3, 4
+	m.dragScrollDir, m.dragScrollTicking = 1, true
+	before := m.content.structureGen
+
+	m.applyEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "rejected-call", "", errors.New("api: rejected"), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected"}))
+	m.syncViewport()
+
+	if m.content.structureGen == before {
+		t.Fatalf("rejection did not advance structure generation: %d", before)
+	}
+	if m.selection.hasSelection() {
+		t.Fatal("selection retained anchor to removed provisional card")
+	}
+	if m.mousePressX != -1 || m.mousePressY != -1 || m.dragScrollDir != 0 || m.dragScrollTicking {
+		t.Fatalf("drag state survived rejection: press=(%d,%d) dir=%d ticking=%v", m.mousePressX, m.mousePressY, m.dragScrollDir, m.dragScrollTicking)
+	}
+}
 
 func TestRejectedProvisionalBetweenAcceptedGroupSiblingsLeavesOneFrame(t *testing.T) {
 	first := &delegationDisplayState{parentCallID: "first", groupAccepted: true, batchID: "batch", group: "g"}
