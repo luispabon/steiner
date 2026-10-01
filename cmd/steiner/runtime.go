@@ -105,6 +105,7 @@ type cliRuntime struct {
 	delegationCacheKeyStore      *delegation.CacheKeyStore
 	delegationActiveController   *delegation.ActiveController
 	delegationSupervisor         *delegation.Supervisor
+	delegationFallbackGroupScope string
 	delegationAdvisorBudgetStore *delegation.AdvisorBudgetStore
 	advisorState                 *advisor.SharedState
 	delegationLogger             *delegation.TraceLogger

@@ -108,6 +108,10 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 	if err != nil {
 		return runResult{}, err
 	}
+	setup.delegationGroupScope = hooks.delegationGroupScope
+	if setup.delegationGroupScope == "" {
+		setup.delegationGroupScope = r.runtime.delegationFallbackGroupScope
+	}
 	r.runtime.events.Emit(output.NewRunStartedEvent(
 		setup.runMode,
 		setup.resolvedModel.BackendModelID,
@@ -235,6 +239,7 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		SessionStore:                     r.runtime.delegationSessionStore,
 		ActiveController:                 r.runtime.delegationActiveController,
 		Supervisor:                       r.runtime.delegationSupervisor,
+		GroupScope:                       setup.delegationGroupScope,
 		ChildEvents:                      r.runtime.events,
 		ImageStore:                       r.runtime.imageStore,
 		ExtraAllowedTools:                extraAllowedTools,

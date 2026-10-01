@@ -52,10 +52,11 @@ func (r *driverRunRecord) record(res runResult, err error) {
 func (r cliRunner) driverRun(skillNames []string, rec *driverRunRecord) agent.DriverRunFunc {
 	return func(ctx context.Context, in agent.DriverRunInput) (agent.DriverRunOutput, error) {
 		res, err := r.run(ctx, in.Conversation, skillNames, runHooks{
-			drainInbox:       in.DrainInbox,
-			onToolBatchDone:  in.OnToolBatchDone,
-			pendingSubAgents: in.PendingSubAgents,
-			maxTokens:        in.MaxTokens,
+			drainInbox:           in.DrainInbox,
+			onToolBatchDone:      in.OnToolBatchDone,
+			pendingSubAgents:     in.PendingSubAgents,
+			maxTokens:            in.MaxTokens,
+			delegationGroupScope: r.runtime.delegationFallbackGroupScope,
 		})
 		if rec != nil {
 			rec.record(res, err)

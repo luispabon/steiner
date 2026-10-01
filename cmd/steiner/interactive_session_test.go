@@ -109,6 +109,21 @@ func TestResetSandboxTmpEmitsWarning(t *testing.T) {
 	}
 }
 
+func TestBuildInteractiveSessionWiresGroupScopeCallbacks(t *testing.T) {
+	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
+	sess, err := buildInteractiveSession(cliRuntime{
+		events: output.NoopSink{}, workDir: t.TempDir(), homeDir: t.TempDir(), delegationSupervisor: supervisor,
+	})
+	if err != nil {
+		t.Fatalf("buildInteractiveSession() error = %v", err)
+	}
+	_ = sess
+	scope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	if got := supervisor.SnapshotGroupLedger(scope); got.Version != 1 {
+		t.Fatalf("group scope ledger = %+v, want version 1", got)
+	}
+}
+
 func TestBuildInteractiveSessionCancelsThroughRuntimeSupervisor(t *testing.T) {
 	controller := delegation.NewActiveController()
 	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})

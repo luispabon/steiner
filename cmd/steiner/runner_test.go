@@ -26,6 +26,60 @@ import (
 	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
+func TestBuildRunRequestUsesCapturedDelegationGroupScope(t *testing.T) {
+	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
+	fallbackScope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	explicitScope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	runner := cliRunner{runtime: cliRuntime{delegationSupervisor: supervisor, delegationFallbackGroupScope: fallbackScope}}
+	setup := runnerSetup{delegationGroupScope: explicitScope}
+	deps := runner.newDelegateDeps(setup, nil, nil, nil, "")
+	if deps.GroupScope != explicitScope {
+		t.Fatalf("DelegateDeps.GroupScope = %q, want explicit scope %q", deps.GroupScope, explicitScope)
+	}
+
+	request := buildRunRequest(runner, setup, tool.NewRegistry(), nil, runHooks{})
+	if request.OnToolBatchDone == nil {
+		t.Fatal("OnToolBatchDone = nil, want scoped fallback sealer")
+	}
+	testJob := func(id, group string) delegation.ChildJob {
+		return delegation.ChildJob{AgentID: id, Group: group, GroupScope: explicitScope, Execute: func(context.Context) (tool.ExecutionResult, error) {
+			return tool.ExecutionResult{}, nil
+		}}
+	}
+	if _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit"), testJob("first", "group-a")); err != nil {
+		t.Fatalf("first group spawn: %v", err)
+	}
+	request.OnToolBatchDone("batch-explicit")
+	if _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit"), testJob("second", "group-b")); err == nil {
+		t.Fatal("spawn accepted after callback sealed batch")
+	}
+}
+
+func TestBuildRunRequestFallbackScopeIsStableAcrossRuns(t *testing.T) {
+	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
+	fallbackScope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	runner := cliRunner{runtime: cliRuntime{delegationSupervisor: supervisor, delegationFallbackGroupScope: fallbackScope}}
+	for i := 0; i < 2; i++ {
+		setup := runnerSetup{delegationGroupScope: runner.runtime.delegationFallbackGroupScope}
+		deps := runner.newDelegateDeps(setup, nil, nil, nil, "")
+		if deps.GroupScope != fallbackScope {
+			t.Fatalf("run %d DelegateDeps.GroupScope = %q, want stable scope %q", i, deps.GroupScope, fallbackScope)
+		}
+	}
+}
+
+func TestBuildRunRequestPreservesExplicitBatchCallback(t *testing.T) {
+	called := ""
+	runner := cliRunner{}
+	request := buildRunRequest(runner, runnerSetup{delegationGroupScope: "chosen"}, tool.NewRegistry(), nil, runHooks{
+		onToolBatchDone: func(batchID string) { called = batchID },
+	})
+	request.OnToolBatchDone("custom-batch")
+	if called != "custom-batch" {
+		t.Fatalf("custom callback batch = %q, want custom-batch", called)
+	}
+}
+
 func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 	for _, tt := range []struct {
 		name              string

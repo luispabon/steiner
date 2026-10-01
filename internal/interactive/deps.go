@@ -36,6 +36,8 @@ type RunInput struct {
 	PendingSubAgents func() []agent.PendingSubAgent
 	// MaxTokens caps the run's tokens; 0 means the runner default.
 	MaxTokens int
+	// DelegationGroupScope identifies the run's delegation group-name ledger.
+	DelegationGroupScope string
 }
 
 // runExecutor starts and manages model-in-the-loop runs. Consumer-defined to
@@ -127,6 +129,11 @@ type Dependencies struct {
 	// Background is the sub-agent supervisor the conversation driver consults.
 	// Nil when the session has no sub-agents.
 	Background agent.BackgroundAgents
+	// Group-scope callbacks use the runtime supervisor for interactive runs.
+	NewGroupScope       func(agent.DelegationGroupLedger) string
+	SnapshotGroupLedger func(string) agent.DelegationGroupLedger
+	SealGroupBatch      func(scope, batchID string)
+	ReleaseGroupScope   func(string)
 	// SetCompletionSink installs the driver as the supervisor's completion
 	// sink each time the session builds one, replacing a retired driver.
 	SetCompletionSink func(agent.CompletionSink)
