@@ -235,17 +235,30 @@ func (m *Model) clearConversationStateWithError() (tea.Model, bool, error) {
 		m.syncInputChrome()
 		return m, false, nil
 	}
-	if m.recorder != nil {
-		m.recorder.ResetSession()
-	}
 	err := m.performClearConversationState()
-	return m, true, err
+	if err == nil && m.recorder != nil {
+		m.recorder.ResetSession()
+		m.syncSidebar()
+	}
+	return m, err == nil, err
 }
 
-// performClearConversationState resets conversation content and TUI chrome
-// unconditionally. It does not check whether a run is active — callers own
-// that decision.
+// performClearConversationState clears the controller before resetting TUI
+// state. It does not check whether a run is active; callers own that decision.
 func (m *Model) performClearConversationState() error {
+	if m.controller != nil {
+		if err := m.controller.Handle(context.Background(), interactive.ClearConversation{}); err != nil {
+			m.appendError(err)
+			return err
+		}
+	}
+	m.resetConversationUI()
+	return nil
+}
+
+// resetConversationUI resets conversation content and TUI chrome without
+// issuing a controller request. Callers use it after an atomic clear operation.
+func (m *Model) resetConversationUI() {
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
 	}
@@ -278,17 +291,9 @@ func (m *Model) performClearConversationState() error {
 	}
 	m.setCompaction(compactionState{})
 	m.syncSidebar()
-	var clearErr error
-	if m.controller != nil {
-		clearErr = m.controller.Handle(context.Background(), interactive.ClearConversation{})
-		if clearErr != nil {
-			m.appendError(clearErr)
-		}
-	}
 	m.input.Reset()
 	m.syncInputChrome()
 	m.syncViewport()
-	return clearErr
 }
 
 func (m *Model) handleToggleThinkingMsg(_ toggleThinkingMsg) (tea.Model, tea.Cmd) {
