@@ -44,8 +44,8 @@ func TestClearConversationRefusalPreservesUIAndRecorder(t *testing.T) {
 	if cleared || !errors.Is(err, clearErr) {
 		t.Fatalf("clear result = (%v, %v), want (false, %v)", cleared, err, clearErr)
 	}
-	if got := m.content.String(m.viewport.Width()); !strings.Contains(got, "old transcript") || !strings.Contains(got, "clear refused") {
-		t.Fatalf("content = %q, want transcript and visible error", got)
+	if got := strings.Join(m.viewport.Lines(), "\n"); !strings.Contains(got, "old transcript") || !strings.Contains(got, "clear refused") {
+		t.Fatalf("viewport lines = %q, want transcript and visible error", got)
 	}
 	if got := m.input.Value(); got != "draft" {
 		t.Fatalf("input = %q, want draft preserved", got)
@@ -70,7 +70,8 @@ func TestClearConversationSuccessCallsControllerBeforeUICleanup(t *testing.T) {
 		}
 	}
 	m.controller = ctrl
-	m.sessionResetCleanup = func() { m.content.AppendLine("cleanup called") }
+	cleanupCalls := 0
+	m.sessionResetCleanup = func() { cleanupCalls++ }
 	m.content.AppendLine("old transcript")
 	m.input.SetValue("draft")
 	m.imageMarkers = []imageMarker{{label: "[img-1]", image: agent.ImageBlock{ID: "img-1"}}}
@@ -85,7 +86,10 @@ func TestClearConversationSuccessCallsControllerBeforeUICleanup(t *testing.T) {
 	if ctrl.calls != 1 {
 		t.Fatalf("controller clear calls = %d, want 1", ctrl.calls)
 	}
-	if got := m.content.String(m.viewport.Width()); strings.Contains(got, "old transcript") || strings.Contains(got, "cleanup called") {
+	if cleanupCalls != 1 {
+		t.Fatalf("cleanup calls = %d, want 1", cleanupCalls)
+	}
+	if got := m.content.String(m.viewport.Width()); strings.Contains(got, "old transcript") {
 		t.Fatalf("content after cleanup = %q, want cleared", got)
 	}
 	if got := m.input.Value(); got != "" {

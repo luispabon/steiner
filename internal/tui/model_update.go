@@ -196,18 +196,13 @@ func (m *Model) handleUpdateCheckResultMsg(msg updateCheckResultMsg) (tea.Model,
 	return m, nil
 }
 
-// clearConversationState unconditionally clears conversation state and TUI
-// chrome. It is used by callers that must always clear regardless of
-// in-flight work — namely acceptWorkflowHandoff, which runs while the
-// workflow_handoff tool call itself is still registered active (its
-// ToolCallFinishedEvent only arrives asynchronously, after this call
-// returns). Callers that should refuse to clear during an active run must
-// use clearConversationStateWithError instead.
+// clearConversationState clears conversation state and TUI chrome after the
+// controller accepts the clear. It is used by callers that clear regardless
+// of in-flight work, including acceptWorkflowHandoff. Callers that should
+// refuse to clear during an active run must use clearConversationStateWithError.
 //
 //nolint:unparam // tea.Cmd remains part of the workflow handoff call contract.
 func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
-	// Error is already surfaced via a content status line inside
-	// performClearConversationState; nothing further to do with it here.
 	_ = m.performClearConversationState()
 	return m, nil
 }
@@ -228,7 +223,7 @@ func (m *Model) refuseWhileBusy(action string) {
 }
 
 // clearConversationStateWithError refuses to clear while a run is in
-// progress, otherwise clears unconditionally via performClearConversationState.
+// progress and reports whether the controller accepted the clear.
 func (m *Model) clearConversationStateWithError() (tea.Model, bool, error) {
 	if m.sessionBusy() {
 		m.refuseWhileBusy("clear")
@@ -249,6 +244,7 @@ func (m *Model) performClearConversationState() error {
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.ClearConversation{}); err != nil {
 			m.appendError(err)
+			m.syncViewport()
 			return err
 		}
 	}
