@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -111,7 +112,11 @@ func TestRegistryGroupScopeSharedAcrossRegisteredHandlers(t *testing.T) {
 		t.Fatalf("registered vision handler() error = %v", err)
 	}
 
-	warmFollowUpInput := map[string]any{"agent_id": explore.AgentID, "message": "continue", "group": "warm-follow-up"}
+	warmFollowUpInput := map[string]any{"agent_id": explore.AgentID, "message": "continue", "group": "vision-group"}
+	if _, err := registryCall(t, followUp, batchContext("follow-up-conflict"), warmFollowUpInput); err == nil || !containsGroupReuseError(err) {
+		t.Fatalf("follow_up reusing vision group error = %v, want used group name rejection", err)
+	}
+	warmFollowUpInput["group"] = "warm-follow-up"
 	warmResult, err := registryCall(t, followUp, batchContext("warm-follow-up-batch"), warmFollowUpInput)
 	if err != nil {
 		t.Fatalf("registered warm follow_up handler() error = %v", err)
@@ -151,23 +156,31 @@ func containsGroupReuseError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "was already used")
 }
 
-func TestRegistryGroupScopeExplicitScopesRemainIndependent(t *testing.T) {
+func TestRegistryGroupScopeExplicitScopePreserved(t *testing.T) {
 	supervisor := NewSupervisor(SupervisorOptions{MaxParallel: 2})
-	firstScope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
-	secondScope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
-	for _, scope := range []string{firstScope, secondScope} {
-		registry, err := BuildDelegateRegistry(registryGroupScopeDeps(t, supervisor, scope))
-		if err != nil {
-			t.Fatalf("BuildDelegateRegistry() error = %v", err)
-		}
-		def, ok := registry.Get(SubAgentToolName)
-		if !ok {
-			t.Fatal("sub_agent tool not registered")
-		}
-		input := subAgentTask(AgentTypeExplore, "inspect")
-		input["group"] = "same-name"
-		if _, err := registryCall(t, def, batchContext("batch-"+scope), input); err != nil {
-			t.Fatalf("registered handler with explicit scope %q: %v", scope, err)
-		}
+	scope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1, Names: []string{"reserved"}})
+	deps := registryGroupScopeDeps(t, supervisor, scope)
+	registry, err := BuildDelegateRegistry(deps)
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+	def, ok := registry.Get(SubAgentToolName)
+	if !ok {
+		t.Fatal("sub_agent tool not registered")
+	}
+	input := subAgentTask(AgentTypeExplore, "inspect")
+	input["group"] = "reserved"
+	if _, err := registryCall(t, def, batchContext("reserved-batch"), input); err == nil || !containsGroupReuseError(err) {
+		t.Fatalf("registered handler using seeded group error = %v, want used group name rejection", err)
+	}
+
+	input["group"] = "accepted"
+	if _, err := registryCall(t, def, batchContext("accepted-batch"), input); err != nil {
+		t.Fatalf("registered handler with explicit scope: %v", err)
+	}
+	got := supervisor.SnapshotGroupLedger(scope)
+	want := agent.DelegationGroupLedger{Version: 1, Names: []string{"accepted", "reserved"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("explicit scope ledger = %+v, want %+v", got, want)
 	}
 }
