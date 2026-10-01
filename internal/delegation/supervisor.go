@@ -161,13 +161,7 @@ func (s *Supervisor) SpawnAndWait(handlerCtx context.Context, job ChildJob) (too
 			state.acked = true
 			s.pruneLocked(state)
 			result := state.result
-			if result.DelegationAdmission == nil {
-				result.DelegationAdmission = admissionForState(state)
-			}
-			result.DelegationAdmission.Status = tool.DelegationAdmissionAccepted
-			result.DelegationAdmission.BatchID = state.batchID
-			result.DelegationAdmission.Group = state.job.Group
-			result.DelegationAdmission.AgentID = state.job.AgentID
+			result.DelegationAdmission = admissionForState(state)
 			err := tool.WithDelegationAdmission(state.err, result.DelegationAdmission)
 			s.mu.Unlock()
 			return result, err

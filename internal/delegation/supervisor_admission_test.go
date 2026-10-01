@@ -136,3 +136,54 @@ func TestSupervisorAdmissionDoesNotMutateSharedToolExecutionError(t *testing.T) 
 		})
 	}
 }
+
+func TestQueuedCancelAdmissionDoesNotMutateSharedMetadata(t *testing.T) {
+	shared := &tool.DelegationAdmission{Status: "source", BatchID: "source-batch", Group: "source-group", AgentID: "source-agent"}
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
+	outcomes := make(chan spawnResult, 2)
+	supervisors := make([]*Supervisor, 2)
+	blockers := make([]chan struct{}, 2)
+	for i, id := range []string{"cancel-a", "cancel-b"} {
+		s, _ := newTestSupervisor(1, 0)
+		supervisors[i] = s
+		blocker := make(chan struct{})
+		blockers[i] = blocker
+		spawn(context.Background(), s, ChildJob{AgentID: "slot-" + id, Execute: func(context.Context) (tool.ExecutionResult, error) { <-blocker; return tool.ExecutionResult{}, nil }})
+		waitOutstanding(t, s, 1)
+		job := ChildJob{AgentID: id, Group: " g ", OnCancelledBeforeStart: func() tool.ExecutionResult {
+			entered <- struct{}{}
+			<-release
+			return tool.ExecutionResult{Value: id, DelegationAdmission: shared}
+		}}
+		go func(ctx context.Context, supervisor *Supervisor, child ChildJob) {
+			result, err := supervisor.SpawnAndWait(ctx, child)
+			outcomes <- spawnResult{result: result, err: err}
+		}(batchCtx("batch-"+id), s, job)
+		waitOutstanding(t, s, 2)
+		if got := s.CancelAgent(id, false, CancelCauseUser); got != CancelAccepted {
+			t.Fatalf("CancelAgent(%s) = %v", id, got)
+		}
+	}
+	<-entered
+	<-entered
+	close(release)
+	got := []spawnResult{<-outcomes, <-outcomes}
+	if shared.Status != "source" || shared.BatchID != "source-batch" || shared.Group != "source-group" || shared.AgentID != "source-agent" {
+		t.Fatalf("callback-owned metadata mutated: %+v", shared)
+	}
+	for _, outcome := range got {
+		if outcome.err != nil || outcome.result.DelegationAdmission == shared || outcome.result.DelegationAdmission.Status != tool.DelegationAdmissionAccepted {
+			t.Fatalf("outcome = %+v", outcome)
+		}
+		if outcome.result.DelegationAdmission.BatchID == "" || outcome.result.DelegationAdmission.Group != "g" || outcome.result.DelegationAdmission.AgentID == "" {
+			t.Fatalf("captured admission = %+v", outcome.result.DelegationAdmission)
+		}
+	}
+	for _, blocker := range blockers {
+		close(blocker)
+	}
+	for _, s := range supervisors {
+		s.Shutdown(context.Background(), CancelCauseSystem)
+	}
+}
