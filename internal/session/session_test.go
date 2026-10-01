@@ -531,6 +531,38 @@ func TestTitleFromPromptUTF8(t *testing.T) {
 	}
 }
 
+func TestDelegationGroupsJSONAndForkIsolation(t *testing.T) {
+	absent, err := json.Marshal(Session{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(absent), "delegation_groups") {
+		t.Fatalf("absent ledger serialized: %s", absent)
+	}
+
+	empty := Session{DelegationGroups: &agent.DelegationGroupLedger{Version: 1, Names: []string{}}}
+	encoded, err := json.Marshal(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"delegation_groups":{"version":1,"names":[]}`) {
+		t.Fatalf("explicit empty ledger missing: %s", encoded)
+	}
+
+	original := Session{Title: "session", DelegationGroups: &agent.DelegationGroupLedger{Version: 1, Names: []string{"group"}}}
+	forked, err := Fork(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forked.DelegationGroups == original.DelegationGroups {
+		t.Fatal("fork shares delegation ledger pointer")
+	}
+	original.DelegationGroups.Names[0] = "changed"
+	if forked.DelegationGroups.Names[0] != "group" {
+		t.Fatalf("fork ledger changed with original: %#v", forked.DelegationGroups)
+	}
+}
+
 func TestForkPreservesMode(t *testing.T) {
 	for _, mode := range []string{"", "plan", "build"} {
 		t.Run("mode="+mode, func(t *testing.T) {

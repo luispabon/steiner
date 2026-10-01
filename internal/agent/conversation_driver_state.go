@@ -45,8 +45,9 @@ func (d *ConversationDriver) Busy() bool {
 // Snapshot returns a copy of the driver's durable state.
 func (d *ConversationDriver) Snapshot() DriverSnapshot {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.snapshotLocked()
+	snap := d.snapshotLocked()
+	d.mu.Unlock()
+	return d.withGroupLedger(snap)
 }
 
 func (d *ConversationDriver) snapshotLocked() DriverSnapshot {
@@ -54,6 +55,15 @@ func (d *ConversationDriver) snapshotLocked() DriverSnapshot {
 	if d.opts.Background != nil {
 		snap.Ledger = d.opts.Background.Ledger()
 	}
+	return snap
+}
+
+func (d *ConversationDriver) withGroupLedger(snap DriverSnapshot) DriverSnapshot {
+	ledger := d.opts.GroupLedger
+	if d.opts.SnapshotDelegationGroups != nil {
+		ledger = d.opts.SnapshotDelegationGroups()
+	}
+	snap.GroupLedger = ledger.Clone()
 	return snap
 }
 

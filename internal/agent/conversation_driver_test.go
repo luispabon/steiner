@@ -14,6 +14,59 @@ import (
 
 const driverTestTimeout = 5 * time.Second
 
+func TestSnapshotDelegationGroupsOutsideLockAndClones(t *testing.T) {
+	seed := DelegationGroupLedger{Version: 1, Names: []string{" seed "}}
+	var driver *ConversationDriver
+	callbackLedger := DelegationGroupLedger{Version: 1, Names: []string{"callback"}}
+	driver = NewConversationDriver(DriverOptions{
+		GroupLedger: seed,
+		SnapshotDelegationGroups: func() DelegationGroupLedger {
+			if !driver.mu.TryLock() {
+				t.Fatal("snapshot callback called while driver mutex held")
+			}
+			driver.mu.Unlock()
+			return callbackLedger
+		},
+	}, nil, ConversationLineage{})
+	seed.Names[0] = "mutated seed"
+	snap := driver.Snapshot()
+	if len(snap.GroupLedger.Names) != 1 || snap.GroupLedger.Names[0] != "callback" {
+		t.Fatalf("snapshot ledger = %#v", snap.GroupLedger)
+	}
+	snap.GroupLedger.Names[0] = "mutated snapshot"
+	if callbackLedger.Names[0] != "callback" {
+		t.Fatalf("snapshot aliases callback ledger: %#v", callbackLedger)
+	}
+}
+
+func TestSnapshotDelegationGroupsSeedWithoutCallback(t *testing.T) {
+	seed := DelegationGroupLedger{Version: 1, Names: []string{"saved"}}
+	driver := NewConversationDriver(DriverOptions{GroupLedger: seed}, nil, ConversationLineage{})
+	seed.Names[0] = "changed"
+	snap := driver.Snapshot()
+	if len(snap.GroupLedger.Names) != 1 || snap.GroupLedger.Names[0] != "saved" {
+		t.Fatalf("snapshot ledger = %#v", snap.GroupLedger)
+	}
+}
+
+func TestSealDelegationBatchOverride(t *testing.T) {
+	background := &fakeBackground{}
+	var sealed string
+	driver := NewConversationDriver(DriverOptions{
+		Background:          background,
+		SealDelegationBatch: func(batchID string) { sealed = batchID },
+	}, nil, ConversationLineage{})
+	driver.sealer()("override")
+	if sealed != "override" || len(background.sealed) != 0 {
+		t.Fatalf("override seal=%q fallback=%v", sealed, background.sealed)
+	}
+	driver = NewConversationDriver(DriverOptions{Background: background}, nil, ConversationLineage{})
+	driver.sealer()("fallback")
+	if !slices.Equal(background.sealed, []string{"fallback"}) {
+		t.Fatalf("fallback seals = %v", background.sealed)
+	}
+}
+
 type fakeBackground struct {
 	mu        sync.Mutex
 	pending   []PendingSubAgent

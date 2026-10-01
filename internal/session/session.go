@@ -28,6 +28,8 @@ type Session struct {
 	PromptCacheKey string `json:"prompt_cache_key,omitempty"`
 	// SubAgentLedger records sub-agents still outstanding when the session was saved.
 	SubAgentLedger []agent.SubAgentLedgerEntry `json:"sub_agent_ledger,omitempty"`
+	// DelegationGroups records reserved group names for the session scope.
+	DelegationGroups *agent.DelegationGroupLedger `json:"delegation_groups,omitempty"`
 }
 
 // CacheKey returns the session's prompt cache key, falling back to the session ID
@@ -105,6 +107,14 @@ func (s Session) WithLineage(lineage agent.ConversationLineage) Session {
 	return s
 }
 
+func cloneDelegationGroups(groups *agent.DelegationGroupLedger) *agent.DelegationGroupLedger {
+	if groups == nil {
+		return nil
+	}
+	clone := groups.Clone()
+	return &clone
+}
+
 // Fork creates a new session as a fork of the given session.
 // The fork has a new ID, cloned lineage, same model, and title prefixed with "Fork of: ".
 func Fork(s Session) (Session, error) {
@@ -115,15 +125,16 @@ func Fork(s Session) (Session, error) {
 	now := time.Now().UTC()
 	forkTitle := TitleFromPrompt("Fork of: " + s.Title)
 	return Session{
-		ID:        id,
-		CreatedAt: now,
-		UpdatedAt: now,
-		Title:     forkTitle,
-		Model:     s.Model,
-		Mode:      s.Mode,
-		Group:     strings.TrimSpace(s.Group),
-		Skills:    s.Skills,
-		Lineage:   s.Lineage.Clone(),
+		ID:               id,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+		Title:            forkTitle,
+		Model:            s.Model,
+		Mode:             s.Mode,
+		Group:            strings.TrimSpace(s.Group),
+		Skills:           s.Skills,
+		Lineage:          s.Lineage.Clone(),
+		DelegationGroups: cloneDelegationGroups(s.DelegationGroups),
 		// The fork deliberately shares the parent's prompt cache key so the
 		// warm prefix carries over; CacheKey() heals pre-change records that
 		// have no stored key instead of propagating an empty one.

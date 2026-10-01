@@ -51,6 +51,7 @@ type DriverSnapshot struct {
 	Conversation []Message
 	Lineage      ConversationLineage
 	Ledger       []SubAgentLedgerEntry
+	GroupLedger  DelegationGroupLedger
 }
 
 // SubmitMeta carries host side effects attached to a submitted prompt.
@@ -66,6 +67,12 @@ type DriverOptions struct {
 	Run DriverRunFunc
 	// Background may be nil when the session has no sub-agents.
 	Background BackgroundAgents
+	// GroupLedger seeds durable delegation group state when no snapshot callback is bound.
+	GroupLedger DelegationGroupLedger
+	// SnapshotDelegationGroups captures current supervisor group state.
+	SnapshotDelegationGroups func() DelegationGroupLedger
+	// SealDelegationBatch overrides Background.SealBatch when set.
+	SealDelegationBatch func(batchID string)
 	// Steers may be nil (headless oneshot).
 	Steers *SteerQueue
 	// Save persists a snapshot. A save error is reported as a warning event
@@ -138,6 +145,7 @@ func NewConversationDriver(opts DriverOptions, conv []Message, lineage Conversat
 	if clock == nil {
 		clock = realClock{}
 	}
+	opts.GroupLedger = opts.GroupLedger.Clone()
 	return &ConversationDriver{
 		opts:    opts,
 		clock:   clock,
@@ -258,7 +266,7 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 	}
 	snap := d.snapshotLocked()
 	d.unlockEmit()
-	d.save(ctx, snap)
+	d.save(ctx, d.withGroupLedger(snap))
 
 	out, err := d.opts.Run(runCtx, in)
 	cancel()
@@ -267,6 +275,9 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 }
 
 func (d *ConversationDriver) sealer() func(string) {
+	if d.opts.SealDelegationBatch != nil {
+		return d.opts.SealDelegationBatch
+	}
 	if d.opts.Background == nil {
 		return nil
 	}
@@ -314,7 +325,7 @@ func (d *ConversationDriver) saveAndUnlock(ctx context.Context, more bool) bool 
 	snap := d.snapshotLocked()
 	d.saving++
 	d.unlockEmit()
-	d.save(ctx, snap)
+	d.save(ctx, d.withGroupLedger(snap))
 	d.mu.Lock()
 	d.saving--
 	d.unlockEmit()
