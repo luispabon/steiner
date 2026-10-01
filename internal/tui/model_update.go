@@ -94,6 +94,8 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleRuntimeEventMsg(msg)
 	case bridgeClosedMsg:
 		return m.handleBridgeClosedMsg(msg)
+	case workflowHandoffSettledMsg:
+		return m.handleWorkflowHandoffSettled(msg)
 	case modelEntriesUpdatedMsg:
 		return m.handleModelEntriesUpdatedMsg(msg)
 	case gitRefreshDoneMsg:
@@ -210,7 +212,7 @@ func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
 // sessionBusy reports whether a run, tool call, delegation, compaction or
 // oneshot is in flight, so session-mutating actions must be refused.
 func (m *Model) sessionBusy() bool {
-	return m.asyncConversationBusy() || m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.activity.busy() || m.compaction.Active() || m.oneshotRunning
+	return m.pendingWorkflowHandoffLaunch != nil || m.asyncConversationBusy() || m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.activity.busy() || m.compaction.Active() || m.oneshotRunning
 }
 
 // refuseWhileBusy appends the busy notice for the named action and resets the
@@ -456,6 +458,7 @@ func (m *Model) handleRuntimeEventMsg(msg runtimeEventMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m *Model) handleBridgeClosedMsg(_ bridgeClosedMsg) (tea.Model, tea.Cmd) {
+	m.cancelWorkflowHandoffSettlement()
 	return m, nil
 }
 

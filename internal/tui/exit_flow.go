@@ -15,6 +15,7 @@ type worktreeCountMsg struct {
 }
 
 func (m *Model) doExit() (tea.Model, tea.Cmd) {
+	m.cancelWorkflowHandoffSettlement()
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.RequestExit{}); err != nil {
 			m.appendError(err)

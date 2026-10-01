@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -208,42 +209,24 @@ func (m *Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	submission := strings.TrimSpace(m.workflowHandoff.submission)
 	modelName := strings.TrimSpace(m.workflowHandoff.modelAlias)
 	if m.controller != nil {
+		if _, ok := m.controller.(workflowHandoffRunWaiter); !ok {
+			err := fmt.Errorf("workflow handoff requires a run waiter")
+			m.appendError(err)
+			m.syncViewport()
+			return m, nil
+		}
 		if err := m.controller.Handle(context.Background(), interactive.SubmitWorkflowHandoff{Decision: "accept"}); err != nil {
 			m.appendError(err)
 			m.syncViewport()
 			return m, nil
 		}
 	}
-	if modelName != "" && modelName != strings.TrimSpace(m.primaryModel) {
-		if m.controller != nil {
-			if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: modelName}); err != nil {
-				m.appendError(err)
-				m.syncViewport()
-				return m, nil
-			}
-		}
-		m.applyModelSelection(modelName, strings.TrimSpace(m.modelBaseURLs[modelName]))
-	}
 	m.workflowHandoff = m.workflowHandoff.close()
 	m.suppressWorkflowHandoffRun = true
-	m.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, submission: submission}
-	nextModel, cmd := m.clearConversationState()
-	if cleared, ok := nextModel.(*Model); ok {
-		cleared.suppressWorkflowHandoffRun = true
-		cleared.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, submission: submission}
-		cleared.workflowHandoff = cleared.workflowHandoff.close()
-		// Rotate session after conversation is cleared — new workflow gets a fresh identity
-		// controller may be nil in tests; skip rotation when there's no backing session.
-		if cleared.controller != nil {
-			if err := cleared.controller.Handle(context.Background(), interactive.RotateSession{}); err != nil {
-				cleared.appendError(err)
-				cleared.syncViewport()
-				return cleared, nil
-			}
-		}
-		return cleared, cmd
-	}
-	return nextModel, cmd
+	m.pendingWorkflowHandoffLaunch = &workflowHandoffLaunch{next: next, target: target, submission: submission, modelAlias: modelName}
+	m.input.Focus()
+	m.syncViewport()
+	return m, nil
 }
 
 func (m *Model) dismissWorkflowHandoff() (tea.Model, tea.Cmd) {

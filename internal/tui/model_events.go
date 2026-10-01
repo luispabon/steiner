@@ -21,6 +21,11 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		return nil
 	}
 	m.observeRoster(event)
+	if event.Scope.AgentID == "" && event.Type == output.EventTypeStopReason && m.pendingWorkflowHandoffLaunch != nil {
+		if payload, ok := event.Payload.(output.StopReasonEvent); !ok || payload.Reason != "workflow_handoff" {
+			m.cancelWorkflowHandoffSettlement()
+		}
+	}
 	if m.shouldSuppressInterruptedRunEvent(event) {
 		return nil
 	}
@@ -369,15 +374,8 @@ func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
 	m.syncViewport()
 }
 
-func (m *Model) shouldSuppressWorkflowHandoffEvent(event output.Event) bool {
-	switch event.Type {
-	case output.EventTypeWorkflowHandoffAccepted,
-		output.EventTypeToolCallFinished,
-		output.EventTypeModelCallFinished:
-		return true
-	default:
-		return false
-	}
+func (m *Model) shouldSuppressWorkflowHandoffEvent(output.Event) bool {
+	return false
 }
 
 func (m *Model) handleSuppressedWorkflowHandoffEvent(event output.Event) tea.Cmd {
@@ -385,25 +383,19 @@ func (m *Model) handleSuppressedWorkflowHandoffEvent(event output.Event) tea.Cmd
 		return nil
 	}
 	switch event.Type {
-	case output.EventTypeWorkflowHandoffAccepted,
-		output.EventTypeToolCallFinished,
-		output.EventTypeModelCallFinished:
+	case output.EventTypeWorkflowHandoffAccepted:
+		return nil
+	case output.EventTypeToolCallFinished, output.EventTypeModelCallFinished:
 		return nil
 	case output.EventTypeStopReason:
 		payload, ok := event.Payload.(output.StopReasonEvent)
 		if !ok || payload.Reason != "workflow_handoff" {
 			return nil
 		}
-		launch := m.pendingWorkflowHandoffLaunch
-		m.suppressWorkflowHandoffRun = false
-		m.pendingWorkflowHandoffLaunch = nil
-		m.status.mode = ""
-		m.activity = m.activity.clear()
-		if launch == nil {
-			return nil
+		if launch := m.pendingWorkflowHandoffLaunch; launch != nil && !launch.waiting {
+			launch.waiting = true
+			return beginWorkflowHandoffSettlement(m.controller, launch)
 		}
-		_, cmd := m.launchWorkflowHandoff(launch.next, launch.target, launch.submission)
-		return cmd
 	}
 	return nil
 }

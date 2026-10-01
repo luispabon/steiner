@@ -42,6 +42,8 @@ func (c *testController) CurrentReasoningOverride() provider.ReasoningOverride {
 	return c.reasoningOverride
 }
 
+func (c *testController) WaitRuns(context.Context) bool { return true }
+
 func (c *testController) Handle(_ context.Context, action interactive.Action) error {
 	c.mu.Lock()
 	c.actions = append(c.actions, action)
@@ -4385,45 +4387,27 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	if len(decisions) != 1 || decisions[0].Decision != "accept" {
 		t.Fatalf("handoff decisions = %#v, want one accept", decisions)
 	}
-	if got := m.content.String(m.viewport.Width()); strings.Contains(got, "old transcript") {
-		t.Fatalf("content = %q, want cleared transcript", got)
+	if got := m.content.String(m.viewport.Width()); !strings.Contains(got, "old transcript") {
+		t.Fatalf("content = %q, want old transcript retained until settlement", got)
 	}
 	if ctrl.countSubmitPrompt() != 0 {
 		t.Fatalf("submit count = %d, want 0 before workflow handoff stop", ctrl.countSubmitPrompt())
 	}
 
-	var sawSubmit, sawSwitch, sawClear, sawRotate bool
 	for _, a := range ctrl.actions {
 		switch a.(type) {
-		case interactive.SubmitWorkflowHandoff:
-			sawSubmit = true
-		case interactive.SwitchModel:
-			if !sawSubmit {
-				t.Fatal("SwitchModel sent before SubmitWorkflowHandoff")
-			}
-			sawSwitch = true
-		case interactive.ClearConversation:
-			if !sawSwitch {
-				t.Fatal("ClearConversation sent before SwitchModel")
-			}
-			sawClear = true
-		case interactive.RotateSession:
-			if !sawClear {
-				t.Fatal("RotateSession sent before ClearConversation")
-			}
-			sawRotate = true
+		case interactive.SwitchModel, interactive.ClearConversation, interactive.RotateSession:
+			t.Fatalf("session mutation before settlement: %T", a)
 		}
-	}
-	if !sawSwitch {
-		t.Fatal("SwitchModel not found in actions")
-	}
-	if !sawRotate {
-		t.Fatal("RotateSession not found in actions")
 	}
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("review", ".steiner/plans/step-3", "handoff now")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{Turn: 1, ToolCalls: 1})})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
+	_, settleCmd := m.Update(runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
+	if settleCmd == nil {
+		t.Fatal("workflow handoff stop returned no settlement command")
+	}
+	m = updateModel(t, m, settleCmd())
 
 	prompts := ctrl.submitPrompts()
 	if len(prompts) != 1 || prompts[0].Text != "/review .steiner/plans/step-3" {
@@ -4432,9 +4416,6 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	var sawPrompt bool
 	for _, a := range ctrl.actions {
 		if _, ok := a.(interactive.SubmitPrompt); ok {
-			if !sawRotate {
-				t.Fatal("SubmitPrompt sent before RotateSession")
-			}
 			sawPrompt = true
 		}
 	}
@@ -4492,41 +4473,28 @@ func TestModelWorkflowHandoffAcceptLaunchesLiteralPromptForBuildTarget(t *testin
 	if len(decisions) != 1 || decisions[0].Decision != "accept" {
 		t.Fatalf("handoff decisions = %#v, want one accept", decisions)
 	}
-	if got := m.content.String(m.viewport.Width()); strings.Contains(got, "old transcript") {
-		t.Fatalf("content = %q, want cleared transcript", got)
+	if got := m.content.String(m.viewport.Width()); !strings.Contains(got, "old transcript") {
+		t.Fatalf("content = %q, want old transcript retained until settlement", got)
 	}
 	if ctrl.countSubmitPrompt() != 0 {
 		t.Fatalf("submit count = %d, want 0 before workflow handoff stop", ctrl.countSubmitPrompt())
 	}
 
-	var sawSubmit, sawClear, sawRotate bool
 	for _, a := range ctrl.actions {
 		switch a.(type) {
-		case interactive.SubmitWorkflowHandoff:
-			sawSubmit = true
-		case interactive.ClearConversation:
-			if !sawSubmit {
-				t.Fatal("ClearConversation sent before SubmitWorkflowHandoff")
-			}
-			sawClear = true
-		case interactive.RotateSession:
-			if !sawClear {
-				t.Fatal("RotateSession sent before ClearConversation")
-			}
-			sawRotate = true
+		case interactive.ClearConversation, interactive.RotateSession:
+			t.Fatalf("session mutation before settlement: %T", a)
 		}
-	}
-	if !sawClear {
-		t.Fatal("ClearConversation not found in actions")
-	}
-	if !sawRotate {
-		t.Fatal("RotateSession not found in actions")
 	}
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("build", ".steiner/plans/step-9", "handoff now")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{Turn: 1, ToolCalls: 1})})
-	updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
+	_, settleCmd := m.Update(runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
+	if settleCmd == nil {
+		t.Fatal("workflow handoff stop returned no settlement command")
+	}
+	m = updateModel(t, m, settleCmd())
 
 	prompts := ctrl.submitPrompts()
 	if len(prompts) != 1 || prompts[0].Text != submission {
@@ -4535,9 +4503,6 @@ func TestModelWorkflowHandoffAcceptLaunchesLiteralPromptForBuildTarget(t *testin
 	var sawPrompt bool
 	for _, a := range ctrl.actions {
 		if _, ok := a.(interactive.SubmitPrompt); ok {
-			if !sawRotate {
-				t.Fatal("SubmitPrompt sent before RotateSession")
-			}
 			sawPrompt = true
 		}
 	}
@@ -4570,22 +4535,17 @@ func TestModelWorkflowHandoffAcceptSwitchFailureKeepsConversationAndSkipsLaunch(
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffRequestedEvent("review", ".steiner/plans/step-3", "handoff now", "")})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
-
-	rendered := m.content.String(m.viewport.Width())
-	if !m.workflowHandoff.IsOpen() {
-		t.Fatal("expected workflow handoff modal to stay open on switch failure")
+	if m.workflowHandoff.IsOpen() {
+		t.Fatal("handoff modal stayed open after accept")
 	}
-	if !strings.Contains(rendered, "old transcript") {
-		t.Fatalf("content = %q, want original transcript to remain after failed switch", rendered)
-	}
-	if !strings.Contains(rendered, "model switch failed") {
-		t.Fatalf("content = %q, want status error after failed switch", rendered)
+	if got := m.content.String(m.viewport.Width()); !strings.Contains(got, "old transcript") {
+		t.Fatalf("content = %q, want transcript retained until settlement", got)
 	}
 	if got := ctrl.submitWorkflowHandoffs(); len(got) != 1 || got[0].Decision != "accept" {
 		t.Fatalf("handoff decisions = %#v, want one accept", got)
 	}
-	if got := ctrl.switchModelActions(); len(got) != 1 || got[0].Name != "review-default" {
-		t.Fatalf("switch model actions = %#v, want one switch to review-default", got)
+	if got := ctrl.switchModelActions(); len(got) != 0 {
+		t.Fatalf("switch model actions before settlement = %#v, want none", got)
 	}
 	if got := ctrl.rotateSessionActions(); len(got) != 0 {
 		t.Fatalf("rotate session actions = %#v, want none after failed switch", got)
@@ -4593,11 +4553,11 @@ func TestModelWorkflowHandoffAcceptSwitchFailureKeepsConversationAndSkipsLaunch(
 	if got := ctrl.submitPrompts(); len(got) != 0 {
 		t.Fatalf("submit prompts = %#v, want none after failed switch", got)
 	}
-	if m.pendingWorkflowHandoffLaunch != nil {
-		t.Fatalf("pending workflow handoff launch = %#v, want nil after failed switch", m.pendingWorkflowHandoffLaunch)
+	if m.pendingWorkflowHandoffLaunch == nil {
+		t.Fatal("pending workflow handoff launch = nil, want launch retained until handoff stop")
 	}
-	if m.suppressWorkflowHandoffRun {
-		t.Fatal("suppressWorkflowHandoffRun = true, want false after failed switch")
+	if !m.suppressWorkflowHandoffRun {
+		t.Fatal("suppressWorkflowHandoffRun = false, want true while awaiting handoff stop")
 	}
 }
 
@@ -4624,7 +4584,11 @@ func TestModelWorkflowHandoffAcceptWithCurrentSessionModelDoesNotSwitch(t *testi
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewWorkflowHandoffAcceptedEvent("implement", ".steiner/plans/step-4", "")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call_1", "", nil)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{Turn: 1, ToolCalls: 1})})
-	updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
+	_, settleCmd := m.Update(runtimeEventMsg{Event: output.NewStopReasonEvent(1, "workflow_handoff", nil)})
+	if settleCmd == nil {
+		t.Fatal("workflow handoff stop returned no settlement command")
+	}
+	m = updateModel(t, m, settleCmd())
 
 	if got := ctrl.switchModelActions(); len(got) != 0 {
 		t.Fatalf("switch model actions = %#v, want none for current session handoff", got)
@@ -6079,16 +6043,15 @@ func TestWorkflowHandoffDoesNotFireDelegationHook(t *testing.T) {
 		Target: ".steiner/plans/step-3",
 	}, interactive.WorkflowHandoffModelSelection{})
 
-	next, _ := m.acceptWorkflowHandoff()
-	cleared, ok := next.(*Model)
-	if !ok {
-		t.Fatalf("handoff result type = %T, want *Model", next)
+	_, cmd := m.acceptWorkflowHandoff()
+	if cmd != nil {
+		t.Fatal("accept returned command before handoff stop")
 	}
 	if hookCalls != 0 {
 		t.Errorf("clear conversation hook calls during handoff = %d, want 0", hookCalls)
 	}
-	if strings.Contains(cleared.content.String(cleared.viewport.Width()), "old transcript") {
-		t.Error("handoff did not clear old transcript")
+	if !strings.Contains(m.content.String(m.viewport.Width()), "old transcript") {
+		t.Error("handoff cleared old transcript before settlement")
 	}
 }
 
@@ -6124,8 +6087,8 @@ func TestWorkflowHandoffAcceptClearsWithActiveToolCall(t *testing.T) {
 	if !ok {
 		t.Fatalf("handoff result type = %T, want *Model", next)
 	}
-	if strings.Contains(cleared.content.String(cleared.viewport.Width()), "old transcript") {
-		t.Error("handoff did not clear old transcript while a tool call was still active — clear was refused")
+	if !strings.Contains(cleared.content.String(cleared.viewport.Width()), "old transcript") {
+		t.Error("handoff cleared transcript before active tool call finished")
 	}
 }
 

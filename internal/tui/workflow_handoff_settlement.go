@@ -1,0 +1,115 @@
+package tui
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/luispabon/steiner/internal/interactive"
+)
+
+type workflowHandoffRunWaiter interface {
+	WaitRuns(context.Context) bool
+}
+
+type workflowHandoffSettledMsg struct {
+	launch *workflowHandoffLaunch
+	err    error
+}
+
+type immediateWorkflowHandoffWaiter struct{}
+
+func (immediateWorkflowHandoffWaiter) WaitRuns(context.Context) bool { return true }
+
+func beginWorkflowHandoffSettlement(controller interactive.Controller, launch *workflowHandoffLaunch) tea.Cmd {
+	waiter, ok := controller.(workflowHandoffRunWaiter)
+	if controller == nil {
+		waiter, ok = immediateWorkflowHandoffWaiter{}, true
+	}
+	if !ok {
+		return func() tea.Msg {
+			return workflowHandoffSettledMsg{launch: launch, err: errors.New("workflow handoff run waiter unavailable")}
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	launch.cancel = cancel
+	return func() tea.Msg {
+		if !waiter.WaitRuns(ctx) {
+			err := ctx.Err()
+			if err == nil {
+				err = errors.New("run waiter refused to settle")
+			}
+			return workflowHandoffSettledMsg{launch: launch, err: err}
+		}
+		return workflowHandoffSettledMsg{launch: launch}
+	}
+}
+
+func (m *Model) handleWorkflowHandoffSettled(msg workflowHandoffSettledMsg) (tea.Model, tea.Cmd) {
+	launch := m.pendingWorkflowHandoffLaunch
+	if launch == nil || launch != msg.launch {
+		return m, nil
+	}
+	if launch.cancel != nil {
+		launch.cancel()
+		launch.cancel = nil
+	}
+	m.pendingWorkflowHandoffLaunch = nil
+	m.suppressWorkflowHandoffRun = false
+	if msg.err != nil {
+		m.restoreWorkflowHandoffSubmission(launch, fmt.Errorf("wait for workflow handoff run: %w", msg.err))
+		return m, nil
+	}
+
+	next, cleared, err := m.clearConversationStateWithError()
+	if err != nil {
+		m.restoreWorkflowHandoffSubmission(launch, err)
+		return m, nil
+	}
+	if !cleared {
+		m.restoreWorkflowHandoffSubmission(launch, errors.New("conversation clear refused while session work remains active"))
+		return m, nil
+	}
+	m = next.(*Model)
+	if launch.modelAlias != "" && launch.modelAlias != m.primaryModel {
+		if m.controller != nil {
+			if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: launch.modelAlias}); err != nil {
+				m.restoreWorkflowHandoffSubmission(launch, err)
+				return m, nil
+			}
+		}
+		m.applyModelSelection(launch.modelAlias, m.modelBaseURLs[launch.modelAlias])
+	}
+	_, cmd := m.launchWorkflowHandoff(launch.next, launch.target, launch.submission)
+	return m, cmd
+}
+
+func (m *Model) restoreWorkflowHandoffSubmission(launch *workflowHandoffLaunch, err error) {
+	if err != nil {
+		m.appendError(err)
+	}
+	composer := launch.submission
+	if composer == "" {
+		composer = "/" + launch.next
+		if launch.target != "" {
+			composer += " " + launch.target
+		}
+	}
+	m.input.SetValue(composer)
+	m.input.Focus()
+	m.syncInputChrome()
+	m.relayoutInput()
+	m.syncViewport()
+}
+
+func (m *Model) cancelWorkflowHandoffSettlement() {
+	launch := m.pendingWorkflowHandoffLaunch
+	m.pendingWorkflowHandoffLaunch = nil
+	m.suppressWorkflowHandoffRun = false
+	if launch != nil && launch.cancel != nil {
+		launch.cancel()
+		launch.cancel = nil
+	}
+}
