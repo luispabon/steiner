@@ -25,10 +25,35 @@ func resolveDelegationGroups(saved *agent.DelegationGroupLedger, lineage agent.C
 	}
 
 	names := make(map[string]struct{})
+	var previous []agent.Message
+	previousEvidence := make(map[string]string)
 	for _, generation := range lineage.Generations {
-		for name := range legacyGenerationGroups(generation) {
-			names[name] = struct{}{}
+		current := generationMessages(generation)
+		evidence := lineageCallEvidence(current, previous, previousEvidence)
+		occurrences := make(map[string]int)
+		for _, message := range current {
+			if message.Role != agent.MessageRoleAssistant {
+				continue
+			}
+			for _, call := range message.ToolCalls {
+				if !legacyDelegationTool(call.Name) {
+					continue
+				}
+				key := legacyCallKey(call)
+				if key == "" {
+					continue
+				}
+				occurrences[key]++
+				key = fmt.Sprintf("%s\x00%d", key, occurrences[key])
+				if evidence[key] == tool.DelegationAdmissionRejected {
+					continue
+				}
+				if name := legacyCallGroup(call); name != "" {
+					names[name] = struct{}{}
+				}
+			}
 		}
+		previous, previousEvidence = current, evidence
 	}
 
 	out := agent.DelegationGroupLedger{Version: 1, Names: make([]string, 0, len(names))}
@@ -39,62 +64,90 @@ func resolveDelegationGroups(saved *agent.DelegationGroupLedger, lineage agent.C
 	return out, nil
 }
 
-func legacyGenerationGroups(generation agent.ConversationGeneration) map[string]struct{} {
-	admissions := make(map[string][]string)
-	messages := [][]agent.Message{generation.SummaryPrefix, generation.Messages}
-	for _, group := range messages {
-		for _, message := range group {
-			if message.Role == agent.MessageRoleTool && message.ToolCallID != "" && message.DelegationAdmission != nil {
-				admissions[message.ToolCallID] = append(admissions[message.ToolCallID], message.DelegationAdmission.Status)
-			}
+func generationMessages(generation agent.ConversationGeneration) []agent.Message {
+	messages := make([]agent.Message, 0, len(generation.SummaryPrefix)+len(generation.Messages))
+	messages = append(messages, generation.SummaryPrefix...)
+	return append(messages, generation.Messages...)
+}
+
+// lineageCallEvidence pairs outcomes with calls in occurrence order by call ID.
+// Exact fingerprint and ordinal matches inherit outcomes across retained copies.
+func lineageCallEvidence(messages, previous []agent.Message, previousEvidence map[string]string) map[string]string {
+	calls, callKeys := legacyCallOccurrences(messages)
+	previousKeys := make(map[string]string)
+	_, keys := legacyCallOccurrences(previous)
+	for _, key := range keys {
+		previousKeys[key] = key
+	}
+	out := make(map[string]string)
+	positions := make(map[string]int)
+	for _, message := range messages {
+		if message.Role != agent.MessageRoleTool || message.ToolCallID == "" || message.DelegationAdmission == nil {
+			continue
+		}
+		queue := calls[message.ToolCallID]
+		position := positions[message.ToolCallID]
+		if position >= len(queue) {
+			continue
+		}
+		key := queue[position]
+		positions[message.ToolCallID] = position + 1
+		status := message.DelegationAdmission.Status
+		if existing, ok := out[key]; ok && existing != status {
+			out[key] = "ambiguous"
+		} else {
+			out[key] = status
 		}
 	}
-	seenCalls := make(map[string]map[string]struct{})
-	names := make(map[string]struct{})
-	for _, group := range messages {
-		for _, message := range group {
-			if message.Role != agent.MessageRoleAssistant {
+	for _, key := range callKeys {
+		if _, retained := previousKeys[key]; !retained {
+			continue
+		}
+		prior, hasPrior := previousEvidence[key]
+		current, hasCurrent := out[key]
+		if hasPrior && (!hasCurrent || current == tool.DelegationAdmissionRejected) {
+			out[key] = prior
+		}
+	}
+	return out
+}
+
+func legacyCallOccurrences(messages []agent.Message) (map[string][]string, []string) {
+	calls := make(map[string][]string)
+	counts := make(map[string]int)
+	var ordered []string
+	for _, message := range messages {
+		if message.Role != agent.MessageRoleAssistant {
+			continue
+		}
+		for _, call := range message.ToolCalls {
+			if !legacyDelegationTool(call.Name) || call.ID == "" {
 				continue
 			}
-			for _, call := range message.ToolCalls {
-				if !legacyDelegationTool(call.Name) {
-					continue
-				}
-				name := legacyCallGroup(call)
-				if name == "" || duplicateLegacyCall(seenCalls, call.ID, name) || allAdmissionsRejected(admissions[call.ID]) {
-					continue
-				}
-				names[name] = struct{}{}
-			}
+			fingerprint := call.Name + "\x00" + call.ID + "\x00" + callArguments(call)
+			counts[fingerprint]++
+			key := fmt.Sprintf("%s\x00%d", fingerprint, counts[fingerprint])
+			calls[call.ID] = append(calls[call.ID], key)
+			ordered = append(ordered, key)
 		}
 	}
-	return names
+	return calls, ordered
 }
 
-func duplicateLegacyCall(seen map[string]map[string]struct{}, callID, name string) bool {
-	if callID == "" {
-		return false
+func legacyCallKey(call agent.ToolCall) string {
+	group := legacyCallGroup(call)
+	if group == "" {
+		return ""
 	}
-	if seen[callID] == nil {
-		seen[callID] = make(map[string]struct{})
-	}
-	if _, exists := seen[callID][name]; exists {
-		return true
-	}
-	seen[callID][name] = struct{}{}
-	return false
+	return call.Name + "\x00" + call.ID + "\x00" + callArguments(call)
 }
 
-func allAdmissionsRejected(statuses []string) bool {
-	if len(statuses) == 0 {
-		return false
+func callArguments(call agent.ToolCall) string {
+	if call.RawArguments != "" {
+		return strings.TrimSpace(call.RawArguments)
 	}
-	for _, status := range statuses {
-		if status != tool.DelegationAdmissionRejected {
-			return false
-		}
-	}
-	return true
+	encoded, _ := json.Marshal(call.Arguments)
+	return string(encoded)
 }
 
 func legacyDelegationTool(name string) bool {

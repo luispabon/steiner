@@ -74,6 +74,50 @@ func TestLegacyDelegationGroupsAcrossLineage(t *testing.T) {
 	}
 }
 
+func TestLegacyDelegationGroupsPairAdmissionPerOccurrence(t *testing.T) {
+	call := func(id, group string) agent.Message {
+		return agent.Message{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: id, Name: "sub_agent", Arguments: map[string]any{"group": group, "objective": "same"}}}}
+	}
+	outcome := func(id, status string) agent.Message {
+		return agent.Message{Role: agent.MessageRoleTool, ToolCallID: id, DelegationAdmission: &tool.DelegationAdmission{Status: status}}
+	}
+	lineage := agent.ConversationLineage{Generations: []agent.ConversationGeneration{{Messages: []agent.Message{
+		call("same", "same-group"), outcome("same", tool.DelegationAdmissionRejected),
+		call("same", "same-group"),
+		call("different", "first-group"), outcome("different", tool.DelegationAdmissionRejected),
+		call("different", "second-group"),
+		call("ambiguous", "ambiguous-group"), outcome("ambiguous", tool.DelegationAdmissionRejected),
+		call("ambiguous", "ambiguous-group"), outcome("ambiguous", "unresolved"),
+	}}}}
+	got, err := resolveDelegationGroups(nil, lineage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"ambiguous-group", "same-group", "second-group"}
+	if !reflect.DeepEqual(got.Names, want) {
+		t.Fatalf("names = %#v, want %#v", got.Names, want)
+	}
+}
+
+func TestLegacyDelegationGroupsCarryEvidenceAcrossRetainedPrefix(t *testing.T) {
+	call := agent.Message{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "retained", Name: "sub_agent", Arguments: map[string]any{"group": "rejected"}}}}
+	accepted := agent.Message{Role: agent.MessageRoleTool, ToolCallID: "retained", DelegationAdmission: &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted}}
+	rejected := agent.Message{Role: agent.MessageRoleTool, ToolCallID: "retained", DelegationAdmission: &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected}}
+	lineage := agent.ConversationLineage{Generations: []agent.ConversationGeneration{
+		{Messages: []agent.Message{call, rejected}},
+		{SummaryPrefix: []agent.Message{call}},
+		{Messages: []agent.Message{call, accepted}},
+	}}
+	got, err := resolveDelegationGroups(nil, lineage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"rejected"}
+	if !reflect.DeepEqual(got.Names, want) {
+		t.Fatalf("names = %#v, want %#v", got.Names, want)
+	}
+}
+
 func TestLegacyDelegationGroupsDoNotInferFromSummaryProse(t *testing.T) {
 	lineage := agent.ConversationLineage{Generations: []agent.ConversationGeneration{{SummaryPrefix: []agent.Message{{Role: agent.MessageRoleSummary, Content: "group=mentioned"}}}}}
 	got, err := resolveDelegationGroups(nil, lineage)
