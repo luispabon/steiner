@@ -222,6 +222,40 @@ func TestSavedSessionKeepsEarlierCompactionGenerations(t *testing.T) {
 	}
 }
 
+func TestCompactionSaveAndReopenKeepsGroupLedger(t *testing.T) {
+	t.Parallel()
+	store := newMockSessionStore()
+	groupLedger := agent.DelegationGroupLedger{Version: 1, Names: []string{"compacted-group"}}
+	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
+	s.mu.Lock()
+	s.delegationGroups = cloneDelegationGroupLedger(&groupLedger)
+	initialID := s.sessionID
+	s.mu.Unlock()
+	s.SetRunner(&runExecutorFunc{
+		run: func(_ context.Context, conv []agent.Message) (RunResult, error) {
+			return RunResult{Conversation: conv}, nil
+		},
+		compact: func(context.Context, []agent.Message, []provider.ToolSpec) ([]agent.Message, error) {
+			return []agent.Message{{Role: agent.MessageRoleSummary, Content: "compacted"}}, nil
+		},
+	})
+	original := twoTurnConversation()
+	seedConversation(s, original, lineageOf(original...))
+	compactAndWait(t, s, "")
+
+	saved, ok := store.savedSessions[initialID]
+	if !ok || saved.DelegationGroups == nil || !reflect.DeepEqual(saved.DelegationGroups.Names, groupLedger.Names) {
+		t.Fatalf("post-compaction saved groups = %#v, want %#v", saved.DelegationGroups, groupLedger.Names)
+	}
+	reopened := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
+	if err := reopened.loadSession(context.Background(), initialID); err != nil {
+		t.Fatalf("reopen compacted session: %v", err)
+	}
+	if got := reopened.driver.drv.Snapshot().GroupLedger.Names; !reflect.DeepEqual(got, groupLedger.Names) {
+		t.Fatalf("reopened groups = %#v, want %#v", got, groupLedger.Names)
+	}
+}
+
 func TestInterruptActiveRunStopsTheDriverRun(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{})

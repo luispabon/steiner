@@ -8,6 +8,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/session"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func TestInteractiveGroupLedgerSeedSaveAndLoad(t *testing.T) {
@@ -66,6 +67,76 @@ func TestLoadSessionGroupLedgerExplicitEmptyAndUnsupportedIsNonDestructive(t *te
 	}
 	if !reflect.DeepEqual(store.savedSessions["unsupported"], beforeSaved) {
 		t.Fatal("unsupported load changed saved session")
+	}
+}
+
+func TestRetiredSnapshotPersistsBothLedgersForCreateAndExisting(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(map[bool]string{false: "create", true: "existing"}[existing], func(t *testing.T) {
+			store := newMockSessionStore()
+			s := testNewSession(t, Dependencies{SessionStore: store})
+			id := "retired"
+			if existing {
+				store.loadedSessions[id] = session.Session{ID: id, Model: "test", Title: "kept"}
+			}
+			groupLedger := agent.DelegationGroupLedger{Version: 1, Names: []string{"reserved"}}
+			outstanding := []agent.SubAgentLedgerEntry{{AgentID: "child", AgentType: "code"}}
+			snap := agent.DriverSnapshot{
+				Lineage: agent.ConversationLineage{Generations: []agent.ConversationGeneration{{ID: 1, Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "retired"}}}}, NextGenerationID: 2},
+				Ledger:  outstanding, GroupLedger: groupLedger,
+			}
+			meta := runSessionMeta{id: id, modelID: "test", cacheKey: "cache", group: "group"}
+			if err := s.saveSnapshotAs(meta, snap); err != nil {
+				t.Fatalf("saveSnapshotAs() = %v", err)
+			}
+			saved, err := store.Load(id)
+			if err != nil {
+				t.Fatalf("Load saved snapshot: %v", err)
+			}
+			if saved.DelegationGroups == nil || !reflect.DeepEqual(*saved.DelegationGroups, groupLedger) {
+				t.Fatalf("saved group ledger = %#v, want %#v", saved.DelegationGroups, groupLedger)
+			}
+			if !reflect.DeepEqual(saved.SubAgentLedger, outstanding) {
+				t.Fatalf("saved outstanding ledger = %#v, want %#v", saved.SubAgentLedger, outstanding)
+			}
+			if !reflect.DeepEqual(saved.Lineage, snap.Lineage) {
+				t.Fatalf("saved lineage = %#v, want snapshot lineage", saved.Lineage)
+			}
+		})
+	}
+}
+
+func TestLoadLegacyGroupLedgerMigratesAndSavesModernLedger(t *testing.T) {
+	call := func(id, name, group string) agent.Message {
+		return agent.Message{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: id, Name: name, Arguments: map[string]any{"group": group}}}}
+	}
+	result := func(id, name, status string) agent.Message {
+		return agent.Message{Role: agent.MessageRoleTool, ToolCallID: id, Name: name, DelegationAdmission: &tool.DelegationAdmission{Status: status}}
+	}
+	lineage := agent.ConversationLineage{Generations: []agent.ConversationGeneration{{ID: 1, Messages: []agent.Message{
+		call("accepted", "sub_agent", "accepted-group"), result("accepted", "sub_agent", tool.DelegationAdmissionAccepted),
+		call("unknown", "follow_up", "unknown-group"),
+		call("rejected", "sub_agent", "rejected-group"), result("rejected", "sub_agent", tool.DelegationAdmissionRejected),
+	}}}, NextGenerationID: 2}
+	store := newMockSessionStore()
+	store.loadedSessions["legacy"] = session.Session{ID: "legacy", Model: "test", Lineage: lineage}
+	s := testNewSession(t, Dependencies{SessionStore: store})
+	if err := s.loadSession(context.Background(), "legacy"); err != nil {
+		t.Fatalf("load legacy: %v", err)
+	}
+	want := []string{"accepted-group", "unknown-group"}
+	if got := s.driver.drv.Snapshot().GroupLedger.Names; !reflect.DeepEqual(got, want) {
+		t.Fatalf("loaded migrated names = %#v, want %#v", got, want)
+	}
+	if err := s.saveSession(); err != nil {
+		t.Fatalf("save migrated session: %v", err)
+	}
+	saved, err := store.Load("legacy")
+	if err != nil {
+		t.Fatalf("load saved migration: %v", err)
+	}
+	if saved.DelegationGroups == nil || saved.DelegationGroups.Version != 1 || !reflect.DeepEqual(saved.DelegationGroups.Names, want) {
+		t.Fatalf("saved modern ledger = %#v, want v1 names %#v", saved.DelegationGroups, want)
 	}
 }
 
