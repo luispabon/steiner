@@ -21,6 +21,7 @@ func TestCLIRunnerRunReusesFallbackDelegationGroupScope(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			runner, supervisor, fallback, script := newGroupScopeTestRunner(t)
+			t.Cleanup(func() { supervisor.CancelAll(delegation.CancelCauseUser) })
 			var explicit string
 			if tt.explicit {
 				explicit = supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
@@ -42,14 +43,7 @@ func TestCLIRunnerRunReusesFallbackDelegationGroupScope(t *testing.T) {
 			if got := toolResultInConversation(first.Conversation, "first"); !strings.Contains(got, `"status":"running"`) {
 				t.Fatalf("first sub_agent result = %q, want running ack", got)
 			}
-			select {
-			case got := <-script.started:
-				if got != "first objective" {
-					t.Fatalf("child objective = %q, want first objective", got)
-				}
-			default:
-				t.Fatal("first child did not start")
-			}
+			recvStarted(t, script, "first objective")
 
 			second := runGroup("second", "second objective")
 			if got := toolResultInConversation(second.Conversation, "second"); !strings.Contains(got, `"status":"failed"`) {
@@ -70,7 +64,6 @@ func TestCLIRunnerRunReusesFallbackDelegationGroupScope(t *testing.T) {
 					t.Fatalf("explicit scope names = %v, want [shared-group]", got)
 				}
 			}
-			supervisor.CancelAll(delegation.CancelCauseUser)
 		})
 	}
 }
