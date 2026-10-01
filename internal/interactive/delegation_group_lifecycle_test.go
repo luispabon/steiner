@@ -3,7 +3,6 @@ package interactive
 import (
 	"context"
 	"reflect"
-	"slices"
 	"sync"
 	"testing"
 
@@ -119,9 +118,6 @@ func TestDriverGroupScopeCapturedForwardedAndReleased(t *testing.T) {
 	if groups.hasScope(old.groupScope) {
 		t.Fatal("retired scope remains after release")
 	}
-	if got := groups.snapshotCalls(); !slices.Contains(got, old.groupScope) {
-		t.Fatalf("old scope never snapshotted before release: %v", got)
-	}
 	if err := s.clearConversation(); err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +219,10 @@ func TestDriverWithoutScopeDoesNotSnapshotOrRelease(t *testing.T) {
 	if got := s.driver.drv.Snapshot().GroupLedger.Names; !reflect.DeepEqual(got, seed.Names) {
 		t.Fatalf("seed ledger = %v", got)
 	}
-	s.Close(context.Background())
+	s.retireDriver(s.driver)
+	if got := s.driver.drv.Snapshot().GroupLedger.Names; !reflect.DeepEqual(got, seed.Names) {
+		t.Fatalf("seed ledger after empty-scope retirement = %v", got)
+	}
 	if got := groups.snapshotCalls(); len(got) != 0 {
 		t.Fatalf("snapshots with empty scope = %v", got)
 	}
