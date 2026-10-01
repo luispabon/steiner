@@ -68,26 +68,29 @@ type jobState struct {
 	cause    CancelCause
 	// delivered means the waiter's result was published; acked means the parent
 	// consumed the completion, which ends pending tracking.
-	delivered   bool
-	acked       bool
-	blocking    bool
-	registered  bool
-	published   bool
-	publication chan struct{}
-	settled     chan struct{}
-	settleOnce  sync.Once
-	wasQueued   bool
-	startErr    error
-	order       uint64
-	worktree    CodeWorktree
-	startedAt   time.Time
-	group       *jobGroup
-	held        bool
-	completion  *agent.SubAgentCompletion
-	done        chan struct{}
-	exited      chan struct{}
-	result      tool.ExecutionResult
-	err         error
+	delivered        bool
+	acked            bool
+	blocking         bool
+	registered       bool
+	published        bool
+	publication      chan struct{}
+	settled          chan struct{}
+	settleOnce       sync.Once
+	wasQueued        bool
+	startErr         error
+	order            uint64
+	worktree         CodeWorktree
+	startedAt        time.Time
+	group            *jobGroup
+	held             bool
+	completion       *agent.SubAgentCompletion
+	routed           bool
+	finalized        bool
+	shutdownTimedOut bool
+	done             chan struct{}
+	exited           chan struct{}
+	result           tool.ExecutionResult
+	err              error
 }
 
 // Supervisor owns detached sub-agent lifecycles for one runtime.
@@ -177,9 +180,14 @@ func (s *Supervisor) run(state *jobState) {
 	s.controller.Unregister(state.job.AgentID)
 	state.cancel()
 	state.phase = phaseDone
+	state.finalized = true
 	s.running--
 	var posts postList
-	if s.closed {
+	if state.shutdownTimedOut {
+		result, err = tool.ExecutionResult{}, ErrSupervisorClosed
+		s.completeLocked(state, result, nil)
+		posts = s.routeShutdownCompletionLocked(state)
+	} else if s.closed {
 		result, err = tool.ExecutionResult{}, ErrSupervisorClosed
 	} else {
 		s.completeLocked(state, result, err)
@@ -229,10 +237,13 @@ func (s *Supervisor) finishCancelled(state *jobState) {
 	s.controller.MarkComplete(state.job.AgentID)
 	s.controller.Unregister(state.job.AgentID)
 	var posts postList
-	if !s.closed {
-		s.completeLocked(state, result, nil)
+	s.completeLocked(state, result, nil)
+	if state.shutdownTimedOut {
+		posts = s.routeShutdownCompletionLocked(state)
+	} else if !s.closed {
 		posts = s.routeLocked(state)
 	}
+	state.finalized = true
 	deliverLocked(state, result, nil)
 	s.pruneLocked(state)
 	s.mu.Unlock()
@@ -255,7 +266,7 @@ func deliverLocked(state *jobState, result tool.ExecutionResult, err error) {
 // finished. The identity check keeps a stale state from removing a newer job
 // that reused the agent ID.
 func (s *Supervisor) pruneLocked(state *jobState) {
-	if state.acked && state.phase == phaseDone && s.jobs[state.job.AgentID] == state {
+	if state.acked && state.phase == phaseDone && state.finalized && s.jobs[state.job.AgentID] == state {
 		delete(s.jobs, state.job.AgentID)
 		s.maybeDeleteScopeLocked(state.job.GroupScope)
 	}
@@ -287,7 +298,7 @@ func (s *Supervisor) CancelAgent(agentID string, discard bool, cause CancelCause
 		state.phase = phaseDone
 		state.cancel()
 		s.mu.Unlock()
-		s.finishCancelled(state)
+		go s.finishCancelled(state)
 		return CancelAccepted
 	}
 
@@ -331,7 +342,7 @@ func (s *Supervisor) CancelAll(cause CancelCause) {
 	s.mu.Unlock()
 
 	for _, state := range cancelled {
-		s.finishCancelled(state)
+		go s.finishCancelled(state)
 	}
 }
 

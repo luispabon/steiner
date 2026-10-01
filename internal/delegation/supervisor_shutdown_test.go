@@ -6,7 +6,42 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/luispabon/steiner/internal/tool"
 )
+
+func TestShutdownWaitsBlockedQueuedFinalizerWithoutBlocking(t *testing.T) {
+	s, sink := newAsyncSupervisor(1, nil)
+	s.joinTimeout = 20 * time.Millisecond
+	running := newAsyncChild("running", "")
+	queued := newAsyncChild("queued", "")
+	callbackEntered, callbackRelease := make(chan struct{}), make(chan struct{})
+	queued.job.OnCancelledBeforeStart = func() tool.ExecutionResult {
+		close(callbackEntered)
+		<-callbackRelease
+		return tool.ExecutionResult{Value: Result{AgentID: "queued", Status: StatusCancelled}}
+	}
+	spawnAsync(context.Background(), t, s, running)
+	waitClosed(t, running.started, "running child")
+	spawnAsync(context.Background(), t, s, queued)
+	shutdown := make(chan struct{})
+	go func() { s.Shutdown(context.Background(), CancelCauseSystem); close(shutdown) }()
+	waitClosed(t, callbackEntered, "queued cancellation finalizer")
+	waitClosed(t, shutdown, "bounded shutdown")
+	first := recv(t, sink.ch, "first timeout completion")
+	second := recv(t, sink.ch, "second timeout completion")
+	if len(first) != 1 || len(second) != 1 {
+		t.Fatalf("completion batches = %+v, %+v", first, second)
+	}
+	close(callbackRelease)
+	close(running.release)
+	waitFinished(t, s, "queued")
+	waitFinished(t, s, "running")
+	sink.none(t)
+	if got := jobFor(s, "queued").result.Value; got != nil {
+		t.Fatalf("late callback replaced timeout waiter result: %v", got)
+	}
+}
 
 func TestSupervisorShutdownCleanJoin(t *testing.T) {
 	t.Parallel()

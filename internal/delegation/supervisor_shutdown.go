@@ -22,15 +22,14 @@ type ShutdownReport struct {
 }
 
 // Shutdown rejects new spawns, cancels every child and waits up to
-// min(ctx, JoinTimeout) for their goroutines to exit. Children still running
-// are reported as unjoined and their worktrees protected; their late results are
-// dropped and their waiters receive ErrSupervisorClosed. Unjoined children are
-// posted once to the completion sink as quiet cancelled completions before the
-// supervisor closes, together with any results still held by a group that will
-// never be sealed or completed; nothing is posted afterwards. Shutdown never
-// finalises a child itself. It is idempotent: later calls return the first report.
+// min(ctx, JoinTimeout) for execution, publication, and cancellation finalizers.
+// Timeout outcomes remain authoritative if child work returns later. Shutdown
+// is idempotent.
 func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownReport {
 	s.shutdown.Do(func() {
+		waitCtx, cancel := context.WithTimeout(ctx, s.joinTimeout)
+		defer cancel()
+
 		s.mu.Lock()
 		s.closing = true
 		s.mu.Unlock()
@@ -52,48 +51,30 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 		}
 		s.mu.Unlock()
 
-		waitCtx, cancel := context.WithTimeout(ctx, s.joinTimeout)
-		defer cancel()
-	publicationWait:
-		for _, state := range s.pendingPublications() {
+		for _, wait := range waits {
 			select {
-			case <-state:
+			case <-wait:
 			case <-waitCtx.Done():
-				break publicationWait
-			}
-		}
-	childWait:
-		for _, exited := range waits {
-			select {
-			case <-exited:
-			case <-waitCtx.Done():
-				break childWait
+				goto settle
 			}
 		}
 
+	settle:
+
 		s.mu.Lock()
-		var unjoined []*jobState
+		var batch []agent.SubAgentCompletion
 		for _, state := range s.jobs {
 			if state.phase == phaseRunning {
-				unjoined = append(unjoined, state)
+				path := state.worktree.Path
+				s.report.Unjoined = append(s.report.Unjoined, UnjoinedChild{AgentID: state.job.AgentID, AgentType: state.job.AgentType, ParentCallID: state.job.ParentCallID, WorktreePath: path})
+				if path != "" {
+					s.protected[path] = struct{}{}
+				}
 			}
-		}
-		sort.Slice(unjoined, func(i, j int) bool {
-			return unjoined[i].job.AgentID < unjoined[j].job.AgentID
-		})
-		var batch []agent.SubAgentCompletion
-		for _, state := range unjoined {
-			path := state.worktree.Path
-			s.report.Unjoined = append(s.report.Unjoined, UnjoinedChild{
-				AgentID:      state.job.AgentID,
-				AgentType:    state.job.AgentType,
-				ParentCallID: state.job.ParentCallID,
-				WorktreePath: path,
-			})
-			if path != "" {
-				s.protected[path] = struct{}{}
+			if state.phase != phaseDone || !state.finalized {
+				state.shutdownTimedOut = true
 			}
-			if state.completion == nil && state.published {
+			if state.shutdownTimedOut && state.completion == nil && state.published {
 				completion := s.newCompletionLocked(state)
 				completion.Status = string(StatusCancelled)
 				completion.Quiet = true
@@ -104,23 +85,16 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 				case state.group != nil:
 					state.held = true
 				default:
+					state.routed = true
 					batch = append(batch, *completion)
 				}
 			}
-			if state.published {
+			if state.shutdownTimedOut && state.published {
 				deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
 			}
 		}
-		unpublished := false
-		for _, state := range s.jobs {
-			if !state.published {
-				unpublished = true
-				break
-			}
-		}
-		if !unpublished {
-			batch = append(batch, s.releaseAllGroupsLocked()...)
-		}
+		batch = append(batch, s.releaseAllGroupsLocked()...)
+		sort.Slice(s.report.Unjoined, func(i, j int) bool { return s.report.Unjoined[i].AgentID < s.report.Unjoined[j].AgentID })
 		sort.Slice(batch, func(i, j int) bool { return batch[i].Seq < batch[j].Seq })
 		var posts postList
 		if s.sink != nil && len(batch) > 0 {
@@ -135,18 +109,6 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return ShutdownReport{Unjoined: append([]UnjoinedChild(nil), s.report.Unjoined...)}
-}
-
-func (s *Supervisor) pendingPublications() []chan struct{} {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var pending []chan struct{}
-	for _, state := range s.jobs {
-		if !state.published {
-			pending = append(pending, state.publication)
-		}
-	}
-	return pending
 }
 
 // releaseAllGroupsLocked force-releases every remaining group in creation
@@ -166,6 +128,7 @@ func (s *Supervisor) releaseAllGroupsLocked() []agent.SubAgentCompletion {
 			if member.completion != nil && member.held && !member.blocking {
 				released = append(released, *member.completion)
 				member.held = false
+				member.routed = true
 			}
 		}
 		delete(s.groups, group.key)

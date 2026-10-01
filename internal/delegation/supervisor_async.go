@@ -197,13 +197,23 @@ func (p postList) deliver() {
 	}
 }
 
+func (s *Supervisor) routeShutdownCompletionLocked(state *jobState) postList {
+	if s.sink == nil || state.blocking || state.completion == nil || state.routed {
+		return postList{}
+	}
+	state.routed = true
+	state.held = false
+	return postList{sink: s.sink, batches: [][]agent.SubAgentCompletion{{*state.completion}}}
+}
+
 // routeLocked decides what to post for a job that just gained a completion:
 // ungrouped completions post at once, grouped ones are held until the group
 // releases. Blocking jobs, a nil sink and a closed supervisor post nothing.
 func (s *Supervisor) routeLocked(state *jobState) postList {
-	if s.sink == nil || state.blocking || s.closed || state.completion == nil {
+	if s.sink == nil || state.blocking || s.closed || state.completion == nil || state.routed {
 		return postList{}
 	}
+	state.routed = true
 	if state.group == nil {
 		return postList{sink: s.sink, batches: [][]agent.SubAgentCompletion{{*state.completion}}}
 	}

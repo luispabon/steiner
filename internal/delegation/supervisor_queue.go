@@ -8,6 +8,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // ErrOutstandingCap indicates that too many sub-agents are already outstanding.
@@ -80,6 +81,22 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	s.mu.Lock()
 	state.published = true
 	close(state.publication)
+	if state.shutdownTimedOut {
+		if state.completion == nil && !state.blocking {
+			completion := s.newCompletionLocked(state)
+			completion.Status = string(StatusCancelled)
+			completion.Quiet = true
+			completion.Body = agent.FailureBody(completion.Status, "sub-agent did not stop before shutdown")
+			state.completion = completion
+		}
+		deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
+		if state.phase == phaseQueued {
+			s.removeQueuedLocked(state)
+			state.phase = phaseDone
+			state.cancel()
+			go s.finishCancelled(state)
+		}
+	}
 	if state.cause != CancelCauseNone && state.phase == phaseQueued {
 		s.removeQueuedLocked(state)
 		state.phase = phaseDone

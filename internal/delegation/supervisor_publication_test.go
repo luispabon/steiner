@@ -62,6 +62,39 @@ func TestAcceptedPublicationPrecedesCancelFinalizeAndQueuePump(t *testing.T) {
 	}
 }
 
+func TestShutdownPublicationTimeoutSettlesLateAcceptedJob(t *testing.T) {
+	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{})}
+	sink := newChannelSink()
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events, JoinTimeout: 20 * time.Millisecond})
+	s.SetCompletionSink(sink)
+	job := newAsyncChild("late", "")
+	spawnResult := make(chan error, 1)
+	go func() {
+		_, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch"), job.job)
+		spawnResult <- err
+	}()
+	waitClosed(t, events.entered, "accepted publication")
+	shutdown := make(chan struct{})
+	go func() { s.Shutdown(context.Background(), CancelCauseSystem); close(shutdown) }()
+	waitClosed(t, shutdown, "bounded shutdown")
+	if got := s.Pending(); len(got) != 1 || got[0].AgentID != "late" {
+		t.Fatalf("pending before publication returns = %+v", got)
+	}
+	close(events.release)
+	if err := recv(t, spawnResult, "spawn result"); err != nil {
+		t.Fatal(err)
+	}
+	batch := recv(t, sink.ch, "late completion")
+	if len(batch) != 1 || batch[0].AgentID != "late" || batch[0].Status != string(StatusCancelled) {
+		t.Fatalf("completion = %+v", batch)
+	}
+	s.MarkDelivered([]string{"call-late"})
+	if s.IsPending("late") {
+		t.Fatal("late job remains pending after acknowledgement")
+	}
+	sink.none(t)
+}
+
 func TestPublicationBarrierShutdownWaitsAcceptance(t *testing.T) {
 	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{})}
 	sink := newChannelSink()
