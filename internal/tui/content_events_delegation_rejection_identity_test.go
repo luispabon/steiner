@@ -24,11 +24,17 @@ func TestDelegationRejectionIdentityKeepsAcceptedCardAndError(t *testing.T) {
 }
 
 func TestDelegationRejectionIdentityLateRejectedCallDoesNotStealActiveChild(t *testing.T) {
-	m := &Model{content: contentBuffer{}, roster: subAgentRoster{entries: map[string]*rosterEntry{}}, styles: testStyles("#5599ff")}
-	m.content.segments = []contentSegment{{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "child", parentCallID: "original-call", groupAccepted: true, batchID: "batch", group: "group", status: "active"}}}
-	m.content.activeDelegations = map[string]delegationLocator{"child": {seg: 0, dd: m.content.segments[0].delegData}}
+	m := newIdentityTestModel()
+	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "original-call", map[string]any{"type": "explore", "task": "original task"}))
+	m.applyEvent(output.NewDelegationAcceptedEvent("original-call", "child", "old-batch", "old-group"))
+	m.applyEvent(output.NewDelegationQueuedEvent("child", "original-call", "explore", "original task"))
+	m.applyEvent(output.NewDelegationStartedEventWithType("child", "original task", "original-call", "", "explore"))
 	original := m.content.activeDelegations["child"]
 	originalCard := original.dd
+	originalRoster := m.roster.entries["child"]
+	if originalCard == nil || originalRoster == nil || originalRoster.status != rosterRunning {
+		t.Fatalf("test setup missing active child: locator=%#v roster=%#v", original, originalRoster)
+	}
 	m.applyEvent(output.NewToolCallStartedEvent(1, "follow_up", "rejected-call", map[string]any{"agent_id": "child", "message": "rejected follow-up"}))
 	m.applyEvent(output.NewToolCallFinishedEventWithAdmission(1, "follow_up", "rejected-call", "", errors.New("not admitted"), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected"}))
 
@@ -37,9 +43,73 @@ func TestDelegationRejectionIdentityLateRejectedCallDoesNotStealActiveChild(t *t
 	if got.dd != originalCard || got.seg != original.seg {
 		t.Fatalf("late rejected call stole active locator: got=%#v want=%#v", got, original)
 	}
-	if findDelegationSegment(m.content.segments, originalCard) < 0 || originalCard.parentCallID != "original-call" {
-		t.Fatalf("late rejected event rebound original card: %#v", originalCard)
+	if findDelegationSegment(m.content.segments, originalCard) < 0 || originalCard.parentCallID != "original-call" || originalCard.agentID != "child" || originalCard.group != "old-group" || originalCard.batchID != "old-batch" || originalCard.status != "active" {
+		t.Fatalf("late rejected event changed original card identity: %#v", originalCard)
 	}
+	if countDelegationCards(m.content.segments) != 1 {
+		t.Fatalf("late rejected event created another card: %#v", m.content.segments)
+	}
+	if gotRoster := m.roster.entries["child"]; gotRoster != originalRoster || gotRoster.currentCallID != "original-call" || gotRoster.status != rosterRunning || gotRoster.group != "old-group" || gotRoster.batchID != "old-batch" {
+		t.Fatalf("late rejected event changed original roster: %#v", gotRoster)
+	}
+}
+
+func TestDelegationRejectionIdentityAllowsFreshAcceptedFollowUpAfterCompletion(t *testing.T) {
+	m := newIdentityTestModel()
+	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "original-call", map[string]any{"type": "explore", "task": "original task"}))
+	m.applyEvent(output.NewDelegationAcceptedEvent("original-call", "child", "old-batch", "old-group"))
+	m.applyEvent(output.NewDelegationQueuedEvent("child", "original-call", "explore", "original task"))
+	m.applyEvent(output.NewDelegationStartedEventWithType("child", "original task", "original-call", "", "explore"))
+	original := m.content.activeDelegations["child"]
+	originalCard := original.dd
+	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "child", Status: "completed"}))
+	if originalCard.status != "complete" {
+		t.Fatalf("test setup original card status = %q, want complete", originalCard.status)
+	}
+
+	m.applyEvent(output.NewToolCallStartedEvent(1, "follow_up", "fresh-call", map[string]any{"agent_id": "child", "message": "fresh work"}))
+	fresh := m.content.segments[len(m.content.segments)-1].delegData
+	if fresh == nil || fresh == originalCard {
+		t.Fatalf("fresh follow-up card = %#v, original=%p", fresh, originalCard)
+	}
+	m.applyEvent(output.NewToolCallFinishedEventWithAdmission(1, "follow_up", "fresh-call", "", nil, output.ToolPreview{}, &output.DelegationAdmission{Status: "accepted", AgentID: "child", BatchID: "fresh-batch", Group: "fresh-group"}))
+	m.applyEvent(output.NewDelegationStartedEventWithType("child", "fresh work", "fresh-call", "", "explore"))
+
+	if fresh.agentID != "child" || fresh.parentCallID != "fresh-call" || fresh.status != "active" || !fresh.groupAccepted || fresh.group != "fresh-group" || fresh.batchID != "fresh-batch" {
+		t.Fatalf("fresh follow-up binding = %#v", fresh)
+	}
+	if findDelegationSegment(m.content.segments, originalCard) < 0 || originalCard.status != "complete" {
+		t.Fatalf("completed original card changed: %#v", originalCard)
+	}
+	if loc := m.content.activeDelegations["child"]; loc.dd != fresh || loc.seg != findDelegationSegment(m.content.segments, fresh) {
+		t.Fatalf("active locator = %#v, want fresh card at %d", loc, findDelegationSegment(m.content.segments, fresh))
+	}
+	if len(m.content.pendingDelegateParents) != 0 {
+		t.Fatalf("fresh follow-up remains pending: %#v", m.content.pendingDelegateParents)
+	}
+	roster := m.roster.entries["child"]
+	if roster == nil || roster.currentCallID != "fresh-call" || roster.status != rosterRunning || roster.group != "fresh-group" || roster.batchID != "fresh-batch" {
+		t.Fatalf("fresh follow-up roster = %#v", roster)
+	}
+}
+
+func countDelegationCards(segments []contentSegment) int {
+	count := 0
+	for _, segment := range segments {
+		switch segment.kind {
+		case segmentDelegation:
+			count++
+		case segmentDelegationGroup:
+			if segment.delegGroupData != nil {
+				count += len(segment.delegGroupData.entries)
+			}
+		}
+	}
+	return count
+}
+
+func newIdentityTestModel() *Model {
+	return &Model{content: contentBuffer{}, roster: subAgentRoster{entries: map[string]*rosterEntry{}}, styles: testStyles("#5599ff")}
 }
 
 func TestDelegationRejectionIdentityRemapsPendingSurvivors(t *testing.T) {
