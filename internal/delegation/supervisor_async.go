@@ -37,7 +37,7 @@ func (s *Supervisor) Spawn(ctx context.Context, job ChildJob) (SpawnTicket, erro
 func (s *Supervisor) SpawnWithAdmission(ctx context.Context, job ChildJob) (SpawnTicket, *tool.DelegationAdmission, error) {
 	state, err := s.enqueue(ctx, job, false)
 	if err != nil {
-		return SpawnTicket{}, admissionFor(ctx, job, tool.DelegationAdmissionRejected), withAdmission(err, admissionFor(ctx, job, tool.DelegationAdmissionRejected))
+		return SpawnTicket{}, admissionFor(ctx, job, tool.DelegationAdmissionRejected), tool.WithDelegationAdmission(err, admissionFor(ctx, job, tool.DelegationAdmissionRejected))
 	}
 	return SpawnTicket{AgentID: job.AgentID, Queued: state.wasQueued}, admissionForState(state), nil
 }

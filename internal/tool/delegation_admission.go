@@ -57,7 +57,8 @@ func (e *delegationAdmissionError) As(target any) bool {
 	return true
 }
 
-func withDelegationAdmission(err error, metadata *DelegationAdmission) error {
+// WithDelegationAdmission returns an error carrying a cloned admission outcome.
+func WithDelegationAdmission(err error, metadata *DelegationAdmission) error {
 	if err == nil || metadata == nil {
 		return err
 	}

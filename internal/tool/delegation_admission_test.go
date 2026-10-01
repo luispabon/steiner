@@ -139,6 +139,20 @@ func TestDelegationAdmissionDoesNotMutateSharedWrappedToolError(t *testing.T) {
 	}
 }
 
+func TestWithDelegationAdmissionDoesNotMutateSharedToolError(t *testing.T) {
+	cause := &ToolExecutionError{Tool: "delegate", Kind: "provider", Message: "failed"}
+	metadata := &DelegationAdmission{Status: DelegationAdmissionAccepted, AgentID: "agent-a"}
+	wrapped := WithDelegationAdmission(fmt.Errorf("wrapped: %w", cause), metadata)
+	metadata.AgentID = "changed"
+	var projected *ToolExecutionError
+	if !errors.As(wrapped, &projected) || projected.Kind != "provider" || projected.DelegationAdmission == nil || projected.DelegationAdmission.AgentID != "agent-a" {
+		t.Fatalf("projected error = %#v", projected)
+	}
+	if cause.DelegationAdmission != nil {
+		t.Fatalf("shared cause was mutated: %#v", cause.DelegationAdmission)
+	}
+}
+
 func TestDelegationAdmissionCloneAndUnknown(t *testing.T) {
 	if (*DelegationAdmission)(nil).Clone() != nil {
 		t.Fatal("nil metadata clone is not nil")

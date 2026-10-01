@@ -150,7 +150,7 @@ func NewSupervisor(opts SupervisorOptions) *Supervisor {
 func (s *Supervisor) SpawnAndWait(handlerCtx context.Context, job ChildJob) (tool.ExecutionResult, error) {
 	state, err := s.enqueue(handlerCtx, job, true)
 	if err != nil {
-		return tool.ExecutionResult{}, withAdmission(err, admissionFor(handlerCtx, job, tool.DelegationAdmissionRejected))
+		return tool.ExecutionResult{}, tool.WithDelegationAdmission(err, admissionFor(handlerCtx, job, tool.DelegationAdmissionRejected))
 	}
 
 	cancelled := handlerCtx.Done()
@@ -160,10 +160,17 @@ func (s *Supervisor) SpawnAndWait(handlerCtx context.Context, job ChildJob) (too
 			s.mu.Lock()
 			state.acked = true
 			s.pruneLocked(state)
-			s.mu.Unlock()
 			result := state.result
-			result.DelegationAdmission = admissionForState(state)
-			return result, withAdmission(state.err, admissionForState(state))
+			if result.DelegationAdmission == nil {
+				result.DelegationAdmission = admissionForState(state)
+			}
+			result.DelegationAdmission.Status = tool.DelegationAdmissionAccepted
+			result.DelegationAdmission.BatchID = state.batchID
+			result.DelegationAdmission.Group = state.job.Group
+			result.DelegationAdmission.AgentID = state.job.AgentID
+			err := tool.WithDelegationAdmission(state.err, result.DelegationAdmission)
+			s.mu.Unlock()
+			return result, err
 		case <-cancelled:
 			cancelled = nil
 			s.CancelAgent(job.AgentID, false, CancelCauseUser)
@@ -172,29 +179,6 @@ func (s *Supervisor) SpawnAndWait(handlerCtx context.Context, job ChildJob) (too
 }
 
 // run is the single goroutine for a started job.
-type admissionError struct {
-	err      error
-	metadata *tool.DelegationAdmission
-}
-
-func (e *admissionError) Error() string { return e.err.Error() }
-func (e *admissionError) Unwrap() error { return e.err }
-func (e *admissionError) DelegationAdmissionMetadata() *tool.DelegationAdmission {
-	return e.metadata.Clone()
-}
-
-func withAdmission(err error, metadata *tool.DelegationAdmission) error {
-	if err == nil || metadata == nil {
-		return err
-	}
-	var toolErr *tool.ToolExecutionError
-	if errors.As(err, &toolErr) {
-		toolErr.DelegationAdmission = metadata.Clone()
-		return err
-	}
-	return &admissionError{err: err, metadata: metadata.Clone()}
-}
-
 func admissionFor(ctx context.Context, job ChildJob, status string) *tool.DelegationAdmission {
 	return &tool.DelegationAdmission{Status: status, BatchID: agent.ToolBatchIDFrom(ctx), Group: normalizeGroup(job.Group), AgentID: job.AgentID}
 }
@@ -227,6 +211,7 @@ func (s *Supervisor) run(state *jobState) {
 		s.completeLocked(state, result, err)
 		posts = s.routeLocked(state)
 	}
+	result.DelegationAdmission = admissionForState(state)
 	deliverLocked(state, result, err)
 	s.pruneLocked(state)
 	s.startQueuedLocked()
