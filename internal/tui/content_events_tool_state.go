@@ -125,6 +125,9 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 		if shouldSkipToolEvent(payload.Tool) {
 			return
 		}
+		if b.handleDelegationAdmissionFinish(payload) {
+			return
+		}
 		if !isDelegateOrSpecialized(payload.Tool) && b.applyFinishedRegularToolCall(payload) {
 			return
 		}
