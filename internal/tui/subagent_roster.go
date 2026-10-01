@@ -105,14 +105,23 @@ func (r *subAgentRoster) finish(agentID, agentType, callID, status string, durat
 		return
 	}
 	e, ok := r.entries[agentID]
-	if !ok {
-		if callID != "" {
+	if callID != "" {
+		admission, accepted := r.admissions[callID]
+		if !accepted || admission.AgentID != agentID {
 			return
 		}
+		if ok && e.currentCallID != callID {
+			return
+		}
+		if !ok {
+			e = r.upsert(agentID)
+			e.currentCallID = callID
+			e.accepted = true
+			e.group = admission.Group
+			e.batchID = admission.BatchID
+		}
+	} else if !ok {
 		e = r.upsert(agentID)
-	}
-	if callID != "" && e.currentCallID != callID {
-		return
 	}
 	if e.accepted && callID == "" && status != rosterDone {
 		return
@@ -169,6 +178,8 @@ func (r *subAgentRoster) observe(event output.Event, now int64) {
 	}
 }
 
+// applyAdmission updates identity only when an earlier lifecycle event has already
+// established the same current call and agent.
 func (r *subAgentRoster) applyAdmission(callID string, admission output.DelegationAdmission) {
 	if callID == "" || admission.AgentID == "" {
 		return
@@ -212,7 +223,7 @@ func (r *subAgentRoster) deliver(item output.DeliveredSubAgent, now int64) {
 		e = r.upsert(id)
 	}
 	currentMatch := item.ParentCallID == "" || e.currentCallID == "" || e.currentCallID == item.ParentCallID
-	if accepted && currentMatch {
+	if accepted && currentMatch && (!e.accepted || e.currentCallID == item.ParentCallID) {
 		e.currentCallID = item.ParentCallID
 		e.accepted = true
 		e.group = admission.Group

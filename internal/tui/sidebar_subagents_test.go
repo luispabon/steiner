@@ -48,6 +48,31 @@ func TestSidebarAcceptedGroupIdentity(t *testing.T) {
 	}
 }
 
+func TestRosterPreparationFailureUsesAdmissionIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		accept output.Event
+		callID string
+	}{
+		{"accepted event", ev(output.DelegationAcceptedEvent{CallID: "prep", AgentID: "prepare", BatchID: "batch", Group: "prepare-group"}), "prep"},
+		{"accepted finish fallback", ev(output.ToolCallFinishedEvent{CallID: "prep", DelegationAdmission: &output.DelegationAdmission{Status: "accepted", AgentID: "prepare", BatchID: "batch", Group: "prepare-group"}}), "prep"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var r subAgentRoster
+			r.observe(tc.accept, 1)
+			r.observe(ev(output.DelegationFailedEvent{CallID: tc.callID, AgentID: "prepare", AgentType: "code", Error: "preparation failed"}), 2)
+			e := r.entries["prepare"]
+			if e == nil || e.status != rosterFailed || !e.accepted || e.group != "prepare-group" || e.batchID != "batch" {
+				t.Fatalf("preparation failure entry = %+v", e)
+			}
+			out := stripANSI(strings.Join(rosterSidebar(r.snapshot(), 2).subAgentsSection(60), "\\n"))
+			if !strings.Contains(out, "prepare-group") || !strings.Contains(out, "prepare") {
+				t.Fatalf("preparation failure missing from grouped sidebar:\\n%s", out)
+			}
+		})
+	}
+}
+
 func TestRosterUnknownLegacyLifecycleAndDelivery(t *testing.T) {
 	var r subAgentRoster
 	r.observe(ev(output.DelegationQueuedEvent{AgentID: "queued", AgentType: "review"}), 1)
@@ -104,6 +129,11 @@ func TestRosterAcceptedRunResetAndRejectedFollowup(t *testing.T) {
 	r.observe(ev(output.DelegationStartedEvent{CallID: "ungrouped", AgentID: "child", AgentType: "code"}), 11)
 	if entry.group != "" || entry.batchID != "new-batch" || !entry.accepted {
 		t.Fatalf("ungrouped current run identity = %+v", entry)
+	}
+	// Delayed delivery from old call must not replace current run identity or settle it.
+	r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "child", AgentType: "code", Status: "complete", ParentCallID: "fresh"}}}), 12)
+	if entry.currentCallID != "ungrouped" || entry.status != rosterRunning || entry.delivered || entry.group != "" || entry.batchID != "new-batch" {
+		t.Fatalf("stale delivery changed current run: %+v", entry)
 	}
 	state := rosterSidebar(r.snapshot(), 11)
 	out := stripANSI(strings.Join(state.subAgentsSection(60), "\\n"))
