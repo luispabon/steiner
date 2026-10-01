@@ -33,6 +33,10 @@ func TestDelegationAdmissionEventsAndFinishedMetadata(t *testing.T) {
 		t.Fatalf("decoded metadata = %#v", decoded.Payload.DelegationAdmission)
 	}
 	accepted := NewDelegationAcceptedEvent("c", "a", "b", "g")
+	segment := renderEvent(accepted)
+	if segment.Channel != ChannelStatus || segment.Label != "delegation accepted" || !strings.Contains(segment.Text, "group=g") {
+		t.Fatalf("accepted event segment = %#v", segment)
+	}
 	acceptedData, err := json.Marshal(accepted)
 	if err != nil {
 		t.Fatal(err)
