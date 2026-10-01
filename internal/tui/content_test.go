@@ -3845,6 +3845,7 @@ func TestFollowUpToolCallCreatesDelegationSegmentWithMatchedLabel(t *testing.T) 
 			Arguments: map[string]any{"type": "code", "task": "implement feature"},
 		},
 	})
+	b.AppendEvent(output.NewDelegationAcceptedEvent("parent-1", "", "batch", "group"))
 
 	// Then trigger DelegationStarted to bind the child agent
 	b.AppendEvent(output.Event{
@@ -3867,6 +3868,7 @@ func TestFollowUpToolCallCreatesDelegationSegmentWithMatchedLabel(t *testing.T) 
 			},
 		},
 	})
+	b.AppendEvent(output.NewDelegationAcceptedEvent("parent-2", "", "batch", "group"))
 
 	// Verify delegation group exists (consecutive delegations merge)
 	if len(b.segments) < 1 {

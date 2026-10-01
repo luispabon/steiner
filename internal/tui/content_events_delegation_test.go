@@ -852,15 +852,11 @@ func TestDelegationStarted_ConcurrentFollowUps_BindByAgentIDNotFIFO(t *testing.T
 		t.Fatalf("remaining pending entry followUpAgentID = %q, want %q", buffer.pendingDelegateParents[0].dd.followUpAgentID, "child-3")
 	}
 
-	// Adjacent delegation boxes merge into a single delegationGroup segment.
-	if len(buffer.segments) != 1 || buffer.segments[0].delegGroupData == nil {
-		t.Fatalf("segments = %#v, want 1 segmentDelegationGroup", buffer.segments)
+	// Unaccepted follow-up boxes stay separate; retain the binding assertions below.
+	if len(buffer.segments) != 2 || buffer.segments[0].delegData == nil || buffer.segments[1].delegData == nil {
+		t.Fatalf("segments = %#v, want two unaccepted delegation cards", buffer.segments)
 	}
-	entries := buffer.segments[0].delegGroupData.entries
-	if len(entries) != 2 {
-		t.Fatalf("delegationGroup entries = %d, want 2", len(entries))
-	}
-	child3Box, child5Box := entries[0], entries[1]
+	child3Box, child5Box := buffer.segments[0].delegData, buffer.segments[1].delegData
 	if child3Box.agentID != "" {
 		t.Fatalf("child-3 box agentID = %q, want empty (must remain unbound)", child3Box.agentID)
 	}
@@ -996,6 +992,7 @@ func TestConsecutiveSpecialistDelegateCallsMergeIntoGroup(t *testing.T) {
 
 	// First specialist tool call
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "do stuff"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_1", "", "batch", "group"))
 	// First delegation starts
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do stuff"))
 	// First delegation completes
@@ -1010,6 +1007,7 @@ func TestConsecutiveSpecialistDelegateCallsMergeIntoGroup(t *testing.T) {
 
 	// Second specialist tool call
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_2", map[string]any{"type": "code", "task": "do more stuff"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_2", "", "batch", "group"))
 	// Second delegation starts
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "do more stuff"))
 
@@ -1043,8 +1041,9 @@ func TestThreeConsecutiveDelegateCallsWithActiveMiddleMergeIntoGroup(t *testing.
 		styles:                 testStyles(theme.AccentAmber),
 	}
 
-	// Three consecutive specialist delegations regardless of middle status
+	// Three accepted consecutive specialist delegations regardless of middle status
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "first"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_1", "", "batch", "group"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 		AgentID:       "child-1",
@@ -1056,10 +1055,12 @@ func TestThreeConsecutiveDelegateCallsWithActiveMiddleMergeIntoGroup(t *testing.
 	}))
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_2", map[string]any{"type": "code", "task": "second"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_2", "", "batch", "group"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
 	// Leave child-2 active (do not send Complete)
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_3", map[string]any{"type": "code", "task": "third"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_3", "", "batch", "group"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-3", "third"))
 
 	// All three should be in one group
@@ -1294,7 +1295,9 @@ func TestTwoDelegationStartedEventsBeforeParentToolCallsBindCorrectly(t *testing
 
 	// Start both tool calls before delegations
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "task1"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_1", "", "batch", "group"))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_2", map[string]any{"type": "code", "task": "task2"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_2", "", "batch", "group"))
 
 	// Both delegations arrive
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "task1"))
@@ -1337,9 +1340,11 @@ func TestToolCallFinishedWithErrorMarksonlyGroupEntryFailed(t *testing.T) {
 
 	// Create a group: both start as active, first one gets bound to a tool
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "first"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_1", "", "batch", "group"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
 	// Don't complete, let it stay active
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_2", map[string]any{"type": "code", "task": "second"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_2", "", "batch", "group"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
 
 	// Finish call_1 with error
@@ -1437,8 +1442,10 @@ func TestCheckBufferDirtyWithActiveEntryInGroup(t *testing.T) {
 
 	// Create a group with one active and one complete
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "first"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_1", "", "batch", "group"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_2", map[string]any{"type": "code", "task": "second"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_2", "", "batch", "group"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 		AgentID:       "child-2",
@@ -1849,9 +1856,11 @@ func TestSubAgentTypesConsecutiveGroupsByType(t *testing.T) {
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1",
 		map[string]any{"type": "code", "task": "task 1"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_1", "", "batch", "code"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_2",
 		map[string]any{"type": "code", "task": "task 2"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_2", "", "batch", "code"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
 
 	if len(buffer.segments) != 1 || buffer.segments[0].kind != segmentDelegationGroup {
@@ -1872,9 +1881,11 @@ func TestSubAgentTypesMixedGroupsWithDefaultBorder(t *testing.T) {
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1",
 		map[string]any{"type": "explore", "task": "task 1"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_1", "", "batch", "explore"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "first"))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_2",
 		map[string]any{"type": "code", "task": "task 2"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_2", "", "batch", "code"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
 
 	if len(buffer.segments) != 1 || buffer.segments[0].kind != segmentDelegationGroup {

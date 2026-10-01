@@ -74,9 +74,9 @@ func TestDeliveredEventRendersRowWithGroupAndReason(t *testing.T) {
 	t.Parallel()
 	b := newDeliveryBuffer()
 	b.segments = append(b.segments,
-		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c4", parentCallID: "call-4", group: "g", status: "failed", failureReason: "boom: exploded\nstack", batch: 0}},
-		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c5", parentCallID: "call-5", group: "g", status: "complete", batch: 0}},
-		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c6", parentCallID: "call-6", group: "g", status: "active"}},
+		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c4", parentCallID: "call-4", group: "g", groupAccepted: true, batchID: "batch", status: "failed", failureReason: "boom: exploded\nstack", batch: 0}},
+		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c5", parentCallID: "call-5", group: "g", groupAccepted: true, batchID: "batch", status: "complete", batch: 0}},
+		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c6", parentCallID: "call-6", group: "g", groupAccepted: true, batchID: "batch", status: "active", batch: 0}},
 	)
 	b.AppendEvent(output.Event{Type: output.EventTypeSubAgentsDelivered, Payload: output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{
 		{AgentID: "c4", AgentType: "review", Status: "failed", ParentCallID: "call-4", DurationMs: 4000},
@@ -105,8 +105,12 @@ func TestDeliveredLookupGroupSizeIsScopedToBatch(t *testing.T) {
 			b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", "next batch"))
 		}
 		id := "c" + string(rune('1'+i))
+		batchID := "old-batch"
+		if i >= 2 {
+			batchID = "new-batch"
+		}
 		b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{
-			agentID: id, parentCallID: callID, group: "reused", status: "complete", batch: b.delegationBatch,
+			agentID: id, parentCallID: callID, group: "reused", groupAccepted: true, batchID: batchID, status: "complete", batch: b.delegationBatch,
 		}})
 	}
 	items := []output.DeliveredSubAgent{
