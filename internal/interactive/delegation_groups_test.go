@@ -75,7 +75,7 @@ func TestLegacyDelegationGroupsAcrossLineage(t *testing.T) {
 }
 
 func TestLegacyDelegationGroupsRequireUnambiguousLocalPairing(t *testing.T) {
-	call := func(id, group string, arguments map[string]any, raw string) agent.ToolCall {
+	call := func(id, _ string, arguments map[string]any, raw string) agent.ToolCall {
 		return agent.ToolCall{ID: id, Name: "sub_agent", Arguments: arguments, RawArguments: raw}
 	}
 	result := func(id, name, status string) agent.Message {

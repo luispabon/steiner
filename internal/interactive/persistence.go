@@ -178,24 +178,19 @@ func (s *Session) reportLoadGuardError(err error) error {
 	return err
 }
 
-// loadSession replaces the current conversation and lineage with a previously
-// saved session, following the ClearConversation pattern but seeding from stored lineage.
-func (s *Session) loadSession(ctx context.Context, sessionID string) error {
-	if s.deps.SessionStore == nil {
-		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))
-		return nil
-	}
-
+// loadSessionPreflight loads and validates persisted state before it can replace
+// the current session.
+func (s *Session) loadSessionPreflight(sessionID string) (session.Session, agent.DelegationGroupLedger, config.ExecutionMode, error) {
 	sess, err := s.deps.SessionStore.Load(sessionID)
 	if err != nil {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("load session failed: %v", err)))
-		return err
+		return session.Session{}, agent.DelegationGroupLedger{}, "", err
 	}
 
 	groupLedger, err := resolveDelegationGroups(sess.DelegationGroups, sess.Lineage)
 	if err != nil {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("load session failed: %v", err)))
-		return err
+		return session.Session{}, agent.DelegationGroupLedger{}, "", err
 	}
 
 	// Validate the persisted mode before touching session state: empty falls
@@ -205,10 +200,25 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	if mode != "" && mode != config.ExecutionModePlan && mode != config.ExecutionModeBuild {
 		err := fmt.Errorf("load session: unknown mode %q", mode)
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("load session failed: %v", err)))
-		return err
+		return session.Session{}, agent.DelegationGroupLedger{}, "", err
 	}
 	if mode == "" {
 		mode = s.deps.Config.Modes.Default
+	}
+	return sess, groupLedger, mode, nil
+}
+
+// loadSession replaces the current conversation and lineage with a previously
+// saved session, following the ClearConversation pattern but seeding from stored lineage.
+func (s *Session) loadSession(ctx context.Context, sessionID string) error {
+	if s.deps.SessionStore == nil {
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))
+		return nil
+	}
+
+	sess, groupLedger, mode, err := s.loadSessionPreflight(sessionID)
+	if err != nil {
+		return err
 	}
 
 	s.mu.Lock()
