@@ -20,10 +20,23 @@ func TestSelectionStructureRegroupInvalidatesStaleAnchor(t *testing.T) {
 		{kind: segmentPlain, text: "different row", cachedRender: "different row", renderGen: 7},
 	}
 	m.content.segmentHeights = []int{1, 1, 1, 1}
+	m.content.String(m.viewport.Width())
 	m.syncViewport()
-	line, anchor := m.viewportSelectionEndpoint(2)
-	if !anchor.ok {
-		t.Fatal("test setup: selected row has no segment anchor")
+	selectedSegment := 2
+	selectedLine := -1
+	for line := range m.viewport.Lines() {
+		segIndex, _, ok := m.content.segmentAtContentLine(line)
+		if ok && segIndex == selectedSegment {
+			selectedLine = line
+			break
+		}
+	}
+	if selectedLine < 0 {
+		t.Fatal("test setup: selected row not found after initial render")
+	}
+	line, anchor := m.viewportSelectionEndpoint(selectedLine)
+	if !anchor.ok || anchor.segIndex != selectedSegment {
+		t.Fatalf("selected row anchor = %#v; want segment %d", anchor, selectedSegment)
 	}
 	m.activeRegion = regionViewport
 	m.selection = selectionState{
@@ -40,13 +53,36 @@ func TestSelectionStructureRegroupInvalidatesStaleAnchor(t *testing.T) {
 	if len(m.content.segments) != 3 || m.content.segments[0].kind != segmentDelegationGroup {
 		t.Fatalf("regrouped segments = %#v; want delegation group, selected row, and different row", m.content.segments)
 	}
-	if m.content.segments[0].renderGen != anchor.renderGen {
-		t.Fatalf("regroup changed render generation to %d; want equal anchor generation %d", m.content.segments[0].renderGen, anchor.renderGen)
+	if m.content.segments[1].text != "selected row" || m.content.segments[2].text != "different row" {
+		t.Fatalf("segments after regroup = %#v; want selected row at 1 and different row at stale index 2", m.content.segments)
 	}
-	if m.content.segments[1].text != "selected row" {
-		t.Fatalf("segment after regroup = %q; want selected row", m.content.segments[1].text)
+	m.content.String(m.viewport.Width())
+	group := &m.content.segments[0]
+	group.cachedRender = "regrouped delegation"
+	group.cachedRenderWidth = m.viewport.Width()
+	group.renderGen = anchor.renderGen
+	group.renderDirty = false
+	occupant := &m.content.segments[anchor.segIndex]
+	occupant.renderGen = anchor.renderGen
+	occupant.cachedRenderWidth = m.viewport.Width()
+	occupant.renderDirty = false
+	if occupant.renderGen != anchor.renderGen {
+		t.Fatalf("stale index render generation = %d; want anchor generation %d", occupant.renderGen, anchor.renderGen)
+	}
+	point := selectionPoint{line: line, col: 1}
+	stale := anchor
+	if m.remapEndpoint(&point, &stale) {
+		t.Fatal("stale anchor remapped to a different segment with an equal render generation")
+	}
+	valid := m.content.selectionAnchorForSegmentRow(anchor.segIndex, anchor.rowInSeg)
+	validPoint := selectionPoint{line: line, col: 1}
+	if !m.remapEndpoint(&validPoint, &valid) {
+		t.Fatal("control: current anchor at the same segment index and render generation did not remap")
 	}
 	m.syncViewport()
+	if m.content.segments[anchor.segIndex].renderGen != anchor.renderGen {
+		t.Fatalf("same-index occupant render generation at model remap = %d; want %d", m.content.segments[anchor.segIndex].renderGen, anchor.renderGen)
+	}
 	if m.selection.hasSelection() {
 		t.Fatal("selection survived regroup with a stale segment index")
 	}
