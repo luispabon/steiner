@@ -314,7 +314,6 @@ func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error)
 	var reasoning strings.Builder
 	var reasoningID string
 	var blocks []CodexMessageBlock
-	var previousMessageText string
 	for _, item := range payload.Output {
 		switch item.Type {
 		case "message":
@@ -325,9 +324,8 @@ func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error)
 				}
 			}
 			block := CodexMessageBlock{Kind: "message", Phase: item.Phase, Text: blockText.String()}
-			content.WriteString(codexMessageBoundary(previousMessageText, block.Text))
+			content.WriteString(codexMessageBoundary(content.String(), block.Text))
 			content.WriteString(block.Text)
-			previousMessageText = block.Text
 			blocks = append(blocks, block)
 		case "function_call":
 			call, err := responsesToolCall(item)

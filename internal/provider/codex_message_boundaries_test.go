@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -28,6 +30,61 @@ func TestCodexMessageBoundaries(t *testing.T) {
 			}
 			if got := joined.String(); got != tt.want {
 				t.Fatalf("content = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCodexMessageBoundaryPathsShareAccumulatedPresentation(t *testing.T) {
+	tests := []struct {
+		name string
+		text []string
+		want string
+	}{
+		{name: "newline message between items", text: []string{"note", "\n", "answer"}, want: "note\n\nanswer"},
+		{name: "empty message between items", text: []string{"one", "", "two"}, want: "one\n\ntwo"},
+		{name: "multiple newline items preserve raw newlines", text: []string{"a", "\n", "\n", "b"}, want: "a\n\n\nb"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := responsesResponse{}
+			state := responsesStreamState{}
+			for i, text := range tt.text {
+				index := i
+				part := responsesContentPart{Type: "output_text", Text: text}
+				payload.Output = append(payload.Output, responsesItem{Type: "message", ID: fmt.Sprintf("m%d", i), Content: []responsesContentPart{part}})
+				entry := responsesLedgerEntry{kind: "message", outputIndex: &index, parts: map[int]string{0: text}, partOrder: []int{0}}
+				state.ledger = append(state.ledger, entry)
+			}
+			projected := func() string { _, _, text := state.projected(); return text }()
+			unary, err := normalizeResponsesResponse(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if projected != tt.want || unary.Message.Content != tt.want {
+				t.Fatalf("projection = %q, unary = %q, want %q", projected, unary.Message.Content, tt.want)
+			}
+			var chunks []ChatChunk
+			emit := func(chunk ChatChunk) error { chunks = append(chunks, chunk); return nil }
+			streamState := responsesStreamState{}
+			for i, text := range tt.text {
+				index := i
+				delta, _ := json.Marshal(responsesStreamEvent{Type: "response.output_text.delta", ItemID: fmt.Sprintf("m%d", i), OutputIndex: &index, Delta: text})
+				if _, err := processResponsesStreamEvent(&streamState, string(delta), emit); err != nil {
+					t.Fatal(err)
+				}
+				itemDone, _ := json.Marshal(responsesStreamEvent{Type: "response.output_item.done", OutputIndex: &index, Item: payload.Output[i]})
+				if _, err := processResponsesStreamEvent(&streamState, string(itemDone), emit); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var streamed strings.Builder
+			for _, chunk := range chunks {
+				streamed.WriteString(chunk.Delta.Content)
+			}
+			_, _, finalProjection := streamState.projected()
+			if streamed.String() != tt.want || finalProjection != tt.want {
+				t.Fatalf("stream = %q, projection = %q, want %q", streamed.String(), finalProjection, tt.want)
 			}
 		})
 	}
@@ -71,6 +128,22 @@ func TestCodexStreamDistinctMessageBoundariesMatchSnapshot(t *testing.T) {
 	final := chunks[len(chunks)-1].Delta.Content
 	if streamed.String() != "note\n\nanswer" || final != streamed.String() {
 		t.Fatalf("stream = %q, snapshot = %q", streamed.String(), final)
+	}
+}
+
+func TestCodexRepeatedDoneFlushesPendingTextOnce(t *testing.T) {
+	state := responsesStreamState{content: strings.Builder{}}
+	state.content.WriteString("note")
+	state.pendingTextNewlines = "\n"
+	var chunks []ChatChunk
+	emit := func(chunk ChatChunk) error { chunks = append(chunks, chunk); return nil }
+	for i := 0; i < 2; i++ {
+		if _, err := processResponsesStreamEvent(&state, "[DONE]", emit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(chunks) != 1 || chunks[0].Delta.Content != "\n\n" {
+		t.Fatalf("chunks = %#v, want one two-newline flush", chunks)
 	}
 }
 

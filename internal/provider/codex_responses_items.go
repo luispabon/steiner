@@ -164,7 +164,6 @@ func (state *responsesStreamState) projected() ([]CodexMessageBlock, []ToolCall,
 	blocks := make([]CodexMessageBlock, 0, len(order))
 	calls := make([]ToolCall, 0)
 	var content strings.Builder
-	var previousMessageText string
 	for _, i := range order {
 		entry := state.ledger[i]
 		if entry.kind == "message" {
@@ -176,9 +175,8 @@ func (state *responsesStreamState) projected() ([]CodexMessageBlock, []ToolCall,
 			}
 			block := CodexMessageBlock{Kind: "message", Phase: entry.phase, Text: text.String()}
 			blocks = append(blocks, block)
-			content.WriteString(codexMessageBoundary(previousMessageText, block.Text))
+			content.WriteString(codexMessageBoundary(content.String(), block.Text))
 			content.WriteString(block.Text)
-			previousMessageText = block.Text
 		} else if entry.kind == "function_call" && entry.completed && entry.call != nil {
 			blocks = append(blocks, CodexMessageBlock{Kind: "function_call", CallID: entry.call.ID})
 			calls = append(calls, *entry.call)

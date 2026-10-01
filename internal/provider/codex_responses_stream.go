@@ -96,6 +96,9 @@ func decodeResponsesStreamWithHandler(_ context.Context, body io.Reader, emit fu
 //nolint:gocyclo // The event switch dispatches the shared SSE and WS protocol stream.
 func processResponsesStreamEvent(state *responsesStreamState, event string, emit func(ChatChunk) error) (bool, error) {
 	if event == "[DONE]" {
+		if err := flushPendingResponsesText(state, emit); err != nil {
+			return false, err
+		}
 		state.sawDone = true
 		return true, nil
 	}
