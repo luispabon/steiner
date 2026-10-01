@@ -2358,6 +2358,9 @@ func TestAppendEventScopedChildEventsRouteByAgentID(t *testing.T) {
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "other work"))
+	if len(buffer.segments) != 2 || buffer.segments[0].kind != segmentDelegation || buffer.segments[1].kind != segmentDelegation {
+		t.Fatalf("unaccepted lifecycle events should remain separate cards, got kinds %v", segmentKinds(buffer.segments))
+	}
 	buffer.AppendEvent(output.WithAgentScope(
 		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
 		"child-1",

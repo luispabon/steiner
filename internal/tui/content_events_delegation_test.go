@@ -1209,8 +1209,10 @@ func TestSameLabelGroupRendersLabelBorderColor(t *testing.T) {
 
 	// Create a group with same toolLabel
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "explore", "task": "explore"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_1", "", "batch", "explore"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-1", "explore first"))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_2", map[string]any{"type": "explore", "task": "explore more"}))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_2", "", "batch", "explore"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "explore second"))
 
 	if len(buffer.segments) != 1 || buffer.segments[0].kind != segmentDelegationGroup {
@@ -1615,8 +1617,12 @@ func TestActiveDelegateRowsExcludeAdvisorsAndEmptyIDs(t *testing.T) {
 func TestActiveDelegateRowsPreserveGroupEntryOrder(t *testing.T) {
 	t.Parallel()
 	buffer := newTestBuffer(t)
-	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "first task", "", "", "explore"))
-	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-2", "second task", "", "", "code"))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-1", subAgentArgs("")))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call-1", "", "batch", "group"))
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "first task", "call-1", "", "explore"))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-2", subAgentArgs("")))
+	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call-2", "", "batch", "group"))
+	buffer.AppendEvent(output.NewDelegationStartedEventWithType("child-2", "second task", "call-2", "", "code"))
 
 	if len(buffer.segments) != 1 || buffer.segments[0].kind != segmentDelegationGroup {
 		t.Fatalf("segments = %#v, want one delegation group", buffer.segments)
