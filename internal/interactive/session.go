@@ -33,6 +33,9 @@ type Session struct {
 	// submitAdmissionHook is a test seam for the interval after Submit admits a
 	// prompt and before its admission is released. It is nil in production.
 	submitAdmissionHook func()
+	// manualAdmissionHook is a test seam between manual compaction admission
+	// and enqueue. It is nil in production.
+	manualAdmissionHook func()
 	deps                Dependencies
 	events              output.EventSink
 	displaySink         *output.ForwardSink
@@ -289,7 +292,7 @@ func (s *Session) Conversation() []agent.Message {
 // sub-agents are pending.
 func (s *Session) SetConversation(conversation []agent.Message) {
 	s.mu.Lock()
-	if s.replacementGuardLocked("set conversation", false) != nil {
+	if s.replacementGuardLocked("set conversation") != nil {
 		s.mu.Unlock()
 		return
 	}

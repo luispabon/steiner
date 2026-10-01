@@ -118,6 +118,8 @@ Both normal and emergency stages strip skill envelopes from the retained message
 
 ### Escalation policy
 
+Manual compaction admission is serialized with conversation replacement under the session lock. The admission count is released after the driver queues the request, so replacement cannot swap away the selected driver in that gap. Replacement checks driver admissions and `ConversationDriver.Busy()` (generating, queued prompts, and compaction), then pending sub-agents, while holding the same lock through the driver swap. Refused replacement leaves identity, history, and driver untouched.
+
 Compaction is tracked per-session. After multiple compactions the session becomes increasingly fragile:
 
 | Compactions | Budget health | Severity | Session state | Guidance |

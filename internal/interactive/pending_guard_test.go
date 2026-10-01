@@ -452,6 +452,95 @@ func (c *compactingRunner) Compact(context.Context, []agent.Message, []provider.
 	return c.compact(), nil
 }
 
+func TestReplacementRefusedWithQueuedPrompt(t *testing.T) {
+	t.Parallel()
+	s := testNewSession(t, Dependencies{SessionStore: newMockSessionStore(), Config: guardTestConfig()})
+	release := startBlockedRun(t, s)
+	defer close(release)
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "queued"}); err != nil {
+		t.Fatalf("SubmitPrompt queued: %v", err)
+	}
+	if !s.currentDriver().Busy() {
+		t.Fatal("driver is not busy with queued prompt")
+	}
+	originalID, originalDriver := s.SessionID(), s.currentDriver()
+	if err := s.Handle(context.Background(), RotateSession{}); !errors.Is(err, errRunInProgress) {
+		t.Fatalf("RotateSession with queued prompt = %v, want errRunInProgress", err)
+	}
+	if s.SessionID() != originalID || s.currentDriver() != originalDriver {
+		t.Fatal("refused rotation changed session")
+	}
+}
+
+func TestReplacementRefusedDuringManualCompaction(t *testing.T) {
+	t.Parallel()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	execer := &compactingRunner{inputRunner: &inputRunner{run: func(_ context.Context, in RunInput) (RunResult, error) {
+		return withAnswer(in, "ok"), nil
+	}}, compact: func() []agent.Message {
+		close(entered)
+		<-release
+		return []agent.Message{{Role: agent.MessageRoleSummary, Content: "summary"}}
+	}}
+	s := testNewSession(t, Dependencies{SessionStore: newMockSessionStore(), Config: guardTestConfig(), Runner: execer})
+	s.SetConversation(twoTurnConversation())
+	if err := s.Handle(context.Background(), TriggerManualCompaction{}); err != nil {
+		t.Fatalf("TriggerManualCompaction: %v", err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("manual compaction did not start")
+	}
+	originalID, originalDriver := s.SessionID(), s.currentDriver()
+	if err := s.Handle(context.Background(), ClearConversation{}); !errors.Is(err, errRunInProgress) {
+		t.Fatalf("ClearConversation during compaction = %v, want errRunInProgress", err)
+	}
+	if s.SessionID() != originalID || s.currentDriver() != originalDriver {
+		t.Fatal("refused clear changed session")
+	}
+	close(release)
+	waitSettled(t, s)
+	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
+		t.Fatalf("ClearConversation after compaction: %v", err)
+	}
+}
+
+func TestManualCompactionAdmissionBlocksReplacement(t *testing.T) {
+	t.Parallel()
+	store := newMockSessionStore()
+	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
+	admitted := make(chan struct{})
+	release := make(chan struct{})
+	s.mu.Lock()
+	s.manualAdmissionHook = func() {
+		close(admitted)
+		<-release
+	}
+	s.mu.Unlock()
+	originalID, originalDriver := s.SessionID(), s.currentDriver()
+	compactionResult := make(chan error, 1)
+	go func() {
+		compactionResult <- s.Handle(context.Background(), TriggerManualCompaction{})
+	}()
+	<-admitted
+	if err := s.Handle(context.Background(), RotateSession{}); !errors.Is(err, errRunInProgress) {
+		t.Fatalf("RotateSession during manual compaction admission = %v, want errRunInProgress", err)
+	}
+	if s.SessionID() != originalID || s.currentDriver() != originalDriver {
+		t.Fatal("refused rotation changed session")
+	}
+	close(release)
+	if err := <-compactionResult; err != nil {
+		t.Fatalf("TriggerManualCompaction: %v", err)
+	}
+	waitSettled(t, s)
+	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
+		t.Fatalf("RotateSession after enqueue: %v", err)
+	}
+}
+
 func TestCompactionWhileGeneratingRefused(t *testing.T) {
 	t.Parallel()
 	s := testNewSession(t, Dependencies{Config: guardTestConfig()})

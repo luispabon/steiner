@@ -60,12 +60,23 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 		s.emitConfigReport()
 		return true, nil
 	case TriggerManualCompaction:
-		drv := s.currentDriver()
+		s.mu.Lock()
+		drv := s.driver.drv
 		if state, _ := drv.State(); state == agent.DriverGenerating {
+			s.mu.Unlock()
 			s.events.Emit(output.NewOverlayReportEvent("Context Report", errRunInProgress.Error()))
 			return true, fmt.Errorf("compact: %w", errRunInProgress)
 		}
+		s.driverAdmissions++
+		hook := s.manualAdmissionHook
+		s.mu.Unlock()
+		if hook != nil {
+			hook()
+		}
 		drv.RequestCompaction(s.manualCompaction(drv, a.Steering))
+		s.mu.Lock()
+		s.driverAdmissions--
+		s.mu.Unlock()
 		return true, nil
 	case RequestExit:
 		s.exitOnce.Do(func() { close(s.done) })
@@ -128,7 +139,7 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 
 func (s *Session) clearConversation() error {
 	s.mu.Lock()
-	if err := s.replacementGuardLocked("clear conversation", false); err != nil {
+	if err := s.replacementGuardLocked("clear conversation"); err != nil {
 		s.mu.Unlock()
 		return s.reportReplacementGuardError("clear conversation", err)
 	}

@@ -2,6 +2,7 @@ package interactive
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -458,17 +459,26 @@ func TestRotateLeavesSteerQueueToItsOwner(t *testing.T) {
 		t.Fatalf("SubmitPrompt: %v", err)
 	}
 	recv(t, started, "run start")
-	if err := s.Handle(context.Background(), RotateSessionWithGroup{Group: "phase-2"}); err != nil {
-		t.Fatalf("RotateSessionWithGroup: %v", err)
+	originalDriver := s.currentDriver()
+	originalID := s.SessionID()
+	steers.Add(agent.SteerMessage{Text: "for the current phase"})
+	if err := s.Handle(context.Background(), RotateSessionWithGroup{Group: "phase-2"}); !errors.Is(err, errRunInProgress) {
+		t.Fatalf("RotateSessionWithGroup: %v, want errRunInProgress", err)
 	}
-	steers.Add(agent.SteerMessage{Text: "for the new phase"})
+	if s.currentDriver() != originalDriver || s.SessionID() != originalID || steers.Len() != 1 {
+		t.Fatal("refused rotation changed driver, identity, or steer queue")
+	}
 	close(release)
-	if drain := recv(t, drained, "retired driver's boundary drain"); drain.Message != nil {
-		t.Fatalf("retired driver drained %+v from the shared steer queue", drain.Message)
+	if drain := recv(t, drained, "run boundary drain"); drain.Message == nil || !strings.Contains(drain.Message.Content, "for the current phase") {
+		t.Fatalf("settled driver drain = %+v, want queued steer", drain.Message)
 	}
 	waitSettled(t, s)
+	if err := s.Handle(context.Background(), RotateSessionWithGroup{Group: "phase-2"}); err != nil {
+		t.Fatalf("RotateSessionWithGroup after settlement: %v", err)
+	}
+	steers.Add(agent.SteerMessage{Text: "for the new phase"})
 	if got := steers.Len(); got != 1 {
-		t.Fatalf("steer queue len = %d, want the steer left in place", got)
+		t.Fatalf("steer queue len = %d, want the new-phase steer to remain queued", got)
 	}
 }
 
