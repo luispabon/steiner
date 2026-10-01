@@ -26,8 +26,13 @@ type driverHandle struct {
 // newDriverLocked builds and starts a driver over conv and lineage. The caller
 // stores the handle in s.driver.
 func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.ConversationLineage) *driverHandle {
-	h := &driverHandle{lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: s.ledger}}
+	groupLedger := agent.DelegationGroupLedger{Version: 1}
+	if s.delegationGroups != nil {
+		groupLedger = s.delegationGroups.Clone()
+	}
+	h := &driverHandle{lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: slices.Clone(s.ledger), GroupLedger: groupLedger.Clone()}}
 	h.drv = agent.NewConversationDriver(agent.DriverOptions{
+		GroupLedger:         groupLedger,
 		Run:                 s.driverRun,
 		Background:          s.deps.Background,
 		Steers:              s.steersForNewDriverLocked(),
@@ -120,7 +125,9 @@ func (s *Session) driverSave(h *driverHandle) func(context.Context, agent.Driver
 		if live {
 			s.conversation = snap.Conversation
 			s.lineage = snap.Lineage
-			s.ledger = snap.Ledger
+			s.ledger = slices.Clone(snap.Ledger)
+			groupLedger := snap.GroupLedger.Clone()
+			s.delegationGroups = &groupLedger
 		}
 		s.mu.Unlock()
 
@@ -133,7 +140,7 @@ func (s *Session) driverSave(h *driverHandle) func(context.Context, agent.Driver
 		case live:
 			return s.saveLive()
 		case retired != nil:
-			return s.saveSnapshotAs(*retired, snap.Lineage)
+			return s.saveSnapshotAs(*retired, snap)
 		}
 		return nil
 	}
@@ -167,6 +174,9 @@ func snapshotUnchanged(previous *agent.DriverSnapshot, snap agent.DriverSnapshot
 	if previous == nil {
 		return false
 	}
+	if !reflect.DeepEqual(previous.GroupLedger, snap.GroupLedger) {
+		return false
+	}
 	if len(previous.Conversation) == 0 && len(snap.Conversation) == 0 && previous.Lineage.Empty() && snap.Lineage.Empty() {
 		return true
 	}
@@ -177,26 +187,26 @@ func snapshotUnchanged(previous *agent.DriverSnapshot, snap agent.DriverSnapshot
 
 // saveSnapshotAs persists lineage under a session identity that is no longer
 // live, warning on failure.
-func (s *Session) saveSnapshotAs(meta runSessionMeta, lineage agent.ConversationLineage) error {
+func (s *Session) saveSnapshotAs(meta runSessionMeta, snap agent.DriverSnapshot) error {
 	if s.deps.SessionStore == nil {
 		return nil
 	}
-	if err := s.writeLineageAs(meta, lineage); err != nil {
+	if err := s.writeLineageAs(meta, snap); err != nil {
 		s.emitSaveWarning(err)
 	}
 	return nil
 }
 
-func (s *Session) writeLineageAs(meta runSessionMeta, lineage agent.ConversationLineage) error {
+func (s *Session) writeLineageAs(meta runSessionMeta, snap agent.DriverSnapshot) error {
 	var sess session.Session
 	if existing, err := s.deps.SessionStore.Load(meta.id); err == nil {
-		sess = existing.WithLineage(lineage)
+		sess = existing.WithLineage(snap.Lineage)
 	} else {
 		var newErr error
 		if meta.group != "" {
-			sess, newErr = session.NewSession(meta.modelID, lineage, meta.group)
+			sess, newErr = session.NewSession(meta.modelID, snap.Lineage, meta.group)
 		} else {
-			sess, newErr = session.NewSession(meta.modelID, lineage)
+			sess, newErr = session.NewSession(meta.modelID, snap.Lineage)
 		}
 		if newErr != nil {
 			return fmt.Errorf("create session: %w", newErr)
@@ -209,6 +219,9 @@ func (s *Session) writeLineageAs(meta runSessionMeta, lineage agent.Conversation
 	}
 	sess.Mode = meta.mode
 	sess.Skills = meta.skills
+	sess.SubAgentLedger = slices.Clone(snap.Ledger)
+	groups := snap.GroupLedger.Clone()
+	sess.DelegationGroups = &groups
 	return s.deps.SessionStore.Save(sess)
 }
 

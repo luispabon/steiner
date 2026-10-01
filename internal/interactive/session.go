@@ -49,6 +49,7 @@ type Session struct {
 	// ledger mirrors the supervisor's outstanding sub-agents as of the driver's
 	// last save; it is persisted with the session so a restart can report them lost.
 	ledger             []agent.SubAgentLedgerEntry
+	delegationGroups   *agent.DelegationGroupLedger
 	driver             *driverHandle
 	sessionID          string
 	promptCacheKey     string
@@ -68,6 +69,12 @@ type Session struct {
 	background       context.Context
 	cancelBackground context.CancelFunc
 	exitOnce         sync.Once
+}
+
+func newEmptyDelegationGroupLedger() *agent.DelegationGroupLedger {
+	ledger := new(agent.DelegationGroupLedger)
+	ledger.Version = 1
+	return ledger
 }
 
 // NewSession creates a new interactive Session with the given dependencies.
@@ -111,6 +118,7 @@ func NewSession(deps Dependencies) (*Session, error) {
 		sessionID:           sessionID,
 		promptCacheKey:      sessionID,
 		lineage:             agent.ConversationLineage{},
+		delegationGroups:    newEmptyDelegationGroupLedger(),
 		reasoningOverrides:  make(map[string]provider.ReasoningOverride),
 		mode:                mode,
 		orchestrationLevel:  orchestrationLevel,
@@ -295,6 +303,7 @@ func (s *Session) SetConversation(conversation []agent.Message) {
 func (s *Session) resetConversationLocked() {
 	s.conversation = nil
 	s.lineage = agent.ConversationLineage{}
+	s.delegationGroups = newEmptyDelegationGroupLedger()
 }
 
 // errRunInProgress is returned when a state-mutating action is dispatched

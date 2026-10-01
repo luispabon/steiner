@@ -18,6 +18,14 @@ import (
 )
 
 // generateSessionID creates a random hex ID using crypto/rand.
+func cloneDelegationGroupLedger(ledger *agent.DelegationGroupLedger) *agent.DelegationGroupLedger {
+	if ledger == nil {
+		return nil
+	}
+	clone := ledger.Clone()
+	return &clone
+}
+
 func generateSessionID() (string, error) {
 	b := make([]byte, 16)
 	_, err := rand.Read(b)
@@ -61,6 +69,10 @@ func (s *Session) saveSession() error {
 	sess.Mode = string(s.mode)
 	sess.Skills = s.skills.Snapshot()
 	sess.SubAgentLedger = slices.Clone(s.ledger)
+	if s.delegationGroups != nil {
+		groups := s.delegationGroups.Clone()
+		sess.DelegationGroups = &groups
+	}
 	if s.sessionTitle != "" {
 		sess = sess.WithTitle(s.sessionTitle)
 	}
@@ -182,6 +194,12 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		return err
 	}
 
+	groupLedger, err := resolveDelegationGroups(sess.DelegationGroups, sess.Lineage)
+	if err != nil {
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("load session failed: %v", err)))
+		return err
+	}
+
 	// Validate the persisted mode before touching session state: empty falls
 	// back to the configured default, plan/build are accepted, and any other
 	// value must not restore a writable session.
@@ -210,6 +228,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		s.sessionGroup = strings.TrimSpace(sess.Group)
 		s.mode = mode
 		s.ledger = slices.Clone(sess.SubAgentLedger)
+		s.delegationGroups = &groupLedger
 		s.skills.Reset()
 		for _, name := range sess.Skills {
 			s.skills.Set(name, true)
@@ -349,14 +368,15 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 
 	s.mu.RLock()
 	currentSession := session.Session{
-		ID:             s.sessionID,
-		Title:          s.sessionTitle,
-		Model:          currentModelConfig(s.deps.Config).ID,
-		Mode:           string(s.mode),
-		Group:          s.sessionGroup,
-		Lineage:        s.lineage,
-		PromptCacheKey: s.promptCacheKey,
-		Skills:         s.skills.Snapshot(),
+		ID:               s.sessionID,
+		Title:            s.sessionTitle,
+		Model:            currentModelConfig(s.deps.Config).ID,
+		Mode:             string(s.mode),
+		Group:            s.sessionGroup,
+		Lineage:          s.lineage,
+		PromptCacheKey:   s.promptCacheKey,
+		Skills:           s.skills.Snapshot(),
+		DelegationGroups: cloneDelegationGroupLedger(s.delegationGroups),
 	}
 	originalTitle := s.sessionTitle
 	s.mu.RUnlock()
