@@ -27,6 +27,7 @@ type ToolDef struct {
 	Handler         func(ctx context.Context, input map[string]any) (any, error)
 	MCP             MCPProvenance
 	ParallelSafe    bool
+	IsDelegation    bool
 }
 
 // RetentionKindDelegateSummary identifies retained delegate summaries.
@@ -80,12 +81,13 @@ func (e *JSONEnvelopeError) Error() string {
 //
 //nolint:revive // package API keeps tool-prefixed names for compatibility.
 type ToolExecutionError struct {
-	Tool     string
-	Kind     string
-	Message  string
-	ExitCode int
-	Output   ExecutionMetadata
-	Details  any
+	Tool                string
+	Kind                string
+	Message             string
+	ExitCode            int
+	Output              ExecutionMetadata
+	Details             any
+	DelegationAdmission *DelegationAdmission
 }
 
 func (e *ToolExecutionError) Error() string {

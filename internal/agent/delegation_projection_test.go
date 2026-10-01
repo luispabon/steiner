@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 type projectionTestError struct{}
@@ -24,6 +26,23 @@ func TestProjectedToolErrorUsesEnvelope(t *testing.T) {
 	if !ok || content != `{"output":"","status":"failed","reason":"child setup failed"}` {
 		t.Fatalf("projected error = %q, %v", content, ok)
 	}
+}
+
+func TestProjectedToolErrorSurvivesAdmissionWrapper(t *testing.T) {
+	wrapped := errors.Join(projectionTestError{}, errors.New("other"))
+	wrapped = &projectionAdmissionTestError{error: wrapped}
+	content, ok := projectedToolError(wrapped)
+	if !ok || content != `{"output":"","status":"failed","reason":"child setup failed"}` {
+		t.Fatalf("projected error = %q, %v", content, ok)
+	}
+}
+
+type projectionAdmissionTestError struct{ error }
+
+func (e projectionAdmissionTestError) Unwrap() error { return e.error }
+
+func (projectionAdmissionTestError) DelegationAdmissionMetadata() *tool.DelegationAdmission {
+	return &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected}
 }
 
 func TestNormalizeToolResultProjectionUsesMarkerNotJSONShape(t *testing.T) {

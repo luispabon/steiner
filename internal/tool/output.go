@@ -26,9 +26,10 @@ type ExecutionMetadata struct {
 
 // ExecutionResult is the normalized result returned by a tool execution.
 type ExecutionResult struct {
-	Value     any               `json:"value,omitempty"`
-	Metadata  ExecutionMetadata `json:"metadata"`
-	Retention *ToolRetention    `json:"-"`
+	Value               any                  `json:"value,omitempty"`
+	Metadata            ExecutionMetadata    `json:"metadata"`
+	Retention           *ToolRetention       `json:"-"`
+	DelegationAdmission *DelegationAdmission `json:"-"`
 }
 
 type boundedCapture struct {

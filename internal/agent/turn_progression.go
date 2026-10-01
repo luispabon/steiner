@@ -539,6 +539,10 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 	var preview output.ToolPreview
 	normalizedResult := ToolResultEnvelope{}
 	if err != nil {
+		normalizedResult.DelegationAdmission = admissionFromToolError(err)
+		if normalizedResult.DelegationAdmission == nil {
+			normalizedResult.DelegationAdmission = admissionFromToolResult(result)
+		}
 		if projected, ok := projectedToolError(err); ok {
 			toolContent = projected
 		} else {
@@ -546,7 +550,10 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		}
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
 		if emitFinished {
-			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
+			if admission := normalizedResult.DelegationAdmission; admission != nil && admission.Status == tool.DelegationAdmissionAccepted {
+				emitEvent(p.request.Events, output.NewDelegationAcceptedEvent(call.ID, admission.AgentID, admission.BatchID, admission.Group))
+			}
+			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, toolContent, err, preview, outputAdmissionFromTool(normalizedResult.DelegationAdmission)))
 		}
 	} else {
 		recordMutationForContextManager(p.request.ContextManager, call.Name, call.Arguments, result)
@@ -563,7 +570,10 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		}
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
 		if emitFinished {
-			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
+			if admission := normalizedResult.DelegationAdmission; admission != nil && admission.Status == tool.DelegationAdmissionAccepted {
+				emitEvent(p.request.Events, output.NewDelegationAcceptedEvent(call.ID, admission.AgentID, admission.BatchID, admission.Group))
+			}
+			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, toolContent, nil, preview, outputAdmissionFromTool(normalizedResult.DelegationAdmission)))
 		}
 	}
 	toolMessage := Message{
@@ -573,6 +583,7 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		Name:       call.Name,
 		Turn:       turn,
 	}
+	toolMessage.DelegationAdmission = normalizedResult.DelegationAdmission.Clone()
 	if err == nil {
 		toolMessage.Retention = cloneMessageRetention(normalizedResult.Retention)
 		if normalizedResult.Image != nil {
@@ -586,6 +597,36 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		}
 	}
 	return toolMessage
+}
+
+func admissionFromToolResult(result any) *tool.DelegationAdmission {
+	execution, ok := result.(tool.ExecutionResult)
+	if !ok {
+		return nil
+	}
+	return execution.DelegationAdmission.Clone()
+}
+
+func admissionFromToolError(err error) *tool.DelegationAdmission {
+	var toolErr *tool.ToolExecutionError
+	if errors.As(err, &toolErr) && toolErr.DelegationAdmission != nil {
+		return toolErr.DelegationAdmission.Clone()
+	}
+	var carrier tool.DelegationAdmissionCarrier
+	if errors.As(err, &carrier) {
+		return carrier.DelegationAdmissionMetadata().Clone()
+	}
+	return nil
+}
+
+func outputAdmissionFromTool(admission *tool.DelegationAdmission) *output.DelegationAdmission {
+	if admission == nil {
+		return nil
+	}
+	return &output.DelegationAdmission{
+		Status: admission.Status, BatchID: admission.BatchID, Group: admission.Group,
+		AgentID: admission.AgentID, PolicyNotice: admission.PolicyNotice,
+	}
 }
 
 func resultValue(result any) any {

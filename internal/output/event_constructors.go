@@ -174,6 +174,20 @@ func NewToolCallFinishedEvent(turn int, toolName, callID string, result string, 
 	return NewToolCallFinishedEventWithPreview(turn, toolName, callID, result, err, ToolPreview{})
 }
 
+// NewToolCallFinishedEventWithAdmission creates a finished event with admission metadata.
+func NewToolCallFinishedEventWithAdmission(turn int, toolName, callID, result string, err error, preview ToolPreview, admission *DelegationAdmission) Event {
+	event := NewToolCallFinishedEventWithPreview(turn, toolName, callID, result, err, preview)
+	payload := event.Payload.(ToolCallFinishedEvent)
+	payload.DelegationAdmission = admission.Clone()
+	event.Payload = payload
+	return event
+}
+
+// NewDelegationAcceptedEvent creates an event for an accepted delegation.
+func NewDelegationAcceptedEvent(callID, agentID, batchID, group string) Event {
+	return newEvent(EventTypeDelegationAccepted, DelegationAcceptedEvent{CallID: callID, AgentID: agentID, BatchID: batchID, Group: group})
+}
+
 // NewToolCallFinishedEventWithPreview creates a new tool call finished event with preview.
 func NewToolCallFinishedEventWithPreview(turn int, toolName, callID string, result string, err error, preview ToolPreview) Event {
 	payload := ToolCallFinishedEvent{

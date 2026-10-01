@@ -10,21 +10,23 @@ import (
 
 // ToolResultEnvelope normalizes tool output plus metadata for agent messages.
 type ToolResultEnvelope struct {
-	Content   string
-	Metadata  tool.ExecutionMetadata
-	Retention *MessageRetention
-	Image     *ImageBlock
-	Projected bool
+	Content             string
+	Metadata            tool.ExecutionMetadata
+	Retention           *MessageRetention
+	DelegationAdmission *tool.DelegationAdmission
+	Image               *ImageBlock
+	Projected           bool
 }
 
 func normalizeToolResult(result any) ToolResultEnvelope {
 	switch v := result.(type) {
 	case tool.ExecutionResult:
 		env := ToolResultEnvelope{
-			Content:   toolResultContent(v.Value),
-			Metadata:  v.Metadata,
-			Retention: messageRetentionFromToolRetention(v.Retention),
-			Projected: isToolResultProjector(v.Value),
+			Content:             toolResultContent(v.Value),
+			Metadata:            v.Metadata,
+			Retention:           messageRetentionFromToolRetention(v.Retention),
+			DelegationAdmission: v.DelegationAdmission.Clone(),
+			Projected:           isToolResultProjector(v.Value),
 		}
 		// Extract image if present in the wrapped result.
 		env.Image = extractImage(v.Value)

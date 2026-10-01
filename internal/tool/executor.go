@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -121,6 +122,37 @@ func (e *Executor) Execute(ctx context.Context, toolName, callID string, input m
 	start := time.Now()
 	ctx = e.withDiagnosticsCapture(ctx)
 	result, err := e.runPipeline(ctx, executionInput{ToolName: toolName, CallID: callID, Input: input})
+	if def, ok := e.registry.Get(toolName); ok && def.IsDelegation {
+		admission := delegationAdmissionFromError(err)
+		if admission == nil {
+			if execution, ok := result.(ExecutionResult); ok {
+				admission = execution.DelegationAdmission.Clone()
+			}
+		}
+		if admission == nil {
+			if err == nil {
+				admission = &DelegationAdmission{Status: DelegationAdmissionAccepted}
+			} else {
+				admission = &DelegationAdmission{Status: DelegationAdmissionRejected}
+				var toolErr *ToolExecutionError
+				if errors.As(err, &toolErr) && toolErr.Kind == "policy_denied" {
+					admission.PolicyNotice = true
+				}
+			}
+		}
+		if err != nil {
+			if toolErr, ok := err.(*ToolExecutionError); ok {
+				toolErr.DelegationAdmission = admission.Clone()
+			} else {
+				err = withDelegationAdmission(err, admission)
+			}
+		} else if execution, ok := result.(ExecutionResult); ok {
+			execution.DelegationAdmission = admission.Clone()
+			result = execution
+		} else if err == nil {
+			result = ExecutionResult{Value: result, DelegationAdmission: admission.Clone()}
+		}
+	}
 	e.recordDiagnostics(ctx, toolName, input, result, err, time.Since(start))
 	return result, err
 }

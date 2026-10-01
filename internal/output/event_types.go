@@ -66,6 +66,8 @@ const (
 	EventTypeHistoryLoaded = "history_loaded"
 	// EventTypeContextDiagnostics records context assembly diagnostics.
 	EventTypeContextDiagnostics = "context_diagnostics"
+	// EventTypeDelegationAccepted marks a delegation call accepted for execution.
+	EventTypeDelegationAccepted = "delegation_accepted"
 	// EventTypeDelegationStarted marks the start of sub-agent delegation.
 	EventTypeDelegationStarted = "delegation_started"
 	// EventTypeDelegationQueued marks a sub-agent accepted but waiting for a running slot.
@@ -273,14 +275,33 @@ type ToolCallQueuedEvent struct {
 	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
+// DelegationAdmission is UI and event metadata for one delegation call.
+type DelegationAdmission struct {
+	Status       string `json:"status"`
+	BatchID      string `json:"batch_id"`
+	Group        string `json:"group"`
+	AgentID      string `json:"agent_id"`
+	PolicyNotice bool   `json:"policy_notice"`
+}
+
+// Clone returns an independent copy of the metadata.
+func (m *DelegationAdmission) Clone() *DelegationAdmission {
+	if m == nil {
+		return nil
+	}
+	cloned := *m
+	return &cloned
+}
+
 // ToolCallFinishedEvent records a completed tool invocation.
 type ToolCallFinishedEvent struct {
-	Turn    int         `json:"turn"`
-	Tool    string      `json:"tool,omitempty"`
-	CallID  string      `json:"call_id,omitempty"`
-	Result  string      `json:"result,omitempty"`
-	Error   string      `json:"error,omitempty"`
-	Preview ToolPreview `json:"-"`
+	Turn                int                  `json:"turn"`
+	Tool                string               `json:"tool,omitempty"`
+	CallID              string               `json:"call_id,omitempty"`
+	Result              string               `json:"result,omitempty"`
+	Error               string               `json:"error,omitempty"`
+	Preview             ToolPreview          `json:"-"`
+	DelegationAdmission *DelegationAdmission `json:"delegation_admission,omitempty"`
 }
 
 // ApprovalEvent captures approval lifecycle decisions for mutation tools.
@@ -464,6 +485,14 @@ type ProviderDiagnosticEvent struct {
 	Partial        bool   `json:"partial,omitempty"`
 	TTFTMillis     int    `json:"ttft_millis,omitempty"`
 	DurationMillis int    `json:"duration_millis,omitempty"`
+}
+
+// DelegationAcceptedEvent records an admitted delegation call.
+type DelegationAcceptedEvent struct {
+	CallID  string `json:"call_id"`
+	AgentID string `json:"agent_id"`
+	BatchID string `json:"batch_id"`
+	Group   string `json:"group"`
 }
 
 // DelegationStartedEvent records the start of a delegated child task.
