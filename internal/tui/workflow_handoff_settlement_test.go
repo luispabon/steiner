@@ -62,6 +62,11 @@ func settleMessage(t *testing.T, m *Model) *Model {
 func TestWorkflowHandoffWaitsBeforeClearAndLaunch(t *testing.T) {
 	ctrl := &blockedWorkflowHandoffController{testController: testController{config: workflowHandoffConfig()}, entered: make(chan struct{}, 1), release: make(chan struct{})}
 	m := handoffAcceptedModel(t, ctrl, "")
+	m.recorder = usagestats.New(nil)
+	m.recorder.Record(usagestats.Observation{Source: usagestats.SourceParent, PromptTokens: 7})
+	m.convState = output.ConversationStateEvent{State: "generating"}
+	m.convStateSeen = true
+	m.convLabelShown = true
 	if got := m.content.String(m.viewport.Width()); !strings.Contains(got, "old transcript") || m.pendingWorkflowHandoffLaunch == nil {
 		t.Fatal("accept cleared transcript or lost pending launch")
 	}
@@ -91,16 +96,35 @@ func TestWorkflowHandoffWaitsBeforeClearAndLaunch(t *testing.T) {
 	if ctrl.countSubmitPrompt() != 1 || ctrl.countByType(interactive.ClearConversation{}) != 1 || len(ctrl.rotateSessionActions()) != 0 {
 		t.Fatalf("prompt=%d clear=%d rotates=%d", ctrl.countSubmitPrompt(), ctrl.countByType(interactive.ClearConversation{}), len(ctrl.rotateSessionActions()))
 	}
+	if m.recorder.SessionReport().Requests != 0 || m.convStateSeen || m.convLabelShown || m.convState.State != "" {
+		t.Fatal("successful settlement left recorder or conversation labels stale")
+	}
 }
 
 func TestWorkflowHandoffStaleAndDuplicateSettlementIgnored(t *testing.T) {
 	ctrl := &testController{config: workflowHandoffConfig()}
-	m := settleMessage(t, handoffAcceptedModel(t, ctrl, ""))
+	m := handoffAcceptedModel(t, ctrl, "")
 	old := m.pendingWorkflowHandoffLaunch
+	m = settleMessage(t, m)
+	if _, secondCancel := m.acceptWorkflowHandoff(); secondCancel != nil {
+		t.Fatal("new acceptance returned unexpected command")
+	}
+	current := m.pendingWorkflowHandoffLaunch
 	_, _ = m.handleWorkflowHandoffSettled(workflowHandoffSettledMsg{launch: old})
+	if m.pendingWorkflowHandoffLaunch != current {
+		t.Fatal("stale settlement consumed newer launch")
+	}
 	_, _ = m.handleWorkflowHandoffSettled(workflowHandoffSettledMsg{launch: &workflowHandoffLaunch{}})
-	if ctrl.countByType(interactive.ClearConversation{}) != 1 || ctrl.countSubmitPrompt() != 1 {
-		t.Fatal("stale settlement repeated clear or launch")
+	if m.pendingWorkflowHandoffLaunch != current || ctrl.countByType(interactive.ClearConversation{}) != 1 || ctrl.countSubmitPrompt() != 1 {
+		t.Fatal("stale settlement consumed current launch")
+	}
+	m = settleMessage(t, m)
+	if ctrl.countByType(interactive.ClearConversation{}) != 2 || ctrl.countSubmitPrompt() != 2 {
+		t.Fatal("second valid handoff did not clear and launch once")
+	}
+	_, _ = m.handleWorkflowHandoffSettled(workflowHandoffSettledMsg{launch: current})
+	if ctrl.countByType(interactive.ClearConversation{}) != 2 || ctrl.countSubmitPrompt() != 2 {
+		t.Fatal("duplicate settlement repeated clear or launch")
 	}
 }
 
@@ -122,6 +146,44 @@ func TestWorkflowHandoffWaitRefusalDoesNotLaunch(t *testing.T) {
 	if m.input.Value() != "/review plans/step" {
 		t.Fatalf("composer = %q", m.input.Value())
 	}
+}
+
+func TestWorkflowHandoffOneshotRefusalDoesNotClear(t *testing.T) {
+	ctrl := &testController{config: workflowHandoffConfig()}
+	m := handoffAcceptedModel(t, ctrl, "selected")
+	m.oneshotRunning = true
+	m = settleMessage(t, m)
+	if ctrl.countByType(interactive.ClearConversation{}) != 0 || len(ctrl.switchModelActions()) != 0 || ctrl.countSubmitPrompt() != 0 || !strings.Contains(m.content.String(m.viewport.Width()), "oneshot is active") {
+		t.Fatal("oneshot handoff refusal cleared, switched, launched, or omitted error")
+	}
+}
+
+func TestWorkflowHandoffSelectedModelNeedsConfigCapability(t *testing.T) {
+	ctrl := &waiterOnlyWorkflowHandoffController{}
+	m := handoffAcceptedModel(t, ctrl, "selected")
+	m = settleMessage(t, m)
+	if ctrl.clears != 0 || ctrl.switches != 0 || ctrl.prompts != 0 || !strings.Contains(m.content.String(m.viewport.Width()), "config unavailable") {
+		t.Fatal("missing config capability allowed clear/switch/launch")
+	}
+}
+
+type waiterOnlyWorkflowHandoffController struct {
+	clears   int
+	switches int
+	prompts  int
+}
+
+func (*waiterOnlyWorkflowHandoffController) WaitRuns(context.Context) bool { return true }
+func (c *waiterOnlyWorkflowHandoffController) Handle(_ context.Context, action interactive.Action) error {
+	switch action.(type) {
+	case interactive.ClearConversation:
+		c.clears++
+	case interactive.SwitchModel:
+		c.switches++
+	case interactive.SubmitPrompt:
+		c.prompts++
+	}
+	return nil
 }
 
 func TestWorkflowHandoffClearRefusalPreservesState(t *testing.T) {

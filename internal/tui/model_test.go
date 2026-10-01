@@ -6050,7 +6050,7 @@ func TestClearConversationRefusesDuringOneshot(t *testing.T) {
 	assertClearConversationRefused(t, m)
 }
 
-func TestWorkflowHandoffDoesNotFireDelegationHook(t *testing.T) {
+func TestWorkflowHandoffNilControllerRefusesAcceptance(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.content.AppendLine("old transcript")
@@ -6073,17 +6073,13 @@ func TestWorkflowHandoffDoesNotFireDelegationHook(t *testing.T) {
 	}
 }
 
-// TestWorkflowHandoffAcceptClearsWithActiveToolCall reproduces the real
-// accept-time state: the workflow_handoff tool call itself is still
-// registered active in the content buffer when the user accepts, because its
-// ToolCallFinishedEvent only arrives asynchronously after the agent loop
-// goroutine unblocks — well after acceptWorkflowHandoff has already run.
-// clearConversationState must clear unconditionally regardless, or handoff
-// silently leaves the old transcript in place while RotateSession still
-// fires underneath it.
-func TestWorkflowHandoffAcceptClearsWithActiveToolCall(t *testing.T) {
+// TestWorkflowHandoffAcceptKeepsActiveToolCallUntilSettlement covers the real
+// accept-time state: the workflow_handoff tool call remains active until its
+// finish event arrives. Settlement waits for driver completion before clearing.
+func TestWorkflowHandoffAcceptKeepsActiveToolCallUntilSettlement(t *testing.T) {
 	t.Parallel()
-	m := newModel(Config{}, nil)
+	ctrl := &testController{config: workflowHandoffConfig()}
+	m := newModel(Config{Controller: ctrl}, nil)
 	m.content.AppendLine("old transcript")
 	m.content.appendToolCallStartedEvent(output.Event{
 		Type: output.EventTypeToolCallStarted,
@@ -6100,13 +6096,18 @@ func TestWorkflowHandoffAcceptClearsWithActiveToolCall(t *testing.T) {
 		Target: ".steiner/plans/step-3",
 	}, interactive.WorkflowHandoffModelSelection{})
 
-	next, _ := m.acceptWorkflowHandoff()
-	cleared, ok := next.(*Model)
-	if !ok {
-		t.Fatalf("handoff result type = %T, want *Model", next)
+	next, cmd := m.acceptWorkflowHandoff()
+	accepted, ok := next.(*Model)
+	if !ok || cmd != nil {
+		t.Fatalf("accept result = (%T, %v), want model and nil command", next, cmd)
 	}
-	if !strings.Contains(cleared.content.String(cleared.viewport.Width()), "old transcript") {
-		t.Error("handoff cleared transcript before active tool call finished")
+	if !accepted.content.HasActiveToolCalls() || !strings.Contains(accepted.content.String(accepted.viewport.Width()), "old transcript") {
+		t.Fatal("accept did not retain active tool call and transcript")
+	}
+	accepted = updateModel(t, accepted, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "workflow_handoff", "call-1", "", nil)})
+	accepted = settleMessage(t, accepted)
+	if strings.Contains(accepted.content.String(accepted.viewport.Width()), "old transcript") || ctrl.countByType(interactive.ClearConversation{}) != 1 {
+		t.Fatal("settlement did not clear transcript after driver acceptance")
 	}
 }
 
