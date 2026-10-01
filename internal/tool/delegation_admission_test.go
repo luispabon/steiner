@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -88,6 +89,53 @@ func TestDelegationAdmissionRejectedSuccessSurvives(t *testing.T) {
 	}
 	if got := result.(ExecutionResult).DelegationAdmission; got == nil || got.Status != DelegationAdmissionRejected {
 		t.Fatalf("admission = %#v", got)
+	}
+}
+
+func TestDelegationAdmissionDoesNotMutateSharedWrappedToolError(t *testing.T) {
+	for _, wrap := range []struct {
+		name string
+		make func(error) error
+	}{
+		{name: "wrapped", make: func(err error) error { return fmt.Errorf("wrapped: %w", err) }},
+		{name: "joined", make: func(err error) error { return errors.Join(errors.New("other"), err) }},
+	} {
+		t.Run(wrap.name, func(t *testing.T) {
+			cause := &ToolExecutionError{Tool: "delegate", Kind: "provider", Message: "failed"}
+			sharedErr := wrap.make(cause)
+			calls := 0
+			registry := NewRegistry(ToolDef{Name: "delegate", IsDelegation: true, Handler: func(context.Context, map[string]any) (any, error) {
+				calls++
+				agent := "agentA"
+				if calls == 2 {
+					agent = "agentB"
+				}
+				return ExecutionResult{DelegationAdmission: &DelegationAdmission{Status: DelegationAdmissionAccepted, AgentID: agent}}, sharedErr
+			}})
+			executor := NewExecutor(registry, config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
+			_, firstErr := executor.Execute(context.Background(), "delegate", "first", nil)
+			_, secondErr := executor.Execute(context.Background(), "delegate", "second", nil)
+			if !errors.Is(firstErr, cause) || !errors.Is(secondErr, cause) {
+				t.Fatal("wrapped errors do not preserve errors.Is")
+			}
+			for _, check := range []struct {
+				err   error
+				agent string
+			}{{firstErr, "agentA"}, {secondErr, "agentB"}} {
+				got := delegationAdmissionFromError(check.err)
+				if got == nil || got.AgentID != check.agent {
+					t.Errorf("admission = %#v, want agent %s", got, check.agent)
+				}
+			}
+			var original *ToolExecutionError
+			if !errors.As(sharedErr, &original) || original.DelegationAdmission != nil {
+				t.Fatalf("shared cause admission changed: %#v", original)
+			}
+			var projected *ToolExecutionError
+			if !errors.As(firstErr, &projected) || projected.Kind != "provider" || projected.DelegationAdmission.AgentID != "agentA" {
+				t.Fatalf("first projected error = %#v", projected)
+			}
+		})
 	}
 }
 

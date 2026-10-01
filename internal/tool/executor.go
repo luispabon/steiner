@@ -139,12 +139,7 @@ func (e *Executor) Execute(ctx context.Context, toolName, callID string, input m
 			}
 		}
 		if err != nil {
-			var toolErr *ToolExecutionError
-			if errors.As(err, &toolErr) {
-				toolErr.DelegationAdmission = admission.Clone()
-			} else {
-				err = withDelegationAdmission(err, admission)
-			}
+			err = withDelegationAdmission(err, admission)
 		} else if execution, ok := result.(ExecutionResult); ok {
 			execution.DelegationAdmission = admission.Clone()
 			result = execution
