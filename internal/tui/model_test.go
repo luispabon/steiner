@@ -4425,7 +4425,7 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	if settleCmd == nil {
 		t.Fatal("workflow handoff stop returned no settlement command")
 	}
-	m = updateModel(t, m, settleCmd())
+	updateModel(t, m, settleCmd())
 
 	prompts := ctrl.submitPrompts()
 	if len(prompts) != 1 || prompts[0].Text != "/review .steiner/plans/step-3" {
@@ -4512,7 +4512,7 @@ func TestModelWorkflowHandoffAcceptLaunchesLiteralPromptForBuildTarget(t *testin
 	if settleCmd == nil {
 		t.Fatal("workflow handoff stop returned no settlement command")
 	}
-	m = updateModel(t, m, settleCmd())
+	updateModel(t, m, settleCmd())
 
 	prompts := ctrl.submitPrompts()
 	if len(prompts) != 1 || prompts[0].Text != submission {
@@ -4606,7 +4606,7 @@ func TestModelWorkflowHandoffAcceptWithCurrentSessionModelDoesNotSwitch(t *testi
 	if settleCmd == nil {
 		t.Fatal("workflow handoff stop returned no settlement command")
 	}
-	m = updateModel(t, m, settleCmd())
+	updateModel(t, m, settleCmd())
 
 	if got := ctrl.switchModelActions(); len(got) != 0 {
 		t.Fatalf("switch model actions = %#v, want none for current session handoff", got)

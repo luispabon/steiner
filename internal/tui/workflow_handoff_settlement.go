@@ -61,27 +61,11 @@ func (m *Model) handleWorkflowHandoffSettled(msg workflowHandoffSettledMsg) (tea
 		return m, nil
 	}
 
-	if m.oneshotRunning {
+	if err := m.validateWorkflowHandoffBeforeClear(launch); err != nil {
 		m.pendingWorkflowHandoffLaunch = nil
 		m.suppressWorkflowHandoffRun = false
-		m.restoreWorkflowHandoffSubmission(launch, errors.New("cannot hand off while oneshot is active"))
+		m.restoreWorkflowHandoffSubmission(launch, err)
 		return m, nil
-	}
-	if launch.modelAlias != "" && launch.modelAlias != m.primaryModel && m.controller != nil {
-		provider, ok := m.controller.(workflowHandoffConfigProvider)
-		if !ok {
-			m.pendingWorkflowHandoffLaunch = nil
-			m.suppressWorkflowHandoffRun = false
-			m.restoreWorkflowHandoffSubmission(launch, errors.New("cannot validate selected model before clearing conversation: controller config unavailable"))
-			return m, nil
-		}
-		cfg := provider.Config()
-		if _, _, err := config.ParseModelReference(&cfg, launch.modelAlias); err != nil {
-			m.pendingWorkflowHandoffLaunch = nil
-			m.suppressWorkflowHandoffRun = false
-			m.restoreWorkflowHandoffSubmission(launch, fmt.Errorf("invalid selected handoff model %q: %w", launch.modelAlias, err))
-			return m, nil
-		}
 	}
 	m.pendingWorkflowHandoffLaunch = nil
 	m.suppressWorkflowHandoffRun = false
@@ -101,6 +85,24 @@ func (m *Model) handleWorkflowHandoffSettled(msg workflowHandoffSettledMsg) (tea
 	}
 	_, cmd := m.launchWorkflowHandoff(launch.next, launch.target, launch.submission)
 	return m, cmd
+}
+
+func (m *Model) validateWorkflowHandoffBeforeClear(launch *workflowHandoffLaunch) error {
+	if m.oneshotRunning {
+		return errors.New("cannot hand off while oneshot is active")
+	}
+	if launch.modelAlias == "" || launch.modelAlias == m.primaryModel || m.controller == nil {
+		return nil
+	}
+	provider, ok := m.controller.(workflowHandoffConfigProvider)
+	if !ok {
+		return errors.New("cannot validate selected model before clearing conversation: controller config unavailable")
+	}
+	cfg := provider.Config()
+	if _, _, err := config.ParseModelReference(&cfg, launch.modelAlias); err != nil {
+		return fmt.Errorf("invalid selected handoff model %q: %w", launch.modelAlias, err)
+	}
+	return nil
 }
 
 func (m *Model) clearWorkflowHandoffConversation() error {

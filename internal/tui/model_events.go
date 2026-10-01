@@ -378,16 +378,16 @@ func (m *Model) handleSuppressedWorkflowHandoffEvent(event output.Event) tea.Cmd
 	if !m.suppressWorkflowHandoffRun {
 		return nil
 	}
-	switch event.Type {
-	case output.EventTypeStopReason:
-		payload, ok := event.Payload.(output.StopReasonEvent)
-		if !ok || payload.Reason != "workflow_handoff" {
-			return nil
-		}
-		if launch := m.pendingWorkflowHandoffLaunch; launch != nil && !launch.waiting {
-			launch.waiting = true
-			return beginWorkflowHandoffSettlement(m.controller, launch)
-		}
+	if event.Type != output.EventTypeStopReason {
+		return nil
+	}
+	payload, ok := event.Payload.(output.StopReasonEvent)
+	if !ok || payload.Reason != "workflow_handoff" {
+		return nil
+	}
+	if launch := m.pendingWorkflowHandoffLaunch; launch != nil && !launch.waiting {
+		launch.waiting = true
+		return beginWorkflowHandoffSettlement(m.controller, launch)
 	}
 	return nil
 }

@@ -59,15 +59,12 @@ func (r *subAgentRoster) upsert(agentID string) *rosterEntry {
 
 func (r *subAgentRoster) begin(agentID, agentType, callID, status string, now int64) {
 	agentID = strings.TrimSpace(agentID)
-	if agentID == "" || strings.EqualFold(strings.TrimSpace(agentType), "advisor") {
+	if !validRosterAgent(agentID, agentType) {
 		return
 	}
-	admission, accepted := r.admissions[callID]
-	if accepted && admission.AgentID != agentID {
-		accepted = false
-	}
+	admission, accepted := r.admissionForAgent(callID, agentID)
 	e, existed := r.entries[agentID]
-	if existed && e.accepted && !e.finished() && !accepted && (callID == "" || e.currentCallID != callID) {
+	if existed && rosterEntryRejectsBegin(e, callID, accepted) {
 		return
 	}
 	if !existed {
@@ -82,12 +79,7 @@ func (r *subAgentRoster) begin(agentID, agentType, callID, status string, now in
 	}
 	e.currentCallID = callID
 	e.accepted = accepted
-	e.group = ""
-	e.batchID = ""
-	if accepted {
-		e.group = admission.Group
-		e.batchID = admission.BatchID
-	}
+	e.group, e.batchID = admissionIdentity(admission, accepted)
 	if !restarting {
 		if t := strings.TrimSpace(agentType); t != "" {
 			e.agentType = t
@@ -99,31 +91,33 @@ func (r *subAgentRoster) begin(agentID, agentType, callID, status string, now in
 	e.status = status
 }
 
+func validRosterAgent(agentID, agentType string) bool {
+	return agentID != "" && !strings.EqualFold(strings.TrimSpace(agentType), "advisor")
+}
+
+func (r *subAgentRoster) admissionForAgent(callID, agentID string) (output.DelegationAdmission, bool) {
+	admission, ok := r.admissions[callID]
+	return admission, ok && admission.AgentID == agentID
+}
+
+func admissionIdentity(admission output.DelegationAdmission, accepted bool) (group, batch string) {
+	if accepted {
+		return admission.Group, admission.BatchID
+	}
+	return "", ""
+}
+
+func rosterEntryRejectsBegin(e *rosterEntry, callID string, accepted bool) bool {
+	return e.accepted && !e.finished() && !accepted && (callID == "" || e.currentCallID != callID)
+}
+
 func (r *subAgentRoster) finish(agentID, agentType, callID, status string, durationMs, now int64) {
 	agentID = strings.TrimSpace(agentID)
-	if agentID == "" || strings.EqualFold(strings.TrimSpace(agentType), "advisor") {
+	if !validRosterAgent(agentID, agentType) {
 		return
 	}
-	e, ok := r.entries[agentID]
-	if callID != "" {
-		admission, accepted := r.admissions[callID]
-		if !accepted || admission.AgentID != agentID {
-			return
-		}
-		if ok && e.currentCallID != callID {
-			return
-		}
-		if !ok {
-			e = r.upsert(agentID)
-			e.currentCallID = callID
-			e.accepted = true
-			e.group = admission.Group
-			e.batchID = admission.BatchID
-		}
-	} else if !ok {
-		e = r.upsert(agentID)
-	}
-	if e.accepted && callID == "" && status != rosterDone {
+	e, ok := r.finishEntry(agentID, callID)
+	if !ok || (e.accepted && callID == "" && status != rosterDone) {
 		return
 	}
 	if t := strings.TrimSpace(agentType); t != "" && e.agentType == "" {
@@ -140,6 +134,25 @@ func (r *subAgentRoster) finish(agentID, agentType, callID, status string, durat
 	if durationMs > 0 {
 		e.finishTime = e.startTime + durationMs*1_000_000
 	}
+}
+
+func (r *subAgentRoster) finishEntry(agentID, callID string) (*rosterEntry, bool) {
+	e, exists := r.entries[agentID]
+	if callID != "" {
+		admission, accepted := r.admissionForAgent(callID, agentID)
+		if !accepted || (exists && e.currentCallID != callID) {
+			return nil, false
+		}
+		if !exists {
+			e = r.upsert(agentID)
+			e.currentCallID = callID
+			e.accepted = true
+			e.group, e.batchID = admissionIdentity(admission, true)
+		}
+	} else if !exists {
+		e = r.upsert(agentID)
+	}
+	return e, true
 }
 
 // observe updates the roster from one output event. Sub-agent scoped tool
@@ -211,46 +224,62 @@ func completionStatus(status string) string {
 
 func (r *subAgentRoster) deliver(item output.DeliveredSubAgent, now int64) {
 	id := strings.TrimSpace(item.AgentID)
-	if id == "" || strings.EqualFold(strings.TrimSpace(item.AgentType), "advisor") {
+	if !validRosterAgent(id, item.AgentType) {
 		return
 	}
-	admission, accepted := r.admissions[item.ParentCallID]
-	if accepted && admission.AgentID != id {
-		accepted = false
-	}
+	admission, accepted := r.admissionForAgent(item.ParentCallID, id)
 	e, known := r.entries[id]
 	if !known {
 		e = r.upsert(id)
 	}
-	currentMatch := item.ParentCallID == "" || e.currentCallID == "" || e.currentCallID == item.ParentCallID
-	if accepted && currentMatch && (!e.accepted || e.currentCallID == item.ParentCallID) {
-		e.currentCallID = item.ParentCallID
-		e.accepted = true
-		e.group = admission.Group
-		e.batchID = admission.BatchID
-	}
-	if !accepted && currentMatch && !e.accepted {
-		e.group = ""
-		e.batchID = ""
-	}
-	if !e.finished() || item.Status == rosterLost {
-		if e.accepted && !currentMatch {
-			return
-		}
-		status := rosterDone
-		switch item.Status {
-		case rosterLost:
-			status = rosterLost
-		case "failed", "error":
-			status = rosterFailed
-		}
-		if e.startTime == 0 {
-			e.startTime = now - item.DurationMs*1_000_000
-		}
-		e.status = status
-		e.finishTime = e.startTime + item.DurationMs*1_000_000
+	currentMatch := rosterDeliveryMatchesCurrentCall(e, item.ParentCallID)
+	applyRosterDeliveryIdentity(e, item.ParentCallID, admission, accepted, currentMatch)
+	if !r.applyRosterDeliveryStatus(e, item, now, currentMatch) {
+		return
 	}
 	e.delivered = true
+}
+
+func rosterDeliveryMatchesCurrentCall(e *rosterEntry, callID string) bool {
+	return callID == "" || e.currentCallID == "" || e.currentCallID == callID
+}
+
+func applyRosterDeliveryIdentity(e *rosterEntry, callID string, admission output.DelegationAdmission, accepted, currentMatch bool) {
+	if accepted && currentMatch && (!e.accepted || e.currentCallID == callID) {
+		e.currentCallID = callID
+		e.accepted = true
+		e.group, e.batchID = admissionIdentity(admission, true)
+	}
+	if !accepted && currentMatch && !e.accepted {
+		e.group, e.batchID = "", ""
+	}
+}
+
+func (r *subAgentRoster) applyRosterDeliveryStatus(e *rosterEntry, item output.DeliveredSubAgent, now int64, currentMatch bool) bool {
+	if e.finished() && item.Status != rosterLost {
+		return true
+	}
+	if e.accepted && !currentMatch {
+		return false
+	}
+	status := deliveredRosterStatus(item.Status)
+	if e.startTime == 0 {
+		e.startTime = now - item.DurationMs*1_000_000
+	}
+	e.status = status
+	e.finishTime = e.startTime + item.DurationMs*1_000_000
+	return true
+}
+
+func deliveredRosterStatus(status string) string {
+	switch status {
+	case rosterLost:
+		return rosterLost
+	case "failed", "error":
+		return rosterFailed
+	default:
+		return rosterDone
+	}
 }
 
 // prune drops every finished entry; running and queued ones stay. It is used

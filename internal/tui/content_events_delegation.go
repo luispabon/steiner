@@ -442,12 +442,6 @@ func (b *contentBuffer) removeFromPendingDelegateParents(dd *delegationDisplaySt
 	}
 }
 
-// delegationGroupArg extracts the trimmed "group" label from sub_agent args.
-func delegationGroupArg(args map[string]any) string {
-	g, _ := args["group"].(string)
-	return strings.TrimSpace(g)
-}
-
 func (b *contentBuffer) appendDelegationSegment(dd *delegationDisplayState) int {
 	dd.batch = b.delegationBatch
 	b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: dd, renderDirty: true})
