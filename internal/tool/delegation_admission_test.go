@@ -43,6 +43,54 @@ func TestDelegationAdmissionMetadataOnExecutorOutcomes(t *testing.T) {
 	}
 }
 
+func TestDelegationAdmissionAuthoritativeMetadataWins(t *testing.T) {
+	for _, status := range []string{DelegationAdmissionAccepted, DelegationAdmissionRejected} {
+		t.Run(status, func(t *testing.T) {
+			provided := &DelegationAdmission{Status: status, BatchID: "authoritative"}
+			registry := NewRegistry(ToolDef{Name: "delegate", IsDelegation: true, Handler: func(context.Context, map[string]any) (any, error) {
+				return ExecutionResult{Value: "done", DelegationAdmission: provided}, nil
+			}})
+			result, err := NewExecutor(registry, config.Config{}, nil, t.TempDir(), "", Unsandboxed{}).Execute(context.Background(), "delegate", "call", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := result.(ExecutionResult).DelegationAdmission
+			if got == nil || got.Status != status || got.BatchID != "authoritative" {
+				t.Fatalf("admission = %#v", got)
+			}
+		})
+	}
+}
+
+func TestDelegationAdmissionAcceptedSurvivesError(t *testing.T) {
+	provided := &DelegationAdmission{Status: DelegationAdmissionAccepted, AgentID: "agent"}
+	registry := NewRegistry(ToolDef{Name: "delegate", IsDelegation: true, Handler: func(context.Context, map[string]any) (any, error) {
+		return ExecutionResult{DelegationAdmission: provided}, errors.New("post-admission failure")
+	}})
+	_, err := NewExecutor(registry, config.Config{}, nil, t.TempDir(), "", Unsandboxed{}).Execute(context.Background(), "delegate", "call", nil)
+	var toolErr *ToolExecutionError
+	if errors.As(err, &toolErr) {
+		t.Fatalf("unexpected ToolExecutionError %v", err)
+	}
+	admission := delegationAdmissionFromError(err)
+	if admission == nil || admission.Status != DelegationAdmissionAccepted || admission.AgentID != "agent" {
+		t.Fatalf("admission = %#v, err = %v", admission, err)
+	}
+}
+
+func TestDelegationAdmissionRejectedSuccessSurvives(t *testing.T) {
+	registry := NewRegistry(ToolDef{Name: "delegate", IsDelegation: true, Handler: func(context.Context, map[string]any) (any, error) {
+		return ExecutionResult{Value: "no admission", DelegationAdmission: &DelegationAdmission{Status: DelegationAdmissionRejected}}, nil
+	}})
+	result, err := NewExecutor(registry, config.Config{}, nil, t.TempDir(), "", Unsandboxed{}).Execute(context.Background(), "delegate", "call", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.(ExecutionResult).DelegationAdmission; got == nil || got.Status != DelegationAdmissionRejected {
+		t.Fatalf("admission = %#v", got)
+	}
+}
+
 func TestDelegationAdmissionCloneAndUnknown(t *testing.T) {
 	if (*DelegationAdmission)(nil).Clone() != nil {
 		t.Fatal("nil metadata clone is not nil")

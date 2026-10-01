@@ -19,6 +19,10 @@ func TestDelegationAdmissionEventsAndFinishedMetadata(t *testing.T) {
 	if payload.DelegationAdmission == nil || payload.DelegationAdmission.AgentID != "a" {
 		t.Fatalf("finished metadata = %#v", payload.DelegationAdmission)
 	}
+	payload.DelegationAdmission.AgentID = "mutated payload"
+	if admission.AgentID != "mutated" {
+		t.Fatalf("source metadata changed through event payload: %#v", admission)
+	}
 	data, err := json.Marshal(event)
 	if err != nil {
 		t.Fatal(err)

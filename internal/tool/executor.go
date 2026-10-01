@@ -124,10 +124,8 @@ func (e *Executor) Execute(ctx context.Context, toolName, callID string, input m
 	result, err := e.runPipeline(ctx, executionInput{ToolName: toolName, CallID: callID, Input: input})
 	if def, ok := e.registry.Get(toolName); ok && def.IsDelegation {
 		admission := delegationAdmissionFromError(err)
-		if admission == nil {
-			if execution, ok := result.(ExecutionResult); ok {
-				admission = execution.DelegationAdmission.Clone()
-			}
+		if execution, ok := result.(ExecutionResult); ok && execution.DelegationAdmission != nil {
+			admission = execution.DelegationAdmission.Clone()
 		}
 		if admission == nil {
 			if err == nil {

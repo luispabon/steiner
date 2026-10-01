@@ -374,7 +374,8 @@ func (p *turnProgressor) drainQueuedDelegations(turn int) {
 		if queued.started[call.ID] {
 			continue
 		}
-		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", errNotDispatched))
+		admission := p.notDispatchedAdmission(call.Name)
+		emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, "", errNotDispatched, output.ToolPreview{}, outputAdmissionFromTool(admission)))
 	}
 }
 
@@ -583,6 +584,9 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		Name:       call.Name,
 		Turn:       turn,
 	}
+	if errors.Is(err, errNotDispatched) && normalizedResult.DelegationAdmission == nil {
+		normalizedResult.DelegationAdmission = p.notDispatchedAdmission(call.Name)
+	}
 	toolMessage.DelegationAdmission = normalizedResult.DelegationAdmission.Clone()
 	if err == nil {
 		toolMessage.Retention = cloneMessageRetention(normalizedResult.Retention)
@@ -597,6 +601,13 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		}
 	}
 	return toolMessage
+}
+
+func (p *turnProgressor) notDispatchedAdmission(toolName string) *tool.DelegationAdmission {
+	if p.request.ParallelClassOf == nil || p.request.ParallelClassOf(toolName) != ParallelClassDelegation {
+		return nil
+	}
+	return &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected}
 }
 
 func admissionFromToolResult(result any) *tool.DelegationAdmission {
