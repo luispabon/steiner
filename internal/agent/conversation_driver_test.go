@@ -39,6 +39,89 @@ func TestSnapshotDelegationGroupsOutsideLockAndClones(t *testing.T) {
 	}
 }
 
+func TestSaveTransitionSnapshotsDelegationGroupsOutsideLock(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(*driverHarness)
+	}{
+		{
+			name: "dispatch and run checkpoints",
+			run: func(h *driverHarness) {
+				h.start()
+				h.d.Submit("go", nil, SubmitMeta{})
+				h.nextRun().finish()
+				h.waitQuiescent()
+			},
+		},
+		{
+			name: "quiet inbox settlement",
+			run: func(h *driverHarness) {
+				h.bg.setPending("a")
+				h.start()
+				h.d.DeliverCompletions([]SubAgentCompletion{{Seq: 1, ParentCallID: "call-a", AgentID: "a", Quiet: true}})
+				h.waitQuiescent()
+			},
+		},
+		{
+			name: "cancellation and finalization",
+			run: func(h *driverHarness) {
+				h.start()
+				h.d.Submit("go", nil, SubmitMeta{})
+				h.nextRun()
+				h.closeDriver()
+			},
+		},
+		{
+			name: "compaction",
+			run: func(h *driverHarness) {
+				h.start()
+				h.d.RequestCompaction(func(_ context.Context, conv []Message) ([]Message, ConversationLineage, error) {
+					return append(conv, Message{Role: "system", Content: "compacted"}), ConversationLineage{}, nil
+				})
+				h.waitQuiescent()
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ledger := DelegationGroupLedger{Version: 1, Names: []string{"callback-group"}}
+			var driver *ConversationDriver
+			callbackLocked := false
+			h := newDriverHarnessOpts(t, nil, nil, func(opts *DriverOptions) {
+				opts.SnapshotDelegationGroups = func() DelegationGroupLedger {
+					if !driver.mu.TryLock() {
+						callbackLocked = true
+					} else {
+						driver.mu.Unlock()
+					}
+					return ledger
+				}
+			})
+			driver = h.d
+			tt.run(h)
+			h.closeDriver()
+			if callbackLocked {
+				t.Fatal("snapshot callback ran while driver mutex was held")
+			}
+			h.mu.Lock()
+			saves := slices.Clone(h.saves)
+			h.mu.Unlock()
+			if len(saves) < 2 {
+				t.Fatalf("got %d saves, want multiple transition snapshots", len(saves))
+			}
+			for i := range saves {
+				if !slices.Equal(saves[i].GroupLedger.Names, []string{"callback-group"}) || saves[i].GroupLedger.Version != 1 {
+					t.Fatalf("save %d ledger = %#v", i, saves[i].GroupLedger)
+				}
+				saves[i].GroupLedger.Names[0] = "mutated saved ledger"
+			}
+			if ledger.Names[0] != "callback-group" {
+				t.Fatalf("saved snapshot aliases callback ledger: %#v", ledger)
+			}
+		})
+	}
+}
+
 func TestSnapshotDelegationGroupsSeedWithoutCallback(t *testing.T) {
 	seed := DelegationGroupLedger{Version: 1, Names: []string{"saved"}}
 	driver := NewConversationDriver(DriverOptions{GroupLedger: seed}, nil, ConversationLineage{})
