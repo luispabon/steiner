@@ -14,6 +14,23 @@ import (
 
 const driverTestTimeout = 5 * time.Second
 
+func driverMutexAccessible(d *ConversationDriver) bool {
+	accessed := make(chan struct{})
+	go func() {
+		d.mu.Lock()
+		state := d.state
+		d.mu.Unlock()
+		_ = state
+		close(accessed)
+	}()
+	select {
+	case <-accessed:
+		return true
+	case <-time.After(driverTestTimeout):
+		return false
+	}
+}
+
 func TestSnapshotDelegationGroupsOutsideLockAndClones(t *testing.T) {
 	seed := DelegationGroupLedger{Version: 1, Names: []string{" seed "}}
 	var driver *ConversationDriver
@@ -21,10 +38,9 @@ func TestSnapshotDelegationGroupsOutsideLockAndClones(t *testing.T) {
 	driver = NewConversationDriver(DriverOptions{
 		GroupLedger: seed,
 		SnapshotDelegationGroups: func() DelegationGroupLedger {
-			if !driver.mu.TryLock() {
-				t.Fatal("snapshot callback called while driver mutex held")
+			if !driverMutexAccessible(driver) {
+				t.Error("driver mutex unavailable from snapshot callback")
 			}
-			driver.mu.Unlock()
 			return callbackLedger
 		},
 	}, nil, ConversationLineage{})
@@ -86,13 +102,11 @@ func TestSaveTransitionSnapshotsDelegationGroupsOutsideLock(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ledger := DelegationGroupLedger{Version: 1, Names: []string{"callback-group"}}
 			var driver *ConversationDriver
-			callbackLocked := false
+			callbackBlocked := make(chan struct{}, 16)
 			h := newDriverHarnessOpts(t, nil, nil, func(opts *DriverOptions) {
 				opts.SnapshotDelegationGroups = func() DelegationGroupLedger {
-					if !driver.mu.TryLock() {
-						callbackLocked = true
-					} else {
-						driver.mu.Unlock()
+					if !driverMutexAccessible(driver) {
+						callbackBlocked <- struct{}{}
 					}
 					return ledger
 				}
@@ -100,8 +114,8 @@ func TestSaveTransitionSnapshotsDelegationGroupsOutsideLock(t *testing.T) {
 			driver = h.d
 			tt.run(h)
 			h.closeDriver()
-			if callbackLocked {
-				t.Fatal("snapshot callback ran while driver mutex was held")
+			if len(callbackBlocked) > 0 {
+				t.Fatal("snapshot callback could not access driver mutex")
 			}
 			h.mu.Lock()
 			saves := slices.Clone(h.saves)
