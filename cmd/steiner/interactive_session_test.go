@@ -1210,6 +1210,7 @@ func TestSessionRunnerReturnsTokenCountAndStopReason(t *testing.T) {
 
 func TestSessionRunnerForwardsExactDelegationGroupScope(t *testing.T) {
 	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
+	t.Cleanup(func() { supervisor.CancelAll(delegation.CancelCauseUser) })
 	fallback := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 	explicit := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 	cfg := testRuntimeConfig("test-model")
@@ -1236,19 +1237,11 @@ func TestSessionRunnerForwardsExactDelegationGroupScope(t *testing.T) {
 	if result.StopReason != agent.StopReasonComplete {
 		t.Fatalf("stop reason = %q, want complete", result.StopReason)
 	}
-	select {
-	case got := <-script.started:
-		if got != "scope forwarding" {
-			t.Fatalf("child objective = %q, want scope forwarding", got)
-		}
-	default:
-		t.Fatal("child did not start")
-	}
+	recvStarted(t, script, "scope forwarding")
 	if got := supervisor.SnapshotGroupLedger(explicit).Names; len(got) != 1 || got[0] != "interactive-group" {
 		t.Fatalf("explicit scope names = %v, want [interactive-group]", got)
 	}
 	if got := supervisor.SnapshotGroupLedger(fallback).Names; len(got) != 0 {
 		t.Fatalf("fallback scope names = %v, want empty", got)
 	}
-	supervisor.CancelAll(delegation.CancelCauseUser)
 }
