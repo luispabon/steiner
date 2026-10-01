@@ -255,14 +255,14 @@ func TestBlockingSubAgentReturnsResultAndPostsNothing(t *testing.T) {
 	sink.none(t)
 }
 
-func TestSubAgentSchemaGroupOnlyWhenAsync(t *testing.T) {
+func TestSubAgentSchemaGroupAvailableBlockingAndAsync(t *testing.T) {
 	t.Parallel()
 	for _, async := range []bool{false, true} {
 		deps := minimalDeps(&mockRunner{})
 		deps.AsyncSubAgents = async
 		props, _ := SubAgentToolDef(deps, nil).ParameterSchema["properties"].(map[string]any)
-		if _, has := props["group"]; has != async {
-			t.Errorf("async=%v: group present = %v", async, has)
+		if _, has := props["group"]; !has {
+			t.Errorf("async=%v: group missing", async)
 		}
 	}
 }

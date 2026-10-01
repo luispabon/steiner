@@ -112,11 +112,9 @@ func SubAgentToolDef(deps SpecializedToolDeps, excludeTypes []AgentType) tool.To
 			"description": "Required when type is \"vision\". The image ID to examine (e.g. 'img-1'). Shown in the image placeholder in the conversation.",
 		},
 	}
-	if deps.AsyncSubAgents {
-		properties["group"] = map[string]any{
-			"type":        "string",
-			"description": "Optional conversation-unique group name. Calls with the same name in one assistant response are delivered together; use a fresh name for later responses. Reusing a name returns an error.",
-		}
+	properties["group"] = map[string]any{
+		"type":        "string",
+		"description": "Optional conversation-unique group name. Calls with the same name in one assistant response are delivered together when async; use a fresh name for later responses. Reusing a name returns an error.",
 	}
 
 	return tool.ToolDef{

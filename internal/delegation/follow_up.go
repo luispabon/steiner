@@ -16,14 +16,12 @@ import (
 const FollowUpToolName = "follow_up"
 
 // FollowUpToolDef returns a ToolDef for resuming a delegated child session.
-func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (any, error), async ...bool) tool.ToolDef {
+func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (any, error), _ ...bool) tool.ToolDef {
 	properties := map[string]any{
 		"agent_id": map[string]any{"type": "string", "description": "Required. The delegated agent ID to resume."},
 		"message":  map[string]any{"type": "string", "description": "Required. The follow-up user message to append."},
 	}
-	if len(async) > 0 && async[0] {
-		properties["group"] = map[string]any{"type": "string", "description": "Optional group name. Reuse a fresh sub_agent group name to join that same assistant response; otherwise choose a fresh name or omit group. Names cannot be reused in later responses."}
-	}
+	properties["group"] = map[string]any{"type": "string", "description": "Optional conversation-unique group name. Reuse a fresh sub_agent group name to join that assistant response; otherwise choose a fresh name or omit group. Calls are held for joint completion only in async sessions. Names cannot be reused in later responses."}
 	return tool.ToolDef{
 		Name:         FollowUpToolName,
 		IsDelegation: true,

@@ -42,7 +42,7 @@ func TestFollowUpToolDef(t *testing.T) {
 	if !ok {
 		t.Fatal("properties missing from schema")
 	}
-	for _, key := range []string{"agent_id", "message"} {
+	for _, key := range []string{"agent_id", "message", "group"} {
 		if _, ok := props[key]; !ok {
 			t.Fatalf("property %q missing from schema", key)
 		}
