@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tui/prefs"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -198,17 +199,6 @@ func (m *Model) handleUpdateCheckResultMsg(msg updateCheckResultMsg) (tea.Model,
 	return m, nil
 }
 
-// clearConversationState clears conversation state and TUI chrome after the
-// controller accepts the clear. It is used by callers that clear regardless
-// of in-flight work, including acceptWorkflowHandoff. Callers that should
-// refuse to clear during an active run must use clearConversationStateWithError.
-//
-//nolint:unparam // tea.Cmd remains part of the workflow handoff call contract.
-func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
-	_ = m.performClearConversationState()
-	return m, nil
-}
-
 // sessionBusy reports whether a run, tool call, delegation, compaction or
 // oneshot is in flight, so session-mutating actions must be refused.
 func (m *Model) sessionBusy() bool {
@@ -262,6 +252,9 @@ func (m *Model) resetConversationUI() {
 	}
 	m.sessionStartedAt = nil
 	m.content.Clear()
+	m.convState = output.ConversationStateEvent{}
+	m.convStateSeen = false
+	m.convLabelShown = false
 	m.selection = m.selection.clear()
 	m.clearDragState()
 	m.removePendingImages()

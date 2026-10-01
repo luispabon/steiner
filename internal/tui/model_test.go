@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/oneshot"
@@ -30,9 +31,11 @@ type testController struct {
 	mu                        sync.Mutex
 	actions                   []interactive.Action
 	err                       error
+	clearConversationErr      error
 	switchModelErr            error
 	workflowHandoffSelections map[string]interactive.WorkflowHandoffModelSelection
 	reasoningOverride         provider.ReasoningOverride
+	config                    config.Config
 }
 
 // CurrentReasoningOverride implements reasoningOverrideProvider for tests.
@@ -43,6 +46,7 @@ func (c *testController) CurrentReasoningOverride() provider.ReasoningOverride {
 }
 
 func (c *testController) WaitRuns(context.Context) bool { return true }
+func (c *testController) Config() config.Config         { return c.config }
 
 func (c *testController) Handle(_ context.Context, action interactive.Action) error {
 	c.mu.Lock()
@@ -50,6 +54,15 @@ func (c *testController) Handle(_ context.Context, action interactive.Action) er
 	c.mu.Unlock()
 	if _, ok := action.(interactive.SwitchModel); ok && c.switchModelErr != nil {
 		return c.switchModelErr
+	}
+	if _, ok := action.(interactive.ClearConversation); ok && c.clearConversationErr != nil {
+		return c.clearConversationErr
+	}
+	if _, ok := action.(interactive.ClearConversation); ok {
+		return nil
+	}
+	if _, ok := action.(interactive.SubmitWorkflowHandoff); ok {
+		return nil
 	}
 	return c.err
 }
@@ -195,6 +208,10 @@ func (c *testController) countByType(target interactive.Action) int {
 			}
 		case interactive.SubmitWorkflowHandoff:
 			if _, ok := a.(interactive.SubmitWorkflowHandoff); ok {
+				count++
+			}
+		case interactive.ClearConversation:
+			if _, ok := a.(interactive.ClearConversation); ok {
 				count++
 			}
 		}
@@ -4346,6 +4363,7 @@ func TestModelWorkflowHandoffTerminalEventsCloseModalAndRestoreFocus(t *testing.
 func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{
+		config: config.Config{Providers: map[string]config.ProviderConfig{"local": {}}, Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{"review-default": {Provider: "local", ID: "review-default"}}}},
 		workflowHandoffSelections: map[string]interactive.WorkflowHandoffModelSelection{
 			"review": {
 				ModelAlias:  "review-default",
@@ -5825,7 +5843,7 @@ func TestViewportSelectionClearedOnClearConversation(t *testing.T) {
 	m.dragScrollDir = 1
 	m.dragScrollTicking = true
 
-	m.clearConversationState()
+	m.resetConversationUI()
 
 	if m.selection.hasSelection() {
 		t.Error("viewport selection survived clearConversationState")
@@ -5864,7 +5882,7 @@ func TestClearConversationStateResetsSessionChrome(t *testing.T) {
 	m.setCompaction(compactionState{summary: "compacting"})
 	m.interruptPending = true
 
-	m.clearConversationState()
+	m.resetConversationUI()
 
 	if m.activity.label != "" || m.activity.detail != "" || m.activity.spinning {
 		t.Errorf("activity = %#v, want cleared", m.activity)
@@ -5981,7 +5999,7 @@ func TestClearConversationFiresDelegationHook(t *testing.T) {
 func TestClearConversationDoesNotFireDelegationHookOnControllerError(t *testing.T) {
 	t.Parallel()
 	controllerErr := errors.New("clear controller failed")
-	m := newModel(Config{Controller: &testController{err: controllerErr}}, nil)
+	m := newModel(Config{Controller: &testController{clearConversationErr: controllerErr}}, nil)
 	hookCalls := 0
 	m.clearConversationHooks = func() { hookCalls++ }
 
@@ -6113,7 +6131,7 @@ func TestClearConversationStateRenderClearsChrome(t *testing.T) {
 		t.Fatalf("rendered stale chrome = %q, want activity, performance, and footer token occupancy values", before)
 	}
 
-	m.clearConversationState()
+	m.resetConversationUI()
 	after := stripANSI(m.View().Content)
 	if strings.Contains(after, "stopped") || strings.Contains(after, "1.2s") || strings.Contains(after, "64k / 128k · 50%") {
 		t.Fatalf("rendered chrome after clear = %q, contains stale values", after)
@@ -6381,7 +6399,7 @@ func TestDragEpochInvalidatedOnClear(t *testing.T) {
 	m.dragScrollDir = 1
 	m.dragScrollTicking = true
 	m.dragScrollEpoch = 3
-	m.clearConversationState()
+	m.resetConversationUI()
 	if m.selection.hasSelection() {
 		t.Error("selection survived clearConversationState")
 	}

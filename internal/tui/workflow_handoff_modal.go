@@ -2,7 +2,7 @@ package tui
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -208,18 +208,20 @@ func (m *Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	target := strings.TrimSpace(m.workflowHandoff.target)
 	submission := strings.TrimSpace(m.workflowHandoff.submission)
 	modelName := strings.TrimSpace(m.workflowHandoff.modelAlias)
-	if m.controller != nil {
-		if _, ok := m.controller.(workflowHandoffRunWaiter); !ok {
-			err := fmt.Errorf("workflow handoff requires a run waiter")
-			m.appendError(err)
-			m.syncViewport()
-			return m, nil
-		}
-		if err := m.controller.Handle(context.Background(), interactive.SubmitWorkflowHandoff{Decision: "accept"}); err != nil {
-			m.appendError(err)
-			m.syncViewport()
-			return m, nil
-		}
+	if m.controller == nil {
+		m.appendError(errors.New("workflow handoff requires a run waiter"))
+		m.syncViewport()
+		return m, nil
+	}
+	if _, ok := m.controller.(workflowHandoffRunWaiter); !ok {
+		m.appendError(errors.New("workflow handoff requires a run waiter"))
+		m.syncViewport()
+		return m, nil
+	}
+	if err := m.controller.Handle(context.Background(), interactive.SubmitWorkflowHandoff{Decision: "accept"}); err != nil {
+		m.appendError(err)
+		m.syncViewport()
+		return m, nil
 	}
 	m.workflowHandoff = m.workflowHandoff.close()
 	m.suppressWorkflowHandoffRun = true

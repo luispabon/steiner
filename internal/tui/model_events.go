@@ -30,7 +30,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		return nil
 	}
 	if m.suppressWorkflowHandoffRun {
-		if cmd := m.handleSuppressedWorkflowHandoffEvent(event); cmd != nil || m.shouldSuppressWorkflowHandoffEvent(event) {
+		if cmd := m.handleSuppressedWorkflowHandoffEvent(event); cmd != nil {
 			return cmd
 		}
 	}
@@ -374,19 +374,11 @@ func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
 	m.syncViewport()
 }
 
-func (m *Model) shouldSuppressWorkflowHandoffEvent(output.Event) bool {
-	return false
-}
-
 func (m *Model) handleSuppressedWorkflowHandoffEvent(event output.Event) tea.Cmd {
 	if !m.suppressWorkflowHandoffRun {
 		return nil
 	}
 	switch event.Type {
-	case output.EventTypeWorkflowHandoffAccepted:
-		return nil
-	case output.EventTypeToolCallFinished, output.EventTypeModelCallFinished:
-		return nil
 	case output.EventTypeStopReason:
 		payload, ok := event.Payload.(output.StopReasonEvent)
 		if !ok || payload.Reason != "workflow_handoff" {

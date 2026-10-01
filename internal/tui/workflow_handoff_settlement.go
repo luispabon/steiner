@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 )
 
@@ -14,20 +15,17 @@ type workflowHandoffRunWaiter interface {
 	WaitRuns(context.Context) bool
 }
 
+type workflowHandoffConfigProvider interface {
+	Config() config.Config
+}
+
 type workflowHandoffSettledMsg struct {
 	launch *workflowHandoffLaunch
 	err    error
 }
 
-type immediateWorkflowHandoffWaiter struct{}
-
-func (immediateWorkflowHandoffWaiter) WaitRuns(context.Context) bool { return true }
-
 func beginWorkflowHandoffSettlement(controller interactive.Controller, launch *workflowHandoffLaunch) tea.Cmd {
 	waiter, ok := controller.(workflowHandoffRunWaiter)
-	if controller == nil {
-		waiter, ok = immediateWorkflowHandoffWaiter{}, true
-	}
 	if !ok {
 		return func() tea.Msg {
 			return workflowHandoffSettledMsg{launch: launch, err: errors.New("workflow handoff run waiter unavailable")}
@@ -63,20 +61,33 @@ func (m *Model) handleWorkflowHandoffSettled(msg workflowHandoffSettledMsg) (tea
 		return m, nil
 	}
 
-	next, cleared, err := m.clearConversationStateWithError()
+	if m.oneshotRunning {
+		m.restoreWorkflowHandoffSubmission(launch, errors.New("cannot hand off while oneshot is active"))
+		return m, nil
+	}
+	if launch.modelAlias != "" && launch.modelAlias != m.primaryModel && m.controller != nil {
+		provider, ok := m.controller.(workflowHandoffConfigProvider)
+		if !ok {
+			m.restoreWorkflowHandoffSubmission(launch, errors.New("cannot validate selected model before clearing conversation: controller config unavailable"))
+			return m, nil
+		}
+		cfg := provider.Config()
+		if _, _, err := config.ParseModelReference(&cfg, launch.modelAlias); err != nil {
+			m.restoreWorkflowHandoffSubmission(launch, fmt.Errorf("invalid selected handoff model %q: %w", launch.modelAlias, err))
+			return m, nil
+		}
+	}
+	m.pendingWorkflowHandoffLaunch = nil
+	m.suppressWorkflowHandoffRun = false
+	err := m.clearWorkflowHandoffConversation()
 	if err != nil {
 		m.restoreWorkflowHandoffSubmission(launch, err)
 		return m, nil
 	}
-	if !cleared {
-		m.restoreWorkflowHandoffSubmission(launch, errors.New("conversation clear refused while session work remains active"))
-		return m, nil
-	}
-	m = next.(*Model)
 	if launch.modelAlias != "" && launch.modelAlias != m.primaryModel {
 		if m.controller != nil {
 			if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: launch.modelAlias}); err != nil {
-				m.restoreWorkflowHandoffSubmission(launch, err)
+				m.restoreWorkflowHandoffSubmission(launch, fmt.Errorf("conversation was cleared, but switching to model %q failed: %w", launch.modelAlias, err))
 				return m, nil
 			}
 		}
@@ -84,6 +95,17 @@ func (m *Model) handleWorkflowHandoffSettled(msg workflowHandoffSettledMsg) (tea
 	}
 	_, cmd := m.launchWorkflowHandoff(launch.next, launch.target, launch.submission)
 	return m, cmd
+}
+
+func (m *Model) clearWorkflowHandoffConversation() error {
+	if err := m.performClearConversationState(); err != nil {
+		return err
+	}
+	if m.recorder != nil {
+		m.recorder.ResetSession()
+		m.syncSidebar()
+	}
+	return nil
 }
 
 func (m *Model) restoreWorkflowHandoffSubmission(launch *workflowHandoffLaunch, err error) {
