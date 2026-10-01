@@ -31,19 +31,21 @@ func (s sidebarState) subAgentsSection(width int) []string {
 	for _, e := range visible {
 		typeW = max(typeW, min(lipgloss.Width(e.agentType), 14))
 	}
-	emitted := map[string]bool{}
+	type groupKey struct{ batchID, group string }
+	emitted := map[groupKey]bool{}
 	for _, e := range visible {
-		if e.group == "" {
+		if !e.accepted || e.batchID == "" || e.group == "" {
 			lines = append(lines, s.rosterRow(e, "", typeW, width))
 			continue
 		}
-		if emitted[e.group] {
+		key := groupKey{batchID: e.batchID, group: e.group}
+		if emitted[key] {
 			continue
 		}
-		emitted[e.group] = true
+		emitted[key] = true
 		lines = append(lines, s.styledWithBg(s.styles.FgMute, fitText("┌ "+e.group, width)))
 		for _, m := range visible {
-			if m.group == e.group {
+			if m.accepted && m.batchID == e.batchID && m.group == e.group {
 				lines = append(lines, s.rosterRow(m, s.styledWithBg(s.styles.FgMute, "│ "), typeW, width))
 			}
 		}

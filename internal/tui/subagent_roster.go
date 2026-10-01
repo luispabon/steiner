@@ -22,6 +22,8 @@ type rosterEntry struct {
 	agentID    string
 	agentType  string
 	group      string
+	batchID    string
+	accepted   bool
 	status     string
 	startTime  int64 // unix nano; set on queue, reset when the agent starts
 	finishTime int64 // unix nano; 0 until finished
@@ -36,9 +38,9 @@ func (e rosterEntry) finished() bool {
 // subAgentRoster tracks sub-agents for the sidebar and status bar. It is fed
 // from Model event handling and deliberately does not read contentBuffer.
 type subAgentRoster struct {
-	entries map[string]*rosterEntry
-	groups  map[string]string // parent call ID -> group label
-	nextSeq int
+	entries    map[string]*rosterEntry
+	admissions map[string]output.DelegationAdmission // keyed by current parent call ID
+	nextSeq    int
 }
 
 func (r *subAgentRoster) upsert(agentID string) *rosterEntry {
@@ -54,20 +56,13 @@ func (r *subAgentRoster) upsert(agentID string) *rosterEntry {
 	return e
 }
 
-func (r *subAgentRoster) recordGroup(callID string, args map[string]any) {
-	label := delegationGroupArg(args)
-	if callID == "" || label == "" {
-		return
-	}
-	if r.groups == nil {
-		r.groups = map[string]string{}
-	}
-	r.groups[callID] = label
-}
-
 func (r *subAgentRoster) begin(agentID, agentType, callID, status string, now int64) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" || strings.EqualFold(strings.TrimSpace(agentType), "advisor") {
+		return
+	}
+	admission, accepted := r.admissions[callID]
+	if !accepted || admission.AgentID != agentID {
 		return
 	}
 	e := r.upsert(agentID)
@@ -83,9 +78,9 @@ func (r *subAgentRoster) begin(agentID, agentType, callID, status string, now in
 			e.agentType = t
 		}
 	}
-	if e.group == "" {
-		e.group = r.groups[callID]
-	}
+	e.accepted = true
+	e.group = admission.Group
+	e.batchID = admission.BatchID
 	if e.startTime == 0 || status == rosterRunning {
 		e.startTime = now
 	}
@@ -97,7 +92,10 @@ func (r *subAgentRoster) finish(agentID, agentType, status string, durationMs, n
 	if agentID == "" || strings.EqualFold(strings.TrimSpace(agentType), "advisor") {
 		return
 	}
-	e := r.upsert(agentID)
+	e, ok := r.entries[agentID]
+	if !ok || !e.accepted {
+		return
+	}
 	if t := strings.TrimSpace(agentType); t != "" && e.agentType == "" {
 		e.agentType = t
 	}
@@ -118,10 +116,12 @@ func (r *subAgentRoster) finish(agentID, agentType, status string, durationMs, n
 // events are ignored: sub-agents cannot nest, so only parent calls carry groups.
 func (r *subAgentRoster) observe(event output.Event, now int64) {
 	switch p := event.Payload.(type) {
-	case output.ToolCallQueuedEvent:
-		r.recordParentGroup(event, p.CallID, p.Arguments)
-	case output.ToolCallStartedEvent:
-		r.recordParentGroup(event, p.CallID, p.Arguments)
+	case output.DelegationAcceptedEvent:
+		r.recordAdmission(p.CallID, output.DelegationAdmission{Status: "accepted", AgentID: p.AgentID, BatchID: p.BatchID, Group: p.Group})
+	case output.ToolCallFinishedEvent:
+		if p.DelegationAdmission != nil && p.DelegationAdmission.Status == "accepted" {
+			r.recordAdmission(p.CallID, *p.DelegationAdmission)
+		}
 	case output.DelegationQueuedEvent:
 		r.begin(p.AgentID, p.AgentType, p.CallID, rosterQueued, now)
 	case output.DelegationStartedEvent:
@@ -129,6 +129,12 @@ func (r *subAgentRoster) observe(event output.Event, now int64) {
 	case output.DelegationCompleteEvent:
 		r.finish(p.AgentID, p.AgentType, completionStatus(p.Status), p.DurationMs, now)
 	case output.DelegationFailedEvent:
+		if p.CallID != "" {
+			admission, ok := r.admissions[p.CallID]
+			if !ok || admission.AgentID != strings.TrimSpace(p.AgentID) {
+				return
+			}
+		}
 		r.finish(p.AgentID, p.AgentType, rosterFailed, p.DurationMs, now)
 	case output.SubAgentsDeliveredEvent:
 		for _, item := range p.Items {
@@ -145,11 +151,14 @@ func (r *subAgentRoster) observe(event output.Event, now int64) {
 	}
 }
 
-// recordParentGroup records the group of a parent-scoped tool call.
-func (r *subAgentRoster) recordParentGroup(event output.Event, callID string, args map[string]any) {
-	if event.Scope.AgentID == "" {
-		r.recordGroup(callID, args)
+func (r *subAgentRoster) recordAdmission(callID string, admission output.DelegationAdmission) {
+	if callID == "" || admission.AgentID == "" {
+		return
 	}
+	if r.admissions == nil {
+		r.admissions = map[string]output.DelegationAdmission{}
+	}
+	r.admissions[callID] = admission
 }
 
 // completionStatus maps a delegation completion status to a roster status.
@@ -165,8 +174,18 @@ func (r *subAgentRoster) deliver(item output.DeliveredSubAgent, now int64) {
 	if id == "" || strings.EqualFold(strings.TrimSpace(item.AgentType), "advisor") {
 		return
 	}
+	admission, accepted := r.admissions[item.ParentCallID]
+	if !accepted || admission.AgentID != id {
+		return
+	}
 	e, known := r.entries[id]
-	if !known || !e.finished() || item.Status == rosterLost {
+	if !known {
+		e = r.upsert(id)
+		e.accepted = true
+		e.group = admission.Group
+		e.batchID = admission.BatchID
+	}
+	if !e.finished() || item.Status == rosterLost {
 		status := rosterDone
 		switch item.Status {
 		case rosterLost:
@@ -174,15 +193,11 @@ func (r *subAgentRoster) deliver(item output.DeliveredSubAgent, now int64) {
 		case "failed", "error":
 			status = rosterFailed
 		}
-		r.finish(id, item.AgentType, status, item.DurationMs, now)
-		e = r.entries[id]
-		if e.group == "" {
-			// An entry recreated after a prune has no group of its own.
-			e.group = r.groups[item.ParentCallID]
+		if e.startTime == 0 {
+			e.startTime = now - item.DurationMs*1_000_000
 		}
-		if e.status != status && status == rosterLost {
-			e.status = rosterLost
-		}
+		e.status = status
+		e.finishTime = e.startTime + item.DurationMs*1_000_000
 	}
 	e.delivered = true
 }
@@ -207,7 +222,7 @@ func (r *subAgentRoster) dropWhere(drop func(*rosterEntry) bool) {
 		}
 	}
 	if len(r.entries) == 0 {
-		r.groups = nil
+		r.admissions = nil
 	}
 }
 
