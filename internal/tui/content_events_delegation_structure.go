@@ -31,7 +31,7 @@ func (b *contentBuffer) appendDelegationAcceptedEvent(event output.Event) {
 		}
 		return false
 	})
-	if target == nil {
+	if target == nil || target.groupAccepted {
 		return
 	}
 	target.groupAccepted = true
