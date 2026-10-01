@@ -81,8 +81,9 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	s.mu.Lock()
 	state.published = true
 	close(state.publication)
+	var latePosts postList
 	if state.shutdownTimedOut {
-		s.settleLatePublicationLocked(state)
+		latePosts = s.settleLatePublicationLocked(state)
 	}
 	if state.cause != CancelCauseNone && state.phase == phaseQueued {
 		s.removeQueuedLocked(state)
@@ -94,13 +95,14 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 		s.startQueuedLocked()
 	}
 	s.mu.Unlock()
+	latePosts.deliver()
 	if state.wasQueued && s.events != nil {
 		s.events.Emit(output.NewDelegationQueuedEvent(job.AgentID, job.ParentCallID, string(job.AgentType), job.ObjectivePreview))
 	}
 	return state, nil
 }
 
-func (s *Supervisor) settleLatePublicationLocked(state *jobState) {
+func (s *Supervisor) settleLatePublicationLocked(state *jobState) postList {
 	if state.completion == nil && !state.blocking {
 		completion := s.newCompletionLocked(state)
 		completion.Status = string(StatusCancelled)
@@ -109,12 +111,14 @@ func (s *Supervisor) settleLatePublicationLocked(state *jobState) {
 		state.completion = completion
 	}
 	deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
+	posts := s.routeShutdownCompletionLocked(state)
 	if state.phase == phaseQueued {
 		s.removeQueuedLocked(state)
 		state.phase = phaseDone
 		state.cancel()
 		go s.finishCancelled(state)
 	}
+	return posts
 }
 
 // startQueuedLocked starts queued jobs in FIFO order while slots are free.

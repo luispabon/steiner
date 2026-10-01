@@ -121,6 +121,12 @@ func TestShutdownLatePublicationSettlesGroupedJobsAndScopes(t *testing.T) {
 	blockLate.Store(true)
 	late := newAsyncChild("late", "same")
 	late.job.GroupScope = scope
+	callbackEntered, callbackRelease := make(chan struct{}), make(chan struct{})
+	late.job.OnCancelledBeforeStart = func() tool.ExecutionResult {
+		close(callbackEntered)
+		<-callbackRelease
+		return tool.ExecutionResult{Value: Result{AgentID: "late", Status: StatusCancelled}}
+	}
 	spawnResult := make(chan error, 1)
 	go func() { _, err := s.Spawn(ctx, late.job); spawnResult <- err }()
 	waitClosed(t, events.entered, "blocked acceptance")
@@ -138,14 +144,26 @@ func TestShutdownLatePublicationSettlesGroupedJobsAndScopes(t *testing.T) {
 	if err := recv(t, spawnResult, "late Spawn"); err != nil {
 		t.Fatal(err)
 	}
+	waitClosed(t, callbackEntered, "late cancellation callback")
 	second := recv(t, sink.ch, "late grouped completion")
 	if len(second) != 1 || second[0].AgentID != "late" || second[0].Status != string(StatusCancelled) {
 		t.Fatalf("late completion = %+v", second)
+	}
+	select {
+	case extra := <-sink.ch:
+		t.Fatalf("duplicate late completion: %+v", extra)
+	default:
 	}
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 2 {
 		t.Fatalf("scope ledger lost names before release: %v", got)
 	}
 	s.ReleaseGroupScope(scope)
+	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 2 {
+		t.Fatalf("scope pruned before finalization: %v", got)
+	}
+	close(callbackRelease)
+	state := jobFor(s, "late")
+	waitClosed(t, state.settled, "late finalizer settlement")
 	s.MarkDelivered([]string{"call-sibling", "call-unrelated", "call-late"})
 	if s.IsPending("late") {
 		t.Fatal("late job remains pending after acknowledgement")

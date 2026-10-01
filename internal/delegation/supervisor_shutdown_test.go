@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -82,18 +83,23 @@ func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
 					t.Fatalf("CancelAgent = %v", got)
 				}
 				waitClosed(t, entered, "CancelAgent finalizer")
+				shutdown := make(chan struct{})
+				go func() { s.Shutdown(context.Background(), CancelCauseSystem); close(shutdown) }()
 				if releaseBeforeDeadline {
+					select {
+					case <-shutdown:
+						t.Fatal("shutdown returned before blocked finalizer settled")
+					case <-time.After(5 * time.Millisecond):
+					}
 					close(release)
 					if mode == "blocking" {
-						got := recv(t, waiter, "blocking waiter before shutdown")
+						got := recv(t, waiter, "blocking waiter before deadline")
 						if got.result.Value == nil || got.err != nil {
 							t.Fatalf("waiter = %+v", got)
 						}
 					}
-				}
-				shutdown := make(chan struct{})
-				go func() { s.Shutdown(context.Background(), CancelCauseSystem); close(shutdown) }()
-				if !releaseBeforeDeadline {
+					waitClosed(t, shutdown, "shutdown after finalizer release")
+				} else {
 					waitClosed(t, shutdown, "shutdown deadline")
 					if mode == "blocking" {
 						got := recv(t, waiter, "blocking waiter timeout")
@@ -116,8 +122,6 @@ func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
 						t.Fatalf("scope pruned while callback blocked: %v", got)
 					}
 					close(release)
-				} else {
-					waitClosed(t, shutdown, "shutdown settled before deadline")
 				}
 				if mode == "async" && releaseBeforeDeadline {
 					batch := recv(t, sink.ch, "running completion")
@@ -131,6 +135,14 @@ func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
 					s.MarkDelivered([]string{"call-cancelled"})
 				}
 				waitClosed(t, callbackDone, "cancellation callback return")
+				state := jobFor(s, "cancelled")
+				if state != nil {
+					select {
+					case <-state.settled:
+					default:
+						t.Fatal("callback returned before finalizer settlement")
+					}
+				}
 				if mode == "async" && releaseBeforeDeadline {
 					if s.IsPending("cancelled") {
 						t.Fatal("acknowledged async job remains pending")
@@ -160,6 +172,49 @@ func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
 				close(hold.release)
 			})
 		}
+	}
+}
+
+func TestShutdownUnpublishedBlockingTimeoutPreservesResultAndScope(t *testing.T) {
+	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{})}
+	block := &atomic.Bool{}
+	block.Store(true)
+	events.enabled = block
+	s, _ := newAsyncSupervisor(1, events)
+	s.joinTimeout = 20 * time.Millisecond
+	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	job := newAsyncChild("blocking-late", "reserved")
+	job.job.GroupScope = scope
+	callbackEntered, callbackRelease := make(chan struct{}), make(chan struct{})
+	job.job.OnCancelledBeforeStart = func() tool.ExecutionResult {
+		close(callbackEntered)
+		<-callbackRelease
+		return tool.ExecutionResult{Value: Result{AgentID: "blocking-late", Status: StatusCancelled, Output: "callback result"}}
+	}
+	waiter := spawn(agent.WithToolBatchID(context.Background(), "batch"), s, job.job)
+	waitClosed(t, events.entered, "blocking acceptance publication")
+	shutdown := make(chan struct{})
+	go func() { s.Shutdown(context.Background(), CancelCauseSystem); close(shutdown) }()
+	waitClosed(t, shutdown, "shutdown deadline")
+	block.Store(false)
+	close(events.release)
+	waitClosed(t, callbackEntered, "late blocking cancellation callback")
+	got := recv(t, waiter, "authoritative timeout waiter")
+	if !errors.Is(got.err, ErrSupervisorClosed) || got.result.Value != nil {
+		t.Fatalf("waiter result = %+v", got)
+	}
+	if len(s.SnapshotGroupLedger(scope).Names) != 1 {
+		t.Fatal("scope lost before finalization")
+	}
+	close(callbackRelease)
+	state := jobFor(s, "blocking-late")
+	waitClosed(t, state.settled, "blocking finalizer settlement")
+	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 {
+		t.Fatalf("scope released before caller ack: %v", got)
+	}
+	s.ReleaseGroupScope(scope)
+	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 0 {
+		t.Fatalf("scope not pruned after safe ack: %v", got)
 	}
 }
 
