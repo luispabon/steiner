@@ -136,10 +136,8 @@ func (s *Session) refuseRunInProgress(action string) error {
 	return fmt.Errorf("%s: %w", action, errRunInProgress)
 }
 
-// refuseWhilePending refuses a session-replacing action while sub-agents are
-// still running, surfacing the reason as an overlay notice and error. Callers
-// that also refuse during a run check that separately: clear and rotate stay
-// allowed mid-run because a workflow handoff rotates from inside one.
+// loadSessionGuardLocked checks run, compaction, queued-prompt, admission, and
+// pending sub-agent guards before a saved session replaces the current one.
 func (s *Session) loadSessionGuardLocked() error {
 	return s.replacementGuardLocked("load session")
 }

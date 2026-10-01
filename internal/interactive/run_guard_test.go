@@ -82,7 +82,7 @@ func TestSessionMutationsRefusedDuringRun(t *testing.T) {
 	}
 }
 
-func TestRunResultSavedUnderOriginalSessionWhenSessionRotatesMidRun(t *testing.T) {
+func TestBusyRotationRefusedUntilRunSettles(t *testing.T) {
 	t.Parallel()
 	store := newMockSessionStore()
 	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
@@ -102,11 +102,25 @@ func TestRunResultSavedUnderOriginalSessionWhenSessionRotatesMidRun(t *testing.T
 	}
 	close(release)
 	waitSettled(t, s)
+	completedConversation := s.Conversation()
+	saved, ok := store.savedSessions[startID]
+	if !ok {
+		t.Fatal("completed run was not saved under original session")
+	}
+	if got := saved.Lineage.FullMessages(); !reflect.DeepEqual(got, completedConversation) {
+		t.Fatalf("saved original history = %+v, want completed run %+v", got, completedConversation)
+	}
 	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
 		t.Fatalf("RotateSession after settlement: %v", err)
 	}
 	if s.SessionID() == startID {
 		t.Fatal("session ID did not rotate after settlement")
+	}
+	if got := s.Conversation(); !reflect.DeepEqual(got, completedConversation) {
+		t.Fatalf("successor history = %+v, want retained conversation %+v", got, completedConversation)
+	}
+	if got := store.savedSessions[startID].Lineage.FullMessages(); !reflect.DeepEqual(got, completedConversation) {
+		t.Fatalf("original saved history after rotation = %+v, want %+v", got, completedConversation)
 	}
 }
 
@@ -125,9 +139,9 @@ func TestBusyConversationReplacementRefusedUntilRunSettles(t *testing.T) {
 			store.loadedSessions["other"] = session.Session{ID: "other", Lineage: lineageOf(userMsg("other"))}
 			s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
 			seedConversation(s, []agent.Message{userMsg("seed")}, lineageOf(userMsg("seed")))
-			id, driver, conversation := s.SessionID(), s.currentDriver(), s.Conversation()
+			id, driver := s.SessionID(), s.currentDriver()
 			release := startBlockedRun(t, s)
-			conversation = s.Conversation()
+			conversation := s.Conversation()
 			if err := tc.action(s); !errors.Is(err, errRunInProgress) && tc.name != "set conversation" {
 				t.Fatalf("replacement error = %v, want errRunInProgress", err)
 			}
@@ -139,8 +153,17 @@ func TestBusyConversationReplacementRefusedUntilRunSettles(t *testing.T) {
 			}
 			close(release)
 			waitSettled(t, s)
-			if err := tc.action(s); err != nil && tc.name != "set conversation" {
+			if err := tc.action(s); err != nil {
 				t.Fatalf("replacement after settlement: %v", err)
+			}
+			if tc.name == "set conversation" {
+				if s.currentDriver() == driver {
+					t.Fatal("SetConversation after settlement did not replace driver")
+				}
+				want := []agent.Message{userMsg("replacement")}
+				if got := s.Conversation(); !reflect.DeepEqual(got, want) {
+					t.Fatalf("SetConversation after settlement = %+v, want %+v", got, want)
+				}
 			}
 		})
 	}
