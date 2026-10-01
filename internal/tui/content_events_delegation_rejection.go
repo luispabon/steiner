@@ -14,18 +14,26 @@ func (b *contentBuffer) handleDelegationAdmissionFinish(payload output.ToolCallF
 		if payload.CallID != "" {
 			b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(payload.CallID, admission.AgentID, admission.BatchID, admission.Group))
 		}
-		return false
+		b.appendAdmissionError(payload.Error)
+		return payload.Error != ""
 	case "rejected":
 		if admission.PolicyNotice {
 			b.appendStyled("Delegation rejected by policy.", segmentStatus)
 		}
 		removed := payload.CallID != "" && b.removeRejectedDelegation(payload.CallID)
 		if payload.Error != "" {
-			b.appendStyled(payload.Error, segmentTool)
+			b.segments = append(b.segments, contentSegment{kind: segmentTool, text: payload.Error, renderDirty: true})
 		}
 		return removed
 	default:
-		return false
+		b.appendAdmissionError(payload.Error)
+		return payload.Error != ""
+	}
+}
+
+func (b *contentBuffer) appendAdmissionError(message string) {
+	if message != "" {
+		b.segments = append(b.segments, contentSegment{kind: segmentTool, text: message, renderDirty: true})
 	}
 }
 
