@@ -29,11 +29,17 @@ func (s *Supervisor) SetCompletionSink(sink agent.CompletionSink) {
 // Spawn enqueues a job without waiting for it. Its completion is posted to the
 // completion sink and it stays pending until MarkDelivered acknowledges it.
 func (s *Supervisor) Spawn(ctx context.Context, job ChildJob) (SpawnTicket, error) {
+	ticket, _, err := s.SpawnWithAdmission(ctx, job)
+	return ticket, err
+}
+
+// SpawnWithAdmission returns an async ticket and the authoritative captured outcome.
+func (s *Supervisor) SpawnWithAdmission(ctx context.Context, job ChildJob) (SpawnTicket, *tool.DelegationAdmission, error) {
 	state, err := s.enqueue(ctx, job, false)
 	if err != nil {
-		return SpawnTicket{}, err
+		return SpawnTicket{}, admissionFor(ctx, job, tool.DelegationAdmissionRejected), withAdmission(err, admissionFor(ctx, job, tool.DelegationAdmissionRejected))
 	}
-	return SpawnTicket{AgentID: job.AgentID, Queued: state.wasQueued}, nil
+	return SpawnTicket{AgentID: job.AgentID, Queued: state.wasQueued}, admissionForState(state), nil
 }
 
 // MarkDelivered acknowledges completions the parent has consumed, identified by

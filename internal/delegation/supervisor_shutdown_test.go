@@ -83,6 +83,7 @@ func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
 					t.Fatalf("CancelAgent = %v", got)
 				}
 				waitClosed(t, entered, "CancelAgent finalizer")
+				finalizerState := jobFor(s, "cancelled")
 				shutdown := make(chan struct{})
 				go func() { s.Shutdown(context.Background(), CancelCauseSystem); close(shutdown) }()
 				if releaseBeforeDeadline {
@@ -139,14 +140,7 @@ func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
 					s.MarkDelivered([]string{"call-cancelled"})
 				}
 				waitClosed(t, callbackDone, "cancellation callback return")
-				state := jobFor(s, "cancelled")
-				if state != nil {
-					select {
-					case <-state.settled:
-					default:
-						t.Fatal("callback returned before finalizer settlement")
-					}
-				}
+				waitClosed(t, finalizerState.settled, "cancellation finalizer settlement")
 				if mode == "async" && releaseBeforeDeadline {
 					if s.IsPending("cancelled") {
 						t.Fatal("acknowledged async job remains pending")
@@ -210,8 +204,8 @@ func TestShutdownUnpublishedBlockingTimeoutPreservesResultAndScope(t *testing.T)
 	if len(s.SnapshotGroupLedger(scope).Names) != 1 {
 		t.Fatal("scope lost before finalization")
 	}
-	close(callbackRelease)
 	state := jobFor(s, "blocking-late")
+	close(callbackRelease)
 	waitClosed(t, state.settled, "blocking finalizer settlement")
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 {
 		t.Fatalf("scope released before caller ack: %v", got)
