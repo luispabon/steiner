@@ -82,12 +82,8 @@ func (b *contentBuffer) applyFinishedToolCallToDelegation(idx int, payload outpu
 		if dd == nil || dd.parentCallID == "" || !callIDsMatch(dd.parentCallID, payload.CallID) {
 			return false
 		}
-		if dd.agentID == "" && payload.Error != "" {
-			b.removeFromPendingDelegateParents(dd)
-			b.clearQueuedDelegation(payload.CallID)
-			dd.status = "failed"
-			seg.renderDirty = true
-			b.gen++
+		if shouldShowFinishedDelegationFailure(dd, payload) {
+			b.showFinishedDelegationFailure(seg, dd, payload.CallID)
 		}
 		return true
 	case segmentDelegationGroup:
@@ -100,12 +96,8 @@ func (b *contentBuffer) applyFinishedToolCallToDelegation(idx int, payload outpu
 			if dd == nil || dd.parentCallID == "" || !callIDsMatch(dd.parentCallID, payload.CallID) {
 				continue
 			}
-			if dd.agentID == "" && payload.Error != "" && !dd.groupAccepted {
-				b.removeFromPendingDelegateParents(dd)
-				b.clearQueuedDelegation(payload.CallID)
-				dd.status = "failed"
-				seg.renderDirty = true
-				b.gen++
+			if shouldShowFinishedDelegationFailure(dd, payload) {
+				b.showFinishedDelegationFailure(seg, dd, payload.CallID)
 			}
 			return true
 		}
@@ -113,6 +105,18 @@ func (b *contentBuffer) applyFinishedToolCallToDelegation(idx int, payload outpu
 	default:
 		return false
 	}
+}
+
+func shouldShowFinishedDelegationFailure(dd *delegationDisplayState, payload output.ToolCallFinishedEvent) bool {
+	return dd != nil && dd.agentID == "" && payload.Error != ""
+}
+
+func (b *contentBuffer) showFinishedDelegationFailure(seg *contentSegment, dd *delegationDisplayState, callID string) {
+	b.removeFromPendingDelegateParents(dd)
+	b.clearQueuedDelegation(callID)
+	dd.status = "failed"
+	seg.renderDirty = true
+	b.gen++
 }
 
 func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -115,7 +116,9 @@ func TestDelegationGroupingAcrossAssistantMessageBoundaries(t *testing.T) {
 	if len(b.segments) != 2 || b.segments[0].kind != segmentDelegationGroup || b.segments[1].kind != segmentDelegationGroup {
 		t.Fatalf("different accepted batches should remain separate singleton frames, got kinds %v", segmentKinds(b.segments))
 	}
-	if len(b.segments[0].delegGroupData.entries) != 1 || len(b.segments[1].delegGroupData.entries) != 1 { t.Fatal("different batch cards were combined") }
+	if len(b.segments[0].delegGroupData.entries) != 1 || len(b.segments[1].delegGroupData.entries) != 1 {
+		t.Fatal("different batch cards were combined")
+	}
 }
 
 func segmentKinds(segments []contentSegment) []contentSegmentKind {

@@ -291,8 +291,7 @@ type contentSegment struct {
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type contentBuffer struct {
-	// delegationBatch identifies the current tool batch for delegate grouping;
-	// bumped on each AssistantMessage and whenever a non-delegation segment lands.
+	// delegationBatch is legacy display bookkeeping; accepted membership uses runtime batch IDs.
 	delegationBatch   int
 	structureGen      uint64
 	segments          []contentSegment

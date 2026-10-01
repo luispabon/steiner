@@ -40,33 +40,47 @@ func (b *contentBuffer) appendDelegationAcceptedEvent(event output.Event) {
 	b.regroupAcceptedDelegations()
 }
 
-func (b *contentBuffer) regroupAcceptedDelegations() {
-	type token struct {
-		segment contentSegment
-		dd      *delegationDisplayState
-		old     int
-	}
-	var tokens []token
-	for oldIndex, seg := range b.segments {
+type delegationSegmentToken struct {
+	segment contentSegment
+	dd      *delegationDisplayState
+	old     int
+}
+
+func flattenDelegationSegments(segments []contentSegment) []delegationSegmentToken {
+	var tokens []delegationSegmentToken
+	for old, seg := range segments {
 		switch seg.kind {
 		case segmentDelegation:
-			tokens = append(tokens, token{segment: seg, dd: seg.delegData, old: oldIndex})
+			tokens = append(tokens, delegationSegmentToken{segment: seg, dd: seg.delegData, old: old})
 		case segmentDelegationGroup:
 			for _, dd := range seg.delegGroupData.entries {
-				tokens = append(tokens, token{segment: seg, dd: dd, old: oldIndex})
+				tokens = append(tokens, delegationSegmentToken{segment: seg, dd: dd, old: old})
 			}
 		default:
-			tokens = append(tokens, token{segment: seg, old: oldIndex})
+			tokens = append(tokens, delegationSegmentToken{segment: seg, old: old})
 		}
 	}
+	return tokens
+}
+
+func (b *contentBuffer) regroupAcceptedDelegations() {
+	tokens := flattenDelegationSegments(b.segments)
 	members := make(map[delegationMembership][]*delegationDisplayState)
 	for _, tok := range tokens {
 		if key, ok := acceptedMembership(tok.dd); ok {
 			members[key] = append(members[key], tok.dd)
 		}
 	}
+	next, oldToNew := buildRegroupedSegments(tokens, members)
+	if sameSegments(next, b.segments) {
+		return
+	}
+	b.commitSegmentRewrite(next, oldToNew)
+}
+
+func buildRegroupedSegments(tokens []delegationSegmentToken, members map[delegationMembership][]*delegationDisplayState) ([]contentSegment, map[int]int) {
 	next := make([]contentSegment, 0, len(tokens))
-	oldToNew := make(map[int]int, len(b.segments))
+	oldToNew := make(map[int]int, len(tokens))
 	seen := make(map[delegationMembership]bool)
 	for _, tok := range tokens {
 		if tok.dd == nil {
@@ -75,28 +89,25 @@ func (b *contentBuffer) regroupAcceptedDelegations() {
 			continue
 		}
 		key, grouped := acceptedMembership(tok.dd)
-		if grouped {
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
+		if !grouped {
 			seg := tok.segment
-			seg.kind, seg.delegData = segmentDelegationGroup, nil
-			seg.delegGroupData = &delegationGroupSegment{entries: append([]*delegationDisplayState(nil), members[key]...)}
-			seg.renderDirty = true
+			seg.kind, seg.delegData, seg.delegGroupData = segmentDelegation, tok.dd, nil
 			oldToNew[tok.old] = len(next)
 			next = append(next, seg)
 			continue
 		}
-		tok.segment.kind, tok.segment.delegData = segmentDelegation, tok.dd
-		tok.segment.delegGroupData = nil
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		seg := tok.segment
+		seg.kind, seg.delegData = segmentDelegationGroup, nil
+		seg.delegGroupData = &delegationGroupSegment{entries: append([]*delegationDisplayState(nil), members[key]...)}
+		seg.renderDirty = true
 		oldToNew[tok.old] = len(next)
-		next = append(next, tok.segment)
+		next = append(next, seg)
 	}
-	if sameSegments(next, b.segments) {
-		return
-	}
-	b.commitSegmentRewrite(next, oldToNew)
+	return next, oldToNew
 }
 
 func sameSegments(a, b []contentSegment) bool {
@@ -111,91 +122,111 @@ func sameSegments(a, b []contentSegment) bool {
 	return true
 }
 
+func findDelegationSegment(segments []contentSegment, dd *delegationDisplayState) int {
+	for i, seg := range segments {
+		if seg.delegData == dd {
+			return i
+		}
+		if seg.delegGroupData != nil {
+			for _, entry := range seg.delegGroupData.entries {
+				if entry == dd {
+					return i
+				}
+			}
+		}
+	}
+	return -1
+}
+
+func findToolCallSegment(segments []contentSegment, td *toolCallSegment) int {
+	for i, seg := range segments {
+		if seg.toolData == td {
+			return i
+		}
+		if seg.toolGroupData != nil {
+			for _, entry := range seg.toolGroupData.entries {
+				if entry == td {
+					return i
+				}
+			}
+		}
+	}
+	return -1
+}
+
+func remapDelegationLocators(locators []delegationLocator, segments []contentSegment) []delegationLocator {
+	out := locators[:0]
+	for _, loc := range locators {
+		if index := findDelegationSegment(segments, loc.dd); index >= 0 {
+			out = append(out, delegationLocator{seg: index, dd: loc.dd})
+		}
+	}
+	return out
+}
+
+func remapActiveDelegations(active map[string]delegationLocator, segments []contentSegment) {
+	for key, loc := range active {
+		if index := findDelegationSegment(segments, loc.dd); index < 0 {
+			delete(active, key)
+		} else {
+			active[key] = delegationLocator{seg: index, dd: loc.dd}
+		}
+	}
+}
+
+func remapActiveToolCalls(active map[string]toolCallLocator, segments []contentSegment) {
+	for key, loc := range active {
+		if index := findToolCallSegment(segments, loc.td); index < 0 {
+			delete(active, key)
+		} else {
+			active[key] = toolCallLocator{seg: index, td: loc.td}
+		}
+	}
+}
+
+func remapQueuedDelegations(queued map[string]delegationLocator, segments []contentSegment) {
+	for key, loc := range queued {
+		if index := findDelegationSegment(segments, loc.dd); index < 0 {
+			delete(queued, key)
+		} else {
+			queued[key] = delegationLocator{seg: index, dd: loc.dd}
+		}
+	}
+}
+
 func (b *contentBuffer) commitSegmentRewrite(next []contentSegment, oldToNew map[int]int) {
-	remapDelegation := func(dd *delegationDisplayState) delegationLocator {
-		for i, seg := range next {
-			if seg.delegData == dd {
-				return delegationLocator{seg: i, dd: dd}
-			}
-			if seg.delegGroupData != nil {
-				for _, entry := range seg.delegGroupData.entries {
-					if entry == dd {
-						return delegationLocator{seg: i, dd: dd}
-					}
-				}
-			}
-		}
-		return delegationLocator{seg: -1, dd: dd}
-	}
-	remapTool := func(td *toolCallSegment) toolCallLocator {
-		for i, seg := range next {
-			if seg.toolData == td {
-				return toolCallLocator{seg: i, td: td}
-			}
-			if seg.toolGroupData != nil {
-				for _, entry := range seg.toolGroupData.entries {
-					if entry == td {
-						return toolCallLocator{seg: i, td: td}
-					}
-				}
-			}
-		}
-		return toolCallLocator{seg: -1, td: td}
-	}
-	for key, loc := range b.activeDelegations {
-		loc = remapDelegation(loc.dd)
-		if loc.seg < 0 {
-			delete(b.activeDelegations, key)
-		} else {
-			b.activeDelegations[key] = loc
-		}
-	}
-	for key, loc := range b.activeToolCalls {
-		loc = remapTool(loc.td)
-		if loc.seg < 0 {
-			delete(b.activeToolCalls, key)
-		} else {
-			b.activeToolCalls[key] = loc
-		}
-	}
-	remapList := func(list []delegationLocator) []delegationLocator {
-		out := list[:0]
-		for _, loc := range list {
-			mapped := remapDelegation(loc.dd)
-			if mapped.seg >= 0 {
-				out = append(out, mapped)
-			}
-		}
-		return out
-	}
-	b.pendingDelegateParents = remapList(b.pendingDelegateParents)
-	b.pendingDelegationStarts = remapList(b.pendingDelegationStarts)
-	for key, loc := range b.queuedDelegations {
-		loc = remapDelegation(loc.dd)
-		if loc.seg < 0 {
-			delete(b.queuedDelegations, key)
-		} else {
-			b.queuedDelegations[key] = loc
-		}
-	}
-	if b.activeAdvisorSegment > 0 {
-		if mapped, ok := oldToNew[b.activeAdvisorSegment-1]; ok {
-			b.activeAdvisorSegment = mapped + 1
-		} else {
-			b.activeAdvisorSegment = 0
-		}
-	}
+	remapActiveDelegations(b.activeDelegations, next)
+	remapActiveToolCalls(b.activeToolCalls, next)
+	b.pendingDelegateParents = remapDelegationLocators(b.pendingDelegateParents, next)
+	b.pendingDelegationStarts = remapDelegationLocators(b.pendingDelegationStarts, next)
+	remapQueuedDelegations(b.queuedDelegations, next)
+	b.activeAdvisorSegment = remapAdvisorSegment(b.activeAdvisorSegment, oldToNew)
 	oldCollapse := b.collapseState
 	b.segments = next
-	b.collapseState = make(map[int]bool)
-	for oldIndex, newIndex := range oldToNew {
-		if value, ok := oldCollapse[oldIndex]; ok {
-			b.collapseState[newIndex] = value
-		}
-	}
+	b.collapseState = remapCollapseState(oldCollapse, oldToNew)
 	b.gen++
 	b.structureGen++
 	b.stringCacheWidth, b.stringCacheRendered = 0, ""
 	b.prefixCacheSet, b.prefixCacheRendered = false, ""
 	b.segmentHeights = nil
+}
+
+func remapAdvisorSegment(advisor int, oldToNew map[int]int) int {
+	if advisor <= 0 {
+		return advisor
+	}
+	if mapped, ok := oldToNew[advisor-1]; ok {
+		return mapped + 1
+	}
+	return 0
+}
+
+func remapCollapseState(collapse map[int]bool, oldToNew map[int]int) map[int]bool {
+	remapped := make(map[int]bool)
+	for oldIndex, newIndex := range oldToNew {
+		if value, ok := collapse[oldIndex]; ok {
+			remapped[newIndex] = value
+		}
+	}
+	return remapped
 }

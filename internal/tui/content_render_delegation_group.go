@@ -67,8 +67,7 @@ func (b *contentBuffer) groupGlyphStyle(agg groupAggregate) lipgloss.Style {
 	}
 }
 
-// delegationVisualGroupName returns the shared, trimmed non-empty group label
-// for a rendered box. Unlike delivery grouping, this is independent of batch.
+// delegationVisualGroupName returns the shared accepted tuple's trimmed group label.
 func delegationVisualGroupName(group *delegationGroupSegment) string {
 	if group == nil || len(group.entries) == 0 {
 		return ""
