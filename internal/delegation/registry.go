@@ -266,12 +266,6 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 	return advisorForChild, nil
 }
 
-func ensureRegistryGroupScope(deps *DelegateDeps) {
-	if deps.GroupScope == "" {
-		deps.GroupScope = deps.Supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
-	}
-}
-
 // BuildDelegateRegistry assembles the active registry for a run, cloning the base registry
 // and registering advisor, delegation, and specialized sub-agent tools when enabled.
 func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
@@ -302,7 +296,6 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 			Controller:  deps.ActiveController,
 		})
 	}
-	ensureRegistryGroupScope(&deps)
 
 	mt := deps.MaxTokens
 	store := deps.SessionStore
