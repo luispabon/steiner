@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -232,6 +233,84 @@ func TestResponsesStreamReasoningCompletedOnly(t *testing.T) {
 	}
 	if final.Delta.ProviderMetadata.Codex.ReasoningID != "rs_456" {
 		t.Fatalf("ReasoningID = %q, want %q", final.Delta.ProviderMetadata.Codex.ReasoningID, "rs_456")
+	}
+}
+
+type errorAfterReader struct {
+	reader io.Reader
+	err    error
+}
+
+func (reader errorAfterReader) Read(p []byte) (int, error) {
+	n, err := reader.reader.Read(p)
+	if n > 0 {
+		return n, nil
+	}
+	if errors.Is(err, io.EOF) {
+		return 0, reader.err
+	}
+	if err != nil {
+		return 0, err
+	}
+	return 0, reader.err
+}
+
+func TestResponsesStreamFailureFlushesPendingText(t *testing.T) {
+	failure := errors.New("injected read failure")
+	body := codexSSE(
+		`{"type":"response.output_text.delta","item_id":"m1","output_index":0,"delta":"note"}`,
+		`{"type":"response.output_text.delta","item_id":"m2","output_index":1,"delta":"\n"}`,
+	)
+	var emitted strings.Builder
+	var chunks []ChatChunk
+	err := decodeResponsesStreamWithHandler(context.Background(), errorAfterReader{reader: strings.NewReader(body), err: failure}, func(chunk ChatChunk) error {
+		chunks = append(chunks, chunk)
+		if !chunk.Done {
+			emitted.WriteString(chunk.Delta.Content)
+		}
+		return nil
+	})
+	if !errors.Is(err, failure) || emitted.String() != "note\n\n" {
+		t.Fatalf("error = %v, emitted = %q", err, emitted.String())
+	}
+
+	emitErr := errors.New("emit failed")
+	emitted.Reset()
+	err = decodeResponsesStreamWithHandler(context.Background(), errorAfterReader{reader: strings.NewReader(body), err: failure}, func(chunk ChatChunk) error {
+		emitted.WriteString(chunk.Delta.Content)
+		if chunk.Delta.Content != "note" {
+			return emitErr
+		}
+		return nil
+	})
+	if !errors.Is(err, emitErr) || errors.Is(err, failure) {
+		t.Fatalf("error = %v, want emit error over read error", err)
+	}
+}
+
+func TestResponsesFailedEventFlushesPendingText(t *testing.T) {
+	frames := codexSSE(
+		`{"type":"response.output_text.delta","item_id":"m1","output_index":0,"delta":"note"}`,
+		`{"type":"response.output_text.delta","item_id":"m2","output_index":1,"delta":"\n"}`,
+		`{"type":"response.failed","response":{"error":{"message":"provider failed"}}}`,
+	)
+	var emitted strings.Builder
+	err := decodeResponsesStreamWithHandler(context.Background(), strings.NewReader(frames), func(chunk ChatChunk) error {
+		emitted.WriteString(chunk.Delta.Content)
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "provider failed") || emitted.String() != "note\n\n" {
+		t.Fatalf("error = %v, emitted = %q", err, emitted.String())
+	}
+	emitErr := errors.New("emit failed")
+	err = decodeResponsesStreamWithHandler(context.Background(), strings.NewReader(frames), func(chunk ChatChunk) error {
+		if chunk.Delta.Content != "note" {
+			return emitErr
+		}
+		return nil
+	})
+	if !errors.Is(err, emitErr) {
+		t.Fatalf("error = %v, want emit error", err)
 	}
 }
 

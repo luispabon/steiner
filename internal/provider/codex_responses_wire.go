@@ -320,11 +320,13 @@ func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error)
 			var blockText strings.Builder
 			for _, part := range item.Content {
 				if part.Type == "output_text" || part.Type == "text" {
-					content.WriteString(part.Text)
 					blockText.WriteString(part.Text)
 				}
 			}
-			blocks = append(blocks, CodexMessageBlock{Kind: "message", Phase: item.Phase, Text: blockText.String()})
+			block := CodexMessageBlock{Kind: "message", Phase: item.Phase, Text: blockText.String()}
+			content.WriteString(codexMessageBoundary(content.String(), block.Text))
+			content.WriteString(block.Text)
+			blocks = append(blocks, block)
 		case "function_call":
 			call, err := responsesToolCall(item)
 			if err != nil {

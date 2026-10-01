@@ -59,6 +59,28 @@ func TestAssistantChunkOrderingAcrossThinkingChunk(t *testing.T) {
 	}
 }
 
+func TestAssistantStreamPreservesParagraphSeparatorAcrossChunks(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+	}
+
+	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, "completion.", output.ChunkSourceAssistant))
+	buffer.AppendEvent(output.NewAssistantChunkEventWithSource(1, "\n\nVerification", output.ChunkSourceAssistant))
+	buffer.finishStreaming()
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
+	}
+	if buffer.segments[0].kind != segmentAssistantMarkdown {
+		t.Fatalf("segment kind = %v, want segmentAssistantMarkdown", buffer.segments[0].kind)
+	}
+	if got, want := buffer.segments[0].text, "completion.\n\nVerification"; got != want {
+		t.Errorf("segment text = %q, want %q", got, want)
+	}
+}
+
 func TestThinkingChunkFlushesAssistantBufferEvenWithOpenThinkingSegment(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{

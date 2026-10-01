@@ -302,6 +302,87 @@ func TestCodexWSDoesNotRetryAfterFirstDelta(t *testing.T) {
 	}
 }
 
+func TestCodexWSFlushesPendingTextOnDoneAndReadError(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		done bool
+	}{
+		{name: "bare done", done: true},
+		{name: "read error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := newWSTestServer(t, nil, func(conn *websocket.Conn, _ int) {
+				if !wsServerRead(t, conn) {
+					return
+				}
+				wsServerWrite(t, conn, map[string]any{"type": "response.output_text.delta", "item_id": "m1", "output_index": 0, "delta": "note"})
+				wsServerWrite(t, conn, map[string]any{"type": "response.output_text.delta", "item_id": "m2", "output_index": 1, "delta": "\n"})
+				wsServerWrite(t, conn, map[string]any{"type": "response.output_text.delta", "item_id": "m2", "output_index": 1, "delta": "\n"})
+				if tc.done {
+					if err := conn.Write(context.Background(), websocket.MessageText, []byte("[DONE]")); err != nil {
+						t.Errorf("write done: %v", err)
+					}
+					return
+				}
+				_ = conn.CloseNow()
+			})
+			provider := newTestWSProvider(t, server.wsURL())
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			stream, err := provider.StreamChatCompletion(ctx, ChatRequest{Model: "test-model", Messages: []Message{{Role: MessageRoleUser, Content: "hello"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			chunks := drainChunks(stream)
+			var streamed strings.Builder
+			for _, chunk := range chunks {
+				if !chunk.Done {
+					streamed.WriteString(chunk.Delta.Content)
+				}
+			}
+			if streamed.String() != "note\n\n" {
+				t.Fatalf("streamed = %q, want %q", streamed.String(), "note\n\n")
+			}
+			final := chunks[len(chunks)-1]
+			if tc.done {
+				if !final.Done || final.Error != "" || final.Delta.Content != "note\n\n" {
+					t.Fatalf("terminal = %#v", final)
+				}
+			} else if final.Error == "" {
+				t.Fatalf("last chunk has no transport error: %#v", final)
+			}
+		})
+	}
+}
+
+func TestCodexWSFailedEventFlushesPendingText(t *testing.T) {
+	server := newWSTestServer(t, nil, func(conn *websocket.Conn, _ int) {
+		if !wsServerRead(t, conn) {
+			return
+		}
+		wsServerWrite(t, conn, map[string]any{"type": "response.output_text.delta", "item_id": "m1", "output_index": 0, "delta": "note"})
+		wsServerWrite(t, conn, map[string]any{"type": "response.output_text.delta", "item_id": "m2", "output_index": 1, "delta": "\n"})
+		wsServerWrite(t, conn, map[string]any{"type": "response.failed", "response": map[string]any{"error": map[string]any{"message": "provider failed"}}})
+	})
+	provider := newTestWSProvider(t, server.wsURL())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stream, err := provider.StreamChatCompletion(ctx, ChatRequest{Model: "test-model", Messages: []Message{{Role: MessageRoleUser, Content: "hello"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks := drainChunks(stream)
+	var emitted strings.Builder
+	for _, chunk := range chunks {
+		if !chunk.Done {
+			emitted.WriteString(chunk.Delta.Content)
+		}
+	}
+	if emitted.String() != "note\n\n" || chunks[len(chunks)-1].Error == "" {
+		t.Fatalf("emitted = %q, terminal = %#v", emitted.String(), chunks[len(chunks)-1])
+	}
+}
+
 // TestCodexWSUnaryPathStillReconnects guards the other direction: ChatCompletion
 // buffers, so nothing is visible mid-stream and a failure must still reconnect.
 func TestCodexWSUnaryPathStillReconnects(t *testing.T) {

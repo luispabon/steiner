@@ -81,7 +81,11 @@ func (p *codexWSProvider) sendRequest(ctx context.Context, request ChatRequest, 
 		typ, data, err := p.conn.Read(readCtx)
 		cancelRead()
 		if err != nil {
-			return ChatResponse{}, fmt.Errorf("read response: %w", err)
+			readErr := fmt.Errorf("read response: %w", err)
+			if flushErr := flushPendingResponsesText(&state, emitter.send); flushErr != nil {
+				return ChatResponse{}, flushErr
+			}
+			return ChatResponse{}, readErr
 		}
 
 		if typ != websocket.MessageText {

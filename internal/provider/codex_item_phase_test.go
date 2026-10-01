@@ -41,10 +41,10 @@ func TestCodexStreamItemPhaseAndOrderedRecovery(t *testing.T) {
 			`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"m1","phase":"commentary","content":[{"type":"output_text","text":"note"}]}}`,
 			`{"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","call_id":"c1","name":"tool","arguments":"{}"}}`,
 			`{"type":"response.output_item.done","output_index":2,"item":{"type":"message","id":"m2","phase":"final","content":[{"type":"output_text","text":"answer"}]}}`,
-			`{"type":"response.completed","response":{"output":[{"type":"message","id":"m1","phase":"commentary","content":[{"type":"output_text","text":"note"}]},{"type":"function_call","call_id":"c1","name":"tool","arguments":"{}"},{"type":"message","id":"m2","phase":"final","content":[{"type":"output_text","text":"answer"}]}]}}`, `[DONE]`}, "noteanswer", []string{"commentary", "", "final"}, 1, []string{"note", "answer"}},
+			`{"type":"response.completed","response":{"output":[{"type":"message","id":"m1","phase":"commentary","content":[{"type":"output_text","text":"note"}]},{"type":"function_call","call_id":"c1","name":"tool","arguments":"{}"},{"type":"message","id":"m2","phase":"final","content":[{"type":"output_text","text":"answer"}]}]}}`, `[DONE]`}, "note\n\nanswer", []string{"commentary", "", "final"}, 1, []string{"note", "\n\nanswer"}},
 		{"completed earlier item and suffix", []string{
 			`{"type":"response.output_text.delta","item_id":"m2","output_index":1,"delta":"answer"}`,
-			`{"type":"response.completed","response":{"output":[{"type":"message","id":"m1","phase":"commentary","content":[{"type":"output_text","text":"earlier"}]},{"type":"message","id":"m2","phase":"final","content":[{"type":"output_text","text":"answer plus"}]}]}}`, `[DONE]`}, "earlieranswer plus", []string{"commentary", "final"}, 0, []string{"answer"}},
+			`{"type":"response.completed","response":{"output":[{"type":"message","id":"m1","phase":"commentary","content":[{"type":"output_text","text":"earlier"}]},{"type":"message","id":"m2","phase":"final","content":[{"type":"output_text","text":"answer plus"}]}]}}`, `[DONE]`}, "earlier\n\nanswer plus", []string{"commentary", "final"}, 0, []string{"answer"}},
 		{"terminal authoritative non-prefix content", []string{
 			`{"type":"response.output_text.delta","item_id":"m1","delta":"AB"}`,
 			`{"type":"response.completed","response":{"output":[{"type":"message","id":"m1","content":[{"type":"output_text","text":"XAB"}]}]}}`, `[DONE]`}, "XAB", nil, 0, []string{"AB"}},
@@ -59,7 +59,7 @@ func TestCodexStreamItemPhaseAndOrderedRecovery(t *testing.T) {
 			`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"m1","phase":"commentary","content":[{"type":"output_text","text":"one+"}]}}`,
 			`{"type":"response.output_text.delta","item_id":"m2","output_index":1,"delta":"two"}`,
 			`{"type":"response.output_item.done","output_index":1,"item":{"type":"message","id":"m2","phase":"final","content":[{"type":"output_text","text":"two"}]}}`,
-			`{"type":"response.completed","response":{"output":[{"type":"message","id":"m1","phase":"commentary","content":[{"type":"output_text","text":"one+"}]},{"type":"message","id":"m2","phase":"final","content":[{"type":"output_text","text":"two"}]}]}}`, `[DONE]`}, "one+two", []string{"commentary", "final"}, 0, []string{"one", "+", "two"}},
+			`{"type":"response.completed","response":{"output":[{"type":"message","id":"m1","phase":"commentary","content":[{"type":"output_text","text":"one+"}]},{"type":"message","id":"m2","phase":"final","content":[{"type":"output_text","text":"two"}]}]}}`, `[DONE]`}, "one+\n\ntwo", []string{"commentary", "final"}, 0, []string{"one", "+", "\n\ntwo"}},
 		{"added phase persists when done omits phase", []string{
 			`{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"m1","phase":"commentary"}}`,
 			`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"m1","content":[{"type":"output_text","text":"note"}]}}`,
@@ -77,7 +77,7 @@ func TestCodexStreamItemPhaseAndOrderedRecovery(t *testing.T) {
 			`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"m1","phase":"commentary","content":[{"type":"output_text","text":"same"}]}}`,
 			`{"type":"response.output_text.delta","item_id":"m2","output_index":1,"delta":"same"}`,
 			`{"type":"response.output_item.done","output_index":1,"item":{"type":"message","id":"m2","phase":"final","content":[{"type":"output_text","text":"same"}]}}`,
-			`{"type":"response.completed","response":{"output":[{"type":"message","id":"m1","content":[{"type":"output_text","text":"same"}]},{"type":"message","id":"m2","content":[{"type":"output_text","text":"same"}]}]}}`, `[DONE]`}, "samesame", []string{"commentary", "final"}, 0, []string{"same", "same"}},
+			`{"type":"response.completed","response":{"output":[{"type":"message","id":"m1","content":[{"type":"output_text","text":"same"}]},{"type":"message","id":"m2","content":[{"type":"output_text","text":"same"}]}]}}`, `[DONE]`}, "same\n\nsame", []string{"commentary", "final"}, 0, []string{"same", "\n\nsame"}},
 		{"completed-only idless calls", []string{`{"type":"response.completed","response":{"output":[{"type":"function_call","name":"tool","arguments":"{}"},{"type":"function_call","name":"tool","arguments":"{}"}]}}`, `[DONE]`}, "", nil, 2, nil},
 		{"one streamed call reconciles to two completed idless calls", []string{
 			`{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","name":"tool","arguments":"{}"}}`,
@@ -181,7 +181,7 @@ func TestCodexWSTransportMixedItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Message.Content != "noteanswer" || len(response.Message.ToolCalls) != 1 {
+	if response.Message.Content != "note\n\nanswer" || len(response.Message.ToolCalls) != 1 {
 		t.Fatalf("response = %#v", response.Message)
 	}
 	if response.Message.ProviderMetadata == nil || len(response.Message.ProviderMetadata.Codex.Blocks) != 3 {
@@ -207,7 +207,7 @@ func TestCodexWSSharedDecoderMixedItems(t *testing.T) {
 		}
 	}
 	final := responsesStreamStateToChatChunk(state)
-	if len(final.Delta.ToolCalls) != 1 || final.Delta.Content != "commentfinal" || !final.ContentSnapshot {
+	if len(final.Delta.ToolCalls) != 1 || final.Delta.Content != "comment\n\nfinal" || !final.ContentSnapshot {
 		t.Fatalf("final = %#v", final)
 	}
 	if len(final.Delta.ProviderMetadata.Codex.Blocks) != 3 {

@@ -130,6 +130,18 @@ func streamedPhase(streamed []responsesLedgerEntry, used []bool, id string, inde
 	return ""
 }
 
+func codexMessageBoundary(previous, next string) string {
+	if previous == "" || next == "" {
+		return ""
+	}
+	trailing := len(previous) - len(strings.TrimRight(previous, "\n"))
+	leading := len(next) - len(strings.TrimLeft(next, "\n"))
+	if trailing+leading >= 2 {
+		return ""
+	}
+	return strings.Repeat("\n", 2-trailing-leading)
+}
+
 func (state *responsesStreamState) projected() ([]CodexMessageBlock, []ToolCall, string) {
 	order := make([]int, len(state.ledger))
 	for i := range order {
@@ -163,6 +175,7 @@ func (state *responsesStreamState) projected() ([]CodexMessageBlock, []ToolCall,
 			}
 			block := CodexMessageBlock{Kind: "message", Phase: entry.phase, Text: text.String()}
 			blocks = append(blocks, block)
+			content.WriteString(codexMessageBoundary(content.String(), block.Text))
 			content.WriteString(block.Text)
 		} else if entry.kind == "function_call" && entry.completed && entry.call != nil {
 			blocks = append(blocks, CodexMessageBlock{Kind: "function_call", CallID: entry.call.ID})
