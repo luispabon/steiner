@@ -34,7 +34,7 @@ func (b *contentBuffer) deliveredLookup(item output.DeliveredSubAgent) delivered
 		if dd == nil {
 			return false
 		}
-		if (item.AgentID != "" && dd.agentID == item.AgentID) || (item.ParentCallID != "" && dd.parentCallID == item.ParentCallID) {
+		if deliveredMatchesDelegation(item, dd) {
 			found = dd
 			return true
 		}
@@ -44,15 +44,25 @@ func (b *contentBuffer) deliveredLookup(item output.DeliveredSubAgent) delivered
 		return deliveredLookup{}
 	}
 	info := deliveredLookup{group: found.group, reason: found.failureReason, elapsed: found.elapsed}
-	if found.group != "" {
+	if key, valid := acceptedMembership(found); valid {
 		b.forEachDelegationReverse(func(loc delegationLocator) bool {
-			if loc.dd != nil && loc.dd.group == found.group && loc.dd.batch == found.batch {
+			if otherKey, ok := acceptedMembership(loc.dd); ok && otherKey == key {
 				info.groupSize++
 			}
 			return false
 		})
 	}
 	return info
+}
+
+func deliveredMatchesDelegation(item output.DeliveredSubAgent, dd *delegationDisplayState) bool {
+	if dd == nil {
+		return false
+	}
+	if item.AgentID != "" {
+		return dd.agentID == item.AgentID
+	}
+	return item.ParentCallID != "" && dd.parentCallID == item.ParentCallID
 }
 
 // renderSubAgentsFinishedSegment renders the delivery row: a bullet, an

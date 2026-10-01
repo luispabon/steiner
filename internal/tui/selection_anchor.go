@@ -11,11 +11,12 @@ import (
 // time, so the endpoint can be remapped onto the same text row after a
 // same-width content change moves rows around.
 type selectionAnchor struct {
-	segIndex  int
-	rowInSeg  int
-	rowText   string // ansi.Strip of the rendered line at anchor time
-	renderGen int    // records contentSegment.renderGen at capture time
-	ok        bool
+	segIndex     int
+	rowInSeg     int
+	rowText      string // ansi.Strip of the rendered line at anchor time
+	renderGen    int    // records contentSegment.renderGen at capture time
+	structureGen uint64
+	ok           bool
 }
 
 // segmentRenderedLines returns the lines of a segment's cached render, split
@@ -37,11 +38,12 @@ func (b *contentBuffer) selectionAnchorForSegmentRow(segIndex, rowInSeg int) sel
 		return selectionAnchor{}
 	}
 	return selectionAnchor{
-		segIndex:  segIndex,
-		rowInSeg:  rowInSeg,
-		rowText:   ansi.Strip(lines[rowInSeg]),
-		renderGen: b.segments[segIndex].renderGen,
-		ok:        true,
+		segIndex:     segIndex,
+		rowInSeg:     rowInSeg,
+		rowText:      ansi.Strip(lines[rowInSeg]),
+		renderGen:    b.segments[segIndex].renderGen,
+		structureGen: b.structureGen,
+		ok:           true,
 	}
 }
 
@@ -127,7 +129,7 @@ func (m *Model) remapViewportSelection() {
 // segment's render generation is unchanged, the rows are identical and only the
 // absolute content line needs recomputing.
 func (m *Model) remapEndpoint(p *selectionPoint, anchor *selectionAnchor) bool {
-	if !anchor.ok {
+	if !anchor.ok || anchor.structureGen != m.content.structureGen {
 		return false
 	}
 	if anchor.segIndex < 0 || anchor.segIndex >= len(m.content.segments) || m.content.isSegmentHidden(anchor.segIndex) {

@@ -100,7 +100,7 @@ func (b *contentBuffer) applyFinishedToolCallToDelegation(idx int, payload outpu
 			if dd == nil || dd.parentCallID == "" || !callIDsMatch(dd.parentCallID, payload.CallID) {
 				continue
 			}
-			if dd.agentID == "" && payload.Error != "" {
+			if dd.agentID == "" && payload.Error != "" && !dd.groupAccepted {
 				b.removeFromPendingDelegateParents(dd)
 				b.clearQueuedDelegation(payload.CallID)
 				dd.status = "failed"
@@ -323,6 +323,10 @@ func (b *contentBuffer) AppendImagesAttached(images []agent.ImageBlock, workingD
 }
 
 func (b *contentBuffer) Clear() {
+	b.structureGen++
+	if b.structureGen == 0 {
+		b.structureGen++
+	}
 	b.segments = nil
 	b.segmentHeights = nil
 	b.streamBuffer = ""

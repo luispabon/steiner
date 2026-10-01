@@ -442,40 +442,6 @@ func (b *contentBuffer) removeFromPendingDelegateParents(dd *delegationDisplaySt
 	}
 }
 
-// appendAdjacentDelegation merges dd into the preceding delegation segment when
-// adjacency allows, returning the segment index it landed in.
-func (b *contentBuffer) appendAdjacentDelegation(dd *delegationDisplayState) (int, bool) {
-	if dd == nil || dd.isAdvisor {
-		return 0, false
-	}
-	if len(b.segments) == 0 {
-		return 0, false
-	}
-	last := &b.segments[len(b.segments)-1]
-	switch last.kind {
-	case segmentDelegation:
-		if last.delegData == nil || last.delegData.isAdvisor || dd.isAdvisor {
-			return 0, false
-		}
-		last.delegGroupData = &delegationGroupSegment{entries: []*delegationDisplayState{last.delegData, dd}}
-		last.delegData = nil
-		last.kind = segmentDelegationGroup
-		last.renderDirty = true
-		b.gen++
-		return len(b.segments) - 1, true
-	case segmentDelegationGroup:
-		if last.delegGroupData == nil || len(last.delegGroupData.entries) == 0 || dd.isAdvisor {
-			return 0, false
-		}
-		last.delegGroupData.entries = append(last.delegGroupData.entries, dd)
-		last.renderDirty = true
-		b.gen++
-		return len(b.segments) - 1, true
-	default:
-		return 0, false
-	}
-}
-
 // delegationGroupArg extracts the trimmed "group" label from sub_agent args.
 func delegationGroupArg(args map[string]any) string {
 	g, _ := args["group"].(string)
@@ -484,9 +450,6 @@ func delegationGroupArg(args map[string]any) string {
 
 func (b *contentBuffer) appendDelegationSegment(dd *delegationDisplayState) int {
 	dd.batch = b.delegationBatch
-	if idx, merged := b.appendAdjacentDelegation(dd); merged {
-		return idx
-	}
 	b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: dd, renderDirty: true})
 	return len(b.segments) - 1
 }
@@ -562,8 +525,8 @@ func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload ou
 	dd := loc.dd
 	dd.parentCallID = payload.CallID
 	dd.parentArgs = summarizeArgs(payload.Tool, payload.Arguments)
-	if g := delegationGroupArg(payload.Arguments); g != "" {
-		dd.group = g
+	if accepted, ok := b.acceptedDelegations[payload.CallID]; ok {
+		dd.groupAccepted, dd.batchID, dd.group = true, accepted.BatchID, strings.TrimSpace(accepted.Group)
 	}
 	toolLabel, promptText, brief := delegateCallDetails(payload.Tool, payload.Arguments)
 	if brief != nil {
@@ -578,6 +541,7 @@ func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload ou
 		dd.toolLabel = toolLabel
 	}
 	b.markDelegationDirty(loc.seg)
+	b.regroupAcceptedDelegations()
 }
 
 func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallStartedEvent) {
@@ -623,6 +587,7 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 	dd.toolLabel = childToolLabel
 	b.markDelegationDirty(loc.seg)
 	b.pendingDelegateParents = append(b.pendingDelegateParents, loc)
+	b.regroupAcceptedDelegations()
 }
 
 func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolCallStartedEvent) {
@@ -653,7 +618,6 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		promptCollapsed: true,
 		parentCallID:    payload.CallID,
 		parentArgs:      summary,
-		group:           delegationGroupArg(payload.Arguments),
 		status:          "active",
 		collapsed:       true,
 	}
@@ -709,7 +673,6 @@ func (b *contentBuffer) appendToolCallQueuedEvent(event output.Event) {
 		promptCollapsed: true,
 		parentCallID:    payload.CallID,
 		parentArgs:      summary,
-		group:           delegationGroupArg(payload.Arguments),
 		queuedForSlot:   true,
 		status:          "active",
 		collapsed:       true,
@@ -815,6 +778,9 @@ func (b *contentBuffer) bindDelegation(agentID, callID, agentType, taskPreview, 
 		}
 		dd.status = "active"
 		dd.collapsed = true
+		if accepted, ok := b.acceptedDelegations[dd.parentCallID]; ok {
+			dd.groupAccepted, dd.batchID, dd.group = true, accepted.BatchID, strings.TrimSpace(accepted.Group)
+		}
 		b.activeDelegations[agentID] = loc
 		b.markDelegationDirty(loc.seg)
 	}
@@ -837,6 +803,9 @@ func (b *contentBuffer) bindDelegation(agentID, callID, agentType, taskPreview, 
 	}
 	if modelAlias != "" {
 		dd.modelName, dd.reasoning = b.resolveAliasBadge(modelAlias)
+	}
+	if accepted, ok := b.acceptedDelegations[callID]; ok {
+		dd.groupAccepted, dd.batchID, dd.group = true, accepted.BatchID, strings.TrimSpace(accepted.Group)
 	}
 	idx := b.appendDelegationSegment(dd)
 	loc := delegationLocator{seg: idx, dd: dd}

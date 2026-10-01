@@ -66,7 +66,7 @@ Running plus queued sub-agents are capped at twice `max_parallel`; a spawn over 
 
 #### Async UX in the TUI
 
-- **Delegate boxes.** Directly adjacent stored delegation cards share one frame, regardless of assistant response batch or `group` label. If the cards share a nonempty trimmed label, it appears in the frame's bottom footer; otherwise there is no label footer.
+- **Delegate boxes.** Cards share a frame only when runtime admission accepted them with the same nonempty group name in the same tool batch. Members keep their original card order and appear together at the first member's position; intervening transcript items keep their relative order.
 - **Delivery rows.** Each delivery adds a "sub-agent(s) finished" row to the conversation: a single line for one agent, a header plus one line per member for several. Each shows its outcome (`✓` complete, `✗` failed, `?` lost when the session restarted), with a failure reason clipped.
 - **Sidebar.** The SUB-AGENTS section lists running, queued and finished agents, grouped. Finished entries stay until their result has been delivered and the next prompt is submitted. The list collapses past about 8 rows.
 - **Status bar chip.** `sub-agents finished/total` shows progress, with the queued count and `✗` on failures. It sits right after the sandbox badge; when space is tight, truncation from the right drops it only after ctx, `Ctrl+F1 help` and `^B sidebar`.
