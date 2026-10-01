@@ -1894,14 +1894,13 @@ func TestSubAgentTypesMixedGroupsWithDefaultBorder(t *testing.T) {
 	buffer.AppendEvent(output.NewDelegationAcceptedEvent("call_2", "", "batch", "code"))
 	buffer.AppendEvent(output.NewDelegationStartedEvent("child-2", "second"))
 
-	if len(buffer.segments) != 1 || buffer.segments[0].kind != segmentDelegationGroup {
-		t.Fatalf("expected one delegationGroup segment")
+	if len(buffer.segments) != 2 || buffer.segments[0].kind != segmentDelegationGroup || buffer.segments[1].kind != segmentDelegationGroup {
+		t.Fatalf("different accepted groups should remain separate singleton cards, got kinds %v", segmentKinds(buffer.segments))
 	}
-
-	group := buffer.segments[0].delegGroupData
-	label := delegationGroupBorderLabel(group)
-	if label != "" {
-		t.Errorf("border label = %q, want empty string for mixed types", label)
+	for _, seg := range buffer.segments {
+		if len(seg.delegGroupData.entries) != 1 {
+			t.Errorf("group entries = %d, want one", len(seg.delegGroupData.entries))
+		}
 	}
 }
 

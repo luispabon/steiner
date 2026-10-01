@@ -2367,15 +2367,11 @@ func TestAppendEventScopedChildEventsRouteByAgentID(t *testing.T) {
 	))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "second child answer", output.ChunkSourceAssistant), "child-2"))
 
-	if buffer.segments[0].kind != segmentDelegationGroup {
-		t.Fatalf("segment 0 kind = %v, want segmentDelegationGroup (consecutive delegations merge)", buffer.segments[0].kind)
+	if len(buffer.segments) != 2 || buffer.segments[0].delegData == nil || buffer.segments[1].delegData == nil {
+		t.Fatalf("segments = %v, want two unaccepted delegation cards", segmentKinds(buffer.segments))
 	}
-	group := buffer.segments[0].delegGroupData
-	if group == nil || len(group.entries) != 2 {
-		t.Fatalf("group has %d entries, want 2", len(group.entries))
-	}
-	first := group.entries[0]
-	second := group.entries[1]
+	first := buffer.segments[0].delegData
+	second := buffer.segments[1].delegData
 	if got := len(first.entries); got != 1 {
 		t.Fatalf("child-1 entries count = %d, want 1", got)
 	}
