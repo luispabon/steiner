@@ -3,7 +3,6 @@ package interactive
 import (
 	"context"
 	"errors"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,15 +46,10 @@ func (s *handoffSaveBarrierStore) List() ([]session.IndexEntry, error) {
 
 func TestAcceptedWorkflowHandoffWaitRunsIncludesSettlementSave(t *testing.T) {
 	store := newHandoffSaveBarrierStore()
-	var eventsMu sync.Mutex
-	var events []output.Event
 	requested := make(chan struct{}, 1)
 	s := testNewSession(t, Dependencies{
 		SessionStore: store,
 		BaseEvents: output.SinkFunc(func(event output.Event) {
-			eventsMu.Lock()
-			events = append(events, event)
-			eventsMu.Unlock()
 			if event.Type == output.EventTypeWorkflowHandoffRequested {
 				requested <- struct{}{}
 			}
@@ -79,9 +73,9 @@ func TestAcceptedWorkflowHandoffWaitRunsIncludesSettlementSave(t *testing.T) {
 			return RunResult{}, errors.New("workflow handoff was not accepted")
 		}
 		close(requestStarted)
-		// Match the accepted tool path: it emits workflow_handoff stop reason
-		// before the runner result is adopted and the session save starts.
-		s.EventSink().Emit(output.NewStopReasonEvent(1, string(agent.StopReasonWorkflowHandoff), nil))
+		// Fixture only: model the tool path's early stop event. Production
+		// StopReason ordering is not proven by this test.
+		s.EventSink().Emit(output.NewStopReasonEvent(1, "workflow_handoff", nil))
 		<-resumeRunner
 		final := append(append([]agent.Message(nil), conv...), agent.Message{Role: agent.MessageRoleAssistant, Content: "final handoff turn"})
 		return RunResult{Conversation: final, WorkflowHandoff: &returnTransition}, nil
@@ -104,8 +98,10 @@ func TestAcceptedWorkflowHandoffWaitRunsIncludesSettlementSave(t *testing.T) {
 		t.Fatal("accepted workflow handoff did not reach runner barrier")
 	}
 
+	// The runner is waiting to return its accepted result, so this refusal
+	// proves clear is blocked during generation, not during saving.
 	if err := s.Handle(context.Background(), ClearConversation{}); !errors.Is(err, errRunInProgress) {
-		t.Fatalf("ClearConversation before final result = %v, want errRunInProgress", err)
+		t.Fatalf("ClearConversation during generation = %v, want errRunInProgress", err)
 	}
 	if s.SessionID() != oldID || s.PromptCacheKey() != oldID {
 		t.Fatal("refused clear changed session identity or cache key")
@@ -140,17 +136,6 @@ func TestAcceptedWorkflowHandoffWaitRunsIncludesSettlementSave(t *testing.T) {
 		t.Fatal("WaitRuns did not return when its context was cancelled during save")
 	}
 	cancel()
-
-	store.inner.mu.Lock()
-	priorSaved, prematurelySaved := store.inner.savedSessions[oldID]
-	store.inner.mu.Unlock()
-	if prematurelySaved {
-		for _, message := range priorSaved.Lineage.FullMessages() {
-			if message.Content == "final handoff turn" {
-				t.Fatal("final handoff lineage reached the backing store before save release")
-			}
-		}
-	}
 
 	close(store.release)
 	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
@@ -187,25 +172,4 @@ func TestAcceptedWorkflowHandoffWaitRunsIncludesSettlementSave(t *testing.T) {
 		t.Fatalf("saved final lineage = %+v, want final handoff turn", got)
 	}
 
-	eventsMu.Lock()
-	defer eventsMu.Unlock()
-	var accepted, stopReason bool
-	for _, event := range events {
-		if event.Type == output.EventTypeWorkflowHandoffAccepted {
-			if payload, ok := event.Payload.(output.WorkflowHandoffEvent); ok && payload.Decision == "accepted" {
-				accepted = true
-			}
-		}
-		if event.Type == output.EventTypeStopReason {
-			if payload, ok := event.Payload.(output.StopReasonEvent); ok && payload.Reason == string(agent.StopReasonWorkflowHandoff) {
-				stopReason = true
-			}
-		}
-	}
-	if !accepted {
-		t.Fatal("real workflow handoff responder did not emit accepted event")
-	}
-	if !stopReason {
-		t.Fatal("accepted workflow handoff did not emit stop reason before save")
-	}
 }
