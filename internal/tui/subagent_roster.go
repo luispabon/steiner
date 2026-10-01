@@ -19,16 +19,17 @@ const (
 // rosterEntry is one sub-agent dispatched since the last user prompt. It is
 // comparable so snapshots can be diffed for render caching.
 type rosterEntry struct {
-	agentID    string
-	agentType  string
-	group      string
-	batchID    string
-	accepted   bool
-	status     string
-	startTime  int64 // unix nano; set on queue, reset when the agent starts
-	finishTime int64 // unix nano; 0 until finished
-	delivered  bool
-	seq        int // insertion order, tie-breaker for deterministic sorting
+	agentID       string
+	currentCallID string
+	agentType     string
+	group         string
+	batchID       string
+	accepted      bool
+	status        string
+	startTime     int64 // unix nano; set on queue, reset when the agent starts
+	finishTime    int64 // unix nano; 0 until finished
+	delivered     bool
+	seq           int // insertion order, tie-breaker for deterministic sorting
 }
 
 func (e rosterEntry) finished() bool {
@@ -62,38 +63,58 @@ func (r *subAgentRoster) begin(agentID, agentType, callID, status string, now in
 		return
 	}
 	admission, accepted := r.admissions[callID]
-	if !accepted || admission.AgentID != agentID {
+	if accepted && admission.AgentID != agentID {
+		accepted = false
+	}
+	e, existed := r.entries[agentID]
+	if existed && e.accepted && !e.finished() && !accepted && (callID == "" || e.currentCallID != callID) {
 		return
 	}
-	e := r.upsert(agentID)
-	restarting := e.finished()
+	if !existed {
+		e = r.upsert(agentID)
+	}
+	restarting := e.finished() || (e.currentCallID != "" && e.currentCallID != callID)
 	if restarting {
 		e.status = status
 		e.startTime = now
 		e.finishTime = 0
 		e.delivered = false
 	}
+	e.currentCallID = callID
+	e.accepted = accepted
+	e.group = ""
+	e.batchID = ""
+	if accepted {
+		e.group = admission.Group
+		e.batchID = admission.BatchID
+	}
 	if !restarting {
 		if t := strings.TrimSpace(agentType); t != "" {
 			e.agentType = t
 		}
 	}
-	e.accepted = true
-	e.group = admission.Group
-	e.batchID = admission.BatchID
 	if e.startTime == 0 || status == rosterRunning {
 		e.startTime = now
 	}
 	e.status = status
 }
 
-func (r *subAgentRoster) finish(agentID, agentType, status string, durationMs, now int64) {
+func (r *subAgentRoster) finish(agentID, agentType, callID, status string, durationMs, now int64) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" || strings.EqualFold(strings.TrimSpace(agentType), "advisor") {
 		return
 	}
 	e, ok := r.entries[agentID]
-	if !ok || !e.accepted {
+	if !ok {
+		if callID != "" {
+			return
+		}
+		e = r.upsert(agentID)
+	}
+	if callID != "" && e.currentCallID != callID {
+		return
+	}
+	if e.accepted && callID == "" && status != rosterDone {
 		return
 	}
 	if t := strings.TrimSpace(agentType); t != "" && e.agentType == "" {
@@ -102,7 +123,7 @@ func (r *subAgentRoster) finish(agentID, agentType, status string, durationMs, n
 	if e.startTime == 0 {
 		e.startTime = now - durationMs*1_000_000
 	}
-	if e.finished() && e.status != rosterDone {
+	if e.finished() {
 		return
 	}
 	e.status = status
@@ -117,25 +138,22 @@ func (r *subAgentRoster) finish(agentID, agentType, status string, durationMs, n
 func (r *subAgentRoster) observe(event output.Event, now int64) {
 	switch p := event.Payload.(type) {
 	case output.DelegationAcceptedEvent:
-		r.recordAdmission(p.CallID, output.DelegationAdmission{Status: "accepted", AgentID: p.AgentID, BatchID: p.BatchID, Group: p.Group})
+		admission := output.DelegationAdmission{Status: "accepted", AgentID: p.AgentID, BatchID: p.BatchID, Group: p.Group}
+		r.recordAdmission(p.CallID, admission)
+		r.applyAdmission(p.CallID, admission)
 	case output.ToolCallFinishedEvent:
 		if p.DelegationAdmission != nil && p.DelegationAdmission.Status == "accepted" {
 			r.recordAdmission(p.CallID, *p.DelegationAdmission)
+			r.applyAdmission(p.CallID, *p.DelegationAdmission)
 		}
 	case output.DelegationQueuedEvent:
 		r.begin(p.AgentID, p.AgentType, p.CallID, rosterQueued, now)
 	case output.DelegationStartedEvent:
 		r.begin(p.AgentID, p.AgentType, p.CallID, rosterRunning, now)
 	case output.DelegationCompleteEvent:
-		r.finish(p.AgentID, p.AgentType, completionStatus(p.Status), p.DurationMs, now)
+		r.finish(p.AgentID, p.AgentType, "", completionStatus(p.Status), p.DurationMs, now)
 	case output.DelegationFailedEvent:
-		if p.CallID != "" {
-			admission, ok := r.admissions[p.CallID]
-			if !ok || admission.AgentID != strings.TrimSpace(p.AgentID) {
-				return
-			}
-		}
-		r.finish(p.AgentID, p.AgentType, rosterFailed, p.DurationMs, now)
+		r.finish(p.AgentID, p.AgentType, p.CallID, rosterFailed, p.DurationMs, now)
 	case output.SubAgentsDeliveredEvent:
 		for _, item := range p.Items {
 			r.deliver(item, now)
@@ -148,6 +166,17 @@ func (r *subAgentRoster) observe(event output.Event, now int64) {
 		if output.ContextDiagnosticKind(p) == "session_loaded" {
 			r.prune()
 		}
+	}
+}
+
+func (r *subAgentRoster) applyAdmission(callID string, admission output.DelegationAdmission) {
+	if callID == "" || admission.AgentID == "" {
+		return
+	}
+	if e, ok := r.entries[admission.AgentID]; ok && e.currentCallID == callID {
+		e.accepted = true
+		e.group = admission.Group
+		e.batchID = admission.BatchID
 	}
 }
 
@@ -175,17 +204,28 @@ func (r *subAgentRoster) deliver(item output.DeliveredSubAgent, now int64) {
 		return
 	}
 	admission, accepted := r.admissions[item.ParentCallID]
-	if !accepted || admission.AgentID != id {
-		return
+	if accepted && admission.AgentID != id {
+		accepted = false
 	}
 	e, known := r.entries[id]
 	if !known {
 		e = r.upsert(id)
+	}
+	currentMatch := item.ParentCallID == "" || e.currentCallID == "" || e.currentCallID == item.ParentCallID
+	if accepted && currentMatch {
+		e.currentCallID = item.ParentCallID
 		e.accepted = true
 		e.group = admission.Group
 		e.batchID = admission.BatchID
 	}
+	if !accepted && currentMatch && !e.accepted {
+		e.group = ""
+		e.batchID = ""
+	}
 	if !e.finished() || item.Status == rosterLost {
+		if e.accepted && !currentMatch {
+			return
+		}
 		status := rosterDone
 		switch item.Status {
 		case rosterLost:

@@ -12,10 +12,6 @@ import (
 
 func ev(payload any) output.Event { return output.Event{Payload: payload} }
 
-func accept(r *subAgentRoster, callID, agentID string) {
-	r.observe(ev(output.DelegationAcceptedEvent{CallID: callID, AgentID: agentID, BatchID: "test-batch"}), 1)
-}
-
 func statusesByID(r *subAgentRoster) map[string]string {
 	out := map[string]string{}
 	for _, e := range r.snapshot() {
@@ -49,7 +45,7 @@ func TestRosterTransitions(t *testing.T) {
 				ev(output.DelegationAcceptedEvent{CallID: "c2call", AgentID: "c2", BatchID: "batch"}),
 				ev(output.DelegationStartedEvent{CallID: "c1call", AgentID: "c1", AgentType: "code"}),
 				ev(output.DelegationStartedEvent{CallID: "c2call", AgentID: "c2", AgentType: "review"}),
-				ev(output.DelegationFailedEvent{AgentID: "c1", AgentType: "code", Error: "boom"}),
+				ev(output.DelegationFailedEvent{CallID: "c1call", AgentID: "c1", AgentType: "code", Error: "boom"}),
 			},
 			want: map[string]string{"c1": rosterFailed, "c2": rosterRunning},
 		},
@@ -94,18 +90,6 @@ func TestRosterTransitions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var r subAgentRoster
-			for _, e := range tc.events {
-				switch p := e.Payload.(type) {
-				case output.DelegationQueuedEvent:
-					accept(&r, p.CallID, p.AgentID)
-				case output.DelegationStartedEvent:
-					accept(&r, p.CallID, p.AgentID)
-				case output.SubAgentsDeliveredEvent:
-					for _, item := range p.Items {
-						accept(&r, item.ParentCallID, item.AgentID)
-					}
-				}
-			}
 			for i, e := range tc.events {
 				r.observe(e, int64(i+1)*1_000_000_000)
 			}
@@ -162,8 +146,8 @@ func TestRosterPrune(t *testing.T) {
 	t.Parallel()
 	seed := func() *subAgentRoster {
 		r := &subAgentRoster{}
-		for _, id := range []string{"run", "q", "bad", "ok"} {
-			accept(r, id, id)
+		for _, item := range []struct{ callID, agentID string }{{"run", "run"}, {"q", "q"}, {"bad", "bad"}, {"ok", "ok"}} {
+			r.observe(ev(output.DelegationAcceptedEvent{CallID: item.callID, AgentID: item.agentID, BatchID: "batch"}), 1)
 		}
 		r.observe(ev(output.DelegationStartedEvent{CallID: "run", AgentID: "run", AgentType: "explore"}), 1)
 		r.observe(ev(output.DelegationQueuedEvent{CallID: "q", AgentID: "q", AgentType: "explore"}), 2)
@@ -202,7 +186,7 @@ func TestRosterSnapshotDeterministicOrder(t *testing.T) {
 	var r subAgentRoster
 	for _, id := range []string{"c5", "c1", "c3", "c2", "c4"} {
 		// identical start times force the seq tie-breaker.
-		accept(&r, id, id)
+		r.observe(ev(output.DelegationAcceptedEvent{CallID: id, AgentID: id, BatchID: "batch"}), 1)
 		r.observe(ev(output.DelegationStartedEvent{AgentID: id, AgentType: "explore", CallID: id}), 100)
 	}
 	for range 20 {
@@ -368,7 +352,7 @@ func TestSyncRosterFrameAdvancesOnlyWhileRunning(t *testing.T) {
 	t.Parallel()
 	m := &Model{}
 	m.sidebar.styles = testStyles(theme.AccentAmber)
-	accept(&m.roster, "c1call", "c1")
+	m.roster.observe(ev(output.DelegationAcceptedEvent{CallID: "c1call", AgentID: "c1", BatchID: "batch"}), 1)
 	m.roster.observe(ev(output.DelegationStartedEvent{CallID: "c1call", AgentID: "c1", AgentType: "explore"}), 1)
 	m.sidebar.tickCount = 3
 	m.syncRoster()
