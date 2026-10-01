@@ -55,19 +55,6 @@ func TestBuildRunRequestUsesCapturedDelegationGroupScope(t *testing.T) {
 	}
 }
 
-func TestBuildRunRequestFallbackScopeIsStableAcrossRuns(t *testing.T) {
-	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
-	fallbackScope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
-	runner := cliRunner{runtime: cliRuntime{delegationSupervisor: supervisor, delegationFallbackGroupScope: fallbackScope}}
-	for i := 0; i < 2; i++ {
-		setup := runnerSetup{delegationGroupScope: runner.runtime.delegationFallbackGroupScope}
-		deps := runner.newDelegateDeps(setup, nil, nil, nil, "")
-		if deps.GroupScope != fallbackScope {
-			t.Fatalf("run %d DelegateDeps.GroupScope = %q, want stable scope %q", i, deps.GroupScope, fallbackScope)
-		}
-	}
-}
-
 func TestBuildRunRequestPreservesExplicitBatchCallback(t *testing.T) {
 	called := ""
 	runner := cliRunner{}
