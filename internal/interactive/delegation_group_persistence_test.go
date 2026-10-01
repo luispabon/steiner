@@ -46,28 +46,56 @@ func TestInteractiveGroupLedgerSeedSaveAndLoad(t *testing.T) {
 func TestLoadSessionGroupLedgerExplicitEmptyAndUnsupportedIsNonDestructive(t *testing.T) {
 	store := newMockSessionStore()
 	store.loadedSessions["empty"] = session.Session{ID: "empty", Model: "test", DelegationGroups: &agent.DelegationGroupLedger{Version: 1}}
-	store.loadedSessions["unsupported"] = session.Session{ID: "unsupported", Model: "test", DelegationGroups: &agent.DelegationGroupLedger{Version: 2}}
-	s := testNewSession(t, Dependencies{SessionStore: store, Config: config.Config{Modes: config.ModesConfig{Default: config.ExecutionModePlan}}})
+	store.loadedSessions["valid"] = session.Session{ID: "valid", Model: "test", DelegationGroups: &agent.DelegationGroupLedger{Version: 1, Names: []string{"saved-name"}}}
+	store.loadedSessions["unsupported"] = session.Session{ID: "unsupported", Model: "test", DelegationGroups: &agent.DelegationGroupLedger{Version: 2, Names: []string{"keep-disk"}}, Lineage: agent.ConversationLineage{Generations: []agent.ConversationGeneration{{ID: 1, Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "untouched"}}}}, NextGenerationID: 2}}
+	// No Background supervisor or SetCompletionSink is configured: this exercises
+	// interactive persistence with delegation runtime wiring disabled.
+	deps := Dependencies{SessionStore: store, Config: config.Config{Modes: config.ModesConfig{Default: config.ExecutionModePlan}}}
+	s := testNewSession(t, deps)
+	if s.deps.Background != nil || s.deps.SetCompletionSink != nil {
+		t.Fatal("test dependencies unexpectedly enable delegation runtime wiring")
+	}
 	if err := s.loadSession(context.Background(), "empty"); err != nil {
 		t.Fatalf("load explicit empty: %v", err)
 	}
 	if got := s.driver.drv.Snapshot().GroupLedger; got.Version != 1 || len(got.Names) != 0 {
 		t.Fatalf("loaded explicit empty ledger = %#v", got)
 	}
+	if err := s.loadSession(context.Background(), "valid"); err != nil {
+		t.Fatalf("load valid saved seed: %v", err)
+	}
+	if got := s.driver.drv.Snapshot().GroupLedger.Names; !reflect.DeepEqual(got, []string{"saved-name"}) {
+		t.Fatalf("loaded saved seed names = %#v, want [saved-name]", got)
+	}
 
 	beforeID := s.SessionID()
 	beforeConversation := s.Conversation()
 	beforeLedger := s.driver.drv.Snapshot().GroupLedger
-	beforeSaved := store.savedSessions["unsupported"]
+	beforeLoaded := clonePersistedSession(store.loadedSessions["unsupported"])
+	if _, wasSaved := store.savedSessions["unsupported"]; wasSaved {
+		t.Fatal("unsupported fixture unexpectedly exists in saved-session map")
+	}
 	if err := s.loadSession(context.Background(), "unsupported"); err == nil {
 		t.Fatal("load unsupported ledger succeeded")
 	}
 	if s.SessionID() != beforeID || !reflect.DeepEqual(s.Conversation(), beforeConversation) || !reflect.DeepEqual(s.driver.drv.Snapshot().GroupLedger, beforeLedger) {
 		t.Fatal("unsupported load changed live session identity, history, or group ledger")
 	}
-	if !reflect.DeepEqual(store.savedSessions["unsupported"], beforeSaved) {
-		t.Fatal("unsupported load changed saved session")
+	if !reflect.DeepEqual(store.loadedSessions["unsupported"], beforeLoaded) {
+		t.Fatal("unsupported load changed loaded session DTO")
 	}
+	if _, wasSaved := store.savedSessions["unsupported"]; wasSaved {
+		t.Fatal("unsupported load saved a session")
+	}
+}
+
+func clonePersistedSession(saved session.Session) session.Session {
+	clone := saved
+	clone.Lineage = saved.Lineage.Clone()
+	clone.Skills = append([]string(nil), saved.Skills...)
+	clone.SubAgentLedger = append([]agent.SubAgentLedgerEntry(nil), saved.SubAgentLedger...)
+	clone.DelegationGroups = cloneDelegationGroupLedger(saved.DelegationGroups)
+	return clone
 }
 
 func TestRetiredSnapshotPersistsBothLedgersForCreateAndExisting(t *testing.T) {
