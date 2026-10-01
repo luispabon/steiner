@@ -8,6 +8,7 @@ import (
 
 // groupKey identifies a turn-scoped group: one label within one tool batch.
 type groupKey struct {
+	scope string
 	batch string
 	label string
 }
@@ -26,7 +27,7 @@ func (s *Supervisor) enrollLocked(state *jobState, batchID string) {
 	if s.sink == nil || state.job.Group == "" || batchID == "" {
 		return
 	}
-	key := groupKey{batch: batchID, label: state.job.Group}
+	key := groupKey{scope: state.job.GroupScope, batch: batchID, label: normalizeGroup(state.job.Group)}
 	group, ok := s.groups[key]
 	if !ok {
 		s.groupSeq++
@@ -41,9 +42,20 @@ func (s *Supervisor) enrollLocked(state *jobState, batchID string) {
 // those whose members have all finished. Groups settle in creation order.
 func (s *Supervisor) SealBatch(batchID string) {
 	s.mu.Lock()
+	for _, scope := range s.scopes {
+		if scope.batches != nil {
+			scope.batches[batchID] = true
+		}
+	}
+	s.mu.Unlock()
+	s.sealBatch("", batchID)
+}
+
+func (s *Supervisor) sealBatch(scope, batchID string) {
+	s.mu.Lock()
 	var sealed []*jobGroup
 	for key, group := range s.groups {
-		if key.batch == batchID {
+		if key.batch == batchID && (scope == "" || key.scope == scope) {
 			sealed = append(sealed, group)
 		}
 	}

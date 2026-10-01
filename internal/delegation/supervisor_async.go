@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
-	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -33,9 +32,6 @@ func (s *Supervisor) Spawn(ctx context.Context, job ChildJob) (SpawnTicket, erro
 	state, err := s.enqueue(ctx, job, false)
 	if err != nil {
 		return SpawnTicket{}, err
-	}
-	if state.wasQueued && s.events != nil {
-		s.events.Emit(output.NewDelegationQueuedEvent(job.AgentID, job.ParentCallID, string(job.AgentType), job.ObjectivePreview))
 	}
 	return SpawnTicket{AgentID: job.AgentID, Queued: state.wasQueued}, nil
 }
@@ -83,6 +79,7 @@ func (s *Supervisor) Ledger() []agent.SubAgentLedgerEntry {
 			AgentType:    string(state.job.AgentType),
 			ParentCallID: state.job.ParentCallID,
 			Group:        state.job.Group,
+			BatchID:      state.batchID,
 			WorktreePath: state.worktree.Path,
 		})
 	}

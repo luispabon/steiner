@@ -91,26 +91,21 @@ func TestSupervisorGroupOrderedBySeq(t *testing.T) {
 	}
 }
 
-func TestSupervisorLabelReuseAcrossBatchesMakesSeparateGroups(t *testing.T) {
+func TestSupervisorLabelReuseAcrossBatchesRejectsConversationReuse(t *testing.T) {
 	s, sink := newAsyncSupervisor(2, nil)
+	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 	a, b := newAsyncChild("a", "g"), newAsyncChild("b", "g")
+	a.job.GroupScope, b.job.GroupScope = scope, scope
 	spawnAsync(batchCtx("b1"), t, s, a)
-	spawnAsync(batchCtx("b2"), t, s, b)
-	<-a.started
-	<-b.started
-	close(a.release)
-	close(b.release)
-	waitFinished(t, s, "a")
-	waitFinished(t, s, "b")
-
-	s.SealBatch("b2")
-	batch := recv(t, sink.ch, "b2 group")
-	if len(batch) != 1 || batch[0].AgentID != "b" {
-		t.Fatalf("b2 released %+v, want only b", batch)
+	if _, err := s.Spawn(batchCtx("b2"), b.job); err == nil {
+		t.Fatal("reused group name in another batch was accepted")
 	}
-	sink.none(t)
-	s.SealBatch("b1")
-	batch = recv(t, sink.ch, "b1 group")
+	<-a.started
+	close(a.release)
+	waitFinished(t, s, "a")
+
+	s.SealGroupBatch(scope, "b1")
+	batch := recv(t, sink.ch, "b1 group")
 	if len(batch) != 1 || batch[0].AgentID != "a" {
 		t.Fatalf("b1 released %+v, want only a", batch)
 	}
@@ -167,12 +162,66 @@ func TestSupervisorGroupingRequiresBatchAndLabel(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s, sink := newAsyncSupervisor(1, nil)
 			a := newAsyncChild("a", tt.group)
+			if tt.name == "no batch id" {
+				a.job.GroupScope = s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+			}
+			if tt.group != "" {
+				if _, err := s.Spawn(tt.ctx, a.job); err == nil {
+					t.Fatal("named group without batch was accepted")
+				}
+				sink.none(t)
+				return
+			}
 			spawnAsync(tt.ctx, t, s, a)
 			close(a.release)
 			if batch := recv(t, sink.ch, "immediate post"); len(batch) != 1 {
 				t.Fatalf("posted %+v", batch)
 			}
 		})
+	}
+}
+
+func TestSupervisorNameRejectionDoesNotConsumeFreshName(t *testing.T) {
+	s, sink := newAsyncSupervisor(1, nil)
+	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	a := newAsyncChild("a", "g")
+	a.job.GroupScope = scope
+	if _, err := s.Spawn(batchCtx("b1"), a.job); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Spawn(batchCtx("b1"), a.job); err == nil {
+		t.Fatal("duplicate active agent ID was accepted")
+	}
+	b := newAsyncChild("b", "h")
+	b.job.GroupScope = scope
+	if _, err := s.Spawn(batchCtx("b1"), b.job); err != nil {
+		t.Fatalf("different name rejected: %v", err)
+	}
+	if _, err := s.Spawn(batchCtx("b1"), b.job); err == nil {
+		t.Fatal("duplicate active agent ID was accepted")
+	}
+	<-a.started
+	close(a.release)
+	<-b.started
+	close(b.release)
+	c := newAsyncChild("c", "i")
+	c.job.GroupScope = scope
+	if _, err := s.Spawn(batchCtx("b1"), c.job); err != nil {
+		t.Fatalf("rejected call consumed name i: %v", err)
+	}
+	<-c.started
+	close(c.release)
+	s.SealGroupBatch(scope, "b1")
+	batches := []string{}
+	for range 3 {
+		batch := recv(t, sink.ch, "fresh name group")
+		if len(batch) != 1 {
+			t.Fatalf("batch = %+v", batch)
+		}
+		batches = append(batches, batch[0].AgentID)
+	}
+	if batches[0] != "a" || batches[1] != "b" || batches[2] != "c" {
+		t.Fatalf("batch order = %v", batches)
 	}
 }
 

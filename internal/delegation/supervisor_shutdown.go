@@ -38,22 +38,36 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 		s.CancelAll(cause)
 
 		s.mu.Lock()
-		var exits []chan struct{}
+		var waits []chan struct{}
 		for _, state := range s.jobs {
+			if !state.published {
+				waits = append(waits, state.publication)
+			}
 			if state.phase == phaseRunning {
-				exits = append(exits, state.exited)
+				waits = append(waits, state.exited)
+			}
+			if state.cause != CancelCauseNone {
+				waits = append(waits, state.settled)
 			}
 		}
 		s.mu.Unlock()
 
 		waitCtx, cancel := context.WithTimeout(ctx, s.joinTimeout)
 		defer cancel()
-	wait:
-		for _, exited := range exits {
+	publicationWait:
+		for _, state := range s.pendingPublications() {
+			select {
+			case <-state:
+			case <-waitCtx.Done():
+				break publicationWait
+			}
+		}
+	childWait:
+		for _, exited := range waits {
 			select {
 			case <-exited:
 			case <-waitCtx.Done():
-				break wait
+				break childWait
 			}
 		}
 
@@ -79,7 +93,7 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 			if path != "" {
 				s.protected[path] = struct{}{}
 			}
-			if state.completion == nil {
+			if state.completion == nil && state.published {
 				completion := s.newCompletionLocked(state)
 				completion.Status = string(StatusCancelled)
 				completion.Quiet = true
@@ -93,9 +107,20 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 					batch = append(batch, *completion)
 				}
 			}
-			deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
+			if state.published {
+				deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
+			}
 		}
-		batch = append(batch, s.releaseAllGroupsLocked()...)
+		unpublished := false
+		for _, state := range s.jobs {
+			if !state.published {
+				unpublished = true
+				break
+			}
+		}
+		if !unpublished {
+			batch = append(batch, s.releaseAllGroupsLocked()...)
+		}
 		sort.Slice(batch, func(i, j int) bool { return batch[i].Seq < batch[j].Seq })
 		var posts postList
 		if s.sink != nil && len(batch) > 0 {
@@ -110,6 +135,18 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return ShutdownReport{Unjoined: append([]UnjoinedChild(nil), s.report.Unjoined...)}
+}
+
+func (s *Supervisor) pendingPublications() []chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var pending []chan struct{}
+	for _, state := range s.jobs {
+		if !state.published {
+			pending = append(pending, state.publication)
+		}
+	}
+	return pending
 }
 
 // releaseAllGroupsLocked force-releases every remaining group in creation

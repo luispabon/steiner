@@ -36,6 +36,8 @@ type ChildJob struct {
 	ParentCallID string
 	// Group is the optional sub_agent label used for turn-scoped group release.
 	Group string
+	// GroupScope identifies the runtime conversation that owns group names.
+	GroupScope string
 	// ObjectivePreview is the short task preview carried on the completion.
 	ObjectivePreview string
 	Worktree         CodeWorktree
@@ -59,28 +61,33 @@ const (
 // done is closed, and read only after <-done.
 type jobState struct {
 	job      ChildJob
+	batchID  string
 	childCtx context.Context
 	cancel   context.CancelFunc
 	phase    jobPhase
 	cause    CancelCause
 	// delivered means the waiter's result was published; acked means the parent
 	// consumed the completion, which ends pending tracking.
-	delivered  bool
-	acked      bool
-	blocking   bool
-	registered bool
-	wasQueued  bool
-	startErr   error
-	order      uint64
-	worktree   CodeWorktree
-	startedAt  time.Time
-	group      *jobGroup
-	held       bool
-	completion *agent.SubAgentCompletion
-	done       chan struct{}
-	exited     chan struct{}
-	result     tool.ExecutionResult
-	err        error
+	delivered   bool
+	acked       bool
+	blocking    bool
+	registered  bool
+	published   bool
+	publication chan struct{}
+	settled     chan struct{}
+	settleOnce  sync.Once
+	wasQueued   bool
+	startErr    error
+	order       uint64
+	worktree    CodeWorktree
+	startedAt   time.Time
+	group       *jobGroup
+	held        bool
+	completion  *agent.SubAgentCompletion
+	done        chan struct{}
+	exited      chan struct{}
+	result      tool.ExecutionResult
+	err         error
 }
 
 // Supervisor owns detached sub-agent lifecycles for one runtime.
@@ -106,6 +113,8 @@ type Supervisor struct {
 	enqSeq   uint64
 	groupSeq uint64
 	groups   map[groupKey]*jobGroup
+	scopeSeq uint64
+	scopes   map[string]*delegationGroupScope
 }
 
 // NewSupervisor returns an initialized Supervisor.
@@ -126,6 +135,7 @@ func NewSupervisor(opts SupervisorOptions) *Supervisor {
 		jobs:        make(map[string]*jobState),
 		protected:   make(map[string]struct{}),
 		groups:      make(map[groupKey]*jobGroup),
+		scopes:      map[string]*delegationGroupScope{"": {names: make(map[string]string), batches: make(map[string]bool)}},
 	}
 }
 
@@ -181,6 +191,7 @@ func (s *Supervisor) run(state *jobState) {
 	s.mu.Unlock()
 
 	posts.deliver()
+	state.settleOnce.Do(func() { close(state.settled) })
 }
 
 // execute provisions the job's worktree at dequeue time when it has a Prepare
@@ -227,6 +238,7 @@ func (s *Supervisor) finishCancelled(state *jobState) {
 	s.mu.Unlock()
 
 	posts.deliver()
+	state.settleOnce.Do(func() { close(state.settled) })
 }
 
 func deliverLocked(state *jobState, result tool.ExecutionResult, err error) {
@@ -245,6 +257,7 @@ func deliverLocked(state *jobState, result tool.ExecutionResult, err error) {
 func (s *Supervisor) pruneLocked(state *jobState) {
 	if state.acked && state.phase == phaseDone && s.jobs[state.job.AgentID] == state {
 		delete(s.jobs, state.job.AgentID)
+		s.maybeDeleteScopeLocked(state.job.GroupScope)
 	}
 }
 
@@ -265,6 +278,11 @@ func (s *Supervisor) CancelAgent(agentID string, discard bool, cause CancelCause
 	}
 
 	if state.phase == phaseQueued {
+		if !state.published {
+			state.cancel()
+			s.mu.Unlock()
+			return CancelAccepted
+		}
 		s.removeQueuedLocked(state)
 		state.phase = phaseDone
 		state.cancel()
@@ -296,12 +314,20 @@ func (s *Supervisor) CancelAll(cause CancelCause) {
 			state.cause = cause
 		}
 		if state.phase == phaseQueued {
-			state.phase = phaseDone
-			cancelled = append(cancelled, state)
+			if state.published {
+				state.phase = phaseDone
+				cancelled = append(cancelled, state)
+			}
 		}
 		state.cancel()
 	}
-	s.queue = nil
+	kept := s.queue[:0]
+	for _, state := range s.queue {
+		if !state.published {
+			kept = append(kept, state)
+		}
+	}
+	s.queue = kept
 	s.mu.Unlock()
 
 	for _, state := range cancelled {

@@ -31,6 +31,7 @@ type SubAgentLedgerEntry struct {
 	AgentType    string `json:"agent_type"`
 	ParentCallID string `json:"parent_call_id"`
 	Group        string `json:"group,omitempty"`
+	BatchID      string `json:"batch_id,omitempty"`
 	WorktreePath string `json:"worktree_path,omitempty"`
 }
 

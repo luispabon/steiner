@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
 )
 
 // ErrOutstandingCap indicates that too many sub-agents are already outstanding.
@@ -25,45 +26,83 @@ func (e outstandingCapError) Is(target error) bool { return target == ErrOutstan
 // queue. The controller only ever sees started jobs.
 func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking bool) (*jobState, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.closing {
+		s.mu.Unlock()
 		return nil, ErrSupervisorClosed
 	}
 	if existing, ok := s.jobs[job.AgentID]; ok && !existing.acked {
+		s.mu.Unlock()
 		return nil, ErrAgentAlreadyActive
 	}
 	if outstanding := s.running + len(s.queue); outstanding >= 2*s.maxParallel {
+		s.mu.Unlock()
 		return nil, outstandingCapError{outstanding: outstanding}
+	}
+	batchID := agent.ToolBatchIDFrom(handlerCtx)
+	groupName := normalizeGroup(job.Group)
+	job.Group = groupName
+	if groupName != "" {
+		if err := s.reserveGroupLocked(job.GroupScope, groupName, batchID); err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
 	}
 
 	childCtx, cancel := context.WithCancel(context.WithoutCancel(handlerCtx))
 	s.enqSeq++
 	state := &jobState{
-		job:      job,
-		childCtx: childCtx,
-		cancel:   cancel,
-		phase:    phaseQueued,
-		blocking: blocking,
-		order:    s.enqSeq,
-		worktree: job.Worktree,
-		done:     make(chan struct{}),
-		exited:   make(chan struct{}),
+		job:         job,
+		batchID:     batchID,
+		childCtx:    childCtx,
+		cancel:      cancel,
+		phase:       phaseQueued,
+		blocking:    blocking,
+		order:       s.enqSeq,
+		worktree:    job.Worktree,
+		done:        make(chan struct{}),
+		exited:      make(chan struct{}),
+		publication: make(chan struct{}),
+		settled:     make(chan struct{}),
 	}
 	if !blocking {
-		s.enrollLocked(state, agent.ToolBatchIDFrom(handlerCtx))
+		s.enrollLocked(state, batchID)
 	}
 	s.jobs[job.AgentID] = state
 	s.queue = append(s.queue, state)
-	s.startQueuedLocked()
-	state.wasQueued = state.phase == phaseQueued
+	state.wasQueued = s.running >= s.maxParallel || len(s.queue) > 1
+	s.mu.Unlock()
+
+	if s.events != nil {
+		s.events.Emit(output.NewDelegationAcceptedEvent(job.ParentCallID, job.AgentID, batchID, groupName))
+	}
+
+	s.mu.Lock()
+	state.published = true
+	close(state.publication)
+	if state.cause != CancelCauseNone && state.phase == phaseQueued {
+		s.removeQueuedLocked(state)
+		state.phase = phaseDone
+		state.cancel()
+		go s.finishCancelled(state)
+		s.startQueuedLocked()
+	} else {
+		s.startQueuedLocked()
+	}
+	s.mu.Unlock()
+	if state.wasQueued && s.events != nil {
+		s.events.Emit(output.NewDelegationQueuedEvent(job.AgentID, job.ParentCallID, string(job.AgentType), job.ObjectivePreview))
+	}
 	return state, nil
 }
 
 // startQueuedLocked starts queued jobs in FIFO order while slots are free.
 func (s *Supervisor) startQueuedLocked() {
-	for s.running < s.maxParallel && len(s.queue) > 0 {
+	for !s.closing && s.running < s.maxParallel && len(s.queue) > 0 {
 		state := s.queue[0]
+		if !state.published {
+			return
+		}
 		s.queue = s.queue[1:]
 		state.phase = phaseRunning
 		state.startedAt = time.Now()

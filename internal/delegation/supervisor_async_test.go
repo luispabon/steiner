@@ -219,8 +219,8 @@ func TestSupervisorDelegationQueuedEvent(t *testing.T) {
 		t.Fatalf("first ticket = %+v", ticket)
 	}
 	<-a.started
-	if len(events.events) != 0 {
-		t.Fatalf("event emitted for a started job: %+v", events.events)
+	if len(events.events) != 1 || events.events[0].Type != output.EventTypeDelegationAccepted {
+		t.Fatalf("events for accepted started job = %+v, want one accepted event", events.events)
 	}
 	if ticket := spawnAsync(context.Background(), t, s, b); !ticket.Queued {
 		t.Fatalf("second ticket = %+v, want queued", ticket)
@@ -229,12 +229,12 @@ func TestSupervisorDelegationQueuedEvent(t *testing.T) {
 	events.mu.Lock()
 	got := append([]output.Event(nil), events.events...)
 	events.mu.Unlock()
-	if len(got) != 1 || got[0].Type != output.EventTypeDelegationQueued {
-		t.Fatalf("events = %+v, want one delegation_queued", got)
+	if len(got) != 3 || got[0].Type != output.EventTypeDelegationAccepted || got[1].Type != output.EventTypeDelegationAccepted || got[2].Type != output.EventTypeDelegationQueued {
+		t.Fatalf("events = %+v, want two accepted events then delegation_queued", got)
 	}
-	payload, ok := got[0].Payload.(output.DelegationQueuedEvent)
+	payload, ok := got[2].Payload.(output.DelegationQueuedEvent)
 	if !ok || payload.AgentID != "b" || payload.CallID != "call-b" || payload.AgentType != "explore" || payload.TaskPreview != "objective b" {
-		t.Fatalf("payload = %#v", got[0].Payload)
+		t.Fatalf("payload = %#v", got[2].Payload)
 	}
 	close(a.release)
 	close(b.release)
@@ -248,7 +248,7 @@ func TestSupervisorLedgerIncludesWorktreeAfterDequeue(t *testing.T) {
 	release := make(chan struct{})
 	prepared := make(chan struct{})
 	job := ChildJob{
-		AgentID: "w", AgentType: AgentTypeCode, ParentCallID: "call-w", Group: "g",
+		AgentID: "w", AgentType: AgentTypeCode, ParentCallID: "call-w",
 		Prepare: func(context.Context) (CodeWorktree, error) {
 			<-prepared
 			return CodeWorktree{Path: "/wt/w", Branch: "delegate/w"}, nil
@@ -259,11 +259,11 @@ func TestSupervisorLedgerIncludesWorktreeAfterDequeue(t *testing.T) {
 			return tool.ExecutionResult{Value: Result{AgentID: "w", Status: StatusComplete}}, nil
 		},
 	}
-	if _, err := s.Spawn(context.Background(), job); err != nil {
+	if _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch-w"), job); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 
-	want := agent.SubAgentLedgerEntry{AgentID: "w", AgentType: "code", ParentCallID: "call-w", Group: "g"}
+	want := agent.SubAgentLedgerEntry{AgentID: "w", AgentType: "code", ParentCallID: "call-w", BatchID: "batch-w"}
 	if got := s.Ledger(); !reflect.DeepEqual(got, []agent.SubAgentLedgerEntry{want}) {
 		t.Fatalf("Ledger before provisioning = %+v", got)
 	}
@@ -312,13 +312,20 @@ func TestSupervisorPrepareFailureProducesFinalResult(t *testing.T) {
 func TestSupervisorSpawnAndWaitPostsNothing(t *testing.T) {
 	s, sink := newAsyncSupervisor(1, nil)
 	a := newAsyncChild("a", "g")
-	done := spawn(context.Background(), s, a.job)
+	ctx := agent.WithToolBatchID(context.Background(), "b1")
+	started := make(chan spawnResult, 1)
+	go func() {
+		result, err := s.SpawnAndWait(ctx, a.job)
+		started <- spawnResult{result: result, err: err}
+	}()
 	<-a.started
 	if !s.IsPending("a") {
 		t.Fatal("running blocking job must be pending")
 	}
 	close(a.release)
-	recv(t, done, "SpawnAndWait")
+	if got := recv(t, started, "SpawnAndWait"); got.err != nil {
+		t.Fatalf("SpawnAndWait: %v", got.err)
+	}
 	if s.IsPending("a") || s.HasPending() {
 		t.Fatal("blocking caller must mark delivered on return")
 	}
@@ -328,6 +335,7 @@ func TestSupervisorSpawnAndWaitPostsNothing(t *testing.T) {
 func TestSupervisorNilSinkPostsNothing(t *testing.T) {
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
 	a := newAsyncChild("a", "g")
+	a.job.GroupScope = s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 	spawnAsync(agent.WithToolBatchID(context.Background(), "b1"), t, s, a)
 	close(a.release)
 	waitFinished(t, s, "a")
