@@ -7,11 +7,12 @@ import (
 )
 
 func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing.T) {
-	first := &delegationDisplayState{agentID: "first", parentCallID: "call-first", groupAccepted: true, batchID: "batch", group: "shared"}
-	second := &delegationDisplayState{agentID: "second", parentCallID: "call-second", groupAccepted: true, batchID: "batch", group: "shared"}
+	first := &delegationDisplayState{agentID: "first", parentCallID: "call-first", groupAccepted: true, batchID: "batch", group: "shared", collapsed: false}
+	second := &delegationDisplayState{agentID: "second", parentCallID: "call-second", groupAccepted: true, batchID: "batch", group: "shared", collapsed: true}
 	removed := &delegationDisplayState{agentID: "removed"}
 	regular := &toolCallSegment{callID: "regular", active: true}
 	lostTool := &toolCallSegment{callID: "lost"}
+	groupedTool := &toolCallSegment{callID: "grouped"}
 	advisor := &delegationDisplayState{isAdvisor: true}
 	b := &contentBuffer{
 		segments: []contentSegment{
@@ -20,9 +21,10 @@ func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing
 			{kind: segmentToolCall, toolData: regular},
 			{kind: segmentStatus, text: "unknown"},
 			{kind: segmentDelegation, delegData: second, renderDirty: true},
+			{kind: segmentToolCallGroup, toolGroupData: &toolCallGroupSegment{entries: []*toolCallSegment{groupedTool}}},
 			{kind: segmentDelegation, delegData: advisor},
 		},
-		collapseState: map[int]bool{0: true, 1: false, 2: true, 3: false, 4: true, 5: false},
+		collapseState: map[int]bool{0: true, 1: false, 2: true, 3: false, 4: true, 5: false, 6: true},
 		activeDelegations: map[string]delegationLocator{
 			"first": {seg: 1, dd: first}, "second": {seg: 4, dd: second}, "removed": {seg: 1, dd: removed},
 		},
@@ -32,9 +34,9 @@ func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing
 			"call-first": {seg: 1, dd: first}, "call-second": {seg: 4, dd: second}, "removed": {seg: 1, dd: removed},
 		},
 		activeToolCalls: map[string]toolCallLocator{
-			"regular": {seg: 2, td: regular}, "lost": {seg: 2, td: lostTool},
+			"regular": {seg: 2, td: regular}, "lost": {seg: 2, td: lostTool}, "grouped": {seg: 5, td: groupedTool},
 		},
-		activeAdvisorSegment: 6,
+		activeAdvisorSegment: 7,
 		stringCacheWidth:     80, stringCacheRendered: "stale string",
 		prefixCacheSet: true, prefixCacheRendered: "stale prefix", prefixCacheLen: 5,
 		segmentHeights: []int{1, 2, 3, 4, 5, 6}, gen: 7,
@@ -42,7 +44,7 @@ func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing
 
 	b.regroupAcceptedDelegations()
 
-	if len(b.segments) != 5 || b.segments[0].kind != segmentPlain || b.segments[1].kind != segmentDelegationGroup || b.segments[2].kind != segmentToolCall || b.segments[3].kind != segmentStatus || b.segments[4].delegData != advisor {
+	if len(b.segments) != 6 || b.segments[0].kind != segmentPlain || b.segments[1].kind != segmentDelegationGroup || b.segments[2].kind != segmentToolCall || b.segments[3].kind != segmentStatus || b.segments[4].kind != segmentToolCallGroup || b.segments[5].delegData != advisor {
 		t.Fatalf("rewritten segment order = %#v", b.segments)
 	}
 	entries := b.segments[1].delegGroupData.entries
@@ -70,14 +72,26 @@ func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing
 	if b.activeToolCalls["regular"].td != regular || b.activeToolCalls["regular"].seg != 2 {
 		t.Fatalf("active tool locator = %#v, want same call pointer at 2", b.activeToolCalls["regular"])
 	}
+	if b.activeToolCalls["grouped"].td != groupedTool || b.activeToolCalls["grouped"].seg != 4 {
+		t.Fatalf("grouped tool locator = %#v, want original call pointer at 4", b.activeToolCalls["grouped"])
+	}
 	if _, ok := b.activeToolCalls["lost"]; ok {
 		t.Fatal("active tool locator without retained segment was not removed")
 	}
-	if b.activeAdvisorSegment != 5 {
-		t.Fatalf("activeAdvisorSegment = %d, want 5", b.activeAdvisorSegment)
+	if b.activeAdvisorSegment != 6 {
+		t.Fatalf("activeAdvisorSegment = %d, want 6", b.activeAdvisorSegment)
 	}
-	if b.collapseState[0] != true || b.collapseState[1] != false || b.collapseState[2] != true || b.collapseState[3] != false || b.collapseState[4] != false {
-		t.Fatalf("collapse state remap = %#v", b.collapseState)
+	if first.collapsed || !second.collapsed {
+		t.Fatalf("child collapsed state changed: first=%v second=%v", first.collapsed, second.collapsed)
+	}
+	wantCollapse := map[int]bool{0: true, 1: false, 2: true, 3: false, 4: false, 5: true}
+	if len(b.collapseState) != len(wantCollapse) {
+		t.Fatalf("collapse state keys = %#v, want exactly %#v", b.collapseState, wantCollapse)
+	}
+	for index, want := range wantCollapse {
+		if got, ok := b.collapseState[index]; !ok || got != want {
+			t.Fatalf("collapse state[%d] = %v (present=%v), want %v", index, got, ok, want)
+		}
 	}
 	if b.gen != 8 || b.structureGen != 1 || b.stringCacheWidth != 0 || b.stringCacheRendered != "" || b.prefixCacheSet || b.prefixCacheRendered != "" || b.segmentHeights != nil {
 		t.Fatalf("rewrite did not invalidate caches/generation: gen=%d structure=%d string=%d/%q prefix=%v/%q heights=%v", b.gen, b.structureGen, b.stringCacheWidth, b.stringCacheRendered, b.prefixCacheSet, b.prefixCacheRendered, b.segmentHeights)
@@ -114,9 +128,13 @@ func TestDelegationAcceptanceIsIdempotentAndRejectsIneligibleMembership(t *testi
 	if b.structureGen != 1 || len(b.segments) != 1 || b.segments[0].kind != segmentDelegationGroup {
 		t.Fatalf("second acceptance did not join existing group: structure=%d segments=%v", b.structureGen, segmentKinds(b.segments))
 	}
-	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent("missing-call", "", "batch", "group"))
+	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent("call-second", "", "batch", "group"))
 	if b.structureGen != 1 {
-		t.Fatalf("acceptance with unknown call changed structure generation: %d", b.structureGen)
+		t.Fatalf("duplicate acceptance changed structure generation: %d", b.structureGen)
+	}
+	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent("call-first", "", "batch", "group"))
+	if b.structureGen != 1 {
+		t.Fatalf("acceptance for already-grouped member changed structure generation: %d", b.structureGen)
 	}
 	if len(b.segments[0].delegGroupData.entries) != 2 || b.segments[0].delegGroupData.entries[1] != second {
 		t.Fatal("duplicate acceptance changed group member pointer/order")
@@ -169,17 +187,19 @@ func TestDelegationRegroupPreservesInterleavedStreamAndSegmentOrder(t *testing.T
 	second := &delegationDisplayState{parentCallID: "second", group: "g", groupAccepted: true, batchID: "batch"}
 	tool := &toolCallSegment{callID: "tool"}
 	unknown := contentSegment{kind: segmentStatus, text: "unknown"}
+	thinking := contentSegment{kind: segmentThinkingBlock, thinkData: &thinkingBlockData{body: "thinking text", source: output.ChunkSourceAssistant}}
 	b := &contentBuffer{
 		segments: []contentSegment{
 			{kind: segmentDelegation, delegData: first},
 			{kind: segmentToolCall, toolData: tool},
 			unknown,
+			thinking,
 			{kind: segmentDelegation, delegData: second},
 		},
 		streamBuffer: "live answer", streaming: true, streamingPhase: "answer", streamingSource: output.ChunkSourceAssistant,
 	}
 	b.regroupAcceptedDelegations()
-	if len(b.segments) != 3 || b.segments[0].kind != segmentDelegationGroup || len(b.segments[0].delegGroupData.entries) != 2 || b.segments[0].delegGroupData.entries[0] != first || b.segments[0].delegGroupData.entries[1] != second || b.segments[1].toolData != tool || b.segments[2].text != "unknown" {
+	if len(b.segments) != 4 || b.segments[0].kind != segmentDelegationGroup || len(b.segments[0].delegGroupData.entries) != 2 || b.segments[0].delegGroupData.entries[0] != first || b.segments[0].delegGroupData.entries[1] != second || b.segments[1].toolData != tool || b.segments[2].text != "unknown" || b.segments[3].thinkData != thinking.thinkData || b.segments[3].thinkData.body != "thinking text" || b.segments[3].thinkData.source != output.ChunkSourceAssistant {
 		t.Fatalf("intervening segment order changed: %#v", b.segments)
 	}
 	if !b.streaming || b.streamingPhase != "answer" || b.streamingSource != output.ChunkSourceAssistant || b.streamBuffer != "live answer" {
