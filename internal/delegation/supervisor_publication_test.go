@@ -14,10 +14,14 @@ import (
 type blockedAcceptedSink struct {
 	entered chan struct{}
 	release chan struct{}
+	queued  chan output.Event
 	enabled *atomic.Bool
 }
 
 func (s blockedAcceptedSink) Emit(event output.Event) {
+	if event.Type == output.EventTypeDelegationQueued && s.queued != nil {
+		s.queued <- event
+	}
 	if event.Type == output.EventTypeDelegationAccepted && (s.enabled == nil || s.enabled.Load()) {
 		close(s.entered)
 		<-s.release
@@ -60,6 +64,47 @@ func TestAcceptedPublicationPrecedesCancelFinalizeAndQueuePump(t *testing.T) {
 	waitFinished(t, s, "a")
 	if got := finalized.Load(); got != 1 {
 		t.Fatalf("finalizer count = %d, want 1", got)
+	}
+}
+
+func TestCancelAllDefersQueuedFinalizerUntilBlockedAcceptancePublishes(t *testing.T) {
+	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{})}
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events})
+	sink := newChannelSink()
+	s.SetCompletionSink(sink)
+	var finalized atomic.Int32
+	job := newAsyncChild("queued", "")
+	job.job.OnCancelledBeforeStart = func() tool.ExecutionResult {
+		finalized.Add(1)
+		return tool.ExecutionResult{Value: Result{AgentID: "queued", Status: StatusCancelled}}
+	}
+	spawnResult := make(chan error, 1)
+	go func() { _, err := s.Spawn(batchCtx("batch"), job.job); spawnResult <- err }()
+	waitClosed(t, events.entered, "accepted publication")
+	s.CancelAll(CancelCauseSystem)
+	if got := finalized.Load(); got != 0 {
+		t.Fatalf("finalizer count before acceptance release = %d, want 0", got)
+	}
+	if state := jobFor(s, "queued"); state == nil {
+		t.Fatal("queued job missing during publication")
+	} else if state.completion != nil {
+		t.Fatalf("completion before acceptance release = %+v", state.completion)
+	}
+	close(events.release)
+	if err := recv(t, spawnResult, "Spawn result"); err != nil {
+		t.Fatal(err)
+	}
+	waitFinished(t, s, "queued")
+	if got := finalized.Load(); got != 1 {
+		t.Fatalf("finalizer count after acceptance release = %d, want 1", got)
+	}
+	batch := recv(t, sink.ch, "cancelled completion")
+	if len(batch) != 1 || batch[0].AgentID != "queued" || batch[0].Status != string(StatusCancelled) {
+		t.Fatalf("completion = %+v", batch)
+	}
+	sink.none(t)
+	if got := finalized.Load(); got != 1 {
+		t.Fatalf("finalizer count after completion = %d, want 1", got)
 	}
 }
 
@@ -154,17 +199,23 @@ func TestShutdownLatePublicationSettlesGroupedJobsAndScopes(t *testing.T) {
 		t.Fatalf("duplicate late completion: %+v", extra)
 	default:
 	}
+	state := jobFor(s, "late")
+	if state == nil {
+		t.Fatal("late job state missing before finalizer settlement")
+	}
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 2 {
 		t.Fatalf("scope ledger lost names before release: %v", got)
 	}
+	s.MarkDelivered([]string{"call-sibling", "call-unrelated", "call-late"})
+	if s.IsPending("sibling") || s.IsPending("unrelated") || s.IsPending("late") {
+		t.Fatal("acknowledged completions remain pending")
+	}
 	s.ReleaseGroupScope(scope)
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 2 {
-		t.Fatalf("scope pruned before finalization: %v", got)
+		t.Fatalf("scope pruned before finalizer settlement: %v", got)
 	}
 	close(callbackRelease)
-	state := jobFor(s, "late")
 	waitClosed(t, state.settled, "late finalizer settlement")
-	s.MarkDelivered([]string{"call-sibling", "call-unrelated", "call-late"})
 	if s.IsPending("late") {
 		t.Fatal("late job remains pending after acknowledgement")
 	}

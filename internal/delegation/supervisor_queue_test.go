@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestSupervisorFIFOStartOrder(t *testing.T) {
@@ -103,6 +106,51 @@ func TestSupervisorOutstandingCapRejection(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSupervisorQueuedBehindBlockedAcceptanceStartsAfterSlotFree(t *testing.T) {
+	blockA := &atomic.Bool{}
+	blockA.Store(true)
+	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{}), queued: make(chan output.Event, 1), enabled: blockA}
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events})
+	sink := newChannelSink()
+	s.SetCompletionSink(sink)
+	a := newAsyncChild("a", "")
+	aSpawn := make(chan error, 1)
+	go func() { _, err := s.Spawn(batchCtx("batch"), a.job); aSpawn <- err }()
+	waitClosed(t, events.entered, "A accepted publication")
+	b := newAsyncChild("b", "")
+	blockA.Store(false)
+	bTicket, err := s.Spawn(batchCtx("batch"), b.job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bTicket.AgentID != "b" || !bTicket.Queued {
+		t.Fatalf("B ticket = %+v, want queued B", bTicket)
+	}
+	queuedEvent := recv(t, events.queued, "B queued event")
+	if queuedEvent.Type != output.EventTypeDelegationQueued {
+		t.Fatalf("B event type = %q, want queued", queuedEvent.Type)
+	}
+	if len(s.Pending()) != 2 {
+		t.Fatalf("pending after B enqueue = %+v", s.Pending())
+	}
+	if got := s.CancelAgent("a", false, CancelCauseUser); got != CancelAccepted {
+		t.Fatalf("CancelAgent(A) = %v", got)
+	}
+	close(events.release)
+	if err := recv(t, aSpawn, "A Spawn"); err != nil {
+		t.Fatal(err)
+	}
+	if batch := recv(t, sink.ch, "A completion"); len(batch) != 1 || batch[0].AgentID != "a" || batch[0].Status != string(StatusCancelled) {
+		t.Fatalf("A completion = %+v", batch)
+	}
+	waitClosed(t, b.started, "B started without another enqueue")
+	close(b.release)
+	if batch := recv(t, sink.ch, "B completion"); len(batch) != 1 || batch[0].AgentID != "b" {
+		t.Fatalf("B completion = %+v", batch)
+	}
+	sink.none(t)
 }
 
 func TestSupervisorCancelledQueuedJobNeverExecutes(t *testing.T) {

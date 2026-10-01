@@ -200,12 +200,19 @@ func TestSupervisorNameRejectionDoesNotConsumeFreshName(t *testing.T) {
 	if _, err := s.Spawn(batchCtx("b1"), b.job); err == nil {
 		t.Fatal("duplicate active agent ID was accepted")
 	}
+	c := newAsyncChild("c", "i")
+	c.job.GroupScope = scope
+	if _, err := s.Spawn(batchCtx("b1"), c.job); !errors.Is(err, ErrOutstandingCap) {
+		t.Fatalf("fresh-name cap rejection = %v, want ErrOutstandingCap", err)
+	}
+	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 2 || got[0] != "g" || got[1] != "h" {
+		t.Fatalf("rejected fresh name changed ledger: %v", got)
+	}
 	<-a.started
 	close(a.release)
 	<-b.started
 	close(b.release)
-	c := newAsyncChild("c", "i")
-	c.job.GroupScope = scope
+	waitFinished(t, s, "b")
 	if _, err := s.Spawn(batchCtx("b1"), c.job); err != nil {
 		t.Fatalf("rejected call consumed name i: %v", err)
 	}
@@ -223,6 +230,29 @@ func TestSupervisorNameRejectionDoesNotConsumeFreshName(t *testing.T) {
 	if batches[0] != "a" || batches[1] != "b" || batches[2] != "c" {
 		t.Fatalf("batch order = %v", batches)
 	}
+}
+
+func TestSupervisorSealBatchRejectsLateJoinsBeforeAndAfterAck(t *testing.T) {
+	s, sink := newAsyncSupervisor(2, nil)
+	a := newAsyncChild("a", "g")
+	spawnAsync(batchCtx("batch"), t, s, a)
+	waitClosed(t, a.started, "a started")
+	s.SealBatch("batch")
+	b := newAsyncChild("b", "g")
+	if _, err := s.Spawn(batchCtx("batch"), b.job); err == nil {
+		t.Fatal("SealBatch accepted a late join before the last member finished")
+	}
+	close(a.release)
+	batch := recv(t, sink.ch, "sealed group completion")
+	if len(batch) != 1 || batch[0].AgentID != "a" {
+		t.Fatalf("completion = %+v", batch)
+	}
+	s.MarkDelivered([]string{"call-a"})
+	late := newAsyncChild("late", "g")
+	if _, err := s.Spawn(batchCtx("batch"), late.job); err == nil {
+		t.Fatal("SealBatch accepted a late join after the last member was acknowledged")
+	}
+	sink.none(t)
 }
 
 func TestSupervisorCapRejectedCallNeverJoinsGroup(t *testing.T) {

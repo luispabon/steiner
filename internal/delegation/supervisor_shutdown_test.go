@@ -121,6 +121,10 @@ func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
 					if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 {
 						t.Fatalf("scope pruned while callback blocked: %v", got)
 					}
+					state := jobFor(s, "cancelled")
+					if state == nil {
+						t.Fatal("cancelled job state missing before callback release")
+					}
 					close(release)
 				}
 				if mode == "async" && releaseBeforeDeadline {
