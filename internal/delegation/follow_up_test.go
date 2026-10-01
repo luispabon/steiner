@@ -31,6 +31,9 @@ func TestFollowUpToolDef(t *testing.T) {
 	if def.Name != FollowUpToolName {
 		t.Fatalf("Name=%q, want %q", def.Name, FollowUpToolName)
 	}
+	if !def.IsDelegation {
+		t.Fatal("follow_up should be marked as delegation")
+	}
 	const wantDescription = "Continue work with an existing sub-agent by sending a follow-up message. Use this to resume a suitable warm agent for the same bounded deliverable in the same live workspace, sequentially, to guide incomplete work, request refinements, make related corrections with the responsible implementation agent, or request a narrow re-check from the original reviewer. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees; workflow handoffs are not safe continuation boundaries."
 	if def.Description != wantDescription {
 		t.Fatalf("Description=%q, want %q", def.Description, wantDescription)

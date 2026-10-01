@@ -26,6 +26,7 @@ func asyncTestDeps(maxParallel int, gate chan struct{}) (SpecializedToolDeps, *S
 	deps.AsyncSubAgents = true
 	sup, sink := newAsyncSupervisor(maxParallel, nil)
 	deps.Supervisor = sup
+	deps.GroupScope = sup.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 	return deps, sup, sink
 }
 

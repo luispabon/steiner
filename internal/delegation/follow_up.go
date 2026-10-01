@@ -16,17 +16,22 @@ import (
 const FollowUpToolName = "follow_up"
 
 // FollowUpToolDef returns a ToolDef for resuming a delegated child session.
-func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (any, error)) tool.ToolDef {
+func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (any, error), async ...bool) tool.ToolDef {
+	properties := map[string]any{
+		"agent_id": map[string]any{"type": "string", "description": "Required. The delegated agent ID to resume."},
+		"message":  map[string]any{"type": "string", "description": "Required. The follow-up user message to append."},
+	}
+	if len(async) > 0 && async[0] {
+		properties["group"] = map[string]any{"type": "string", "description": "Optional group name. Reuse a fresh sub_agent group name to join that same assistant response; otherwise choose a fresh name or omit group. Names cannot be reused in later responses."}
+	}
 	return tool.ToolDef{
-		Name:        FollowUpToolName,
-		Description: "Continue work with an existing sub-agent by sending a follow-up message. Use this to resume a suitable warm agent for the same bounded deliverable in the same live workspace, sequentially, to guide incomplete work, request refinements, make related corrections with the responsible implementation agent, or request a narrow re-check from the original reviewer. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees; workflow handoffs are not safe continuation boundaries.",
+		Name:         FollowUpToolName,
+		IsDelegation: true,
+		Description:  "Continue work with an existing sub-agent by sending a follow-up message. Use this to resume a suitable warm agent for the same bounded deliverable in the same live workspace, sequentially, to guide incomplete work, request refinements, make related corrections with the responsible implementation agent, or request a narrow re-check from the original reviewer. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees; workflow handoffs are not safe continuation boundaries.",
 		ParameterSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"agent_id": map[string]any{"type": "string", "description": "Required. The delegated agent ID to resume."},
-				"message":  map[string]any{"type": "string", "description": "Required. The follow-up user message to append."},
-			},
-			"required": []any{"agent_id", "message"},
+			"type":       "object",
+			"properties": properties,
+			"required":   []any{"agent_id", "message"},
 		},
 		Handler: handler,
 	}
@@ -103,7 +108,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			Branch: session.Remediation.ExpectedBranch,
 		}
 	}
-	result, err := superviseDelegate(ctx, deps, spec, "", worktree, nil,
+	result, err := superviseDelegate(ctx, deps, spec, inputGroup(input), worktree, nil,
 		func(childCtx context.Context) (tool.ExecutionResult, error) {
 			return executeFollowUp(childCtx, deps, spec, req, session, isCode)
 		},

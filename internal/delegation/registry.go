@@ -109,6 +109,9 @@ type DelegateDeps struct {
 	// Supervisor runs child delegations. When nil, a private one is created from
 	// SubAgentCfg.MaxParallel over ActiveController.
 	Supervisor *Supervisor
+	// GroupScope identifies the runtime conversation's group-name ledger. When
+	// empty, handlers create one empty scope once for this registry.
+	GroupScope string
 	// AsyncSubAgents switches sub_agent and follow_up to non-blocking spawns and
 	// adds the optional group parameter to the sub_agent schema. It is fixed for
 	// the session so tool definitions stay stable.
@@ -326,6 +329,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		SessionStore:          store,
 		ActiveController:      deps.ActiveController,
 		Supervisor:            deps.Supervisor,
+		GroupScope:            deps.GroupScope,
 		AsyncSubAgents:        deps.AsyncSubAgents,
 		ExtraAllowedTools:     deps.ExtraAllowedTools,
 		UsageRecorder:         deps.UsageRecorder,
@@ -345,9 +349,10 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		AdvisorSubAgentBudget: deps.AdvisorCfg.MaxUsesPerSubAgent,
 		LSPEnabled:            deps.Config.LSP.Enabled && len(deps.Config.LSP.Servers) > 0,
 	}
+	ensureSupervisor(&subAgentDeps)
 
 	// Register the follow_up tool.
-	cloned.Register(FollowUpToolDef(NewFollowUpHandler(subAgentDeps)))
+	cloned.Register(FollowUpToolDef(NewFollowUpHandler(subAgentDeps), deps.AsyncSubAgents))
 
 	// Conditionally expose web_search to the parent model.
 	if deps.Searcher != nil {

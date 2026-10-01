@@ -115,13 +115,14 @@ func SubAgentToolDef(deps SpecializedToolDeps, excludeTypes []AgentType) tool.To
 	if deps.AsyncSubAgents {
 		properties["group"] = map[string]any{
 			"type":        "string",
-			"description": "Optional label grouping calls made in the same response so their results arrive together.",
+			"description": "Optional conversation-unique group name. Calls with the same name in one assistant response are delivered together; use a fresh name for later responses. Reusing a name returns an error.",
 		}
 	}
 
 	return tool.ToolDef{
-		Name:        SubAgentToolName,
-		Description: "Spawn a specialized sub-agent of the given type; see the type parameter for what each type does.",
+		Name:         SubAgentToolName,
+		IsDelegation: true,
+		Description:  "Spawn a specialized sub-agent of the given type; see the type parameter for what each type does.",
 		ParameterSchema: map[string]any{
 			"type":       "object",
 			"properties": properties,

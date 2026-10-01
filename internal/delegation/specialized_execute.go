@@ -43,6 +43,9 @@ func ensureSupervisor(deps *SubAgentHandlerDeps) {
 			Controller:  deps.ActiveController,
 		})
 	}
+	if deps.GroupScope == "" {
+		deps.GroupScope = deps.Supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	}
 }
 
 // delegatePlan is the per-child run state. A code agent's worktree, request,
@@ -89,6 +92,7 @@ func superviseDelegate(
 		AgentType:        spec.AgentType,
 		ParentCallID:     spec.ParentCallID,
 		Group:            group,
+		GroupScope:       deps.GroupScope,
 		ObjectivePreview: truncateTaskPreview(spec.Task, 120),
 		Worktree:         worktree,
 		Prepare:          prepare,
@@ -102,9 +106,11 @@ func superviseDelegate(
 		},
 	}
 	if deps.AsyncSubAgents {
-		ticket, err := deps.Supervisor.Spawn(ctx, job)
+		ticket, admission, err := deps.Supervisor.SpawnWithAdmission(ctx, job)
 		if err == nil {
-			return ackExecutionResult(ticket), nil
+			result := ackExecutionResult(ticket)
+			result.DelegationAdmission = admission.Clone()
+			return result, nil
 		}
 		if setupFailed != nil {
 			setupFailed()

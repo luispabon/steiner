@@ -43,6 +43,8 @@ type SubAgentHandlerDeps struct {
 	// Supervisor runs every child. When nil, handlers default a private one
 	// sized from SubAgentCfg.MaxParallel over ActiveController.
 	Supervisor *Supervisor
+	// GroupScope is captured by every delegation handler and ChildJob.
+	GroupScope string
 	// AsyncSubAgents makes sub_agent and follow_up return an ack immediately
 	// and deliver the result later through the supervisor's completion sink.
 	// False keeps the blocking behaviour.
