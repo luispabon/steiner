@@ -314,17 +314,21 @@ func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error)
 	var reasoning strings.Builder
 	var reasoningID string
 	var blocks []CodexMessageBlock
+	var previousMessageText string
 	for _, item := range payload.Output {
 		switch item.Type {
 		case "message":
 			var blockText strings.Builder
 			for _, part := range item.Content {
 				if part.Type == "output_text" || part.Type == "text" {
-					content.WriteString(part.Text)
 					blockText.WriteString(part.Text)
 				}
 			}
-			blocks = append(blocks, CodexMessageBlock{Kind: "message", Phase: item.Phase, Text: blockText.String()})
+			block := CodexMessageBlock{Kind: "message", Phase: item.Phase, Text: blockText.String()}
+			content.WriteString(codexMessageBoundary(previousMessageText, block.Text))
+			content.WriteString(block.Text)
+			previousMessageText = block.Text
+			blocks = append(blocks, block)
 		case "function_call":
 			call, err := responsesToolCall(item)
 			if err != nil {

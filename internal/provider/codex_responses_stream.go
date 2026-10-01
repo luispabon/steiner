@@ -54,6 +54,10 @@ type responsesStreamState struct {
 	pendingThinkingSeparator bool
 	ledger                   []responsesLedgerEntry
 	current                  *int
+	textEntry                int
+	textEntrySet             bool
+	textBoundaryCommitted    bool
+	pendingTextNewlines      string
 }
 
 func decodeResponsesStreamWithHandler(_ context.Context, body io.Reader, emit func(ChatChunk) error) error {
@@ -80,7 +84,7 @@ func decodeResponsesStreamWithHandler(_ context.Context, body io.Reader, emit fu
 		}
 	}
 
-	if err := flushResponsesStreamState(emit, state); err != nil {
+	if err := flushResponsesStreamState(emit, &state); err != nil {
 		return err
 	}
 	if !state.sawDone && state.finishReason == "" {
@@ -135,7 +139,7 @@ func processResponsesStreamEvent(state *responsesStreamState, event string, emit
 		state.pendingThinkingSeparator = true
 		return false, nil
 	case "response.output_item.done":
-		return handleResponsesOutputItemDone(state, payload.Item, payload.OutputIndex)
+		return handleResponsesOutputItemDone(state, payload.Item, payload.OutputIndex, emit)
 	case "response.completed", "response.incomplete":
 		return handleResponsesCompleted(state, payload.Response, emit)
 	case "response.failed":
@@ -153,13 +157,49 @@ func handleResponsesTextDelta(state *responsesStreamState, payload responsesStre
 	if err != nil {
 		return false, err
 	}
+	entryIndex := *state.current
+	if state.textEntrySet && state.textEntry != entryIndex {
+		if err := flushPendingResponsesText(state, emit); err != nil {
+			return false, err
+		}
+		state.textEntrySet = false
+	}
+	if !state.textEntrySet {
+		state.textEntry = entryIndex
+		state.textEntrySet = true
+		state.textBoundaryCommitted = false
+	}
 	part := 0
 	if payload.ContentIndex != nil {
 		part = *payload.ContentIndex
 	}
 	entry.appendPart(part, delta)
-	state.content.WriteString(delta)
-	return false, emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: delta}})
+	output := delta
+	if !state.textBoundaryCommitted && strings.Trim(delta, "\n") == "" {
+		state.pendingTextNewlines += delta
+		return false, nil
+	}
+	if !state.textBoundaryCommitted {
+		output = codexMessageBoundary(state.content.String(), state.pendingTextNewlines+delta) + state.pendingTextNewlines + delta
+		state.pendingTextNewlines = ""
+		state.textBoundaryCommitted = true
+	}
+	state.content.WriteString(output)
+	return false, emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: output}})
+}
+
+func flushPendingResponsesText(state *responsesStreamState, emit func(ChatChunk) error) error {
+	if state.pendingTextNewlines == "" {
+		return nil
+	}
+	output := codexMessageBoundary(state.content.String(), state.pendingTextNewlines) + state.pendingTextNewlines
+	state.pendingTextNewlines = ""
+	state.textBoundaryCommitted = true
+	state.content.WriteString(output)
+	if emit != nil {
+		return emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: output}})
+	}
+	return nil
 }
 
 func handleResponsesReasoningDelta(state *responsesStreamState, delta string, emit func(ChatChunk) error) (bool, error) {
@@ -177,14 +217,20 @@ func handleResponsesReasoningDelta(state *responsesStreamState, delta string, em
 }
 
 //nolint:gocyclo // Item completion updates the ledger entry resolved by all aliases.
-func handleResponsesOutputItemDone(state *responsesStreamState, item responsesItem, outputIndex *int) (bool, error) {
+func handleResponsesOutputItemDone(state *responsesStreamState, item responsesItem, outputIndex *int, emit func(ChatChunk) error) (bool, error) {
 	if item.Type == "reasoning" {
+		if err := flushPendingResponsesText(state, emit); err != nil {
+			return false, err
+		}
 		state.reasoningID = item.ID
 		state.pendingThinkingSeparator = true
 		state.current = nil
 		return false, nil
 	}
 	if item.Type == "message" {
+		if err := flushPendingResponsesText(state, emit); err != nil {
+			return false, err
+		}
 		entry, err := state.resolve("message", item.ID, outputIndex, "", true)
 		if err != nil {
 			return false, err
@@ -207,6 +253,9 @@ func handleResponsesOutputItemDone(state *responsesStreamState, item responsesIt
 	}
 	if item.Type != "function_call" {
 		return false, nil
+	}
+	if err := flushPendingResponsesText(state, emit); err != nil {
+		return false, err
 	}
 	entry, err := state.resolve("function_call", item.ID, outputIndex, item.CallID, false)
 	if err != nil {
@@ -388,7 +437,13 @@ func handleResponsesCompleted(state *responsesStreamState, response responsesRes
 		state.content.Reset()
 		state.content.WriteString(text)
 		state.ledger = ledger
+		state.textEntrySet = false
+		state.textBoundaryCommitted = false
+		state.pendingTextNewlines = ""
 	} else {
+		if err := flushPendingResponsesText(state, emit); err != nil {
+			return false, err
+		}
 		_, _, text := state.projected()
 		state.content.Reset()
 		state.content.WriteString(text)
@@ -414,12 +469,15 @@ func handleResponsesCompleted(state *responsesStreamState, response responsesRes
 	return true, nil
 }
 
-func flushResponsesStreamState(emit func(ChatChunk) error, state responsesStreamState) error {
+func flushResponsesStreamState(emit func(ChatChunk) error, state *responsesStreamState) error {
+	if err := flushPendingResponsesText(state, emit); err != nil {
+		return err
+	}
 	_, calls, content := state.projected()
 	if content == "" && len(calls) == 0 && !state.sawThinking && state.finishReason == "" && state.usage == nil {
 		return nil
 	}
-	return emit(responsesStreamStateToChatChunk(state))
+	return emit(responsesStreamStateToChatChunk(*state))
 }
 
 func hasCodexPhase(blocks []CodexMessageBlock) bool {

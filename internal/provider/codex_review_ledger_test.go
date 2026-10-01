@@ -190,7 +190,7 @@ const reviewCodexLedgerCases = `[
       "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"id\":\"m2\",\"content\":[{\"type\":\"output_text\",\"text\":\"two\"}],\"phase\":\"final_answer\"}}",
       "{\"type\":\"response.completed\",\"response\":{}}"
     ],
-    "WantContent": "onetwo",
+    "WantContent": "one\n\ntwo",
     "WantReplay": [
       {
         "Kind": "message",
@@ -212,7 +212,7 @@ const reviewCodexLedgerCases = `[
       "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"id\":\"m2\",\"content\":[{\"type\":\"output_text\",\"text\":\"same\"}],\"phase\":\"final_answer\"},\"output_index\":1}",
       "{\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"content\":[{\"type\":\"output_text\",\"text\":\"same\"}]},{\"type\":\"message\",\"id\":\"m2\",\"content\":[{\"type\":\"output_text\",\"text\":\"same\"}]}]}}"
     ],
-    "WantContent": "samesame",
+    "WantContent": "same\n\nsame",
     "WantReplay": [
       {
         "Kind": "message",
@@ -347,7 +347,7 @@ const reviewCodexLedgerCases = `[
       "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"two\"}],\"phase\":\"final_answer\"},\"output_index\":1}",
       "{\"type\":\"response.completed\",\"response\":{}}"
     ],
-    "WantContent": "onetwo",
+    "WantContent": "one\n\ntwo",
     "WantReplay": [
       {
         "Kind": "message",
