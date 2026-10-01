@@ -550,12 +550,7 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 			toolContent = formatToolError(err)
 		}
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
-		if emitFinished {
-			if admission := normalizedResult.DelegationAdmission; admission != nil && admission.Status == tool.DelegationAdmissionAccepted {
-				emitEvent(p.request.Events, output.NewDelegationAcceptedEvent(call.ID, admission.AgentID, admission.BatchID, admission.Group))
-			}
-			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, toolContent, err, preview, outputAdmissionFromTool(normalizedResult.DelegationAdmission)))
-		}
+		p.emitToolFinished(turn, call, toolContent, err, preview, normalizedResult.DelegationAdmission, emitFinished)
 	} else {
 		recordMutationForContextManager(p.request.ContextManager, call.Name, call.Arguments, result)
 		normalizedResult = normalizeToolResult(result)
@@ -570,12 +565,7 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 			toolContent = shapeFreshToolResultForContextManager(p.request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content, prior)
 		}
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
-		if emitFinished {
-			if admission := normalizedResult.DelegationAdmission; admission != nil && admission.Status == tool.DelegationAdmissionAccepted {
-				emitEvent(p.request.Events, output.NewDelegationAcceptedEvent(call.ID, admission.AgentID, admission.BatchID, admission.Group))
-			}
-			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, toolContent, nil, preview, outputAdmissionFromTool(normalizedResult.DelegationAdmission)))
-		}
+		p.emitToolFinished(turn, call, toolContent, nil, preview, normalizedResult.DelegationAdmission, emitFinished)
 	}
 	toolMessage := Message{
 		Role:       MessageRoleTool,
@@ -601,6 +591,16 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		}
 	}
 	return toolMessage
+}
+
+func (p *turnProgressor) emitToolFinished(turn int, call provider.ToolCall, content string, err error, preview output.ToolPreview, admission *tool.DelegationAdmission, emit bool) {
+	if !emit {
+		return
+	}
+	if admission != nil && admission.Status == tool.DelegationAdmissionAccepted {
+		emitEvent(p.request.Events, output.NewDelegationAcceptedEvent(call.ID, admission.AgentID, admission.BatchID, admission.Group))
+	}
+	emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, content, err, preview, outputAdmissionFromTool(admission)))
 }
 
 func (p *turnProgressor) notDispatchedAdmission(toolName string) *tool.DelegationAdmission {

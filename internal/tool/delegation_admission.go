@@ -2,6 +2,7 @@ package tool
 
 import "errors"
 
+// DelegationAdmissionAccepted and DelegationAdmissionRejected are admission statuses.
 const (
 	DelegationAdmissionAccepted = "accepted"
 	DelegationAdmissionRejected = "rejected"
