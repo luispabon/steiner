@@ -187,7 +187,6 @@ func TestFollowUpRejectedAdmissionLeavesSessionAndGroupNames(t *testing.T) {
 	}{
 		{name: "unknown", input: map[string]any{"agent_id": "missing", "message": "continue", "group": "reject-unknown"}, wantErr: "has no session"},
 		{name: "invalid input", input: map[string]any{"agent_id": "warm", "message": "", "group": "reject-invalid"}, wantErr: "message is required"},
-		{name: "nonresumable", input: map[string]any{"agent_id": "gone", "message": "continue", "group": "reject-nonresumable"}, wantErr: "has no session"},
 		{name: "dead code worktree", prepare: func(store *SessionStore) {
 			session, _ := store.Get("warm")
 			session.Request.Tools = []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "mutate"}}}
@@ -197,7 +196,7 @@ func TestFollowUpRejectedAdmissionLeavesSessionAndGroupNames(t *testing.T) {
 			session, _ := store.Get("warm")
 			session.Request.Tools = []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "mutate"}}}
 		}, input: map[string]any{"agent_id": "warm", "message": "continue", "group": "reject-plan"}, wantErr: "plan mode is active"},
-		{name: "invalidated", prepare: func(store *SessionStore) { store.Invalidate("warm") }, input: map[string]any{"agent_id": "warm", "message": "continue", "group": "reject-invalidated"}, wantErr: "has no session"},
+		{name: "invalidated nonresumable session", prepare: func(store *SessionStore) { store.Invalidate("warm") }, input: map[string]any{"agent_id": "warm", "message": "continue", "group": "reject-invalidated"}, wantErr: "has no session"},
 		{name: "follow-up limit", prepare: func(store *SessionStore) { session, _ := store.Get("warm"); session.FollowUpCount = 1 }, input: map[string]any{"agent_id": "warm", "message": "continue", "group": "reject-limit"}, wantErr: "reached the maximum"},
 		{name: "running", busy: true, input: map[string]any{"agent_id": "warm", "message": "continue", "group": "reject-running"}, wantErr: "still running"},
 	} {
@@ -294,9 +293,10 @@ func TestFollowUpBusyRejectionDoesNotReserveGroup(t *testing.T) {
 func TestFollowUpConcurrentBusyRejectionDoesNotReserveRejectedName(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(followUpGroupSession("warm"))
+	before := cloneFollowUpTestSession(store, "warm")
 	started := make(chan struct{})
 	release := make(chan struct{})
-	s, _ := newAsyncSupervisor(2, nil)
+	s, sink := newAsyncSupervisor(2, nil)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 		close(started)
@@ -313,7 +313,8 @@ func TestFollowUpConcurrentBusyRejectionDoesNotReserveRejectedName(t *testing.T)
 	for _, group := range []string{"concurrent-a", "concurrent-b"} {
 		go func(group string) {
 			<-start
-			_, err := handler(batchCtx("concurrent-batch"), map[string]any{"agent_id": "warm", "message": "continue", "group": group})
+			ctx := context.WithValue(batchCtx("concurrent-batch"), tool.ExecutionCallIDKey{}, "call-"+group)
+			_, err := handler(ctx, map[string]any{"agent_id": "warm", "message": group, "group": group})
 			outcomes <- outcome{group: group, err: err}
 		}(group)
 	}
@@ -332,6 +333,9 @@ func TestFollowUpConcurrentBusyRejectionDoesNotReserveRejectedName(t *testing.T)
 	if accepted.err != nil || rejected.err == nil || !(strings.Contains(rejected.err.Error(), "still running, queued, or has a result") || errors.Is(rejected.err, ErrAgentAlreadyActive)) {
 		t.Fatalf("concurrent outcomes = {%s, %v}, {%s, %v}", first.group, first.err, second.group, second.err)
 	}
+	if afterAdmission := cloneFollowUpTestSession(store, "warm"); !reflect.DeepEqual(afterAdmission, before) {
+		t.Fatalf("session changed before winning execution: before=%+v after=%+v", before, afterAdmission)
+	}
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 || got[0] != accepted.group {
 		t.Fatalf("ledger names = %v, want only accepted group %q", got, accepted.group)
 	}
@@ -340,6 +344,25 @@ func TestFollowUpConcurrentBusyRejectionDoesNotReserveRejectedName(t *testing.T)
 		t.Fatalf("pending after competing calls = %+v", pending)
 	}
 	close(release)
+	waitUntil(t, func() bool {
+		pending := s.Pending()
+		return len(pending) == 1 && pending[0].State == agent.SubAgentFinished
+	})
+	s.SealGroupBatch(scope, "concurrent-batch")
+	completion := recv(t, sink.ch, "winning follow-up completion")
+	if len(completion) != 1 || completion[0].AgentID != "warm" || completion[0].ParentCallID != "call-"+accepted.group {
+		t.Fatalf("winner completion = %+v", completion)
+	}
+	afterWinner := cloneFollowUpTestSession(store, "warm")
+	if afterWinner.FollowUpCount != before.FollowUpCount+1 || afterWinner.TurnCount != before.TurnCount+1 {
+		t.Fatalf("winner counters = followups %d turns %d, baseline followups %d turns %d", afterWinner.FollowUpCount, afterWinner.TurnCount, before.FollowUpCount, before.TurnCount)
+	}
+	if len(afterWinner.Conversation) != len(before.Conversation)+1 || afterWinner.Conversation[len(afterWinner.Conversation)-1].Content != accepted.group {
+		t.Fatalf("winner history = %+v, want only accepted message %q", afterWinner.Conversation, accepted.group)
+	}
+	if afterWinner.TokenCount != before.TokenCount || afterWinner.ToolCallCount != before.ToolCallCount {
+		t.Fatalf("winner counters changed unexpectedly: tokens=%d tools=%d", afterWinner.TokenCount, afterWinner.ToolCallCount)
+	}
 }
 
 func TestFollowUpQueuedAndFinishedUndeliveredRejections(t *testing.T) {
@@ -376,9 +399,20 @@ func TestFollowUpQueuedAndFinishedUndeliveredRejections(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			handler := NewFollowUpHandler(SubAgentHandlerDeps{SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 10}, SessionStore: store, Supervisor: s, AsyncSubAgents: true, GroupScope: scope})
-			if _, err := handler(batchCtx("rejected-"+state), map[string]any{"agent_id": "warm", "message": "continue", "group": "busy-" + state}); err == nil {
-				t.Fatal("busy follow_up accepted")
+			handler := NewFollowUpHandler(SubAgentHandlerDeps{SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 10, MaxTurns: 3, MaxTokens: 30}, Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+				return agent.RunState{Conversation: req.SourceConversation, TurnCount: 2, StopReason: agent.StopReasonComplete}, nil
+			}}, SessionStore: store, Supervisor: s, AsyncSubAgents: true, GroupScope: scope})
+			_, err = handler(batchCtx("rejected-"+state), map[string]any{"agent_id": "warm", "message": "continue", "group": "busy-" + state})
+			if err == nil || !strings.Contains(err.Error(), "still running, queued, or has a result") {
+				t.Fatalf("%s rejection = %v", state, err)
+			}
+			pending := s.Pending()
+			if state == "queued" {
+				if len(pending) != 2 || pending[1].AgentID != "warm" || pending[1].State != agent.SubAgentQueued || !s.IsPending("warm") {
+					t.Fatalf("%s child state = %+v, IsPending=%t", state, pending, s.IsPending("warm"))
+				}
+			} else if len(pending) != 1 || pending[0].AgentID != "warm" || pending[0].State != agent.SubAgentFinished || !s.IsPending("warm") {
+				t.Fatalf("%s child state = %+v, IsPending=%t", state, pending, s.IsPending("warm"))
 			}
 			if got := s.SnapshotGroupLedger(scope).Names; len(got) != 0 {
 				t.Fatalf("rejection reserved group: %v", got)
@@ -389,6 +423,8 @@ func TestFollowUpQueuedAndFinishedUndeliveredRejections(t *testing.T) {
 			}
 			if state == "queued" {
 				close(block)
+			} else {
+				s.MarkDelivered([]string{"warm-call"})
 			}
 		})
 	}
