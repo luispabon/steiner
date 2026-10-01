@@ -12,9 +12,12 @@ import (
 func TestRejectedToolFinishFlushesLiveAnswerAndThinkingBeforeExactEvidence(t *testing.T) {
 	const rejection = "api: provider /status:run failed"
 	b := &contentBuffer{collapseState: make(map[int]bool)}
-	b.AppendEvent(output.NewAssistantChunkEventWithSource(1, "buffered answer", output.ChunkSourceAssistant))
-	b.AppendEvent(output.NewThinkingChunkEventWithSource(1, "buffered thought", output.ChunkSourceAssistant))
 	b.appendToolCallStartedEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call", map[string]any{"type": "explore"}))
+	b.AppendEvent(output.NewThinkingChunkEventWithSource(1, "buffered thought", output.ChunkSourceAssistant))
+	b.AppendEvent(output.NewAssistantChunkEventWithSource(1, "buffered answer", output.ChunkSourceAssistant))
+	if !b.streaming || b.streamBuffer != "buffered answer" || len(b.segments) != 2 || b.segments[1].kind != segmentThinkingBlock || b.segments[1].thinkData == nil || !b.segments[1].thinkData.streaming || b.segments[1].thinkData.body != "buffered thought" {
+		t.Fatalf("test setup did not leave live answer/thinking stream: streaming=%v buffer=%q segments=%#v", b.streaming, b.streamBuffer, b.segments)
+	}
 
 	b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(rejection), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected", PolicyNotice: true}))
 
@@ -24,11 +27,11 @@ func TestRejectedToolFinishFlushesLiveAnswerAndThinkingBeforeExactEvidence(t *te
 	if len(b.segments) < 3 {
 		t.Fatalf("finished segments = %#v", b.segments)
 	}
-	if b.segments[0].kind != segmentAssistantMarkdown || b.segments[0].text != "buffered answer" {
-		t.Fatalf("answer segment = %#v, want buffered answer first", b.segments[0])
+	if b.segments[0].kind != segmentThinkingBlock || b.segments[0].thinkData == nil || b.segments[0].thinkData.body != "buffered thought" {
+		t.Fatalf("thinking stream = %#v, want buffered thought before rejection", b.segments[0])
 	}
-	if b.segments[1].kind != segmentThinkingBlock || b.segments[1].thinkData == nil || b.segments[1].thinkData.body != "buffered thought" {
-		t.Fatalf("thinking segment = %#v, want buffered thought second", b.segments[1])
+	if b.segments[1].kind != segmentAssistantMarkdown || b.segments[1].text != "buffered answer" {
+		t.Fatalf("answer segment = %#v, want buffered answer after thinking and before rejection", b.segments[1])
 	}
 	if b.segments[2].kind != segmentStatus || b.segments[2].text != "Delegation rejected by policy." {
 		t.Fatalf("policy notice = %#v", b.segments[2])
