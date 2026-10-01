@@ -14,10 +14,11 @@ import (
 type blockedAcceptedSink struct {
 	entered chan struct{}
 	release chan struct{}
+	enabled *atomic.Bool
 }
 
 func (s blockedAcceptedSink) Emit(event output.Event) {
-	if event.Type == output.EventTypeDelegationAccepted {
+	if event.Type == output.EventTypeDelegationAccepted && (s.enabled == nil || s.enabled.Load()) {
 		close(s.entered)
 		<-s.release
 	}
@@ -91,6 +92,66 @@ func TestShutdownPublicationTimeoutSettlesLateAcceptedJob(t *testing.T) {
 	s.MarkDelivered([]string{"call-late"})
 	if s.IsPending("late") {
 		t.Fatal("late job remains pending after acknowledgement")
+	}
+	sink.none(t)
+}
+
+func TestShutdownLatePublicationSettlesGroupedJobsAndScopes(t *testing.T) {
+	blockLate := &atomic.Bool{}
+	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{}), enabled: blockLate}
+	sink := newChannelSink()
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events, JoinTimeout: 20 * time.Millisecond})
+	s.SetCompletionSink(sink)
+	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	ctx := agent.WithToolBatchID(context.Background(), "batch")
+	sibling := newAsyncChild("sibling", "same")
+	sibling.job.GroupScope = scope
+	spawnAsync(ctx, t, s, sibling)
+	waitClosed(t, sibling.started, "grouped sibling")
+	close(sibling.release)
+	waitFinished(t, s, "sibling")
+	unrelated := newAsyncChild("unrelated", "other")
+	unrelated.job.GroupScope = scope
+	spawnAsync(ctx, t, s, unrelated)
+	waitClosed(t, unrelated.started, "unrelated held job")
+	close(unrelated.release)
+	waitFinished(t, s, "unrelated")
+	sink.none(t)
+
+	blockLate.Store(true)
+	late := newAsyncChild("late", "same")
+	late.job.GroupScope = scope
+	spawnResult := make(chan error, 1)
+	go func() { _, err := s.Spawn(ctx, late.job); spawnResult <- err }()
+	waitClosed(t, events.entered, "blocked acceptance")
+	shutdown := make(chan struct{})
+	go func() { s.Shutdown(context.Background(), CancelCauseSystem); close(shutdown) }()
+	waitClosed(t, shutdown, "shutdown deadline")
+	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 2 {
+		t.Fatalf("scope ledger during outstanding publication = %v", got)
+	}
+	first := recv(t, sink.ch, "released held groups")
+	if len(first) != 2 || first[0].AgentID != "sibling" || first[1].AgentID != "unrelated" {
+		t.Fatalf("shutdown group batch = %+v", first)
+	}
+	close(events.release)
+	if err := recv(t, spawnResult, "late Spawn"); err != nil {
+		t.Fatal(err)
+	}
+	second := recv(t, sink.ch, "late grouped completion")
+	if len(second) != 1 || second[0].AgentID != "late" || second[0].Status != string(StatusCancelled) {
+		t.Fatalf("late completion = %+v", second)
+	}
+	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 2 {
+		t.Fatalf("scope ledger lost names before release: %v", got)
+	}
+	s.ReleaseGroupScope(scope)
+	s.MarkDelivered([]string{"call-sibling", "call-unrelated", "call-late"})
+	if s.IsPending("late") {
+		t.Fatal("late job remains pending after acknowledgement")
+	}
+	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 0 {
+		t.Fatalf("released scope remains after safe prune: %v", got)
 	}
 	sink.none(t)
 }

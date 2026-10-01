@@ -183,13 +183,14 @@ func (s *Supervisor) run(state *jobState) {
 	state.finalized = true
 	s.running--
 	var posts postList
-	if state.shutdownTimedOut {
+	switch {
+	case state.shutdownTimedOut:
 		result, err = tool.ExecutionResult{}, ErrSupervisorClosed
 		s.completeLocked(state, result, nil)
 		posts = s.routeShutdownCompletionLocked(state)
-	} else if s.closed {
+	case s.closed:
 		result, err = tool.ExecutionResult{}, ErrSupervisorClosed
-	} else {
+	default:
 		s.completeLocked(state, result, err)
 		posts = s.routeLocked(state)
 	}

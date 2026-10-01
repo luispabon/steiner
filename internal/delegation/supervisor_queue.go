@@ -82,20 +82,7 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	state.published = true
 	close(state.publication)
 	if state.shutdownTimedOut {
-		if state.completion == nil && !state.blocking {
-			completion := s.newCompletionLocked(state)
-			completion.Status = string(StatusCancelled)
-			completion.Quiet = true
-			completion.Body = agent.FailureBody(completion.Status, "sub-agent did not stop before shutdown")
-			state.completion = completion
-		}
-		deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
-		if state.phase == phaseQueued {
-			s.removeQueuedLocked(state)
-			state.phase = phaseDone
-			state.cancel()
-			go s.finishCancelled(state)
-		}
+		s.settleLatePublicationLocked(state)
 	}
 	if state.cause != CancelCauseNone && state.phase == phaseQueued {
 		s.removeQueuedLocked(state)
@@ -111,6 +98,23 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 		s.events.Emit(output.NewDelegationQueuedEvent(job.AgentID, job.ParentCallID, string(job.AgentType), job.ObjectivePreview))
 	}
 	return state, nil
+}
+
+func (s *Supervisor) settleLatePublicationLocked(state *jobState) {
+	if state.completion == nil && !state.blocking {
+		completion := s.newCompletionLocked(state)
+		completion.Status = string(StatusCancelled)
+		completion.Quiet = true
+		completion.Body = agent.FailureBody(completion.Status, "sub-agent did not stop before shutdown")
+		state.completion = completion
+	}
+	deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
+	if state.phase == phaseQueued {
+		s.removeQueuedLocked(state)
+		state.phase = phaseDone
+		state.cancel()
+		go s.finishCancelled(state)
+	}
 }
 
 // startQueuedLocked starts queued jobs in FIFO order while slots are free.

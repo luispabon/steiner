@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -40,6 +41,125 @@ func TestShutdownWaitsBlockedQueuedFinalizerWithoutBlocking(t *testing.T) {
 	sink.none(t)
 	if got := jobFor(s, "queued").result.Value; got != nil {
 		t.Fatalf("late callback replaced timeout waiter result: %v", got)
+	}
+}
+
+func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
+	for _, mode := range []string{"async", "blocking"} {
+		for _, releaseBeforeDeadline := range []bool{true, false} {
+			name := mode + "/release-before-deadline"
+			if !releaseBeforeDeadline {
+				name = mode + "/release-after-deadline"
+			}
+			t.Run(name, func(t *testing.T) {
+				s, sink := newAsyncSupervisor(1, nil)
+				s.joinTimeout = 80 * time.Millisecond
+				hold := newAsyncChild("hold", "")
+				spawnAsync(context.Background(), t, s, hold)
+				waitClosed(t, hold.started, "slot holder")
+				scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+				cancelled := newAsyncChild("cancelled", "group")
+				cancelled.job.GroupScope = scope
+				entered, release, callbackDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+				cancelled.job.OnCancelledBeforeStart = func() tool.ExecutionResult {
+					close(entered)
+					<-release
+					close(callbackDone)
+					return tool.ExecutionResult{Value: Result{AgentID: "cancelled", Status: StatusCancelled}}
+				}
+				var waiter <-chan spawnResult
+				ctx := agent.WithToolBatchID(context.Background(), "batch")
+				if mode == "blocking" {
+					waiter = spawn(ctx, s, cancelled.job)
+				} else {
+					spawnAsync(ctx, t, s, cancelled)
+				}
+				waitOutstanding(t, s, 2)
+				// The cancelled child queues behind hold and has published acceptance.
+				outcome := make(chan CancelOutcome, 1)
+				go func() { outcome <- s.CancelAgent("cancelled", false, CancelCauseUser) }()
+				if got := recv(t, outcome, "CancelAgent outcome"); got != CancelAccepted {
+					t.Fatalf("CancelAgent = %v", got)
+				}
+				waitClosed(t, entered, "CancelAgent finalizer")
+				if releaseBeforeDeadline {
+					close(release)
+					if mode == "blocking" {
+						got := recv(t, waiter, "blocking waiter before shutdown")
+						if got.result.Value == nil || got.err != nil {
+							t.Fatalf("waiter = %+v", got)
+						}
+					}
+				}
+				shutdown := make(chan struct{})
+				go func() { s.Shutdown(context.Background(), CancelCauseSystem); close(shutdown) }()
+				if !releaseBeforeDeadline {
+					waitClosed(t, shutdown, "shutdown deadline")
+					if mode == "blocking" {
+						got := recv(t, waiter, "blocking waiter timeout")
+						if !errors.Is(got.err, ErrSupervisorClosed) {
+							t.Fatalf("waiter err = %v", got.err)
+						}
+					}
+					if mode == "async" {
+						batch := recv(t, sink.ch, "running timeout completion")
+						if len(batch) != 1 || batch[0].AgentID != "hold" {
+							t.Fatalf("running completion = %+v", batch)
+						}
+						batch = recv(t, sink.ch, "async timeout completion")
+						if len(batch) != 1 || batch[0].AgentID != "cancelled" {
+							t.Fatalf("completion = %+v", batch)
+						}
+						s.MarkDelivered([]string{"call-cancelled"})
+					}
+					if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 {
+						t.Fatalf("scope pruned while callback blocked: %v", got)
+					}
+					close(release)
+				} else {
+					waitClosed(t, shutdown, "shutdown settled before deadline")
+				}
+				if mode == "async" && releaseBeforeDeadline {
+					batch := recv(t, sink.ch, "running completion")
+					if len(batch) != 1 || batch[0].AgentID != "hold" {
+						t.Fatalf("running completion = %+v", batch)
+					}
+					batch = recv(t, sink.ch, "async completion")
+					if len(batch) != 1 || batch[0].AgentID != "cancelled" {
+						t.Fatalf("completion = %+v", batch)
+					}
+					s.MarkDelivered([]string{"call-cancelled"})
+				}
+				waitClosed(t, callbackDone, "cancellation callback return")
+				if mode == "async" && releaseBeforeDeadline {
+					if s.IsPending("cancelled") {
+						t.Fatal("acknowledged async job remains pending")
+					}
+				}
+				if mode == "blocking" && releaseBeforeDeadline {
+					select {
+					case extra := <-waiter:
+						t.Fatalf("duplicate waiter outcome: %+v", extra)
+					default:
+					}
+				}
+				if mode == "async" && !releaseBeforeDeadline {
+					select {
+					case extra := <-sink.ch:
+						t.Fatalf("duplicate terminal completion: %+v", extra)
+					default:
+					}
+				}
+				if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 {
+					t.Fatalf("scope ledger changed before release: %v", got)
+				}
+				s.ReleaseGroupScope(scope)
+				if got := s.SnapshotGroupLedger(scope).Names; len(got) != 0 {
+					t.Fatalf("scope not pruned after settlement: %v", got)
+				}
+				close(hold.release)
+			})
+		}
 	}
 }
 
