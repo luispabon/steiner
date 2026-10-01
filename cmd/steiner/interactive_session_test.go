@@ -1,16 +1,1212 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/mcp"
+	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tui"
 )
+
+func TestNewOneshotRunnerFactoryBuilderRetainsLiveEffectiveCallback(t *testing.T) {
+	cmd := &cobra.Command{}
+	flags := &cliFlags{}
+	identity, err := oneshot.NewRunIdentity("fix the bug")
+	if err != nil {
+		t.Fatalf("NewRunIdentity() error = %v", err)
+	}
+	live := config.EffectiveModelAssignments{
+		ProfileName:             "fast",
+		DefaultModel:            "profile-default",
+		ActiveOrchestratorModel: "active-model",
+		OneShot:                 map[string]string{"plan": "plan-fast"},
+	}
+	builder := newOneshotRunnerFactoryBuilder(cmd, flags, t.TempDir(), output.NoopSink{}, func() config.EffectiveModelAssignments {
+		return live
+	}, nil, nil)
+
+	factory, ok := builder(identity).(phaseRunnerFactory)
+	if !ok {
+		t.Fatalf("builder returned %T, want phaseRunnerFactory", builder(identity))
+	}
+	params, err := factory.phaseParams(oneshot.PhasePlan, "plan-fast", nil, config.AdvisorConfig{})
+	if err != nil {
+		t.Fatalf("phaseParams() error = %v", err)
+	}
+	if params.CurrentEffective == nil {
+		t.Fatal("phase params current effective callback is nil")
+	}
+	live.DefaultModel = "profile-default-updated"
+	live.OneShot["plan"] = "plan-fast-updated"
+	if got := params.CurrentEffective(); got.DefaultModel != "profile-default-updated" || got.OneShot["plan"] != "plan-fast-updated" {
+		t.Fatalf("phase runner effective assignments = %#v, want updated live profile assignments", got)
+	}
+	if got := params.CurrentEffective().ActiveOrchestratorModel; got != "active-model" {
+		t.Fatalf("phase runner active orchestrator = %q, want active-model", got)
+	}
+}
+
+func TestStartupTUIModelConfigUsesAliasForDisplayModel(t *testing.T) {
+	t.Parallel()
+	cfg := config.Config{Models: config.ModelsConfig{
+		Definitions: map[string]config.ModelConfig{
+			"luna": {Provider: "codex", ID: "gpt-5.6-luna"},
+		},
+		Effective: config.EffectiveModelAssignments{
+			DefaultModel:            "luna",
+			ActiveOrchestratorModel: "luna",
+		},
+	}}
+
+	tuiCfg, selected := startupTUIModelConfig(cfg)
+	if got, want := tuiCfg.Model, "luna"; got != want {
+		t.Fatalf("startup TUI model = %q, want alias %q", got, want)
+	}
+	if got, want := tuiCfg.CurrentModelAlias, "luna"; got != want {
+		t.Fatalf("startup TUI current model alias = %q, want %q", got, want)
+	}
+	if selected.ID != "gpt-5.6-luna" {
+		t.Fatalf("selected backend model ID = %q, want gpt-5.6-luna", selected.ID)
+	}
+}
+
+func TestResetSandboxTmpEmitsWarning(t *testing.T) {
+	tmpPath := filepath.Join(t.TempDir(), "tmp")
+	if err := os.WriteFile(tmpPath, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sb := sandbox.New(config.SandboxConfig{}, config.PermissionsConfig{}, "", "", "", tmpPath)
+	var events []output.Event
+	resetSandboxTmp(output.SinkFunc(func(event output.Event) { events = append(events, event) }), sb)
+	if len(events) != 1 {
+		t.Fatalf("resetSandboxTmp() emitted %d events, want one", len(events))
+	}
+	payload, ok := events[0].Payload.(output.ContextSessionHealthEvent)
+	if !ok || len(payload.Notes) != 1 || !strings.Contains(payload.Notes[0], "sandbox tmp reset") {
+		t.Fatalf("warning event = %#v, want sandbox tmp reset warning", events[0])
+	}
+}
+
+func TestBuildInteractiveSessionCancelsThroughRuntimeSupervisor(t *testing.T) {
+	controller := delegation.NewActiveController()
+	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
+	observed, capture := spawnBlockedChild(t, sup, controller, "child-1")
+	sess, err := buildInteractiveSession(cliRuntime{
+		events:               output.NoopSink{},
+		workDir:              t.TempDir(),
+		homeDir:              t.TempDir(),
+		delegationSupervisor: sup,
+	})
+	if err != nil {
+		t.Fatalf("buildInteractiveSession() error = %v", err)
+	}
+	sup.SetCompletionSink(capture)
+	if err := sess.Handle(context.Background(), interactive.CancelDelegate{AgentID: "child-1"}); err != nil {
+		t.Fatalf("Handle(CancelDelegate) error = %v", err)
+	}
+	select {
+	case got := <-observed:
+		if !got.quiet {
+			t.Fatal("cancellation was not recorded as a user cause (completion not quiet)")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("interactive cancellation did not cancel the supervised child")
+	}
+}
+
+func TestBuildInteractiveSessionKeepsProfileDefaultSeparateFromActiveModel(t *testing.T) {
+	cfg := config.Config{Models: config.ModelsConfig{
+		Effective: config.EffectiveModelAssignments{
+			DefaultModel:            "profile-default",
+			ActiveOrchestratorModel: "override-model",
+		},
+	}}
+	sess, err := buildInteractiveSession(cliRuntime{
+		cfg:     cfg,
+		events:  output.NoopSink{},
+		workDir: t.TempDir(),
+		homeDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("buildInteractiveSession() error = %v", err)
+	}
+
+	sessionCfg := sess.Config()
+	if got, want := sessionCfg.Models.Effective.DefaultModel, "profile-default"; got != want {
+		t.Fatalf("session default model = %q, want %q for oneshot fallback", got, want)
+	}
+	if got, want := sess.CurrentModelAlias(), "override-model"; got != want {
+		t.Fatalf("session current model alias = %q, want %q", got, want)
+	}
+}
+
+func TestBuildInteractiveSessionUpdatesVisionCapabilitiesOnProfileSwitch(t *testing.T) {
+	vision := agent.NewVisionCapabilities(false)
+	rt := cliRuntime{
+		cfg: config.Config{
+			Providers: map[string]config.ProviderConfig{"local": {}},
+			Models: config.ModelsConfig{
+				Definitions: map[string]config.ModelConfig{
+					"base": {Provider: "local", ID: "base-id"},
+					"fast": {Provider: "local", ID: "fast-id"},
+				},
+				Profiles: map[string]config.ModelProfile{
+					"default": {DefaultModel: "base"},
+					"fast":    {DefaultModel: "fast", SubAgents: map[string]string{"vision": "fast"}},
+				},
+				Effective: config.EffectiveModelAssignments{ProfileName: "default", DefaultModel: "base"},
+			},
+		},
+		events:             output.NoopSink{},
+		workDir:            t.TempDir(),
+		homeDir:            t.TempDir(),
+		visionCapabilities: vision,
+	}
+	sess, err := buildInteractiveSession(rt)
+	if err != nil {
+		t.Fatalf("buildInteractiveSession() error = %v", err)
+	}
+	if err := sess.Handle(context.Background(), interactive.SwitchProfile{Name: "fast"}); err != nil {
+		t.Fatalf("Handle(fast) = %v, want nil", err)
+	}
+	if !vision.SubAgentConfigured() {
+		t.Fatal("vision capability remains disabled after switching to vision profile")
+	}
+	if err := sess.Handle(context.Background(), interactive.SwitchProfile{Name: "missing"}); err == nil {
+		t.Fatal("Handle(missing) = nil, want error")
+	}
+	if !vision.SubAgentConfigured() {
+		t.Fatal("failed profile switch disabled vision capability")
+	}
+	if err := sess.Handle(context.Background(), interactive.SwitchProfile{Name: "default"}); err != nil {
+		t.Fatalf("Handle(default) = %v, want nil", err)
+	}
+	if vision.SubAgentConfigured() {
+		t.Fatal("vision capability remains enabled after switching away from vision profile")
+	}
+}
+
+func TestMCPTUIStateEnabledMix(t *testing.T) {
+	fixtureBin := buildMCPFixture(t)
+
+	cfg := config.Config{
+		MCP: config.MCPConfig{
+			Enabled: true,
+			Servers: map[string]config.MCPServerConfig{
+				"bad":      {Enabled: true, Command: "/nonexistent/steiner-no-such-binary"},
+				"good":     {Enabled: true, Command: fixtureBin},
+				"switched": {Enabled: false},
+			},
+		},
+	}
+
+	mgr := mcp.Connect(context.Background(), cfg.MCP, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	defer mgr.Close() //nolint:errcheck
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := mgr.WaitInit(ctx); err != nil {
+		t.Fatalf("WaitInit: %v", err)
+	}
+
+	registry := tool.NewRegistry(mgr.ToolDefs()...)
+
+	enabled, servers, origins := mcpTUIState(cfg, mgr, registry)
+	if !enabled {
+		t.Fatal("enabled = false, want true")
+	}
+
+	wantStates := mgr.ServerStates()
+	if len(servers) != len(wantStates) {
+		t.Fatalf("got %d servers, want %d", len(servers), len(wantStates))
+	}
+	for i, s := range wantStates {
+		got := servers[i]
+		if got.Name != s.Name || got.State != string(s.Status) || got.Transport != s.Transport || got.Error != s.Err {
+			t.Errorf("server[%d] = %+v, want name=%s state=%s transport=%s err=%s", i, got, s.Name, s.Status, s.Transport, s.Err)
+		}
+		if len(got.Tools) != len(s.AdvertisedTools) {
+			t.Errorf("server[%d] advertised tools = %d, want %d", i, len(got.Tools), len(s.AdvertisedTools))
+			continue
+		}
+		for j, want := range s.AdvertisedTools {
+			gotTool := got.Tools[j]
+			if gotTool.Name != want.Name || gotTool.Outcome != mcpOutcomeLabel(want.Outcome) {
+				t.Errorf("server[%d].Tools[%d] = %+v, want name=%s outcome=%s", i, j, gotTool, want.Name, mcpOutcomeLabel(want.Outcome))
+			}
+		}
+	}
+
+	for _, def := range registry.Definitions() {
+		if def.MCP.Server == "" {
+			continue
+		}
+		origin, ok := origins[def.Name]
+		if !ok {
+			t.Errorf("origins missing entry for %q", def.Name)
+			continue
+		}
+		if origin.Server != def.MCP.Server || origin.Tool != def.MCP.ToolName {
+			t.Errorf("origins[%q] = %+v, want server=%s tool=%s", def.Name, origin, def.MCP.Server, def.MCP.ToolName)
+		}
+	}
+}
+
+func TestMCPTUIStateDisabled(t *testing.T) {
+	cfg := config.Config{
+		MCP: config.MCPConfig{
+			Enabled: false,
+			Servers: map[string]config.MCPServerConfig{
+				"one": {Enabled: true, Transport: "stdio"},
+				"two": {Enabled: true},
+			},
+		},
+	}
+
+	registry := tool.NewRegistry()
+
+	enabled, servers, origins := mcpTUIState(cfg, nil, registry)
+	if enabled {
+		t.Fatal("enabled = true, want false")
+	}
+	if len(servers) != 2 {
+		t.Fatalf("got %d servers, want 2", len(servers))
+	}
+	for _, s := range servers {
+		if s.State != string(mcp.ServerStatusDisabled) {
+			t.Errorf("server %q state = %q, want %q", s.Name, s.State, mcp.ServerStatusDisabled)
+		}
+	}
+	if len(origins) != 0 {
+		t.Errorf("origins = %v, want empty", origins)
+	}
+}
+
+func TestMCPTUIStateOriginsWithUnderscoreServerName(t *testing.T) {
+	cfg := config.Config{MCP: config.MCPConfig{Enabled: false}}
+
+	registry := tool.NewRegistry(tool.ToolDef{
+		Name: "mcp__my_tool_srv__do_thing",
+		MCP:  tool.MCPProvenance{Server: "my_tool_srv", ToolName: "do_thing"},
+	})
+
+	_, _, origins := mcpTUIState(cfg, nil, registry)
+
+	origin, ok := origins["mcp__my_tool_srv__do_thing"]
+	if !ok {
+		t.Fatal("origins missing entry for underscore-named server tool")
+	}
+	if origin.Server != "my_tool_srv" {
+		t.Errorf("origin.Server = %q, want %q", origin.Server, "my_tool_srv")
+	}
+	if origin.Tool != "do_thing" {
+		t.Errorf("origin.Tool = %q, want %q", origin.Tool, "do_thing")
+	}
+}
+
+func TestMCPStateProducerDualListeners(t *testing.T) {
+	producer := &mcpStateProducer{}
+	preListenerCalls := 0
+	listenerCalls := 0
+	producer.setPreListener(func() { preListenerCalls++ })
+	producer.setListener(func() { listenerCalls++ })
+
+	// Pre-arm: stateChanged invokes preListener only
+	producer.stateChanged()
+	if preListenerCalls != 1 {
+		t.Fatalf("pre-arm stateChanged: preListener calls = %d, want 1", preListenerCalls)
+	}
+	if listenerCalls != 0 {
+		t.Fatalf("pre-arm stateChanged: listener calls = %d, want 0", listenerCalls)
+	}
+
+	// Arm emits one full snapshot
+	producer.arm()
+	if preListenerCalls != 1 {
+		t.Fatalf("after arm: preListener calls = %d, want still 1", preListenerCalls)
+	}
+	if listenerCalls != 1 {
+		t.Fatalf("after arm: listener calls = %d, want 1", listenerCalls)
+	}
+
+	// Second arm is idempotent
+	producer.arm()
+	if listenerCalls != 1 {
+		t.Fatalf("second arm: listener calls = %d, want still 1", listenerCalls)
+	}
+
+	// Post-arm: stateChanged invokes listener only
+	producer.stateChanged()
+	if preListenerCalls != 1 {
+		t.Fatalf("post-arm stateChanged: preListener calls = %d, want still 1", preListenerCalls)
+	}
+	if listenerCalls != 2 {
+		t.Fatalf("post-arm stateChanged: listener calls = %d, want 2", listenerCalls)
+	}
+}
+
+func TestEmitMCPServerStatesSnapshot(t *testing.T) {
+	mgr := mcpFixtureManager(t)
+	// Create a registry with MCP origins to verify they are NOT included
+	registry := tool.NewRegistry(tool.ToolDef{
+		Name: "mcp__fixture__echo",
+		MCP:  tool.MCPProvenance{Server: "fixture", ToolName: "echo"},
+	})
+	rt := cliRuntime{
+		cfg:        config.Config{MCP: config.MCPConfig{Enabled: true}},
+		mcpManager: mgr,
+		registry:   registry,
+	}
+
+	var got output.Event
+	emitMCPServerStatesSnapshot(rt, output.SinkFunc(func(e output.Event) { got = e }))
+
+	if got.Type != output.EventTypeMCPStatus {
+		t.Fatalf("event type = %q, want %q", got.Type, output.EventTypeMCPStatus)
+	}
+	snap, ok := got.Payload.(output.MCPStatusEvent)
+	if !ok {
+		t.Fatalf("payload type = %T, want output.MCPStatusEvent", got.Payload)
+	}
+	if !snap.Enabled {
+		t.Fatal("snapshot enabled = false, want true")
+	}
+
+	// Servers are populated
+	srv, ok := snap.Servers["fixture"]
+	if !ok {
+		t.Fatalf("snapshot servers = %v, want fixture entry", snap.Servers)
+	}
+	if srv.State != string(mcp.ServerStatusConnected) {
+		t.Fatalf("fixture state = %q, want %q", srv.State, mcp.ServerStatusConnected)
+	}
+
+	// Origins are empty (key difference from emitMCPStateSnapshot)
+	if len(snap.Origins) != 0 {
+		t.Errorf("snapshot origins = %v, want empty", snap.Origins)
+	}
+}
+
+func TestEmitMCPStateSnapshot(t *testing.T) {
+	mgr := mcpFixtureManager(t)
+	registry := tool.NewRegistry(mgr.ToolDefs()...)
+	rt := cliRuntime{
+		cfg:        config.Config{MCP: config.MCPConfig{Enabled: true}},
+		mcpManager: mgr,
+		registry:   registry,
+	}
+
+	var got output.Event
+	emitMCPStateSnapshot(rt, output.SinkFunc(func(e output.Event) { got = e }))
+
+	if got.Type != output.EventTypeMCPStatus {
+		t.Fatalf("event type = %q, want %q", got.Type, output.EventTypeMCPStatus)
+	}
+	snap, ok := got.Payload.(output.MCPStatusEvent)
+	if !ok {
+		t.Fatalf("payload type = %T, want output.MCPStatusEvent", got.Payload)
+	}
+	if !snap.Enabled {
+		t.Fatal("snapshot enabled = false, want true")
+	}
+	srv, ok := snap.Servers["fixture"]
+	if !ok {
+		t.Fatalf("snapshot servers = %v, want fixture entry", snap.Servers)
+	}
+	if srv.State != string(mcp.ServerStatusConnected) {
+		t.Fatalf("fixture state = %q, want %q", srv.State, mcp.ServerStatusConnected)
+	}
+	if len(srv.Tools) != 6 {
+		t.Fatalf("fixture advertised tools = %+v, want 6 registered tools", srv.Tools)
+	}
+	for i, want := range []string{"echo", "boom", "readonly_echo", "die", "sleep", "big_output"} {
+		got := srv.Tools[i]
+		if got.Name != want || got.Outcome != "registered" {
+			t.Fatalf("fixture tool[%d] = %+v, want %s registered", i, got, want)
+		}
+	}
+	if _, ok := snap.Origins["mcp__fixture__echo"]; !ok {
+		t.Fatalf("snapshot origins = %v, want mcp__fixture__echo", snap.Origins)
+	}
+}
+
+func TestConnectRuntimeMCPBlockingWaitsAndRegistersTools(t *testing.T) {
+	fixtureBin := buildMCPFixture(t)
+	cfg := config.Config{
+		MCP: config.MCPConfig{
+			Enabled: true,
+			Servers: map[string]config.MCPServerConfig{
+				"stall": {
+					Enabled:        true,
+					Command:        fixtureBin,
+					Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
+					ConnectTimeout: config.MustDuration("200ms"),
+				},
+				"good": {Enabled: true, Command: fixtureBin},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	discard := output.SinkFunc(func(output.Event) {})
+	mgr, producer := connectRuntimeMCP(ctx, cfg, nil, false, discard, io.Discard)
+	defer mgr.Close() //nolint:errcheck
+
+	// The blocking path waits for every server: the stall resolved to failed
+	// and the good server connected before connectRuntimeMCP returned.
+	if producer != nil {
+		t.Fatal("blocking path returned a state producer, want nil")
+	}
+	states := mgr.ServerStates()
+	if got := mcpServerStateByName(states, "stall"); got == nil || got.Status != mcp.ServerStatusFailed {
+		t.Fatalf("stall state = %+v, want failed after blocking connect", got)
+	}
+	if got := mcpServerStateByName(states, "good"); got == nil || got.Status != mcp.ServerStatusConnected {
+		t.Fatalf("good state = %+v, want connected after blocking connect", got)
+	}
+
+	// The blocking path freezes the complete tool list, so the registry the
+	// `steiner tools` command renders includes the connected server's tools.
+	registry := tool.NewRegistry(mgr.ToolDefs()...)
+	for _, want := range []string{"mcp__good__echo", "mcp__good__boom"} {
+		if _, ok := registry.Get(want); !ok {
+			t.Fatalf("registry missing %q; names: %v", want, registry.Names())
+		}
+	}
+}
+
+func TestConnectRuntimeMCPAsyncReturnsBeforeServersResolve(t *testing.T) {
+	fixtureBin := buildMCPFixture(t)
+	cfg := config.Config{
+		MCP: config.MCPConfig{
+			Enabled: true,
+			Servers: map[string]config.MCPServerConfig{
+				"stall": {
+					Enabled:        true,
+					Command:        fixtureBin,
+					Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
+					ConnectTimeout: config.MustDuration("30s"),
+				},
+				"good": {Enabled: true, Command: fixtureBin},
+			},
+		},
+	}
+
+	mgr, producer := connectRuntimeMCP(context.Background(), cfg, nil, true, output.SinkFunc(func(output.Event) {}), io.Discard)
+	defer mgr.Close() //nolint:errcheck
+
+	if producer == nil {
+		t.Fatal("async path returned no state producer, want one")
+	}
+	// The async path returns before the stall resolves: it must still be
+	// connecting, and the TUI paints while the connect proceeds.
+	states := mgr.ServerStates()
+	if got := mcpServerStateByName(states, "stall"); got == nil || got.Status != mcp.ServerStatusConnecting {
+		t.Fatalf("stall state = %+v, want still connecting", got)
+	}
+}
+
+func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
+	fixtureBin := buildMCPFixture(t)
+	connectStart := time.Now()
+	mgr := mcp.Connect(context.Background(), config.MCPConfig{
+		Enabled: true,
+		Servers: map[string]config.MCPServerConfig{
+			"stall": {
+				Enabled:        true,
+				Command:        fixtureBin,
+				Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
+				ConnectTimeout: config.MustDuration("1s"),
+			},
+			"good": {Enabled: true, Command: fixtureBin},
+		},
+	}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	defer mgr.Close() //nolint:errcheck
+
+	// The interactive registry is built before all servers resolve. Fast servers
+	// may already have contributed defs by construction time; the important
+	// invariant is that Run() waits for every server and (re-)registers all defs.
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr, nil)
+
+	// Let the good server connect while the stall server is still handshaking:
+	// the manager holds the defs, the registry still does not.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		states := mgr.ServerStates()
+		good := mcpServerStateByName(states, "good")
+		stall := mcpServerStateByName(states, "stall")
+		if good != nil && good.Status == mcp.ServerStatusConnected && stall != nil && stall.Status == mcp.ServerStatusConnecting {
+			break
+		}
+		if stall != nil && stall.Status != mcp.ServerStatusConnecting {
+			t.Fatalf("stall resolved to %q before good connected; states=%+v", stall.Status, states)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("good server never connected while stall was connecting; states=%+v", states)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	producer := &mcpStateProducer{}
+	snapshots := 0
+	producer.setListener(func() { snapshots++ })
+
+	rt := cliRuntime{
+		// No such model: runner.Run fails fast right after the MCP init, which
+		// keeps this test off the provider and discovery paths.
+		cfg:        config.Config{Models: config.ModelsConfig{Effective: config.EffectiveModelAssignments{DefaultModel: "nope", ActiveOrchestratorModel: "nope"}}},
+		registry:   registry,
+		mcpManager: mgr,
+		mcpState:   producer,
+	}
+	sr := sessionRunner{runner: cliRunner{runtime: rt}, mcpInit: &mcpInitOnce{}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := sr.Run(ctx, interactive.RunInput{}); err == nil {
+		t.Fatal("Run() error = nil, want fast failure after MCP init")
+	}
+	// Measured from Connect: the fixture re-exec is a slow-starting test binary,
+	// so how much of the timeout is left when Run starts varies. The flip side is
+	// that the test would falsely pass if setup before Run took over ~900ms, so
+	// it guards against Run not waiting at all, not against a partial wait.
+	if elapsed := time.Since(connectStart); elapsed < 900*time.Millisecond {
+		t.Fatalf("Run() returned %v after Connect, want it to wait for the stalling server (1s connect timeout)", elapsed)
+	}
+
+	// Both servers resolved: stall failed, good connected.
+	states := mgr.ServerStates()
+	if got := mcpServerStateByName(states, "stall"); got == nil || got.Status != mcp.ServerStatusFailed {
+		t.Fatalf("stall state = %+v, want failed after Run", got)
+	}
+	if got := mcpServerStateByName(states, "good"); got == nil || got.Status != mcp.ServerStatusConnected {
+		t.Fatalf("good state = %+v, want connected after Run", got)
+	}
+
+	// The good server's defs were registered in place during Run, with no
+	// duplicates: exactly one def per tool.
+	for _, want := range []string{"mcp__good__echo", "mcp__good__boom"} {
+		if _, ok := registry.Get(want); !ok {
+			t.Fatalf("registry missing %q after Run; names: %v", want, registry.Names())
+		}
+	}
+	if got := mcpRegistryToolNames(registry); len(got) != len(mgr.ToolDefs()) {
+		t.Fatalf("registry MCP defs = %v, want exactly the manager's %v", got, mcpToolNames(mgr.ToolDefs()))
+	}
+
+	// The producer was armed after WaitInit + registration: one snapshot.
+	if snapshots != 1 {
+		t.Fatalf("producer emitted %d snapshots, want 1", snapshots)
+	}
+}
+
+func TestPruneWorktreesOnExitSkipsActiveRun(t *testing.T) {
+	oldTimeout := worktreeCleanupJoinTimeout
+	worktreeCleanupJoinTimeout = 10 * time.Millisecond
+	defer func() { worktreeCleanupJoinTimeout = oldTimeout }()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	sess, err := interactive.NewSession(interactive.Dependencies{
+		Runner: &blockedCleanupTestRunner{started: started, release: release},
+	})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+		if !sess.WaitRuns(context.Background()) {
+			t.Error("WaitRuns returned false after releasing blocked run")
+		}
+	}()
+	if err := sess.Handle(context.Background(), interactive.SubmitPrompt{Text: "blocked"}); err != nil {
+		t.Fatalf("Handle(SubmitPrompt): %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("submitted prompt did not start")
+	}
+
+	pruned := false
+	plan := tui.NewWorktreeCleanupPlan(nil, func(context.Context) (int, error) {
+		pruned = true
+		return 1, nil
+	})
+	plan.Request()
+	var got output.Event
+	rt := &cliRuntime{
+		worktreeCleanup: plan,
+		events:          output.SinkFunc(func(event output.Event) { got = event }),
+	}
+	cmd := &cobra.Command{}
+	cmd.SetErr(&bytes.Buffer{})
+
+	start := time.Now()
+	pruneWorktreesOnExit(cmd, sess, rt)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("pruneWorktreesOnExit took %v, want prompt return", elapsed)
+	}
+	if pruned {
+		t.Fatal("prune called while an active run was still finishing")
+	}
+	if got.Type != output.EventTypeContextDiagnostics {
+		t.Fatalf("event type = %q, want %q", got.Type, output.EventTypeContextDiagnostics)
+	}
+	payload, ok := got.Payload.(output.ContextSessionHealthEvent)
+	if !ok {
+		t.Fatalf("payload type = %T, want output.ContextSessionHealthEvent", got.Payload)
+	}
+	if len(payload.Notes) != 1 || !strings.Contains(payload.Notes[0], "worktree cleanup: skipped because an active run was still finishing") {
+		t.Fatalf("warning notes = %v, want active-run cleanup warning", payload.Notes)
+	}
+}
+
+func TestPruneWorktreesOnExitWithoutIntent(t *testing.T) {
+	pruned := false
+	plan := tui.NewWorktreeCleanupPlan(nil, func(context.Context) (int, error) {
+		pruned = true
+		return 2, nil
+	})
+	var stderr bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetErr(&stderr)
+
+	pruneWorktreesOnExit(cmd, nil, &cliRuntime{worktreeCleanup: plan})
+
+	if pruned {
+		t.Fatal("prune called without cleanup intent")
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestPruneWorktreesOnExitReportsCount(t *testing.T) {
+	pruned := 0
+	plan := tui.NewWorktreeCleanupPlan(nil, func(context.Context) (int, error) {
+		pruned++
+		return 2, nil
+	})
+	plan.Request()
+	sess, err := interactive.NewSession(interactive.Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	var stderr bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetErr(&stderr)
+
+	pruneWorktreesOnExit(cmd, sess, &cliRuntime{worktreeCleanup: plan})
+
+	if pruned != 1 {
+		t.Fatalf("prune calls = %d, want 1", pruned)
+	}
+	if got, want := stderr.String(), "\nCleaned up 2 worktree(s).\n\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestPruneWorktreesOnExitReportsWarning(t *testing.T) {
+	wantErr := errors.New("prune failed")
+	plan := tui.NewWorktreeCleanupPlan(nil, func(context.Context) (int, error) {
+		return 0, wantErr
+	})
+	plan.Request()
+	sess, err := interactive.NewSession(interactive.Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	var got output.Event
+	cmd := &cobra.Command{}
+	cmd.SetErr(&bytes.Buffer{})
+	rt := &cliRuntime{
+		worktreeCleanup: plan,
+		events: output.SinkFunc(func(event output.Event) {
+			got = event
+		}),
+	}
+
+	pruneWorktreesOnExit(cmd, sess, rt)
+
+	if got.Type != output.EventTypeContextDiagnostics {
+		t.Fatalf("event type = %q, want %q", got.Type, output.EventTypeContextDiagnostics)
+	}
+	payload, ok := got.Payload.(output.ContextSessionHealthEvent)
+	if !ok {
+		t.Fatalf("payload type = %T, want output.ContextSessionHealthEvent", got.Payload)
+	}
+	if len(payload.Notes) != 1 || !strings.Contains(payload.Notes[0], "worktree cleanup: prune failed") {
+		t.Fatalf("warning notes = %v, want cleanup error", payload.Notes)
+	}
+}
+
+// blockingHistoryWriter blocks Record until release is closed, then signals
+// recordDone. It lets a test hold a tracked history write open across shutdown.
+type blockingHistoryWriter struct {
+	recordStarted chan struct{}
+	release       chan struct{}
+	recordDone    chan struct{}
+	startedOnce   sync.Once
+	doneOnce      sync.Once
+}
+
+func (w *blockingHistoryWriter) Record(string) error {
+	w.startedOnce.Do(func() { close(w.recordStarted) })
+	<-w.release
+	w.doneOnce.Do(func() { close(w.recordDone) })
+	return nil
+}
+
+func (w *blockingHistoryWriter) Load() ([]string, error) { return nil, nil }
+
+func TestAwaitSessionRunsWaitsForTrackedHistoryWrite(t *testing.T) {
+	oldTimeout := sessionRunDrainTimeout
+	sessionRunDrainTimeout = 5 * time.Second
+	defer func() { sessionRunDrainTimeout = oldTimeout }()
+
+	writer := &blockingHistoryWriter{
+		recordStarted: make(chan struct{}),
+		release:       make(chan struct{}),
+		recordDone:    make(chan struct{}),
+	}
+	sess, err := interactive.NewSession(interactive.Dependencies{HistoryWriter: writer})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	var releaseOnce sync.Once
+	releaseWrite := func() { releaseOnce.Do(func() { close(writer.release) }) }
+	defer func() {
+		releaseWrite()
+		if !sess.WaitRuns(context.Background()) {
+			t.Error("WaitRuns returned false after releasing the tracked write")
+		}
+	}()
+
+	if err := sess.Handle(context.Background(), interactive.RecordPromptHistory{Text: "tracked"}); err != nil {
+		t.Fatalf("Handle(RecordPromptHistory): %v", err)
+	}
+	select {
+	case <-writer.recordStarted:
+	case <-time.After(time.Second):
+		t.Fatal("RecordPromptHistory did not reach HistoryWriter.Record")
+	}
+
+	cmd := &cobra.Command{}
+	cmd.SetErr(&bytes.Buffer{})
+	var got output.Event
+	rt := &cliRuntime{events: output.SinkFunc(func(event output.Event) { got = event })}
+
+	awaitDone := make(chan struct{})
+	go func() {
+		awaitSessionRuns(cmd, sess, rt)
+		close(awaitDone)
+	}()
+
+	// The tracked write is still blocked, so awaitSessionRuns must not return.
+	// A shutdown that skipped the run drain would close awaitDone immediately,
+	// while a correct one stays blocked until releaseWrite frees the write below.
+	select {
+	case <-awaitDone:
+		t.Fatal("awaitSessionRuns returned while the tracked history write was still pending")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	releaseWrite()
+
+	select {
+	case <-awaitDone:
+	case <-time.After(time.Second):
+		t.Fatal("awaitSessionRuns did not return after the tracked write was released")
+	}
+	select {
+	case <-writer.recordDone:
+	default:
+		t.Fatal("awaitSessionRuns returned before the tracked history write completed")
+	}
+	if got.Type != "" {
+		t.Fatalf("awaitSessionRuns emitted %v on a clean drain, want no warning", got)
+	}
+}
+
+func TestAwaitSessionRunsReportsTimeoutOnStuckWrite(t *testing.T) {
+	oldTimeout := sessionRunDrainTimeout
+	sessionRunDrainTimeout = 20 * time.Millisecond
+	defer func() { sessionRunDrainTimeout = oldTimeout }()
+
+	writer := &blockingHistoryWriter{
+		recordStarted: make(chan struct{}),
+		release:       make(chan struct{}),
+		recordDone:    make(chan struct{}),
+	}
+	sess, err := interactive.NewSession(interactive.Dependencies{HistoryWriter: writer})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	var releaseOnce sync.Once
+	releaseWrite := func() { releaseOnce.Do(func() { close(writer.release) }) }
+	defer func() {
+		releaseWrite()
+		if !sess.WaitRuns(context.Background()) {
+			t.Error("WaitRuns returned false after releasing the stuck write")
+		}
+	}()
+
+	if err := sess.Handle(context.Background(), interactive.RecordPromptHistory{Text: "stuck"}); err != nil {
+		t.Fatalf("Handle(RecordPromptHistory): %v", err)
+	}
+	select {
+	case <-writer.recordStarted:
+	case <-time.After(time.Second):
+		t.Fatal("RecordPromptHistory did not reach HistoryWriter.Record")
+	}
+
+	cmd := &cobra.Command{}
+	cmd.SetErr(&bytes.Buffer{})
+	var got output.Event
+	rt := &cliRuntime{events: output.SinkFunc(func(event output.Event) { got = event })}
+
+	start := time.Now()
+	awaitSessionRuns(cmd, sess, rt)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("awaitSessionRuns took %v with a stuck write, want a bounded return", elapsed)
+	}
+	if got.Type != output.EventTypeContextDiagnostics {
+		t.Fatalf("event type = %q, want %q", got.Type, output.EventTypeContextDiagnostics)
+	}
+	payload, ok := got.Payload.(output.ContextSessionHealthEvent)
+	if !ok {
+		t.Fatalf("payload type = %T, want output.ContextSessionHealthEvent", got.Payload)
+	}
+	if len(payload.Notes) != 1 || !strings.Contains(payload.Notes[0], "session shutdown") {
+		t.Fatalf("warning notes = %v, want session shutdown warning", payload.Notes)
+	}
+}
+
+func TestRunInteractiveSessionDrainsTrackedWorkBeforeClose(t *testing.T) {
+	oldTimeout := sessionRunDrainTimeout
+	sessionRunDrainTimeout = 5 * time.Second
+	defer func() { sessionRunDrainTimeout = oldTimeout }()
+
+	oldRun := runTeaProgram
+	oldQuit := quitTeaProgram
+	t.Cleanup(func() {
+		runTeaProgram = oldRun
+		quitTeaProgram = oldQuit
+	})
+	// The stub returns immediately, so its goroutine cancels the session context
+	// and shutdown proceeds to the tracked-work drain.
+	runTeaProgram = func(*tea.Program) (tea.Model, error) { return nil, tea.ErrProgramKilled }
+	quitTeaProgram = func(*tea.Program) {}
+
+	writer := &blockingHistoryWriter{
+		recordStarted: make(chan struct{}),
+		release:       make(chan struct{}),
+		recordDone:    make(chan struct{}),
+	}
+	sess, err := interactive.NewSession(interactive.Dependencies{HistoryWriter: writer})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	var releaseOnce sync.Once
+	releaseWrite := func() { releaseOnce.Do(func() { close(writer.release) }) }
+	defer releaseWrite()
+
+	if err := sess.Handle(context.Background(), interactive.RecordPromptHistory{Text: "tracked"}); err != nil {
+		t.Fatalf("Handle(RecordPromptHistory): %v", err)
+	}
+	select {
+	case <-writer.recordStarted:
+	case <-time.After(time.Second):
+		t.Fatal("RecordPromptHistory did not reach HistoryWriter.Record")
+	}
+
+	var closed atomic.Bool
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	rt := &cliRuntime{
+		events:  output.NoopSink{},
+		closeFn: func() error { closed.Store(true); return nil },
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- runInteractiveSession(cmd, sess, nil, rt) }()
+
+	// While the tracked write is blocked the runtime must stay open: the drain is
+	// still waiting. If shutdown omitted or reordered the drain, closeRuntime
+	// would already have run here.
+	select {
+	case err := <-done:
+		t.Fatalf("runInteractiveSession returned (%v) before the tracked write finished", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if closed.Load() {
+		t.Fatal("closeRuntime ran before the tracked write finished; drain is not wired before close")
+	}
+
+	releaseWrite()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runInteractiveSession error = %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runInteractiveSession did not return after the tracked write was released")
+	}
+	if !closed.Load() {
+		t.Fatal("closeRuntime did not run after the tracked write finished")
+	}
+}
+
+func mcpRegistryToolNames(registry *tool.Registry) []string {
+	var names []string
+	for _, name := range registry.Names() {
+		if strings.HasPrefix(name, "mcp__") {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func mcpToolNames(defs []tool.ToolDef) []string {
+	names := make([]string, 0, len(defs))
+	for _, def := range defs {
+		names = append(names, def.Name)
+	}
+	return names
+}
+
+func mcpServerStateByName(states []mcp.ServerState, name string) *mcp.ServerState {
+	for i := range states {
+		if states[i].Name == name {
+			return &states[i]
+		}
+	}
+	return nil
+}
+
+func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
+	fixtureBin := buildMCPFixture(t)
+	mgr := mcp.Connect(context.Background(), config.MCPConfig{
+		Enabled: true,
+		Servers: map[string]config.MCPServerConfig{
+			"stall": {
+				Enabled:        true,
+				Command:        fixtureBin,
+				Env:            map[string]string{"STEINER_FIXTURE_STALL_HANDSHAKE": "1"},
+				ConnectTimeout: config.MustDuration("10s"),
+			},
+			"good": {Enabled: true, Command: fixtureBin},
+		},
+	}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	defer mgr.Close() //nolint:errcheck
+
+	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr, nil)
+
+	producer := &mcpStateProducer{}
+	rt := cliRuntime{
+		cfg:        config.Config{Models: config.ModelsConfig{Effective: config.EffectiveModelAssignments{DefaultModel: "nope", ActiveOrchestratorModel: "nope"}}},
+		registry:   registry,
+		mcpManager: mgr,
+		mcpState:   producer,
+	}
+
+	init := &mcpInitOnce{}
+
+	// Simulate background goroutine and turn calling once.Do concurrently
+	var wg sync.WaitGroup
+	var turnErr error
+	wg.Add(2)
+
+	// Background goroutine
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		init.once.Do(func() { init.run(ctx, rt) })
+	}()
+
+	// Turn (should block in once.Do until background completes, then observe error)
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		init.once.Do(func() { init.run(ctx, rt) })
+		turnErr = init.err
+	}()
+
+	wg.Wait()
+
+	// Both should observe the same error (WaitInit timed out while the stall server was still connecting; its 500ms ConnectTimeout outlives the 200ms ctx)
+	if turnErr == nil {
+		t.Fatal("turn goroutine err = nil, want WaitInit timeout error")
+	}
+
+	// Error path means producer was NOT armed (stays unarmed indefinitely)
+	// Verify by checking armed state indirectly: call stateChanged and verify
+	// it only triggers preListener, not listener
+	if producer.preListener == nil {
+		// Setup a listener to verify it's not called
+		preListenerCalled := false
+		listenerCalled := false
+		producer.setPreListener(func() { preListenerCalled = true })
+		producer.setListener(func() { listenerCalled = true })
+		producer.stateChanged()
+		if listenerCalled {
+			t.Fatal("listener was called after error path, want producer to stay unarmed")
+		}
+		if !preListenerCalled {
+			t.Fatal("preListener was not called, want states-only mode on error path")
+		}
+	}
+}
+
+type blockedCleanupTestRunner struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (r *blockedCleanupTestRunner) Run(context.Context, interactive.RunInput) (interactive.RunResult, error) {
+	close(r.started)
+	<-r.release
+	return interactive.RunResult{}, nil
+}
+
+func (r *blockedCleanupTestRunner) Compact(_ context.Context, conversation []agent.Message, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
+	return conversation, nil
+}
+
+func TestSortedProfileNames(t *testing.T) {
+	profiles := map[string]config.ModelProfile{
+		"fast":     {},
+		"default":  {},
+		"careful":  {},
+		"advanced": {},
+	}
+
+	got := sortedProfileNames(profiles)
+	want := []string{"advanced", "careful", "default", "fast"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("sortedProfileNames = %v, want %v", got, want)
+	}
+}
+
+func TestSortedProfileNamesEmpty(t *testing.T) {
+	got := sortedProfileNames(map[string]config.ModelProfile{})
+	if len(got) != 0 {
+		t.Fatalf("sortedProfileNames(empty) = %v, want empty", got)
+	}
+}
+
+// lastRequestContents joins the message contents of the most recent provider
+// request.
+func lastRequestContents(t *testing.T, p *fakeProvider) string {
+	t.Helper()
+	if len(p.requests) == 0 {
+		t.Fatal("provider received no request")
+	}
+	var contents []string
+	for _, message := range p.requests[len(p.requests)-1].Messages {
+		contents = append(contents, message.Content)
+	}
+	return strings.Join(contents, "\n")
+}
+
+// TestSessionRunnerForwardsNilStaticSkillNames proves the interactive adapter
+// never populates the static skill set: driving the same cliRunner through
+// sessionRunner (whose Run and Compact pass nil skill names) omits a skill that
+// the same runner includes when the name is passed explicitly.
+func TestSessionRunnerForwardsNilStaticSkillNames(t *testing.T) {
+	skillsRoot := filepath.Join(t.TempDir(), ".config", "steiner", "skills")
+	mustMkdirAll(t, filepath.Join(skillsRoot, "review"))
+	writeFile(t, filepath.Join(skillsRoot, "review", "SKILL.md"), "review skill instructions")
+
+	providerStub := &fakeProvider{responses: []provider.ChatResponse{
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"}, FinishReason: "stop"},
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"}, FinishReason: "stop"},
+	}}
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      testRuntimeConfig("test-model"),
+			provider: providerStub,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  filepath.Dir(filepath.Dir(filepath.Dir(skillsRoot))),
+			events:   output.NoopSink{},
+		},
+	}
+	adapter := sessionRunner{runner: runner}
+	conversation := []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}
+
+	if _, err := adapter.Run(context.Background(), interactive.RunInput{Conversation: conversation}); err != nil {
+		t.Fatalf("sessionRunner.Run() error = %v", err)
+	}
+	if got := lastRequestContents(t, providerStub); strings.Contains(got, "review skill instructions") {
+		t.Fatalf("interactive Run forwarded static skill names; request included skill content:\n%s", got)
+	}
+
+	// Control: the same cliRunner with an explicit skill name does include it,
+	// so the omission above proves the nil forwarding, not a missing skill.
+	if _, err := runner.Run(context.Background(), conversation, []string{"review"}, nil); err != nil {
+		t.Fatalf("cliRunner.Run() error = %v", err)
+	}
+	if got := lastRequestContents(t, providerStub); !strings.Contains(got, "review skill instructions") {
+		t.Fatalf("control run missing static skill content:\n%s", got)
+	}
+}
+
+func TestSessionRunnerReturnsTokenCountAndStopReason(t *testing.T) {
+	providerStub := &fakeProvider{responses: []provider.ChatResponse{
+		{
+			Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"},
+			FinishReason: "stop",
+			Usage:        &provider.UsageStats{CompletionTokens: 7, TotalTokens: 7},
+		},
+	}}
+	adapter := sessionRunner{runner: cliRunner{runtime: cliRuntime{
+		cfg:      testRuntimeConfig("test-model"),
+		provider: providerStub,
+		registry: tool.NewRegistry(),
+		workDir:  t.TempDir(),
+		homeDir:  t.TempDir(),
+		events:   output.NoopSink{},
+	}}}
+	result, err := adapter.Run(context.Background(), interactive.RunInput{Conversation: []agent.Message{{Role: agent.MessageRoleUser, Content: "hi"}}})
+	if err != nil {
+		t.Fatalf("sessionRunner.Run() error = %v", err)
+	}
+	if result.TokenCount != 7 || result.StopReason != agent.StopReasonComplete {
+		t.Fatalf("result = {TokenCount:%d StopReason:%q}, want {7 %q}", result.TokenCount, result.StopReason, agent.StopReasonComplete)
+	}
+}
 
 func TestSessionRunnerForwardsExactDelegationGroupScope(t *testing.T) {
 	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
