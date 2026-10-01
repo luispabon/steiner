@@ -49,7 +49,7 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 		Clock:               s.deps.Clock,
 		MaxTokensPerEpisode: s.deps.MaxTokensPerEpisode,
 	}
-	if s.deps.SnapshotGroupLedger != nil {
+	if s.deps.SnapshotGroupLedger != nil && scope != "" {
 		options.SnapshotDelegationGroups = func() agent.DelegationGroupLedger { return s.deps.SnapshotGroupLedger(scope) }
 	}
 	if s.deps.SealGroupBatch != nil {
@@ -71,7 +71,7 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 func (s *Session) swapDriverLocked(apply func()) *driverHandle {
 	old := s.driver
 	meta := s.sessionMetaLocked()
-	if s.deps.SnapshotGroupLedger != nil {
+	if s.deps.SnapshotGroupLedger != nil && old.groupScope != "" {
 		ledger := s.deps.SnapshotGroupLedger(old.groupScope)
 		s.delegationGroups = &ledger
 	}
