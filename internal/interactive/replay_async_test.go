@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -291,6 +292,71 @@ func TestReplayAdmissionOccurrenceLocalAndTypedFinish(t *testing.T) {
 	}
 	if got := len(eventsOfType(events, output.EventTypeDelegationStarted)); got != 1 {
 		t.Fatalf("delegation starts = %d, want accepted occurrence only", got)
+	}
+	for _, event := range events {
+		if event.Type == output.EventTypeToolCallFinished {
+			p := event.Payload.(output.ToolCallFinishedEvent)
+			if p.CallID == "same" && p.DelegationAdmission != nil && p.DelegationAdmission.Status == "rejected" && p.Error == "" {
+				t.Fatalf("rejected projected error missing: %+v", p)
+			}
+		}
+	}
+}
+
+func TestReplayAcceptedPreparationFailureUsesAdmissionAgent(t *testing.T) {
+	t.Parallel()
+	body := `{"output":"","status":"failed","reason":"child setup failed"}`
+	msgs := []agent.Message{delegateCall("prep", "sub_agent", "setup"), {Role: agent.MessageRoleTool, ToolCallID: "prep", Name: "sub_agent", Content: body, DelegationAdmission: &tool.DelegationAdmission{Status: "accepted", AgentID: "agent-actual"}}}
+	events := replayEvents(t, msgs)
+	var sequence []string
+	for _, event := range events {
+		if event.Type == output.EventTypeDelegationAccepted {
+			sequence = append(sequence, "accepted")
+		}
+		if event.Type == output.EventTypeDelegationStarted {
+			sequence = append(sequence, "started")
+		}
+		if event.Type == output.EventTypeDelegationFailed {
+			p := event.Payload.(output.DelegationFailedEvent)
+			sequence = append(sequence, "failed:"+p.AgentID)
+		}
+		if event.Type == output.EventTypeToolCallFinished {
+			sequence = append(sequence, "finished")
+		}
+	}
+	want := []string{"accepted", "failed:agent-actual", "finished"}
+	if !reflect.DeepEqual(sequence, want) {
+		t.Fatalf("event order = %v, want %v", sequence, want)
+	}
+	finish := eventsOfType(events, output.EventTypeToolCallFinished)[0].Payload.(output.ToolCallFinishedEvent)
+	if finish.Error != "child setup failed" {
+		t.Fatalf("finish error = %q", finish.Error)
+	}
+}
+
+func TestReplayLedgerRunningDoesNotAddSyntheticTerminal(t *testing.T) {
+	t.Parallel()
+	msgs := []agent.Message{delegateCall("run", "sub_agent", "work"), ackResult(t, "run", "sub_agent", "agent-a", "running")}
+	var events []output.Event
+	s := testNewSession(t, Dependencies{BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) })})
+	s.replaySessionMessagesWithLedger(msgs, []agent.SubAgentLedgerEntry{{ParentCallID: "run", AgentID: "agent-a", AgentType: "explore"}})
+	var sequence []string
+	for _, event := range events {
+		if event.Type == output.EventTypeDelegationAccepted {
+			sequence = append(sequence, "accepted")
+		}
+		if event.Type == output.EventTypeDelegationStarted {
+			sequence = append(sequence, "started")
+		}
+		if event.Type == output.EventTypeDelegationQueued {
+			sequence = append(sequence, "queued")
+		}
+		if event.Type == output.EventTypeDelegationFailed {
+			sequence = append(sequence, "failed")
+		}
+	}
+	if !reflect.DeepEqual(sequence, []string{"accepted", "started"}) {
+		t.Fatalf("running sequence = %v, want one accepted running lifecycle", sequence)
 	}
 }
 
