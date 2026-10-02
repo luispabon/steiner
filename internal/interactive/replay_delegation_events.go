@@ -23,13 +23,13 @@ func acceptedAdmission(msg agent.Message) *tool.DelegationAdmission {
 	return nil
 }
 
-func (s *Session) replayOwnedToolResult(msg agent.Message, owner replayOccurrenceKey, call agent.ToolCall, state replayState, inferred agent.SubAgentLedgerEntry) {
+func (s *Session) replayOwnedToolResult(msg agent.Message, owner replayOccurrenceKey, call agent.ToolCall, state replayState, entry agent.SubAgentLedgerEntry) {
 	if isAdvisorToolCall(call.Name) {
 		question, files := advisorQuestionAndFilesFromArgs(call.Arguments)
 		s.events.Emit(output.NewAdvisorStartedEvent("", 0, 0, question, files))
 		s.events.Emit(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Note: msg.Content}))
 	} else if isDelegateToolCall(call.Name) {
-		s.replayDelegateResult(msg, call, state.acks, inferred)
+		s.replayDelegateResult(msg, call, owner, state.acks, entry)
 	}
 	s.replayDisplayFile(msg)
 	if state.startedToolCalls[owner] {
@@ -38,90 +38,59 @@ func (s *Session) replayOwnedToolResult(msg agent.Message, owner replayOccurrenc
 	}
 }
 
-func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, acks *replayAcks, inferred agent.SubAgentLedgerEntry) {
+// replayDelegateResult emits the delegation events for one persisted delegate
+// result, every one stamped with the occurrence from replayOccurrenceFor. The
+// sequence mirrors live: Accepted, Queued or Started, then a terminal for
+// results that are already final.
+func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, owner replayOccurrenceKey, acks *replayAcks, entry agent.SubAgentLedgerEntry) {
 	if msg.DelegationAdmission != nil && msg.DelegationAdmission.Status == tool.DelegationAdmissionRejected {
 		return
 	}
 	task := taskFromArgs(call.Arguments)
 	state := buildReplayedDelegationState(msg.ToolCallID, msg.Retention, msg.Content)
+	occ := replayOccurrenceFor(call.ID, owner.messageIndex, msg.DelegationAdmission, entry, state.agentID)
+	state.agentID = occ.AgentID
+	// A ledger entry on a still-running ack means the sub-agent is outstanding
+	// in the resumed session, so replay must not fabricate a "no result" failure.
+	outstanding := entry.AgentID != "" && isAckStatus(state.status)
 	if admission := acceptedAdmission(msg); admission != nil {
-		s.events.Emit(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: msg.ToolCallID, BatchID: admission.BatchID, AgentID: admission.AgentID}, admission.Group))
-		if admission.AgentID != "" {
-			state.agentID = admission.AgentID
-		}
+		s.events.Emit(output.NewDelegationAcceptedEvent(occ, admission.Group))
+	} else if outstanding {
+		s.events.Emit(output.NewDelegationAcceptedEvent(occ, entry.Group))
 	}
-	if replayLedgerBackedAck(inferred, state.status) {
-		s.emitLedgerProgress(msg, inferred, task, state.status)
+	if outstanding {
+		s.emitDelegationProgress(occ, task, state.status)
+		acks.add(occ, task, true)
 		return
 	}
-	if s.replayEmptyAcceptedFailure(msg, state, task) {
+	if state.status == "failed" && state.output == "" && acceptedAdmission(msg) != nil {
+		s.emitDelegationFailure(occ, task, state.error)
 		return
 	}
-	s.emitReplayProgress(msg, state, task)
-	s.replayDelegationTerminal(msg, state, task, acks, inferred)
-}
-
-func replayLedgerBackedAck(inferred agent.SubAgentLedgerEntry, status string) bool {
-	return inferred.AgentID != "" && isAckStatus(status)
-}
-
-func (s *Session) emitLedgerProgress(msg agent.Message, inferred agent.SubAgentLedgerEntry, task, status string) {
-	agentID := inferred.AgentID
-	if admission := acceptedAdmission(msg); admission != nil && admission.AgentID != "" {
-		agentID = admission.AgentID
-	}
-	s.emitDelegationProgress(agentID, msg.ToolCallID, task, status, true)
-}
-
-func (s *Session) replayEmptyAcceptedFailure(msg agent.Message, state replayedDelegationState, task string) bool {
-	if state.status != "failed" || state.output != "" || acceptedAdmission(msg) == nil {
-		return false
-	}
-	s.emitDelegationFailure(state.agentID, msg, task, state.error)
-	return true
-}
-
-func (s *Session) emitReplayProgress(msg agent.Message, state replayedDelegationState, task string) {
-	s.emitDelegationProgress(state.agentID, msg.ToolCallID, task, state.status, acceptedAdmission(msg) != nil)
-}
-
-func (s *Session) replayDelegationTerminal(msg agent.Message, state replayedDelegationState, task string, acks *replayAcks, inferred agent.SubAgentLedgerEntry) {
+	s.emitDelegationProgress(occ, task, state.status)
 	switch {
 	case isAckStatus(state.status):
-		if inferred.AgentID == "" {
-			acks.add(msg.ToolCallID, state.agentID, task)
-		}
+		acks.add(occ, task, false)
 	case state.status == "failed":
-		s.emitDelegationFailure(state.agentID, msg, task, state.error)
+		s.emitDelegationFailure(occ, task, state.error)
 	default:
-		s.emitDelegationComplete(state)
+		s.emitDelegationComplete(occ, state)
 	}
 }
 
-// emitDelegationProgress emits the queued or started event. Started events
-// carry the call ID only for accepted admissions; legacy results predate it.
-func (s *Session) emitDelegationProgress(agentID, callID, task, status string, accepted bool) {
+// emitDelegationProgress emits the queued or started event.
+func (s *Session) emitDelegationProgress(occ output.DelegationOccurrence, task, status string) {
 	if status == "queued" {
-		s.events.Emit(output.NewDelegationQueuedEvent(output.DelegationOccurrence{CallID: callID, AgentID: agentID}, "", task))
+		s.events.Emit(output.NewDelegationQueuedEvent(occ, "", task))
 		return
 	}
-	if !accepted {
-		callID = ""
-	}
-	s.events.Emit(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: callID, AgentID: agentID}, task, "", ""))
+	s.events.Emit(output.NewDelegationStartedEvent(occ, task, "", ""))
 }
 
-func (s *Session) emitDelegationFailure(agentID string, msg agent.Message, task, err string) {
-	callID := ""
-	if admission := acceptedAdmission(msg); admission != nil {
-		callID = msg.ToolCallID
-		if admission.AgentID != "" {
-			agentID = admission.AgentID
-		}
-	}
-	s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: agentID, CallID: callID}, TaskPreview: task, Error: err}))
+func (s *Session) emitDelegationFailure(occ output.DelegationOccurrence, task, err string) {
+	s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: occ, TaskPreview: task, Error: err}))
 }
 
-func (s *Session) emitDelegationComplete(state replayedDelegationState) {
-	s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: state.agentID}, Status: state.status, TurnCount: state.turnCount, TokenCount: state.tokenCount, ToolCallCount: state.toolCallCount, Output: state.output, InputTokens: state.inputTokens, CacheReadTokens: state.cacheReadTokens, CacheCreateTokens: state.cacheCreateTokens}))
+func (s *Session) emitDelegationComplete(occ output.DelegationOccurrence, state replayedDelegationState) {
+	s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: occ, Status: state.status, TurnCount: state.turnCount, TokenCount: state.tokenCount, ToolCallCount: state.toolCallCount, Output: state.output, InputTokens: state.inputTokens, CacheReadTokens: state.cacheReadTokens, CacheCreateTokens: state.cacheCreateTokens}))
 }

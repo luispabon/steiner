@@ -449,8 +449,8 @@ func TestReplayDeliveryEmitsDeliveredEventBeforeUserInput(t *testing.T) {
 	}
 	items := events[delivIdx].Payload.(output.SubAgentsDeliveredEvent).Items
 	want := []output.DeliveredSubAgent{
-		{AgentID: "a", AgentType: "explore", Status: "complete", ParentCallID: "call-1", DurationMs: 3000},
-		{AgentID: "b", AgentType: "code", Status: "failed", ParentCallID: "call-2"},
+		{AgentID: "a", AgentType: "explore", Status: "complete", ParentCallID: "call-1", BatchID: "replay#0", DurationMs: 3000},
+		{AgentID: "b", AgentType: "code", Status: "failed", ParentCallID: "call-2", BatchID: "replay#0"},
 	}
 	if !reflect.DeepEqual(items, want) {
 		t.Fatalf("items = %+v, want %+v", items, want)

@@ -853,16 +853,16 @@ func TestReplayLegacyPreparationFailureWithoutStart(t *testing.T) {
 	if got := len(eventsOfType(events, output.EventTypeDelegationStarted)); got != 1 {
 		t.Fatalf("legacy started events = %d, want 1", got)
 	}
-	if p := eventsOfType(events, output.EventTypeDelegationStarted)[0].Payload.(output.DelegationStartedEvent); p.AgentID != "misleading" || p.CallID != "" {
-		t.Fatalf("legacy start = %+v, want retained identity and empty call ID", p)
+	if p := eventsOfType(events, output.EventTypeDelegationStarted)[0].Payload.(output.DelegationStartedEvent); p.AgentID != "misleading" || p.CallID != "prep" || p.BatchID != "replay#0" {
+		t.Fatalf("legacy start = %+v, want retained agent, call ID and synthesised batch", p)
 	}
 	failed := eventsOfType(events, output.EventTypeDelegationFailed)
 	if len(failed) != 1 {
 		t.Fatalf("failed events = %d, want 1", len(failed))
 	}
 	p := failed[0].Payload.(output.DelegationFailedEvent)
-	if p.AgentID != "misleading" || p.CallID != "" || p.Error != "setup failed" {
-		t.Fatalf("failure = %+v, want retained identity, empty call ID, setup failed", p)
+	if p.AgentID != "misleading" || p.CallID != "prep" || p.BatchID != "replay#0" || p.Error != "setup failed" {
+		t.Fatalf("failure = %+v, want retained agent, call ID, synthesised batch and setup failed", p)
 	}
 }
 
@@ -873,7 +873,7 @@ func TestReplayUnknownStatusIgnoresRetentionIdentity(t *testing.T) {
 	msg.Retention.Status = "unknown"
 	events := replayEvents(t, []agent.Message{delegateCall("status", "sub_agent", "task"), msg})
 	started := eventsOfType(events, output.EventTypeDelegationStarted)
-	if len(started) != 1 || started[0].Payload.(output.DelegationStartedEvent).AgentID != "retained-agent" || started[0].Payload.(output.DelegationStartedEvent).CallID != "" {
+	if len(started) != 1 || started[0].Payload.(output.DelegationStartedEvent).AgentID != "retained-agent" || started[0].Payload.(output.DelegationStartedEvent).CallID != "status" {
 		t.Fatalf("legacy start = %+v", started)
 	}
 	if len(eventsOfType(events, output.EventTypeDelegationAccepted)) != 0 {

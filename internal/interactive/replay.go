@@ -2,7 +2,6 @@ package interactive
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -77,17 +76,10 @@ func advisorQuestionAndFilesFromArgs(args map[string]any) (question string, file
 // results (the common case).
 func toolResultError(content string) error {
 	var envelope tool.JSONEnvelope
-	if err := json.Unmarshal([]byte(content), &envelope); err != nil {
+	if err := json.Unmarshal([]byte(content), &envelope); err != nil || envelope.OK {
 		return nil
 	}
-	if envelope.OK || envelope.Error == nil {
-		var projected struct {
-			Status string `json:"status"`
-			Reason string `json:"reason"`
-		}
-		if err := json.Unmarshal([]byte(content), &projected); err == nil && (projected.Status == "failed" || projected.Status == "cancelled" || projected.Status == "lost") && projected.Reason != "" {
-			return errors.New(projected.Reason)
-		}
+	if envelope.Error == nil {
 		return nil
 	}
 	return envelope.Error
@@ -122,14 +114,12 @@ func (s *Session) replaySessionMessages(msgs []agent.Message, ledger []agent.Sub
 	state := replayState{
 		startedToolCalls: make(map[replayOccurrenceKey]bool),
 		acks:             &replayAcks{},
-		consumedResults:  make(map[int]bool),
-		msgs:             msgs,
 	}
 	for messageIndex, msg := range msgs {
 		if msg.Content == "" && len(msg.ToolCalls) == 0 && msg.ToolCallID == "" {
 			continue
 		}
-		s.replayMessage(msg, state, replayLedger{entries: ledger, occurrences: plan.occurrences, owners: plan.resultOwners, messageIndex: messageIndex})
+		s.replayMessage(msg, state, replayLedger{msgs: msgs, entries: ledger, occurrences: plan.occurrences, owners: plan.resultOwners, messageIndex: messageIndex})
 	}
 	s.replayUnresolvedAcks(state.acks)
 }
@@ -137,31 +127,28 @@ func (s *Session) replaySessionMessages(msgs []agent.Message, ledger []agent.Sub
 type replayState struct {
 	startedToolCalls map[replayOccurrenceKey]bool
 	acks             *replayAcks
-	consumedResults  map[int]bool
-	msgs             []agent.Message
 }
 
 func (s *Session) replayMessage(msg agent.Message, state replayState, ledger replayLedger) {
 	switch msg.Role {
 	case agent.MessageRoleUser:
-		s.replayUserMessage(msg, state.acks)
+		s.replayUserMessage(msg, state.acks, ledger.messageIndex)
 	case agent.MessageRoleAssistant:
 		s.replayAssistantMessage(msg, state, ledger)
 	case agent.MessageRoleSummary:
 		s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{Kind: "compaction", Severity: "done", SummaryText: msg.Content}))
 	case agent.MessageRoleTool:
-		if state.consumedResults[ledger.messageIndex] {
-			return
-		}
 		owner, hasOwner := ledger.owners[ledger.messageIndex]
 		var occurrence *replayOccurrence
 		if hasOwner {
 			occurrence = ledger.occurrences[owner]
 		}
-		if hasOwner && occurrence != nil {
-			s.replayLedgerAdmission(msg, occurrence, ledger)
+		switch {
+		case occurrence != nil && occurrence.bundled:
+			// Already emitted with its call by replayDelegationBundle.
+		case occurrence != nil:
 			s.replayOwnedToolResult(msg, owner, occurrence.call, state, ledgerEntryForOccurrence(ledger, occurrence))
-		} else {
+		default:
 			s.replayDisplayFile(msg)
 		}
 	}
@@ -179,7 +166,7 @@ func (s *Session) replayAssistantMessage(msg agent.Message, state replayState, l
 			continue
 		}
 		if occurrence.resultMessageIndex >= 0 {
-			if isDelegateToolCall(call.Name) && replayBundlesOccurrence(state, occurrence) {
+			if occurrence.bundled {
 				s.replayDelegationBundle(call, key, occurrence, state, ledger)
 				continue
 			}
@@ -195,7 +182,7 @@ func (s *Session) replayAssistantMessage(msg agent.Message, state replayState, l
 
 // replayUserMessage emits skill state, sub-agent delivery and user input
 // events for one replayed user message.
-func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks) {
+func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks, messageIndex int) {
 	images := convertImageBlocks(msg.Images)
 	parts := prompt.SplitMessageBlocks(msg.Content)
 	for _, block := range parts.SkillBlocks {
@@ -211,13 +198,14 @@ func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks) {
 		if !ok {
 			continue
 		}
-		s.replaySubAgentResult(parsed, acks)
+		occ := s.replaySubAgentResult(parsed, acks, messageIndex)
 		_, usage := splitResultEnvelopeInner(parsed.Inner)
 		delivered = append(delivered, output.DeliveredSubAgent{
-			AgentID:      parsed.AgentID,
+			AgentID:      occ.AgentID,
 			AgentType:    parsed.AgentType,
 			Status:       parsed.Status,
 			ParentCallID: parsed.CallID,
+			BatchID:      occ.BatchID,
 			DurationMs:   usage.duration.Milliseconds(),
 		})
 	}
@@ -259,5 +247,9 @@ func (s *Session) replayToolFinished(msg agent.Message) {
 	if known {
 		admission = msg.DelegationAdmission
 	}
-	s.events.Emit(output.NewToolCallFinishedEventWithAdmission(0, msg.Name, msg.ToolCallID, msg.Content, toolResultError(msg.Content), output.ToolPreview{}, admission))
+	err := toolResultError(msg.Content)
+	if err == nil && isDelegateToolCall(msg.Name) {
+		err = delegationResultError(msg.Content)
+	}
+	s.events.Emit(output.NewToolCallFinishedEventWithAdmission(0, msg.Name, msg.ToolCallID, msg.Content, err, output.ToolPreview{}, admission))
 }

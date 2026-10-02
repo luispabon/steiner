@@ -58,42 +58,25 @@ func resolveDelegationGroups(saved *agent.DelegationGroupLedger, lineage agent.C
 	return out, nil
 }
 
-// pairLegacyAdmissions returns definitive statuses only for equally sized,
-// name-compatible per-ID call/result queues in one immediate exchange.
+// pairLegacyAdmissions returns definitive statuses only for call IDs whose
+// calls and results balance and whose names are compatible, within one
+// immediate exchange (the assistant message and its tool-result run).
 func pairLegacyAdmissions(assistant agent.Message, results []agent.Message) map[int]string {
-	callQueues := make(map[string][]int)
-	resultQueues := make(map[string][]agent.Message)
-	for i, call := range assistant.ToolCalls {
-		if call.ID != "" {
-			callQueues[call.ID] = append(callQueues[call.ID], i)
-		}
-	}
-	for _, result := range results {
-		if result.ToolCallID != "" {
-			resultQueues[result.ToolCallID] = append(resultQueues[result.ToolCallID], result)
+	span := append([]agent.Message{assistant}, results...)
+	pairing := pairToolResults(span)
+	bad := pairing.unbalanced
+	for _, pair := range pairing.pairs {
+		if !pair.nameCompatible {
+			bad[pair.callID] = true
 		}
 	}
 	statuses := make(map[int]string)
-	for id, calls := range callQueues {
-		outcomes := resultQueues[id]
-		if len(calls) != len(outcomes) {
+	for _, pair := range pairing.pairs {
+		if bad[pair.callID] {
 			continue
 		}
-		compatible := true
-		for i, callIndex := range calls {
-			resultName := outcomes[i].Name
-			if resultName != "" && resultName != assistant.ToolCalls[callIndex].Name {
-				compatible = false
-				break
-			}
-		}
-		if !compatible {
-			continue
-		}
-		for i, callIndex := range calls {
-			if outcomes[i].DelegationAdmission != nil {
-				statuses[callIndex] = outcomes[i].DelegationAdmission.Status
-			}
+		if admission := span[pair.resultIndex].DelegationAdmission; admission != nil {
+			statuses[pair.call.callIndex] = admission.Status
 		}
 	}
 	return statuses

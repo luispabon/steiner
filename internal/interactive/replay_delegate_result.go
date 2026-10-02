@@ -2,6 +2,7 @@ package interactive
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,9 +14,11 @@ import (
 const replayNoResultMessage = "no result"
 
 type replayAck struct {
-	callID  string
-	agentID string
-	task    string
+	occ  output.DelegationOccurrence
+	task string
+	// outstanding marks an ack the ledger still tracks, so replay does not
+	// report it as "no result" when no result envelope follows.
+	outstanding bool
 }
 
 // replayAcks tracks acknowledged async sub-agents awaiting a result envelope,
@@ -24,13 +27,13 @@ type replayAcks struct {
 	order []replayAck
 }
 
-func (r *replayAcks) add(callID, agentID, task string) {
-	r.order = append(r.order, replayAck{callID: callID, agentID: agentID, task: task})
+func (r *replayAcks) add(occ output.DelegationOccurrence, task string, outstanding bool) {
+	r.order = append(r.order, replayAck{occ: occ, task: task, outstanding: outstanding})
 }
 
 func (r *replayAcks) take(callID string) (replayAck, bool) {
 	for i, ack := range r.order {
-		if ack.callID == callID {
+		if ack.occ.CallID == callID {
 			r.order = append(r.order[:i], r.order[i+1:]...)
 			return ack, true
 		}
@@ -53,9 +56,15 @@ func isFailedResultStatus(status string) bool {
 }
 
 // replaySubAgentResult emits the completion or failure event for one result
-// envelope (already parsed), correlating it to its ack by call_id.
-func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *replayAcks) {
-	ack, _ := acks.take(parsed.CallID)
+// envelope (already parsed), correlating it to its ack by call_id, and returns
+// the occurrence it stamped. An envelope with no ack gets a synthesised batch
+// from messageIndex, the index of the user message carrying it.
+func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *replayAcks, messageIndex int) output.DelegationOccurrence {
+	ack, found := acks.take(parsed.CallID)
+	occ := ack.occ
+	if !found {
+		occ = replayOccurrenceFor(parsed.CallID, messageIndex, nil, agent.SubAgentLedgerEntry{}, parsed.AgentID)
+	}
 	state := replayedDelegationState{agentID: parsed.AgentID, status: "complete"}
 	body, usage := splitResultEnvelopeInner(parsed.Inner)
 	state.output = body
@@ -68,6 +77,9 @@ func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *
 		state.agentID = parsed.AgentID
 		state.turnCount, state.tokenCount = usage.turns, usage.tokens
 	}
+	if parsed.AgentID != "" {
+		occ.AgentID = parsed.AgentID
+	}
 	if isFailedResultStatus(parsed.Status) || isFailedResultStatus(state.status) {
 		msg := decoded.Reason
 		if msg == "" {
@@ -77,19 +89,19 @@ func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *
 			msg = state.output
 		}
 		s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: state.agentID, CallID: parsed.CallID},
+			DelegationOccurrence: occ,
 			AgentType:            parsed.AgentType,
 			DurationMs:           usage.duration.Milliseconds(),
 			TaskPreview:          ack.task,
 			Error:                msg,
 		}))
-		return
+		return occ
 	}
 	if parsed.Status != "" {
 		state.status = parsed.Status
 	}
 	s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: state.agentID},
+		DelegationOccurrence: occ,
 		AgentType:            parsed.AgentType,
 		DurationMs:           usage.duration.Milliseconds(),
 		Status:               state.status,
@@ -98,14 +110,18 @@ func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *
 		ToolCallCount:        state.toolCallCount,
 		Output:               state.output,
 	}))
+	return occ
 }
 
 // replayUnresolvedAcks shows acknowledged sub-agents that never received a
 // result envelope (crashed or pre-ledger sessions) as failed with no result.
 func (s *Session) replayUnresolvedAcks(acks *replayAcks) {
 	for _, ack := range acks.order {
+		if ack.outstanding {
+			continue
+		}
 		s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: ack.agentID},
+			DelegationOccurrence: ack.occ,
 			TaskPreview:          ack.task,
 			Error:                replayNoResultMessage,
 		}))
@@ -221,6 +237,21 @@ func fullDelegateResultFields(fields map[string]json.RawMessage) bool {
 		}
 	}
 	return false
+}
+
+// delegationResultError returns the failure reason of a delegation projection
+// (status failed, cancelled or lost with a reason), which carries no
+// tool.JSONEnvelope error of its own. It is only meaningful for delegation tools.
+func delegationResultError(content string) error {
+	decoded, ok := decodeReplayedDelegateResult(content)
+	if !ok || !decoded.compact || decoded.Reason == "" {
+		return nil
+	}
+	switch decoded.Status {
+	case "failed", "cancelled", "lost":
+		return errors.New(decoded.Reason)
+	}
+	return nil
 }
 
 func buildReplayedDelegationState(toolCallID string, retention *agent.MessageRetention, content string) replayedDelegationState {
