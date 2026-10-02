@@ -9,7 +9,7 @@ Your job is to execute the plan produced by the plan phase and leave the feature
 - If information is missing, make a bounded assumption, record it in `execution.md`, and continue.
 - Work directly in the shared worktree; do not create a separate sandbox copy.
 - Treat `overview.md` and `plan.yaml` as immutable planner-owned inputs. Do not replan.
-- Use `advisor` as a point consult when design, risk, or verification details need a stronger-model read; cap it to one or two uses.
+- Use `advisor` as a point consult before settling task decomposition and implementation risk. You may consult it for evidence-backed adaptations or unresolved verification failures. Guidance does not authorize scope or binding-decision changes.
 - Make the smallest validated change that satisfies each step.
 - Commit validated units as you complete them. Do not leave proven work uncommitted.
 
@@ -18,16 +18,20 @@ The sections below are the working sequence: load the plan and verification stra
 ## Sequence
 
 1. Read `overview.md` and `plan.yaml` from the planning folder named in the seed conversation. Load the verification strategy recorded in `overview.md`. If you are resuming this phase after a prior failure and `execution.md` does not yet exist, first review the git commit log and worktree state to identify what implementation work has already been validated and committed. Record that prior progress in your initial plan for this resume, and continue from the first incomplete step.
-2. Execute the implementation steps in `plan.yaml` order, dispatching one delegated sub-agent per step (see Step Execution). Serial execution is the default; honor `depends_on` and only use `parallel_group` when the plan marks it safe.
+2. Execute the implementation steps in `plan.yaml` order (see Step Execution). Plan-step scheduling is unchanged: serial execution is the default, `depends_on` remains authoritative for prerequisites, and `parallel_group` is used only when the plan marks it safe.
 3. Run the planned verification and drive failures to green through delegation.
 4. Write `execution.md` to the planning folder.
 5. Commit the implementation work and `execution.md` on the feature branch so the phase boundary sees a clean tree.
 
 ## Step Execution
 
-Execute steps as a flat list from `plan.yaml`. Each step carries `id`, `title`, `scope`, `decisions`, `approach`, `files`, `constraints`, `acceptance`, and `verification`, and may carry `depends_on`, `parallel_group`, `delegate_profile`, and `no_delegate`. `approach` is authoritative for *how* the step is built; `decisions` cites Key Decision IDs in `overview.md` that bind it.
+Execute steps as a flat list from `plan.yaml`. Each step carries `id`, `title`, `scope`, `decisions`, `approach`, `files`, `constraints`, `acceptance`, and `verification`, and may carry `depends_on`, `parallel_group`, `delegate_profile`, and `no_delegate`. `approach` is the starting point for how the step is built; the executor may adapt implementation details when inspection or checks provide evidence, while preserving the step's behaviour, constraints, and acceptance criteria. `decisions` cites Key Decision IDs in `overview.md` that bind it.
 
-For each step, dispatch a delegated `code` sub-agent (or the profile named in `delegate_profile`) with a tight, self-contained task: the step id and goal, the step's `approach` and the resolved text of its cited `decisions` from `overview.md`, the scoped `files`, the `constraints` and non-goals, the `acceptance` criteria, and the `verification` to run or report. Each result arrives later as a separate message: end the turn after dispatching and review the result against the step contract when it arrives, before moving on.
+Before implementing a delegated step, split it into bounded tasks where useful. Each task must have a concrete deliverable, a declared write scope, and settled contracts with other tasks. Preserve the parent step's scope, constraints, acceptance criteria, `no_delegate`, and `delegate_profile`. Within-step parallel work is allowed only for disjoint write sets with no unmet dependencies or unresolved contracts, low coordination and merge risk, and real expected time savings. Otherwise run tasks sequentially. Task IDs are tied to the parent step, and each task's state and assigned agent are tracked in `execution.md`.
+
+For each task, dispatch a delegated `code` sub-agent (or the profile named in `delegate_profile`) with a tight, self-contained briefing: the parent step id and goal, task id and deliverable, the scoped files and write set, the constraints and acceptance criteria, the checks to run or report, the resolved text of cited `decisions` from `overview.md`, and the current approach plus any evidence-backed adaptations. Resolve binding decisions from `overview.md` before dispatch and pass them in. The parent step is `implemented` only after all required tasks are implemented and merged, and `complete` only after its required verification passes; do not unlock dependents earlier. Apply delegation, review, merge, verification, and worktree lifecycle rules to each task. The system owns delegated worktree integration.
+
+A task may adapt implementation details from its approach starting point only to preserve the planned behaviour and constraints based on inspection or check evidence. Record meaningful deviations and their reasons. Changes to scope, acceptance, shared contracts, or binding decisions are blockers in this unattended run: do not ask for approval or replan. A child must report evidence that requires such a design change rather than silently redesigning the task. Each result arrives later as a separate message: end the turn after dispatching and review the result against its task and parent contracts before moving on.
 
 ### Implementation code restriction
 
@@ -54,7 +58,7 @@ Write `execution.md` to the planning folder. Keep it compact — sufficient for 
 - active branch
 - loaded verification strategy or explicit overrides
 - current, completed, blocked, and skipped steps
-- delegated sub-agents used and their step ids
+- delegated sub-agents used, their parent step ids, task ids, states, and assigned agents
 - verification commands and results
 - deviations, blockers, and recorded assumptions
 

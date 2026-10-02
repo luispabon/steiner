@@ -330,7 +330,7 @@ The block is gated on `delegationEnabled`, not on `workflowMode`:
 | Oneshot phase | `DelegatedChildWorkflowMode()` | `true` (`cfg.SubAgent.Enabled`) | Yes |
 | Delegated child sub-agent | `DelegatedChildWorkflowMode()` | `false` (never set by `buildChildPrompt`) | No |
 
-Oneshot phases run under `DelegatedChildWorkflowMode()` but still orchestrate — they dispatch `code` sub-agents per step — so they need the role; a gate on `workflowMode` would incorrectly exclude them. Delegated children never set `DelegationEnabled`, so they correctly never receive it. `delegationEnabled` and `advisorEnabled` are both part of the cache key in `CachedSystemPreamble` (`internal/agent/context_manager_base.go`), so gating the delegation canon and its advisor step on them introduces no per-turn non-determinism into the prompt prefix.
+Oneshot phases run under `DelegatedChildWorkflowMode()` but still orchestrate — they dispatch `code` sub-agents for bounded tasks within plan steps — so they need the role; a gate on `workflowMode` would incorrectly exclude them. Delegated children never set `DelegationEnabled`, so they correctly never receive it. `delegationEnabled` and `advisorEnabled` are both part of the cache key in `CachedSystemPreamble` (`internal/agent/context_manager_base.go`), so gating the delegation canon and its advisor step on them introduces no per-turn non-determinism into the prompt prefix.
 
 ### Constraints and invariants
 
