@@ -212,9 +212,9 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 	turn := state.TurnCount
 	calls := response.Message.ToolCalls
 	if len(calls) > 0 {
-		batchID := calls[0].ID
+		batchID := newToolBatchID(calls[0].ID)
 		ctx = WithToolBatchID(ctx, batchID)
-		if p.request.OnToolBatchDone != nil && batchID != "" {
+		if p.request.OnToolBatchDone != nil {
 			defer p.request.OnToolBatchDone(batchID)
 		}
 	}

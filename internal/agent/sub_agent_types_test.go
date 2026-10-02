@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -59,5 +60,31 @@ func TestProjectedBodies(t *testing.T) {
 	}
 	if env.Status != "cancelled" || env.Output != "stopped" || env.Reason != "stopped" {
 		t.Fatalf("FailureBody envelope = %+v", env)
+	}
+}
+
+func TestNewToolBatchID(t *testing.T) {
+	tests := []struct {
+		name       string
+		firstCall  string
+		wantPrefix string
+	}{
+		{"repeated call id", "call_0", "call_0#"},
+		{"empty call id", "", "batch#"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			seen := map[string]bool{}
+			for range 5 {
+				id := newToolBatchID(tt.firstCall)
+				if !strings.HasPrefix(id, tt.wantPrefix) || len(id) == len(tt.wantPrefix) {
+					t.Fatalf("newToolBatchID(%q) = %q, want prefix %q plus sequence", tt.firstCall, id, tt.wantPrefix)
+				}
+				if seen[id] {
+					t.Fatalf("newToolBatchID(%q) repeated %q", tt.firstCall, id)
+				}
+				seen[id] = true
+			}
+		})
 	}
 }

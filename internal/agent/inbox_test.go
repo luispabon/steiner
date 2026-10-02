@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -125,11 +126,46 @@ func TestRunnerToolBatchDone(t *testing.T) {
 	if _, err := NewRunner().Run(context.Background(), req); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if len(done) != 1 || done[0] != "call-1" {
-		t.Fatalf("OnToolBatchDone ids = %v, want [call-1]", done)
+	if len(done) != 1 || !strings.HasPrefix(done[0], "call-1#") {
+		t.Fatalf("OnToolBatchDone ids = %v, want one id with prefix call-1#", done)
 	}
-	if len(seen) != 2 || seen[0] != "call-1" || seen[1] != "call-1" {
-		t.Fatalf("handler batch ids = %v, want [call-1 call-1]", seen)
+	if len(seen) != 2 || seen[0] != done[0] || seen[1] != done[0] {
+		t.Fatalf("handler batch ids = %v, want both equal to done id %q", seen, done[0])
+	}
+}
+
+func TestRunnerToolBatchIDsUniqueAcrossRepeatedAndEmptyCallIDs(t *testing.T) {
+	call := func(id string) provider.ChatResponse {
+		return provider.ChatResponse{
+			Message:      provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{{ID: id, Name: "read", Arguments: map[string]any{}}}},
+			FinishReason: "tool_calls",
+			Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
+		}
+	}
+	stub := &fakeProvider{responses: []provider.ChatResponse{call("call_0"), call("call_0"), call(""), completeResponse("done")}}
+	var seen []string
+	req := inboxRunRequest(stub, nil)
+	req.Executor = &fakeExecutor{execute: func(ctx context.Context, _ string, _ map[string]any) (any, error) {
+		seen = append(seen, ToolBatchIDFrom(ctx))
+		return map[string]any{"ok": true}, nil
+	}}
+	var done []string
+	req.OnToolBatchDone = func(id string) { done = append(done, id) }
+	if _, err := NewRunner().Run(context.Background(), req); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(done) != 3 || len(seen) != 3 {
+		t.Fatalf("done = %v, seen = %v, want three batches", done, seen)
+	}
+	unique := map[string]bool{}
+	for i, id := range done {
+		if id != seen[i] || id == "" || unique[id] {
+			t.Fatalf("batch %d: done %q, seen %q, previous %v; want equal, non-empty, unique", i, id, seen[i], done[:i])
+		}
+		unique[id] = true
+	}
+	if !strings.HasPrefix(done[0], "call_0#") || !strings.HasPrefix(done[1], "call_0#") || !strings.HasPrefix(done[2], "batch#") {
+		t.Fatalf("batch ids = %v, want call_0#, call_0#, batch# prefixes", done)
 	}
 }
 

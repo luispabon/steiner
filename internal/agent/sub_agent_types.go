@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sync/atomic"
 	"time"
 )
 
@@ -60,6 +62,18 @@ type CompletionSink interface {
 }
 
 type toolBatchIDKey struct{}
+
+var toolBatchSeq atomic.Uint64
+
+// newToolBatchID returns a process-unique batch id; providers may repeat or
+// omit tool-call ids, so the first call id alone cannot identify a batch.
+func newToolBatchID(firstCallID string) string {
+	n := toolBatchSeq.Add(1)
+	if firstCallID == "" {
+		return fmt.Sprintf("batch#%d", n)
+	}
+	return fmt.Sprintf("%s#%d", firstCallID, n)
+}
 
 // WithToolBatchID returns ctx stamped with the id of the current tool batch.
 func WithToolBatchID(ctx context.Context, id string) context.Context {
