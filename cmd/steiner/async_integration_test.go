@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -184,7 +185,64 @@ func subAgentResultMessages(conv []agent.Message) []agent.Message {
 
 // newAsyncSession builds the real interactive wiring: session, driver,
 // supervisor, delegation registry and runner, over the scripted provider.
-func newAsyncSession(t *testing.T, prov provider.Provider, maxParallel int) (*interactive.Session, *asyncClock) {
+type asyncEventRecorder struct {
+	mu     sync.Mutex
+	events []output.Event
+	wake   chan struct{}
+}
+
+func newAsyncEventRecorder() *asyncEventRecorder {
+	return &asyncEventRecorder{wake: make(chan struct{}, 1)}
+}
+
+func (r *asyncEventRecorder) Emit(event output.Event) {
+	r.mu.Lock()
+	r.events = append(r.events, event)
+	r.mu.Unlock()
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (r *asyncEventRecorder) snapshot() []output.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]output.Event(nil), r.events...)
+}
+
+func (r *asyncEventRecorder) waitFor(t *testing.T, match func(output.Event) bool) output.Event {
+	t.Helper()
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	for {
+		for _, event := range r.snapshot() {
+			if match(event) {
+				return event
+			}
+		}
+		select {
+		case <-r.wake:
+		case <-deadline.C:
+			t.Fatal("expected event was not emitted")
+		}
+	}
+}
+
+type asyncHarness struct {
+	session    *interactive.Session
+	clock      *asyncClock
+	provider   *asyncScript
+	supervisor *delegation.Supervisor
+	store      *delegation.SessionStore
+	events     *asyncEventRecorder
+	scope      string
+}
+
+// newAsyncHarness builds the production interactive group-scope, completion,
+// event, and display wiring over the scripted provider. Child completion is
+// delivered through the live driver's sink; no completion is injected by the test.
+func newAsyncHarness(t *testing.T, prov *asyncScript, maxParallel int) *asyncHarness {
 	t.Helper()
 	cfg := testRuntimeConfig("test-model")
 	cfg.SubAgent.Enabled = true
@@ -199,31 +257,43 @@ func newAsyncSession(t *testing.T, prov provider.Provider, maxParallel int) (*in
 
 	controller := delegation.NewActiveController()
 	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: maxParallel, Controller: controller})
+	store := delegation.NewSessionStore()
+	events := newAsyncEventRecorder()
 	workDir := t.TempDir()
 	rt := cliRuntime{
 		cfg:                        cfg,
 		provider:                   prov,
-		registry:                   runtimeRegistryWithSinkAndMode(cfg, workDir, nil, true, nil, nil, nil, nil, withPendingSubAgents(sup)),
 		workDir:                    workDir,
 		homeDir:                    t.TempDir(),
-		events:                     output.NoopSink{},
-		delegationSessionStore:     delegation.NewSessionStore(),
+		events:                     events,
+		delegationSessionStore:     store,
 		delegationCacheKeyStore:    delegation.NewCacheKeyStore(),
 		delegationActiveController: controller,
 		delegationSupervisor:       sup,
 	}
 	clock := newAsyncClock()
+	var scope string
 	sess, err := interactive.NewSession(interactive.Dependencies{
-		Config:            cfg,
-		WorkDir:           workDir,
-		HomeDir:           rt.homeDir,
-		Background:        sup,
-		SetCompletionSink: sup.SetCompletionSink,
-		Clock:             clock,
+		BaseEvents: events,
+		Config:     cfg,
+		WorkDir:    workDir,
+		HomeDir:    rt.homeDir,
+		Background: sup,
+		NewGroupScope: func(seed agent.DelegationGroupLedger) string {
+			scope = sup.NewGroupScope(seed)
+			return scope
+		},
+		SnapshotGroupLedger: sup.SnapshotGroupLedger,
+		SealGroupBatch:      sup.SealGroupBatch,
+		ReleaseGroupScope:   sup.ReleaseGroupScope,
+		SetCompletionSink:   sup.SetCompletionSink,
+		Clock:               clock,
 	})
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
+	rt.events = sess.EventSink()
+	rt.registry = runtimeRegistryWithSinkAndMode(cfg, workDir, sess.DisplaySink(), true, sess.WorkflowHandoffResponder(sess.EventSink()), nil, nil, nil, withPendingSubAgents(sup))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -231,7 +301,13 @@ func newAsyncSession(t *testing.T, prov provider.Provider, maxParallel int) (*in
 		sess.Close(ctx)
 	})
 	sess.SetRunner(sessionRunner{runner: cliRunner{runtime: rt, runMode: "interactive", sessionIDFn: sess.SessionID, modeGetterFunc: sess.Mode}})
-	return sess, clock
+	return &asyncHarness{session: sess, clock: clock, provider: prov, supervisor: sup, store: store, events: events, scope: scope}
+}
+
+func newAsyncSession(t *testing.T, prov provider.Provider, maxParallel int) (*interactive.Session, *asyncClock) {
+	t.Helper()
+	h := newAsyncHarness(t, prov.(*asyncScript), maxParallel)
+	return h.session, h.clock
 }
 
 func waitRuns(t *testing.T, sess *interactive.Session) {
@@ -299,6 +375,23 @@ func recvStarted(t *testing.T, p *asyncScript, want string) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatalf("child %q never started", want)
+	}
+}
+
+func recvStartedSet(t *testing.T, p *asyncScript, wants ...string) {
+	t.Helper()
+	seen := make(map[string]bool, len(wants))
+	for len(seen) < len(wants) {
+		select {
+		case got := <-p.started:
+			for _, want := range wants {
+				if got == want {
+					seen[got] = true
+				}
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("children %v did not all start, saw %v", wants, seen)
+		}
 	}
 }
 
@@ -393,4 +486,132 @@ func TestAsyncSubAgentsThroughInteractiveWiring(t *testing.T) {
 			t.Fatalf("group message holds %d envelopes, want 2", n)
 		}
 	})
+
+	t.Run("AsyncGroup rejects reused group while original children run", func(t *testing.T) {
+		prov := newAsyncScript("task-alpha", "task-beta")
+		prov.parent = []func(provider.ChatRequest) provider.ChatResponse{
+			step(toolCallsResponse(subAgentCall("g1", "task-alpha", "pair"), subAgentCall("g2", "task-beta", "pair"))),
+			step(toolCallsResponse(subAgentCall("r1", "retry-alpha", "pair"), subAgentCall("r2", "retry-beta", "pair"))),
+			step(textResponse("waiting")),
+			step(textResponse("saw both")),
+		}
+		h := newAsyncHarness(t, prov, 4)
+
+		submit(t, h.session, "dispatch the pair")
+		waitRuns(t, h.session)
+		recvStartedSet(t, prov, "task-alpha", "task-beta")
+		before := h.supervisor.SnapshotGroupLedger(h.sessionGroupScope())
+		if before.Version != 1 || !containsGroupName(before, "pair") {
+			t.Fatalf("ledger before reuse = %+v, want reserved pair", before)
+		}
+
+		submit(t, h.session, "reuse the pair while it is still running")
+		waitRuns(t, h.session)
+		after := h.supervisor.SnapshotGroupLedger(h.sessionGroupScope())
+		if !sameGroupLedger(before, after) {
+			t.Fatalf("ledger changed after rejected reuse: before=%+v after=%+v", before, after)
+		}
+		if got := toolResultInConversation(h.session.Conversation(), "r1"); !strings.Contains(got, "child setup failed") {
+			t.Fatalf("r1 rejection = %q, want corrective model error", got)
+		}
+		if got := toolResultInConversation(h.session.Conversation(), "r2"); !strings.Contains(got, "child setup failed") {
+			t.Fatalf("r2 rejection = %q, want corrective model error", got)
+		}
+
+		events := h.events.snapshot()
+		for _, callID := range []string{"r1", "r2"} {
+			finished := delegationFinishedFor(events, callID)
+			if finished == nil {
+				t.Fatalf("no finished event for rejected call %s", callID)
+			}
+			if finished.DelegationAdmission == nil || finished.DelegationAdmission.Status != "rejected" || finished.DelegationAdmission.Group != "pair" {
+				t.Fatalf("rejected %s admission = %#v, want rejected pair metadata", callID, finished.DelegationAdmission)
+			}
+		}
+		for _, callID := range []string{"r1", "r2"} {
+			if hasDelegationAcceptedFor(events, callID) || hasDelegationStartedFor(events, callID) || hasDelegationQueuedFor(events, callID) {
+				t.Fatalf("rejected call %s emitted accepted or child lifecycle event", callID)
+			}
+		}
+
+		if n := len(subAgentResultMessages(h.session.Conversation())); n != 0 {
+			t.Fatalf("%d result messages before original pair finishes, want 0", n)
+		}
+		prov.release("task-alpha")
+		if n := len(subAgentResultMessages(h.session.Conversation())); n != 0 {
+			t.Fatalf("%d result messages after first original child finishes, want 0", n)
+		}
+		clearTurnNotifications(prov)
+		prov.release("task-beta")
+		awaitImmediateWake(t, h.session, prov, h.clock)
+
+		results := subAgentResultMessages(h.session.Conversation())
+		if len(results) != 1 {
+			t.Fatalf("%d result messages after original pair finishes, want one", len(results))
+		}
+		body := results[0].Content
+		for _, callID := range []string{"g1", "g2"} {
+			if !strings.Contains(body, `call_id="`+callID+`"`) {
+				t.Fatalf("delivered pair = %q, want %s envelope", body, callID)
+			}
+		}
+		if strings.Contains(body, `call_id="r1"`) || strings.Contains(body, `call_id="r2"`) {
+			t.Fatalf("delivered pair = %q, rejected calls must not be group members", body)
+		}
+	})
+}
+
+func containsGroupName(ledger agent.DelegationGroupLedger, want string) bool {
+	return slices.Contains(ledger.Names, want)
+}
+
+func sameGroupLedger(a, b agent.DelegationGroupLedger) bool {
+	return a.Version == b.Version && slices.Equal(a.Names, b.Names)
+}
+
+func (h *asyncHarness) sessionGroupScope() string {
+	return h.scope
+}
+
+func delegationFinishedFor(events []output.Event, callID string) *output.ToolCallFinishedEvent {
+	for _, event := range events {
+		if event.Type != output.EventTypeToolCallFinished {
+			continue
+		}
+		payload, ok := event.Payload.(output.ToolCallFinishedEvent)
+		if ok && payload.CallID == callID {
+			return &payload
+		}
+	}
+	return nil
+}
+
+func hasDelegationAcceptedFor(events []output.Event, callID string) bool {
+	for _, event := range events {
+		payload, ok := event.Payload.(output.DelegationAcceptedEvent)
+		if event.Type == output.EventTypeDelegationAccepted && ok && payload.CallID == callID {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDelegationStartedFor(events []output.Event, callID string) bool {
+	for _, event := range events {
+		payload, ok := event.Payload.(output.DelegationStartedEvent)
+		if event.Type == output.EventTypeDelegationStarted && ok && payload.CallID == callID {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDelegationQueuedFor(events []output.Event, callID string) bool {
+	for _, event := range events {
+		payload, ok := event.Payload.(output.DelegationQueuedEvent)
+		if event.Type == output.EventTypeDelegationQueued && ok && payload.CallID == callID {
+			return true
+		}
+	}
+	return false
 }
