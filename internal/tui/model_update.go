@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tui/prefs"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -94,6 +95,8 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleRuntimeEventMsg(msg)
 	case bridgeClosedMsg:
 		return m.handleBridgeClosedMsg(msg)
+	case workflowHandoffSettledMsg:
+		return m.handleWorkflowHandoffSettled(msg)
 	case modelEntriesUpdatedMsg:
 		return m.handleModelEntriesUpdatedMsg(msg)
 	case gitRefreshDoneMsg:
@@ -196,26 +199,10 @@ func (m *Model) handleUpdateCheckResultMsg(msg updateCheckResultMsg) (tea.Model,
 	return m, nil
 }
 
-// clearConversationState unconditionally clears conversation state and TUI
-// chrome. It is used by callers that must always clear regardless of
-// in-flight work — namely acceptWorkflowHandoff, which runs while the
-// workflow_handoff tool call itself is still registered active (its
-// ToolCallFinishedEvent only arrives asynchronously, after this call
-// returns). Callers that should refuse to clear during an active run must
-// use clearConversationStateWithError instead.
-//
-//nolint:unparam // tea.Cmd remains part of the workflow handoff call contract.
-func (m *Model) clearConversationState() (tea.Model, tea.Cmd) {
-	// Error is already surfaced via a content status line inside
-	// performClearConversationState; nothing further to do with it here.
-	_ = m.performClearConversationState()
-	return m, nil
-}
-
 // sessionBusy reports whether a run, tool call, delegation, compaction or
 // oneshot is in flight, so session-mutating actions must be refused.
 func (m *Model) sessionBusy() bool {
-	return m.asyncConversationBusy() || m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.activity.busy() || m.compaction.Active() || m.oneshotRunning
+	return m.pendingWorkflowHandoffLaunch != nil || m.asyncConversationBusy() || m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.activity.busy() || m.compaction.Active() || m.oneshotRunning
 }
 
 // refuseWhileBusy appends the busy notice for the named action and resets the
@@ -228,29 +215,46 @@ func (m *Model) refuseWhileBusy(action string) {
 }
 
 // clearConversationStateWithError refuses to clear while a run is in
-// progress, otherwise clears unconditionally via performClearConversationState.
+// progress and reports whether the controller accepted the clear.
 func (m *Model) clearConversationStateWithError() (tea.Model, bool, error) {
 	if m.sessionBusy() {
 		m.refuseWhileBusy("clear")
 		m.syncInputChrome()
 		return m, false, nil
 	}
-	if m.recorder != nil {
-		m.recorder.ResetSession()
-	}
 	err := m.performClearConversationState()
-	return m, true, err
+	if err == nil && m.recorder != nil {
+		m.recorder.ResetSession()
+		m.syncSidebar()
+	}
+	return m, err == nil, err
 }
 
-// performClearConversationState resets conversation content and TUI chrome
-// unconditionally. It does not check whether a run is active — callers own
-// that decision.
+// performClearConversationState clears the controller before resetting TUI
+// state. It does not check whether a run is active; callers own that decision.
 func (m *Model) performClearConversationState() error {
+	if m.controller != nil {
+		if err := m.controller.Handle(context.Background(), interactive.ClearConversation{}); err != nil {
+			m.appendError(err)
+			m.syncViewport()
+			return err
+		}
+	}
+	m.resetConversationUI()
+	return nil
+}
+
+// resetConversationUI resets conversation content and TUI chrome without
+// issuing a controller request. Callers use it after an atomic clear operation.
+func (m *Model) resetConversationUI() {
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
 	}
 	m.sessionStartedAt = nil
 	m.content.Clear()
+	m.convState = output.ConversationStateEvent{}
+	m.convStateSeen = false
+	m.convLabelShown = false
 	m.selection = m.selection.clear()
 	m.clearDragState()
 	m.removePendingImages()
@@ -278,17 +282,9 @@ func (m *Model) performClearConversationState() error {
 	}
 	m.setCompaction(compactionState{})
 	m.syncSidebar()
-	var clearErr error
-	if m.controller != nil {
-		clearErr = m.controller.Handle(context.Background(), interactive.ClearConversation{})
-		if clearErr != nil {
-			m.appendError(clearErr)
-		}
-	}
 	m.input.Reset()
 	m.syncInputChrome()
 	m.syncViewport()
-	return clearErr
 }
 
 func (m *Model) handleToggleThinkingMsg(_ toggleThinkingMsg) (tea.Model, tea.Cmd) {
@@ -455,6 +451,7 @@ func (m *Model) handleRuntimeEventMsg(msg runtimeEventMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m *Model) handleBridgeClosedMsg(_ bridgeClosedMsg) (tea.Model, tea.Cmd) {
+	m.cancelWorkflowHandoffSettlement()
 	return m, nil
 }
 

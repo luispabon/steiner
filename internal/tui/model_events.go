@@ -21,11 +21,16 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		return nil
 	}
 	m.observeRoster(event)
+	if event.Scope.AgentID == "" && event.Type == output.EventTypeStopReason && m.pendingWorkflowHandoffLaunch != nil {
+		if payload, ok := event.Payload.(output.StopReasonEvent); !ok || payload.Reason != "workflow_handoff" {
+			m.cancelWorkflowHandoffSettlement()
+		}
+	}
 	if m.shouldSuppressInterruptedRunEvent(event) {
 		return nil
 	}
 	if m.suppressWorkflowHandoffRun {
-		if cmd := m.handleSuppressedWorkflowHandoffEvent(event); cmd != nil || m.shouldSuppressWorkflowHandoffEvent(event) {
+		if cmd := m.handleSuppressedWorkflowHandoffEvent(event); cmd != nil {
 			return cmd
 		}
 	}
@@ -369,41 +374,20 @@ func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
 	m.syncViewport()
 }
 
-func (m *Model) shouldSuppressWorkflowHandoffEvent(event output.Event) bool {
-	switch event.Type {
-	case output.EventTypeWorkflowHandoffAccepted,
-		output.EventTypeToolCallFinished,
-		output.EventTypeModelCallFinished:
-		return true
-	default:
-		return false
-	}
-}
-
 func (m *Model) handleSuppressedWorkflowHandoffEvent(event output.Event) tea.Cmd {
 	if !m.suppressWorkflowHandoffRun {
 		return nil
 	}
-	switch event.Type {
-	case output.EventTypeWorkflowHandoffAccepted,
-		output.EventTypeToolCallFinished,
-		output.EventTypeModelCallFinished:
+	if event.Type != output.EventTypeStopReason {
 		return nil
-	case output.EventTypeStopReason:
-		payload, ok := event.Payload.(output.StopReasonEvent)
-		if !ok || payload.Reason != "workflow_handoff" {
-			return nil
-		}
-		launch := m.pendingWorkflowHandoffLaunch
-		m.suppressWorkflowHandoffRun = false
-		m.pendingWorkflowHandoffLaunch = nil
-		m.status.mode = ""
-		m.activity = m.activity.clear()
-		if launch == nil {
-			return nil
-		}
-		_, cmd := m.launchWorkflowHandoff(launch.next, launch.target, launch.submission)
-		return cmd
+	}
+	payload, ok := event.Payload.(output.StopReasonEvent)
+	if !ok || payload.Reason != "workflow_handoff" {
+		return nil
+	}
+	if launch := m.pendingWorkflowHandoffLaunch; launch != nil && !launch.waiting {
+		launch.waiting = true
+		return beginWorkflowHandoffSettlement(m.controller, launch)
 	}
 	return nil
 }

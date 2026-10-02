@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestProviderDiagnosticEventIncludesTimingFields(t *testing.T) {
@@ -60,7 +61,7 @@ func TestDelegationWorktreeDisposalEventJSON(t *testing.T) {
 }
 
 func TestDelegationStartedEventIncludesAgentType(t *testing.T) {
-	event := NewDelegationStartedEventWithType("child-1", "inspect", "call-1", "model-a", "code")
+	event := NewDelegationStartedEvent(DelegationOccurrence{CallID: "call-1", AgentID: "child-1"}, "inspect", "model-a", "code")
 	payload, ok := event.Payload.(DelegationStartedEvent)
 	if !ok {
 		t.Fatalf("payload type = %T, want DelegationStartedEvent", event.Payload)
@@ -74,5 +75,64 @@ func TestDelegationStartedEventIncludesAgentType(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"agent_type":"code"`) {
 		t.Errorf("event JSON = %s, want agent_type", data)
+	}
+}
+
+func TestDelegationLifecycleEventsFlattenOccurrenceJSON(t *testing.T) {
+	occ := DelegationOccurrence{CallID: "call-1", BatchID: "batch-1", AgentID: "agent-1"}
+	tests := []struct {
+		name  string
+		event Event
+	}{
+		{"accepted", NewDelegationAcceptedEvent(occ, "g")},
+		{"queued", NewDelegationQueuedEvent(occ, "code", "task")},
+		{"started", NewDelegationStartedEvent(occ, "task", "alias", "code")},
+		{"cache waiting", NewDelegationCacheWaitingEvent(occ, time.Unix(1, 0))},
+		{"complete", NewDelegationCompleteEvent(DelegationCompleteParams{DelegationOccurrence: occ, Status: "complete"})},
+		{"failed", NewDelegationFailedEvent(DelegationFailedParams{DelegationOccurrence: occ, Error: "boom"})},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded struct {
+				Payload map[string]any `json:"payload"`
+			}
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			for key, want := range map[string]string{"call_id": "call-1", "batch_id": "batch-1", "agent_id": "agent-1"} {
+				if got, _ := decoded.Payload[key].(string); got != want {
+					t.Errorf("payload[%q] = %v, want %q (JSON must stay flat: %s)", key, decoded.Payload[key], want, data)
+				}
+			}
+			if _, nested := decoded.Payload["DelegationOccurrence"]; nested {
+				t.Errorf("occurrence must be flattened, got %s", data)
+			}
+		})
+	}
+}
+
+func TestDeliveredSubAgentKeepsParentCallIDKeyAndAddsBatchID(t *testing.T) {
+	data, err := json.Marshal(NewSubAgentsDeliveredEvent([]DeliveredSubAgent{{AgentID: "a", Status: "complete", ParentCallID: "c", BatchID: "b"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"parent_call_id":"c"`, `"batch_id":"b"`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("event JSON = %s, missing %s", data, want)
+		}
+	}
+}
+
+func TestDelegationOccurrenceOmitsEmptyCallAndBatch(t *testing.T) {
+	data, err := json.Marshal(NewDelegationStartedEvent(DelegationOccurrence{AgentID: "a"}, "task", "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "call_id") || strings.Contains(string(data), "batch_id") || !strings.Contains(string(data), `"agent_id":"a"`) {
+		t.Errorf("event JSON = %s, want agent_id only", data)
 	}
 }

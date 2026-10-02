@@ -24,8 +24,9 @@ func asyncTestDeps(maxParallel int, gate chan struct{}) (SpecializedToolDeps, *S
 	deps.SubAgentCfg.MaxParallel = maxParallel
 	deps.SessionStore = NewSessionStore()
 	deps.AsyncSubAgents = true
-	sup, sink := newAsyncSupervisor(maxParallel, nil)
+	sup, sink := newAsyncSupervisor(maxParallel)
 	deps.Supervisor = sup
+	deps.GroupScope = sup.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	return deps, sup, sink
 }
 
@@ -128,7 +129,7 @@ func TestAsyncSubAgentGroupDeliveredTogetherAfterSeal(t *testing.T) {
 	t.Parallel()
 	gate := make(chan struct{})
 	deps, sup, sink := asyncTestDeps(2, gate)
-	ctx := agent.WithToolBatchID(context.Background(), "batch-1")
+	ctx := agent.WithToolBatchID(context.Background(), testBatchID(1))
 
 	var ids []string
 	for _, desc := range []string{"a", "b"} {
@@ -152,7 +153,7 @@ func TestAsyncSubAgentGroupDeliveredTogetherAfterSeal(t *testing.T) {
 	})
 	sink.none(t)
 
-	sup.SealBatch("batch-1")
+	sup.SealGroupBatch(deps.GroupScope, testBatchID(1))
 	batch := recvBatch(t, sink)
 	if len(batch) != 2 || batch[0].Seq >= batch[1].Seq {
 		t.Fatalf("batch = %+v, want two completions in ascending Seq order", batch)
@@ -237,7 +238,7 @@ func TestBlockingSubAgentReturnsResultAndPostsNothing(t *testing.T) {
 	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
-	sup, sink := newAsyncSupervisor(2, nil)
+	sup, sink := newAsyncSupervisor(2)
 	deps.Supervisor = sup
 
 	got, err := SubAgentToolDef(deps, nil).Handler(context.Background(), subAgentTask(AgentTypeExplore, "look"))
@@ -254,14 +255,14 @@ func TestBlockingSubAgentReturnsResultAndPostsNothing(t *testing.T) {
 	sink.none(t)
 }
 
-func TestSubAgentSchemaGroupOnlyWhenAsync(t *testing.T) {
+func TestSubAgentSchemaGroupAvailableBlockingAndAsync(t *testing.T) {
 	t.Parallel()
 	for _, async := range []bool{false, true} {
 		deps := minimalDeps(&mockRunner{})
 		deps.AsyncSubAgents = async
 		props, _ := SubAgentToolDef(deps, nil).ParameterSchema["properties"].(map[string]any)
-		if _, has := props["group"]; has != async {
-			t.Errorf("async=%v: group present = %v", async, has)
+		if _, has := props["group"]; !has {
+			t.Errorf("async=%v: group missing", async)
 		}
 	}
 }

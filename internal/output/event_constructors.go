@@ -174,6 +174,20 @@ func NewToolCallFinishedEvent(turn int, toolName, callID string, result string, 
 	return NewToolCallFinishedEventWithPreview(turn, toolName, callID, result, err, ToolPreview{})
 }
 
+// NewToolCallFinishedEventWithAdmission creates a finished event with admission metadata.
+func NewToolCallFinishedEventWithAdmission(turn int, toolName, callID, result string, err error, preview ToolPreview, admission *DelegationAdmission) Event {
+	event := NewToolCallFinishedEventWithPreview(turn, toolName, callID, result, err, preview)
+	payload := event.Payload.(ToolCallFinishedEvent)
+	payload.DelegationAdmission = admission.Clone()
+	event.Payload = payload
+	return event
+}
+
+// NewDelegationAcceptedEvent creates an event for an accepted delegation.
+func NewDelegationAcceptedEvent(occ DelegationOccurrence, group string) Event {
+	return newEvent(EventTypeDelegationAccepted, DelegationAcceptedEvent{DelegationOccurrence: occ, Group: group})
+}
+
 // NewToolCallFinishedEventWithPreview creates a new tool call finished event with preview.
 func NewToolCallFinishedEventWithPreview(turn int, toolName, callID string, result string, err error, preview ToolPreview) Event {
 	payload := ToolCallFinishedEvent{
@@ -418,39 +432,24 @@ func NewAssistantChunkEventWithSource(turn int, content string, source ChunkSour
 	})
 }
 
-// NewDelegationStartedEvent creates a new delegation started event.
-func NewDelegationStartedEvent(agentID, taskPreview string, callID ...string) Event {
-	payload := DelegationStartedEvent{
-		AgentID:     agentID,
-		TaskPreview: TruncateWithEllipsis(taskPreview, 120),
-	}
-	if len(callID) > 0 {
-		payload.CallID = callID[0]
-	}
-	return newEvent(EventTypeDelegationStarted, payload)
-}
-
-// NewDelegationStartedEventWithType creates a delegation started event with
-// the resolved model alias and child agent type.
-func NewDelegationStartedEventWithType(agentID, taskPreview, callID, modelAlias, agentType string) Event {
-	payload := DelegationStartedEvent{
-		AgentID:     agentID,
-		TaskPreview: TruncateWithEllipsis(taskPreview, 120),
-		CallID:      callID,
-		ModelAlias:  strings.TrimSpace(modelAlias),
-		AgentType:   agentType,
-	}
-	return newEvent(EventTypeDelegationStarted, payload)
+// NewDelegationStartedEvent creates a delegation started event with the
+// resolved model alias and child agent type.
+func NewDelegationStartedEvent(occ DelegationOccurrence, taskPreview, modelAlias, agentType string) Event {
+	return newEvent(EventTypeDelegationStarted, DelegationStartedEvent{
+		DelegationOccurrence: occ,
+		TaskPreview:          TruncateWithEllipsis(taskPreview, 120),
+		ModelAlias:           strings.TrimSpace(modelAlias),
+		AgentType:            agentType,
+	})
 }
 
 // NewDelegationQueuedEvent creates the event marking a sub-agent queued behind
 // the running-agent cap.
-func NewDelegationQueuedEvent(agentID, callID, agentType, taskPreview string) Event {
+func NewDelegationQueuedEvent(occ DelegationOccurrence, agentType, taskPreview string) Event {
 	return newEvent(EventTypeDelegationQueued, DelegationQueuedEvent{
-		AgentID:     agentID,
-		CallID:      callID,
-		AgentType:   agentType,
-		TaskPreview: TruncateWithEllipsis(taskPreview, 120),
+		DelegationOccurrence: occ,
+		AgentType:            agentType,
+		TaskPreview:          TruncateWithEllipsis(taskPreview, 120),
 	})
 }
 
@@ -487,17 +486,16 @@ func NewConversationWarningEvent(message string) Event {
 }
 
 // NewDelegationCacheWaitingEvent creates the event marking a gated delegation follower.
-func NewDelegationCacheWaitingEvent(agentID, callID string, deadline time.Time) Event {
+func NewDelegationCacheWaitingEvent(occ DelegationOccurrence, deadline time.Time) Event {
 	return newEvent(EventTypeDelegationCacheWaiting, DelegationCacheWaitingEvent{
-		AgentID:          agentID,
-		CallID:           callID,
-		DeadlineUnixNano: deadline.UnixNano(),
+		DelegationOccurrence: occ,
+		DeadlineUnixNano:     deadline.UnixNano(),
 	})
 }
 
 // DelegationCompleteParams holds the arguments for NewDelegationCompleteEvent.
 type DelegationCompleteParams struct {
-	AgentID           string
+	DelegationOccurrence
 	AgentType         string
 	DurationMs        int64
 	Status            string
@@ -540,10 +538,9 @@ func NewSteerReceivedEvent(text string) Event {
 
 // DelegationFailedParams holds the arguments for NewDelegationFailedEvent.
 type DelegationFailedParams struct {
-	AgentID       string
+	DelegationOccurrence
 	AgentType     string
 	DurationMs    int64
-	CallID        string
 	TaskPreview   string
 	Error         string
 	AdvisorBudget int
@@ -554,15 +551,14 @@ type DelegationFailedParams struct {
 // NewDelegationFailedEvent creates a new delegation failed event.
 func NewDelegationFailedEvent(p DelegationFailedParams) Event {
 	return newEvent(EventTypeDelegationFailed, DelegationFailedEvent{
-		AgentID:       p.AgentID,
-		AgentType:     p.AgentType,
-		DurationMs:    p.DurationMs,
-		CallID:        p.CallID,
-		TaskPreview:   TruncateWithEllipsis(p.TaskPreview, 120),
-		Error:         p.Error,
-		AdvisorBudget: p.AdvisorBudget,
-		AdvisorUses:   p.AdvisorUses,
-		AdvisorDenied: p.AdvisorDenied,
+		DelegationOccurrence: p.DelegationOccurrence,
+		AgentType:            p.AgentType,
+		DurationMs:           p.DurationMs,
+		TaskPreview:          TruncateWithEllipsis(p.TaskPreview, 120),
+		Error:                p.Error,
+		AdvisorBudget:        p.AdvisorBudget,
+		AdvisorUses:          p.AdvisorUses,
+		AdvisorDenied:        p.AdvisorDenied,
 	})
 }
 

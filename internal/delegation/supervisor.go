@@ -19,7 +19,6 @@ type SupervisorOptions struct {
 	MaxParallel int // >=1, already validated
 	Controller  *ActiveController
 	JoinTimeout time.Duration // 10s when zero
-	Events      output.EventSink
 }
 
 // ChildJob is one child to run. Execute performs ALL child work and finalisation
@@ -34,8 +33,17 @@ type ChildJob struct {
 	AgentID      string
 	AgentType    AgentType
 	ParentCallID string
+	// BatchID is the tool batch that issued the call; with ParentCallID it
+	// identifies the delegation occurrence. Enqueue sets it from the handler context.
+	BatchID string
 	// Group is the optional sub_agent label used for turn-scoped group release.
 	Group string
+	// GroupScope identifies the runtime conversation that owns group names.
+	GroupScope string
+	// Events is the sink for this job's Accepted and Queued events; it is the
+	// same sink the handler uses for Started, Complete and Failed. A nil sink
+	// suppresses both.
+	Events output.EventSink
 	// ObjectivePreview is the short task preview carried on the completion.
 	ObjectivePreview string
 	Worktree         CodeWorktree
@@ -65,22 +73,29 @@ type jobState struct {
 	cause    CancelCause
 	// delivered means the waiter's result was published; acked means the parent
 	// consumed the completion, which ends pending tracking.
-	delivered  bool
-	acked      bool
-	blocking   bool
-	registered bool
-	wasQueued  bool
-	startErr   error
-	order      uint64
-	worktree   CodeWorktree
-	startedAt  time.Time
-	group      *jobGroup
-	held       bool
-	completion *agent.SubAgentCompletion
-	done       chan struct{}
-	exited     chan struct{}
-	result     tool.ExecutionResult
-	err        error
+	delivered        bool
+	acked            bool
+	blocking         bool
+	registered       bool
+	published        bool
+	publication      chan struct{}
+	settled          chan struct{}
+	settleOnce       sync.Once
+	wasQueued        bool
+	startErr         error
+	order            uint64
+	worktree         CodeWorktree
+	startedAt        time.Time
+	group            *jobGroup
+	held             bool
+	completion       *agent.SubAgentCompletion
+	routed           bool
+	finalized        bool
+	shutdownTimedOut bool
+	done             chan struct{}
+	exited           chan struct{}
+	result           tool.ExecutionResult
+	err              error
 }
 
 // Supervisor owns detached sub-agent lifecycles for one runtime.
@@ -89,7 +104,6 @@ type Supervisor struct {
 	maxParallel int
 	controller  *ActiveController
 	joinTimeout time.Duration
-	events      output.EventSink
 	sink        agent.CompletionSink
 
 	closing  bool
@@ -106,6 +120,8 @@ type Supervisor struct {
 	enqSeq   uint64
 	groupSeq uint64
 	groups   map[groupKey]*jobGroup
+	scopeSeq uint64
+	scopes   map[string]*delegationGroupScope
 }
 
 // NewSupervisor returns an initialized Supervisor.
@@ -122,10 +138,10 @@ func NewSupervisor(opts SupervisorOptions) *Supervisor {
 		maxParallel: opts.MaxParallel,
 		controller:  controller,
 		joinTimeout: timeout,
-		events:      opts.Events,
 		jobs:        make(map[string]*jobState),
 		protected:   make(map[string]struct{}),
 		groups:      make(map[groupKey]*jobGroup),
+		scopes:      make(map[string]*delegationGroupScope),
 	}
 }
 
@@ -137,7 +153,7 @@ func NewSupervisor(opts SupervisorOptions) *Supervisor {
 func (s *Supervisor) SpawnAndWait(handlerCtx context.Context, job ChildJob) (tool.ExecutionResult, error) {
 	state, err := s.enqueue(handlerCtx, job, true)
 	if err != nil {
-		return tool.ExecutionResult{}, err
+		return tool.ExecutionResult{}, tool.WithDelegationAdmission(err, admissionFor(handlerCtx, job, tool.DelegationAdmissionRejected))
 	}
 
 	cancelled := handlerCtx.Done()
@@ -147,13 +163,24 @@ func (s *Supervisor) SpawnAndWait(handlerCtx context.Context, job ChildJob) (too
 			s.mu.Lock()
 			state.acked = true
 			s.pruneLocked(state)
+			result := state.result
+			result.DelegationAdmission = admissionForState(state)
+			err := tool.WithDelegationAdmission(state.err, result.DelegationAdmission)
 			s.mu.Unlock()
-			return state.result, state.err
+			return result, err
 		case <-cancelled:
 			cancelled = nil
 			s.CancelAgent(job.AgentID, false, CancelCauseUser)
 		}
 	}
+}
+
+func admissionFor(ctx context.Context, job ChildJob, status string) *tool.DelegationAdmission {
+	return &tool.DelegationAdmission{Status: status, BatchID: agent.ToolBatchIDFrom(ctx), Group: agent.NormalizeDelegationGroup(job.Group), AgentID: job.AgentID}
+}
+
+func admissionForState(state *jobState) *tool.DelegationAdmission {
+	return &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, BatchID: state.job.BatchID, Group: state.job.Group, AgentID: state.job.AgentID}
 }
 
 // run is the single goroutine for a started job.
@@ -167,20 +194,28 @@ func (s *Supervisor) run(state *jobState) {
 	s.controller.Unregister(state.job.AgentID)
 	state.cancel()
 	state.phase = phaseDone
+	state.finalized = true
 	s.running--
 	var posts postList
-	if s.closed {
+	switch {
+	case state.shutdownTimedOut:
 		result, err = tool.ExecutionResult{}, ErrSupervisorClosed
-	} else {
+		s.completeLocked(state, result, nil)
+		posts = s.routeShutdownCompletionLocked(state)
+	case s.closed:
+		result, err = tool.ExecutionResult{}, ErrSupervisorClosed
+	default:
 		s.completeLocked(state, result, err)
 		posts = s.routeLocked(state)
 	}
+	result.DelegationAdmission = admissionForState(state)
 	deliverLocked(state, result, err)
 	s.pruneLocked(state)
 	s.startQueuedLocked()
 	s.mu.Unlock()
 
 	posts.deliver()
+	state.settleOnce.Do(func() { close(state.settled) })
 }
 
 // execute provisions the job's worktree at dequeue time when it has a Prepare
@@ -218,15 +253,19 @@ func (s *Supervisor) finishCancelled(state *jobState) {
 	s.controller.MarkComplete(state.job.AgentID)
 	s.controller.Unregister(state.job.AgentID)
 	var posts postList
-	if !s.closed {
-		s.completeLocked(state, result, nil)
+	s.completeLocked(state, result, nil)
+	if state.shutdownTimedOut {
+		posts = s.routeShutdownCompletionLocked(state)
+	} else if !s.closed {
 		posts = s.routeLocked(state)
 	}
+	state.finalized = true
 	deliverLocked(state, result, nil)
 	s.pruneLocked(state)
 	s.mu.Unlock()
 
 	posts.deliver()
+	state.settleOnce.Do(func() { close(state.settled) })
 }
 
 func deliverLocked(state *jobState, result tool.ExecutionResult, err error) {
@@ -243,8 +282,9 @@ func deliverLocked(state *jobState, result tool.ExecutionResult, err error) {
 // finished. The identity check keeps a stale state from removing a newer job
 // that reused the agent ID.
 func (s *Supervisor) pruneLocked(state *jobState) {
-	if state.acked && state.phase == phaseDone && s.jobs[state.job.AgentID] == state {
+	if state.acked && state.phase == phaseDone && state.finalized && s.jobs[state.job.AgentID] == state {
 		delete(s.jobs, state.job.AgentID)
+		s.maybeDeleteScopeLocked(state.job.GroupScope)
 	}
 }
 
@@ -265,11 +305,16 @@ func (s *Supervisor) CancelAgent(agentID string, discard bool, cause CancelCause
 	}
 
 	if state.phase == phaseQueued {
+		if !state.published {
+			state.cancel()
+			s.mu.Unlock()
+			return CancelAccepted
+		}
 		s.removeQueuedLocked(state)
 		state.phase = phaseDone
 		state.cancel()
 		s.mu.Unlock()
-		s.finishCancelled(state)
+		go s.finishCancelled(state)
 		return CancelAccepted
 	}
 
@@ -296,16 +341,24 @@ func (s *Supervisor) CancelAll(cause CancelCause) {
 			state.cause = cause
 		}
 		if state.phase == phaseQueued {
-			state.phase = phaseDone
-			cancelled = append(cancelled, state)
+			if state.published {
+				state.phase = phaseDone
+				cancelled = append(cancelled, state)
+			}
 		}
 		state.cancel()
 	}
-	s.queue = nil
+	kept := s.queue[:0]
+	for _, state := range s.queue {
+		if !state.published {
+			kept = append(kept, state)
+		}
+	}
+	s.queue = kept
 	s.mu.Unlock()
 
 	for _, state := range cancelled {
-		s.finishCancelled(state)
+		go s.finishCancelled(state)
 	}
 }
 

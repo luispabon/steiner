@@ -76,10 +76,10 @@ func advisorQuestionAndFilesFromArgs(args map[string]any) (question string, file
 // results (the common case).
 func toolResultError(content string) error {
 	var envelope tool.JSONEnvelope
-	if err := json.Unmarshal([]byte(content), &envelope); err != nil {
+	if err := json.Unmarshal([]byte(content), &envelope); err != nil || envelope.OK {
 		return nil
 	}
-	if envelope.OK || envelope.Error == nil {
+	if envelope.Error == nil {
 		return nil
 	}
 	return envelope.Error
@@ -107,42 +107,82 @@ func convertImageBlocks(blocks []agent.ImageBlock) []output.ImageBlock {
 
 // replaySessionMessages replays conversation messages and emits display events
 // so the TUI can reconstruct the session view on resume. Delegate tool calls
-// emit delegation events; regular tool calls emit tool call events.
-func (s *Session) replaySessionMessages(msgs []agent.Message) {
-	paired := pairedToolResultIDs(msgs)
-	startedToolCalls := map[string]struct{}{}
-	pendingDelegates := map[string]agent.ToolCall{}
-	pendingAdvisors := map[string]agent.ToolCall{}
-	acks := &replayAcks{}
-	for _, msg := range msgs {
+// emit delegation events; regular tool calls emit tool call events. The ledger
+// ties outstanding sub-agents to their originating call occurrences.
+func (s *Session) replaySessionMessages(msgs []agent.Message, ledger []agent.SubAgentLedgerEntry) {
+	plan := buildReplayOccurrencePlan(msgs, ledger)
+	state := replayState{
+		startedToolCalls: make(map[replayOccurrenceKey]bool),
+		acks:             &replayAcks{},
+	}
+	for messageIndex, msg := range msgs {
 		if msg.Content == "" && len(msg.ToolCalls) == 0 && msg.ToolCallID == "" {
 			continue
 		}
-		switch msg.Role {
-		case agent.MessageRoleUser:
-			s.replayUserMessage(msg, acks)
-		case agent.MessageRoleAssistant:
-			if msg.ReasoningContent != "" {
-				s.events.Emit(output.NewThinkingChunkEventWithSource(0, msg.ReasoningContent, output.ChunkSourceAssistant))
-			}
-			s.events.Emit(output.NewAssistantMessageEvent(0, string(msg.Role), msg.Content))
-			s.replayAssistantToolCalls(msg.ToolCalls, pendingDelegates, pendingAdvisors, startedToolCalls, paired)
-		case agent.MessageRoleSummary:
-			s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-				Kind:        "compaction",
-				Severity:    "done",
-				SummaryText: msg.Content,
-			}))
-		case agent.MessageRoleTool:
-			s.replayToolResult(msg, pendingDelegates, pendingAdvisors, startedToolCalls, acks)
+		s.replayMessage(msg, state, replayLedger{msgs: msgs, entries: ledger, occurrences: plan.occurrences, owners: plan.resultOwners, messageIndex: messageIndex})
+	}
+	s.replayUnresolvedAcks(state.acks)
+}
+
+type replayState struct {
+	startedToolCalls map[replayOccurrenceKey]bool
+	acks             *replayAcks
+}
+
+func (s *Session) replayMessage(msg agent.Message, state replayState, ledger replayLedger) {
+	switch msg.Role {
+	case agent.MessageRoleUser:
+		s.replayUserMessage(msg, state.acks, ledger.messageIndex)
+	case agent.MessageRoleAssistant:
+		s.replayAssistantMessage(msg, state, ledger)
+	case agent.MessageRoleSummary:
+		s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{Kind: "compaction", Severity: "done", SummaryText: msg.Content}))
+	case agent.MessageRoleTool:
+		owner, hasOwner := ledger.owners[ledger.messageIndex]
+		var occurrence *replayOccurrence
+		if hasOwner {
+			occurrence = ledger.occurrences[owner]
+		}
+		switch {
+		case occurrence != nil && occurrence.bundled:
+			// Already emitted with its call by replayDelegationBundle.
+		case occurrence != nil:
+			s.replayOwnedToolResult(msg, owner, occurrence.call, state, ledgerEntryForOccurrence(ledger, occurrence))
+		default:
+			s.replayDisplayFile(msg)
 		}
 	}
-	s.replayUnresolvedAcks(acks)
+}
+
+func (s *Session) replayAssistantMessage(msg agent.Message, state replayState, ledger replayLedger) {
+	if msg.ReasoningContent != "" {
+		s.events.Emit(output.NewThinkingChunkEventWithSource(0, msg.ReasoningContent, output.ChunkSourceAssistant))
+	}
+	s.events.Emit(output.NewAssistantMessageEvent(0, string(msg.Role), msg.Content))
+	for callIndex, call := range msg.ToolCalls {
+		key := replayOccurrenceKey{messageIndex: ledger.messageIndex, callIndex: callIndex}
+		occurrence := ledger.occurrences[key]
+		if occurrence == nil {
+			continue
+		}
+		if occurrence.resultMessageIndex >= 0 {
+			if occurrence.bundled {
+				s.replayDelegationBundle(call, key, occurrence, state, ledger)
+				continue
+			}
+			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
+			state.startedToolCalls[key] = true
+			continue
+		}
+		if occurrence.ledgerIndex >= 0 && isDelegateToolCall(call.Name) {
+			s.replayLedgerOrphanBundle(call, key, occurrence, state, ledger)
+		}
+	}
 }
 
 // replayUserMessage emits skill state, sub-agent delivery and user input
 // events for one replayed user message.
-func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks) {
+func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks, messageIndex int) {
 	images := convertImageBlocks(msg.Images)
 	parts := prompt.SplitMessageBlocks(msg.Content)
 	for _, block := range parts.SkillBlocks {
@@ -158,13 +198,14 @@ func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks) {
 		if !ok {
 			continue
 		}
-		s.replaySubAgentResult(parsed, acks)
+		occ := s.replaySubAgentResult(parsed, acks, messageIndex)
 		_, usage := splitResultEnvelopeInner(parsed.Inner)
 		delivered = append(delivered, output.DeliveredSubAgent{
-			AgentID:      parsed.AgentID,
+			AgentID:      occ.AgentID,
 			AgentType:    parsed.AgentType,
 			Status:       parsed.Status,
 			ParentCallID: parsed.CallID,
+			BatchID:      occ.BatchID,
 			DurationMs:   usage.duration.Milliseconds(),
 		})
 	}
@@ -180,86 +221,7 @@ func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks) {
 	}
 }
 
-// replayAssistantToolCalls emits events for each tool call in an assistant message.
-// Only tool calls with a paired tool result are emitted; orphaned calls (e.g. an
-// accepted workflow_handoff that stops the run without appending a result) are
-// skipped so the TUI does not show them as still-running.
-func (s *Session) replayAssistantToolCalls(calls []agent.ToolCall, pendingDelegates map[string]agent.ToolCall, pendingAdvisors map[string]agent.ToolCall, startedToolCalls map[string]struct{}, paired map[string]struct{}) {
-	for _, call := range calls {
-		if isAdvisorToolCall(call.Name) {
-			if _, ok := paired[call.ID]; !ok {
-				continue
-			}
-			pendingAdvisors[call.ID] = call
-		} else if isDelegateToolCall(call.Name) {
-			if _, ok := paired[call.ID]; !ok {
-				continue
-			}
-			pendingDelegates[call.ID] = call
-			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
-			startedToolCalls[call.ID] = struct{}{}
-		} else if _, ok := paired[call.ID]; ok {
-			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
-			startedToolCalls[call.ID] = struct{}{}
-		}
-	}
-}
-
-// pairedToolResultIDs returns the set of tool call IDs that have a matching
-// tool result message in msgs. Tool calls absent from this set stopped the run
-// without producing a result (e.g. an accepted workflow_handoff).
-func pairedToolResultIDs(msgs []agent.Message) map[string]struct{} {
-	ids := make(map[string]struct{})
-	for _, msg := range msgs {
-		if msg.Role == agent.MessageRoleTool && msg.ToolCallID != "" {
-			ids[msg.ToolCallID] = struct{}{}
-		}
-	}
-	return ids
-}
-
-// replayToolResult emits the completion event for a tool result message.
-func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[string]agent.ToolCall, pendingAdvisors map[string]agent.ToolCall, startedToolCalls map[string]struct{}, acks *replayAcks) {
-	if pending, ok := pendingAdvisors[msg.ToolCallID]; ok {
-		question, files := advisorQuestionAndFilesFromArgs(pending.Arguments)
-		s.events.Emit(output.NewAdvisorStartedEvent("", 0, 0, question, files))
-		s.events.Emit(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Note: msg.Content}))
-		delete(pendingAdvisors, msg.ToolCallID)
-	} else if pending, ok := pendingDelegates[msg.ToolCallID]; ok {
-		state := buildReplayedDelegationState(msg.ToolCallID, msg.Retention, msg.Content)
-		task := taskFromArgs(pending.Arguments)
-		if state.status == "queued" {
-			s.events.Emit(output.NewDelegationQueuedEvent(state.agentID, msg.ToolCallID, "", task))
-		} else {
-			s.events.Emit(output.NewDelegationStartedEvent(state.agentID, task))
-		}
-		switch {
-		case isAckStatus(state.status):
-			acks.add(msg.ToolCallID, state.agentID, task)
-		case state.status == "failed":
-			s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
-				AgentID:     state.agentID,
-				TaskPreview: task,
-				Error:       state.error,
-			}))
-		default:
-			s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-				AgentID:           state.agentID,
-				Status:            state.status,
-				TurnCount:         state.turnCount,
-				TokenCount:        state.tokenCount,
-				ToolCallCount:     state.toolCallCount,
-				Output:            state.output,
-				InputTokens:       state.inputTokens,
-				CacheReadTokens:   state.cacheReadTokens,
-				CacheCreateTokens: state.cacheCreateTokens,
-			}))
-		}
-		delete(pendingDelegates, msg.ToolCallID)
-		delete(startedToolCalls, msg.ToolCallID)
-	}
-
-	// Emit DisplayFileEvent if this is a display_file call with valid payload.
+func (s *Session) replayDisplayFile(msg agent.Message) {
 	if msg.Name == "display_file" {
 		var result builtin.DisplayFileResult
 		if err := json.Unmarshal([]byte(msg.Content), &result); err == nil && result.Path != "" {
@@ -274,9 +236,20 @@ func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[strin
 		}
 	}
 
-	// Always emit ToolCallFinishedEvent for any tool call that was started.
-	if _, ok := startedToolCalls[msg.ToolCallID]; ok {
-		s.events.Emit(output.NewToolCallFinishedEvent(0, msg.Name, msg.ToolCallID, msg.Content, toolResultError(msg.Content)))
-		delete(startedToolCalls, msg.ToolCallID)
+}
+
+func (s *Session) replayToolFinished(msg agent.Message) {
+	known := hasKnownAdmission(msg.DelegationAdmission)
+	if isDelegateToolCall(msg.Name) && !known {
+		return
 	}
+	var admission *tool.DelegationAdmission
+	if known {
+		admission = msg.DelegationAdmission
+	}
+	err := toolResultError(msg.Content)
+	if err == nil && isDelegateToolCall(msg.Name) {
+		err = delegationResultError(msg.Content)
+	}
+	s.events.Emit(output.NewToolCallFinishedEventWithAdmission(0, msg.Name, msg.ToolCallID, msg.Content, err, output.ToolPreview{}, admission))
 }

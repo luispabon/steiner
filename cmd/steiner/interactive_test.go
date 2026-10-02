@@ -264,10 +264,10 @@ func TestInteractiveRunnerSendsStableSessionPromptCacheKeyAcrossTurns(t *testing
 		promptCacheKeyFn: sess.PromptCacheKey,
 	}
 
-	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first prompt"}}, nil, nil); err != nil {
+	if _, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first prompt"}}, nil, runHooks{}); err != nil {
 		t.Fatalf("Run() turn 1 error = %v", err)
 	}
-	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second prompt"}}, nil, nil); err != nil {
+	if _, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second prompt"}}, nil, runHooks{}); err != nil {
 		t.Fatalf("Run() turn 2 error = %v", err)
 	}
 

@@ -124,9 +124,13 @@ func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (on
 	resetFallbackModelWarnings()
 
 	rt := &r.runner.runtime
+	// The scope lives as long as this phase's single driver; its episodes run
+	// sequentially, which sequence-based batch sealing requires.
+	groupScope, releaseGroupScope := rt.openGroupScope()
+	defer releaseGroupScope()
 	rec := &driverRunRecord{}
 	host := phaseDriverHost{
-		run:    r.runner.driverRun(in.SkillNames, rec),
+		run:    r.runner.driverRun(in.SkillNames, groupScope, rec),
 		record: rec,
 		shutdown: func(ctx context.Context, cause delegation.CancelCause) {
 			shutdownDelegation(ctx, rt, cause)

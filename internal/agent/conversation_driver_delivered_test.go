@@ -66,7 +66,7 @@ func TestConversationDriverDeliveryEmitsSubAgentsDelivered(t *testing.T) {
 			}
 			for i, id := range tc.wantIDs {
 				it := got[0].Items[i]
-				if it.AgentID != id || it.ParentCallID != "call-"+id || it.AgentType != "code" || it.Status != "complete" {
+				if it.AgentID != id || it.ParentCallID != "call-"+id || it.BatchID != "batch-"+id || it.AgentType != "code" || it.Status != "complete" {
 					t.Errorf("item %d = %+v, want agent %q", i, it, id)
 				}
 			}

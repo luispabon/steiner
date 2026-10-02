@@ -1,6 +1,7 @@
 package output
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -9,6 +10,52 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
+
+func TestDelegationAdmissionEventsAndFinishedMetadata(t *testing.T) {
+	admission := &DelegationAdmission{Status: "accepted", BatchID: "b", Group: "g", AgentID: "a", PolicyNotice: true}
+	event := NewToolCallFinishedEventWithAdmission(1, "delegate", "c", "result", nil, ToolPreview{}, admission)
+	admission.AgentID = "mutated"
+	payload := event.Payload.(ToolCallFinishedEvent)
+	if payload.DelegationAdmission == nil || payload.DelegationAdmission.AgentID != "a" {
+		t.Fatalf("finished metadata = %#v", payload.DelegationAdmission)
+	}
+	payload.DelegationAdmission.AgentID = "mutated payload"
+	if admission.AgentID != "mutated" {
+		t.Fatalf("source metadata changed through event payload: %#v", admission)
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Payload ToolCallFinishedEvent `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Payload.DelegationAdmission == nil || decoded.Payload.DelegationAdmission.Status != "accepted" {
+		t.Fatalf("decoded metadata = %#v", decoded.Payload.DelegationAdmission)
+	}
+	accepted := NewDelegationAcceptedEvent(DelegationOccurrence{CallID: "c", BatchID: "b", AgentID: "a"}, "g")
+	segment := renderEvent(accepted)
+	if segment.Channel != ChannelStatus || segment.Label != "delegation accepted" || !strings.Contains(segment.Text, "group=g") {
+		t.Fatalf("accepted event segment = %#v", segment)
+	}
+	acceptedData, err := json.Marshal(accepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var acceptedDecoded struct {
+		Type    string                  `json:"type"`
+		Payload DelegationAcceptedEvent `json:"payload"`
+	}
+	if err := json.Unmarshal(acceptedData, &acceptedDecoded); err != nil {
+		t.Fatal(err)
+	}
+	if acceptedDecoded.Type != EventTypeDelegationAccepted || acceptedDecoded.Payload.AgentID != "a" {
+		t.Fatalf("accepted event = %#v", acceptedDecoded)
+	}
+}
 
 func TestNewAPIRequestEventToolArgumentHashChanges(t *testing.T) {
 	first := provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{{Name: "read", Arguments: map[string]any{"path": "one"}}}}
@@ -268,7 +315,7 @@ func TestNewDelegationWorktreeDisposalEvent(t *testing.T) {
 }
 
 func TestNewDelegationStartedEventWithType(t *testing.T) {
-	event := NewDelegationStartedEventWithType("child-1", "inspect", "call-1", "model-a", "code")
+	event := NewDelegationStartedEvent(DelegationOccurrence{CallID: "call-1", AgentID: "child-1"}, "inspect", "model-a", "code")
 	if event.Type != EventTypeDelegationStarted {
 		t.Fatalf("Type = %q, want %q", event.Type, EventTypeDelegationStarted)
 	}

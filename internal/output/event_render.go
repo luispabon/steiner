@@ -37,6 +37,7 @@ var eventRenderers = map[reflect.Type]func(Event) Segment{
 	reflect.TypeOf(ToolCallStartedEvent{}):        typedRenderer(renderToolCallStartedEvent),
 	reflect.TypeOf(ToolCallQueuedEvent{}):         typedRenderer(renderToolCallQueuedEvent),
 	reflect.TypeOf(ToolCallFinishedEvent{}):       typedRenderer(renderToolCallFinishedEvent),
+	reflect.TypeOf(DelegationAcceptedEvent{}):     typedRenderer(renderDelegationAcceptedEvent),
 	reflect.TypeOf(DelegationCompleteEvent{}):     typedRenderer(renderDelegationCompleteEvent),
 	reflect.TypeOf(AdvisorStartedEvent{}):         typedRenderer(renderAdvisorStartedEvent),
 	reflect.TypeOf(AdvisorCompleteEvent{}):        typedRenderer(renderAdvisorCompleteEvent),
@@ -261,6 +262,15 @@ func renderToolCallFinishedEvent(payload ToolCallFinishedEvent) Segment {
 		parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
 	}
 	return Segment{Channel: channel, Label: label, Text: strings.Join(parts, " ")}
+}
+
+func renderDelegationAcceptedEvent(payload DelegationAcceptedEvent) Segment {
+	parts := []string{}
+	parts = appendField(parts, "call", payload.CallID)
+	parts = appendField(parts, "agent", payload.AgentID)
+	parts = appendField(parts, "batch", payload.BatchID)
+	parts = appendField(parts, "group", payload.Group)
+	return Segment{Channel: ChannelStatus, Label: "delegation accepted", Text: strings.Join(parts, " ")}
 }
 
 func renderDelegationCompleteEvent(payload DelegationCompleteEvent) Segment {

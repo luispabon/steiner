@@ -16,6 +16,9 @@ func (b *contentBuffer) appendSubAgentsDeliveredEvent(event output.Event) {
 		return
 	}
 	b.finishStreaming()
+	for _, item := range payload.Items {
+		b.settleLostDelivery(item)
+	}
 	rows := buildDeliveredRows(payload.Items, b.deliveredLookup)
 	b.segments = append(b.segments, contentSegment{
 		kind:          segmentSubAgentsFinished,
@@ -28,31 +31,65 @@ func (b *contentBuffer) appendSubAgentsDeliveredEvent(event output.Event) {
 // deliveredLookup resolves the group label, group size, failure reason and
 // elapsed text for a delivered item from the delegation boxes in the buffer.
 func (b *contentBuffer) deliveredLookup(item output.DeliveredSubAgent) deliveredLookup {
-	var found *delegationDisplayState
-	b.forEachDelegationReverse(func(loc delegationLocator) bool {
-		dd := loc.dd
-		if dd == nil {
-			return false
-		}
-		if (item.AgentID != "" && dd.agentID == item.AgentID) || (item.ParentCallID != "" && dd.parentCallID == item.ParentCallID) {
-			found = dd
-			return true
-		}
-		return false
-	})
-	if found == nil {
+	target, found := b.deliveredTarget(item)
+	if !found {
 		return deliveredLookup{}
 	}
-	info := deliveredLookup{group: found.group, reason: found.failureReason, elapsed: found.elapsed}
-	if found.group != "" {
+	dd := target.dd
+	info := deliveredLookup{group: dd.acceptedGroup(), reason: dd.failureReason, elapsed: dd.elapsed}
+	if key, valid := acceptedMembership(dd); valid {
 		b.forEachDelegationReverse(func(loc delegationLocator) bool {
-			if loc.dd != nil && loc.dd.group == found.group && loc.dd.batch == found.batch {
+			if otherKey, ok := acceptedMembership(loc.dd); ok && otherKey == key {
 				info.groupSize++
 			}
 			return false
 		})
 	}
 	return info
+}
+
+// deliveredTarget resolves the card a delivered item reports on: its
+// occurrence's card, or for an item without a parent call ID the agent's
+// newest card.
+func (b *contentBuffer) deliveredTarget(item output.DeliveredSubAgent) (delegationLocator, bool) {
+	if item.ParentCallID != "" {
+		return b.lookupOccurrence(occurrenceKey{BatchID: item.BatchID, CallID: item.ParentCallID})
+	}
+	if item.AgentID == "" {
+		return delegationLocator{}, false
+	}
+	if loc, active := b.activeDelegations[item.AgentID]; active && loc.dd != nil {
+		return loc, true
+	}
+	return b.findDelegation(item.AgentID)
+}
+
+func (b *contentBuffer) settleLostDelivery(item output.DeliveredSubAgent) {
+	if strings.TrimSpace(item.Status) != "lost" {
+		return
+	}
+	target, found := b.deliveredTarget(item)
+	if !found || target.dd.status != "active" {
+		return
+	}
+	markLostDelivery(target.dd, item)
+	b.forgetDelegation(target.dd)
+	b.markDelegationDirty(target.seg)
+}
+
+// markLostDelivery applies the terminal lost state for a settled delivery.
+func markLostDelivery(dd *delegationDisplayState, item output.DeliveredSubAgent) {
+	dd.status = "failed"
+	dd.resultStatus = "lost"
+	if dd.failureReason == "" {
+		dd.failureReason = "session restarted"
+	}
+	dd.queuedForSlot = false
+	dd.cacheWaiting = false
+	if dd.elapsed == "" && dd.startTime > 0 {
+		dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+	}
+	dd.fillFromTerminalEvent(item.AgentType, item.DurationMs)
 }
 
 // renderSubAgentsFinishedSegment renders the delivery row: a bullet, an

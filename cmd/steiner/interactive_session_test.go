@@ -1175,8 +1175,8 @@ func TestSessionRunnerForwardsNilStaticSkillNames(t *testing.T) {
 
 	// Control: the same cliRunner with an explicit skill name does include it,
 	// so the omission above proves the nil forwarding, not a missing skill.
-	if _, err := runner.Run(context.Background(), conversation, []string{"review"}, nil); err != nil {
-		t.Fatalf("cliRunner.Run() error = %v", err)
+	if _, err := runner.RunWithHooks(context.Background(), conversation, []string{"review"}, runHooks{}); err != nil {
+		t.Fatalf("cliRunner.RunWithHooks() error = %v", err)
 	}
 	if got := lastRequestContents(t, providerStub); !strings.Contains(got, "review skill instructions") {
 		t.Fatalf("control run missing static skill content:\n%s", got)
@@ -1205,5 +1205,40 @@ func TestSessionRunnerReturnsTokenCountAndStopReason(t *testing.T) {
 	}
 	if result.TokenCount != 7 || result.StopReason != agent.StopReasonComplete {
 		t.Fatalf("result = {TokenCount:%d StopReason:%q}, want {7 %q}", result.TokenCount, result.StopReason, agent.StopReasonComplete)
+	}
+}
+
+func TestSessionRunnerForwardsExactDelegationGroupScope(t *testing.T) {
+	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
+	t.Cleanup(func() { supervisor.CancelAll(delegation.CancelCauseUser) })
+	explicit, releaseExplicit := supervisor.OpenGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	t.Cleanup(releaseExplicit)
+	cfg := testRuntimeConfig("test-model")
+	cfg.SubAgent.Enabled = true
+	cfg.SubAgent.MaxParallel = 1
+	script := newAsyncScript("scope forwarding")
+	script.parent = []func(provider.ChatRequest) provider.ChatResponse{
+		step(toolCallsResponse(subAgentCall("call-group", "scope forwarding", "interactive-group"))),
+		step(textResponse("done")),
+	}
+	rt := cliRuntime{
+		cfg: cfg, provider: script, registry: tool.NewRegistry(), workDir: t.TempDir(), homeDir: t.TempDir(), events: output.NoopSink{},
+		delegationSupervisor:   supervisor,
+		providerFactory:        func(provider.ResolvedModel, string) (provider.Provider, error) { return script, nil },
+		delegationSessionStore: delegation.NewSessionStore(), delegationCacheKeyStore: delegation.NewCacheKeyStore(),
+		delegationActiveController: delegation.NewActiveController(),
+	}
+	result, err := (sessionRunner{runner: cliRunner{runtime: rt, runMode: "interactive"}}).Run(context.Background(), interactive.RunInput{
+		Conversation: []agent.Message{{Role: agent.MessageRoleUser, Content: "dispatch"}}, DelegationGroupScope: explicit,
+	})
+	if err != nil {
+		t.Fatalf("sessionRunner.Run() error = %v", err)
+	}
+	if result.StopReason != agent.StopReasonComplete {
+		t.Fatalf("stop reason = %q, want complete", result.StopReason)
+	}
+	recvStarted(t, script, "scope forwarding")
+	if got := supervisor.SnapshotGroupLedger(explicit).Names; len(got) != 1 || got[0] != "interactive-group" {
+		t.Fatalf("explicit scope names = %v, want [interactive-group]", got)
 	}
 }

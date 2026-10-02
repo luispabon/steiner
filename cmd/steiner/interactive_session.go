@@ -88,6 +88,8 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 	if rt.delegationSupervisor != nil {
 		sessDeps.Background = rt.delegationSupervisor
 		sessDeps.SetCompletionSink = rt.delegationSupervisor.SetCompletionSink
+		sessDeps.OpenGroupScope = rt.delegationSupervisor.OpenGroupScope
+		sessDeps.SnapshotGroupLedger = rt.delegationSupervisor.SnapshotGroupLedger
 	}
 	return interactive.NewSession(sessDeps)
 }
@@ -721,10 +723,10 @@ func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (intera
 		}
 	}
 	result, err := r.runner.RunWithHooks(ctx, in.Conversation, nil, runHooks{
-		drainInbox:       in.DrainInbox,
-		onToolBatchDone:  in.OnToolBatchDone,
-		pendingSubAgents: in.PendingSubAgents,
-		maxTokens:        in.MaxTokens,
+		drainInbox:           in.DrainInbox,
+		pendingSubAgents:     in.PendingSubAgents,
+		delegationGroupScope: in.DelegationGroupScope,
+		maxTokens:            in.MaxTokens,
 	})
 	return interactive.RunResult{
 		Conversation:    result.Conversation,

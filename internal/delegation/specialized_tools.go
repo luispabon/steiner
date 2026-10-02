@@ -112,11 +112,9 @@ func SubAgentToolDef(deps SpecializedToolDeps, excludeTypes []AgentType) tool.To
 			"description": "Required when type is \"vision\". The image ID to examine (e.g. 'img-1'). Shown in the image placeholder in the conversation.",
 		},
 	}
-	if deps.AsyncSubAgents {
-		properties["group"] = map[string]any{
-			"type":        "string",
-			"description": "Optional label grouping calls made in the same response so their results arrive together.",
-		}
+	properties["group"] = map[string]any{
+		"type":        "string",
+		"description": "Optional conversation-unique group name. Calls with the same name in one assistant response are delivered together when async; use a fresh name for later responses. Reusing a name returns an error.",
 	}
 
 	return tool.ToolDef{
@@ -297,11 +295,6 @@ func applyCodeWorktreeResult(result tool.ExecutionResult, worktree CodeWorktree,
 	return result
 }
 
-func inputGroup(input map[string]any) string {
-	group, _ := input["group"].(string)
-	return strings.TrimSpace(group)
-}
-
 func nonEmptyLines(s string) []string {
 	var lines []string
 	for _, line := range strings.Split(s, "\n") {
@@ -439,6 +432,9 @@ func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, res
 func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
 	ensureSupervisor(&deps.SubAgentHandlerDeps)
 	return func(ctx context.Context, input map[string]any) (any, error) {
+		if err := requireGroupScope(deps.SubAgentHandlerDeps, input); err != nil {
+			return nil, err
+		}
 		if err := checkPlanModeCodeDenial(ctx, agentType); err != nil {
 			return nil, err
 		}
@@ -457,6 +453,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			AgentType:    agentType,
 			SystemPrompt: AgentSystemPrompt(agentType),
 			ParentCallID: callID,
+			BatchID:      agent.ToolBatchIDFrom(ctx),
 			AgentID:      agentID,
 		}
 
@@ -482,17 +479,19 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 				return provisionCodePlan(childCtx, plan, spec, deps, resolvedProvider, resolvedModel, allowedTools)
 			}
 		} else {
-			req, limits, err := buildSpecializedRun(ctx, spec, deps, resolvedProvider, resolvedModel, allowedTools, CodeWorktree{})
-			if err != nil {
-				emitDelegateFailed(deps.Events, spec, agentType, err.Error())
-				return nil, childSetupError(err)
+			plan.provision = func(childCtx context.Context, plan *delegatePlan) error {
+				req, limits, err := buildSpecializedRun(childCtx, spec, deps, resolvedProvider, resolvedModel, allowedTools, CodeWorktree{})
+				if err != nil {
+					return err
+				}
+				plan.req = req
+				plan.limits = limits
+				spec.Limits = limits
+				return nil
 			}
-			plan.req = req
-			plan.limits = limits
-			spec.Limits = limits
 		}
 		plan.modelAlias = resolvedModel.Alias
-		plan.group = inputGroup(input)
+		plan.group = groupInput(input)
 		result, err := runRegisteredDelegate(ctx, deps, spec, plan, string(agentType), func(result tool.ExecutionResult) tool.ExecutionResult {
 			if dr, ok := result.Value.(Result); ok {
 				dr.AdvisorBudget = spec.AdvisorBudget

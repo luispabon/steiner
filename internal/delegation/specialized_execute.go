@@ -32,7 +32,9 @@ func scopeProviderEvents(p provider.Provider, agentID string, agentType AgentTyp
 }
 
 // ensureSupervisor defaults the controller and supervisor when the caller did
-// not inject runtime-scoped ones.
+// not inject runtime-scoped ones. It never mints a group scope: only a run
+// stream seals and releases scopes, so a handler without one rejects named
+// groups (see requireGroupScope).
 func ensureSupervisor(deps *SubAgentHandlerDeps) {
 	if deps.ActiveController == nil {
 		deps.ActiveController = NewActiveController()
@@ -88,7 +90,10 @@ func superviseDelegate(
 		AgentID:          spec.AgentID,
 		AgentType:        spec.AgentType,
 		ParentCallID:     spec.ParentCallID,
+		BatchID:          spec.BatchID,
 		Group:            group,
+		GroupScope:       deps.GroupScope,
+		Events:           deps.Events,
 		ObjectivePreview: truncateTaskPreview(spec.Task, 120),
 		Worktree:         worktree,
 		Prepare:          prepare,
@@ -102,9 +107,11 @@ func superviseDelegate(
 		},
 	}
 	if deps.AsyncSubAgents {
-		ticket, err := deps.Supervisor.Spawn(ctx, job)
+		ticket, admission, err := deps.Supervisor.Spawn(ctx, job)
 		if err == nil {
-			return ackExecutionResult(ticket), nil
+			result := ackExecutionResult(ticket)
+			result.DelegationAdmission = admission.Clone()
+			return result, nil
 		}
 		if setupFailed != nil {
 			setupFailed()
@@ -177,7 +184,7 @@ func executeRegisteredDelegate(
 	emitDelegateStarted(deps.Events, spec, plan.modelAlias, spec.AgentType)
 
 	var gateRelease func()
-	req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
+	req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, specOccurrence(spec), deps.Events, req.Events)
 	defer gateRelease()
 	if childCtx.Err() != nil {
 		plan.req = req

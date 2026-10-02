@@ -3,8 +3,11 @@ package interactive
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -34,8 +37,9 @@ func startBlockedRun(t *testing.T, s *Session) (release chan struct{}) {
 	t.Helper()
 	started := make(chan struct{})
 	release = make(chan struct{})
+	var once sync.Once
 	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
-		close(started)
+		once.Do(func() { close(started) })
 		<-release
 		return RunResult{Conversation: append(conv, agent.Message{Role: agent.MessageRoleAssistant, Content: "old answer"})}, nil
 	}))
@@ -81,34 +85,90 @@ func TestSessionMutationsRefusedDuringRun(t *testing.T) {
 	}
 }
 
-func TestRunResultSavedUnderOriginalSessionWhenSessionRotatesMidRun(t *testing.T) {
+func TestBusyRotationRefusedUntilRunSettles(t *testing.T) {
 	t.Parallel()
 	store := newMockSessionStore()
 	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
 	startID := s.SessionID()
 	release := startBlockedRun(t, s)
+	originalDriver := s.currentDriver()
+	originalConversation := s.Conversation()
 
-	// Rotation is not guarded, unlike load/fork/compaction.
-	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
-		t.Fatalf("RotateSession: %v", err)
+	if err := s.Handle(context.Background(), RotateSession{}); !errors.Is(err, errRunInProgress) {
+		t.Fatalf("RotateSession: %v, want errRunInProgress", err)
 	}
-	newID := s.SessionID()
+	if s.SessionID() != startID || s.currentDriver() != originalDriver {
+		t.Fatal("refused rotation changed session identity or driver")
+	}
+	if got := s.Conversation(); !reflect.DeepEqual(got, originalConversation) {
+		t.Fatalf("conversation after refused rotation = %+v, want %+v", got, originalConversation)
+	}
 	close(release)
 	waitSettled(t, s)
-
-	if _, ok := store.savedSessions[newID]; ok {
-		t.Fatal("stale run saved under the new session ID")
-	}
+	completedConversation := s.Conversation()
 	saved, ok := store.savedSessions[startID]
 	if !ok {
-		t.Fatal("stale run's result was not saved under its original session ID")
+		t.Fatal("completed run was not saved under original session")
 	}
-	msgs := saved.Lineage.FullMessages()
-	if len(msgs) == 0 || msgs[len(msgs)-1].Content != "old answer" {
-		t.Fatalf("saved lineage = %+v, want it to end with the run's answer", msgs)
+	if got := saved.Lineage.FullMessages(); !reflect.DeepEqual(got, completedConversation) {
+		t.Fatalf("saved original history = %+v, want completed run %+v", got, completedConversation)
 	}
-	if conv := s.Conversation(); len(conv) != 1 || conv[0].Content != "hi" {
-		t.Fatalf("live conversation = %+v, want only the prompt (the stale run must not be adopted)", conv)
+	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
+		t.Fatalf("RotateSession after settlement: %v", err)
+	}
+	if s.SessionID() == startID {
+		t.Fatal("session ID did not rotate after settlement")
+	}
+	if got := s.Conversation(); !reflect.DeepEqual(got, completedConversation) {
+		t.Fatalf("successor history = %+v, want retained conversation %+v", got, completedConversation)
+	}
+	if got := store.savedSessions[startID].Lineage.FullMessages(); !reflect.DeepEqual(got, completedConversation) {
+		t.Fatalf("original saved history after rotation = %+v, want %+v", got, completedConversation)
+	}
+}
+
+func TestBusyConversationReplacementRefusedUntilRunSettles(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		action func(*Session) error
+	}{
+		{name: "clear", action: func(s *Session) error { return s.Handle(context.Background(), ClearConversation{}) }},
+		{name: "rotate", action: func(s *Session) error { return s.Handle(context.Background(), RotateSession{}) }},
+		{name: "set conversation", action: func(s *Session) error { s.SetConversation([]agent.Message{userMsg("replacement")}); return nil }},
+		{name: "load", action: func(s *Session) error { return s.Handle(context.Background(), LoadSession{SessionID: "other"}) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newMockSessionStore()
+			store.loadedSessions["other"] = session.Session{ID: "other", Lineage: lineageOf(userMsg("other"))}
+			s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
+			seedConversation(s, []agent.Message{userMsg("seed")}, lineageOf(userMsg("seed")))
+			id, driver := s.SessionID(), s.currentDriver()
+			release := startBlockedRun(t, s)
+			conversation := s.Conversation()
+			if err := tc.action(s); !errors.Is(err, errRunInProgress) && tc.name != "set conversation" {
+				t.Fatalf("replacement error = %v, want errRunInProgress", err)
+			}
+			if s.SessionID() != id || s.currentDriver() != driver {
+				t.Fatal("refused replacement changed identity or driver")
+			}
+			if got := s.Conversation(); !reflect.DeepEqual(got, conversation) {
+				t.Fatalf("conversation changed: got %+v, want %+v", got, conversation)
+			}
+			close(release)
+			waitSettled(t, s)
+			if err := tc.action(s); err != nil {
+				t.Fatalf("replacement after settlement: %v", err)
+			}
+			if tc.name == "set conversation" {
+				if s.currentDriver() == driver {
+					t.Fatal("SetConversation after settlement did not replace driver")
+				}
+				want := []agent.Message{userMsg("replacement")}
+				if got := s.Conversation(); !reflect.DeepEqual(got, want) {
+					t.Fatalf("SetConversation after settlement = %+v, want %+v", got, want)
+				}
+			}
+		})
 	}
 }
 
@@ -176,6 +236,109 @@ func TestActiveRunControllerReleaseRequiresOwnerToken(t *testing.T) {
 	}
 }
 
+type finalGroupSnapshotBarrier struct {
+	mu          sync.Mutex
+	ledger      agent.DelegationGroupLedger
+	block       bool
+	entered     chan struct{}
+	release     chan struct{}
+	releaseOnce sync.Once
+}
+
+func (b *finalGroupSnapshotBarrier) arm(ledger agent.DelegationGroupLedger) {
+	b.mu.Lock()
+	b.ledger = ledger.Clone()
+	b.block = true
+	b.mu.Unlock()
+}
+
+func (b *finalGroupSnapshotBarrier) snapshot() agent.DelegationGroupLedger {
+	b.mu.Lock()
+	ledger := b.ledger.Clone()
+	block := b.block
+	b.block = false
+	b.mu.Unlock()
+	if block {
+		close(b.entered)
+		<-b.release
+	}
+	return ledger
+}
+
+func (b *finalGroupSnapshotBarrier) releaseSave() {
+	b.releaseOnce.Do(func() { close(b.release) })
+}
+
+func TestRotationRefusedThroughFinalGroupSnapshotSave(t *testing.T) {
+	barrier := &finalGroupSnapshotBarrier{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	store := newMockSessionStore()
+	var scopeMu sync.Mutex
+	nextScope := 0
+	newScope := func(agent.DelegationGroupLedger) (string, func()) {
+		scopeMu.Lock()
+		defer scopeMu.Unlock()
+		nextScope++
+		return string(rune('a' + nextScope - 1)), func() {}
+	}
+	s := testNewSession(t, Dependencies{
+		SessionStore:        store,
+		OpenGroupScope:      newScope,
+		SnapshotGroupLedger: func(string) agent.DelegationGroupLedger { return barrier.snapshot() },
+		Config:              guardTestConfig(),
+	})
+	t.Cleanup(barrier.releaseSave)
+	startID := s.SessionID()
+	startDriver := s.currentDriver()
+	startScope := s.driver.groupScope
+	finalLedger := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"final-name"}}
+	s.SetRunner(&inputRunner{run: func(_ context.Context, in RunInput) (RunResult, error) {
+		barrier.arm(finalLedger)
+		return withAnswer(in, "final answer"), nil
+	}})
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "final prompt"}); err != nil {
+		t.Fatalf("SubmitPrompt: %v", err)
+	}
+	select {
+	case <-barrier.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("final group snapshot did not reach barrier")
+	}
+
+	wantID, wantDriver, wantScope, wantHistory := s.SessionID(), s.currentDriver(), s.driver.groupScope, s.Conversation()
+	if wantID != startID || wantDriver != startDriver || wantScope != startScope {
+		t.Fatal("final save changed identity, driver, or group scope before rotation")
+	}
+	if err := s.Handle(context.Background(), RotateSession{}); !errors.Is(err, errRunInProgress) {
+		t.Fatalf("RotateSession during final group save: %v, want errRunInProgress", err)
+	}
+	gotID, gotDriver, gotScope, gotHistory := s.SessionID(), s.currentDriver(), s.driver.groupScope, s.Conversation()
+	if gotID != wantID || gotDriver != wantDriver || gotScope != wantScope || !reflect.DeepEqual(gotHistory, wantHistory) {
+		t.Fatal("refused rotation changed identity, driver, history, or group scope")
+	}
+
+	barrier.releaseSave()
+	waitSettled(t, s)
+	completedHistory := s.Conversation()
+	if len(completedHistory) != 2 || completedHistory[len(completedHistory)-1].Content != "final answer" {
+		t.Fatalf("completed history = %+v, want final answer", completedHistory)
+	}
+	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
+		t.Fatalf("RotateSession after final group save: %v", err)
+	}
+	if s.SessionID() == startID || s.driver.groupScope == startScope {
+		t.Fatalf("successor identity/scope = %q/%q, want both rotated", s.SessionID(), s.driver.groupScope)
+	}
+	if got := s.Conversation(); !reflect.DeepEqual(got, completedHistory) {
+		t.Fatalf("successor history = %+v, want %+v", got, completedHistory)
+	}
+	if got := s.driver.drv.Snapshot().GroupLedger.Names; !reflect.DeepEqual(got, finalLedger.Names) {
+		t.Fatalf("successor group names = %v, want %v", got, finalLedger.Names)
+	}
+}
+
 func TestHandoffClearRotateStillSavesFinalTurnUnderOriginalSession(t *testing.T) {
 	t.Parallel()
 	// Multi-line and longer than 80 characters: the title must be normalised.
@@ -194,19 +357,28 @@ func TestHandoffClearRotateStillSavesFinalTurnUnderOriginalSession(t *testing.T)
 	s.submitPrompt(context.Background(), handoffPrompt, nil)
 	<-started
 
-	// The TUI's accept path: clear the conversation, then rotate the session.
+	// A busy handoff cannot clear or rotate before its result settles.
+	if err := s.Handle(context.Background(), ClearConversation{}); !errors.Is(err, errRunInProgress) {
+		t.Fatalf("ClearConversation: %v, want errRunInProgress", err)
+	}
+	if err := s.Handle(context.Background(), RotateSession{}); !errors.Is(err, errRunInProgress) {
+		t.Fatalf("RotateSession: %v, want errRunInProgress", err)
+	}
+	if s.SessionID() != startID || len(s.Conversation()) == 0 {
+		t.Fatal("refused replacement changed the live session")
+	}
+	close(release)
+	waitSettled(t, s)
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
-		t.Fatalf("ClearConversation: %v", err)
+		t.Fatalf("ClearConversation after settlement: %v", err)
 	}
 	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
-		t.Fatalf("RotateSession: %v", err)
+		t.Fatalf("RotateSession after settlement: %v", err)
 	}
 	newID := s.SessionID()
 	if newID == startID {
 		t.Fatal("session ID did not rotate")
 	}
-	close(release)
-	waitSettled(t, s)
 
 	saved, ok := store.savedSessions[startID]
 	if !ok {

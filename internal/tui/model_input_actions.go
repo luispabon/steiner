@@ -25,6 +25,7 @@ func sessionController(controller interactive.Controller) (*interactive.Session,
 }
 
 func (m *Model) executeInterruptAction() *Model {
+	m.cancelWorkflowHandoffSettlement()
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.InterruptActiveRun{}); err != nil {
 			m.appendError(err)

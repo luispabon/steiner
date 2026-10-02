@@ -6,6 +6,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func groupTestBuffer() *contentBuffer {
@@ -13,14 +15,23 @@ func groupTestBuffer() *contentBuffer {
 }
 
 func groupOf(label string, statuses ...string) *delegationGroupSegment {
-	g := &delegationGroupSegment{}
-	for i, st := range statuses {
-		g.entries = append(g.entries, &delegationDisplayState{
-			agentID: "child-" + string(rune('1'+i)), toolLabel: "explore",
-			group: label, status: st, collapsed: true,
-		})
+	b := newGroupTestBuffer()
+	for i := range statuses {
+		callID := "call-" + string(rune('1'+i))
+		b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", callID, subAgentArgs(label)))
+		b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: callID, BatchID: "render-batch", AgentID: "child-" + string(rune('1'+i))}, label))
 	}
-	return g
+	var entries []*delegationDisplayState
+	for _, tok := range flattenDelegationSegments(b.segments) {
+		entries = append(entries, tok.dd)
+	}
+	for i, dd := range entries {
+		dd.toolLabel, dd.status, dd.collapsed = "explore", statuses[i], true
+	}
+	if label == "" {
+		return &delegationGroupSegment{entries: entries}
+	}
+	return b.segments[0].delegGroupData
 }
 
 func TestRenderDelegationGroupFooter(t *testing.T) {
@@ -101,29 +112,49 @@ func TestRenderDelegationGroupFooter(t *testing.T) {
 func TestRenderDelegationGroupFooterRequiresSharedGroup(t *testing.T) {
 	t.Parallel()
 	useTrueColor(t)
-	b := groupTestBuffer()
+	type card struct {
+		group, batch string
+		accepted     bool
+	}
 	for _, tc := range []struct {
-		name      string
-		mutate    func(*delegationGroupSegment)
-		wantNamed bool
+		name         string
+		cards        [2]card
+		wantSegments int
+		wantNamed    bool
 	}{
-		{"same group and batch", func(*delegationGroupSegment) {}, true},
-		{"different group", func(g *delegationGroupSegment) { g.entries[1].group = "other" }, false},
-		{"same group across batches", func(g *delegationGroupSegment) { g.entries[1].batch++ }, true},
-		{"empty group", func(g *delegationGroupSegment) { g.entries[0].group = "" }, false},
+		{"same accepted group and batch", [2]card{{"discovery", "batch", true}, {"discovery", "batch", true}}, 1, true},
+		{"different group", [2]card{{"discovery", "batch", true}, {"other", "batch", true}}, 2, false},
+		{"different accepted batches", [2]card{{"discovery", "batch", true}, {"discovery", "other", true}}, 2, false},
+		{"unknown membership", [2]card{{"discovery", "", false}, {"discovery", "", false}}, 2, false},
+		{"empty group", [2]card{{"", "batch", true}, {"discovery", "batch", true}}, 2, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			g := groupOf("discovery", "complete", "complete")
-			tc.mutate(g)
-			out := ansi.Strip(b.renderDelegationGroupSegment(contentSegment{kind: segmentDelegationGroup, delegGroupData: g}, 60))
-			if got := strings.Contains(out, "discovery"); got != tc.wantNamed {
-				t.Errorf("named footer = %v, want %v: %q", got, tc.wantNamed, out)
+			b := newGroupTestBuffer()
+			b.styles = testStyles("#5599ff")
+			for i, c := range tc.cards {
+				callID := "call-" + string(rune('1'+i))
+				b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", callID, subAgentArgs(c.group)))
+				if c.accepted {
+					b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: callID, BatchID: c.batch}, c.group))
+				}
 			}
-			if tc.name == "same group across batches" && (!strings.Contains(out, "2 agents") || !strings.Contains(out, "2/2")) {
-				t.Errorf("cross-batch footer missing aggregate totals: %q", out)
+			for _, tok := range flattenDelegationSegments(b.segments) {
+				tok.dd.collapsed, tok.dd.status = true, "complete"
 			}
-			if !tc.wantNamed && !strings.HasSuffix(strings.TrimSuffix(out, "\n"), "┘") {
-				t.Errorf("ineligible footer did not use plain bottom border: %q", out)
+			if len(b.segments) != tc.wantSegments {
+				t.Fatalf("segments = %v, want %d", segmentKinds(b.segments), tc.wantSegments)
+			}
+			var out string
+			for _, seg := range b.segments {
+				if seg.kind == segmentDelegationGroup {
+					out += ansi.Strip(b.renderDelegationGroupSegment(seg, 60))
+				}
+			}
+			if got := strings.Contains(out, "2 agents"); got != tc.wantNamed {
+				t.Errorf("shared footer = %v, want %v: %q", got, tc.wantNamed, out)
+			}
+			if tc.wantNamed && (!strings.Contains(out, "discovery") || !strings.Contains(out, "2/2")) {
+				t.Errorf("accepted group footer missing identity/totals: %q", out)
 			}
 		})
 	}

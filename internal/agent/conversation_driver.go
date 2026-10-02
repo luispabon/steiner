@@ -16,7 +16,6 @@ type DriverRunInput struct {
 	Conversation     []Message
 	Lineage          ConversationLineage
 	DrainInbox       func() InboxDrain
-	OnToolBatchDone  func(batchID string)
 	PendingSubAgents func() []PendingSubAgent
 	// MaxTokens of 0 means the host default.
 	MaxTokens int
@@ -43,7 +42,6 @@ type BackgroundAgents interface {
 	HasPending() bool
 	MarkDelivered(parentCallIDs []string)
 	Ledger() []SubAgentLedgerEntry
-	SealBatch(batchID string)
 }
 
 // DriverSnapshot is the durable state saved at every driver transition.
@@ -51,6 +49,7 @@ type DriverSnapshot struct {
 	Conversation []Message
 	Lineage      ConversationLineage
 	Ledger       []SubAgentLedgerEntry
+	GroupLedger  DelegationGroupLedger
 }
 
 // SubmitMeta carries host side effects attached to a submitted prompt.
@@ -66,6 +65,10 @@ type DriverOptions struct {
 	Run DriverRunFunc
 	// Background may be nil when the session has no sub-agents.
 	Background BackgroundAgents
+	// GroupLedger seeds durable delegation group state when no snapshot callback is bound.
+	GroupLedger DelegationGroupLedger
+	// SnapshotDelegationGroups captures current supervisor group state.
+	SnapshotDelegationGroups func() DelegationGroupLedger
 	// Steers may be nil (headless oneshot).
 	Steers *SteerQueue
 	// Save persists a snapshot. A save error is reported as a warning event
@@ -138,6 +141,7 @@ func NewConversationDriver(opts DriverOptions, conv []Message, lineage Conversat
 	if clock == nil {
 		clock = realClock{}
 	}
+	opts.GroupLedger = opts.GroupLedger.Clone()
 	return &ConversationDriver{
 		opts:    opts,
 		clock:   clock,
@@ -252,25 +256,17 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 		Conversation:     slices.Clone(d.conv),
 		Lineage:          d.lineage.Clone(),
 		DrainInbox:       d.drainForRun,
-		OnToolBatchDone:  d.sealer(),
 		PendingSubAgents: d.pendingFn(),
 		MaxTokens:        d.runMaxTokensLocked(),
 	}
 	snap := d.snapshotLocked()
 	d.unlockEmit()
-	d.save(ctx, snap)
+	d.save(ctx, d.withGroupLedger(snap))
 
 	out, err := d.opts.Run(runCtx, in)
 	cancel()
 	d.finish(ctx, out, err)
 	return true
-}
-
-func (d *ConversationDriver) sealer() func(string) {
-	if d.opts.Background == nil {
-		return nil
-	}
-	return d.opts.Background.SealBatch
 }
 
 func (d *ConversationDriver) pendingFn() func() []PendingSubAgent {
@@ -314,7 +310,7 @@ func (d *ConversationDriver) saveAndUnlock(ctx context.Context, more bool) bool 
 	snap := d.snapshotLocked()
 	d.saving++
 	d.unlockEmit()
-	d.save(ctx, snap)
+	d.save(ctx, d.withGroupLedger(snap))
 	d.mu.Lock()
 	d.saving--
 	d.unlockEmit()

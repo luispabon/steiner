@@ -35,8 +35,6 @@ func runRequestsEqualIgnoringFuncFields(a, b agent.RunRequest) bool {
 	b.ParallelClassOf = nil
 	a.DrainInbox = nil
 	b.DrainInbox = nil
-	a.OnToolBatchDone = nil
-	b.OnToolBatchDone = nil
 	a.PendingSubAgents = nil
 	b.PendingSubAgents = nil
 	a.TurnBudgetNotice = nil
@@ -736,8 +734,9 @@ func TestSpecializedHandler_RegisterFailureCleansCodeWorktree(t *testing.T) {
 	if len(worktrees) != 0 {
 		t.Fatalf("worktrees after register failure = %#v, want none", worktrees)
 	}
-	if got := len(events.Events()); got != 0 {
-		t.Fatalf("lifecycle events after register failure = %d, want none", got)
+	eventList := events.Events()
+	if len(eventList) != 1 || eventList[0].Type != output.EventTypeDelegationAccepted {
+		t.Fatalf("events after register failure = %+v, want one accepted event", eventList)
 	}
 }
 
@@ -2688,9 +2687,17 @@ func TestSpecializedHandler_ParentCallIDFromContext(t *testing.T) {
 	if len(sink.events) == 0 {
 		t.Fatal("handler emitted no events")
 	}
-	started, ok := sink.events[0].Payload.(output.DelegationStartedEvent)
-	if !ok {
-		t.Fatalf("first event payload = %T, want DelegationStartedEvent", sink.events[0].Payload)
+	var started output.DelegationStartedEvent
+	found := false
+	for _, event := range sink.events {
+		if candidate, ok := event.Payload.(output.DelegationStartedEvent); ok {
+			started = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events contain no DelegationStartedEvent: %v", sink.events)
 	}
 	if started.CallID != "call_ABC" {
 		t.Errorf("started CallID = %q, want call_ABC", started.CallID)
@@ -2720,9 +2727,17 @@ func TestVisionHandler_ParentCallIDFromContext(t *testing.T) {
 	if len(sink.events) == 0 {
 		t.Fatal("handler emitted no events")
 	}
-	started, ok := sink.events[0].Payload.(output.DelegationStartedEvent)
-	if !ok {
-		t.Fatalf("first event payload = %T, want DelegationStartedEvent", sink.events[0].Payload)
+	var started output.DelegationStartedEvent
+	found := false
+	for _, event := range sink.events {
+		if candidate, ok := event.Payload.(output.DelegationStartedEvent); ok {
+			started = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("events contain no DelegationStartedEvent: %v", sink.events)
 	}
 	if started.CallID != "call_VISION" {
 		t.Errorf("started CallID = %q, want call_VISION", started.CallID)
@@ -2780,6 +2795,30 @@ func TestCheckCodeWorktreeFeasible(t *testing.T) {
 				t.Fatalf("error = %v, want %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestDefaultSpecializedSupervisorPublishesAcceptedBeforeLifecycle(t *testing.T) {
+	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+	events := &recordingEventSink{}
+	deps.Events = events
+
+	if _, err := SubAgentToolDef(deps, nil).Handler(context.Background(), subAgentTask(AgentTypeExplore, "inspect")); err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+
+	var lifecycle []string
+	for _, event := range events.Events() {
+		switch event.Type {
+		case output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted, output.EventTypeDelegationComplete:
+			lifecycle = append(lifecycle, event.Type)
+		}
+	}
+	want := []string{output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted, output.EventTypeDelegationComplete}
+	if !slices.Equal(lifecycle, want) {
+		t.Fatalf("lifecycle events = %v, want %v", lifecycle, want)
 	}
 }
 

@@ -33,6 +33,9 @@ type Session struct {
 	// submitAdmissionHook is a test seam for the interval after Submit admits a
 	// prompt and before its admission is released. It is nil in production.
 	submitAdmissionHook func()
+	// manualAdmissionHook is a test seam between manual compaction admission
+	// and enqueue. It is nil in production.
+	manualAdmissionHook func()
 	deps                Dependencies
 	events              output.EventSink
 	displaySink         *output.ForwardSink
@@ -49,6 +52,7 @@ type Session struct {
 	// ledger mirrors the supervisor's outstanding sub-agents as of the driver's
 	// last save; it is persisted with the session so a restart can report them lost.
 	ledger             []agent.SubAgentLedgerEntry
+	delegationGroups   *agent.DelegationGroupLedger
 	driver             *driverHandle
 	sessionID          string
 	promptCacheKey     string
@@ -68,6 +72,12 @@ type Session struct {
 	background       context.Context
 	cancelBackground context.CancelFunc
 	exitOnce         sync.Once
+}
+
+func newEmptyDelegationGroupLedger() *agent.DelegationGroupLedger {
+	ledger := new(agent.DelegationGroupLedger)
+	ledger.Version = agent.DelegationGroupLedgerVersion
+	return ledger
 }
 
 // NewSession creates a new interactive Session with the given dependencies.
@@ -111,6 +121,7 @@ func NewSession(deps Dependencies) (*Session, error) {
 		sessionID:           sessionID,
 		promptCacheKey:      sessionID,
 		lineage:             agent.ConversationLineage{},
+		delegationGroups:    newEmptyDelegationGroupLedger(),
 		reasoningOverrides:  make(map[string]provider.ReasoningOverride),
 		mode:                mode,
 		orchestrationLevel:  orchestrationLevel,
@@ -281,7 +292,7 @@ func (s *Session) Conversation() []agent.Message {
 // sub-agents are pending.
 func (s *Session) SetConversation(conversation []agent.Message) {
 	s.mu.Lock()
-	if s.replacementGuardLocked("set conversation", false) != nil {
+	if s.replacementGuardLocked("set conversation") != nil {
 		s.mu.Unlock()
 		return
 	}
@@ -295,6 +306,7 @@ func (s *Session) SetConversation(conversation []agent.Message) {
 func (s *Session) resetConversationLocked() {
 	s.conversation = nil
 	s.lineage = agent.ConversationLineage{}
+	s.delegationGroups = newEmptyDelegationGroupLedger()
 }
 
 // errRunInProgress is returned when a state-mutating action is dispatched

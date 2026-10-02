@@ -3,8 +3,15 @@ package delegation
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func TestSupervisorFIFOStartOrder(t *testing.T) {
@@ -105,6 +112,53 @@ func TestSupervisorOutstandingCapRejection(t *testing.T) {
 	}
 }
 
+func TestSupervisorQueuedBehindBlockedAcceptanceStartsAfterSlotFree(t *testing.T) {
+	blockA := &atomic.Bool{}
+	blockA.Store(true)
+	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{}), queued: make(chan output.Event, 1), enabled: blockA}
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
+	sink := newChannelSink()
+	s.SetCompletionSink(sink)
+	a := newAsyncChild("a", "")
+	a.job.Events = events
+	aSpawn := make(chan error, 1)
+	go func() { _, _, err := s.Spawn(batchCtx(testBatchID(1)), a.job); aSpawn <- err }()
+	waitClosed(t, events.entered, "A accepted publication")
+	b := newAsyncChild("b", "")
+	b.job.Events = events
+	blockA.Store(false)
+	bTicket, _, err := s.Spawn(batchCtx(testBatchID(1)), b.job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bTicket.AgentID != "b" || !bTicket.Queued {
+		t.Fatalf("B ticket = %+v, want queued B", bTicket)
+	}
+	queuedEvent := recv(t, events.queued, "B queued event")
+	if queuedEvent.Type != output.EventTypeDelegationQueued {
+		t.Fatalf("B event type = %q, want queued", queuedEvent.Type)
+	}
+	if len(s.Pending()) != 2 {
+		t.Fatalf("pending after B enqueue = %+v", s.Pending())
+	}
+	if got := s.CancelAgent("a", false, CancelCauseUser); got != CancelAccepted {
+		t.Fatalf("CancelAgent(A) = %v", got)
+	}
+	close(events.release)
+	if err := recv(t, aSpawn, "A Spawn"); err != nil {
+		t.Fatal(err)
+	}
+	if batch := recv(t, sink.ch, "A completion"); len(batch) != 1 || batch[0].AgentID != "a" || batch[0].Status != string(StatusCancelled) {
+		t.Fatalf("A completion = %+v", batch)
+	}
+	waitClosed(t, b.started, "B started without another enqueue")
+	close(b.release)
+	if batch := recv(t, sink.ch, "B completion"); len(batch) != 1 || batch[0].AgentID != "b" {
+		t.Fatalf("B completion = %+v", batch)
+	}
+	sink.none(t)
+}
+
 func TestSupervisorCancelledQueuedJobNeverExecutes(t *testing.T) {
 	t.Parallel()
 
@@ -151,6 +205,100 @@ func TestSupervisorCancelledQueuedJobNeverExecutes(t *testing.T) {
 			}
 			if ids := controller.ActiveAgentIDs(); len(ids) != 0 {
 				t.Fatalf("active after joins = %v, want none", ids)
+			}
+		})
+	}
+}
+
+// gatedAcceptedSink records every event, parks inside the gated agent's
+// Accepted emission until released, and signals when the other agent's
+// Accepted emission is reached.
+type gatedAcceptedSink struct {
+	queuedEventSink
+	gatedID       string
+	entered       chan struct{}
+	release       chan struct{}
+	otherAccepted chan struct{}
+	releaseOnce   sync.Once
+	t             *testing.T
+}
+
+func (s *gatedAcceptedSink) open() { s.releaseOnce.Do(func() { close(s.release) }) }
+
+func (s *gatedAcceptedSink) Emit(e output.Event) {
+	s.queuedEventSink.Emit(e)
+	if e.Type != output.EventTypeDelegationAccepted {
+		return
+	}
+	if delegationOccurrenceOf(s.t, e).AgentID != s.gatedID {
+		close(s.otherAccepted)
+		return
+	}
+	close(s.entered)
+	select {
+	case <-s.release:
+	case <-time.After(10 * time.Second):
+		s.t.Error("gated Accepted emission was never released")
+	}
+}
+
+// TestSupervisorQueuedEventOrdering pins that the queued decision counts the
+// unpublished sibling at the queue head and that Queued is emitted before the
+// job is published, so it can never trail Started.
+func TestSupervisorQueuedEventOrdering(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		maxParallel int
+		want        []string
+	}{
+		{"free slot emits no queued", 2, []string{output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted}},
+		{"saturated emits queued before started", 1, []string{output.EventTypeDelegationAccepted, output.EventTypeDelegationQueued, output.EventTypeDelegationStarted}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s, _ := newTestSupervisor(tt.maxParallel, 0)
+			events := &gatedAcceptedSink{
+				gatedID:       "first",
+				entered:       make(chan struct{}),
+				release:       make(chan struct{}),
+				otherAccepted: make(chan struct{}),
+				t:             t,
+			}
+			t.Cleanup(events.open)
+			first, second := newFakeChild("first", false), newFakeChild("second", false)
+			first.job.Events = events
+			second.job.Events = events
+			secondExecute := second.job.Execute
+			second.job.Execute = func(ctx context.Context) (tool.ExecutionResult, error) {
+				events.Emit(output.NewDelegationStartedEvent(jobOccurrence(second.job), "", "", ""))
+				return secondExecute(ctx)
+			}
+
+			resFirst := spawn(context.Background(), s, first.job)
+			waitClosed(t, events.entered, "first parked in Accepted")
+			resSecond := spawn(context.Background(), s, second.job)
+			waitClosed(t, events.otherAccepted, "second accepted while first is unpublished")
+			events.open()
+
+			waitClosed(t, first.started, "first start")
+			close(first.release)
+			recv(t, resFirst, "first result")
+			waitClosed(t, second.started, "second start")
+			close(second.release)
+			recv(t, resSecond, "second result")
+
+			var got []string
+			for _, e := range events.snapshot() {
+				if delegationOccurrenceOf(t, e).AgentID == "second" {
+					got = append(got, e.Type)
+				}
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("second lifecycle = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -81,6 +81,9 @@ type workflowHandoffLaunch struct {
 	next       string
 	target     string
 	submission string
+	modelAlias string
+	waiting    bool
+	cancel     context.CancelFunc
 }
 
 type tickMsg struct{}

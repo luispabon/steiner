@@ -97,7 +97,7 @@ func TestDelegateCancelModalDispatchesActions(t *testing.T) {
 			m.input.SetValue("keep this draft")
 			m.status.mode = "running"
 			for _, row := range delegateCancelTestRows() {
-				m.content.AppendEvent(output.NewDelegationStartedEventWithType(row.agentID, row.taskPreview, "", "", row.agentType))
+				m.content.AppendEvent(output.NewDelegationStartedEvent(agentOcc(row.agentID), row.taskPreview, "", row.agentType))
 			}
 			m.delegateCancelModal = openDelegateCancelModal(80, 24, delegateCancelTestRows())
 			m.delegateCancelModal.screen = tt.screen
@@ -152,13 +152,13 @@ func TestDelegateCancelModalStopRunDispatchesInterrupt(t *testing.T) {
 func TestDelegateCancelModalKeepWorkingRefreshesRows(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
-	m.content.AppendEvent(output.NewDelegationStartedEventWithType("explore-1", "inspect", "", "", "explore"))
-	m.content.AppendEvent(output.NewDelegationStartedEventWithType("code-1", "change", "", "", "code"))
+	m.content.AppendEvent(output.NewDelegationStartedEvent(agentOcc("explore-1"), "inspect", "", "explore"))
+	m.content.AppendEvent(output.NewDelegationStartedEvent(agentOcc("code-1"), "change", "", "code"))
 	m.delegateCancelModal = openDelegateCancelModal(80, 24, m.content.ActiveDelegateRows())
 	m.delegateCancelModal.screen = delegateCancelScreenConfirmTarget
 	m.delegateCancelModal.target = 0
 
-	m.content.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "explore-1", Status: "complete"}))
+	m.content.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: agentOcc("explore-1"), Status: "complete"}))
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyRight})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !m.delegateCancelModal.IsOpen() || m.delegateCancelModal.screen != delegateCancelScreenSelector {
@@ -175,10 +175,10 @@ func TestDelegateCancelModalStopDoesNotDispatchStaleTarget(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m.controller = ctrl
 	m.status.mode = "running"
-	m.content.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "inspect", "", "", "explore"))
+	m.content.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "inspect", "", "explore"))
 	m.delegateCancelModal = openDelegateCancelModal(80, 24, m.content.ActiveDelegateRows())
 
-	m.content.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "child-1", Status: "complete"}))
+	m.content.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: agentOcc("child-1"), Status: "complete"}))
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !m.delegateCancelModal.IsOpen() || m.delegateCancelModal.screen != delegateCancelScreenConfirmTarget {
 		t.Fatal("stale target did not reach stop confirmation")
@@ -283,7 +283,7 @@ func TestDelegateCancelModalShortcutOpensOnlyWithActiveDelegate(t *testing.T) {
 			m := newModel(Config{}, nil)
 			m.controller = ctrl
 			m.status.mode = "running"
-			m.content.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "inspect", "", "", "explore"))
+			m.content.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "inspect", "", "explore"))
 			m = updateModel(t, m, key)
 			if !m.delegateCancelModal.IsOpen() {
 				t.Fatal("active delegate did not open stop modal")
@@ -323,7 +323,7 @@ func TestDelegateCancelModalStopCurrentTurnOnlyWhileGenerating(t *testing.T) {
 			t.Parallel()
 			m := newModel(Config{}, nil)
 			m.width, m.height = 100, 30
-			m.applyEvent(output.NewDelegationStartedEventWithType("explore-1", "look", "call-1", "", "explore"))
+			m.applyEvent(output.NewDelegationStartedEvent(callOcc("call-1", "explore-1"), "look", "", "explore"))
 			m.applyEvent(output.NewConversationStateEvent(tt.state, false, 1, false))
 			m = m.openDelegateCancelModal()
 			if got := m.delegateCancelModal.stopTurn; got != tt.want {
@@ -358,7 +358,7 @@ func TestDelegateCancelModalOptionsDispatchActions(t *testing.T) {
 			m := newModel(Config{}, nil)
 			m.controller = ctrl
 			m.width, m.height = 100, 30
-			m.applyEvent(output.NewDelegationStartedEventWithType("explore-1", "look", "call-1", "", "explore"))
+			m.applyEvent(output.NewDelegationStartedEvent(callOcc("call-1", "explore-1"), "look", "", "explore"))
 			m.applyEvent(output.NewConversationStateEvent(tt.state, false, 1, false))
 			m = m.openDelegateCancelModal()
 			m.delegateCancelModal.selected = tt.selected

@@ -20,6 +20,9 @@ import (
 func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
 	ensureSupervisor(&deps.SubAgentHandlerDeps)
 	return func(ctx context.Context, input map[string]any) (any, error) {
+		if err := requireGroupScope(deps.SubAgentHandlerDeps, input); err != nil {
+			return nil, err
+		}
 		brief, err := parseStructuredBrief(string(AgentTypeVision), input)
 		if err != nil {
 			return nil, err
@@ -44,6 +47,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			AgentType:    AgentTypeVision,
 			SystemPrompt: AgentSystemPrompt(AgentTypeVision),
 			ParentCallID: callID,
+			BatchID:      agent.ToolBatchIDFrom(ctx),
 			AgentID:      agentID,
 			Images:       []provider.ImageBlock{imgBlock},
 		}
@@ -54,20 +58,24 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			return nil, childSetupError(err)
 		}
 
-		req, limits, err := BuildChildRun(ctx, deps.SubAgentHandlerDeps, ChildBootstrapOverrides{
-			AgentType:     AgentTypeVision,
-			AllowedTools:  allowedTools,
-			Provider:      resolvedProvider,
-			ResolvedModel: resolvedModel,
-			ProjectRoot:   deps.WorkDir,
-		}, spec)
-		if err != nil {
-			err = fmt.Errorf("vision: build child run: %w", err)
-			emitDelegateFailed(deps.Events, spec, AgentTypeVision, err.Error())
-			return nil, childSetupError(err)
+		plan := &delegatePlan{modelAlias: resolvedModel.Alias, group: groupInput(input)}
+		plan.provision = func(childCtx context.Context, plan *delegatePlan) error {
+			req, limits, err := BuildChildRun(childCtx, deps.SubAgentHandlerDeps, ChildBootstrapOverrides{
+				AgentType:     AgentTypeVision,
+				AllowedTools:  allowedTools,
+				Provider:      resolvedProvider,
+				ResolvedModel: resolvedModel,
+				ProjectRoot:   deps.WorkDir,
+			}, spec)
+			if err != nil {
+				return fmt.Errorf("vision: build child run: %w", err)
+			}
+			plan.req = req
+			plan.limits = limits
+			plan.modelAlias = req.ResolvedModel.Alias
+			spec.Limits = limits
+			return nil
 		}
-		spec.Limits = limits
-		plan := &delegatePlan{req: req, limits: limits, modelAlias: req.ResolvedModel.Alias, group: inputGroup(input)}
 		result, err := runRegisteredDelegate(ctx, deps, spec, plan, "vision", func(result tool.ExecutionResult) tool.ExecutionResult {
 			return result
 		})

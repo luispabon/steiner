@@ -3,19 +3,25 @@ package delegation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
 )
+
+// testBatchID returns a tool batch ID in the runtime format with sequence n.
+func testBatchID(n uint64) string {
+	return fmt.Sprintf("call#%d", n)
+}
 
 func batchCtx(id string) context.Context {
 	return agent.WithToolBatchID(context.Background(), id)
 }
 
 func TestSupervisorGroupHeldUntilSealed(t *testing.T) {
-	s, sink := newAsyncSupervisor(2, nil)
+	s, sink := newAsyncSupervisor(2)
 	a := newAsyncChild("a", "g")
-	spawnAsync(batchCtx("b1"), t, s, a)
+	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
 	<-a.started
 	close(a.release)
 
@@ -31,13 +37,13 @@ func TestSupervisorGroupHeldUntilSealed(t *testing.T) {
 	}
 
 	b := newAsyncChild("b", "g")
-	spawnAsync(batchCtx("b1"), t, s, b)
+	spawnAsync(batchCtx(testBatchID(1)), t, s, b)
 	<-b.started
 	close(b.release)
 	waitFinished(t, s, "b")
 	sink.none(t)
 
-	s.SealBatch("b1")
+	s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 	batch := recv(t, sink.ch, "group release")
 	if len(batch) != 2 || batch[0].AgentID != "a" || batch[1].AgentID != "b" {
 		t.Fatalf("released = %+v, want a then b", batch)
@@ -49,13 +55,13 @@ func TestSupervisorGroupHeldUntilSealed(t *testing.T) {
 }
 
 func TestSupervisorGroupReleasedWhenSealedBeforeLastFinish(t *testing.T) {
-	s, sink := newAsyncSupervisor(2, nil)
+	s, sink := newAsyncSupervisor(2)
 	a, b := newAsyncChild("a", "g"), newAsyncChild("b", "g")
-	spawnAsync(batchCtx("b1"), t, s, a)
-	spawnAsync(batchCtx("b1"), t, s, b)
+	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
+	spawnAsync(batchCtx(testBatchID(1)), t, s, b)
 	<-a.started
 	<-b.started
-	s.SealBatch("b1")
+	s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 	close(a.release)
 	waitFinished(t, s, "a")
 	sink.none(t)
@@ -66,10 +72,10 @@ func TestSupervisorGroupReleasedWhenSealedBeforeLastFinish(t *testing.T) {
 }
 
 func TestSupervisorGroupOrderedBySeq(t *testing.T) {
-	s, sink := newAsyncSupervisor(3, nil)
+	s, sink := newAsyncSupervisor(3)
 	kids := []*asyncChild{newAsyncChild("a", "g"), newAsyncChild("b", "g"), newAsyncChild("c", "g")}
 	for _, kid := range kids {
-		spawnAsync(batchCtx("b1"), t, s, kid)
+		spawnAsync(batchCtx(testBatchID(1)), t, s, kid)
 		<-kid.started
 	}
 	// Finish in reverse of enqueue order.
@@ -77,7 +83,7 @@ func TestSupervisorGroupOrderedBySeq(t *testing.T) {
 		close(kid.release)
 		waitFinished(t, s, kid.job.AgentID)
 	}
-	s.SealBatch("b1")
+	s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 	batch := recv(t, sink.ch, "group release")
 	var ids []string
 	for i, c := range batch {
@@ -91,36 +97,31 @@ func TestSupervisorGroupOrderedBySeq(t *testing.T) {
 	}
 }
 
-func TestSupervisorLabelReuseAcrossBatchesMakesSeparateGroups(t *testing.T) {
-	s, sink := newAsyncSupervisor(2, nil)
+func TestSupervisorLabelReuseAcrossBatchesRejectsConversationReuse(t *testing.T) {
+	s, sink := newAsyncSupervisor(2)
+	scope := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	a, b := newAsyncChild("a", "g"), newAsyncChild("b", "g")
-	spawnAsync(batchCtx("b1"), t, s, a)
-	spawnAsync(batchCtx("b2"), t, s, b)
-	<-a.started
-	<-b.started
-	close(a.release)
-	close(b.release)
-	waitFinished(t, s, "a")
-	waitFinished(t, s, "b")
-
-	s.SealBatch("b2")
-	batch := recv(t, sink.ch, "b2 group")
-	if len(batch) != 1 || batch[0].AgentID != "b" {
-		t.Fatalf("b2 released %+v, want only b", batch)
+	a.job.GroupScope, b.job.GroupScope = scope, scope
+	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
+	if _, _, err := s.Spawn(batchCtx(testBatchID(2)), b.job); err == nil {
+		t.Fatal("reused group name in another batch was accepted")
 	}
-	sink.none(t)
-	s.SealBatch("b1")
-	batch = recv(t, sink.ch, "b1 group")
+	<-a.started
+	close(a.release)
+	waitFinished(t, s, "a")
+
+	s.SealGroupBatch(scope, testBatchID(1))
+	batch := recv(t, sink.ch, "b1 group")
 	if len(batch) != 1 || batch[0].AgentID != "a" {
 		t.Fatalf("b1 released %+v, want only a", batch)
 	}
 }
 
 func TestSupervisorHeldGroupDoesNotBlockUngrouped(t *testing.T) {
-	s, sink := newAsyncSupervisor(2, nil)
+	s, sink := newAsyncSupervisor(2)
 	member, loose := newAsyncChild("m", "g"), newAsyncChild("u", "")
-	spawnAsync(batchCtx("b1"), t, s, member)
-	spawnAsync(batchCtx("b1"), t, s, loose)
+	spawnAsync(batchCtx(testBatchID(1)), t, s, member)
+	spawnAsync(batchCtx(testBatchID(1)), t, s, loose)
 	<-member.started
 	<-loose.started
 	close(member.release)
@@ -134,12 +135,12 @@ func TestSupervisorHeldGroupDoesNotBlockUngrouped(t *testing.T) {
 }
 
 func TestSupervisorCancelledMemberSettlesGroup(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	a, b := newAsyncChild("a", "g"), newAsyncChild("b", "g")
-	spawnAsync(batchCtx("b1"), t, s, a)
-	spawnAsync(batchCtx("b1"), t, s, b)
+	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
+	spawnAsync(batchCtx(testBatchID(1)), t, s, b)
 	<-a.started
-	s.SealBatch("b1")
+	s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 
 	if got := s.CancelAgent("b", false, CancelCauseUser); got != CancelAccepted {
 		t.Fatalf("cancel queued member = %v", got)
@@ -161,12 +162,22 @@ func TestSupervisorGroupingRequiresBatchAndLabel(t *testing.T) {
 		group string
 	}{
 		{"no batch id", context.Background(), "g"},
-		{"no label", batchCtx("b1"), ""},
+		{"no label", batchCtx(testBatchID(1)), ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, sink := newAsyncSupervisor(1, nil)
+			s, sink := newAsyncSupervisor(1)
 			a := newAsyncChild("a", tt.group)
+			if tt.name == "no batch id" {
+				a.job.GroupScope = s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+			}
+			if tt.group != "" {
+				if _, _, err := s.Spawn(tt.ctx, a.job); err == nil {
+					t.Fatal("named group without batch was accepted")
+				}
+				sink.none(t)
+				return
+			}
 			spawnAsync(tt.ctx, t, s, a)
 			close(a.release)
 			if batch := recv(t, sink.ch, "immediate post"); len(batch) != 1 {
@@ -176,15 +187,92 @@ func TestSupervisorGroupingRequiresBatchAndLabel(t *testing.T) {
 	}
 }
 
+func TestSupervisorNameRejectionDoesNotConsumeFreshName(t *testing.T) {
+	s, sink := newAsyncSupervisor(1)
+	scope := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	a := newAsyncChild("a", "g")
+	a.job.GroupScope = scope
+	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), a.job); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), a.job); err == nil {
+		t.Fatal("duplicate active agent ID was accepted")
+	}
+	b := newAsyncChild("b", "h")
+	b.job.GroupScope = scope
+	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), b.job); err != nil {
+		t.Fatalf("different name rejected: %v", err)
+	}
+	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), b.job); err == nil {
+		t.Fatal("duplicate active agent ID was accepted")
+	}
+	c := newAsyncChild("c", "i")
+	c.job.GroupScope = scope
+	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), c.job); !errors.Is(err, ErrOutstandingCap) {
+		t.Fatalf("fresh-name cap rejection = %v, want ErrOutstandingCap", err)
+	}
+	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 2 || got[0] != "g" || got[1] != "h" {
+		t.Fatalf("rejected fresh name changed ledger: %v", got)
+	}
+	<-a.started
+	close(a.release)
+	<-b.started
+	close(b.release)
+	waitFinished(t, s, "b")
+	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), c.job); err != nil {
+		t.Fatalf("rejected call consumed name i: %v", err)
+	}
+	<-c.started
+	close(c.release)
+	s.SealGroupBatch(scope, testBatchID(1))
+	batches := []string{}
+	for range 3 {
+		batch := recv(t, sink.ch, "fresh name group")
+		if len(batch) != 1 {
+			t.Fatalf("batch = %+v", batch)
+		}
+		batches = append(batches, batch[0].AgentID)
+	}
+	if batches[0] != "a" || batches[1] != "b" || batches[2] != "c" {
+		t.Fatalf("batch order = %v", batches)
+	}
+}
+
+func TestSupervisorSealGroupBatchRejectsLateJoinsBeforeAndAfterAck(t *testing.T) {
+	s, sink := newAsyncSupervisor(2)
+	a := newAsyncChild("a", "g")
+	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
+	waitClosed(t, a.started, "a started")
+	s.SealGroupBatch(testGroupScope(s), testBatchID(1))
+	b := newAsyncChild("b", "g")
+	b.job.GroupScope = testGroupScope(s)
+	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), b.job); err == nil {
+		t.Fatal("SealGroupBatch accepted a late join before the last member finished")
+	}
+	close(a.release)
+	batch := recv(t, sink.ch, "sealed group completion")
+	if len(batch) != 1 || batch[0].AgentID != "a" {
+		t.Fatalf("completion = %+v", batch)
+	}
+	s.MarkDelivered([]string{"call-a"})
+	late := newAsyncChild("late", "g")
+	late.job.GroupScope = testGroupScope(s)
+	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), late.job); err == nil {
+		t.Fatal("SealGroupBatch accepted a late join after the last member was acknowledged")
+	}
+	sink.none(t)
+}
+
 func TestSupervisorCapRejectedCallNeverJoinsGroup(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	a, b, c := newAsyncChild("a", "g"), newAsyncChild("b", "g"), newAsyncChild("c", "g")
-	spawnAsync(batchCtx("b1"), t, s, a)
-	spawnAsync(batchCtx("b1"), t, s, b)
-	if _, err := s.Spawn(batchCtx("b1"), c.job); !errors.Is(err, ErrOutstandingCap) {
+	c.job.GroupScope = testGroupScope(s)
+	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
+	spawnAsync(batchCtx(testBatchID(1)), t, s, b)
+	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), c.job); !errors.Is(err, ErrOutstandingCap) {
 		t.Fatalf("third spawn error = %v, want ErrOutstandingCap", err)
 	}
-	s.SealBatch("b1")
+	s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 	close(a.release)
 	<-b.started
 	close(b.release)

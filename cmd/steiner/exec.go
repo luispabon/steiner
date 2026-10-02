@@ -46,6 +46,9 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		return err
 	}
 	sessionDate := prompt.NewSessionDate(time.Now())
+	// Exec is one sequential run stream, so it owns one group scope.
+	groupScope, releaseGroupScope := rt.openGroupScope()
+	defer releaseGroupScope()
 	_, err = cliRunner{
 		runtime: rt,
 		approver: agent.NewEventingApprover(
@@ -62,7 +65,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		// Exec is a single-run scope: allocate a fresh store per invocation
 		// rather than sharing one across process-lifetime invocations.
 		cacheBaseline: agent.NewCacheBaselineStore(),
-	}.Run(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil, nil)
+	}.RunWithHooks(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil, runHooks{delegationGroupScope: groupScope})
 	if err != nil {
 		return err
 	}

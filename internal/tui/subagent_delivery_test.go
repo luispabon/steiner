@@ -70,17 +70,81 @@ func newDeliveryBuffer() *contentBuffer {
 	}
 }
 
+func TestLostDeliverySettlesActiveReplayCard(t *testing.T) {
+	t.Parallel()
+	b := newDeliveryBuffer()
+	args := map[string]any{"type": "explore", "task": "find files", "group": "review"}
+	b.AppendEvent(output.NewToolCallQueuedEvent(1, "sub_agent", "replay-call", args))
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "replay-call", args))
+	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "replay-call", BatchID: "replay-batch", AgentID: "child-lost"}, "review"))
+	b.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "replay-call", BatchID: "replay-batch", AgentID: "child-lost"}, "find files", "", "explore"))
+
+	loc, ok := b.activeDelegations["child-lost"]
+	if !ok || loc.dd == nil {
+		t.Fatal("replay card is not active")
+	}
+	card := loc.dd
+	b.AppendEvent(output.Event{Type: output.EventTypeSubAgentsDelivered, Payload: output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{
+		AgentID: "child-lost", AgentType: "explore", Status: "lost", ParentCallID: "replay-call", BatchID: "replay-batch",
+	}}}})
+
+	if card.status != "failed" || card.resultStatus != "lost" || card.failureReason != "session restarted" {
+		t.Fatalf("lost card = %#v, want failed/lost/session restarted", card)
+	}
+	if _, active := b.activeDelegations["child-lost"]; active {
+		t.Fatal("lost card remains active")
+	}
+	if len(b.segments) == 0 || b.segments[len(b.segments)-1].kind != segmentSubAgentsFinished {
+		t.Fatalf("delivery row missing: %#v", b.segments)
+	}
+	row := stripANSI(b.renderSubAgentsFinishedSegment(b.segments[len(b.segments)-1], 100))
+	if !strings.Contains(row, "? lost (session restarted)") {
+		t.Fatalf("delivery row = %q, want lost outcome", row)
+	}
+}
+
+func TestLostDeliveryDoesNotSettleNewerFollowUp(t *testing.T) {
+	t.Parallel()
+	b := newDeliveryBuffer()
+	originalArgs := map[string]any{"type": "explore", "task": "original task", "group": "old-group"}
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "old-call", originalArgs))
+	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "old-call", BatchID: "old-batch", AgentID: "child"}, "old-group"))
+	b.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "old-call", BatchID: "old-batch", AgentID: "child"}, "original task", "", "explore"))
+	old := b.activeDelegations["child"].dd
+	b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{CallID: "old-call", BatchID: "old-batch", AgentID: "child"}, Status: "complete"}))
+
+	followUpArgs := map[string]any{"agent_id": "child", "message": "fresh work"}
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "follow_up", "new-call", followUpArgs))
+	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "new-call", BatchID: "new-batch", AgentID: "child"}, "new-group"))
+	b.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "new-call", BatchID: "new-batch", AgentID: "child"}, "fresh work", "", "explore"))
+	fresh := b.activeDelegations["child"].dd
+
+	b.AppendEvent(output.Event{Type: output.EventTypeSubAgentsDelivered, Payload: output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{
+		AgentID: "child", AgentType: "explore", Status: "lost", ParentCallID: "old-call", BatchID: "old-batch",
+	}}}})
+
+	if old.status != "complete" || fresh.status != "active" {
+		t.Fatalf("old/new cards = %#v/%#v, stale delivery settled newer run", old, fresh)
+	}
+	if got := b.activeDelegations["child"].dd; got != fresh {
+		t.Fatalf("active card = %p, want newer card %p", got, fresh)
+	}
+}
+
 func TestDeliveredEventRendersRowWithGroupAndReason(t *testing.T) {
 	t.Parallel()
 	b := newDeliveryBuffer()
 	b.segments = append(b.segments,
-		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c4", parentCallID: "call-4", group: "g", status: "failed", failureReason: "boom: exploded\nstack", batch: 0}},
-		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c5", parentCallID: "call-5", group: "g", status: "complete", batch: 0}},
-		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c6", parentCallID: "call-6", group: "g", status: "active"}},
+		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c4", parentCallID: "call-4", status: "failed", failureReason: "boom: exploded\nstack"}},
+		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c5", parentCallID: "call-5", status: "complete"}},
+		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c6", parentCallID: "call-6", status: "active"}},
 	)
+	for _, callID := range []string{"call-4", "call-5", "call-6"} {
+		acceptDelegationCard(b, callID, "batch", "g")
+	}
 	b.AppendEvent(output.Event{Type: output.EventTypeSubAgentsDelivered, Payload: output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{
-		{AgentID: "c4", AgentType: "review", Status: "failed", ParentCallID: "call-4", DurationMs: 4000},
-		{AgentID: "c5", AgentType: "review", Status: "complete", ParentCallID: "call-5", DurationMs: 2000},
+		{AgentID: "c4", AgentType: "review", Status: "failed", ParentCallID: "call-4", BatchID: "batch", DurationMs: 4000},
+		{AgentID: "c5", AgentType: "review", Status: "complete", ParentCallID: "call-5", BatchID: "batch", DurationMs: 2000},
 	}}})
 	last := b.segments[len(b.segments)-1]
 	if last.kind != segmentSubAgentsFinished {
@@ -105,13 +169,18 @@ func TestDeliveredLookupGroupSizeIsScopedToBatch(t *testing.T) {
 			b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", "next batch"))
 		}
 		id := "c" + string(rune('1'+i))
+		batchID := "old-batch"
+		if i >= 2 {
+			batchID = "new-batch"
+		}
 		b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{
-			agentID: id, parentCallID: callID, group: "reused", status: "complete", batch: b.delegationBatch,
+			agentID: id, parentCallID: callID, status: "complete",
 		}})
+		acceptDelegationCard(b, callID, batchID, "reused")
 	}
 	items := []output.DeliveredSubAgent{
-		{AgentID: "c3", AgentType: "review", Status: "complete", ParentCallID: "new-1"},
-		{AgentID: "c4", AgentType: "review", Status: "complete", ParentCallID: "new-2"},
+		{AgentID: "c3", AgentType: "review", Status: "complete", ParentCallID: "new-1", BatchID: "new-batch"},
+		{AgentID: "c4", AgentType: "review", Status: "complete", ParentCallID: "new-2", BatchID: "new-batch"},
 	}
 	rows := buildDeliveredRows(items, b.deliveredLookup)
 	if len(rows.members) != 2 || rows.header != "group reused (2 of 2)" {
@@ -132,9 +201,9 @@ func TestTerminalEventFillsTypeAndDuration(t *testing.T) {
 		wantType string
 		wantEl   string
 	}{
-		{"complete replay", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "a", Status: "complete", AgentType: "explore", DurationMs: 65000}), "explore", "1m5s"},
-		{"failed replay", output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "a", Error: "x", AgentType: "code", DurationMs: 2500}), "code", "2s"},
-		{"live no duration", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "a", Status: "complete"}), "", ""},
+		{"complete replay", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: agentOcc("a"), Status: "complete", AgentType: "explore", DurationMs: 65000}), "explore", "1m5s"},
+		{"failed replay", output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: agentOcc("a"), Error: "x", AgentType: "code", DurationMs: 2500}), "code", "2s"},
+		{"live no duration", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: agentOcc("a"), Status: "complete"}), "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

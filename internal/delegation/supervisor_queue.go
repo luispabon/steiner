@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // ErrOutstandingCap indicates that too many sub-agents are already outstanding.
@@ -25,45 +27,113 @@ func (e outstandingCapError) Is(target error) bool { return target == ErrOutstan
 // queue. The controller only ever sees started jobs.
 func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking bool) (*jobState, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.closing {
+		s.mu.Unlock()
 		return nil, ErrSupervisorClosed
 	}
 	if existing, ok := s.jobs[job.AgentID]; ok && !existing.acked {
+		s.mu.Unlock()
 		return nil, ErrAgentAlreadyActive
 	}
 	if outstanding := s.running + len(s.queue); outstanding >= 2*s.maxParallel {
+		s.mu.Unlock()
 		return nil, outstandingCapError{outstanding: outstanding}
+	}
+	batchID := agent.ToolBatchIDFrom(handlerCtx)
+	groupName := agent.NormalizeDelegationGroup(job.Group)
+	job.Group = groupName
+	job.BatchID = batchID
+	if groupName != "" {
+		if err := s.reserveGroupLocked(job.GroupScope, groupName, batchID); err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
 	}
 
 	childCtx, cancel := context.WithCancel(context.WithoutCancel(handlerCtx))
 	s.enqSeq++
 	state := &jobState{
-		job:      job,
-		childCtx: childCtx,
-		cancel:   cancel,
-		phase:    phaseQueued,
-		blocking: blocking,
-		order:    s.enqSeq,
-		worktree: job.Worktree,
-		done:     make(chan struct{}),
-		exited:   make(chan struct{}),
+		job:         job,
+		childCtx:    childCtx,
+		cancel:      cancel,
+		phase:       phaseQueued,
+		blocking:    blocking,
+		order:       s.enqSeq,
+		worktree:    job.Worktree,
+		done:        make(chan struct{}),
+		exited:      make(chan struct{}),
+		publication: make(chan struct{}),
+		settled:     make(chan struct{}),
 	}
 	if !blocking {
-		s.enrollLocked(state, agent.ToolBatchIDFrom(handlerCtx))
+		s.enrollLocked(state, batchID)
 	}
 	s.jobs[job.AgentID] = state
 	s.queue = append(s.queue, state)
+	state.wasQueued = s.running+len(s.queue) > s.maxParallel
+	events := job.Events
+	s.mu.Unlock()
+
+	// Accepted has this single producer: it fires after registration and before
+	// queueing or preparation, so it precedes every other lifecycle event.
+	if events != nil {
+		events.Emit(output.NewDelegationAcceptedEvent(jobOccurrence(job), groupName))
+		// Queued precedes publication: an unpublished job cannot start.
+		if state.wasQueued {
+			events.Emit(output.NewDelegationQueuedEvent(jobOccurrence(job), string(job.AgentType), job.ObjectivePreview))
+		}
+	}
+
+	s.mu.Lock()
+	state.published = true
+	close(state.publication)
+	var latePosts postList
+	if state.shutdownTimedOut {
+		latePosts = s.settleLatePublicationLocked(state)
+	}
+	if state.cause != CancelCauseNone && state.phase == phaseQueued {
+		s.removeQueuedLocked(state)
+		state.phase = phaseDone
+		state.cancel()
+		go s.finishCancelled(state)
+	}
 	s.startQueuedLocked()
-	state.wasQueued = state.phase == phaseQueued
+	s.mu.Unlock()
+	latePosts.deliver()
 	return state, nil
+}
+
+func (s *Supervisor) newShutdownCompletionLocked(state *jobState) *agent.SubAgentCompletion {
+	completion := s.newCompletionLocked(state)
+	completion.Status = string(StatusCancelled)
+	completion.Quiet = true
+	completion.Body = agent.FailureBody(completion.Status, "sub-agent did not stop before shutdown")
+	return completion
+}
+
+func (s *Supervisor) settleLatePublicationLocked(state *jobState) postList {
+	if state.completion == nil && !state.blocking {
+		state.completion = s.newShutdownCompletionLocked(state)
+	}
+	deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
+	posts := s.routeShutdownCompletionLocked(state)
+	if state.phase == phaseQueued {
+		s.removeQueuedLocked(state)
+		state.phase = phaseDone
+		state.cancel()
+		go s.finishCancelled(state)
+	}
+	return posts
 }
 
 // startQueuedLocked starts queued jobs in FIFO order while slots are free.
 func (s *Supervisor) startQueuedLocked() {
-	for s.running < s.maxParallel && len(s.queue) > 0 {
+	for !s.closing && s.running < s.maxParallel && len(s.queue) > 0 {
 		state := s.queue[0]
+		if !state.published {
+			return
+		}
 		s.queue = s.queue[1:]
 		state.phase = phaseRunning
 		state.startedAt = time.Now()

@@ -70,17 +70,33 @@ func TestBuildDelegateRegistryEmitsDelegationEventsOnChildEvents(t *testing.T) {
 				t.Fatalf("Execute() error = %v", err)
 			}
 
-			gotPerRun, gotRuntime := len(perRun.delegationEvents()), len(runtime.delegationEvents())
+			perRunEvents, runtimeEvents := perRun.delegationEvents(), runtime.delegationEvents()
 			if tc.wantRuntime {
-				if gotRuntime == 0 {
-					t.Error("no Delegation* events on the child sink")
+				// Accepted rides the same per-job sink as started/complete.
+				if len(perRunEvents) != 0 {
+					t.Fatalf("per-run delegation events = %+v, want none", perRunEvents)
 				}
-				if gotPerRun != 0 {
-					t.Errorf("per-run sink received %d Delegation* events, want 0", gotPerRun)
+				if len(runtimeEvents) != 3 {
+					t.Fatalf("child delegation events = %+v, want accepted, started, complete", runtimeEvents)
+				}
+				gotTypes := []string{runtimeEvents[0].Type, runtimeEvents[1].Type, runtimeEvents[2].Type}
+				wantTypes := []string{output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted, output.EventTypeDelegationComplete}
+				for i := range wantTypes {
+					if gotTypes[i] != wantTypes[i] {
+						t.Fatalf("child delegation event order = %v, want %v", gotTypes, wantTypes)
+					}
+				}
+				accepted, ok := runtimeEvents[0].Payload.(output.DelegationAcceptedEvent)
+				if !ok || accepted.CallID != "call-0" || accepted.AgentID == "" {
+					t.Fatalf("accepted event identity = %+v, want call-0 and non-empty agent ID", runtimeEvents[0])
+				}
+				started, ok := runtimeEvents[1].Payload.(output.DelegationStartedEvent)
+				if !ok || started.AgentID != accepted.AgentID || started.CallID != accepted.CallID {
+					t.Fatalf("child started event = %+v, want accepted identity %+v", runtimeEvents[1], accepted)
 				}
 				return
 			}
-			if gotPerRun == 0 {
+			if len(perRunEvents) == 0 {
 				t.Error("no Delegation* events on the per-run sink when ChildEvents is nil")
 			}
 		})

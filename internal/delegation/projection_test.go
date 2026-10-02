@@ -34,6 +34,37 @@ func TestSetupErrorProjectToolErrorGeneric(t *testing.T) {
 	}
 }
 
+func TestSetupErrorProjectToolErrorGroupReservation(t *testing.T) {
+	t.Parallel()
+	err := &groupReservationError{name: "fresh-group"}
+	envelope := (&SetupError{err: errors.Join(errors.New("wrapped"), err)}).ProjectToolError()
+	want := `delegation group name "fresh-group" was already used; choose a fresh name`
+	if envelope.Status != "failed" || envelope.Output != "" || envelope.Reason != want {
+		t.Fatalf("projection = %+v, want reason %q", envelope, want)
+	}
+}
+
+func TestSetupErrorProjectToolErrorDoesNotMatchReservationText(t *testing.T) {
+	t.Parallel()
+	envelope := (&SetupError{err: errors.New(`delegation group name "fresh-group" was already used; choose a fresh name`)}).ProjectToolError()
+	if envelope.Reason != "child setup failed" {
+		t.Fatalf("Reason = %q, want generic setup reason", envelope.Reason)
+	}
+}
+
+func TestSetupErrorProjectToolErrorSealedGroupReservation(t *testing.T) {
+	t.Parallel()
+	err := &groupReservationError{name: "fresh-group", batch: "sealed-batch", sealed: true}
+	envelope := (&SetupError{err: errors.Join(errors.New("wrapped"), err)}).ProjectToolError()
+	want := `delegation group name "fresh-group" cannot join sealed batch; use a fresh group name`
+	if envelope.Status != "failed" || envelope.Output != "" || envelope.Reason != want {
+		t.Fatalf("projection = %+v, want reason %q", envelope, want)
+	}
+	if strings.Contains(envelope.Reason, "sealed-batch") || strings.Contains(envelope.Reason, "already used") {
+		t.Fatalf("projection exposed sealed batch or reserved-name detail: %q", envelope.Reason)
+	}
+}
+
 func TestSetupErrorProjectToolErrorRequiresCommit(t *testing.T) {
 	t.Parallel()
 	envelope := (&SetupError{err: ErrCodeWorktreeRequiresCommit}).ProjectToolError()

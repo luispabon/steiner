@@ -91,10 +91,6 @@ func (r cliRunner) orchestrationLevel() config.OrchestrationLevel {
 	return r.runtime.cfg.SubAgent.OrchestrationLevel
 }
 
-func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {
-	return r.RunWithHooks(ctx, conversation, skillNames, runHooks{drainInbox: agent.SteerInboxDrain(drainSteers)})
-}
-
 // RunWithHooks is Run with the boundary hooks of a conversation driver.
 func (r cliRunner) RunWithHooks(ctx context.Context, conversation []agent.Message, skillNames []string, hooks runHooks) (runResult, error) {
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
@@ -108,6 +104,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 	if err != nil {
 		return runResult{}, err
 	}
+	setup.delegationGroupScope = hooks.delegationGroupScope
 	r.runtime.events.Emit(output.NewRunStartedEvent(
 		setup.runMode,
 		setup.resolvedModel.BackendModelID,
@@ -235,6 +232,7 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		SessionStore:                     r.runtime.delegationSessionStore,
 		ActiveController:                 r.runtime.delegationActiveController,
 		Supervisor:                       r.runtime.delegationSupervisor,
+		GroupScope:                       setup.delegationGroupScope,
 		ChildEvents:                      r.runtime.events,
 		ImageStore:                       r.runtime.imageStore,
 		ExtraAllowedTools:                extraAllowedTools,

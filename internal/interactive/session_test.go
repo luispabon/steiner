@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -3281,52 +3282,44 @@ func TestLoadSessionRestoresDelegationBoxesWithoutRetention(t *testing.T) {
 		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
 	}
 
-	// Verify DelegationStarted event
-	var delegationStarted []output.DelegationStartedEvent
-	for _, event := range events {
-		if event.Type == output.EventTypeDelegationStarted {
-			payload, ok := event.Payload.(output.DelegationStartedEvent)
-			if !ok {
-				t.Fatalf("delegation started payload type = %T, want output.DelegationStartedEvent", event.Payload)
-			}
-			delegationStarted = append(delegationStarted, payload)
-		}
-	}
-	if got, want := len(delegationStarted), 1; got != want {
-		t.Fatalf("delegation started events = %d, want %d", got, want)
-	}
-	if got, want := delegationStarted[0].AgentID, "agent-call_delegate_2"; got != want {
-		t.Fatalf("delegation started agent id = %q, want %q", got, want)
-	}
+	assertLegacyPlainTextDelegationReplay(t, events, "agent-call_delegate_2", "done")
+}
 
-	// Verify DelegationComplete event with synthetic data (no retention)
-	var delegationComplete []output.DelegationCompleteEvent
+// assertLegacyPlainTextDelegationReplay checks that a legacy plain-text result
+// with no retention replays as Accepted, Started, then one Complete carrying
+// the synthetic agent ID and the original output.
+func assertLegacyPlainTextDelegationReplay(t *testing.T, events []output.Event, agentID, wantOutput string) {
+	t.Helper()
+	var types []string
+	var complete []output.DelegationCompleteEvent
+	var startedID string
 	for _, event := range events {
-		if event.Type == output.EventTypeDelegationComplete {
-			payload, ok := event.Payload.(output.DelegationCompleteEvent)
-			if !ok {
-				t.Fatalf("delegation complete payload type = %T, want output.DelegationCompleteEvent", event.Payload)
-			}
-			delegationComplete = append(delegationComplete, payload)
+		switch event.Type {
+		case output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted, output.EventTypeDelegationComplete:
+			types = append(types, event.Type)
+		}
+		switch payload := event.Payload.(type) {
+		case output.DelegationStartedEvent:
+			startedID = payload.AgentID
+		case output.DelegationCompleteEvent:
+			complete = append(complete, payload)
 		}
 	}
-	if got, want := len(delegationComplete), 1; got != want {
-		t.Fatalf("delegation complete events = %d, want %d", got, want)
+	want := []string{output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted, output.EventTypeDelegationComplete}
+	if !slices.Equal(types, want) {
+		t.Fatalf("delegation event order = %v, want %v", types, want)
 	}
-	if got, want := delegationComplete[0].AgentID, "agent-call_delegate_2"; got != want {
-		t.Fatalf("delegation complete agent id = %q, want %q (synthetic)", got, want)
+	if startedID != agentID {
+		t.Fatalf("delegation started agent id = %q, want %q", startedID, agentID)
 	}
-	if got, want := delegationComplete[0].Status, "complete"; got != want {
-		t.Fatalf("delegation complete status = %q, want %q", got, want)
+	if len(complete) != 1 {
+		t.Fatalf("delegation complete events = %d, want 1", len(complete))
 	}
-	if got, want := delegationComplete[0].TurnCount, 0; got != want {
-		t.Fatalf("delegation complete turn count = %d, want %d (no retention)", got, want)
+	if got := complete[0].AgentID; got != agentID {
+		t.Fatalf("delegation complete agent id = %q, want %q (synthetic)", got, agentID)
 	}
-	if got, want := delegationComplete[0].TokenCount, 0; got != want {
-		t.Fatalf("delegation complete token count = %d, want %d (no retention)", got, want)
-	}
-	if got, want := delegationComplete[0].Output, "done"; got != want {
-		t.Fatalf("delegation complete output = %q, want %q", got, want)
+	if got := complete[0].Output; got != wantOutput {
+		t.Fatalf("delegation complete output = %q, want %q", got, wantOutput)
 	}
 }
 
@@ -3750,37 +3743,7 @@ func TestLoadSessionRestoresDelegationBoxesWithMalformedStructuredResultFallback
 		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
 	}
 
-	var toolStarted []output.ToolCallStartedEvent
-	var delegationComplete []output.DelegationCompleteEvent
-	for _, event := range events {
-		switch event.Type {
-		case output.EventTypeToolCallStarted:
-			payload, ok := event.Payload.(output.ToolCallStartedEvent)
-			if !ok {
-				t.Fatalf("tool started payload type = %T, want output.ToolCallStartedEvent", event.Payload)
-			}
-			toolStarted = append(toolStarted, payload)
-		case output.EventTypeDelegationComplete:
-			payload, ok := event.Payload.(output.DelegationCompleteEvent)
-			if !ok {
-				t.Fatalf("delegation complete payload type = %T, want output.DelegationCompleteEvent", event.Payload)
-			}
-			delegationComplete = append(delegationComplete, payload)
-		}
-	}
-
-	if got, want := len(toolStarted), 1; got != want {
-		t.Fatalf("tool started events = %d, want %d", got, want)
-	}
-	if got, want := len(delegationComplete), 1; got != want {
-		t.Fatalf("delegation complete events = %d, want %d", got, want)
-	}
-	if got, want := delegationComplete[0].AgentID, "agent-call_research_1"; got != want {
-		t.Fatalf("delegation complete agent id = %q, want %q", got, want)
-	}
-	if got, want := delegationComplete[0].Output, "{not-json"; got != want {
-		t.Fatalf("delegation complete output = %q, want %q", got, want)
-	}
+	assertLegacyPlainTextDelegationReplay(t, events, "agent-call_research_1", "{not-json")
 }
 
 func TestSessionModeDefault(t *testing.T) {

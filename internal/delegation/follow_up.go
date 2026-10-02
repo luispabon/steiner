@@ -17,16 +17,18 @@ const FollowUpToolName = "follow_up"
 
 // FollowUpToolDef returns a ToolDef for resuming a delegated child session.
 func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (any, error)) tool.ToolDef {
+	properties := map[string]any{
+		"agent_id": map[string]any{"type": "string", "description": "Required. The delegated agent ID to resume."},
+		"message":  map[string]any{"type": "string", "description": "Required. The follow-up user message to append."},
+	}
+	properties["group"] = map[string]any{"type": "string", "description": "Optional conversation-unique group name. Reuse a fresh sub_agent group name to join that assistant response; otherwise choose a fresh name or omit group. Calls are held for joint completion only in async sessions. Names cannot be reused in later responses."}
 	return tool.ToolDef{
 		Name:        FollowUpToolName,
 		Description: "Continue work with an existing sub-agent by sending a follow-up message. Use this to resume a suitable warm agent for the same bounded deliverable in the same live workspace, sequentially, to guide incomplete work, request refinements, make related corrections with the responsible implementation agent, or request a narrow re-check from the original reviewer. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees; workflow handoffs are not safe continuation boundaries.",
 		ParameterSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"agent_id": map[string]any{"type": "string", "description": "Required. The delegated agent ID to resume."},
-				"message":  map[string]any{"type": "string", "description": "Required. The follow-up user message to append."},
-			},
-			"required": []any{"agent_id", "message"},
+			"type":       "object",
+			"properties": properties,
+			"required":   []any{"agent_id", "message"},
 		},
 		Handler: handler,
 	}
@@ -60,6 +62,9 @@ func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, inpu
 }
 
 func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandlerDeps) (any, error) {
+	if err := requireGroupScope(deps, input); err != nil {
+		return nil, err
+	}
 	if pendingID, _ := input["agent_id"].(string); deps.AsyncSubAgents && deps.Supervisor.IsPending(pendingID) {
 		return nil, fmt.Errorf("follow_up: agent %s is still running, queued, or has a result you have not received yet; wait for its result or cancel it first", pendingID)
 	}
@@ -93,6 +98,8 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	// matching CallID, and a stale ID causes it to fall back to FIFO
 	// matching, misrouting streaming into an unrelated agent's box.
 	spec.ParentCallID, _ = ctx.Value(tool.ExecutionCallIDKey{}).(string)
+	// BatchID likewise: session.Spec carries the original call's batch.
+	spec.BatchID = agent.ToolBatchIDFrom(ctx)
 	advisorAvailable := childHasAdvisorTool(session.Request)
 	spec.AdvisorBudget = effectiveAdvisorBudget(advisorAvailable, deps.AdvisorSubAgentBudget)
 
@@ -103,7 +110,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			Branch: session.Remediation.ExpectedBranch,
 		}
 	}
-	result, err := superviseDelegate(ctx, deps, spec, "", worktree, nil,
+	result, err := superviseDelegate(ctx, deps, spec, groupInput(input), worktree, nil,
 		func(childCtx context.Context) (tool.ExecutionResult, error) {
 			return executeFollowUp(childCtx, deps, spec, req, session, isCode)
 		},

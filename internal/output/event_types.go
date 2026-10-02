@@ -8,6 +8,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 const (
@@ -66,6 +67,8 @@ const (
 	EventTypeHistoryLoaded = "history_loaded"
 	// EventTypeContextDiagnostics records context assembly diagnostics.
 	EventTypeContextDiagnostics = "context_diagnostics"
+	// EventTypeDelegationAccepted marks a delegation call accepted for execution.
+	EventTypeDelegationAccepted = "delegation_accepted"
 	// EventTypeDelegationStarted marks the start of sub-agent delegation.
 	EventTypeDelegationStarted = "delegation_started"
 	// EventTypeDelegationQueued marks a sub-agent accepted but waiting for a running slot.
@@ -273,14 +276,18 @@ type ToolCallQueuedEvent struct {
 	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
+// DelegationAdmission is UI and event metadata for one delegation call.
+type DelegationAdmission = tool.DelegationAdmission
+
 // ToolCallFinishedEvent records a completed tool invocation.
 type ToolCallFinishedEvent struct {
-	Turn    int         `json:"turn"`
-	Tool    string      `json:"tool,omitempty"`
-	CallID  string      `json:"call_id,omitempty"`
-	Result  string      `json:"result,omitempty"`
-	Error   string      `json:"error,omitempty"`
-	Preview ToolPreview `json:"-"`
+	Turn                int                  `json:"turn"`
+	Tool                string               `json:"tool,omitempty"`
+	CallID              string               `json:"call_id,omitempty"`
+	Result              string               `json:"result,omitempty"`
+	Error               string               `json:"error,omitempty"`
+	Preview             ToolPreview          `json:"-"`
+	DelegationAdmission *DelegationAdmission `json:"delegation_admission,omitempty"`
 }
 
 // ApprovalEvent captures approval lifecycle decisions for mutation tools.
@@ -466,19 +473,34 @@ type ProviderDiagnosticEvent struct {
 	DurationMillis int    `json:"duration_millis,omitempty"`
 }
 
+// DelegationOccurrence identifies one delegation occurrence: one sub_agent or
+// follow_up call within one tool batch. Provider call IDs can repeat across
+// batches and follow_up reuses agent IDs, so (BatchID, CallID) is the identity
+// and AgentID names the child. Lifecycle events embed it so their JSON stays
+// flat.
+type DelegationOccurrence struct {
+	CallID  string `json:"call_id,omitempty"`
+	BatchID string `json:"batch_id,omitempty"`
+	AgentID string `json:"agent_id"`
+}
+
+// DelegationAcceptedEvent records an admitted delegation call.
+type DelegationAcceptedEvent struct {
+	DelegationOccurrence
+	Group string `json:"group"`
+}
+
 // DelegationStartedEvent records the start of a delegated child task.
 type DelegationStartedEvent struct {
-	AgentID     string `json:"agent_id"`
+	DelegationOccurrence
 	TaskPreview string `json:"task_preview"`
-	CallID      string `json:"call_id,omitempty"`
 	ModelAlias  string `json:"model_alias,omitempty"`
 	AgentType   string `json:"agent_type,omitempty"`
 }
 
 // DelegationQueuedEvent records a delegated child task waiting for a running slot.
 type DelegationQueuedEvent struct {
-	AgentID     string `json:"agent_id"`
-	CallID      string `json:"call_id,omitempty"`
+	DelegationOccurrence
 	AgentType   string `json:"agent_type,omitempty"`
 	TaskPreview string `json:"task_preview"`
 }
@@ -489,6 +511,7 @@ type DeliveredSubAgent struct {
 	AgentType    string `json:"agent_type,omitempty"`
 	Status       string `json:"status"`
 	ParentCallID string `json:"parent_call_id,omitempty"`
+	BatchID      string `json:"batch_id,omitempty"`
 	DurationMs   int64  `json:"duration_ms,omitempty"`
 }
 
@@ -522,14 +545,13 @@ type ConversationWarningEvent struct {
 // DelegationCacheWaitingEvent records a sub-agent delegation waiting behind a
 // shared prompt-cache dispatch slot for the leader's first streamed token.
 type DelegationCacheWaitingEvent struct {
-	AgentID          string `json:"agent_id"`
-	CallID           string `json:"call_id"`
-	DeadlineUnixNano int64  `json:"deadline_unix_nano"`
+	DelegationOccurrence
+	DeadlineUnixNano int64 `json:"deadline_unix_nano"`
 }
 
 // DelegationCompleteEvent records a successful delegated child task.
 type DelegationCompleteEvent struct {
-	AgentID           string `json:"agent_id"`
+	DelegationOccurrence
 	AgentType         string `json:"agent_type,omitempty"`
 	DurationMs        int64  `json:"duration_ms,omitempty"`
 	Status            string `json:"status"`
@@ -547,10 +569,9 @@ type DelegationCompleteEvent struct {
 
 // DelegationFailedEvent records a failed delegated child task.
 type DelegationFailedEvent struct {
-	AgentID       string `json:"agent_id"`
+	DelegationOccurrence
 	AgentType     string `json:"agent_type,omitempty"`
 	DurationMs    int64  `json:"duration_ms,omitempty"`
-	CallID        string `json:"call_id,omitempty"`
 	TaskPreview   string `json:"task_preview"`
 	Error         string `json:"error"`
 	AdvisorBudget int    `json:"advisor_budget,omitempty"`

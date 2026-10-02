@@ -26,7 +26,7 @@ func TestSupervisorPrunesAsyncJobOnlyWhenDeliveredAndFinished(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, sink := newAsyncSupervisor(1, nil)
+			s, sink := newAsyncSupervisor(1)
 			a := newAsyncChild("a", "")
 			spawnAsync(context.Background(), t, s, a)
 			<-a.started
@@ -66,7 +66,7 @@ func TestSupervisorPrunesSpawnAndWaitJobOnReturn(t *testing.T) {
 }
 
 func TestSupervisorStaleStateDoesNotPruneReusedAgentID(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	first := newAsyncChild("a", "")
 	spawnAsync(context.Background(), t, s, first)
 	<-first.started
@@ -106,12 +106,12 @@ func TestSupervisorPrunesUnjoinedChildWhenLateRunFinishes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, sink := newAsyncSupervisor(1, nil)
+			s, sink := newAsyncSupervisor(1)
 			s.joinTimeout = 20 * time.Millisecond
 			stuck := newFakeChild("stuck", false)
 			var res <-chan spawnResult
 			if tt.async {
-				if _, err := s.Spawn(context.Background(), stuck.job); err != nil {
+				if _, _, err := s.Spawn(context.Background(), stuck.job); err != nil {
 					t.Fatalf("Spawn: %v", err)
 				}
 			} else {

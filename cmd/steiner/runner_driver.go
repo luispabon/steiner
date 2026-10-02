@@ -49,13 +49,16 @@ func (r *driverRunRecord) record(res runResult, err error) {
 
 // driverRun adapts the runner to agent.DriverRunFunc without installing a
 // signal handler: the driver's host owns cancellation.
-func (r cliRunner) driverRun(skillNames []string, rec *driverRunRecord) agent.DriverRunFunc {
+//
+// groupScope is the delegation group scope of the driver's run stream; every
+// episode of the driver runs sequentially inside it.
+func (r cliRunner) driverRun(skillNames []string, groupScope string, rec *driverRunRecord) agent.DriverRunFunc {
 	return func(ctx context.Context, in agent.DriverRunInput) (agent.DriverRunOutput, error) {
 		res, err := r.run(ctx, in.Conversation, skillNames, runHooks{
-			drainInbox:       in.DrainInbox,
-			onToolBatchDone:  in.OnToolBatchDone,
-			pendingSubAgents: in.PendingSubAgents,
-			maxTokens:        in.MaxTokens,
+			drainInbox:           in.DrainInbox,
+			pendingSubAgents:     in.PendingSubAgents,
+			maxTokens:            in.MaxTokens,
+			delegationGroupScope: groupScope,
 		})
 		if rec != nil {
 			rec.record(res, err)
@@ -67,4 +70,14 @@ func (r cliRunner) driverRun(skillNames []string, rec *driverRunRecord) agent.Dr
 			StopReason:   res.StopReason,
 		}, err
 	}
+}
+
+// openGroupScope opens a delegation group scope for one sequential run stream
+// and returns it with its release func. A runtime without a supervisor has no
+// delegation, so it yields an empty scope and a no-op release.
+func (rt *cliRuntime) openGroupScope() (string, func()) {
+	if rt.delegationSupervisor == nil {
+		return "", func() {}
+	}
+	return rt.delegationSupervisor.OpenGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 }

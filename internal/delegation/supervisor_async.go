@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
-	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -27,17 +26,15 @@ func (s *Supervisor) SetCompletionSink(sink agent.CompletionSink) {
 	s.sink = sink
 }
 
-// Spawn enqueues a job without waiting for it. Its completion is posted to the
-// completion sink and it stays pending until MarkDelivered acknowledges it.
-func (s *Supervisor) Spawn(ctx context.Context, job ChildJob) (SpawnTicket, error) {
+// Spawn enqueues a job without waiting for it and returns its ticket with the
+// authoritative admission outcome. Its completion is posted to the completion
+// sink and it stays pending until MarkDelivered acknowledges it.
+func (s *Supervisor) Spawn(ctx context.Context, job ChildJob) (SpawnTicket, *tool.DelegationAdmission, error) {
 	state, err := s.enqueue(ctx, job, false)
 	if err != nil {
-		return SpawnTicket{}, err
+		return SpawnTicket{}, admissionFor(ctx, job, tool.DelegationAdmissionRejected), tool.WithDelegationAdmission(err, admissionFor(ctx, job, tool.DelegationAdmissionRejected))
 	}
-	if state.wasQueued && s.events != nil {
-		s.events.Emit(output.NewDelegationQueuedEvent(job.AgentID, job.ParentCallID, string(job.AgentType), job.ObjectivePreview))
-	}
-	return SpawnTicket{AgentID: job.AgentID, Queued: state.wasQueued}, nil
+	return SpawnTicket{AgentID: job.AgentID, Queued: state.wasQueued}, admissionForState(state), nil
 }
 
 // MarkDelivered acknowledges completions the parent has consumed, identified by
@@ -83,6 +80,7 @@ func (s *Supervisor) Ledger() []agent.SubAgentLedgerEntry {
 			AgentType:    string(state.job.AgentType),
 			ParentCallID: state.job.ParentCallID,
 			Group:        state.job.Group,
+			BatchID:      state.job.BatchID,
 			WorktreePath: state.worktree.Path,
 		})
 	}
@@ -177,6 +175,7 @@ func (s *Supervisor) newCompletionLocked(state *jobState) *agent.SubAgentComplet
 	completion := &agent.SubAgentCompletion{
 		Seq:              s.seq,
 		ParentCallID:     state.job.ParentCallID,
+		BatchID:          state.job.BatchID,
 		AgentID:          state.job.AgentID,
 		AgentType:        string(state.job.AgentType),
 		ObjectivePreview: state.job.ObjectivePreview,
@@ -200,13 +199,23 @@ func (p postList) deliver() {
 	}
 }
 
+func (s *Supervisor) routeShutdownCompletionLocked(state *jobState) postList {
+	if s.sink == nil || state.blocking || state.completion == nil || state.routed {
+		return postList{}
+	}
+	state.routed = true
+	state.held = false
+	return postList{sink: s.sink, batches: [][]agent.SubAgentCompletion{{*state.completion}}}
+}
+
 // routeLocked decides what to post for a job that just gained a completion:
 // ungrouped completions post at once, grouped ones are held until the group
 // releases. Blocking jobs, a nil sink and a closed supervisor post nothing.
 func (s *Supervisor) routeLocked(state *jobState) postList {
-	if s.sink == nil || state.blocking || s.closed || state.completion == nil {
+	if s.sink == nil || state.blocking || s.closed || state.completion == nil || state.routed {
 		return postList{}
 	}
+	state.routed = true
 	if state.group == nil {
 		return postList{sink: s.sink, batches: [][]agent.SubAgentCompletion{{*state.completion}}}
 	}

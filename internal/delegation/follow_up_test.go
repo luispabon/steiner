@@ -39,7 +39,7 @@ func TestFollowUpToolDef(t *testing.T) {
 	if !ok {
 		t.Fatal("properties missing from schema")
 	}
-	for _, key := range []string{"agent_id", "message"} {
+	for _, key := range []string{"agent_id", "message", "group"} {
 		if _, ok := props[key]; !ok {
 			t.Fatalf("property %q missing from schema", key)
 		}
@@ -65,7 +65,7 @@ func TestFollowUpHandler_UnknownAgentID(t *testing.T) {
 	}})
 	deps.AsyncSubAgents = true
 	deps.SessionStore = NewSessionStore()
-	deps.Supervisor, _ = newAsyncSupervisor(deps.SubAgentCfg.MaxParallel, nil)
+	deps.Supervisor, _ = newAsyncSupervisor(deps.SubAgentCfg.MaxParallel)
 	handler := NewFollowUpHandler(deps.SubAgentHandlerDeps)
 
 	_, err := handler(context.Background(), map[string]any{

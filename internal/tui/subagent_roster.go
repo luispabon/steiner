@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // Roster statuses for a sub-agent entry.
@@ -21,6 +22,8 @@ const (
 type rosterEntry struct {
 	agentID    string
 	agentType  string
+	occurrence occurrenceKey // the occurrence the row currently shows
+	admitted   bool
 	group      string
 	status     string
 	startTime  int64 // unix nano; set on queue, reset when the agent starts
@@ -33,12 +36,20 @@ func (e rosterEntry) finished() bool {
 	return e.status == rosterDone || e.status == rosterFailed || e.status == rosterLost
 }
 
+// ownedElsewhere reports whether a live admitted occurrence other than key
+// owns the row, so events for key must leave it alone.
+func (e rosterEntry) ownedElsewhere(key occurrenceKey) bool {
+	return e.admitted && !e.finished() && e.occurrence != key
+}
+
 // subAgentRoster tracks sub-agents for the sidebar and status bar. It is fed
 // from Model event handling and deliberately does not read contentBuffer.
+// Rows are per agent so follow-ups reuse their agent's row; each row tracks
+// the occurrence it currently shows.
 type subAgentRoster struct {
-	entries map[string]*rosterEntry
-	groups  map[string]string // parent call ID -> group label
-	nextSeq int
+	entries    map[string]*rosterEntry
+	admissions map[occurrenceKey]output.DelegationAdmission
+	nextSeq    int
 }
 
 func (r *subAgentRoster) upsert(agentID string) *rosterEntry {
@@ -54,37 +65,35 @@ func (r *subAgentRoster) upsert(agentID string) *rosterEntry {
 	return e
 }
 
-func (r *subAgentRoster) recordGroup(callID string, args map[string]any) {
-	label := delegationGroupArg(args)
-	if callID == "" || label == "" {
-		return
-	}
-	if r.groups == nil {
-		r.groups = map[string]string{}
-	}
-	r.groups[callID] = label
+// admission returns the accepted admission of key when it names agentID.
+func (r *subAgentRoster) admission(agentID string, key occurrenceKey) (output.DelegationAdmission, bool) {
+	admission, ok := r.admissions[key]
+	return admission, ok && admission.AgentID == agentID
 }
 
-func (r *subAgentRoster) begin(agentID, agentType, callID, status string, now int64) {
-	agentID = strings.TrimSpace(agentID)
-	if agentID == "" || strings.EqualFold(strings.TrimSpace(agentType), "advisor") {
+func (r *subAgentRoster) begin(occ output.DelegationOccurrence, agentType, status string, now int64) {
+	agentID := strings.TrimSpace(occ.AgentID)
+	if !validRosterAgent(agentID, agentType) {
 		return
 	}
-	e := r.upsert(agentID)
-	restarting := e.finished()
-	if restarting {
-		e.status = status
-		e.startTime = now
-		e.finishTime = 0
-		e.delivered = false
+	key := keyOf(occ)
+	admission, admitted := r.admission(agentID, key)
+	e, existed := r.entries[agentID]
+	if existed && !admitted && e.ownedElsewhere(key) {
+		return
 	}
+	if !existed {
+		e = r.upsert(agentID)
+	}
+	restarting := existed && (e.finished() || e.occurrence != key)
+	if restarting {
+		e.clearRun()
+	}
+	e.bind(key, admission, admitted)
 	if !restarting {
 		if t := strings.TrimSpace(agentType); t != "" {
 			e.agentType = t
 		}
-	}
-	if e.group == "" {
-		e.group = r.groups[callID]
 	}
 	if e.startTime == 0 || status == rosterRunning {
 		e.startTime = now
@@ -92,19 +101,42 @@ func (r *subAgentRoster) begin(agentID, agentType, callID, status string, now in
 	e.status = status
 }
 
-func (r *subAgentRoster) finish(agentID, agentType, status string, durationMs, now int64) {
-	agentID = strings.TrimSpace(agentID)
-	if agentID == "" || strings.EqualFold(strings.TrimSpace(agentType), "advisor") {
+func (e *rosterEntry) clearRun() {
+	e.status = ""
+	e.startTime = 0
+	e.finishTime = 0
+	e.delivered = false
+}
+
+func (e *rosterEntry) bind(key occurrenceKey, admission output.DelegationAdmission, admitted bool) {
+	e.occurrence = key
+	e.admitted = admitted
+	e.group = ""
+	if admitted {
+		e.group = admission.Group
+	}
+}
+
+func validRosterAgent(agentID, agentType string) bool {
+	return agentID != "" && !strings.EqualFold(strings.TrimSpace(agentType), "advisor")
+}
+
+func (r *subAgentRoster) finish(occ output.DelegationOccurrence, agentType, status string, durationMs, now int64) {
+	agentID := strings.TrimSpace(occ.AgentID)
+	if !validRosterAgent(agentID, agentType) {
 		return
 	}
-	e := r.upsert(agentID)
+	e, ok := r.finishEntry(agentID, keyOf(occ))
+	if !ok {
+		return
+	}
 	if t := strings.TrimSpace(agentType); t != "" && e.agentType == "" {
 		e.agentType = t
 	}
 	if e.startTime == 0 {
 		e.startTime = now - durationMs*1_000_000
 	}
-	if e.finished() && e.status != rosterDone {
+	if e.finished() {
 		return
 	}
 	e.status = status
@@ -114,22 +146,47 @@ func (r *subAgentRoster) finish(agentID, agentType, status string, durationMs, n
 	}
 }
 
+// finishEntry resolves the row a terminal event for key settles. A row showing
+// another occurrence is taken over only by an admitted key and only once no
+// live admitted occurrence owns it.
+func (r *subAgentRoster) finishEntry(agentID string, key occurrenceKey) (*rosterEntry, bool) {
+	admission, admitted := r.admission(agentID, key)
+	e, exists := r.entries[agentID]
+	switch {
+	case !exists:
+		if !admitted {
+			return nil, false
+		}
+		e = r.upsert(agentID)
+		e.bind(key, admission, admitted)
+	case e.occurrence != key:
+		if !admitted || e.ownedElsewhere(key) {
+			return nil, false
+		}
+		e.clearRun()
+		e.bind(key, admission, true)
+	}
+	return e, true
+}
+
 // observe updates the roster from one output event. Sub-agent scoped tool
 // events are ignored: sub-agents cannot nest, so only parent calls carry groups.
 func (r *subAgentRoster) observe(event output.Event, now int64) {
 	switch p := event.Payload.(type) {
-	case output.ToolCallQueuedEvent:
-		r.recordParentGroup(event, p.CallID, p.Arguments)
-	case output.ToolCallStartedEvent:
-		r.recordParentGroup(event, p.CallID, p.Arguments)
+	case output.DelegationAcceptedEvent:
+		r.admit(p.CallID, output.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, AgentID: p.AgentID, BatchID: p.BatchID, Group: p.Group})
+	case output.ToolCallFinishedEvent:
+		if p.DelegationAdmission != nil && p.DelegationAdmission.Status == tool.DelegationAdmissionAccepted {
+			r.admit(p.CallID, *p.DelegationAdmission)
+		}
 	case output.DelegationQueuedEvent:
-		r.begin(p.AgentID, p.AgentType, p.CallID, rosterQueued, now)
+		r.begin(p.DelegationOccurrence, p.AgentType, rosterQueued, now)
 	case output.DelegationStartedEvent:
-		r.begin(p.AgentID, p.AgentType, p.CallID, rosterRunning, now)
+		r.begin(p.DelegationOccurrence, p.AgentType, rosterRunning, now)
 	case output.DelegationCompleteEvent:
-		r.finish(p.AgentID, p.AgentType, completionStatus(p.Status), p.DurationMs, now)
+		r.finish(p.DelegationOccurrence, p.AgentType, completionStatus(p.Status), p.DurationMs, now)
 	case output.DelegationFailedEvent:
-		r.finish(p.AgentID, p.AgentType, rosterFailed, p.DurationMs, now)
+		r.finish(p.DelegationOccurrence, p.AgentType, rosterFailed, p.DurationMs, now)
 	case output.SubAgentsDeliveredEvent:
 		for _, item := range p.Items {
 			r.deliver(item, now)
@@ -145,10 +202,19 @@ func (r *subAgentRoster) observe(event output.Event, now int64) {
 	}
 }
 
-// recordParentGroup records the group of a parent-scoped tool call.
-func (r *subAgentRoster) recordParentGroup(event output.Event, callID string, args map[string]any) {
-	if event.Scope.AgentID == "" {
-		r.recordGroup(callID, args)
+// admit records an accepted admission and applies it to the agent's row when
+// the row already shows that occurrence.
+func (r *subAgentRoster) admit(callID string, admission output.DelegationAdmission) {
+	if callID == "" || admission.AgentID == "" {
+		return
+	}
+	if r.admissions == nil {
+		r.admissions = map[occurrenceKey]output.DelegationAdmission{}
+	}
+	key := occurrenceKey{BatchID: admission.BatchID, CallID: callID}
+	r.admissions[key] = admission
+	if e, ok := r.entries[admission.AgentID]; ok && e.occurrence == key {
+		e.bind(key, admission, true)
 	}
 }
 
@@ -162,29 +228,54 @@ func completionStatus(status string) string {
 
 func (r *subAgentRoster) deliver(item output.DeliveredSubAgent, now int64) {
 	id := strings.TrimSpace(item.AgentID)
-	if id == "" || strings.EqualFold(strings.TrimSpace(item.AgentType), "advisor") {
+	if !validRosterAgent(id, item.AgentType) {
 		return
 	}
-	e, known := r.entries[id]
-	if !known || !e.finished() || item.Status == rosterLost {
-		status := rosterDone
-		switch item.Status {
-		case rosterLost:
-			status = rosterLost
-		case "failed", "error":
-			status = rosterFailed
+	e, ok := r.deliveryEntry(id, occurrenceKey{BatchID: item.BatchID, CallID: item.ParentCallID})
+	if !ok {
+		return
+	}
+	if !e.finished() || item.Status == rosterLost {
+		if e.startTime == 0 {
+			e.startTime = now - item.DurationMs*1_000_000
 		}
-		r.finish(id, item.AgentType, status, item.DurationMs, now)
-		e = r.entries[id]
-		if e.group == "" {
-			// An entry recreated after a prune has no group of its own.
-			e.group = r.groups[item.ParentCallID]
-		}
-		if e.status != status && status == rosterLost {
-			e.status = rosterLost
-		}
+		e.status = deliveredRosterStatus(item.Status)
+		e.finishTime = e.startTime + item.DurationMs*1_000_000
 	}
 	e.delivered = true
+}
+
+// deliveryEntry resolves the row a delivered item settles. An item without a
+// parent call ID addresses the agent's row; a row that has not yet shown any
+// occurrence adopts the item's.
+func (r *subAgentRoster) deliveryEntry(agentID string, key occurrenceKey) (*rosterEntry, bool) {
+	admission, admitted := r.admission(agentID, key)
+	e, exists := r.entries[agentID]
+	switch {
+	case !exists:
+		e = r.upsert(agentID)
+		e.bind(key, admission, admitted)
+	case key.CallID == "" || e.occurrence == key:
+	case e.occurrence.CallID == "" && !e.admitted:
+		e.bind(key, admission, admitted)
+	case !admitted || e.ownedElsewhere(key):
+		return nil, false
+	default:
+		e.clearRun()
+		e.bind(key, admission, true)
+	}
+	return e, true
+}
+
+func deliveredRosterStatus(status string) string {
+	switch status {
+	case rosterLost:
+		return rosterLost
+	case "failed", "error":
+		return rosterFailed
+	default:
+		return rosterDone
+	}
 }
 
 // prune drops every finished entry; running and queued ones stay. It is used
@@ -207,7 +298,7 @@ func (r *subAgentRoster) dropWhere(drop func(*rosterEntry) bool) {
 		}
 	}
 	if len(r.entries) == 0 {
-		r.groups = nil
+		r.admissions = nil
 	}
 }
 

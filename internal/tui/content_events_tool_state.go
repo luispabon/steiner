@@ -71,48 +71,16 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 	b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 }
 
-// applyFinishedToolCallToDelegation handles a ToolCallFinishedEvent for a
-// segmentDelegation or segmentDelegationGroup segment. Returns true if the
-// segment matched and was handled (caller should stop scanning).
-func (b *contentBuffer) applyFinishedToolCallToDelegation(idx int, payload output.ToolCallFinishedEvent) bool {
-	seg := &b.segments[idx]
-	switch seg.kind {
-	case segmentDelegation:
-		dd := seg.delegData
-		if dd == nil || dd.parentCallID == "" || !callIDsMatch(dd.parentCallID, payload.CallID) {
-			return false
-		}
-		if dd.agentID == "" && payload.Error != "" {
-			b.removeFromPendingDelegateParents(dd)
-			b.clearQueuedDelegation(payload.CallID)
-			dd.status = "failed"
-			seg.renderDirty = true
-			b.gen++
-		}
-		return true
-	case segmentDelegationGroup:
-		group := seg.delegGroupData
-		if group == nil {
-			return false
-		}
-		for j := len(group.entries) - 1; j >= 0; j-- {
-			dd := group.entries[j]
-			if dd == nil || dd.parentCallID == "" || !callIDsMatch(dd.parentCallID, payload.CallID) {
-				continue
-			}
-			if dd.agentID == "" && payload.Error != "" {
-				b.removeFromPendingDelegateParents(dd)
-				b.clearQueuedDelegation(payload.CallID)
-				dd.status = "failed"
-				seg.renderDirty = true
-				b.gen++
-			}
-			return true
-		}
-		return false
-	default:
+// failUnboundDelegation marks a parent card that never bound to a child agent
+// as failed when its tool call finished with an error.
+func (b *contentBuffer) failUnboundDelegation(loc delegationLocator, callID, errText string) bool {
+	if errText == "" || loc.dd.agentID != "" {
 		return false
 	}
+	b.clearQueuedDelegation(callID)
+	loc.dd.status = "failed"
+	b.markDelegationDirty(loc.seg)
+	return true
 }
 
 func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
@@ -121,13 +89,14 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 		if shouldSkipToolEvent(payload.Tool) {
 			return
 		}
+		if b.handleDelegationAdmissionFinish(payload) {
+			return
+		}
 		if !isDelegateOrSpecialized(payload.Tool) && b.applyFinishedRegularToolCall(payload) {
 			return
 		}
-		for i := len(b.segments) - 1; i >= 0; i-- {
-			if b.applyFinishedToolCallToDelegation(i, payload) {
-				return
-			}
+		if loc, found := b.openDelegations[payload.CallID]; found && b.failUnboundDelegation(loc, payload.CallID, payload.Error) {
+			delete(b.openDelegations, payload.CallID)
 		}
 		return
 	}
@@ -323,6 +292,7 @@ func (b *contentBuffer) AppendImagesAttached(images []agent.ImageBlock, workingD
 }
 
 func (b *contentBuffer) Clear() {
+	b.structureGen++
 	b.segments = nil
 	b.segmentHeights = nil
 	b.streamBuffer = ""
@@ -333,7 +303,8 @@ func (b *contentBuffer) Clear() {
 	b.collapseState = make(map[int]bool)
 	b.activeDelegations = nil
 	b.activeToolCalls = nil
-	b.pendingDelegateParents = nil
+	b.openDelegations = nil
+	b.delegations = nil
 	b.pendingDelegationStarts = nil
 	b.queuedDelegations = nil
 	b.activeAdvisorSegment = 0

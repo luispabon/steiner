@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func TestCloneMessagesFidelity(t *testing.T) {
@@ -40,9 +42,10 @@ func TestCloneMessagesFidelity(t *testing.T) {
 						SizeBytes: 12,
 					},
 				},
-				Source:   "source",
-				ByteSize: 1234,
-				Turn:     3,
+				Source:              "source",
+				ByteSize:            1234,
+				Turn:                3,
+				DelegationAdmission: &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, Group: "g"},
 				Retention: &MessageRetention{
 					Kind:       "summary",
 					AgentID:    "agent",
@@ -131,6 +134,9 @@ func TestCloneMessagesFidelity(t *testing.T) {
 			}
 			if tt.message.Retention != nil && cloned.Retention == tt.message.Retention {
 				t.Error("Retention pointer shared with original")
+			}
+			if tt.message.DelegationAdmission != nil && cloned.DelegationAdmission == tt.message.DelegationAdmission {
+				t.Error("DelegationAdmission pointer shared with original")
 			}
 			if tt.message.ProviderMetadata != nil {
 				if cloned.ProviderMetadata == tt.message.ProviderMetadata {

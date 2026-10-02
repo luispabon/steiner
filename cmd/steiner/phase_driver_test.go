@@ -51,7 +51,6 @@ func (b *phaseBackground) MarkDelivered(ids []string) {
 }
 
 func (b *phaseBackground) Ledger() []agent.SubAgentLedgerEntry { return nil }
-func (b *phaseBackground) SealBatch(string)                    {}
 
 func (b *phaseBackground) deliveredIDs() []string {
 	b.mu.Lock()

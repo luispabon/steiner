@@ -14,11 +14,142 @@ import (
 
 const driverTestTimeout = 5 * time.Second
 
+func driverMutexAccessible(d *ConversationDriver) bool {
+	accessed := make(chan struct{})
+	go func() {
+		d.mu.Lock()
+		state := d.state
+		d.mu.Unlock()
+		_ = state
+		close(accessed)
+	}()
+	select {
+	case <-accessed:
+		return true
+	case <-time.After(driverTestTimeout):
+		return false
+	}
+}
+
+func TestSnapshotDelegationGroupsOutsideLockAndClones(t *testing.T) {
+	seed := DelegationGroupLedger{Version: DelegationGroupLedgerVersion, Names: []string{" seed "}}
+	var driver *ConversationDriver
+	callbackLedger := DelegationGroupLedger{Version: DelegationGroupLedgerVersion, Names: []string{"callback"}}
+	driver = NewConversationDriver(DriverOptions{
+		GroupLedger: seed,
+		SnapshotDelegationGroups: func() DelegationGroupLedger {
+			if !driverMutexAccessible(driver) {
+				t.Error("driver mutex unavailable from snapshot callback")
+			}
+			return callbackLedger
+		},
+	}, nil, ConversationLineage{})
+	seed.Names[0] = "mutated seed"
+	snap := driver.Snapshot()
+	if len(snap.GroupLedger.Names) != 1 || snap.GroupLedger.Names[0] != "callback" {
+		t.Fatalf("snapshot ledger = %#v", snap.GroupLedger)
+	}
+	snap.GroupLedger.Names[0] = "mutated snapshot"
+	if callbackLedger.Names[0] != "callback" {
+		t.Fatalf("snapshot aliases callback ledger: %#v", callbackLedger)
+	}
+}
+
+func TestSaveTransitionSnapshotsDelegationGroupsOutsideLock(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(*driverHarness)
+	}{
+		{
+			name: "dispatch and run checkpoints",
+			run: func(h *driverHarness) {
+				h.start()
+				h.d.Submit("go", nil, SubmitMeta{})
+				h.nextRun().finish()
+				h.waitQuiescent()
+			},
+		},
+		{
+			name: "quiet inbox settlement",
+			run: func(h *driverHarness) {
+				h.bg.setPending("a")
+				h.start()
+				h.d.DeliverCompletions([]SubAgentCompletion{{Seq: 1, ParentCallID: "call-a", AgentID: "a", Quiet: true}})
+				h.waitQuiescent()
+			},
+		},
+		{
+			name: "cancellation and finalization",
+			run: func(h *driverHarness) {
+				h.start()
+				h.d.Submit("go", nil, SubmitMeta{})
+				h.nextRun()
+				h.closeDriver()
+			},
+		},
+		{
+			name: "compaction",
+			run: func(h *driverHarness) {
+				h.start()
+				h.d.RequestCompaction(func(_ context.Context, conv []Message) ([]Message, ConversationLineage, error) {
+					return append(conv, Message{Role: "system", Content: "compacted"}), ConversationLineage{}, nil
+				})
+				h.waitQuiescent()
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ledger := DelegationGroupLedger{Version: DelegationGroupLedgerVersion, Names: []string{"callback-group"}}
+			var driver *ConversationDriver
+			callbackBlocked := make(chan struct{}, 16)
+			h := newDriverHarnessOpts(t, nil, nil, func(opts *DriverOptions) {
+				opts.SnapshotDelegationGroups = func() DelegationGroupLedger {
+					if !driverMutexAccessible(driver) {
+						callbackBlocked <- struct{}{}
+					}
+					return ledger
+				}
+			})
+			driver = h.d
+			tt.run(h)
+			h.closeDriver()
+			if len(callbackBlocked) > 0 {
+				t.Fatal("snapshot callback could not access driver mutex")
+			}
+			h.mu.Lock()
+			saves := slices.Clone(h.saves)
+			h.mu.Unlock()
+			if len(saves) < 2 {
+				t.Fatalf("got %d saves, want multiple transition snapshots", len(saves))
+			}
+			for i := range saves {
+				if !slices.Equal(saves[i].GroupLedger.Names, []string{"callback-group"}) || saves[i].GroupLedger.Version != 1 {
+					t.Fatalf("save %d ledger = %#v", i, saves[i].GroupLedger)
+				}
+				saves[i].GroupLedger.Names[0] = "mutated saved ledger"
+			}
+			if ledger.Names[0] != "callback-group" {
+				t.Fatalf("saved snapshot aliases callback ledger: %#v", ledger)
+			}
+		})
+	}
+}
+
+func TestSnapshotDelegationGroupsSeedWithoutCallback(t *testing.T) {
+	seed := DelegationGroupLedger{Version: DelegationGroupLedgerVersion, Names: []string{"saved"}}
+	driver := NewConversationDriver(DriverOptions{GroupLedger: seed}, nil, ConversationLineage{})
+	seed.Names[0] = "changed"
+	snap := driver.Snapshot()
+	if len(snap.GroupLedger.Names) != 1 || snap.GroupLedger.Names[0] != "saved" {
+		t.Fatalf("snapshot ledger = %#v", snap.GroupLedger)
+	}
+}
+
 type fakeBackground struct {
 	mu        sync.Mutex
 	pending   []PendingSubAgent
 	delivered []string
-	sealed    []string
 }
 
 func (f *fakeBackground) Pending() []PendingSubAgent {
@@ -53,12 +184,6 @@ func (f *fakeBackground) Ledger() []SubAgentLedgerEntry {
 	return entries
 }
 
-func (f *fakeBackground) SealBatch(id string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.sealed = append(f.sealed, id)
-}
-
 func (f *fakeBackground) deliveredIDs() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -86,7 +211,7 @@ func (f *fakeBackground) markFinished(ids ...string) {
 
 func completionFor(seq uint64, id string) SubAgentCompletion {
 	return SubAgentCompletion{
-		Seq: seq, ParentCallID: "call-" + id, AgentID: id, AgentType: "code",
+		Seq: seq, ParentCallID: "call-" + id, BatchID: "batch-" + id, AgentID: id, AgentType: "code",
 		Status: "complete", ObjectivePreview: "obj " + id, Body: `{"output":"done ` + id + `"}`,
 	}
 }
@@ -311,10 +436,6 @@ func TestConversationDriverPassesBackgroundHooks(t *testing.T) {
 
 	h.d.Submit("go", nil, SubmitMeta{})
 	call := h.nextRun()
-	call.in.OnToolBatchDone("batch-1")
-	if got := h.bg.sealed; !slices.Equal(got, []string{"batch-1"}) {
-		t.Fatalf("sealed = %v, want [batch-1]", got)
-	}
 	if got := call.in.PendingSubAgents(); len(got) != 1 || got[0].AgentID != "a" {
 		t.Fatalf("PendingSubAgents = %v, want agent a", got)
 	}

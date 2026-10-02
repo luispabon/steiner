@@ -187,9 +187,8 @@ type delegationDisplayState struct {
 	promptCollapsed         bool
 	parentCallID            string
 	parentArgs              string
-	group                   string // sub_agent "group" argument; "" when ungrouped
-	batch                   int    // contentBuffer.delegationBatch at creation
-	startTime               int64  // unix nano, set on DelegationStarted
+	admission               *output.DelegationAdmission // nil until the occurrence is accepted
+	startTime               int64                       // unix nano, set on DelegationStarted
 	cacheWaiting            bool
 	queuedForSlot           bool
 	cacheWaitDeadline       int64  // unix nano, valid only when cacheWaiting
@@ -289,9 +288,7 @@ type contentSegment struct {
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type contentBuffer struct {
-	// delegationBatch identifies the current tool batch for delegate grouping;
-	// bumped on each AssistantMessage and whenever a non-delegation segment lands.
-	delegationBatch   int
+	structureGen      uint64
 	segments          []contentSegment
 	streaming         bool
 	hadChunks         bool
@@ -313,19 +310,20 @@ type contentBuffer struct {
 	tickCount         int   // incremented by 500ms tick, used for cursor blink
 	lastRenderErr     error // captures the last render error for logging
 	// delegation tracking
-	lastDelegationEvent     map[string]int64             // agentID → unix nano of the last event seen (stall display)
-	asyncMode               bool                         // set once a ConversationState event is seen; parent cancels no longer finalise delegations
-	activeDelegations       map[string]delegationLocator // agentID → delegation locator (for in-flight delegations)
-	activeToolCalls         map[string]toolCallLocator   // callID → regular tool-call locator
-	pendingDelegateParents  []delegationLocator          // delegations awaiting DelegationStartedEvent binding
-	pendingDelegationStarts []delegationLocator          // delegations awaiting parent delegate tool binding
-	queuedDelegations       map[string]delegationLocator // parentCallID → delegation box announced as queued, awaiting ToolCallStarted
-	activeAdvisorSegment    int                          // 1-based segment index; 0 means none active
-	skillNames              []string                     // skill names for command prefix matching
-	mcpToolOrigins          map[string]MCPToolOrigin     // registry tool name -> MCP server/tool it came from
-	maxDelegationBodyLines  int                          // max lines for delegation body (transcript + prompt); 0 = uncapped
-	workingDir              string                       // current working directory for resolving relative paths
-	homeDir                 string                       // home directory for resolving ~ paths
+	lastDelegationEvent     map[string]int64                    // agentID → unix nano of the last event seen (stall display)
+	asyncMode               bool                                // set once a ConversationState event is seen; parent cancels no longer finalise delegations
+	activeDelegations       map[string]delegationLocator        // agentID → delegation locator (for in-flight delegations)
+	activeToolCalls         map[string]toolCallLocator          // callID → regular tool-call locator
+	openDelegations         map[string]delegationLocator        // parent callID → card started but not yet admitted
+	delegations             map[occurrenceKey]delegationLocator // occurrence → card
+	pendingDelegationStarts []delegationLocator                 // cards created by lifecycle events awaiting their parent tool call
+	queuedDelegations       map[string]delegationLocator        // parentCallID → delegation box announced as queued, awaiting ToolCallStarted
+	activeAdvisorSegment    int                                 // 1-based segment index; 0 means none active
+	skillNames              []string                            // skill names for command prefix matching
+	mcpToolOrigins          map[string]MCPToolOrigin            // registry tool name -> MCP server/tool it came from
+	maxDelegationBodyLines  int                                 // max lines for delegation body (transcript + prompt); 0 = uncapped
+	workingDir              string                              // current working directory for resolving relative paths
+	homeDir                 string                              // home directory for resolving ~ paths
 
 	// Render cache.
 	stringCacheWidth    int
@@ -374,6 +372,7 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeApprovalRequested:         (*contentBuffer).appendApprovalRequestedEvent,
 	output.EventTypeApprovalAccepted:          (*contentBuffer).appendApprovalDecisionEvent,
 	output.EventTypeApprovalDenied:            (*contentBuffer).appendApprovalDecisionEvent,
+	output.EventTypeDelegationAccepted:        (*contentBuffer).appendDelegationAcceptedEvent,
 	output.EventTypeDelegationStarted:         (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationComplete:        (*contentBuffer).appendDelegationEvent,
 	output.EventTypeDelegationQueued:          (*contentBuffer).appendDelegationEvent,

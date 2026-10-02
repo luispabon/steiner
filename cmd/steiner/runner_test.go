@@ -26,6 +26,45 @@ import (
 	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
+func TestBuildRunRequestUsesCapturedDelegationGroupScope(t *testing.T) {
+	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
+	explicitScope, releaseExplicitscope := supervisor.OpenGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	t.Cleanup(releaseExplicitscope)
+	runner := cliRunner{runtime: cliRuntime{delegationSupervisor: supervisor}}
+	setup := runnerSetup{delegationGroupScope: explicitScope}
+	deps := runner.newDelegateDeps(setup, nil, nil, nil, "")
+	if deps.GroupScope != explicitScope {
+		t.Fatalf("DelegateDeps.GroupScope = %q, want explicit scope %q", deps.GroupScope, explicitScope)
+	}
+
+	request := buildRunRequest(runner, setup, tool.NewRegistry(), nil, runHooks{})
+	if request.Sealer != supervisor || request.GroupScope != explicitScope {
+		t.Fatalf("request Sealer/GroupScope = %v/%q, want the supervisor and %q", request.Sealer, request.GroupScope, explicitScope)
+	}
+	testJob := func(id, group string) delegation.ChildJob {
+		return delegation.ChildJob{AgentID: id, Group: group, GroupScope: explicitScope, Execute: func(context.Context) (tool.ExecutionResult, error) {
+			return tool.ExecutionResult{}, nil
+		}}
+	}
+	if _, _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit#1"), testJob("first", "group-a")); err != nil {
+		t.Fatalf("first group spawn: %v", err)
+	}
+	request.Sealer.SealGroupBatch(request.GroupScope, "batch-explicit#1")
+	if _, _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit#1"), testJob("second", "group-b")); err == nil {
+		t.Fatal("spawn accepted after callback sealed batch")
+	}
+}
+
+func TestBuildRunRequestWithoutSupervisorHasNilSealer(t *testing.T) {
+	request := buildRunRequest(cliRunner{}, runnerSetup{delegationGroupScope: "chosen"}, tool.NewRegistry(), nil, runHooks{})
+	if request.Sealer != nil {
+		t.Fatalf("Sealer = %#v, want a nil interface (not a typed-nil supervisor)", request.Sealer)
+	}
+	if request.GroupScope != "chosen" {
+		t.Fatalf("GroupScope = %q, want chosen", request.GroupScope)
+	}
+}
+
 func TestBuildRunRequestDelegationParallelism(t *testing.T) {
 	for _, tt := range []struct {
 		name              string
@@ -215,7 +254,7 @@ func spawnBlockedChild(t *testing.T, sup *delegation.Supervisor, controller *del
 	discard := make(chan bool, 1)
 	completions := make(completionCapture, 1)
 	sup.SetCompletionSink(completions)
-	if _, err := sup.Spawn(context.Background(), delegation.ChildJob{
+	if _, _, err := sup.Spawn(context.Background(), delegation.ChildJob{
 		AgentID:   id,
 		AgentType: delegation.AgentTypeCode,
 		Execute: func(ctx context.Context) (tool.ExecutionResult, error) {
@@ -255,7 +294,7 @@ func TestDelegationCancellerReportsFinishedDelegate(t *testing.T) {
 			sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
 			completions := make(completionCapture, 1)
 			sup.SetCompletionSink(completions)
-			if _, err := sup.Spawn(context.Background(), delegation.ChildJob{
+			if _, _, err := sup.Spawn(context.Background(), delegation.ChildJob{
 				AgentID:      "child-1",
 				AgentType:    delegation.AgentTypeCode,
 				ParentCallID: "call-1",
@@ -1046,7 +1085,7 @@ func TestRunnerDelegateDepsCarryRuntimeSandboxState(t *testing.T) {
 				maxTurns: 4,
 			}
 
-			if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "delegate a task"}}, nil, nil); err != nil {
+			if _, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "delegate a task"}}, nil, runHooks{}); err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
 			if agentID == "" {
@@ -1155,7 +1194,7 @@ func TestRunnerDelegateDepsCarrySandboxTmpDir(t *testing.T) {
 				maxTurns: 4,
 			}
 
-			if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "delegate a coding task"}}, nil, nil); err != nil {
+			if _, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "delegate a coding task"}}, nil, runHooks{}); err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
 			if agentID == "" {

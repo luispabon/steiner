@@ -8,6 +8,7 @@ import (
 
 // groupKey identifies a turn-scoped group: one label within one tool batch.
 type groupKey struct {
+	scope string
 	batch string
 	label string
 }
@@ -26,7 +27,7 @@ func (s *Supervisor) enrollLocked(state *jobState, batchID string) {
 	if s.sink == nil || state.job.Group == "" || batchID == "" {
 		return
 	}
-	key := groupKey{batch: batchID, label: state.job.Group}
+	key := groupKey{scope: state.job.GroupScope, batch: batchID, label: agent.NormalizeDelegationGroup(state.job.Group)}
 	group, ok := s.groups[key]
 	if !ok {
 		s.groupSeq++
@@ -37,13 +38,11 @@ func (s *Supervisor) enrollLocked(state *jobState, batchID string) {
 	state.group = group
 }
 
-// SealBatch closes every group of the tool batch to new members and releases
-// those whose members have all finished. Groups settle in creation order.
-func (s *Supervisor) SealBatch(batchID string) {
+func (s *Supervisor) sealBatch(scope, batchID string) {
 	s.mu.Lock()
 	var sealed []*jobGroup
 	for key, group := range s.groups {
-		if key.batch == batchID {
+		if key.batch == batchID && key.scope == scope {
 			sealed = append(sealed, group)
 		}
 	}
@@ -78,6 +77,7 @@ func (s *Supervisor) releaseGroupLocked(group *jobGroup) postList {
 	sort.Slice(batch, func(i, j int) bool { return batch[i].Seq < batch[j].Seq })
 	for _, member := range group.members {
 		member.held = false
+		member.routed = true
 	}
 	delete(s.groups, group.key)
 	return postList{sink: s.sink, batches: [][]agent.SubAgentCompletion{batch}}

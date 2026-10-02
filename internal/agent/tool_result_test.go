@@ -4,8 +4,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tool/builtin"
 )
+
+func TestNormalizeToolResultCarriesAdmissionWithoutProviderContent(t *testing.T) {
+	admission := &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, AgentID: "agent"}
+	envelope := normalizeToolResult(tool.ExecutionResult{Value: "safe", DelegationAdmission: admission})
+	admission.AgentID = "mutated"
+	if envelope.DelegationAdmission == nil || envelope.DelegationAdmission.AgentID != "agent" || envelope.Content != "safe" {
+		t.Fatalf("normalized result = %#v", envelope)
+	}
+}
 
 func TestNormalizeToolResultWithImage(t *testing.T) {
 	tests := []struct {

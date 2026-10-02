@@ -45,7 +45,7 @@ func emitDelegateStarted(events output.EventSink, spec Spec, modelAlias string, 
 	if events == nil {
 		return
 	}
-	event := output.NewDelegationStartedEventWithType(spec.AgentID, truncateTaskPreview(spec.Task, 120), spec.ParentCallID, modelAlias, string(agentType))
+	event := output.NewDelegationStartedEvent(specOccurrence(spec), truncateTaskPreview(spec.Task, 120), modelAlias, string(agentType))
 	event = output.WithAgentScope(event, spec.AgentID)
 	event = output.WithAgentTypeScope(event, string(agentType))
 	events.Emit(event)
@@ -69,10 +69,9 @@ func emitDelegateFailed(events output.EventSink, spec Spec, agentType AgentType,
 	// is always zero here; post-run failures set advisor fields directly (see
 	// SpawnDelegate).
 	event := output.NewDelegationFailedEvent(output.DelegationFailedParams{
-		AgentID:     spec.AgentID,
-		CallID:      spec.ParentCallID,
-		TaskPreview: truncateTaskPreview(spec.Task, 120),
-		Error:       errMsg,
+		DelegationOccurrence: specOccurrence(spec),
+		TaskPreview:          truncateTaskPreview(spec.Task, 120),
+		Error:                errMsg,
 	})
 	event = output.WithAgentScope(event, spec.AgentID)
 	event = output.WithAgentTypeScope(event, string(agentType))
@@ -164,18 +163,18 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 	result.Output = appendAdvisorSummaryLine(result.Output, result.AdvisorUses, result.AdvisorDenied)
 	if events != nil {
 		events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-			AgentID:           spec.AgentID,
-			Status:            string(result.Status),
-			TurnCount:         result.TurnCount,
-			TokenCount:        result.TokenCount,
-			ToolCallCount:     result.ToolCallCount,
-			Output:            result.Output,
-			InputTokens:       result.InputTokens,
-			CacheReadTokens:   result.CacheReadTokens,
-			CacheCreateTokens: result.CacheCreateTokens,
-			AdvisorBudget:     result.AdvisorBudget,
-			AdvisorUses:       result.AdvisorUses,
-			AdvisorDenied:     result.AdvisorDenied,
+			DelegationOccurrence: specOccurrence(spec),
+			Status:               string(result.Status),
+			TurnCount:            result.TurnCount,
+			TokenCount:           result.TokenCount,
+			ToolCallCount:        result.ToolCallCount,
+			Output:               result.Output,
+			InputTokens:          result.InputTokens,
+			CacheReadTokens:      result.CacheReadTokens,
+			CacheCreateTokens:    result.CacheCreateTokens,
+			AdvisorBudget:        result.AdvisorBudget,
+			AdvisorUses:          result.AdvisorUses,
+			AdvisorDenied:        result.AdvisorDenied,
 		}))
 	}
 	if fields := toolCallTraceFields(spec.AgentID); fields != nil {
@@ -229,13 +228,12 @@ func finalizeDelegateFailure(spec Spec, state agent.RunState, runUsage TokenUsag
 	if events != nil {
 		budget, uses, denied := advisorFieldsOf(result)
 		events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
-			AgentID:       spec.AgentID,
-			CallID:        spec.ParentCallID,
-			TaskPreview:   truncateTaskPreview(spec.Task, 120),
-			Error:         err.Error(),
-			AdvisorBudget: budget,
-			AdvisorUses:   uses,
-			AdvisorDenied: denied,
+			DelegationOccurrence: specOccurrence(spec),
+			TaskPreview:          truncateTaskPreview(spec.Task, 120),
+			Error:                err.Error(),
+			AdvisorBudget:        budget,
+			AdvisorUses:          uses,
+			AdvisorDenied:        denied,
 		}))
 	}
 	return result

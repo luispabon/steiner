@@ -26,12 +26,13 @@ type runnerSetup struct {
 	// reasoning override was applied. It is passed to delegation so sub-agents
 	// falling back to the parent's model inherit the model's configured reasoning
 	// default rather than the orchestrator's runtime override (issue #543).
-	baseResolvedModel provider.ResolvedModel
-	provider          provider.Provider
-	modelBudget       prompt.ModelTokenBudget
-	assembly          prompt.AssemblyOptions
-	runMode           string
-	conversation      []agent.Message
+	baseResolvedModel    provider.ResolvedModel
+	provider             provider.Provider
+	modelBudget          prompt.ModelTokenBudget
+	assembly             prompt.AssemblyOptions
+	runMode              string
+	conversation         []agent.Message
+	delegationGroupScope string
 }
 
 func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string) (runnerSetup, error) {
@@ -273,9 +274,9 @@ func retainDiagnosticEvents(base output.EventSink) (output.EventSink, *[]output.
 // runHooks are the per-run hooks a conversation driver or steer queue supplies.
 // The zero value runs without a boundary inbox.
 type runHooks struct {
-	drainInbox       func() agent.InboxDrain
-	onToolBatchDone  func(batchID string)
-	pendingSubAgents func() []agent.PendingSubAgent
+	drainInbox           func() agent.InboxDrain
+	pendingSubAgents     func() []agent.PendingSubAgent
+	delegationGroupScope string
 	// maxTokens tightens the configured token limit when positive.
 	maxTokens int
 }
@@ -295,6 +296,11 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	visionCapabilities := r.runtime.visionCapabilities
 	if visionCapabilities != nil {
 		visionCapabilities = visionCapabilities.SnapshotWithSubAgentConfigured(visionCapabilities.SubAgentConfigured())
+	}
+	// A nil supervisor must stay a nil interface, not a typed-nil sealer.
+	var sealer agent.ToolBatchSealer
+	if r.runtime.delegationSupervisor != nil {
+		sealer = r.runtime.delegationSupervisor
 	}
 	req := agent.RunRequest{
 		Provider:      setup.provider,
@@ -316,7 +322,8 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		StreamingPreferred: r.streamingPreferred,
 		CompactionLogPath:  r.runtime.compactionLogFile,
 		DrainInbox:         hooks.drainInbox,
-		OnToolBatchDone:    hooks.onToolBatchDone,
+		Sealer:             sealer,
+		GroupScope:         setup.delegationGroupScope,
 		PendingSubAgents:   hooks.pendingSubAgents,
 		PromptCacheKey:     r.promptCacheKey(),
 		CacheBaseline:      r.cacheBaseline,

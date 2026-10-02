@@ -13,7 +13,9 @@ import (
 
 // driverHandle ties one ConversationDriver to the session identity it serves.
 type driverHandle struct {
-	drv *agent.ConversationDriver
+	drv          *agent.ConversationDriver
+	groupScope   string
+	releaseScope func()
 	// retired is set under Session.mu when the session moves to another
 	// conversation. From then on the driver saves under that identity and
 	// leaves the live session state alone.
@@ -26,9 +28,20 @@ type driverHandle struct {
 // newDriverLocked builds and starts a driver over conv and lineage. The caller
 // stores the handle in s.driver.
 func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.ConversationLineage) *driverHandle {
-	h := &driverHandle{lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: s.ledger}}
-	h.drv = agent.NewConversationDriver(agent.DriverOptions{
-		Run:                 s.driverRun,
+	groupLedger := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion}
+	if s.delegationGroups != nil {
+		groupLedger = s.delegationGroups.Clone()
+	}
+	scope, release := "", func() {}
+	if s.deps.OpenGroupScope != nil {
+		scope, release = s.deps.OpenGroupScope(groupLedger.Clone())
+	}
+	h := &driverHandle{groupScope: scope, releaseScope: release, lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: slices.Clone(s.ledger), GroupLedger: groupLedger.Clone()}}
+	options := agent.DriverOptions{
+		GroupLedger: groupLedger,
+		Run: func(ctx context.Context, in agent.DriverRunInput) (agent.DriverRunOutput, error) {
+			return s.driverRun(ctx, in, scope)
+		},
 		Background:          s.deps.Background,
 		Steers:              s.steersForNewDriverLocked(),
 		Save:                s.driverSave(h),
@@ -36,7 +49,11 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 		PrepareTurn:         s.prepareTurn,
 		Clock:               s.deps.Clock,
 		MaxTokensPerEpisode: s.deps.MaxTokensPerEpisode,
-	}, conv, lineage)
+	}
+	if s.deps.SnapshotGroupLedger != nil && scope != "" {
+		options.SnapshotDelegationGroups = func() agent.DelegationGroupLedger { return s.deps.SnapshotGroupLedger(scope) }
+	}
+	h.drv = agent.NewConversationDriver(options, conv, lineage)
 	if s.deps.SetCompletionSink != nil {
 		s.deps.SetCompletionSink(h.drv)
 	}
@@ -52,6 +69,10 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 func (s *Session) swapDriverLocked(apply func()) *driverHandle {
 	old := s.driver
 	meta := s.sessionMetaLocked()
+	if s.deps.SnapshotGroupLedger != nil && old.groupScope != "" {
+		ledger := s.deps.SnapshotGroupLedger(old.groupScope)
+		s.delegationGroups = &ledger
+	}
 	old.retired = &meta
 	// The steer queue belongs to the live session: without this the old driver
 	// would drain steers meant for its successor, or for a oneshot run.
@@ -71,6 +92,7 @@ func (s *Session) retireDriver(old *driverHandle) {
 	}
 	if !old.drv.Busy() {
 		old.drv.Close(context.Background())
+		s.releaseDriverGroupScope(old)
 		return
 	}
 	s.runs.Add(1)
@@ -80,7 +102,14 @@ func (s *Session) retireDriver(old *driverHandle) {
 		// live driver.
 		_ = old.drv.WaitIdle(context.Background())
 		old.drv.Close(context.Background())
+		s.releaseDriverGroupScope(old)
 	}()
+}
+
+func (s *Session) releaseDriverGroupScope(h *driverHandle) {
+	if h.releaseScope != nil {
+		h.releaseScope()
+	}
 }
 
 // currentDriver returns the live driver. Callers invoke its methods without
@@ -91,13 +120,11 @@ func (s *Session) currentDriver() *agent.ConversationDriver {
 	return s.driver.drv
 }
 
-// replacementGuardLocked checks whether a driver replacement may proceed. The
-// caller must hold s.mu and keep it held through the swap.
-func (s *Session) replacementGuardLocked(action string, refuseRun bool) error {
-	if s.driverAdmissions > 0 {
-		return fmt.Errorf("%s: %w", action, errRunInProgress)
-	}
-	if refuseRun && s.driver.drv.Busy() {
+// replacementGuardLocked checks whether a driver replacement may proceed. Busy
+// also covers the driver's final transition snapshot/save. The caller must hold
+// s.mu and keep it held through the swap.
+func (s *Session) replacementGuardLocked(action string) error {
+	if s.driverAdmissions > 0 || s.driver.drv.Busy() {
 		return fmt.Errorf("%s: %w", action, errRunInProgress)
 	}
 	return s.pendingRefusalLocked(action)
@@ -120,7 +147,9 @@ func (s *Session) driverSave(h *driverHandle) func(context.Context, agent.Driver
 		if live {
 			s.conversation = snap.Conversation
 			s.lineage = snap.Lineage
-			s.ledger = snap.Ledger
+			s.ledger = slices.Clone(snap.Ledger)
+			groupLedger := snap.GroupLedger.Clone()
+			s.delegationGroups = &groupLedger
 		}
 		s.mu.Unlock()
 
@@ -133,7 +162,7 @@ func (s *Session) driverSave(h *driverHandle) func(context.Context, agent.Driver
 		case live:
 			return s.saveLive()
 		case retired != nil:
-			return s.saveSnapshotAs(*retired, snap.Lineage)
+			return s.saveSnapshotAs(*retired, snap)
 		}
 		return nil
 	}
@@ -167,6 +196,9 @@ func snapshotUnchanged(previous *agent.DriverSnapshot, snap agent.DriverSnapshot
 	if previous == nil {
 		return false
 	}
+	if !reflect.DeepEqual(previous.GroupLedger, snap.GroupLedger) {
+		return false
+	}
 	if len(previous.Conversation) == 0 && len(snap.Conversation) == 0 && previous.Lineage.Empty() && snap.Lineage.Empty() {
 		return true
 	}
@@ -177,26 +209,26 @@ func snapshotUnchanged(previous *agent.DriverSnapshot, snap agent.DriverSnapshot
 
 // saveSnapshotAs persists lineage under a session identity that is no longer
 // live, warning on failure.
-func (s *Session) saveSnapshotAs(meta runSessionMeta, lineage agent.ConversationLineage) error {
+func (s *Session) saveSnapshotAs(meta runSessionMeta, snap agent.DriverSnapshot) error {
 	if s.deps.SessionStore == nil {
 		return nil
 	}
-	if err := s.writeLineageAs(meta, lineage); err != nil {
+	if err := s.writeLineageAs(meta, snap); err != nil {
 		s.emitSaveWarning(err)
 	}
 	return nil
 }
 
-func (s *Session) writeLineageAs(meta runSessionMeta, lineage agent.ConversationLineage) error {
+func (s *Session) writeLineageAs(meta runSessionMeta, snap agent.DriverSnapshot) error {
 	var sess session.Session
 	if existing, err := s.deps.SessionStore.Load(meta.id); err == nil {
-		sess = existing.WithLineage(lineage)
+		sess = existing.WithLineage(snap.Lineage)
 	} else {
 		var newErr error
 		if meta.group != "" {
-			sess, newErr = session.NewSession(meta.modelID, lineage, meta.group)
+			sess, newErr = session.NewSession(meta.modelID, snap.Lineage, meta.group)
 		} else {
-			sess, newErr = session.NewSession(meta.modelID, lineage)
+			sess, newErr = session.NewSession(meta.modelID, snap.Lineage)
 		}
 		if newErr != nil {
 			return fmt.Errorf("create session: %w", newErr)
@@ -209,6 +241,9 @@ func (s *Session) writeLineageAs(meta runSessionMeta, lineage agent.Conversation
 	}
 	sess.Mode = meta.mode
 	sess.Skills = meta.skills
+	sess.SubAgentLedger = slices.Clone(snap.Ledger)
+	groups := snap.GroupLedger.Clone()
+	sess.DelegationGroups = &groups
 	return s.deps.SessionStore.Save(sess)
 }
 

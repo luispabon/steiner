@@ -74,24 +74,37 @@ func newAsyncChild(id, group string) *asyncChild {
 	return c
 }
 
+// testGroupScopes holds one lazily opened group scope per test supervisor.
+var testGroupScopes sync.Map
+
+// testGroupScope returns the scope grouped test jobs of s run in; sealing it
+// closes their batches.
+func testGroupScope(s *Supervisor) string {
+	scope, _ := testGroupScopes.LoadOrStore(s, s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion}))
+	return scope.(string)
+}
+
 func spawnAsync(ctx context.Context, t *testing.T, s *Supervisor, c *asyncChild) SpawnTicket {
 	t.Helper()
-	ticket, err := s.Spawn(ctx, c.job)
+	if c.job.Group != "" && c.job.GroupScope == "" {
+		c.job.GroupScope = testGroupScope(s)
+	}
+	ticket, _, err := s.Spawn(ctx, c.job)
 	if err != nil {
 		t.Fatalf("Spawn(%s): %v", c.job.AgentID, err)
 	}
 	return ticket
 }
 
-func newAsyncSupervisor(maxParallel int, events output.EventSink) (*Supervisor, *channelSink) {
+func newAsyncSupervisor(maxParallel int) (*Supervisor, *channelSink) {
 	sink := newChannelSink()
-	s := NewSupervisor(SupervisorOptions{MaxParallel: maxParallel, Events: events})
+	s := seedUnscopedGroups(NewSupervisor(SupervisorOptions{MaxParallel: maxParallel}))
 	s.SetCompletionSink(sink)
 	return s, sink
 }
 
 func TestSupervisorPendingLifecycle(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	a, b := newAsyncChild("a", ""), newAsyncChild("b", "")
 	spawnAsync(context.Background(), t, s, a)
 	<-a.started
@@ -137,7 +150,7 @@ func TestSupervisorPendingLifecycle(t *testing.T) {
 }
 
 func TestSupervisorCompletionRecord(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	a := newAsyncChild("a", "")
 	spawnAsync(context.Background(), t, s, a)
 	close(a.release)
@@ -166,7 +179,7 @@ func TestSupervisorQuietFollowsCause(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, sink := newAsyncSupervisor(1, nil)
+			s, sink := newAsyncSupervisor(1)
 			a := newAsyncChild("a", "")
 			spawnAsync(context.Background(), t, s, a)
 			<-a.started
@@ -193,7 +206,7 @@ func TestSupervisorQuietFollowsCause(t *testing.T) {
 }
 
 func TestSupervisorQueuedCancelCompletionIsQuiet(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	a, b := newAsyncChild("a", ""), newAsyncChild("b", "")
 	spawnAsync(context.Background(), t, s, a)
 	<-a.started
@@ -212,15 +225,16 @@ func TestSupervisorQueuedCancelCompletionIsQuiet(t *testing.T) {
 
 func TestSupervisorDelegationQueuedEvent(t *testing.T) {
 	events := &queuedEventSink{}
-	s, sink := newAsyncSupervisor(1, events)
+	s, sink := newAsyncSupervisor(1)
 	a, b := newAsyncChild("a", ""), newAsyncChild("b", "")
+	a.job.Events, b.job.Events = events, events
 
 	if ticket := spawnAsync(context.Background(), t, s, a); ticket.Queued || ticket.AgentID != "a" {
 		t.Fatalf("first ticket = %+v", ticket)
 	}
 	<-a.started
-	if len(events.events) != 0 {
-		t.Fatalf("event emitted for a started job: %+v", events.events)
+	if len(events.events) != 1 || events.events[0].Type != output.EventTypeDelegationAccepted {
+		t.Fatalf("events for accepted started job = %+v, want one accepted event", events.events)
 	}
 	if ticket := spawnAsync(context.Background(), t, s, b); !ticket.Queued {
 		t.Fatalf("second ticket = %+v, want queued", ticket)
@@ -229,12 +243,12 @@ func TestSupervisorDelegationQueuedEvent(t *testing.T) {
 	events.mu.Lock()
 	got := append([]output.Event(nil), events.events...)
 	events.mu.Unlock()
-	if len(got) != 1 || got[0].Type != output.EventTypeDelegationQueued {
-		t.Fatalf("events = %+v, want one delegation_queued", got)
+	if len(got) != 3 || got[0].Type != output.EventTypeDelegationAccepted || got[1].Type != output.EventTypeDelegationAccepted || got[2].Type != output.EventTypeDelegationQueued {
+		t.Fatalf("events = %+v, want two accepted events then delegation_queued", got)
 	}
-	payload, ok := got[0].Payload.(output.DelegationQueuedEvent)
+	payload, ok := got[2].Payload.(output.DelegationQueuedEvent)
 	if !ok || payload.AgentID != "b" || payload.CallID != "call-b" || payload.AgentType != "explore" || payload.TaskPreview != "objective b" {
-		t.Fatalf("payload = %#v", got[0].Payload)
+		t.Fatalf("payload = %#v", got[2].Payload)
 	}
 	close(a.release)
 	close(b.release)
@@ -243,12 +257,12 @@ func TestSupervisorDelegationQueuedEvent(t *testing.T) {
 }
 
 func TestSupervisorLedgerIncludesWorktreeAfterDequeue(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	provisioned := make(chan struct{})
 	release := make(chan struct{})
 	prepared := make(chan struct{})
 	job := ChildJob{
-		AgentID: "w", AgentType: AgentTypeCode, ParentCallID: "call-w", Group: "g",
+		AgentID: "w", AgentType: AgentTypeCode, ParentCallID: "call-w",
 		Prepare: func(context.Context) (CodeWorktree, error) {
 			<-prepared
 			return CodeWorktree{Path: "/wt/w", Branch: "delegate/w"}, nil
@@ -259,11 +273,11 @@ func TestSupervisorLedgerIncludesWorktreeAfterDequeue(t *testing.T) {
 			return tool.ExecutionResult{Value: Result{AgentID: "w", Status: StatusComplete}}, nil
 		},
 	}
-	if _, err := s.Spawn(context.Background(), job); err != nil {
+	if _, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), testBatchID(1)), job); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 
-	want := agent.SubAgentLedgerEntry{AgentID: "w", AgentType: "code", ParentCallID: "call-w", Group: "g"}
+	want := agent.SubAgentLedgerEntry{AgentID: "w", AgentType: "code", ParentCallID: "call-w", BatchID: testBatchID(1)}
 	if got := s.Ledger(); !reflect.DeepEqual(got, []agent.SubAgentLedgerEntry{want}) {
 		t.Fatalf("Ledger before provisioning = %+v", got)
 	}
@@ -287,7 +301,7 @@ func TestSupervisorLedgerIncludesWorktreeAfterDequeue(t *testing.T) {
 }
 
 func TestSupervisorPrepareFailureProducesFinalResult(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	boom := errors.New("provision blew up")
 	job := ChildJob{
 		AgentID: "p", AgentType: AgentTypeCode, ParentCallID: "call-p",
@@ -297,7 +311,7 @@ func TestSupervisorPrepareFailureProducesFinalResult(t *testing.T) {
 			return tool.ExecutionResult{}, nil
 		},
 	}
-	if _, err := s.Spawn(context.Background(), job); err != nil {
+	if _, _, err := s.Spawn(context.Background(), job); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 	c := recv(t, sink.ch, "completion")[0]
@@ -310,15 +324,22 @@ func TestSupervisorPrepareFailureProducesFinalResult(t *testing.T) {
 }
 
 func TestSupervisorSpawnAndWaitPostsNothing(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	a := newAsyncChild("a", "g")
-	done := spawn(context.Background(), s, a.job)
+	ctx := agent.WithToolBatchID(context.Background(), testBatchID(1))
+	started := make(chan spawnResult, 1)
+	go func() {
+		result, err := s.SpawnAndWait(ctx, a.job)
+		started <- spawnResult{result: result, err: err}
+	}()
 	<-a.started
 	if !s.IsPending("a") {
 		t.Fatal("running blocking job must be pending")
 	}
 	close(a.release)
-	recv(t, done, "SpawnAndWait")
+	if got := recv(t, started, "SpawnAndWait"); got.err != nil {
+		t.Fatalf("SpawnAndWait: %v", got.err)
+	}
 	if s.IsPending("a") || s.HasPending() {
 		t.Fatal("blocking caller must mark delivered on return")
 	}
@@ -328,10 +349,11 @@ func TestSupervisorSpawnAndWaitPostsNothing(t *testing.T) {
 func TestSupervisorNilSinkPostsNothing(t *testing.T) {
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
 	a := newAsyncChild("a", "g")
-	spawnAsync(agent.WithToolBatchID(context.Background(), "b1"), t, s, a)
+	a.job.GroupScope = s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	spawnAsync(agent.WithToolBatchID(context.Background(), testBatchID(1)), t, s, a)
 	close(a.release)
 	waitFinished(t, s, "a")
-	s.SealBatch("b1")
+	s.SealGroupBatch(a.job.GroupScope, testBatchID(1))
 	s.MarkDelivered([]string{"call-a"})
 	if s.IsPending("a") {
 		t.Fatal("ungrouped nil-sink completion should be ackable")
@@ -350,7 +372,7 @@ func TestSupervisorShutdownPostsUnjoinedOnce(t *testing.T) {
 			return tool.ExecutionResult{Value: Result{Status: StatusComplete}}, nil
 		},
 	}
-	if _, err := s.Spawn(context.Background(), job); err != nil {
+	if _, _, err := s.Spawn(context.Background(), job); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 	report := s.Shutdown(context.Background(), CancelCauseSystem)

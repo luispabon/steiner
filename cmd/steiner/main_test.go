@@ -683,7 +683,7 @@ func TestCLIRunnerReturnsCancelledDiagnosticsWithoutError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	result, err := runner.Run(ctx, []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil, nil)
+	result, err := runner.RunWithHooks(ctx, []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil, runHooks{})
 	if err != nil {
 		t.Fatalf("Run() error = %v, want nil", err)
 	}
@@ -718,7 +718,7 @@ func TestCLIRunnerSearchBackendFailureFinishesRun(t *testing.T) {
 		},
 	}
 
-	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil, nil); err == nil {
+	if _, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil, runHooks{}); err == nil {
 		t.Fatal("Run() error = nil, want search backend error")
 	}
 	if len(events) != 2 {
@@ -779,7 +779,7 @@ func TestCLIRunnerEmitsRunLifecycleEvents(t *testing.T) {
 		runMode: "interactive",
 	}
 
-	_, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil, nil)
+	_, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil, runHooks{})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -1101,7 +1101,7 @@ func TestCLIRunnerPassesRegistryToolsToProvider(t *testing.T) {
 		},
 	}
 
-	_, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "list files"}}, nil, nil)
+	_, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "list files"}}, nil, runHooks{})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -1147,11 +1147,11 @@ func TestCLIRunnerUsesSelectedSkillSubset(t *testing.T) {
 		},
 	}
 
-	_, err := runner.Run(
+	_, err := runner.RunWithHooks(
 		context.Background(),
 		[]agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}},
 		[]string{"review"},
-		nil,
+		runHooks{},
 	)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -1286,7 +1286,7 @@ func TestCLIRunnerReturnsContextDiagnostics(t *testing.T) {
 		},
 	}
 
-	result, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "run bash"}}, nil, nil)
+	result, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "run bash"}}, nil, runHooks{})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -1356,7 +1356,7 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 		},
 	}
 
-	_, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil, nil)
+	_, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "fix the bug"}}, nil, runHooks{})
 	if err == nil {
 		t.Fatal("Run() error = nil, want irreducible compaction failure")
 	}
@@ -1441,7 +1441,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 		},
 	}
 
-	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first"}}, nil, nil); err != nil {
+	if _, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first"}}, nil, runHooks{}); err != nil {
 		t.Fatalf("first Run() error = %v", err)
 	}
 	first, ok := store.Snapshot()
@@ -1456,7 +1456,7 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 	}
 
 	runner.runtime.cfg.Models.Effective.ActiveOrchestratorModel = "large"
-	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil, nil); err != nil {
+	if _, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil, runHooks{}); err != nil {
 		t.Fatalf("second Run() error = %v", err)
 	}
 	second, ok := store.Snapshot()
@@ -1531,7 +1531,7 @@ func TestCLIRunnerUsesCurrentModelCallback(t *testing.T) {
 		},
 	}
 
-	_, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first"}}, nil, nil)
+	_, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first"}}, nil, runHooks{})
 	if err != nil {
 		t.Fatalf("first Run() error = %v", err)
 	}
@@ -1540,7 +1540,7 @@ func TestCLIRunnerUsesCurrentModelCallback(t *testing.T) {
 		t.Fatalf("first request model = %q, want %q", firstReq.Model, "gpt-4o-mini")
 	}
 
-	_, err = runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil, nil)
+	_, err = runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil, runHooks{})
 	if err != nil {
 		t.Fatalf("second Run() error = %v", err)
 	}
@@ -1604,7 +1604,7 @@ func TestCLIRunnerUsesSessionCurrentModelAliasCallback(t *testing.T) {
 		currentAlias: sess.CurrentModelAlias,
 	}
 
-	_, err = runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first"}}, nil, nil)
+	_, err = runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first"}}, nil, runHooks{})
 	if err != nil {
 		t.Fatalf("first Run() error = %v", err)
 	}
@@ -1615,7 +1615,7 @@ func TestCLIRunnerUsesSessionCurrentModelAliasCallback(t *testing.T) {
 	if err := sess.Handle(context.Background(), interactive.SwitchModel{Name: "large"}); err != nil {
 		t.Fatalf("Handle(SwitchModel) error = %v", err)
 	}
-	_, err = runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil, nil)
+	_, err = runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil, runHooks{})
 	if err != nil {
 		t.Fatalf("second Run() error = %v", err)
 	}
@@ -1663,7 +1663,7 @@ func TestCLIRunnerPropagatesExtraParamsToProvider(t *testing.T) {
 		maxTurns: 1,
 	}
 
-	if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}}, nil, nil); err != nil {
+	if _, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "hello"}}, nil, runHooks{}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if got, want := len(providerStub.requests), 1; got != want {

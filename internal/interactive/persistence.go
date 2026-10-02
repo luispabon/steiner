@@ -61,6 +61,10 @@ func (s *Session) saveSession() error {
 	sess.Mode = string(s.mode)
 	sess.Skills = s.skills.Snapshot()
 	sess.SubAgentLedger = slices.Clone(s.ledger)
+	if s.delegationGroups != nil {
+		groups := s.delegationGroups.Clone()
+		sess.DelegationGroups = &groups
+	}
 	if s.sessionTitle != "" {
 		sess = sess.WithTitle(s.sessionTitle)
 	}
@@ -71,7 +75,7 @@ func (s *Session) saveSession() error {
 // rotateSession assigns a fresh session identity and optionally updates the group.
 func (s *Session) rotateSession(group string, updateGroup bool) error {
 	s.mu.Lock()
-	if err := s.replacementGuardLocked("rotate session", false); err != nil {
+	if err := s.replacementGuardLocked("rotate session"); err != nil {
 		s.mu.Unlock()
 		return s.reportReplacementGuardError("rotate session", err)
 	}
@@ -124,12 +128,10 @@ func (s *Session) refuseRunInProgress(action string) error {
 	return fmt.Errorf("%s: %w", action, errRunInProgress)
 }
 
-// refuseWhilePending refuses a session-replacing action while sub-agents are
-// still running, surfacing the reason as an overlay notice and error. Callers
-// that also refuse during a run check that separately: clear and rotate stay
-// allowed mid-run because a workflow handoff rotates from inside one.
+// loadSessionGuardLocked checks run, compaction, queued-prompt, admission, and
+// pending sub-agent guards before a saved session replaces the current one.
 func (s *Session) loadSessionGuardLocked() error {
-	return s.replacementGuardLocked("load session", true)
+	return s.replacementGuardLocked("load session")
 }
 
 func (s *Session) reportReplacementGuardError(action string, err error) error {
@@ -168,18 +170,19 @@ func (s *Session) reportLoadGuardError(err error) error {
 	return err
 }
 
-// loadSession replaces the current conversation and lineage with a previously
-// saved session, following the ClearConversation pattern but seeding from stored lineage.
-func (s *Session) loadSession(ctx context.Context, sessionID string) error {
-	if s.deps.SessionStore == nil {
-		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))
-		return nil
-	}
-
+// loadSessionPreflight loads and validates persisted state before it can replace
+// the current session.
+func (s *Session) loadSessionPreflight(sessionID string) (session.Session, agent.DelegationGroupLedger, config.ExecutionMode, error) {
 	sess, err := s.deps.SessionStore.Load(sessionID)
 	if err != nil {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("load session failed: %v", err)))
-		return err
+		return session.Session{}, agent.DelegationGroupLedger{}, "", err
+	}
+
+	groupLedger, err := resolveDelegationGroups(sess.DelegationGroups, sess.Lineage)
+	if err != nil {
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("load session failed: %v", err)))
+		return session.Session{}, agent.DelegationGroupLedger{}, "", err
 	}
 
 	// Validate the persisted mode before touching session state: empty falls
@@ -189,10 +192,25 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	if mode != "" && mode != config.ExecutionModePlan && mode != config.ExecutionModeBuild {
 		err := fmt.Errorf("load session: unknown mode %q", mode)
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("load session failed: %v", err)))
-		return err
+		return session.Session{}, agent.DelegationGroupLedger{}, "", err
 	}
 	if mode == "" {
 		mode = s.deps.Config.Modes.Default
+	}
+	return sess, groupLedger, mode, nil
+}
+
+// loadSession replaces the current conversation and lineage with a previously
+// saved session, following the ClearConversation pattern but seeding from stored lineage.
+func (s *Session) loadSession(ctx context.Context, sessionID string) error {
+	if s.deps.SessionStore == nil {
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", "session store not configured"))
+		return nil
+	}
+
+	sess, groupLedger, mode, err := s.loadSessionPreflight(sessionID)
+	if err != nil {
+		return err
 	}
 
 	s.mu.Lock()
@@ -210,6 +228,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		s.sessionGroup = strings.TrimSpace(sess.Group)
 		s.mode = mode
 		s.ledger = slices.Clone(sess.SubAgentLedger)
+		s.delegationGroups = &groupLedger
 		s.skills.Reset()
 		for _, name := range sess.Skills {
 			s.skills.Set(name, true)
@@ -229,7 +248,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		listener(mode)
 	}
 
-	s.replaySessionMessages(msgs)
+	s.replaySessionMessages(msgs, sess.SubAgentLedger)
 	s.emitUnansweredResults(msgs, "")
 	// Lost sub-agents settle only after replay so their delivered event lands
 	// after the replayed transcript, not before it.
@@ -349,14 +368,15 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 
 	s.mu.RLock()
 	currentSession := session.Session{
-		ID:             s.sessionID,
-		Title:          s.sessionTitle,
-		Model:          currentModelConfig(s.deps.Config).ID,
-		Mode:           string(s.mode),
-		Group:          s.sessionGroup,
-		Lineage:        s.lineage,
-		PromptCacheKey: s.promptCacheKey,
-		Skills:         s.skills.Snapshot(),
+		ID:               s.sessionID,
+		Title:            s.sessionTitle,
+		Model:            currentModelConfig(s.deps.Config).ID,
+		Mode:             string(s.mode),
+		Group:            s.sessionGroup,
+		Lineage:          s.lineage,
+		PromptCacheKey:   s.promptCacheKey,
+		Skills:           s.skills.Snapshot(),
+		DelegationGroups: agent.CloneDelegationGroupLedger(s.delegationGroups),
 	}
 	originalTitle := s.sessionTitle
 	s.mu.RUnlock()
@@ -396,6 +416,13 @@ func (s *Session) handleForkSavedSession(ctx context.Context, sessionID string) 
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("fork saved session failed: %v", err)))
 		return err
 	}
+
+	groupLedger, err := resolveDelegationGroups(loadedSession.DelegationGroups, loadedSession.Lineage)
+	if err != nil {
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("fork saved session failed: %v", err)))
+		return err
+	}
+	loadedSession.DelegationGroups = &groupLedger
 
 	forked, err := session.Fork(loadedSession)
 	if err != nil {

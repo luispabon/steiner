@@ -123,6 +123,7 @@ func (p *turnProgressor) normalizeModelResponse(_ RunState, turn int, response p
 	if response.Message.Role == "" {
 		response.Message.Role = provider.MessageRoleAssistant
 	}
+	response.Message.ToolCalls = withToolCallIDs(response.Message.ToolCalls)
 	if response.Message.Content == "" {
 		return response
 	}
@@ -212,10 +213,11 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 	turn := state.TurnCount
 	calls := response.Message.ToolCalls
 	if len(calls) > 0 {
-		batchID := calls[0].ID
+		batchID := newToolBatchID(calls[0].ID)
 		ctx = WithToolBatchID(ctx, batchID)
-		if p.request.OnToolBatchDone != nil && batchID != "" {
-			defer p.request.OnToolBatchDone(batchID)
+		p.batchID = batchID
+		if p.request.Sealer != nil && p.request.GroupScope != "" {
+			defer p.request.Sealer.SealGroupBatch(p.request.GroupScope, batchID)
 		}
 	}
 	p.queuedDelegations = p.queueDelegationCalls(turn, calls)
@@ -374,7 +376,8 @@ func (p *turnProgressor) drainQueuedDelegations(turn int) {
 		if queued.started[call.ID] {
 			continue
 		}
-		emitEvent(p.request.Events, output.NewToolCallFinishedEvent(turn, call.Name, call.ID, "", errNotDispatched))
+		admission := p.notDispatchedAdmission(call.Name)
+		emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, "", errNotDispatched, output.ToolPreview{}, admission))
 	}
 }
 
@@ -539,18 +542,26 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 	var preview output.ToolPreview
 	normalizedResult := ToolResultEnvelope{}
 	if err != nil {
+		normalizedResult.DelegationAdmission = admissionFromToolResult(result)
+		if normalizedResult.DelegationAdmission == nil {
+			normalizedResult.DelegationAdmission = tool.DelegationAdmissionFromError(err)
+		}
+		if normalizedResult.DelegationAdmission == nil {
+			normalizedResult.DelegationAdmission = p.defaultRejectedAdmission(call.Name, err)
+		}
 		if projected, ok := projectedToolError(err); ok {
 			toolContent = projected
 		} else {
 			toolContent = formatToolError(err)
 		}
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
-		if emitFinished {
-			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, err, preview))
-		}
+		p.emitToolFinished(turn, call, toolContent, err, preview, normalizedResult.DelegationAdmission, emitFinished)
 	} else {
 		recordMutationForContextManager(p.request.ContextManager, call.Name, call.Arguments, result)
 		normalizedResult = normalizeToolResult(result)
+		if normalizedResult.DelegationAdmission == nil && p.isDelegationCall(call.Name) {
+			normalizedResult.DelegationAdmission = &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted}
+		}
 		if normalizedResult.Projected {
 			projected, ok := projectedToolResult(resultValue(result))
 			if ok {
@@ -562,9 +573,7 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 			toolContent = shapeFreshToolResultForContextManager(p.request.ContextManager, turn, call.Name, cloneInput(call.Arguments), normalizedResult.Content, prior)
 		}
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
-		if emitFinished {
-			emitEvent(p.request.Events, output.NewToolCallFinishedEventWithPreview(turn, call.Name, call.ID, toolContent, nil, preview))
-		}
+		p.emitToolFinished(turn, call, toolContent, nil, preview, normalizedResult.DelegationAdmission, emitFinished)
 	}
 	toolMessage := Message{
 		Role:       MessageRoleTool,
@@ -573,6 +582,7 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		Name:       call.Name,
 		Turn:       turn,
 	}
+	toolMessage.DelegationAdmission = normalizedResult.DelegationAdmission.Clone()
 	if err == nil {
 		toolMessage.Retention = cloneMessageRetention(normalizedResult.Retention)
 		if normalizedResult.Image != nil {
@@ -586,6 +596,46 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		}
 	}
 	return toolMessage
+}
+
+func (p *turnProgressor) emitToolFinished(turn int, call provider.ToolCall, content string, err error, preview output.ToolPreview, admission *tool.DelegationAdmission, emit bool) {
+	if !emit {
+		return
+	}
+	emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, content, err, preview, admission))
+}
+
+func (p *turnProgressor) isDelegationCall(toolName string) bool {
+	return p.request.ParallelClassOf != nil && p.request.ParallelClassOf(toolName) == ParallelClassDelegation
+}
+
+func (p *turnProgressor) notDispatchedAdmission(toolName string) *tool.DelegationAdmission {
+	if !p.isDelegationCall(toolName) {
+		return nil
+	}
+	return &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, BatchID: p.batchID}
+}
+
+// defaultRejectedAdmission synthesises the rejected admission of a failed
+// delegation call that carried none, flagging policy denials.
+func (p *turnProgressor) defaultRejectedAdmission(toolName string, err error) *tool.DelegationAdmission {
+	admission := p.notDispatchedAdmission(toolName)
+	if admission == nil {
+		return nil
+	}
+	var toolErr *tool.ToolExecutionError
+	if errors.As(err, &toolErr) && toolErr.Kind == "policy_denied" {
+		admission.PolicyNotice = true
+	}
+	return admission
+}
+
+func admissionFromToolResult(result any) *tool.DelegationAdmission {
+	execution, ok := result.(tool.ExecutionResult)
+	if !ok {
+		return nil
+	}
+	return execution.DelegationAdmission.Clone()
 }
 
 func resultValue(result any) any {
@@ -650,6 +700,10 @@ type turnProgressor struct {
 	// terminated with a tool_call_finished error event so the UI can close them.
 	// Nil when no delegation call was queued.
 	queuedDelegations *queuedDelegationCalls
+	// batchID is the id of the tool batch being executed, stamped on the
+	// rejected admissions the loop synthesises so every delegation finish
+	// carries its full occurrence identity.
+	batchID string
 }
 
 func newTurnProgressor(req RunRequest, base prompt.AssemblyOptions, compactFn compactConversationFn) *turnProgressor {

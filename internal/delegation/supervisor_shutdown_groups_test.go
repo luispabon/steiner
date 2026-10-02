@@ -18,9 +18,9 @@ func TestSupervisorShutdownReleasesHeldGroups(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, sink := newAsyncSupervisor(2, nil)
+			s, sink := newAsyncSupervisor(2)
 			s.joinTimeout = 1
-			ctx := agent.WithToolBatchID(context.Background(), "b1")
+			ctx := agent.WithToolBatchID(context.Background(), testBatchID(1))
 			done := newAsyncChild("done", "g")
 			stuck := make(chan struct{})
 			stuckChild := newAsyncChild("stuck", "g")
@@ -36,7 +36,7 @@ func TestSupervisorShutdownReleasesHeldGroups(t *testing.T) {
 			waitFinished(t, s, "done")
 			sink.none(t)
 			if tt.seal {
-				s.SealBatch("b1")
+				s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 				sink.none(t)
 			}
 

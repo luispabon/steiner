@@ -1,0 +1,12 @@
+user_input {"content":"go","mode":"resume"}
+assistant_message {"role":"assistant"}
+tool_call_started {"turn":0,"tool":"sub_agent","call_id":"call-1","arguments":{"task":"first"}}
+delegation_accepted {"call_id":"call-1","batch_id":"batch-1","agent_id":"agent-a","group":"g"}
+delegation_started {"call_id":"call-1","batch_id":"batch-1","agent_id":"agent-a","task_preview":"first"}
+tool_call_finished {"turn":0,"tool":"sub_agent","call_id":"call-1","result":"{\"output\":\"Sub-agent started; its result will arrive as a message.\",\"status\":\"running\",\"continuation\":{\"agent_id\":\"agent-a\"}}","delegation_admission":{"status":"accepted","batch_id":"batch-1","group":"g","agent_id":"agent-a","policy_notice":false}}
+tool_call_started {"turn":0,"tool":"sub_agent","call_id":"call-2","arguments":{"task":"second"}}
+delegation_accepted {"call_id":"call-2","batch_id":"batch-1","agent_id":"agent-b","group":"g"}
+delegation_queued {"call_id":"call-2","batch_id":"batch-1","agent_id":"agent-b","task_preview":"second"}
+tool_call_finished {"turn":0,"tool":"sub_agent","call_id":"call-2","result":"{\"output\":\"Sub-agent started; its result will arrive as a message.\",\"status\":\"queued\",\"continuation\":{\"agent_id\":\"agent-b\"}}","delegation_admission":{"status":"accepted","batch_id":"batch-1","group":"g","agent_id":"agent-b","policy_notice":false}}
+delegation_complete {"call_id":"call-1","batch_id":"batch-1","agent_id":"agent-a","agent_type":"explore","duration_ms":2000,"status":"completed","turn_count":3,"token_count":120,"tool_call_count":0,"output":"found it"}
+sub_agents_delivered {"items":[{"agent_id":"agent-a","agent_type":"explore","status":"completed","parent_call_id":"call-1","batch_id":"batch-1","duration_ms":2000}]}

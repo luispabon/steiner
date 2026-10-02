@@ -28,14 +28,13 @@ type RunInput struct {
 	Conversation []agent.Message
 	// DrainInbox returns the next boundary delivery for the run.
 	DrainInbox func() agent.InboxDrain
-	// OnToolBatchDone is called after every tool batch; nil when the session
-	// has no sub-agents.
-	OnToolBatchDone func(batchID string)
 	// PendingSubAgents lists the sub-agents still running; nil when the session
 	// has no sub-agents.
 	PendingSubAgents func() []agent.PendingSubAgent
 	// MaxTokens caps the run's tokens; 0 means the runner default.
 	MaxTokens int
+	// DelegationGroupScope identifies the run's delegation group-name ledger.
+	DelegationGroupScope string
 }
 
 // runExecutor starts and manages model-in-the-loop runs. Consumer-defined to
@@ -127,6 +126,11 @@ type Dependencies struct {
 	// Background is the sub-agent supervisor the conversation driver consults.
 	// Nil when the session has no sub-agents.
 	Background agent.BackgroundAgents
+	// Group-scope callbacks use the runtime supervisor for interactive runs.
+	// OpenGroupScope opens a driver's scope; the run stream's requests carry
+	// it (RunInput.DelegationGroupScope) and the loop seals it, never the session.
+	OpenGroupScope      func(agent.DelegationGroupLedger) (scope string, release func())
+	SnapshotGroupLedger func(string) agent.DelegationGroupLedger
 	// SetCompletionSink installs the driver as the supervisor's completion
 	// sink each time the session builds one, replacing a retired driver.
 	SetCompletionSink func(agent.CompletionSink)

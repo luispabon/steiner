@@ -15,9 +15,13 @@ func (e *SetupError) Unwrap() error { return e.err }
 // ProjectToolError returns the compact provider-facing setup failure.
 func (e *SetupError) ProjectToolError() agent.DelegationResultEnvelope {
 	reason := "child setup failed"
-	if errors.Is(e.err, ErrAgentAlreadyActive) {
+	var reservationErr *groupReservationError
+	switch {
+	case errors.As(e.err, &reservationErr):
+		reason = reservationErr.correctiveReason()
+	case errors.Is(e.err, ErrAgentAlreadyActive):
 		reason = "agent_id already has a call in flight — a previous dispatch or follow_up to this agent hasn't returned yet; wait for that result before sending another follow_up to the same agent_id, or continue other independent work in the meantime"
-	} else if errors.Is(e.err, ErrCodeWorktreeRequiresCommit) {
+	case errors.Is(e.err, ErrCodeWorktreeRequiresCommit):
 		reason = "code sub-agent requires a Git repository with at least one commit; commit the project files and retry"
 	}
 	return agent.DelegationResultEnvelope{Output: "", Status: "failed", Reason: reason}

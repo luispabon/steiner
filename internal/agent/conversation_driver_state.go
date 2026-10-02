@@ -34,19 +34,20 @@ func (d *ConversationDriver) State() (DriverState, bool) {
 	return d.state, d.held
 }
 
-// Busy reports whether a run or compaction is in flight or a submitted prompt
-// is queued and not yet started.
+// Busy reports whether a run or compaction is in flight, a submitted prompt
+// is queued and not yet started, or a transition snapshot is being saved.
 func (d *ConversationDriver) Busy() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.state == DriverGenerating || d.compacting || len(d.compactions) > 0 || len(d.users) > 0
+	return !d.idleLocked()
 }
 
 // Snapshot returns a copy of the driver's durable state.
 func (d *ConversationDriver) Snapshot() DriverSnapshot {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.snapshotLocked()
+	snap := d.snapshotLocked()
+	d.mu.Unlock()
+	return d.withGroupLedger(snap)
 }
 
 func (d *ConversationDriver) snapshotLocked() DriverSnapshot {
@@ -54,6 +55,15 @@ func (d *ConversationDriver) snapshotLocked() DriverSnapshot {
 	if d.opts.Background != nil {
 		snap.Ledger = d.opts.Background.Ledger()
 	}
+	return snap
+}
+
+func (d *ConversationDriver) withGroupLedger(snap DriverSnapshot) DriverSnapshot {
+	ledger := d.opts.GroupLedger
+	if d.opts.SnapshotDelegationGroups != nil {
+		ledger = d.opts.SnapshotDelegationGroups()
+	}
+	snap.GroupLedger = ledger.Clone()
 	return snap
 }
 

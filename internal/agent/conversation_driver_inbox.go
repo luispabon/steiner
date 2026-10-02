@@ -166,6 +166,7 @@ func (d *ConversationDriver) drainItemsLocked(prefix DeliveryParts) (InboxDrain,
 				AgentType:    c.AgentType,
 				Status:       c.Status,
 				ParentCallID: c.ParentCallID,
+				BatchID:      c.BatchID,
 				DurationMs:   c.Duration.Milliseconds(),
 			}
 		}
