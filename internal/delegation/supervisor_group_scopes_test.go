@@ -2,6 +2,7 @@ package delegation
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"sync"
 	"testing"
@@ -73,8 +74,16 @@ func TestGroupScopeCanonicalNamesAndWhitespaceUngrouped(t *testing.T) {
 	}
 	conflict := newAsyncChild("conflict", "g")
 	conflict.job.GroupScope = scope
-	if _, err := s.Spawn(batchCtx("other"), conflict.job); err == nil {
+	_, err := s.Spawn(batchCtx("other"), conflict.job)
+	if err == nil {
 		t.Fatal("canonical duplicate name in another batch was accepted")
+	}
+	var reservationErr *groupReservationError
+	if !errors.As(err, &reservationErr) || reservationErr.name != "g" || reservationErr.batch != "other" || reservationErr.sealed {
+		t.Fatalf("reservation error = %T %#v, want reused name g", err, err)
+	}
+	if got, want := err.Error(), `delegation group name "g" was already used; choose a fresh name`; got != want {
+		t.Fatalf("reservation error text = %q, want %q", got, want)
 	}
 	close(a.release)
 	waitClosed(t, c.started, "c started")

@@ -133,6 +133,44 @@ func TestHandlerAdmissionValidationRejectsThroughExecutor(t *testing.T) {
 	}
 }
 
+func TestHandlerGroupReuseRejectsWithTypedCorrectiveSetupError(t *testing.T) {
+	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}})
+	deps.Supervisor = NewSupervisor(SupervisorOptions{MaxParallel: 1})
+	input := subAgentTask(AgentTypeExplore, "inspect")
+	input["group"] = " reused-group "
+	def := SubAgentToolDef(deps, nil)
+	if _, err := def.Handler(batchCtx("first-batch"), input); err != nil {
+		t.Fatalf("first handler call: %v", err)
+	}
+	_, err := def.Handler(batchCtx("second-batch"), input)
+	if err == nil {
+		t.Fatal("second handler call returned nil error")
+	}
+	var carrier tool.DelegationAdmissionCarrier
+	if !errors.As(err, &carrier) {
+		t.Fatalf("error %T does not carry admission", err)
+	}
+	admission := carrier.DelegationAdmissionMetadata()
+	if admission == nil || admission.Status != tool.DelegationAdmissionRejected || admission.BatchID != "second-batch" || admission.Group != "reused-group" {
+		t.Fatalf("admission = %+v, want rejected reused-group admission", admission)
+	}
+	var setupErr *SetupError
+	if !errors.As(err, &setupErr) {
+		t.Fatalf("error %T does not retain SetupError", err)
+	}
+	var reservationErr *groupReservationError
+	if !errors.As(err, &reservationErr) || !errors.Is(err, reservationErr) || reservationErr.name != "reused-group" {
+		t.Fatalf("error %T does not retain typed reservation cause", err)
+	}
+	projection := setupErr.ProjectToolError()
+	want := `delegation group name "reused-group" was already used; choose a fresh name`
+	if projection.Status != "failed" || projection.Output != "" || projection.Reason != want {
+		t.Fatalf("setup projection = %+v, want reason %q", projection, want)
+	}
+}
+
 func TestBlockingHandlerAcceptedExecutionFailureKeepsMetadata(t *testing.T) {
 	failure := errors.New("runner execution failed")
 	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) { return agent.RunState{}, failure }})

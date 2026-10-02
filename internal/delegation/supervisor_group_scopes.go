@@ -81,6 +81,26 @@ func (s *Supervisor) maybeDeleteScopeLocked(scope string) {
 
 func normalizeGroup(name string) string { return strings.TrimSpace(name) }
 
+type groupReservationError struct {
+	name   string
+	batch  string
+	sealed bool
+}
+
+func (e *groupReservationError) Error() string {
+	if e.sealed {
+		return fmt.Sprintf("delegation group batch %q is sealed; use a fresh group name", e.batch)
+	}
+	return fmt.Sprintf("delegation group name %q was already used; choose a fresh name", e.name)
+}
+
+func (e *groupReservationError) correctiveReason() string {
+	if e.sealed {
+		return fmt.Sprintf("delegation group name %q cannot join sealed batch %q; use a fresh group name", e.name, e.batch)
+	}
+	return fmt.Sprintf("delegation group name %q was already used; choose a fresh name", e.name)
+}
+
 func (s *Supervisor) reserveGroupLocked(scope, name, batch string) error {
 	name = normalizeGroup(name)
 	if name == "" {
@@ -94,13 +114,13 @@ func (s *Supervisor) reserveGroupLocked(scope, name, batch string) error {
 		return fmt.Errorf("unknown delegation group scope %q", scope)
 	}
 	if state.batches[batch] {
-		return fmt.Errorf("delegation group batch %q is sealed; use a fresh group name", batch)
+		return &groupReservationError{name: name, batch: batch, sealed: true}
 	}
 	if owner, exists := state.names[name]; exists {
 		if owner == batch {
 			return nil
 		}
-		return fmt.Errorf("delegation group name %q was already used; choose a fresh name", name)
+		return &groupReservationError{name: name, batch: batch}
 	}
 	state.names[name] = batch
 	return nil
