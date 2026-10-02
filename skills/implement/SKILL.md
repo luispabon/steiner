@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Execute an approved coding plan as serial-first implementation steps with tight scope control, planner-defined verification strategy, and isolated Steiner delegation/worktree execution. Use when planning is complete and the task should be implemented from the planner's artifacts.
+description: Execute an approved coding plan as serial-first implementation steps with tight scope control, planner-defined verification strategy, and isolated delegation/worktree execution. Use when planning is complete and the task should be implemented from the planner's artifacts.
 ---
 
 # Coding Loop Executor
@@ -29,7 +29,7 @@ Follow this sequence:
 2. Check out the expected feature branch.
 3. Load verification strategy from `overview.md`.
 4. Create or resume compact `execution.md`.
-5. Execute ready implementation steps — dispatch one sub-agent per step via the delegation model: end the turn after dispatch and act when the result arrives. Do not implement directly unless the step is marked `no_delegate`, in that case make sure to state explicitly why the change is not being delegated.
+5. Execute ready implementation steps via the delegation model. Decompose each delegated step into bounded sub-tasks where useful; dispatch one sub-agent per task. End the turn after dispatch and act when results arrive. Do not implement directly unless the step is marked `no_delegate`, in that case make sure to state explicitly why the change is not being delegated.
 6. Run planned verification and fix failures.
 7. Ask for manual verification only when the plan or risk requires it.
 8. If planning artifacts are version-controlled, commit final executor state. Hand off to review.
@@ -43,7 +43,7 @@ Stop and report blockers instead of widening scope.
 - active branch
 - loaded verification strategy or explicit overrides
 - current, completed, blocked, and skipped steps
-- Steiner delegated agents used and their step ids
+- sub-agents used, their parent step ids, and any sub-task ids
 - verification commands and results
 - deviations, blockers, and manual verification notes
 - final reviewer handoff status
@@ -74,7 +74,7 @@ Expected step fields:
 - `acceptance`
 - `verification`
 
-`approach` is authoritative for *how* a step is built: delegated sub-agents follow it rather than re-deriving design (names, signatures, locations, data shapes, edge/error handling). A step's `decisions` list cites Key Decision IDs in `overview.md`; resolve them there and treat them as binding constraints on the implementation. When a delegated step task is framed, pass the step's `approach` and the resolved text of its cited `decisions` into the sub-agent's context.
+Use `approach` as the starting point for how a step is built. The executor may adapt task decomposition and implementation details when code inspection or verification shows the plan is incomplete or unsuitable, while preserving the step's intended behaviour, constraints, and acceptance criteria. Record meaningful deviations and their reasons in `execution.md`. Changes to scope, acceptance criteria, shared contracts, or binding decisions require a revised decision or escalation before proceeding. A step's `decisions` list cites Key Decision IDs in `overview.md`; resolve them there and treat them as binding constraints on the implementation. When framing a delegated task, pass the current approach, any evidence-backed adaptations, and the resolved text of its cited `decisions` into the sub-agent's context. Sub-agents must report findings that require further changes to these instructions rather than silently redesigning the task.
 
 Optional fields:
 
@@ -104,6 +104,14 @@ Track step states as `pending`, `ready`, `running`, `implemented`, `blocked`, or
 
 Use `implemented` to unlock dependencies. Use `complete` only after required verification has passed.
 
+## Splitting Steps into Sub-Agent Tasks
+
+Plan-step scheduling remains unchanged. Before implementing a delegated step, split it into bounded sub-tasks where useful: sub-agents tend to use smaller models and benefit from narrow scopes. Each sub-task must have a concrete deliverable, a declared write scope, and settled contracts with other tasks. Splitting must preserve the parent step's scope, constraints, acceptance criteria, `no_delegate`, and `delegate_profile`.
+
+Within a ready plan step, prefer parallel execution when sub-tasks have disjoint write sets, no unmet dependencies or unresolved cross-task contracts, and low coordination and merge risk, and parallelism is likely to save meaningful time. Otherwise execute them sequentially. Parallel sub-tasks start from the same parent HEAD and cannot see each other's unmerged work.
+
+Give each sub-task an id tied to its parent step and track its state and assigned agent in `execution.md`. Apply the delegation, review, merge, verification, and worktree lifecycle rules to each sub-task. Mark the parent step `implemented` only after all required sub-tasks are implemented and merged; mark it `complete` only after the parent step's required verification passes. Do not unlock dependent plan steps earlier.
+
 ## Executor-Owned Work
 
 The executor performs these actions directly using the native tool for each:
@@ -111,7 +119,7 @@ The executor performs these actions directly using the native tool for each:
 - artifact loading — `read` to load plan files; `grep` and `glob` to locate files
 - `execution.md` creation and updates — `mutate`
 - branch checkout, merge/conflict handling, cleanup — `bash` for git operations
-- step scheduling and Steiner delegation dispatch
+- step scheduling and sub-agent dispatch
 - verification orchestration — `bash` for running checks; `read` to inspect results
 - reviewer handoff
 
@@ -119,13 +127,15 @@ Everything else is delegated.
 
 ### Implementation code restriction
 
-The executor MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on **implementation-scoped files** — the files listed in step `files` fields. All implementation edits, verification-failure fixes, and manual-verification issue fixes MUST be performed by delegated Steiner `code` sub-agents. Doing so directly is a skill violation, not a fallback. Deliberate tightening of the routing threshold in your system prompt: the executor owns the feature branch, so even a small in-context edit must go through a `code` sub-agent — delegation is this workflow's entire purpose, not just its default.
+The executor MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on **implementation-scoped files** — the files listed in step `files` fields. All implementation edits, verification-failure fixes, and manual-verification issue fixes MUST be performed by delegated `code` sub-agents. Doing so directly is a skill violation, not a fallback. Deliberate tightening of the routing threshold in your system prompt: the executor owns the feature branch, so even a small in-context edit must go through a `code` sub-agent — delegation is this workflow's entire purpose, not just its default.
 
 This restriction does not apply to executor-owned artifacts (`execution.md`, branch operations). Steps marked `no_delegate` in the plan are also exempt.
 
 Before any implementation action, ask: have I dispatched a sub-agent for this step? If no — stop, delegate.
 
 ## Delegation Model
+
+Follow the system prompt's briefing template. Include the parent step id and goal, plus any sub-task id, in every delegated brief.
 
 The feature branch is owned by the executor. Implementation-scoped code must be changed only by delegated sub-agents (see Implementation code restriction above). Every `code` sub-agent is automatically placed in a runtime-provisioned, runtime-verified worktree on a `delegate/` branch — the executor arranges nothing.
 
@@ -167,12 +177,9 @@ Include this checklist verbatim in every delegated task that commits. The sub-ag
 
 If any check fails, the sub-agent must not commit. It must report the mismatch and let the executor recover.
 
-## Steiner Delegation
+## Strategic Guidance via `advisor`
 
-Steiner's sub-agent tools accept only `task`. When delegation is available, follow the briefing template in your system prompt, additionally including the parent step id and goal, the step's resolved cited decisions, and the pre-commit checklist from the Delegation Model section.
-
-If an advisor tool is available, consult it before locking an implementation approach
-and again after an unresolved verification failure before choosing the next fix path.
+If an `advisor` tool is available, consult it before locking an implementation approach for step-to-sub-agent-task decomposition, and implementation risk. You may consult it when evidence-backed adaptations need judgement, and after an unresolved verification failure before choosing the next fix path. Advisor guidance does not authorize changes to scope or binding decisions.
 
 ## Verification Policy
 
