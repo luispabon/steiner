@@ -34,7 +34,7 @@ func TestProjectedToolErrorUsesEnvelope(t *testing.T) {
 }
 
 func TestExecutorAdmissionErrorPreservesActualProviderProjection(t *testing.T) {
-	registry := tool.NewRegistry(tool.ToolDef{Name: "delegate", IsDelegation: true, Handler: func(context.Context, map[string]any) (any, error) {
+	registry := tool.NewRegistry(tool.ToolDef{Name: "delegate", Handler: func(context.Context, map[string]any) (any, error) {
 		return nil, projectionTestError{}
 	}})
 	executor := tool.NewExecutor(registry, config.Config{}, nil, t.TempDir(), "", tool.Unsandboxed{})
@@ -43,7 +43,7 @@ func TestExecutorAdmissionErrorPreservesActualProviderProjection(t *testing.T) {
 		t.Fatal("Execute() error = nil")
 	}
 	var events []output.Event
-	p := newTurnProgressor(RunRequest{Events: output.SinkFunc(func(event output.Event) { events = append(events, event) })}, prompt.AssemblyOptions{}, nil)
+	p := newTurnProgressor(RunRequest{ParallelClassOf: delegateClassifier, Events: output.SinkFunc(func(event output.Event) { events = append(events, event) })}, prompt.AssemblyOptions{}, nil)
 	message := p.buildToolMessage(1, provider.ToolCall{ID: "call", Name: "delegate"}, nil, err, nil)
 	if message.Content != `{"output":"","status":"failed","reason":"child setup failed"}` {
 		t.Fatalf("provider content = %s", message.Content)
@@ -67,16 +67,16 @@ func TestExecutorAdmissionErrorPreservesActualProviderProjection(t *testing.T) {
 }
 
 func TestAcceptedAdmissionSurvivesExecutorErrorIntoMessageAndEvent(t *testing.T) {
-	registry := tool.NewRegistry(tool.ToolDef{Name: "delegate", IsDelegation: true, Handler: func(context.Context, map[string]any) (any, error) {
+	registry := tool.NewRegistry(tool.ToolDef{Name: "delegate", Handler: func(context.Context, map[string]any) (any, error) {
 		return tool.ExecutionResult{DelegationAdmission: &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, AgentID: "agent", BatchID: "batch", Group: "group"}}, errors.New("after admission")
 	}})
-	_, err := tool.NewExecutor(registry, config.Config{}, nil, t.TempDir(), "", tool.Unsandboxed{}).Execute(context.Background(), "delegate", "call", nil)
+	result, err := tool.NewExecutor(registry, config.Config{}, nil, t.TempDir(), "", tool.Unsandboxed{}).Execute(context.Background(), "delegate", "call", nil)
 	if err == nil {
 		t.Fatal("Execute() error = nil")
 	}
 	var events []output.Event
-	p := newTurnProgressor(RunRequest{Events: output.SinkFunc(func(event output.Event) { events = append(events, event) })}, prompt.AssemblyOptions{}, nil)
-	message := p.buildToolMessage(1, provider.ToolCall{ID: "call", Name: "delegate"}, nil, err, nil)
+	p := newTurnProgressor(RunRequest{ParallelClassOf: delegateClassifier, Events: output.SinkFunc(func(event output.Event) { events = append(events, event) })}, prompt.AssemblyOptions{}, nil)
+	message := p.buildToolMessage(1, provider.ToolCall{ID: "call", Name: "delegate"}, result, err, nil)
 	if message.DelegationAdmission == nil || message.DelegationAdmission.Status != tool.DelegationAdmissionAccepted {
 		t.Fatalf("message admission = %#v", message.DelegationAdmission)
 	}

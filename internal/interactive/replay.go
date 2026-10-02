@@ -255,9 +255,9 @@ func (s *Session) replayToolFinished(msg agent.Message) {
 	if isDelegateToolCall(msg.Name) && !known {
 		return
 	}
-	var admission *output.DelegationAdmission
+	var admission *tool.DelegationAdmission
 	if known {
-		admission = (*output.DelegationAdmission)(msg.DelegationAdmission)
+		admission = msg.DelegationAdmission
 	}
 	s.events.Emit(output.NewToolCallFinishedEventWithAdmission(0, msg.Name, msg.ToolCallID, msg.Content, toolResultError(msg.Content), output.ToolPreview{}, admission))
 }

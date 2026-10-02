@@ -375,7 +375,7 @@ func (p *turnProgressor) drainQueuedDelegations(turn int) {
 			continue
 		}
 		admission := p.notDispatchedAdmission(call.Name)
-		emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, "", errNotDispatched, output.ToolPreview{}, outputAdmissionFromTool(admission)))
+		emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, "", errNotDispatched, output.ToolPreview{}, admission))
 	}
 }
 
@@ -540,9 +540,12 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 	var preview output.ToolPreview
 	normalizedResult := ToolResultEnvelope{}
 	if err != nil {
-		normalizedResult.DelegationAdmission = tool.DelegationAdmissionFromError(err)
+		normalizedResult.DelegationAdmission = admissionFromToolResult(result)
 		if normalizedResult.DelegationAdmission == nil {
-			normalizedResult.DelegationAdmission = admissionFromToolResult(result)
+			normalizedResult.DelegationAdmission = tool.DelegationAdmissionFromError(err)
+		}
+		if normalizedResult.DelegationAdmission == nil {
+			normalizedResult.DelegationAdmission = p.defaultRejectedAdmission(call.Name, err)
 		}
 		if projected, ok := projectedToolError(err); ok {
 			toolContent = projected
@@ -554,6 +557,9 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 	} else {
 		recordMutationForContextManager(p.request.ContextManager, call.Name, call.Arguments, result)
 		normalizedResult = normalizeToolResult(result)
+		if normalizedResult.DelegationAdmission == nil && p.isDelegationCall(call.Name) {
+			normalizedResult.DelegationAdmission = &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted}
+		}
 		if normalizedResult.Projected {
 			projected, ok := projectedToolResult(resultValue(result))
 			if ok {
@@ -573,9 +579,6 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		ToolCallID: call.ID,
 		Name:       call.Name,
 		Turn:       turn,
-	}
-	if errors.Is(err, errNotDispatched) && normalizedResult.DelegationAdmission == nil {
-		normalizedResult.DelegationAdmission = p.notDispatchedAdmission(call.Name)
 	}
 	toolMessage.DelegationAdmission = normalizedResult.DelegationAdmission.Clone()
 	if err == nil {
@@ -600,14 +603,32 @@ func (p *turnProgressor) emitToolFinished(turn int, call provider.ToolCall, cont
 	if admission != nil && admission.Status == tool.DelegationAdmissionAccepted {
 		emitEvent(p.request.Events, output.NewDelegationAcceptedEvent(call.ID, admission.AgentID, admission.BatchID, admission.Group))
 	}
-	emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, content, err, preview, outputAdmissionFromTool(admission)))
+	emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, content, err, preview, admission))
+}
+
+func (p *turnProgressor) isDelegationCall(toolName string) bool {
+	return p.request.ParallelClassOf != nil && p.request.ParallelClassOf(toolName) == ParallelClassDelegation
 }
 
 func (p *turnProgressor) notDispatchedAdmission(toolName string) *tool.DelegationAdmission {
-	if p.request.ParallelClassOf == nil || p.request.ParallelClassOf(toolName) != ParallelClassDelegation {
+	if !p.isDelegationCall(toolName) {
 		return nil
 	}
 	return &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected}
+}
+
+// defaultRejectedAdmission synthesises the rejected admission of a failed
+// delegation call that carried none, flagging policy denials.
+func (p *turnProgressor) defaultRejectedAdmission(toolName string, err error) *tool.DelegationAdmission {
+	admission := p.notDispatchedAdmission(toolName)
+	if admission == nil {
+		return nil
+	}
+	var toolErr *tool.ToolExecutionError
+	if errors.As(err, &toolErr) && toolErr.Kind == "policy_denied" {
+		admission.PolicyNotice = true
+	}
+	return admission
 }
 
 func admissionFromToolResult(result any) *tool.DelegationAdmission {
@@ -616,12 +637,6 @@ func admissionFromToolResult(result any) *tool.DelegationAdmission {
 		return nil
 	}
 	return execution.DelegationAdmission.Clone()
-}
-
-// outputAdmissionFromTool converts by struct conversion so the two admission
-// types fail to compile if their fields drift apart.
-func outputAdmissionFromTool(admission *tool.DelegationAdmission) *output.DelegationAdmission {
-	return (*output.DelegationAdmission)(admission.Clone())
 }
 
 func resultValue(result any) any {

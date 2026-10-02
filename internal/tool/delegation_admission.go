@@ -42,21 +42,6 @@ func (e *delegationAdmissionError) DelegationAdmissionMetadata() *DelegationAdmi
 	return e.metadata.Clone()
 }
 
-func (e *delegationAdmissionError) As(target any) bool {
-	toolErrTarget, ok := target.(**ToolExecutionError)
-	if !ok {
-		return false
-	}
-	var toolErr *ToolExecutionError
-	if !errors.As(e.err, &toolErr) {
-		return false
-	}
-	cloned := *toolErr
-	cloned.DelegationAdmission = e.metadata.Clone()
-	*toolErrTarget = &cloned
-	return true
-}
-
 // WithDelegationAdmission returns an error carrying a cloned admission outcome.
 func WithDelegationAdmission(err error, metadata *DelegationAdmission) error {
 	if err == nil || metadata == nil {
@@ -68,10 +53,6 @@ func WithDelegationAdmission(err error, metadata *DelegationAdmission) error {
 // DelegationAdmissionFromError extracts a cloned admission outcome attached to
 // err, or nil when none is attached.
 func DelegationAdmissionFromError(err error) *DelegationAdmission {
-	var toolErr *ToolExecutionError
-	if errors.As(err, &toolErr) && toolErr.DelegationAdmission != nil {
-		return toolErr.DelegationAdmission.Clone()
-	}
 	var carrier DelegationAdmissionCarrier
 	if errors.As(err, &carrier) {
 		return carrier.DelegationAdmissionMetadata()

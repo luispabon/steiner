@@ -8,6 +8,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 const (
@@ -278,22 +279,7 @@ type ToolCallQueuedEvent struct {
 }
 
 // DelegationAdmission is UI and event metadata for one delegation call.
-type DelegationAdmission struct {
-	Status       string `json:"status"`
-	BatchID      string `json:"batch_id"`
-	Group        string `json:"group"`
-	AgentID      string `json:"agent_id"`
-	PolicyNotice bool   `json:"policy_notice"`
-}
-
-// Clone returns an independent copy of the metadata.
-func (m *DelegationAdmission) Clone() *DelegationAdmission {
-	if m == nil {
-		return nil
-	}
-	cloned := *m
-	return &cloned
-}
+type DelegationAdmission = tool.DelegationAdmission
 
 // ToolCallFinishedEvent records a completed tool invocation.
 type ToolCallFinishedEvent struct {

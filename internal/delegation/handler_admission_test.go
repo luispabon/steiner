@@ -76,7 +76,7 @@ func TestHandlerAdmissionMetadataForAsyncDelegates(t *testing.T) {
 	}
 }
 
-func TestHandlerAdmissionValidationRejectsThroughExecutor(t *testing.T) {
+func TestHandlerValidationErrorsThroughExecutor(t *testing.T) {
 	deps := minimalDeps(nil)
 	deps.WorkDir = t.TempDir()
 	deps.ImageStore = agent.NewImageStore(t.TempDir())
@@ -107,14 +107,6 @@ func TestHandlerAdmissionValidationRejectsThroughExecutor(t *testing.T) {
 			_, err := executor.Execute(context.Background(), SubAgentToolName, "call", test.input)
 			if err == nil {
 				t.Fatal("Execute returned nil error")
-			}
-			var carrier tool.DelegationAdmissionCarrier
-			if !errors.As(err, &carrier) {
-				t.Fatalf("error %T %v does not carry admission", err, err)
-			}
-			admission := carrier.DelegationAdmissionMetadata()
-			if admission == nil || admission.Status != tool.DelegationAdmissionRejected {
-				t.Fatalf("admission = %+v, want rejected", admission)
 			}
 			if !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want marker %q", err, test.want)

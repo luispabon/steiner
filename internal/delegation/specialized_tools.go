@@ -118,9 +118,8 @@ func SubAgentToolDef(deps SpecializedToolDeps, excludeTypes []AgentType) tool.To
 	}
 
 	return tool.ToolDef{
-		Name:         SubAgentToolName,
-		IsDelegation: true,
-		Description:  "Spawn a specialized sub-agent of the given type; see the type parameter for what each type does.",
+		Name:        SubAgentToolName,
+		Description: "Spawn a specialized sub-agent of the given type; see the type parameter for what each type does.",
 		ParameterSchema: map[string]any{
 			"type":       "object",
 			"properties": properties,

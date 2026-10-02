@@ -2,7 +2,6 @@ package tool
 
 import (
 	"context"
-	"errors"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -122,41 +121,8 @@ func (e *Executor) Execute(ctx context.Context, toolName, callID string, input m
 	start := time.Now()
 	ctx = e.withDiagnosticsCapture(ctx)
 	result, err := e.runPipeline(ctx, executionInput{ToolName: toolName, CallID: callID, Input: input})
-	if def, ok := e.registry.Get(toolName); ok && def.IsDelegation {
-		admission := resolveDelegationAdmission(result, err)
-		if err != nil {
-			err = WithDelegationAdmission(err, admission)
-		} else if execution, ok := result.(ExecutionResult); ok {
-			execution.DelegationAdmission = admission.Clone()
-			result = execution
-		} else {
-			result = ExecutionResult{Value: result, DelegationAdmission: admission.Clone()}
-		}
-	}
 	e.recordDiagnostics(ctx, toolName, input, result, err, time.Since(start))
 	return result, err
-}
-
-// resolveDelegationAdmission derives the admission outcome of a delegation call:
-// the error's admission, overridden by the result's, else a default of accepted
-// (no error) or rejected (flagging policy denials).
-func resolveDelegationAdmission(result any, err error) *DelegationAdmission {
-	admission := DelegationAdmissionFromError(err)
-	if execution, ok := result.(ExecutionResult); ok && execution.DelegationAdmission != nil {
-		admission = execution.DelegationAdmission.Clone()
-	}
-	if admission != nil {
-		return admission
-	}
-	if err == nil {
-		return &DelegationAdmission{Status: DelegationAdmissionAccepted}
-	}
-	admission = &DelegationAdmission{Status: DelegationAdmissionRejected}
-	var toolErr *ToolExecutionError
-	if errors.As(err, &toolErr) && toolErr.Kind == "policy_denied" {
-		admission.PolicyNotice = true
-	}
-	return admission
 }
 
 // withDiagnosticsCapture stamps ctx with the tool diagnostics capture level so

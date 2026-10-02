@@ -121,17 +121,10 @@ func TestSupervisorAdmissionDoesNotMutateSharedToolExecutionError(t *testing.T) 
 				if !errors.Is(outcome.err, cause) {
 					t.Fatalf("wrapped cause not preserved: %T %v (shared %T %v)", outcome.err, outcome.err, shared, shared)
 				}
-				var projected *tool.ToolExecutionError
-				if !errors.As(outcome.err, &projected) || projected.Kind != "provider" {
-					t.Fatalf("projected error = %#v", projected)
-				}
 				want := &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, BatchID: testBatchID(uint64(i + 2)), AgentID: []string{"agent-a", "agent-b"}[i]}
-				if projected.DelegationAdmission == nil || *projected.DelegationAdmission != *want {
-					t.Fatalf("projected admission = %+v, want %+v", projected.DelegationAdmission, want)
+				if got := tool.DelegationAdmissionFromError(outcome.err); got == nil || *got != *want {
+					t.Fatalf("admission = %+v, want %+v", got, want)
 				}
-			}
-			if cause.DelegationAdmission != nil {
-				t.Fatalf("shared cause was mutated: %+v", cause.DelegationAdmission)
 			}
 		})
 	}
