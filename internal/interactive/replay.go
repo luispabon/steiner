@@ -122,16 +122,13 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 
 func (s *Session) replaySessionMessagesWithLedger(msgs []agent.Message, ledger []agent.SubAgentLedgerEntry) {
 	plan := buildReplayOccurrencePlan(msgs, ledger)
-	startedToolCalls := map[string]int{}
-	pendingDelegates := map[string][]agent.ToolCall{}
-	pendingAdvisors := map[string]agent.ToolCall{}
+	startedToolCalls := make(map[replayOccurrenceKey]bool)
 	acks := &replayAcks{}
 	for messageIndex, msg := range msgs {
 		if msg.Content == "" && len(msg.ToolCalls) == 0 && msg.ToolCallID == "" {
 			continue
 		}
-		s.replayMessage(msg, replayState{pendingDelegates, pendingAdvisors, startedToolCalls, acks}, replayLedger{entries: ledger, occurrences: plan.occurrences, owners: plan.resultOwners, messageIndex: messageIndex})
-
+		s.replayMessage(msg, replayState{startedToolCalls: startedToolCalls, acks: acks}, replayLedger{entries: ledger, occurrences: plan.occurrences, owners: plan.resultOwners, messageIndex: messageIndex})
 	}
 	s.replayUnresolvedAcks(acks)
 }
@@ -145,7 +142,6 @@ type replayOccurrence struct {
 	call               agent.ToolCall
 	resultMessageIndex int
 	ledgerIndex        int
-	started            bool
 }
 
 type replayOccurrencePlan struct {
@@ -189,9 +185,7 @@ func buildReplayOccurrencePlan(msgs []agent.Message, ledger []agent.SubAgentLedg
 }
 
 type replayState struct {
-	pendingDelegates map[string][]agent.ToolCall
-	pendingAdvisors  map[string]agent.ToolCall
-	startedToolCalls map[string]int
+	startedToolCalls map[replayOccurrenceKey]bool
 	acks             *replayAcks
 }
 
@@ -218,9 +212,9 @@ func (s *Session) replayMessage(msg agent.Message, state replayState, ledger rep
 		}
 		if hasOwner && occurrence != nil {
 			s.replayLedgerAdmission(msg, occurrence, ledger)
-			s.replayOwnedToolResult(msg, occurrence.call, state, ledgerEntryForOccurrence(ledger, occurrence))
+			s.replayOwnedToolResult(msg, owner, occurrence.call, state, ledgerEntryForOccurrence(ledger, occurrence))
 		} else {
-			s.replayToolResult(msg, state.pendingDelegates, state.pendingAdvisors, state.startedToolCalls, state.acks, agent.SubAgentLedgerEntry{})
+			s.replayDisplayFile(msg)
 		}
 	}
 }
@@ -243,12 +237,22 @@ func (s *Session) replayAssistantMessage(msg agent.Message, state replayState, l
 			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
 			entry := ledger.entries[occurrence.ledgerIndex]
 			s.emitAcceptedAdmission(call.ID, entry.AgentID, entry.BatchID, entry.Group)
-			s.events.Emit(output.NewDelegationStartedEvent(entry.AgentID, taskFromArgs(call.Arguments)))
-			occurrence.started = true
-			state.startedToolCalls[call.ID]++
+			s.events.Emit(output.NewDelegationStartedEvent(entry.AgentID, taskFromArgs(call.Arguments), call.ID))
+			state.startedToolCalls[replayOccurrenceKey{messageIndex: ledger.messageIndex, callIndex: callIndex}] = true
 		}
 	}
-	s.replayAssistantToolCalls(msg.ToolCalls, state.pendingDelegates, state.pendingAdvisors, state.startedToolCalls, paired)
+	for callIndex, call := range msg.ToolCalls {
+		key := replayOccurrenceKey{messageIndex: ledger.messageIndex, callIndex: callIndex}
+		if paired[call.ID] <= 0 {
+			continue
+		}
+		paired[call.ID]--
+		occurrence := ledger.occurrences[key]
+		if occurrence == nil || occurrence.ledgerIndex < 0 || occurrence.resultMessageIndex >= 0 {
+			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
+			state.startedToolCalls[key] = true
+		}
+	}
 }
 
 func (s *Session) replayLedgerAdmission(msg agent.Message, occurrence *replayOccurrence, ledger replayLedger) {
@@ -275,22 +279,29 @@ func ledgerEntryForOccurrence(ledger replayLedger, occurrence *replayOccurrence)
 
 func assignExplicitReplayLedgerOwnership(msgs []agent.Message, ledger []agent.SubAgentLedgerEntry, plan *replayOccurrencePlan) {
 	reserved := make(map[int]bool)
-	for _, occurrence := range plan.occurrences {
+	ledgerCandidates := make(map[replayOccurrenceKey][]int)
+	entryDegrees := make(map[int]int)
+	for key, occurrence := range plan.occurrences {
 		if occurrence.resultMessageIndex < 0 {
 			continue
 		}
-		msg := msgs[occurrence.resultMessageIndex]
-		admission := msg.DelegationAdmission
+		admission := msgs[occurrence.resultMessageIndex].DelegationAdmission
 		if admission == nil || admission.Status != "accepted" || admission.AgentID == "" {
 			continue
 		}
 		candidates := explicitLedgerCandidates(occurrence.call.ID, admission, ledger)
-		entryCandidates := explicitOccurrenceCandidates(msgs, plan, occurrence.call.ID, admission)
-		if len(candidates) == 1 && entryCandidates == 1 {
-			occurrence.ledgerIndex = candidates[0]
-			reserved[candidates[0]] = true
-		} else {
-			reserveCallEntries(reserved, ledger, occurrence.call.ID)
+		if len(candidates) == 0 {
+			continue
+		}
+		ledgerCandidates[key] = candidates
+		for _, index := range candidates {
+			reserved[index] = true
+			entryDegrees[index]++
+		}
+	}
+	for key, candidates := range ledgerCandidates {
+		if len(candidates) == 1 && entryDegrees[candidates[0]] == 1 {
+			plan.occurrences[key].ledgerIndex = candidates[0]
 		}
 	}
 	plan.reservedLedger = reserved
@@ -304,28 +315,6 @@ func explicitLedgerCandidates(callID string, admission *tool.DelegationAdmission
 		}
 	}
 	return candidates
-}
-
-func explicitOccurrenceCandidates(msgs []agent.Message, plan *replayOccurrencePlan, callID string, admission *tool.DelegationAdmission) int {
-	count := 0
-	for _, other := range plan.occurrences {
-		if other.resultMessageIndex < 0 || other.call.ID != callID {
-			continue
-		}
-		metadata := msgs[other.resultMessageIndex].DelegationAdmission
-		if metadata != nil && metadata.Status == "accepted" && metadata.AgentID == admission.AgentID && optionalMatches(metadata.BatchID, admission.BatchID) && optionalMatches(metadata.Group, admission.Group) {
-			count++
-		}
-	}
-	return count
-}
-
-func reserveCallEntries(reserved map[int]bool, ledger []agent.SubAgentLedgerEntry, callID string) {
-	for i, entry := range ledger {
-		if entry.ParentCallID == callID {
-			reserved[i] = true
-		}
-	}
 }
 
 func assignFallbackReplayLedgerOwnership(msgs []agent.Message, ledger []agent.SubAgentLedgerEntry, plan *replayOccurrencePlan) {
@@ -414,78 +403,22 @@ func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks) {
 	}
 }
 
-// replayAssistantToolCalls emits events for each tool call in an assistant message.
-// Only tool calls with a paired tool result are emitted; orphaned calls (e.g. an
-// accepted workflow_handoff that stops the run without appending a result) are
-// skipped so the TUI does not show them as still-running.
-func (s *Session) replayAssistantToolCalls(calls []agent.ToolCall, pendingDelegates map[string][]agent.ToolCall, pendingAdvisors map[string]agent.ToolCall, startedToolCalls map[string]int, paired map[string]int) []agent.ToolCall {
-	var orphans []agent.ToolCall
-	for _, call := range calls {
-		switch {
-		case isAdvisorToolCall(call.Name):
-			if paired[call.ID] > 0 {
-				paired[call.ID]--
-				pendingAdvisors[call.ID] = call
-			}
-		case isDelegateToolCall(call.Name):
-			if paired[call.ID] <= 0 {
-				orphans = append(orphans, call)
-				continue
-			}
-			paired[call.ID]--
-			pendingDelegates[call.ID] = append(pendingDelegates[call.ID], call)
-			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
-			startedToolCalls[call.ID]++
-		default:
-			if paired[call.ID] > 0 {
-				paired[call.ID]--
-				s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
-				startedToolCalls[call.ID]++
-			}
-		}
-	}
-	return orphans
-}
-
-// pairedToolResultIDs returns the set of tool call IDs that have a matching
-// tool result message in msgs. Tool calls absent from this set stopped the run
-// without producing a result (e.g. an accepted workflow_handoff).
-// replayToolResult emits the completion event for a tool result message.
-func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[string][]agent.ToolCall, pendingAdvisors map[string]agent.ToolCall, startedToolCalls map[string]int, acks *replayAcks, inferred agent.SubAgentLedgerEntry) {
-	if pending, ok := pendingAdvisors[msg.ToolCallID]; ok {
-		s.replayAdvisorResult(msg, pending, pendingAdvisors)
-	} else if pending, ok := pendingDelegates[msg.ToolCallID]; ok && len(pending) > 0 {
-		s.replayDelegateResult(msg, pending[0], pendingDelegates, acks, inferred)
-	}
-
-	s.replayDisplayFile(msg)
-	s.replayToolFinished(msg, startedToolCalls)
-}
-
-func (s *Session) replayOwnedToolResult(msg agent.Message, call agent.ToolCall, state replayState, inferred agent.SubAgentLedgerEntry) {
+func (s *Session) replayOwnedToolResult(msg agent.Message, owner replayOccurrenceKey, call agent.ToolCall, state replayState, inferred agent.SubAgentLedgerEntry) {
 	if isAdvisorToolCall(call.Name) {
-		s.replayAdvisorResult(msg, call, state.pendingAdvisors)
+		question, files := advisorQuestionAndFilesFromArgs(call.Arguments)
+		s.events.Emit(output.NewAdvisorStartedEvent("", 0, 0, question, files))
+		s.events.Emit(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Note: msg.Content}))
 	} else if isDelegateToolCall(call.Name) {
-		s.replayDelegateResult(msg, call, state.pendingDelegates, state.acks, inferred)
+		s.replayDelegateResult(msg, call, state.acks, inferred)
 	}
 	s.replayDisplayFile(msg)
-	s.replayToolFinished(msg, state.startedToolCalls)
-}
-
-func (s *Session) replayAdvisorResult(msg agent.Message, pending agent.ToolCall, advisors map[string]agent.ToolCall) {
-	question, files := advisorQuestionAndFilesFromArgs(pending.Arguments)
-	s.events.Emit(output.NewAdvisorStartedEvent("", 0, 0, question, files))
-	s.events.Emit(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Note: msg.Content}))
-	delete(advisors, msg.ToolCallID)
-}
-
-func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, pending map[string][]agent.ToolCall, acks *replayAcks, inferred agent.SubAgentLedgerEntry) {
-	calls := pending[msg.ToolCallID][1:]
-	if len(calls) == 0 {
-		delete(pending, msg.ToolCallID)
-	} else {
-		pending[msg.ToolCallID] = calls
+	if state.startedToolCalls[owner] {
+		s.replayToolFinished(msg)
+		delete(state.startedToolCalls, owner)
 	}
+}
+
+func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, acks *replayAcks, inferred agent.SubAgentLedgerEntry) {
 	if msg.DelegationAdmission != nil && msg.DelegationAdmission.Status == "rejected" {
 		return
 	}
@@ -497,15 +430,50 @@ func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, p
 			state.agentID = msg.DelegationAdmission.AgentID
 		}
 	}
-	if inferred.AgentID != "" && isAckStatus(state.status) {
-		s.emitDelegationProgress(inferred.AgentID, msg.ToolCallID, task, state.status)
+	if replayLedgerBackedAck(inferred, state.status) {
+		s.emitLedgerProgress(msg, inferred, task, state.status)
 		return
 	}
-	if state.status == "failed" && state.output == "" {
-		s.emitDelegationFailure(state.agentID, msg, task, state.error)
+	if s.replayEmptyAcceptedFailure(msg, state, task) {
 		return
 	}
-	s.emitDelegationProgress(state.agentID, msg.ToolCallID, task, state.status)
+	s.emitReplayProgress(msg, state, task)
+	s.replayDelegationTerminal(msg, state, task, acks, inferred)
+}
+
+func replayLedgerBackedAck(inferred agent.SubAgentLedgerEntry, status string) bool {
+	return inferred.AgentID != "" && isAckStatus(status)
+}
+
+func (s *Session) emitLedgerProgress(msg agent.Message, inferred agent.SubAgentLedgerEntry, task, status string) {
+	agentID := inferred.AgentID
+	if hasKnownAdmission(msg.DelegationAdmission) && msg.DelegationAdmission.Status == "accepted" {
+		if msg.DelegationAdmission.AgentID != "" {
+			agentID = msg.DelegationAdmission.AgentID
+		}
+		s.emitDelegationProgress(agentID, msg.ToolCallID, task, status)
+	} else {
+		s.emitLegacyDelegationProgress(agentID, task, status, msg.ToolCallID)
+	}
+}
+
+func (s *Session) replayEmptyAcceptedFailure(msg agent.Message, state replayedDelegationState, task string) bool {
+	if state.status != "failed" || state.output != "" || !hasKnownAdmission(msg.DelegationAdmission) || msg.DelegationAdmission.Status != "accepted" {
+		return false
+	}
+	s.emitDelegationFailure(state.agentID, msg, task, state.error)
+	return true
+}
+
+func (s *Session) emitReplayProgress(msg agent.Message, state replayedDelegationState, task string) {
+	if hasKnownAdmission(msg.DelegationAdmission) && msg.DelegationAdmission.Status == "accepted" {
+		s.emitDelegationProgress(state.agentID, msg.ToolCallID, task, state.status)
+	} else {
+		s.emitLegacyDelegationProgress(state.agentID, task, state.status, msg.ToolCallID)
+	}
+}
+
+func (s *Session) replayDelegationTerminal(msg agent.Message, state replayedDelegationState, task string, acks *replayAcks, inferred agent.SubAgentLedgerEntry) {
 	switch {
 	case isAckStatus(state.status):
 		if inferred.AgentID == "" {
@@ -522,6 +490,14 @@ func (s *Session) emitDelegationProgress(agentID, callID, task, status string) {
 	if status == "queued" {
 		s.events.Emit(output.NewDelegationQueuedEvent(agentID, callID, "", task))
 	} else {
+		s.events.Emit(output.NewDelegationStartedEvent(agentID, task, callID))
+	}
+}
+
+func (s *Session) emitLegacyDelegationProgress(agentID, task, status, callID string) {
+	if status == "queued" {
+		s.events.Emit(output.NewDelegationQueuedEvent(agentID, callID, "", task))
+	} else {
 		s.events.Emit(output.NewDelegationStartedEvent(agentID, task))
 	}
 }
@@ -530,7 +506,11 @@ func (s *Session) emitDelegationFailure(agentID string, msg agent.Message, task,
 	if msg.DelegationAdmission != nil && msg.DelegationAdmission.Status == "accepted" && msg.DelegationAdmission.AgentID != "" {
 		agentID = msg.DelegationAdmission.AgentID
 	}
-	s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: agentID, TaskPreview: task, Error: err}))
+	callID := ""
+	if msg.DelegationAdmission != nil && msg.DelegationAdmission.Status == "accepted" {
+		callID = msg.ToolCallID
+	}
+	s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: agentID, CallID: callID, TaskPreview: task, Error: err}))
 }
 
 func (s *Session) emitDelegationComplete(state replayedDelegationState) {
@@ -558,8 +538,8 @@ func hasKnownAdmission(admission *tool.DelegationAdmission) bool {
 	return admission != nil && (admission.Status == "accepted" || admission.Status == "rejected")
 }
 
-func (s *Session) replayToolFinished(msg agent.Message, startedToolCalls map[string]int) {
-	if startedToolCalls[msg.ToolCallID] > 0 && (!isDelegateToolCall(msg.Name) || hasKnownAdmission(msg.DelegationAdmission)) {
+func (s *Session) replayToolFinished(msg agent.Message) {
+	if !isDelegateToolCall(msg.Name) || hasKnownAdmission(msg.DelegationAdmission) {
 		if hasKnownAdmission(msg.DelegationAdmission) {
 			s.events.Emit(output.NewToolCallFinishedEventWithAdmission(0, msg.Name, msg.ToolCallID, msg.Content, toolResultError(msg.Content), output.ToolPreview{}, &output.DelegationAdmission{
 				Status: msg.DelegationAdmission.Status, BatchID: msg.DelegationAdmission.BatchID, Group: msg.DelegationAdmission.Group,
@@ -567,10 +547,6 @@ func (s *Session) replayToolFinished(msg agent.Message, startedToolCalls map[str
 			}))
 		} else {
 			s.events.Emit(output.NewToolCallFinishedEvent(0, msg.Name, msg.ToolCallID, msg.Content, toolResultError(msg.Content)))
-		}
-		startedToolCalls[msg.ToolCallID]--
-		if startedToolCalls[msg.ToolCallID] == 0 {
-			delete(startedToolCalls, msg.ToolCallID)
 		}
 	}
 }
