@@ -86,13 +86,12 @@ const toolBatchNonceJoiner = "~"
 // It cannot be skipped: (BatchID, CallID) must be a stable occurrence key.
 var toolBatchNonce = newToolBatchNonce()
 
-// newToolBatchNonce returns 4 random bytes as hex, falling back to the clock
-// if the system entropy source fails (a weaker but still per-process value).
+// newToolBatchNonce returns 4 random bytes as hex.
 func newToolBatchNonce() string {
 	var b [4]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return strconv.FormatInt(time.Now().UnixNano(), 36)
-	}
+	// Since Go 1.24 crypto/rand.Read never returns an error; it crashes the
+	// program if the system entropy source fails, so ignoring it is safe.
+	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])
 }
 
