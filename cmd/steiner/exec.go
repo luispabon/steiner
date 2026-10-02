@@ -47,8 +47,8 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	}
 	sessionDate := prompt.NewSessionDate(time.Now())
 	// Exec is one sequential run stream, so it owns one group scope.
-	groupScope := rt.delegationSupervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
-	defer rt.delegationSupervisor.ReleaseGroupScope(groupScope)
+	groupScope, releaseGroupScope := rt.openGroupScope()
+	defer releaseGroupScope()
 	_, err = cliRunner{
 		runtime: rt,
 		approver: agent.NewEventingApprover(

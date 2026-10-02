@@ -126,8 +126,8 @@ func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (on
 	rt := &r.runner.runtime
 	// The scope lives as long as this phase's single driver; its episodes run
 	// sequentially, which sequence-based batch sealing requires.
-	groupScope := rt.delegationSupervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
-	defer rt.delegationSupervisor.ReleaseGroupScope(groupScope)
+	groupScope, releaseGroupScope := rt.openGroupScope()
+	defer releaseGroupScope()
 	rec := &driverRunRecord{}
 	host := phaseDriverHost{
 		run:    r.runner.driverRun(in.SkillNames, groupScope, rec),

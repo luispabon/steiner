@@ -72,3 +72,14 @@ func (r cliRunner) driverRun(skillNames []string, groupScope string, rec *driver
 		}, err
 	}
 }
+
+// openGroupScope allocates a delegation group scope for one sequential run
+// stream and returns it with its release func. A runtime without a supervisor
+// has no delegation, so it yields an empty scope and a no-op release.
+func (rt *cliRuntime) openGroupScope() (string, func()) {
+	if rt.delegationSupervisor == nil {
+		return "", func() {}
+	}
+	scope := rt.delegationSupervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	return scope, func() { rt.delegationSupervisor.ReleaseGroupScope(scope) }
+}
