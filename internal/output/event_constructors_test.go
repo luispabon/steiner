@@ -65,7 +65,7 @@ func TestDelegationAdmissionEventsAndFinishedMetadata(t *testing.T) {
 	if decoded.Payload.DelegationAdmission == nil || decoded.Payload.DelegationAdmission.Status != "accepted" {
 		t.Fatalf("decoded metadata = %#v", decoded.Payload.DelegationAdmission)
 	}
-	accepted := NewDelegationAcceptedEvent("c", "a", "b", "g")
+	accepted := NewDelegationAcceptedEvent(DelegationOccurrence{CallID: "c", BatchID: "b", AgentID: "a"}, "g")
 	segment := renderEvent(accepted)
 	if segment.Channel != ChannelStatus || segment.Label != "delegation accepted" || !strings.Contains(segment.Text, "group=g") {
 		t.Fatalf("accepted event segment = %#v", segment)
@@ -344,7 +344,7 @@ func TestNewDelegationWorktreeDisposalEvent(t *testing.T) {
 }
 
 func TestNewDelegationStartedEventWithType(t *testing.T) {
-	event := NewDelegationStartedEventWithType("child-1", "inspect", "call-1", "model-a", "code")
+	event := NewDelegationStartedEvent(DelegationOccurrence{CallID: "call-1", AgentID: "child-1"}, "inspect", "model-a", "code")
 	if event.Type != EventTypeDelegationStarted {
 		t.Fatalf("Type = %q, want %q", event.Type, EventTypeDelegationStarted)
 	}

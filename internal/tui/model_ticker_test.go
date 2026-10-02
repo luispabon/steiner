@@ -186,8 +186,8 @@ func TestNeedsTickingStopsAfterParentDelegationCancellation(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
 	m := &Model{content: contentBuffer{styles: styles}}
-	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "first task"))
-	m.content.AppendEvent(output.NewDelegationStartedEvent("child-2", "second task"))
+	m.content.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "first task", "", ""))
+	m.content.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-2"}, "second task", "", ""))
 
 	if !m.needsTicking() {
 		t.Fatal("needsTicking() = false while delegations are active")

@@ -109,7 +109,7 @@ func TestChildAPIResponseDoesNotChangeParentActivity(t *testing.T) {
 func TestQueuedDelegationOpensModalOnEsc(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
-	m.applyEvent(output.NewDelegationQueuedEvent("agent-1", "call-1", "explore", "look around"))
+	m.applyEvent(output.NewDelegationQueuedEvent(output.DelegationOccurrence{CallID: "call-1", AgentID: "agent-1"}, "explore", "look around"))
 	if !m.content.HasActiveDelegations() {
 		t.Fatal("queued delegation is not counted as active")
 	}
@@ -125,7 +125,7 @@ func TestQueuedDelegationOpensModalOnEsc(t *testing.T) {
 		t.Fatal("Esc did not open the delegate cancel modal for a queued segment")
 	}
 
-	m.applyEvent(output.NewDelegationStartedEventWithType("agent-1", "look around", "call-1", "", "explore"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call-1", AgentID: "agent-1"}, "look around", "", "explore"))
 	rows = m.content.ActiveDelegateRows()
 	if len(rows) != 1 || rows[0].queued {
 		t.Fatalf("rows after start = %+v, want one non-queued row", rows)
@@ -148,7 +148,7 @@ func TestDelegationStallMarking(t *testing.T) {
 	timeNow = func() time.Time { return now }
 
 	m := newModel(Config{}, nil)
-	m.applyEvent(output.NewDelegationStartedEventWithType("agent-1", "task", "call-1", "", "explore"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call-1", AgentID: "agent-1"}, "task", "", "explore"))
 	stalled := func() int { return m.content.ActiveDelegateRows()[0].stalledMin }
 
 	now = now.Add(delegationStallThreshold - time.Second)
@@ -189,7 +189,7 @@ func TestParentCancelledStopFinalisesDelegationsOnlyInSyncMode(t *testing.T) {
 			if tt.async {
 				applyConversationStateEvent(t, m, "generating", false, 1, false)
 			}
-			m.applyEvent(output.NewDelegationStartedEventWithType("agent-1", "task", "call-1", "", "explore"))
+			m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call-1", AgentID: "agent-1"}, "task", "", "explore"))
 			ev := cancelled
 			if tt.scoped {
 				ev = output.WithAgentScope(ev, "other-agent")
@@ -199,7 +199,7 @@ func TestParentCancelledStopFinalisesDelegationsOnlyInSyncMode(t *testing.T) {
 				t.Errorf("HasActiveDelegations = %v, want %v", got, tt.wantActive)
 			}
 			if tt.wantActive {
-				m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "agent-1", Status: "completed"}))
+				m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "agent-1"}, Status: "completed"}))
 				if m.content.HasActiveDelegations() {
 					t.Error("the delegation's own complete event must still finish it")
 				}
@@ -212,9 +212,9 @@ func TestInterruptedFilterKeepsAsyncDelegateEventsFlowing(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	applyConversationStateEvent(t, m, "generating", false, 1, false)
-	m.applyEvent(output.NewDelegationStartedEventWithType("agent-1", "task", "call-1", "", "explore"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call-1", AgentID: "agent-1"}, "task", "", "explore"))
 	m.interruptPending = true
-	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "agent-1", Status: "completed"}))
+	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "agent-1"}, Status: "completed"}))
 	if m.content.HasActiveDelegations() {
 		t.Error("delegate completion was swallowed by the interrupt filter")
 	}
@@ -239,7 +239,7 @@ func TestCompactGuardUsesDriverState(t *testing.T) {
 			ctrl := &testController{}
 			m := newModel(Config{}, nil)
 			m.controller = ctrl
-			m.applyEvent(output.NewDelegationStartedEventWithType("agent-1", "task", "call-1", "", "explore"))
+			m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call-1", AgentID: "agent-1"}, "task", "", "explore"))
 			applyConversationStateEvent(t, m, tt.state, false, 1, false)
 			m.executeCompactAction(inputAction{})
 			ctrl.mu.Lock()

@@ -27,7 +27,7 @@ func TestDelegationRejectionRemovesOnlyCurrentUnacceptedCard(t *testing.T) {
 	if b.segments[0].delegData != accepted {
 		t.Fatal("original accepted card changed or disappeared")
 	}
-	b.appendDelegationEvent(output.NewDelegationStartedEvent("agent", "old task", "old-call"))
+	b.appendDelegationEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "old-call", AgentID: "agent"}, "old task", "", ""))
 	if accepted.agentID != "agent" || accepted.parentCallID != "old-call" || len(b.segments) != 3 || b.segments[2].delegData == accepted {
 		t.Fatalf("late event rebound removed current call: accepted=%#v segments=%#v", accepted, b.segments)
 	}
@@ -59,10 +59,10 @@ func TestDelegationRejectionPreservesAcceptedAndUnknownCards(t *testing.T) {
 
 func TestModelRejectedFollowUpPreservesOriginalChildAndRoster(t *testing.T) {
 	m := &Model{content: contentBuffer{}, roster: subAgentRoster{entries: map[string]*rosterEntry{}}, styles: testStyles("#5599ff")}
-	accepted := output.NewDelegationAcceptedEvent("original", "child", "batch", "prior")
+	accepted := output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "original", BatchID: "batch", AgentID: "child"}, "prior")
 	m.applyEvent(accepted)
-	m.applyEvent(output.NewDelegationQueuedEvent("child", "original", "explore", "original task"))
-	m.applyEvent(output.NewDelegationStartedEventWithType("child", "original task", "original", "", "explore"))
+	m.applyEvent(output.NewDelegationQueuedEvent(output.DelegationOccurrence{CallID: "original", AgentID: "child"}, "explore", "original task"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "original", AgentID: "child"}, "original task", "", "explore"))
 	originalCard := m.content.segments[0].delegData
 	before := m.roster.entries["child"]
 	if originalCard == nil || before == nil || before.status != rosterRunning || before.currentCallID != "original" {
@@ -84,7 +84,7 @@ func TestModelRejectedFollowUpPreservesOriginalChildAndRoster(t *testing.T) {
 		t.Fatalf("roster changed for rejected follow-up: before=%#v after=%#v entries=%#v", before, after, m.roster.entries)
 	}
 
-	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "child", Status: "completed"}))
+	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "child"}, Status: "completed"}))
 	if findDelegationSegment(m.content.segments, originalCard) < 0 || originalCard.agentID != "child" || originalCard.status != "complete" {
 		t.Fatalf("late lifecycle event changed original card: %#v", originalCard)
 	}

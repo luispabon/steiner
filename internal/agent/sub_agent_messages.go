@@ -60,6 +60,7 @@ func LostSubAgentCompletion(e SubAgentLedgerEntry) SubAgentCompletion {
 	}
 	return SubAgentCompletion{
 		ParentCallID:     e.ParentCallID,
+		BatchID:          e.BatchID,
 		AgentID:          e.AgentID,
 		AgentType:        e.AgentType,
 		Status:           "lost",

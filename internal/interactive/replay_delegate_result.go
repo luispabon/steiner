@@ -77,12 +77,11 @@ func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *
 			msg = state.output
 		}
 		s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
-			AgentID:     state.agentID,
-			CallID:      parsed.CallID,
-			AgentType:   parsed.AgentType,
-			DurationMs:  usage.duration.Milliseconds(),
-			TaskPreview: ack.task,
-			Error:       msg,
+			DelegationOccurrence: output.DelegationOccurrence{AgentID: state.agentID, CallID: parsed.CallID},
+			AgentType:            parsed.AgentType,
+			DurationMs:           usage.duration.Milliseconds(),
+			TaskPreview:          ack.task,
+			Error:                msg,
 		}))
 		return
 	}
@@ -90,14 +89,14 @@ func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *
 		state.status = parsed.Status
 	}
 	s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		AgentID:       state.agentID,
-		AgentType:     parsed.AgentType,
-		DurationMs:    usage.duration.Milliseconds(),
-		Status:        state.status,
-		TurnCount:     state.turnCount,
-		TokenCount:    state.tokenCount,
-		ToolCallCount: state.toolCallCount,
-		Output:        state.output,
+		DelegationOccurrence: output.DelegationOccurrence{AgentID: state.agentID},
+		AgentType:            parsed.AgentType,
+		DurationMs:           usage.duration.Milliseconds(),
+		Status:               state.status,
+		TurnCount:            state.turnCount,
+		TokenCount:           state.tokenCount,
+		ToolCallCount:        state.toolCallCount,
+		Output:               state.output,
 	}))
 }
 
@@ -106,9 +105,9 @@ func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *
 func (s *Session) replayUnresolvedAcks(acks *replayAcks) {
 	for _, ack := range acks.order {
 		s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
-			AgentID:     ack.agentID,
-			TaskPreview: ack.task,
-			Error:       replayNoResultMessage,
+			DelegationOccurrence: output.DelegationOccurrence{AgentID: ack.agentID},
+			TaskPreview:          ack.task,
+			Error:                replayNoResultMessage,
 		}))
 	}
 	acks.order = nil

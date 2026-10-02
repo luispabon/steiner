@@ -62,6 +62,10 @@ type Spec struct {
 	// Used by the TUI to bind this delegation's display box without relying on
 	// event-arrival order. Internal bookkeeping only, not part of the wire contract.
 	ParentCallID string `json:"-"`
+	// BatchID is the tool batch that issued this delegation call; with
+	// ParentCallID it identifies the delegation occurrence. Set by the handlers
+	// from the handler context, never persisted. Internal bookkeeping only.
+	BatchID string `json:"-"`
 
 	// AdvisorBudget is the effective per-child advisor budget for this
 	// delegation, zero if advisor is unavailable to this child. Set by the

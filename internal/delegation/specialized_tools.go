@@ -450,6 +450,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			AgentType:    agentType,
 			SystemPrompt: AgentSystemPrompt(agentType),
 			ParentCallID: callID,
+			BatchID:      agent.ToolBatchIDFrom(ctx),
 			AgentID:      agentID,
 		}
 

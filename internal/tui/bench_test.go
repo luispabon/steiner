@@ -387,14 +387,14 @@ func populateBenchModel(m *Model) {
 	m = updateModelDirect(m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "write", "call_2", "written successfully", nil)})
 
 	// Delegation event (complete it so buffer is settled for benchmarking)
-	m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("agent_1", "design the optimization")})
+	m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "agent_1"}, "design the optimization", "", "")})
 	m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		AgentID:       "agent_1",
-		Status:        "complete",
-		TurnCount:     2,
-		TokenCount:    500,
-		ToolCallCount: 3,
-		Output:        "optimized design",
+		DelegationOccurrence: output.DelegationOccurrence{AgentID: "agent_1"},
+		Status:               "complete",
+		TurnCount:            2,
+		TokenCount:           500,
+		ToolCallCount:        3,
+		Output:               "optimized design",
 	})})
 
 	// Thinking block
@@ -450,15 +450,15 @@ func populateBenchModelHeavy(m *Model) {
 	// 5 delegations (started + completed pairs)
 	for i := 0; i < 5; i++ {
 		agentID := fmt.Sprintf("agent_heavy_%d", i)
-		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationStartedEvent(agentID, "task preview "+fmt.Sprintf("%d", i))})
+		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: agentID}, "task preview "+fmt.Sprintf("%d", i), "", "")})
 		delegOutput := strings.Repeat("d", 300+i*100)
 		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-			AgentID:       agentID,
-			Status:        "complete",
-			TurnCount:     3 + i,
-			TokenCount:    500 + i*100,
-			ToolCallCount: 2 + i,
-			Output:        delegOutput,
+			DelegationOccurrence: output.DelegationOccurrence{AgentID: agentID},
+			Status:               "complete",
+			TurnCount:            3 + i,
+			TokenCount:           500 + i*100,
+			ToolCallCount:        2 + i,
+			Output:               delegOutput,
 		})})
 	}
 

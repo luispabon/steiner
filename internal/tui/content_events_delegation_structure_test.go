@@ -124,15 +124,15 @@ func TestDelegationAcceptanceIsIdempotentAndRejectsIneligibleMembership(t *testi
 		{kind: segmentDelegation, delegData: first},
 		{kind: segmentDelegation, delegData: second},
 	}}
-	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent("call-second", "", "batch", "group"))
+	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call-second", BatchID: "batch", AgentID: ""}, "group"))
 	if b.structureGen != 1 || len(b.segments) != 1 || b.segments[0].kind != segmentDelegationGroup {
 		t.Fatalf("second acceptance did not join existing group: structure=%d segments=%v", b.structureGen, segmentKinds(b.segments))
 	}
-	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent("call-second", "", "batch", "group"))
+	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call-second", BatchID: "batch", AgentID: ""}, "group"))
 	if b.structureGen != 1 {
 		t.Fatalf("duplicate acceptance changed structure generation: %d", b.structureGen)
 	}
-	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent("call-first", "", "batch", "group"))
+	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call-first", BatchID: "batch", AgentID: ""}, "group"))
 	if b.structureGen != 1 {
 		t.Fatalf("acceptance for already-grouped member changed structure generation: %d", b.structureGen)
 	}
@@ -170,7 +170,7 @@ func TestDelegationAcceptanceOrderKeepsFirstMemberPosition(t *testing.T) {
 			}}
 			for _, id := range order {
 				batchID := "batch"
-				b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(id, "", batchID, "g"))
+				b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: id, BatchID: batchID, AgentID: ""}, "g"))
 			}
 			if len(b.segments) != 3 || b.segments[0].kind != segmentDelegationGroup || b.segments[1].text != "middle" || b.segments[2].text != "tail" {
 				t.Fatalf("acceptance order changed first-member position/order: %#v", b.segments)

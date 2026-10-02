@@ -95,6 +95,8 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	// matching CallID, and a stale ID causes it to fall back to FIFO
 	// matching, misrouting streaming into an unrelated agent's box.
 	spec.ParentCallID, _ = ctx.Value(tool.ExecutionCallIDKey{}).(string)
+	// BatchID likewise: session.Spec carries the original call's batch.
+	spec.BatchID = agent.ToolBatchIDFrom(ctx)
 	advisorAvailable := childHasAdvisorTool(session.Request)
 	spec.AdvisorBudget = effectiveAdvisorBudget(advisorAvailable, deps.AdvisorSubAgentBudget)
 

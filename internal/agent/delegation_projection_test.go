@@ -81,6 +81,11 @@ func TestAcceptedAdmissionSurvivesExecutorErrorIntoMessageAndEvent(t *testing.T)
 		t.Fatalf("message admission = %#v", message.DelegationAdmission)
 	}
 	for _, event := range events {
+		if event.Type == output.EventTypeDelegationAccepted {
+			t.Fatalf("agent loop emitted %s; the supervisor is its sole producer", event.Type)
+		}
+	}
+	for _, event := range events {
 		if event.Type == output.EventTypeToolCallFinished {
 			finished := event.Payload.(output.ToolCallFinishedEvent)
 			if finished.DelegationAdmission == nil || finished.DelegationAdmission.AgentID != "agent" {

@@ -76,8 +76,8 @@ func TestLostDeliverySettlesActiveReplayCard(t *testing.T) {
 	args := map[string]any{"type": "explore", "task": "find files", "group": "review"}
 	b.AppendEvent(output.NewToolCallQueuedEvent(1, "sub_agent", "replay-call", args))
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "replay-call", args))
-	b.AppendEvent(output.NewDelegationAcceptedEvent("replay-call", "child-lost", "replay-batch", "review"))
-	b.AppendEvent(output.NewDelegationStartedEventWithType("child-lost", "find files", "replay-call", "", "explore"))
+	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "replay-call", BatchID: "replay-batch", AgentID: "child-lost"}, "review"))
+	b.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "replay-call", AgentID: "child-lost"}, "find files", "", "explore"))
 
 	loc, ok := b.activeDelegations["child-lost"]
 	if !ok || loc.dd == nil {
@@ -108,15 +108,15 @@ func TestLostDeliveryDoesNotSettleNewerFollowUp(t *testing.T) {
 	b := newDeliveryBuffer()
 	originalArgs := map[string]any{"type": "explore", "task": "original task", "group": "old-group"}
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "old-call", originalArgs))
-	b.AppendEvent(output.NewDelegationAcceptedEvent("old-call", "child", "old-batch", "old-group"))
-	b.AppendEvent(output.NewDelegationStartedEventWithType("child", "original task", "old-call", "", "explore"))
+	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "old-call", BatchID: "old-batch", AgentID: "child"}, "old-group"))
+	b.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "old-call", AgentID: "child"}, "original task", "", "explore"))
 	old := b.activeDelegations["child"].dd
-	b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "child", Status: "complete"}))
+	b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "child"}, Status: "complete"}))
 
 	followUpArgs := map[string]any{"agent_id": "child", "message": "fresh work"}
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "follow_up", "new-call", followUpArgs))
-	b.AppendEvent(output.NewDelegationAcceptedEvent("new-call", "child", "new-batch", "new-group"))
-	b.AppendEvent(output.NewDelegationStartedEventWithType("child", "fresh work", "new-call", "", "explore"))
+	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "new-call", BatchID: "new-batch", AgentID: "child"}, "new-group"))
+	b.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "new-call", AgentID: "child"}, "fresh work", "", "explore"))
 	fresh := b.activeDelegations["child"].dd
 
 	b.AppendEvent(output.Event{Type: output.EventTypeSubAgentsDelivered, Payload: output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{
@@ -197,9 +197,9 @@ func TestTerminalEventFillsTypeAndDuration(t *testing.T) {
 		wantType string
 		wantEl   string
 	}{
-		{"complete replay", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "a", Status: "complete", AgentType: "explore", DurationMs: 65000}), "explore", "1m5s"},
-		{"failed replay", output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "a", Error: "x", AgentType: "code", DurationMs: 2500}), "code", "2s"},
-		{"live no duration", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "a", Status: "complete"}), "", ""},
+		{"complete replay", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "a"}, Status: "complete", AgentType: "explore", DurationMs: 65000}), "explore", "1m5s"},
+		{"failed replay", output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "a"}, Error: "x", AgentType: "code", DurationMs: 2500}), "code", "2s"},
+		{"live no duration", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "a"}, Status: "complete"}), "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

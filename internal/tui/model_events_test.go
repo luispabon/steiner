@@ -60,8 +60,8 @@ func TestApplyEventScopedWorktreeDisposal(t *testing.T) {
 func TestApplyEventScopedWorktreeDisposalAfterDelegateFinished(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
-	_ = m.applyEvent(output.NewDelegationStartedEvent("child-1", "inspect docs"))
-	_ = m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "child-1", Status: "complete"}))
+	_ = m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "inspect docs", "", ""))
+	_ = m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-1"}, Status: "complete"}))
 	if len(m.content.activeDelegations) != 0 {
 		t.Fatal("active delegation remains after completion")
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -16,6 +17,15 @@ type SpawnTicket struct {
 	AgentID string
 	// Queued is true when the job is waiting for a running slot.
 	Queued bool
+}
+
+// SetEvents replaces the sink that receives the supervisor's Delegation*
+// lifecycle events. The interactive runtime uses it to move the supervisor from
+// the process-wide base sink onto the session sink the TUI consumes.
+func (s *Supervisor) SetEvents(events output.EventSink) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = events
 }
 
 // SetCompletionSink installs the sink that receives released completions. A nil
@@ -80,7 +90,7 @@ func (s *Supervisor) Ledger() []agent.SubAgentLedgerEntry {
 			AgentType:    string(state.job.AgentType),
 			ParentCallID: state.job.ParentCallID,
 			Group:        state.job.Group,
-			BatchID:      state.batchID,
+			BatchID:      state.job.BatchID,
 			WorktreePath: state.worktree.Path,
 		})
 	}
@@ -175,6 +185,7 @@ func (s *Supervisor) newCompletionLocked(state *jobState) *agent.SubAgentComplet
 	completion := &agent.SubAgentCompletion{
 		Seq:              s.seq,
 		ParentCallID:     state.job.ParentCallID,
+		BatchID:          state.job.BatchID,
 		AgentID:          state.job.AgentID,
 		AgentType:        string(state.job.AgentType),
 		ObjectivePreview: state.job.ObjectivePreview,

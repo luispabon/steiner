@@ -18,10 +18,8 @@ func (b *contentBuffer) handleDelegationAdmissionFinish(payload output.ToolCallF
 	case tool.DelegationAdmissionAccepted:
 		if found {
 			b.applyDelegationAccepted(loc.dd, output.DelegationAcceptedEvent{
-				CallID:  payload.CallID,
-				AgentID: admission.AgentID,
-				BatchID: admission.BatchID,
-				Group:   admission.Group,
+				DelegationOccurrence: output.DelegationOccurrence{CallID: payload.CallID, BatchID: admission.BatchID, AgentID: admission.AgentID},
+				Group:                admission.Group,
 			})
 		}
 		b.appendAdmissionError(payload.Error)

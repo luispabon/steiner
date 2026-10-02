@@ -92,6 +92,7 @@ func superviseDelegate(
 		AgentID:          spec.AgentID,
 		AgentType:        spec.AgentType,
 		ParentCallID:     spec.ParentCallID,
+		BatchID:          spec.BatchID,
 		Group:            group,
 		GroupScope:       deps.GroupScope,
 		ObjectivePreview: truncateTaskPreview(spec.Task, 120),
@@ -184,7 +185,7 @@ func executeRegisteredDelegate(
 	emitDelegateStarted(deps.Events, spec, plan.modelAlias, spec.AgentType)
 
 	var gateRelease func()
-	req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, spec.AgentID, spec.ParentCallID, deps.Events, req.Events)
+	req.Events, gateRelease = applyDispatchGate(childCtx, deps.CacheKeyStore, req.PromptCacheKey, specOccurrence(spec), deps.Events, req.Events)
 	defer gateRelease()
 	if childCtx.Err() != nil {
 		plan.req = req

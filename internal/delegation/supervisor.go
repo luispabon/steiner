@@ -34,6 +34,9 @@ type ChildJob struct {
 	AgentID      string
 	AgentType    AgentType
 	ParentCallID string
+	// BatchID is the tool batch that issued the call; with ParentCallID it
+	// identifies the delegation occurrence. Enqueue sets it from the handler context.
+	BatchID string
 	// Group is the optional sub_agent label used for turn-scoped group release.
 	Group string
 	// GroupScope identifies the runtime conversation that owns group names.
@@ -61,7 +64,6 @@ const (
 // done is closed, and read only after <-done.
 type jobState struct {
 	job      ChildJob
-	batchID  string
 	childCtx context.Context
 	cancel   context.CancelFunc
 	phase    jobPhase
@@ -177,7 +179,7 @@ func admissionFor(ctx context.Context, job ChildJob, status string) *tool.Delega
 }
 
 func admissionForState(state *jobState) *tool.DelegationAdmission {
-	return &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, BatchID: state.batchID, Group: state.job.Group, AgentID: state.job.AgentID}
+	return &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, BatchID: state.job.BatchID, Group: state.job.Group, AgentID: state.job.AgentID}
 }
 
 // run is the single goroutine for a started job.

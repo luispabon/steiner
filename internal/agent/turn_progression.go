@@ -600,9 +600,6 @@ func (p *turnProgressor) emitToolFinished(turn int, call provider.ToolCall, cont
 	if !emit {
 		return
 	}
-	if admission != nil && admission.Status == tool.DelegationAdmissionAccepted {
-		emitEvent(p.request.Events, output.NewDelegationAcceptedEvent(call.ID, admission.AgentID, admission.BatchID, admission.Group))
-	}
 	emitEvent(p.request.Events, output.NewToolCallFinishedEventWithAdmission(turn, call.Name, call.ID, content, err, preview, admission))
 }
 

@@ -175,7 +175,7 @@ func TestRejectedCurrentCallRewriteRemapsPointersAndKeepsFollowUpChild(t *testin
 	if accepted.agentID != "child" || accepted.parentCallID != "original" || accepted.status != "active" {
 		t.Fatalf("original running child changed: %#v", accepted)
 	}
-	b.appendDelegationEvent(output.NewDelegationStartedEvent("child", "original task", "original"))
+	b.appendDelegationEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "original", AgentID: "child"}, "original task", "", ""))
 	if accepted.parentCallID != "original" || accepted.agentID != "child" {
 		t.Fatalf("late original-child event rebound: %#v", accepted)
 	}

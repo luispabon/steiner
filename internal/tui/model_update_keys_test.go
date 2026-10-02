@@ -243,7 +243,7 @@ func TestApprovalShortcutsOpenDelegateStopModal(t *testing.T) {
 	for _, key := range keys {
 		t.Run(key.String(), func(t *testing.T) {
 			m := newModel(Config{}, nil)
-			m.content.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "inspect", "", "", "explore"))
+			m.content.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "inspect", "", "explore"))
 			m.approval = approvalState{active: true}
 
 			m = updateModel(t, m, key)
@@ -371,7 +371,7 @@ func TestEscapeClosesHelpBeforeDelegateStopModal(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m.status.mode = "running"
 	m.helpVisible = true
-	m.content.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "inspect", "", "", "explore"))
+	m.content.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "inspect", "", "explore"))
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.helpVisible {
@@ -386,7 +386,7 @@ func TestHandleNavigationKeyOpensDelegateStopModal(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.controller = &testController{}
-	m.content.AppendEvent(output.NewDelegationStartedEventWithType("child-1", "inspect", "", "", "explore"))
+	m.content.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "inspect", "", "explore"))
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 	if !m.delegateCancelModal.IsOpen() {

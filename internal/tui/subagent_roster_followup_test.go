@@ -11,11 +11,11 @@ func TestRosterAcceptedSameCallIDFailureReplacesFinishedEntry(t *testing.T) {
 
 	var r subAgentRoster
 	for i, event := range []output.Event{
-		ev(output.DelegationAcceptedEvent{CallID: "same-call", AgentID: "child", BatchID: "old-batch", Group: "old-group"}),
-		ev(output.DelegationStartedEvent{CallID: "same-call", AgentID: "child", AgentType: "review"}),
-		ev(output.DelegationCompleteEvent{AgentID: "child", AgentType: "review", Status: "completed", DurationMs: 100}),
-		ev(output.DelegationAcceptedEvent{CallID: "same-call", AgentID: "child", BatchID: "new-batch", Group: "new-group"}),
-		ev(output.DelegationFailedEvent{CallID: "same-call", AgentID: "child", AgentType: "review", DurationMs: 50, Error: "replay failure"}),
+		ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "same-call", BatchID: "old-batch", AgentID: "child"}, Group: "old-group"}),
+		ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "same-call", AgentID: "child"}, AgentType: "review"}),
+		ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "child"}, AgentType: "review", Status: "completed", DurationMs: 100}),
+		ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "same-call", BatchID: "new-batch", AgentID: "child"}, Group: "new-group"}),
+		ev(output.DelegationFailedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "same-call", AgentID: "child"}, AgentType: "review", DurationMs: 50, Error: "replay failure"}),
 	} {
 		r.observe(event, int64(i+1)*1_000_000_000)
 	}
@@ -36,9 +36,9 @@ func TestRosterRepeatedAdmissionIsIdempotent(t *testing.T) {
 	t.Parallel()
 
 	var r subAgentRoster
-	accepted := ev(output.DelegationAcceptedEvent{CallID: "call", AgentID: "child", BatchID: "batch", Group: "group"})
+	accepted := ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "call", BatchID: "batch", AgentID: "child"}, Group: "group"})
 	r.observe(accepted, 1)
-	r.observe(ev(output.DelegationStartedEvent{CallID: "call", AgentID: "child", AgentType: "review"}), 2)
+	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "call", AgentID: "child"}, AgentType: "review"}), 2)
 	before := *r.entries["child"]
 	r.observe(accepted, 3)
 	after := *r.entries["child"]
@@ -52,10 +52,10 @@ func TestRosterActiveSameCallIDDifferentBatchIsProtected(t *testing.T) {
 	t.Parallel()
 
 	var r subAgentRoster
-	r.observe(ev(output.DelegationAcceptedEvent{CallID: "same-call", AgentID: "child", BatchID: "old-batch", Group: "old-group"}), 1)
-	r.observe(ev(output.DelegationStartedEvent{CallID: "same-call", AgentID: "child", AgentType: "review"}), 2)
-	r.observe(ev(output.DelegationAcceptedEvent{CallID: "same-call", AgentID: "child", BatchID: "new-batch", Group: "new-group"}), 3)
-	r.observe(ev(output.DelegationFailedEvent{CallID: "same-call", AgentID: "child", AgentType: "review", DurationMs: 10, Error: "active overwrite"}), 4)
+	r.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "same-call", BatchID: "old-batch", AgentID: "child"}, Group: "old-group"}), 1)
+	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "same-call", AgentID: "child"}, AgentType: "review"}), 2)
+	r.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "same-call", BatchID: "new-batch", AgentID: "child"}, Group: "new-group"}), 3)
+	r.observe(ev(output.DelegationFailedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "same-call", AgentID: "child"}, AgentType: "review", DurationMs: 10, Error: "active overwrite"}), 4)
 
 	entry := r.entries["child"]
 	if entry.currentCallID != "same-call" || entry.status != rosterRunning || entry.batchID != "old-batch" || entry.group != "old-group" {

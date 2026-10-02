@@ -26,9 +26,9 @@ func TestDelegationRejectionIdentityKeepsAcceptedCardAndError(t *testing.T) {
 func TestDelegationRejectionIdentityLateRejectedCallDoesNotStealActiveChild(t *testing.T) {
 	m := newIdentityTestModel()
 	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "original-call", map[string]any{"type": "explore", "task": "original task"}))
-	m.applyEvent(output.NewDelegationAcceptedEvent("original-call", "child", "old-batch", "old-group"))
-	m.applyEvent(output.NewDelegationQueuedEvent("child", "original-call", "explore", "original task"))
-	m.applyEvent(output.NewDelegationStartedEventWithType("child", "original task", "original-call", "", "explore"))
+	m.applyEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "original-call", BatchID: "old-batch", AgentID: "child"}, "old-group"))
+	m.applyEvent(output.NewDelegationQueuedEvent(output.DelegationOccurrence{CallID: "original-call", AgentID: "child"}, "explore", "original task"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "original-call", AgentID: "child"}, "original task", "", "explore"))
 	original := m.content.activeDelegations["child"]
 	originalCard := original.dd
 	originalRoster := m.roster.entries["child"]
@@ -38,7 +38,7 @@ func TestDelegationRejectionIdentityLateRejectedCallDoesNotStealActiveChild(t *t
 	m.applyEvent(output.NewToolCallStartedEvent(1, "follow_up", "rejected-call", map[string]any{"agent_id": "child", "message": "rejected follow-up"}))
 	m.applyEvent(output.NewToolCallFinishedEventWithAdmission(1, "follow_up", "rejected-call", "", errors.New("not admitted"), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected"}))
 
-	m.applyEvent(output.NewDelegationStartedEventWithType("child", "late rejected task", "rejected-call", "", "explore"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "rejected-call", AgentID: "child"}, "late rejected task", "", "explore"))
 	got := m.content.activeDelegations["child"]
 	if got.dd != originalCard || got.seg != original.seg {
 		t.Fatalf("late rejected call stole active locator: got=%#v want=%#v", got, original)
@@ -57,12 +57,12 @@ func TestDelegationRejectionIdentityLateRejectedCallDoesNotStealActiveChild(t *t
 func TestDelegationRejectionIdentityAllowsFreshAcceptedFollowUpAfterCompletion(t *testing.T) {
 	m := newIdentityTestModel()
 	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "original-call", map[string]any{"type": "explore", "task": "original task"}))
-	m.applyEvent(output.NewDelegationAcceptedEvent("original-call", "child", "old-batch", "old-group"))
-	m.applyEvent(output.NewDelegationQueuedEvent("child", "original-call", "explore", "original task"))
-	m.applyEvent(output.NewDelegationStartedEventWithType("child", "original task", "original-call", "", "explore"))
+	m.applyEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "original-call", BatchID: "old-batch", AgentID: "child"}, "old-group"))
+	m.applyEvent(output.NewDelegationQueuedEvent(output.DelegationOccurrence{CallID: "original-call", AgentID: "child"}, "explore", "original task"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "original-call", AgentID: "child"}, "original task", "", "explore"))
 	original := m.content.activeDelegations["child"]
 	originalCard := original.dd
-	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "child", Status: "completed"}))
+	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "child"}, Status: "completed"}))
 	if originalCard.status != "complete" {
 		t.Fatalf("test setup original card status = %q, want complete", originalCard.status)
 	}
@@ -73,7 +73,7 @@ func TestDelegationRejectionIdentityAllowsFreshAcceptedFollowUpAfterCompletion(t
 		t.Fatalf("fresh follow-up card = %#v, original=%p", fresh, originalCard)
 	}
 	m.applyEvent(output.NewToolCallFinishedEventWithAdmission(1, "follow_up", "fresh-call", "", nil, output.ToolPreview{}, &output.DelegationAdmission{Status: "accepted", AgentID: "child", BatchID: "fresh-batch", Group: "fresh-group"}))
-	m.applyEvent(output.NewDelegationStartedEventWithType("child", "fresh work", "fresh-call", "", "explore"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "fresh-call", AgentID: "child"}, "fresh work", "", "explore"))
 
 	if fresh.agentID != "child" || fresh.parentCallID != "fresh-call" || fresh.status != "active" || !fresh.groupAccepted || fresh.group != "fresh-group" || fresh.batchID != "fresh-batch" {
 		t.Fatalf("fresh follow-up binding = %#v", fresh)

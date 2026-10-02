@@ -43,8 +43,11 @@ type SubAgentCompletion struct {
 	// Seq orders completions within one process; it is not durable.
 	Seq          uint64
 	ParentCallID string
-	AgentID      string
-	AgentType    string
+	// BatchID is the tool batch of the originating call; with ParentCallID it
+	// identifies the delegation occurrence.
+	BatchID   string
+	AgentID   string
+	AgentType string
 	// Status is the delegation result status, or "lost".
 	Status string
 	// Quiet is true when the user caused the cancellation.

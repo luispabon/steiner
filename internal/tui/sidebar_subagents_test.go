@@ -13,8 +13,8 @@ func TestSidebarAcceptedGroupIdentity(t *testing.T) {
 	for _, call := range []struct{ callID, agentID string }{
 		{"call-a", "same-a"}, {"call-b", "same-b"}, {"call-c", "other"},
 	} {
-		r.observe(ev(output.DelegationQueuedEvent{CallID: call.callID, AgentID: call.agentID, AgentType: "review"}), 1)
-		r.observe(ev(output.DelegationStartedEvent{CallID: call.callID, AgentID: call.agentID, AgentType: "review"}), 2)
+		r.observe(ev(output.DelegationQueuedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: call.callID, AgentID: call.agentID}, AgentType: "review"}), 1)
+		r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: call.callID, AgentID: call.agentID}, AgentType: "review"}), 2)
 	}
 	for _, admission := range []output.DelegationAdmission{
 		{Status: "accepted", AgentID: "same-a", BatchID: "batch-a", Group: "review"},
@@ -25,7 +25,7 @@ func TestSidebarAcceptedGroupIdentity(t *testing.T) {
 		r.observe(ev(output.ToolCallFinishedEvent{CallID: callID, DelegationAdmission: &admission}), 3)
 	}
 	r.observe(ev(output.ToolCallQueuedEvent{CallID: "unknown", Arguments: map[string]any{"group": "review"}}), 3)
-	r.observe(ev(output.DelegationStartedEvent{CallID: "unknown", AgentID: "unknown-child", AgentType: "review"}), 4)
+	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "unknown", AgentID: "unknown-child"}, AgentType: "review"}), 4)
 
 	entries := r.snapshot()
 	if len(entries) != 4 {
@@ -54,13 +54,13 @@ func TestRosterPreparationFailureUsesAdmissionIdentity(t *testing.T) {
 		accept output.Event
 		callID string
 	}{
-		{"accepted event", ev(output.DelegationAcceptedEvent{CallID: "prep", AgentID: "prepare", BatchID: "batch", Group: "prepare-group"}), "prep"},
+		{"accepted event", ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "prep", BatchID: "batch", AgentID: "prepare"}, Group: "prepare-group"}), "prep"},
 		{"accepted finish fallback", ev(output.ToolCallFinishedEvent{CallID: "prep", DelegationAdmission: &output.DelegationAdmission{Status: "accepted", AgentID: "prepare", BatchID: "batch", Group: "prepare-group"}}), "prep"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var r subAgentRoster
 			r.observe(tc.accept, 1)
-			r.observe(ev(output.DelegationFailedEvent{CallID: tc.callID, AgentID: "prepare", AgentType: "code", Error: "preparation failed"}), 2)
+			r.observe(ev(output.DelegationFailedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: tc.callID, AgentID: "prepare"}, AgentType: "code", Error: "preparation failed"}), 2)
 			e := r.entries["prepare"]
 			if e == nil || e.status != rosterFailed || !e.accepted || e.group != "prepare-group" || e.batchID != "batch" {
 				t.Fatalf("preparation failure entry = %+v", e)
@@ -75,9 +75,9 @@ func TestRosterPreparationFailureUsesAdmissionIdentity(t *testing.T) {
 
 func TestRosterUnknownLegacyLifecycleAndDelivery(t *testing.T) {
 	var r subAgentRoster
-	r.observe(ev(output.DelegationQueuedEvent{AgentID: "queued", AgentType: "review"}), 1)
-	r.observe(ev(output.DelegationStartedEvent{AgentID: "running", AgentType: "code"}), 2)
-	r.observe(ev(output.DelegationFailedEvent{AgentID: "failed", AgentType: "code", Error: "legacy"}), 3)
+	r.observe(ev(output.DelegationQueuedEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "queued"}, AgentType: "review"}), 1)
+	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "running"}, AgentType: "code"}), 2)
+	r.observe(ev(output.DelegationFailedEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "failed"}, AgentType: "code", Error: "legacy"}), 3)
 	r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "lost", AgentType: "explore", Status: "lost"}}}), 4)
 	for id, status := range map[string]string{"queued": rosterQueued, "running": rosterRunning, "failed": rosterFailed, "lost": rosterLost} {
 		e := r.entries[id]
@@ -95,10 +95,10 @@ func TestRosterUnknownLegacyLifecycleAndDelivery(t *testing.T) {
 
 func TestRosterAcceptedRunResetAndRejectedFollowup(t *testing.T) {
 	var r subAgentRoster
-	r.observe(ev(output.DelegationAcceptedEvent{CallID: "original", AgentID: "child", BatchID: "old", Group: "old-group"}), 1)
-	r.observe(ev(output.DelegationStartedEvent{CallID: "original", AgentID: "child", AgentType: "code"}), 2)
-	r.observe(ev(output.DelegationAcceptedEvent{CallID: "fresh", AgentID: "child", BatchID: "fresh-batch", Group: "fresh-group"}), 3)
-	r.observe(ev(output.DelegationStartedEvent{CallID: "fresh", AgentID: "child", AgentType: "code"}), 4)
+	r.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "original", BatchID: "old", AgentID: "child"}, Group: "old-group"}), 1)
+	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "original", AgentID: "child"}, AgentType: "code"}), 2)
+	r.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "fresh", BatchID: "fresh-batch", AgentID: "child"}, Group: "fresh-group"}), 3)
+	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "fresh", AgentID: "child"}, AgentType: "code"}), 4)
 	entry := r.entries["child"]
 	if entry.group != "fresh-group" || entry.batchID != "fresh-batch" {
 		t.Fatalf("fresh accepted identity = %q/%q, want fresh-group/fresh-batch", entry.group, entry.batchID)
@@ -106,11 +106,11 @@ func TestRosterAcceptedRunResetAndRejectedFollowup(t *testing.T) {
 
 	// Rejected lifecycle never settles the accepted current run, including failed events without an occurrence ID.
 	for _, failure := range []output.DelegationFailedEvent{
-		{CallID: "rejected", AgentID: "child", AgentType: "code", Error: "busy"},
-		{AgentID: "child", AgentType: "code", Error: "legacy busy"},
+		{DelegationOccurrence: output.DelegationOccurrence{CallID: "rejected", AgentID: "child"}, AgentType: "code", Error: "busy"},
+		{DelegationOccurrence: output.DelegationOccurrence{AgentID: "child"}, AgentType: "code", Error: "legacy busy"},
 	} {
-		r.observe(ev(output.DelegationQueuedEvent{CallID: failure.CallID, AgentID: "child", AgentType: "code"}), 5)
-		r.observe(ev(output.DelegationStartedEvent{CallID: failure.CallID, AgentID: "child", AgentType: "code"}), 6)
+		r.observe(ev(output.DelegationQueuedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: failure.CallID, AgentID: "child"}, AgentType: "code"}), 5)
+		r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: failure.CallID, AgentID: "child"}, AgentType: "code"}), 6)
 		r.observe(ev(failure), 7)
 		if entry.status != rosterRunning || entry.currentCallID != "fresh" || entry.group != "fresh-group" || entry.batchID != "fresh-batch" {
 			t.Fatalf("rejected follow-up changed accepted running entry: %+v", entry)
@@ -118,15 +118,15 @@ func TestRosterAcceptedRunResetAndRejectedFollowup(t *testing.T) {
 	}
 
 	// Accepted lifecycle may arrive before its acceptance event.
-	r.observe(ev(output.DelegationStartedEvent{CallID: "late", AgentID: "late-child", AgentType: "review"}), 8)
-	r.observe(ev(output.DelegationAcceptedEvent{CallID: "late", AgentID: "late-child", BatchID: "late-batch", Group: "late-group"}), 9)
+	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "late", AgentID: "late-child"}, AgentType: "review"}), 8)
+	r.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "late", BatchID: "late-batch", AgentID: "late-child"}, Group: "late-group"}), 9)
 	if e := r.entries["late-child"]; e == nil || e.group != "late-group" || e.batchID != "late-batch" || !e.accepted {
 		t.Fatalf("late accepted identity = %+v", e)
 	}
 
 	// Accepted follow-up without a group resets prior identity in the live row.
-	r.observe(ev(output.DelegationAcceptedEvent{CallID: "ungrouped", AgentID: "child", BatchID: "new-batch"}), 10)
-	r.observe(ev(output.DelegationStartedEvent{CallID: "ungrouped", AgentID: "child", AgentType: "code"}), 11)
+	r.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "ungrouped", BatchID: "new-batch", AgentID: "child"}}), 10)
+	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "ungrouped", AgentID: "child"}, AgentType: "code"}), 11)
 	if entry.group != "" || entry.batchID != "new-batch" || !entry.accepted {
 		t.Fatalf("ungrouped current run identity = %+v", entry)
 	}

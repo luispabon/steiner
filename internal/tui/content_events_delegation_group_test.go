@@ -43,8 +43,8 @@ func countDelegationSegments(b *contentBuffer) (segments, boxes int) {
 func TestReplayDelegationEventsKeepAcceptedIdentityAndSettleCard(t *testing.T) {
 	m := newIdentityTestModel()
 	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "replay-call", subAgentArgs("review")))
-	m.applyEvent(output.NewDelegationAcceptedEvent("replay-call", "child-known", "batch", "review"))
-	m.applyEvent(output.NewDelegationStartedEventWithType("child-known", "find files", "replay-call", "", "explore"))
+	m.applyEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "replay-call", BatchID: "batch", AgentID: "child-known"}, "review"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "replay-call", AgentID: "child-known"}, "find files", "", "explore"))
 
 	loc, ok := m.content.activeDelegations["child-known"]
 	if !ok || loc.dd == nil || loc.dd.parentCallID != "replay-call" {
@@ -54,7 +54,7 @@ func TestReplayDelegationEventsKeepAcceptedIdentityAndSettleCard(t *testing.T) {
 	if roster == nil || roster.currentCallID != "replay-call" || roster.status != rosterRunning {
 		t.Fatalf("accepted replay identity missing from roster: %#v", roster)
 	}
-	m.applyEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "child-known", CallID: "replay-call", TaskPreview: "find files", Error: "lost"}))
+	m.applyEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{CallID: "replay-call", AgentID: "child-known"}, TaskPreview: "find files", Error: "lost"}))
 	if loc.dd.status != "failed" || m.roster.entries["child-known"].status != rosterFailed {
 		t.Fatalf("lost replay did not settle same card: card=%#v roster=%#v", loc.dd, m.roster.entries["child-known"])
 	}
@@ -62,7 +62,7 @@ func TestReplayDelegationEventsKeepAcceptedIdentityAndSettleCard(t *testing.T) {
 
 func TestReplayPreparationFailureWithoutStartedEventCreatesOneFailedCard(t *testing.T) {
 	m := newIdentityTestModel()
-	m.applyEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{CallID: "prep-call", TaskPreview: "setup", Error: "setup failed"}))
+	m.applyEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{CallID: "prep-call"}, TaskPreview: "setup", Error: "setup failed"}))
 	if got := countDelegationCards(m.content.segments); got != 1 {
 		t.Fatalf("failed cards = %d, want 1", got)
 	}
@@ -99,7 +99,7 @@ func TestDelegationGrouping(t *testing.T) {
 				b.AppendEvent(output.NewToolCallQueuedEvent(i, "sub_agent", st.callID, subAgentArgs(st.group)))
 				b.AppendEvent(output.NewToolCallStartedEvent(i, "sub_agent", st.callID, subAgentArgs(st.group)))
 				if st.accepted {
-					b.AppendEvent(output.NewDelegationAcceptedEvent(st.callID, "", st.batch, st.group))
+					b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: st.callID, BatchID: st.batch, AgentID: ""}, st.group))
 				}
 			}
 			segments, boxes := countDelegationSegments(b)
@@ -125,8 +125,8 @@ func TestDelegationRegroupPreservesInterveningSegments(t *testing.T) {
 		b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", id, subAgentArgs("g")))
 	}
 	b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", "middle"))
-	b.AppendEvent(output.NewDelegationAcceptedEvent("a", "", "batch", "g"))
-	b.AppendEvent(output.NewDelegationAcceptedEvent("b", "", "batch", "g"))
+	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "a", BatchID: "batch", AgentID: ""}, "g"))
+	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "b", BatchID: "batch", AgentID: ""}, "g"))
 	if len(b.segments) != 2 || b.segments[0].kind != segmentDelegationGroup || b.segments[1].kind == segmentDelegation {
 		t.Fatalf("segment order/kinds = %#v", b.segments)
 	}
@@ -149,10 +149,10 @@ func TestDelegationDrawOrderWithInterleavedStream(t *testing.T) {
 func TestDelegationGroupingAcrossAssistantMessageBoundaries(t *testing.T) {
 	b := newGroupTestBuffer()
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-1", subAgentArgs("research")))
-	b.AppendEvent(output.NewDelegationAcceptedEvent("call-1", "", "batch", "research"))
+	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call-1", BatchID: "batch", AgentID: ""}, "research"))
 	b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", ""))
 	b.AppendEvent(output.NewToolCallStartedEvent(2, "sub_agent", "call-2", subAgentArgs("research")))
-	b.AppendEvent(output.NewDelegationAcceptedEvent("call-2", "", "batch-2", "research"))
+	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call-2", BatchID: "batch-2", AgentID: ""}, "research"))
 	if len(b.segments) != 2 || b.segments[0].kind != segmentDelegationGroup || b.segments[1].kind != segmentDelegationGroup {
 		t.Fatalf("different accepted batches should remain separate singleton frames, got kinds %v", segmentKinds(b.segments))
 	}
@@ -174,7 +174,7 @@ func TestDelegationGroupNameOnlyWithAcceptedLabel(t *testing.T) {
 	b.styles = testStyles("#5599ff")
 	for _, id := range []string{"a", "b"} {
 		b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", id, subAgentArgs("final-review")))
-		b.AppendEvent(output.NewDelegationAcceptedEvent(id, "", "batch", "final-review"))
+		b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: id, BatchID: "batch", AgentID: ""}, "final-review"))
 	}
 	if len(b.segments) != 1 || b.segments[0].kind != segmentDelegationGroup {
 		t.Fatalf("want accepted group, got %v", segmentKinds(b.segments))

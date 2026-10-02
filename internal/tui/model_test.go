@@ -674,12 +674,12 @@ func TestModelCtrlXTogglesDelegationWhileConversationActive(t *testing.T) {
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		AgentID:       "child-1",
-		Status:        "complete",
-		TurnCount:     1,
-		TokenCount:    10,
-		ToolCallCount: 0,
-		Output:        "result text",
+		DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-1"},
+		Status:               "complete",
+		TurnCount:            1,
+		TokenCount:           10,
+		ToolCallCount:        0,
+		Output:               "result text",
 	})})
 
 	dd := m.content.segments[0].delegData
@@ -705,7 +705,7 @@ func TestModelMouseClickTogglesDelegation(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("child-1", "task preview")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "task preview", "", "")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "transcript body", output.ChunkSourceAssistant), "child-1")})
 
 	dd := m.content.segments[0].delegData
@@ -820,7 +820,7 @@ func TestModelMouseDragDoesNotToggle(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("child-1", "task")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "task", "", "")})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "body", output.ChunkSourceAssistant), "child-1")})
 
 	dd := m.content.segments[0].delegData
@@ -4824,7 +4824,7 @@ func TestContentStringCacheInvalidationOnActiveDelegation(t *testing.T) {
 	cache1 := m.content.String(80)
 
 	// Create actual delegation segment with active status.
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent("agent_1", "test task")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "agent_1"}, "test task", "", "")})
 	cache2 := m.content.String(80)
 
 	// With active delegation, checkBufferDirty returns true (forces rebuild).
@@ -5460,7 +5460,7 @@ func TestViewportSelectionSurvivesDragEndOnUserSeparator(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.content.AppendUser("select this user line")
-	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	m.content.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "do work", "", ""))
 	m.syncViewport()
 
 	// The blank separator line between the user segment and the delegation box
@@ -5525,7 +5525,7 @@ func TestViewportSelectionRemapsWhenContentShiftsAboveUnanchoredEndpoint(t *test
 		{kind: segmentThinkingBlock, thinkData: &thinkingBlockData{body: "secret reasoning", collapsed: true}, renderDirty: true},
 	}
 	m.content.AppendUser("select this user line")
-	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	m.content.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "do work", "", ""))
 	m.syncViewport()
 
 	// The blank separator below the user segment maps to no segment; the drag
@@ -5582,7 +5582,7 @@ func TestViewportSelectionDragSnapsBlankLineViaMouseHandlers(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.content.AppendUser("select this user line")
-	m.content.AppendEvent(output.NewDelegationStartedEvent("child-1", "do work"))
+	m.content.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "do work", "", ""))
 	m.syncViewport()
 
 	userLine, _, blankLine := findUserLineAndUnmappableLine(t, m, "select this user line")

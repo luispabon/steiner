@@ -45,7 +45,7 @@ func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, a
 	task := taskFromArgs(call.Arguments)
 	state := buildReplayedDelegationState(msg.ToolCallID, msg.Retention, msg.Content)
 	if admission := acceptedAdmission(msg); admission != nil {
-		s.events.Emit(output.NewDelegationAcceptedEvent(msg.ToolCallID, admission.AgentID, admission.BatchID, admission.Group))
+		s.events.Emit(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: msg.ToolCallID, BatchID: admission.BatchID, AgentID: admission.AgentID}, admission.Group))
 		if admission.AgentID != "" {
 			state.agentID = admission.AgentID
 		}
@@ -102,13 +102,13 @@ func (s *Session) replayDelegationTerminal(msg agent.Message, state replayedDele
 // carry the call ID only for accepted admissions; legacy results predate it.
 func (s *Session) emitDelegationProgress(agentID, callID, task, status string, accepted bool) {
 	if status == "queued" {
-		s.events.Emit(output.NewDelegationQueuedEvent(agentID, callID, "", task))
+		s.events.Emit(output.NewDelegationQueuedEvent(output.DelegationOccurrence{CallID: callID, AgentID: agentID}, "", task))
 		return
 	}
 	if !accepted {
 		callID = ""
 	}
-	s.events.Emit(output.NewDelegationStartedEvent(agentID, task, callID))
+	s.events.Emit(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: callID, AgentID: agentID}, task, "", ""))
 }
 
 func (s *Session) emitDelegationFailure(agentID string, msg agent.Message, task, err string) {
@@ -119,9 +119,9 @@ func (s *Session) emitDelegationFailure(agentID string, msg agent.Message, task,
 			agentID = admission.AgentID
 		}
 	}
-	s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: agentID, CallID: callID, TaskPreview: task, Error: err}))
+	s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: agentID, CallID: callID}, TaskPreview: task, Error: err}))
 }
 
 func (s *Session) emitDelegationComplete(state replayedDelegationState) {
-	s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: state.agentID, Status: state.status, TurnCount: state.turnCount, TokenCount: state.tokenCount, ToolCallCount: state.toolCallCount, Output: state.output, InputTokens: state.inputTokens, CacheReadTokens: state.cacheReadTokens, CacheCreateTokens: state.cacheCreateTokens}))
+	s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: state.agentID}, Status: state.status, TurnCount: state.turnCount, TokenCount: state.tokenCount, ToolCallCount: state.toolCallCount, Output: state.output, InputTokens: state.inputTokens, CacheReadTokens: state.cacheReadTokens, CacheCreateTokens: state.cacheCreateTokens}))
 }

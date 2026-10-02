@@ -359,25 +359,25 @@ func TestAdvisorCompleteEventCacheHitRateNotDoubleCounted(t *testing.T) {
 
 func TestDelegationCompleteEventRendersCacheHitRate(t *testing.T) {
 	noUsage := renderEvent(NewDelegationCompleteEvent(DelegationCompleteParams{
-		AgentID:       "child-1",
-		Status:        "complete",
-		TurnCount:     2,
-		TokenCount:    100,
-		ToolCallCount: 3,
+		DelegationOccurrence: DelegationOccurrence{AgentID: "child-1"},
+		Status:               "complete",
+		TurnCount:            2,
+		TokenCount:           100,
+		ToolCallCount:        3,
 	}))
 	if got := noUsage.Text; strings.Contains(got, "cache=") {
 		t.Fatalf("no-usage text = %q, want no cache= field when there is no cache-bearing usage", got)
 	}
 
 	withUsage := renderEvent(NewDelegationCompleteEvent(DelegationCompleteParams{
-		AgentID:           "child-2",
-		Status:            "complete",
-		TurnCount:         4,
-		TokenCount:        8123,
-		ToolCallCount:     12,
-		InputTokens:       50,
-		CacheReadTokens:   950,
-		CacheCreateTokens: 0,
+		DelegationOccurrence: DelegationOccurrence{AgentID: "child-2"},
+		Status:               "complete",
+		TurnCount:            4,
+		TokenCount:           8123,
+		ToolCallCount:        12,
+		InputTokens:          50,
+		CacheReadTokens:      950,
+		CacheCreateTokens:    0,
 	}))
 	if got := withUsage.Text; !strings.Contains(got, "cache=95.0%") {
 		t.Fatalf("with-usage text = %q, want cache=95.0%%", got)
@@ -395,11 +395,11 @@ func TestDelegationCompleteEventRendersCacheHitRate(t *testing.T) {
 // the rendered hit rate must be 50/100 = 50.0%, not 50/150.
 func TestDelegationCompleteEventCacheHitRateNotDoubleCounted(t *testing.T) {
 	rendered := renderEvent(NewDelegationCompleteEvent(DelegationCompleteParams{
-		AgentID:           "child-3",
-		Status:            "complete",
-		InputTokens:       50,
-		CacheReadTokens:   50,
-		CacheCreateTokens: 0,
+		DelegationOccurrence: DelegationOccurrence{AgentID: "child-3"},
+		Status:               "complete",
+		InputTokens:          50,
+		CacheReadTokens:      50,
+		CacheCreateTokens:    0,
 	}))
 	if got := rendered.Text; !strings.Contains(got, "cache=50.0%") {
 		t.Fatalf("text = %q, want cache=50.0%%", got)

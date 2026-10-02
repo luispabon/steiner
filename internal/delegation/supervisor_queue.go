@@ -43,6 +43,7 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	batchID := agent.ToolBatchIDFrom(handlerCtx)
 	groupName := agent.NormalizeDelegationGroup(job.Group)
 	job.Group = groupName
+	job.BatchID = batchID
 	if groupName != "" {
 		if err := s.reserveGroupLocked(job.GroupScope, groupName, batchID); err != nil {
 			s.mu.Unlock()
@@ -54,7 +55,6 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	s.enqSeq++
 	state := &jobState{
 		job:         job,
-		batchID:     batchID,
 		childCtx:    childCtx,
 		cancel:      cancel,
 		phase:       phaseQueued,
@@ -72,10 +72,13 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	s.jobs[job.AgentID] = state
 	s.queue = append(s.queue, state)
 	state.wasQueued = s.running >= s.maxParallel || len(s.queue) > 1
+	events := s.events
 	s.mu.Unlock()
 
-	if s.events != nil {
-		s.events.Emit(output.NewDelegationAcceptedEvent(job.ParentCallID, job.AgentID, batchID, groupName))
+	// Accepted has this single producer: it fires after registration and before
+	// queueing or preparation, so it precedes every other lifecycle event.
+	if events != nil {
+		events.Emit(output.NewDelegationAcceptedEvent(jobOccurrence(job), groupName))
 	}
 
 	s.mu.Lock()
@@ -94,8 +97,8 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	s.startQueuedLocked()
 	s.mu.Unlock()
 	latePosts.deliver()
-	if state.wasQueued && s.events != nil {
-		s.events.Emit(output.NewDelegationQueuedEvent(job.AgentID, job.ParentCallID, string(job.AgentType), job.ObjectivePreview))
+	if state.wasQueued && events != nil {
+		events.Emit(output.NewDelegationQueuedEvent(jobOccurrence(job), string(job.AgentType), job.ObjectivePreview))
 	}
 	return state, nil
 }

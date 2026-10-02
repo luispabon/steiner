@@ -44,6 +44,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			AgentType:    AgentTypeVision,
 			SystemPrompt: AgentSystemPrompt(AgentTypeVision),
 			ParentCallID: callID,
+			BatchID:      agent.ToolBatchIDFrom(ctx),
 			AgentID:      agentID,
 			Images:       []provider.ImageBlock{imgBlock},
 		}

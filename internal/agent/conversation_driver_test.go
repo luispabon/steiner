@@ -232,7 +232,7 @@ func (f *fakeBackground) markFinished(ids ...string) {
 
 func completionFor(seq uint64, id string) SubAgentCompletion {
 	return SubAgentCompletion{
-		Seq: seq, ParentCallID: "call-" + id, AgentID: id, AgentType: "code",
+		Seq: seq, ParentCallID: "call-" + id, BatchID: "batch-" + id, AgentID: id, AgentType: "code",
 		Status: "complete", ObjectivePreview: "obj " + id, Body: `{"output":"done ` + id + `"}`,
 	}
 }

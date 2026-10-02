@@ -92,8 +92,8 @@ func TestReplayDuplicateIDOrphanAdmissionTargetsSecondCard(t *testing.T) {
 	// started, then closed without changing its card or active child.
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", map[string]any{"task": "second"}))
 	second := b.segments[len(b.segments)-1].delegData
-	b.AppendEvent(output.NewDelegationAcceptedEvent("same", "agent-orphan", "batch", "group"))
-	b.AppendEvent(output.NewDelegationStartedEventWithType("agent-orphan", "second", "same", "", "explore"))
+	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "same", BatchID: "batch", AgentID: "agent-orphan"}, "group"))
+	b.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "same", AgentID: "agent-orphan"}, "second", "", "explore"))
 	if second == nil || !second.groupAccepted || second.agentID != "agent-orphan" {
 		t.Fatalf("orphan admission ownership: second=%#v", second)
 	}
@@ -117,8 +117,8 @@ func TestLostOccurrenceDoesNotConsumeFreshRejectedReuse(t *testing.T) {
 	t.Parallel()
 	b := newGroupTestBuffer()
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", map[string]any{"task": "old"}))
-	b.AppendEvent(output.NewDelegationAcceptedEvent("same", "child", "old-batch", "old-group"))
-	b.AppendEvent(output.NewDelegationStartedEventWithType("child", "old", "same", "", "explore"))
+	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "same", BatchID: "old-batch", AgentID: "child"}, "old-group"))
+	b.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "same", AgentID: "child"}, "old", "", "explore"))
 	old := b.activeDelegations["child"].dd
 	b.AppendEvent(output.Event{Type: output.EventTypeSubAgentsDelivered, Payload: output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "child", AgentType: "explore", Status: "lost", ParentCallID: "same"}}}})
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", map[string]any{"task": "fresh"}))

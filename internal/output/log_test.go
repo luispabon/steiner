@@ -38,7 +38,7 @@ func TestDelegationStartedEvent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			event := NewDelegationStartedEvent(tt.agentID, tt.taskPreview)
+			event := NewDelegationStartedEvent(DelegationOccurrence{AgentID: tt.agentID}, tt.taskPreview, "", "")
 
 			if event.Type != EventTypeDelegationStarted {
 				t.Errorf("Type = %s, want %s", event.Type, EventTypeDelegationStarted)
@@ -88,7 +88,7 @@ func TestDelegationStartedEvent(t *testing.T) {
 }
 
 func TestDelegationStartedEventWithModel(t *testing.T) {
-	event := NewDelegationStartedEventWithType("child-1", "inspect", "call-1", "  deepseek-v4-flash  ", "")
+	event := NewDelegationStartedEvent(DelegationOccurrence{CallID: "call-1", AgentID: "child-1"}, "inspect", "  deepseek-v4-flash  ", "")
 	if event.Type != EventTypeDelegationStarted {
 		t.Fatalf("Type = %s, want %s", event.Type, EventTypeDelegationStarted)
 	}
@@ -123,12 +123,12 @@ func TestDelegationCompleteEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			event := NewDelegationCompleteEvent(DelegationCompleteParams{
-				AgentID:       tt.agentID,
-				Status:        tt.status,
-				TurnCount:     tt.turns,
-				TokenCount:    tt.tokens,
-				ToolCallCount: 0,
-				Output:        "",
+				DelegationOccurrence: DelegationOccurrence{AgentID: tt.agentID},
+				Status:               tt.status,
+				TurnCount:            tt.turns,
+				TokenCount:           tt.tokens,
+				ToolCallCount:        0,
+				Output:               "",
 			})
 
 			if event.Type != EventTypeDelegationComplete {
@@ -198,9 +198,9 @@ func TestDelegationFailedEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			event := NewDelegationFailedEvent(DelegationFailedParams{
-				AgentID:     tt.agentID,
-				TaskPreview: tt.taskPreview,
-				Error:       tt.error,
+				DelegationOccurrence: DelegationOccurrence{AgentID: tt.agentID},
+				TaskPreview:          tt.taskPreview,
+				Error:                tt.error,
 			})
 
 			if event.Type != EventTypeDelegationFailed {

@@ -103,8 +103,8 @@ func (s *Session) replayDelegationBundle(call agent.ToolCall, key replayOccurren
 func (s *Session) replayLedgerOrphanBundle(call agent.ToolCall, key replayOccurrenceKey, occurrence *replayOccurrence, state replayState, ledger replayLedger) {
 	s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
 	entry := ledger.entries[occurrence.ledgerIndex]
-	s.events.Emit(output.NewDelegationAcceptedEvent(call.ID, entry.AgentID, entry.BatchID, entry.Group))
-	s.events.Emit(output.NewDelegationStartedEvent(entry.AgentID, taskFromArgs(call.Arguments), call.ID))
+	s.events.Emit(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: call.ID, BatchID: entry.BatchID, AgentID: entry.AgentID}, entry.Group))
+	s.events.Emit(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: call.ID, AgentID: entry.AgentID}, taskFromArgs(call.Arguments), "", ""))
 	s.events.Emit(output.NewReplayDelegationParentClosedEvent(call.ID))
 	state.startedToolCalls[key] = true
 }
@@ -122,7 +122,7 @@ func (s *Session) replayLedgerAdmission(msg agent.Message, occurrence *replayOcc
 	if status != "running" && status != "queued" {
 		return
 	}
-	s.events.Emit(output.NewDelegationAcceptedEvent(msg.ToolCallID, entry.AgentID, entry.BatchID, entry.Group))
+	s.events.Emit(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: msg.ToolCallID, BatchID: entry.BatchID, AgentID: entry.AgentID}, entry.Group))
 }
 
 func ledgerEntryForOccurrence(ledger replayLedger, occurrence *replayOccurrence) agent.SubAgentLedgerEntry {
