@@ -41,7 +41,7 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 		return nil, outstandingCapError{outstanding: outstanding}
 	}
 	batchID := agent.ToolBatchIDFrom(handlerCtx)
-	groupName := normalizeGroup(job.Group)
+	groupName := NormalizeGroup(job.Group)
 	job.Group = groupName
 	if groupName != "" {
 		if err := s.reserveGroupLocked(job.GroupScope, groupName, batchID); err != nil {
@@ -90,10 +90,8 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 		state.phase = phaseDone
 		state.cancel()
 		go s.finishCancelled(state)
-		s.startQueuedLocked()
-	} else {
-		s.startQueuedLocked()
 	}
+	s.startQueuedLocked()
 	s.mu.Unlock()
 	latePosts.deliver()
 	if state.wasQueued && s.events != nil {
@@ -102,13 +100,17 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	return state, nil
 }
 
+func (s *Supervisor) newShutdownCompletionLocked(state *jobState) *agent.SubAgentCompletion {
+	completion := s.newCompletionLocked(state)
+	completion.Status = string(StatusCancelled)
+	completion.Quiet = true
+	completion.Body = agent.FailureBody(completion.Status, "sub-agent did not stop before shutdown")
+	return completion
+}
+
 func (s *Supervisor) settleLatePublicationLocked(state *jobState) postList {
 	if state.completion == nil && !state.blocking {
-		completion := s.newCompletionLocked(state)
-		completion.Status = string(StatusCancelled)
-		completion.Quiet = true
-		completion.Body = agent.FailureBody(completion.Status, "sub-agent did not stop before shutdown")
-		state.completion = completion
+		state.completion = s.newShutdownCompletionLocked(state)
 	}
 	deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
 	posts := s.routeShutdownCompletionLocked(state)

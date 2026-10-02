@@ -138,7 +138,7 @@ func NewSupervisor(opts SupervisorOptions) *Supervisor {
 		jobs:        make(map[string]*jobState),
 		protected:   make(map[string]struct{}),
 		groups:      make(map[groupKey]*jobGroup),
-		scopes:      map[string]*delegationGroupScope{"": {names: make(map[string]string), batches: make(map[string]bool)}},
+		scopes:      map[string]*delegationGroupScope{"": {names: make(map[string]string)}},
 	}
 }
 
@@ -173,7 +173,7 @@ func (s *Supervisor) SpawnAndWait(handlerCtx context.Context, job ChildJob) (too
 }
 
 func admissionFor(ctx context.Context, job ChildJob, status string) *tool.DelegationAdmission {
-	return &tool.DelegationAdmission{Status: status, BatchID: agent.ToolBatchIDFrom(ctx), Group: normalizeGroup(job.Group), AgentID: job.AgentID}
+	return &tool.DelegationAdmission{Status: status, BatchID: agent.ToolBatchIDFrom(ctx), Group: NormalizeGroup(job.Group), AgentID: job.AgentID}
 }
 
 func admissionForState(state *jobState) *tool.DelegationAdmission {

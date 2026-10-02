@@ -51,15 +51,7 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 		}
 		s.mu.Unlock()
 
-		for _, wait := range waits {
-			select {
-			case <-wait:
-			case <-waitCtx.Done():
-				goto settle
-			}
-		}
-
-	settle:
+		waitAll(waitCtx, waits)
 
 		s.mu.Lock()
 		posts := s.settleShutdownLocked()
@@ -70,6 +62,17 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return ShutdownReport{Unjoined: append([]UnjoinedChild(nil), s.report.Unjoined...)}
+}
+
+// waitAll blocks until every channel is closed or ctx is done.
+func waitAll(ctx context.Context, waits []chan struct{}) {
+	for _, wait := range waits {
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (s *Supervisor) settleShutdownLocked() postList {
@@ -100,10 +103,7 @@ func (s *Supervisor) settleShutdownJobLocked(state *jobState, batch *[]agent.Sub
 	}
 	state.shutdownTimedOut = true
 	if state.published && state.completion == nil {
-		completion := s.newCompletionLocked(state)
-		completion.Status = string(StatusCancelled)
-		completion.Quiet = true
-		completion.Body = agent.FailureBody(completion.Status, "sub-agent did not stop before shutdown")
+		completion := s.newShutdownCompletionLocked(state)
 		state.completion = completion
 		switch {
 		case state.blocking:

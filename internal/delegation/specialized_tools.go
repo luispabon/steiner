@@ -296,11 +296,6 @@ func applyCodeWorktreeResult(result tool.ExecutionResult, worktree CodeWorktree,
 	return result
 }
 
-func inputGroup(input map[string]any) string {
-	group, _ := input["group"].(string)
-	return strings.TrimSpace(group)
-}
-
 func nonEmptyLines(s string) []string {
 	var lines []string
 	for _, line := range strings.Split(s, "\n") {
@@ -493,7 +488,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			}
 		}
 		plan.modelAlias = resolvedModel.Alias
-		plan.group = inputGroup(input)
+		plan.group = NormalizeGroup(input["group"])
 		result, err := runRegisteredDelegate(ctx, deps, spec, plan, string(agentType), func(result tool.ExecutionResult) tool.ExecutionResult {
 			if dr, ok := result.Value.(Result); ok {
 				dr.AdvisorBudget = spec.AdvisorBudget
