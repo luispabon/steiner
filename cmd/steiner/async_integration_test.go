@@ -258,13 +258,15 @@ func newAsyncHarness(t *testing.T, prov *asyncScript, maxParallel int) *asyncHar
 	store := delegation.NewSessionStore()
 	workDir := t.TempDir()
 	rt := cliRuntime{
-		cfg:                        cfg,
-		provider:                   prov,
-		workDir:                    workDir,
-		homeDir:                    t.TempDir(),
-		events:                     events,
-		delegationSessionStore:     store,
-		delegationCacheKeyStore:    delegation.NewCacheKeyStore(),
+		cfg:                    cfg,
+		provider:               prov,
+		workDir:                workDir,
+		homeDir:                t.TempDir(),
+		events:                 events,
+		delegationSessionStore: store,
+		// Keep this harness ungated. Cache-key serialization has separate tests;
+		// sharing it here can block the second child before the provider request.
+		delegationCacheKeyStore:    nil,
 		delegationActiveController: controller,
 		delegationSupervisor:       sup,
 	}
@@ -531,7 +533,15 @@ func TestAsyncSubAgentsThroughInteractiveWiring(t *testing.T) {
 			step(toolCallsResponse(subAgentCall("g1", "task-alpha", "pair"), subAgentCall("g2", "task-beta", "pair"))),
 			step(textResponse("accepted")),
 			step(toolCallsResponse(subAgentCall("r1", "retry-alpha", "pair"), subAgentCall("r2", "retry-beta", "pair"))),
-			step(textResponse("saw both")),
+			func(req provider.ChatRequest) provider.ChatResponse {
+				for _, callID := range []string{"r1", "r2"} {
+					got := toolResultFor(req.Messages, callID)
+					if !strings.Contains(got, "delegation group name") || !strings.Contains(got, "pair") || !strings.Contains(got, "already used") || !strings.Contains(got, "choose a fresh name") {
+						t.Errorf("provider request %s result = %q, want corrective reason", callID, got)
+					}
+				}
+				return textResponse("saw both")
+			},
 		}
 		h := newAsyncHarness(t, prov, 4)
 
@@ -544,22 +554,21 @@ func TestAsyncSubAgentsThroughInteractiveWiring(t *testing.T) {
 				t.Fatalf("no real accepted event for %s", callID)
 			}
 		}
-		before := h.supervisor.SnapshotGroupLedger(h.sessionGroupScope())
+		before := h.supervisor.SnapshotGroupLedger(h.scope)
 		if before.Version != 1 || !containsGroupName(before, "pair") {
 			t.Fatalf("ledger before reuse = %+v, want reserved pair", before)
 		}
 
 		submit(t, h.session, "reuse the pair while it is still running")
 		waitRuns(t, h.session)
-		after := h.supervisor.SnapshotGroupLedger(h.sessionGroupScope())
+		after := h.supervisor.SnapshotGroupLedger(h.scope)
 		if !sameGroupLedger(before, after) {
 			t.Fatalf("ledger changed after rejected reuse: before=%+v after=%+v", before, after)
 		}
-		if got := toolResultInConversation(h.session.Conversation(), "r1"); !strings.Contains(got, "child setup failed") || strings.Contains(got, `already used; choose a fresh name`) {
-			t.Fatalf("r1 rejection = %q, want corrective model error without raw provider reason", got)
-		}
-		if got := toolResultInConversation(h.session.Conversation(), "r2"); !strings.Contains(got, "child setup failed") || strings.Contains(got, `already used; choose a fresh name`) {
-			t.Fatalf("r2 rejection = %q, want corrective model error without raw provider reason", got)
+		for _, callID := range []string{"r1", "r2"} {
+			if got := toolResultInConversation(h.session.Conversation(), callID); !strings.Contains(got, "pair") || !strings.Contains(got, "already used") || !strings.Contains(got, "choose a fresh name") {
+				t.Fatalf("%s rejection = %q, want corrective model reason", callID, got)
+			}
 		}
 
 		events = h.events.snapshot()
@@ -612,10 +621,6 @@ func containsGroupName(ledger agent.DelegationGroupLedger, want string) bool {
 
 func sameGroupLedger(a, b agent.DelegationGroupLedger) bool {
 	return a.Version == b.Version && slices.Equal(a.Names, b.Names)
-}
-
-func (h *asyncHarness) sessionGroupScope() string {
-	return h.scope
 }
 
 func delegationFinishedFor(events []output.Event, callID string) *output.ToolCallFinishedEvent {
