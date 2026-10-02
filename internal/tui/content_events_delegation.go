@@ -134,15 +134,32 @@ func (dd *delegationDisplayState) applyUsage(cacheRead, input, cacheCreate, toke
 	dd.cacheHitRate, dd.cacheHitOK = usagestats.HitRate(cacheRead, input, cacheCreate)
 }
 
+// terminalTarget resolves the card a Complete or Failed event settles: its
+// occurrence's card, or for an event without a call ID the agent's in-flight
+// card.
+func (b *contentBuffer) terminalTarget(occ output.DelegationOccurrence) (delegationLocator, bool) {
+	if occ.CallID != "" {
+		return b.lookupOccurrence(keyOf(occ))
+	}
+	loc, active := b.activeDelegations[occ.AgentID]
+	return loc, active && loc.dd != nil
+}
+
+func (b *contentBuffer) settleDelegation(loc delegationLocator, agentID string) {
+	b.markDelegationDirty(loc.seg)
+	if active, ok := b.activeDelegations[agentID]; ok && active.dd == loc.dd {
+		delete(b.activeDelegations, agentID)
+	}
+}
+
 func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 	payload, ok := event.Payload.(output.DelegationCompleteEvent)
 	if !ok {
 		b.appendStyled(formatDelegationEvent(event), segmentPlain)
 		return
 	}
-	if loc, active := b.activeDelegations[payload.AgentID]; active {
-		dd := loc.dd
-		if dd != nil {
+	if loc, found := b.terminalTarget(payload.DelegationOccurrence); found {
+		if dd := loc.dd; !dd.finalizedByCancellation {
 			dd.status = "complete"
 			dd.resultStatus = payload.Status
 			if dd.isFollowUp {
@@ -165,8 +182,7 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 			dd.advisorUses = payload.AdvisorUses
 			dd.advisorDenied = payload.AdvisorDenied
 		}
-		b.markDelegationDirty(loc.seg)
-		delete(b.activeDelegations, payload.AgentID)
+		b.settleDelegation(loc, payload.AgentID)
 		return
 	}
 	if b.wasCancellationFinalized(payload.AgentID) {
@@ -174,6 +190,7 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 	}
 	dd := &delegationDisplayState{
 		agentID:       payload.AgentID,
+		parentCallID:  payload.CallID,
 		status:        "complete",
 		resultStatus:  payload.Status,
 		turnCount:     payload.TurnCount,
@@ -186,7 +203,7 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 	}
 	dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 	dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
-	b.appendDelegationSegment(dd)
+	b.registerOccurrence(keyOf(payload.DelegationOccurrence), delegationLocator{seg: b.appendDelegationSegment(dd), dd: dd})
 }
 
 func (b *contentBuffer) handleDelegationFailed(event output.Event) {
@@ -195,8 +212,12 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 		b.appendStyled(formatDelegationEvent(event), segmentPlain)
 		return
 	}
-	if loc, active := b.activeDelegations[payload.AgentID]; active {
-		if dd := loc.dd; dd != nil {
+	if loc, found := b.terminalTarget(payload.DelegationOccurrence); found {
+		if dd := loc.dd; !dd.finalizedByCancellation {
+			if dd.agentID == "" {
+				dd.agentID = payload.AgentID
+				dd.agentType = event.Scope.AgentType
+			}
 			dd.status = "failed"
 			dd.failureReason = payload.Error
 			if dd.startTime > 0 {
@@ -209,20 +230,8 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 				dd.advisorDenied = payload.AdvisorDenied
 			}
 		}
-		b.markDelegationDirty(loc.seg)
-		delete(b.activeDelegations, payload.AgentID)
+		b.settleDelegation(loc, payload.AgentID)
 		return
-	}
-	if payload.CallID != "" {
-		if loc, found := b.dequeuePendingDelegateParentByCallID(payload.CallID); found {
-			loc.dd.agentID = payload.AgentID
-			loc.dd.agentType = event.Scope.AgentType
-			loc.dd.status = "failed"
-			loc.dd.failureReason = payload.Error
-			loc.dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
-			b.markDelegationDirty(loc.seg)
-			return
-		}
 	}
 	if b.wasCancellationFinalized(payload.AgentID) {
 		return
@@ -238,9 +247,10 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 		advisorDenied: payload.AdvisorDenied,
 	}
 	dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
-	idx := b.appendDelegationSegment(dd)
+	loc := delegationLocator{seg: b.appendDelegationSegment(dd), dd: dd}
 	if payload.CallID != "" {
-		b.pendingDelegationStarts = append(b.pendingDelegationStarts, delegationLocator{seg: idx, dd: dd})
+		b.registerOccurrence(keyOf(payload.DelegationOccurrence), loc)
+		b.pendingDelegationStarts = append(b.pendingDelegationStarts, loc)
 	}
 }
 

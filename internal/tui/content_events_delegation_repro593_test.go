@@ -17,11 +17,10 @@ import (
 func TestRepro593_FollowUpAfterCancelledSiblingLandsInNewBox(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		showThinking:           true,
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		showThinking:      true,
 	}
 
 	// 1. child-3 spawns and completes.

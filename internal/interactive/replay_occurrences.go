@@ -73,16 +73,13 @@ func (s *Session) replayDelegationBundle(call agent.ToolCall, key replayOccurren
 
 // replayLedgerOrphanBundle emits a ledger orphan: a delegate call with ledger
 // evidence but no persisted result. It emits the start, authoritative
-// acceptance and lifecycle, then closes exactly that parent correlation slot.
-// The closure is a control event, not a result, finish, or delivery
-// acknowledgement, so no orphan finish is fabricated.
+// acceptance and lifecycle; no orphan finish is fabricated.
 func (s *Session) replayLedgerOrphanBundle(call agent.ToolCall, key replayOccurrenceKey, occurrence *replayOccurrence, state replayState, ledger replayLedger) {
 	s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
 	entry := ledger.entries[occurrence.ledgerIndex]
 	occ := replayOccurrenceFor(call.ID, key.messageIndex, nil, entry, "")
 	s.events.Emit(output.NewDelegationAcceptedEvent(occ, entry.Group))
 	s.events.Emit(output.NewDelegationStartedEvent(occ, taskFromArgs(call.Arguments), "", ""))
-	s.events.Emit(output.NewReplayDelegationParentClosedEvent(call.ID))
 	state.startedToolCalls[key] = true
 }
 

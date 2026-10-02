@@ -20,7 +20,7 @@ func TestDelegationRejectionIdentityKeepsAcceptedCardAndError(t *testing.T) {
 	if b.activeDelegations["child"].dd != accepted || findDelegationSegment(b.segments, accepted) < 0 {
 		t.Fatal("conflicting rejection removed or replaced accepted card")
 	}
-	if len(b.segments) != 2 || b.segments[0].kind != segmentDelegationGroup || accepted.group != "accepted-group" || accepted.status != "active" {
+	if len(b.segments) != 2 || b.segments[0].kind != segmentDelegationGroup || accepted.acceptedGroup() != "accepted-group" || accepted.status != "active" {
 		t.Fatalf("accepted card changed: segments=%v card=%#v", segmentKinds(b.segments), accepted)
 	}
 	if got := b.segments[len(b.segments)-1]; got.kind != segmentTool || got.text != rejection {
@@ -32,8 +32,8 @@ func TestDelegationRejectionIdentityLateRejectedCallDoesNotStealActiveChild(t *t
 	m := newIdentityTestModel()
 	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "original-call", map[string]any{"type": "explore", "task": "original task"}))
 	m.applyEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "original-call", BatchID: "old-batch", AgentID: "child"}, "old-group"))
-	m.applyEvent(output.NewDelegationQueuedEvent(output.DelegationOccurrence{CallID: "original-call", AgentID: "child"}, "explore", "original task"))
-	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "original-call", AgentID: "child"}, "original task", "", "explore"))
+	m.applyEvent(output.NewDelegationQueuedEvent(output.DelegationOccurrence{CallID: "original-call", BatchID: "old-batch", AgentID: "child"}, "explore", "original task"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "original-call", BatchID: "old-batch", AgentID: "child"}, "original task", "", "explore"))
 	original := m.content.activeDelegations["child"]
 	originalCard := original.dd
 	originalRoster := m.roster.entries["child"]
@@ -48,7 +48,7 @@ func TestDelegationRejectionIdentityLateRejectedCallDoesNotStealActiveChild(t *t
 	if got.dd != originalCard || got.seg != original.seg {
 		t.Fatalf("late rejected call stole active locator: got=%#v want=%#v", got, original)
 	}
-	if findDelegationSegment(m.content.segments, originalCard) < 0 || originalCard.parentCallID != "original-call" || originalCard.agentID != "child" || originalCard.group != "old-group" || originalCard.status != "active" {
+	if findDelegationSegment(m.content.segments, originalCard) < 0 || originalCard.parentCallID != "original-call" || originalCard.agentID != "child" || originalCard.acceptedGroup() != "old-group" || originalCard.status != "active" {
 		t.Fatalf("late rejected event changed original card identity: %#v", originalCard)
 	}
 	if countDelegationCards(m.content.segments) != 1 {
@@ -66,11 +66,11 @@ func TestDelegationRejectionIdentityAllowsFreshAcceptedFollowUpAfterCompletion(t
 	m := newIdentityTestModel()
 	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "original-call", map[string]any{"type": "explore", "task": "original task"}))
 	m.applyEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "original-call", BatchID: "old-batch", AgentID: "child"}, "old-group"))
-	m.applyEvent(output.NewDelegationQueuedEvent(output.DelegationOccurrence{CallID: "original-call", AgentID: "child"}, "explore", "original task"))
-	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "original-call", AgentID: "child"}, "original task", "", "explore"))
+	m.applyEvent(output.NewDelegationQueuedEvent(output.DelegationOccurrence{CallID: "original-call", BatchID: "old-batch", AgentID: "child"}, "explore", "original task"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "original-call", BatchID: "old-batch", AgentID: "child"}, "original task", "", "explore"))
 	original := m.content.activeDelegations["child"]
 	originalCard := original.dd
-	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "child"}, Status: "completed"}))
+	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{CallID: "original-call", BatchID: "old-batch", AgentID: "child"}, Status: "completed"}))
 	if originalCard.status != "complete" {
 		t.Fatalf("test setup original card status = %q, want complete", originalCard.status)
 	}
@@ -81,9 +81,9 @@ func TestDelegationRejectionIdentityAllowsFreshAcceptedFollowUpAfterCompletion(t
 		t.Fatalf("fresh follow-up card = %#v, original=%p", fresh, originalCard)
 	}
 	m.applyEvent(output.NewToolCallFinishedEventWithAdmission(1, "follow_up", "fresh-call", "", nil, output.ToolPreview{}, &output.DelegationAdmission{Status: "accepted", AgentID: "child", BatchID: "fresh-batch", Group: "fresh-group"}))
-	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "fresh-call", AgentID: "child"}, "fresh work", "", "explore"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "fresh-call", BatchID: "fresh-batch", AgentID: "child"}, "fresh work", "", "explore"))
 
-	if fresh.agentID != "child" || fresh.parentCallID != "fresh-call" || fresh.status != "active" || fresh.group != "fresh-group" {
+	if fresh.agentID != "child" || fresh.parentCallID != "fresh-call" || fresh.status != "active" || fresh.acceptedGroup() != "fresh-group" {
 		t.Fatalf("fresh follow-up binding = %#v", fresh)
 	}
 	if findDelegationSegment(m.content.segments, originalCard) < 0 || originalCard.status != "complete" {
@@ -92,8 +92,8 @@ func TestDelegationRejectionIdentityAllowsFreshAcceptedFollowUpAfterCompletion(t
 	if loc := m.content.activeDelegations["child"]; loc.dd != fresh || loc.seg != findDelegationSegment(m.content.segments, fresh) {
 		t.Fatalf("active locator = %#v, want fresh card at %d", loc, findDelegationSegment(m.content.segments, fresh))
 	}
-	if len(m.content.pendingDelegateParents) != 0 {
-		t.Fatalf("fresh follow-up remains pending: %#v", m.content.pendingDelegateParents)
+	if len(m.content.openDelegations) != 0 {
+		t.Fatalf("fresh follow-up remains open: %#v", m.content.openDelegations)
 	}
 	roster := m.roster.entries["child"]
 	if roster == nil || roster.status != rosterRunning || roster.group != "fresh-group" {
@@ -137,7 +137,8 @@ func TestDelegationRejectionIdentityRemapsPendingSurvivors(t *testing.T) {
 		},
 		collapseState:           map[int]bool{0: true, 1: false, 2: true, 3: false},
 		activeDelegations:       map[string]delegationLocator{"rejected": {seg: 0, dd: rejected}, "survivor": {seg: 1, dd: survivor}},
-		pendingDelegateParents:  []delegationLocator{{seg: 0, dd: rejected}, {seg: 1, dd: survivor}},
+		openDelegations:         map[string]delegationLocator{"rejected": {seg: 0, dd: rejected}, "survivor": {seg: 1, dd: survivor}},
+		delegations:             map[occurrenceKey]delegationLocator{{BatchID: "b", CallID: "survivor"}: {seg: 1, dd: survivor}},
 		pendingDelegationStarts: []delegationLocator{{seg: 0, dd: rejected}, {seg: 1, dd: survivor}},
 		queuedDelegations:       map[string]delegationLocator{"rejected": {seg: 0, dd: rejected}, "survivor": {seg: 1, dd: survivor}},
 		activeToolCalls:         map[string]toolCallLocator{"tool": {seg: 2, td: tool}},
@@ -156,9 +157,11 @@ func TestDelegationRejectionIdentityRemapsPendingSurvivors(t *testing.T) {
 		t.Errorf("rejected active locator remains: %#v", loc)
 	}
 	assertSurvivorLocator("active", b.activeDelegations["survivor"])
-	if len(b.pendingDelegateParents) != 1 || b.pendingDelegateParents[0].dd != survivor || b.pendingDelegateParents[0].seg != 0 {
-		t.Errorf("pending parent survivors = %#v", b.pendingDelegateParents)
+	if _, ok := b.openDelegations["rejected"]; ok || len(b.openDelegations) != 1 {
+		t.Errorf("open parents = %#v, want only survivor", b.openDelegations)
 	}
+	assertSurvivorLocator("open", b.openDelegations["survivor"])
+	assertSurvivorLocator("occurrence", b.delegations[occurrenceKey{BatchID: "b", CallID: "survivor"}])
 	if len(b.pendingDelegationStarts) != 1 || b.pendingDelegationStarts[0].dd != survivor || b.pendingDelegationStarts[0].seg != 0 {
 		t.Errorf("pending start survivors = %#v", b.pendingDelegationStarts)
 	}

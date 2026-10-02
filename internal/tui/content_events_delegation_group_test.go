@@ -10,7 +10,7 @@ import (
 )
 
 func newGroupTestBuffer() *contentBuffer {
-	return &contentBuffer{segments: make([]contentSegment, 0), collapseState: make(map[int]bool), pendingDelegateParents: make([]delegationLocator, 0), activeDelegations: make(map[string]delegationLocator)}
+	return &contentBuffer{segments: make([]contentSegment, 0), collapseState: make(map[int]bool), activeDelegations: make(map[string]delegationLocator)}
 }
 
 func subAgentArgs(group string) map[string]any {
@@ -44,7 +44,7 @@ func TestReplayDelegationEventsKeepAcceptedIdentityAndSettleCard(t *testing.T) {
 	m := newIdentityTestModel()
 	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "replay-call", subAgentArgs("review")))
 	m.applyEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "replay-call", BatchID: "batch", AgentID: "child-known"}, "review"))
-	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "replay-call", AgentID: "child-known"}, "find files", "", "explore"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "replay-call", BatchID: "batch", AgentID: "child-known"}, "find files", "", "explore"))
 
 	loc, ok := m.content.activeDelegations["child-known"]
 	if !ok || loc.dd == nil || loc.dd.parentCallID != "replay-call" {
@@ -54,7 +54,7 @@ func TestReplayDelegationEventsKeepAcceptedIdentityAndSettleCard(t *testing.T) {
 	if roster == nil || roster.status != rosterRunning || roster.group != "review" {
 		t.Fatalf("accepted replay identity missing from roster: %#v", roster)
 	}
-	m.applyEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{CallID: "replay-call", AgentID: "child-known"}, TaskPreview: "find files", Error: "lost"}))
+	m.applyEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{CallID: "replay-call", BatchID: "batch", AgentID: "child-known"}, TaskPreview: "find files", Error: "lost"}))
 	if loc.dd.status != "failed" || m.roster.entries["child-known"].status != rosterFailed {
 		t.Fatalf("lost replay did not settle same card: card=%#v roster=%#v", loc.dd, m.roster.entries["child-known"])
 	}
@@ -66,8 +66,8 @@ func TestReplayPreparationFailureWithoutStartedEventCreatesOneFailedCard(t *test
 	if got := countDelegationCards(m.content.segments); got != 1 {
 		t.Fatalf("failed cards = %d, want 1", got)
 	}
-	if len(m.content.pendingDelegateParents) != 0 {
-		t.Fatalf("pending cards = %d, want 0", len(m.content.pendingDelegateParents))
+	if len(m.content.openDelegations) != 0 {
+		t.Fatalf("open cards = %d, want 0", len(m.content.openDelegations))
 	}
 	var card *delegationDisplayState
 	for _, segment := range m.content.segments {

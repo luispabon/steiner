@@ -1,10 +1,6 @@
 package tui
 
-import (
-	"strings"
-
-	"github.com/luispabon/steiner/internal/output"
-)
+import "slices"
 
 type delegationMembership struct {
 	batch string
@@ -12,102 +8,10 @@ type delegationMembership struct {
 }
 
 func acceptedMembership(dd *delegationDisplayState) (delegationMembership, bool) {
-	if dd == nil || dd.isAdvisor || !dd.groupAccepted || dd.batchID == "" || strings.TrimSpace(dd.group) == "" {
+	if dd == nil || dd.isAdvisor || dd.admission == nil || dd.admission.BatchID == "" || dd.admission.Group == "" {
 		return delegationMembership{}, false
 	}
-	return delegationMembership{batch: dd.batchID, group: strings.TrimSpace(dd.group)}, true
-}
-
-func (b *contentBuffer) appendDelegationAcceptedEvent(event output.Event) {
-	payload, ok := event.Payload.(output.DelegationAcceptedEvent)
-	if !ok || payload.CallID == "" {
-		return
-	}
-	if target, found := b.peekDelegationOccurrence(payload.CallID); found {
-		b.applyDelegationAccepted(target.dd, payload)
-		return
-	}
-	if target, found := b.unambiguousDelegationByCallID(payload.CallID); found {
-		b.applyDelegationAccepted(target.dd, payload)
-	}
-}
-
-func (b *contentBuffer) applyDelegationAccepted(dd *delegationDisplayState, payload output.DelegationAcceptedEvent) {
-	if dd == nil || dd.admissionAccepted || dd.groupAccepted {
-		return
-	}
-	dd.admissionAccepted = true
-	dd.groupAccepted = true
-	dd.batchID = payload.BatchID
-	dd.group = strings.TrimSpace(payload.Group)
-	if _, ok := acceptedMembership(dd); ok {
-		b.regroupAcceptedDelegations()
-	}
-}
-
-func (b *contentBuffer) peekDelegationOccurrence(callID string) (delegationLocator, bool) {
-	b.purgeDelegationOccurrences()
-	for _, loc := range b.pendingDelegationOccurrences {
-		if loc.dd != nil && loc.dd.parentCallID == callID && !loc.dd.admissionAccepted {
-			return loc, true
-		}
-	}
-	return delegationLocator{}, false
-}
-
-func (b *contentBuffer) retireDelegationOccurrence(dd *delegationDisplayState) {
-	if dd == nil {
-		return
-	}
-	for i, loc := range b.pendingDelegationOccurrences {
-		if loc.dd == dd {
-			b.pendingDelegationOccurrences = append(b.pendingDelegationOccurrences[:i], b.pendingDelegationOccurrences[i+1:]...)
-			return
-		}
-	}
-}
-
-func (b *contentBuffer) takeDelegationOccurrence(callID string) (delegationLocator, bool) {
-	b.purgeDelegationOccurrences()
-	for _, loc := range b.pendingDelegationOccurrences {
-		if loc.dd != nil && loc.dd.parentCallID == callID {
-			b.retireDelegationOccurrence(loc.dd)
-			return loc, true
-		}
-	}
-	return delegationLocator{}, false
-}
-
-func (b *contentBuffer) appendReplayDelegationParentClosedEvent(event output.Event) {
-	payload, ok := event.Payload.(output.ReplayDelegationParentClosedEvent)
-	if !ok || payload.CallID == "" {
-		return
-	}
-	b.takeDelegationOccurrence(payload.CallID)
-}
-
-func (b *contentBuffer) purgeDelegationOccurrences() {
-	out := b.pendingDelegationOccurrences[:0]
-	for _, loc := range b.pendingDelegationOccurrences {
-		if index := findDelegationSegmentAt(b.segments, loc.dd, loc.seg); index >= 0 {
-			loc.seg = index
-			out = append(out, loc)
-		}
-	}
-	b.pendingDelegationOccurrences = out
-}
-
-func (b *contentBuffer) unambiguousDelegationByCallID(callID string) (delegationLocator, bool) {
-	var found delegationLocator
-	count := 0
-	b.forEachDelegationReverse(func(loc delegationLocator) bool {
-		if loc.dd != nil && loc.dd.parentCallID == callID {
-			found = loc
-			count++
-		}
-		return count > 1
-	})
-	return found, count == 1
+	return delegationMembership{batch: dd.admission.BatchID, group: dd.admission.Group}, true
 }
 
 type delegationSegmentToken struct {
@@ -133,7 +37,7 @@ func flattenDelegationSegments(segments []contentSegment) []delegationSegmentTok
 	return tokens
 }
 
-func (b *contentBuffer) regroupAcceptedDelegations() {
+func (b *contentBuffer) regroupAdmittedDelegations() {
 	tokens := flattenDelegationSegments(b.segments)
 	members := make(map[delegationMembership][]*delegationDisplayState)
 	for _, tok := range tokens {
@@ -185,11 +89,18 @@ func sameSegments(a, b []contentSegment) bool {
 		return false
 	}
 	for i := range a {
-		if a[i].kind != b[i].kind || a[i].delegData != b[i].delegData || a[i].delegGroupData != b[i].delegGroupData {
+		if a[i].kind != b[i].kind || a[i].delegData != b[i].delegData || !sameGroupEntries(a[i].delegGroupData, b[i].delegGroupData) {
 			return false
 		}
 	}
 	return true
+}
+
+func sameGroupEntries(a, b *delegationGroupSegment) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return slices.Equal(a.entries, b.entries)
 }
 
 func findDelegationSegment(segments []contentSegment, dd *delegationDisplayState) int {
@@ -248,6 +159,16 @@ func segmentHoldsToolCall(seg contentSegment, td *toolCallSegment) bool {
 	return false
 }
 
+func remapDelegationIndex[K comparable](index map[K]delegationLocator, segments []contentSegment) {
+	for key, loc := range index {
+		if i := findDelegationSegmentAt(segments, loc.dd, loc.seg); i < 0 {
+			delete(index, key)
+		} else {
+			index[key] = delegationLocator{seg: i, dd: loc.dd}
+		}
+	}
+}
+
 func remapDelegationLocators(locators []delegationLocator, segments []contentSegment) []delegationLocator {
 	out := locators[:0]
 	for _, loc := range locators {
@@ -256,16 +177,6 @@ func remapDelegationLocators(locators []delegationLocator, segments []contentSeg
 		}
 	}
 	return out
-}
-
-func remapActiveDelegations(active map[string]delegationLocator, segments []contentSegment) {
-	for key, loc := range active {
-		if index := findDelegationSegmentAt(segments, loc.dd, loc.seg); index < 0 {
-			delete(active, key)
-		} else {
-			active[key] = delegationLocator{seg: index, dd: loc.dd}
-		}
-	}
 }
 
 func remapActiveToolCalls(active map[string]toolCallLocator, segments []contentSegment) {
@@ -279,12 +190,12 @@ func remapActiveToolCalls(active map[string]toolCallLocator, segments []contentS
 }
 
 func (b *contentBuffer) commitSegmentRewrite(next []contentSegment, oldToNew map[int]int) {
-	remapActiveDelegations(b.activeDelegations, next)
+	remapDelegationIndex(b.activeDelegations, next)
+	remapDelegationIndex(b.openDelegations, next)
+	remapDelegationIndex(b.delegations, next)
+	remapDelegationIndex(b.queuedDelegations, next)
 	remapActiveToolCalls(b.activeToolCalls, next)
-	b.pendingDelegateParents = remapDelegationLocators(b.pendingDelegateParents, next)
 	b.pendingDelegationStarts = remapDelegationLocators(b.pendingDelegationStarts, next)
-	b.pendingDelegationOccurrences = remapDelegationLocators(b.pendingDelegationOccurrences, next)
-	remapActiveDelegations(b.queuedDelegations, next)
 	b.activeAdvisorSegment = remapAdvisorSegment(b.activeAdvisorSegment, oldToNew)
 	oldCollapse := b.collapseState
 	b.segments = next

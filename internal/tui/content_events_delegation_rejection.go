@@ -10,51 +10,23 @@ func (b *contentBuffer) handleDelegationAdmissionFinish(payload output.ToolCallF
 	if admission == nil {
 		return false
 	}
-	loc, found := b.takeDelegationOccurrence(payload.CallID)
-	if !found {
-		loc, found = b.unambiguousDelegationByCallID(payload.CallID)
-	}
 	switch admission.Status {
 	case tool.DelegationAdmissionAccepted:
-		if found {
-			b.applyDelegationAccepted(loc.dd, output.DelegationAcceptedEvent{
-				DelegationOccurrence: output.DelegationOccurrence{CallID: payload.CallID, BatchID: admission.BatchID, AgentID: admission.AgentID},
-				Group:                admission.Group,
-			})
-		}
-		b.appendAdmissionError(payload.Error)
-		return true
+		b.admitDelegation(payload.CallID, *admission)
 	case tool.DelegationAdmissionRejected:
 		if admission.PolicyNotice {
 			b.appendStyled("Delegation rejected by policy.", segmentStatus)
 		}
-		if found && loc.dd != nil && !loc.dd.groupAccepted {
+		if loc, found := b.takeOpenDelegation(payload.CallID); found {
 			b.removeRejectedDelegationCard(loc.dd)
 		}
-		if payload.Error != "" {
-			b.appendAdmissionError(payload.Error)
-		}
-		return true
 	default:
-		if found {
-			b.applyDelegationAdmissionFinish(loc, payload)
+		if loc, found := b.takeOpenDelegation(payload.CallID); found && b.failUnboundDelegation(loc, payload.CallID, payload.Error) {
+			loc.dd.errMsg = "delegation failed"
 		}
-		b.appendAdmissionError(payload.Error)
-		return true
 	}
-}
-
-func (b *contentBuffer) applyDelegationAdmissionFinish(loc delegationLocator, payload output.ToolCallFinishedEvent) {
-	if loc.dd == nil {
-		return
-	}
-	if payload.Error != "" && loc.dd.agentID == "" {
-		b.removeFromPendingDelegateParents(loc.dd)
-		b.clearQueuedDelegation(payload.CallID)
-		loc.dd.status = "failed"
-		loc.dd.errMsg = "delegation failed"
-		b.markDelegationDirty(loc.seg)
-	}
+	b.appendAdmissionError(payload.Error)
+	return true
 }
 
 func (b *contentBuffer) appendAdmissionError(message string) {
@@ -64,7 +36,7 @@ func (b *contentBuffer) appendAdmissionError(message string) {
 }
 
 func (b *contentBuffer) removeRejectedDelegationCard(target *delegationDisplayState) bool {
-	if target == nil || target.groupAccepted {
+	if target == nil || target.admission != nil {
 		return false
 	}
 	tokens := flattenDelegationSegments(b.segments)

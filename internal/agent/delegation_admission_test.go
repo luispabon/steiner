@@ -56,6 +56,13 @@ func TestBuildToolMessageDelegationAdmission(t *testing.T) {
 	}
 }
 
+func TestSynthesisedRejectedAdmissionCarriesBatchID(t *testing.T) {
+	p := newTurnProgressor(RunRequest{ParallelClassOf: delegateClassifier}, prompt.AssemblyOptions{}, nil)
+	p.batchID = "batch-1"
+	message := p.buildToolMessage(1, provider.ToolCall{ID: "call", Name: "delegate"}, nil, errNotDispatched, nil)
+	assertAdmission(t, "message", message.DelegationAdmission, &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, BatchID: "batch-1"})
+}
+
 func assertAdmission(t *testing.T, label string, got, want *tool.DelegationAdmission) {
 	t.Helper()
 	if (got == nil) != (want == nil) || got != nil && *got != *want {

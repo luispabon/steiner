@@ -20,35 +20,36 @@ const (
 // rosterEntry is one sub-agent dispatched since the last user prompt. It is
 // comparable so snapshots can be diffed for render caching.
 type rosterEntry struct {
-	agentID       string
-	currentCallID string
-	agentType     string
-	group         string
-	batchID       string
-	accepted      bool
-	status        string
-	startTime     int64 // unix nano; set on queue, reset when the agent starts
-	finishTime    int64 // unix nano; 0 until finished
-	delivered     bool
-	seq           int // insertion order, tie-breaker for deterministic sorting
+	agentID    string
+	agentType  string
+	occurrence occurrenceKey // the occurrence the row currently shows
+	admitted   bool
+	group      string
+	status     string
+	startTime  int64 // unix nano; set on queue, reset when the agent starts
+	finishTime int64 // unix nano; 0 until finished
+	delivered  bool
+	seq        int // insertion order, tie-breaker for deterministic sorting
 }
 
 func (e rosterEntry) finished() bool {
 	return e.status == rosterDone || e.status == rosterFailed || e.status == rosterLost
 }
 
-// subAgentRoster tracks sub-agents for the sidebar and status bar. It is fed
-// from Model event handling and deliberately does not read contentBuffer.
-type rosterAdmissionIdentity struct {
-	callID  string
-	batchID string
+// ownedElsewhere reports whether a live admitted occurrence other than key
+// owns the row, so events for key must leave it alone.
+func (e rosterEntry) ownedElsewhere(key occurrenceKey) bool {
+	return e.admitted && !e.finished() && e.occurrence != key
 }
 
+// subAgentRoster tracks sub-agents for the sidebar and status bar. It is fed
+// from Model event handling and deliberately does not read contentBuffer.
+// Rows are per agent so follow-ups reuse their agent's row; each row tracks
+// the occurrence it currently shows.
 type subAgentRoster struct {
-	entries          map[string]*rosterEntry
-	admissions       map[string]output.DelegationAdmission // keyed by current parent call ID
-	latestAdmissions map[string]rosterAdmissionIdentity    // keyed by agent ID
-	nextSeq          int
+	entries    map[string]*rosterEntry
+	admissions map[occurrenceKey]output.DelegationAdmission
+	nextSeq    int
 }
 
 func (r *subAgentRoster) upsert(agentID string) *rosterEntry {
@@ -64,42 +65,31 @@ func (r *subAgentRoster) upsert(agentID string) *rosterEntry {
 	return e
 }
 
-func (r *subAgentRoster) begin(agentID, agentType, callID, status string, now int64) {
-	agentID = strings.TrimSpace(agentID)
+// admission returns the accepted admission of key when it names agentID.
+func (r *subAgentRoster) admission(agentID string, key occurrenceKey) (output.DelegationAdmission, bool) {
+	admission, ok := r.admissions[key]
+	return admission, ok && admission.AgentID == agentID
+}
+
+func (r *subAgentRoster) begin(occ output.DelegationOccurrence, agentType, status string, now int64) {
+	agentID := strings.TrimSpace(occ.AgentID)
 	if !validRosterAgent(agentID, agentType) {
 		return
 	}
-	admission, accepted := r.admissionForAgent(callID, agentID)
+	key := keyOf(occ)
+	admission, admitted := r.admission(agentID, key)
 	e, existed := r.entries[agentID]
-	if r.rosterBeginRejected(e, existed, agentID, callID, admission, accepted) {
+	if existed && !admitted && e.ownedElsewhere(key) {
 		return
 	}
 	if !existed {
 		e = r.upsert(agentID)
 	}
-	restarting := e.finished() || (e.currentCallID != "" && e.currentCallID != callID) || (accepted && e.accepted && e.batchID != admission.BatchID)
-	e.applyBegin(agentType, callID, status, now, admission, accepted, restarting)
-}
-
-// rosterBeginRejected reports whether an existing roster entry blocks a begin
-// with the given admission identity.
-func (r *subAgentRoster) rosterBeginRejected(e *rosterEntry, existed bool, agentID, callID string, admission output.DelegationAdmission, accepted bool) bool {
-	if !existed {
-		return false
-	}
-	if accepted && !r.latestAdmissionMatches(agentID, callID, admission) {
-		return true
-	}
-	return rosterEntryRejectsBegin(e, callID, admission, accepted)
-}
-
-// applyBegin writes the begin state onto the roster entry, resetting on a
-// restart and otherwise carrying the previous agent type forward.
-func (e *rosterEntry) applyBegin(agentType, callID, status string, now int64, admission output.DelegationAdmission, accepted, restarting bool) {
+	restarting := existed && (e.finished() || e.occurrence != key)
 	if restarting {
 		e.clearRun()
 	}
-	e.setCall(callID, admission, accepted)
+	e.bind(key, admission, admitted)
 	if !restarting {
 		if t := strings.TrimSpace(agentType); t != "" {
 			e.agentType = t
@@ -118,61 +108,26 @@ func (e *rosterEntry) clearRun() {
 	e.delivered = false
 }
 
-func (e *rosterEntry) setCall(callID string, admission output.DelegationAdmission, accepted bool) {
-	e.currentCallID = callID
-	e.accepted = accepted
-	e.group, e.batchID = admissionIdentity(admission, accepted)
+func (e *rosterEntry) bind(key occurrenceKey, admission output.DelegationAdmission, admitted bool) {
+	e.occurrence = key
+	e.admitted = admitted
+	e.group = ""
+	if admitted {
+		e.group = admission.Group
+	}
 }
 
 func validRosterAgent(agentID, agentType string) bool {
 	return agentID != "" && !strings.EqualFold(strings.TrimSpace(agentType), "advisor")
 }
 
-func (r *subAgentRoster) admissionForAgent(callID, agentID string) (output.DelegationAdmission, bool) {
-	admission, ok := r.admissions[callID]
-	return admission, ok && admission.AgentID == agentID
-}
-
-func admissionIdentity(admission output.DelegationAdmission, accepted bool) (group, batch string) {
-	if accepted {
-		return admission.Group, admission.BatchID
-	}
-	return "", ""
-}
-
-func rosterEntryRejectsBegin(e *rosterEntry, callID string, admission output.DelegationAdmission, accepted bool) bool {
-	if !e.accepted || e.finished() {
-		return false
-	}
-	if !accepted {
-		return callID == "" || e.currentCallID != callID
-	}
-	return e.currentCallID == callID && e.batchID != admission.BatchID
-}
-
-func rosterEntryMatchesAdmission(e *rosterEntry, callID string, admission output.DelegationAdmission) bool {
-	return e.accepted && e.currentCallID == callID && e.batchID == admission.BatchID
-}
-
-func (r *subAgentRoster) latestAdmissionMatches(agentID, callID string, admission output.DelegationAdmission) bool {
-	latest, ok := r.latestAdmissions[agentID]
-	return ok && latest == (rosterAdmissionIdentity{callID: callID, batchID: admission.BatchID})
-}
-
-func (r *subAgentRoster) deliveryAdmissionMatchesCurrent(e *rosterEntry, callID, agentID string, admission output.DelegationAdmission, accepted bool) bool {
-	if !accepted || !r.latestAdmissionMatches(agentID, callID, admission) {
-		return false
-	}
-	return !e.accepted || rosterEntryMatchesAdmission(e, callID, admission)
-}
-
-func (r *subAgentRoster) finish(agentID, agentType, callID, status string, durationMs, now int64) {
-	agentID = strings.TrimSpace(agentID)
+func (r *subAgentRoster) finish(occ output.DelegationOccurrence, agentType, status string, durationMs, now int64) {
+	agentID := strings.TrimSpace(occ.AgentID)
 	if !validRosterAgent(agentID, agentType) {
 		return
 	}
-	e, ok := r.finishEntry(agentID, callID)
-	if !ok || (e.accepted && callID == "" && status != rosterDone) {
+	e, ok := r.finishEntry(agentID, keyOf(occ))
+	if !ok {
 		return
 	}
 	if t := strings.TrimSpace(agentType); t != "" && e.agentType == "" {
@@ -191,25 +146,25 @@ func (r *subAgentRoster) finish(agentID, agentType, callID, status string, durat
 	}
 }
 
-func (r *subAgentRoster) finishEntry(agentID, callID string) (*rosterEntry, bool) {
+// finishEntry resolves the row a terminal event for key settles. A row showing
+// another occurrence is taken over only by an admitted key and only once no
+// live admitted occurrence owns it.
+func (r *subAgentRoster) finishEntry(agentID string, key occurrenceKey) (*rosterEntry, bool) {
+	admission, admitted := r.admission(agentID, key)
 	e, exists := r.entries[agentID]
-	if callID != "" {
-		admission, accepted := r.admissionForAgent(callID, agentID)
-		if !accepted || !r.latestAdmissionMatches(agentID, callID, admission) {
+	switch {
+	case !exists:
+		if key.CallID != "" && !admitted {
 			return nil, false
 		}
-		if !exists {
-			e = r.upsert(agentID)
-			e.setCall(callID, admission, true)
-		} else if !rosterEntryMatchesAdmission(e, callID, admission) {
-			if !e.finished() {
-				return nil, false
-			}
-			e.clearRun()
-			e.setCall(callID, admission, true)
-		}
-	} else if !exists {
 		e = r.upsert(agentID)
+		e.bind(key, admission, admitted)
+	case e.occurrence != key:
+		if !admitted || e.ownedElsewhere(key) {
+			return nil, false
+		}
+		e.clearRun()
+		e.bind(key, admission, true)
 	}
 	return e, true
 }
@@ -225,13 +180,13 @@ func (r *subAgentRoster) observe(event output.Event, now int64) {
 			r.admit(p.CallID, *p.DelegationAdmission)
 		}
 	case output.DelegationQueuedEvent:
-		r.begin(p.AgentID, p.AgentType, p.CallID, rosterQueued, now)
+		r.begin(p.DelegationOccurrence, p.AgentType, rosterQueued, now)
 	case output.DelegationStartedEvent:
-		r.begin(p.AgentID, p.AgentType, p.CallID, rosterRunning, now)
+		r.begin(p.DelegationOccurrence, p.AgentType, rosterRunning, now)
 	case output.DelegationCompleteEvent:
-		r.finish(p.AgentID, p.AgentType, "", completionStatus(p.Status), p.DurationMs, now)
+		r.finish(p.DelegationOccurrence, p.AgentType, completionStatus(p.Status), p.DurationMs, now)
 	case output.DelegationFailedEvent:
-		r.finish(p.AgentID, p.AgentType, p.CallID, rosterFailed, p.DurationMs, now)
+		r.finish(p.DelegationOccurrence, p.AgentType, rosterFailed, p.DurationMs, now)
 	case output.SubAgentsDeliveredEvent:
 		for _, item := range p.Items {
 			r.deliver(item, now)
@@ -247,27 +202,20 @@ func (r *subAgentRoster) observe(event output.Event, now int64) {
 	}
 }
 
-// admit records the admission, then updates identity only when an earlier
-// lifecycle event has already established the same current call and agent.
+// admit records an accepted admission and applies it to the agent's row when
+// the row already shows that occurrence.
 func (r *subAgentRoster) admit(callID string, admission output.DelegationAdmission) {
 	if callID == "" || admission.AgentID == "" {
 		return
 	}
 	if r.admissions == nil {
-		r.admissions = map[string]output.DelegationAdmission{}
+		r.admissions = map[occurrenceKey]output.DelegationAdmission{}
 	}
-	if r.latestAdmissions == nil {
-		r.latestAdmissions = map[string]rosterAdmissionIdentity{}
+	key := occurrenceKey{BatchID: admission.BatchID, CallID: callID}
+	r.admissions[key] = admission
+	if e, ok := r.entries[admission.AgentID]; ok && e.occurrence == key {
+		e.bind(key, admission, true)
 	}
-	r.admissions[callID] = admission
-	r.latestAdmissions[admission.AgentID] = rosterAdmissionIdentity{callID: callID, batchID: admission.BatchID}
-	e, ok := r.entries[admission.AgentID]
-	if !ok || e.currentCallID != callID || (e.accepted && e.batchID != admission.BatchID) {
-		return
-	}
-	e.accepted = true
-	e.group = admission.Group
-	e.batchID = admission.BatchID
 }
 
 // completionStatus maps a delegation completion status to a roster status.
@@ -283,49 +231,40 @@ func (r *subAgentRoster) deliver(item output.DeliveredSubAgent, now int64) {
 	if !validRosterAgent(id, item.AgentType) {
 		return
 	}
-	admission, accepted := r.admissionForAgent(item.ParentCallID, id)
-	e, known := r.entries[id]
-	if !known {
-		e = r.upsert(id)
-	}
-	currentMatch := rosterDeliveryMatchesCurrentCall(e, item.ParentCallID)
-	admissionMatch := r.deliveryAdmissionMatchesCurrent(e, item.ParentCallID, id, admission, accepted)
-	applyRosterDeliveryIdentity(e, item.ParentCallID, admission, admissionMatch, currentMatch)
-	if !r.applyRosterDeliveryStatus(e, item, now, currentMatch) {
+	e, ok := r.deliveryEntry(id, occurrenceKey{BatchID: item.BatchID, CallID: item.ParentCallID})
+	if !ok {
 		return
+	}
+	if !e.finished() || item.Status == rosterLost {
+		if e.startTime == 0 {
+			e.startTime = now - item.DurationMs*1_000_000
+		}
+		e.status = deliveredRosterStatus(item.Status)
+		e.finishTime = e.startTime + item.DurationMs*1_000_000
 	}
 	e.delivered = true
 }
 
-func rosterDeliveryMatchesCurrentCall(e *rosterEntry, callID string) bool {
-	return callID == "" || e.currentCallID == "" || e.currentCallID == callID
-}
-
-func applyRosterDeliveryIdentity(e *rosterEntry, callID string, admission output.DelegationAdmission, accepted, currentMatch bool) {
-	if accepted && currentMatch && (!e.accepted || e.currentCallID == callID) {
-		e.currentCallID = callID
-		e.accepted = true
-		e.group, e.batchID = admissionIdentity(admission, true)
+// deliveryEntry resolves the row a delivered item settles. An item without a
+// parent call ID addresses the agent's row; a row that has not yet shown any
+// occurrence adopts the item's.
+func (r *subAgentRoster) deliveryEntry(agentID string, key occurrenceKey) (*rosterEntry, bool) {
+	admission, admitted := r.admission(agentID, key)
+	e, exists := r.entries[agentID]
+	switch {
+	case !exists:
+		e = r.upsert(agentID)
+		e.bind(key, admission, admitted)
+	case key.CallID == "" || e.occurrence == key:
+	case e.occurrence.CallID == "" && !e.admitted:
+		e.bind(key, admission, admitted)
+	case !admitted || e.ownedElsewhere(key):
+		return nil, false
+	default:
+		e.clearRun()
+		e.bind(key, admission, true)
 	}
-	if !accepted && currentMatch && !e.accepted {
-		e.group, e.batchID = "", ""
-	}
-}
-
-func (r *subAgentRoster) applyRosterDeliveryStatus(e *rosterEntry, item output.DeliveredSubAgent, now int64, currentMatch bool) bool {
-	if e.finished() && item.Status != rosterLost {
-		return true
-	}
-	if e.accepted && !currentMatch {
-		return false
-	}
-	status := deliveredRosterStatus(item.Status)
-	if e.startTime == 0 {
-		e.startTime = now - item.DurationMs*1_000_000
-	}
-	e.status = status
-	e.finishTime = e.startTime + item.DurationMs*1_000_000
-	return true
+	return e, true
 }
 
 func deliveredRosterStatus(status string) string {
@@ -356,14 +295,10 @@ func (r *subAgentRoster) dropWhere(drop func(*rosterEntry) bool) {
 	for id, e := range r.entries {
 		if drop(e) {
 			delete(r.entries, id)
-			if r.latestAdmissions[e.agentID] == (rosterAdmissionIdentity{callID: e.currentCallID, batchID: e.batchID}) {
-				delete(r.latestAdmissions, e.agentID)
-			}
 		}
 	}
 	if len(r.entries) == 0 {
 		r.admissions = nil
-		r.latestAdmissions = nil
 	}
 }
 

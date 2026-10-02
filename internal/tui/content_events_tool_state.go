@@ -71,27 +71,16 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 	b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 }
 
-func shouldShowFinishedDelegationFailure(dd *delegationDisplayState, payload output.ToolCallFinishedEvent) bool {
-	return dd != nil && dd.agentID == "" && payload.Error != ""
-}
-
-func (b *contentBuffer) showFinishedDelegationFailure(seg *contentSegment, dd *delegationDisplayState, callID string) {
-	b.removeFromPendingDelegateParents(dd)
+// failUnboundDelegation marks a parent card that never bound to a child agent
+// as failed when its tool call finished with an error.
+func (b *contentBuffer) failUnboundDelegation(loc delegationLocator, callID, errText string) bool {
+	if errText == "" || loc.dd.agentID != "" {
+		return false
+	}
 	b.clearQueuedDelegation(callID)
-	dd.status = "failed"
-	seg.renderDirty = true
-	b.gen++
-}
-
-func (b *contentBuffer) showFinishedDelegationFailureAt(loc delegationLocator, payload output.ToolCallFinishedEvent) {
-	if loc.dd == nil {
-		return
-	}
-	loc.seg = findDelegationSegment(b.segments, loc.dd)
-	if loc.seg < 0 {
-		return
-	}
-	b.showFinishedDelegationFailure(&b.segments[loc.seg], loc.dd, payload.CallID)
+	loc.dd.status = "failed"
+	b.markDelegationDirty(loc.seg)
+	return true
 }
 
 func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
@@ -106,19 +95,8 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 		if !isDelegateOrSpecialized(payload.Tool) && b.applyFinishedRegularToolCall(payload) {
 			return
 		}
-		if loc, found := b.takeDelegationOccurrence(payload.CallID); found {
-			if loc.dd != nil {
-				if shouldShowFinishedDelegationFailure(loc.dd, payload) {
-					b.showFinishedDelegationFailureAt(loc, payload)
-				}
-				return
-			}
-		}
-		if loc, found := b.unambiguousDelegationByCallID(payload.CallID); found {
-			if shouldShowFinishedDelegationFailure(loc.dd, payload) {
-				b.showFinishedDelegationFailureAt(loc, payload)
-			}
-			return
+		if loc, found := b.openDelegations[payload.CallID]; found && b.failUnboundDelegation(loc, payload.CallID, payload.Error) {
+			delete(b.openDelegations, payload.CallID)
 		}
 		return
 	}
@@ -325,9 +303,9 @@ func (b *contentBuffer) Clear() {
 	b.collapseState = make(map[int]bool)
 	b.activeDelegations = nil
 	b.activeToolCalls = nil
-	b.pendingDelegateParents = nil
+	b.openDelegations = nil
+	b.delegations = nil
 	b.pendingDelegationStarts = nil
-	b.pendingDelegationOccurrences = nil
 	b.queuedDelegations = nil
 	b.activeAdvisorSegment = 0
 	// Invalidate render caches.

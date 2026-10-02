@@ -69,8 +69,6 @@ const (
 	EventTypeContextDiagnostics = "context_diagnostics"
 	// EventTypeDelegationAccepted marks a delegation call accepted for execution.
 	EventTypeDelegationAccepted = "delegation_accepted"
-	// EventTypeReplayDelegationParentClosed marks replay closure of a parent delegation call.
-	EventTypeReplayDelegationParentClosed = "replay_delegation_parent_closed"
 	// EventTypeDelegationStarted marks the start of sub-agent delegation.
 	EventTypeDelegationStarted = "delegation_started"
 	// EventTypeDelegationQueued marks a sub-agent accepted but waiting for a running slot.
@@ -490,12 +488,6 @@ type DelegationOccurrence struct {
 type DelegationAcceptedEvent struct {
 	DelegationOccurrence
 	Group string `json:"group"`
-}
-
-// ReplayDelegationParentClosedEvent records replay-only closure of a parent
-// delegation call correlation slot.
-type ReplayDelegationParentClosedEvent struct {
-	CallID string `json:"call_id"`
 }
 
 // DelegationStartedEvent records the start of a delegated child task.

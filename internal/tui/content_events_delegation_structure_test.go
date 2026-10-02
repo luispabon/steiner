@@ -28,7 +28,9 @@ func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing
 		activeDelegations: map[string]delegationLocator{
 			"first": {seg: 1, dd: first}, "second": {seg: 4, dd: second}, "removed": {seg: 1, dd: removed},
 		},
-		pendingDelegateParents:  []delegationLocator{{seg: 1, dd: first}, {seg: 4, dd: second}, {seg: 1, dd: removed}},
+		openDelegations: map[string]delegationLocator{
+			"call-first": {seg: 1, dd: first}, "call-second": {seg: 4, dd: second}, "removed": {seg: 1, dd: removed},
+		},
 		pendingDelegationStarts: []delegationLocator{{seg: 4, dd: second}, {seg: 1, dd: first}, {seg: 1, dd: removed}},
 		queuedDelegations: map[string]delegationLocator{
 			"call-first": {seg: 1, dd: first}, "call-second": {seg: 4, dd: second}, "removed": {seg: 1, dd: removed},
@@ -59,11 +61,13 @@ func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing
 	if got := b.activeDelegations["second"]; got.dd != second || got.seg != 1 {
 		t.Fatalf("active delegation locator = %#v, want second at 1", got)
 	}
-	if _, ok := b.activeDelegations["removed"]; ok || len(b.pendingDelegateParents) != 2 || len(b.pendingDelegationStarts) != 2 {
-		t.Fatalf("removed delegation locator retained: active=%#v pending=%#v starts=%#v", b.activeDelegations, b.pendingDelegateParents, b.pendingDelegationStarts)
+	if _, ok := b.activeDelegations["removed"]; ok || len(b.openDelegations) != 0 || len(b.pendingDelegationStarts) != 2 {
+		t.Fatalf("stale delegation locator retained: active=%#v open=%#v starts=%#v", b.activeDelegations, b.openDelegations, b.pendingDelegationStarts)
 	}
-	if b.pendingDelegateParents[0].dd != first || b.pendingDelegateParents[0].seg != 1 || b.pendingDelegateParents[1].dd != second || b.pendingDelegateParents[1].seg != 1 {
-		t.Fatalf("pending parent locators = %#v", b.pendingDelegateParents)
+	for callID, want := range map[string]*delegationDisplayState{"call-first": first, "call-second": second} {
+		if got := b.delegations[occurrenceKey{BatchID: "batch", CallID: callID}]; got.dd != want || got.seg != 1 {
+			t.Fatalf("occurrence locator %s = %#v, want card at 1", callID, got)
+		}
 	}
 	if b.pendingDelegationStarts[0].dd != second || b.pendingDelegationStarts[1].dd != first || b.pendingDelegationStarts[0].seg != 1 || b.pendingDelegationStarts[1].seg != 1 {
 		t.Fatalf("pending start locators = %#v", b.pendingDelegationStarts)
@@ -137,15 +141,15 @@ func TestDelegationAcceptanceIsIdempotentAndRejectsIneligibleMembership(t *testi
 	}}
 	acceptDelegationCard(b, "call-first", "batch", "group")
 	b.structureGen = 0
-	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call-second", BatchID: "batch", AgentID: ""}, "group"))
+	acceptDelegationCard(b, "call-second", "batch", "group")
 	if b.structureGen != 1 || len(b.segments) != 1 || b.segments[0].kind != segmentDelegationGroup {
 		t.Fatalf("second acceptance did not join existing group: structure=%d segments=%v", b.structureGen, segmentKinds(b.segments))
 	}
-	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call-second", BatchID: "batch", AgentID: ""}, "group"))
+	acceptDelegationCard(b, "call-second", "batch", "group")
 	if b.structureGen != 1 {
 		t.Fatalf("duplicate acceptance changed structure generation: %d", b.structureGen)
 	}
-	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call-first", BatchID: "batch", AgentID: ""}, "group"))
+	acceptDelegationCard(b, "call-first", "batch", "group")
 	if b.structureGen != 1 {
 		t.Fatalf("acceptance for already-grouped member changed structure generation: %d", b.structureGen)
 	}
@@ -156,7 +160,7 @@ func TestDelegationAcceptanceIsIdempotentAndRejectsIneligibleMembership(t *testi
 
 func TestDelegationRegroupSeparatesAcceptedAndUnknownSameLabelCards(t *testing.T) {
 	accepted := &delegationDisplayState{parentCallID: "accepted"}
-	unknown := &delegationDisplayState{parentCallID: "unknown", group: "same"}
+	unknown := &delegationDisplayState{parentCallID: "unknown"}
 	b := &contentBuffer{segments: []contentSegment{
 		{kind: segmentDelegation, delegData: accepted},
 		{kind: segmentDelegation, delegData: unknown},
@@ -183,7 +187,7 @@ func TestDelegationAcceptanceOrderKeepsFirstMemberPosition(t *testing.T) {
 			}}
 			for _, id := range order {
 				batchID := "batch"
-				b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: id, BatchID: batchID, AgentID: ""}, "g"))
+				acceptDelegationCard(b, id, batchID, "g")
 			}
 			if len(b.segments) != 3 || b.segments[0].kind != segmentDelegationGroup || b.segments[1].text != "middle" || b.segments[2].text != "tail" {
 				t.Fatalf("acceptance order changed first-member position/order: %#v", b.segments)
@@ -222,5 +226,16 @@ func TestDelegationRegroupPreservesInterleavedStreamAndSegmentOrder(t *testing.T
 }
 
 func acceptDelegationCard(b *contentBuffer, callID, batchID, group string) {
+	openParentCard(b, callID)
 	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: callID, BatchID: batchID}, group))
+}
+
+// openParentCard indexes the unadmitted card for callID as an open parent, as
+// its ToolCallStarted would have.
+func openParentCard(b *contentBuffer, callID string) {
+	for _, tok := range flattenDelegationSegments(b.segments) {
+		if tok.dd != nil && tok.dd.parentCallID == callID && tok.dd.admission == nil {
+			b.openDelegation(delegationLocator{seg: tok.old, dd: tok.dd})
+		}
+	}
 }

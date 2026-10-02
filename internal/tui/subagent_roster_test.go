@@ -32,9 +32,9 @@ func TestRosterTransitions(t *testing.T) {
 			name: "queued then started then complete",
 			events: []output.Event{
 				ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", BatchID: "batch", AgentID: "c1"}}),
-				ev(output.DelegationQueuedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", AgentID: "c1"}, AgentType: "explore"}),
-				ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", AgentID: "c1"}, AgentType: "explore"}),
-				ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "c1"}, AgentType: "explore", Status: "completed", DurationMs: 5000}),
+				ev(output.DelegationQueuedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", BatchID: "batch", AgentID: "c1"}, AgentType: "explore"}),
+				ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", BatchID: "batch", AgentID: "c1"}, AgentType: "explore"}),
+				ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", BatchID: "batch", AgentID: "c1"}, AgentType: "explore", Status: "completed", DurationMs: 5000}),
 			},
 			want: map[string]string{"c1": rosterDone},
 		},
@@ -43,9 +43,9 @@ func TestRosterTransitions(t *testing.T) {
 			events: []output.Event{
 				ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", BatchID: "batch", AgentID: "c1"}}),
 				ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c2call", BatchID: "batch", AgentID: "c2"}}),
-				ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", AgentID: "c1"}, AgentType: "code"}),
-				ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c2call", AgentID: "c2"}, AgentType: "review"}),
-				ev(output.DelegationFailedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", AgentID: "c1"}, AgentType: "code", Error: "boom"}),
+				ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", BatchID: "batch", AgentID: "c1"}, AgentType: "code"}),
+				ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c2call", BatchID: "batch", AgentID: "c2"}, AgentType: "review"}),
+				ev(output.DelegationFailedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", BatchID: "batch", AgentID: "c1"}, AgentType: "code", Error: "boom"}),
 			},
 			want: map[string]string{"c1": rosterFailed, "c2": rosterRunning},
 		},
@@ -54,8 +54,8 @@ func TestRosterTransitions(t *testing.T) {
 			events: []output.Event{
 				ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "call-1", BatchID: "batch", AgentID: "c1"}, Group: "final-review"}),
 				ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "call-2", BatchID: "batch", AgentID: "c2"}}),
-				ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "call-1", AgentID: "c1"}, AgentType: "review"}),
-				ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "call-2", AgentID: "c2"}, AgentType: "review"}),
+				ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "call-1", BatchID: "batch", AgentID: "c1"}, AgentType: "review"}),
+				ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "call-2", BatchID: "batch", AgentID: "c2"}, AgentType: "review"}),
 			},
 			want:  map[string]string{"c1": rosterRunning, "c2": rosterRunning},
 			group: map[string]string{"c1": "final-review", "c2": ""},
@@ -72,8 +72,8 @@ func TestRosterTransitions(t *testing.T) {
 			name: "delivered marks lost",
 			events: []output.Event{
 				ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", BatchID: "batch", AgentID: "c1"}}),
-				ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", AgentID: "c1"}, AgentType: "explore"}),
-				ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "c1", AgentType: "explore", Status: "lost", ParentCallID: "c1call"}}}),
+				ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", BatchID: "batch", AgentID: "c1"}, AgentType: "explore"}),
+				ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "c1", AgentType: "explore", Status: "lost", ParentCallID: "c1call", BatchID: "batch"}}}),
 			},
 			want: map[string]string{"c1": rosterLost},
 		},
@@ -81,7 +81,7 @@ func TestRosterTransitions(t *testing.T) {
 			name: "delivered creates unknown entry as done",
 			events: []output.Event{
 				ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c9call", BatchID: "batch", AgentID: "c9"}}),
-				ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "c9", AgentType: "code", Status: "completed", DurationMs: 1000, ParentCallID: "c9call"}}}),
+				ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "c9", AgentType: "code", Status: "completed", DurationMs: 1000, ParentCallID: "c9call", BatchID: "batch"}}}),
 			},
 			want: map[string]string{"c9": rosterDone},
 		},
@@ -116,11 +116,11 @@ func TestRosterRestartAfterDelivery(t *testing.T) {
 	var r subAgentRoster
 	events := []output.Event{
 		ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "first", BatchID: "b1", AgentID: "c1"}, Group: "batch"}),
-		ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "first", AgentID: "c1"}, AgentType: "review"}),
-		ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "c1"}, AgentType: "review", Status: "completed", DurationMs: 5000}),
-		ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "c1", AgentType: "review", Status: "complete", ParentCallID: "first"}}}),
+		ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "first", BatchID: "b1", AgentID: "c1"}, AgentType: "review"}),
+		ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "first", BatchID: "b1", AgentID: "c1"}, AgentType: "review", Status: "completed", DurationMs: 5000}),
+		ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "c1", AgentType: "review", Status: "complete", ParentCallID: "first", BatchID: "b1"}}}),
 		ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "second", BatchID: "b2", AgentID: "c1"}}),
-		ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "second", AgentID: "c1"}, AgentType: "code"}),
+		ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "second", BatchID: "b2", AgentID: "c1"}, AgentType: "code"}),
 	}
 	for i, e := range events {
 		r.observe(e, int64(i+1)*1_000_000_000)
@@ -130,7 +130,7 @@ func TestRosterRestartAfterDelivery(t *testing.T) {
 		t.Fatalf("entry after restart = %+v, want running with reset timing and preserved review/batch", entry)
 	}
 
-	r.observe(ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "c1"}, AgentType: "code", Status: "completed", DurationMs: 3000}), 9_000_000_000)
+	r.observe(ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "second", BatchID: "b2", AgentID: "c1"}, AgentType: "code", Status: "completed", DurationMs: 3000}), 9_000_000_000)
 	entries := r.snapshot()
 	if len(entries) != 1 {
 		t.Fatalf("entries after completion = %d, want 1", len(entries))
@@ -215,8 +215,8 @@ func TestSubAgentsSectionRender(t *testing.T) {
 	t.Run("running done and grouped", func(t *testing.T) {
 		t.Parallel()
 		out := sec(rosterSidebar([]rosterEntry{
-			{agentID: "child-5", agentType: "review", group: "final-review", batchID: "batch", accepted: true, status: rosterRunning, startTime: 0},
-			{agentID: "child-4", agentType: "sanity_check", group: "final-review", batchID: "batch", accepted: true, status: rosterDone, startTime: 0, finishTime: 252 * sec1},
+			{agentID: "child-5", agentType: "review", group: "final-review", occurrence: occurrenceKey{BatchID: "batch"}, admitted: true, status: rosterRunning, startTime: 0},
+			{agentID: "child-4", agentType: "sanity_check", group: "final-review", occurrence: occurrenceKey{BatchID: "batch"}, admitted: true, status: rosterDone, startTime: 0, finishTime: 252 * sec1},
 			{agentID: "child-6", agentType: "explore", status: rosterRunning, startTime: 0},
 			{agentID: "child-3", agentType: "code", status: rosterFailed, startTime: 0, finishTime: 62 * sec1},
 		}, 130*sec1))
@@ -353,13 +353,13 @@ func TestSyncRosterFrameAdvancesOnlyWhileRunning(t *testing.T) {
 	m := &Model{}
 	m.sidebar.styles = testStyles(theme.AccentAmber)
 	m.roster.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", BatchID: "batch", AgentID: "c1"}}), 1)
-	m.roster.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", AgentID: "c1"}, AgentType: "explore"}), 1)
+	m.roster.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", BatchID: "batch", AgentID: "c1"}, AgentType: "explore"}), 1)
 	m.sidebar.tickCount = 3
 	m.syncRoster()
 	if m.status.spinnerFrame != 3 {
 		t.Fatalf("frame = %d, want 3 while running", m.status.spinnerFrame)
 	}
-	m.roster.observe(ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "c1"}, Status: "completed"}), 2)
+	m.roster.observe(ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "c1call", BatchID: "batch", AgentID: "c1"}, Status: "completed"}), 2)
 	m.sidebar.tickCount = 5
 	m.syncRoster()
 	if m.status.spinnerFrame != 0 {
@@ -376,9 +376,9 @@ func TestRosterPromptKeepsUndeliveredGroup(t *testing.T) {
 	for i, e := range []output.Event{
 		ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "a", BatchID: "batch", AgentID: "c1"}, Group: "g"}),
 		ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "b", BatchID: "batch", AgentID: "c2"}, Group: "g"}),
-		ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "a", AgentID: "c1"}, AgentType: "code"}),
-		ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "b", AgentID: "c2"}, AgentType: "code"}),
-		ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "c1"}, AgentType: "code", Status: "completed", DurationMs: 7000}),
+		ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "a", BatchID: "batch", AgentID: "c1"}, AgentType: "code"}),
+		ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "b", BatchID: "batch", AgentID: "c2"}, AgentType: "code"}),
+		ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "a", BatchID: "batch", AgentID: "c1"}, AgentType: "code", Status: "completed", DurationMs: 7000}),
 	} {
 		r.observe(e, int64(i+1)*1_000_000_000)
 	}
@@ -386,10 +386,10 @@ func TestRosterPromptKeepsUndeliveredGroup(t *testing.T) {
 	if got := statusesByID(&r); got["c1"] != rosterDone {
 		t.Fatalf("undelivered finished entry pruned on prompt: %v", got)
 	}
-	r.observe(ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "c2"}, AgentType: "code", Status: "completed", DurationMs: 9000}), 9e9)
+	r.observe(ev(output.DelegationCompleteEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "b", BatchID: "batch", AgentID: "c2"}, AgentType: "code", Status: "completed", DurationMs: 9000}), 9e9)
 	r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{
-		{AgentID: "c1", AgentType: "code", Status: "complete", ParentCallID: "a"},
-		{AgentID: "c2", AgentType: "code", Status: "complete", ParentCallID: "b"},
+		{AgentID: "c1", AgentType: "code", Status: "complete", ParentCallID: "a", BatchID: "batch"},
+		{AgentID: "c2", AgentType: "code", Status: "complete", ParentCallID: "b", BatchID: "batch"},
 	}}), 10e9)
 	for _, e := range r.snapshot() {
 		if e.group != "g" {
@@ -407,7 +407,7 @@ func TestRosterDeliveryRecoversGroupAfterPrune(t *testing.T) {
 	var r subAgentRoster
 	r.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "a", BatchID: "batch", AgentID: "late"}, Group: "g"}), 1)
 	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "z", AgentID: "keep"}, AgentType: "code"}), 1)
-	r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "late", AgentType: "code", Status: "complete", ParentCallID: "a"}}}), 2)
+	r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "late", AgentType: "code", Status: "complete", ParentCallID: "a", BatchID: "batch"}}}), 2)
 	for _, e := range r.snapshot() {
 		if e.agentID == "late" && e.group != "g" {
 			t.Errorf("late group = %q, want g", e.group)

@@ -805,8 +805,8 @@ func TestAsyncSubAgentsThroughInteractiveWiring(t *testing.T) {
 		if rejected == nil || rejected.DelegationAdmission == nil || rejected.DelegationAdmission.Status != "rejected" {
 			t.Fatalf("busy follow-up rejection = %#v, want rejected current group admission", rejected)
 		}
-		if rejected.DelegationAdmission.AgentID != "" || rejected.DelegationAdmission.Group != "" || rejected.DelegationAdmission.BatchID != "" {
-			t.Fatalf("busy follow-up rejection admission = %#v, want no admitted child", rejected.DelegationAdmission)
+		if rejected.DelegationAdmission.AgentID != "" || rejected.DelegationAdmission.Group != "" || rejected.DelegationAdmission.BatchID == "" {
+			t.Fatalf("busy follow-up rejection admission = %#v, want no admitted child but its batch identity", rejected.DelegationAdmission)
 		}
 		if got := toolResultInConversation(h.session.Conversation(), "busy-follow-call"); !strings.Contains(got, "still running") {
 			t.Fatalf("busy follow-up result = %q, want model-visible busy rejection", got)

@@ -16,11 +16,10 @@ import (
 func TestDelegationCacheWaitingBindsAndClears(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 	deadline := time.Now().Add(10 * time.Second)
 
@@ -388,8 +387,8 @@ func TestDelegationFailedCallIDBindsPendingParent(t *testing.T) {
 	if entries[0].status != "active" || entries[1].agentID != "child-2" || entries[1].status != "failed" {
 		t.Fatalf("entries = %#v, want exact call binding", entries)
 	}
-	if len(buffer.activeDelegations) != 0 || len(buffer.pendingDelegateParents) != 1 {
-		t.Fatalf("active=%d pending=%d, want active=0 pending=1", len(buffer.activeDelegations), len(buffer.pendingDelegateParents))
+	if len(buffer.activeDelegations) != 0 || len(buffer.openDelegations) != 1 {
+		t.Fatalf("active=%d open=%d, want active=0 open=1", len(buffer.activeDelegations), len(buffer.openDelegations))
 	}
 }
 
@@ -397,13 +396,13 @@ func TestDelegationFailedBeforeToolStartBindsLater(t *testing.T) {
 	t.Parallel()
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{CallID: "call-1", AgentID: "child-1"}, Error: "setup"}))
-	if len(buffer.segments) != 1 || len(buffer.pendingDelegateParents) != 0 || len(buffer.pendingDelegationStarts) != 1 {
-		t.Fatalf("segments=%d parent-pending=%d start-pending=%d, want one segment and one failed start entry", len(buffer.segments), len(buffer.pendingDelegateParents), len(buffer.pendingDelegationStarts))
+	if len(buffer.segments) != 1 || len(buffer.openDelegations) != 0 || len(buffer.pendingDelegationStarts) != 1 {
+		t.Fatalf("segments=%d open=%d start-pending=%d, want one segment and one failed start entry", len(buffer.segments), len(buffer.openDelegations), len(buffer.pendingDelegationStarts))
 	}
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-1", map[string]any{"type": "code", "objective": "one"}))
 
-	if len(buffer.segments) != 1 || len(buffer.pendingDelegateParents) != 0 || len(buffer.pendingDelegationStarts) != 0 {
-		t.Fatalf("segments=%d parent-pending=%d start-pending=%d, want one segment and no pending entries after binding", len(buffer.segments), len(buffer.pendingDelegateParents), len(buffer.pendingDelegationStarts))
+	if len(buffer.segments) != 1 || len(buffer.openDelegations) != 0 || len(buffer.pendingDelegationStarts) != 0 {
+		t.Fatalf("segments=%d open=%d start-pending=%d, want one segment and no pending entries after binding", len(buffer.segments), len(buffer.openDelegations), len(buffer.pendingDelegationStarts))
 	}
 	loc, ok := buffer.findDelegation("child-1")
 	if !ok || loc.dd.status != "failed" || loc.dd.parentCallID != "call-1" {
@@ -424,8 +423,8 @@ func TestDelegationFailedUnmatchedCallIDDoesNotQueueParentFallback(t *testing.T)
 	if states[1].agentID != "child-unknown" || states[1].status != "failed" {
 		t.Fatalf("fallback = %#v, want failed child-unknown", states[1])
 	}
-	if len(buffer.pendingDelegateParents) != 1 || buffer.pendingDelegateParents[0].dd != states[0] {
-		t.Fatalf("pending parent entries = %#v, want only existing parent", buffer.pendingDelegateParents)
+	if len(buffer.openDelegations) != 1 || buffer.openDelegations["call-existing"].dd != states[0] {
+		t.Fatalf("pending parent entries = %#v, want only existing parent", buffer.openDelegations)
 	}
 	if len(buffer.pendingDelegationStarts) != 1 || buffer.pendingDelegationStarts[0].dd != states[1] {
 		t.Fatalf("pending start entries = %#v, want only failed fallback", buffer.pendingDelegationStarts)
@@ -591,129 +590,52 @@ func TestRenderDelegationSegmentKeepsBoxWidthBounded(t *testing.T) {
 	}
 }
 
-func TestPendingDelegationDequeueHelpers(t *testing.T) {
+func TestTakePendingDelegationStartMatchesCallID(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name  string
-		set   func(*contentBuffer, []delegationLocator)
-		byID  func(*contentBuffer, string) (delegationLocator, bool)
-		drain func(*contentBuffer) (delegationLocator, bool)
-		get   func(*contentBuffer) []delegationLocator
-	}{
-		{
-			name: "delegate parent",
-			set:  func(b *contentBuffer, locs []delegationLocator) { b.pendingDelegateParents = locs },
-			byID: func(b *contentBuffer, callID string) (delegationLocator, bool) {
-				return b.dequeuePendingDelegateParentByCallID(callID)
-			},
-			drain: func(b *contentBuffer) (delegationLocator, bool) {
-				return b.dequeuePendingDelegateParentSegment()
-			},
-			get: func(b *contentBuffer) []delegationLocator { return b.pendingDelegateParents },
-		},
-		{
-			name: "delegation start",
-			set:  func(b *contentBuffer, locs []delegationLocator) { b.pendingDelegationStarts = locs },
-			byID: func(b *contentBuffer, callID string) (delegationLocator, bool) {
-				return b.dequeuePendingDelegationStartByCallID(callID)
-			},
-			drain: func(b *contentBuffer) (delegationLocator, bool) {
-				return b.dequeuePendingDelegationStartSegment()
-			},
-			get: func(b *contentBuffer) []delegationLocator { return b.pendingDelegationStarts },
-		},
+	buffer := &contentBuffer{segments: make([]contentSegment, 1)}
+	target := &delegationDisplayState{parentCallID: "target"}
+	other := &delegationDisplayState{parentCallID: "other", agentID: "child"}
+	buffer.pendingDelegationStarts = []delegationLocator{{seg: 0, dd: nil}, {seg: 0, dd: other}, {seg: 0, dd: target}}
+
+	if _, ok := buffer.takePendingDelegationStart(""); ok {
+		t.Fatal("empty call ID matched pending locator")
 	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			buffer := &contentBuffer{segments: make([]contentSegment, 1)}
-			byID := &delegationDisplayState{parentCallID: "target"}
-			other := &delegationDisplayState{parentCallID: "other", agentID: "child"}
-			tc.set(buffer, []delegationLocator{
-				{seg: 0, dd: nil},
-				{seg: -1, dd: other},
-				{seg: 0, dd: other},
-				{seg: 0, dd: byID},
-			})
-
-			if _, ok := tc.byID(buffer, ""); ok {
-				t.Fatal("empty call ID matched pending locator")
-			}
-			got, ok := tc.byID(buffer, "target")
-			if !ok || got.dd != byID {
-				t.Fatalf("by-call-ID result = %#v, %t, want target locator", got, ok)
-			}
-			if remaining := tc.get(buffer); len(remaining) != 3 {
-				t.Fatalf("remaining after by-call-ID dequeue = %d, want 3", len(remaining))
-			}
-
-			tc.set(buffer, []delegationLocator{
-				{seg: 0, dd: nil},
-				{seg: -1, dd: other},
-				{seg: 0, dd: other},
-				{seg: 0, dd: &delegationDisplayState{}},
-			})
-			got, ok = tc.drain(buffer)
-			if !ok || got.dd == nil {
-				t.Fatalf("segment drain result = %#v, %t, want eligible locator", got, ok)
-			}
-			if remaining := tc.get(buffer); len(remaining) != 0 {
-				t.Fatalf("remaining after segment drain = %d, want 0", len(remaining))
-			}
-		})
+	got, ok := buffer.takePendingDelegationStart("target")
+	if !ok || got.dd != target {
+		t.Fatalf("by-call-ID result = %#v, %t, want target locator", got, ok)
+	}
+	if remaining := buffer.pendingDelegationStarts; len(remaining) != 2 || remaining[1].dd != other {
+		t.Fatalf("remaining after take = %#v, want nil and other", remaining)
 	}
 }
 
-func TestRemoveFromPendingDelegateParents(t *testing.T) {
+func TestCloseOpenDelegationRemovesOnlyMatchingCard(t *testing.T) {
 	t.Parallel()
-	dd3 := &delegationDisplayState{}
-	dd7 := &delegationDisplayState{}
-	dd10 := &delegationDisplayState{}
-	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: []delegationLocator{{seg: 3, dd: dd3}, {seg: 7, dd: dd7}, {seg: 10, dd: dd10}},
+	open, other := &delegationDisplayState{parentCallID: "call"}, &delegationDisplayState{parentCallID: "call"}
+	buffer := &contentBuffer{openDelegations: map[string]delegationLocator{"call": {seg: 0, dd: open}}}
+	buffer.closeOpenDelegation("call", other)
+	if buffer.openDelegations["call"].dd != open {
+		t.Fatalf("open parents = %#v, want card kept for a different card", buffer.openDelegations)
 	}
-	// Remove an existing element
-	buffer.removeFromPendingDelegateParents(dd7)
-	if len(buffer.pendingDelegateParents) != 2 {
-		t.Fatalf("len = %d, want 2", len(buffer.pendingDelegateParents))
-	}
-	if buffer.pendingDelegateParents[0].dd != dd3 || buffer.pendingDelegateParents[1].dd != dd10 {
-		t.Fatalf("got unexpected locators after remove")
-	}
-	// Remove a non-existent element — no-op
-	otherDD := &delegationDisplayState{}
-	buffer.removeFromPendingDelegateParents(otherDD)
-	if len(buffer.pendingDelegateParents) != 2 {
-		t.Fatalf("len = %d, want 2 after no-op", len(buffer.pendingDelegateParents))
-	}
-	// Remove last element
-	buffer.removeFromPendingDelegateParents(dd10)
-	if len(buffer.pendingDelegateParents) != 1 || buffer.pendingDelegateParents[0].dd != dd3 {
-		t.Fatalf("got unexpected locators, want [dd3]")
-	}
-	// Remove first/only element
-	buffer.removeFromPendingDelegateParents(dd3)
-	if len(buffer.pendingDelegateParents) != 0 {
-		t.Fatalf("len = %d, want 0", len(buffer.pendingDelegateParents))
+	buffer.closeOpenDelegation("call", open)
+	if len(buffer.openDelegations) != 0 {
+		t.Fatalf("open parents = %#v, want empty", buffer.openDelegations)
 	}
 }
 
 func TestDelegationToolCallFinished_DrainsQueue(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 	// Simulate a delegate tool call that will fail before spawning
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "do stuff"}))
 
-	if len(buffer.pendingDelegateParents) != 1 {
-		t.Fatalf("pendingDelegateParents len = %d, want 1 after ToolCallStarted", len(buffer.pendingDelegateParents))
+	if len(buffer.openDelegations) != 1 {
+		t.Fatalf("open parents len = %d, want 1 after ToolCallStarted", len(buffer.openDelegations))
 	}
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments len = %d, want 1", len(buffer.segments))
@@ -729,8 +651,8 @@ func TestDelegationToolCallFinished_DrainsQueue(t *testing.T) {
 	// Fire ToolCallFinished with an error — should drain queue and mark failed
 	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "code", "call_1", "", errors.New("plan mode rejected")))
 
-	if len(buffer.pendingDelegateParents) != 0 {
-		t.Fatalf("pendingDelegateParents len = %d, want 0 after failed ToolCallFinished", len(buffer.pendingDelegateParents))
+	if len(buffer.openDelegations) != 0 {
+		t.Fatalf("open parents len = %d, want 0 after failed ToolCallFinished", len(buffer.openDelegations))
 	}
 	if seg.delegData.status != "failed" {
 		t.Fatalf("status = %q, want \"failed\"", seg.delegData.status)
@@ -743,11 +665,10 @@ func TestDelegationToolCallFinished_DrainsQueue(t *testing.T) {
 func TestDelegationToolCallFinished_IgnoresSpawned(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 	// Start the delegate tool
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "do stuff"}))
@@ -768,8 +689,8 @@ func TestDelegationToolCallFinished_IgnoresSpawned(t *testing.T) {
 		t.Fatalf("status = %q, want \"active\" (ToolCallFinished should not modify spawned delegation)", seg.delegData.status)
 	}
 	// Queue should be drained by DelegationStarted, but ToolCallFinished should not touch it further
-	if len(buffer.pendingDelegateParents) != 0 {
-		t.Fatalf("pendingDelegateParents len = %d, want 0 (drained by DelegationStarted)", len(buffer.pendingDelegateParents))
+	if len(buffer.openDelegations) != 0 {
+		t.Fatalf("open parents len = %d, want 0 (drained by DelegationStarted)", len(buffer.openDelegations))
 	}
 	// agentID should be set by DelegationStarted
 	if seg.delegData.agentID != "child-1" {
@@ -780,17 +701,16 @@ func TestDelegationToolCallFinished_IgnoresSpawned(t *testing.T) {
 func TestDelegationToolCallFinished_FollowUp_DrainsQueue(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 	// Simulate a follow_up tool call that will fail before spawning
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "follow_up", "call_fu_1", map[string]any{"agent_id": "child-1", "message": "continue work"}))
 
-	if len(buffer.pendingDelegateParents) != 1 {
-		t.Fatalf("pendingDelegateParents len = %d, want 1 after ToolCallStarted", len(buffer.pendingDelegateParents))
+	if len(buffer.openDelegations) != 1 {
+		t.Fatalf("open parents len = %d, want 1 after ToolCallStarted", len(buffer.openDelegations))
 	}
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments len = %d, want 1", len(buffer.segments))
@@ -806,8 +726,8 @@ func TestDelegationToolCallFinished_FollowUp_DrainsQueue(t *testing.T) {
 	// Fire ToolCallFinished with an error — should drain queue and mark failed
 	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "follow_up", "call_fu_1", "", errors.New("plan mode rejected")))
 
-	if len(buffer.pendingDelegateParents) != 0 {
-		t.Fatalf("pendingDelegateParents len = %d, want 0 after failed ToolCallFinished", len(buffer.pendingDelegateParents))
+	if len(buffer.openDelegations) != 0 {
+		t.Fatalf("open parents len = %d, want 0 after failed ToolCallFinished", len(buffer.openDelegations))
 	}
 	if seg.delegData.status != "failed" {
 		t.Fatalf("status = %q, want \"failed\"", seg.delegData.status)
@@ -817,43 +737,36 @@ func TestDelegationToolCallFinished_FollowUp_DrainsQueue(t *testing.T) {
 	}
 }
 
-// TestDelegationStarted_ConcurrentFollowUps_BindByAgentIDNotFIFO guards
-// against the bug in https://github.com/luispabon/steiner/issues/593: when
-// two follow_up boxes are pending at once and a DelegationStartedEvent's
-// CallID does not match either of them (e.g. a producer bug reusing a stale
-// ParentCallID), the CallID-based bind must not fall back to blind FIFO
-// ordering — that misroutes the event, and every scoped stream chunk that
-// follows, into an unrelated agent's box.
-func TestDelegationStarted_ConcurrentFollowUps_BindByAgentIDNotFIFO(t *testing.T) {
+// TestDelegationStarted_ConcurrentFollowUps_BindByOccurrence guards against
+// the bug in https://github.com/luispabon/steiner/issues/593: when two
+// follow_up boxes are open at once, a DelegationStartedEvent binds to the box
+// of its own occurrence, so it and every scoped stream chunk that follows land
+// in the right agent's box rather than the first one opened.
+func TestDelegationStarted_ConcurrentFollowUps_BindByOccurrence(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// Two follow_up calls are in flight together: child-3 first, then child-5.
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "follow_up", "call_fu_3", map[string]any{"agent_id": "child-3", "message": "continue child-3"}))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "follow_up", "call_fu_5", map[string]any{"agent_id": "child-5", "message": "continue child-5"}))
-	if len(buffer.pendingDelegateParents) != 2 {
-		t.Fatalf("pendingDelegateParents len = %d, want 2", len(buffer.pendingDelegateParents))
+	if len(buffer.openDelegations) != 2 {
+		t.Fatalf("open parents len = %d, want 2", len(buffer.openDelegations))
 	}
 
-	// child-5's DelegationStartedEvent arrives with a CallID that matches
-	// neither pending entry's parentCallID (simulating a stale ParentCallID
-	// carried over from the original delegate call). It must still bind to
-	// the child-5 box, not the first (child-3) box in the queue.
-	started := output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "stale-call-id", AgentID: "child-5"}, "continue child-5", "", "")
+	started := output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call_fu_5", BatchID: "batch", AgentID: "child-5"}, "continue child-5", "", "")
 	started = output.WithAgentScope(started, "child-5")
 	buffer.AppendEvent(started)
 
-	if len(buffer.pendingDelegateParents) != 1 {
-		t.Fatalf("pendingDelegateParents len = %d, want 1 after bind", len(buffer.pendingDelegateParents))
+	if len(buffer.openDelegations) != 1 {
+		t.Fatalf("open parents len = %d, want 1 after bind", len(buffer.openDelegations))
 	}
-	if buffer.pendingDelegateParents[0].dd.followUpAgentID != "child-3" {
-		t.Fatalf("remaining pending entry followUpAgentID = %q, want %q", buffer.pendingDelegateParents[0].dd.followUpAgentID, "child-3")
+	if remaining := buffer.openDelegations["call_fu_3"].dd; remaining == nil || remaining.followUpAgentID != "child-3" {
+		t.Fatalf("remaining open box = %#v, want child-3's", remaining)
 	}
 
 	// Unaccepted follow-up boxes stay separate; retain the binding assertions below.
@@ -987,11 +900,10 @@ func delegationStates(b *contentBuffer) []*delegationDisplayState {
 func TestConsecutiveSpecialistDelegateCallsMergeIntoGroup(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// First specialist tool call
@@ -1038,11 +950,10 @@ func TestConsecutiveSpecialistDelegateCallsMergeIntoGroup(t *testing.T) {
 func TestThreeConsecutiveDelegateCallsWithActiveMiddleMergeIntoGroup(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// Three accepted consecutive specialist delegations regardless of middle status
@@ -1087,11 +998,10 @@ func TestThreeConsecutiveDelegateCallsWithActiveMiddleMergeIntoGroup(t *testing.
 func TestSpecialistAdvisorSpecialistProducesThreeSeparateSegments(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// First specialist
@@ -1167,11 +1077,10 @@ func TestTwoConsecutiveAdvisorCallsStayAsSeparateSegments(t *testing.T) {
 func TestSpecialistBashSpecialistProducesThreeSegments(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// First specialist
@@ -1204,11 +1113,10 @@ func TestSpecialistBashSpecialistProducesThreeSegments(t *testing.T) {
 func TestSameLabelGroupRendersLabelBorderColor(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// Create a group with same toolLabel
@@ -1240,11 +1148,10 @@ func TestSameLabelGroupRendersLabelBorderColor(t *testing.T) {
 func TestMixedLabelGroupRendersDefaultBorderColor(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// Create a group with different toolLabels by creating entries directly
@@ -1292,11 +1199,10 @@ func TestMixedLabelGroupRendersDefaultBorderColor(t *testing.T) {
 func TestTwoDelegationStartedEventsBeforeParentToolCallsBindCorrectly(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// Start both tool calls before delegations
@@ -1337,11 +1243,10 @@ func TestTwoDelegationStartedEventsBeforeParentToolCallsBindCorrectly(t *testing
 func TestToolCallFinishedWithErrorMarksonlyGroupEntryFailed(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// Create a group: both start as active, first one gets bound to a tool
@@ -1370,11 +1275,10 @@ func TestToolCallFinishedWithErrorMarksonlyGroupEntryFailed(t *testing.T) {
 func TestDelegationGroupClickMathOnEntry1Header(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// Create an accepted two-entry group
@@ -1439,11 +1343,10 @@ func TestDelegationGroupClickMathOnEntry1Header(t *testing.T) {
 func TestCheckBufferDirtyWithActiveEntryInGroup(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// Create a group with one active and one complete
@@ -1481,19 +1384,18 @@ func TestCheckBufferDirtyWithActiveEntryInGroup(t *testing.T) {
 func TestDelegationStartedBindsPendingBoxByCallID(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "first"}))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_2", map[string]any{"type": "code", "task": "second"}))
 	buffer.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call_2", BatchID: "batch", AgentID: ""}, "group"))
 	buffer.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call_1", BatchID: "batch", AgentID: ""}, "group"))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call_2", AgentID: "child-2"}, "second preview", "", ""))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call_1", AgentID: "child-1"}, "first preview", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call_2", BatchID: "batch", AgentID: "child-2"}, "second preview", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call_1", BatchID: "batch", AgentID: "child-1"}, "first preview", "", ""))
 
 	if len(buffer.segments) != 1 || buffer.segments[0].delegGroupData == nil {
 		t.Fatalf("segments = %#v, want one delegation group", buffer.segments)
@@ -1513,11 +1415,10 @@ func TestDelegationStartedBindsPendingBoxByCallID(t *testing.T) {
 func TestDelegationStartedEmptyCallIDUsesFIFO(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "first"}))
 	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "first preview", "", ""))
@@ -1623,10 +1524,10 @@ func TestActiveDelegateRowsPreserveGroupEntryOrder(t *testing.T) {
 	buffer := newTestBuffer(t)
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-1", subAgentArgs("")))
 	buffer.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call-1", BatchID: "batch", AgentID: ""}, "group"))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call-1", AgentID: "child-1"}, "first task", "", "explore"))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call-1", BatchID: "batch", AgentID: "child-1"}, "first task", "", "explore"))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-2", subAgentArgs("")))
 	buffer.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call-2", BatchID: "batch", AgentID: ""}, "group"))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call-2", AgentID: "child-2"}, "second task", "", "code"))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call-2", BatchID: "batch", AgentID: "child-2"}, "second task", "", "code"))
 
 	if len(buffer.segments) != 1 || buffer.segments[0].kind != segmentDelegationGroup {
 		t.Fatalf("segments = %#v, want one delegation group", buffer.segments)
@@ -1959,11 +1860,10 @@ func TestFollowUpToUnfindableDelegationFallsBackToAgentType(t *testing.T) {
 func TestDelegationCompleteElapsedGuardedByStartTime(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// Add tool call event first to establish context
@@ -2017,11 +1917,10 @@ func TestDelegationCompleteElapsedGuardedByStartTime(t *testing.T) {
 func TestDelegationFailedElapsedGuardedByStartTime(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
-		styles:                 testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
+		styles:            testStyles(theme.AccentAmber),
 	}
 
 	// Add tool call event first to establish context

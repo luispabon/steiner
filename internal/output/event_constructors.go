@@ -188,11 +188,6 @@ func NewDelegationAcceptedEvent(occ DelegationOccurrence, group string) Event {
 	return newEvent(EventTypeDelegationAccepted, DelegationAcceptedEvent{DelegationOccurrence: occ, Group: group})
 }
 
-// NewReplayDelegationParentClosedEvent creates a replay-only parent closure event.
-func NewReplayDelegationParentClosedEvent(callID string) Event {
-	return newEvent(EventTypeReplayDelegationParentClosed, ReplayDelegationParentClosedEvent{CallID: callID})
-}
-
 // NewToolCallFinishedEventWithPreview creates a new tool call finished event with preview.
 func NewToolCallFinishedEventWithPreview(turn int, toolName, callID string, result string, err error, preview ToolPreview) Event {
 	payload := ToolCallFinishedEvent{

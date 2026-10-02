@@ -9,10 +9,9 @@ import (
 func TestAsyncAckThenCompletionRendersOneCompletedSegment(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:               make([]contentSegment, 0),
-		collapseState:          make(map[int]bool),
-		pendingDelegateParents: make([]delegationLocator, 0),
-		activeDelegations:      make(map[string]delegationLocator),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_a1", map[string]any{"type": "explore", "task": "find files"}))

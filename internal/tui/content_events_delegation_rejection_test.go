@@ -63,8 +63,8 @@ func TestModelRejectedFollowUpPreservesOriginalChildAndRoster(t *testing.T) {
 	m := &Model{content: contentBuffer{}, roster: subAgentRoster{entries: map[string]*rosterEntry{}}, styles: testStyles("#5599ff")}
 	accepted := output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "original", BatchID: "batch", AgentID: "child"}, "prior")
 	m.applyEvent(accepted)
-	m.applyEvent(output.NewDelegationQueuedEvent(output.DelegationOccurrence{CallID: "original", AgentID: "child"}, "explore", "original task"))
-	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "original", AgentID: "child"}, "original task", "", "explore"))
+	m.applyEvent(output.NewDelegationQueuedEvent(output.DelegationOccurrence{CallID: "original", BatchID: "batch", AgentID: "child"}, "explore", "original task"))
+	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "original", BatchID: "batch", AgentID: "child"}, "original task", "", "explore"))
 	originalCard := m.content.segments[0].delegData
 	before := m.roster.entries["child"]
 	if originalCard == nil || before == nil || before.status != rosterRunning {
@@ -86,7 +86,7 @@ func TestModelRejectedFollowUpPreservesOriginalChildAndRoster(t *testing.T) {
 		t.Fatalf("roster changed for rejected follow-up: before=%#v after=%#v entries=%#v", before, after, m.roster.entries)
 	}
 
-	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "child"}, Status: "completed"}))
+	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{CallID: "original", BatchID: "batch", AgentID: "child"}, Status: "completed"}))
 	if findDelegationSegment(m.content.segments, originalCard) < 0 || originalCard.agentID != "child" || originalCard.status != "complete" {
 		t.Fatalf("late lifecycle event changed original card: %#v", originalCard)
 	}
@@ -100,15 +100,15 @@ func TestUnknownAdmissionErrorCleansEligibleEmptyAgentCard(t *testing.T) {
 	const message = "turn /status: launch failed"
 	dd := &delegationDisplayState{parentCallID: "call"}
 	b := &contentBuffer{
-		segments:               []contentSegment{{kind: segmentDelegation, delegData: dd}},
-		pendingDelegateParents: []delegationLocator{{seg: 0, dd: dd}},
-		queuedDelegations:      map[string]delegationLocator{"call": {seg: 0, dd: dd}},
+		segments:          []contentSegment{{kind: segmentDelegation, delegData: dd}},
+		openDelegations:   map[string]delegationLocator{"call": {seg: 0, dd: dd}},
+		queuedDelegations: map[string]delegationLocator{"call": {seg: 0, dd: dd}},
 	}
 
 	b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(message), output.ToolPreview{}, &output.DelegationAdmission{Status: "unknown"}))
 
-	if dd.status != "failed" || len(b.pendingDelegateParents) != 0 {
-		t.Fatalf("eligible failure not cleaned: status=%q pending=%#v", dd.status, b.pendingDelegateParents)
+	if dd.status != "failed" || len(b.openDelegations) != 0 {
+		t.Fatalf("eligible failure not cleaned: status=%q open=%#v", dd.status, b.openDelegations)
 	}
 	if _, ok := b.queuedDelegations["call"]; ok {
 		t.Fatalf("queued call remains: %#v", b.queuedDelegations)
@@ -141,6 +141,7 @@ func TestDelegationRejectedErrorRetainsExactText(t *testing.T) {
 	for _, message := range []string{"api: provider failed", "turn /status: failed", "status: rejected by policy", "ordinary rejection error"} {
 		t.Run(message, func(t *testing.T) {
 			b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: &delegationDisplayState{parentCallID: "call"}}}}
+			openParentCard(b, "call")
 			b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(message), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected", PolicyNotice: true}))
 			if len(b.segments) != 2 || b.segments[0].kind != segmentStatus || b.segments[0].text != "Delegation rejected by policy." || b.segments[1].kind != segmentTool || b.segments[1].text != message {
 				t.Fatalf("rejection evidence = %#v, want exact error %q", b.segments, message)

@@ -10,11 +10,12 @@ import (
 func TestSidebarAcceptedGroupIdentity(t *testing.T) {
 	var r subAgentRoster
 	// Queue/start events precede tool finished metadata on this lifecycle path.
-	for _, call := range []struct{ callID, agentID string }{
-		{"call-a", "same-a"}, {"call-b", "same-b"}, {"call-c", "other"},
+	for _, call := range []struct{ callID, batchID, agentID string }{
+		{"call-a", "batch-a", "same-a"}, {"call-b", "batch-a", "same-b"}, {"call-c", "batch-b", "other"},
 	} {
-		r.observe(ev(output.DelegationQueuedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: call.callID, AgentID: call.agentID}, AgentType: "review"}), 1)
-		r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: call.callID, AgentID: call.agentID}, AgentType: "review"}), 2)
+		occ := output.DelegationOccurrence{CallID: call.callID, BatchID: call.batchID, AgentID: call.agentID}
+		r.observe(ev(output.DelegationQueuedEvent{DelegationOccurrence: occ, AgentType: "review"}), 1)
+		r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: occ, AgentType: "review"}), 2)
 	}
 	for _, admission := range []output.DelegationAdmission{
 		{Status: "accepted", AgentID: "same-a", BatchID: "batch-a", Group: "review"},
@@ -60,7 +61,7 @@ func TestRosterPreparationFailureUsesAdmissionIdentity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var r subAgentRoster
 			r.observe(tc.accept, 1)
-			r.observe(ev(output.DelegationFailedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: tc.callID, AgentID: "prepare"}, AgentType: "code", Error: "preparation failed"}), 2)
+			r.observe(ev(output.DelegationFailedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: tc.callID, BatchID: "batch", AgentID: "prepare"}, AgentType: "code", Error: "preparation failed"}), 2)
 			e := r.entries["prepare"]
 			if e == nil || e.status != rosterFailed || e.group != "prepare-group" {
 				t.Fatalf("preparation failure entry = %+v", e)
@@ -96,9 +97,9 @@ func TestRosterUnknownLegacyLifecycleAndDelivery(t *testing.T) {
 func TestRosterAcceptedRunResetAndRejectedFollowup(t *testing.T) {
 	var r subAgentRoster
 	r.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "original", BatchID: "old", AgentID: "child"}, Group: "old-group"}), 1)
-	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "original", AgentID: "child"}, AgentType: "code"}), 2)
+	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "original", BatchID: "old", AgentID: "child"}, AgentType: "code"}), 2)
 	r.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "fresh", BatchID: "fresh-batch", AgentID: "child"}, Group: "fresh-group"}), 3)
-	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "fresh", AgentID: "child"}, AgentType: "code"}), 4)
+	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "fresh", BatchID: "fresh-batch", AgentID: "child"}, AgentType: "code"}), 4)
 	entry := r.entries["child"]
 	if entry.group != "fresh-group" {
 		t.Fatalf("fresh accepted group = %q, want fresh-group", entry.group)
@@ -118,7 +119,7 @@ func TestRosterAcceptedRunResetAndRejectedFollowup(t *testing.T) {
 	}
 
 	// Accepted lifecycle may arrive before its acceptance event.
-	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "late", AgentID: "late-child"}, AgentType: "review"}), 8)
+	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "late", BatchID: "late-batch", AgentID: "late-child"}, AgentType: "review"}), 8)
 	r.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "late", BatchID: "late-batch", AgentID: "late-child"}, Group: "late-group"}), 9)
 	if e := r.entries["late-child"]; e == nil || e.group != "late-group" {
 		t.Fatalf("late accepted identity = %+v", e)
@@ -126,12 +127,12 @@ func TestRosterAcceptedRunResetAndRejectedFollowup(t *testing.T) {
 
 	// Accepted follow-up without a group resets prior identity in the live row.
 	r.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "ungrouped", BatchID: "new-batch", AgentID: "child"}}), 10)
-	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "ungrouped", AgentID: "child"}, AgentType: "code"}), 11)
+	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "ungrouped", BatchID: "new-batch", AgentID: "child"}, AgentType: "code"}), 11)
 	if entry.group != "" || entry.status != rosterRunning {
 		t.Fatalf("ungrouped current run identity = %+v", entry)
 	}
 	// Delayed delivery from old call must not replace current run identity or settle it.
-	r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "child", AgentType: "code", Status: "complete", ParentCallID: "fresh"}}}), 12)
+	r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "child", AgentType: "code", Status: "complete", ParentCallID: "fresh", BatchID: "fresh-batch"}}}), 12)
 	if entry.status != rosterRunning || entry.delivered || entry.group != "" {
 		t.Fatalf("stale delivery changed current run: %+v", entry)
 	}

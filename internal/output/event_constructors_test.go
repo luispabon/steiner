@@ -11,35 +11,6 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func TestReplayDelegationParentClosedEventRoundTrip(t *testing.T) {
-	event := NewReplayDelegationParentClosedEvent("parent-call")
-	if event.Type != EventTypeReplayDelegationParentClosed {
-		t.Fatalf("Type = %q, want %q", event.Type, EventTypeReplayDelegationParentClosed)
-	}
-	payload, ok := event.Payload.(ReplayDelegationParentClosedEvent)
-	if !ok {
-		t.Fatalf("Payload type = %T, want ReplayDelegationParentClosedEvent", event.Payload)
-	}
-	if payload.CallID != "parent-call" {
-		t.Fatalf("CallID = %q, want parent-call", payload.CallID)
-	}
-
-	data, err := json.Marshal(event)
-	if err != nil {
-		t.Fatalf("marshal event: %v", err)
-	}
-	var decoded struct {
-		Type    string                            `json:"type"`
-		Payload ReplayDelegationParentClosedEvent `json:"payload"`
-	}
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("unmarshal event: %v", err)
-	}
-	if decoded.Type != EventTypeReplayDelegationParentClosed || decoded.Payload.CallID != "parent-call" {
-		t.Fatalf("decoded event = %#v, want type and call ID", decoded)
-	}
-}
-
 func TestDelegationAdmissionEventsAndFinishedMetadata(t *testing.T) {
 	admission := &DelegationAdmission{Status: "accepted", BatchID: "b", Group: "g", AgentID: "a", PolicyNotice: true}
 	event := NewToolCallFinishedEventWithAdmission(1, "delegate", "c", "result", nil, ToolPreview{}, admission)

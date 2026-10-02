@@ -298,22 +298,17 @@ func TestReplayDuplicateIDRejectedThenLedgerOrphanEventSequence(t *testing.T) {
 				t.Fatalf("finish admission = %#v, want rejected", p.DelegationAdmission)
 			}
 			sequence = append(sequence, "tool-finished:"+p.CallID+":"+p.DelegationAdmission.Status)
-		case output.EventTypeReplayDelegationParentClosed:
-			p := event.Payload.(output.ReplayDelegationParentClosedEvent)
-			sequence = append(sequence, "parent-closed:"+p.CallID)
 		}
 	}
 	// The rejected first occurrence is fully emitted, including its parent
 	// finish, before the second (ledger orphan) occurrence starts. The orphan
-	// closes its parent slot before the next delegation bundle and never emits
-	// a fabricated result or finish.
+	// never emits a fabricated result or finish.
 	want := []string{
 		"tool-start:same:first",
 		"tool-finished:same:rejected",
 		"tool-start:same:second",
 		"accepted:same:agent-orphan:batch:group",
 		"started:same:agent-orphan:second",
-		"parent-closed:same",
 	}
 	if !reflect.DeepEqual(sequence, want) {
 		t.Fatalf("replayed event sequence = %v, want %v", sequence, want)
@@ -441,18 +436,11 @@ func TestReplayDelegationBundleEmitsEachEventOnce(t *testing.T) {
 	}
 }
 
-func TestReplayLedgerOrphanEmitsExactParentClosure(t *testing.T) {
+func TestReplayLedgerOrphanEmitsAcceptedAndStartedWithoutFinish(t *testing.T) {
 	t.Parallel()
 	msgs := []agent.Message{delegateCall("orphan", "sub_agent", "lost task")}
 	ledger := []agent.SubAgentLedgerEntry{{ParentCallID: "orphan", AgentID: "agent-lost", BatchID: "batch", Group: "group"}}
 	events := replayEventsWithLedger(t, msgs, ledger)
-	closed := eventsOfType(events, output.EventTypeReplayDelegationParentClosed)
-	if len(closed) != 1 {
-		t.Fatalf("parent closure events = %d, want 1", len(closed))
-	}
-	if got := closed[0].Payload.(output.ReplayDelegationParentClosedEvent).CallID; got != "orphan" {
-		t.Fatalf("closure CallID = %q, want orphan", got)
-	}
 	if got := len(eventsOfType(events, output.EventTypeToolCallFinished)); got != 0 {
 		t.Errorf("orphan fabricated %d tool finishes, want 0", got)
 	}
@@ -462,19 +450,21 @@ func TestReplayLedgerOrphanEmitsExactParentClosure(t *testing.T) {
 	if got := len(eventsOfType(events, output.EventTypeDelegationFailed)); got != 0 {
 		t.Errorf("orphan fabricated %d failures, want 0", got)
 	}
-	acceptedAt, startedAt, closedAt := -1, -1, -1
+	acceptedAt, startedAt := -1, -1
 	for i, event := range events {
 		switch event.Type {
 		case output.EventTypeDelegationAccepted:
 			acceptedAt = i
+			want := output.DelegationOccurrence{CallID: "orphan", BatchID: "batch", AgentID: "agent-lost"}
+			if p := event.Payload.(output.DelegationAcceptedEvent); p.DelegationOccurrence != want || p.Group != "group" {
+				t.Errorf("orphan accepted = %+v, want %+v in group", p, want)
+			}
 		case output.EventTypeDelegationStarted:
 			startedAt = i
-		case output.EventTypeReplayDelegationParentClosed:
-			closedAt = i
 		}
 	}
-	if acceptedAt < 0 || startedAt <= acceptedAt || closedAt <= startedAt {
-		t.Fatalf("orphan accepted/started/closed positions = %d/%d/%d", acceptedAt, startedAt, closedAt)
+	if acceptedAt < 0 || startedAt <= acceptedAt {
+		t.Fatalf("orphan accepted/started positions = %d/%d", acceptedAt, startedAt)
 	}
 }
 

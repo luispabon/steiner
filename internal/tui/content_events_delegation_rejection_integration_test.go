@@ -45,6 +45,7 @@ func TestRejectedErrorPrefixesRemainExactAndPolicyNoticeTyped(t *testing.T) {
 	for _, message := range []string{"api: provider failed", "turn /status:run failed", "status: provider failed"} {
 		t.Run(message, func(t *testing.T) {
 			b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: &delegationDisplayState{parentCallID: "call"}}}}
+			openParentCard(b, "call")
 			b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(message), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected", PolicyNotice: true}))
 			if len(b.segments) != 2 || b.segments[0].kind != segmentStatus || b.segments[0].text != "Delegation rejected by policy." || b.segments[1].kind != segmentTool || b.segments[1].text != message {
 				t.Fatalf("notice/error = %#v, want typed notice and exact %q", b.segments, message)
@@ -138,9 +139,14 @@ func TestRejectedCurrentCallRewriteRemapsPointersAndKeepsFollowUpChild(t *testin
 			t.Fatalf("active locator %q still points at rejected card", id)
 		}
 	}
-	for _, loc := range append(append([]delegationLocator(nil), b.pendingDelegateParents...), b.pendingDelegationStarts...) {
+	for _, loc := range b.pendingDelegationStarts {
 		if loc.dd == rejected {
 			t.Fatal("pending locator still points at rejected card")
+		}
+	}
+	for _, loc := range b.openDelegations {
+		if loc.dd == rejected {
+			t.Fatal("open locator still points at rejected card")
 		}
 	}
 	if _, ok := b.queuedDelegations["current"]; ok {

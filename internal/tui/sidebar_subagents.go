@@ -34,18 +34,18 @@ func (s sidebarState) subAgentsSection(width int) []string {
 	type groupKey struct{ batchID, group string }
 	emitted := map[groupKey]bool{}
 	for _, e := range visible {
-		if !e.accepted || e.batchID == "" || e.group == "" {
+		if !e.admitted || e.occurrence.BatchID == "" || e.group == "" {
 			lines = append(lines, s.rosterRow(e, "", typeW, width))
 			continue
 		}
-		key := groupKey{batchID: e.batchID, group: e.group}
+		key := groupKey{batchID: e.occurrence.BatchID, group: e.group}
 		if emitted[key] {
 			continue
 		}
 		emitted[key] = true
 		lines = append(lines, s.styledWithBg(s.styles.FgMute, fitText("┌ "+e.group, width)))
 		for _, m := range visible {
-			if m.accepted && m.batchID == e.batchID && m.group == e.group {
+			if m.admitted && m.occurrence.BatchID == e.occurrence.BatchID && m.group == e.group {
 				lines = append(lines, s.rosterRow(m, s.styledWithBg(s.styles.FgMute, "│ "), typeW, width))
 			}
 		}

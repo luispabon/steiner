@@ -214,6 +214,7 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 	if len(calls) > 0 {
 		batchID := newToolBatchID(calls[0].ID)
 		ctx = WithToolBatchID(ctx, batchID)
+		p.batchID = batchID
 		if p.request.OnToolBatchDone != nil {
 			defer p.request.OnToolBatchDone(batchID)
 		}
@@ -611,7 +612,7 @@ func (p *turnProgressor) notDispatchedAdmission(toolName string) *tool.Delegatio
 	if !p.isDelegationCall(toolName) {
 		return nil
 	}
-	return &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected}
+	return &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, BatchID: p.batchID}
 }
 
 // defaultRejectedAdmission synthesises the rejected admission of a failed
@@ -698,6 +699,10 @@ type turnProgressor struct {
 	// terminated with a tool_call_finished error event so the UI can close them.
 	// Nil when no delegation call was queued.
 	queuedDelegations *queuedDelegationCalls
+	// batchID is the id of the tool batch being executed, stamped on the
+	// rejected admissions the loop synthesises so every delegation finish
+	// carries its full occurrence identity.
+	batchID string
 }
 
 func newTurnProgressor(req RunRequest, base prompt.AssemblyOptions, compactFn compactConversationFn) *turnProgressor {

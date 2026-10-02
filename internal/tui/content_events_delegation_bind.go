@@ -6,102 +6,59 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-func (b *contentBuffer) dequeuePendingByCallID(list *[]delegationLocator, callID string) (delegationLocator, bool) {
-	if callID == "" {
-		return delegationLocator{}, false
-	}
-	for i, loc := range *list {
-		if loc.dd == nil || loc.seg < 0 || loc.seg >= len(b.segments) || loc.dd.parentCallID != callID {
-			continue
-		}
-		*list = append((*list)[:i], (*list)[i+1:]...)
-		return loc, true
-	}
-	return delegationLocator{}, false
-}
-
-func (b *contentBuffer) dequeuePendingDelegateParentByCallID(callID string) (delegationLocator, bool) {
-	return b.dequeuePendingByCallID(&b.pendingDelegateParents, callID)
-}
-
-func (b *contentBuffer) drainPending(list *[]delegationLocator, eligible func(delegationLocator) bool) (delegationLocator, bool) {
-	for len(*list) > 0 {
-		loc := (*list)[0]
-		*list = (*list)[1:]
-		if loc.dd == nil {
-			continue
-		}
-		if loc.seg < 0 || loc.seg >= len(b.segments) {
-			continue
-		}
-		if !eligible(loc) {
-			continue
-		}
-		return loc, true
-	}
-	return delegationLocator{}, false
-}
-
-func (b *contentBuffer) dequeuePendingDelegateParentSegment() (delegationLocator, bool) {
-	return b.drainPending(&b.pendingDelegateParents, func(loc delegationLocator) bool {
-		return loc.dd.agentID == ""
-	})
-}
-
-// dequeuePendingDelegateParentByFollowUpAgentID matches a pending follow-up
-// box against the DelegationStartedEvent's AgentID, so a follow-up call whose
-// CallID lookup misses (e.g. a stale ParentCallID) still binds to the correct
-// box instead of falling through to blind FIFO ordering, which can attach
-// this event to an unrelated agent's pending box when several follow-ups or
-// delegations are in flight together. Unlike drainPending, non-matching
-// entries are left in place rather than discarded.
-func (b *contentBuffer) dequeuePendingDelegateParentByFollowUpAgentID(agentID string) (delegationLocator, bool) {
-	if agentID == "" {
-		return delegationLocator{}, false
-	}
-	list := &b.pendingDelegateParents
-	for i, loc := range *list {
-		if loc.dd == nil || loc.seg < 0 || loc.seg >= len(b.segments) {
-			continue
-		}
-		if loc.dd.agentID != "" || !loc.dd.isFollowUp || loc.dd.followUpAgentID != agentID {
-			continue
-		}
-		*list = append((*list)[:i], (*list)[i+1:]...)
-		return loc, true
-	}
-	return delegationLocator{}, false
-}
-
-func (b *contentBuffer) removeFromPendingDelegateParents(dd *delegationDisplayState) {
-	for i, loc := range b.pendingDelegateParents {
-		if loc.dd == dd {
-			b.pendingDelegateParents = append(b.pendingDelegateParents[:i], b.pendingDelegateParents[i+1:]...)
-			return
-		}
-	}
-}
-
-func (b *contentBuffer) registerDelegationOccurrence(loc delegationLocator) {
-	if loc.dd == nil || loc.dd.parentCallID == "" {
-		return
-	}
-	b.pendingDelegationOccurrences = append(b.pendingDelegationOccurrences, loc)
-}
-
 func (b *contentBuffer) appendDelegationSegment(dd *delegationDisplayState) int {
 	b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: dd, renderDirty: true})
 	return len(b.segments) - 1
 }
 
-func (b *contentBuffer) dequeuePendingDelegationStartByCallID(callID string) (delegationLocator, bool) {
-	return b.dequeuePendingByCallID(&b.pendingDelegationStarts, callID)
+// takePendingDelegationStart removes the card a lifecycle event created before
+// its parent tool call arrived: the card for callID, else the oldest card whose
+// events carried no call ID.
+func (b *contentBuffer) takePendingDelegationStart(callID string) (delegationLocator, bool) {
+	if callID == "" {
+		return delegationLocator{}, false
+	}
+	match := -1
+	for i, loc := range b.pendingDelegationStarts {
+		if loc.dd == nil {
+			continue
+		}
+		if loc.dd.parentCallID == callID {
+			match = i
+			break
+		}
+		if match < 0 && loc.dd.parentCallID == "" {
+			match = i
+		}
+	}
+	if match < 0 {
+		return delegationLocator{}, false
+	}
+	loc := b.pendingDelegationStarts[match]
+	b.pendingDelegationStarts = append(b.pendingDelegationStarts[:match], b.pendingDelegationStarts[match+1:]...)
+	return loc, true
 }
 
-func (b *contentBuffer) dequeuePendingDelegationStartSegment() (delegationLocator, bool) {
-	return b.drainPending(&b.pendingDelegationStarts, func(loc delegationLocator) bool {
-		return loc.dd.parentCallID == ""
-	})
+// oldestUnboundDelegation returns the earliest parent card, open or admitted,
+// that has not bound a child and satisfies eligible.
+func (b *contentBuffer) oldestUnboundDelegation(eligible func(*delegationDisplayState) bool) (delegationLocator, bool) {
+	var oldest delegationLocator
+	found := false
+	consider := func(loc delegationLocator) {
+		if loc.dd == nil || loc.dd.agentID != "" || !eligible(loc.dd) {
+			return
+		}
+		if !found || loc.seg < oldest.seg {
+			oldest, found = loc, true
+		}
+	}
+	for _, loc := range b.openDelegations {
+		consider(loc)
+	}
+	for _, loc := range b.delegations {
+		consider(loc)
+	}
+	return oldest, found
 }
 
 func delegateCallDetails(tool string, args map[string]any) (label, prompt string, brief *structuredDelegateBrief) {
@@ -183,8 +140,7 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 	dd.baselineToolCallCount = baselineToolCalls
 	dd.toolLabel = childToolLabel
 	b.markDelegationDirty(loc.seg)
-	b.pendingDelegateParents = append(b.pendingDelegateParents, loc)
-	b.registerDelegationOccurrence(loc)
+	b.openDelegation(loc)
 }
 
 func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolCallStartedEvent) {
@@ -194,18 +150,15 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		loc.dd.collapsed = true
 		loc.dd.startTime = nanoNow()
 		b.bindParentDelegateCall(loc, payload)
-		b.pendingDelegateParents = append(b.pendingDelegateParents, loc)
-		b.registerDelegationOccurrence(loc)
+		b.openDelegation(loc)
 		return
 	}
-	if loc, found := b.dequeuePendingDelegationStartByCallID(payload.CallID); found {
+	if loc, found := b.takePendingDelegationStart(payload.CallID); found {
+		keyed := loc.dd.parentCallID != ""
 		b.bindParentDelegateCall(loc, payload)
-		b.registerDelegationOccurrence(loc)
-		return
-	}
-	if loc, found := b.dequeuePendingDelegationStartSegment(); found {
-		b.bindParentDelegateCall(loc, payload)
-		b.registerDelegationOccurrence(loc)
+		if !keyed {
+			b.openDelegation(loc)
+		}
 		return
 	}
 
@@ -225,9 +178,7 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		dd.applyStructuredBrief(*brief)
 	}
 	idx := b.appendDelegationSegment(dd)
-	loc := delegationLocator{seg: idx, dd: dd}
-	b.pendingDelegateParents = append(b.pendingDelegateParents, loc)
-	b.registerDelegationOccurrence(loc)
+	b.openDelegation(delegationLocator{seg: idx, dd: dd})
 }
 
 func (b *contentBuffer) handleDelegationCacheWaiting(event output.Event) {
@@ -235,13 +186,11 @@ func (b *contentBuffer) handleDelegationCacheWaiting(event output.Event) {
 	if !ok {
 		return
 	}
-	loc, found := b.dequeuePendingDelegateParentByCallID(payload.CallID)
-	if !found {
-		if loc, active := b.activeDelegations[payload.AgentID]; active && loc.dd != nil {
-			loc.dd.cacheWaiting = true
-			loc.dd.cacheWaitDeadline = payload.DeadlineUnixNano
-			b.markDelegationDirty(loc.seg)
-		}
+	loc, found := b.lookupOccurrence(keyOf(payload.DelegationOccurrence))
+	if !found && payload.CallID == "" {
+		loc, found = b.activeDelegations[payload.AgentID]
+	}
+	if !found || loc.dd == nil {
 		return
 	}
 	loc.dd.agentID = payload.AgentID
@@ -282,8 +231,9 @@ func (b *contentBuffer) appendToolCallQueuedEvent(event output.Event) {
 	if brief != nil {
 		dd.applyStructuredBrief(*brief)
 	}
-	idx := b.appendDelegationSegment(dd)
-	b.queuedDelegations[payload.CallID] = delegationLocator{seg: idx, dd: dd}
+	loc := delegationLocator{seg: b.appendDelegationSegment(dd), dd: dd}
+	b.queuedDelegations[payload.CallID] = loc
+	b.openDelegation(loc)
 }
 
 // clearQueuedDelegation drops any queued-delegation entry for a call ID so a
@@ -318,7 +268,7 @@ func (b *contentBuffer) handleDelegationStarted(event output.Event) {
 		b.appendStyled(formatDelegationEvent(event), segmentPlain)
 		return
 	}
-	b.bindDelegation(payload.AgentID, payload.CallID, payload.AgentType, payload.TaskPreview, payload.ModelAlias, false)
+	b.bindDelegation(payload.DelegationOccurrence, payload.AgentType, payload.TaskPreview, payload.ModelAlias, false)
 }
 
 // handleDelegationQueued binds a queued sub-agent to a delegation segment
@@ -329,35 +279,41 @@ func (b *contentBuffer) handleDelegationQueued(event output.Event) {
 		b.appendStyled(formatDelegationEvent(event), segmentPlain)
 		return
 	}
-	b.bindDelegation(payload.AgentID, payload.CallID, payload.AgentType, payload.TaskPreview, "", true)
+	b.bindDelegation(payload.DelegationOccurrence, payload.AgentType, payload.TaskPreview, "", true)
 }
 
-// findDelegationToBind locates the existing segment a queued or started event
-// belongs to: the queued or cache-waiting box for that agent, else a pending
-// parent delegate call.
-func (b *contentBuffer) findDelegationToBind(agentID, callID string, queued bool) (delegationLocator, bool) {
-	if loc, active := b.activeDelegations[agentID]; active && loc.dd != nil {
-		if !queued && loc.dd.queuedForSlot {
-			return loc, true
-		}
-		if loc.dd.cacheWaiting && loc.dd.parentCallID == callID {
-			return loc, true
-		}
+// findDelegationToBind locates the card a queued or started event belongs to:
+// its occurrence's card. Events without a call ID carry no occurrence, so they
+// bind by agent: the agent's card still waiting for a slot or the prompt cache,
+// else its unbound follow-up card, else the oldest unbound parent card.
+func (b *contentBuffer) findDelegationToBind(occ output.DelegationOccurrence, queued bool) (delegationLocator, bool) {
+	if occ.CallID != "" {
+		return b.lookupOccurrence(keyOf(occ))
 	}
-	if loc, found := b.dequeuePendingDelegateParentByCallID(callID); found {
+	loc, active := b.activeDelegations[occ.AgentID]
+	if active && loc.dd != nil && ((!queued && loc.dd.queuedForSlot) || loc.dd.cacheWaiting) {
 		return loc, true
 	}
-	if loc, found := b.dequeuePendingDelegateParentByFollowUpAgentID(agentID); found {
+	if loc, found := b.oldestUnboundDelegation(func(dd *delegationDisplayState) bool {
+		return dd.isFollowUp && dd.followUpAgentID == occ.AgentID
+	}); found {
 		return loc, true
 	}
-	return b.dequeuePendingDelegateParentSegment()
+	return b.oldestUnboundDelegation(func(*delegationDisplayState) bool { return true })
 }
 
-func (b *contentBuffer) bindDelegation(agentID, callID, agentType, taskPreview, modelAlias string, queued bool) {
-	if !queued {
-		if loc, active := b.activeDelegations[agentID]; active && loc.dd != nil && loc.dd.status == "active" && loc.dd.parentCallID != "" && loc.dd.parentCallID != callID {
-			return
-		}
+// agentRunsOtherCall reports whether the agent's active card belongs to a
+// different parent call than occ.
+func (b *contentBuffer) agentRunsOtherCall(occ output.DelegationOccurrence) bool {
+	loc, active := b.activeDelegations[occ.AgentID]
+	return active && loc.dd != nil && loc.dd.status == "active" && loc.dd.parentCallID != "" && loc.dd.parentCallID != occ.CallID
+}
+
+func (b *contentBuffer) bindDelegation(occ output.DelegationOccurrence, agentType, taskPreview, modelAlias string, queued bool) {
+	agentID := occ.AgentID
+	target, found := b.findDelegationToBind(occ, queued)
+	if !found && !queued && b.agentRunsOtherCall(occ) {
+		return
 	}
 	preview := taskPreview
 	modelAlias = strings.TrimSpace(modelAlias)
@@ -388,13 +344,15 @@ func (b *contentBuffer) bindDelegation(agentID, callID, agentType, taskPreview, 
 		b.activeDelegations[agentID] = loc
 		b.markDelegationDirty(loc.seg)
 	}
-	if loc, found := b.findDelegationToBind(agentID, callID, queued); found {
-		bind(loc)
+	if found {
+		b.closeOpenDelegation(target.dd.parentCallID, target.dd)
+		bind(target)
 		return
 	}
 	dd := &delegationDisplayState{
 		agentID:         agentID,
 		agentType:       agentType,
+		parentCallID:    occ.CallID,
 		taskPreview:     preview,
 		promptText:      preview,
 		promptCollapsed: true,
@@ -411,5 +369,6 @@ func (b *contentBuffer) bindDelegation(agentID, callID, agentType, taskPreview, 
 	idx := b.appendDelegationSegment(dd)
 	loc := delegationLocator{seg: idx, dd: dd}
 	b.activeDelegations[agentID] = loc
+	b.registerOccurrence(keyOf(occ), loc)
 	b.pendingDelegationStarts = append(b.pendingDelegationStarts, loc)
 }

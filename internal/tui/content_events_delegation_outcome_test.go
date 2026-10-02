@@ -87,7 +87,7 @@ func TestReplayReusedGroupNameRejectedLeavesAcceptedGroup(t *testing.T) {
 func TestReplayLostDeliverySettlesCardAndRosterRow(t *testing.T) {
 	m := newIdentityTestModel()
 	card := replayAccepted(m, "sub_agent", "call", "b1", "child", "g", "task")
-	m.applyEvent(delivered(output.DeliveredSubAgent{AgentID: "child", AgentType: "explore", Status: "lost", ParentCallID: "call"}))
+	m.applyEvent(delivered(output.DeliveredSubAgent{AgentID: "child", AgentType: "explore", Status: "lost", ParentCallID: "call", BatchID: "b1"}))
 
 	if card.status != "failed" || card.resultStatus != "lost" || findDelegationSegment(m.content.segments, card) < 0 {
 		t.Fatalf("lost card = %#v", card)

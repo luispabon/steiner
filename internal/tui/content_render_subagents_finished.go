@@ -31,23 +31,13 @@ func (b *contentBuffer) appendSubAgentsDeliveredEvent(event output.Event) {
 // deliveredLookup resolves the group label, group size, failure reason and
 // elapsed text for a delivered item from the delegation boxes in the buffer.
 func (b *contentBuffer) deliveredLookup(item output.DeliveredSubAgent) deliveredLookup {
-	var found *delegationDisplayState
-	b.forEachDelegationReverse(func(loc delegationLocator) bool {
-		dd := loc.dd
-		if dd == nil {
-			return false
-		}
-		if deliveredMatchesDelegation(item, dd) {
-			found = dd
-			return true
-		}
-		return false
-	})
-	if found == nil {
+	target, found := b.deliveredTarget(item)
+	if !found {
 		return deliveredLookup{}
 	}
-	info := deliveredLookup{group: found.group, reason: found.failureReason, elapsed: found.elapsed}
-	if key, valid := acceptedMembership(found); valid {
+	dd := target.dd
+	info := deliveredLookup{group: dd.acceptedGroup(), reason: dd.failureReason, elapsed: dd.elapsed}
+	if key, valid := acceptedMembership(dd); valid {
 		b.forEachDelegationReverse(func(loc delegationLocator) bool {
 			if otherKey, ok := acceptedMembership(loc.dd); ok && otherKey == key {
 				info.groupSize++
@@ -58,53 +48,33 @@ func (b *contentBuffer) deliveredLookup(item output.DeliveredSubAgent) delivered
 	return info
 }
 
-func deliveredMatchesDelegation(item output.DeliveredSubAgent, dd *delegationDisplayState) bool {
-	if dd == nil {
-		return false
+// deliveredTarget resolves the card a delivered item reports on: its
+// occurrence's card, or for an item without a parent call ID the agent's
+// newest card.
+func (b *contentBuffer) deliveredTarget(item output.DeliveredSubAgent) (delegationLocator, bool) {
+	if item.ParentCallID != "" {
+		return b.lookupOccurrence(occurrenceKey{BatchID: item.BatchID, CallID: item.ParentCallID})
 	}
-	if item.AgentID != "" && dd.agentID != item.AgentID {
-		return false
+	if item.AgentID == "" {
+		return delegationLocator{}, false
 	}
-	if item.ParentCallID != "" && dd.parentCallID != "" && dd.parentCallID != item.ParentCallID {
-		return false
+	if loc, active := b.activeDelegations[item.AgentID]; active && loc.dd != nil {
+		return loc, true
 	}
-	return item.AgentID != "" || item.ParentCallID != ""
+	return b.findDelegation(item.AgentID)
 }
 
 func (b *contentBuffer) settleLostDelivery(item output.DeliveredSubAgent) {
 	if strings.TrimSpace(item.Status) != "lost" {
 		return
 	}
-	target, found := b.lostDeliveryTarget(item)
-	if !found || target.dd == nil || target.dd.status != "active" || !deliveredMatchesDelegation(item, target.dd) {
+	target, found := b.deliveredTarget(item)
+	if !found || target.dd.status != "active" {
 		return
 	}
-
-	dd := target.dd
-	markLostDelivery(dd, item)
-	b.retireDelegationOccurrence(dd)
-	b.clearQueuedDelegation(dd.parentCallID)
-	b.removeFromPendingDelegateParents(dd)
+	markLostDelivery(target.dd, item)
+	b.forgetDelegation(target.dd)
 	b.markDelegationDirty(target.seg)
-	b.forgetDelegationLocators(target.seg, dd)
-}
-
-// lostDeliveryTarget resolves the active delegation for a lost delivery by
-// agent ID when present, otherwise by parent call ID.
-func (b *contentBuffer) lostDeliveryTarget(item output.DeliveredSubAgent) (delegationLocator, bool) {
-	if item.AgentID != "" {
-		loc, found := b.activeDelegations[item.AgentID]
-		return loc, found
-	}
-	if item.ParentCallID == "" {
-		return delegationLocator{}, false
-	}
-	for _, loc := range b.activeDelegations {
-		if loc.dd != nil && loc.dd.parentCallID == item.ParentCallID {
-			return loc, true
-		}
-	}
-	return delegationLocator{}, false
 }
 
 // markLostDelivery applies the terminal lost state for a settled delivery.
@@ -120,15 +90,6 @@ func markLostDelivery(dd *delegationDisplayState, item output.DeliveredSubAgent)
 		dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 	}
 	dd.fillFromTerminalEvent(item.AgentType, item.DurationMs)
-}
-
-// forgetDelegationLocators drops active-delegation entries pointing at dd.
-func (b *contentBuffer) forgetDelegationLocators(seg int, dd *delegationDisplayState) {
-	for agentID, loc := range b.activeDelegations {
-		if loc.seg == seg && loc.dd == dd {
-			delete(b.activeDelegations, agentID)
-		}
-	}
 }
 
 // renderSubAgentsFinishedSegment renders the delivery row: a bullet, an
