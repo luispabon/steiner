@@ -119,6 +119,17 @@ func (b *contentBuffer) showFinishedDelegationFailure(seg *contentSegment, dd *d
 	b.gen++
 }
 
+func (b *contentBuffer) showFinishedDelegationFailureAt(loc delegationLocator, payload output.ToolCallFinishedEvent) {
+	if loc.dd == nil {
+		return
+	}
+	loc.seg = findDelegationSegment(b.segments, loc.dd)
+	if loc.seg < 0 {
+		return
+	}
+	b.showFinishedDelegationFailure(&b.segments[loc.seg], loc.dd, payload.CallID)
+}
+
 func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 	b.finishStreaming()
 	if payload, ok := event.Payload.(output.ToolCallFinishedEvent); ok {
@@ -131,10 +142,19 @@ func (b *contentBuffer) appendToolCallFinishedEvent(event output.Event) {
 		if !isDelegateOrSpecialized(payload.Tool) && b.applyFinishedRegularToolCall(payload) {
 			return
 		}
-		for i := len(b.segments) - 1; i >= 0; i-- {
-			if b.applyFinishedToolCallToDelegation(i, payload) {
+		if loc, found := b.takeDelegationOccurrence(payload.CallID); found {
+			if loc.dd != nil {
+				if shouldShowFinishedDelegationFailure(loc.dd, payload) {
+					b.showFinishedDelegationFailureAt(loc, payload)
+				}
 				return
 			}
+		}
+		if loc, found := b.unambiguousDelegationByCallID(payload.CallID); found {
+			if shouldShowFinishedDelegationFailure(loc.dd, payload) {
+				b.showFinishedDelegationFailureAt(loc, payload)
+			}
+			return
 		}
 		return
 	}
@@ -346,6 +366,7 @@ func (b *contentBuffer) Clear() {
 	b.activeToolCalls = nil
 	b.pendingDelegateParents = nil
 	b.pendingDelegationStarts = nil
+	b.pendingDelegationOccurrences = nil
 	b.queuedDelegations = nil
 	b.activeAdvisorSegment = 0
 	// Invalidate render caches.

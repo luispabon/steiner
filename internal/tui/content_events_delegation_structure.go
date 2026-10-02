@@ -23,21 +23,69 @@ func (b *contentBuffer) appendDelegationAcceptedEvent(event output.Event) {
 	if !ok || payload.CallID == "" {
 		return
 	}
-	var target *delegationDisplayState
+	if target, found := b.peekDelegationOccurrence(payload.CallID); found {
+		b.applyDelegationAccepted(target.dd, payload)
+		return
+	}
+	if target, found := b.unambiguousDelegationByCallID(payload.CallID); found {
+		b.applyDelegationAccepted(target.dd, payload)
+	}
+}
+
+func (b *contentBuffer) applyDelegationAccepted(dd *delegationDisplayState, payload output.DelegationAcceptedEvent) {
+	if dd == nil || dd.admissionAccepted || dd.groupAccepted {
+		return
+	}
+	dd.admissionAccepted = true
+	dd.groupAccepted = true
+	dd.batchID = payload.BatchID
+	dd.group = strings.TrimSpace(payload.Group)
+	b.regroupAcceptedDelegations()
+}
+
+func (b *contentBuffer) peekDelegationOccurrence(callID string) (delegationLocator, bool) {
+	b.purgeDelegationOccurrences()
+	for _, loc := range b.pendingDelegationOccurrences {
+		if loc.dd != nil && loc.dd.parentCallID == callID && !loc.dd.admissionAccepted {
+			return loc, true
+		}
+	}
+	return delegationLocator{}, false
+}
+
+func (b *contentBuffer) takeDelegationOccurrence(callID string) (delegationLocator, bool) {
+	b.purgeDelegationOccurrences()
+	for i, loc := range b.pendingDelegationOccurrences {
+		if loc.dd != nil && loc.dd.parentCallID == callID {
+			b.pendingDelegationOccurrences = append(b.pendingDelegationOccurrences[:i], b.pendingDelegationOccurrences[i+1:]...)
+			return loc, true
+		}
+	}
+	return delegationLocator{}, false
+}
+
+func (b *contentBuffer) purgeDelegationOccurrences() {
+	out := b.pendingDelegationOccurrences[:0]
+	for _, loc := range b.pendingDelegationOccurrences {
+		if index := findDelegationSegment(b.segments, loc.dd); index >= 0 {
+			loc.seg = index
+			out = append(out, loc)
+		}
+	}
+	b.pendingDelegationOccurrences = out
+}
+
+func (b *contentBuffer) unambiguousDelegationByCallID(callID string) (delegationLocator, bool) {
+	var found delegationLocator
+	count := 0
 	b.forEachDelegationReverse(func(loc delegationLocator) bool {
-		if loc.dd != nil && loc.dd.parentCallID == payload.CallID {
-			target = loc.dd
-			return true
+		if loc.dd != nil && loc.dd.parentCallID == callID {
+			found = loc
+			count++
 		}
 		return false
 	})
-	if target == nil || target.groupAccepted {
-		return
-	}
-	target.groupAccepted = true
-	target.batchID = payload.BatchID
-	target.group = strings.TrimSpace(payload.Group)
-	b.regroupAcceptedDelegations()
+	return found, count == 1
 }
 
 type delegationSegmentToken struct {
@@ -199,6 +247,7 @@ func (b *contentBuffer) commitSegmentRewrite(next []contentSegment, oldToNew map
 	remapActiveToolCalls(b.activeToolCalls, next)
 	b.pendingDelegateParents = remapDelegationLocators(b.pendingDelegateParents, next)
 	b.pendingDelegationStarts = remapDelegationLocators(b.pendingDelegationStarts, next)
+	b.pendingDelegationOccurrences = remapDelegationLocators(b.pendingDelegationOccurrences, next)
 	remapQueuedDelegations(b.queuedDelegations, next)
 	b.activeAdvisorSegment = remapAdvisorSegment(b.activeAdvisorSegment, oldToNew)
 	oldCollapse := b.collapseState

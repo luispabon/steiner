@@ -9,27 +9,52 @@ func (b *contentBuffer) handleDelegationAdmissionFinish(payload output.ToolCallF
 	if admission == nil {
 		return false
 	}
+	loc, found := b.takeDelegationOccurrence(payload.CallID)
+	if !found {
+		loc, found = b.unambiguousDelegationByCallID(payload.CallID)
+	}
 	switch admission.Status {
 	case "accepted":
-		if payload.CallID != "" {
-			b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(payload.CallID, admission.AgentID, admission.BatchID, admission.Group))
+		if found {
+			b.applyDelegationAccepted(loc.dd, output.DelegationAcceptedEvent{
+				CallID:  payload.CallID,
+				AgentID: admission.AgentID,
+				BatchID: admission.BatchID,
+				Group:   admission.Group,
+			})
 		}
 		b.appendAdmissionError(payload.Error)
-		return payload.Error != ""
+		return true
 	case "rejected":
 		if admission.PolicyNotice {
 			b.appendStyled("Delegation rejected by policy.", segmentStatus)
 		}
-		removed := payload.CallID != "" && b.removeRejectedDelegation(payload.CallID)
-		if payload.Error != "" {
-			b.segments = append(b.segments, contentSegment{kind: segmentTool, text: payload.Error, renderDirty: true})
+		if found && loc.dd != nil && !loc.dd.groupAccepted {
+			b.removeRejectedDelegationCard(loc.dd)
 		}
-		return removed
+		if payload.Error != "" {
+			b.appendAdmissionError(payload.Error)
+		}
+		return true
 	default:
+		if found {
+			b.applyDelegationAdmissionFinish(loc, payload)
+		}
 		b.appendAdmissionError(payload.Error)
-		// Let the ordinary finish path clear eligible empty-agent pending cards.
-		// It does not append the error, so exact evidence is still emitted once.
-		return false
+		return true
+	}
+}
+
+func (b *contentBuffer) applyDelegationAdmissionFinish(loc delegationLocator, payload output.ToolCallFinishedEvent) {
+	if loc.dd == nil {
+		return
+	}
+	if payload.Error != "" && loc.dd.agentID == "" {
+		b.removeFromPendingDelegateParents(loc.dd)
+		b.clearQueuedDelegation(payload.CallID)
+		loc.dd.status = "failed"
+		loc.dd.errMsg = "delegation failed"
+		b.markDelegationDirty(loc.seg)
 	}
 }
 
@@ -40,18 +65,17 @@ func (b *contentBuffer) appendAdmissionError(message string) {
 }
 
 func (b *contentBuffer) removeRejectedDelegation(callID string) bool {
-	var target *delegationDisplayState
-	b.forEachDelegationReverse(func(loc delegationLocator) bool {
-		if loc.dd != nil && loc.dd.parentCallID == callID {
-			target = loc.dd
-			return true
-		}
+	loc, found := b.unambiguousDelegationByCallID(callID)
+	if !found {
 		return false
-	})
+	}
+	return b.removeRejectedDelegationCard(loc.dd)
+}
+
+func (b *contentBuffer) removeRejectedDelegationCard(target *delegationDisplayState) bool {
 	if target == nil || target.groupAccepted {
 		return false
 	}
-
 	tokens := flattenDelegationSegments(b.segments)
 	kept := make([]delegationSegmentToken, 0, len(tokens))
 	removed := false

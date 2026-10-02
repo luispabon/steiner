@@ -442,6 +442,13 @@ func (b *contentBuffer) removeFromPendingDelegateParents(dd *delegationDisplaySt
 	}
 }
 
+func (b *contentBuffer) registerDelegationOccurrence(loc delegationLocator) {
+	if loc.dd == nil || loc.dd.parentCallID == "" {
+		return
+	}
+	b.pendingDelegationOccurrences = append(b.pendingDelegationOccurrences, loc)
+}
+
 func (b *contentBuffer) appendDelegationSegment(dd *delegationDisplayState) int {
 	dd.batch = b.delegationBatch
 	b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: dd, renderDirty: true})
@@ -578,6 +585,7 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 	dd.toolLabel = childToolLabel
 	b.markDelegationDirty(loc.seg)
 	b.pendingDelegateParents = append(b.pendingDelegateParents, loc)
+	b.registerDelegationOccurrence(loc)
 	b.regroupAcceptedDelegations()
 }
 
@@ -589,14 +597,17 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		loc.dd.startTime = nanoNow()
 		b.bindParentDelegateCall(loc, payload)
 		b.pendingDelegateParents = append(b.pendingDelegateParents, loc)
+		b.registerDelegationOccurrence(loc)
 		return
 	}
 	if loc, found := b.dequeuePendingDelegationStartByCallID(payload.CallID); found {
 		b.bindParentDelegateCall(loc, payload)
+		b.registerDelegationOccurrence(loc)
 		return
 	}
 	if loc, found := b.dequeuePendingDelegationStartSegment(); found {
 		b.bindParentDelegateCall(loc, payload)
+		b.registerDelegationOccurrence(loc)
 		return
 	}
 
@@ -616,7 +627,9 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		dd.applyStructuredBrief(*brief)
 	}
 	idx := b.appendDelegationSegment(dd)
-	b.pendingDelegateParents = append(b.pendingDelegateParents, delegationLocator{seg: idx, dd: dd})
+	loc := delegationLocator{seg: idx, dd: dd}
+	b.pendingDelegateParents = append(b.pendingDelegateParents, loc)
+	b.registerDelegationOccurrence(loc)
 }
 
 func (b *contentBuffer) handleDelegationCacheWaiting(event output.Event) {

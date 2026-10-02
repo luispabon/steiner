@@ -191,6 +191,7 @@ type delegationDisplayState struct {
 	batch                   int
 	batchID                 string
 	groupAccepted           bool
+	admissionAccepted       bool  // acceptance event consumed for this parent occurrence
 	startTime               int64 // unix nano, set on DelegationStarted
 	cacheWaiting            bool
 	queuedForSlot           bool
@@ -315,19 +316,20 @@ type contentBuffer struct {
 	tickCount         int   // incremented by 500ms tick, used for cursor blink
 	lastRenderErr     error // captures the last render error for logging
 	// delegation tracking
-	lastDelegationEvent     map[string]int64             // agentID → unix nano of the last event seen (stall display)
-	asyncMode               bool                         // set once a ConversationState event is seen; parent cancels no longer finalise delegations
-	activeDelegations       map[string]delegationLocator // agentID → delegation locator (for in-flight delegations)
-	activeToolCalls         map[string]toolCallLocator   // callID → regular tool-call locator
-	pendingDelegateParents  []delegationLocator          // delegations awaiting DelegationStartedEvent binding
-	pendingDelegationStarts []delegationLocator          // delegations awaiting parent delegate tool binding
-	queuedDelegations       map[string]delegationLocator // parentCallID → delegation box announced as queued, awaiting ToolCallStarted
-	activeAdvisorSegment    int                          // 1-based segment index; 0 means none active
-	skillNames              []string                     // skill names for command prefix matching
-	mcpToolOrigins          map[string]MCPToolOrigin     // registry tool name -> MCP server/tool it came from
-	maxDelegationBodyLines  int                          // max lines for delegation body (transcript + prompt); 0 = uncapped
-	workingDir              string                       // current working directory for resolving relative paths
-	homeDir                 string                       // home directory for resolving ~ paths
+	lastDelegationEvent          map[string]int64             // agentID → unix nano of the last event seen (stall display)
+	asyncMode                    bool                         // set once a ConversationState event is seen; parent cancels no longer finalise delegations
+	activeDelegations            map[string]delegationLocator // agentID → delegation locator (for in-flight delegations)
+	activeToolCalls              map[string]toolCallLocator   // callID → regular tool-call locator
+	pendingDelegateParents       []delegationLocator          // delegations awaiting DelegationStartedEvent binding
+	pendingDelegationStarts      []delegationLocator          // delegations awaiting parent delegate tool binding
+	pendingDelegationOccurrences []delegationLocator          // unfinished parent tool occurrences, FIFO by admission/finish
+	queuedDelegations            map[string]delegationLocator // parentCallID → delegation box announced as queued, awaiting ToolCallStarted
+	activeAdvisorSegment         int                          // 1-based segment index; 0 means none active
+	skillNames                   []string                     // skill names for command prefix matching
+	mcpToolOrigins               map[string]MCPToolOrigin     // registry tool name -> MCP server/tool it came from
+	maxDelegationBodyLines       int                          // max lines for delegation body (transcript + prompt); 0 = uncapped
+	workingDir                   string                       // current working directory for resolving relative paths
+	homeDir                      string                       // home directory for resolving ~ paths
 
 	// Render cache.
 	stringCacheWidth    int
