@@ -135,6 +135,13 @@ func (r *subAgentRoster) latestAdmissionMatches(agentID, callID string, admissio
 	return ok && latest == (rosterAdmissionIdentity{callID: callID, batchID: admission.BatchID})
 }
 
+func (r *subAgentRoster) deliveryAdmissionMatchesCurrent(e *rosterEntry, callID, agentID string, admission output.DelegationAdmission, accepted bool) bool {
+	if !accepted || !r.latestAdmissionMatches(agentID, callID, admission) {
+		return false
+	}
+	return !e.accepted || rosterEntryMatchesAdmission(e, callID, admission)
+}
+
 func (r *subAgentRoster) finish(agentID, agentType, callID, status string, durationMs, now int64) {
 	agentID = strings.TrimSpace(agentID)
 	if !validRosterAgent(agentID, agentType) {
@@ -275,7 +282,8 @@ func (r *subAgentRoster) deliver(item output.DeliveredSubAgent, now int64) {
 		e = r.upsert(id)
 	}
 	currentMatch := rosterDeliveryMatchesCurrentCall(e, item.ParentCallID)
-	applyRosterDeliveryIdentity(e, item.ParentCallID, admission, accepted, currentMatch)
+	admissionMatch := r.deliveryAdmissionMatchesCurrent(e, item.ParentCallID, id, admission, accepted)
+	applyRosterDeliveryIdentity(e, item.ParentCallID, admission, admissionMatch, currentMatch)
 	if !r.applyRosterDeliveryStatus(e, item, now, currentMatch) {
 		return
 	}

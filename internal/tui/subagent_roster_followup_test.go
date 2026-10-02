@@ -61,4 +61,12 @@ func TestRosterActiveSameCallIDDifferentBatchIsProtected(t *testing.T) {
 	if entry.currentCallID != "same-call" || entry.status != rosterRunning || entry.batchID != "old-batch" || entry.group != "old-group" {
 		t.Fatalf("entry after active same-call replacement = %+v, want old running identity", entry)
 	}
+
+	// The original delivery still settles the active run, but must not borrow the refused batch identity.
+	r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{
+		AgentID: "child", AgentType: "review", Status: "complete", ParentCallID: "same-call", DurationMs: 25,
+	}}}), 5)
+	if entry.status != rosterDone || entry.batchID != "old-batch" || entry.group != "old-group" || !entry.delivered {
+		t.Fatalf("entry after original delivery = %+v, want done with old identity", entry)
+	}
 }
