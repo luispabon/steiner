@@ -12,6 +12,7 @@ func TestToolBatchSeq(t *testing.T) {
 		{"call id", "call#7", 7, true},
 		{"empty call id form", "batch#3", 3, true},
 		{"call id containing separator", "a#b#12", 12, true},
+		{"call id with nonce", "call_0~abcd1234#9", 9, true},
 		{"missing suffix", "call", 0, false},
 		{"empty suffix", "call#", 0, false},
 		{"non numeric", "call#x", 0, false},

@@ -39,7 +39,7 @@ func TestNamedGroupsAcceptedWhenProviderRepeatsOrOmitsCallIDs(t *testing.T) {
 		}
 		batches[payload.BatchID] = group
 	}
-	for group, prefix := range map[string]string{"group-one": "call_0#", "group-two": "call_0#", "group-three": "batch#"} {
+	for group, prefix := range map[string]string{"group-one": "call_0~", "group-two": "call_0~", "group-three": "batch~"} {
 		if got := accepted[group].BatchID; !strings.HasPrefix(got, prefix) {
 			t.Fatalf("group %q batch ID = %q, want prefix %q", group, got, prefix)
 		}

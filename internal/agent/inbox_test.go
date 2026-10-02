@@ -126,8 +126,8 @@ func TestRunnerToolBatchDone(t *testing.T) {
 	if _, err := NewRunner().Run(context.Background(), req); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if len(done) != 1 || !strings.HasPrefix(done[0], "call-1#") {
-		t.Fatalf("OnToolBatchDone ids = %v, want one id with prefix call-1#", done)
+	if len(done) != 1 || !strings.HasPrefix(done[0], "call-1~"+toolBatchNonce+"#") {
+		t.Fatalf("OnToolBatchDone ids = %v, want one id with prefix call-1~<nonce>#", done)
 	}
 	if len(seen) != 2 || seen[0] != done[0] || seen[1] != done[0] {
 		t.Fatalf("handler batch ids = %v, want both equal to done id %q", seen, done[0])
@@ -164,8 +164,8 @@ func TestRunnerToolBatchIDsUniqueAcrossRepeatedAndEmptyCallIDs(t *testing.T) {
 		}
 		unique[id] = true
 	}
-	if !strings.HasPrefix(done[0], "call_0#") || !strings.HasPrefix(done[1], "call_0#") || !strings.HasPrefix(done[2], "batch#") {
-		t.Fatalf("batch ids = %v, want call_0#, call_0#, batch# prefixes", done)
+	if !strings.HasPrefix(done[0], "call_0~"+toolBatchNonce+"#") || !strings.HasPrefix(done[1], "call_0~"+toolBatchNonce+"#") || !strings.HasPrefix(done[2], "batch~"+toolBatchNonce+"#") {
+		t.Fatalf("batch ids = %v, want call_0~<nonce>#, call_0~<nonce>#, batch~<nonce># prefixes", done)
 	}
 }
 

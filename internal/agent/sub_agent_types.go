@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -69,17 +71,40 @@ type toolBatchIDKey struct{}
 
 var toolBatchSeq atomic.Uint64
 
-// toolBatchSeparator joins the first call id (or "batch") and the sequence
-// number in a tool batch id; newToolBatchID and ToolBatchSeq share it.
+// toolBatchSeparator joins the first call id (or "batch") plus nonce and the
+// sequence number in a tool batch id; newToolBatchID and ToolBatchSeq share it.
 const toolBatchSeparator = "#"
 
-// newToolBatchID returns a process-unique batch id; providers may repeat or
-// omit tool-call ids, so the first call id alone cannot identify a batch.
+// toolBatchNonceJoiner joins the first call id (or "batch") and the process
+// nonce in a tool batch id.
+const toolBatchNonceJoiner = "~"
+
+// toolBatchNonce is a per-process random token embedded in every batch id.
+// Saved admissions persist batch ids from earlier processes, and toolBatchSeq
+// restarts at 1 in each process, so without the nonce a resumed session could
+// emit a live id equal to a replayed one when the provider repeats call ids.
+// It cannot be skipped: (BatchID, CallID) must be a stable occurrence key.
+var toolBatchNonce = newToolBatchNonce()
+
+// newToolBatchNonce returns 4 random bytes as hex, falling back to the clock
+// if the system entropy source fails (a weaker but still per-process value).
+func newToolBatchNonce() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// newToolBatchID returns a batch id unique within this process and, via the
+// process nonce, across process restarts; providers may repeat or omit
+// tool-call ids, so the first call id alone cannot identify a batch.
 func newToolBatchID(firstCallID string) string {
 	if firstCallID == "" {
 		firstCallID = "batch"
 	}
-	return firstCallID + toolBatchSeparator + strconv.FormatUint(toolBatchSeq.Add(1), 10)
+	return firstCallID + toolBatchNonceJoiner + toolBatchNonce + toolBatchSeparator +
+		strconv.FormatUint(toolBatchSeq.Add(1), 10)
 }
 
 // ToolBatchSeq returns the process-wide monotonic sequence number embedded in
