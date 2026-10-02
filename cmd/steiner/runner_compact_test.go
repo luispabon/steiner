@@ -223,8 +223,8 @@ func TestCLIRunnerCompactDoesNotBecomeCacheBaseline(t *testing.T) {
 	}
 
 	// Normal turn 1 promotes the parent baseline.
-	if _, err := r.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "normal turn"}}, nil, nil); err != nil {
-		t.Fatalf("Run() turn 1 error = %v", err)
+	if _, err := r.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "normal turn"}}, nil, runHooks{}); err != nil {
+		t.Fatalf("RunWithHooks() turn 1 error = %v", err)
 	}
 
 	// Manual compaction runs with a conversation whose first message differs
@@ -240,12 +240,12 @@ func TestCLIRunnerCompactDoesNotBecomeCacheBaseline(t *testing.T) {
 
 	// Normal turn 2 continues from turn 1; its comparison must be against the
 	// pre-compaction baseline, not the compaction request.
-	if _, err := r.Run(context.Background(), []agent.Message{
+	if _, err := r.RunWithHooks(context.Background(), []agent.Message{
 		{Role: agent.MessageRoleUser, Content: "normal turn"},
 		{Role: agent.MessageRoleAssistant, Content: "first answer"},
 		{Role: agent.MessageRoleUser, Content: "normal turn 2"},
-	}, nil, nil); err != nil {
-		t.Fatalf("Run() turn 2 error = %v", err)
+	}, nil, runHooks{}); err != nil {
+		t.Fatalf("RunWithHooks() turn 2 error = %v", err)
 	}
 
 	if len(prov.requests) != 3 {
