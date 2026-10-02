@@ -103,6 +103,7 @@ func (b *contentBuffer) settleLostDelivery(item output.DeliveredSubAgent) {
 		dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 	}
 	dd.fillFromTerminalEvent(item.AgentType, item.DurationMs)
+	b.retireDelegationOccurrence(dd)
 	b.clearQueuedDelegation(dd.parentCallID)
 	b.removeFromPendingDelegateParents(dd)
 	b.markDelegationDirty(target.seg)

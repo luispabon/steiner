@@ -85,23 +85,31 @@ func TestReplayDuplicateIDOrphanAdmissionTargetsSecondCard(t *testing.T) {
 	t.Parallel()
 	b := newGroupTestBuffer()
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", map[string]any{"task": "first"}))
-	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", map[string]any{"task": "second"}))
-	first, second := b.segments[0].delegData, b.segments[1].delegData
-
-	// Actual replay order: both parent starts, then ledger admission/start for
-	// the orphan occurrence, then the rejected result for the first occurrence.
-	b.AppendEvent(output.NewDelegationAcceptedEvent("same", "agent-orphan", "batch", "group"))
-	b.AppendEvent(output.NewDelegationStartedEventWithType("agent-orphan", "second", "same", "", "explore"))
+	first := b.segments[0].delegData
 	b.AppendEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "same", `{"ok":false,"error":{"message":"denied"}}`, errors.New("denied"), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected"}))
 
-	if !second.groupAccepted || second.agentID != "agent-orphan" || first.groupAccepted {
-		t.Fatalf("orphan admission ownership: first accepted=%t agent=%q, second accepted=%t agent=%q", first.groupAccepted, first.agentID, second.groupAccepted, second.agentID)
+	// Replay emits serial parent bundles. The second occurrence is accepted,
+	// started, then closed without changing its card or active child.
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", map[string]any{"task": "second"}))
+	second := b.segments[len(b.segments)-1].delegData
+	b.AppendEvent(output.NewDelegationAcceptedEvent("same", "agent-orphan", "batch", "group"))
+	b.AppendEvent(output.NewDelegationStartedEventWithType("agent-orphan", "second", "same", "", "explore"))
+	if second == nil || !second.groupAccepted || second.agentID != "agent-orphan" {
+		t.Fatalf("orphan admission ownership: second=%#v", second)
 	}
-	if findDelegationSegment(b.segments, first) >= 0 {
+	b.AppendEvent(output.NewReplayDelegationParentClosedEvent("same"))
+
+	if first != nil && findDelegationSegment(b.segments, first) >= 0 {
 		t.Fatal("rejected first card remains")
 	}
-	if findDelegationSegment(b.segments, second) < 0 {
-		t.Fatal("accepted orphan card disappeared")
+	if findDelegationSegment(b.segments, second) < 0 || second.status != "active" {
+		t.Fatalf("accepted orphan card was changed or removed: %#v", second)
+	}
+	if got := b.activeDelegations["agent-orphan"].dd; got != second {
+		t.Fatalf("active child card = %p, want second card %p", got, second)
+	}
+	if len(b.pendingDelegationOccurrences) != 0 {
+		t.Fatalf("occurrence queue = %#v, want empty after closure", b.pendingDelegationOccurrences)
 	}
 }
 
