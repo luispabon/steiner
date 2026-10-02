@@ -495,6 +495,65 @@ func TestReplayLedgerOwnershipAmbiguityMatrix(t *testing.T) {
 	}
 }
 
+func TestReplayMixedPairedAndLedgerOrphanPreservesCallOrder(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		calls []agent.ToolCall
+		want  []string
+	}{
+		{
+			name: "paired before orphan",
+			calls: []agent.ToolCall{
+				{ID: "A", Name: "bash"},
+				{ID: "B", Name: "sub_agent", Arguments: map[string]any{"task": "orphan"}},
+			},
+			want: []string{"A", "B"},
+		},
+		{
+			name: "orphan before paired",
+			calls: []agent.ToolCall{
+				{ID: "B", Name: "sub_agent", Arguments: map[string]any{"task": "orphan"}},
+				{ID: "A", Name: "bash"},
+			},
+			want: []string{"B", "A"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msgs := []agent.Message{
+				{Role: agent.MessageRoleAssistant, ToolCalls: tc.calls},
+				{Role: agent.MessageRoleTool, ToolCallID: "A", Name: "bash", Content: "done"},
+			}
+			events := replayEventsWithLedger(t, msgs, []agent.SubAgentLedgerEntry{{ParentCallID: "B", AgentID: "agent-B"}})
+			var started []string
+			bStartedAt, bAcceptedAt, bLifecycleAt := -1, -1, -1
+			for i, event := range events {
+				switch event.Type {
+				case output.EventTypeToolCallStarted:
+					p := event.Payload.(output.ToolCallStartedEvent)
+					started = append(started, p.CallID)
+					if p.CallID == "B" {
+						bStartedAt = i
+					}
+				case output.EventTypeDelegationAccepted:
+					if event.Payload.(output.DelegationAcceptedEvent).CallID == "B" {
+						bAcceptedAt = i
+					}
+				case output.EventTypeDelegationStarted:
+					if event.Payload.(output.DelegationStartedEvent).CallID == "B" {
+						bLifecycleAt = i
+					}
+				}
+			}
+			if !reflect.DeepEqual(started, tc.want) {
+				t.Fatalf("tool starts = %v, want %v", started, tc.want)
+			}
+			if bStartedAt < 0 || bAcceptedAt <= bStartedAt || bLifecycleAt <= bAcceptedAt {
+				t.Fatalf("orphan start/accept/lifecycle positions = %d/%d/%d", bStartedAt, bAcceptedAt, bLifecycleAt)
+			}
+		})
+	}
+}
+
 func replayEventsWithLedger(t *testing.T, msgs []agent.Message, ledger []agent.SubAgentLedgerEntry) []output.Event {
 	t.Helper()
 	var events []output.Event

@@ -224,32 +224,22 @@ func (s *Session) replayAssistantMessage(msg agent.Message, state replayState, l
 		s.events.Emit(output.NewThinkingChunkEventWithSource(0, msg.ReasoningContent, output.ChunkSourceAssistant))
 	}
 	s.events.Emit(output.NewAssistantMessageEvent(0, string(msg.Role), msg.Content))
-	paired := make(map[string]int)
 	for callIndex, call := range msg.ToolCalls {
-		occurrence := ledger.occurrences[replayOccurrenceKey{messageIndex: ledger.messageIndex, callIndex: callIndex}]
+		key := replayOccurrenceKey{messageIndex: ledger.messageIndex, callIndex: callIndex}
+		occurrence := ledger.occurrences[key]
 		if occurrence == nil {
 			continue
 		}
 		if occurrence.resultMessageIndex >= 0 {
-			paired[call.ID]++
+			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
+			state.startedToolCalls[key] = true
+			continue
 		}
-		if occurrence.resultMessageIndex < 0 && occurrence.ledgerIndex >= 0 && isDelegateToolCall(call.Name) {
+		if occurrence.ledgerIndex >= 0 && isDelegateToolCall(call.Name) {
 			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
 			entry := ledger.entries[occurrence.ledgerIndex]
 			s.emitAcceptedAdmission(call.ID, entry.AgentID, entry.BatchID, entry.Group)
 			s.events.Emit(output.NewDelegationStartedEvent(entry.AgentID, taskFromArgs(call.Arguments), call.ID))
-			state.startedToolCalls[replayOccurrenceKey{messageIndex: ledger.messageIndex, callIndex: callIndex}] = true
-		}
-	}
-	for callIndex, call := range msg.ToolCalls {
-		key := replayOccurrenceKey{messageIndex: ledger.messageIndex, callIndex: callIndex}
-		if paired[call.ID] <= 0 {
-			continue
-		}
-		paired[call.ID]--
-		occurrence := ledger.occurrences[key]
-		if occurrence == nil || occurrence.ledgerIndex < 0 || occurrence.resultMessageIndex >= 0 {
-			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
 			state.startedToolCalls[key] = true
 		}
 	}
