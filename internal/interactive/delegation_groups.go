@@ -101,7 +101,8 @@ func pairLegacyAdmissions(assistant agent.Message, results []agent.Message) map[
 }
 
 func legacyCallGroup(call agent.ToolCall) string {
-	if group := delegation.NormalizeGroup(call.Arguments["group"]); group != "" {
+	rawGroup, _ := call.Arguments["group"].(string)
+	if group := delegation.NormalizeGroup(rawGroup); group != "" {
 		return group
 	}
 	var args map[string]any

@@ -488,7 +488,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 			}
 		}
 		plan.modelAlias = resolvedModel.Alias
-		plan.group = NormalizeGroup(input["group"])
+		plan.group = groupInput(input)
 		result, err := runRegisteredDelegate(ctx, deps, spec, plan, string(agentType), func(result tool.ExecutionResult) tool.ExecutionResult {
 			if dr, ok := result.Value.(Result); ok {
 				dr.AdvisorBudget = spec.AdvisorBudget

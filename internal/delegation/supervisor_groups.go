@@ -43,7 +43,7 @@ func (s *Supervisor) enrollLocked(state *jobState, batchID string) {
 func (s *Supervisor) SealBatch(batchID string) {
 	s.mu.Lock()
 	for _, scope := range s.scopes {
-		scope.sealed = batchID
+		scope.sealThroughLocked(batchID)
 	}
 	s.mu.Unlock()
 	s.sealBatch("", batchID)

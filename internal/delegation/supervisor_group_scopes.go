@@ -9,9 +9,12 @@ import (
 )
 
 type delegationGroupScope struct {
-	names    map[string]string
-	sealed   string
-	released bool
+	names map[string]string
+	// sealedThrough is the highest tool batch sequence sealed in this scope.
+	// Batches in a scope run sequentially with increasing sequence numbers, so
+	// one counter closes every batch up to it without per-batch state.
+	sealedThrough uint64
+	released      bool
 }
 
 // NewGroupScope creates a runtime scope seeded with durable reserved names.
@@ -42,14 +45,13 @@ func (s *Supervisor) SnapshotGroupLedger(scope string) agent.DelegationGroupLedg
 	return result
 }
 
-// SealGroupBatch closes membership for one named tool batch in the scope. Tool
-// batches in a scope run sequentially, so only the latest sealed batch is
-// retained to keep the scope bounded.
+// SealGroupBatch closes membership for one named tool batch in the scope, and
+// every earlier batch with it. A batch ID without a sequence number cannot
+// advance the seal point; its groups still settle.
 func (s *Supervisor) SealGroupBatch(scope, batchID string) {
 	s.mu.Lock()
-	state := s.scopes[scope]
-	if state != nil {
-		state.sealed = batchID
+	if state := s.scopes[scope]; state != nil {
+		state.sealThroughLocked(batchID)
 	}
 	s.mu.Unlock()
 	s.sealBatch(scope, batchID)
@@ -78,11 +80,25 @@ func (s *Supervisor) maybeDeleteScopeLocked(scope string) {
 	delete(s.scopes, scope)
 }
 
-// NormalizeGroup returns the trimmed delegation group name held in value, or
-// "" when value is not a string.
-func NormalizeGroup(value any) string {
-	name, _ := value.(string)
-	return strings.TrimSpace(name)
+// sealThroughLocked advances the seal point to batchID's sequence number. An
+// unparseable ID is ignored: reserveGroupLocked rejects such batches anyway,
+// and SealBatch has no error return to report it.
+func (g *delegationGroupScope) sealThroughLocked(batchID string) {
+	if seq, ok := agent.ToolBatchSeq(batchID); ok {
+		g.sealedThrough = max(g.sealedThrough, seq)
+	}
+}
+
+// groupInput returns the trimmed "group" string of a tool input, or "" when it
+// is absent or not a string.
+func groupInput(input map[string]any) string {
+	group, _ := input["group"].(string)
+	return NormalizeGroup(group)
+}
+
+// NormalizeGroup returns value with surrounding whitespace trimmed.
+func NormalizeGroup(value string) string {
+	return strings.TrimSpace(value)
 }
 
 type groupReservationError struct {
@@ -117,7 +133,11 @@ func (s *Supervisor) reserveGroupLocked(scope, name, batch string) error {
 	if state == nil {
 		return fmt.Errorf("unknown delegation group scope %q", scope)
 	}
-	if batch == state.sealed {
+	seq, ok := agent.ToolBatchSeq(batch)
+	if !ok {
+		return fmt.Errorf("parse delegation group batch id %q: no sequence number", batch)
+	}
+	if seq <= state.sealedThrough {
 		return &groupReservationError{name: name, batch: batch, sealed: true}
 	}
 	if owner, exists := state.names[name]; exists {

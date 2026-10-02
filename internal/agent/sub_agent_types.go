@@ -3,7 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -65,14 +66,32 @@ type toolBatchIDKey struct{}
 
 var toolBatchSeq atomic.Uint64
 
+// toolBatchSeparator joins the first call id (or "batch") and the sequence
+// number in a tool batch id; newToolBatchID and ToolBatchSeq share it.
+const toolBatchSeparator = "#"
+
 // newToolBatchID returns a process-unique batch id; providers may repeat or
 // omit tool-call ids, so the first call id alone cannot identify a batch.
 func newToolBatchID(firstCallID string) string {
-	n := toolBatchSeq.Add(1)
 	if firstCallID == "" {
-		return fmt.Sprintf("batch#%d", n)
+		firstCallID = "batch"
 	}
-	return fmt.Sprintf("%s#%d", firstCallID, n)
+	return firstCallID + toolBatchSeparator + strconv.FormatUint(toolBatchSeq.Add(1), 10)
+}
+
+// ToolBatchSeq returns the process-wide monotonic sequence number embedded in
+// a tool batch id produced by newToolBatchID. It reports false when id has no
+// numeric suffix after its last separator.
+func ToolBatchSeq(id string) (uint64, bool) {
+	i := strings.LastIndex(id, toolBatchSeparator)
+	if i < 0 {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(id[i+len(toolBatchSeparator):], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // WithToolBatchID returns ctx stamped with the id of the current tool batch.

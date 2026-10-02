@@ -89,7 +89,7 @@ func TestRegistryGroupScopeSharedAcrossRegisteredHandlers(t *testing.T) {
 
 	exploreInput := subAgentTask(AgentTypeExplore, "inspect")
 	exploreInput["group"] = "explore-group"
-	result, err := registryCall(t, specialized, batchContext("explore-batch"), exploreInput)
+	result, err := registryCall(t, specialized, batchContext(testBatchID(1)), exploreInput)
 	if err != nil {
 		t.Fatalf("registered explore handler() error = %v", err)
 	}
@@ -104,20 +104,20 @@ func TestRegistryGroupScopeSharedAcrossRegisteredHandlers(t *testing.T) {
 
 	visionInput := subAgentTaskWithImageID("describe", deps.ImageStore.All()[0].ID)
 	visionInput["group"] = "explore-group"
-	if _, err := registryCall(t, specialized, batchContext("vision-conflict"), visionInput); err == nil || !containsGroupReuseError(err) {
+	if _, err := registryCall(t, specialized, batchContext(testBatchID(2)), visionInput); err == nil || !containsGroupReuseError(err) {
 		t.Fatalf("vision reusing explore group error = %v, want used group name rejection", err)
 	}
 	visionInput["group"] = "vision-group"
-	if _, err := registryCall(t, specialized, batchContext("vision-batch"), visionInput); err != nil {
+	if _, err := registryCall(t, specialized, batchContext(testBatchID(3)), visionInput); err != nil {
 		t.Fatalf("registered vision handler() error = %v", err)
 	}
 
 	warmFollowUpInput := map[string]any{"agent_id": explore.AgentID, "message": "continue", "group": "vision-group"}
-	if _, err := registryCall(t, followUp, batchContext("follow-up-conflict"), warmFollowUpInput); err == nil || !containsGroupReuseError(err) {
+	if _, err := registryCall(t, followUp, batchContext(testBatchID(4)), warmFollowUpInput); err == nil || !containsGroupReuseError(err) {
 		t.Fatalf("follow_up reusing vision group error = %v, want used group name rejection", err)
 	}
 	warmFollowUpInput["group"] = "warm-follow-up"
-	warmResult, err := registryCall(t, followUp, batchContext("warm-follow-up-batch"), warmFollowUpInput)
+	warmResult, err := registryCall(t, followUp, batchContext(testBatchID(5)), warmFollowUpInput)
 	if err != nil {
 		t.Fatalf("registered warm follow_up handler() error = %v", err)
 	}
@@ -130,16 +130,16 @@ func TestRegistryGroupScopeSharedAcrossRegisteredHandlers(t *testing.T) {
 		call func() error
 	}{
 		{name: "repeated specialized", call: func() error {
-			_, err := registryCall(t, specialized, batchContext("explore-repeat"), exploreInput)
+			_, err := registryCall(t, specialized, batchContext(testBatchID(6)), exploreInput)
 			return err
 		}},
 		{name: "vision", call: func() error {
-			_, err := registryCall(t, specialized, batchContext("vision-repeat"), visionInput)
+			_, err := registryCall(t, specialized, batchContext(testBatchID(7)), visionInput)
 			return err
 		}},
 		{name: "follow_up", call: func() error {
 			input := map[string]any{"agent_id": explore.AgentID, "message": "continue", "group": "warm-follow-up"}
-			_, err := registryCall(t, followUp, batchContext("follow-up-repeat"), input)
+			_, err := registryCall(t, followUp, batchContext(testBatchID(8)), input)
 			return err
 		}},
 	} {
@@ -170,12 +170,12 @@ func TestRegistryGroupScopeExplicitScopePreserved(t *testing.T) {
 	}
 	input := subAgentTask(AgentTypeExplore, "inspect")
 	input["group"] = "reserved"
-	if _, err := registryCall(t, def, batchContext("reserved-batch"), input); err == nil || !containsGroupReuseError(err) {
+	if _, err := registryCall(t, def, batchContext(testBatchID(9)), input); err == nil || !containsGroupReuseError(err) {
 		t.Fatalf("registered handler using seeded group error = %v, want used group name rejection", err)
 	}
 
 	input["group"] = "accepted"
-	if _, err := registryCall(t, def, batchContext("accepted-batch"), input); err != nil {
+	if _, err := registryCall(t, def, batchContext(testBatchID(10)), input); err != nil {
 		t.Fatalf("registered handler with explicit scope: %v", err)
 	}
 	got := supervisor.SnapshotGroupLedger(scope)

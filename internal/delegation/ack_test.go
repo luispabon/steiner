@@ -129,7 +129,7 @@ func TestAsyncSubAgentGroupDeliveredTogetherAfterSeal(t *testing.T) {
 	t.Parallel()
 	gate := make(chan struct{})
 	deps, sup, sink := asyncTestDeps(2, gate)
-	ctx := agent.WithToolBatchID(context.Background(), "batch-1")
+	ctx := agent.WithToolBatchID(context.Background(), testBatchID(1))
 
 	var ids []string
 	for _, desc := range []string{"a", "b"} {
@@ -153,7 +153,7 @@ func TestAsyncSubAgentGroupDeliveredTogetherAfterSeal(t *testing.T) {
 	})
 	sink.none(t)
 
-	sup.SealBatch("batch-1")
+	sup.SealBatch(testBatchID(1))
 	batch := recvBatch(t, sink)
 	if len(batch) != 2 || batch[0].Seq >= batch[1].Seq {
 		t.Fatalf("batch = %+v, want two completions in ascending Seq order", batch)

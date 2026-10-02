@@ -54,7 +54,7 @@ func TestSupervisorAcceptedAdmissionSurvivesOutcomes(t *testing.T) {
 					return tool.ExecutionResult{}, nil
 				}
 			}
-			waiter := spawn(batchCtx("captured-batch"), s, job)
+			waiter := spawn(batchCtx(testBatchID(1)), s, job)
 			if tt.name == "shutdown error" {
 				waitOutstanding(t, s, 1)
 				s.Shutdown(context.Background(), CancelCauseSystem)
@@ -63,7 +63,7 @@ func TestSupervisorAcceptedAdmissionSurvivesOutcomes(t *testing.T) {
 			if (got.err != nil) != tt.wantErr || (got.err != nil && tt.name != "controller registration failure" && tt.name != "shutdown error" && !errors.Is(got.err, failure)) {
 				t.Fatalf("error = %v", got.err)
 			}
-			want := &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, BatchID: "captured-batch", Group: "g", AgentID: "captured-agent"}
+			want := &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, BatchID: testBatchID(1), Group: "g", AgentID: "captured-agent"}
 			if got.result.DelegationAdmission == nil || *got.result.DelegationAdmission != *want {
 				t.Fatalf("admission = %+v, want %+v", got.result.DelegationAdmission, want)
 			}
@@ -80,12 +80,12 @@ func TestSupervisorAcceptedAdmissionSurvivesOutcomes(t *testing.T) {
 func TestSpawnCapturesAcceptedAndRejected(t *testing.T) {
 	s, _ := newTestSupervisor(1, 0)
 	job := ChildJob{AgentID: "a", Group: " g ", Execute: func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil }}
-	_, got, err := s.Spawn(batchCtx("b"), job)
-	if err != nil || got == nil || got.Status != tool.DelegationAdmissionAccepted || got.BatchID != "b" || got.Group != "g" || got.AgentID != "a" {
+	_, got, err := s.Spawn(batchCtx(testBatchID(1)), job)
+	if err != nil || got == nil || got.Status != tool.DelegationAdmissionAccepted || got.BatchID != testBatchID(1) || got.Group != "g" || got.AgentID != "a" {
 		t.Fatalf("accepted = %+v, %v", got, err)
 	}
-	_, rejected, err := s.Spawn(batchCtx("b"), job)
-	want := &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, BatchID: "b", Group: "g", AgentID: "a"}
+	_, rejected, err := s.Spawn(batchCtx(testBatchID(1)), job)
+	want := &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, BatchID: testBatchID(1), Group: "g", AgentID: "a"}
 	var carrier tool.DelegationAdmissionCarrier
 	if err == nil || rejected == nil || *rejected != *want || !errors.As(err, &carrier) || *carrier.DelegationAdmissionMetadata() != *want {
 		t.Fatalf("rejected = %+v, err = %v", rejected, err)
@@ -114,8 +114,8 @@ func TestSupervisorAdmissionDoesNotMutateSharedToolExecutionError(t *testing.T) 
 					return tool.ExecutionResult{}, shared
 				}}
 			}
-			first := spawn(batchCtx("batch-a"), s, makeJob("agent-a"))
-			second := spawn(batchCtx("batch-b"), s, makeJob("agent-b"))
+			first := spawn(batchCtx(testBatchID(2)), s, makeJob("agent-a"))
+			second := spawn(batchCtx(testBatchID(3)), s, makeJob("agent-b"))
 			outcomes := []spawnResult{recv(t, first, "first"), recv(t, second, "second")}
 			for i, outcome := range outcomes {
 				if !errors.Is(outcome.err, cause) {
@@ -125,7 +125,7 @@ func TestSupervisorAdmissionDoesNotMutateSharedToolExecutionError(t *testing.T) 
 				if !errors.As(outcome.err, &projected) || projected.Kind != "provider" {
 					t.Fatalf("projected error = %#v", projected)
 				}
-				want := &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, BatchID: []string{"batch-a", "batch-b"}[i], AgentID: []string{"agent-a", "agent-b"}[i]}
+				want := &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, BatchID: testBatchID(uint64(i + 2)), AgentID: []string{"agent-a", "agent-b"}[i]}
 				if projected.DelegationAdmission == nil || *projected.DelegationAdmission != *want {
 					t.Fatalf("projected admission = %+v, want %+v", projected.DelegationAdmission, want)
 				}
@@ -159,7 +159,7 @@ func TestQueuedCancelAdmissionDoesNotMutateSharedMetadata(t *testing.T) {
 		go func(ctx context.Context, supervisor *Supervisor, child ChildJob) {
 			result, err := supervisor.SpawnAndWait(ctx, child)
 			outcomes <- spawnResult{result: result, err: err}
-		}(batchCtx("batch-"+id), s, job)
+		}(batchCtx(testBatchID(uint64(i+1))), s, job)
 		waitOutstanding(t, s, 2)
 		if got := s.CancelAgent(id, false, CancelCauseUser); got != CancelAccepted {
 			t.Fatalf("CancelAgent(%s) = %v", id, got)

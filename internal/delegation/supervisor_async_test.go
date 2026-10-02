@@ -259,11 +259,11 @@ func TestSupervisorLedgerIncludesWorktreeAfterDequeue(t *testing.T) {
 			return tool.ExecutionResult{Value: Result{AgentID: "w", Status: StatusComplete}}, nil
 		},
 	}
-	if _, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch-w"), job); err != nil {
+	if _, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), testBatchID(1)), job); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 
-	want := agent.SubAgentLedgerEntry{AgentID: "w", AgentType: "code", ParentCallID: "call-w", BatchID: "batch-w"}
+	want := agent.SubAgentLedgerEntry{AgentID: "w", AgentType: "code", ParentCallID: "call-w", BatchID: testBatchID(1)}
 	if got := s.Ledger(); !reflect.DeepEqual(got, []agent.SubAgentLedgerEntry{want}) {
 		t.Fatalf("Ledger before provisioning = %+v", got)
 	}
@@ -312,7 +312,7 @@ func TestSupervisorPrepareFailureProducesFinalResult(t *testing.T) {
 func TestSupervisorSpawnAndWaitPostsNothing(t *testing.T) {
 	s, sink := newAsyncSupervisor(1, nil)
 	a := newAsyncChild("a", "g")
-	ctx := agent.WithToolBatchID(context.Background(), "b1")
+	ctx := agent.WithToolBatchID(context.Background(), testBatchID(1))
 	started := make(chan spawnResult, 1)
 	go func() {
 		result, err := s.SpawnAndWait(ctx, a.job)
@@ -336,10 +336,10 @@ func TestSupervisorNilSinkPostsNothing(t *testing.T) {
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
 	a := newAsyncChild("a", "g")
 	a.job.GroupScope = s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
-	spawnAsync(agent.WithToolBatchID(context.Background(), "b1"), t, s, a)
+	spawnAsync(agent.WithToolBatchID(context.Background(), testBatchID(1)), t, s, a)
 	close(a.release)
 	waitFinished(t, s, "a")
-	s.SealBatch("b1")
+	s.SealBatch(testBatchID(1))
 	s.MarkDelivered([]string{"call-a"})
 	if s.IsPending("a") {
 		t.Fatal("ungrouped nil-sink completion should be ackable")

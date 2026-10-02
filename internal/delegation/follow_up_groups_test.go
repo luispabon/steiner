@@ -35,7 +35,7 @@ func TestFollowUpMixedGroupOrders(t *testing.T) {
 			specialized := SpecializedToolDeps{SubAgentHandlerDeps: subDeps}
 			fresh := SubAgentToolDef(specialized, nil).Handler
 			follow := NewFollowUpHandler(subDeps)
-			ctx := batchCtx("response-" + order)
+			ctx := batchCtx(testBatchID(1))
 			freshCtx := context.WithValue(ctx, tool.ExecutionCallIDKey{}, "call-fresh-"+order)
 			followCtx := context.WithValue(ctx, tool.ExecutionCallIDKey{}, "call-follow-"+order)
 			var freshAdmission, followAdmission *tool.DelegationAdmission
@@ -46,7 +46,7 @@ func TestFollowUpMixedGroupOrders(t *testing.T) {
 					t.Fatalf("fresh dispatch: %v", err)
 				}
 				admission := got.(tool.ExecutionResult).DelegationAdmission
-				if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.Group != groupName || admission.BatchID != "response-"+order || admission.AgentID == "" {
+				if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.Group != groupName || admission.BatchID != testBatchID(1) || admission.AgentID == "" {
 					t.Fatalf("fresh admission = %+v", admission)
 				}
 				freshAdmission = admission.Clone()
@@ -58,7 +58,7 @@ func TestFollowUpMixedGroupOrders(t *testing.T) {
 					t.Fatalf("follow_up dispatch: %v", err)
 				}
 				admission := got.(tool.ExecutionResult).DelegationAdmission
-				if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.Group != groupName || admission.BatchID != "response-"+order || admission.AgentID != "warm-"+order {
+				if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.Group != groupName || admission.BatchID != testBatchID(1) || admission.AgentID != "warm-"+order {
 					t.Fatalf("follow_up admission = %+v", admission)
 				}
 				followAdmission = admission.Clone()
@@ -82,7 +82,7 @@ func TestFollowUpMixedGroupOrders(t *testing.T) {
 				t.Fatalf("group ledger = %+v, want distinct agent/call identities", ledger)
 			}
 			for _, entry := range ledger {
-				if entry.Group != groupName || entry.BatchID != "response-"+order || (entry.AgentID == "warm-"+order && entry.ParentCallID != "call-follow-"+order) || (entry.AgentID != "warm-"+order && entry.ParentCallID != "call-fresh-"+order) {
+				if entry.Group != groupName || entry.BatchID != testBatchID(1) || (entry.AgentID == "warm-"+order && entry.ParentCallID != "call-follow-"+order) || (entry.AgentID != "warm-"+order && entry.ParentCallID != "call-fresh-"+order) {
 					t.Fatalf("admission ledger entry = %+v", entry)
 				}
 			}
@@ -100,7 +100,7 @@ func TestFollowUpMixedGroupOrders(t *testing.T) {
 					}
 				}
 			}
-			deps.Supervisor.SealGroupBatch(deps.GroupScope, "response-"+order)
+			deps.Supervisor.SealGroupBatch(deps.GroupScope, testBatchID(1))
 			select {
 			case delivered := <-completions.ch:
 				if len(delivered) != 2 {
@@ -137,7 +137,7 @@ func TestFollowUpOmittedGroupIsUngroupedAndReuseRejected(t *testing.T) {
 	}
 	handler := NewFollowUpHandler(deps)
 	before := cloneFollowUpTestSession(store)
-	if _, err := handler(batchCtx("prior"), map[string]any{"agent_id": "warm", "message": "grouped", "group": "old-name"}); err == nil || !strings.Contains(err.Error(), "was already used") {
+	if _, err := handler(batchCtx(testBatchID(1)), map[string]any{"agent_id": "warm", "message": "grouped", "group": "old-name"}); err == nil || !strings.Contains(err.Error(), "was already used") {
 		t.Fatalf("old ledger name error = %v, want reused-name rejection", err)
 	}
 	if after := cloneFollowUpTestSession(store); !reflect.DeepEqual(after, before) {
@@ -146,27 +146,27 @@ func TestFollowUpOmittedGroupIsUngroupedAndReuseRejected(t *testing.T) {
 	if got := s.SnapshotGroupLedger(scope).Names; !reflect.DeepEqual(got, []string{"old-name"}) {
 		t.Fatalf("ledger after rejection = %v", got)
 	}
-	if _, err := handler(batchCtx("accepted"), map[string]any{"agent_id": "warm", "message": "fresh", "group": "new-name"}); err != nil {
+	if _, err := handler(batchCtx(testBatchID(1)), map[string]any{"agent_id": "warm", "message": "fresh", "group": "new-name"}); err != nil {
 		t.Fatalf("fresh name rejected: %v", err)
 	}
 	waitUntil(t, func() bool { p := s.Pending(); return len(p) == 1 && p[0].State == agent.SubAgentFinished })
 	if got := s.SnapshotGroupLedger(scope).Names; !reflect.DeepEqual(got, []string{"new-name", "old-name"}) {
 		t.Fatalf("ledger names = %v", got)
 	}
-	s.SealGroupBatch(scope, "accepted")
+	s.SealGroupBatch(scope, testBatchID(1))
 	batch := recv(t, sink.ch, "accepted follow-up")
 	if len(batch) != 1 || batch[0].AgentID != "warm" {
 		t.Fatalf("completion = %+v", batch)
 	}
 	s.MarkDelivered([]string{batch[0].ParentCallID})
-	if _, err := handler(batchCtx("omitted"), map[string]any{"agent_id": "warm", "message": "without a group"}); err != nil {
+	if _, err := handler(batchCtx(testBatchID(2)), map[string]any{"agent_id": "warm", "message": "without a group"}); err != nil {
 		t.Fatalf("ungrouped follow-up: %v", err)
 	}
 	waitUntil(t, func() bool { p := s.Pending(); return len(p) == 1 && p[0].State == agent.SubAgentFinished })
 	if got := s.SnapshotGroupLedger(scope).Names; !reflect.DeepEqual(got, []string{"new-name", "old-name"}) {
 		t.Fatalf("omitted group changed ledger: %v", got)
 	}
-	s.SealGroupBatch(scope, "omitted")
+	s.SealGroupBatch(scope, testBatchID(2))
 	ungrouped := recv(t, sink.ch, "ungrouped follow-up")
 	if len(ungrouped) != 1 || ungrouped[0].AgentID != "warm" {
 		t.Fatalf("omitted group completion = %+v", ungrouped)
@@ -216,7 +216,7 @@ func TestFollowUpRejectedAdmissionLeavesSessionAndGroupNames(t *testing.T) {
 			var release chan struct{}
 			if tc.busy {
 				release = make(chan struct{})
-				_, _, err := s.Spawn(batchCtx("already-running"), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) { <-release; return tool.ExecutionResult{}, nil }})
+				_, _, err := s.Spawn(batchCtx(testBatchID(2)), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) { <-release; return tool.ExecutionResult{}, nil }})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -267,7 +267,7 @@ func TestFollowUpBusyRejectionDoesNotReserveGroup(t *testing.T) {
 	s, _ := newAsyncSupervisor(1, nil)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 	block := make(chan struct{})
-	_, _, err := s.Spawn(batchCtx("busy-batch"), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) {
+	_, _, err := s.Spawn(batchCtx(testBatchID(3)), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) {
 		<-block
 		return tool.ExecutionResult{}, nil
 	}})
@@ -276,7 +276,7 @@ func TestFollowUpBusyRejectionDoesNotReserveGroup(t *testing.T) {
 	}
 	waitUntil(t, func() bool { return s.IsPending("warm") })
 	handler := NewFollowUpHandler(SubAgentHandlerDeps{SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 10, MaxParallel: 1}, SessionStore: store, Supervisor: s, AsyncSubAgents: true, GroupScope: scope})
-	_, err = handler(batchCtx("busy-follow-up"), map[string]any{"agent_id": "warm", "message": "continue", "group": "busy-fresh-name"})
+	_, err = handler(batchCtx(testBatchID(4)), map[string]any{"agent_id": "warm", "message": "continue", "group": "busy-fresh-name"})
 	if err == nil {
 		t.Fatal("busy follow_up was accepted")
 	}
@@ -313,7 +313,7 @@ func TestFollowUpConcurrentBusyRejectionDoesNotReserveRejectedName(t *testing.T)
 	for _, group := range []string{"concurrent-a", "concurrent-b"} {
 		go func(group string) {
 			<-start
-			ctx := context.WithValue(batchCtx("concurrent-batch"), tool.ExecutionCallIDKey{}, "call-"+group)
+			ctx := context.WithValue(batchCtx(testBatchID(1)), tool.ExecutionCallIDKey{}, "call-"+group)
 			_, err := handler(ctx, map[string]any{"agent_id": "warm", "message": group, "group": group})
 			outcomes <- outcome{group: group, err: err}
 		}(group)
@@ -348,7 +348,7 @@ func TestFollowUpConcurrentBusyRejectionDoesNotReserveRejectedName(t *testing.T)
 		pending := s.Pending()
 		return len(pending) == 1 && pending[0].State == agent.SubAgentFinished
 	})
-	s.SealGroupBatch(scope, "concurrent-batch")
+	s.SealGroupBatch(scope, testBatchID(1))
 	completion := recv(t, sink.ch, "winning follow-up completion")
 	if len(completion) != 1 || completion[0].AgentID != "warm" || completion[0].ParentCallID != "call-"+accepted.group {
 		t.Fatalf("winner completion = %+v", completion)
@@ -374,19 +374,19 @@ func TestFollowUpQueuedAndFinishedUndeliveredRejections(t *testing.T) {
 			s, sink := newAsyncSupervisor(1, nil)
 			scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 			block := make(chan struct{})
-			_, _, err := s.Spawn(batchCtx("blocker"), ChildJob{AgentID: "blocker", ParentCallID: "blocker-call", Execute: func(context.Context) (tool.ExecutionResult, error) { <-block; return tool.ExecutionResult{}, nil }})
+			_, _, err := s.Spawn(batchCtx(testBatchID(5)), ChildJob{AgentID: "blocker", ParentCallID: "blocker-call", Execute: func(context.Context) (tool.ExecutionResult, error) { <-block; return tool.ExecutionResult{}, nil }})
 			if err != nil {
 				t.Fatal(err)
 			}
 			waitUntil(t, func() bool { p := s.Pending(); return len(p) == 1 && p[0].State == agent.SubAgentRunning })
 			if state == "queued" {
-				_, _, err = s.Spawn(batchCtx("queued"), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil }})
+				_, _, err = s.Spawn(batchCtx(testBatchID(6)), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil }})
 				waitUntil(t, func() bool { p := s.Pending(); return len(p) == 2 && p[1].State == agent.SubAgentQueued })
 			} else {
 				close(block)
 				<-sink.ch
 				s.MarkDelivered([]string{"blocker-call"})
-				_, _, err = s.Spawn(batchCtx("finished"), ChildJob{AgentID: "warm", ParentCallID: "warm-call", Execute: func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil }})
+				_, _, err = s.Spawn(batchCtx(testBatchID(7)), ChildJob{AgentID: "warm", ParentCallID: "warm-call", Execute: func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil }})
 				if err == nil {
 					waitUntil(t, func() bool { p := s.Pending(); return len(p) == 1 && p[0].State == agent.SubAgentFinished })
 					<-sink.ch

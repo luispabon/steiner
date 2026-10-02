@@ -117,11 +117,11 @@ func TestSupervisorQueuedBehindBlockedAcceptanceStartsAfterSlotFree(t *testing.T
 	s.SetCompletionSink(sink)
 	a := newAsyncChild("a", "")
 	aSpawn := make(chan error, 1)
-	go func() { _, _, err := s.Spawn(batchCtx("batch"), a.job); aSpawn <- err }()
+	go func() { _, _, err := s.Spawn(batchCtx(testBatchID(1)), a.job); aSpawn <- err }()
 	waitClosed(t, events.entered, "A accepted publication")
 	b := newAsyncChild("b", "")
 	blockA.Store(false)
-	bTicket, _, err := s.Spawn(batchCtx("batch"), b.job)
+	bTicket, _, err := s.Spawn(batchCtx(testBatchID(1)), b.job)
 	if err != nil {
 		t.Fatal(err)
 	}

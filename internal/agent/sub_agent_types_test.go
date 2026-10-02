@@ -77,6 +77,9 @@ func TestNewToolBatchID(t *testing.T) {
 			seen := map[string]bool{}
 			for range 5 {
 				id := newToolBatchID(tt.firstCall)
+				if _, ok := ToolBatchSeq(id); !ok {
+					t.Fatalf("ToolBatchSeq(%q) did not round-trip", id)
+				}
 				if !strings.HasPrefix(id, tt.wantPrefix) || len(id) == len(tt.wantPrefix) {
 					t.Fatalf("newToolBatchID(%q) = %q, want prefix %q plus sequence", tt.firstCall, id, tt.wantPrefix)
 				}

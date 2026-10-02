@@ -54,7 +54,7 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			return nil, childSetupError(err)
 		}
 
-		plan := &delegatePlan{modelAlias: resolvedModel.Alias, group: NormalizeGroup(input["group"])}
+		plan := &delegatePlan{modelAlias: resolvedModel.Alias, group: groupInput(input)}
 		plan.provision = func(childCtx context.Context, plan *delegatePlan) error {
 			req, limits, err := BuildChildRun(childCtx, deps.SubAgentHandlerDeps, ChildBootstrapOverrides{
 				AgentType:     AgentTypeVision,

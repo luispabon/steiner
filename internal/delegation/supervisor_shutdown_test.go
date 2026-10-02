@@ -69,7 +69,7 @@ func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
 					return tool.ExecutionResult{Value: Result{AgentID: "cancelled", Status: StatusCancelled}}
 				}
 				var waiter <-chan spawnResult
-				ctx := agent.WithToolBatchID(context.Background(), "batch")
+				ctx := agent.WithToolBatchID(context.Background(), testBatchID(1))
 				if mode == "blocking" {
 					waiter = spawn(ctx, s, cancelled.job)
 				} else {
@@ -189,7 +189,7 @@ func TestShutdownUnpublishedBlockingTimeoutPreservesResultAndScope(t *testing.T)
 		<-callbackRelease
 		return tool.ExecutionResult{Value: Result{AgentID: "blocking-late", Status: StatusCancelled, Output: "callback result"}}
 	}
-	waiter := spawn(agent.WithToolBatchID(context.Background(), "batch"), s, job.job)
+	waiter := spawn(agent.WithToolBatchID(context.Background(), testBatchID(1)), s, job.job)
 	waitClosed(t, events.entered, "blocking acceptance publication")
 	shutdown := make(chan struct{})
 	go func() { s.Shutdown(context.Background(), CancelCauseSystem); close(shutdown) }()

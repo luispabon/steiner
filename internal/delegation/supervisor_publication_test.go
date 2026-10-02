@@ -79,7 +79,7 @@ func TestCancelAllDefersQueuedFinalizerUntilBlockedAcceptancePublishes(t *testin
 		return tool.ExecutionResult{Value: Result{AgentID: "queued", Status: StatusCancelled}}
 	}
 	spawnResult := make(chan error, 1)
-	go func() { _, _, err := s.Spawn(batchCtx("batch"), job.job); spawnResult <- err }()
+	go func() { _, _, err := s.Spawn(batchCtx(testBatchID(1)), job.job); spawnResult <- err }()
 	waitClosed(t, events.entered, "accepted publication")
 	s.CancelAll(CancelCauseSystem)
 	if got := finalized.Load(); got != 0 {
@@ -116,7 +116,7 @@ func TestShutdownPublicationTimeoutSettlesLateAcceptedJob(t *testing.T) {
 	job := newAsyncChild("late", "")
 	spawnResult := make(chan error, 1)
 	go func() {
-		_, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch"), job.job)
+		_, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), testBatchID(1)), job.job)
 		spawnResult <- err
 	}()
 	waitClosed(t, events.entered, "accepted publication")
@@ -148,7 +148,7 @@ func TestShutdownLatePublicationSettlesGroupedJobsAndScopes(t *testing.T) {
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events, JoinTimeout: 20 * time.Millisecond})
 	s.SetCompletionSink(sink)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
-	ctx := agent.WithToolBatchID(context.Background(), "batch")
+	ctx := agent.WithToolBatchID(context.Background(), testBatchID(1))
 	sibling := newAsyncChild("sibling", "same")
 	sibling.job.GroupScope = scope
 	spawnAsync(ctx, t, s, sibling)
@@ -233,7 +233,7 @@ func TestPublicationBarrierShutdownWaitsAcceptance(t *testing.T) {
 	job := newAsyncChild("a", "")
 	spawnResult := make(chan error, 1)
 	go func() {
-		_, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch"), job.job)
+		_, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), testBatchID(1)), job.job)
 		spawnResult <- err
 	}()
 	select {

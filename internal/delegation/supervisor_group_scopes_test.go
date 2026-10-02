@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 	"testing"
@@ -29,12 +30,12 @@ func TestGroupScopeSeedSnapshotAndIndependentScopes(t *testing.T) {
 	}
 	job := newAsyncChild("a", "seed")
 	job.job.GroupScope = first
-	if _, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "b"), job.job); err == nil {
+	if _, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), testBatchID(1)), job.job); err == nil {
 		t.Fatal("seeded name was accepted")
 	}
 	job.job.AgentID = "b"
 	job.job.GroupScope = second
-	if _, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "b"), job.job); err != nil {
+	if _, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), testBatchID(1)), job.job); err != nil {
 		t.Fatalf("same name in independent scope rejected: %v", err)
 	}
 	s.CancelAll(CancelCauseSystem)
@@ -43,21 +44,21 @@ func TestGroupScopeSeedSnapshotAndIndependentScopes(t *testing.T) {
 func TestSealedEmptyBatchRejectsLaterGroup(t *testing.T) {
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
-	s.SealGroupBatch(scope, "batch")
+	s.SealGroupBatch(scope, testBatchID(1))
 	job := newAsyncChild("a", "g")
 	job.job.GroupScope = scope
-	_, admission, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch"), job.job)
+	_, admission, err := s.Spawn(agent.WithToolBatchID(context.Background(), testBatchID(1)), job.job)
 	if err == nil {
 		t.Fatal("sealed empty batch accepted a group")
 	}
 	var reservationErr *groupReservationError
-	if !errors.As(err, &reservationErr) || reservationErr.name != "g" || reservationErr.batch != "batch" || !reservationErr.sealed {
+	if !errors.As(err, &reservationErr) || reservationErr.name != "g" || reservationErr.batch != testBatchID(1) || !reservationErr.sealed {
 		t.Fatalf("reservation error = %T %#v, want sealed group g", err, err)
 	}
-	if got, want := err.Error(), `delegation group batch "batch" is sealed; use a fresh group name`; got != want {
+	if got, want := err.Error(), fmt.Sprintf(`delegation group batch %q is sealed; use a fresh group name`, testBatchID(1)); got != want {
 		t.Fatalf("reservation error text = %q, want %q", got, want)
 	}
-	wantAdmission := &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, BatchID: "batch", Group: "g", AgentID: "a"}
+	wantAdmission := &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, BatchID: testBatchID(1), Group: "g", AgentID: "a"}
 	var carrier tool.DelegationAdmissionCarrier
 	if admission == nil || *admission != *wantAdmission || !errors.As(err, &carrier) || *carrier.DelegationAdmissionMetadata() != *wantAdmission {
 		t.Fatalf("rejected admission = %+v, err = %v", admission, err)
@@ -70,7 +71,7 @@ func TestSealedEmptyBatchRejectsLaterGroup(t *testing.T) {
 func TestGroupScopeCanonicalNamesAndWhitespaceUngrouped(t *testing.T) {
 	s, sink := newAsyncSupervisor(2, nil)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
-	ctx := batchCtx("batch")
+	ctx := batchCtx(testBatchID(1))
 	a := newAsyncChild("a", " g ")
 	a.job.GroupScope = scope
 	spawnAsync(ctx, t, s, a)
@@ -88,12 +89,12 @@ func TestGroupScopeCanonicalNamesAndWhitespaceUngrouped(t *testing.T) {
 	}
 	conflict := newAsyncChild("conflict", "g")
 	conflict.job.GroupScope = scope
-	_, _, err := s.Spawn(batchCtx("other"), conflict.job)
+	_, _, err := s.Spawn(batchCtx(testBatchID(2)), conflict.job)
 	if err == nil {
 		t.Fatal("canonical duplicate name in another batch was accepted")
 	}
 	var reservationErr *groupReservationError
-	if !errors.As(err, &reservationErr) || reservationErr.name != "g" || reservationErr.batch != "other" || reservationErr.sealed {
+	if !errors.As(err, &reservationErr) || reservationErr.name != "g" || reservationErr.batch != testBatchID(2) || reservationErr.sealed {
 		t.Fatalf("reservation error = %T %#v, want reused name g", err, err)
 	}
 	if got, want := err.Error(), `delegation group name "g" was already used; choose a fresh name`; got != want {
@@ -116,7 +117,7 @@ func TestGroupScopeCanonicalNamesAndWhitespaceUngrouped(t *testing.T) {
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 {
 		t.Fatalf("scope pruned while held completions were unacknowledged: %v", got)
 	}
-	s.SealGroupBatch(scope, "batch")
+	s.SealGroupBatch(scope, testBatchID(1))
 	batch = recv(t, sink.ch, "canonical group completion")
 	if len(batch) != 2 || batch[0].AgentID != "a" || batch[1].AgentID != "b" {
 		t.Fatalf("canonical group batch = %+v", batch)
@@ -128,7 +129,7 @@ func TestReleasedGroupScopeRetainedUntilAcknowledgedJobsPruned(t *testing.T) {
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 	a, b := newAsyncChild("a", "group"), newAsyncChild("b", "group")
 	a.job.GroupScope, b.job.GroupScope = scope, scope
-	ctx := batchCtx("batch")
+	ctx := batchCtx(testBatchID(1))
 	spawnAsync(ctx, t, s, a)
 	spawnAsync(ctx, t, s, b)
 	waitClosed(t, a.started, "a started")
@@ -139,7 +140,7 @@ func TestReleasedGroupScopeRetainedUntilAcknowledgedJobsPruned(t *testing.T) {
 	}
 	close(a.release)
 	close(b.release)
-	s.SealGroupBatch(scope, "batch")
+	s.SealGroupBatch(scope, testBatchID(1))
 	batch := recv(t, sink.ch, "group completion")
 	if len(batch) != 2 {
 		t.Fatalf("completion batch = %+v", batch)
@@ -167,7 +168,7 @@ func TestReleasedGroupScopeRetainedUntilAcknowledgedJobsPruned(t *testing.T) {
 func TestConcurrentGroupScopeJoinsShareBatch(t *testing.T) {
 	s, sink := newAsyncSupervisor(4, nil)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
-	ctx := batchCtx("batch")
+	ctx := batchCtx(testBatchID(1))
 	const count = 4
 	children := make([]*asyncChild, count)
 	start := make(chan struct{})
@@ -192,7 +193,7 @@ func TestConcurrentGroupScopeJoinsShareBatch(t *testing.T) {
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 || got[0] != "shared" {
 		t.Fatalf("shared ledger names = %v", got)
 	}
-	s.SealGroupBatch(scope, "batch")
+	s.SealGroupBatch(scope, testBatchID(1))
 	for _, child := range children {
 		close(child.release)
 	}

@@ -48,7 +48,7 @@ func TestHandlerAdmissionMetadataForAsyncDelegates(t *testing.T) {
 				deps.ImageStore = agent.NewImageStore(root)
 				input["image_id"] = deps.ImageStore.Register(imagePath, "image/png", 1, 1, 5).ID
 			}
-			ctx := agent.WithToolBatchID(context.Background(), "batch-real-handler")
+			ctx := agent.WithToolBatchID(context.Background(), testBatchID(1))
 			got, err := SubAgentToolDef(deps, nil).Handler(ctx, input)
 			if err != nil {
 				t.Fatalf("handler error: %v", err)
@@ -62,7 +62,7 @@ func TestHandlerAdmissionMetadataForAsyncDelegates(t *testing.T) {
 				t.Fatalf("result value = %T, want AckResult", result.Value)
 			}
 			admission := result.DelegationAdmission
-			if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.BatchID != "batch-real-handler" || admission.Group != "handler-group" || admission.AgentID != ack.AgentID || ack.AgentID == "" || !ack.Queued {
+			if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.BatchID != testBatchID(1) || admission.Group != "handler-group" || admission.AgentID != ack.AgentID || ack.AgentID == "" || !ack.Queued {
 				t.Fatalf("ack = %+v, admission = %+v", ack, admission)
 			}
 			projection := ack.ProjectToolResult()
@@ -141,10 +141,10 @@ func TestHandlerGroupReuseRejectsWithTypedCorrectiveSetupError(t *testing.T) {
 	input := subAgentTask(AgentTypeExplore, "inspect")
 	input["group"] = " reused-group "
 	def := SubAgentToolDef(deps, nil)
-	if _, err := def.Handler(batchCtx("first-batch"), input); err != nil {
+	if _, err := def.Handler(batchCtx(testBatchID(2)), input); err != nil {
 		t.Fatalf("first handler call: %v", err)
 	}
-	_, err := def.Handler(batchCtx("second-batch"), input)
+	_, err := def.Handler(batchCtx(testBatchID(3)), input)
 	if err == nil {
 		t.Fatal("second handler call returned nil error")
 	}
@@ -153,7 +153,7 @@ func TestHandlerGroupReuseRejectsWithTypedCorrectiveSetupError(t *testing.T) {
 		t.Fatalf("error %T does not carry admission", err)
 	}
 	admission := carrier.DelegationAdmissionMetadata()
-	if admission == nil || admission.Status != tool.DelegationAdmissionRejected || admission.BatchID != "second-batch" || admission.Group != "reused-group" {
+	if admission == nil || admission.Status != tool.DelegationAdmissionRejected || admission.BatchID != testBatchID(3) || admission.Group != "reused-group" {
 		t.Fatalf("admission = %+v, want rejected reused-group admission", admission)
 	}
 	var setupErr *SetupError
@@ -176,7 +176,7 @@ func TestBlockingHandlerAcceptedExecutionFailureKeepsMetadata(t *testing.T) {
 	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) { return agent.RunState{}, failure }})
 	sup, sink := newAsyncSupervisor(1, nil)
 	deps.Supervisor = sup
-	ctx := agent.WithToolBatchID(context.Background(), "blocking-failure-batch")
+	ctx := agent.WithToolBatchID(context.Background(), testBatchID(4))
 	input := subAgentTask(AgentTypeExplore, "fail")
 	input["group"] = " failure-group "
 	got, err := SubAgentToolDef(deps, nil).Handler(ctx, input)
@@ -192,7 +192,7 @@ func TestBlockingHandlerAcceptedExecutionFailureKeepsMetadata(t *testing.T) {
 		t.Fatalf("failure result = %#v, want failed result with runner error", result.Value)
 	}
 	admission := result.DelegationAdmission
-	if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.BatchID != "blocking-failure-batch" || admission.Group != "failure-group" || admission.AgentID == "" || admission.AgentID != value.AgentID {
+	if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.BatchID != testBatchID(4) || admission.Group != "failure-group" || admission.AgentID == "" || admission.AgentID != value.AgentID {
 		t.Fatalf("failure admission = %+v, want accepted metadata for result %+v", admission, value)
 	}
 	sink.none(t)
@@ -212,7 +212,7 @@ func TestBlockingHandlerAcceptedPreparationFailureKeepsMetadata(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(deps.WorkDir, ".steiner", "worktrees"), []byte("block"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ctx := agent.WithToolBatchID(context.Background(), "blocking-prepare-batch")
+	ctx := agent.WithToolBatchID(context.Background(), testBatchID(5))
 	input := subAgentTask(AgentTypeCode, "prepare")
 	input["group"] = " prepare-group "
 	got, err := SubAgentToolDef(deps, nil).Handler(ctx, input)
@@ -227,7 +227,7 @@ func TestBlockingHandlerAcceptedPreparationFailureKeepsMetadata(t *testing.T) {
 		t.Fatalf("handler result = %#v, want nil on error", got)
 	}
 	admission := carrier.DelegationAdmissionMetadata()
-	if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.BatchID != "blocking-prepare-batch" || admission.Group != "prepare-group" || admission.AgentID == "" {
+	if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.BatchID != testBatchID(5) || admission.Group != "prepare-group" || admission.AgentID == "" {
 		t.Fatalf("preparation admission = %+v", admission)
 	}
 	var setupErr *SetupError
@@ -245,7 +245,7 @@ func TestBlockingHandlerKeepsAcceptedAdmissionAndDoesNotPost(t *testing.T) {
 	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) { return successRunState(), nil }})
 	sup, sink := newAsyncSupervisor(1, nil)
 	deps.Supervisor = sup
-	ctx := agent.WithToolBatchID(context.Background(), "blocking-batch")
+	ctx := agent.WithToolBatchID(context.Background(), testBatchID(6))
 	input := subAgentTask(AgentTypeExplore, "inspect")
 	input["group"] = " blocking-group "
 	got, err := SubAgentToolDef(deps, nil).Handler(ctx, input)
@@ -261,7 +261,7 @@ func TestBlockingHandlerKeepsAcceptedAdmissionAndDoesNotPost(t *testing.T) {
 		t.Fatalf("result value = %T, want blocking Result", result.Value)
 	}
 	admission := result.DelegationAdmission
-	if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.BatchID != "blocking-batch" || admission.Group != "blocking-group" || admission.AgentID == "" || admission.AgentID != value.AgentID {
+	if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.BatchID != testBatchID(6) || admission.Group != "blocking-group" || admission.AgentID == "" || admission.AgentID != value.AgentID {
 		t.Fatalf("result = %+v, admission = %+v", value, admission)
 	}
 	sink.none(t)
