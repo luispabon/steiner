@@ -123,6 +123,7 @@ func (p *turnProgressor) normalizeModelResponse(_ RunState, turn int, response p
 	if response.Message.Role == "" {
 		response.Message.Role = provider.MessageRoleAssistant
 	}
+	response.Message.ToolCalls = withToolCallIDs(response.Message.ToolCalls)
 	if response.Message.Content == "" {
 		return response
 	}

@@ -5,10 +5,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 // SubAgentState is a pending sub-agent's lifecycle state as shown to the model.
@@ -71,12 +74,12 @@ type toolBatchIDKey struct{}
 
 var toolBatchSeq atomic.Uint64
 
-// toolBatchSeparator joins the first call id (or "batch") plus nonce and the
-// sequence number in a tool batch id; newToolBatchID and ToolBatchSeq share it.
+// toolBatchSeparator joins the first call id plus nonce and the sequence
+// number in a tool batch id; newToolBatchID and ToolBatchSeq share it.
 const toolBatchSeparator = "#"
 
-// toolBatchNonceJoiner joins the first call id (or "batch") and the process
-// nonce in a tool batch id.
+// toolBatchNonceJoiner joins the first call id and the process nonce in a
+// tool batch id.
 const toolBatchNonceJoiner = "~"
 
 // toolBatchNonce is a per-process random token embedded in every batch id.
@@ -96,14 +99,31 @@ func newToolBatchNonce() string {
 }
 
 // newToolBatchID returns a batch id unique within this process and, via the
-// process nonce, across process restarts; providers may repeat or omit
-// tool-call ids, so the first call id alone cannot identify a batch.
+// process nonce, across process restarts; providers may repeat tool-call ids,
+// so the first call id alone cannot identify a batch.
 func newToolBatchID(firstCallID string) string {
-	if firstCallID == "" {
-		firstCallID = "batch"
-	}
 	return firstCallID + toolBatchNonceJoiner + toolBatchNonce + toolBatchSeparator +
 		strconv.FormatUint(toolBatchSeq.Add(1), 10)
+}
+
+var toolCallSeq atomic.Uint64
+
+// withToolCallIDs returns calls with every empty ID replaced by
+// call_<process nonce>_<seq>. OpenAI-compatible servers may omit tool-call
+// ids, yet tool results and delegation occurrences pair on them. The ids are
+// assigned once, before the assistant message enters history, so they persist
+// rather than vary per request. The input slice is copied, not mutated.
+func withToolCallIDs(calls []provider.ToolCall) []provider.ToolCall {
+	if !slices.ContainsFunc(calls, func(c provider.ToolCall) bool { return c.ID == "" }) {
+		return calls
+	}
+	out := slices.Clone(calls)
+	for i := range out {
+		if out[i].ID == "" {
+			out[i].ID = "call_" + toolBatchNonce + "_" + strconv.FormatUint(toolCallSeq.Add(1), 10)
+		}
+	}
+	return out
 }
 
 // ToolBatchSeq returns the process-wide monotonic sequence number embedded in

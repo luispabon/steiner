@@ -74,7 +74,6 @@ func TestNewToolBatchID(t *testing.T) {
 		wantPrefix string
 	}{
 		{"repeated call id", "call_0", "call_0~abcd1234#"},
-		{"empty call id", "", "batch~abcd1234#"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

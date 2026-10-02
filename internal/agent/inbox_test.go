@@ -164,8 +164,8 @@ func TestRunnerToolBatchIDsUniqueAcrossRepeatedAndEmptyCallIDs(t *testing.T) {
 		}
 		unique[id] = true
 	}
-	if !strings.HasPrefix(done[0], "call_0~"+toolBatchNonce+"#") || !strings.HasPrefix(done[1], "call_0~"+toolBatchNonce+"#") || !strings.HasPrefix(done[2], "batch~"+toolBatchNonce+"#") {
-		t.Fatalf("batch ids = %v, want call_0~<nonce>#, call_0~<nonce>#, batch~<nonce># prefixes", done)
+	if !strings.HasPrefix(done[0], "call_0~"+toolBatchNonce+"#") || !strings.HasPrefix(done[1], "call_0~"+toolBatchNonce+"#") || !strings.HasPrefix(done[2], "call_"+toolBatchNonce+"_") {
+		t.Fatalf("batch ids = %v, want call_0~<nonce>#, call_0~<nonce>#, call_<nonce>_ prefixes", done)
 	}
 }
 
