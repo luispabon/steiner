@@ -108,16 +108,24 @@ func (p *asyncScript) parentTurn(req provider.ChatRequest) provider.ChatResponse
 }
 
 func (p *asyncScript) childTurn(ctx context.Context, req provider.ChatRequest) (provider.ChatResponse, error) {
-	var text strings.Builder
-	for _, m := range req.Messages {
-		text.WriteString(m.Content)
-	}
 	marker := "## Objective\n\n"
-	start := strings.LastIndex(text.String(), marker)
-	if start < 0 {
+	objective := ""
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		message := req.Messages[i]
+		if message.Role != provider.MessageRoleUser || strings.TrimSpace(message.Content) == "" {
+			continue
+		}
+		content := message.Content
+		if start := strings.LastIndex(content, marker); start >= 0 {
+			objective = strings.SplitN(content[start+len(marker):], "\n", 2)[0]
+		} else {
+			objective = strings.SplitN(strings.TrimSpace(content), "\n", 2)[0]
+		}
+		break
+	}
+	if objective == "" {
 		return provider.ChatResponse{}, fmt.Errorf("unscripted child request")
 	}
-	objective := strings.SplitN(text.String()[start+len(marker):], "\n", 2)[0]
 	gate, ok := p.gates[objective]
 	if !ok {
 		return provider.ChatResponse{}, fmt.Errorf("unscripted child objective %q", objective)
@@ -407,6 +415,19 @@ func acceptedAgentFor(events []output.Event, callID string) string {
 	return ""
 }
 
+func acceptedDelegationFor(events []output.Event, callID string) (output.DelegationAcceptedEvent, bool) {
+	for _, event := range events {
+		if event.Type != output.EventTypeDelegationAccepted {
+			continue
+		}
+		payload, ok := event.Payload.(output.DelegationAcceptedEvent)
+		if ok && payload.CallID == callID {
+			return payload, true
+		}
+	}
+	return output.DelegationAcceptedEvent{}, false
+}
+
 func waitForDelegationComplete(t *testing.T, h *asyncHarness, agentID string) {
 	t.Helper()
 	h.events.waitFor(t, func(event output.Event) bool {
@@ -611,6 +632,202 @@ func TestAsyncSubAgentsThroughInteractiveWiring(t *testing.T) {
 		}
 		if strings.Contains(body, `call_id="r1"`) || strings.Contains(body, `call_id="r2"`) {
 			t.Fatalf("delivered pair = %q, rejected calls must not be group members", body)
+		}
+	})
+
+	t.Run("mixed fresh and resumed child share one live group", func(t *testing.T) {
+		prov := newAsyncScript("warm", "fresh-mixed", "warm-followup")
+		var warmAgentID string
+		prov.parent = []func(provider.ChatRequest) provider.ChatResponse{
+			step(toolCallsResponse(subAgentCall("warm-call", "warm", ""))),
+			step(textResponse("waiting for warm")),
+			step(textResponse("saw warm")),
+			func(req provider.ChatRequest) provider.ChatResponse {
+				warmAgentID = agentIDPattern.FindString(toolResultFor(req.Messages, "warm-call"))
+				return toolCallsResponse(
+					subAgentCall("fresh-call", "fresh-mixed", "mixed"),
+					provider.ToolCall{ID: "follow-call", Name: "follow_up", Arguments: map[string]any{
+						"agent_id": warmAgentID, "message": "warm-followup", "group": "mixed",
+					}},
+				)
+			},
+			step(textResponse("waiting for mixed group")),
+			step(textResponse("saw mixed group")),
+		}
+		h := newAsyncHarness(t, prov, 4)
+
+		submit(t, h.session, "start warm child")
+		recvStarted(t, prov, "warm")
+		waitRuns(t, h.session)
+		clearTurnNotifications(prov)
+		prov.release("warm")
+		awaitImmediateWake(t, h.session, prov, h.clock)
+
+		events := h.events.snapshot()
+		warmAdmission, ok := acceptedDelegationFor(events, "warm-call")
+		if !ok {
+			t.Fatal("warm child has no accepted admission")
+		}
+		warmAgentID = warmAdmission.AgentID
+		if warmAdmission.BatchID == "" || warmAdmission.Group != "" {
+			t.Fatalf("warm admission = %+v, want ungrouped accepted admission", warmAdmission)
+		}
+		if n := len(subAgentResultMessages(h.session.Conversation())); n != 1 {
+			t.Fatalf("%d warm result messages, want one", n)
+		}
+		submit(t, h.session, "dispatch mixed warm follow-up and fresh child")
+		waitRuns(t, h.session)
+
+		recvStartedSet(t, prov, "fresh-mixed", "warm-followup")
+		events = h.events.snapshot()
+		freshAdmission, freshOK := acceptedDelegationFor(events, "fresh-call")
+		followAdmission, followOK := acceptedDelegationFor(events, "follow-call")
+		if !freshOK || !followOK {
+			t.Fatalf("mixed accepted events: fresh=%+v follow=%+v", freshAdmission, followAdmission)
+		}
+		if freshAdmission.BatchID == "" || freshAdmission.BatchID != followAdmission.BatchID || freshAdmission.Group != "mixed" || followAdmission.Group != "mixed" || freshAdmission.AgentID == followAdmission.AgentID || followAdmission.AgentID != warmAgentID {
+			t.Fatalf("mixed admissions = fresh=%+v follow=%+v, want one batch/group and current call identities", freshAdmission, followAdmission)
+		}
+		if freshAdmission.AgentID == warmAgentID {
+			t.Fatal("fresh admission reused warm agent ID")
+		}
+
+		prov.release("fresh-mixed")
+		waitForDelegationComplete(t, h, freshAdmission.AgentID)
+		if n := len(subAgentResultMessages(h.session.Conversation())); n != 1 {
+			t.Fatalf("%d result messages after fresh mixed child, want warm result only", n)
+		}
+		clearTurnNotifications(prov)
+		prov.release("warm-followup")
+		awaitImmediateWake(t, h.session, prov, h.clock)
+		results := subAgentResultMessages(h.session.Conversation())
+		if len(results) != 2 {
+			t.Fatalf("%d result messages after mixed group, want warm and one joint mixed message", len(results))
+		}
+		body := results[1].Content
+		if strings.Count(body, "<steiner-sub-agent-result") != 2 || !strings.Contains(body, `call_id="fresh-call"`) || !strings.Contains(body, `call_id="follow-call"`) {
+			t.Fatalf("mixed delivery = %q, want one joint message with both current call IDs", body)
+		}
+	})
+
+	t.Run("omitted follow-up group stays ungrouped", func(t *testing.T) {
+		prov := newAsyncScript("warm", "warm-omitted")
+		var warmAgentID string
+		prov.parent = []func(provider.ChatRequest) provider.ChatResponse{
+			step(toolCallsResponse(subAgentCall("warm-call", "warm", ""))),
+			step(textResponse("waiting for warm")),
+			step(textResponse("saw warm")),
+			func(req provider.ChatRequest) provider.ChatResponse {
+				warmAgentID = agentIDPattern.FindString(toolResultFor(req.Messages, "warm-call"))
+				return toolCallsResponse(provider.ToolCall{ID: "omitted-call", Name: "follow_up", Arguments: map[string]any{
+					"agent_id": warmAgentID, "message": "warm-omitted",
+				}})
+			},
+			step(textResponse("waiting for omitted follow-up")),
+			step(textResponse("saw omitted follow-up")),
+		}
+		h := newAsyncHarness(t, prov, 2)
+
+		submit(t, h.session, "start warm child")
+		recvStarted(t, prov, "warm")
+		waitRuns(t, h.session)
+		clearTurnNotifications(prov)
+		prov.release("warm")
+		awaitImmediateWake(t, h.session, prov, h.clock)
+		if n := len(subAgentResultMessages(h.session.Conversation())); n != 1 {
+			t.Fatalf("%d warm result messages, want one", n)
+		}
+		submit(t, h.session, "dispatch omitted warm follow-up")
+		waitRuns(t, h.session)
+		recvStarted(t, prov, "warm-omitted")
+		events := h.events.snapshot()
+		warmAdmission, warmOK := acceptedDelegationFor(events, "warm-call")
+		if !warmOK {
+			t.Fatal("warm child has no accepted admission")
+		}
+		warmAgentID = warmAdmission.AgentID
+		admission, ok := acceptedDelegationFor(events, "omitted-call")
+		if !ok || admission.AgentID != warmAgentID || admission.Group != "" || admission.BatchID == "" {
+			t.Fatalf("omitted follow-up admission = %+v, want accepted current ungrouped membership", admission)
+		}
+		prov.release("warm-omitted")
+		h.events.waitFor(t, func(event output.Event) bool {
+			count := 0
+			for _, emitted := range h.events.snapshot() {
+				if emitted.Type == output.EventTypeSubAgentsDelivered {
+					count++
+				}
+			}
+			return event.Type == output.EventTypeSubAgentsDelivered && count >= 2
+		})
+		waitRuns(t, h.session)
+		results := subAgentResultMessages(h.session.Conversation())
+		if len(results) != 2 || strings.Count(results[1].Content, "<steiner-sub-agent-result") != 1 || !strings.Contains(results[1].Content, `call_id="omitted-call"`) {
+			t.Fatalf("omitted follow-up delivery = %+v, want one ungrouped result", results)
+		}
+	})
+
+	t.Run("partial group admits fresh sibling without busy follow-up", func(t *testing.T) {
+		prov := newAsyncScript("warm", "fresh-partial")
+		var warmAgentID string
+		prov.parent = []func(provider.ChatRequest) provider.ChatResponse{
+			step(toolCallsResponse(subAgentCall("warm-call", "warm", ""))),
+			step(textResponse("waiting for warm")),
+			func(req provider.ChatRequest) provider.ChatResponse {
+				warmAgentID = agentIDPattern.FindString(toolResultFor(req.Messages, "warm-call"))
+				return toolCallsResponse(
+					subAgentCall("fresh-call", "fresh-partial", "partial"),
+					provider.ToolCall{ID: "busy-follow-call", Name: "follow_up", Arguments: map[string]any{
+						"agent_id": warmAgentID, "message": "busy follow-up", "group": "partial",
+					}},
+				)
+			},
+			step(textResponse("waiting for partial group")),
+			step(textResponse("saw partial group")),
+		}
+		h := newAsyncHarness(t, prov, 4)
+
+		submit(t, h.session, "start warm child")
+		recvStarted(t, prov, "warm")
+		waitRuns(t, h.session)
+		submit(t, h.session, "dispatch partial group while warm is busy")
+		waitRuns(t, h.session)
+		recvStarted(t, prov, "fresh-partial")
+		events := h.events.snapshot()
+		freshAdmission, ok := acceptedDelegationFor(events, "fresh-call")
+		if !ok || freshAdmission.Group != "partial" || freshAdmission.BatchID == "" {
+			t.Fatalf("fresh partial admission = %+v", freshAdmission)
+		}
+		if hasDelegationAcceptedFor(events, "busy-follow-call") || hasDelegationStartedFor(events, "busy-follow-call") || hasDelegationQueuedFor(events, "busy-follow-call") {
+			t.Fatal("busy follow-up emitted an accepted or child lifecycle event")
+		}
+		rejected := delegationFinishedFor(events, "busy-follow-call")
+		if rejected == nil || rejected.DelegationAdmission == nil || rejected.DelegationAdmission.Status != "rejected" {
+			t.Fatalf("busy follow-up rejection = %#v, want rejected current group admission", rejected)
+		}
+		if rejected.DelegationAdmission.AgentID != "" || rejected.DelegationAdmission.Group != "" || rejected.DelegationAdmission.BatchID != "" {
+			t.Fatalf("busy follow-up rejection admission = %#v, want no admitted child", rejected.DelegationAdmission)
+		}
+		if got := toolResultInConversation(h.session.Conversation(), "busy-follow-call"); !strings.Contains(got, "still running") {
+			t.Fatalf("busy follow-up result = %q, want model-visible busy rejection", got)
+		}
+
+		clearTurnNotifications(prov)
+		prov.release("fresh-partial")
+		waitForDelegationComplete(t, h, freshAdmission.AgentID)
+		fireAndAwaitWake(t, h.session, prov, h.clock)
+		if n := len(subAgentResultMessages(h.session.Conversation())); n != 1 {
+			t.Fatalf("%d result messages after accepted fresh child, want one without rejected sibling", n)
+		}
+		prov.release("warm")
+		awaitImmediateWake(t, h.session, prov, h.clock)
+		results := subAgentResultMessages(h.session.Conversation())
+		if len(results) != 2 {
+			t.Fatalf("%d result messages after partial group, want fresh and warm", len(results))
+		}
+		body := results[0].Content
+		if !strings.Contains(body, `call_id="fresh-call"`) || strings.Contains(body, `call_id="busy-follow-call"`) {
+			t.Fatalf("partial delivery = %q, want accepted fresh member only", body)
 		}
 	})
 }
