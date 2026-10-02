@@ -59,12 +59,15 @@ func manualCompactionHasSource(messages []agent.Message) bool {
 	return agent.HasCompactionSource(messages)
 }
 
-// snapshotTools returns the tools the last request sent, so the compaction is
-// built from the same prefix a normal turn would replay. The runExecutor seam
-// (cliRunner.Compact) clones them before handing them to the agent runner; here
-// we pass the reference without duplicating it.
+// snapshotTools returns the tools the last parent request sent, so manual
+// compaction is built from the same prefix a normal turn would replay. Child
+// sub-agent requests carry restricted tool sets and must not change the
+// compaction prefix, so this reads the parent-only snapshot rather than the
+// latest-overall one. The runExecutor seam (cliRunner.Compact) clones them
+// before handing them to the agent runner; here we pass the reference without
+// duplicating it. Returns nil when no parent request has been recorded.
 func snapshotTools(store *SnapshotStore) []provider.ToolSpec {
-	snapshot, ok := store.Snapshot()
+	snapshot, ok := store.ParentSnapshot()
 	if !ok {
 		return nil
 	}

@@ -180,6 +180,14 @@ func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, sk
 		CompactionLogPath: r.runtime.compactionLogFile,
 		PromptCacheKey:    r.promptCacheKey(),
 		Diagnostics:       r.runtime.diagnostics,
+		// Compaction shares the session's cache baseline so its diagnostics can
+		// report the shared prefix with the parent's last accepted request. It
+		// never promotes the baseline (see completeCompactionCall), so a normal
+		// turn is still the predecessor for the next comparison.
+		CacheBaseline: r.cacheBaseline,
+	}
+	if r.runtime.usageRecorder != nil {
+		req.UsageRecorder = r.runtime.usageRecorder
 	}
 	return agent.NewRunner().Compact(ctx, req, conversation, steering)
 }
