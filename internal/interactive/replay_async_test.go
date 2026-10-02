@@ -366,6 +366,58 @@ func TestReplayDelegationBundlesEmitInAssistantOrder(t *testing.T) {
 	}
 }
 
+func TestReplayAuthoritativeBundleFullyPrecedesNextOccurrence(t *testing.T) {
+	t.Parallel()
+	msgs := []agent.Message{
+		{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{
+			{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "one"}},
+			{ID: "call-2", Name: "sub_agent", Arguments: map[string]any{"task": "two"}},
+		}},
+		{Role: agent.MessageRoleTool, ToolCallID: "call-1", Name: "sub_agent", Content: `{"output":"first"}`, DelegationAdmission: &tool.DelegationAdmission{Status: "accepted", AgentID: "agent-a", BatchID: "batch-1", Group: "group-1"}},
+		{Role: agent.MessageRoleTool, ToolCallID: "call-2", Name: "sub_agent", Content: `{"output":"second"}`, DelegationAdmission: &tool.DelegationAdmission{Status: "accepted", AgentID: "agent-b", BatchID: "batch-2", Group: "group-2"}},
+	}
+	ledger := []agent.SubAgentLedgerEntry{
+		{ParentCallID: "call-1", AgentID: "agent-a", BatchID: "batch-1", Group: "group-1"},
+		{ParentCallID: "call-2", AgentID: "agent-b", BatchID: "batch-2", Group: "group-2"},
+	}
+	events := replayEventsWithLedger(t, msgs, ledger)
+	var sequence []string
+	for _, event := range events {
+		switch event.Type {
+		case output.EventTypeToolCallStarted:
+			sequence = append(sequence, "tool-start:"+event.Payload.(output.ToolCallStartedEvent).CallID)
+		case output.EventTypeDelegationAccepted:
+			p := event.Payload.(output.DelegationAcceptedEvent)
+			sequence = append(sequence, "accepted:"+p.AgentID+":"+p.CallID+":"+p.BatchID+":"+p.Group)
+		case output.EventTypeDelegationStarted:
+			p := event.Payload.(output.DelegationStartedEvent)
+			sequence = append(sequence, "started:"+p.AgentID+":"+p.CallID)
+		case output.EventTypeDelegationComplete:
+			p := event.Payload.(output.DelegationCompleteEvent)
+			sequence = append(sequence, "complete:"+p.AgentID+":"+p.Output)
+		case output.EventTypeToolCallFinished:
+			sequence = append(sequence, "tool-finished:"+event.Payload.(output.ToolCallFinishedEvent).CallID)
+		}
+	}
+	// The first occurrence's complete bundle, including its actual parent
+	// finish, lands before the second occurrence's tool-start.
+	want := []string{
+		"tool-start:call-1",
+		"accepted:agent-a:call-1:batch-1:group-1",
+		"started:agent-a:call-1",
+		"complete:agent-a:first",
+		"tool-finished:call-1",
+		"tool-start:call-2",
+		"accepted:agent-b:call-2:batch-2:group-2",
+		"started:agent-b:call-2",
+		"complete:agent-b:second",
+		"tool-finished:call-2",
+	}
+	if !reflect.DeepEqual(sequence, want) {
+		t.Fatalf("authoritative bundle sequence = %v, want %v", sequence, want)
+	}
+}
+
 func TestReplayDelegationBundleEmitsEachEventOnce(t *testing.T) {
 	t.Parallel()
 	msgs := []agent.Message{
