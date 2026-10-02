@@ -71,7 +71,7 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	}
 	s.jobs[job.AgentID] = state
 	s.queue = append(s.queue, state)
-	state.wasQueued = s.running >= s.maxParallel || len(s.queue) > 1
+	state.wasQueued = s.running+len(s.queue) > s.maxParallel
 	events := job.Events
 	s.mu.Unlock()
 
@@ -79,6 +79,10 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	// queueing or preparation, so it precedes every other lifecycle event.
 	if events != nil {
 		events.Emit(output.NewDelegationAcceptedEvent(jobOccurrence(job), groupName))
+		// Queued precedes publication: an unpublished job cannot start.
+		if state.wasQueued {
+			events.Emit(output.NewDelegationQueuedEvent(jobOccurrence(job), string(job.AgentType), job.ObjectivePreview))
+		}
 	}
 
 	s.mu.Lock()
@@ -97,9 +101,6 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	s.startQueuedLocked()
 	s.mu.Unlock()
 	latePosts.deliver()
-	if state.wasQueued && events != nil {
-		events.Emit(output.NewDelegationQueuedEvent(jobOccurrence(job), string(job.AgentType), job.ObjectivePreview))
-	}
 	return state, nil
 }
 

@@ -3,11 +3,13 @@ package delegation
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func TestSupervisorFIFOStartOrder(t *testing.T) {
@@ -201,6 +203,56 @@ func TestSupervisorCancelledQueuedJobNeverExecutes(t *testing.T) {
 			}
 			if ids := controller.ActiveAgentIDs(); len(ids) != 0 {
 				t.Fatalf("active after joins = %v, want none", ids)
+			}
+		})
+	}
+}
+
+func TestSupervisorQueuedEventOrdering(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		maxParallel int
+		want        []string
+	}{
+		{"free slot emits no queued", 2, []string{output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted}},
+		{"saturated emits queued before started", 1, []string{output.EventTypeDelegationAccepted, output.EventTypeDelegationQueued, output.EventTypeDelegationStarted}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s, _ := newTestSupervisor(tt.maxParallel, 0)
+			events := &queuedEventSink{}
+			first, second := newFakeChild("first", false), newFakeChild("second", false)
+			first.job.Events = events
+			second.job.Events = events
+			secondExecute := second.job.Execute
+			second.job.Execute = func(ctx context.Context) (tool.ExecutionResult, error) {
+				events.Emit(output.NewDelegationStartedEvent(jobOccurrence(second.job), "", "", ""))
+				return secondExecute(ctx)
+			}
+
+			resFirst := spawn(context.Background(), s, first.job)
+			waitClosed(t, first.started, "first start")
+			resSecond := spawn(context.Background(), s, second.job)
+			if tt.maxParallel == 1 {
+				waitOutstanding(t, s, 2)
+			}
+			close(first.release)
+			recv(t, resFirst, "first result")
+			waitClosed(t, second.started, "second start")
+			close(second.release)
+			recv(t, resSecond, "second result")
+
+			var got []string
+			for _, e := range events.snapshot() {
+				if delegationOccurrenceOf(t, e).AgentID == "second" {
+					got = append(got, e.Type)
+				}
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("second lifecycle = %v, want %v", got, tt.want)
 			}
 		})
 	}

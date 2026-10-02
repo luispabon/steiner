@@ -165,16 +165,20 @@ func findDelegationSegment(segments []contentSegment, dd *delegationDisplayState
 // findDelegationSegmentFrom checks hint, then scans segments[start:], then the
 // unchanged segments ahead of start.
 func findDelegationSegmentFrom(segments []contentSegment, dd *delegationDisplayState, hint, start int) int {
-	if hint >= 0 && hint < len(segments) && segmentHoldsDelegation(segments[hint], dd) {
+	return findSegmentFrom(segments, hint, start, func(seg contentSegment) bool { return segmentHoldsDelegation(seg, dd) })
+}
+
+func findSegmentFrom(segments []contentSegment, hint, start int, holds func(contentSegment) bool) int {
+	if hint >= 0 && hint < len(segments) && holds(segments[hint]) {
 		return hint
 	}
 	for i := start; i < len(segments); i++ {
-		if segmentHoldsDelegation(segments[i], dd) {
+		if holds(segments[i]) {
 			return i
 		}
 	}
 	for i := range min(start, len(segments)) {
-		if segmentHoldsDelegation(segments[i], dd) {
+		if holds(segments[i]) {
 			return i
 		}
 	}
@@ -196,20 +200,7 @@ func segmentHoldsDelegation(seg contentSegment, dd *delegationDisplayState) bool
 }
 
 func findToolCallSegmentFrom(segments []contentSegment, td *toolCallSegment, hint, start int) int {
-	if hint >= 0 && hint < len(segments) && segmentHoldsToolCall(segments[hint], td) {
-		return hint
-	}
-	for i := start; i < len(segments); i++ {
-		if segmentHoldsToolCall(segments[i], td) {
-			return i
-		}
-	}
-	for i := range min(start, len(segments)) {
-		if segmentHoldsToolCall(segments[i], td) {
-			return i
-		}
-	}
-	return -1
+	return findSegmentFrom(segments, hint, start, func(seg contentSegment) bool { return segmentHoldsToolCall(seg, td) })
 }
 
 func segmentHoldsToolCall(seg contentSegment, td *toolCallSegment) bool {

@@ -76,7 +76,7 @@ type Session struct {
 
 func newEmptyDelegationGroupLedger() *agent.DelegationGroupLedger {
 	ledger := new(agent.DelegationGroupLedger)
-	ledger.Version = 1
+	ledger.Version = agent.DelegationGroupLedgerVersion
 	return ledger
 }
 
