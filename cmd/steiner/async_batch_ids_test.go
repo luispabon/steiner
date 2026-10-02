@@ -1,7 +1,7 @@
 package main
 
 import (
-	"strings"
+	"regexp"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -39,9 +39,13 @@ func TestNamedGroupsAcceptedWhenProviderRepeatsOrOmitsCallIDs(t *testing.T) {
 		}
 		batches[payload.BatchID] = group
 	}
-	for group, prefix := range map[string]string{"group-one": "call_0~", "group-two": "call_0~", "group-three": "call_"} {
-		if got := accepted[group].BatchID; !strings.HasPrefix(got, prefix) {
-			t.Fatalf("group %q batch ID = %q, want prefix %q", group, got, prefix)
+	for group, pattern := range map[string]*regexp.Regexp{
+		"group-one":   regexp.MustCompile(`^call_0~`),
+		"group-two":   regexp.MustCompile(`^call_0~`),
+		"group-three": regexp.MustCompile(`^call_[0-9a-f]{8}_[0-9]+~`),
+	} {
+		if got := accepted[group].BatchID; !pattern.MatchString(got) {
+			t.Fatalf("group %q batch ID = %q, want match %s", group, got, pattern)
 		}
 	}
 }
