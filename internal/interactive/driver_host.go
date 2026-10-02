@@ -122,8 +122,9 @@ func (s *Session) currentDriver() *agent.ConversationDriver {
 	return s.driver.drv
 }
 
-// replacementGuardLocked checks whether a driver replacement may proceed. The
-// caller must hold s.mu and keep it held through the swap.
+// replacementGuardLocked checks whether a driver replacement may proceed. Busy
+// also covers the driver's final transition snapshot/save. The caller must hold
+// s.mu and keep it held through the swap.
 func (s *Session) replacementGuardLocked(action string) error {
 	if s.driverAdmissions > 0 || s.driver.drv.Busy() {
 		return fmt.Errorf("%s: %w", action, errRunInProgress)

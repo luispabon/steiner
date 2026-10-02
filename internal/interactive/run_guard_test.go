@@ -5,7 +5,9 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -230,6 +232,109 @@ func TestActiveRunControllerReleaseRequiresOwnerToken(t *testing.T) {
 	c.Release(tokB)
 	if c.HasCancel() {
 		t.Fatal("owner Release did not release cancel")
+	}
+}
+
+type finalGroupSnapshotBarrier struct {
+	mu          sync.Mutex
+	ledger      agent.DelegationGroupLedger
+	block       bool
+	entered     chan struct{}
+	release     chan struct{}
+	releaseOnce sync.Once
+}
+
+func (b *finalGroupSnapshotBarrier) arm(ledger agent.DelegationGroupLedger) {
+	b.mu.Lock()
+	b.ledger = ledger.Clone()
+	b.block = true
+	b.mu.Unlock()
+}
+
+func (b *finalGroupSnapshotBarrier) snapshot() agent.DelegationGroupLedger {
+	b.mu.Lock()
+	ledger := b.ledger.Clone()
+	block := b.block
+	b.block = false
+	b.mu.Unlock()
+	if block {
+		close(b.entered)
+		<-b.release
+	}
+	return ledger
+}
+
+func (b *finalGroupSnapshotBarrier) releaseSave() {
+	b.releaseOnce.Do(func() { close(b.release) })
+}
+
+func TestRotationRefusedThroughFinalGroupSnapshotSave(t *testing.T) {
+	barrier := &finalGroupSnapshotBarrier{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	store := newMockSessionStore()
+	var scopeMu sync.Mutex
+	nextScope := 0
+	newScope := func(agent.DelegationGroupLedger) string {
+		scopeMu.Lock()
+		defer scopeMu.Unlock()
+		nextScope++
+		return string(rune('a' + nextScope - 1))
+	}
+	s := testNewSession(t, Dependencies{
+		SessionStore:        store,
+		NewGroupScope:       newScope,
+		SnapshotGroupLedger: func(string) agent.DelegationGroupLedger { return barrier.snapshot() },
+		Config:              guardTestConfig(),
+	})
+	t.Cleanup(barrier.releaseSave)
+	startID := s.SessionID()
+	startDriver := s.currentDriver()
+	startScope := s.driver.groupScope
+	finalLedger := agent.DelegationGroupLedger{Version: 1, Names: []string{"final-name"}}
+	s.SetRunner(&inputRunner{run: func(_ context.Context, in RunInput) (RunResult, error) {
+		barrier.arm(finalLedger)
+		return withAnswer(in, "final answer"), nil
+	}})
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "final prompt"}); err != nil {
+		t.Fatalf("SubmitPrompt: %v", err)
+	}
+	select {
+	case <-barrier.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("final group snapshot did not reach barrier")
+	}
+
+	wantID, wantDriver, wantScope, wantHistory := s.SessionID(), s.currentDriver(), s.driver.groupScope, s.Conversation()
+	if wantID != startID || wantDriver != startDriver || wantScope != startScope {
+		t.Fatal("final save changed identity, driver, or group scope before rotation")
+	}
+	if err := s.Handle(context.Background(), RotateSession{}); !errors.Is(err, errRunInProgress) {
+		t.Fatalf("RotateSession during final group save: %v, want errRunInProgress", err)
+	}
+	gotID, gotDriver, gotScope, gotHistory := s.SessionID(), s.currentDriver(), s.driver.groupScope, s.Conversation()
+	if gotID != wantID || gotDriver != wantDriver || gotScope != wantScope || !reflect.DeepEqual(gotHistory, wantHistory) {
+		t.Fatal("refused rotation changed identity, driver, history, or group scope")
+	}
+
+	barrier.releaseSave()
+	waitSettled(t, s)
+	completedHistory := s.Conversation()
+	if len(completedHistory) != 2 || completedHistory[len(completedHistory)-1].Content != "final answer" {
+		t.Fatalf("completed history = %+v, want final answer", completedHistory)
+	}
+	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
+		t.Fatalf("RotateSession after final group save: %v", err)
+	}
+	if s.SessionID() == startID || s.driver.groupScope == startScope {
+		t.Fatalf("successor identity/scope = %q/%q, want both rotated", s.SessionID(), s.driver.groupScope)
+	}
+	if got := s.Conversation(); !reflect.DeepEqual(got, completedHistory) {
+		t.Fatalf("successor history = %+v, want %+v", got, completedHistory)
+	}
+	if got := s.driver.drv.Snapshot().GroupLedger.Names; !reflect.DeepEqual(got, finalLedger.Names) {
+		t.Fatalf("successor group names = %v, want %v", got, finalLedger.Names)
 	}
 }
 

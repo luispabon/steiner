@@ -125,7 +125,7 @@ func TestConversationDriverPromptStartedSequenceDoesNotAnnouncePrompt(t *testing
 	}
 }
 
-func TestConversationDriverWaitQuiescentWaitsForSettlingSave(t *testing.T) {
+func TestConversationDriverBusyDuringSettlingSave(t *testing.T) {
 	t.Parallel()
 	saveStarted := make(chan struct{}, 8)
 	releaseSave := make(chan struct{})
@@ -144,6 +144,9 @@ func TestConversationDriverWaitQuiescentWaitsForSettlingSave(t *testing.T) {
 	h.d.Submit("hi", nil, SubmitMeta{})
 	h.nextRun().finish()
 	<-saveStarted
+	if !h.d.Busy() {
+		t.Fatal("Busy() = false while the settling save was still running")
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()

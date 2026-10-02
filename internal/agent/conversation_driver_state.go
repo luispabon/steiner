@@ -34,12 +34,12 @@ func (d *ConversationDriver) State() (DriverState, bool) {
 	return d.state, d.held
 }
 
-// Busy reports whether a run or compaction is in flight or a submitted prompt
-// is queued and not yet started.
+// Busy reports whether a run or compaction is in flight, a submitted prompt
+// is queued and not yet started, or a transition snapshot is being saved.
 func (d *ConversationDriver) Busy() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.state == DriverGenerating || d.compacting || len(d.compactions) > 0 || len(d.users) > 0
+	return !d.idleLocked()
 }
 
 // Snapshot returns a copy of the driver's durable state.
