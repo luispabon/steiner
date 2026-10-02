@@ -32,15 +32,21 @@ func newEventBridge(buffer int) *eventBridge {
 }
 
 // Emit delivers event to the TUI's message loop. Before start it queues the
-// event. After start it never blocks past the bridge being closed: once done is
-// closed (after the program has exited), events are dropped instead of hanging
-// the emitting goroutine forever waiting on a channel nobody drains anymore.
+// event. Once done is closed (after the program has exited) events are dropped
+// in every state, before or after start, so nothing queues in pending forever
+// and no emitting goroutine hangs on a channel nobody drains anymore.
 func (b *eventBridge) Emit(event output.Event) {
 	if b == nil {
 		return
 	}
 	msg := runtimeEventMsg{Event: event}
 	b.mu.Lock()
+	select {
+	case <-b.done:
+		b.mu.Unlock()
+		return
+	default:
+	}
 	if !b.live {
 		b.pending = append(b.pending, msg)
 		b.mu.Unlock()
@@ -78,6 +84,12 @@ func (b *eventBridge) flush() {
 			select {
 			case b.ch <- msg:
 			case <-b.done:
+				// Closed mid-flush: release the queue and go live so the
+				// state is terminal; Emit drops from here on.
+				b.mu.Lock()
+				b.pending = nil
+				b.live = true
+				b.mu.Unlock()
 				return
 			}
 		}
