@@ -112,19 +112,23 @@ func (p *asyncScript) childTurn(ctx context.Context, req provider.ChatRequest) (
 	for _, m := range req.Messages {
 		text.WriteString(m.Content)
 	}
-	for objective, gate := range p.gates {
-		if !strings.Contains(text.String(), objective) {
-			continue
-		}
-		p.started <- objective
-		select {
-		case <-gate:
-		case <-ctx.Done():
-			return provider.ChatResponse{}, ctx.Err()
-		}
-		return textResponse("finished " + objective), nil
+	marker := "## Objective\n\n"
+	start := strings.LastIndex(text.String(), marker)
+	if start < 0 {
+		return provider.ChatResponse{}, fmt.Errorf("unscripted child request")
 	}
-	return provider.ChatResponse{}, fmt.Errorf("unscripted child request")
+	objective := strings.SplitN(text.String()[start+len(marker):], "\n", 2)[0]
+	gate, ok := p.gates[objective]
+	if !ok {
+		return provider.ChatResponse{}, fmt.Errorf("unscripted child objective %q", objective)
+	}
+	p.started <- objective
+	select {
+	case <-gate:
+	case <-ctx.Done():
+		return provider.ChatResponse{}, ctx.Err()
+	}
+	return textResponse("finished " + objective), nil
 }
 
 func (p *asyncScript) release(objective string) { close(p.gates[objective]) }
@@ -188,21 +192,16 @@ func subAgentResultMessages(conv []agent.Message) []agent.Message {
 type asyncEventRecorder struct {
 	mu     sync.Mutex
 	events []output.Event
-	wake   chan struct{}
 }
 
 func newAsyncEventRecorder() *asyncEventRecorder {
-	return &asyncEventRecorder{wake: make(chan struct{}, 1)}
+	return &asyncEventRecorder{}
 }
 
 func (r *asyncEventRecorder) Emit(event output.Event) {
 	r.mu.Lock()
 	r.events = append(r.events, event)
 	r.mu.Unlock()
-	select {
-	case r.wake <- struct{}{}:
-	default:
-	}
 }
 
 func (r *asyncEventRecorder) snapshot() []output.Event {
@@ -211,18 +210,18 @@ func (r *asyncEventRecorder) snapshot() []output.Event {
 	return append([]output.Event(nil), r.events...)
 }
 
-func (r *asyncEventRecorder) waitFor(t *testing.T, match func(output.Event) bool) output.Event {
+func (r *asyncEventRecorder) waitFor(t *testing.T, match func(output.Event) bool) {
 	t.Helper()
 	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()
 	for {
 		for _, event := range r.snapshot() {
 			if match(event) {
-				return event
+				return
 			}
 		}
 		select {
-		case <-r.wake:
+		case <-time.After(time.Millisecond):
 		case <-deadline.C:
 			t.Fatal("expected event was not emitted")
 		}
@@ -232,9 +231,7 @@ func (r *asyncEventRecorder) waitFor(t *testing.T, match func(output.Event) bool
 type asyncHarness struct {
 	session    *interactive.Session
 	clock      *asyncClock
-	provider   *asyncScript
 	supervisor *delegation.Supervisor
-	store      *delegation.SessionStore
 	events     *asyncEventRecorder
 	scope      string
 }
@@ -256,9 +253,9 @@ func newAsyncHarness(t *testing.T, prov *asyncScript, maxParallel int) *asyncHar
 	cfg.Limits.MaxTokens = 1_000_000
 
 	controller := delegation.NewActiveController()
-	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: maxParallel, Controller: controller})
-	store := delegation.NewSessionStore()
 	events := newAsyncEventRecorder()
+	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: maxParallel, Controller: controller, Events: events})
+	store := delegation.NewSessionStore()
 	workDir := t.TempDir()
 	rt := cliRuntime{
 		cfg:                        cfg,
@@ -301,7 +298,7 @@ func newAsyncHarness(t *testing.T, prov *asyncScript, maxParallel int) *asyncHar
 		sess.Close(ctx)
 	})
 	sess.SetRunner(sessionRunner{runner: cliRunner{runtime: rt, runMode: "interactive", sessionIDFn: sess.SessionID, modeGetterFunc: sess.Mode}})
-	return &asyncHarness{session: sess, clock: clock, provider: prov, supervisor: sup, store: store, events: events, scope: scope}
+	return &asyncHarness{session: sess, clock: clock, supervisor: sup, events: events, scope: scope}
 }
 
 func newAsyncSession(t *testing.T, prov provider.Provider, maxParallel int) (*interactive.Session, *asyncClock) {
@@ -391,6 +388,47 @@ func recvStartedSet(t *testing.T, p *asyncScript, wants ...string) {
 			}
 		case <-time.After(10 * time.Second):
 			t.Fatalf("children %v did not all start, saw %v", wants, seen)
+		}
+	}
+}
+
+func acceptedAgentFor(events []output.Event, callID string) string {
+	for _, event := range events {
+		if event.Type != output.EventTypeDelegationAccepted {
+			continue
+		}
+		payload, ok := event.Payload.(output.DelegationAcceptedEvent)
+		if ok && payload.CallID == callID {
+			return payload.AgentID
+		}
+	}
+	return ""
+}
+
+func waitForDelegationComplete(t *testing.T, h *asyncHarness, agentID string) {
+	t.Helper()
+	h.events.waitFor(t, func(event output.Event) bool {
+		if event.Type != output.EventTypeDelegationComplete {
+			return false
+		}
+		payload, ok := event.Payload.(output.DelegationCompleteEvent)
+		return ok && payload.AgentID == agentID
+	})
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	for {
+		for _, pending := range h.supervisor.Pending() {
+			if pending.AgentID == agentID {
+				if pending.State != agent.SubAgentFinished {
+					break
+				}
+				return
+			}
+		}
+		select {
+		case <-time.After(time.Millisecond):
+		case <-deadline.C:
+			t.Fatalf("completed child %q never reached terminal ledger state", agentID)
 		}
 	}
 }
@@ -491,8 +529,8 @@ func TestAsyncSubAgentsThroughInteractiveWiring(t *testing.T) {
 		prov := newAsyncScript("task-alpha", "task-beta")
 		prov.parent = []func(provider.ChatRequest) provider.ChatResponse{
 			step(toolCallsResponse(subAgentCall("g1", "task-alpha", "pair"), subAgentCall("g2", "task-beta", "pair"))),
+			step(textResponse("accepted")),
 			step(toolCallsResponse(subAgentCall("r1", "retry-alpha", "pair"), subAgentCall("r2", "retry-beta", "pair"))),
-			step(textResponse("waiting")),
 			step(textResponse("saw both")),
 		}
 		h := newAsyncHarness(t, prov, 4)
@@ -500,6 +538,12 @@ func TestAsyncSubAgentsThroughInteractiveWiring(t *testing.T) {
 		submit(t, h.session, "dispatch the pair")
 		waitRuns(t, h.session)
 		recvStartedSet(t, prov, "task-alpha", "task-beta")
+		events := h.events.snapshot()
+		for _, callID := range []string{"g1", "g2"} {
+			if acceptedAgentFor(events, callID) == "" {
+				t.Fatalf("no real accepted event for %s", callID)
+			}
+		}
 		before := h.supervisor.SnapshotGroupLedger(h.sessionGroupScope())
 		if before.Version != 1 || !containsGroupName(before, "pair") {
 			t.Fatalf("ledger before reuse = %+v, want reserved pair", before)
@@ -511,14 +555,14 @@ func TestAsyncSubAgentsThroughInteractiveWiring(t *testing.T) {
 		if !sameGroupLedger(before, after) {
 			t.Fatalf("ledger changed after rejected reuse: before=%+v after=%+v", before, after)
 		}
-		if got := toolResultInConversation(h.session.Conversation(), "r1"); !strings.Contains(got, "child setup failed") {
-			t.Fatalf("r1 rejection = %q, want corrective model error", got)
+		if got := toolResultInConversation(h.session.Conversation(), "r1"); !strings.Contains(got, "child setup failed") || strings.Contains(got, `already used; choose a fresh name`) {
+			t.Fatalf("r1 rejection = %q, want corrective model error without raw provider reason", got)
 		}
-		if got := toolResultInConversation(h.session.Conversation(), "r2"); !strings.Contains(got, "child setup failed") {
-			t.Fatalf("r2 rejection = %q, want corrective model error", got)
+		if got := toolResultInConversation(h.session.Conversation(), "r2"); !strings.Contains(got, "child setup failed") || strings.Contains(got, `already used; choose a fresh name`) {
+			t.Fatalf("r2 rejection = %q, want corrective model error without raw provider reason", got)
 		}
 
-		events := h.events.snapshot()
+		events = h.events.snapshot()
 		for _, callID := range []string{"r1", "r2"} {
 			finished := delegationFinishedFor(events, callID)
 			if finished == nil {
@@ -538,8 +582,9 @@ func TestAsyncSubAgentsThroughInteractiveWiring(t *testing.T) {
 			t.Fatalf("%d result messages before original pair finishes, want 0", n)
 		}
 		prov.release("task-alpha")
+		waitForDelegationComplete(t, h, acceptedAgentFor(events, "g1"))
 		if n := len(subAgentResultMessages(h.session.Conversation())); n != 0 {
-			t.Fatalf("%d result messages after first original child finishes, want 0", n)
+			t.Fatalf("%d result messages after first original child completed, want 0", n)
 		}
 		clearTurnNotifications(prov)
 		prov.release("task-beta")
