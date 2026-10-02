@@ -69,3 +69,20 @@ func TestGroupScopeStateStaysBoundedAcrossBatches(t *testing.T) {
 		t.Fatalf("sealing retained %d names", len(state.names))
 	}
 }
+
+func TestSealingOneScopeLeavesOtherScopesOpen(t *testing.T) {
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
+	sealed := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	other := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	s.SealGroupBatch(sealed, testBatchID(10))
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.reserveGroupLocked(other, "g", testBatchID(3)); err != nil {
+		t.Fatalf("join in other stream's open batch = %v, want nil", err)
+	}
+	var reservationErr *groupReservationError
+	if err := s.reserveGroupLocked(sealed, "h", testBatchID(3)); !errors.As(err, &reservationErr) || !reservationErr.sealed {
+		t.Fatalf("join in sealed stream = %v, want sealed reservation error", err)
+	}
+}

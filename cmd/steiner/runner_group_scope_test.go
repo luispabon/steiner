@@ -11,60 +11,35 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func TestCLIRunnerRunReusesFallbackDelegationGroupScope(t *testing.T) {
-	for _, tt := range []struct {
-		name     string
-		explicit bool
-	}{
-		{name: "fallback"},
-		{name: "explicit scope wins fallback", explicit: true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			runner, supervisor, fallback, script := newGroupScopeTestRunner(t)
-			t.Cleanup(func() { supervisor.CancelAll(delegation.CancelCauseUser) })
-			var explicit string
-			if tt.explicit {
-				explicit = supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
-			}
-			runGroup := func(callID, objective string) runResult {
-				t.Helper()
-				hooks := runHooks{}
-				if explicit != "" {
-					hooks.delegationGroupScope = explicit
-				}
-				result, err := runner.run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "dispatch " + objective}}, nil, hooks)
-				if err != nil {
-					t.Fatalf("cliRunner.run(%s) error = %v", callID, err)
-				}
-				return result
-			}
+func TestCLIRunnerRunReusesDelegationGroupScopeWithinStream(t *testing.T) {
+	runner, supervisor, scope, script := newGroupScopeTestRunner(t)
+	t.Cleanup(func() { supervisor.CancelAll(delegation.CancelCauseUser) })
+	runGroup := func(objective string) runResult {
+		t.Helper()
+		result, err := runner.run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "dispatch " + objective}}, nil, runHooks{delegationGroupScope: scope})
+		if err != nil {
+			t.Fatalf("cliRunner.run(%s) error = %v", objective, err)
+		}
+		return result
+	}
 
-			first := runGroup("first", "first objective")
-			if got := toolResultInConversation(first.Conversation, "first"); !strings.Contains(got, `"status":"running"`) {
-				t.Fatalf("first sub_agent result = %q, want running ack", got)
-			}
-			recvStarted(t, script, "first objective")
+	first := runGroup("first objective")
+	if got := toolResultInConversation(first.Conversation, "first"); !strings.Contains(got, `"status":"running"`) {
+		t.Fatalf("first sub_agent result = %q, want running ack", got)
+	}
+	recvStarted(t, script, "first objective")
 
-			second := runGroup("second", "second objective")
-			if got := toolResultInConversation(second.Conversation, "second"); !strings.Contains(got, `"status":"failed"`) {
-				t.Fatalf("second sub_agent result = %q, want failed ack for reused group name", got)
-			}
-			select {
-			case got := <-script.started:
-				t.Fatalf("second child %q started despite reused group name", got)
-			default:
-			}
-			if got := supervisor.SnapshotGroupLedger(fallback).Names; tt.explicit && (len(got) != 1 || got[0] != "fallback-only") {
-				t.Fatalf("fallback scope names = %v, want [fallback-only] when explicit scope is set", got)
-			} else if !tt.explicit && (len(got) != 2 || got[0] != "fallback-only" || got[1] != "shared-group") {
-				t.Fatalf("fallback scope names = %v, want [fallback-only shared-group]", got)
-			}
-			if tt.explicit {
-				if got := supervisor.SnapshotGroupLedger(explicit).Names; len(got) != 1 || got[0] != "shared-group" {
-					t.Fatalf("explicit scope names = %v, want [shared-group]", got)
-				}
-			}
-		})
+	second := runGroup("second objective")
+	if got := toolResultInConversation(second.Conversation, "second"); !strings.Contains(got, `"status":"failed"`) {
+		t.Fatalf("second sub_agent result = %q, want failed ack for reused group name", got)
+	}
+	select {
+	case got := <-script.started:
+		t.Fatalf("second child %q started despite reused group name", got)
+	default:
+	}
+	if got := supervisor.SnapshotGroupLedger(scope).Names; len(got) != 1 || got[0] != "shared-group" {
+		t.Fatalf("scope names = %v, want [shared-group]", got)
 	}
 }
 
@@ -80,7 +55,7 @@ func newGroupScopeTestRunner(t *testing.T) (cliRunner, *delegation.Supervisor, s
 	model.Advanced.Limits.MaxOutputTokens = 4096
 	cfg.Models.Definitions["test-model"] = model
 	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 2})
-	fallback := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1, Names: []string{"fallback-only"}})
+	scope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	script := newAsyncScript("first objective")
 	script.parent = []func(provider.ChatRequest) provider.ChatResponse{
 		step(toolCallsResponse(subAgentCall("first", "first objective", "shared-group"))),
@@ -92,10 +67,10 @@ func newGroupScopeTestRunner(t *testing.T) (cliRunner, *delegation.Supervisor, s
 	rt := cliRuntime{
 		cfg: cfg, provider: script, registry: runtimeRegistryWithSinkAndMode(cfg, workDir, nil, true, nil, nil, nil, nil),
 		workDir: workDir, homeDir: t.TempDir(), events: output.NoopSink{},
-		delegationSupervisor: supervisor, delegationFallbackGroupScope: fallback,
+		delegationSupervisor:   supervisor,
 		providerFactory:        func(provider.ResolvedModel, string) (provider.Provider, error) { return script, nil },
 		delegationSessionStore: delegation.NewSessionStore(), delegationCacheKeyStore: delegation.NewCacheKeyStore(),
 		delegationActiveController: delegation.NewActiveController(),
 	}
-	return cliRunner{runtime: rt, runMode: "interactive"}, supervisor, fallback, script
+	return cliRunner{runtime: rt, runMode: "interactive"}, supervisor, scope, script
 }

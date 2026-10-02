@@ -28,9 +28,8 @@ import (
 
 func TestBuildRunRequestUsesCapturedDelegationGroupScope(t *testing.T) {
 	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
-	fallbackScope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 	explicitScope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
-	runner := cliRunner{runtime: cliRuntime{delegationSupervisor: supervisor, delegationFallbackGroupScope: fallbackScope}}
+	runner := cliRunner{runtime: cliRuntime{delegationSupervisor: supervisor}}
 	setup := runnerSetup{delegationGroupScope: explicitScope}
 	deps := runner.newDelegateDeps(setup, nil, nil, nil, "")
 	if deps.GroupScope != explicitScope {
@@ -39,7 +38,7 @@ func TestBuildRunRequestUsesCapturedDelegationGroupScope(t *testing.T) {
 
 	request := buildRunRequest(runner, setup, tool.NewRegistry(), nil, runHooks{})
 	if request.OnToolBatchDone == nil {
-		t.Fatal("OnToolBatchDone = nil, want scoped fallback sealer")
+		t.Fatal("OnToolBatchDone = nil, want scoped sealer")
 	}
 	testJob := func(id, group string) delegation.ChildJob {
 		return delegation.ChildJob{AgentID: id, Group: group, GroupScope: explicitScope, Execute: func(context.Context) (tool.ExecutionResult, error) {
