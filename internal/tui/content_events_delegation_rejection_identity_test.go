@@ -2,21 +2,26 @@ package tui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestDelegationRejectionIdentityKeepsAcceptedCardAndError(t *testing.T) {
-	accepted := &delegationDisplayState{parentCallID: "accepted-call", groupAccepted: true, batchID: "accepted-batch", group: "accepted-group"}
-	b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: accepted}}, activeDelegations: map[string]delegationLocator{"child": {seg: 0, dd: accepted}}}
+	b := newGroupTestBuffer()
+	occ := output.DelegationOccurrence{CallID: "accepted-call", BatchID: "accepted-batch", AgentID: "child"}
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "accepted-call", subAgentArgs("accepted-group")))
+	accepted := lastDelegationCard(b)
+	b.AppendEvent(output.NewDelegationAcceptedEvent(occ, "accepted-group"))
+	b.AppendEvent(output.NewDelegationStartedEvent(occ, "find files", "", "explore"))
 	const rejection = "provider: current call rejected"
 	b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "accepted-call", "", errors.New(rejection), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected"}))
 	if b.activeDelegations["child"].dd != accepted || findDelegationSegment(b.segments, accepted) < 0 {
 		t.Fatal("conflicting rejection removed or replaced accepted card")
 	}
-	if accepted.group != "accepted-group" || accepted.batchID != "accepted-batch" || !accepted.groupAccepted {
-		t.Fatalf("accepted identity changed: %#v", accepted)
+	if len(b.segments) != 2 || b.segments[0].kind != segmentDelegationGroup || accepted.group != "accepted-group" || accepted.status != "active" {
+		t.Fatalf("accepted card changed: segments=%v card=%#v", segmentKinds(b.segments), accepted)
 	}
 	if got := b.segments[len(b.segments)-1]; got.kind != segmentTool || got.text != rejection {
 		t.Fatalf("rejection evidence = %#v, want exact error %q", got, rejection)
@@ -43,14 +48,17 @@ func TestDelegationRejectionIdentityLateRejectedCallDoesNotStealActiveChild(t *t
 	if got.dd != originalCard || got.seg != original.seg {
 		t.Fatalf("late rejected call stole active locator: got=%#v want=%#v", got, original)
 	}
-	if findDelegationSegment(m.content.segments, originalCard) < 0 || originalCard.parentCallID != "original-call" || originalCard.agentID != "child" || originalCard.group != "old-group" || originalCard.batchID != "old-batch" || originalCard.status != "active" {
+	if findDelegationSegment(m.content.segments, originalCard) < 0 || originalCard.parentCallID != "original-call" || originalCard.agentID != "child" || originalCard.group != "old-group" || originalCard.status != "active" {
 		t.Fatalf("late rejected event changed original card identity: %#v", originalCard)
 	}
 	if countDelegationCards(m.content.segments) != 1 {
 		t.Fatalf("late rejected event created another card: %#v", m.content.segments)
 	}
-	if gotRoster := m.roster.entries["child"]; gotRoster != originalRoster || gotRoster.currentCallID != "original-call" || gotRoster.status != rosterRunning || gotRoster.group != "old-group" || gotRoster.batchID != "old-batch" {
+	if gotRoster := m.roster.entries["child"]; gotRoster != originalRoster || gotRoster.status != rosterRunning || gotRoster.group != "old-group" {
 		t.Fatalf("late rejected event changed original roster: %#v", gotRoster)
+	}
+	if out := sidebarText(&m.roster, 1); !strings.Contains(out, "old-group") || strings.Count(out, "child") != 1 {
+		t.Fatalf("sidebar should show the original run once:\n%s", out)
 	}
 }
 
@@ -75,7 +83,7 @@ func TestDelegationRejectionIdentityAllowsFreshAcceptedFollowUpAfterCompletion(t
 	m.applyEvent(output.NewToolCallFinishedEventWithAdmission(1, "follow_up", "fresh-call", "", nil, output.ToolPreview{}, &output.DelegationAdmission{Status: "accepted", AgentID: "child", BatchID: "fresh-batch", Group: "fresh-group"}))
 	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "fresh-call", AgentID: "child"}, "fresh work", "", "explore"))
 
-	if fresh.agentID != "child" || fresh.parentCallID != "fresh-call" || fresh.status != "active" || !fresh.groupAccepted || fresh.group != "fresh-group" || fresh.batchID != "fresh-batch" {
+	if fresh.agentID != "child" || fresh.parentCallID != "fresh-call" || fresh.status != "active" || fresh.group != "fresh-group" {
 		t.Fatalf("fresh follow-up binding = %#v", fresh)
 	}
 	if findDelegationSegment(m.content.segments, originalCard) < 0 || originalCard.status != "complete" {
@@ -88,8 +96,11 @@ func TestDelegationRejectionIdentityAllowsFreshAcceptedFollowUpAfterCompletion(t
 		t.Fatalf("fresh follow-up remains pending: %#v", m.content.pendingDelegateParents)
 	}
 	roster := m.roster.entries["child"]
-	if roster == nil || roster.currentCallID != "fresh-call" || roster.status != rosterRunning || roster.group != "fresh-group" || roster.batchID != "fresh-batch" {
+	if roster == nil || roster.status != rosterRunning || roster.group != "fresh-group" {
 		t.Fatalf("fresh follow-up roster = %#v", roster)
+	}
+	if out := sidebarText(&m.roster, 1); !strings.Contains(out, "fresh-group") || strings.Contains(out, "old-group") || strings.Count(out, "child") != 1 {
+		t.Fatalf("sidebar should show only the fresh run:\n%s", out)
 	}
 }
 

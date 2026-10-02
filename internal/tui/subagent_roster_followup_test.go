@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -24,11 +25,14 @@ func TestRosterAcceptedSameCallIDFailureReplacesFinishedEntry(t *testing.T) {
 	if entry == nil {
 		t.Fatal("missing child entry")
 	}
-	if entry.status != rosterFailed || entry.currentCallID != "same-call" || entry.batchID != "new-batch" || entry.group != "new-group" {
+	if entry.status != rosterFailed || entry.group != "new-group" {
 		t.Fatalf("entry = %+v, want failed fresh same-call occurrence", entry)
 	}
 	if entry.startTime != 4_950_000_000 || entry.finishTime != 5_000_000_000 || entry.delivered {
 		t.Errorf("timing/delivery = %d, %d, %t, want 4950000000, 5000000000, false", entry.startTime, entry.finishTime, entry.delivered)
+	}
+	if out := sidebarText(&r, 5); !strings.Contains(out, "new-group") || strings.Contains(out, "old-group") {
+		t.Errorf("sidebar should show only the fresh occurrence group:\n%s", out)
 	}
 }
 
@@ -58,7 +62,7 @@ func TestRosterActiveSameCallIDDifferentBatchIsProtected(t *testing.T) {
 	r.observe(ev(output.DelegationFailedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "same-call", AgentID: "child"}, AgentType: "review", DurationMs: 10, Error: "active overwrite"}), 4)
 
 	entry := r.entries["child"]
-	if entry.currentCallID != "same-call" || entry.status != rosterRunning || entry.batchID != "old-batch" || entry.group != "old-group" {
+	if entry.status != rosterRunning || entry.group != "old-group" {
 		t.Fatalf("entry after active same-call replacement = %+v, want old running identity", entry)
 	}
 
@@ -66,7 +70,11 @@ func TestRosterActiveSameCallIDDifferentBatchIsProtected(t *testing.T) {
 	r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{
 		AgentID: "child", AgentType: "review", Status: "complete", ParentCallID: "same-call", DurationMs: 25,
 	}}}), 5)
-	if entry.status != rosterDone || entry.batchID != "old-batch" || entry.group != "old-group" || !entry.delivered {
+	if entry.status != rosterDone || entry.group != "old-group" || !entry.delivered {
 		t.Fatalf("entry after original delivery = %+v, want done with old identity", entry)
 	}
+}
+
+func sidebarText(r *subAgentRoster, now int64) string {
+	return stripANSI(strings.Join(rosterSidebar(r.snapshot(), now).subAgentsSection(60), "\n"))
 }

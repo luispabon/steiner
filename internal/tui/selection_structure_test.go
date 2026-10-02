@@ -12,8 +12,8 @@ func TestSelectionStructureRegroupInvalidatesStaleAnchor(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
-	first := &delegationDisplayState{parentCallID: "first", group: "work", batchID: "batch", groupAccepted: true}
-	second := &delegationDisplayState{parentCallID: "second", group: "work", batchID: "batch", groupAccepted: true}
+	first := &delegationDisplayState{parentCallID: "first"}
+	second := &delegationDisplayState{parentCallID: "second"}
 	m.content.segments = []contentSegment{
 		{kind: segmentDelegation, delegData: first, cachedRender: "first delegation", renderGen: 7},
 		{kind: segmentDelegation, delegData: second, cachedRender: "second delegation", renderGen: 7},
@@ -50,7 +50,8 @@ func TestSelectionStructureRegroupInvalidatesStaleAnchor(t *testing.T) {
 	m.mousePressX, m.mousePressY = 3, 4
 	m.dragScrollDir, m.dragScrollTicking = 1, true
 
-	m.content.regroupAcceptedDelegations()
+	acceptDelegationCard(&m.content, "first", "batch", "work")
+	acceptDelegationCard(&m.content, "second", "batch", "work")
 	if len(m.content.segments) != 3 || m.content.segments[0].kind != segmentDelegationGroup {
 		t.Fatalf("regrouped segments = %#v; want delegation group, selected row, and different row", m.content.segments)
 	}

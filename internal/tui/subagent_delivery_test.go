@@ -135,10 +135,13 @@ func TestDeliveredEventRendersRowWithGroupAndReason(t *testing.T) {
 	t.Parallel()
 	b := newDeliveryBuffer()
 	b.segments = append(b.segments,
-		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c4", parentCallID: "call-4", group: "g", groupAccepted: true, batchID: "batch", status: "failed", failureReason: "boom: exploded\nstack"}},
-		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c5", parentCallID: "call-5", group: "g", groupAccepted: true, batchID: "batch", status: "complete"}},
-		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c6", parentCallID: "call-6", group: "g", groupAccepted: true, batchID: "batch", status: "active"}},
+		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c4", parentCallID: "call-4", status: "failed", failureReason: "boom: exploded\nstack"}},
+		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c5", parentCallID: "call-5", status: "complete"}},
+		contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{agentID: "c6", parentCallID: "call-6", status: "active"}},
 	)
+	for _, callID := range []string{"call-4", "call-5", "call-6"} {
+		acceptDelegationCard(b, callID, "batch", "g")
+	}
 	b.AppendEvent(output.Event{Type: output.EventTypeSubAgentsDelivered, Payload: output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{
 		{AgentID: "c4", AgentType: "review", Status: "failed", ParentCallID: "call-4", DurationMs: 4000},
 		{AgentID: "c5", AgentType: "review", Status: "complete", ParentCallID: "call-5", DurationMs: 2000},
@@ -171,8 +174,9 @@ func TestDeliveredLookupGroupSizeIsScopedToBatch(t *testing.T) {
 			batchID = "new-batch"
 		}
 		b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: &delegationDisplayState{
-			agentID: id, parentCallID: callID, group: "reused", groupAccepted: true, batchID: batchID, status: "complete",
+			agentID: id, parentCallID: callID, status: "complete",
 		}})
+		acceptDelegationCard(b, callID, batchID, "reused")
 	}
 	items := []output.DeliveredSubAgent{
 		{AgentID: "c3", AgentType: "review", Status: "complete", ParentCallID: "new-1"},

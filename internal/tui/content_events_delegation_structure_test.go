@@ -7,8 +7,8 @@ import (
 )
 
 func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing.T) {
-	first := &delegationDisplayState{agentID: "first", parentCallID: "call-first", groupAccepted: true, batchID: "batch", group: "shared", collapsed: false}
-	second := &delegationDisplayState{agentID: "second", parentCallID: "call-second", groupAccepted: true, batchID: "batch", group: "shared", collapsed: true}
+	first := &delegationDisplayState{agentID: "first", parentCallID: "call-first", collapsed: false}
+	second := &delegationDisplayState{agentID: "second", parentCallID: "call-second", collapsed: true}
 	removed := &delegationDisplayState{agentID: "removed"}
 	regular := &toolCallSegment{callID: "regular", active: true}
 	lostTool := &toolCallSegment{callID: "lost"}
@@ -42,7 +42,12 @@ func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing
 		segmentHeights: []int{1, 2, 3, 4, 5, 6}, gen: 7,
 	}
 
-	b.regroupAcceptedDelegations()
+	acceptDelegationCard(b, "call-first", "batch", "shared")
+	gen, structureGen := b.gen, b.structureGen
+	b.stringCacheWidth, b.stringCacheRendered = 80, "stale string"
+	b.prefixCacheSet, b.prefixCacheRendered, b.prefixCacheLen = true, "stale prefix", 5
+	b.segmentHeights = []int{1, 2, 3, 4, 5, 6, 7}
+	acceptDelegationCard(b, "call-second", "batch", "shared")
 
 	if len(b.segments) != 6 || b.segments[0].kind != segmentPlain || b.segments[1].kind != segmentDelegationGroup || b.segments[2].kind != segmentToolCall || b.segments[3].kind != segmentStatus || b.segments[4].kind != segmentToolCallGroup || b.segments[5].delegData != advisor {
 		t.Fatalf("rewritten segment order = %#v", b.segments)
@@ -93,7 +98,7 @@ func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing
 			t.Fatalf("collapse state[%d] = %v (present=%v), want %v", index, got, ok, want)
 		}
 	}
-	if b.gen != 8 || b.structureGen != 1 || b.stringCacheWidth != 0 || b.stringCacheRendered != "" || b.prefixCacheSet || b.prefixCacheRendered != "" || b.segmentHeights != nil {
+	if b.gen != gen+1 || b.structureGen != structureGen+1 || b.stringCacheWidth != 0 || b.stringCacheRendered != "" || b.prefixCacheSet || b.prefixCacheRendered != "" || b.segmentHeights != nil {
 		t.Fatalf("rewrite did not invalidate caches/generation: gen=%d structure=%d string=%d/%q prefix=%v/%q heights=%v", b.gen, b.structureGen, b.stringCacheWidth, b.stringCacheRendered, b.prefixCacheSet, b.prefixCacheRendered, b.segmentHeights)
 	}
 }
@@ -104,26 +109,34 @@ func TestDelegationAcceptanceIsIdempotentAndRejectsIneligibleMembership(t *testi
 		dd   *delegationDisplayState
 	}{
 		{"advisor", &delegationDisplayState{parentCallID: "call", isAdvisor: true}},
-		{"unaccepted", &delegationDisplayState{parentCallID: "call", group: "g", batchID: "b"}},
-		{"empty batch", &delegationDisplayState{parentCallID: "call", group: "g", groupAccepted: true}},
-		{"empty group", &delegationDisplayState{parentCallID: "call", batchID: "b", groupAccepted: true}},
+		{"empty batch", &delegationDisplayState{parentCallID: "call"}},
+		{"empty group", &delegationDisplayState{parentCallID: "call"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: tc.dd}}}
-			b.regroupAcceptedDelegations()
+			switch tc.name {
+			case "empty batch":
+				acceptDelegationCard(b, "call", "", "g")
+			case "empty group":
+				acceptDelegationCard(b, "call", "b", "")
+			default:
+				acceptDelegationCard(b, "call", "b", "g")
+			}
 			if b.segments[0].kind != segmentDelegation || b.structureGen != 0 {
 				t.Fatalf("ineligible membership regrouped: segment kind=%v structureGen=%d", b.segments[0].kind, b.structureGen)
 			}
 		})
 	}
 
-	first := &delegationDisplayState{parentCallID: "call-first", group: "group", groupAccepted: true, batchID: "batch"}
+	first := &delegationDisplayState{parentCallID: "call-first"}
 	second := &delegationDisplayState{parentCallID: "call-second"}
 	b := &contentBuffer{segments: []contentSegment{
 		{kind: segmentDelegation, delegData: first},
 		{kind: segmentDelegation, delegData: second},
 	}}
+	acceptDelegationCard(b, "call-first", "batch", "group")
+	b.structureGen = 0
 	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call-second", BatchID: "batch", AgentID: ""}, "group"))
 	if b.structureGen != 1 || len(b.segments) != 1 || b.segments[0].kind != segmentDelegationGroup {
 		t.Fatalf("second acceptance did not join existing group: structure=%d segments=%v", b.structureGen, segmentKinds(b.segments))
@@ -142,13 +155,13 @@ func TestDelegationAcceptanceIsIdempotentAndRejectsIneligibleMembership(t *testi
 }
 
 func TestDelegationRegroupSeparatesAcceptedAndUnknownSameLabelCards(t *testing.T) {
-	accepted := &delegationDisplayState{parentCallID: "accepted", group: "same", groupAccepted: true, batchID: "batch"}
-	unknown := &delegationDisplayState{parentCallID: "unknown", group: "same", groupAccepted: true}
+	accepted := &delegationDisplayState{parentCallID: "accepted"}
+	unknown := &delegationDisplayState{parentCallID: "unknown", group: "same"}
 	b := &contentBuffer{segments: []contentSegment{
 		{kind: segmentDelegation, delegData: accepted},
 		{kind: segmentDelegation, delegData: unknown},
 	}}
-	b.regroupAcceptedDelegations()
+	acceptDelegationCard(b, "accepted", "batch", "same")
 	if len(b.segments) != 2 || b.segments[0].kind != segmentDelegationGroup || b.segments[1].kind != segmentDelegation {
 		t.Fatalf("accepted and unknown cards grouped together: kinds=%v", segmentKinds(b.segments))
 	}
@@ -183,8 +196,8 @@ func TestDelegationAcceptanceOrderKeepsFirstMemberPosition(t *testing.T) {
 }
 
 func TestDelegationRegroupPreservesInterleavedStreamAndSegmentOrder(t *testing.T) {
-	first := &delegationDisplayState{parentCallID: "first", group: "g", groupAccepted: true, batchID: "batch"}
-	second := &delegationDisplayState{parentCallID: "second", group: "g", groupAccepted: true, batchID: "batch"}
+	first := &delegationDisplayState{parentCallID: "first"}
+	second := &delegationDisplayState{parentCallID: "second"}
 	tool := &toolCallSegment{callID: "tool"}
 	unknown := contentSegment{kind: segmentStatus, text: "unknown"}
 	thinking := contentSegment{kind: segmentThinkingBlock, thinkData: &thinkingBlockData{body: "thinking text", source: output.ChunkSourceAssistant}}
@@ -198,11 +211,16 @@ func TestDelegationRegroupPreservesInterleavedStreamAndSegmentOrder(t *testing.T
 		},
 		streamBuffer: "live answer", streaming: true, streamingPhase: "answer", streamingSource: output.ChunkSourceAssistant,
 	}
-	b.regroupAcceptedDelegations()
+	acceptDelegationCard(b, "first", "batch", "g")
+	acceptDelegationCard(b, "second", "batch", "g")
 	if len(b.segments) != 4 || b.segments[0].kind != segmentDelegationGroup || len(b.segments[0].delegGroupData.entries) != 2 || b.segments[0].delegGroupData.entries[0] != first || b.segments[0].delegGroupData.entries[1] != second || b.segments[1].toolData != tool || b.segments[2].text != "unknown" || b.segments[3].thinkData != thinking.thinkData || b.segments[3].thinkData.body != "thinking text" || b.segments[3].thinkData.source != output.ChunkSourceAssistant {
 		t.Fatalf("intervening segment order changed: %#v", b.segments)
 	}
 	if !b.streaming || b.streamingPhase != "answer" || b.streamingSource != output.ChunkSourceAssistant || b.streamBuffer != "live answer" {
 		t.Fatalf("live stream changed during structure rewrite: streaming=%v phase=%q source=%q buffer=%q", b.streaming, b.streamingPhase, b.streamingSource, b.streamBuffer)
 	}
+}
+
+func acceptDelegationCard(b *contentBuffer, callID, batchID, group string) {
+	b.appendDelegationAcceptedEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: callID, BatchID: batchID}, group))
 }

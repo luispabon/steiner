@@ -51,7 +51,7 @@ func TestReplayDelegationEventsKeepAcceptedIdentityAndSettleCard(t *testing.T) {
 		t.Fatalf("accepted replay identity missing from card: %#v", loc)
 	}
 	roster := m.roster.entries["child-known"]
-	if roster == nil || roster.currentCallID != "replay-call" || roster.status != rosterRunning {
+	if roster == nil || roster.status != rosterRunning || roster.group != "review" {
 		t.Fatalf("accepted replay identity missing from roster: %#v", roster)
 	}
 	m.applyEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{CallID: "replay-call", AgentID: "child-known"}, TaskPreview: "find files", Error: "lost"}))

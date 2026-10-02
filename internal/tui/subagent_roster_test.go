@@ -126,7 +126,7 @@ func TestRosterRestartAfterDelivery(t *testing.T) {
 		r.observe(e, int64(i+1)*1_000_000_000)
 	}
 	entry := r.entries["c1"]
-	if entry.status != rosterRunning || entry.startTime != 6_000_000_000 || entry.finishTime != 0 || entry.delivered || entry.agentType != "review" || entry.group != "" || entry.batchID != "b2" {
+	if entry.status != rosterRunning || entry.startTime != 6_000_000_000 || entry.finishTime != 0 || entry.delivered || entry.agentType != "review" || entry.group != "" {
 		t.Fatalf("entry after restart = %+v, want running with reset timing and preserved review/batch", entry)
 	}
 
@@ -136,7 +136,7 @@ func TestRosterRestartAfterDelivery(t *testing.T) {
 		t.Fatalf("entries after completion = %d, want 1", len(entries))
 	}
 	for _, e := range entries {
-		if e.status != rosterDone || e.agentType != "review" || e.group != "" || e.batchID != "b2" || e.startTime != 6_000_000_000 || e.finishTime != 9_000_000_000 || e.delivered {
+		if e.status != rosterDone || e.agentType != "review" || e.group != "" || e.startTime != 6_000_000_000 || e.finishTime != 9_000_000_000 || e.delivered {
 			t.Errorf("restarted entry = %+v, want complete with second timing and preserved review/batch", e)
 		}
 	}

@@ -8,28 +8,26 @@ import (
 )
 
 func TestDelegationRejectionRemovesOnlyCurrentUnacceptedCard(t *testing.T) {
-	accepted := &delegationDisplayState{parentCallID: "old-call", agentID: "agent", groupAccepted: true, batchID: "batch", group: "reused"}
-	provisional := &delegationDisplayState{parentCallID: "current-call", agentID: "agent", group: "reused"}
-	b := &contentBuffer{segments: []contentSegment{
-		{kind: segmentDelegation, delegData: accepted},
-		{kind: segmentDelegation, delegData: provisional},
-		{kind: segmentPlain, text: "after"},
-	}}
+	b := newGroupTestBuffer()
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "old-call", subAgentArgs("reused")))
+	accepted := lastDelegationCard(b)
+	occ := output.DelegationOccurrence{CallID: "old-call", BatchID: "batch", AgentID: "agent"}
+	b.AppendEvent(output.NewDelegationAcceptedEvent(occ, "reused"))
+	b.AppendEvent(output.NewDelegationStartedEvent(occ, "old task", "", "explore"))
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "current-call", subAgentArgs("reused")))
+	provisional := lastDelegationCard(b)
+	b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", "after"))
 
 	b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "current-call", "", nil, output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected"}))
 
-	if len(b.segments) != 2 || b.segments[0].delegData != accepted || b.segments[1].text != "after" {
-		t.Fatalf("segments after rejection = %#v", b.segments)
+	if findDelegationSegment(b.segments, accepted) < 0 || findDelegationSegment(b.segments, provisional) >= 0 {
+		t.Fatalf("segments after rejection = %v", segmentKinds(b.segments))
 	}
-	if b.structureGen != 1 {
-		t.Fatalf("structure generation = %d, want 1", b.structureGen)
+	if got := countDelegationCards(b.segments); got != 1 {
+		t.Fatalf("delegation cards = %d, want only the accepted one", got)
 	}
-	if b.segments[0].delegData != accepted {
-		t.Fatal("original accepted card changed or disappeared")
-	}
-	b.appendDelegationEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "old-call", AgentID: "agent"}, "old task", "", ""))
-	if accepted.agentID != "agent" || accepted.parentCallID != "old-call" || len(b.segments) != 3 || b.segments[2].delegData == accepted {
-		t.Fatalf("late event rebound removed current call: accepted=%#v segments=%#v", accepted, b.segments)
+	if accepted.agentID != "agent" || accepted.parentCallID != "old-call" || accepted.status != "active" || b.activeDelegations["agent"].dd != accepted {
+		t.Fatalf("accepted card changed: %#v", accepted)
 	}
 }
 
@@ -48,11 +46,15 @@ func TestDelegationRejectionPreservesAcceptedAndUnknownCards(t *testing.T) {
 		{Status: "unknown"},
 		nil,
 	} {
-		dd := &delegationDisplayState{parentCallID: "call", status: "failed", errMsg: "failed", groupAccepted: admission != nil && admission.Status == "accepted"}
-		b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: dd}}}
+		b := newGroupTestBuffer()
+		b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call", subAgentArgs("g")))
+		dd := lastDelegationCard(b)
+		if admission != nil && admission.Status == "accepted" {
+			b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call", BatchID: "batch"}, "g"))
+		}
 		b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "result", nil, output.ToolPreview{}, admission))
-		if len(b.segments) != 1 || b.segments[0].delegData != dd {
-			t.Fatalf("admission %#v removed card: %#v", admission, b.segments)
+		if findDelegationSegment(b.segments, dd) < 0 || countDelegationCards(b.segments) != 1 {
+			t.Fatalf("admission %#v removed card: %v", admission, segmentKinds(b.segments))
 		}
 	}
 }
@@ -65,7 +67,7 @@ func TestModelRejectedFollowUpPreservesOriginalChildAndRoster(t *testing.T) {
 	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "original", AgentID: "child"}, "original task", "", "explore"))
 	originalCard := m.content.segments[0].delegData
 	before := m.roster.entries["child"]
-	if originalCard == nil || before == nil || before.status != rosterRunning || before.currentCallID != "original" {
+	if originalCard == nil || before == nil || before.status != rosterRunning {
 		t.Fatalf("original run setup: card=%#v roster=%#v", originalCard, before)
 	}
 
@@ -80,7 +82,7 @@ func TestModelRejectedFollowUpPreservesOriginalChildAndRoster(t *testing.T) {
 		t.Fatalf("content cards after rejection = %#v", m.content.segments)
 	}
 	after := m.roster.entries["child"]
-	if after != before || after.currentCallID != "original" || after.status != rosterRunning || !after.accepted || after.group != "prior" || after.batchID != "batch" || len(m.roster.entries) != 1 {
+	if after != before || after.status != rosterRunning || after.group != "prior" || len(m.roster.entries) != 1 {
 		t.Fatalf("roster changed for rejected follow-up: before=%#v after=%#v entries=%#v", before, after, m.roster.entries)
 	}
 
@@ -89,7 +91,7 @@ func TestModelRejectedFollowUpPreservesOriginalChildAndRoster(t *testing.T) {
 		t.Fatalf("late lifecycle event changed original card: %#v", originalCard)
 	}
 	after = m.roster.entries["child"]
-	if after != before || after.currentCallID != "original" || after.status != rosterDone || after.group != "prior" || len(m.roster.entries) != 1 {
+	if after != before || after.status != rosterDone || after.group != "prior" || len(m.roster.entries) != 1 {
 		t.Fatalf("late lifecycle event corrupted roster: %#v", m.roster.entries)
 	}
 }
@@ -118,8 +120,12 @@ func TestUnknownAdmissionErrorCleansEligibleEmptyAgentCard(t *testing.T) {
 
 func TestUnknownAdmissionErrorKeepsIdentifiedAcceptedRunningCard(t *testing.T) {
 	const message = "api: delayed error"
-	dd := &delegationDisplayState{agentID: "child", parentCallID: "call", status: "active", groupAccepted: true}
-	b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: dd}}}
+	b := newGroupTestBuffer()
+	occ := output.DelegationOccurrence{CallID: "call", BatchID: "batch", AgentID: "child"}
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call", subAgentArgs("g")))
+	dd := lastDelegationCard(b)
+	b.AppendEvent(output.NewDelegationAcceptedEvent(occ, "g"))
+	b.AppendEvent(output.NewDelegationStartedEvent(occ, "find files", "", "explore"))
 
 	b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(message), output.ToolPreview{}, &output.DelegationAdmission{Status: "unknown"}))
 

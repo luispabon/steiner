@@ -7,7 +7,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-func TestDelegationOccurrenceFIFOAdmissionFinishKeepsPointerOwnership(t *testing.T) {
+func TestDelegationOccurrenceAdmissionFinishKeepsCardOwnership(t *testing.T) {
 	for _, order := range []struct {
 		name   string
 		first  string
@@ -39,7 +39,7 @@ func TestDelegationOccurrenceFIFOAdmissionFinishKeepsPointerOwnership(t *testing
 			if order.first != "accepted" {
 				accepted = second
 			}
-			if findDelegationSegment(b.segments, accepted) < 0 || !accepted.groupAccepted {
+			if findDelegationSegment(b.segments, accepted) < 0 {
 				t.Fatalf("accepted pointer was not retained: first=%#v second=%#v", first, second)
 			}
 			if order.first == "unknown" || order.second == "unknown" {
@@ -55,9 +55,6 @@ func TestDelegationOccurrenceFIFOAdmissionFinishKeepsPointerOwnership(t *testing
 					t.Fatalf("rejected pointer was retained: %p", rejected)
 				}
 			}
-			if len(b.pendingDelegationOccurrences) != 0 {
-				t.Fatalf("occurrence queue = %#v, want empty", b.pendingDelegationOccurrences)
-			}
 			if got := countToolText(b.segments, "exact admission error"); got != 1 {
 				t.Fatalf("exact admission error count = %d, want 1", got)
 			}
@@ -65,7 +62,7 @@ func TestDelegationOccurrenceFIFOAdmissionFinishKeepsPointerOwnership(t *testing
 	}
 }
 
-func TestDelegationOccurrenceFIFOReusedCallIDStartsNewLifecycle(t *testing.T) {
+func TestDelegationOccurrenceReusedCallIDStartsNewLifecycle(t *testing.T) {
 	b := &contentBuffer{collapseState: make(map[int]bool)}
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "reused", map[string]any{"task": "old"}))
 	old := b.segments[0].delegData
@@ -76,41 +73,70 @@ func TestDelegationOccurrenceFIFOReusedCallIDStartsNewLifecycle(t *testing.T) {
 		t.Fatalf("old occurrence survived reuse: old=%p fresh=%p", old, fresh)
 	}
 	b.AppendEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "reused", "", nil, output.ToolPreview{}, &output.DelegationAdmission{Status: "accepted", BatchID: "new-batch", Group: "new-group"}))
-	if findDelegationSegment(b.segments, fresh) < 0 || !fresh.groupAccepted || fresh.batchID != "new-batch" || fresh.group != "new-group" {
+	if findDelegationSegment(b.segments, fresh) < 0 || fresh.group != "new-group" || b.segments[len(b.segments)-1].kind != segmentDelegationGroup {
 		t.Fatalf("fresh occurrence was not accepted: %#v", fresh)
 	}
 }
 
-func TestReplayDuplicateIDOrphanAdmissionTargetsSecondCard(t *testing.T) {
+func TestReplayDuplicateCallIDRejectedThenAcceptedTargetsSecondCard(t *testing.T) {
 	t.Parallel()
 	b := newGroupTestBuffer()
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", map[string]any{"task": "first"}))
 	first := b.segments[0].delegData
 	b.AppendEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "same", `{"ok":false,"error":{"message":"denied"}}`, errors.New("denied"), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected"}))
 
-	// Replay emits serial parent bundles. The second occurrence is accepted,
-	// started, then closed without changing its card or active child.
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", map[string]any{"task": "second"}))
 	second := b.segments[len(b.segments)-1].delegData
-	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "same", BatchID: "batch", AgentID: "agent-orphan"}, "group"))
-	b.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "same", AgentID: "agent-orphan"}, "second", "", "explore"))
-	if second == nil || !second.groupAccepted || second.agentID != "agent-orphan" {
-		t.Fatalf("orphan admission ownership: second=%#v", second)
-	}
-	b.AppendEvent(output.NewReplayDelegationParentClosedEvent("same"))
+	occ := output.DelegationOccurrence{CallID: "same", BatchID: "batch", AgentID: "agent-orphan"}
+	b.AppendEvent(output.NewDelegationAcceptedEvent(occ, "group"))
+	b.AppendEvent(output.NewDelegationStartedEvent(occ, "second", "", "explore"))
 
 	if first != nil && findDelegationSegment(b.segments, first) >= 0 {
 		t.Fatal("rejected first card remains")
 	}
-	if findDelegationSegment(b.segments, second) < 0 || second.status != "active" {
-		t.Fatalf("accepted orphan card was changed or removed: %#v", second)
+	if second == nil || second.agentID != "agent-orphan" || findDelegationSegment(b.segments, second) < 0 || second.status != "active" {
+		t.Fatalf("accepted second card was changed or removed: %#v", second)
 	}
 	if got := b.activeDelegations["agent-orphan"].dd; got != second {
 		t.Fatalf("active child card = %p, want second card %p", got, second)
 	}
-	if len(b.pendingDelegationOccurrences) != 0 {
-		t.Fatalf("occurrence queue = %#v, want empty after closure", b.pendingDelegationOccurrences)
+	if got := countDelegationCards(b.segments); got != 1 {
+		t.Fatalf("delegation cards = %d, want 1", got)
 	}
+}
+
+func TestDuplicateCallIDsAcrossBatchesSettleOwnCards(t *testing.T) {
+	t.Parallel()
+	b := newGroupTestBuffer()
+	var cards [2]*delegationDisplayState
+	for i, batch := range []string{"batch-1", "batch-2"} {
+		agent := "agent-" + batch
+		occ := output.DelegationOccurrence{CallID: "same", BatchID: batch, AgentID: agent}
+		b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", subAgentArgs("review")))
+		cards[i] = lastDelegationCard(b)
+		b.AppendEvent(output.NewDelegationAcceptedEvent(occ, "review"))
+		b.AppendEvent(output.NewDelegationQueuedEvent(occ, "explore", "task "+batch))
+		b.AppendEvent(output.NewDelegationStartedEvent(occ, "task "+batch, "", "explore"))
+	}
+	if cards[0] == cards[1] || b.activeDelegations["agent-batch-1"].dd != cards[0] || b.activeDelegations["agent-batch-2"].dd != cards[1] {
+		t.Fatalf("occurrences share a card: %p %p active=%#v", cards[0], cards[1], b.activeDelegations)
+	}
+	if len(b.segments) != 2 {
+		t.Fatalf("segments = %v, want one frame per batch", segmentKinds(b.segments))
+	}
+	b.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{CallID: "same", BatchID: "batch-2", AgentID: "agent-batch-2"}, Error: "boom"}))
+	b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{CallID: "same", BatchID: "batch-1", AgentID: "agent-batch-1"}, Status: "completed"}))
+	if cards[0].status != "complete" || cards[1].status != "failed" {
+		t.Fatalf("statuses = %q/%q, want complete/failed", cards[0].status, cards[1].status)
+	}
+}
+
+func lastDelegationCard(b *contentBuffer) *delegationDisplayState {
+	var card *delegationDisplayState
+	for _, tok := range flattenDelegationSegments(b.segments) {
+		card = tok.dd
+	}
+	return card
 }
 
 func TestLostOccurrenceDoesNotConsumeFreshRejectedReuse(t *testing.T) {
