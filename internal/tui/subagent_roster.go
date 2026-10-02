@@ -70,16 +70,31 @@ func (r *subAgentRoster) begin(agentID, agentType, callID, status string, now in
 	}
 	admission, accepted := r.admissionForAgent(callID, agentID)
 	e, existed := r.entries[agentID]
-	if existed && accepted && !r.latestAdmissionMatches(agentID, callID, admission) {
-		return
-	}
-	if existed && rosterEntryRejectsBegin(e, callID, admission, accepted) {
+	if r.rosterBeginRejected(e, existed, agentID, callID, admission, accepted) {
 		return
 	}
 	if !existed {
 		e = r.upsert(agentID)
 	}
 	restarting := e.finished() || (e.currentCallID != "" && e.currentCallID != callID) || (accepted && e.accepted && e.batchID != admission.BatchID)
+	e.applyBegin(agentType, callID, status, now, admission, accepted, restarting)
+}
+
+// rosterBeginRejected reports whether an existing roster entry blocks a begin
+// with the given admission identity.
+func (r *subAgentRoster) rosterBeginRejected(e *rosterEntry, existed bool, agentID, callID string, admission output.DelegationAdmission, accepted bool) bool {
+	if !existed {
+		return false
+	}
+	if accepted && !r.latestAdmissionMatches(agentID, callID, admission) {
+		return true
+	}
+	return rosterEntryRejectsBegin(e, callID, admission, accepted)
+}
+
+// applyBegin writes the begin state onto the roster entry, resetting on a
+// restart and otherwise carrying the previous agent type forward.
+func (e *rosterEntry) applyBegin(agentType, callID, status string, now int64, admission output.DelegationAdmission, accepted, restarting bool) {
 	if restarting {
 		e.status = status
 		e.startTime = now

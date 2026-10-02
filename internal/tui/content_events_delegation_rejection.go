@@ -64,14 +64,6 @@ func (b *contentBuffer) appendAdmissionError(message string) {
 	}
 }
 
-func (b *contentBuffer) removeRejectedDelegation(callID string) bool {
-	loc, found := b.unambiguousDelegationByCallID(callID)
-	if !found {
-		return false
-	}
-	return b.removeRejectedDelegationCard(loc.dd)
-}
-
 func (b *contentBuffer) removeRejectedDelegationCard(target *delegationDisplayState) bool {
 	if target == nil || target.groupAccepted {
 		return false

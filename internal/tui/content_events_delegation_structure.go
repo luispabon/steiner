@@ -53,17 +53,16 @@ func (b *contentBuffer) peekDelegationOccurrence(callID string) (delegationLocat
 	return delegationLocator{}, false
 }
 
-func (b *contentBuffer) retireDelegationOccurrence(dd *delegationDisplayState) bool {
+func (b *contentBuffer) retireDelegationOccurrence(dd *delegationDisplayState) {
 	if dd == nil {
-		return false
+		return
 	}
 	for i, loc := range b.pendingDelegationOccurrences {
 		if loc.dd == dd {
 			b.pendingDelegationOccurrences = append(b.pendingDelegationOccurrences[:i], b.pendingDelegationOccurrences[i+1:]...)
-			return true
+			return
 		}
 	}
-	return false
 }
 
 func (b *contentBuffer) takeDelegationOccurrence(callID string) (delegationLocator, bool) {

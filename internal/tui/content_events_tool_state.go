@@ -71,42 +71,6 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 	b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 }
 
-// applyFinishedToolCallToDelegation handles a ToolCallFinishedEvent for a
-// segmentDelegation or segmentDelegationGroup segment. Returns true if the
-// segment matched and was handled (caller should stop scanning).
-func (b *contentBuffer) applyFinishedToolCallToDelegation(idx int, payload output.ToolCallFinishedEvent) bool {
-	seg := &b.segments[idx]
-	switch seg.kind {
-	case segmentDelegation:
-		dd := seg.delegData
-		if dd == nil || dd.parentCallID == "" || !callIDsMatch(dd.parentCallID, payload.CallID) {
-			return false
-		}
-		if shouldShowFinishedDelegationFailure(dd, payload) {
-			b.showFinishedDelegationFailure(seg, dd, payload.CallID)
-		}
-		return true
-	case segmentDelegationGroup:
-		group := seg.delegGroupData
-		if group == nil {
-			return false
-		}
-		for j := len(group.entries) - 1; j >= 0; j-- {
-			dd := group.entries[j]
-			if dd == nil || dd.parentCallID == "" || !callIDsMatch(dd.parentCallID, payload.CallID) {
-				continue
-			}
-			if shouldShowFinishedDelegationFailure(dd, payload) {
-				b.showFinishedDelegationFailure(seg, dd, payload.CallID)
-			}
-			return true
-		}
-		return false
-	default:
-		return false
-	}
-}
-
 func shouldShowFinishedDelegationFailure(dd *delegationDisplayState, payload output.ToolCallFinishedEvent) bool {
 	return dd != nil && dd.agentID == "" && payload.Error != ""
 }

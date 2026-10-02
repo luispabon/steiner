@@ -75,23 +75,40 @@ func (b *contentBuffer) settleLostDelivery(item output.DeliveredSubAgent) {
 	if strings.TrimSpace(item.Status) != "lost" {
 		return
 	}
-	var target delegationLocator
-	var found bool
-	if item.AgentID != "" {
-		target, found = b.activeDelegations[item.AgentID]
-	} else if item.ParentCallID != "" {
-		for _, loc := range b.activeDelegations {
-			if loc.dd != nil && loc.dd.parentCallID == item.ParentCallID {
-				target, found = loc, true
-				break
-			}
-		}
-	}
+	target, found := b.lostDeliveryTarget(item)
 	if !found || target.dd == nil || target.dd.status != "active" || !deliveredMatchesDelegation(item, target.dd) {
 		return
 	}
 
 	dd := target.dd
+	markLostDelivery(dd, item)
+	b.retireDelegationOccurrence(dd)
+	b.clearQueuedDelegation(dd.parentCallID)
+	b.removeFromPendingDelegateParents(dd)
+	b.markDelegationDirty(target.seg)
+	b.forgetDelegationLocators(target.seg, dd)
+}
+
+// lostDeliveryTarget resolves the active delegation for a lost delivery by
+// agent ID when present, otherwise by parent call ID.
+func (b *contentBuffer) lostDeliveryTarget(item output.DeliveredSubAgent) (delegationLocator, bool) {
+	if item.AgentID != "" {
+		loc, found := b.activeDelegations[item.AgentID]
+		return loc, found
+	}
+	if item.ParentCallID == "" {
+		return delegationLocator{}, false
+	}
+	for _, loc := range b.activeDelegations {
+		if loc.dd != nil && loc.dd.parentCallID == item.ParentCallID {
+			return loc, true
+		}
+	}
+	return delegationLocator{}, false
+}
+
+// markLostDelivery applies the terminal lost state for a settled delivery.
+func markLostDelivery(dd *delegationDisplayState, item output.DeliveredSubAgent) {
 	dd.status = "failed"
 	dd.resultStatus = "lost"
 	if dd.failureReason == "" {
@@ -103,13 +120,12 @@ func (b *contentBuffer) settleLostDelivery(item output.DeliveredSubAgent) {
 		dd.elapsed = formatElapsed(dd.startTime, nanoNow())
 	}
 	dd.fillFromTerminalEvent(item.AgentType, item.DurationMs)
-	b.retireDelegationOccurrence(dd)
-	b.clearQueuedDelegation(dd.parentCallID)
-	b.removeFromPendingDelegateParents(dd)
-	b.markDelegationDirty(target.seg)
+}
 
+// forgetDelegationLocators drops active-delegation entries pointing at dd.
+func (b *contentBuffer) forgetDelegationLocators(seg int, dd *delegationDisplayState) {
 	for agentID, loc := range b.activeDelegations {
-		if loc.seg == target.seg && loc.dd == dd {
+		if loc.seg == seg && loc.dd == dd {
 			delete(b.activeDelegations, agentID)
 		}
 	}
