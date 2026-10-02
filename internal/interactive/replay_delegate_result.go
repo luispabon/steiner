@@ -78,6 +78,7 @@ func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *
 		}
 		s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
 			AgentID:     state.agentID,
+			CallID:      parsed.CallID,
 			AgentType:   parsed.AgentType,
 			DurationMs:  usage.duration.Milliseconds(),
 			TaskPreview: ack.task,

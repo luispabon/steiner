@@ -268,6 +268,61 @@ func TestReplayAsyncUnresolvedAckShownAsNoResult(t *testing.T) {
 	}
 }
 
+func TestReplayAdmissionOccurrenceLocalAndTypedFinish(t *testing.T) {
+	t.Parallel()
+	msgs := []agent.Message{
+		delegateCall("same", "sub_agent", "accepted"),
+		{Role: agent.MessageRoleTool, ToolCallID: "same", Name: "sub_agent", Content: `{"ok":false,"error":{"message":"child failed"}}`, DelegationAdmission: &tool.DelegationAdmission{Status: "accepted", AgentID: "agent-a", BatchID: "batch-a", Group: "group-a"}},
+		delegateCall("same", "sub_agent", "rejected"),
+		{Role: agent.MessageRoleTool, ToolCallID: "same", Name: "sub_agent", Content: `{"ok":false,"error":{"message":"denied"}}`, DelegationAdmission: &tool.DelegationAdmission{Status: "rejected", PolicyNotice: true}},
+	}
+	events := replayEvents(t, msgs)
+	accepted := eventsOfType(events, output.EventTypeDelegationAccepted)
+	if len(accepted) != 1 || accepted[0].Payload.(output.DelegationAcceptedEvent).AgentID != "agent-a" {
+		t.Fatalf("accepted events = %+v", accepted)
+	}
+	finished := eventsOfType(events, output.EventTypeToolCallFinished)
+	if len(finished) != 2 {
+		t.Fatalf("finished events = %d, want 2", len(finished))
+	}
+	p := finished[1].Payload.(output.ToolCallFinishedEvent)
+	if p.DelegationAdmission == nil || !p.DelegationAdmission.PolicyNotice || p.Result != msgs[3].Content || p.Error == "" {
+		t.Fatalf("rejected finish = %+v", p)
+	}
+	if got := len(eventsOfType(events, output.EventTypeDelegationStarted)); got != 1 {
+		t.Fatalf("delegation starts = %d, want accepted occurrence only", got)
+	}
+}
+
+func TestReplayOrphanAcceptedFromLedgerThenLostOnce(t *testing.T) {
+	t.Parallel()
+	call := agent.Message{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "orphan", Name: "sub_agent", Arguments: map[string]any{"task": "lost task"}}}}
+	var events []output.Event
+	s := testNewSession(t, Dependencies{BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) })})
+	ledger := []agent.SubAgentLedgerEntry{{ParentCallID: "orphan", AgentID: "agent-lost", AgentType: "explore", BatchID: "batch", Group: "group"}}
+	s.replaySessionMessagesWithLedger([]agent.Message{call}, ledger)
+	if got := len(eventsOfType(events, output.EventTypeToolCallStarted)); got != 1 {
+		t.Fatalf("tool starts = %d, want 1", got)
+	}
+	if got := len(eventsOfType(events, output.EventTypeDelegationAccepted)); got != 1 {
+		t.Fatalf("accepted = %d, want 1", got)
+	}
+	if got := len(eventsOfType(events, output.EventTypeDelegationStarted)); got != 1 {
+		t.Fatalf("delegation starts = %d, want 1", got)
+	}
+	if got := len(eventsOfType(events, output.EventTypeDelegationFailed)); got != 0 {
+		t.Fatalf("early failures = %d, want 0", got)
+	}
+	lost := agent.RenderSubAgentResultEnvelope(agent.LostSubAgentCompletion(ledger[0]))
+	s.replaySessionMessages([]agent.Message{{Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: lost}})
+	if got := len(eventsOfType(events, output.EventTypeDelegationFailed)); got != 1 {
+		t.Fatalf("lost failures = %d, want 1", got)
+	}
+	if got := len(eventsOfType(events, output.EventTypeToolCallFinished)); got != 0 {
+		t.Fatalf("synthetic tool finishes = %d, want 0", got)
+	}
+}
+
 func TestReplayBlockingDelegatesUnchangedFromOldFormat(t *testing.T) {
 	t.Parallel()
 	data, err := os.ReadFile(filepath.Join("testdata", "replay_blocking_delegates.json"))

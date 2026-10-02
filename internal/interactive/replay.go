@@ -109,11 +109,16 @@ func convertImageBlocks(blocks []agent.ImageBlock) []output.ImageBlock {
 // so the TUI can reconstruct the session view on resume. Delegate tool calls
 // emit delegation events; regular tool calls emit tool call events.
 func (s *Session) replaySessionMessages(msgs []agent.Message) {
+	s.replaySessionMessagesWithLedger(msgs, nil)
+}
+
+func (s *Session) replaySessionMessagesWithLedger(msgs []agent.Message, ledger []agent.SubAgentLedgerEntry) {
 	paired := pairedToolResultIDs(msgs)
-	startedToolCalls := map[string]struct{}{}
-	pendingDelegates := map[string]agent.ToolCall{}
+	startedToolCalls := map[string]int{}
+	pendingDelegates := map[string][]agent.ToolCall{}
 	pendingAdvisors := map[string]agent.ToolCall{}
 	acks := &replayAcks{}
+	claimedLedger := make(map[int]bool)
 	for _, msg := range msgs {
 		if msg.Content == "" && len(msg.ToolCalls) == 0 && msg.ToolCallID == "" {
 			continue
@@ -127,6 +132,20 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 			}
 			s.events.Emit(output.NewAssistantMessageEvent(0, string(msg.Role), msg.Content))
 			s.replayAssistantToolCalls(msg.ToolCalls, pendingDelegates, pendingAdvisors, startedToolCalls, paired)
+			for _, call := range msg.ToolCalls {
+				if !isDelegateToolCall(call.Name) {
+					continue
+				}
+				if _, ok := paired[call.ID]; ok {
+					continue
+				}
+				if idx := matchingOutstandingLedger(ledger, claimedLedger, call.ID); idx >= 0 {
+					s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
+					s.emitAcceptedAdmission(call.ID, ledger[idx].AgentID, ledger[idx].BatchID, ledger[idx].Group)
+					s.events.Emit(output.NewDelegationStartedEvent(ledger[idx].AgentID, taskFromArgs(call.Arguments)))
+					startedToolCalls[call.ID]++
+				}
+			}
 		case agent.MessageRoleSummary:
 			s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 				Kind:        "compaction",
@@ -134,10 +153,36 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 				SummaryText: msg.Content,
 			}))
 		case agent.MessageRoleTool:
+			if pending, ok := pendingDelegates[msg.ToolCallID]; ok && len(pending) > 0 && (msg.DelegationAdmission == nil || (msg.DelegationAdmission.Status != "accepted" && msg.DelegationAdmission.Status != "rejected")) {
+				if idx := matchingOutstandingLedger(ledger, claimedLedger, msg.ToolCallID); idx >= 0 {
+					s.emitAcceptedAdmission(msg.ToolCallID, ledger[idx].AgentID, ledger[idx].BatchID, ledger[idx].Group)
+					s.events.Emit(output.NewDelegationStartedEvent(ledger[idx].AgentID, taskFromArgs(pending[0].Arguments)))
+				}
+			}
 			s.replayToolResult(msg, pendingDelegates, pendingAdvisors, startedToolCalls, acks)
 		}
 	}
 	s.replayUnresolvedAcks(acks)
+}
+
+func matchingOutstandingLedger(ledger []agent.SubAgentLedgerEntry, claimed map[int]bool, callID string) int {
+	found := -1
+	for i, entry := range ledger {
+		if !claimed[i] && entry.ParentCallID == callID {
+			if found >= 0 {
+				return -1
+			}
+			found = i
+		}
+	}
+	if found >= 0 {
+		claimed[found] = true
+	}
+	return found
+}
+
+func (s *Session) emitAcceptedAdmission(callID, agentID, batchID, group string) {
+	s.events.Emit(output.NewDelegationAcceptedEvent(callID, agentID, batchID, group))
 }
 
 // replayUserMessage emits skill state, sub-agent delivery and user input
@@ -184,7 +229,7 @@ func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks) {
 // Only tool calls with a paired tool result are emitted; orphaned calls (e.g. an
 // accepted workflow_handoff that stops the run without appending a result) are
 // skipped so the TUI does not show them as still-running.
-func (s *Session) replayAssistantToolCalls(calls []agent.ToolCall, pendingDelegates map[string]agent.ToolCall, pendingAdvisors map[string]agent.ToolCall, startedToolCalls map[string]struct{}, paired map[string]struct{}) {
+func (s *Session) replayAssistantToolCalls(calls []agent.ToolCall, pendingDelegates map[string][]agent.ToolCall, pendingAdvisors map[string]agent.ToolCall, startedToolCalls map[string]int, paired map[string]struct{}) {
 	for _, call := range calls {
 		if isAdvisorToolCall(call.Name) {
 			if _, ok := paired[call.ID]; !ok {
@@ -195,12 +240,12 @@ func (s *Session) replayAssistantToolCalls(calls []agent.ToolCall, pendingDelega
 			if _, ok := paired[call.ID]; !ok {
 				continue
 			}
-			pendingDelegates[call.ID] = call
+			pendingDelegates[call.ID] = append(pendingDelegates[call.ID], call)
 			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
-			startedToolCalls[call.ID] = struct{}{}
+			startedToolCalls[call.ID]++
 		} else if _, ok := paired[call.ID]; ok {
 			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
-			startedToolCalls[call.ID] = struct{}{}
+			startedToolCalls[call.ID]++
 		}
 	}
 }
@@ -219,44 +264,54 @@ func pairedToolResultIDs(msgs []agent.Message) map[string]struct{} {
 }
 
 // replayToolResult emits the completion event for a tool result message.
-func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[string]agent.ToolCall, pendingAdvisors map[string]agent.ToolCall, startedToolCalls map[string]struct{}, acks *replayAcks) {
+func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[string][]agent.ToolCall, pendingAdvisors map[string]agent.ToolCall, startedToolCalls map[string]int, acks *replayAcks) {
 	if pending, ok := pendingAdvisors[msg.ToolCallID]; ok {
 		question, files := advisorQuestionAndFilesFromArgs(pending.Arguments)
 		s.events.Emit(output.NewAdvisorStartedEvent("", 0, 0, question, files))
 		s.events.Emit(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Note: msg.Content}))
 		delete(pendingAdvisors, msg.ToolCallID)
-	} else if pending, ok := pendingDelegates[msg.ToolCallID]; ok {
-		state := buildReplayedDelegationState(msg.ToolCallID, msg.Retention, msg.Content)
-		task := taskFromArgs(pending.Arguments)
-		if state.status == "queued" {
-			s.events.Emit(output.NewDelegationQueuedEvent(state.agentID, msg.ToolCallID, "", task))
+	} else if pending, ok := pendingDelegates[msg.ToolCallID]; ok && len(pending) > 0 {
+		call := pending[0]
+		pendingDelegates[msg.ToolCallID] = pending[1:]
+		if len(pendingDelegates[msg.ToolCallID]) == 0 {
+			delete(pendingDelegates, msg.ToolCallID)
+		}
+		task := taskFromArgs(call.Arguments)
+		admission := msg.DelegationAdmission
+		if admission != nil && admission.Status == "rejected" {
 		} else {
-			s.events.Emit(output.NewDelegationStartedEvent(state.agentID, task))
+			state := buildReplayedDelegationState(msg.ToolCallID, msg.Retention, msg.Content)
+			if admission != nil && admission.Status == "accepted" {
+				s.emitAcceptedAdmission(msg.ToolCallID, admission.AgentID, admission.BatchID, admission.Group)
+			}
+			if state.status == "queued" {
+				s.events.Emit(output.NewDelegationQueuedEvent(state.agentID, msg.ToolCallID, "", task))
+			} else {
+				s.events.Emit(output.NewDelegationStartedEvent(state.agentID, task))
+			}
+			switch {
+			case isAckStatus(state.status):
+				acks.add(msg.ToolCallID, state.agentID, task)
+			case state.status == "failed":
+				s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
+					AgentID:     state.agentID,
+					TaskPreview: task,
+					Error:       state.error,
+				}))
+			default:
+				s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+					AgentID:           state.agentID,
+					Status:            state.status,
+					TurnCount:         state.turnCount,
+					TokenCount:        state.tokenCount,
+					ToolCallCount:     state.toolCallCount,
+					Output:            state.output,
+					InputTokens:       state.inputTokens,
+					CacheReadTokens:   state.cacheReadTokens,
+					CacheCreateTokens: state.cacheCreateTokens,
+				}))
+			}
 		}
-		switch {
-		case isAckStatus(state.status):
-			acks.add(msg.ToolCallID, state.agentID, task)
-		case state.status == "failed":
-			s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
-				AgentID:     state.agentID,
-				TaskPreview: task,
-				Error:       state.error,
-			}))
-		default:
-			s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-				AgentID:           state.agentID,
-				Status:            state.status,
-				TurnCount:         state.turnCount,
-				TokenCount:        state.tokenCount,
-				ToolCallCount:     state.toolCallCount,
-				Output:            state.output,
-				InputTokens:       state.inputTokens,
-				CacheReadTokens:   state.cacheReadTokens,
-				CacheCreateTokens: state.cacheCreateTokens,
-			}))
-		}
-		delete(pendingDelegates, msg.ToolCallID)
-		delete(startedToolCalls, msg.ToolCallID)
 	}
 
 	// Emit DisplayFileEvent if this is a display_file call with valid payload.
@@ -275,8 +330,18 @@ func (s *Session) replayToolResult(msg agent.Message, pendingDelegates map[strin
 	}
 
 	// Always emit ToolCallFinishedEvent for any tool call that was started.
-	if _, ok := startedToolCalls[msg.ToolCallID]; ok {
-		s.events.Emit(output.NewToolCallFinishedEvent(0, msg.Name, msg.ToolCallID, msg.Content, toolResultError(msg.Content)))
-		delete(startedToolCalls, msg.ToolCallID)
+	if startedToolCalls[msg.ToolCallID] > 0 && (!isDelegateToolCall(msg.Name) || (msg.DelegationAdmission != nil && (msg.DelegationAdmission.Status == "accepted" || msg.DelegationAdmission.Status == "rejected"))) {
+		if msg.DelegationAdmission != nil && (msg.DelegationAdmission.Status == "accepted" || msg.DelegationAdmission.Status == "rejected") {
+			s.events.Emit(output.NewToolCallFinishedEventWithAdmission(0, msg.Name, msg.ToolCallID, msg.Content, toolResultError(msg.Content), output.ToolPreview{}, &output.DelegationAdmission{
+				Status: msg.DelegationAdmission.Status, BatchID: msg.DelegationAdmission.BatchID, Group: msg.DelegationAdmission.Group,
+				AgentID: msg.DelegationAdmission.AgentID, PolicyNotice: msg.DelegationAdmission.PolicyNotice,
+			}))
+		} else {
+			s.events.Emit(output.NewToolCallFinishedEvent(0, msg.Name, msg.ToolCallID, msg.Content, toolResultError(msg.Content)))
+		}
+		startedToolCalls[msg.ToolCallID]--
+		if startedToolCalls[msg.ToolCallID] == 0 {
+			delete(startedToolCalls, msg.ToolCallID)
+		}
 	}
 }

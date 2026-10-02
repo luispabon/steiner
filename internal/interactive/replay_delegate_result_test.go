@@ -9,6 +9,19 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
+func TestReplayFailedAsyncResultCarriesCallID(t *testing.T) {
+	t.Parallel()
+	env := agent.RenderSubAgentResultEnvelope(agent.SubAgentCompletion{ParentCallID: "call-failed", AgentID: "agent-x", AgentType: "explore", Status: "failed", Body: agent.FailureBody("failed", "failed")})
+	events := replayEvents(t, []agent.Message{{Role: agent.MessageRoleUser, Content: env}})
+	failed := eventsOfType(events, output.EventTypeDelegationFailed)
+	if len(failed) != 1 {
+		t.Fatalf("failed events = %d, want 1", len(failed))
+	}
+	if got := failed[0].Payload.(output.DelegationFailedEvent).CallID; got != "call-failed" {
+		t.Fatalf("failed CallID = %q, want call-failed", got)
+	}
+}
+
 func TestDecodeReplayedDelegateResult(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
