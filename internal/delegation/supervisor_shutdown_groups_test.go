@@ -57,7 +57,7 @@ func TestSupervisorShutdownReleasesHeldGroups(t *testing.T) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			for id, state := range s.jobs {
-				if state.held {
+				if state.route == routeHeld {
 					t.Fatalf("job %s still held after shutdown", id)
 				}
 			}
