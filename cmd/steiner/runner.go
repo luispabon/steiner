@@ -91,10 +91,6 @@ func (r cliRunner) orchestrationLevel() config.OrchestrationLevel {
 	return r.runtime.cfg.SubAgent.OrchestrationLevel
 }
 
-func (r cliRunner) Run(ctx context.Context, conversation []agent.Message, skillNames []string, drainSteers func() []agent.SteerMessage) (runResult, error) {
-	return r.RunWithHooks(ctx, conversation, skillNames, runHooks{drainInbox: agent.SteerInboxDrain(drainSteers)})
-}
-
 // RunWithHooks is Run with the boundary hooks of a conversation driver.
 func (r cliRunner) RunWithHooks(ctx context.Context, conversation []agent.Message, skillNames []string, hooks runHooks) (runResult, error) {
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)

@@ -1175,8 +1175,8 @@ func TestSessionRunnerForwardsNilStaticSkillNames(t *testing.T) {
 
 	// Control: the same cliRunner with an explicit skill name does include it,
 	// so the omission above proves the nil forwarding, not a missing skill.
-	if _, err := runner.Run(context.Background(), conversation, []string{"review"}, nil); err != nil {
-		t.Fatalf("cliRunner.Run() error = %v", err)
+	if _, err := runner.RunWithHooks(context.Background(), conversation, []string{"review"}, runHooks{}); err != nil {
+		t.Fatalf("cliRunner.RunWithHooks() error = %v", err)
 	}
 	if got := lastRequestContents(t, providerStub); !strings.Contains(got, "review skill instructions") {
 		t.Fatalf("control run missing static skill content:\n%s", got)

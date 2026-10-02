@@ -1086,7 +1086,7 @@ func TestRunnerDelegateDepsCarryRuntimeSandboxState(t *testing.T) {
 				maxTurns: 4,
 			}
 
-			if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "delegate a task"}}, nil, nil); err != nil {
+			if _, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "delegate a task"}}, nil, runHooks{}); err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
 			if agentID == "" {
@@ -1195,7 +1195,7 @@ func TestRunnerDelegateDepsCarrySandboxTmpDir(t *testing.T) {
 				maxTurns: 4,
 			}
 
-			if _, err := runner.Run(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "delegate a coding task"}}, nil, nil); err != nil {
+			if _, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "delegate a coding task"}}, nil, runHooks{}); err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
 			if agentID == "" {
