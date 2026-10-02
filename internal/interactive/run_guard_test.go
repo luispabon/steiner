@@ -37,8 +37,9 @@ func startBlockedRun(t *testing.T, s *Session) (release chan struct{}) {
 	t.Helper()
 	started := make(chan struct{})
 	release = make(chan struct{})
+	var once sync.Once
 	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
-		close(started)
+		once.Do(func() { close(started) })
 		<-release
 		return RunResult{Conversation: append(conv, agent.Message{Role: agent.MessageRoleAssistant, Content: "old answer"})}, nil
 	}))
