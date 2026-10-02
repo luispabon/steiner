@@ -2,10 +2,13 @@ package interactive
 
 import (
 	"context"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/session"
 )
 
@@ -214,6 +217,46 @@ func TestForkSessionPreservesMode(t *testing.T) {
 	s.mu.RUnlock()
 	if got != config.ExecutionModePlan {
 		t.Fatalf("mode after fork = %q, want %q", got, config.ExecutionModePlan)
+	}
+}
+
+func TestForkSavedSessionRejectsUnsupportedLedgerBeforeSideEffects(t *testing.T) {
+	store := newMockSessionStore()
+	store.loadedSessions["unsupported"] = session.Session{
+		ID:    "unsupported",
+		Title: "Unsupported",
+		Lineage: agent.ConversationLineage{Generations: []agent.ConversationGeneration{{
+			ID:       1,
+			Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "keep live state"}},
+		}}, NextGenerationID: 2},
+		DelegationGroups: &agent.DelegationGroupLedger{Version: 2, Names: []string{"keep-disk"}},
+	}
+	images := &fakeImageSessionStore{}
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		SessionStore: store,
+		ImageStore:   images,
+		BaseEvents:   output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+	})
+	beforeID := s.SessionID()
+	beforeConversation := s.Conversation()
+
+	if err := s.handleForkSavedSession(context.Background(), "unsupported"); err == nil {
+		t.Fatal("handleForkSavedSession succeeded for unsupported ledger")
+	}
+	if len(store.savedSessions) != 0 {
+		t.Fatalf("saved sessions = %#v, want no fork saved", store.savedSessions)
+	}
+	if len(images.copies) != 0 {
+		t.Fatalf("image copies = %#v, want none", images.copies)
+	}
+	if s.SessionID() != beforeID || !reflect.DeepEqual(s.Conversation(), beforeConversation) {
+		t.Fatal("unsupported fork changed live session")
+	}
+	for _, event := range events {
+		if report, ok := event.Payload.(output.ContextReportEvent); ok && strings.Contains(report.Content, "Forked from:") {
+			t.Fatal("unsupported fork emitted success notice")
+		}
 	}
 }
 

@@ -425,6 +425,13 @@ func (s *Session) handleForkSavedSession(ctx context.Context, sessionID string) 
 		return err
 	}
 
+	groupLedger, err := resolveDelegationGroups(loadedSession.DelegationGroups, loadedSession.Lineage)
+	if err != nil {
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("fork saved session failed: %v", err)))
+		return err
+	}
+	loadedSession.DelegationGroups = &groupLedger
+
 	forked, err := session.Fork(loadedSession)
 	if err != nil {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("fork saved session: %v", err)))
