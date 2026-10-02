@@ -180,9 +180,9 @@ func TestLoadWithLedgerRecordsLostOnceWithoutARun(t *testing.T) {
 		name     string
 		messages []agent.Message
 	}{
-		{name: "unknown running", messages: []agent.Message{delegateCall("call-1", "sub_agent", "task"), ackResult(t, "call-1", "sub_agent", "a1", "running")}},
-		{name: "orphan", messages: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "task"}}}}}},
-		{name: "completed reused ID then orphan", messages: []agent.Message{delegateCall("call-1", "sub_agent", "done"), {Role: agent.MessageRoleTool, ToolCallID: "call-1", Name: "sub_agent", Content: `{"output":"done"}`, Retention: &agent.MessageRetention{Status: "completed", AgentID: "old-agent"}}, {Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "lost task"}}}}}},
+		{name: "unknown running then ledger orphan", messages: []agent.Message{delegateCall("call-1", "sub_agent", "unknown task"), ackResult(t, "call-1", "sub_agent", "unknown-agent", "running"), delegateCall("call-1", "sub_agent", "lost task"), {Role: agent.MessageRoleAssistant, Content: "marker"}}},
+		{name: "orphan then ledger", messages: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "lost task"}}}}, {Role: agent.MessageRoleAssistant, Content: "marker"}}},
+		{name: "completed reused ID then orphan", messages: []agent.Message{delegateCall("call-1", "sub_agent", "done"), {Role: agent.MessageRoleTool, ToolCallID: "call-1", Name: "sub_agent", Content: `{"output":"done"}`, Retention: &agent.MessageRetention{Status: "completed", AgentID: "old-agent"}}, {Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "lost task"}}}}, {Role: agent.MessageRoleAssistant, Content: "marker"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -222,6 +222,50 @@ func TestLoadWithLedgerRecordsLostOnceWithoutARun(t *testing.T) {
 			if runs.Load() != 0 {
 				t.Fatalf("runs = %d, want 0", runs.Load())
 			}
+			firstEvents := eventSnapshot()
+			var lifecycle []string
+			for _, event := range firstEvents {
+				switch event.Type {
+				case output.EventTypeDelegationAccepted:
+					p := event.Payload.(output.DelegationAcceptedEvent)
+					lifecycle = append(lifecycle, "accepted:"+p.AgentID+":"+p.CallID+":"+p.BatchID+":"+p.Group)
+				case output.EventTypeDelegationStarted:
+					p := event.Payload.(output.DelegationStartedEvent)
+					lifecycle = append(lifecycle, "started:"+p.AgentID+":"+p.CallID)
+				case output.EventTypeAssistantMessage:
+					p := event.Payload.(output.AssistantMessageEvent)
+					if p.Content == "marker" {
+						lifecycle = append(lifecycle, "marker")
+					}
+				}
+			}
+			markerIndex := -1
+			for i, item := range lifecycle {
+				if item == "marker" {
+					markerIndex = i
+				}
+			}
+			if markerIndex < 2 || lifecycle[markerIndex-2] != "accepted:a1:call-1:batch-lost:group-lost" || lifecycle[markerIndex-1] != "started:a1:call-1" {
+				t.Fatalf("replayed lifecycle before marker = %v", lifecycle)
+			}
+			for _, event := range firstEvents {
+				if event.Type == output.EventTypeDelegationFailed {
+					t.Fatalf("orphan generated preterminal failure: %+v", event.Payload)
+				}
+			}
+			liveDelivered := 0
+			for _, event := range firstEvents {
+				if event.Type == output.EventTypeSubAgentsDelivered {
+					for _, item := range event.Payload.(output.SubAgentsDeliveredEvent).Items {
+						if item.AgentID == "a1" && item.Status == "lost" && item.ParentCallID == "call-1" {
+							liveDelivered++
+						}
+					}
+				}
+			}
+			if liveDelivered != 1 {
+				t.Fatalf("LIVE per-agent lost delivery records = %d, want 1", liveDelivered)
+			}
 			conv := s.Conversation()
 			if len(conv) != len(base)+1 {
 				t.Fatalf("conversation len = %d, want %d: %+v", len(conv), len(base)+1, conv)
@@ -246,8 +290,19 @@ func TestLoadWithLedgerRecordsLostOnceWithoutARun(t *testing.T) {
 			if got := len(s.Conversation()); got != len(base)+1 {
 				t.Fatalf("conversation len after reload = %d, want %d (nothing appended)", got, len(base)+1)
 			}
-			if got := len(eventsOfType(eventSnapshot(), output.EventTypeSubAgentsDelivered)); got != 2 {
-				t.Fatalf("delivery events after two loads = %d, want one replay per load", got)
+			var replayDelivered int
+			for _, event := range eventSnapshot() {
+				if event.Type != output.EventTypeSubAgentsDelivered {
+					continue
+				}
+				for _, item := range event.Payload.(output.SubAgentsDeliveredEvent).Items {
+					if item.AgentID == "a1" && item.Status == "lost" && item.ParentCallID == "call-1" {
+						replayDelivered++
+					}
+				}
+			}
+			if replayDelivered != 2 {
+				t.Fatalf("per-agent lost deliveries after two loads = %d, want one per load", replayDelivered)
 			}
 			if runs.Load() != 0 {
 				t.Fatalf("runs after reload = %d, want 0", runs.Load())

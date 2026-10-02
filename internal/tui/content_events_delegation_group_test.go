@@ -40,6 +40,46 @@ func countDelegationSegments(b *contentBuffer) (segments, boxes int) {
 	return
 }
 
+func TestReplayDelegationEventsKeepAcceptedIdentityAndSettleCard(t *testing.T) {
+	m := newIdentityTestModel()
+	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "replay-call", subAgentArgs("review")))
+	m.applyEvent(output.NewDelegationAcceptedEvent("replay-call", "child-known", "batch", "review"))
+	m.applyEvent(output.NewDelegationStartedEventWithType("child-known", "find files", "replay-call", "", "explore"))
+
+	loc, ok := m.content.activeDelegations["child-known"]
+	if !ok || loc.dd == nil || loc.dd.parentCallID != "replay-call" {
+		t.Fatalf("accepted replay identity missing from card: %#v", loc)
+	}
+	roster := m.roster.entries["child-known"]
+	if roster == nil || roster.currentCallID != "replay-call" || roster.status != rosterRunning {
+		t.Fatalf("accepted replay identity missing from roster: %#v", roster)
+	}
+	m.applyEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: "child-known", CallID: "replay-call", TaskPreview: "find files", Error: "lost"}))
+	if loc.dd.status != "failed" || m.roster.entries["child-known"].status != rosterFailed {
+		t.Fatalf("lost replay did not settle same card: card=%#v roster=%#v", loc.dd, m.roster.entries["child-known"])
+	}
+}
+
+func TestReplayPreparationFailureWithoutStartedEventCreatesOneFailedCard(t *testing.T) {
+	m := newIdentityTestModel()
+	m.applyEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{CallID: "prep-call", TaskPreview: "setup", Error: "setup failed"}))
+	if got := countDelegationCards(m.content.segments); got != 1 {
+		t.Fatalf("failed cards = %d, want 1", got)
+	}
+	if len(m.content.pendingDelegateParents) != 0 {
+		t.Fatalf("pending cards = %d, want 0", len(m.content.pendingDelegateParents))
+	}
+	var card *delegationDisplayState
+	for _, segment := range m.content.segments {
+		if segment.kind == segmentDelegation {
+			card = segment.delegData
+		}
+	}
+	if card == nil || card.status != "failed" || card.parentCallID != "prep-call" {
+		t.Fatalf("prep failure card = %#v", card)
+	}
+}
+
 func TestDelegationGrouping(t *testing.T) {
 	cases := []struct {
 		name         string

@@ -389,6 +389,147 @@ func TestReplayOrphanAcceptedFromLedgerThenLostOnce(t *testing.T) {
 	}
 }
 
+func admissionResult(callID, status, agentID, batch, group string) agent.Message {
+	return agent.Message{Role: agent.MessageRoleTool, ToolCallID: callID, Name: "sub_agent", Content: `{"output":"started","status":"running","continuation":{"agent_id":"` + agentID + `"}}`, DelegationAdmission: &tool.DelegationAdmission{Status: status, AgentID: agentID, BatchID: batch, Group: group}}
+}
+
+func TestReplayLedgerOwnershipAmbiguityMatrix(t *testing.T) {
+	tests := []struct {
+		name    string
+		msgs    []agent.Message
+		ledger  []agent.SubAgentLedgerEntry
+		accept  []string
+		started []string
+	}{
+		{name: "two unknown running same ID", msgs: []agent.Message{delegateCall("same", "sub_agent", "one"), ackResult(t, "same", "sub_agent", "unknown", "running"), delegateCall("same", "sub_agent", "two"), ackResult(t, "same", "sub_agent", "unknown", "running")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "ledger"}}},
+		{name: "one eligible two entries", msgs: []agent.Message{delegateCall("same", "sub_agent", "one"), ackResult(t, "same", "sub_agent", "unknown", "running")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "ledger-a"}, {ParentCallID: "same", AgentID: "ledger-b"}}},
+		{name: "explicit A then unknown B", msgs: []agent.Message{delegateCall("same", "sub_agent", "A"), admissionResult("same", "accepted", "agent-A", "", ""), delegateCall("same", "sub_agent", "B"), ackResult(t, "same", "sub_agent", "unknown", "running")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A"}, {ParentCallID: "same", AgentID: "agent-B"}}, accept: []string{"agent-A"}, started: []string{"agent-A"}},
+		{name: "unknown B then explicit A", msgs: []agent.Message{delegateCall("same", "sub_agent", "B"), ackResult(t, "same", "sub_agent", "unknown", "running"), delegateCall("same", "sub_agent", "A"), admissionResult("same", "accepted", "agent-A", "", "")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A"}, {ParentCallID: "same", AgentID: "agent-B"}}, accept: []string{"agent-A"}, started: []string{"agent-A"}},
+		{name: "explicit A owns exact ledger among B A", msgs: []agent.Message{delegateCall("same", "sub_agent", "A"), admissionResult("same", "accepted", "agent-A", "", "")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-B"}, {ParentCallID: "same", AgentID: "agent-A"}}, accept: []string{"agent-A"}, started: []string{"agent-A"}},
+		{name: "batch and group disambiguate same-agent ledger", msgs: []agent.Message{delegateCall("same", "sub_agent", "first"), admissionResult("same", "accepted", "agent-A", "batch-1", "group-1"), delegateCall("same", "sub_agent", "second"), admissionResult("same", "accepted", "agent-A", "batch-2", "group-2")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A", BatchID: "batch-2", Group: "group-2"}, {ParentCallID: "same", AgentID: "agent-A", BatchID: "batch-1", Group: "group-1"}}, accept: []string{"agent-A", "agent-A"}, started: []string{"agent-A", "agent-A"}},
+		{name: "unknown running plus ambiguous orphan", msgs: []agent.Message{delegateCall("same", "sub_agent", "running"), ackResult(t, "same", "sub_agent", "unknown", "running"), delegateCall("same", "sub_agent", "orphan")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "ledger-a"}, {ParentCallID: "same", AgentID: "ledger-b"}}},
+		{name: "ambiguous explicit not borrowed by unknown", msgs: []agent.Message{delegateCall("same", "sub_agent", "A"), admissionResult("same", "accepted", "agent-A", "", ""), delegateCall("same", "sub_agent", "B"), ackResult(t, "same", "sub_agent", "unknown", "running")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A"}, {ParentCallID: "same", AgentID: "agent-A"}, {ParentCallID: "same", AgentID: "agent-B"}}, accept: []string{"agent-A"}, started: []string{"agent-A"}},
+		{name: "batch and group do not match ledger without identity evidence", msgs: []agent.Message{delegateCall("same", "sub_agent", "one"), admissionResult("same", "accepted", "agent-A", "batch-1", "group-1"), delegateCall("same", "sub_agent", "two"), admissionResult("same", "accepted", "agent-A", "batch-2", "group-2")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A"}}, accept: []string{"agent-A", "agent-A"}},
+		{name: "empty batch and group cannot choose identity", msgs: []agent.Message{delegateCall("same", "sub_agent", "one"), admissionResult("same", "accepted", "agent-A", "batch-1", "group-1"), delegateCall("same", "sub_agent", "two"), admissionResult("same", "accepted", "agent-A", "batch-2", "group-2")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A", BatchID: "", Group: ""}}, accept: []string{"agent-A", "agent-A"}},
+		{name: "latest generation only", msgs: []agent.Message{delegateCall("same", "sub_agent", "old"), admissionResult("same", "accepted", "agent-old", "", ""), delegateCall("same", "sub_agent", "new"), ackResult(t, "same", "sub_agent", "unknown", "running")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-new"}}, accept: []string{"agent-new"}, started: []string{"agent-new"}},
+		{name: "reserved name ledger is not acceptance", msgs: []agent.Message{delegateCall("same", "sub_agent", "reserved")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "ledger"}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			events := replayEventsWithLedger(t, tc.msgs, tc.ledger)
+			var accepted, started []string
+			for _, event := range events {
+				switch event.Type {
+				case output.EventTypeDelegationAccepted:
+					accepted = append(accepted, event.Payload.(output.DelegationAcceptedEvent).AgentID)
+				case output.EventTypeDelegationStarted:
+					started = append(started, event.Payload.(output.DelegationStartedEvent).AgentID)
+				}
+			}
+			if !reflect.DeepEqual(accepted, tc.accept) || !reflect.DeepEqual(started, tc.started) {
+				t.Fatalf("accepted/started = %v/%v, want %v/%v", accepted, started, tc.accept, tc.started)
+			}
+		})
+	}
+}
+
+func replayEventsWithLedger(t *testing.T, msgs []agent.Message, ledger []agent.SubAgentLedgerEntry) []output.Event {
+	t.Helper()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) })})
+	s.replaySessionMessagesWithLedger(msgs, ledger)
+	return events
+}
+
+func TestReplayDuplicateCallsAndNoBackwardPair(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		msgs []agent.Message
+		want int
+	}{
+		{"same message duplicate call IDs", []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "same", Name: "sub_agent", Arguments: map[string]any{"task": "one"}}, {ID: "same", Name: "sub_agent", Arguments: map[string]any{"task": "two"}}}}, {Role: agent.MessageRoleTool, ToolCallID: "same", Name: "sub_agent", Content: `{"output":"ok"}`}}, 1},
+		{"result before future call", []agent.Message{{Role: agent.MessageRoleTool, ToolCallID: "same", Name: "sub_agent", Content: `{"output":"early"}`}, delegateCall("same", "sub_agent", "later"), {Role: agent.MessageRoleTool, ToolCallID: "same", Name: "sub_agent", Content: `{"output":"paired"}`}}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			events := replayEvents(t, tc.msgs)
+			if got := len(eventsOfType(events, output.EventTypeDelegationComplete)); got != tc.want {
+				t.Fatalf("complete events = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReplayAcceptedDuplicateIdentityAndAmbiguousExplicitEntries(t *testing.T) {
+	msgs := []agent.Message{delegateCall("same", "sub_agent", "one"), admissionResult("same", "accepted", "agent-A", "batch", "group"), delegateCall("same", "sub_agent", "two"), admissionResult("same", "accepted", "agent-A", "batch", "group")}
+	ledger := []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A", BatchID: "batch", Group: "group"}, {ParentCallID: "same", AgentID: "agent-A", BatchID: "batch", Group: "group"}}
+	events := replayEventsWithLedger(t, msgs, ledger)
+	if got := len(eventsOfType(events, output.EventTypeDelegationAccepted)); got != 2 {
+		t.Fatalf("accepted events = %d, want 2 explicit admissions", got)
+	}
+	if got := len(eventsOfType(events, output.EventTypeDelegationComplete)); got != 0 {
+		t.Fatalf("complete events = %d, ambiguous ledger entries fabricated results: %d", got, got)
+	}
+}
+
+func TestReplayLedgerDoesNotFinishUnownedDuplicateResult(t *testing.T) {
+	msgs := []agent.Message{delegateCall("same", "sub_agent", "completed"), admissionResult("same", "accepted", "agent-A", "", ""), {Role: agent.MessageRoleTool, ToolCallID: "same", Name: "sub_agent", Content: `{"output":"finished"}`}, delegateCall("same", "sub_agent", "orphan"), {Role: agent.MessageRoleTool, ToolCallID: "same", Name: "sub_agent", Content: `{"output":"extra"}`}}
+	events := replayEventsWithLedger(t, msgs, []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A"}})
+	if got := len(eventsOfType(events, output.EventTypeDelegationComplete)); got != 1 {
+		t.Fatalf("completion events = %d, want paired result only", got)
+	}
+	if got := len(eventsOfType(events, output.EventTypeDelegationFailed)); got != 0 {
+		t.Fatalf("orphan finish generated failures = %d, want 0", got)
+	}
+	finishes := eventsOfType(events, output.EventTypeToolCallFinished)
+	if len(finishes) != 1 || finishes[0].Payload.(output.ToolCallFinishedEvent).Result != msgs[1].Content {
+		t.Fatalf("tool finishes = %+v, want only accepted occurrence finish", finishes)
+	}
+}
+
+func TestReplayExplicitIdentityWinsConflictingPayloadAndRetention(t *testing.T) {
+	msg := agent.Message{Role: agent.MessageRoleTool, ToolCallID: "identity", Name: "sub_agent", Content: `{"output":"","status":"failed","reason":"payload failure","continuation":{"agent_id":"payload-agent"}}`, Retention: &agent.MessageRetention{Status: "failed", AgentID: "retained-agent"}, DelegationAdmission: &tool.DelegationAdmission{Status: "accepted", AgentID: "authoritative-agent", BatchID: "batch", Group: "group"}}
+	events := replayEvents(t, []agent.Message{delegateCall("identity", "sub_agent", "task"), msg})
+	accepted := eventsOfType(events, output.EventTypeDelegationAccepted)
+	if len(accepted) != 1 || accepted[0].Payload.(output.DelegationAcceptedEvent).AgentID != "authoritative-agent" {
+		t.Fatalf("accepted identity = %+v", accepted)
+	}
+	failed := eventsOfType(events, output.EventTypeDelegationFailed)
+	if len(failed) != 1 {
+		t.Fatalf("failed events = %d, want 1", len(failed))
+	}
+	p := failed[0].Payload.(output.DelegationFailedEvent)
+	if p.AgentID != "authoritative-agent" || p.Error != "payload failure" {
+		t.Fatalf("failed identity/error = %+v", p)
+	}
+}
+
+func TestReplayQueuedLedgerHasNoSyntheticTerminal(t *testing.T) {
+	msgs := []agent.Message{delegateCall("queued", "sub_agent", "task"), ackResult(t, "queued", "sub_agent", "agent-Q", "queued")}
+	events := replayEventsWithLedger(t, msgs, []agent.SubAgentLedgerEntry{{ParentCallID: "queued", AgentID: "agent-Q"}})
+	if got := len(eventsOfType(events, output.EventTypeDelegationQueued)); got != 1 {
+		t.Fatalf("queued lifecycle events = %d, want 1", got)
+	}
+	if got := len(eventsOfType(events, output.EventTypeDelegationFailed)) + len(eventsOfType(events, output.EventTypeDelegationComplete)); got != 0 {
+		t.Fatalf("synthetic terminal events = %d, want 0", got)
+	}
+}
+
+func TestReplayPreparationFailureWithoutStart(t *testing.T) {
+	bad := agent.Message{Role: agent.MessageRoleTool, ToolCallID: "prep", Name: "sub_agent", Content: `{"output":"","status":"failed","reason":"setup failed"}`, Retention: &agent.MessageRetention{Status: "failed", AgentID: "misleading"}}
+	events := replayEvents(t, []agent.Message{delegateCall("prep", "sub_agent", "setup"), bad})
+	if got := len(eventsOfType(events, output.EventTypeDelegationStarted)); got != 1 {
+		t.Fatalf("legacy started events = %d, want 1", got)
+	}
+	failed := eventsOfType(events, output.EventTypeDelegationFailed)
+	if len(failed) != 1 {
+		t.Fatalf("failed events = %d, want 1", len(failed))
+	}
+	p := failed[0].Payload.(output.DelegationFailedEvent)
+	if p.AgentID != "" || p.CallID != "prep" || p.Error != "setup failed" {
+		t.Fatalf("failure = %+v, want empty identity/call prep/setup failed", p)
+	}
+}
+
 func TestReplayBlockingDelegatesUnchangedFromOldFormat(t *testing.T) {
 	t.Parallel()
 	data, err := os.ReadFile(filepath.Join("testdata", "replay_blocking_delegates.json"))
