@@ -21,7 +21,7 @@ func TestInteractiveGroupLedgerSeedSaveAndLoad(t *testing.T) {
 
 	seed := agent.DelegationGroupLedger{Version: 1, Names: []string{" beta ", "alpha"}}
 	s.mu.Lock()
-	s.delegationGroups = cloneDelegationGroupLedger(&seed)
+	s.delegationGroups = agent.CloneDelegationGroupLedger(&seed)
 	s.driver = s.newDriverLocked(nil, agent.ConversationLineage{})
 	s.mu.Unlock()
 	seed.Names[0] = "mutated"
@@ -94,7 +94,7 @@ func clonePersistedSession(saved session.Session) session.Session {
 	clone.Lineage = saved.Lineage.Clone()
 	clone.Skills = append([]string(nil), saved.Skills...)
 	clone.SubAgentLedger = append([]agent.SubAgentLedgerEntry(nil), saved.SubAgentLedger...)
-	clone.DelegationGroups = cloneDelegationGroupLedger(saved.DelegationGroups)
+	clone.DelegationGroups = agent.CloneDelegationGroupLedger(saved.DelegationGroups)
 	return clone
 }
 

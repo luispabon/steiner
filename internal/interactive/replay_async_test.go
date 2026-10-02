@@ -20,7 +20,7 @@ func replayEvents(t *testing.T, msgs []agent.Message) []output.Event {
 	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
 	})
-	s.replaySessionMessages(msgs)
+	s.replaySessionMessages(msgs, nil)
 	return events
 }
 
@@ -595,7 +595,7 @@ func TestReplayLedgerRunningDoesNotAddSyntheticTerminal(t *testing.T) {
 	msgs := []agent.Message{delegateCall("run", "sub_agent", "work"), ackResult(t, "run", "sub_agent", "agent-a", "running")}
 	var events []output.Event
 	s := testNewSession(t, Dependencies{BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) })})
-	s.replaySessionMessagesWithLedger(msgs, []agent.SubAgentLedgerEntry{{ParentCallID: "run", AgentID: "agent-a", AgentType: "explore"}})
+	s.replaySessionMessages(msgs, []agent.SubAgentLedgerEntry{{ParentCallID: "run", AgentID: "agent-a", AgentType: "explore"}})
 	var sequence []string
 	for _, event := range events {
 		if event.Type == output.EventTypeDelegationAccepted {
@@ -622,7 +622,7 @@ func TestReplayOrphanAcceptedFromLedgerThenLostOnce(t *testing.T) {
 	var events []output.Event
 	s := testNewSession(t, Dependencies{BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) })})
 	ledger := []agent.SubAgentLedgerEntry{{ParentCallID: "orphan", AgentID: "agent-lost", AgentType: "explore", BatchID: "batch", Group: "group"}}
-	s.replaySessionMessagesWithLedger([]agent.Message{call}, ledger)
+	s.replaySessionMessages([]agent.Message{call}, ledger)
 	if got := len(eventsOfType(events, output.EventTypeToolCallStarted)); got != 1 {
 		t.Fatalf("tool starts = %d, want 1", got)
 	}
@@ -636,7 +636,7 @@ func TestReplayOrphanAcceptedFromLedgerThenLostOnce(t *testing.T) {
 		t.Fatalf("early failures = %d, want 0", got)
 	}
 	lost := agent.RenderSubAgentResultEnvelope(agent.LostSubAgentCompletion(ledger[0]))
-	s.replaySessionMessages([]agent.Message{{Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: lost}})
+	s.replaySessionMessages([]agent.Message{{Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: lost}}, nil)
 	if got := len(eventsOfType(events, output.EventTypeDelegationFailed)); got != 1 {
 		t.Fatalf("lost failures = %d, want 1", got)
 	}
@@ -767,7 +767,7 @@ func replayEventsWithLedger(t *testing.T, msgs []agent.Message, ledger []agent.S
 	t.Helper()
 	var events []output.Event
 	s := testNewSession(t, Dependencies{BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) })})
-	s.replaySessionMessagesWithLedger(msgs, ledger)
+	s.replaySessionMessages(msgs, ledger)
 	return events
 }
 

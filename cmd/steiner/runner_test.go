@@ -46,11 +46,11 @@ func TestBuildRunRequestUsesCapturedDelegationGroupScope(t *testing.T) {
 			return tool.ExecutionResult{}, nil
 		}}
 	}
-	if _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit"), testJob("first", "group-a")); err != nil {
+	if _, _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit"), testJob("first", "group-a")); err != nil {
 		t.Fatalf("first group spawn: %v", err)
 	}
 	request.OnToolBatchDone("batch-explicit")
-	if _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit"), testJob("second", "group-b")); err == nil {
+	if _, _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit"), testJob("second", "group-b")); err == nil {
 		t.Fatal("spawn accepted after callback sealed batch")
 	}
 }
@@ -256,7 +256,7 @@ func spawnBlockedChild(t *testing.T, sup *delegation.Supervisor, controller *del
 	discard := make(chan bool, 1)
 	completions := make(completionCapture, 1)
 	sup.SetCompletionSink(completions)
-	if _, err := sup.Spawn(context.Background(), delegation.ChildJob{
+	if _, _, err := sup.Spawn(context.Background(), delegation.ChildJob{
 		AgentID:   id,
 		AgentType: delegation.AgentTypeCode,
 		Execute: func(ctx context.Context) (tool.ExecutionResult, error) {
@@ -296,7 +296,7 @@ func TestDelegationCancellerReportsFinishedDelegate(t *testing.T) {
 			sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Controller: controller})
 			completions := make(completionCapture, 1)
 			sup.SetCompletionSink(completions)
-			if _, err := sup.Spawn(context.Background(), delegation.ChildJob{
+			if _, _, err := sup.Spawn(context.Background(), delegation.ChildJob{
 				AgentID:      "child-1",
 				AgentType:    delegation.AgentTypeCode,
 				ParentCallID: "call-1",

@@ -64,7 +64,7 @@ func TestReplaySessionMessagesSummaryRole(t *testing.T) {
 		{Role: agent.MessageRoleUser, Content: "hello"},
 		{Role: agent.MessageRoleAssistant, Content: "hi"},
 	}
-	s.replaySessionMessages(msgs)
+	s.replaySessionMessages(msgs, nil)
 
 	var foundSummary bool
 	for _, e := range events {
@@ -99,7 +99,7 @@ func TestReplaySessionMessagesAllRoles(t *testing.T) {
 		{Role: agent.MessageRoleTool, ToolCallID: "call-1", Name: "read", Content: "file contents"},
 		{Role: agent.MessageRoleSummary, Content: "compaction summary text"},
 	}
-	s.replaySessionMessages(msgs)
+	s.replaySessionMessages(msgs, nil)
 
 	if len(events) != 5 {
 		t.Fatalf("got %d events, want 5: %+v", len(events), events)
@@ -172,7 +172,7 @@ func TestReplaySessionMessagesOrphanedToolCallSkipped(t *testing.T) {
 		},
 		{Role: agent.MessageRoleTool, ToolCallID: "call-2", Name: "read", Content: "second result"},
 	}
-	s.replaySessionMessages(msgs)
+	s.replaySessionMessages(msgs, nil)
 
 	var toolCallIDs []string
 	for _, e := range events {
@@ -220,7 +220,7 @@ func TestReplaySessionMessagesDelegateEvent(t *testing.T) {
 				Content:    `{"agent_id":"agent-99","status":"complete","output":"found it","turn_count":2,"token_count":50,"tool_call_count":1}`,
 			},
 		}
-		s.replaySessionMessages(msgs)
+		s.replaySessionMessages(msgs, nil)
 
 		var started *output.DelegationStartedEvent
 		var complete *output.DelegationCompleteEvent
@@ -271,7 +271,7 @@ func TestReplaySessionMessagesDelegateEvent(t *testing.T) {
 				Content:    `{"agent_id":"agent-100","status":"failed","error":"delegate crashed"}`,
 			},
 		}
-		s.replaySessionMessages(msgs)
+		s.replaySessionMessages(msgs, nil)
 
 		var failed *output.DelegationFailedEvent
 		for i := range events {
@@ -331,7 +331,7 @@ func TestReplaySessionMessagesAdvisorEvent(t *testing.T) {
 			Content:    "yes, refactor it",
 		},
 	}
-	s.replaySessionMessages(msgs)
+	s.replaySessionMessages(msgs, nil)
 
 	var started *output.AdvisorStartedEvent
 	var complete *output.AdvisorCompleteEvent
@@ -379,7 +379,7 @@ func TestReplaySessionMessagesDisplayFileEvent(t *testing.T) {
 			Content:    `{"path":"foo.go","status":"displayed"}`,
 		},
 	}
-	s.replaySessionMessages(msgs)
+	s.replaySessionMessages(msgs, nil)
 
 	var found bool
 	for _, e := range events {
@@ -425,7 +425,7 @@ func TestReplaySessionMessagesDisplayFileCallsAlwaysFinish(t *testing.T) {
 			Content:    `{malformed json}`,
 		},
 	}
-	s.replaySessionMessages(msgs)
+	s.replaySessionMessages(msgs, nil)
 
 	// Collect Started/Finished events for each tool call.
 	type callEvent struct {
@@ -490,7 +490,7 @@ func TestReplaySessionMessagesToolCallError(t *testing.T) {
 			Content:    `{"ok":false,"error":{"kind":"tool_error","message":"boom"}}`,
 		},
 	}
-	s.replaySessionMessages(msgs)
+	s.replaySessionMessages(msgs, nil)
 
 	var finishedEvent *output.ToolCallFinishedEvent
 	for _, e := range events {
@@ -524,7 +524,7 @@ func TestReplaySessionMessagesImagesAttached(t *testing.T) {
 			},
 		},
 	}
-	s.replaySessionMessages(msgs)
+	s.replaySessionMessages(msgs, nil)
 
 	var found bool
 	for _, e := range events {
@@ -552,7 +552,7 @@ func TestReplaySessionMessagesReasoningContent(t *testing.T) {
 			ReasoningContent: "thinking about the bug",
 		},
 	}
-	s.replaySessionMessages(msgs)
+	s.replaySessionMessages(msgs, nil)
 
 	var thinkingEvent *output.ThinkingChunkEvent
 	var assistantEvent *output.AssistantMessageEvent
@@ -587,7 +587,7 @@ func replayUserEvents(t *testing.T, msgs []agent.Message) []output.Event {
 	s := testNewSession(t, Dependencies{
 		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
 	})
-	s.replaySessionMessages(msgs)
+	s.replaySessionMessages(msgs, nil)
 	return events
 }
 

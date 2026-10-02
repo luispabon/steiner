@@ -27,7 +27,7 @@ type driverHandle struct {
 // newDriverLocked builds and starts a driver over conv and lineage. The caller
 // stores the handle in s.driver.
 func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.ConversationLineage) *driverHandle {
-	groupLedger := agent.DelegationGroupLedger{Version: 1}
+	groupLedger := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion}
 	if s.delegationGroups != nil {
 		groupLedger = s.delegationGroups.Clone()
 	}

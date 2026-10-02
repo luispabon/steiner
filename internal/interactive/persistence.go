@@ -18,14 +18,6 @@ import (
 )
 
 // generateSessionID creates a random hex ID using crypto/rand.
-func cloneDelegationGroupLedger(ledger *agent.DelegationGroupLedger) *agent.DelegationGroupLedger {
-	if ledger == nil {
-		return nil
-	}
-	clone := ledger.Clone()
-	return &clone
-}
-
 func generateSessionID() (string, error) {
 	b := make([]byte, 16)
 	_, err := rand.Read(b)
@@ -256,7 +248,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		listener(mode)
 	}
 
-	s.replaySessionMessagesWithLedger(msgs, sess.SubAgentLedger)
+	s.replaySessionMessages(msgs, sess.SubAgentLedger)
 	s.emitUnansweredResults(msgs, "")
 	// Lost sub-agents settle only after replay so their delivered event lands
 	// after the replayed transcript, not before it.
@@ -384,7 +376,7 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 		Lineage:          s.lineage,
 		PromptCacheKey:   s.promptCacheKey,
 		Skills:           s.skills.Snapshot(),
-		DelegationGroups: cloneDelegationGroupLedger(s.delegationGroups),
+		DelegationGroups: agent.CloneDelegationGroupLedger(s.delegationGroups),
 	}
 	originalTitle := s.sessionTitle
 	s.mu.RUnlock()

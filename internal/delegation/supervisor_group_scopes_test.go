@@ -29,12 +29,12 @@ func TestGroupScopeSeedSnapshotAndIndependentScopes(t *testing.T) {
 	}
 	job := newAsyncChild("a", "seed")
 	job.job.GroupScope = first
-	if _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "b"), job.job); err == nil {
+	if _, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "b"), job.job); err == nil {
 		t.Fatal("seeded name was accepted")
 	}
 	job.job.AgentID = "b"
 	job.job.GroupScope = second
-	if _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "b"), job.job); err != nil {
+	if _, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "b"), job.job); err != nil {
 		t.Fatalf("same name in independent scope rejected: %v", err)
 	}
 	s.CancelAll(CancelCauseSystem)
@@ -46,7 +46,7 @@ func TestSealedEmptyBatchRejectsLaterGroup(t *testing.T) {
 	s.SealGroupBatch(scope, "batch")
 	job := newAsyncChild("a", "g")
 	job.job.GroupScope = scope
-	_, admission, err := s.SpawnWithAdmission(agent.WithToolBatchID(context.Background(), "batch"), job.job)
+	_, admission, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch"), job.job)
 	if err == nil {
 		t.Fatal("sealed empty batch accepted a group")
 	}
@@ -88,7 +88,7 @@ func TestGroupScopeCanonicalNamesAndWhitespaceUngrouped(t *testing.T) {
 	}
 	conflict := newAsyncChild("conflict", "g")
 	conflict.job.GroupScope = scope
-	_, err := s.Spawn(batchCtx("other"), conflict.job)
+	_, _, err := s.Spawn(batchCtx("other"), conflict.job)
 	if err == nil {
 		t.Fatal("canonical duplicate name in another batch was accepted")
 	}
@@ -179,7 +179,7 @@ func TestConcurrentGroupScopeJoinsShareBatch(t *testing.T) {
 		go func(child *asyncChild) {
 			defer wg.Done()
 			<-start
-			if _, err := s.Spawn(ctx, child.job); err != nil {
+			if _, _, err := s.Spawn(ctx, child.job); err != nil {
 				t.Errorf("Spawn(%s): %v", child.job.AgentID, err)
 			}
 		}(children[i])

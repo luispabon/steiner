@@ -77,14 +77,14 @@ func TestSupervisorAcceptedAdmissionSurvivesOutcomes(t *testing.T) {
 	}
 }
 
-func TestSpawnWithAdmissionCapturesAcceptedAndRejected(t *testing.T) {
+func TestSpawnCapturesAcceptedAndRejected(t *testing.T) {
 	s, _ := newTestSupervisor(1, 0)
 	job := ChildJob{AgentID: "a", Group: " g ", Execute: func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil }}
-	_, got, err := s.SpawnWithAdmission(batchCtx("b"), job)
+	_, got, err := s.Spawn(batchCtx("b"), job)
 	if err != nil || got == nil || got.Status != tool.DelegationAdmissionAccepted || got.BatchID != "b" || got.Group != "g" || got.AgentID != "a" {
 		t.Fatalf("accepted = %+v, %v", got, err)
 	}
-	_, rejected, err := s.SpawnWithAdmission(batchCtx("b"), job)
+	_, rejected, err := s.Spawn(batchCtx("b"), job)
 	want := &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, BatchID: "b", Group: "g", AgentID: "a"}
 	var carrier tool.DelegationAdmissionCarrier
 	if err == nil || rejected == nil || *rejected != *want || !errors.As(err, &carrier) || *carrier.DelegationAdmissionMetadata() != *want {

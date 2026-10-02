@@ -115,12 +115,9 @@ func convertImageBlocks(blocks []agent.ImageBlock) []output.ImageBlock {
 
 // replaySessionMessages replays conversation messages and emits display events
 // so the TUI can reconstruct the session view on resume. Delegate tool calls
-// emit delegation events; regular tool calls emit tool call events.
-func (s *Session) replaySessionMessages(msgs []agent.Message) {
-	s.replaySessionMessagesWithLedger(msgs, nil)
-}
-
-func (s *Session) replaySessionMessagesWithLedger(msgs []agent.Message, ledger []agent.SubAgentLedgerEntry) {
+// emit delegation events; regular tool calls emit tool call events. The ledger
+// ties outstanding sub-agents to their originating call occurrences.
+func (s *Session) replaySessionMessages(msgs []agent.Message, ledger []agent.SubAgentLedgerEntry) {
 	plan := buildReplayOccurrencePlan(msgs, ledger)
 	state := replayState{
 		startedToolCalls: make(map[replayOccurrenceKey]bool),
@@ -254,14 +251,13 @@ func (s *Session) replayDisplayFile(msg agent.Message) {
 }
 
 func (s *Session) replayToolFinished(msg agent.Message) {
-	if !isDelegateToolCall(msg.Name) || hasKnownAdmission(msg.DelegationAdmission) {
-		if hasKnownAdmission(msg.DelegationAdmission) {
-			s.events.Emit(output.NewToolCallFinishedEventWithAdmission(0, msg.Name, msg.ToolCallID, msg.Content, toolResultError(msg.Content), output.ToolPreview{}, &output.DelegationAdmission{
-				Status: msg.DelegationAdmission.Status, BatchID: msg.DelegationAdmission.BatchID, Group: msg.DelegationAdmission.Group,
-				AgentID: msg.DelegationAdmission.AgentID, PolicyNotice: msg.DelegationAdmission.PolicyNotice,
-			}))
-		} else {
-			s.events.Emit(output.NewToolCallFinishedEvent(0, msg.Name, msg.ToolCallID, msg.Content, toolResultError(msg.Content)))
-		}
+	known := hasKnownAdmission(msg.DelegationAdmission)
+	if isDelegateToolCall(msg.Name) && !known {
+		return
 	}
+	var admission *output.DelegationAdmission
+	if known {
+		admission = (*output.DelegationAdmission)(msg.DelegationAdmission)
+	}
+	s.events.Emit(output.NewToolCallFinishedEventWithAdmission(0, msg.Name, msg.ToolCallID, msg.Content, toolResultError(msg.Content), output.ToolPreview{}, admission))
 }

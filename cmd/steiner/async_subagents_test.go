@@ -56,7 +56,7 @@ func TestWorkflowHandoffRefusedWhileSubAgentsOutstanding(t *testing.T) {
 	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
 	release := make(chan struct{})
 	started := make(chan struct{})
-	if _, err := sup.Spawn(context.Background(), delegation.ChildJob{
+	if _, _, err := sup.Spawn(context.Background(), delegation.ChildJob{
 		AgentID:   "child-1",
 		AgentType: delegation.AgentTypeExplore,
 		Execute: func(ctx context.Context) (tool.ExecutionResult, error) {

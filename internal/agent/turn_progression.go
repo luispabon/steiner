@@ -540,7 +540,7 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 	var preview output.ToolPreview
 	normalizedResult := ToolResultEnvelope{}
 	if err != nil {
-		normalizedResult.DelegationAdmission = admissionFromToolError(err)
+		normalizedResult.DelegationAdmission = tool.DelegationAdmissionFromError(err)
 		if normalizedResult.DelegationAdmission == nil {
 			normalizedResult.DelegationAdmission = admissionFromToolResult(result)
 		}
@@ -618,26 +618,10 @@ func admissionFromToolResult(result any) *tool.DelegationAdmission {
 	return execution.DelegationAdmission.Clone()
 }
 
-func admissionFromToolError(err error) *tool.DelegationAdmission {
-	var toolErr *tool.ToolExecutionError
-	if errors.As(err, &toolErr) && toolErr.DelegationAdmission != nil {
-		return toolErr.DelegationAdmission.Clone()
-	}
-	var carrier tool.DelegationAdmissionCarrier
-	if errors.As(err, &carrier) {
-		return carrier.DelegationAdmissionMetadata().Clone()
-	}
-	return nil
-}
-
+// outputAdmissionFromTool converts by struct conversion so the two admission
+// types fail to compile if their fields drift apart.
 func outputAdmissionFromTool(admission *tool.DelegationAdmission) *output.DelegationAdmission {
-	if admission == nil {
-		return nil
-	}
-	return &output.DelegationAdmission{
-		Status: admission.Status, BatchID: admission.BatchID, Group: admission.Group,
-		AgentID: admission.AgentID, PolicyNotice: admission.PolicyNotice,
-	}
+	return (*output.DelegationAdmission)(admission.Clone())
 }
 
 func resultValue(result any) any {

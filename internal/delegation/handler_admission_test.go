@@ -28,7 +28,7 @@ func TestHandlerAdmissionMetadataForAsyncDelegates(t *testing.T) {
 			deps.AsyncSubAgents = true
 			sup, _ := newAsyncSupervisor(1, nil)
 			blockerStarted, blockerRelease := make(chan struct{}), make(chan struct{})
-			if _, _, err := sup.SpawnWithAdmission(context.Background(), ChildJob{AgentID: "blocker-" + string(typ), Execute: func(context.Context) (tool.ExecutionResult, error) {
+			if _, _, err := sup.Spawn(context.Background(), ChildJob{AgentID: "blocker-" + string(typ), Execute: func(context.Context) (tool.ExecutionResult, error) {
 				close(blockerStarted)
 				<-blockerRelease
 				return tool.ExecutionResult{}, nil

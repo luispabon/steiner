@@ -31,7 +31,7 @@ func TestDelegationAdmissionMetadataOnExecutorOutcomes(t *testing.T) {
 				if errors.As(err, &toolErr) {
 					admission = toolErr.DelegationAdmission
 				} else {
-					admission = delegationAdmissionFromError(err)
+					admission = DelegationAdmissionFromError(err)
 				}
 			}
 			if execution, ok := result.(ExecutionResult); ok {
@@ -73,7 +73,7 @@ func TestDelegationAdmissionAcceptedSurvivesError(t *testing.T) {
 	if errors.As(err, &toolErr) {
 		t.Fatalf("unexpected ToolExecutionError %v", err)
 	}
-	admission := delegationAdmissionFromError(err)
+	admission := DelegationAdmissionFromError(err)
 	if admission == nil || admission.Status != DelegationAdmissionAccepted || admission.AgentID != "agent" {
 		t.Fatalf("admission = %#v, err = %v", admission, err)
 	}
@@ -122,7 +122,7 @@ func TestDelegationAdmissionDoesNotMutateSharedWrappedToolError(t *testing.T) {
 				err   error
 				agent string
 			}{{firstErr, "agentA"}, {secondErr, "agentB"}} {
-				got := delegationAdmissionFromError(check.err)
+				got := DelegationAdmissionFromError(check.err)
 				if got == nil || got.AgentID != check.agent {
 					t.Errorf("admission = %#v, want agent %s", got, check.agent)
 				}

@@ -76,7 +76,7 @@ func newAsyncChild(id, group string) *asyncChild {
 
 func spawnAsync(ctx context.Context, t *testing.T, s *Supervisor, c *asyncChild) SpawnTicket {
 	t.Helper()
-	ticket, err := s.Spawn(ctx, c.job)
+	ticket, _, err := s.Spawn(ctx, c.job)
 	if err != nil {
 		t.Fatalf("Spawn(%s): %v", c.job.AgentID, err)
 	}
@@ -259,7 +259,7 @@ func TestSupervisorLedgerIncludesWorktreeAfterDequeue(t *testing.T) {
 			return tool.ExecutionResult{Value: Result{AgentID: "w", Status: StatusComplete}}, nil
 		},
 	}
-	if _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch-w"), job); err != nil {
+	if _, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch-w"), job); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 
@@ -297,7 +297,7 @@ func TestSupervisorPrepareFailureProducesFinalResult(t *testing.T) {
 			return tool.ExecutionResult{}, nil
 		},
 	}
-	if _, err := s.Spawn(context.Background(), job); err != nil {
+	if _, _, err := s.Spawn(context.Background(), job); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 	c := recv(t, sink.ch, "completion")[0]
@@ -358,7 +358,7 @@ func TestSupervisorShutdownPostsUnjoinedOnce(t *testing.T) {
 			return tool.ExecutionResult{Value: Result{Status: StatusComplete}}, nil
 		},
 	}
-	if _, err := s.Spawn(context.Background(), job); err != nil {
+	if _, _, err := s.Spawn(context.Background(), job); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 	report := s.Shutdown(context.Background(), CancelCauseSystem)

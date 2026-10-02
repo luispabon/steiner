@@ -5,6 +5,9 @@ import (
 	"strings"
 )
 
+// DelegationGroupLedgerVersion is the current DelegationGroupLedger format version.
+const DelegationGroupLedgerVersion = 1
+
 // DelegationGroupLedger is the durable set of names reserved by one runtime scope.
 type DelegationGroupLedger struct {
 	Version int      `json:"version"`
@@ -23,6 +26,15 @@ func (l DelegationGroupLedger) Clone() DelegationGroupLedger {
 	sort.Strings(out.Names)
 	out.Names = uniqueGroupNames(out.Names)
 	return out
+}
+
+// CloneDelegationGroupLedger returns a cloned ledger, or nil for a nil ledger.
+func CloneDelegationGroupLedger(l *DelegationGroupLedger) *DelegationGroupLedger {
+	if l == nil {
+		return nil
+	}
+	clone := l.Clone()
+	return &clone
 }
 
 func uniqueGroupNames(names []string) []string {

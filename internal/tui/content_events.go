@@ -188,7 +188,6 @@ type delegationDisplayState struct {
 	parentCallID            string
 	parentArgs              string
 	group                   string
-	batch                   int
 	batchID                 string
 	groupAccepted           bool
 	admissionAccepted       bool  // acceptance event consumed for this parent occurrence
@@ -292,8 +291,6 @@ type contentSegment struct {
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type contentBuffer struct {
-	// delegationBatch is legacy display bookkeeping; accepted membership uses runtime batch IDs.
-	delegationBatch   int
 	structureGen      uint64
 	segments          []contentSegment
 	streaming         bool

@@ -34,11 +34,11 @@ func TestHandlerFallbackGroupScopesAreUniqueAndStable(t *testing.T) {
 	}
 	job := ChildJob{AgentID: "first", Group: "same", Execute: func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil }}
 	job.GroupScope = firstScope
-	if _, _, err := supervisor.SpawnWithAdmission(agent.WithToolBatchID(context.Background(), "batch"), job); err != nil {
+	if _, _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch"), job); err != nil {
 		t.Fatalf("first scope admission: %v", err)
 	}
 	job.AgentID, job.GroupScope = "second", secondDeps.GroupScope
-	if _, _, err := supervisor.SpawnWithAdmission(agent.WithToolBatchID(context.Background(), "batch"), job); err != nil {
+	if _, _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch"), job); err != nil {
 		t.Fatalf("independent scope admission: %v", err)
 	}
 	supervisor.Shutdown(context.Background(), CancelCauseSystem)

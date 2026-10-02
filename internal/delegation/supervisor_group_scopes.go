@@ -32,7 +32,7 @@ func (s *Supervisor) NewGroupScope(seed agent.DelegationGroupLedger) string {
 func (s *Supervisor) SnapshotGroupLedger(scope string) agent.DelegationGroupLedger {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	result := agent.DelegationGroupLedger{Version: 1}
+	result := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion}
 	if state := s.scopes[scope]; state != nil {
 		for name := range state.names {
 			result.Names = append(result.Names, name)

@@ -38,7 +38,7 @@ func TestAcceptedPublicationPrecedesCancelFinalizeAndQueuePump(t *testing.T) {
 		return tool.ExecutionResult{Value: Result{AgentID: "a", Status: StatusCancelled}}
 	}
 	spawnResult := make(chan error, 1)
-	go func() { _, err := s.Spawn(context.Background(), a.job); spawnResult <- err }()
+	go func() { _, _, err := s.Spawn(context.Background(), a.job); spawnResult <- err }()
 	select {
 	case <-events.entered:
 	case <-time.After(time.Second):
@@ -79,7 +79,7 @@ func TestCancelAllDefersQueuedFinalizerUntilBlockedAcceptancePublishes(t *testin
 		return tool.ExecutionResult{Value: Result{AgentID: "queued", Status: StatusCancelled}}
 	}
 	spawnResult := make(chan error, 1)
-	go func() { _, err := s.Spawn(batchCtx("batch"), job.job); spawnResult <- err }()
+	go func() { _, _, err := s.Spawn(batchCtx("batch"), job.job); spawnResult <- err }()
 	waitClosed(t, events.entered, "accepted publication")
 	s.CancelAll(CancelCauseSystem)
 	if got := finalized.Load(); got != 0 {
@@ -116,7 +116,7 @@ func TestShutdownPublicationTimeoutSettlesLateAcceptedJob(t *testing.T) {
 	job := newAsyncChild("late", "")
 	spawnResult := make(chan error, 1)
 	go func() {
-		_, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch"), job.job)
+		_, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch"), job.job)
 		spawnResult <- err
 	}()
 	waitClosed(t, events.entered, "accepted publication")
@@ -173,7 +173,7 @@ func TestShutdownLatePublicationSettlesGroupedJobsAndScopes(t *testing.T) {
 		return tool.ExecutionResult{Value: Result{AgentID: "late", Status: StatusCancelled}}
 	}
 	spawnResult := make(chan error, 1)
-	go func() { _, err := s.Spawn(ctx, late.job); spawnResult <- err }()
+	go func() { _, _, err := s.Spawn(ctx, late.job); spawnResult <- err }()
 	waitClosed(t, events.entered, "blocked acceptance")
 	shutdown := make(chan struct{})
 	go func() { s.Shutdown(context.Background(), CancelCauseSystem); close(shutdown) }()
@@ -233,7 +233,7 @@ func TestPublicationBarrierShutdownWaitsAcceptance(t *testing.T) {
 	job := newAsyncChild("a", "")
 	spawnResult := make(chan error, 1)
 	go func() {
-		_, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch"), job.job)
+		_, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch"), job.job)
 		spawnResult <- err
 	}()
 	select {

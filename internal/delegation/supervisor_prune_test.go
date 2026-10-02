@@ -111,7 +111,7 @@ func TestSupervisorPrunesUnjoinedChildWhenLateRunFinishes(t *testing.T) {
 			stuck := newFakeChild("stuck", false)
 			var res <-chan spawnResult
 			if tt.async {
-				if _, err := s.Spawn(context.Background(), stuck.job); err != nil {
+				if _, _, err := s.Spawn(context.Background(), stuck.job); err != nil {
 					t.Fatalf("Spawn: %v", err)
 				}
 			} else {

@@ -97,7 +97,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
 	delegationActiveController := delegation.NewActiveController()
 	delegationSupervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: max(cfg.SubAgent.MaxParallel, 1), Controller: delegationActiveController, Events: events})
-	delegationFallbackGroupScope := delegationSupervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	delegationFallbackGroupScope := delegationSupervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir, delegationSupervisor)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
 	if err != nil {

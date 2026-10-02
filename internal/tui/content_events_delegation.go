@@ -450,7 +450,6 @@ func (b *contentBuffer) registerDelegationOccurrence(loc delegationLocator) {
 }
 
 func (b *contentBuffer) appendDelegationSegment(dd *delegationDisplayState) int {
-	dd.batch = b.delegationBatch
 	b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: dd, renderDirty: true})
 	return len(b.segments) - 1
 }

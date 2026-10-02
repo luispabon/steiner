@@ -97,7 +97,7 @@ func TestSupervisorLabelReuseAcrossBatchesRejectsConversationReuse(t *testing.T)
 	a, b := newAsyncChild("a", "g"), newAsyncChild("b", "g")
 	a.job.GroupScope, b.job.GroupScope = scope, scope
 	spawnAsync(batchCtx("b1"), t, s, a)
-	if _, err := s.Spawn(batchCtx("b2"), b.job); err == nil {
+	if _, _, err := s.Spawn(batchCtx("b2"), b.job); err == nil {
 		t.Fatal("reused group name in another batch was accepted")
 	}
 	<-a.started
@@ -166,7 +166,7 @@ func TestSupervisorGroupingRequiresBatchAndLabel(t *testing.T) {
 				a.job.GroupScope = s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 			}
 			if tt.group != "" {
-				if _, err := s.Spawn(tt.ctx, a.job); err == nil {
+				if _, _, err := s.Spawn(tt.ctx, a.job); err == nil {
 					t.Fatal("named group without batch was accepted")
 				}
 				sink.none(t)
@@ -186,23 +186,23 @@ func TestSupervisorNameRejectionDoesNotConsumeFreshName(t *testing.T) {
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 	a := newAsyncChild("a", "g")
 	a.job.GroupScope = scope
-	if _, err := s.Spawn(batchCtx("b1"), a.job); err != nil {
+	if _, _, err := s.Spawn(batchCtx("b1"), a.job); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Spawn(batchCtx("b1"), a.job); err == nil {
+	if _, _, err := s.Spawn(batchCtx("b1"), a.job); err == nil {
 		t.Fatal("duplicate active agent ID was accepted")
 	}
 	b := newAsyncChild("b", "h")
 	b.job.GroupScope = scope
-	if _, err := s.Spawn(batchCtx("b1"), b.job); err != nil {
+	if _, _, err := s.Spawn(batchCtx("b1"), b.job); err != nil {
 		t.Fatalf("different name rejected: %v", err)
 	}
-	if _, err := s.Spawn(batchCtx("b1"), b.job); err == nil {
+	if _, _, err := s.Spawn(batchCtx("b1"), b.job); err == nil {
 		t.Fatal("duplicate active agent ID was accepted")
 	}
 	c := newAsyncChild("c", "i")
 	c.job.GroupScope = scope
-	if _, err := s.Spawn(batchCtx("b1"), c.job); !errors.Is(err, ErrOutstandingCap) {
+	if _, _, err := s.Spawn(batchCtx("b1"), c.job); !errors.Is(err, ErrOutstandingCap) {
 		t.Fatalf("fresh-name cap rejection = %v, want ErrOutstandingCap", err)
 	}
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 2 || got[0] != "g" || got[1] != "h" {
@@ -213,7 +213,7 @@ func TestSupervisorNameRejectionDoesNotConsumeFreshName(t *testing.T) {
 	<-b.started
 	close(b.release)
 	waitFinished(t, s, "b")
-	if _, err := s.Spawn(batchCtx("b1"), c.job); err != nil {
+	if _, _, err := s.Spawn(batchCtx("b1"), c.job); err != nil {
 		t.Fatalf("rejected call consumed name i: %v", err)
 	}
 	<-c.started
@@ -239,7 +239,7 @@ func TestSupervisorSealBatchRejectsLateJoinsBeforeAndAfterAck(t *testing.T) {
 	waitClosed(t, a.started, "a started")
 	s.SealBatch("batch")
 	b := newAsyncChild("b", "g")
-	if _, err := s.Spawn(batchCtx("batch"), b.job); err == nil {
+	if _, _, err := s.Spawn(batchCtx("batch"), b.job); err == nil {
 		t.Fatal("SealBatch accepted a late join before the last member finished")
 	}
 	close(a.release)
@@ -249,7 +249,7 @@ func TestSupervisorSealBatchRejectsLateJoinsBeforeAndAfterAck(t *testing.T) {
 	}
 	s.MarkDelivered([]string{"call-a"})
 	late := newAsyncChild("late", "g")
-	if _, err := s.Spawn(batchCtx("batch"), late.job); err == nil {
+	if _, _, err := s.Spawn(batchCtx("batch"), late.job); err == nil {
 		t.Fatal("SealBatch accepted a late join after the last member was acknowledged")
 	}
 	sink.none(t)
@@ -260,7 +260,7 @@ func TestSupervisorCapRejectedCallNeverJoinsGroup(t *testing.T) {
 	a, b, c := newAsyncChild("a", "g"), newAsyncChild("b", "g"), newAsyncChild("c", "g")
 	spawnAsync(batchCtx("b1"), t, s, a)
 	spawnAsync(batchCtx("b1"), t, s, b)
-	if _, err := s.Spawn(batchCtx("b1"), c.job); !errors.Is(err, ErrOutstandingCap) {
+	if _, _, err := s.Spawn(batchCtx("b1"), c.job); !errors.Is(err, ErrOutstandingCap) {
 		t.Fatalf("third spawn error = %v, want ErrOutstandingCap", err)
 	}
 	s.SealBatch("b1")

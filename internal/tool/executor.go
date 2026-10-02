@@ -123,7 +123,7 @@ func (e *Executor) Execute(ctx context.Context, toolName, callID string, input m
 	ctx = e.withDiagnosticsCapture(ctx)
 	result, err := e.runPipeline(ctx, executionInput{ToolName: toolName, CallID: callID, Input: input})
 	if def, ok := e.registry.Get(toolName); ok && def.IsDelegation {
-		admission := delegationAdmissionFromError(err)
+		admission := DelegationAdmissionFromError(err)
 		if execution, ok := result.(ExecutionResult); ok && execution.DelegationAdmission != nil {
 			admission = execution.DelegationAdmission.Clone()
 		}
@@ -143,7 +143,7 @@ func (e *Executor) Execute(ctx context.Context, toolName, callID string, input m
 		} else if execution, ok := result.(ExecutionResult); ok {
 			execution.DelegationAdmission = admission.Clone()
 			result = execution
-		} else if err == nil {
+		} else {
 			result = ExecutionResult{Value: result, DelegationAdmission: admission.Clone()}
 		}
 	}

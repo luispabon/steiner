@@ -45,7 +45,7 @@ func ensureSupervisor(deps *SubAgentHandlerDeps) {
 		})
 	}
 	if deps.GroupScope == "" {
-		deps.GroupScope = deps.Supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+		deps.GroupScope = deps.Supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	}
 }
 
@@ -107,7 +107,7 @@ func superviseDelegate(
 		},
 	}
 	if deps.AsyncSubAgents {
-		ticket, admission, err := deps.Supervisor.SpawnWithAdmission(ctx, job)
+		ticket, admission, err := deps.Supervisor.Spawn(ctx, job)
 		if err == nil {
 			result := ackExecutionResult(ticket)
 			result.DelegationAdmission = admission.Clone()

@@ -3,6 +3,7 @@ package interactive
 import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func replayStatus(msg agent.Message) string {
@@ -13,8 +14,13 @@ func replayStatus(msg agent.Message) string {
 	return state.status
 }
 
-func (s *Session) emitAcceptedAdmission(callID, agentID, batchID, group string) {
-	s.events.Emit(output.NewDelegationAcceptedEvent(callID, agentID, batchID, group))
+// acceptedAdmission returns msg's admission when it records an accepted
+// delegation, or nil otherwise.
+func acceptedAdmission(msg agent.Message) *tool.DelegationAdmission {
+	if msg.DelegationAdmission != nil && msg.DelegationAdmission.Status == tool.DelegationAdmissionAccepted {
+		return msg.DelegationAdmission
+	}
+	return nil
 }
 
 func (s *Session) replayOwnedToolResult(msg agent.Message, owner replayOccurrenceKey, call agent.ToolCall, state replayState, inferred agent.SubAgentLedgerEntry) {
@@ -33,15 +39,15 @@ func (s *Session) replayOwnedToolResult(msg agent.Message, owner replayOccurrenc
 }
 
 func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, acks *replayAcks, inferred agent.SubAgentLedgerEntry) {
-	if msg.DelegationAdmission != nil && msg.DelegationAdmission.Status == "rejected" {
+	if msg.DelegationAdmission != nil && msg.DelegationAdmission.Status == tool.DelegationAdmissionRejected {
 		return
 	}
 	task := taskFromArgs(call.Arguments)
 	state := buildReplayedDelegationState(msg.ToolCallID, msg.Retention, msg.Content)
-	if hasKnownAdmission(msg.DelegationAdmission) && msg.DelegationAdmission.Status == "accepted" {
-		s.emitAcceptedAdmission(msg.ToolCallID, msg.DelegationAdmission.AgentID, msg.DelegationAdmission.BatchID, msg.DelegationAdmission.Group)
-		if msg.DelegationAdmission.AgentID != "" {
-			state.agentID = msg.DelegationAdmission.AgentID
+	if admission := acceptedAdmission(msg); admission != nil {
+		s.events.Emit(output.NewDelegationAcceptedEvent(msg.ToolCallID, admission.AgentID, admission.BatchID, admission.Group))
+		if admission.AgentID != "" {
+			state.agentID = admission.AgentID
 		}
 	}
 	if replayLedgerBackedAck(inferred, state.status) {
@@ -61,14 +67,14 @@ func replayLedgerBackedAck(inferred agent.SubAgentLedgerEntry, status string) bo
 
 func (s *Session) emitLedgerProgress(msg agent.Message, inferred agent.SubAgentLedgerEntry, task, status string) {
 	agentID := inferred.AgentID
-	if hasKnownAdmission(msg.DelegationAdmission) && msg.DelegationAdmission.Status == "accepted" && msg.DelegationAdmission.AgentID != "" {
-		agentID = msg.DelegationAdmission.AgentID
+	if admission := acceptedAdmission(msg); admission != nil && admission.AgentID != "" {
+		agentID = admission.AgentID
 	}
-	s.emitDelegationProgress(agentID, msg.ToolCallID, task, status)
+	s.emitDelegationProgress(agentID, msg.ToolCallID, task, status, true)
 }
 
 func (s *Session) replayEmptyAcceptedFailure(msg agent.Message, state replayedDelegationState, task string) bool {
-	if state.status != "failed" || state.output != "" || !hasKnownAdmission(msg.DelegationAdmission) || msg.DelegationAdmission.Status != "accepted" {
+	if state.status != "failed" || state.output != "" || acceptedAdmission(msg) == nil {
 		return false
 	}
 	s.emitDelegationFailure(state.agentID, msg, task, state.error)
@@ -76,11 +82,7 @@ func (s *Session) replayEmptyAcceptedFailure(msg agent.Message, state replayedDe
 }
 
 func (s *Session) emitReplayProgress(msg agent.Message, state replayedDelegationState, task string) {
-	if hasKnownAdmission(msg.DelegationAdmission) && msg.DelegationAdmission.Status == "accepted" {
-		s.emitDelegationProgress(state.agentID, msg.ToolCallID, task, state.status)
-	} else {
-		s.emitLegacyDelegationProgress(state.agentID, task, state.status, msg.ToolCallID)
-	}
+	s.emitDelegationProgress(state.agentID, msg.ToolCallID, task, state.status, acceptedAdmission(msg) != nil)
 }
 
 func (s *Session) replayDelegationTerminal(msg agent.Message, state replayedDelegationState, task string, acks *replayAcks, inferred agent.SubAgentLedgerEntry) {
@@ -96,29 +98,26 @@ func (s *Session) replayDelegationTerminal(msg agent.Message, state replayedDele
 	}
 }
 
-func (s *Session) emitDelegationProgress(agentID, callID, task, status string) {
+// emitDelegationProgress emits the queued or started event. Started events
+// carry the call ID only for accepted admissions; legacy results predate it.
+func (s *Session) emitDelegationProgress(agentID, callID, task, status string, accepted bool) {
 	if status == "queued" {
 		s.events.Emit(output.NewDelegationQueuedEvent(agentID, callID, "", task))
-	} else {
-		s.events.Emit(output.NewDelegationStartedEvent(agentID, task, callID))
+		return
 	}
-}
-
-func (s *Session) emitLegacyDelegationProgress(agentID, task, status, callID string) {
-	if status == "queued" {
-		s.events.Emit(output.NewDelegationQueuedEvent(agentID, callID, "", task))
-	} else {
-		s.events.Emit(output.NewDelegationStartedEvent(agentID, task))
+	if !accepted {
+		callID = ""
 	}
+	s.events.Emit(output.NewDelegationStartedEvent(agentID, task, callID))
 }
 
 func (s *Session) emitDelegationFailure(agentID string, msg agent.Message, task, err string) {
-	if msg.DelegationAdmission != nil && msg.DelegationAdmission.Status == "accepted" && msg.DelegationAdmission.AgentID != "" {
-		agentID = msg.DelegationAdmission.AgentID
-	}
 	callID := ""
-	if msg.DelegationAdmission != nil && msg.DelegationAdmission.Status == "accepted" {
+	if admission := acceptedAdmission(msg); admission != nil {
 		callID = msg.ToolCallID
+		if admission.AgentID != "" {
+			agentID = admission.AgentID
+		}
 	}
 	s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{AgentID: agentID, CallID: callID, TaskPreview: task, Error: err}))
 }

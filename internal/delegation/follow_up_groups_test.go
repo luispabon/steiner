@@ -216,7 +216,7 @@ func TestFollowUpRejectedAdmissionLeavesSessionAndGroupNames(t *testing.T) {
 			var release chan struct{}
 			if tc.busy {
 				release = make(chan struct{})
-				_, err := s.Spawn(batchCtx("already-running"), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) { <-release; return tool.ExecutionResult{}, nil }})
+				_, _, err := s.Spawn(batchCtx("already-running"), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) { <-release; return tool.ExecutionResult{}, nil }})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -267,7 +267,7 @@ func TestFollowUpBusyRejectionDoesNotReserveGroup(t *testing.T) {
 	s, _ := newAsyncSupervisor(1, nil)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 	block := make(chan struct{})
-	_, err := s.Spawn(batchCtx("busy-batch"), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) {
+	_, _, err := s.Spawn(batchCtx("busy-batch"), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) {
 		<-block
 		return tool.ExecutionResult{}, nil
 	}})
@@ -374,19 +374,19 @@ func TestFollowUpQueuedAndFinishedUndeliveredRejections(t *testing.T) {
 			s, sink := newAsyncSupervisor(1, nil)
 			scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 			block := make(chan struct{})
-			_, err := s.Spawn(batchCtx("blocker"), ChildJob{AgentID: "blocker", ParentCallID: "blocker-call", Execute: func(context.Context) (tool.ExecutionResult, error) { <-block; return tool.ExecutionResult{}, nil }})
+			_, _, err := s.Spawn(batchCtx("blocker"), ChildJob{AgentID: "blocker", ParentCallID: "blocker-call", Execute: func(context.Context) (tool.ExecutionResult, error) { <-block; return tool.ExecutionResult{}, nil }})
 			if err != nil {
 				t.Fatal(err)
 			}
 			waitUntil(t, func() bool { p := s.Pending(); return len(p) == 1 && p[0].State == agent.SubAgentRunning })
 			if state == "queued" {
-				_, err = s.Spawn(batchCtx("queued"), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil }})
+				_, _, err = s.Spawn(batchCtx("queued"), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil }})
 				waitUntil(t, func() bool { p := s.Pending(); return len(p) == 2 && p[1].State == agent.SubAgentQueued })
 			} else {
 				close(block)
 				<-sink.ch
 				s.MarkDelivered([]string{"blocker-call"})
-				_, err = s.Spawn(batchCtx("finished"), ChildJob{AgentID: "warm", ParentCallID: "warm-call", Execute: func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil }})
+				_, _, err = s.Spawn(batchCtx("finished"), ChildJob{AgentID: "warm", ParentCallID: "warm-call", Execute: func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil }})
 				if err == nil {
 					waitUntil(t, func() bool { p := s.Pending(); return len(p) == 1 && p[0].State == agent.SubAgentFinished })
 					<-sink.ch

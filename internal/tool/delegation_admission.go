@@ -65,7 +65,9 @@ func WithDelegationAdmission(err error, metadata *DelegationAdmission) error {
 	return &delegationAdmissionError{err: err, metadata: metadata.Clone()}
 }
 
-func delegationAdmissionFromError(err error) *DelegationAdmission {
+// DelegationAdmissionFromError extracts a cloned admission outcome attached to
+// err, or nil when none is attached.
+func DelegationAdmissionFromError(err error) *DelegationAdmission {
 	var toolErr *ToolExecutionError
 	if errors.As(err, &toolErr) && toolErr.DelegationAdmission != nil {
 		return toolErr.DelegationAdmission.Clone()

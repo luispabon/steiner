@@ -103,7 +103,7 @@ func (s *Session) replayDelegationBundle(call agent.ToolCall, key replayOccurren
 func (s *Session) replayLedgerOrphanBundle(call agent.ToolCall, key replayOccurrenceKey, occurrence *replayOccurrence, state replayState, ledger replayLedger) {
 	s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
 	entry := ledger.entries[occurrence.ledgerIndex]
-	s.emitAcceptedAdmission(call.ID, entry.AgentID, entry.BatchID, entry.Group)
+	s.events.Emit(output.NewDelegationAcceptedEvent(call.ID, entry.AgentID, entry.BatchID, entry.Group))
 	s.events.Emit(output.NewDelegationStartedEvent(entry.AgentID, taskFromArgs(call.Arguments), call.ID))
 	s.events.Emit(output.NewReplayDelegationParentClosedEvent(call.ID))
 	state.startedToolCalls[key] = true
@@ -122,7 +122,7 @@ func (s *Session) replayLedgerAdmission(msg agent.Message, occurrence *replayOcc
 	if status != "running" && status != "queued" {
 		return
 	}
-	s.emitAcceptedAdmission(msg.ToolCallID, entry.AgentID, entry.BatchID, entry.Group)
+	s.events.Emit(output.NewDelegationAcceptedEvent(msg.ToolCallID, entry.AgentID, entry.BatchID, entry.Group))
 }
 
 func ledgerEntryForOccurrence(ledger replayLedger, occurrence *replayOccurrence) agent.SubAgentLedgerEntry {
@@ -141,7 +141,7 @@ func assignExplicitReplayLedgerOwnership(msgs []agent.Message, ledger []agent.Su
 			continue
 		}
 		admission := msgs[occurrence.resultMessageIndex].DelegationAdmission
-		if admission == nil || admission.Status != "accepted" || admission.AgentID == "" {
+		if admission == nil || admission.Status != tool.DelegationAdmissionAccepted || admission.AgentID == "" {
 			continue
 		}
 		candidates := explicitLedgerCandidates(occurrence.call.ID, admission, ledger)
@@ -207,5 +207,5 @@ func optionalMatches(authoritative, evidence string) bool {
 }
 
 func hasKnownAdmission(admission *tool.DelegationAdmission) bool {
-	return admission != nil && (admission.Status == "accepted" || admission.Status == "rejected")
+	return admission != nil && (admission.Status == tool.DelegationAdmissionAccepted || admission.Status == tool.DelegationAdmissionRejected)
 }

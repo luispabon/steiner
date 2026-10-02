@@ -229,7 +229,7 @@ func TestCompactionSaveAndReopenKeepsGroupLedger(t *testing.T) {
 	groupLedger := agent.DelegationGroupLedger{Version: 1, Names: []string{"compacted-group"}}
 	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
 	s.mu.Lock()
-	s.delegationGroups = cloneDelegationGroupLedger(&groupLedger)
+	s.delegationGroups = agent.CloneDelegationGroupLedger(&groupLedger)
 	initialID := s.sessionID
 	s.mu.Unlock()
 	s.SetRunner(&runExecutorFunc{

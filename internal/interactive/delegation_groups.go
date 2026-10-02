@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -14,7 +15,7 @@ import (
 // migrates group names from legacy delegation calls in the saved lineage.
 func resolveDelegationGroups(saved *agent.DelegationGroupLedger, lineage agent.ConversationLineage) (agent.DelegationGroupLedger, error) {
 	if saved != nil {
-		if saved.Version != 1 {
+		if saved.Version != agent.DelegationGroupLedgerVersion {
 			return agent.DelegationGroupLedger{}, fmt.Errorf("resolve delegation groups: unsupported delegation group ledger version %d", saved.Version)
 		}
 		cloned := saved.Clone()
@@ -37,7 +38,7 @@ func resolveDelegationGroups(saved *agent.DelegationGroupLedger, lineage agent.C
 			}
 			admissions := pairLegacyAdmissions(messages[i], messages[i+1:end])
 			for callIndex, call := range messages[i].ToolCalls {
-				if !legacyDelegationTool(call.Name) {
+				if !delegation.IsDelegationTool(call.Name) {
 					continue
 				}
 				if legacyCallGroup(call) == "" || admissions[callIndex] == tool.DelegationAdmissionRejected {
@@ -50,7 +51,7 @@ func resolveDelegationGroups(saved *agent.DelegationGroupLedger, lineage agent.C
 		}
 	}
 
-	out := agent.DelegationGroupLedger{Version: 1, Names: make([]string, 0, len(names))}
+	out := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: make([]string, 0, len(names))}
 	for name := range names {
 		out.Names = append(out.Names, name)
 	}
@@ -97,15 +98,6 @@ func pairLegacyAdmissions(assistant agent.Message, results []agent.Message) map[
 		}
 	}
 	return statuses
-}
-
-func legacyDelegationTool(name string) bool {
-	switch name {
-	case "sub_agent", "follow_up":
-		return true
-	default:
-		return false
-	}
 }
 
 func legacyCallGroup(call agent.ToolCall) string {
