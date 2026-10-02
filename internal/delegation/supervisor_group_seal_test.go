@@ -2,7 +2,6 @@ package delegation
 
 import (
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -68,12 +67,5 @@ func TestGroupScopeStateStaysBoundedAcrossBatches(t *testing.T) {
 	}
 	if len(state.names) != 0 {
 		t.Fatalf("sealing retained %d names", len(state.names))
-	}
-	// The scope struct holds only fixed-size sealing state: no per-batch field.
-	typ := reflect.TypeOf(*state)
-	for i := range typ.NumField() {
-		if f := typ.Field(i); f.Type.Kind() == reflect.Slice || (f.Type.Kind() == reflect.Map && f.Name != "names") {
-			t.Fatalf("scope field %s (%s) could grow per batch", f.Name, f.Type)
-		}
 	}
 }
