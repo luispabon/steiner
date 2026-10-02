@@ -16,8 +16,8 @@ type delegationGroupScope struct {
 	released      bool
 }
 
-// NewGroupScope creates a runtime scope seeded with durable reserved names.
-func (s *Supervisor) NewGroupScope(seed agent.DelegationGroupLedger) string {
+// newGroupScope creates a runtime scope seeded with durable reserved names.
+func (s *Supervisor) newGroupScope(seed agent.DelegationGroupLedger) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.scopeSeq++
@@ -34,8 +34,8 @@ func (s *Supervisor) NewGroupScope(seed agent.DelegationGroupLedger) string {
 // sequential run stream and returns it with its release func. The stream seals
 // only this scope; release is idempotent.
 func (s *Supervisor) OpenGroupScope(seed agent.DelegationGroupLedger) (scope string, release func()) {
-	scope = s.NewGroupScope(seed)
-	return scope, func() { s.ReleaseGroupScope(scope) }
+	scope = s.newGroupScope(seed)
+	return scope, func() { s.releaseGroupScope(scope) }
 }
 
 // SnapshotGroupLedger returns a sorted, independent view of the scope names.
@@ -53,8 +53,9 @@ func (s *Supervisor) SnapshotGroupLedger(scope string) agent.DelegationGroupLedg
 }
 
 // SealGroupBatch closes membership for one named tool batch in the scope, and
-// every earlier batch with it. An empty or unknown scope seals nothing. A batch ID without a sequence number cannot
-// advance the seal point; its groups still settle.
+// every earlier batch with it. An empty or unknown scope seals nothing. A
+// batch ID without a sequence number cannot advance the seal point; its groups
+// still settle.
 func (s *Supervisor) SealGroupBatch(scope, batchID string) {
 	if scope == "" {
 		return
@@ -67,8 +68,8 @@ func (s *Supervisor) SealGroupBatch(scope, batchID string) {
 	s.sealBatch(scope, batchID)
 }
 
-// ReleaseGroupScope marks a scope released and removes it after its jobs finish.
-func (s *Supervisor) ReleaseGroupScope(scope string) {
+// releaseGroupScope marks a scope released and removes it after its jobs finish.
+func (s *Supervisor) releaseGroupScope(scope string) {
 	s.mu.Lock()
 	if state := s.scopes[scope]; state != nil {
 		state.released = true
@@ -97,6 +98,18 @@ func (g *delegationGroupScope) sealThroughLocked(batchID string) {
 	if seq, ok := agent.ToolBatchSeq(batchID); ok {
 		g.sealedThrough = max(g.sealedThrough, seq)
 	}
+}
+
+// requireGroupScope rejects a named group when the handler has no run-stream
+// group scope, before anything is enqueued or reserved. Ungrouped calls pass.
+func requireGroupScope(deps SubAgentHandlerDeps, input map[string]any) error {
+	if deps.GroupScope != "" {
+		return nil
+	}
+	if group := groupInput(input); group != "" {
+		return fmt.Errorf("group %q rejected: grouped delegation needs a run-stream group scope, which this session does not provide; omit group to delegate without grouping", group)
+	}
+	return nil
 }
 
 // groupInput returns the trimmed "group" string of a tool input, or "" when it

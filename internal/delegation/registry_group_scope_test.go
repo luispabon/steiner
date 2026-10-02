@@ -73,7 +73,9 @@ func batchContext(batch string) context.Context {
 
 func TestRegistryGroupScopeSharedAcrossRegisteredHandlers(t *testing.T) {
 	supervisor := NewSupervisor(SupervisorOptions{MaxParallel: 2})
-	deps := registryGroupScopeDeps(t, supervisor, "")
+	scope, release := supervisor.OpenGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	t.Cleanup(release)
+	deps := registryGroupScopeDeps(t, supervisor, scope)
 	registry, err := BuildDelegateRegistry(deps)
 	if err != nil {
 		t.Fatalf("BuildDelegateRegistry() error = %v", err)
@@ -158,7 +160,7 @@ func containsGroupReuseError(err error) bool {
 
 func TestRegistryGroupScopeExplicitScopePreserved(t *testing.T) {
 	supervisor := NewSupervisor(SupervisorOptions{MaxParallel: 2})
-	scope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"reserved"}})
+	scope := supervisor.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"reserved"}})
 	deps := registryGroupScopeDeps(t, supervisor, scope)
 	registry, err := BuildDelegateRegistry(deps)
 	if err != nil {

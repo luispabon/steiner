@@ -124,7 +124,17 @@ func causeFor(s *Supervisor, agentID string) CancelCause {
 
 func newTestSupervisor(maxParallel int, joinTimeout time.Duration) (*Supervisor, *ActiveController) {
 	controller := NewActiveController()
-	return NewSupervisor(SupervisorOptions{MaxParallel: maxParallel, Controller: controller, JoinTimeout: joinTimeout}), controller
+	return seedUnscopedGroups(NewSupervisor(SupervisorOptions{MaxParallel: maxParallel, Controller: controller, JoinTimeout: joinTimeout})), controller
+}
+
+// seedUnscopedGroups gives supervisor-level tests a "" group scope so their
+// jobs can use named groups without opening a scope each. Production never
+// has one: NewSupervisor starts with no scopes.
+func seedUnscopedGroups(s *Supervisor) *Supervisor {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.scopes[""] = &delegationGroupScope{names: make(map[string]string)}
+	return s
 }
 
 func TestSupervisorSpawnAndWaitDeliversResultAndCleansUp(t *testing.T) {

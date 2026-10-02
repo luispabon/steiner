@@ -150,7 +150,7 @@ func TestShutdownLatePublicationSettlesGroupedJobsAndScopes(t *testing.T) {
 	sink := newChannelSink()
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, JoinTimeout: 20 * time.Millisecond})
 	s.SetCompletionSink(sink)
-	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	scope := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	ctx := agent.WithToolBatchID(context.Background(), testBatchID(1))
 	sibling := newAsyncChild("sibling", "same")
 	sibling.job.Events = events
@@ -216,7 +216,7 @@ func TestShutdownLatePublicationSettlesGroupedJobsAndScopes(t *testing.T) {
 	if s.IsPending("sibling") || s.IsPending("unrelated") || s.IsPending("late") {
 		t.Fatal("acknowledged completions remain pending")
 	}
-	s.ReleaseGroupScope(scope)
+	s.releaseGroupScope(scope)
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 2 {
 		t.Fatalf("scope pruned before finalizer settlement: %v", got)
 	}

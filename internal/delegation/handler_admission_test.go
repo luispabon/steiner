@@ -37,6 +37,7 @@ func TestHandlerAdmissionMetadataForAsyncDelegates(t *testing.T) {
 			}
 			<-blockerStarted
 			deps.Supervisor = sup
+			deps.GroupScope = openTestScope(t, deps.Supervisor)
 			input := subAgentTask(typ, "inspect")
 			input["group"] = " handler-group "
 			if typ == AgentTypeVision {
@@ -130,6 +131,7 @@ func TestHandlerGroupReuseRejectsWithTypedCorrectiveSetupError(t *testing.T) {
 		return successRunState(), nil
 	}})
 	deps.Supervisor = NewSupervisor(SupervisorOptions{MaxParallel: 1})
+	deps.GroupScope = openTestScope(t, deps.Supervisor)
 	input := subAgentTask(AgentTypeExplore, "inspect")
 	input["group"] = " reused-group "
 	def := SubAgentToolDef(deps, nil)
@@ -168,6 +170,7 @@ func TestBlockingHandlerAcceptedExecutionFailureKeepsMetadata(t *testing.T) {
 	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) { return agent.RunState{}, failure }})
 	sup, sink := newAsyncSupervisor(1)
 	deps.Supervisor = sup
+	deps.GroupScope = openTestScope(t, deps.Supervisor)
 	ctx := agent.WithToolBatchID(context.Background(), testBatchID(4))
 	input := subAgentTask(AgentTypeExplore, "fail")
 	input["group"] = " failure-group "
@@ -198,6 +201,7 @@ func TestBlockingHandlerAcceptedPreparationFailureKeepsMetadata(t *testing.T) {
 	deps.WorkDir = setupTestRepo(t)
 	sup, sink := newAsyncSupervisor(1)
 	deps.Supervisor = sup
+	deps.GroupScope = openTestScope(t, deps.Supervisor)
 	if err := os.Mkdir(filepath.Join(deps.WorkDir, ".steiner"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -237,6 +241,7 @@ func TestBlockingHandlerKeepsAcceptedAdmissionAndDoesNotPost(t *testing.T) {
 	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) { return successRunState(), nil }})
 	sup, sink := newAsyncSupervisor(1)
 	deps.Supervisor = sup
+	deps.GroupScope = openTestScope(t, deps.Supervisor)
 	ctx := agent.WithToolBatchID(context.Background(), testBatchID(6))
 	input := subAgentTask(AgentTypeExplore, "inspect")
 	input["group"] = " blocking-group "
@@ -257,4 +262,12 @@ func TestBlockingHandlerKeepsAcceptedAdmissionAndDoesNotPost(t *testing.T) {
 		t.Fatalf("result = %+v, admission = %+v", value, admission)
 	}
 	sink.none(t)
+}
+
+// openTestScope opens a group scope on s and releases it when the test ends.
+func openTestScope(t *testing.T, s *Supervisor) string {
+	t.Helper()
+	scope, release := s.OpenGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	t.Cleanup(release)
+	return scope
 }

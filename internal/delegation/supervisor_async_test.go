@@ -80,7 +80,7 @@ var testGroupScopes sync.Map
 // testGroupScope returns the scope grouped test jobs of s run in; sealing it
 // closes their batches.
 func testGroupScope(s *Supervisor) string {
-	scope, _ := testGroupScopes.LoadOrStore(s, s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion}))
+	scope, _ := testGroupScopes.LoadOrStore(s, s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion}))
 	return scope.(string)
 }
 
@@ -98,7 +98,7 @@ func spawnAsync(ctx context.Context, t *testing.T, s *Supervisor, c *asyncChild)
 
 func newAsyncSupervisor(maxParallel int) (*Supervisor, *channelSink) {
 	sink := newChannelSink()
-	s := NewSupervisor(SupervisorOptions{MaxParallel: maxParallel})
+	s := seedUnscopedGroups(NewSupervisor(SupervisorOptions{MaxParallel: maxParallel}))
 	s.SetCompletionSink(sink)
 	return s, sink
 }
@@ -349,7 +349,7 @@ func TestSupervisorSpawnAndWaitPostsNothing(t *testing.T) {
 func TestSupervisorNilSinkPostsNothing(t *testing.T) {
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
 	a := newAsyncChild("a", "g")
-	a.job.GroupScope = s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	a.job.GroupScope = s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	spawnAsync(agent.WithToolBatchID(context.Background(), testBatchID(1)), t, s, a)
 	close(a.release)
 	waitFinished(t, s, "a")

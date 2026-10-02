@@ -58,7 +58,7 @@ func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
 				hold := newAsyncChild("hold", "")
 				spawnAsync(context.Background(), t, s, hold)
 				waitClosed(t, hold.started, "slot holder")
-				scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+				scope := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 				cancelled := newAsyncChild("cancelled", "group")
 				cancelled.job.GroupScope = scope
 				entered, release, callbackDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -163,7 +163,7 @@ func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
 				if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 {
 					t.Fatalf("scope ledger changed before release: %v", got)
 				}
-				s.ReleaseGroupScope(scope)
+				s.releaseGroupScope(scope)
 				if got := s.SnapshotGroupLedger(scope).Names; len(got) != 0 {
 					t.Fatalf("scope not pruned after settlement: %v", got)
 				}
@@ -180,7 +180,7 @@ func TestShutdownUnpublishedBlockingTimeoutPreservesResultAndScope(t *testing.T)
 	events.enabled = block
 	s, _ := newAsyncSupervisor(1)
 	s.joinTimeout = 20 * time.Millisecond
-	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	scope := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	job := newAsyncChild("blocking-late", "reserved")
 	job.job.Events = events
 	job.job.GroupScope = scope
@@ -211,7 +211,7 @@ func TestShutdownUnpublishedBlockingTimeoutPreservesResultAndScope(t *testing.T)
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 {
 		t.Fatalf("scope released before caller ack: %v", got)
 	}
-	s.ReleaseGroupScope(scope)
+	s.releaseGroupScope(scope)
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 0 {
 		t.Fatalf("scope not pruned after safe ack: %v", got)
 	}

@@ -55,7 +55,8 @@ func newGroupScopeTestRunner(t *testing.T) (cliRunner, *delegation.Supervisor, s
 	model.Advanced.Limits.MaxOutputTokens = 4096
 	cfg.Models.Definitions["test-model"] = model
 	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 2})
-	scope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	scope, releaseScope := supervisor.OpenGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	t.Cleanup(releaseScope)
 	script := newAsyncScript("first objective")
 	script.parent = []func(provider.ChatRequest) provider.ChatResponse{
 		step(toolCallsResponse(subAgentCall("first", "first objective", "shared-group"))),

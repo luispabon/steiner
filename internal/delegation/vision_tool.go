@@ -20,6 +20,9 @@ import (
 func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
 	ensureSupervisor(&deps.SubAgentHandlerDeps)
 	return func(ctx context.Context, input map[string]any) (any, error) {
+		if err := requireGroupScope(deps.SubAgentHandlerDeps, input); err != nil {
+			return nil, err
+		}
 		brief, err := parseStructuredBrief(string(AgentTypeVision), input)
 		if err != nil {
 			return nil, err

@@ -141,7 +141,7 @@ func NewSupervisor(opts SupervisorOptions) *Supervisor {
 		jobs:        make(map[string]*jobState),
 		protected:   make(map[string]struct{}),
 		groups:      make(map[groupKey]*jobGroup),
-		scopes:      map[string]*delegationGroupScope{"": {names: make(map[string]string)}},
+		scopes:      make(map[string]*delegationGroupScope),
 	}
 }
 

@@ -62,6 +62,9 @@ func NewFollowUpHandler(deps SubAgentHandlerDeps) func(ctx context.Context, inpu
 }
 
 func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandlerDeps) (any, error) {
+	if err := requireGroupScope(deps, input); err != nil {
+		return nil, err
+	}
 	if pendingID, _ := input["agent_id"].(string); deps.AsyncSubAgents && deps.Supervisor.IsPending(pendingID) {
 		return nil, fmt.Errorf("follow_up: agent %s is still running, queued, or has a result you have not received yet; wait for its result or cancel it first", pendingID)
 	}

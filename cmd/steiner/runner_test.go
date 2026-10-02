@@ -28,7 +28,8 @@ import (
 
 func TestBuildRunRequestUsesCapturedDelegationGroupScope(t *testing.T) {
 	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
-	explicitScope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	explicitScope, releaseExplicitscope := supervisor.OpenGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	t.Cleanup(releaseExplicitscope)
 	runner := cliRunner{runtime: cliRuntime{delegationSupervisor: supervisor}}
 	setup := runnerSetup{delegationGroupScope: explicitScope}
 	deps := runner.newDelegateDeps(setup, nil, nil, nil, "")

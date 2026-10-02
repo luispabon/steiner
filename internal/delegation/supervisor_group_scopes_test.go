@@ -15,8 +15,8 @@ import (
 func TestGroupScopeSeedSnapshotAndIndependentScopes(t *testing.T) {
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
 	seed := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"seed"}}
-	first := s.NewGroupScope(seed)
-	second := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	first := s.newGroupScope(seed)
+	second := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	if first == second {
 		t.Fatal("scope IDs reused")
 	}
@@ -43,7 +43,7 @@ func TestGroupScopeSeedSnapshotAndIndependentScopes(t *testing.T) {
 
 func TestSealedEmptyBatchRejectsLaterGroup(t *testing.T) {
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
-	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	scope := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	s.SealGroupBatch(scope, testBatchID(1))
 	job := newAsyncChild("a", "g")
 	job.job.GroupScope = scope
@@ -70,7 +70,7 @@ func TestSealedEmptyBatchRejectsLaterGroup(t *testing.T) {
 
 func TestGroupScopeCanonicalNamesAndWhitespaceUngrouped(t *testing.T) {
 	s, sink := newAsyncSupervisor(2)
-	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	scope := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	ctx := batchCtx(testBatchID(1))
 	a := newAsyncChild("a", " g ")
 	a.job.GroupScope = scope
@@ -126,7 +126,7 @@ func TestGroupScopeCanonicalNamesAndWhitespaceUngrouped(t *testing.T) {
 
 func TestReleasedGroupScopeRetainedUntilAcknowledgedJobsPruned(t *testing.T) {
 	s, sink := newAsyncSupervisor(2)
-	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	scope := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	a, b := newAsyncChild("a", "group"), newAsyncChild("b", "group")
 	a.job.GroupScope, b.job.GroupScope = scope, scope
 	ctx := batchCtx(testBatchID(1))
@@ -134,7 +134,7 @@ func TestReleasedGroupScopeRetainedUntilAcknowledgedJobsPruned(t *testing.T) {
 	spawnAsync(ctx, t, s, b)
 	waitClosed(t, a.started, "a started")
 	waitClosed(t, b.started, "b started")
-	s.ReleaseGroupScope(scope)
+	s.releaseGroupScope(scope)
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 {
 		t.Fatalf("scope pruned while members running: %v", got)
 	}
@@ -149,7 +149,7 @@ func TestReleasedGroupScopeRetainedUntilAcknowledgedJobsPruned(t *testing.T) {
 	if stateA == nil || stateB == nil {
 		t.Fatal("job states missing before acknowledgment")
 	}
-	s.ReleaseGroupScope(scope)
+	s.releaseGroupScope(scope)
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 || got[0] != "group" {
 		t.Fatalf("scope pruned while jobs unacknowledged: %v", got)
 	}
@@ -167,7 +167,7 @@ func TestReleasedGroupScopeRetainedUntilAcknowledgedJobsPruned(t *testing.T) {
 
 func TestConcurrentGroupScopeJoinsShareBatch(t *testing.T) {
 	s, sink := newAsyncSupervisor(4)
-	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	scope := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	ctx := batchCtx(testBatchID(1))
 	const count = 4
 	children := make([]*asyncChild, count)
@@ -224,7 +224,7 @@ func TestNewGroupScopeCanonicalizesSeed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
-			got := s.SnapshotGroupLedger(s.NewGroupScope(tt.seed))
+			got := s.SnapshotGroupLedger(s.newGroupScope(tt.seed))
 			if !reflect.DeepEqual(got.Names, tt.want) {
 				t.Fatalf("snapshot names = %v, want %v", got.Names, tt.want)
 			}

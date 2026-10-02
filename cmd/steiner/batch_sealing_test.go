@@ -75,7 +75,8 @@ func TestEveryModeSealsItsOwnScopeAndNoOther(t *testing.T) {
 			t.Cleanup(func() { sup.CancelAll(delegation.CancelCauseUser) })
 			runner.runtime.provider = toolBatchScript()
 			runner.runtime.providerFactory = func(provider.ResolvedModel, string) (provider.Provider, error) { return runner.runtime.provider, nil }
-			other := sup.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+			other, releaseOther := sup.OpenGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+			t.Cleanup(releaseOther)
 
 			mode.run(t, runner, own)
 

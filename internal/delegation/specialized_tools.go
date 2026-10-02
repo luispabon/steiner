@@ -432,6 +432,9 @@ func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, res
 func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(ctx context.Context, input map[string]any) (any, error) {
 	ensureSupervisor(&deps.SubAgentHandlerDeps)
 	return func(ctx context.Context, input map[string]any) (any, error) {
+		if err := requireGroupScope(deps.SubAgentHandlerDeps, input); err != nil {
+			return nil, err
+		}
 		if err := checkPlanModeCodeDenial(ctx, agentType); err != nil {
 			return nil, err
 		}

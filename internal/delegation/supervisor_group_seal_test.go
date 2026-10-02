@@ -26,7 +26,7 @@ func TestGroupScopeSealsBySequence(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
-			scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+			scope := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 			for _, id := range tt.seal {
 				s.SealGroupBatch(scope, id)
 			}
@@ -55,7 +55,7 @@ func TestGroupScopeSealsBySequence(t *testing.T) {
 
 func TestGroupScopeStateStaysBoundedAcrossBatches(t *testing.T) {
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
-	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	scope := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	for n := uint64(1); n <= 500; n++ {
 		s.SealGroupBatch(scope, testBatchID(n))
 	}
@@ -72,8 +72,8 @@ func TestGroupScopeStateStaysBoundedAcrossBatches(t *testing.T) {
 
 func TestSealingOneScopeLeavesOtherScopesOpen(t *testing.T) {
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
-	sealed := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
-	other := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	sealed := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	other := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	s.SealGroupBatch(sealed, testBatchID(10))
 
 	s.mu.Lock()
@@ -89,7 +89,7 @@ func TestSealingOneScopeLeavesOtherScopesOpen(t *testing.T) {
 
 func TestSealGroupBatchWithoutScopeSealsNothing(t *testing.T) {
 	s, sink := newAsyncSupervisor(2)
-	other := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	other := s.newGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	a := newAsyncChild("a", "g")
 	a.job.GroupScope = other
 	spawnAsync(batchCtx(testBatchID(1)), t, s, a)

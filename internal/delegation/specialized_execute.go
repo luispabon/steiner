@@ -32,7 +32,9 @@ func scopeProviderEvents(p provider.Provider, agentID string, agentType AgentTyp
 }
 
 // ensureSupervisor defaults the controller and supervisor when the caller did
-// not inject runtime-scoped ones.
+// not inject runtime-scoped ones. It never mints a group scope: only a run
+// stream seals and releases scopes, so a handler without one rejects named
+// groups (see requireGroupScope).
 func ensureSupervisor(deps *SubAgentHandlerDeps) {
 	if deps.ActiveController == nil {
 		deps.ActiveController = NewActiveController()
@@ -42,9 +44,6 @@ func ensureSupervisor(deps *SubAgentHandlerDeps) {
 			MaxParallel: max(deps.SubAgentCfg.MaxParallel, 1),
 			Controller:  deps.ActiveController,
 		})
-	}
-	if deps.GroupScope == "" {
-		deps.GroupScope = deps.Supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	}
 }
 
