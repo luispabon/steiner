@@ -1,6 +1,6 @@
 # Cache Hit Rate Tracking
 
-Steiner records prompt-cache token usage on every usage-bearing model response and surfaces a token-weighted cache hit rate. The feature is always-on and stores no prompt or completion content, only token counts and model identity. Advisor calls are included in recording and reporting.
+Steiner records prompt-cache token usage on every usage-bearing model response and surfaces a token-weighted cache hit rate. The feature is always-on and stores no prompt or completion content, only token counts and model identity. Advisor calls are included in recording and reporting, as are compaction summariser calls.
 
 ## The cache hit rate metric
 
@@ -39,6 +39,8 @@ Sub-agent boxes update their session cache rate as each model request finishes. 
 ### Compaction banners
 
 Finished compaction banners show the one summarizer request's cache rate, for example `✓ cache NN.N% <elapsed> #count`. The field is omitted when that response has no usage.
+
+Manual `/compact` reuses your last top-level request's tool definitions and cache prefix even after sub-agent activity, so the summariser call keeps hitting the prompt cache. Compaction summariser calls are recorded in the usage statistics like normal and advisor calls.
 
 ### `/cache-stats` overlay
 

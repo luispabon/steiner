@@ -20,6 +20,8 @@ After multiple compactions the session can become progressively lossy. If Steine
 
 Use `/compact` to compact the current conversation manually. Add optional focus text after the command, for example `/compact focus on the auth refactor`. Bare `/compact` behaves as before. Steering is added to the compaction summarisation prompt and composes with, rather than replaces, the `models.<name>.prompts.compaction` override.
 
+Manual compaction reuses the tool definitions and cache prefix of your last top-level request, not a sub-agent request. Work delegated to a sub-agent before you run `/compact` therefore does not change the summarisation request's cached prefix, so the provider's prompt cache still applies.
+
 Auto-compaction is never steered; it always uses an empty steering value.
 
 ## What survives compaction

@@ -9,6 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 )
@@ -252,6 +253,60 @@ func TestManualCompactionPassesSnapshotToolsToRunner(t *testing.T) {
 	compactAndWait(t, s, "")
 	if len(gotTools) != 1 || gotTools[0].Function.Name != "read" {
 		t.Fatalf("Compact tools = %#v", gotTools)
+	}
+}
+
+func TestManualCompactionUsesParentSnapshotToolsAfterChildRequest(t *testing.T) {
+	parentTools := []provider.ToolSpec{
+		{Function: provider.ToolFunctionSpec{Name: "read"}},
+		{Function: provider.ToolFunctionSpec{Name: "bash"}},
+	}
+	childTools := []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "read"}}}
+
+	var gotTools []provider.ToolSpec
+	runner := &runExecutorFunc{compact: func(_ context.Context, _ []agent.Message, tools []provider.ToolSpec) ([]agent.Message, error) {
+		gotTools = provider.CloneTools(tools)
+		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
+	}}
+	s := mustCompactionSession(t, Dependencies{Runner: runner})
+
+	// Real APIRequestEvent flow through the session's snapshot sink: a parent
+	// request followed by a scoped child request whose tool set is restricted.
+	s.EventSink().Emit(output.NewAPIRequestEvent("parent-model", nil, parentTools, nil, nil, prompt.ModelTokenBudget{}, 0, 0))
+	childEvent := output.WithAgentScope(output.NewAPIRequestEvent("child-model", nil, childTools, nil, nil, prompt.ModelTokenBudget{}, 0, 0), "child-1")
+	childEvent = output.WithAgentTypeScope(childEvent, "code")
+	s.EventSink().Emit(childEvent)
+
+	s.SetConversation(twoTurnConversation())
+	compactAndWait(t, s, "")
+
+	if !reflect.DeepEqual(gotTools, parentTools) {
+		t.Fatalf("Compact tools = %#v, want the parent tools %#v", gotTools, parentTools)
+	}
+	// The latest-overall snapshot still carries the child attribution, so
+	// context reports keep describing the most recent request.
+	snapshot, ok := s.SnapshotStore().Snapshot()
+	if !ok || snapshot.AgentID != "child-1" || snapshot.Model != "child-model" {
+		t.Fatalf("latest snapshot = %#v (ok=%v), want child attribution preserved", snapshot, ok)
+	}
+}
+
+func TestManualCompactionWithoutParentSnapshotPassesNilTools(t *testing.T) {
+	called := false
+	var gotTools []provider.ToolSpec
+	runner := &runExecutorFunc{compact: func(_ context.Context, _ []agent.Message, tools []provider.ToolSpec) ([]agent.Message, error) {
+		called = true
+		gotTools = tools
+		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
+	}}
+	s := mustCompactionSession(t, Dependencies{Runner: runner})
+	s.SetConversation(twoTurnConversation())
+	compactAndWait(t, s, "")
+	if !called {
+		t.Fatal("Compact was not called")
+	}
+	if gotTools != nil {
+		t.Fatalf("Compact tools = %#v, want nil with no parent snapshot", gotTools)
 	}
 }
 
