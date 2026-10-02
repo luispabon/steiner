@@ -57,6 +57,8 @@ func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, o
 		s.events.Emit(output.NewDelegationAcceptedEvent(occ, admission.Group))
 	} else if outstanding {
 		s.events.Emit(output.NewDelegationAcceptedEvent(occ, entry.Group))
+	} else if legacyChildAdmitted(msg, state.status) {
+		s.events.Emit(output.NewDelegationAcceptedEvent(occ, legacyCallGroup(call)))
 	}
 	if outstanding {
 		s.emitDelegationProgress(occ, task, state.status)
@@ -76,6 +78,34 @@ func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, o
 	default:
 		s.emitDelegationComplete(occ, state)
 	}
+}
+
+// legacyChildAdmitted reports whether a delegate result with no admission and
+// no ledger entry shows a real child was admitted. The result must decode to a
+// delegation projection whose merged status (retention included) is a known
+// child status, and either name an agent ID (a continuation or result
+// agent_id) or carry a running, queued or complete status. A failed, cancelled
+// or lost status with no agent ID is indistinguishable from a setup failure and
+// stays unaccepted, as do error envelopes, which decode to nothing. Sessions
+// that predate admission had no rejection, so a match means the child ran.
+func legacyChildAdmitted(msg agent.Message, status string) bool {
+	switch status {
+	case "running", "queued", "complete", "completed", "failed", "cancelled", "lost", "timeout":
+	default:
+		return false
+	}
+	decoded, ok := decodeReplayedDelegateResult(msg.Content)
+	if !ok {
+		return false
+	}
+	if decoded.AgentID != "" {
+		return true
+	}
+	switch decoded.Status {
+	case "running", "queued", "complete", "completed":
+		return true
+	}
+	return false
 }
 
 // emitDelegationProgress emits the queued or started event.

@@ -50,18 +50,32 @@ func assertFullOccurrences(t *testing.T, events []output.Event) {
 			t.Errorf("%s occurrence incomplete: %+v", typ, occ)
 		}
 	}
+	// Every occurrence's first lifecycle event must be Accepted, and it must
+	// be accepted only once.
+	seen := make(map[output.DelegationOccurrence]bool)
+	lifecycle := func(typ string, occ output.DelegationOccurrence) {
+		check(typ, occ)
+		accepted := typ == output.EventTypeDelegationAccepted
+		switch {
+		case !seen[occ] && !accepted:
+			t.Errorf("%s is the first lifecycle event of %+v, want accepted", typ, occ)
+		case seen[occ] && accepted:
+			t.Errorf("duplicate accepted for %+v", occ)
+		}
+		seen[occ] = true
+	}
 	for _, e := range events {
 		switch p := e.Payload.(type) {
 		case output.DelegationAcceptedEvent:
-			check(e.Type, p.DelegationOccurrence)
+			lifecycle(e.Type, p.DelegationOccurrence)
 		case output.DelegationQueuedEvent:
-			check(e.Type, p.DelegationOccurrence)
+			lifecycle(e.Type, p.DelegationOccurrence)
 		case output.DelegationStartedEvent:
-			check(e.Type, p.DelegationOccurrence)
+			lifecycle(e.Type, p.DelegationOccurrence)
 		case output.DelegationFailedEvent:
-			check(e.Type, p.DelegationOccurrence)
+			lifecycle(e.Type, p.DelegationOccurrence)
 		case output.DelegationCompleteEvent:
-			check(e.Type, p.DelegationOccurrence)
+			lifecycle(e.Type, p.DelegationOccurrence)
 		case output.SubAgentsDeliveredEvent:
 			for _, item := range p.Items {
 				if item.ParentCallID == "" || item.BatchID == "" || item.AgentID == "" {
@@ -79,12 +93,12 @@ func admittedAck(t *testing.T, callID, agentID, batch, status string) agent.Mess
 	return msg
 }
 
-// TestReplayAdmissionSessionMatchesLive replays a session written with typed
+// TestReplayAdmissionSessionMatchesGolden replays a session written with typed
 // admissions: one running and one queued sub-agent in one batch, the first
 // delivered later, the second still outstanding in the ledger. Live emits
 // tool start, accepted, queued/started, parent finish, then the result
 // delivery; the golden pins that order and the batch/agent identity.
-func TestReplayAdmissionSessionMatchesLive(t *testing.T) {
+func TestReplayAdmissionSessionMatchesGolden(t *testing.T) {
 	t.Parallel()
 	msgs := []agent.Message{
 		{Role: agent.MessageRoleUser, Content: "go"},
@@ -146,5 +160,47 @@ func TestReplayDelegationProjectionFailureIsError(t *testing.T) {
 	}
 	if p := finished[0].Payload.(output.ToolCallFinishedEvent); p.Error != "setup failed" {
 		t.Errorf("finish error = %q, want %q", p.Error, "setup failed")
+	}
+}
+
+func TestReplayLegacyAcceptedOnlyForAdmittedChildren(t *testing.T) {
+	t.Parallel()
+	setupFailure := agent.Message{
+		Role: agent.MessageRoleTool, ToolCallID: "c1", Name: "sub_agent",
+		Content: mustJSON(t, tool.JSONEnvelope{OK: false, Error: &tool.JSONEnvelopeError{Kind: "setup", Message: "no worktree"}}),
+	}
+	tests := []struct {
+		name         string
+		msgs         []agent.Message
+		wantAccepted int
+	}{
+		{"running ack with agent id", []agent.Message{delegateCall("c1", "sub_agent", "t"), ackResult(t, "c1", "sub_agent", "agent-a", "running")}, 1},
+		{"blocking result with agent id", []agent.Message{delegateCall("c1", "sub_agent", "t"), {
+			Role: agent.MessageRoleTool, ToolCallID: "c1", Name: "sub_agent",
+			Content: mustJSON(t, agent.DelegationResultEnvelope{Output: "done", Status: "complete", Continuation: &agent.DelegationContinuation{AgentID: "agent-a"}}),
+		}}, 1},
+		{"setup failure envelope", []agent.Message{delegateCall("c1", "sub_agent", "t"), setupFailure}, 0},
+		{"ack resolved by envelope", []agent.Message{
+			delegateCall("c1", "sub_agent", "t"),
+			ackResult(t, "c1", "sub_agent", "agent-a", "running"),
+			{Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: resultEnvelope(t, "c1", "completed", "ok", 1)},
+		}, 1},
+		{"envelope without ack", []agent.Message{
+			{Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: resultEnvelope(t, "c1", "completed", "ok", 1)},
+		}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			events := replayEvents(t, tt.msgs)
+			if tt.wantAccepted > 0 {
+				// A pre-admission failure legitimately replays Started with no
+				// Accepted, so only admitted children get the strict check.
+				assertFullOccurrences(t, events)
+			}
+			if got := len(eventsOfType(events, output.EventTypeDelegationAccepted)); got != tt.wantAccepted {
+				t.Errorf("accepted events = %d, want %d", got, tt.wantAccepted)
+			}
+		})
 	}
 }

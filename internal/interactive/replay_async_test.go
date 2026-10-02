@@ -658,13 +658,13 @@ func TestReplayLedgerOwnershipAmbiguityMatrix(t *testing.T) {
 		started     []string
 		ledgerIndex []int
 	}{
-		{name: "two unknown running same ID", msgs: []agent.Message{delegateCall("same", "sub_agent", "one"), ackResult(t, "same", "sub_agent", "unknown", "running"), delegateCall("same", "sub_agent", "two"), ackResult(t, "same", "sub_agent", "unknown", "running")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "ledger"}}, started: []string{"unknown", "unknown"}, ledgerIndex: []int{-1, -1}},
-		{name: "one eligible two entries", msgs: []agent.Message{delegateCall("same", "sub_agent", "one"), ackResult(t, "same", "sub_agent", "unknown", "running")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "ledger-a"}, {ParentCallID: "same", AgentID: "ledger-b"}}, started: []string{"unknown"}, ledgerIndex: []int{-1}},
+		{name: "two unknown running same ID", msgs: []agent.Message{delegateCall("same", "sub_agent", "one"), ackResult(t, "same", "sub_agent", "unknown", "running"), delegateCall("same", "sub_agent", "two"), ackResult(t, "same", "sub_agent", "unknown", "running")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "ledger"}}, started: []string{"unknown", "unknown"}, accept: []string{"unknown", "unknown"}, ledgerIndex: []int{-1, -1}},
+		{name: "one eligible two entries", msgs: []agent.Message{delegateCall("same", "sub_agent", "one"), ackResult(t, "same", "sub_agent", "unknown", "running")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "ledger-a"}, {ParentCallID: "same", AgentID: "ledger-b"}}, accept: []string{"unknown"}, started: []string{"unknown"}, ledgerIndex: []int{-1}},
 		{name: "explicit A then unknown B", msgs: []agent.Message{delegateCall("same", "sub_agent", "A"), admissionResult("same", "agent-A", "", ""), delegateCall("same", "sub_agent", "B"), ackResult(t, "same", "sub_agent", "unknown", "running")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A"}, {ParentCallID: "same", AgentID: "agent-B"}}, accept: []string{"agent-A", "agent-B"}, started: []string{"agent-A", "agent-B"}},
 		{name: "unknown B then explicit A", msgs: []agent.Message{delegateCall("same", "sub_agent", "B"), ackResult(t, "same", "sub_agent", "unknown", "running"), delegateCall("same", "sub_agent", "A"), admissionResult("same", "agent-A", "", "")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A"}, {ParentCallID: "same", AgentID: "agent-B"}}, accept: []string{"agent-B", "agent-A"}, started: []string{"agent-B", "agent-A"}},
 		{name: "explicit A owns exact ledger among B A", msgs: []agent.Message{delegateCall("same", "sub_agent", "A"), admissionResult("same", "agent-A", "", "")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-B"}, {ParentCallID: "same", AgentID: "agent-A"}}, accept: []string{"agent-A"}, started: []string{"agent-A"}},
 		{name: "batch and group disambiguate same-agent ledger", msgs: []agent.Message{delegateCall("same", "sub_agent", "first"), admissionResult("same", "agent-A", "batch-1", "group-1"), delegateCall("same", "sub_agent", "second"), admissionResult("same", "agent-A", "batch-2", "group-2")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A", BatchID: "batch-2", Group: "group-2"}, {ParentCallID: "same", AgentID: "agent-A", BatchID: "batch-1", Group: "group-1"}}, accept: []string{"agent-A", "agent-A"}, started: []string{"agent-A", "agent-A"}},
-		{name: "unknown running plus ambiguous orphan", msgs: []agent.Message{delegateCall("same", "sub_agent", "running"), ackResult(t, "same", "sub_agent", "unknown", "running"), delegateCall("same", "sub_agent", "orphan")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "ledger-a"}, {ParentCallID: "same", AgentID: "ledger-b"}}, started: []string{"unknown"}},
+		{name: "unknown running plus ambiguous orphan", msgs: []agent.Message{delegateCall("same", "sub_agent", "running"), ackResult(t, "same", "sub_agent", "unknown", "running"), delegateCall("same", "sub_agent", "orphan")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "ledger-a"}, {ParentCallID: "same", AgentID: "ledger-b"}}, accept: []string{"unknown"}, started: []string{"unknown"}},
 		{name: "ambiguous explicit not borrowed by unknown", msgs: []agent.Message{delegateCall("same", "sub_agent", "A"), admissionResult("same", "agent-A", "", ""), delegateCall("same", "sub_agent", "B"), ackResult(t, "same", "sub_agent", "unknown", "running")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A"}, {ParentCallID: "same", AgentID: "agent-A"}, {ParentCallID: "same", AgentID: "agent-B"}}, accept: []string{"agent-A", "agent-B"}, started: []string{"agent-A", "agent-B"}, ledgerIndex: []int{-1, 2}},
 		{name: "batch and group do not match ledger without identity evidence", msgs: []agent.Message{delegateCall("same", "sub_agent", "one"), admissionResult("same", "agent-A", "batch-1", "group-1"), delegateCall("same", "sub_agent", "two"), admissionResult("same", "agent-A", "batch-2", "group-2")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A"}}, accept: []string{"agent-A", "agent-A"}, started: []string{"agent-A", "agent-A"}},
 		{name: "empty batch and group cannot choose identity", msgs: []agent.Message{delegateCall("same", "sub_agent", "one"), admissionResult("same", "agent-A", "batch-1", "group-1"), delegateCall("same", "sub_agent", "two"), admissionResult("same", "agent-A", "batch-2", "group-2")}, ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-A", BatchID: "", Group: ""}}, accept: []string{"agent-A", "agent-A"}, started: []string{"agent-A", "agent-A"}},
@@ -891,15 +891,5 @@ func TestReplayBlockingDelegatesUnchangedFromOldFormat(t *testing.T) {
 	if err := json.Unmarshal(data, &msgs); err != nil {
 		t.Fatalf("decode fixture: %v", err)
 	}
-	var got []string
-	for _, e := range replayEvents(t, msgs) {
-		got = append(got, e.Type+" "+mustJSON(t, e.Payload))
-	}
-	want, err := os.ReadFile(filepath.Join("testdata", "replay_blocking_delegates.golden"))
-	if err != nil {
-		t.Fatalf("read golden: %v", err)
-	}
-	if strings.Join(got, "\n")+"\n" != string(want) {
-		t.Errorf("replayed events changed:\n%s", strings.Join(got, "\n"))
-	}
+	assertReplayGolden(t, "replay_blocking_delegates.golden", replayEvents(t, msgs))
 }

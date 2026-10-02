@@ -33,10 +33,11 @@ type replayOccurrencePlan struct {
 func buildReplayOccurrencePlan(msgs []agent.Message, ledger []agent.SubAgentLedgerEntry) replayOccurrencePlan {
 	plan := replayOccurrencePlan{occurrences: make(map[replayOccurrenceKey]*replayOccurrence), resultOwners: make(map[int]replayOccurrenceKey)}
 	for messageIndex, msg := range msgs {
+		if msg.Role != agent.MessageRoleAssistant {
+			continue
+		}
 		for callIndex, call := range msg.ToolCalls {
-			if msg.Role == agent.MessageRoleAssistant {
-				plan.occurrences[replayOccurrenceKey{messageIndex: messageIndex, callIndex: callIndex}] = &replayOccurrence{call: call, resultMessageIndex: -1, ledgerIndex: -1}
-			}
+			plan.occurrences[replayOccurrenceKey{messageIndex: messageIndex, callIndex: callIndex}] = &replayOccurrence{call: call, resultMessageIndex: -1, ledgerIndex: -1}
 		}
 	}
 	for _, pair := range pairToolResults(msgs).pairs {

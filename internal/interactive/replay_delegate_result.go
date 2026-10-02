@@ -64,6 +64,9 @@ func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *
 	occ := ack.occ
 	if !found {
 		occ = replayOccurrenceFor(parsed.CallID, messageIndex, nil, agent.SubAgentLedgerEntry{}, parsed.AgentID)
+		// A result envelope proves the child was admitted, and live always
+		// emits Accepted first; an ack already emitted it for the found case.
+		s.events.Emit(output.NewDelegationAcceptedEvent(occ, ""))
 	}
 	state := replayedDelegationState{agentID: parsed.AgentID, status: "complete"}
 	body, usage := splitResultEnvelopeInner(parsed.Inner)
