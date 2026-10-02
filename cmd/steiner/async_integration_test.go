@@ -262,7 +262,7 @@ func newAsyncHarness(t *testing.T, prov *asyncScript, maxParallel int) *asyncHar
 
 	controller := delegation.NewActiveController()
 	events := newAsyncEventRecorder()
-	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: maxParallel, Controller: controller, Events: events})
+	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: maxParallel, Controller: controller})
 	store := delegation.NewSessionStore()
 	workDir := t.TempDir()
 	rt := cliRuntime{

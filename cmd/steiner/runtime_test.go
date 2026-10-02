@@ -12,9 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
-	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
-	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
@@ -247,38 +245,4 @@ func findToolDef(t *testing.T, defs []tool.ToolDef, name string) tool.ToolDef {
 	}
 	t.Fatalf("tool %q not found in %v", name, defs)
 	return tool.ToolDef{}
-}
-
-// TestBuildInteractiveRuntimeMovesSupervisorOntoSessionSink pins that the
-// supervisor, the sole producer of delegation accepted/queued events, emits on
-// the session sink the TUI consumes rather than the base sink it was built on.
-func TestBuildInteractiveRuntimeMovesSupervisorOntoSessionSink(t *testing.T) {
-	sess, err := interactive.NewSession(interactive.Dependencies{})
-	if err != nil {
-		t.Fatalf("NewSession: %v", err)
-	}
-	var displayed []output.Event
-	sess.DisplaySink().Set(output.SinkFunc(func(e output.Event) { displayed = append(displayed, e) }))
-
-	sup := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1, Events: output.NoopSink{}})
-	rt := cliRuntime{cfg: registryTestConfig(), workDir: t.TempDir(), events: output.NoopSink{}, delegationSupervisor: sup}
-	rt = buildInteractiveRuntime(rt, sess)
-
-	ctx := agent.WithToolBatchID(context.Background(), "call#1")
-	_, _, err = sup.Spawn(ctx, delegation.ChildJob{
-		AgentID: "a", ParentCallID: "call-a",
-		Execute: func(context.Context) (tool.ExecutionResult, error) { return tool.ExecutionResult{}, nil },
-	})
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	for _, e := range displayed {
-		if p, ok := e.Payload.(output.DelegationAcceptedEvent); ok {
-			if p.CallID != "call-a" || p.BatchID != "call#1" || p.AgentID != "a" {
-				t.Fatalf("accepted occurrence = %+v", p.DelegationOccurrence)
-			}
-			return
-		}
-	}
-	t.Fatalf("display sink saw no accepted event: %+v", displayed)
 }

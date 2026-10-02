@@ -72,26 +72,27 @@ func TestBuildDelegateRegistryEmitsDelegationEventsOnChildEvents(t *testing.T) {
 
 			perRunEvents, runtimeEvents := perRun.delegationEvents(), runtime.delegationEvents()
 			if tc.wantRuntime {
-				if len(perRunEvents) != 1 {
-					t.Fatalf("per-run delegation events = %+v, want one accepted event", perRunEvents)
+				// Accepted rides the same per-job sink as started/complete.
+				if len(perRunEvents) != 0 {
+					t.Fatalf("per-run delegation events = %+v, want none", perRunEvents)
 				}
-				accepted, ok := perRunEvents[0].Payload.(output.DelegationAcceptedEvent)
-				if !ok || perRunEvents[0].Type != output.EventTypeDelegationAccepted {
-					t.Fatalf("per-run first event = %+v, want DelegationAcceptedEvent", perRunEvents[0])
+				if len(runtimeEvents) != 3 {
+					t.Fatalf("child delegation events = %+v, want accepted, started, complete", runtimeEvents)
 				}
-				if accepted.CallID != "call-0" || accepted.AgentID == "" {
-					t.Fatalf("accepted event identity = %+v, want call-0 and non-empty agent ID", accepted)
+				gotTypes := []string{runtimeEvents[0].Type, runtimeEvents[1].Type, runtimeEvents[2].Type}
+				wantTypes := []string{output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted, output.EventTypeDelegationComplete}
+				for i := range wantTypes {
+					if gotTypes[i] != wantTypes[i] {
+						t.Fatalf("child delegation event order = %v, want %v", gotTypes, wantTypes)
+					}
 				}
-
-				if len(runtimeEvents) != 2 {
-					t.Fatalf("child delegation events = %+v, want started then complete", runtimeEvents)
+				accepted, ok := runtimeEvents[0].Payload.(output.DelegationAcceptedEvent)
+				if !ok || accepted.CallID != "call-0" || accepted.AgentID == "" {
+					t.Fatalf("accepted event identity = %+v, want call-0 and non-empty agent ID", runtimeEvents[0])
 				}
-				if runtimeEvents[0].Type != output.EventTypeDelegationStarted || runtimeEvents[1].Type != output.EventTypeDelegationComplete {
-					t.Fatalf("child delegation event order = %v, want started then complete", []string{runtimeEvents[0].Type, runtimeEvents[1].Type})
-				}
-				started, ok := runtimeEvents[0].Payload.(output.DelegationStartedEvent)
+				started, ok := runtimeEvents[1].Payload.(output.DelegationStartedEvent)
 				if !ok || started.AgentID != accepted.AgentID || started.CallID != accepted.CallID {
-					t.Fatalf("child started event = %+v, want accepted identity %+v", runtimeEvents[0], accepted)
+					t.Fatalf("child started event = %+v, want accepted identity %+v", runtimeEvents[1], accepted)
 				}
 				return
 			}

@@ -72,7 +72,7 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	s.jobs[job.AgentID] = state
 	s.queue = append(s.queue, state)
 	state.wasQueued = s.running >= s.maxParallel || len(s.queue) > 1
-	events := s.events
+	events := job.Events
 	s.mu.Unlock()
 
 	// Accepted has this single producer: it fires after registration and before

@@ -65,7 +65,7 @@ func TestFollowUpHandler_UnknownAgentID(t *testing.T) {
 	}})
 	deps.AsyncSubAgents = true
 	deps.SessionStore = NewSessionStore()
-	deps.Supervisor, _ = newAsyncSupervisor(deps.SubAgentCfg.MaxParallel, nil)
+	deps.Supervisor, _ = newAsyncSupervisor(deps.SubAgentCfg.MaxParallel)
 	handler := NewFollowUpHandler(deps.SubAgentHandlerDeps)
 
 	_, err := handler(context.Background(), map[string]any{

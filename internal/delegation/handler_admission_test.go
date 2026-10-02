@@ -26,7 +26,7 @@ func TestHandlerAdmissionMetadataForAsyncDelegates(t *testing.T) {
 				return successRunState(), nil
 			}})
 			deps.AsyncSubAgents = true
-			sup, _ := newAsyncSupervisor(1, nil)
+			sup, _ := newAsyncSupervisor(1)
 			blockerStarted, blockerRelease := make(chan struct{}), make(chan struct{})
 			if _, _, err := sup.Spawn(context.Background(), ChildJob{AgentID: "blocker-" + string(typ), Execute: func(context.Context) (tool.ExecutionResult, error) {
 				close(blockerStarted)
@@ -166,7 +166,7 @@ func TestHandlerGroupReuseRejectsWithTypedCorrectiveSetupError(t *testing.T) {
 func TestBlockingHandlerAcceptedExecutionFailureKeepsMetadata(t *testing.T) {
 	failure := errors.New("runner execution failed")
 	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) { return agent.RunState{}, failure }})
-	sup, sink := newAsyncSupervisor(1, nil)
+	sup, sink := newAsyncSupervisor(1)
 	deps.Supervisor = sup
 	ctx := agent.WithToolBatchID(context.Background(), testBatchID(4))
 	input := subAgentTask(AgentTypeExplore, "fail")
@@ -196,7 +196,7 @@ func TestBlockingHandlerAcceptedPreparationFailureKeepsMetadata(t *testing.T) {
 		return agent.RunState{}, nil
 	}})
 	deps.WorkDir = setupTestRepo(t)
-	sup, sink := newAsyncSupervisor(1, nil)
+	sup, sink := newAsyncSupervisor(1)
 	deps.Supervisor = sup
 	if err := os.Mkdir(filepath.Join(deps.WorkDir, ".steiner"), 0o700); err != nil {
 		t.Fatal(err)
@@ -235,7 +235,7 @@ func TestBlockingHandlerAcceptedPreparationFailureKeepsMetadata(t *testing.T) {
 
 func TestBlockingHandlerKeepsAcceptedAdmissionAndDoesNotPost(t *testing.T) {
 	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) { return successRunState(), nil }})
-	sup, sink := newAsyncSupervisor(1, nil)
+	sup, sink := newAsyncSupervisor(1)
 	deps.Supervisor = sup
 	ctx := agent.WithToolBatchID(context.Background(), testBatchID(6))
 	input := subAgentTask(AgentTypeExplore, "inspect")

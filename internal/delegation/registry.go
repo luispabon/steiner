@@ -293,7 +293,6 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		deps.Supervisor = NewSupervisor(SupervisorOptions{
 			MaxParallel: max(deps.SubAgentCfg.MaxParallel, 1),
 			Controller:  deps.ActiveController,
-			Events:      deps.Events,
 		})
 	}
 

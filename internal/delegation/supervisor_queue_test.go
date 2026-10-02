@@ -112,14 +112,16 @@ func TestSupervisorQueuedBehindBlockedAcceptanceStartsAfterSlotFree(t *testing.T
 	blockA := &atomic.Bool{}
 	blockA.Store(true)
 	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{}), queued: make(chan output.Event, 1), enabled: blockA}
-	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events})
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
 	sink := newChannelSink()
 	s.SetCompletionSink(sink)
 	a := newAsyncChild("a", "")
+	a.job.Events = events
 	aSpawn := make(chan error, 1)
 	go func() { _, _, err := s.Spawn(batchCtx(testBatchID(1)), a.job); aSpawn <- err }()
 	waitClosed(t, events.entered, "A accepted publication")
 	b := newAsyncChild("b", "")
+	b.job.Events = events
 	blockA.Store(false)
 	bTicket, _, err := s.Spawn(batchCtx(testBatchID(1)), b.job)
 	if err != nil {

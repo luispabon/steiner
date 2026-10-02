@@ -98,11 +98,6 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 
 func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) cliRuntime {
 	rt.events = sess.EventSink()
-	// The supervisor is the sole producer of Delegation accepted/queued events;
-	// it was built on the base sink, so point it at the session sink the TUI reads.
-	if rt.delegationSupervisor != nil {
-		rt.delegationSupervisor.SetEvents(rt.events)
-	}
 	// The approver must be updated before the registry is built: the registry
 	// copies ToolDef values (including their approval closures) by value, and
 	// the interactive runner later snapshots the runtime by value too, so any

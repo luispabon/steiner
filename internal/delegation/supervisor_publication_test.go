@@ -30,9 +30,10 @@ func (s blockedAcceptedSink) Emit(event output.Event) {
 
 func TestAcceptedPublicationPrecedesCancelFinalizeAndQueuePump(t *testing.T) {
 	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{})}
-	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events})
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
 	var finalized atomic.Int32
 	a := newAsyncChild("a", "")
+	a.job.Events = events
 	a.job.OnCancelledBeforeStart = func() tool.ExecutionResult {
 		finalized.Add(1)
 		return tool.ExecutionResult{Value: Result{AgentID: "a", Status: StatusCancelled}}
@@ -69,11 +70,12 @@ func TestAcceptedPublicationPrecedesCancelFinalizeAndQueuePump(t *testing.T) {
 
 func TestCancelAllDefersQueuedFinalizerUntilBlockedAcceptancePublishes(t *testing.T) {
 	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{})}
-	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events})
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
 	sink := newChannelSink()
 	s.SetCompletionSink(sink)
 	var finalized atomic.Int32
 	job := newAsyncChild("queued", "")
+	job.job.Events = events
 	job.job.OnCancelledBeforeStart = func() tool.ExecutionResult {
 		finalized.Add(1)
 		return tool.ExecutionResult{Value: Result{AgentID: "queued", Status: StatusCancelled}}
@@ -111,9 +113,10 @@ func TestCancelAllDefersQueuedFinalizerUntilBlockedAcceptancePublishes(t *testin
 func TestShutdownPublicationTimeoutSettlesLateAcceptedJob(t *testing.T) {
 	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{})}
 	sink := newChannelSink()
-	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events, JoinTimeout: 20 * time.Millisecond})
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, JoinTimeout: 20 * time.Millisecond})
 	s.SetCompletionSink(sink)
 	job := newAsyncChild("late", "")
+	job.job.Events = events
 	spawnResult := make(chan error, 1)
 	go func() {
 		_, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), testBatchID(1)), job.job)
@@ -145,17 +148,19 @@ func TestShutdownLatePublicationSettlesGroupedJobsAndScopes(t *testing.T) {
 	blockLate := &atomic.Bool{}
 	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{}), enabled: blockLate}
 	sink := newChannelSink()
-	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events, JoinTimeout: 20 * time.Millisecond})
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, JoinTimeout: 20 * time.Millisecond})
 	s.SetCompletionSink(sink)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	ctx := agent.WithToolBatchID(context.Background(), testBatchID(1))
 	sibling := newAsyncChild("sibling", "same")
+	sibling.job.Events = events
 	sibling.job.GroupScope = scope
 	spawnAsync(ctx, t, s, sibling)
 	waitClosed(t, sibling.started, "grouped sibling")
 	close(sibling.release)
 	waitFinished(t, s, "sibling")
 	unrelated := newAsyncChild("unrelated", "other")
+	unrelated.job.Events = events
 	unrelated.job.GroupScope = scope
 	spawnAsync(ctx, t, s, unrelated)
 	waitClosed(t, unrelated.started, "unrelated held job")
@@ -165,6 +170,7 @@ func TestShutdownLatePublicationSettlesGroupedJobsAndScopes(t *testing.T) {
 
 	blockLate.Store(true)
 	late := newAsyncChild("late", "same")
+	late.job.Events = events
 	late.job.GroupScope = scope
 	callbackEntered, callbackRelease := make(chan struct{}), make(chan struct{})
 	late.job.OnCancelledBeforeStart = func() tool.ExecutionResult {
@@ -228,9 +234,10 @@ func TestShutdownLatePublicationSettlesGroupedJobsAndScopes(t *testing.T) {
 func TestPublicationBarrierShutdownWaitsAcceptance(t *testing.T) {
 	events := blockedAcceptedSink{entered: make(chan struct{}), release: make(chan struct{})}
 	sink := newChannelSink()
-	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events, JoinTimeout: time.Second})
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, JoinTimeout: time.Second})
 	s.SetCompletionSink(sink)
 	job := newAsyncChild("a", "")
+	job.job.Events = events
 	spawnResult := make(chan error, 1)
 	go func() {
 		_, _, err := s.Spawn(agent.WithToolBatchID(context.Background(), testBatchID(1)), job.job)

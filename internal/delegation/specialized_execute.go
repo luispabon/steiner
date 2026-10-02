@@ -41,7 +41,6 @@ func ensureSupervisor(deps *SubAgentHandlerDeps) {
 		deps.Supervisor = NewSupervisor(SupervisorOptions{
 			MaxParallel: max(deps.SubAgentCfg.MaxParallel, 1),
 			Controller:  deps.ActiveController,
-			Events:      deps.Events,
 		})
 	}
 	if deps.GroupScope == "" {
@@ -95,6 +94,7 @@ func superviseDelegate(
 		BatchID:          spec.BatchID,
 		Group:            group,
 		GroupScope:       deps.GroupScope,
+		Events:           deps.Events,
 		ObjectivePreview: truncateTaskPreview(spec.Task, 120),
 		Worktree:         worktree,
 		Prepare:          prepare,

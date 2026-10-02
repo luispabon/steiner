@@ -32,7 +32,7 @@ func TestSpecializedPreparationRunsAfterAcceptedEvent(t *testing.T) {
 			deps.WorkDir = root
 			deps.AsyncSubAgents = true
 			deps.Events = acceptedBarrierSink(root, accepted, release, t)
-			deps.Supervisor = NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: deps.Events})
+			deps.Supervisor = NewSupervisor(SupervisorOptions{MaxParallel: 1})
 			input := subAgentTask(tt.typ, "inspect")
 			if tt.typ == AgentTypeVision {
 				imagePath := filepath.Join(root, "stored-image.png")

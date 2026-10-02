@@ -83,15 +83,15 @@ func spawnAsync(ctx context.Context, t *testing.T, s *Supervisor, c *asyncChild)
 	return ticket
 }
 
-func newAsyncSupervisor(maxParallel int, events output.EventSink) (*Supervisor, *channelSink) {
+func newAsyncSupervisor(maxParallel int) (*Supervisor, *channelSink) {
 	sink := newChannelSink()
-	s := NewSupervisor(SupervisorOptions{MaxParallel: maxParallel, Events: events})
+	s := NewSupervisor(SupervisorOptions{MaxParallel: maxParallel})
 	s.SetCompletionSink(sink)
 	return s, sink
 }
 
 func TestSupervisorPendingLifecycle(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	a, b := newAsyncChild("a", ""), newAsyncChild("b", "")
 	spawnAsync(context.Background(), t, s, a)
 	<-a.started
@@ -137,7 +137,7 @@ func TestSupervisorPendingLifecycle(t *testing.T) {
 }
 
 func TestSupervisorCompletionRecord(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	a := newAsyncChild("a", "")
 	spawnAsync(context.Background(), t, s, a)
 	close(a.release)
@@ -166,7 +166,7 @@ func TestSupervisorQuietFollowsCause(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, sink := newAsyncSupervisor(1, nil)
+			s, sink := newAsyncSupervisor(1)
 			a := newAsyncChild("a", "")
 			spawnAsync(context.Background(), t, s, a)
 			<-a.started
@@ -193,7 +193,7 @@ func TestSupervisorQuietFollowsCause(t *testing.T) {
 }
 
 func TestSupervisorQueuedCancelCompletionIsQuiet(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	a, b := newAsyncChild("a", ""), newAsyncChild("b", "")
 	spawnAsync(context.Background(), t, s, a)
 	<-a.started
@@ -212,8 +212,9 @@ func TestSupervisorQueuedCancelCompletionIsQuiet(t *testing.T) {
 
 func TestSupervisorDelegationQueuedEvent(t *testing.T) {
 	events := &queuedEventSink{}
-	s, sink := newAsyncSupervisor(1, events)
+	s, sink := newAsyncSupervisor(1)
 	a, b := newAsyncChild("a", ""), newAsyncChild("b", "")
+	a.job.Events, b.job.Events = events, events
 
 	if ticket := spawnAsync(context.Background(), t, s, a); ticket.Queued || ticket.AgentID != "a" {
 		t.Fatalf("first ticket = %+v", ticket)
@@ -243,7 +244,7 @@ func TestSupervisorDelegationQueuedEvent(t *testing.T) {
 }
 
 func TestSupervisorLedgerIncludesWorktreeAfterDequeue(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	provisioned := make(chan struct{})
 	release := make(chan struct{})
 	prepared := make(chan struct{})
@@ -287,7 +288,7 @@ func TestSupervisorLedgerIncludesWorktreeAfterDequeue(t *testing.T) {
 }
 
 func TestSupervisorPrepareFailureProducesFinalResult(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	boom := errors.New("provision blew up")
 	job := ChildJob{
 		AgentID: "p", AgentType: AgentTypeCode, ParentCallID: "call-p",
@@ -310,7 +311,7 @@ func TestSupervisorPrepareFailureProducesFinalResult(t *testing.T) {
 }
 
 func TestSupervisorSpawnAndWaitPostsNothing(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	a := newAsyncChild("a", "g")
 	ctx := agent.WithToolBatchID(context.Background(), testBatchID(1))
 	started := make(chan spawnResult, 1)

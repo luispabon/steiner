@@ -19,7 +19,7 @@ func batchCtx(id string) context.Context {
 }
 
 func TestSupervisorGroupHeldUntilSealed(t *testing.T) {
-	s, sink := newAsyncSupervisor(2, nil)
+	s, sink := newAsyncSupervisor(2)
 	a := newAsyncChild("a", "g")
 	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
 	<-a.started
@@ -55,7 +55,7 @@ func TestSupervisorGroupHeldUntilSealed(t *testing.T) {
 }
 
 func TestSupervisorGroupReleasedWhenSealedBeforeLastFinish(t *testing.T) {
-	s, sink := newAsyncSupervisor(2, nil)
+	s, sink := newAsyncSupervisor(2)
 	a, b := newAsyncChild("a", "g"), newAsyncChild("b", "g")
 	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
 	spawnAsync(batchCtx(testBatchID(1)), t, s, b)
@@ -72,7 +72,7 @@ func TestSupervisorGroupReleasedWhenSealedBeforeLastFinish(t *testing.T) {
 }
 
 func TestSupervisorGroupOrderedBySeq(t *testing.T) {
-	s, sink := newAsyncSupervisor(3, nil)
+	s, sink := newAsyncSupervisor(3)
 	kids := []*asyncChild{newAsyncChild("a", "g"), newAsyncChild("b", "g"), newAsyncChild("c", "g")}
 	for _, kid := range kids {
 		spawnAsync(batchCtx(testBatchID(1)), t, s, kid)
@@ -98,7 +98,7 @@ func TestSupervisorGroupOrderedBySeq(t *testing.T) {
 }
 
 func TestSupervisorLabelReuseAcrossBatchesRejectsConversationReuse(t *testing.T) {
-	s, sink := newAsyncSupervisor(2, nil)
+	s, sink := newAsyncSupervisor(2)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	a, b := newAsyncChild("a", "g"), newAsyncChild("b", "g")
 	a.job.GroupScope, b.job.GroupScope = scope, scope
@@ -118,7 +118,7 @@ func TestSupervisorLabelReuseAcrossBatchesRejectsConversationReuse(t *testing.T)
 }
 
 func TestSupervisorHeldGroupDoesNotBlockUngrouped(t *testing.T) {
-	s, sink := newAsyncSupervisor(2, nil)
+	s, sink := newAsyncSupervisor(2)
 	member, loose := newAsyncChild("m", "g"), newAsyncChild("u", "")
 	spawnAsync(batchCtx(testBatchID(1)), t, s, member)
 	spawnAsync(batchCtx(testBatchID(1)), t, s, loose)
@@ -135,7 +135,7 @@ func TestSupervisorHeldGroupDoesNotBlockUngrouped(t *testing.T) {
 }
 
 func TestSupervisorCancelledMemberSettlesGroup(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	a, b := newAsyncChild("a", "g"), newAsyncChild("b", "g")
 	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
 	spawnAsync(batchCtx(testBatchID(1)), t, s, b)
@@ -166,7 +166,7 @@ func TestSupervisorGroupingRequiresBatchAndLabel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, sink := newAsyncSupervisor(1, nil)
+			s, sink := newAsyncSupervisor(1)
 			a := newAsyncChild("a", tt.group)
 			if tt.name == "no batch id" {
 				a.job.GroupScope = s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
@@ -188,7 +188,7 @@ func TestSupervisorGroupingRequiresBatchAndLabel(t *testing.T) {
 }
 
 func TestSupervisorNameRejectionDoesNotConsumeFreshName(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	a := newAsyncChild("a", "g")
 	a.job.GroupScope = scope
@@ -239,7 +239,7 @@ func TestSupervisorNameRejectionDoesNotConsumeFreshName(t *testing.T) {
 }
 
 func TestSupervisorSealGroupBatchRejectsLateJoinsBeforeAndAfterAck(t *testing.T) {
-	s, sink := newAsyncSupervisor(2, nil)
+	s, sink := newAsyncSupervisor(2)
 	a := newAsyncChild("a", "g")
 	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
 	waitClosed(t, a.started, "a started")
@@ -262,7 +262,7 @@ func TestSupervisorSealGroupBatchRejectsLateJoinsBeforeAndAfterAck(t *testing.T)
 }
 
 func TestSupervisorCapRejectedCallNeverJoinsGroup(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	a, b, c := newAsyncChild("a", "g"), newAsyncChild("b", "g"), newAsyncChild("c", "g")
 	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
 	spawnAsync(batchCtx(testBatchID(1)), t, s, b)

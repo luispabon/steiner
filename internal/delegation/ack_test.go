@@ -24,7 +24,7 @@ func asyncTestDeps(maxParallel int, gate chan struct{}) (SpecializedToolDeps, *S
 	deps.SubAgentCfg.MaxParallel = maxParallel
 	deps.SessionStore = NewSessionStore()
 	deps.AsyncSubAgents = true
-	sup, sink := newAsyncSupervisor(maxParallel, nil)
+	sup, sink := newAsyncSupervisor(maxParallel)
 	deps.Supervisor = sup
 	deps.GroupScope = sup.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	return deps, sup, sink
@@ -238,7 +238,7 @@ func TestBlockingSubAgentReturnsResultAndPostsNothing(t *testing.T) {
 	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) {
 		return successRunState(), nil
 	}})
-	sup, sink := newAsyncSupervisor(2, nil)
+	sup, sink := newAsyncSupervisor(2)
 	deps.Supervisor = sup
 
 	got, err := SubAgentToolDef(deps, nil).Handler(context.Background(), subAgentTask(AgentTypeExplore, "look"))

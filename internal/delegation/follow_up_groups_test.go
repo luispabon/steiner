@@ -26,7 +26,7 @@ func TestFollowUpMixedGroupOrders(t *testing.T) {
 			deps.AsyncSubAgents = true
 			deps.SessionStore = NewSessionStore()
 			var completions *channelSink
-			deps.Supervisor, completions = newAsyncSupervisor(4, nil)
+			deps.Supervisor, completions = newAsyncSupervisor(4)
 			deps.GroupScope = deps.Supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 			deps.SubAgentCfg = config.SubAgentConfig{MaxTurns: 3, MaxTokens: 30, MaxFollowUps: 10, MaxParallel: 4}
 			deps.SessionStore.Save(followUpGroupSession("warm-" + order))
@@ -123,7 +123,7 @@ func TestFollowUpMixedGroupOrders(t *testing.T) {
 func TestFollowUpOmittedGroupIsUngroupedAndReuseRejected(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(followUpGroupSession("warm"))
-	s, sink := newAsyncSupervisor(2, nil)
+	s, sink := newAsyncSupervisor(2)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"old-name"}})
 	deps := SubAgentHandlerDeps{
 		SubAgentCfg: config.SubAgentConfig{MaxTurns: 3, MaxTokens: 30, MaxFollowUps: 10, MaxParallel: 2},
@@ -207,7 +207,7 @@ func TestFollowUpRejectedAdmissionLeavesSessionAndGroupNames(t *testing.T) {
 				tc.prepare(store)
 			}
 			beforeCopy := cloneFollowUpTestSession(store)
-			s, _ := newAsyncSupervisor(2, nil)
+			s, _ := newAsyncSupervisor(2)
 			scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 			input := tc.input
 			if input == nil {
@@ -264,7 +264,7 @@ func TestFollowUpBusyRejectionDoesNotReserveGroup(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(followUpGroupSession("warm"))
 	original := cloneFollowUpTestSession(store)
-	s, _ := newAsyncSupervisor(1, nil)
+	s, _ := newAsyncSupervisor(1)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	block := make(chan struct{})
 	_, _, err := s.Spawn(batchCtx(testBatchID(3)), ChildJob{AgentID: "warm", Execute: func(context.Context) (tool.ExecutionResult, error) {
@@ -296,7 +296,7 @@ func TestFollowUpConcurrentBusyRejectionDoesNotReserveRejectedName(t *testing.T)
 	before := cloneFollowUpTestSession(store)
 	started := make(chan struct{})
 	release := make(chan struct{})
-	s, sink := newAsyncSupervisor(2, nil)
+	s, sink := newAsyncSupervisor(2)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 		close(started)
@@ -371,7 +371,7 @@ func TestFollowUpQueuedAndFinishedUndeliveredRejections(t *testing.T) {
 			store := NewSessionStore()
 			store.Save(followUpGroupSession("warm"))
 			original := cloneFollowUpTestSession(store)
-			s, sink := newAsyncSupervisor(1, nil)
+			s, sink := newAsyncSupervisor(1)
 			scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 			block := make(chan struct{})
 			_, _, err := s.Spawn(batchCtx(testBatchID(5)), ChildJob{AgentID: "blocker", ParentCallID: "blocker-call", Execute: func(context.Context) (tool.ExecutionResult, error) { <-block; return tool.ExecutionResult{}, nil }})

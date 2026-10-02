@@ -19,7 +19,6 @@ type SupervisorOptions struct {
 	MaxParallel int // >=1, already validated
 	Controller  *ActiveController
 	JoinTimeout time.Duration // 10s when zero
-	Events      output.EventSink
 }
 
 // ChildJob is one child to run. Execute performs ALL child work and finalisation
@@ -41,6 +40,10 @@ type ChildJob struct {
 	Group string
 	// GroupScope identifies the runtime conversation that owns group names.
 	GroupScope string
+	// Events is the sink for this job's Accepted and Queued events; it is the
+	// same sink the handler uses for Started, Complete and Failed. A nil sink
+	// suppresses both.
+	Events output.EventSink
 	// ObjectivePreview is the short task preview carried on the completion.
 	ObjectivePreview string
 	Worktree         CodeWorktree
@@ -101,7 +104,6 @@ type Supervisor struct {
 	maxParallel int
 	controller  *ActiveController
 	joinTimeout time.Duration
-	events      output.EventSink
 	sink        agent.CompletionSink
 
 	closing  bool
@@ -136,7 +138,6 @@ func NewSupervisor(opts SupervisorOptions) *Supervisor {
 		maxParallel: opts.MaxParallel,
 		controller:  controller,
 		joinTimeout: timeout,
-		events:      opts.Events,
 		jobs:        make(map[string]*jobState),
 		protected:   make(map[string]struct{}),
 		groups:      make(map[groupKey]*jobGroup),

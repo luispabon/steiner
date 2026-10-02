@@ -13,7 +13,7 @@ import (
 )
 
 func TestShutdownWaitsBlockedQueuedFinalizerWithoutBlocking(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	s.joinTimeout = 20 * time.Millisecond
 	running := newAsyncChild("running", "")
 	queued := newAsyncChild("queued", "")
@@ -53,7 +53,7 @@ func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
 				name = mode + "/release-after-deadline"
 			}
 			t.Run(name, func(t *testing.T) {
-				s, sink := newAsyncSupervisor(1, nil)
+				s, sink := newAsyncSupervisor(1)
 				s.joinTimeout = 80 * time.Millisecond
 				hold := newAsyncChild("hold", "")
 				spawnAsync(context.Background(), t, s, hold)
@@ -178,10 +178,11 @@ func TestShutdownUnpublishedBlockingTimeoutPreservesResultAndScope(t *testing.T)
 	block := &atomic.Bool{}
 	block.Store(true)
 	events.enabled = block
-	s, _ := newAsyncSupervisor(1, events)
+	s, _ := newAsyncSupervisor(1)
 	s.joinTimeout = 20 * time.Millisecond
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	job := newAsyncChild("blocking-late", "reserved")
+	job.job.Events = events
 	job.job.GroupScope = scope
 	callbackEntered, callbackRelease := make(chan struct{}), make(chan struct{})
 	job.job.OnCancelledBeforeStart = func() tool.ExecutionResult {

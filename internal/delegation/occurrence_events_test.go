@@ -70,7 +70,7 @@ func TestLifecycleEventsCarryIdenticalOccurrence(t *testing.T) {
 				return successRunState(), nil
 			}})
 			deps.Events = events
-			sup, sink := newAsyncSupervisor(1, events)
+			sup, sink := newAsyncSupervisor(1)
 			deps.Supervisor = sup
 			deps.AsyncSubAgents = tt.async
 			blockerRelease := make(chan struct{})
@@ -135,8 +135,9 @@ func TestLifecycleEventsCarryIdenticalOccurrence(t *testing.T) {
 func TestSupervisorEmitsAcceptedExactlyOncePerAcceptedCall(t *testing.T) {
 	t.Run("blocking success", func(t *testing.T) {
 		events := &queuedEventSink{}
-		s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events})
+		s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
 		c := newFakeChild("a", false)
+		c.job.Events = events
 		close(c.release)
 		if _, err := s.SpawnAndWait(context.Background(), c.job); err != nil {
 			t.Fatal(err)
@@ -147,9 +148,9 @@ func TestSupervisorEmitsAcceptedExactlyOncePerAcceptedCall(t *testing.T) {
 	})
 	t.Run("async preparation failure", func(t *testing.T) {
 		events := &queuedEventSink{}
-		s, sink := newAsyncSupervisor(1, events)
+		s, sink := newAsyncSupervisor(1)
 		job := ChildJob{
-			AgentID: "p", AgentType: AgentTypeCode, ParentCallID: "call-p",
+			AgentID: "p", AgentType: AgentTypeCode, ParentCallID: "call-p", Events: events,
 			Prepare: func(context.Context) (CodeWorktree, error) { return CodeWorktree{}, errors.New("boom") },
 			Execute: func(context.Context) (tool.ExecutionResult, error) {
 				t.Error("Execute ran after Prepare failed")
@@ -166,8 +167,9 @@ func TestSupervisorEmitsAcceptedExactlyOncePerAcceptedCall(t *testing.T) {
 	})
 	t.Run("cancelled before start", func(t *testing.T) {
 		events := &queuedEventSink{}
-		s, sink := newAsyncSupervisor(1, events)
+		s, sink := newAsyncSupervisor(1)
 		a, b := newAsyncChild("a", ""), newAsyncChild("b", "")
+		a.job.Events, b.job.Events = events, events
 		spawnAsync(context.Background(), t, s, a)
 		<-a.started
 		if ticket := spawnAsync(context.Background(), t, s, b); !ticket.Queued {
@@ -187,17 +189,21 @@ func TestSupervisorEmitsAcceptedExactlyOncePerAcceptedCall(t *testing.T) {
 	})
 	t.Run("rejected calls emit none", func(t *testing.T) {
 		events := &queuedEventSink{}
-		s, sink := newAsyncSupervisor(1, events)
+		s, sink := newAsyncSupervisor(1)
 		a := newAsyncChild("a", "")
+		a.job.Events = events
 		spawnAsync(context.Background(), t, s, a)
 		<-a.started
 		dup := newAsyncChild("a", "")
+		dup.job.Events = events
 		if _, _, err := s.Spawn(context.Background(), dup.job); !errors.Is(err, ErrAgentAlreadyActive) {
 			t.Fatalf("duplicate err = %v, want ErrAgentAlreadyActive", err)
 		}
 		b := newAsyncChild("b", "")
+		b.job.Events = events
 		spawnAsync(context.Background(), t, s, b) // fills the outstanding cap of 2
 		over := newAsyncChild("over", "")
+		over.job.Events = events
 		if _, _, err := s.Spawn(context.Background(), over.job); !errors.Is(err, ErrOutstandingCap) {
 			t.Fatalf("over err = %v, want ErrOutstandingCap", err)
 		}
@@ -216,7 +222,7 @@ func TestSupervisorEmitsAcceptedExactlyOncePerAcceptedCall(t *testing.T) {
 }
 
 func TestSupervisorCompletionCarriesBatchID(t *testing.T) {
-	s, sink := newAsyncSupervisor(1, nil)
+	s, sink := newAsyncSupervisor(1)
 	c := newAsyncChild("a", "")
 	ctx := agent.WithToolBatchID(context.Background(), testBatchID(7))
 	spawnAsync(ctx, t, s, c)
@@ -271,4 +277,47 @@ func TestFollowUpHandlerStampsCurrentBatchNotOriginal(t *testing.T) {
 	if seen < 2 {
 		t.Fatalf("saw %d lifecycle events, want at least started and a terminal one", seen)
 	}
+}
+
+func TestSupervisorEmitsAcceptedAndQueuedOnEachJobsOwnSink(t *testing.T) {
+	sinkA, sinkB := &queuedEventSink{}, &queuedEventSink{}
+	s, sink := newAsyncSupervisor(1)
+	a, b := newAsyncChild("a", ""), newAsyncChild("b", "")
+	a.job.Events, b.job.Events = sinkA, sinkB
+	spawnAsync(context.Background(), t, s, a)
+	<-a.started
+	if ticket := spawnAsync(context.Background(), t, s, b); !ticket.Queued {
+		t.Fatalf("ticket = %+v, want queued", ticket)
+	}
+	close(a.release)
+	recv(t, sink.ch, "a completion")
+	<-b.started
+	close(b.release)
+	recv(t, sink.ch, "b completion")
+
+	typesFor := func(events []output.Event) []string {
+		var out []string
+		for _, e := range events {
+			out = append(out, e.Type)
+		}
+		return out
+	}
+	if got := typesFor(sinkA.snapshot()); len(got) != 1 || got[0] != output.EventTypeDelegationAccepted {
+		t.Fatalf("job a sink events = %v, want [accepted]", got)
+	}
+	got := typesFor(sinkB.snapshot())
+	if len(got) != 2 || got[0] != output.EventTypeDelegationAccepted || got[1] != output.EventTypeDelegationQueued {
+		t.Fatalf("job b sink events = %v, want [accepted queued]", got)
+	}
+	if n := countAccepted(sinkA.snapshot(), "b") + countAccepted(sinkB.snapshot(), "a"); n != 0 {
+		t.Fatalf("events leaked across job sinks: %d", n)
+	}
+}
+
+func TestSupervisorWithoutJobSinkEmitsNothing(t *testing.T) {
+	s, sink := newAsyncSupervisor(1)
+	c := newAsyncChild("a", "")
+	spawnAsync(context.Background(), t, s, c)
+	close(c.release)
+	recv(t, sink.ch, "completion")
 }
