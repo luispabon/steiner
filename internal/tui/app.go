@@ -229,6 +229,7 @@ func (a *App) EventSink() output.EventSink {
 
 // NewProgram constructs the Bubble Tea program for the TUI.
 func (a *App) NewProgram(options ...tea.ProgramOption) *tea.Program {
+	a.bridge.start()
 	return tea.NewProgram(newModel(a.cfg, a.bridge.Messages()), options...)
 }
 
@@ -255,56 +256,6 @@ type runtimeEventMsg struct {
 
 type bridgeClosedMsg struct{}
 
-type eventBridge struct {
-	ch   chan tea.Msg
-	done chan struct{}
-}
-
-// Emit delivers event to the TUI's message loop. It never blocks past the
-// bridge being closed: once done is closed (after the program has exited),
-// events are dropped instead of hanging the emitting goroutine forever
-// waiting on a channel nobody drains anymore.
-func (b *eventBridge) Emit(event output.Event) {
-	if b == nil {
-		return
-	}
-	select {
-	case b.ch <- runtimeEventMsg{Event: event}:
-	case <-b.done:
-	}
-}
-
-// close marks the bridge closed so any Emit calls racing with or following
-// program shutdown return instead of blocking forever.
-func (b *eventBridge) close() {
-	if b == nil {
-		return
-	}
-	select {
-	case <-b.done:
-	default:
-		close(b.done)
-	}
-}
-
 type noopSubscriber struct{}
 
 func (noopSubscriber) OnEvent(output.Event) {}
-
-func newEventBridge(buffer int) *eventBridge {
-	if buffer < 1 {
-		buffer = 1
-	}
-	return &eventBridge{ch: make(chan tea.Msg, buffer), done: make(chan struct{})}
-}
-
-func (b *eventBridge) Messages() <-chan tea.Msg {
-	if b == nil {
-		return nil
-	}
-	return b.ch
-}
-
-func (b *eventBridge) OnEvent(event output.Event) {
-	b.Emit(event)
-}
