@@ -136,11 +136,11 @@ func TestFollowUpOmittedGroupIsUngroupedAndReuseRejected(t *testing.T) {
 		GroupScope:     scope,
 	}
 	handler := NewFollowUpHandler(deps)
-	before := cloneFollowUpTestSession(store, "warm")
+	before := cloneFollowUpTestSession(store)
 	if _, err := handler(batchCtx("prior"), map[string]any{"agent_id": "warm", "message": "grouped", "group": "old-name"}); err == nil || !strings.Contains(err.Error(), "was already used") {
 		t.Fatalf("old ledger name error = %v, want reused-name rejection", err)
 	}
-	if after := cloneFollowUpTestSession(store, "warm"); !reflect.DeepEqual(after, before) {
+	if after := cloneFollowUpTestSession(store); !reflect.DeepEqual(after, before) {
 		t.Fatalf("session changed on old-name rejection: before=%+v after=%+v", before, after)
 	}
 	if got := s.SnapshotGroupLedger(scope).Names; !reflect.DeepEqual(got, []string{"old-name"}) {
@@ -206,7 +206,7 @@ func TestFollowUpRejectedAdmissionLeavesSessionAndGroupNames(t *testing.T) {
 			if tc.prepare != nil {
 				tc.prepare(store)
 			}
-			beforeCopy := cloneFollowUpTestSession(store, "warm")
+			beforeCopy := cloneFollowUpTestSession(store)
 			s, _ := newAsyncSupervisor(2, nil)
 			scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 			input := tc.input
@@ -243,7 +243,7 @@ func TestFollowUpRejectedAdmissionLeavesSessionAndGroupNames(t *testing.T) {
 			if got := s.SnapshotGroupLedger(scope).Names; len(got) != 0 {
 				t.Fatalf("rejection reserved group names: %v", got)
 			}
-			afterCopy := cloneFollowUpTestSession(store, "warm")
+			afterCopy := cloneFollowUpTestSession(store)
 			if !reflect.DeepEqual(afterCopy, beforeCopy) {
 				t.Fatalf("session changed on rejection: before=%+v after=%+v", beforeCopy, afterCopy)
 			}
@@ -263,7 +263,7 @@ func TestFollowUpRejectedAdmissionLeavesSessionAndGroupNames(t *testing.T) {
 func TestFollowUpBusyRejectionDoesNotReserveGroup(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(followUpGroupSession("warm"))
-	original := cloneFollowUpTestSession(store, "warm")
+	original := cloneFollowUpTestSession(store)
 	s, _ := newAsyncSupervisor(1, nil)
 	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 	block := make(chan struct{})
@@ -283,7 +283,7 @@ func TestFollowUpBusyRejectionDoesNotReserveGroup(t *testing.T) {
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 0 {
 		t.Fatalf("busy rejection reserved group names: %v", got)
 	}
-	after := cloneFollowUpTestSession(store, "warm")
+	after := cloneFollowUpTestSession(store)
 	if !reflect.DeepEqual(after, original) {
 		t.Fatalf("session changed on busy rejection: %+v", after)
 	}
@@ -293,7 +293,7 @@ func TestFollowUpBusyRejectionDoesNotReserveGroup(t *testing.T) {
 func TestFollowUpConcurrentBusyRejectionDoesNotReserveRejectedName(t *testing.T) {
 	store := NewSessionStore()
 	store.Save(followUpGroupSession("warm"))
-	before := cloneFollowUpTestSession(store, "warm")
+	before := cloneFollowUpTestSession(store)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	s, sink := newAsyncSupervisor(2, nil)
@@ -330,10 +330,10 @@ func TestFollowUpConcurrentBusyRejectionDoesNotReserveRejectedName(t *testing.T)
 			rejected = got
 		}
 	}
-	if accepted.err != nil || rejected.err == nil || !(strings.Contains(rejected.err.Error(), "still running, queued, or has a result") || errors.Is(rejected.err, ErrAgentAlreadyActive)) {
+	if accepted.err != nil || rejected.err == nil || (!strings.Contains(rejected.err.Error(), "still running, queued, or has a result") && !errors.Is(rejected.err, ErrAgentAlreadyActive)) {
 		t.Fatalf("concurrent outcomes = {%s, %v}, {%s, %v}", first.group, first.err, second.group, second.err)
 	}
-	if afterAdmission := cloneFollowUpTestSession(store, "warm"); !reflect.DeepEqual(afterAdmission, before) {
+	if afterAdmission := cloneFollowUpTestSession(store); !reflect.DeepEqual(afterAdmission, before) {
 		t.Fatalf("session changed before winning execution: before=%+v after=%+v", before, afterAdmission)
 	}
 	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 || got[0] != accepted.group {
@@ -353,7 +353,7 @@ func TestFollowUpConcurrentBusyRejectionDoesNotReserveRejectedName(t *testing.T)
 	if len(completion) != 1 || completion[0].AgentID != "warm" || completion[0].ParentCallID != "call-"+accepted.group {
 		t.Fatalf("winner completion = %+v", completion)
 	}
-	afterWinner := cloneFollowUpTestSession(store, "warm")
+	afterWinner := cloneFollowUpTestSession(store)
 	if afterWinner.FollowUpCount != before.FollowUpCount+1 || afterWinner.TurnCount != before.TurnCount+1 {
 		t.Fatalf("winner counters = followups %d turns %d, baseline followups %d turns %d", afterWinner.FollowUpCount, afterWinner.TurnCount, before.FollowUpCount, before.TurnCount)
 	}
@@ -370,7 +370,7 @@ func TestFollowUpQueuedAndFinishedUndeliveredRejections(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			store := NewSessionStore()
 			store.Save(followUpGroupSession("warm"))
-			original := cloneFollowUpTestSession(store, "warm")
+			original := cloneFollowUpTestSession(store)
 			s, sink := newAsyncSupervisor(1, nil)
 			scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
 			block := make(chan struct{})
@@ -417,7 +417,7 @@ func TestFollowUpQueuedAndFinishedUndeliveredRejections(t *testing.T) {
 			if got := s.SnapshotGroupLedger(scope).Names; len(got) != 0 {
 				t.Fatalf("rejection reserved group: %v", got)
 			}
-			after := cloneFollowUpTestSession(store, "warm")
+			after := cloneFollowUpTestSession(store)
 			if !reflect.DeepEqual(after, original) {
 				t.Fatalf("session changed: %+v", after)
 			}
@@ -430,8 +430,8 @@ func TestFollowUpQueuedAndFinishedUndeliveredRejections(t *testing.T) {
 	}
 }
 
-func cloneFollowUpTestSession(store *SessionStore, id string) *ChildSession {
-	session, ok := store.Get(id)
+func cloneFollowUpTestSession(store *SessionStore) *ChildSession {
+	session, ok := store.Get("warm")
 	if !ok {
 		return nil
 	}
