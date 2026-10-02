@@ -40,7 +40,9 @@ func (b *contentBuffer) applyDelegationAccepted(dd *delegationDisplayState, payl
 	dd.groupAccepted = true
 	dd.batchID = payload.BatchID
 	dd.group = strings.TrimSpace(payload.Group)
-	b.regroupAcceptedDelegations()
+	if _, ok := acceptedMembership(dd); ok {
+		b.regroupAcceptedDelegations()
+	}
 }
 
 func (b *contentBuffer) peekDelegationOccurrence(callID string) (delegationLocator, bool) {
@@ -87,7 +89,7 @@ func (b *contentBuffer) appendReplayDelegationParentClosedEvent(event output.Eve
 func (b *contentBuffer) purgeDelegationOccurrences() {
 	out := b.pendingDelegationOccurrences[:0]
 	for _, loc := range b.pendingDelegationOccurrences {
-		if index := findDelegationSegment(b.segments, loc.dd); index >= 0 {
+		if index := findDelegationSegmentAt(b.segments, loc.dd, loc.seg); index >= 0 {
 			loc.seg = index
 			out = append(out, loc)
 		}
@@ -103,7 +105,7 @@ func (b *contentBuffer) unambiguousDelegationByCallID(callID string) (delegation
 			found = loc
 			count++
 		}
-		return false
+		return count > 1
 	})
 	return found, count == 1
 }
@@ -191,41 +193,69 @@ func sameSegments(a, b []contentSegment) bool {
 }
 
 func findDelegationSegment(segments []contentSegment, dd *delegationDisplayState) int {
+	return findDelegationSegmentAt(segments, dd, -1)
+}
+
+func findDelegationSegmentAt(segments []contentSegment, dd *delegationDisplayState, hint int) int {
+	if hint >= 0 && hint < len(segments) && segmentHoldsDelegation(segments[hint], dd) {
+		return hint
+	}
 	for i, seg := range segments {
-		if seg.delegData == dd {
+		if segmentHoldsDelegation(seg, dd) {
 			return i
-		}
-		if seg.delegGroupData != nil {
-			for _, entry := range seg.delegGroupData.entries {
-				if entry == dd {
-					return i
-				}
-			}
 		}
 	}
 	return -1
 }
 
-func findToolCallSegment(segments []contentSegment, td *toolCallSegment) int {
-	for i, seg := range segments {
-		if seg.toolData == td {
-			return i
-		}
-		if seg.toolGroupData != nil {
-			for _, entry := range seg.toolGroupData.entries {
-				if entry == td {
-					return i
-				}
+func segmentHoldsDelegation(seg contentSegment, dd *delegationDisplayState) bool {
+	if seg.delegData == dd {
+		return true
+	}
+	if seg.delegGroupData != nil {
+		for _, entry := range seg.delegGroupData.entries {
+			if entry == dd {
+				return true
 			}
 		}
 	}
+	return false
+}
+
+func findToolCallSegment(segments []contentSegment, td *toolCallSegment) int {
+	return findToolCallSegmentAt(segments, td, -1)
+}
+
+func findToolCallSegmentAt(segments []contentSegment, td *toolCallSegment, hint int) int {
+	if hint >= 0 && hint < len(segments) && segmentHoldsToolCall(segments[hint], td) {
+		return hint
+	}
+	for i, seg := range segments {
+		if segmentHoldsToolCall(seg, td) {
+			return i
+		}
+	}
 	return -1
+}
+
+func segmentHoldsToolCall(seg contentSegment, td *toolCallSegment) bool {
+	if seg.toolData == td {
+		return true
+	}
+	if seg.toolGroupData != nil {
+		for _, entry := range seg.toolGroupData.entries {
+			if entry == td {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func remapDelegationLocators(locators []delegationLocator, segments []contentSegment) []delegationLocator {
 	out := locators[:0]
 	for _, loc := range locators {
-		if index := findDelegationSegment(segments, loc.dd); index >= 0 {
+		if index := findDelegationSegmentAt(segments, loc.dd, loc.seg); index >= 0 {
 			out = append(out, delegationLocator{seg: index, dd: loc.dd})
 		}
 	}
@@ -234,7 +264,7 @@ func remapDelegationLocators(locators []delegationLocator, segments []contentSeg
 
 func remapActiveDelegations(active map[string]delegationLocator, segments []contentSegment) {
 	for key, loc := range active {
-		if index := findDelegationSegment(segments, loc.dd); index < 0 {
+		if index := findDelegationSegmentAt(segments, loc.dd, loc.seg); index < 0 {
 			delete(active, key)
 		} else {
 			active[key] = delegationLocator{seg: index, dd: loc.dd}
@@ -244,20 +274,10 @@ func remapActiveDelegations(active map[string]delegationLocator, segments []cont
 
 func remapActiveToolCalls(active map[string]toolCallLocator, segments []contentSegment) {
 	for key, loc := range active {
-		if index := findToolCallSegment(segments, loc.td); index < 0 {
+		if index := findToolCallSegmentAt(segments, loc.td, loc.seg); index < 0 {
 			delete(active, key)
 		} else {
 			active[key] = toolCallLocator{seg: index, td: loc.td}
-		}
-	}
-}
-
-func remapQueuedDelegations(queued map[string]delegationLocator, segments []contentSegment) {
-	for key, loc := range queued {
-		if index := findDelegationSegment(segments, loc.dd); index < 0 {
-			delete(queued, key)
-		} else {
-			queued[key] = delegationLocator{seg: index, dd: loc.dd}
 		}
 	}
 }
@@ -268,7 +288,7 @@ func (b *contentBuffer) commitSegmentRewrite(next []contentSegment, oldToNew map
 	b.pendingDelegateParents = remapDelegationLocators(b.pendingDelegateParents, next)
 	b.pendingDelegationStarts = remapDelegationLocators(b.pendingDelegationStarts, next)
 	b.pendingDelegationOccurrences = remapDelegationLocators(b.pendingDelegationOccurrences, next)
-	remapQueuedDelegations(b.queuedDelegations, next)
+	remapActiveDelegations(b.queuedDelegations, next)
 	b.activeAdvisorSegment = remapAdvisorSegment(b.activeAdvisorSegment, oldToNew)
 	oldCollapse := b.collapseState
 	b.segments = next

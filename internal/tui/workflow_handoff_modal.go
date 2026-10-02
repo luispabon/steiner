@@ -208,11 +208,6 @@ func (m *Model) acceptWorkflowHandoff() (tea.Model, tea.Cmd) {
 	target := strings.TrimSpace(m.workflowHandoff.target)
 	submission := strings.TrimSpace(m.workflowHandoff.submission)
 	modelName := strings.TrimSpace(m.workflowHandoff.modelAlias)
-	if m.controller == nil {
-		m.appendError(errors.New("workflow handoff requires a run waiter"))
-		m.syncViewport()
-		return m, nil
-	}
 	if _, ok := m.controller.(workflowHandoffRunWaiter); !ok {
 		m.appendError(errors.New("workflow handoff requires a run waiter"))
 		m.syncViewport()

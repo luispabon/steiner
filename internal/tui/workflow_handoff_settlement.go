@@ -62,13 +62,9 @@ func (m *Model) handleWorkflowHandoffSettled(msg workflowHandoffSettledMsg) (tea
 	}
 
 	if err := m.validateWorkflowHandoffBeforeClear(launch); err != nil {
-		m.pendingWorkflowHandoffLaunch = nil
-		m.suppressWorkflowHandoffRun = false
 		m.restoreWorkflowHandoffSubmission(launch, err)
 		return m, nil
 	}
-	m.pendingWorkflowHandoffLaunch = nil
-	m.suppressWorkflowHandoffRun = false
 	err := m.clearWorkflowHandoffConversation()
 	if err != nil {
 		m.restoreWorkflowHandoffSubmission(launch, nil)

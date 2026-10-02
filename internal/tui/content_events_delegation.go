@@ -538,7 +538,6 @@ func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload ou
 		dd.toolLabel = toolLabel
 	}
 	b.markDelegationDirty(loc.seg)
-	b.regroupAcceptedDelegations()
 }
 
 func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallStartedEvent) {
@@ -585,7 +584,6 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 	b.markDelegationDirty(loc.seg)
 	b.pendingDelegateParents = append(b.pendingDelegateParents, loc)
 	b.registerDelegationOccurrence(loc)
-	b.regroupAcceptedDelegations()
 }
 
 func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolCallStartedEvent) {

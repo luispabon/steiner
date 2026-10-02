@@ -315,9 +315,6 @@ func (b *contentBuffer) AppendImagesAttached(images []agent.ImageBlock, workingD
 
 func (b *contentBuffer) Clear() {
 	b.structureGen++
-	if b.structureGen == 0 {
-		b.structureGen++
-	}
 	b.segments = nil
 	b.segmentHeights = nil
 	b.streamBuffer = ""

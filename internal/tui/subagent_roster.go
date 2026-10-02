@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // Roster statuses for a sub-agent entry.
@@ -96,14 +97,9 @@ func (r *subAgentRoster) rosterBeginRejected(e *rosterEntry, existed bool, agent
 // restart and otherwise carrying the previous agent type forward.
 func (e *rosterEntry) applyBegin(agentType, callID, status string, now int64, admission output.DelegationAdmission, accepted, restarting bool) {
 	if restarting {
-		e.status = status
-		e.startTime = now
-		e.finishTime = 0
-		e.delivered = false
+		e.clearRun()
 	}
-	e.currentCallID = callID
-	e.accepted = accepted
-	e.group, e.batchID = admissionIdentity(admission, accepted)
+	e.setCall(callID, admission, accepted)
 	if !restarting {
 		if t := strings.TrimSpace(agentType); t != "" {
 			e.agentType = t
@@ -113,6 +109,19 @@ func (e *rosterEntry) applyBegin(agentType, callID, status string, now int64, ad
 		e.startTime = now
 	}
 	e.status = status
+}
+
+func (e *rosterEntry) clearRun() {
+	e.status = ""
+	e.startTime = 0
+	e.finishTime = 0
+	e.delivered = false
+}
+
+func (e *rosterEntry) setCall(callID string, admission output.DelegationAdmission, accepted bool) {
+	e.currentCallID = callID
+	e.accepted = accepted
+	e.group, e.batchID = admissionIdentity(admission, accepted)
 }
 
 func validRosterAgent(agentID, agentType string) bool {
@@ -191,20 +200,13 @@ func (r *subAgentRoster) finishEntry(agentID, callID string) (*rosterEntry, bool
 		}
 		if !exists {
 			e = r.upsert(agentID)
-			e.currentCallID = callID
-			e.accepted = true
-			e.group, e.batchID = admissionIdentity(admission, true)
+			e.setCall(callID, admission, true)
 		} else if !rosterEntryMatchesAdmission(e, callID, admission) {
 			if !e.finished() {
 				return nil, false
 			}
-			e.status = ""
-			e.startTime = 0
-			e.finishTime = 0
-			e.delivered = false
-			e.currentCallID = callID
-			e.accepted = true
-			e.group, e.batchID = admissionIdentity(admission, true)
+			e.clearRun()
+			e.setCall(callID, admission, true)
 		}
 	} else if !exists {
 		e = r.upsert(agentID)
@@ -217,13 +219,10 @@ func (r *subAgentRoster) finishEntry(agentID, callID string) (*rosterEntry, bool
 func (r *subAgentRoster) observe(event output.Event, now int64) {
 	switch p := event.Payload.(type) {
 	case output.DelegationAcceptedEvent:
-		admission := output.DelegationAdmission{Status: "accepted", AgentID: p.AgentID, BatchID: p.BatchID, Group: p.Group}
-		r.recordAdmission(p.CallID, admission)
-		r.applyAdmission(p.CallID, admission)
+		r.admit(p.CallID, output.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, AgentID: p.AgentID, BatchID: p.BatchID, Group: p.Group})
 	case output.ToolCallFinishedEvent:
-		if p.DelegationAdmission != nil && p.DelegationAdmission.Status == "accepted" {
-			r.recordAdmission(p.CallID, *p.DelegationAdmission)
-			r.applyAdmission(p.CallID, *p.DelegationAdmission)
+		if p.DelegationAdmission != nil && p.DelegationAdmission.Status == tool.DelegationAdmissionAccepted {
+			r.admit(p.CallID, *p.DelegationAdmission)
 		}
 	case output.DelegationQueuedEvent:
 		r.begin(p.AgentID, p.AgentType, p.CallID, rosterQueued, now)
@@ -248,23 +247,9 @@ func (r *subAgentRoster) observe(event output.Event, now int64) {
 	}
 }
 
-// applyAdmission updates identity only when an earlier lifecycle event has already
-// established the same current call and agent.
-func (r *subAgentRoster) applyAdmission(callID string, admission output.DelegationAdmission) {
-	if callID == "" || admission.AgentID == "" {
-		return
-	}
-	if e, ok := r.entries[admission.AgentID]; ok && e.currentCallID == callID {
-		if e.accepted && e.batchID != admission.BatchID {
-			return
-		}
-		e.accepted = true
-		e.group = admission.Group
-		e.batchID = admission.BatchID
-	}
-}
-
-func (r *subAgentRoster) recordAdmission(callID string, admission output.DelegationAdmission) {
+// admit records the admission, then updates identity only when an earlier
+// lifecycle event has already established the same current call and agent.
+func (r *subAgentRoster) admit(callID string, admission output.DelegationAdmission) {
 	if callID == "" || admission.AgentID == "" {
 		return
 	}
@@ -276,6 +261,13 @@ func (r *subAgentRoster) recordAdmission(callID string, admission output.Delegat
 	}
 	r.admissions[callID] = admission
 	r.latestAdmissions[admission.AgentID] = rosterAdmissionIdentity{callID: callID, batchID: admission.BatchID}
+	e, ok := r.entries[admission.AgentID]
+	if !ok || e.currentCallID != callID || (e.accepted && e.batchID != admission.BatchID) {
+		return
+	}
+	e.accepted = true
+	e.group = admission.Group
+	e.batchID = admission.BatchID
 }
 
 // completionStatus maps a delegation completion status to a roster status.

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func (b *contentBuffer) handleDelegationAdmissionFinish(payload output.ToolCallFinishedEvent) bool {
@@ -14,7 +15,7 @@ func (b *contentBuffer) handleDelegationAdmissionFinish(payload output.ToolCallF
 		loc, found = b.unambiguousDelegationByCallID(payload.CallID)
 	}
 	switch admission.Status {
-	case "accepted":
+	case tool.DelegationAdmissionAccepted:
 		if found {
 			b.applyDelegationAccepted(loc.dd, output.DelegationAcceptedEvent{
 				CallID:  payload.CallID,
@@ -25,7 +26,7 @@ func (b *contentBuffer) handleDelegationAdmissionFinish(payload output.ToolCallF
 		}
 		b.appendAdmissionError(payload.Error)
 		return true
-	case "rejected":
+	case tool.DelegationAdmissionRejected:
 		if admission.PolicyNotice {
 			b.appendStyled("Delegation rejected by policy.", segmentStatus)
 		}
