@@ -70,6 +70,67 @@ func newDeliveryBuffer() *contentBuffer {
 	}
 }
 
+func TestLostDeliverySettlesActiveReplayCard(t *testing.T) {
+	t.Parallel()
+	b := newDeliveryBuffer()
+	args := map[string]any{"type": "explore", "task": "find files", "group": "review"}
+	b.AppendEvent(output.NewToolCallQueuedEvent(1, "sub_agent", "replay-call", args))
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "replay-call", args))
+	b.AppendEvent(output.NewDelegationAcceptedEvent("replay-call", "child-lost", "replay-batch", "review"))
+	b.AppendEvent(output.NewDelegationStartedEventWithType("child-lost", "find files", "replay-call", "", "explore"))
+
+	loc, ok := b.activeDelegations["child-lost"]
+	if !ok || loc.dd == nil {
+		t.Fatal("replay card is not active")
+	}
+	card := loc.dd
+	b.AppendEvent(output.Event{Type: output.EventTypeSubAgentsDelivered, Payload: output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{
+		AgentID: "child-lost", AgentType: "explore", Status: "lost", ParentCallID: "replay-call",
+	}}}})
+
+	if card.status != "failed" || card.resultStatus != "lost" || card.failureReason != "session restarted" {
+		t.Fatalf("lost card = %#v, want failed/lost/session restarted", card)
+	}
+	if _, active := b.activeDelegations["child-lost"]; active {
+		t.Fatal("lost card remains active")
+	}
+	if len(b.segments) == 0 || b.segments[len(b.segments)-1].kind != segmentSubAgentsFinished {
+		t.Fatalf("delivery row missing: %#v", b.segments)
+	}
+	row := stripANSI(b.renderSubAgentsFinishedSegment(b.segments[len(b.segments)-1], 100))
+	if !strings.Contains(row, "? lost (session restarted)") {
+		t.Fatalf("delivery row = %q, want lost outcome", row)
+	}
+}
+
+func TestLostDeliveryDoesNotSettleNewerFollowUp(t *testing.T) {
+	t.Parallel()
+	b := newDeliveryBuffer()
+	originalArgs := map[string]any{"type": "explore", "task": "original task", "group": "old-group"}
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "old-call", originalArgs))
+	b.AppendEvent(output.NewDelegationAcceptedEvent("old-call", "child", "old-batch", "old-group"))
+	b.AppendEvent(output.NewDelegationStartedEventWithType("child", "original task", "old-call", "", "explore"))
+	old := b.activeDelegations["child"].dd
+	b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{AgentID: "child", Status: "complete"}))
+
+	followUpArgs := map[string]any{"agent_id": "child", "message": "fresh work"}
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "follow_up", "new-call", followUpArgs))
+	b.AppendEvent(output.NewDelegationAcceptedEvent("new-call", "child", "new-batch", "new-group"))
+	b.AppendEvent(output.NewDelegationStartedEventWithType("child", "fresh work", "new-call", "", "explore"))
+	fresh := b.activeDelegations["child"].dd
+
+	b.AppendEvent(output.Event{Type: output.EventTypeSubAgentsDelivered, Payload: output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{
+		AgentID: "child", AgentType: "explore", Status: "lost", ParentCallID: "old-call",
+	}}}})
+
+	if old.status != "complete" || fresh.status != "active" {
+		t.Fatalf("old/new cards = %#v/%#v, stale delivery settled newer run", old, fresh)
+	}
+	if got := b.activeDelegations["child"].dd; got != fresh {
+		t.Fatalf("active card = %p, want newer card %p", got, fresh)
+	}
+}
+
 func TestDeliveredEventRendersRowWithGroupAndReason(t *testing.T) {
 	t.Parallel()
 	b := newDeliveryBuffer()

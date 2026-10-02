@@ -16,6 +16,9 @@ func (b *contentBuffer) appendSubAgentsDeliveredEvent(event output.Event) {
 		return
 	}
 	b.finishStreaming()
+	for _, item := range payload.Items {
+		b.settleLostDelivery(item)
+	}
 	rows := buildDeliveredRows(payload.Items, b.deliveredLookup)
 	b.segments = append(b.segments, contentSegment{
 		kind:          segmentSubAgentsFinished,
@@ -59,10 +62,56 @@ func deliveredMatchesDelegation(item output.DeliveredSubAgent, dd *delegationDis
 	if dd == nil {
 		return false
 	}
-	if item.AgentID != "" {
-		return dd.agentID == item.AgentID
+	if item.AgentID != "" && dd.agentID != item.AgentID {
+		return false
 	}
-	return item.ParentCallID != "" && dd.parentCallID == item.ParentCallID
+	if item.ParentCallID != "" && dd.parentCallID != "" && dd.parentCallID != item.ParentCallID {
+		return false
+	}
+	return item.AgentID != "" || item.ParentCallID != ""
+}
+
+func (b *contentBuffer) settleLostDelivery(item output.DeliveredSubAgent) {
+	if strings.TrimSpace(item.Status) != "lost" {
+		return
+	}
+	var target delegationLocator
+	var found bool
+	if item.AgentID != "" {
+		target, found = b.activeDelegations[item.AgentID]
+	} else if item.ParentCallID != "" {
+		for _, loc := range b.activeDelegations {
+			if loc.dd != nil && loc.dd.parentCallID == item.ParentCallID {
+				target, found = loc, true
+				break
+			}
+		}
+	}
+	if !found || target.dd == nil || target.dd.status != "active" || !deliveredMatchesDelegation(item, target.dd) {
+		return
+	}
+
+	dd := target.dd
+	dd.status = "failed"
+	dd.resultStatus = "lost"
+	if dd.failureReason == "" {
+		dd.failureReason = "session restarted"
+	}
+	dd.queuedForSlot = false
+	dd.cacheWaiting = false
+	if dd.elapsed == "" && dd.startTime > 0 {
+		dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+	}
+	dd.fillFromTerminalEvent(item.AgentType, item.DurationMs)
+	b.clearQueuedDelegation(dd.parentCallID)
+	b.removeFromPendingDelegateParents(dd)
+	b.markDelegationDirty(target.seg)
+
+	for agentID, loc := range b.activeDelegations {
+		if loc.seg == target.seg && loc.dd == dd {
+			delete(b.activeDelegations, agentID)
+		}
+	}
 }
 
 // renderSubAgentsFinishedSegment renders the delivery row: a bullet, an
