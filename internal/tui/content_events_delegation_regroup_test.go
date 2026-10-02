@@ -178,3 +178,32 @@ func TestRegroupDropsPrefixCacheCoveringRewrittenSegments(t *testing.T) {
 		t.Fatalf("prefix cache covering rewritten segments survived: len = %d, segments = %d", b.prefixCacheLen, len(b.segments))
 	}
 }
+
+// An unsettled segment ahead of the batch stops the settled prefix short of the
+// rewrite start. That prefix covers only unchanged segments, so it must survive.
+func TestRegroupKeepsShortPrefixCacheAheadOfUnsettledSegment(t *testing.T) {
+	const prior = 200
+	build := func() (*contentBuffer, []string) {
+		b := regroupTestBuffer(prior)
+		b.segments = append(b.segments, contentSegment{kind: segmentCompactionBanner, compactionData: &compactionBannerData{label: "compacting"}, renderDirty: true})
+		return b, startRegroupCards(b, "A", "g", 3)
+	}
+	warm, ids := build()
+	cold, _ := build()
+	warmRegroupBuffer(warm)
+	if !warm.prefixCacheValid(80) || warm.prefixCacheLen != prior {
+		t.Fatalf("setup prefix cache len = %d valid = %v, want %d valid", warm.prefixCacheLen, warm.prefixCacheValid(80), prior)
+	}
+	rendered := warm.prefixCacheRendered
+	for _, id := range ids {
+		acceptRegroupCard(warm, "A", "g", id)
+		acceptRegroupCard(cold, "A", "g", id)
+		if !warm.prefixCacheValid(80) || warm.prefixCacheLen != prior || warm.prefixCacheRendered != rendered {
+			t.Fatalf("short prefix cache not retained across regroup of %s", id)
+		}
+		warm.String(80)
+	}
+	if got, want := warm.String(80), cold.String(80); got != want {
+		t.Fatalf("incremental render differs from cold render:\n%s\n---\n%s", got, want)
+	}
+}

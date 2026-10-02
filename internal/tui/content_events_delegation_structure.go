@@ -1,6 +1,9 @@
 package tui
 
-import "slices"
+import (
+	"maps"
+	"slices"
+)
 
 type delegationMembership struct {
 	batch string
@@ -255,9 +258,9 @@ func remapActiveToolCalls(active map[string]toolCallLocator, segments []contentS
 
 // commitSegmentRewrite installs next, whose segments before start are the
 // buffer's unchanged leading segments; oldToNew maps the old indices at or
-// after start. The settled-prefix cache survives when it covers exactly the
-// unchanged leading segments; a shorter one is dropped so the next render
-// rebuilds it up to the first unsettled segment.
+// after start. The settled-prefix cache survives when it covers only the
+// unchanged leading segments (prefixCacheLen <= start); a longer one spans
+// rewritten segments and is dropped.
 func (b *contentBuffer) commitSegmentRewrite(next []contentSegment, oldToNew map[int]int, start int) {
 	remapDelegationIndex(b.activeDelegations, next, start)
 	remapDelegationIndex(b.openDelegations, next, start)
@@ -269,7 +272,7 @@ func (b *contentBuffer) commitSegmentRewrite(next []contentSegment, oldToNew map
 	oldCollapse := b.collapseState
 	b.segments = next
 	b.collapseState = remapCollapseState(oldCollapse, oldToNew, start)
-	prefixHeld := b.prefixCacheSet && b.prefixCacheGen == b.gen && b.prefixCacheLen == start
+	prefixHeld := b.prefixCacheSet && b.prefixCacheGen == b.gen && b.prefixCacheLen <= start
 	b.gen++
 	b.structureGen++
 	b.stringCacheWidth, b.stringCacheRendered = 0, ""
@@ -295,17 +298,23 @@ func remapAdvisorSegment(advisor int, oldToNew map[int]int, start int) int {
 	return 0
 }
 
+// remapCollapseState rewrites collapse in place: entries before start are
+// untouched, entries at or after it move to their new indices.
 func remapCollapseState(collapse map[int]bool, oldToNew map[int]int, start int) map[int]bool {
-	remapped := make(map[int]bool)
-	for index, value := range collapse {
-		if index < start {
-			remapped[index] = value
-		}
+	if collapse == nil {
+		return make(map[int]bool)
 	}
+	moved := make(map[int]bool)
 	for oldIndex, newIndex := range oldToNew {
 		if value, ok := collapse[oldIndex]; ok {
-			remapped[newIndex] = value
+			moved[newIndex] = value
 		}
 	}
-	return remapped
+	for index := range collapse {
+		if index >= start {
+			delete(collapse, index)
+		}
+	}
+	maps.Copy(collapse, moved)
+	return collapse
 }
