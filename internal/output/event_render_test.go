@@ -6,6 +6,13 @@ import (
 	"testing"
 )
 
+func TestRenderReplayDelegationParentClosedEventIsNondisplay(t *testing.T) {
+	segment := renderEvent(NewReplayDelegationParentClosedEvent("parent-call"))
+	if segment != (Segment{}) {
+		t.Fatalf("segment = %#v, want empty control segment", segment)
+	}
+}
+
 func TestRenderModelCallFinishedIncludesNonzeroCacheTokens(t *testing.T) {
 	seg := renderEvent(Event{Payload: ModelCallFinishedEvent{
 		Turn: 2, PromptTokens: 120, CacheReadTokens: 80, CacheCreateTokens: 10,
