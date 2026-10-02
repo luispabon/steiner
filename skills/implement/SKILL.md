@@ -18,7 +18,7 @@ Treat the planning folder, feature branch, and repository state as the authorita
 - Stop if artifacts are missing, conflict materially, or cannot be parsed.
 - Derive the expected branch as `cl/YYYY-MM-DD_FEATURE_NAME`.
 - Require the expected branch to exist and be clean before implementation starts.
-- Check whether `.steiner/plans/` is gitignored by running `git check-ignore -q .steiner/plans/`. If exit code is 0, planning artifacts are local-only — do not stage or commit them at any point during this workflow. If exit code is non-zero, planning artifacts are version-controlled — commit them as described below.
+- Run `git check-ignore -q .steiner/plans/`. Exit 0 means local-only planning artifacts: never stage or commit them. Otherwise commit them as described below.
 - Treat `overview.md` and `plan.yaml` as immutable planner-owned inputs unless the user explicitly requests replanning.
 
 ## Execution Flow
@@ -29,7 +29,7 @@ Follow this sequence:
 2. Check out the expected feature branch.
 3. Load verification strategy from `overview.md`.
 4. Create or resume compact `execution.md`.
-5. Execute ready implementation steps via the delegation model. Decompose each delegated step into bounded sub-tasks where useful; dispatch one sub-agent per task. End the turn after dispatch and act when results arrive. Do not implement directly unless the step is marked `no_delegate`, in that case make sure to state explicitly why the change is not being delegated.
+5. Execute ready steps through delegation, splitting into bounded sub-tasks where useful. Dispatch one sub-agent per task; end the turn and act when results arrive. Implement directly only for `no_delegate` steps, stating why.
 6. Run planned verification and fix failures.
 7. Ask for manual verification only when the plan or risk requires it.
 8. If planning artifacts are version-controlled, commit final executor state. Hand off to review.
@@ -74,7 +74,7 @@ Expected step fields:
 - `acceptance`
 - `verification`
 
-Use `approach` as the starting point for how a step is built. The executor may adapt task decomposition and implementation details when code inspection or verification shows the plan is incomplete or unsuitable, while preserving the step's intended behaviour, constraints, and acceptance criteria. Record meaningful deviations and their reasons in `execution.md`. Changes to scope, acceptance criteria, shared contracts, or binding decisions require a revised decision or escalation before proceeding. A step's `decisions` list cites Key Decision IDs in `overview.md`; resolve them there and treat them as binding constraints on the implementation. When framing a delegated task, pass the current approach, any evidence-backed adaptations, and the resolved text of its cited `decisions` into the sub-agent's context. Sub-agents must report findings that require further changes to these instructions rather than silently redesigning the task.
+Use `approach` as a starting point. The executor may adapt decomposition and implementation details when inspection or checks show the plan is incomplete or unsuitable, preserving intended behaviour, constraints, and acceptance criteria. Record meaningful deviations and reasons in `execution.md`. Scope, acceptance, shared-contract, or binding-decision changes require a revised decision or escalation before proceeding. Resolve `decisions` from Key Decision IDs in `overview.md`; they remain binding. Brief children with the current approach, evidence-backed adaptations, and resolved decisions. Children must report needed instruction changes, not silently redesign tasks.
 
 Optional fields:
 
@@ -106,11 +106,11 @@ Use `implemented` to unlock dependencies. Use `complete` only after required ver
 
 ## Splitting Steps into Sub-Agent Tasks
 
-Plan-step scheduling remains unchanged. Before implementing a delegated step, split it into bounded sub-tasks where useful: sub-agents tend to use smaller models and benefit from narrow scopes. Each sub-task must have a concrete deliverable, a declared write scope, and settled contracts with other tasks. Splitting must preserve the parent step's scope, constraints, acceptance criteria, `no_delegate`, and `delegate_profile`.
+Plan-step scheduling is unchanged. Smaller models benefit from narrow tasks: each sub-task needs a concrete deliverable, declared write scope, and settled contracts. Preserve parent scope, constraints, acceptance criteria, `no_delegate`, and `delegate_profile`.
 
-Within a ready plan step, prefer parallel execution when sub-tasks have disjoint write sets, no unmet dependencies or unresolved cross-task contracts, and low coordination and merge risk, and parallelism is likely to save meaningful time. Otherwise execute them sequentially. Parallel sub-tasks start from the same parent HEAD and cannot see each other's unmerged work.
+Within a ready step, prefer parallel tasks only with disjoint writes, no unmet dependencies or unresolved contracts, low coordination/merge risk, and meaningful time savings. Otherwise run serially. Children cannot see each other's unmerged work.
 
-Give each sub-task an id tied to its parent step and track its state and assigned agent in `execution.md`. Apply the delegation, review, merge, verification, and worktree lifecycle rules to each sub-task. Mark the parent step `implemented` only after all required sub-tasks are implemented and merged; mark it `complete` only after the parent step's required verification passes. Do not unlock dependent plan steps earlier.
+Track each sub-task's parent-linked id, state, and agent in `execution.md`. Apply delegation, review, merge, verification, and worktree rules per task. Mark the parent `implemented` only after all required tasks are implemented and merged; unlock dependents then, not earlier. Mark it `complete` only after required parent verification passes.
 
 ## Executor-Owned Work
 
@@ -127,7 +127,7 @@ Everything else is delegated.
 
 ### Implementation code restriction
 
-The executor MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on **implementation-scoped files** — the files listed in step `files` fields. All implementation edits, verification-failure fixes, and manual-verification issue fixes MUST be performed by delegated `code` sub-agents. Doing so directly is a skill violation, not a fallback. Deliberate tightening of the routing threshold in your system prompt: the executor owns the feature branch, so even a small in-context edit must go through a `code` sub-agent — delegation is this workflow's entire purpose, not just its default.
+The executor MUST NOT mutate **implementation-scoped files** (step `files`) via `mutate` or shell writes. All implementation edits and automated/manual verification fixes MUST go through `code` sub-agents, even tiny in-context edits. Direct edits violate this skill; the system prompt's local-edit permission is not a fallback.
 
 This restriction does not apply to executor-owned artifacts (`execution.md`, branch operations). Steps marked `no_delegate` in the plan are also exempt.
 
@@ -139,13 +139,13 @@ Follow the system prompt's briefing template. Include the parent step id and goa
 
 The feature branch is owned by the executor. Implementation-scoped code must be changed only by delegated sub-agents (see Implementation code restriction above). Every `code` sub-agent is automatically placed in a runtime-provisioned, runtime-verified worktree on a `delegate/` branch — the executor arranges nothing.
 
-There is no inline execution tier. If delegation itself is unavailable, stop and report a blocker. Exception: steps marked `no_delegate` in the plan are applied inline by the executor. (Same deliberate tightening as the Implementation code restriction above — the routing threshold's local-edit permission does not apply to implementation-scoped files in this workflow.)
+There is no inline fallback if delegation is unavailable: report a blocker. Only planned `no_delegate` steps may be applied inline.
 
 If provisioning fails, the `code` call fails outright — that is a blocker to report, not a cue to work on the feature branch directly.
 
 ### Warm Follow-Up Policy
 
-Resume a suitable warm agent before cold dispatch only when it remains available for the same bounded deliverable in the same still-live workspace and scope. Follow-ups are sequential. Do not close the agent or remove its worktree until the step's verification and correction loop finishes — warm follow-up within a step, cold dispatch across steps. Cold-dispatch after the agent is closed or its worktree is merged and deleted, even if the session reports resumable. A resumable session alone does not prove that an isolated worktree still exists. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees. Workflow handoffs are not safe continuation boundaries.
+Prefer warm follow-up only for the same bounded task, scope, and live workspace with an available, resumable agent. Follow-ups are sequential. Keep the agent/worktree until its verification and correction loop ends. Cold-dispatch across tasks or after closure, worktree deletion, material lane/scope changes, or for independent/wider review. Resumability alone does not prove a worktree exists. Workflow handoffs are not safe continuation boundaries.
 
 ### Worktree Handling
 
@@ -179,7 +179,7 @@ If any check fails, the sub-agent must not commit. It must report the mismatch a
 
 ## Strategic Guidance via `advisor`
 
-If an `advisor` tool is available, consult it before locking an implementation approach for step-to-sub-agent-task decomposition, and implementation risk. You may consult it when evidence-backed adaptations need judgement, and after an unresolved verification failure before choosing the next fix path. Advisor guidance does not authorize changes to scope or binding decisions.
+If `advisor` is available, consult it before settling task decomposition and implementation risk. You may also consult it for evidence-backed adaptations and after unresolved verification failures before choosing a fix. Its guidance does not authorize scope or binding-decision changes.
 
 ## Verification Policy
 
