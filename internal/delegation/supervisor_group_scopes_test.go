@@ -213,3 +213,23 @@ func TestConcurrentGroupScopeJoinsShareBatch(t *testing.T) {
 		}
 	}
 }
+
+func TestNewGroupScopeCanonicalizesSeed(t *testing.T) {
+	tests := []struct {
+		name string
+		seed agent.DelegationGroupLedger
+		want []string
+	}{
+		{"zero value", agent.DelegationGroupLedger{}, nil},
+		{"untrimmed duplicates and blanks", agent.DelegationGroupLedger{Version: 1, Names: []string{" b ", "a", "b", "", "  "}}, []string{"a", "b"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
+			got := s.SnapshotGroupLedger(s.NewGroupScope(tt.seed))
+			if !reflect.DeepEqual(got.Names, tt.want) {
+				t.Fatalf("snapshot names = %v, want %v", got.Names, tt.want)
+			}
+		})
+	}
+}

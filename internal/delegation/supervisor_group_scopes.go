@@ -16,15 +16,12 @@ type delegationGroupScope struct {
 
 // NewGroupScope creates a runtime scope seeded with durable reserved names.
 func (s *Supervisor) NewGroupScope(seed agent.DelegationGroupLedger) string {
-	if err := seed.Validate(); err != nil {
-		panic(err)
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.scopeSeq++
 	id := fmt.Sprintf("scope-%d", s.scopeSeq)
 	state := &delegationGroupScope{names: make(map[string]string), batches: make(map[string]bool)}
-	for _, name := range seed.Names {
+	for _, name := range seed.Clone().Names {
 		state.names[name] = ""
 	}
 	s.scopes[id] = state
