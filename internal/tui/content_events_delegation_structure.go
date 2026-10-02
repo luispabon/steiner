@@ -222,10 +222,6 @@ func segmentHoldsDelegation(seg contentSegment, dd *delegationDisplayState) bool
 	return false
 }
 
-func findToolCallSegment(segments []contentSegment, td *toolCallSegment) int {
-	return findToolCallSegmentAt(segments, td, -1)
-}
-
 func findToolCallSegmentAt(segments []contentSegment, td *toolCallSegment, hint int) int {
 	if hint >= 0 && hint < len(segments) && segmentHoldsToolCall(segments[hint], td) {
 		return hint
