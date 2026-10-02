@@ -52,6 +52,19 @@ func TestSetupErrorProjectToolErrorDoesNotMatchReservationText(t *testing.T) {
 	}
 }
 
+func TestSetupErrorProjectToolErrorSealedGroupReservation(t *testing.T) {
+	t.Parallel()
+	err := &groupReservationError{name: "fresh-group", batch: "sealed-batch", sealed: true}
+	envelope := (&SetupError{err: errors.Join(errors.New("wrapped"), err)}).ProjectToolError()
+	want := `delegation group name "fresh-group" cannot join sealed batch; use a fresh group name`
+	if envelope.Status != "failed" || envelope.Output != "" || envelope.Reason != want {
+		t.Fatalf("projection = %+v, want reason %q", envelope, want)
+	}
+	if strings.Contains(envelope.Reason, "sealed-batch") || strings.Contains(envelope.Reason, "already used") {
+		t.Fatalf("projection exposed sealed batch or reserved-name detail: %q", envelope.Reason)
+	}
+}
+
 func TestSetupErrorProjectToolErrorRequiresCommit(t *testing.T) {
 	t.Parallel()
 	envelope := (&SetupError{err: ErrCodeWorktreeRequiresCommit}).ProjectToolError()

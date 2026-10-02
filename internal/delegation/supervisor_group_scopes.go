@@ -96,9 +96,9 @@ func (e *groupReservationError) Error() string {
 
 func (e *groupReservationError) correctiveReason() string {
 	if e.sealed {
-		return fmt.Sprintf("delegation group name %q cannot join sealed batch %q; use a fresh group name", e.name, e.batch)
+		return fmt.Sprintf("delegation group name %q cannot join sealed batch; use a fresh group name", e.name)
 	}
-	return fmt.Sprintf("delegation group name %q was already used; choose a fresh name", e.name)
+	return e.Error()
 }
 
 func (s *Supervisor) reserveGroupLocked(scope, name, batch string) error {

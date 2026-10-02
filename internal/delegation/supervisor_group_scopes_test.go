@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 func TestGroupScopeSeedSnapshotAndIndependentScopes(t *testing.T) {
@@ -48,8 +49,24 @@ func TestSealedEmptyBatchRejectsLaterGroup(t *testing.T) {
 	s.SealGroupBatch(scope, "batch")
 	job := newAsyncChild("a", "g")
 	job.job.GroupScope = scope
-	if _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "batch"), job.job); err == nil {
+	_, admission, err := s.SpawnWithAdmission(agent.WithToolBatchID(context.Background(), "batch"), job.job)
+	if err == nil {
 		t.Fatal("sealed empty batch accepted a group")
+	}
+	var reservationErr *groupReservationError
+	if !errors.As(err, &reservationErr) || reservationErr.name != "g" || reservationErr.batch != "batch" || !reservationErr.sealed {
+		t.Fatalf("reservation error = %T %#v, want sealed group g", err, err)
+	}
+	if got, want := err.Error(), `delegation group batch "batch" is sealed; use a fresh group name`; got != want {
+		t.Fatalf("reservation error text = %q, want %q", got, want)
+	}
+	wantAdmission := &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, BatchID: "batch", Group: "g", AgentID: "a"}
+	var carrier tool.DelegationAdmissionCarrier
+	if admission == nil || *admission != *wantAdmission || !errors.As(err, &carrier) || *carrier.DelegationAdmissionMetadata() != *wantAdmission {
+		t.Fatalf("rejected admission = %+v, err = %v", admission, err)
+	}
+	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 0 {
+		t.Fatalf("sealed rejection reserved group name: %v", got)
 	}
 }
 
