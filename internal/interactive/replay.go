@@ -447,14 +447,10 @@ func replayLedgerBackedAck(inferred agent.SubAgentLedgerEntry, status string) bo
 
 func (s *Session) emitLedgerProgress(msg agent.Message, inferred agent.SubAgentLedgerEntry, task, status string) {
 	agentID := inferred.AgentID
-	if hasKnownAdmission(msg.DelegationAdmission) && msg.DelegationAdmission.Status == "accepted" {
-		if msg.DelegationAdmission.AgentID != "" {
-			agentID = msg.DelegationAdmission.AgentID
-		}
-		s.emitDelegationProgress(agentID, msg.ToolCallID, task, status)
-	} else {
-		s.emitLegacyDelegationProgress(agentID, task, status, msg.ToolCallID)
+	if hasKnownAdmission(msg.DelegationAdmission) && msg.DelegationAdmission.Status == "accepted" && msg.DelegationAdmission.AgentID != "" {
+		agentID = msg.DelegationAdmission.AgentID
 	}
+	s.emitDelegationProgress(agentID, msg.ToolCallID, task, status)
 }
 
 func (s *Session) replayEmptyAcceptedFailure(msg agent.Message, state replayedDelegationState, task string) bool {

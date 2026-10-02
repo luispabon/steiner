@@ -177,12 +177,19 @@ func waitQuiescent(t *testing.T, s *Session) {
 func TestLoadWithLedgerRecordsLostOnceWithoutARun(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name     string
-		messages []agent.Message
+		name      string
+		messages  []agent.Message
+		lifecycle []string
+		failed    []string
+		ledger    []agent.SubAgentLedgerEntry
+		groups    *agent.DelegationGroupLedger
 	}{
-		{name: "unknown running then ledger orphan", messages: []agent.Message{delegateCall("call-1", "sub_agent", "unknown task"), ackResult(t, "call-1", "sub_agent", "unknown-agent", "running"), delegateCall("call-1", "sub_agent", "lost task"), {Role: agent.MessageRoleAssistant, Content: "marker"}}},
-		{name: "orphan then ledger", messages: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "lost task"}}}}, {Role: agent.MessageRoleAssistant, Content: "marker"}}},
-		{name: "completed reused ID then orphan", messages: []agent.Message{delegateCall("call-1", "sub_agent", "done"), {Role: agent.MessageRoleTool, ToolCallID: "call-1", Name: "sub_agent", Content: `{"output":"done"}`, Retention: &agent.MessageRetention{Status: "completed", AgentID: "old-agent"}}, {Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "lost task"}}}}, {Role: agent.MessageRoleAssistant, Content: "marker"}}},
+		{name: "unknown running then ambiguous ledger", messages: []agent.Message{delegateCall("call-1", "sub_agent", "unknown task"), ackResult(t, "call-1", "sub_agent", "unknown-agent", "running"), delegateCall("call-1", "sub_agent", "other task")}, lifecycle: []string{"started:unknown-agent:"}, failed: []string{"unknown-agent:no result"}, ledger: []agent.SubAgentLedgerEntry{{AgentID: "a1", AgentType: "code", ParentCallID: "call-1", BatchID: "batch-lost", Group: "group-lost", WorktreePath: "/wt/a1"}, {AgentID: "a2", AgentType: "code", ParentCallID: "call-1", BatchID: "batch-lost", Group: "group-lost", WorktreePath: "/wt/a2"}}},
+		{name: "orphan then ledger", messages: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "lost task"}}}}}, lifecycle: []string{"accepted:a1:call-1:batch-lost:group-lost", "started:a1:call-1"}},
+		{name: "completed reused ID then orphan", messages: []agent.Message{delegateCall("call-1", "sub_agent", "done"), {Role: agent.MessageRoleTool, ToolCallID: "call-1", Name: "sub_agent", Content: `{"output":"done"}`, Retention: &agent.MessageRetention{Status: "completed", AgentID: "old-agent"}}, {Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "lost task"}}}}}, lifecycle: []string{"started:old-agent:", "accepted:a1:call-1:batch-lost:group-lost", "started:a1:call-1"}},
+		{name: "single unknown running with result", messages: []agent.Message{delegateCall("call-1", "sub_agent", "live task"), ackResult(t, "call-1", "sub_agent", "unknown-agent", "running"), {Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: agent.RenderSubAgentResultEnvelope(agent.SubAgentCompletion{Seq: 1, ParentCallID: "call-1", AgentID: "a1", AgentType: "code", Status: "completed", Body: `{"output":"done"}`})}}, lifecycle: []string{"accepted:a1:call-1:batch-lost:group-lost", "started:a1:call-1"}},
+		{name: "latest generation only", messages: nil, lifecycle: []string{"accepted:a1:call-1:batch-lost:group-lost", "started:a1:call-1"}},
+		{name: "reserved name not acceptance", messages: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "reserved task", "group": "reserved"}}}}}, groups: &agent.DelegationGroupLedger{Version: 1, Names: []string{"reserved"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -190,9 +197,21 @@ func TestLoadWithLedgerRecordsLostOnceWithoutARun(t *testing.T) {
 			store := newMockSessionStore()
 			base := append([]agent.Message{{Role: agent.MessageRoleUser, Content: "start"}}, tt.messages...)
 			base = append(base, agent.Message{Role: agent.MessageRoleAssistant, Content: "marker"})
+			ledger := tt.ledger
+			if ledger == nil && tt.name != "reserved name not acceptance" {
+				ledger = []agent.SubAgentLedgerEntry{{AgentID: "a1", AgentType: "code", ParentCallID: "call-1", BatchID: "batch-lost", Group: "group-lost", WorktreePath: "/wt/a1"}}
+			}
+			lineage := lineageFromMessages(base)
+			if tt.name == "latest generation only" {
+				lineage = agent.ConversationLineage{Generations: []agent.ConversationGeneration{
+					{ID: 1, Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "start"}, delegateCall("call-1", "sub_agent", "old"), admissionResult("call-1", "old-agent", "", ""), {Role: agent.MessageRoleTool, ToolCallID: "call-1", Name: "sub_agent", Content: `{"output":"old result"}`}, {Role: agent.MessageRoleAssistant, Content: "marker"}}},
+					{ID: 2, Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "start"}, delegateCall("call-1", "sub_agent", "new"), ackResult(t, "call-1", "sub_agent", "unknown-agent", "running"), {Role: agent.MessageRoleAssistant, Content: "marker"}}},
+				}, NextGenerationID: 3}
+				base = lineage.Generations[1].Messages
+			}
 			store.loadedSessions["old"] = session.Session{
-				ID: "old", Model: "m", Lineage: lineageFromMessages(base),
-				SubAgentLedger: []agent.SubAgentLedgerEntry{{AgentID: "a1", AgentType: "code", ParentCallID: "call-1", BatchID: "batch-lost", Group: "group-lost", WorktreePath: "/wt/a1"}},
+				ID: "old", Model: "m", Lineage: lineage,
+				SubAgentLedger: ledger, DelegationGroups: tt.groups,
 			}
 			var eventMu sync.Mutex
 			var events []output.Event
@@ -239,19 +258,39 @@ func TestLoadWithLedgerRecordsLostOnceWithoutARun(t *testing.T) {
 					}
 				}
 			}
-			markerIndex := -1
-			for i, item := range lifecycle {
-				if item == "marker" {
-					markerIndex = i
-				}
+			if tt.name == "latest generation only" && (slices.Contains(lifecycle, "started:old-agent:") || slices.Contains(lifecycle, "accepted:old-agent:call-1::")) {
+				t.Fatalf("earlier generation lifecycle replayed: %v", lifecycle)
 			}
-			if markerIndex < 2 || lifecycle[markerIndex-2] != "accepted:a1:call-1:batch-lost:group-lost" || lifecycle[markerIndex-1] != "started:a1:call-1" {
-				t.Fatalf("replayed lifecycle before marker = %v", lifecycle)
+			if !slices.Equal(lifecycle[:len(tt.lifecycle)], tt.lifecycle) || lifecycle[len(tt.lifecycle)] != "marker" {
+				t.Fatalf("replayed lifecycle before marker = %v, want %v then marker", lifecycle, tt.lifecycle)
 			}
+			var failures []string
 			for _, event := range firstEvents {
 				if event.Type == output.EventTypeDelegationFailed {
-					t.Fatalf("orphan generated preterminal failure: %+v", event.Payload)
+					p := event.Payload.(output.DelegationFailedEvent)
+					failures = append(failures, p.AgentID+":"+p.Error)
 				}
+			}
+			if !slices.Equal(failures, tt.failed) {
+				t.Fatalf("replayed failures = %v, want %v", failures, tt.failed)
+			}
+			if tt.groups != nil {
+				store.mu.Lock()
+				saved := store.savedSessions["old"]
+				store.mu.Unlock()
+				if len(saved.SubAgentLedger) != 0 {
+					t.Fatalf("reserved-name session ledger = %+v, want nil", saved.SubAgentLedger)
+				}
+				if accepted := len(eventsOfType(firstEvents, output.EventTypeDelegationAccepted)); accepted != 0 {
+					t.Fatalf("reserved group accepted = %d, want 0", accepted)
+				}
+				if started := len(eventsOfType(firstEvents, output.EventTypeDelegationStarted)); started != 0 {
+					t.Fatalf("reserved group started = %d, want 0", started)
+				}
+				if len(s.Conversation()) != len(base) || !slices.Equal(s.delegationGroups.Names, tt.groups.Names) {
+					t.Fatalf("reserved groups or conversation changed: %+v / %d", s.delegationGroups, len(s.Conversation()))
+				}
+				return
 			}
 			liveDelivered := 0
 			for _, event := range firstEvents {
