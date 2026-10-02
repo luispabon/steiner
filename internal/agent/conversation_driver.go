@@ -43,7 +43,6 @@ type BackgroundAgents interface {
 	HasPending() bool
 	MarkDelivered(parentCallIDs []string)
 	Ledger() []SubAgentLedgerEntry
-	SealBatch(batchID string)
 }
 
 // DriverSnapshot is the durable state saved at every driver transition.
@@ -71,7 +70,8 @@ type DriverOptions struct {
 	GroupLedger DelegationGroupLedger
 	// SnapshotDelegationGroups captures current supervisor group state.
 	SnapshotDelegationGroups func() DelegationGroupLedger
-	// SealDelegationBatch overrides Background.SealBatch when set.
+	// SealDelegationBatch closes a tool batch to new delegation group members;
+	// the driver hands it to each run as OnToolBatchDone. Nil disables sealing.
 	SealDelegationBatch func(batchID string)
 	// Steers may be nil (headless oneshot).
 	Steers *SteerQueue
@@ -275,13 +275,7 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 }
 
 func (d *ConversationDriver) sealer() func(string) {
-	if d.opts.SealDelegationBatch != nil {
-		return d.opts.SealDelegationBatch
-	}
-	if d.opts.Background == nil {
-		return nil
-	}
-	return d.opts.Background.SealBatch
+	return d.opts.SealDelegationBatch
 }
 
 func (d *ConversationDriver) pendingFn() func() []PendingSubAgent {

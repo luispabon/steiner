@@ -153,7 +153,7 @@ func TestAsyncSubAgentGroupDeliveredTogetherAfterSeal(t *testing.T) {
 	})
 	sink.none(t)
 
-	sup.SealBatch(testBatchID(1))
+	sup.SealGroupBatch(deps.GroupScope, testBatchID(1))
 	batch := recvBatch(t, sink)
 	if len(batch) != 2 || batch[0].Seq >= batch[1].Seq {
 		t.Fatalf("batch = %+v, want two completions in ascending Seq order", batch)

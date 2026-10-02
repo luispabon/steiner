@@ -38,17 +38,6 @@ func (s *Supervisor) enrollLocked(state *jobState, batchID string) {
 	state.group = group
 }
 
-// SealBatch closes every group of the tool batch to new members and releases
-// those whose members have all finished. Groups settle in creation order.
-func (s *Supervisor) SealBatch(batchID string) {
-	s.mu.Lock()
-	for _, scope := range s.scopes {
-		scope.sealThroughLocked(batchID)
-	}
-	s.mu.Unlock()
-	s.sealBatch("", batchID)
-}
-
 func (s *Supervisor) sealBatch(scope, batchID string) {
 	s.mu.Lock()
 	var sealed []*jobGroup

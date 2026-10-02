@@ -339,7 +339,7 @@ func TestSupervisorNilSinkPostsNothing(t *testing.T) {
 	spawnAsync(agent.WithToolBatchID(context.Background(), testBatchID(1)), t, s, a)
 	close(a.release)
 	waitFinished(t, s, "a")
-	s.SealBatch(testBatchID(1))
+	s.SealGroupBatch("", testBatchID(1))
 	s.MarkDelivered([]string{"call-a"})
 	if s.IsPending("a") {
 		t.Fatal("ungrouped nil-sink completion should be ackable")

@@ -146,21 +146,17 @@ func TestSnapshotDelegationGroupsSeedWithoutCallback(t *testing.T) {
 	}
 }
 
-func TestSealDelegationBatchOverride(t *testing.T) {
-	background := &fakeBackground{}
+func TestSealerIsTheDelegationBatchSealer(t *testing.T) {
 	var sealed string
 	driver := NewConversationDriver(DriverOptions{
-		Background:          background,
 		SealDelegationBatch: func(batchID string) { sealed = batchID },
 	}, nil, ConversationLineage{})
-	driver.sealer()("override")
-	if sealed != "override" || len(background.sealed) != 0 {
-		t.Fatalf("override seal=%q fallback=%v", sealed, background.sealed)
+	driver.sealer()("batch")
+	if sealed != "batch" {
+		t.Fatalf("sealed = %q, want batch", sealed)
 	}
-	driver = NewConversationDriver(DriverOptions{Background: background}, nil, ConversationLineage{})
-	driver.sealer()("fallback")
-	if !slices.Equal(background.sealed, []string{"fallback"}) {
-		t.Fatalf("fallback seals = %v", background.sealed)
+	if NewConversationDriver(DriverOptions{Background: &fakeBackground{}}, nil, ConversationLineage{}).sealer() != nil {
+		t.Fatal("sealer without SealDelegationBatch is non-nil")
 	}
 }
 
@@ -203,7 +199,7 @@ func (f *fakeBackground) Ledger() []SubAgentLedgerEntry {
 	return entries
 }
 
-func (f *fakeBackground) SealBatch(id string) {
+func (f *fakeBackground) recordSeal(id string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sealed = append(f.sealed, id)
@@ -284,13 +280,14 @@ func newDriverHarnessOpts(t *testing.T, conv []Message, prepare func(context.Con
 		events: make(chan output.Event, 1024),
 	}
 	opts := DriverOptions{
-		Clock:       h.clock,
-		Run:         h.run,
-		Background:  h.bg,
-		Steers:      h.steers,
-		Save:        h.save,
-		Events:      output.SinkFunc(func(e output.Event) { h.events <- e }),
-		PrepareTurn: prepare,
+		Clock:               h.clock,
+		Run:                 h.run,
+		Background:          h.bg,
+		SealDelegationBatch: h.bg.recordSeal,
+		Steers:              h.steers,
+		Save:                h.save,
+		Events:              output.SinkFunc(func(e output.Event) { h.events <- e }),
+		PrepareTurn:         prepare,
 	}
 	if mutate != nil {
 		mutate(&opts)

@@ -83,6 +83,7 @@ func asyncTestSession(t *testing.T, store sessionStore) (*Session, *sinkRecorder
 		SessionStore:      store,
 		Background:        bg,
 		SetCompletionSink: rec.set,
+		SealGroupBatch:    func(string, string) {},
 		Clock:             clock,
 	})
 	return s, rec, clock, bg
@@ -139,7 +140,7 @@ func TestDeliveredCompletionWakesARunAfterTheWindow(t *testing.T) {
 		t.Fatalf("run last message = %q, want a sub-agent result envelope", got)
 	}
 	if in.OnToolBatchDone == nil || in.PendingSubAgents == nil {
-		t.Fatal("run input lacks SealBatch/Pending hooks from Background")
+		t.Fatal("run input lacks seal/pending hooks")
 	}
 	waitSettled(t, s)
 }

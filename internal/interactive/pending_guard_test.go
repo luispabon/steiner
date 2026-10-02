@@ -41,7 +41,6 @@ func (b *stubBackground) MarkDelivered(ids []string) {
 }
 
 func (b *stubBackground) Ledger() []agent.SubAgentLedgerEntry { return nil }
-func (b *stubBackground) SealBatch(string)                    {}
 
 func (b *stubBackground) setPending(ids ...string) {
 	b.mu.Lock()

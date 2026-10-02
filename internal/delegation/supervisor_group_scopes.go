@@ -81,7 +81,7 @@ func (s *Supervisor) maybeDeleteScopeLocked(scope string) {
 
 // sealThroughLocked advances the seal point to batchID's sequence number. An
 // unparseable ID is ignored: reserveGroupLocked rejects such batches anyway,
-// and SealBatch has no error return to report it.
+// and SealGroupBatch has no error return to report it.
 func (g *delegationGroupScope) sealThroughLocked(batchID string) {
 	if seq, ok := agent.ToolBatchSeq(batchID); ok {
 		g.sealedThrough = max(g.sealedThrough, seq)
