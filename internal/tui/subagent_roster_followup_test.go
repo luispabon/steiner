@@ -1,0 +1,64 @@
+package tui
+
+import (
+	"testing"
+
+	"github.com/luispabon/steiner/internal/output"
+)
+
+func TestRosterAcceptedSameCallIDFailureReplacesFinishedEntry(t *testing.T) {
+	t.Parallel()
+
+	var r subAgentRoster
+	for i, event := range []output.Event{
+		ev(output.DelegationAcceptedEvent{CallID: "same-call", AgentID: "child", BatchID: "old-batch", Group: "old-group"}),
+		ev(output.DelegationStartedEvent{CallID: "same-call", AgentID: "child", AgentType: "review"}),
+		ev(output.DelegationCompleteEvent{AgentID: "child", AgentType: "review", Status: "completed", DurationMs: 100}),
+		ev(output.DelegationAcceptedEvent{CallID: "same-call", AgentID: "child", BatchID: "new-batch", Group: "new-group"}),
+		ev(output.DelegationFailedEvent{CallID: "same-call", AgentID: "child", AgentType: "review", DurationMs: 50, Error: "replay failure"}),
+	} {
+		r.observe(event, int64(i+1)*1_000_000_000)
+	}
+
+	entry := r.entries["child"]
+	if entry == nil {
+		t.Fatal("missing child entry")
+	}
+	if entry.status != rosterFailed || entry.currentCallID != "same-call" || entry.batchID != "new-batch" || entry.group != "new-group" {
+		t.Fatalf("entry = %+v, want failed fresh same-call occurrence", entry)
+	}
+	if entry.startTime != 4_950_000_000 || entry.finishTime != 5_000_000_000 || entry.delivered {
+		t.Errorf("timing/delivery = %d, %d, %t, want 4950000000, 5000000000, false", entry.startTime, entry.finishTime, entry.delivered)
+	}
+}
+
+func TestRosterRepeatedAdmissionIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	var r subAgentRoster
+	accepted := ev(output.DelegationAcceptedEvent{CallID: "call", AgentID: "child", BatchID: "batch", Group: "group"})
+	r.observe(accepted, 1)
+	r.observe(ev(output.DelegationStartedEvent{CallID: "call", AgentID: "child", AgentType: "review"}), 2)
+	before := *r.entries["child"]
+	r.observe(accepted, 3)
+	after := *r.entries["child"]
+
+	if after != before {
+		t.Fatalf("repeated admission changed entry: before %+v, after %+v", before, after)
+	}
+}
+
+func TestRosterActiveSameCallIDDifferentBatchIsProtected(t *testing.T) {
+	t.Parallel()
+
+	var r subAgentRoster
+	r.observe(ev(output.DelegationAcceptedEvent{CallID: "same-call", AgentID: "child", BatchID: "old-batch", Group: "old-group"}), 1)
+	r.observe(ev(output.DelegationStartedEvent{CallID: "same-call", AgentID: "child", AgentType: "review"}), 2)
+	r.observe(ev(output.DelegationAcceptedEvent{CallID: "same-call", AgentID: "child", BatchID: "new-batch", Group: "new-group"}), 3)
+	r.observe(ev(output.DelegationFailedEvent{CallID: "same-call", AgentID: "child", AgentType: "review", DurationMs: 10, Error: "active overwrite"}), 4)
+
+	entry := r.entries["child"]
+	if entry.currentCallID != "same-call" || entry.status != rosterRunning || entry.batchID != "old-batch" || entry.group != "old-group" {
+		t.Fatalf("entry after active same-call replacement = %+v, want old running identity", entry)
+	}
+}

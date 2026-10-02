@@ -38,10 +38,16 @@ func (e rosterEntry) finished() bool {
 
 // subAgentRoster tracks sub-agents for the sidebar and status bar. It is fed
 // from Model event handling and deliberately does not read contentBuffer.
+type rosterAdmissionIdentity struct {
+	callID  string
+	batchID string
+}
+
 type subAgentRoster struct {
-	entries    map[string]*rosterEntry
-	admissions map[string]output.DelegationAdmission // keyed by current parent call ID
-	nextSeq    int
+	entries          map[string]*rosterEntry
+	admissions       map[string]output.DelegationAdmission // keyed by current parent call ID
+	latestAdmissions map[string]rosterAdmissionIdentity    // keyed by agent ID
+	nextSeq          int
 }
 
 func (r *subAgentRoster) upsert(agentID string) *rosterEntry {
@@ -64,13 +70,16 @@ func (r *subAgentRoster) begin(agentID, agentType, callID, status string, now in
 	}
 	admission, accepted := r.admissionForAgent(callID, agentID)
 	e, existed := r.entries[agentID]
-	if existed && rosterEntryRejectsBegin(e, callID, accepted) {
+	if existed && accepted && !r.latestAdmissionMatches(agentID, callID, admission) {
+		return
+	}
+	if existed && rosterEntryRejectsBegin(e, callID, admission, accepted) {
 		return
 	}
 	if !existed {
 		e = r.upsert(agentID)
 	}
-	restarting := e.finished() || (e.currentCallID != "" && e.currentCallID != callID)
+	restarting := e.finished() || (e.currentCallID != "" && e.currentCallID != callID) || (accepted && e.accepted && e.batchID != admission.BatchID)
 	if restarting {
 		e.status = status
 		e.startTime = now
@@ -107,8 +116,23 @@ func admissionIdentity(admission output.DelegationAdmission, accepted bool) (gro
 	return "", ""
 }
 
-func rosterEntryRejectsBegin(e *rosterEntry, callID string, accepted bool) bool {
-	return e.accepted && !e.finished() && !accepted && (callID == "" || e.currentCallID != callID)
+func rosterEntryRejectsBegin(e *rosterEntry, callID string, admission output.DelegationAdmission, accepted bool) bool {
+	if !e.accepted || e.finished() {
+		return false
+	}
+	if !accepted {
+		return callID == "" || e.currentCallID != callID
+	}
+	return e.currentCallID == callID && e.batchID != admission.BatchID
+}
+
+func rosterEntryMatchesAdmission(e *rosterEntry, callID string, admission output.DelegationAdmission) bool {
+	return e.accepted && e.currentCallID == callID && e.batchID == admission.BatchID
+}
+
+func (r *subAgentRoster) latestAdmissionMatches(agentID, callID string, admission output.DelegationAdmission) bool {
+	latest, ok := r.latestAdmissions[agentID]
+	return ok && latest == (rosterAdmissionIdentity{callID: callID, batchID: admission.BatchID})
 }
 
 func (r *subAgentRoster) finish(agentID, agentType, callID, status string, durationMs, now int64) {
@@ -140,11 +164,22 @@ func (r *subAgentRoster) finishEntry(agentID, callID string) (*rosterEntry, bool
 	e, exists := r.entries[agentID]
 	if callID != "" {
 		admission, accepted := r.admissionForAgent(callID, agentID)
-		if !accepted || (exists && e.currentCallID != callID) {
+		if !accepted || !r.latestAdmissionMatches(agentID, callID, admission) {
 			return nil, false
 		}
 		if !exists {
 			e = r.upsert(agentID)
+			e.currentCallID = callID
+			e.accepted = true
+			e.group, e.batchID = admissionIdentity(admission, true)
+		} else if !rosterEntryMatchesAdmission(e, callID, admission) {
+			if !e.finished() {
+				return nil, false
+			}
+			e.status = ""
+			e.startTime = 0
+			e.finishTime = 0
+			e.delivered = false
 			e.currentCallID = callID
 			e.accepted = true
 			e.group, e.batchID = admissionIdentity(admission, true)
@@ -198,6 +233,9 @@ func (r *subAgentRoster) applyAdmission(callID string, admission output.Delegati
 		return
 	}
 	if e, ok := r.entries[admission.AgentID]; ok && e.currentCallID == callID {
+		if e.accepted && e.batchID != admission.BatchID {
+			return
+		}
 		e.accepted = true
 		e.group = admission.Group
 		e.batchID = admission.BatchID
@@ -211,7 +249,11 @@ func (r *subAgentRoster) recordAdmission(callID string, admission output.Delegat
 	if r.admissions == nil {
 		r.admissions = map[string]output.DelegationAdmission{}
 	}
+	if r.latestAdmissions == nil {
+		r.latestAdmissions = map[string]rosterAdmissionIdentity{}
+	}
 	r.admissions[callID] = admission
+	r.latestAdmissions[admission.AgentID] = rosterAdmissionIdentity{callID: callID, batchID: admission.BatchID}
 }
 
 // completionStatus maps a delegation completion status to a roster status.
@@ -299,10 +341,14 @@ func (r *subAgentRoster) dropWhere(drop func(*rosterEntry) bool) {
 	for id, e := range r.entries {
 		if drop(e) {
 			delete(r.entries, id)
+			if r.latestAdmissions[e.agentID] == (rosterAdmissionIdentity{callID: e.currentCallID, batchID: e.batchID}) {
+				delete(r.latestAdmissions, e.agentID)
+			}
 		}
 	}
 	if len(r.entries) == 0 {
 		r.admissions = nil
+		r.latestAdmissions = nil
 	}
 }
 
