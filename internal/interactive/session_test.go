@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -3281,13 +3282,44 @@ func TestLoadSessionRestoresDelegationBoxesWithoutRetention(t *testing.T) {
 		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
 	}
 
-	// A legacy plain-text result with no retention or agent ID cannot be told
-	// from a setup failure, so replay emits no delegation lifecycle events.
+	assertLegacyPlainTextDelegationReplay(t, events, "agent-call_delegate_2", "done")
+}
+
+// assertLegacyPlainTextDelegationReplay checks that a legacy plain-text result
+// with no retention replays as Accepted, Started, then one Complete carrying
+// the synthetic agent ID and the original output.
+func assertLegacyPlainTextDelegationReplay(t *testing.T, events []output.Event, agentID, wantOutput string) {
+	t.Helper()
+	var types []string
+	var complete []output.DelegationCompleteEvent
+	var startedID string
 	for _, event := range events {
 		switch event.Type {
-		case output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted, output.EventTypeDelegationComplete, output.EventTypeDelegationFailed:
-			t.Fatalf("unexpected delegation event %s for non-admitted legacy result", event.Type)
+		case output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted, output.EventTypeDelegationComplete:
+			types = append(types, event.Type)
 		}
+		switch payload := event.Payload.(type) {
+		case output.DelegationStartedEvent:
+			startedID = payload.AgentID
+		case output.DelegationCompleteEvent:
+			complete = append(complete, payload)
+		}
+	}
+	want := []string{output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted, output.EventTypeDelegationComplete}
+	if !slices.Equal(types, want) {
+		t.Fatalf("delegation event order = %v, want %v", types, want)
+	}
+	if startedID != agentID {
+		t.Fatalf("delegation started agent id = %q, want %q", startedID, agentID)
+	}
+	if len(complete) != 1 {
+		t.Fatalf("delegation complete events = %d, want 1", len(complete))
+	}
+	if got := complete[0].AgentID; got != agentID {
+		t.Fatalf("delegation complete agent id = %q, want %q (synthetic)", got, agentID)
+	}
+	if got := complete[0].Output; got != wantOutput {
+		t.Fatalf("delegation complete output = %q, want %q", got, wantOutput)
 	}
 }
 
@@ -3711,14 +3743,7 @@ func TestLoadSessionRestoresDelegationBoxesWithMalformedStructuredResultFallback
 		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
 	}
 
-	// A legacy plain-text result with no retention or agent ID cannot be told
-	// from a setup failure, so replay emits no delegation lifecycle events.
-	for _, event := range events {
-		switch event.Type {
-		case output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted, output.EventTypeDelegationComplete, output.EventTypeDelegationFailed:
-			t.Fatalf("unexpected delegation event %s for non-admitted legacy result", event.Type)
-		}
-	}
+	assertLegacyPlainTextDelegationReplay(t, events, "agent-call_research_1", "{not-json")
 }
 
 func TestSessionModeDefault(t *testing.T) {

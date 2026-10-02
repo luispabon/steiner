@@ -86,39 +86,26 @@ func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, o
 }
 
 // legacyChildAdmitted reports whether a delegate result with no admission and
-// no ledger entry shows a real child was admitted. The result must decode to a
-// delegation projection whose merged status (retention included) is a known
-// child status, and either name an agent ID (a continuation or result
-// agent_id) or carry a running, queued or complete status. Retention naming an agent
-// (other than a failed one) also counts, as does a compact result with no
-// status or reason. A failed, cancelled
-// or lost status with no agent ID is indistinguishable from a setup failure and
-// stays unaccepted, as do error envelopes, which decode to nothing. Sessions
-// that predate admission had no rejection, so a match means the child ran.
+// no ledger entry shows a real child was admitted. The replayed status decides:
+// running, queued, complete, completed and partial are admitted whatever the
+// content, since very old sessions saved plain-text results with no retention
+// that still replay as complete. A failed, cancelled, lost or timeout status is
+// admitted only when the decoded result names an agent ID; without one it is
+// indistinguishable from a setup failure. Any other status is not admitted, and
+// neither is a tool.JSONEnvelope error result, which replays as complete but
+// is a setup failure.
+// Sessions that predate admission had no rejection, so a match means the child
+// ran.
 func legacyChildAdmitted(msg agent.Message, status string) bool {
+	if toolResultError(msg.Content) != nil {
+		return false
+	}
 	switch status {
-	case "running", "queued", "complete", "completed", "partial", "failed", "cancelled", "lost", "timeout":
-	default:
-		return false
-	}
-	// Retention is only written for children that ran, and legacy sessions
-	// persisted plain-text results alongside it.
-	if msg.Retention != nil && msg.Retention.AgentID != "" && msg.Retention.Status != "failed" {
-		return true
-	}
-	decoded, ok := decodeReplayedDelegateResult(msg.Content)
-	if !ok {
-		return false
-	}
-	if decoded.AgentID != "" {
-		return true
-	}
-	switch decoded.Status {
 	case "running", "queued", "complete", "completed", "partial":
 		return true
-	case "":
-		// The compact projection omits status for a successful blocking result.
-		return decoded.compact && decoded.Reason == ""
+	case "failed", "cancelled", "lost", "timeout":
+		decoded, ok := decodeReplayedDelegateResult(msg.Content)
+		return ok && decoded.AgentID != ""
 	}
 	return false
 }
