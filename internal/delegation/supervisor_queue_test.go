@@ -5,8 +5,10 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
@@ -208,6 +210,41 @@ func TestSupervisorCancelledQueuedJobNeverExecutes(t *testing.T) {
 	}
 }
 
+// gatedAcceptedSink records every event, parks inside the gated agent's
+// Accepted emission until released, and signals when the other agent's
+// Accepted emission is reached.
+type gatedAcceptedSink struct {
+	queuedEventSink
+	gatedID       string
+	entered       chan struct{}
+	release       chan struct{}
+	otherAccepted chan struct{}
+	releaseOnce   sync.Once
+	t             *testing.T
+}
+
+func (s *gatedAcceptedSink) open() { s.releaseOnce.Do(func() { close(s.release) }) }
+
+func (s *gatedAcceptedSink) Emit(e output.Event) {
+	s.queuedEventSink.Emit(e)
+	if e.Type != output.EventTypeDelegationAccepted {
+		return
+	}
+	if delegationOccurrenceOf(s.t, e).AgentID != s.gatedID {
+		close(s.otherAccepted)
+		return
+	}
+	close(s.entered)
+	select {
+	case <-s.release:
+	case <-time.After(10 * time.Second):
+		s.t.Error("gated Accepted emission was never released")
+	}
+}
+
+// TestSupervisorQueuedEventOrdering pins that the queued decision counts the
+// unpublished sibling at the queue head and that Queued is emitted before the
+// job is published, so it can never trail Started.
 func TestSupervisorQueuedEventOrdering(t *testing.T) {
 	t.Parallel()
 
@@ -222,8 +259,16 @@ func TestSupervisorQueuedEventOrdering(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			s, _ := newTestSupervisor(tt.maxParallel, 0)
-			events := &queuedEventSink{}
+			events := &gatedAcceptedSink{
+				gatedID:       "first",
+				entered:       make(chan struct{}),
+				release:       make(chan struct{}),
+				otherAccepted: make(chan struct{}),
+				t:             t,
+			}
+			t.Cleanup(events.open)
 			first, second := newFakeChild("first", false), newFakeChild("second", false)
 			first.job.Events = events
 			second.job.Events = events
@@ -234,11 +279,12 @@ func TestSupervisorQueuedEventOrdering(t *testing.T) {
 			}
 
 			resFirst := spawn(context.Background(), s, first.job)
-			waitClosed(t, first.started, "first start")
+			waitClosed(t, events.entered, "first parked in Accepted")
 			resSecond := spawn(context.Background(), s, second.job)
-			if tt.maxParallel == 1 {
-				waitOutstanding(t, s, 2)
-			}
+			waitClosed(t, events.otherAccepted, "second accepted while first is unpublished")
+			events.open()
+
+			waitClosed(t, first.started, "first start")
 			close(first.release)
 			recv(t, resFirst, "first result")
 			waitClosed(t, second.started, "second start")
