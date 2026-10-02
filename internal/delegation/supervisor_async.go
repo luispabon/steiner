@@ -44,7 +44,7 @@ func (s *Supervisor) MarkDelivered(parentCallIDs []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, state := range s.jobs {
-		if state.completion != nil && !state.held && slices.Contains(parentCallIDs, state.job.ParentCallID) {
+		if state.completion != nil && state.route != routeHeld && slices.Contains(parentCallIDs, state.job.ParentCallID) {
 			state.acked = true
 			s.pruneLocked(state)
 		}
@@ -124,9 +124,9 @@ func (s *Supervisor) pendingStates() []*jobState {
 // stateOf must be called with Supervisor.mu held.
 func stateOf(state *jobState) agent.SubAgentState {
 	switch {
-	case state.completion != nil || state.phase == phaseDone:
+	case state.completion != nil || state.phase.finishing():
 		return agent.SubAgentFinished
-	case state.phase == phaseQueued:
+	case state.phase == phaseAccepting || state.phase == phaseQueued:
 		return agent.SubAgentQueued
 	default:
 		return agent.SubAgentRunning
@@ -200,11 +200,10 @@ func (p postList) deliver() {
 }
 
 func (s *Supervisor) routeShutdownCompletionLocked(state *jobState) postList {
-	if s.sink == nil || state.blocking || state.completion == nil || state.routed {
+	if s.sink == nil || state.blocking || state.completion == nil || state.route == routePosted {
 		return postList{}
 	}
-	state.routed = true
-	state.held = false
+	state.route = routePosted
 	return postList{sink: s.sink, batches: [][]agent.SubAgentCompletion{{*state.completion}}}
 }
 
@@ -212,13 +211,13 @@ func (s *Supervisor) routeShutdownCompletionLocked(state *jobState) postList {
 // ungrouped completions post at once, grouped ones are held until the group
 // releases. Blocking jobs, a nil sink and a closed supervisor post nothing.
 func (s *Supervisor) routeLocked(state *jobState) postList {
-	if s.sink == nil || state.blocking || s.closed || state.completion == nil || state.routed {
+	if s.sink == nil || state.blocking || s.closed || state.completion == nil || state.route != routeNone {
 		return postList{}
 	}
-	state.routed = true
 	if state.group == nil {
+		state.route = routePosted
 		return postList{sink: s.sink, batches: [][]agent.SubAgentCompletion{{*state.completion}}}
 	}
-	state.held = true
+	state.route = routeHeld
 	return s.releaseGroupLocked(state.group)
 }

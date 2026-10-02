@@ -76,8 +76,7 @@ func (s *Supervisor) releaseGroupLocked(group *jobGroup) postList {
 	}
 	sort.Slice(batch, func(i, j int) bool { return batch[i].Seq < batch[j].Seq })
 	for _, member := range group.members {
-		member.held = false
-		member.routed = true
+		member.route = routePosted
 	}
 	delete(s.groups, group.key)
 	return postList{sink: s.sink, batches: [][]agent.SubAgentCompletion{batch}}

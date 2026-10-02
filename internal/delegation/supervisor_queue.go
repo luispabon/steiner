@@ -57,7 +57,7 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 		job:         job,
 		childCtx:    childCtx,
 		cancel:      cancel,
-		phase:       phaseQueued,
+		phase:       phaseAccepting,
 		blocking:    blocking,
 		order:       s.enqSeq,
 		worktree:    job.Worktree,
@@ -86,15 +86,15 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	}
 
 	s.mu.Lock()
-	state.published = true
+	state.phase = phaseQueued
 	close(state.publication)
 	var latePosts postList
-	if state.shutdownTimedOut {
+	if s.closed {
 		latePosts = s.settleLatePublicationLocked(state)
 	}
 	if state.cause != CancelCauseNone && state.phase == phaseQueued {
 		s.removeQueuedLocked(state)
-		state.phase = phaseDone
+		state.phase = phaseCancelling
 		state.cancel()
 		go s.finishCancelled(state)
 	}
@@ -120,7 +120,7 @@ func (s *Supervisor) settleLatePublicationLocked(state *jobState) postList {
 	posts := s.routeShutdownCompletionLocked(state)
 	if state.phase == phaseQueued {
 		s.removeQueuedLocked(state)
-		state.phase = phaseDone
+		state.phase = phaseCancelling
 		state.cancel()
 		go s.finishCancelled(state)
 	}
@@ -131,7 +131,7 @@ func (s *Supervisor) settleLatePublicationLocked(state *jobState) postList {
 func (s *Supervisor) startQueuedLocked() {
 	for !s.closing && s.running < s.maxParallel && len(s.queue) > 0 {
 		state := s.queue[0]
-		if !state.published {
+		if state.phase == phaseAccepting {
 			return
 		}
 		s.queue = s.queue[1:]

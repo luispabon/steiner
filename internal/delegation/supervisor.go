@@ -57,10 +57,30 @@ type ChildJob struct {
 
 type jobPhase uint8
 
+// Phases advance monotonically, except that Queued may jump to Cancelling.
+// Accepting precedes publication of the Accepted event, which happens outside
+// the lock: a job in that window is in the queue but cannot start.
 const (
-	phaseQueued jobPhase = iota
+	phaseAccepting jobPhase = iota
+	phaseQueued
 	phaseRunning
+	// phaseCancelling is a job cancelled before start whose finalizer has not
+	// completed yet.
+	phaseCancelling
 	phaseDone
+)
+
+// finishing reports whether the job will never run again.
+func (p jobPhase) finishing() bool { return p >= phaseCancelling }
+
+// completionRoute tracks where a job's completion is on its way to the sink.
+type completionRoute uint8
+
+const (
+	routeNone completionRoute = iota
+	// routeHeld means a group is holding the completion until it releases.
+	routeHeld
+	routePosted
 )
 
 // jobState is guarded by Supervisor.mu. result and err are written once, before
@@ -73,29 +93,24 @@ type jobState struct {
 	cause    CancelCause
 	// delivered means the waiter's result was published; acked means the parent
 	// consumed the completion, which ends pending tracking.
-	delivered        bool
-	acked            bool
-	blocking         bool
-	registered       bool
-	published        bool
-	publication      chan struct{}
-	settled          chan struct{}
-	settleOnce       sync.Once
-	wasQueued        bool
-	startErr         error
-	order            uint64
-	worktree         CodeWorktree
-	startedAt        time.Time
-	group            *jobGroup
-	held             bool
-	completion       *agent.SubAgentCompletion
-	routed           bool
-	finalized        bool
-	shutdownTimedOut bool
-	done             chan struct{}
-	exited           chan struct{}
-	result           tool.ExecutionResult
-	err              error
+	delivered   bool
+	acked       bool
+	blocking    bool
+	registered  bool
+	publication chan struct{}
+	settled     chan struct{}
+	wasQueued   bool
+	startErr    error
+	order       uint64
+	worktree    CodeWorktree
+	startedAt   time.Time
+	group       *jobGroup
+	completion  *agent.SubAgentCompletion
+	route       completionRoute
+	done        chan struct{}
+	exited      chan struct{}
+	result      tool.ExecutionResult
+	err         error
 }
 
 // Supervisor owns detached sub-agent lifecycles for one runtime.
@@ -194,17 +209,14 @@ func (s *Supervisor) run(state *jobState) {
 	s.controller.Unregister(state.job.AgentID)
 	state.cancel()
 	state.phase = phaseDone
-	state.finalized = true
 	s.running--
 	var posts postList
-	switch {
-	case state.shutdownTimedOut:
+	if s.closed {
+		// Shutdown settled this job while it was still running.
 		result, err = tool.ExecutionResult{}, ErrSupervisorClosed
 		s.completeLocked(state, result, nil)
 		posts = s.routeShutdownCompletionLocked(state)
-	case s.closed:
-		result, err = tool.ExecutionResult{}, ErrSupervisorClosed
-	default:
+	} else {
 		s.completeLocked(state, result, err)
 		posts = s.routeLocked(state)
 	}
@@ -215,7 +227,7 @@ func (s *Supervisor) run(state *jobState) {
 	s.mu.Unlock()
 
 	posts.deliver()
-	state.settleOnce.Do(func() { close(state.settled) })
+	close(state.settled)
 }
 
 // execute provisions the job's worktree at dequeue time when it has a Prepare
@@ -242,7 +254,7 @@ func (s *Supervisor) execute(state *jobState) (tool.ExecutionResult, error) {
 }
 
 // finishCancelled completes a job that was cancelled while queued. The caller
-// must already have removed it from the queue and marked it done.
+// must already have removed it from the queue and moved it to phaseCancelling.
 func (s *Supervisor) finishCancelled(state *jobState) {
 	var result tool.ExecutionResult
 	if state.job.OnCancelledBeforeStart != nil {
@@ -254,18 +266,18 @@ func (s *Supervisor) finishCancelled(state *jobState) {
 	s.controller.Unregister(state.job.AgentID)
 	var posts postList
 	s.completeLocked(state, result, nil)
-	if state.shutdownTimedOut {
+	if s.closed {
 		posts = s.routeShutdownCompletionLocked(state)
-	} else if !s.closed {
+	} else {
 		posts = s.routeLocked(state)
 	}
-	state.finalized = true
+	state.phase = phaseDone
 	deliverLocked(state, result, nil)
 	s.pruneLocked(state)
 	s.mu.Unlock()
 
 	posts.deliver()
-	state.settleOnce.Do(func() { close(state.settled) })
+	close(state.settled)
 }
 
 func deliverLocked(state *jobState, result tool.ExecutionResult, err error) {
@@ -282,7 +294,7 @@ func deliverLocked(state *jobState, result tool.ExecutionResult, err error) {
 // finished. The identity check keeps a stale state from removing a newer job
 // that reused the agent ID.
 func (s *Supervisor) pruneLocked(state *jobState) {
-	if state.acked && state.phase == phaseDone && state.finalized && s.jobs[state.job.AgentID] == state {
+	if state.acked && state.phase == phaseDone && s.jobs[state.job.AgentID] == state {
 		delete(s.jobs, state.job.AgentID)
 		s.maybeDeleteScopeLocked(state.job.GroupScope)
 	}
@@ -296,7 +308,7 @@ func (s *Supervisor) CancelAgent(agentID string, discard bool, cause CancelCause
 		s.mu.Unlock()
 		return CancelNotActive
 	}
-	if state.phase == phaseDone {
+	if state.phase.finishing() {
 		s.mu.Unlock()
 		return CancelAlreadyFinished
 	}
@@ -304,14 +316,15 @@ func (s *Supervisor) CancelAgent(agentID string, discard bool, cause CancelCause
 		state.cause = cause
 	}
 
+	if state.phase == phaseAccepting {
+		// enqueue finishes the cancellation once Accepted is published.
+		state.cancel()
+		s.mu.Unlock()
+		return CancelAccepted
+	}
 	if state.phase == phaseQueued {
-		if !state.published {
-			state.cancel()
-			s.mu.Unlock()
-			return CancelAccepted
-		}
 		s.removeQueuedLocked(state)
-		state.phase = phaseDone
+		state.phase = phaseCancelling
 		state.cancel()
 		s.mu.Unlock()
 		go s.finishCancelled(state)
@@ -334,23 +347,21 @@ func (s *Supervisor) CancelAll(cause CancelCause) {
 	s.mu.Lock()
 	var cancelled []*jobState
 	for _, state := range s.jobs {
-		if state.phase == phaseDone {
+		if state.phase.finishing() {
 			continue
 		}
 		if state.cause == CancelCauseNone {
 			state.cause = cause
 		}
 		if state.phase == phaseQueued {
-			if state.published {
-				state.phase = phaseDone
-				cancelled = append(cancelled, state)
-			}
+			state.phase = phaseCancelling
+			cancelled = append(cancelled, state)
 		}
 		state.cancel()
 	}
 	kept := s.queue[:0]
 	for _, state := range s.queue {
-		if !state.published {
+		if state.phase == phaseAccepting {
 			kept = append(kept, state)
 		}
 	}

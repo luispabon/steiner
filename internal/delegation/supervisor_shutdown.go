@@ -39,7 +39,7 @@ func (s *Supervisor) Shutdown(ctx context.Context, cause CancelCause) ShutdownRe
 		s.mu.Lock()
 		var waits []chan struct{}
 		for _, state := range s.jobs {
-			if !state.published {
+			if state.phase == phaseAccepting {
 				waits = append(waits, state.publication)
 			}
 			if state.phase == phaseRunning {
@@ -98,23 +98,23 @@ func (s *Supervisor) settleShutdownJobLocked(state *jobState, batch *[]agent.Sub
 			s.protected[path] = struct{}{}
 		}
 	}
-	if state.phase == phaseDone && state.finalized {
+	if state.phase == phaseDone {
 		return
 	}
-	state.shutdownTimedOut = true
-	if state.published && state.completion == nil {
+	published := state.phase != phaseAccepting
+	if published && state.completion == nil {
 		completion := s.newShutdownCompletionLocked(state)
 		state.completion = completion
 		switch {
 		case state.blocking:
 		case state.group != nil:
-			state.held = true
+			state.route = routeHeld
 		default:
-			state.routed = true
+			state.route = routePosted
 			*batch = append(*batch, *completion)
 		}
 	}
-	if state.published {
+	if published {
 		deliverLocked(state, tool.ExecutionResult{}, ErrSupervisorClosed)
 	}
 }
@@ -133,10 +133,9 @@ func (s *Supervisor) releaseAllGroupsLocked() []agent.SubAgentCompletion {
 	var released []agent.SubAgentCompletion
 	for _, group := range groups {
 		for _, member := range group.members {
-			if member.completion != nil && member.held && !member.blocking {
+			if member.completion != nil && member.route == routeHeld && !member.blocking {
 				released = append(released, *member.completion)
-				member.held = false
-				member.routed = true
+				member.route = routePosted
 			}
 		}
 		delete(s.groups, group.key)
