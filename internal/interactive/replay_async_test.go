@@ -334,6 +334,53 @@ func TestReplayAcceptedPreparationFailureUsesAdmissionAgent(t *testing.T) {
 	}
 }
 
+func TestReplayLedgerEmptyRetentionKeepsRunningAndQueuedProgress(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{"running", "queued"} {
+		t.Run(status, func(t *testing.T) {
+			callID := "call-" + status
+			msgs := []agent.Message{
+				delegateCall(callID, "sub_agent", "work"),
+				{Role: agent.MessageRoleTool, ToolCallID: callID, Name: "sub_agent", Content: `{"output":"started","status":"` + status + `"}`, Retention: new(agent.MessageRetention)},
+			}
+			ledger := []agent.SubAgentLedgerEntry{{ParentCallID: callID, AgentID: "agent-a", AgentType: "explore", BatchID: "batch-a", Group: "group-a"}}
+			events := replayEventsWithLedger(t, msgs, ledger)
+			var sequence []string
+			for _, event := range events {
+				switch event.Type {
+				case output.EventTypeDelegationAccepted:
+					p := event.Payload.(output.DelegationAcceptedEvent)
+					if p.AgentID != "agent-a" || p.CallID != callID || p.BatchID != "batch-a" || p.Group != "group-a" {
+						t.Errorf("accepted = %+v", p)
+					}
+					sequence = append(sequence, "accepted")
+				case output.EventTypeDelegationStarted:
+					p := event.Payload.(output.DelegationStartedEvent)
+					if status != "running" || p.AgentID != "agent-a" || p.CallID != callID {
+						t.Errorf("started = %+v", p)
+					}
+					sequence = append(sequence, "started")
+				case output.EventTypeDelegationQueued:
+					p := event.Payload.(output.DelegationQueuedEvent)
+					if status != "queued" || p.AgentID != "agent-a" || p.CallID != callID {
+						t.Errorf("queued = %+v", p)
+					}
+					sequence = append(sequence, "queued")
+				case output.EventTypeDelegationFailed, output.EventTypeDelegationComplete:
+					t.Errorf("unexpected terminal event: %s", event.Type)
+				}
+			}
+			wantProgress := "started"
+			if status == "queued" {
+				wantProgress = "queued"
+			}
+			if !reflect.DeepEqual(sequence, []string{"accepted", wantProgress}) {
+				t.Fatalf("event order = %v, want accepted then %s", sequence, wantProgress)
+			}
+		})
+	}
+}
+
 func TestReplayLedgerRunningDoesNotAddSyntheticTerminal(t *testing.T) {
 	t.Parallel()
 	msgs := []agent.Message{delegateCall("run", "sub_agent", "work"), ackResult(t, "run", "sub_agent", "agent-a", "running")}

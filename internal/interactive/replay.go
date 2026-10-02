@@ -264,7 +264,8 @@ func (s *Session) replayLedgerAdmission(msg agent.Message, occurrence *replayOcc
 		return
 	}
 	entry := ledger.entries[occurrence.ledgerIndex]
-	if msg.Retention != nil && msg.Retention.Status != "running" && msg.Retention.Status != "queued" {
+	status := replayStatus(msg)
+	if status != "running" && status != "queued" {
 		return
 	}
 	s.emitAcceptedAdmission(msg.ToolCallID, entry.AgentID, entry.BatchID, entry.Group)
