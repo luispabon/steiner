@@ -46,11 +46,11 @@ func TestBuildRunRequestUsesCapturedDelegationGroupScope(t *testing.T) {
 			return tool.ExecutionResult{}, nil
 		}}
 	}
-	if _, _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit"), testJob("first", "group-a")); err != nil {
+	if _, _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit#1"), testJob("first", "group-a")); err != nil {
 		t.Fatalf("first group spawn: %v", err)
 	}
-	request.OnToolBatchDone("batch-explicit")
-	if _, _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit"), testJob("second", "group-b")); err == nil {
+	request.OnToolBatchDone("batch-explicit#1")
+	if _, _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit#1"), testJob("second", "group-b")); err == nil {
 		t.Fatal("spawn accepted after callback sealed batch")
 	}
 }
