@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/session"
 )
 
@@ -175,53 +176,83 @@ func waitQuiescent(t *testing.T, s *Session) {
 
 func TestLoadWithLedgerRecordsLostOnceWithoutARun(t *testing.T) {
 	t.Parallel()
-	store := newMockSessionStore()
-	base := []agent.Message{{Role: agent.MessageRoleUser, Content: "start"}, {Role: agent.MessageRoleAssistant, Content: "spawned"}}
-	store.loadedSessions["old"] = session.Session{
-		ID: "old", Model: "m", Lineage: lineageFromMessages(base),
-		SubAgentLedger: []agent.SubAgentLedgerEntry{{AgentID: "a1", AgentType: "code", ParentCallID: "call-1", WorktreePath: "/wt/a1"}},
+	tests := []struct {
+		name     string
+		messages []agent.Message
+	}{
+		{name: "unknown running", messages: []agent.Message{delegateCall("call-1", "sub_agent", "task"), ackResult(t, "call-1", "sub_agent", "a1", "running")}},
+		{name: "orphan", messages: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "task"}}}}}},
+		{name: "completed reused ID then orphan", messages: []agent.Message{delegateCall("call-1", "sub_agent", "done"), {Role: agent.MessageRoleTool, ToolCallID: "call-1", Name: "sub_agent", Content: `{"output":"done"}`, Retention: &agent.MessageRetention{Status: "completed", AgentID: "old-agent"}}, {Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "lost task"}}}}}},
 	}
-	s, _, _, _ := asyncTestSession(t, store)
-	var runs atomic.Int32
-	s.SetRunner(&inputRunner{run: func(_ context.Context, in RunInput) (RunResult, error) {
-		runs.Add(1)
-		return withAnswer(in, "x"), nil
-	}})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store := newMockSessionStore()
+			base := append([]agent.Message{{Role: agent.MessageRoleUser, Content: "start"}}, tt.messages...)
+			base = append(base, agent.Message{Role: agent.MessageRoleAssistant, Content: "marker"})
+			store.loadedSessions["old"] = session.Session{
+				ID: "old", Model: "m", Lineage: lineageFromMessages(base),
+				SubAgentLedger: []agent.SubAgentLedgerEntry{{AgentID: "a1", AgentType: "code", ParentCallID: "call-1", BatchID: "batch-lost", Group: "group-lost", WorktreePath: "/wt/a1"}},
+			}
+			var eventMu sync.Mutex
+			var events []output.Event
+			capture := output.SinkFunc(func(event output.Event) {
+				eventMu.Lock()
+				defer eventMu.Unlock()
+				events = append(events, event)
+			})
+			baseDeps := Dependencies{BaseEvents: capture, SessionStore: store, Background: &ledgerBackground{}, Clock: &manualClock{}}
+			s := testNewSession(t, baseDeps)
+			eventSnapshot := func() []output.Event {
+				eventMu.Lock()
+				defer eventMu.Unlock()
+				return slices.Clone(events)
+			}
+			var runs atomic.Int32
+			s.SetRunner(&inputRunner{run: func(_ context.Context, in RunInput) (RunResult, error) {
+				runs.Add(1)
+				return withAnswer(in, "x"), nil
+			}})
 
-	if err := s.Handle(context.Background(), LoadSession{SessionID: "old"}); err != nil {
-		t.Fatalf("LoadSession: %v", err)
-	}
-	waitQuiescent(t, s)
+			if err := s.Handle(context.Background(), LoadSession{SessionID: "old"}); err != nil {
+				t.Fatalf("LoadSession: %v", err)
+			}
+			waitQuiescent(t, s)
 
-	if runs.Load() != 0 {
-		t.Fatalf("runs = %d, want 0", runs.Load())
-	}
-	conv := s.Conversation()
-	if len(conv) != len(base)+1 {
-		t.Fatalf("conversation len = %d, want %d: %+v", len(conv), len(base)+1, conv)
-	}
-	last := conv[len(conv)-1].Content
-	for _, want := range []string{`status="lost"`, "call-1", "/wt/a1"} {
-		if !strings.Contains(last, want) {
-			t.Fatalf("lost message %q missing %q", last, want)
-		}
-	}
-	store.mu.Lock()
-	saved := store.savedSessions["old"]
-	store.mu.Unlock()
-	if len(saved.SubAgentLedger) != 0 {
-		t.Fatalf("saved ledger = %+v, want empty", saved.SubAgentLedger)
-	}
+			if runs.Load() != 0 {
+				t.Fatalf("runs = %d, want 0", runs.Load())
+			}
+			conv := s.Conversation()
+			if len(conv) != len(base)+1 {
+				t.Fatalf("conversation len = %d, want %d: %+v", len(conv), len(base)+1, conv)
+			}
+			last := conv[len(conv)-1].Content
+			for _, want := range []string{`status="lost"`, "call-1", "/wt/a1"} {
+				if !strings.Contains(last, want) {
+					t.Fatalf("lost message %q missing %q", last, want)
+				}
+			}
+			store.mu.Lock()
+			saved := store.savedSessions["old"]
+			store.mu.Unlock()
+			if len(saved.SubAgentLedger) != 0 {
+				t.Fatalf("saved ledger = %+v, want empty", saved.SubAgentLedger)
+			}
 
-	if err := s.Handle(context.Background(), LoadSession{SessionID: "old"}); err != nil {
-		t.Fatalf("reload: %v", err)
-	}
-	waitQuiescent(t, s)
-	if got := len(s.Conversation()); got != len(base)+1 {
-		t.Fatalf("conversation len after reload = %d, want %d (nothing appended)", got, len(base)+1)
-	}
-	if runs.Load() != 0 {
-		t.Fatalf("runs after reload = %d, want 0", runs.Load())
+			if err := s.Handle(context.Background(), LoadSession{SessionID: "old"}); err != nil {
+				t.Fatalf("reload: %v", err)
+			}
+			waitQuiescent(t, s)
+			if got := len(s.Conversation()); got != len(base)+1 {
+				t.Fatalf("conversation len after reload = %d, want %d (nothing appended)", got, len(base)+1)
+			}
+			if got := len(eventsOfType(eventSnapshot(), output.EventTypeSubAgentsDelivered)); got != 2 {
+				t.Fatalf("delivery events after two loads = %d, want one replay per load", got)
+			}
+			if runs.Load() != 0 {
+				t.Fatalf("runs after reload = %d, want 0", runs.Load())
+			}
+		})
 	}
 }
 
