@@ -2,6 +2,7 @@ package interactive
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -69,8 +70,8 @@ func TestLegacyDelegationGroupsAcrossLineage(t *testing.T) {
 	if !reflect.DeepEqual(got.Names, want) {
 		t.Fatalf("names = %#v, want %#v", got.Names, want)
 	}
-	if err := got.Validate(); err != nil {
-		t.Fatalf("migrated ledger invalid: %v", err)
+	if got.Version != 1 || !slices.Equal(got.Names, got.Clone().Names) {
+		t.Fatalf("migrated ledger = %+v, want version 1 with canonical names", got)
 	}
 }
 

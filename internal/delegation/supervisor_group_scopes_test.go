@@ -27,9 +27,6 @@ func TestGroupScopeSeedSnapshotAndIndependentScopes(t *testing.T) {
 	if got := s.SnapshotGroupLedger(first).Names[0]; got != "seed" {
 		t.Fatalf("snapshot mutation changed ledger: %q", got)
 	}
-	if err := seed.Validate(); err != nil {
-		t.Fatal(err)
-	}
 	job := newAsyncChild("a", "seed")
 	job.job.GroupScope = first
 	if _, err := s.Spawn(agent.WithToolBatchID(context.Background(), "b"), job.job); err == nil {

@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 )
@@ -24,24 +23,6 @@ func (l DelegationGroupLedger) Clone() DelegationGroupLedger {
 	sort.Strings(out.Names)
 	out.Names = uniqueGroupNames(out.Names)
 	return out
-}
-
-// Validate checks the ledger version and canonical name constraints.
-func (l DelegationGroupLedger) Validate() error {
-	if l.Version != 1 {
-		return fmt.Errorf("unsupported delegation group ledger version %d", l.Version)
-	}
-	seen := make(map[string]struct{}, len(l.Names))
-	for _, name := range l.Names {
-		if strings.TrimSpace(name) == "" || strings.TrimSpace(name) != name {
-			return fmt.Errorf("delegation group ledger names must be non-empty and trimmed")
-		}
-		if _, ok := seen[name]; ok {
-			return fmt.Errorf("duplicate delegation group ledger name %q", name)
-		}
-		seen[name] = struct{}{}
-	}
-	return nil
 }
 
 func uniqueGroupNames(names []string) []string {
