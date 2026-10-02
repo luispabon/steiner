@@ -78,16 +78,15 @@ func TestRosterUnknownLegacyLifecycleAndDelivery(t *testing.T) {
 	var r subAgentRoster
 	r.observe(ev(output.DelegationQueuedEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "queued"}, AgentType: "review"}), 1)
 	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "running"}, AgentType: "code"}), 2)
-	r.observe(ev(output.DelegationFailedEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "failed"}, AgentType: "code", Error: "legacy"}), 3)
 	r.observe(ev(output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "lost", AgentType: "explore", Status: "lost"}}}), 4)
-	for id, status := range map[string]string{"queued": rosterQueued, "running": rosterRunning, "failed": rosterFailed, "lost": rosterLost} {
+	for id, status := range map[string]string{"queued": rosterQueued, "running": rosterRunning, "lost": rosterLost} {
 		e := r.entries[id]
 		if e == nil || e.status != status || e.group != "" {
 			t.Errorf("legacy %s entry = %+v, want visible ungrouped status %s", id, e, status)
 		}
 	}
 	out := stripANSI(strings.Join(rosterSidebar(r.snapshot(), 4).subAgentsSection(60), "\\n"))
-	for _, id := range []string{"queued", "running", "failed", "lost"} {
+	for _, id := range []string{"queued", "running", "lost"} {
 		if !strings.Contains(out, id) {
 			t.Errorf("sidebar missing unknown %s:\\n%s", id, out)
 		}

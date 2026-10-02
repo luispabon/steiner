@@ -154,7 +154,7 @@ func (r *subAgentRoster) finishEntry(agentID string, key occurrenceKey) (*roster
 	e, exists := r.entries[agentID]
 	switch {
 	case !exists:
-		if key.CallID != "" && !admitted {
+		if !admitted {
 			return nil, false
 		}
 		e = r.upsert(agentID)

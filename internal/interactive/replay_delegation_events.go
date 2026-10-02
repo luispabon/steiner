@@ -93,9 +93,8 @@ func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, o
 // admitted only when the decoded result names an agent ID; without one it is
 // indistinguishable from a setup failure. Any other status is not admitted, and
 // neither is a tool.JSONEnvelope error result, which replays as complete but
-// is a setup failure.
-// Sessions that predate admission had no rejection, so a match means the child
-// ran.
+// is a setup failure. Sessions that predate admission had no rejection, so a
+// match means the child ran.
 func legacyChildAdmitted(msg agent.Message, status string) bool {
 	if toolResultError(msg.Content) != nil {
 		return false
