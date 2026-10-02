@@ -57,5 +57,15 @@ func TestEventBridgeCloseUnblocksFlush(t *testing.T) {
 	}
 	b.start()
 	b.close()
-	b.Emit(output.Event{Type: "after-close"}) // must not hang or panic
+
+	returned := make(chan struct{})
+	go func() {
+		b.Emit(output.Event{Type: "after-close"})
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Emit blocked after close")
+	}
 }
