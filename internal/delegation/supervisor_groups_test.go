@@ -43,7 +43,7 @@ func TestSupervisorGroupHeldUntilSealed(t *testing.T) {
 	waitFinished(t, s, "b")
 	sink.none(t)
 
-	s.SealGroupBatch("", testBatchID(1))
+	s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 	batch := recv(t, sink.ch, "group release")
 	if len(batch) != 2 || batch[0].AgentID != "a" || batch[1].AgentID != "b" {
 		t.Fatalf("released = %+v, want a then b", batch)
@@ -61,7 +61,7 @@ func TestSupervisorGroupReleasedWhenSealedBeforeLastFinish(t *testing.T) {
 	spawnAsync(batchCtx(testBatchID(1)), t, s, b)
 	<-a.started
 	<-b.started
-	s.SealGroupBatch("", testBatchID(1))
+	s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 	close(a.release)
 	waitFinished(t, s, "a")
 	sink.none(t)
@@ -83,7 +83,7 @@ func TestSupervisorGroupOrderedBySeq(t *testing.T) {
 		close(kid.release)
 		waitFinished(t, s, kid.job.AgentID)
 	}
-	s.SealGroupBatch("", testBatchID(1))
+	s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 	batch := recv(t, sink.ch, "group release")
 	var ids []string
 	for i, c := range batch {
@@ -140,7 +140,7 @@ func TestSupervisorCancelledMemberSettlesGroup(t *testing.T) {
 	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
 	spawnAsync(batchCtx(testBatchID(1)), t, s, b)
 	<-a.started
-	s.SealGroupBatch("", testBatchID(1))
+	s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 
 	if got := s.CancelAgent("b", false, CancelCauseUser); got != CancelAccepted {
 		t.Fatalf("cancel queued member = %v", got)
@@ -243,8 +243,9 @@ func TestSupervisorSealGroupBatchRejectsLateJoinsBeforeAndAfterAck(t *testing.T)
 	a := newAsyncChild("a", "g")
 	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
 	waitClosed(t, a.started, "a started")
-	s.SealGroupBatch("", testBatchID(1))
+	s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 	b := newAsyncChild("b", "g")
+	b.job.GroupScope = testGroupScope(s)
 	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), b.job); err == nil {
 		t.Fatal("SealGroupBatch accepted a late join before the last member finished")
 	}
@@ -255,6 +256,7 @@ func TestSupervisorSealGroupBatchRejectsLateJoinsBeforeAndAfterAck(t *testing.T)
 	}
 	s.MarkDelivered([]string{"call-a"})
 	late := newAsyncChild("late", "g")
+	late.job.GroupScope = testGroupScope(s)
 	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), late.job); err == nil {
 		t.Fatal("SealGroupBatch accepted a late join after the last member was acknowledged")
 	}
@@ -264,12 +266,13 @@ func TestSupervisorSealGroupBatchRejectsLateJoinsBeforeAndAfterAck(t *testing.T)
 func TestSupervisorCapRejectedCallNeverJoinsGroup(t *testing.T) {
 	s, sink := newAsyncSupervisor(1)
 	a, b, c := newAsyncChild("a", "g"), newAsyncChild("b", "g"), newAsyncChild("c", "g")
+	c.job.GroupScope = testGroupScope(s)
 	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
 	spawnAsync(batchCtx(testBatchID(1)), t, s, b)
 	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), c.job); !errors.Is(err, ErrOutstandingCap) {
 		t.Fatalf("third spawn error = %v, want ErrOutstandingCap", err)
 	}
-	s.SealGroupBatch("", testBatchID(1))
+	s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 	close(a.release)
 	<-b.started
 	close(b.release)

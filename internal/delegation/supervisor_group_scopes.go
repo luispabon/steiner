@@ -30,6 +30,14 @@ func (s *Supervisor) NewGroupScope(seed agent.DelegationGroupLedger) string {
 	return id
 }
 
+// OpenGroupScope opens a scope seeded with durable reserved names for one
+// sequential run stream and returns it with its release func. The stream seals
+// only this scope; release is idempotent.
+func (s *Supervisor) OpenGroupScope(seed agent.DelegationGroupLedger) (scope string, release func()) {
+	scope = s.NewGroupScope(seed)
+	return scope, func() { s.ReleaseGroupScope(scope) }
+}
+
 // SnapshotGroupLedger returns a sorted, independent view of the scope names.
 func (s *Supervisor) SnapshotGroupLedger(scope string) agent.DelegationGroupLedger {
 	s.mu.Lock()
@@ -45,9 +53,12 @@ func (s *Supervisor) SnapshotGroupLedger(scope string) agent.DelegationGroupLedg
 }
 
 // SealGroupBatch closes membership for one named tool batch in the scope, and
-// every earlier batch with it. A batch ID without a sequence number cannot
+// every earlier batch with it. An empty or unknown scope seals nothing. A batch ID without a sequence number cannot
 // advance the seal point; its groups still settle.
 func (s *Supervisor) SealGroupBatch(scope, batchID string) {
+	if scope == "" {
+		return
+	}
 	s.mu.Lock()
 	if state := s.scopes[scope]; state != nil {
 		state.sealThroughLocked(batchID)

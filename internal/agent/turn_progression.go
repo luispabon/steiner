@@ -216,8 +216,8 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 		batchID := newToolBatchID(calls[0].ID)
 		ctx = WithToolBatchID(ctx, batchID)
 		p.batchID = batchID
-		if p.request.OnToolBatchDone != nil {
-			defer p.request.OnToolBatchDone(batchID)
+		if p.request.Sealer != nil && p.request.GroupScope != "" {
+			defer p.request.Sealer.SealGroupBatch(p.request.GroupScope, batchID)
 		}
 	}
 	p.queuedDelegations = p.queueDelegationCalls(turn, calls)

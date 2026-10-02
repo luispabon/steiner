@@ -141,7 +141,6 @@ func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (on
 	}
 	if sup := rt.delegationSupervisor; sup != nil {
 		host.background = sup
-		host.sealBatch = func(batchID string) { sup.SealGroupBatch(groupScope, batchID) }
 		host.setSink = sup.SetCompletionSink
 		host.canceller = delegationCanceller{s: sup}
 	}

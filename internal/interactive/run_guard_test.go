@@ -276,15 +276,15 @@ func TestRotationRefusedThroughFinalGroupSnapshotSave(t *testing.T) {
 	store := newMockSessionStore()
 	var scopeMu sync.Mutex
 	nextScope := 0
-	newScope := func(agent.DelegationGroupLedger) string {
+	newScope := func(agent.DelegationGroupLedger) (string, func()) {
 		scopeMu.Lock()
 		defer scopeMu.Unlock()
 		nextScope++
-		return string(rune('a' + nextScope - 1))
+		return string(rune('a' + nextScope - 1)), func() {}
 	}
 	s := testNewSession(t, Dependencies{
 		SessionStore:        store,
-		NewGroupScope:       newScope,
+		OpenGroupScope:      newScope,
 		SnapshotGroupLedger: func(string) agent.DelegationGroupLedger { return barrier.snapshot() },
 		Config:              guardTestConfig(),
 	})

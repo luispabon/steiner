@@ -17,8 +17,6 @@ type phaseDriverHost struct {
 	run        agent.DriverRunFunc
 	record     *driverRunRecord
 	background agent.BackgroundAgents
-	// sealBatch closes a tool batch in the phase's group scope.
-	sealBatch func(batchID string)
 	// setSink installs the driver as the sink of background completions.
 	setSink func(agent.CompletionSink)
 	// shutdown cancels every background sub-agent and waits for them.
@@ -83,7 +81,6 @@ func runPhaseOnDriver(ctx context.Context, in oneshot.PhaseRunInput, host phaseD
 	driver := agent.NewConversationDriver(agent.DriverOptions{
 		Run:                 host.run,
 		Background:          host.background,
-		SealDelegationBatch: host.sealBatch,
 		Steers:              host.steers,
 		Save:                in.Session.Save,
 		Events:              phaseDriverEvents(host.events, in.RegisterControl != nil),

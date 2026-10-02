@@ -32,6 +32,12 @@ type usageRecorder interface {
 	Record(usagestats.Observation)
 }
 
+// ToolBatchSealer closes delegation group membership for a tool batch in one
+// scope. *delegation.Supervisor satisfies it.
+type ToolBatchSealer interface {
+	SealGroupBatch(scope, batchID string)
+}
+
 // RunRequest carries all parameters needed for a single agent run.
 type RunRequest struct {
 	Provider       provider.Provider
@@ -69,9 +75,12 @@ type RunRequest struct {
 	// DrainInbox returns the next boundary delivery. Nil for sub-agents.
 	DrainInbox func() InboxDrain
 
-	// OnToolBatchDone is called after every tool batch with the batch id
-	// stamped via WithToolBatchID.
-	OnToolBatchDone func(batchID string)
+	// Sealer and GroupScope seal the run stream's delegation group batches:
+	// after every tool batch the loop calls Sealer.SealGroupBatch(GroupScope,
+	// batchID) with the id stamped via WithToolBatchID. Either one unset
+	// disables sealing; a scope is sealed only by the stream that owns it.
+	Sealer     ToolBatchSealer
+	GroupScope string
 
 	// PendingSubAgents returns the current pending list for post-compaction
 	// re-injection. Nil disables it.

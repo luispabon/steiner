@@ -74,8 +74,21 @@ func newAsyncChild(id, group string) *asyncChild {
 	return c
 }
 
+// testGroupScopes holds one lazily opened group scope per test supervisor.
+var testGroupScopes sync.Map
+
+// testGroupScope returns the scope grouped test jobs of s run in; sealing it
+// closes their batches.
+func testGroupScope(s *Supervisor) string {
+	scope, _ := testGroupScopes.LoadOrStore(s, s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion}))
+	return scope.(string)
+}
+
 func spawnAsync(ctx context.Context, t *testing.T, s *Supervisor, c *asyncChild) SpawnTicket {
 	t.Helper()
+	if c.job.Group != "" && c.job.GroupScope == "" {
+		c.job.GroupScope = testGroupScope(s)
+	}
 	ticket, _, err := s.Spawn(ctx, c.job)
 	if err != nil {
 		t.Fatalf("Spawn(%s): %v", c.job.AgentID, err)
@@ -340,7 +353,7 @@ func TestSupervisorNilSinkPostsNothing(t *testing.T) {
 	spawnAsync(agent.WithToolBatchID(context.Background(), testBatchID(1)), t, s, a)
 	close(a.release)
 	waitFinished(t, s, "a")
-	s.SealGroupBatch("", testBatchID(1))
+	s.SealGroupBatch(a.job.GroupScope, testBatchID(1))
 	s.MarkDelivered([]string{"call-a"})
 	if s.IsPending("a") {
 		t.Fatal("ungrouped nil-sink completion should be ackable")

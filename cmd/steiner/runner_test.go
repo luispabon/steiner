@@ -37,8 +37,8 @@ func TestBuildRunRequestUsesCapturedDelegationGroupScope(t *testing.T) {
 	}
 
 	request := buildRunRequest(runner, setup, tool.NewRegistry(), nil, runHooks{})
-	if request.OnToolBatchDone == nil {
-		t.Fatal("OnToolBatchDone = nil, want scoped sealer")
+	if request.Sealer != supervisor || request.GroupScope != explicitScope {
+		t.Fatalf("request Sealer/GroupScope = %v/%q, want the supervisor and %q", request.Sealer, request.GroupScope, explicitScope)
 	}
 	testJob := func(id, group string) delegation.ChildJob {
 		return delegation.ChildJob{AgentID: id, Group: group, GroupScope: explicitScope, Execute: func(context.Context) (tool.ExecutionResult, error) {
@@ -48,21 +48,19 @@ func TestBuildRunRequestUsesCapturedDelegationGroupScope(t *testing.T) {
 	if _, _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit#1"), testJob("first", "group-a")); err != nil {
 		t.Fatalf("first group spawn: %v", err)
 	}
-	request.OnToolBatchDone("batch-explicit#1")
+	request.Sealer.SealGroupBatch(request.GroupScope, "batch-explicit#1")
 	if _, _, err := supervisor.Spawn(agent.WithToolBatchID(context.Background(), "batch-explicit#1"), testJob("second", "group-b")); err == nil {
 		t.Fatal("spawn accepted after callback sealed batch")
 	}
 }
 
-func TestBuildRunRequestPreservesExplicitBatchCallback(t *testing.T) {
-	called := ""
-	runner := cliRunner{}
-	request := buildRunRequest(runner, runnerSetup{delegationGroupScope: "chosen"}, tool.NewRegistry(), nil, runHooks{
-		onToolBatchDone: func(batchID string) { called = batchID },
-	})
-	request.OnToolBatchDone("custom-batch")
-	if called != "custom-batch" {
-		t.Fatalf("custom callback batch = %q, want custom-batch", called)
+func TestBuildRunRequestWithoutSupervisorHasNilSealer(t *testing.T) {
+	request := buildRunRequest(cliRunner{}, runnerSetup{delegationGroupScope: "chosen"}, tool.NewRegistry(), nil, runHooks{})
+	if request.Sealer != nil {
+		t.Fatalf("Sealer = %#v, want a nil interface (not a typed-nil supervisor)", request.Sealer)
+	}
+	if request.GroupScope != "chosen" {
+		t.Fatalf("GroupScope = %q, want chosen", request.GroupScope)
 	}
 }
 

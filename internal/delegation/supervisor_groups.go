@@ -42,7 +42,7 @@ func (s *Supervisor) sealBatch(scope, batchID string) {
 	s.mu.Lock()
 	var sealed []*jobGroup
 	for key, group := range s.groups {
-		if key.batch == batchID && (scope == "" || key.scope == scope) {
+		if key.batch == batchID && key.scope == scope {
 			sealed = append(sealed, group)
 		}
 	}

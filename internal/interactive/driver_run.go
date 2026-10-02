@@ -16,7 +16,6 @@ func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope 
 	result, err := s.currentRunner().Run(ctx, RunInput{
 		Conversation:         in.Conversation,
 		DrainInbox:           in.DrainInbox,
-		OnToolBatchDone:      in.OnToolBatchDone,
 		PendingSubAgents:     in.PendingSubAgents,
 		MaxTokens:            in.MaxTokens,
 		DelegationGroupScope: scope,

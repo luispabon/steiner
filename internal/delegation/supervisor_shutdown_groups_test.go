@@ -36,7 +36,7 @@ func TestSupervisorShutdownReleasesHeldGroups(t *testing.T) {
 			waitFinished(t, s, "done")
 			sink.none(t)
 			if tt.seal {
-				s.SealGroupBatch("", testBatchID(1))
+				s.SealGroupBatch(testGroupScope(s), testBatchID(1))
 				sink.none(t)
 			}
 

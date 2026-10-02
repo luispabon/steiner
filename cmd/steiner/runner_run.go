@@ -275,7 +275,6 @@ func retainDiagnosticEvents(base output.EventSink) (output.EventSink, *[]output.
 // The zero value runs without a boundary inbox.
 type runHooks struct {
 	drainInbox           func() agent.InboxDrain
-	onToolBatchDone      func(batchID string)
 	pendingSubAgents     func() []agent.PendingSubAgent
 	delegationGroupScope string
 	// maxTokens tightens the configured token limit when positive.
@@ -298,11 +297,10 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	if visionCapabilities != nil {
 		visionCapabilities = visionCapabilities.SnapshotWithSubAgentConfigured(visionCapabilities.SubAgentConfigured())
 	}
-	onToolBatchDone := hooks.onToolBatchDone
-	if onToolBatchDone == nil && r.runtime.delegationSupervisor != nil && setup.delegationGroupScope != "" {
-		onToolBatchDone = func(batchID string) {
-			r.runtime.delegationSupervisor.SealGroupBatch(setup.delegationGroupScope, batchID)
-		}
+	// A nil supervisor must stay a nil interface, not a typed-nil sealer.
+	var sealer agent.ToolBatchSealer
+	if r.runtime.delegationSupervisor != nil {
+		sealer = r.runtime.delegationSupervisor
 	}
 	req := agent.RunRequest{
 		Provider:      setup.provider,
@@ -324,7 +322,8 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		StreamingPreferred: r.streamingPreferred,
 		CompactionLogPath:  r.runtime.compactionLogFile,
 		DrainInbox:         hooks.drainInbox,
-		OnToolBatchDone:    onToolBatchDone,
+		Sealer:             sealer,
+		GroupScope:         setup.delegationGroupScope,
 		PendingSubAgents:   hooks.pendingSubAgents,
 		PromptCacheKey:     r.promptCacheKey(),
 		CacheBaseline:      r.cacheBaseline,

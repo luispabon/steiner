@@ -286,13 +286,12 @@ func newAsyncHarness(t *testing.T, prov *asyncScript, maxParallel int) *asyncHar
 		WorkDir:    workDir,
 		HomeDir:    rt.homeDir,
 		Background: sup,
-		NewGroupScope: func(seed agent.DelegationGroupLedger) string {
-			scope = sup.NewGroupScope(seed)
-			return scope
+		OpenGroupScope: func(seed agent.DelegationGroupLedger) (string, func()) {
+			var release func()
+			scope, release = sup.OpenGroupScope(seed)
+			return scope, release
 		},
 		SnapshotGroupLedger: sup.SnapshotGroupLedger,
-		SealGroupBatch:      sup.SealGroupBatch,
-		ReleaseGroupScope:   sup.ReleaseGroupScope,
 		SetCompletionSink:   sup.SetCompletionSink,
 		Clock:               clock,
 	})

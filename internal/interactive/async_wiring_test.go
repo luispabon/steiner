@@ -83,7 +83,6 @@ func asyncTestSession(t *testing.T, store sessionStore) (*Session, *sinkRecorder
 		SessionStore:      store,
 		Background:        bg,
 		SetCompletionSink: rec.set,
-		SealGroupBatch:    func(string, string) {},
 		Clock:             clock,
 	})
 	return s, rec, clock, bg
@@ -139,8 +138,8 @@ func TestDeliveredCompletionWakesARunAfterTheWindow(t *testing.T) {
 	if got := lastMessage(in.Conversation); !strings.Contains(got, "<steiner-sub-agent-result") {
 		t.Fatalf("run last message = %q, want a sub-agent result envelope", got)
 	}
-	if in.OnToolBatchDone == nil || in.PendingSubAgents == nil {
-		t.Fatal("run input lacks seal/pending hooks")
+	if in.PendingSubAgents == nil {
+		t.Fatal("run input lacks the pending hook")
 	}
 	waitSettled(t, s)
 }

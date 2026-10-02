@@ -86,3 +86,45 @@ func TestSealingOneScopeLeavesOtherScopesOpen(t *testing.T) {
 		t.Fatalf("join in sealed stream = %v, want sealed reservation error", err)
 	}
 }
+
+func TestSealGroupBatchWithoutScopeSealsNothing(t *testing.T) {
+	s, sink := newAsyncSupervisor(2)
+	other := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
+	a := newAsyncChild("a", "g")
+	a.job.GroupScope = other
+	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
+	waitClosed(t, a.started, "a started")
+	close(a.release)
+	waitFinished(t, s, "a")
+
+	s.SealGroupBatch("", testBatchID(1))
+	s.SealGroupBatch("unknown-scope", testBatchID(1))
+	sink.none(t)
+	s.mu.Lock()
+	err := s.reserveGroupLocked(other, "late", testBatchID(1))
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatalf("join after an empty-scope seal = %v, want the other scope's batch still open", err)
+	}
+
+	s.SealGroupBatch(other, testBatchID(1))
+	if batch := recv(t, sink.ch, "own-scope release"); len(batch) != 1 || batch[0].AgentID != "a" {
+		t.Fatalf("released = %+v, want a", batch)
+	}
+}
+
+func TestOpenGroupScopeSeedsAndReleases(t *testing.T) {
+	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
+	scope, release := s.OpenGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"kept"}})
+	if got := s.SnapshotGroupLedger(scope).Names; len(got) != 1 || got[0] != "kept" {
+		t.Fatalf("seeded names = %v, want [kept]", got)
+	}
+	release()
+	release()
+	s.mu.Lock()
+	_, exists := s.scopes[scope]
+	s.mu.Unlock()
+	if exists {
+		t.Fatal("released scope with no jobs still registered")
+	}
+}

@@ -146,25 +146,10 @@ func TestSnapshotDelegationGroupsSeedWithoutCallback(t *testing.T) {
 	}
 }
 
-func TestSealerIsTheDelegationBatchSealer(t *testing.T) {
-	var sealed string
-	driver := NewConversationDriver(DriverOptions{
-		SealDelegationBatch: func(batchID string) { sealed = batchID },
-	}, nil, ConversationLineage{})
-	driver.sealer()("batch")
-	if sealed != "batch" {
-		t.Fatalf("sealed = %q, want batch", sealed)
-	}
-	if NewConversationDriver(DriverOptions{Background: &fakeBackground{}}, nil, ConversationLineage{}).sealer() != nil {
-		t.Fatal("sealer without SealDelegationBatch is non-nil")
-	}
-}
-
 type fakeBackground struct {
 	mu        sync.Mutex
 	pending   []PendingSubAgent
 	delivered []string
-	sealed    []string
 }
 
 func (f *fakeBackground) Pending() []PendingSubAgent {
@@ -197,12 +182,6 @@ func (f *fakeBackground) Ledger() []SubAgentLedgerEntry {
 		entries[i] = SubAgentLedgerEntry{AgentID: p.AgentID, ParentCallID: "call-" + p.AgentID}
 	}
 	return entries
-}
-
-func (f *fakeBackground) recordSeal(id string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.sealed = append(f.sealed, id)
 }
 
 func (f *fakeBackground) deliveredIDs() []string {
@@ -280,14 +259,13 @@ func newDriverHarnessOpts(t *testing.T, conv []Message, prepare func(context.Con
 		events: make(chan output.Event, 1024),
 	}
 	opts := DriverOptions{
-		Clock:               h.clock,
-		Run:                 h.run,
-		Background:          h.bg,
-		SealDelegationBatch: h.bg.recordSeal,
-		Steers:              h.steers,
-		Save:                h.save,
-		Events:              output.SinkFunc(func(e output.Event) { h.events <- e }),
-		PrepareTurn:         prepare,
+		Clock:       h.clock,
+		Run:         h.run,
+		Background:  h.bg,
+		Steers:      h.steers,
+		Save:        h.save,
+		Events:      output.SinkFunc(func(e output.Event) { h.events <- e }),
+		PrepareTurn: prepare,
 	}
 	if mutate != nil {
 		mutate(&opts)
@@ -458,10 +436,6 @@ func TestConversationDriverPassesBackgroundHooks(t *testing.T) {
 
 	h.d.Submit("go", nil, SubmitMeta{})
 	call := h.nextRun()
-	call.in.OnToolBatchDone("batch-1")
-	if got := h.bg.sealed; !slices.Equal(got, []string{"batch-1"}) {
-		t.Fatalf("sealed = %v, want [batch-1]", got)
-	}
 	if got := call.in.PendingSubAgents(); len(got) != 1 || got[0].AgentID != "a" {
 		t.Fatalf("PendingSubAgents = %v, want agent a", got)
 	}

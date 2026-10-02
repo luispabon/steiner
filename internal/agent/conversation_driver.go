@@ -16,7 +16,6 @@ type DriverRunInput struct {
 	Conversation     []Message
 	Lineage          ConversationLineage
 	DrainInbox       func() InboxDrain
-	OnToolBatchDone  func(batchID string)
 	PendingSubAgents func() []PendingSubAgent
 	// MaxTokens of 0 means the host default.
 	MaxTokens int
@@ -70,9 +69,6 @@ type DriverOptions struct {
 	GroupLedger DelegationGroupLedger
 	// SnapshotDelegationGroups captures current supervisor group state.
 	SnapshotDelegationGroups func() DelegationGroupLedger
-	// SealDelegationBatch closes a tool batch to new delegation group members;
-	// the driver hands it to each run as OnToolBatchDone. Nil disables sealing.
-	SealDelegationBatch func(batchID string)
 	// Steers may be nil (headless oneshot).
 	Steers *SteerQueue
 	// Save persists a snapshot. A save error is reported as a warning event
@@ -260,7 +256,6 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 		Conversation:     slices.Clone(d.conv),
 		Lineage:          d.lineage.Clone(),
 		DrainInbox:       d.drainForRun,
-		OnToolBatchDone:  d.sealer(),
 		PendingSubAgents: d.pendingFn(),
 		MaxTokens:        d.runMaxTokensLocked(),
 	}
@@ -272,10 +267,6 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 	cancel()
 	d.finish(ctx, out, err)
 	return true
-}
-
-func (d *ConversationDriver) sealer() func(string) {
-	return d.opts.SealDelegationBatch
 }
 
 func (d *ConversationDriver) pendingFn() func() []PendingSubAgent {

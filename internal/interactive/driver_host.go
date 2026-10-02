@@ -13,8 +13,9 @@ import (
 
 // driverHandle ties one ConversationDriver to the session identity it serves.
 type driverHandle struct {
-	drv        *agent.ConversationDriver
-	groupScope string
+	drv          *agent.ConversationDriver
+	groupScope   string
+	releaseScope func()
 	// retired is set under Session.mu when the session moves to another
 	// conversation. From then on the driver saves under that identity and
 	// leaves the live session state alone.
@@ -31,11 +32,11 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 	if s.delegationGroups != nil {
 		groupLedger = s.delegationGroups.Clone()
 	}
-	scope := ""
-	if s.deps.NewGroupScope != nil {
-		scope = s.deps.NewGroupScope(groupLedger.Clone())
+	scope, release := "", func() {}
+	if s.deps.OpenGroupScope != nil {
+		scope, release = s.deps.OpenGroupScope(groupLedger.Clone())
 	}
-	h := &driverHandle{groupScope: scope, lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: slices.Clone(s.ledger), GroupLedger: groupLedger.Clone()}}
+	h := &driverHandle{groupScope: scope, releaseScope: release, lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: slices.Clone(s.ledger), GroupLedger: groupLedger.Clone()}}
 	options := agent.DriverOptions{
 		GroupLedger: groupLedger,
 		Run: func(ctx context.Context, in agent.DriverRunInput) (agent.DriverRunOutput, error) {
@@ -51,9 +52,6 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 	}
 	if s.deps.SnapshotGroupLedger != nil && scope != "" {
 		options.SnapshotDelegationGroups = func() agent.DelegationGroupLedger { return s.deps.SnapshotGroupLedger(scope) }
-	}
-	if s.deps.SealGroupBatch != nil {
-		options.SealDelegationBatch = func(batchID string) { s.deps.SealGroupBatch(scope, batchID) }
 	}
 	h.drv = agent.NewConversationDriver(options, conv, lineage)
 	if s.deps.SetCompletionSink != nil {
@@ -109,8 +107,8 @@ func (s *Session) retireDriver(old *driverHandle) {
 }
 
 func (s *Session) releaseDriverGroupScope(h *driverHandle) {
-	if s.deps.ReleaseGroupScope != nil && h.groupScope != "" {
-		s.deps.ReleaseGroupScope(h.groupScope)
+	if h.releaseScope != nil {
+		h.releaseScope()
 	}
 }
 

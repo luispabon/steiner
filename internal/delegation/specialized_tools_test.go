@@ -35,8 +35,6 @@ func runRequestsEqualIgnoringFuncFields(a, b agent.RunRequest) bool {
 	b.ParallelClassOf = nil
 	a.DrainInbox = nil
 	b.DrainInbox = nil
-	a.OnToolBatchDone = nil
-	b.OnToolBatchDone = nil
 	a.PendingSubAgents = nil
 	b.PendingSubAgents = nil
 	a.TurnBudgetNotice = nil

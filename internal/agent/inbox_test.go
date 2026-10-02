@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -16,6 +17,30 @@ func completeResponse(content string) provider.ChatResponse {
 		FinishReason: "stop",
 		Usage:        &provider.UsageStats{TotalTokens: 2, CompletionTokens: 2},
 	}
+}
+
+// recordingSealer records every seal call as scope + batch id.
+type recordingSealer struct {
+	mu    sync.Mutex
+	calls []sealCall
+}
+
+type sealCall struct{ scope, batch string }
+
+func (r *recordingSealer) SealGroupBatch(scope, batchID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, sealCall{scope, batchID})
+}
+
+func (r *recordingSealer) batchIDs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ids := make([]string, len(r.calls))
+	for i, c := range r.calls {
+		ids[i] = c.batch
+	}
+	return ids
 }
 
 func inboxRunRequest(p provider.Provider, drain func() InboxDrain) RunRequest {
@@ -103,7 +128,7 @@ func TestRunnerInboxSteerEventCarriesOnlyUserText(t *testing.T) {
 	}
 }
 
-func TestRunnerToolBatchDone(t *testing.T) {
+func TestRunnerSealsEachToolBatchInItsScope(t *testing.T) {
 	stub := &fakeProvider{responses: []provider.ChatResponse{
 		{
 			Message: provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{
@@ -121,13 +146,14 @@ func TestRunnerToolBatchDone(t *testing.T) {
 		seen = append(seen, ToolBatchIDFrom(ctx))
 		return map[string]any{"ok": true}, nil
 	}}
-	var done []string
-	req.OnToolBatchDone = func(id string) { done = append(done, id) }
+	sealer := &recordingSealer{}
+	req.Sealer, req.GroupScope = sealer, "scope-1"
 	if _, err := NewRunner().Run(context.Background(), req); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
+	done := sealer.batchIDs()
 	if len(done) != 1 || !strings.HasPrefix(done[0], "call-1~"+toolBatchNonce+"#") {
-		t.Fatalf("OnToolBatchDone ids = %v, want one id with prefix call-1~<nonce>#", done)
+		t.Fatalf("sealed batch ids = %v, want one id with prefix call-1~<nonce>#", done)
 	}
 	if len(seen) != 2 || seen[0] != done[0] || seen[1] != done[0] {
 		t.Fatalf("handler batch ids = %v, want both equal to done id %q", seen, done[0])
@@ -149,11 +175,12 @@ func TestRunnerToolBatchIDsUniqueAcrossRepeatedAndEmptyCallIDs(t *testing.T) {
 		seen = append(seen, ToolBatchIDFrom(ctx))
 		return map[string]any{"ok": true}, nil
 	}}
-	var done []string
-	req.OnToolBatchDone = func(id string) { done = append(done, id) }
+	sealer := &recordingSealer{}
+	req.Sealer, req.GroupScope = sealer, "scope-1"
 	if _, err := NewRunner().Run(context.Background(), req); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
+	done := sealer.batchIDs()
 	if len(done) != 3 || len(seen) != 3 {
 		t.Fatalf("done = %v, seen = %v, want three batches", done, seen)
 	}

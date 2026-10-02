@@ -18,13 +18,13 @@ type testGroupScopes struct {
 	events    []string
 }
 
-func (g *testGroupScopes) new(seed agent.DelegationGroupLedger) string {
+func (g *testGroupScopes) open(seed agent.DelegationGroupLedger) (string, func()) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.next++
 	id := string(rune('a' + g.next - 1))
 	g.ledgers[id] = seed.Clone()
-	return id
+	return id, func() { g.release(id) }
 }
 
 func (g *testGroupScopes) snapshot(id string) agent.DelegationGroupLedger {
@@ -78,14 +78,8 @@ func TestDriverGroupScopeCapturedForwardedAndReleased(t *testing.T) {
 	groups := &testGroupScopes{ledgers: make(map[string]agent.DelegationGroupLedger)}
 	s := testNewSession(t, Dependencies{
 		SessionStore:        newMockSessionStore(),
-		NewGroupScope:       groups.new,
+		OpenGroupScope:      groups.open,
 		SnapshotGroupLedger: groups.snapshot,
-		SealGroupBatch: func(scope, batch string) {
-			if scope != "a" || batch != "batch" {
-				t.Errorf("seal scope/batch = %q/%q", scope, batch)
-			}
-		},
-		ReleaseGroupScope: groups.release,
 	})
 	inputs := make(chan RunInput, 1)
 	s.SetRunner(&inputRunner{run: func(_ context.Context, in RunInput) (RunResult, error) {
@@ -99,7 +93,6 @@ func TestDriverGroupScopeCapturedForwardedAndReleased(t *testing.T) {
 	if in.DelegationGroupScope != "a" {
 		t.Fatalf("run scope = %q, want a", in.DelegationGroupScope)
 	}
-	in.OnToolBatchDone("batch")
 	groups.set("a", agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"live"}})
 	waitSettled(t, s)
 	old := s.driver
@@ -129,12 +122,9 @@ func TestDriverGroupScopeCapturedForwardedAndReleased(t *testing.T) {
 
 func TestDriverGroupScopeSetConversationUsesLiveLedgerAndCallbacks(t *testing.T) {
 	groups := &testGroupScopes{ledgers: make(map[string]agent.DelegationGroupLedger)}
-	sealCalls := make([]string, 0)
 	s := testNewSession(t, Dependencies{
-		NewGroupScope:       groups.new,
+		OpenGroupScope:      groups.open,
 		SnapshotGroupLedger: groups.snapshot,
-		SealGroupBatch:      func(scope, batch string) { sealCalls = append(sealCalls, scope+":"+batch) },
-		ReleaseGroupScope:   groups.release,
 	})
 	groups.set(s.driver.groupScope, agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"runtime"}})
 	oldScope := s.driver.groupScope
@@ -149,22 +139,18 @@ func TestDriverGroupScopeSetConversationUsesLiveLedgerAndCallbacks(t *testing.T)
 		if in.DelegationGroupScope != s.driver.groupScope {
 			t.Errorf("run scope = %q, driver scope = %q", in.DelegationGroupScope, s.driver.groupScope)
 		}
-		in.OnToolBatchDone("next")
 		return withAnswer(in, "done"), nil
 	}})
 	if err := s.Handle(context.Background(), SubmitPrompt{Text: "go"}); err != nil {
 		t.Fatal(err)
 	}
 	waitSettled(t, s)
-	if !reflect.DeepEqual(sealCalls, []string{s.driver.groupScope + ":next"}) {
-		t.Fatalf("seal calls = %v", sealCalls)
-	}
 	s.Close(context.Background())
 }
 
 func TestRetireBusyDriverReleasesScopeAfterFinalSaveAndClose(t *testing.T) {
 	groups := &testGroupScopes{ledgers: make(map[string]agent.DelegationGroupLedger)}
-	s := testNewSession(t, Dependencies{NewGroupScope: groups.new, SnapshotGroupLedger: groups.snapshot, ReleaseGroupScope: groups.release})
+	s := testNewSession(t, Dependencies{OpenGroupScope: groups.open, SnapshotGroupLedger: groups.snapshot})
 	started := make(chan struct{})
 	finish := make(chan struct{})
 	s.SetRunner(&inputRunner{run: func(ctx context.Context, in RunInput) (RunResult, error) {
@@ -211,7 +197,7 @@ func TestRetireBusyDriverReleasesScopeAfterFinalSaveAndClose(t *testing.T) {
 func TestDriverWithoutScopeDoesNotSnapshotOrRelease(t *testing.T) {
 	seed := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"seed"}}
 	groups := &testGroupScopes{ledgers: make(map[string]agent.DelegationGroupLedger)}
-	s := testNewSession(t, Dependencies{SnapshotGroupLedger: groups.snapshot, ReleaseGroupScope: groups.release})
+	s := testNewSession(t, Dependencies{SnapshotGroupLedger: groups.snapshot})
 	s.mu.Lock()
 	s.delegationGroups = &seed
 	s.driver = s.newDriverLocked(nil, agent.ConversationLineage{})
