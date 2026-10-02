@@ -49,7 +49,7 @@ func (b *contentBuffer) admitDelegation(callID string, admission output.Delegati
 	admission.Group = strings.TrimSpace(admission.Group)
 	loc.dd.admission = &admission
 	if _, ok := acceptedMembership(loc.dd); ok {
-		b.regroupAdmittedDelegations()
+		b.regroupAdmittedDelegations(loc.dd)
 	}
 }
 

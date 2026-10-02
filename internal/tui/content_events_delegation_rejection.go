@@ -58,7 +58,7 @@ func (b *contentBuffer) removeRejectedDelegationCard(target *delegationDisplaySt
 			members[key] = append(members[key], token.dd)
 		}
 	}
-	next, oldToNew := buildRegroupedSegments(kept, members)
+	next, oldToNew := buildRegroupedSegments(kept, members, 0)
 	for i := range next {
 		if next[i].kind == segmentDelegationGroup && next[i].delegGroupData != nil && len(next[i].delegGroupData.entries) == 1 {
 			next[i].kind = segmentDelegation
@@ -66,6 +66,6 @@ func (b *contentBuffer) removeRejectedDelegationCard(target *delegationDisplaySt
 			next[i].delegGroupData = nil
 		}
 	}
-	b.commitSegmentRewrite(next, oldToNew)
+	b.commitSegmentRewrite(next, oldToNew, 0)
 	return true
 }

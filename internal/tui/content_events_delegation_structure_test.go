@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -102,7 +103,7 @@ func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing
 			t.Fatalf("collapse state[%d] = %v (present=%v), want %v", index, got, ok, want)
 		}
 	}
-	if b.gen != gen+1 || b.structureGen != structureGen+1 || b.stringCacheWidth != 0 || b.stringCacheRendered != "" || b.prefixCacheSet || b.prefixCacheRendered != "" || b.segmentHeights != nil {
+	if b.gen != gen+1 || b.structureGen != structureGen+1 || b.stringCacheWidth != 0 || b.stringCacheRendered != "" || b.prefixCacheSet || b.prefixCacheRendered != "" || !slices.Equal(b.segmentHeights, []int{1}) {
 		t.Fatalf("rewrite did not invalidate caches/generation: gen=%d structure=%d string=%d/%q prefix=%v/%q heights=%v", b.gen, b.structureGen, b.stringCacheWidth, b.stringCacheRendered, b.prefixCacheSet, b.prefixCacheRendered, b.segmentHeights)
 	}
 }
