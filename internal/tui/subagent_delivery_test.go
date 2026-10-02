@@ -201,9 +201,9 @@ func TestTerminalEventFillsTypeAndDuration(t *testing.T) {
 		wantType string
 		wantEl   string
 	}{
-		{"complete replay", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "a"}, Status: "complete", AgentType: "explore", DurationMs: 65000}), "explore", "1m5s"},
-		{"failed replay", output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "a"}, Error: "x", AgentType: "code", DurationMs: 2500}), "code", "2s"},
-		{"live no duration", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "a"}, Status: "complete"}), "", ""},
+		{"complete replay", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: agentOcc("a"), Status: "complete", AgentType: "explore", DurationMs: 65000}), "explore", "1m5s"},
+		{"failed replay", output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: agentOcc("a"), Error: "x", AgentType: "code", DurationMs: 2500}), "code", "2s"},
+		{"live no duration", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: agentOcc("a"), Status: "complete"}), "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

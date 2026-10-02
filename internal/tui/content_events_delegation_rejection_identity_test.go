@@ -43,7 +43,7 @@ func TestDelegationRejectionIdentityLateRejectedCallDoesNotStealActiveChild(t *t
 	m.applyEvent(output.NewToolCallStartedEvent(1, "follow_up", "rejected-call", map[string]any{"agent_id": "child", "message": "rejected follow-up"}))
 	m.applyEvent(output.NewToolCallFinishedEventWithAdmission(1, "follow_up", "rejected-call", "", errors.New("not admitted"), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected"}))
 
-	m.applyEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "rejected-call", AgentID: "child"}, "late rejected task", "", "explore"))
+	m.applyEvent(output.NewDelegationStartedEvent(callOcc("rejected-call", "child"), "late rejected task", "", "explore"))
 	got := m.content.activeDelegations["child"]
 	if got.dd != originalCard || got.seg != original.seg {
 		t.Fatalf("late rejected call stole active locator: got=%#v want=%#v", got, original)

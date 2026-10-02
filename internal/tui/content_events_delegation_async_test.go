@@ -15,7 +15,7 @@ func TestAsyncAckThenCompletionRendersOneCompletedSegment(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_a1", map[string]any{"type": "explore", "task": "find files"}))
-	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call_a1", AgentID: "agent-a"}, "find files", "", "explore"), "agent-a"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEvent(callOcc("call_a1", "agent-a"), "find files", "", "explore"), "agent-a"))
 	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "sub_agent", "call_a1", `{"output":"Sub-agent started.","status":"running","continuation":{"agent_id":"agent-a"}}`, nil))
 
 	loc, ok := buffer.findDelegation("agent-a")
@@ -26,7 +26,7 @@ func TestAsyncAckThenCompletionRendersOneCompletedSegment(t *testing.T) {
 		t.Fatalf("status after ack = %q, want active", loc.dd.status)
 	}
 
-	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "agent-a"}, Status: "complete", Output: "found it"}))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: callOcc("call_a1", "agent-a"), Status: "complete", Output: "found it"}))
 
 	count := 0
 	buffer.forEachDelegationReverse(func(delegationLocator) bool {

@@ -38,7 +38,7 @@ func TestAdvisorToolCallSuppression(t *testing.T) {
 }
 func TestAppendEventDelegationStarted(t *testing.T) {
 	t.Parallel()
-	event := output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "fix the bug in module X", "", "")
+	event := output.NewDelegationStartedEvent(agentOcc("child-1"), "fix the bug in module X", "", "")
 
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
@@ -80,7 +80,7 @@ func TestAppendEventDelegationStarted(t *testing.T) {
 func TestAppendEventDelegationComplete(t *testing.T) {
 	t.Parallel()
 	event := output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-2"},
+		DelegationOccurrence: agentOcc("child-2"),
 		Status:               "complete",
 		TurnCount:            5,
 		TokenCount:           2000,
@@ -123,7 +123,7 @@ func TestAppendEventDelegationComplete(t *testing.T) {
 
 func TestAppendEventDelegationFailed(t *testing.T) {
 	t.Parallel()
-	event := output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-3"}, TaskPreview: "build package", Error: "compilation error"})
+	event := output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: agentOcc("child-3"), TaskPreview: "build package", Error: "compilation error"})
 
 	buffer := &contentBuffer{
 		segments: make([]contentSegment, 0),
@@ -171,12 +171,12 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 	}{
 		{
 			name:  "delegation_started",
-			event: output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "agent-1"}, "secret task content here", "", ""),
+			event: output.NewDelegationStartedEvent(agentOcc("agent-1"), "secret task content here", "", ""),
 		},
 		{
 			name: "delegation_complete",
 			event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-				DelegationOccurrence: output.DelegationOccurrence{AgentID: "agent-2"},
+				DelegationOccurrence: agentOcc("agent-2"),
 				Status:               "complete",
 				TurnCount:            1,
 				TokenCount:           100,
@@ -186,7 +186,7 @@ func TestAppendEventDelegationNoContentLeakage(t *testing.T) {
 		},
 		{
 			name:  "delegation_failed",
-			event: output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "agent-3"}, TaskPreview: "secret task", Error: "error details"}),
+			event: output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: agentOcc("agent-3"), TaskPreview: "secret task", Error: "error details"}),
 		},
 	}
 
@@ -281,13 +281,13 @@ func TestFormatDelegationEvent(t *testing.T) {
 	}{
 		{
 			name:      "started",
-			event:     output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "test-agent"}, "do work", "", ""),
+			event:     output.NewDelegationStartedEvent(agentOcc("test-agent"), "do work", "", ""),
 			wantMatch: "delegate: starting test-agent",
 		},
 		{
 			name: "complete",
 			event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-				DelegationOccurrence: output.DelegationOccurrence{AgentID: "test-agent"},
+				DelegationOccurrence: agentOcc("test-agent"),
 				Status:               "complete",
 				TurnCount:            2,
 				TokenCount:           500,
@@ -299,7 +299,7 @@ func TestFormatDelegationEvent(t *testing.T) {
 		{
 			name: "complete_has_tool_calls",
 			event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-				DelegationOccurrence: output.DelegationOccurrence{AgentID: "test-agent"},
+				DelegationOccurrence: agentOcc("test-agent"),
 				Status:               "complete",
 				TurnCount:            2,
 				TokenCount:           500,
@@ -310,7 +310,7 @@ func TestFormatDelegationEvent(t *testing.T) {
 		},
 		{
 			name:      "failed",
-			event:     output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "test-agent"}, TaskPreview: "task", Error: "err"}),
+			event:     output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: agentOcc("test-agent"), TaskPreview: "task", Error: "err"}),
 			wantMatch: "delegate: failed test-agent",
 		},
 	}
@@ -627,7 +627,7 @@ func TestDelegationSpinnerAdvancement(t *testing.T) {
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "spin-agent"}, "task", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("spin-agent"), "task", "", ""))
 
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
@@ -689,14 +689,14 @@ func TestDelegationLifecycle(t *testing.T) {
 	}
 
 	// Start delegation.
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "life-agent"}, "do work", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("life-agent"), "do work", "", ""))
 	if !buffer.HasActiveDelegations() {
 		t.Fatal("HasActiveDelegations = false after started, want true")
 	}
 
 	// Complete delegation.
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "life-agent"},
+		DelegationOccurrence: agentOcc("life-agent"),
 		Status:               "done",
 		TurnCount:            3,
 		TokenCount:           600,
@@ -730,8 +730,8 @@ func TestDelegationFailedLifecycle(t *testing.T) {
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "fail-agent"}, "risky task", "", ""))
-	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "fail-agent"}, TaskPreview: "risky task", Error: "boom"}))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("fail-agent"), "risky task", "", ""))
+	buffer.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: agentOcc("fail-agent"), TaskPreview: "risky task", Error: "boom"}))
 
 	if buffer.HasActiveDelegations() {
 		t.Fatal("HasActiveDelegations = true after failed, want false")
@@ -762,7 +762,7 @@ func TestDelegationToggleOutput(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "toggle-agent"},
+		DelegationOccurrence: agentOcc("toggle-agent"),
 		Status:               "done",
 		TurnCount:            1,
 		TokenCount:           50,
@@ -807,7 +807,7 @@ func TestDelegationPromptStateFromParentCall(t *testing.T) {
 	}
 
 	task := strings.Repeat("inspect docs carefully ", 6)
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "inspect docs", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_delegate_1", "child-1"), "inspect docs", "", ""))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"type": "explore", "task": task,
 	}))
@@ -832,7 +832,7 @@ func TestDelegationPromptStateWithParentCallBeforeStarted(t *testing.T) {
 
 	task := strings.Repeat("inspect docs carefully ", 6)
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{"type": "explore", "task": task}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "inspect docs", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_delegate_1", "child-1"), "inspect docs", "", ""))
 
 	dd := buffer.segments[0].delegData
 	if dd == nil {
@@ -856,7 +856,7 @@ func TestDelegationExpandedOutputIsNotTruncated(t *testing.T) {
 	longOutput := strings.Repeat("x", 650) + "tail marker"
 
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "long-agent"},
+		DelegationOccurrence: agentOcc("long-agent"),
 		Status:               "done",
 		TurnCount:            1,
 		TokenCount:           50,
@@ -882,7 +882,7 @@ func TestDelegationBlockRendering(t *testing.T) {
 		{
 			name: "active_has_agent_id",
 			setup: func(b *contentBuffer) {
-				b.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "render-agent"}, "preview text", "", ""))
+				b.AppendEvent(output.NewDelegationStartedEvent(agentOcc("render-agent"), "preview text", "", ""))
 			},
 			checks: []string{"render-agent", "preview text"},
 		},
@@ -890,7 +890,7 @@ func TestDelegationBlockRendering(t *testing.T) {
 			name: "complete_has_agent_id",
 			setup: func(b *contentBuffer) {
 				b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-					DelegationOccurrence: output.DelegationOccurrence{AgentID: "c-agent"},
+					DelegationOccurrence: agentOcc("c-agent"),
 					Status:               "done",
 					TurnCount:            7,
 					TokenCount:           300,
@@ -903,8 +903,8 @@ func TestDelegationBlockRendering(t *testing.T) {
 		{
 			name: "failed_has_agent_id",
 			setup: func(b *contentBuffer) {
-				b.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "f-agent"}, "work", "", ""))
-				b.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{AgentID: "f-agent"}, TaskPreview: "work", Error: "err"}))
+				b.AppendEvent(output.NewDelegationStartedEvent(agentOcc("f-agent"), "work", "", ""))
+				b.AppendEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: agentOcc("f-agent"), TaskPreview: "work", Error: "err"}))
 			},
 			checks:  []string{"f-agent"},
 			nocheck: []string{"err"},
@@ -946,7 +946,7 @@ func TestRenderDelegationCollapsedActiveShowsSpinnerAndLatestOperation(t *testin
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"type": "explore", "task": "initial task preview",
 	}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "initial task preview", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_delegate_1", "child-1"), "initial task preview", "", ""))
 	buffer.AppendEvent(output.WithAgentScope(
 		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
 		"child-1",
@@ -971,7 +971,7 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"type": "explore", "task": "inspect docs",
 	}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "inspect docs", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_delegate_1", "child-1"), "inspect docs", "", ""))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
 	buffer.AppendEvent(output.WithAgentScope(
 		output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "pwd"}),
@@ -982,7 +982,7 @@ func TestRenderDelegationExpandedShowsAssistantAndLightweightToolRows(t *testing
 		"child-1",
 	))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-1"},
+		DelegationOccurrence: callOcc("call_delegate_1", "child-1"),
 		Status:               "complete",
 		TurnCount:            2,
 		TokenCount:           25,
@@ -1014,10 +1014,10 @@ func TestRenderDelegationPromptSubsectionCollapsedAndExpanded(t *testing.T) {
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"task": prompt,
 	}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, prompt, "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_delegate_1", "child-1"), prompt, "", ""))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-1"},
+		DelegationOccurrence: callOcc("call_delegate_1", "child-1"),
 		Status:               "complete",
 		TurnCount:            1,
 		TokenCount:           10,
@@ -1082,12 +1082,12 @@ func TestRenderDelegationBlankPromptSkipsSubsection(t *testing.T) {
 		styles:        testStyles(theme.AccentAmber),
 	}
 
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_delegate_1", "child-1"), "", "", ""))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"task": "",
 	}))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-1"},
+		DelegationOccurrence: callOcc("call_delegate_1", "child-1"),
 		Status:               "complete",
 		TurnCount:            1,
 		TokenCount:           10,
@@ -1133,9 +1133,9 @@ func TestRenderDelegationLifecycleUsesSingleBoxSegment(t *testing.T) {
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"type": "explore", "task": "inspect docs",
 	}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "inspect docs", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_delegate_1", "child-1"), "inspect docs", "", ""))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-1"},
+		DelegationOccurrence: callOcc("call_delegate_1", "child-1"),
 		Status:               "complete",
 		TurnCount:            1,
 		TokenCount:           10,
@@ -1996,7 +1996,7 @@ func TestAppendEventScopedChildToolEventDoesNotAppendTopLevelToolSegment(t *test
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "do work", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "do work", "", ""))
 	buffer.segments[0].renderDirty = false
 
 	buffer.AppendEvent(output.WithAgentScope(
@@ -2064,7 +2064,7 @@ func TestAppendEventDelegateParentToolCallMergesIntoDelegationSegment(t *testing
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"task": "fix the bug in module X",
 	}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "fix the bug in module X", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_delegate_1", "child-1"), "fix the bug in module X", "", ""))
 
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
@@ -2101,7 +2101,7 @@ func TestAppendEventDelegationStartedBeforeDelegateParentToolCallMergesIntoOneSe
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "fix the bug in module X", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_delegate_1", "child-1"), "fix the bug in module X", "", ""))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"task": "fix the bug in module X",
 	}))
@@ -2157,7 +2157,7 @@ func TestAppendEventUnscopedParentToolBehaviorUnchanged(t *testing.T) {
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "do work", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "do work", "", ""))
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}))
 
 	if len(buffer.segments) != 2 {
@@ -2181,7 +2181,7 @@ func TestAppendEventScopedChildToolFinishedEventUpdatesExistingTranscriptEntry(t
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "do work", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "do work", "", ""))
 	buffer.AppendEvent(output.WithAgentScope(
 		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
 		"child-1",
@@ -2222,7 +2222,7 @@ func TestAppendEventScopedChildAssistantEventsUpdateTranscriptState(t *testing.T
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "do work", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "do work", "", ""))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "hello ", output.ChunkSourceAssistant), "child-1"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "world", output.ChunkSourceAssistant), "child-1"))
 
@@ -2264,7 +2264,7 @@ func TestAppendEventScopedChildThinkingEventsStayInsideDelegationTranscript(t *t
 		showThinking:  true,
 	}
 
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "do work", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "do work", "", ""))
 	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEventWithSource(1, "plan ", output.ChunkSourceAssistant), "child-1"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEventWithSource(1, "search", output.ChunkSourceAssistant), "child-1"))
 
@@ -2301,11 +2301,11 @@ func TestRenderDelegationExpandedShowsChildThinkingInsideBox(t *testing.T) {
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_delegate_1", map[string]any{
 		"type": "explore", "task": "inspect docs",
 	}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "inspect docs", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_delegate_1", "child-1"), "inspect docs", "", ""))
 	buffer.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEventWithSource(1, "inspect files", output.ChunkSourceAssistant), "child-1"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "child assistant reply"), "child-1"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-1"},
+		DelegationOccurrence: callOcc("call_delegate_1", "child-1"),
 		Status:               "complete",
 		TurnCount:            2,
 		TokenCount:           25,
@@ -2332,7 +2332,7 @@ func TestAppendEventScopedChildAssistantDuplicateFinalMessageSuppressed(t *testi
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "do work", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "do work", "", ""))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "hello", output.ChunkSourceAssistant), "child-1"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, " world", output.ChunkSourceAssistant), "child-1"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "hello world"), "child-1"))
@@ -2356,8 +2356,8 @@ func TestAppendEventScopedChildEventsRouteByAgentID(t *testing.T) {
 		collapseState: make(map[int]bool),
 	}
 
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "do work", "", ""))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-2"}, "other work", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "do work", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-2"), "other work", "", ""))
 	if len(buffer.segments) != 2 || buffer.segments[0].kind != segmentDelegation || buffer.segments[1].kind != segmentDelegation {
 		t.Fatalf("unaccepted lifecycle events should remain separate cards, got kinds %v", segmentKinds(buffer.segments))
 	}
@@ -3157,9 +3157,9 @@ func TestRenderReplayDelegationUsesParentToolStartForPromptAndOutput(t *testing.
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_evaluate_1", map[string]any{"type": "evaluate",
 		"task": "plan the rollout\nwith full prompt text",
 	}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "agent-evaluate-1"}, "plan the rollout\nwith full prompt text", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_evaluate_1", "agent-evaluate-1"), "plan the rollout\nwith full prompt text", "", ""))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "agent-evaluate-1"},
+		DelegationOccurrence: callOcc("call_evaluate_1", "agent-evaluate-1"),
 		Status:               "complete",
 		TurnCount:            3,
 		TokenCount:           456,
@@ -3221,7 +3221,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "explore", "task": "do work"}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "agent-1"}, "do work", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_1", "agent-1"), "do work", "", ""))
 	buffer.AppendEvent(output.WithAgentScope(output.NewModelCallStartedEvent(1, "qwen3-coder-30b", 12), "agent-1"))
 	buffer.AppendEvent(output.WithAgentScope(
 		output.NewContextTokenBudgetEvent("", 1, 2400, 2400, 200000, 1.2, 90.0, 0, 0, "", false),
@@ -3229,7 +3229,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedComplete(t *testing.T) {
 	))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantMessageEvent(1, "assistant", "working on it"), "agent-1"))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "agent-1"},
+		DelegationOccurrence: callOcc("call_1", "agent-1"),
 		Status:               "complete",
 		TurnCount:            5,
 		TokenCount:           1234,
@@ -3268,9 +3268,9 @@ func TestDelegationStatsFooterHiddenWhenCollapsed(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "explore", "task": "do work"}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "agent-1"}, "do work", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_1", "agent-1"), "do work", "", ""))
 	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "agent-1"},
+		DelegationOccurrence: callOcc("call_1", "agent-1"),
 		Status:               "complete",
 		TurnCount:            5,
 		TokenCount:           1234,
@@ -3296,7 +3296,7 @@ func TestDelegationStatsFooterVisibleWhenExpandedActive(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "plan", "call_1", map[string]any{"task": "plan work"}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "agent-1"}, "plan work", "", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call_1", "agent-1"), "plan work", "", ""))
 	buffer.AppendEvent(output.WithAgentScope(
 		output.NewAPIRequestEvent("deepseek-v4-flash", nil, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0),
 		"agent-1",
@@ -3850,7 +3850,7 @@ func TestFollowUpToolCallCreatesDelegationSegmentWithMatchedLabel(t *testing.T) 
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationStarted,
 		Payload: output.DelegationStartedEvent{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-1"},
+			DelegationOccurrence: callOcc("parent-1", "child-1"),
 			TaskPreview:          "implement feature",
 		},
 	})
@@ -4030,7 +4030,7 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationStarted,
 		Payload: output.DelegationStartedEvent{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-7"},
+			DelegationOccurrence: callOcc("parent-code", "child-7"),
 			TaskPreview:          "implement feature",
 		},
 	})
@@ -4039,7 +4039,7 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationComplete,
 		Payload: output.DelegationCompleteEvent{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-7"},
+			DelegationOccurrence: callOcc("parent-code", "child-7"),
 			Status:               "partial",
 			TurnCount:            58,
 			TokenCount:           9000,
@@ -4082,7 +4082,7 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationStarted,
 		Payload: output.DelegationStartedEvent{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-7"},
+			DelegationOccurrence: callOcc("parent-followup", "child-7"),
 			TaskPreview:          "now also add tests",
 		},
 	})
@@ -4095,7 +4095,7 @@ func TestFollowUpCompletionDisplaysPerFollowUpStats(t *testing.T) {
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationComplete,
 		Payload: output.DelegationCompleteEvent{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-7"},
+			DelegationOccurrence: callOcc("parent-followup", "child-7"),
 			Status:               "max_turns",
 			TurnCount:            58,
 			TokenCount:           9100,
@@ -4203,14 +4203,14 @@ func TestFollowUpCompletionDisplaysCumulativeCacheHitRate(t *testing.T) {
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationStarted,
 		Payload: output.DelegationStartedEvent{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-9"},
+			DelegationOccurrence: agentOcc("child-9"),
 			TaskPreview:          "implement feature",
 		},
 	})
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationComplete,
 		Payload: output.DelegationCompleteEvent{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-9"},
+			DelegationOccurrence: agentOcc("child-9"),
 			Status:               "complete",
 			TurnCount:            5,
 			TokenCount:           1000,
@@ -4237,7 +4237,7 @@ func TestFollowUpCompletionDisplaysCumulativeCacheHitRate(t *testing.T) {
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationStarted,
 		Payload: output.DelegationStartedEvent{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-9"},
+			DelegationOccurrence: callOcc("parent-followup", "child-9"),
 			TaskPreview:          "now also add tests",
 		},
 	})
@@ -4252,7 +4252,7 @@ func TestFollowUpCompletionDisplaysCumulativeCacheHitRate(t *testing.T) {
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationComplete,
 		Payload: output.DelegationCompleteEvent{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-9"},
+			DelegationOccurrence: callOcc("parent-followup", "child-9"),
 			Status:               "complete",
 			TurnCount:            1,
 			TokenCount:           25,
@@ -4325,14 +4325,14 @@ func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationStarted,
 		Payload: output.DelegationStartedEvent{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-8"},
+			DelegationOccurrence: callOcc("parent-code", "child-8"),
 			TaskPreview:          "implement feature",
 		},
 	})
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationComplete,
 		Payload: output.DelegationCompleteEvent{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-8"},
+			DelegationOccurrence: callOcc("parent-code", "child-8"),
 			Status:               "complete",
 			TurnCount:            5,
 			TokenCount:           1000,
@@ -4356,7 +4356,7 @@ func TestFollowUpScopedEventsRouteToFollowUpSegmentNotOriginal(t *testing.T) {
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationStarted,
 		Payload: output.DelegationStartedEvent{
-			DelegationOccurrence: output.DelegationOccurrence{AgentID: "child-8"},
+			DelegationOccurrence: callOcc("parent-followup", "child-8"),
 			TaskPreview:          "now also add tests",
 		},
 	})

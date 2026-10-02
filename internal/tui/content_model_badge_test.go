@@ -49,7 +49,7 @@ func TestDelegationModelBadgeResolution(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "explore", "call-1", map[string]any{"task": "inspect"}))
-	buffer.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{CallID: "call-1", AgentID: "agent-1"}, "inspect", "deepseek-v4-flash", ""))
+	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call-1", "agent-1"), "inspect", "deepseek-v4-flash", ""))
 	buffer.AppendEvent(output.WithAgentScope(output.NewModelCallStartedEvent(1, " backend-model ", 1), "agent-1"))
 
 	loc, ok := buffer.activeDelegations["agent-1"]

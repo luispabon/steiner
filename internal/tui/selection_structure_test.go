@@ -97,7 +97,7 @@ func TestSelectionStructureNonStructuralRenderRetainsSelection(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
-	m.content.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "child-1"}, "do work", "", ""))
+	m.content.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "do work", "", ""))
 	m.syncViewport()
 	line := -1
 	for i, rendered := range m.viewport.Lines() {

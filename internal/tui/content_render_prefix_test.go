@@ -195,7 +195,7 @@ func TestActiveDelegationStaysOutsidePrefix(t *testing.T) {
 		t.Fatalf("prefixCacheLen = %d after warm, want 1 (settled segment folded)", b.prefixCacheLen)
 	}
 
-	b.AppendEvent(output.NewDelegationStartedEvent(output.DelegationOccurrence{AgentID: "agent_1"}, "task", "", ""))
+	b.AppendEvent(output.NewDelegationStartedEvent(agentOcc("agent_1"), "task", "", ""))
 
 	for i := 0; i < 3; i++ {
 		_ = b.String(80)
@@ -207,7 +207,7 @@ func TestActiveDelegationStaysOutsidePrefix(t *testing.T) {
 	// After the delegation completes the buffer settles and the prefix folds
 	// over it again.
 	b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: output.DelegationOccurrence{AgentID: "agent_1"},
+		DelegationOccurrence: agentOcc("agent_1"),
 		Status:               "complete",
 		TurnCount:            1,
 		TokenCount:           10,
