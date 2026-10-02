@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -102,13 +101,13 @@ func pairLegacyAdmissions(assistant agent.Message, results []agent.Message) map[
 
 func legacyCallGroup(call agent.ToolCall) string {
 	rawGroup, _ := call.Arguments["group"].(string)
-	if group := delegation.NormalizeGroup(rawGroup); group != "" {
+	if group := agent.NormalizeDelegationGroup(rawGroup); group != "" {
 		return group
 	}
 	var args map[string]any
 	if json.Unmarshal([]byte(call.RawArguments), &args) == nil {
 		if value, ok := args["group"].(string); ok {
-			return strings.TrimSpace(value)
+			return agent.NormalizeDelegationGroup(value)
 		}
 	}
 	return ""

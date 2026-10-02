@@ -58,7 +58,7 @@ func TestCancelAgentFinalizerShutdownSettlement(t *testing.T) {
 				hold := newAsyncChild("hold", "")
 				spawnAsync(context.Background(), t, s, hold)
 				waitClosed(t, hold.started, "slot holder")
-				scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+				scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 				cancelled := newAsyncChild("cancelled", "group")
 				cancelled.job.GroupScope = scope
 				entered, release, callbackDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -180,7 +180,7 @@ func TestShutdownUnpublishedBlockingTimeoutPreservesResultAndScope(t *testing.T)
 	events.enabled = block
 	s, _ := newAsyncSupervisor(1, events)
 	s.joinTimeout = 20 * time.Millisecond
-	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	job := newAsyncChild("blocking-late", "reserved")
 	job.job.GroupScope = scope
 	callbackEntered, callbackRelease := make(chan struct{}), make(chan struct{})

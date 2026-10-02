@@ -41,7 +41,7 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 		return nil, outstandingCapError{outstanding: outstanding}
 	}
 	batchID := agent.ToolBatchIDFrom(handlerCtx)
-	groupName := NormalizeGroup(job.Group)
+	groupName := agent.NormalizeDelegationGroup(job.Group)
 	job.Group = groupName
 	if groupName != "" {
 		if err := s.reserveGroupLocked(job.GroupScope, groupName, batchID); err != nil {

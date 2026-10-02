@@ -16,9 +16,9 @@ func TestResolveDelegationGroups(t *testing.T) {
 		want    []string
 		wantErr bool
 	}{
-		{name: "saved ledger is authoritative", saved: &agent.DelegationGroupLedger{Version: 1, Names: []string{" z ", "a", "a"}}, want: []string{"a", "z"}},
-		{name: "saved ledger canonicalized", saved: &agent.DelegationGroupLedger{Version: 1, Names: []string{"z", "a"}}, want: []string{"a", "z"}},
-		{name: "explicit empty", saved: &agent.DelegationGroupLedger{Version: 1}, want: []string{}},
+		{name: "saved ledger is authoritative", saved: &agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{" z ", "a", "a"}}, want: []string{"a", "z"}},
+		{name: "saved ledger canonicalized", saved: &agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"z", "a"}}, want: []string{"a", "z"}},
+		{name: "explicit empty", saved: &agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion}, want: []string{}},
 		{name: "unsupported saved version", saved: &agent.DelegationGroupLedger{Version: 9}, wantErr: true},
 	}
 	for _, tt := range tests {

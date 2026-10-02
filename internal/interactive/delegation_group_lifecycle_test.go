@@ -100,7 +100,7 @@ func TestDriverGroupScopeCapturedForwardedAndReleased(t *testing.T) {
 		t.Fatalf("run scope = %q, want a", in.DelegationGroupScope)
 	}
 	in.OnToolBatchDone("batch")
-	groups.set("a", agent.DelegationGroupLedger{Version: 1, Names: []string{"live"}})
+	groups.set("a", agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"live"}})
 	waitSettled(t, s)
 	old := s.driver
 	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
@@ -136,7 +136,7 @@ func TestDriverGroupScopeSetConversationUsesLiveLedgerAndCallbacks(t *testing.T)
 		SealGroupBatch:      func(scope, batch string) { sealCalls = append(sealCalls, scope+":"+batch) },
 		ReleaseGroupScope:   groups.release,
 	})
-	groups.set(s.driver.groupScope, agent.DelegationGroupLedger{Version: 1, Names: []string{"runtime"}})
+	groups.set(s.driver.groupScope, agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"runtime"}})
 	oldScope := s.driver.groupScope
 	s.SetConversation([]agent.Message{{Role: agent.MessageRoleUser, Content: "new"}})
 	if s.driver.groupScope == oldScope {
@@ -209,7 +209,7 @@ func TestRetireBusyDriverReleasesScopeAfterFinalSaveAndClose(t *testing.T) {
 }
 
 func TestDriverWithoutScopeDoesNotSnapshotOrRelease(t *testing.T) {
-	seed := agent.DelegationGroupLedger{Version: 1, Names: []string{"seed"}}
+	seed := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"seed"}}
 	groups := &testGroupScopes{ledgers: make(map[string]agent.DelegationGroupLedger)}
 	s := testNewSession(t, Dependencies{SnapshotGroupLedger: groups.snapshot, ReleaseGroupScope: groups.release})
 	s.mu.Lock()

@@ -292,7 +292,7 @@ func TestRotationRefusedThroughFinalGroupSnapshotSave(t *testing.T) {
 	startID := s.SessionID()
 	startDriver := s.currentDriver()
 	startScope := s.driver.groupScope
-	finalLedger := agent.DelegationGroupLedger{Version: 1, Names: []string{"final-name"}}
+	finalLedger := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"final-name"}}
 	s.SetRunner(&inputRunner{run: func(_ context.Context, in RunInput) (RunResult, error) {
 		barrier.arm(finalLedger)
 		return withAnswer(in, "final answer"), nil

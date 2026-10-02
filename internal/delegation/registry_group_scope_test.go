@@ -158,7 +158,7 @@ func containsGroupReuseError(err error) bool {
 
 func TestRegistryGroupScopeExplicitScopePreserved(t *testing.T) {
 	supervisor := NewSupervisor(SupervisorOptions{MaxParallel: 2})
-	scope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1, Names: []string{"reserved"}})
+	scope := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"reserved"}})
 	deps := registryGroupScopeDeps(t, supervisor, scope)
 	registry, err := BuildDelegateRegistry(deps)
 	if err != nil {
@@ -179,7 +179,7 @@ func TestRegistryGroupScopeExplicitScopePreserved(t *testing.T) {
 		t.Fatalf("registered handler with explicit scope: %v", err)
 	}
 	got := supervisor.SnapshotGroupLedger(scope)
-	want := agent.DelegationGroupLedger{Version: 1, Names: []string{"accepted", "reserved"}}
+	want := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"accepted", "reserved"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("explicit scope ledger = %+v, want %+v", got, want)
 	}

@@ -540,7 +540,7 @@ func TestDelegationGroupsJSONAndForkIsolation(t *testing.T) {
 		t.Fatalf("absent ledger serialized: %s", absent)
 	}
 
-	empty := Session{DelegationGroups: &agent.DelegationGroupLedger{Version: 1, Names: []string{}}}
+	empty := Session{DelegationGroups: &agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{}}}
 	encoded, err := json.Marshal(empty)
 	if err != nil {
 		t.Fatal(err)
@@ -549,7 +549,7 @@ func TestDelegationGroupsJSONAndForkIsolation(t *testing.T) {
 		t.Fatalf("explicit empty ledger missing: %s", encoded)
 	}
 
-	original := Session{Title: "session", DelegationGroups: &agent.DelegationGroupLedger{Version: 1, Names: []string{"group"}}}
+	original := Session{Title: "session", DelegationGroups: &agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"group"}}}
 	forked, err := Fork(original)
 	if err != nil {
 		t.Fatal(err)

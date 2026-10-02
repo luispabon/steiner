@@ -1211,7 +1211,7 @@ func TestSessionRunnerReturnsTokenCountAndStopReason(t *testing.T) {
 func TestSessionRunnerForwardsExactDelegationGroupScope(t *testing.T) {
 	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
 	t.Cleanup(func() { supervisor.CancelAll(delegation.CancelCauseUser) })
-	explicit := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	explicit := supervisor.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	cfg := testRuntimeConfig("test-model")
 	cfg.SubAgent.Enabled = true
 	cfg.SubAgent.MaxParallel = 1

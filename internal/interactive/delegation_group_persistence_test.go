@@ -19,7 +19,7 @@ func TestInteractiveGroupLedgerSeedSaveAndLoad(t *testing.T) {
 		t.Fatalf("initial group ledger = %#v, want explicit empty v1", initial)
 	}
 
-	seed := agent.DelegationGroupLedger{Version: 1, Names: []string{" beta ", "alpha"}}
+	seed := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{" beta ", "alpha"}}
 	s.mu.Lock()
 	s.delegationGroups = agent.CloneDelegationGroupLedger(&seed)
 	s.driver = s.newDriverLocked(nil, agent.ConversationLineage{})
@@ -45,8 +45,8 @@ func TestInteractiveGroupLedgerSeedSaveAndLoad(t *testing.T) {
 
 func TestLoadSessionGroupLedgerExplicitEmptyAndUnsupportedIsNonDestructive(t *testing.T) {
 	store := newMockSessionStore()
-	store.loadedSessions["empty"] = session.Session{ID: "empty", Model: "test", DelegationGroups: &agent.DelegationGroupLedger{Version: 1}}
-	store.loadedSessions["valid"] = session.Session{ID: "valid", Model: "test", DelegationGroups: &agent.DelegationGroupLedger{Version: 1, Names: []string{"saved-name"}}}
+	store.loadedSessions["empty"] = session.Session{ID: "empty", Model: "test", DelegationGroups: &agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion}}
+	store.loadedSessions["valid"] = session.Session{ID: "valid", Model: "test", DelegationGroups: &agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"saved-name"}}}
 	store.loadedSessions["unsupported"] = session.Session{ID: "unsupported", Model: "test", DelegationGroups: &agent.DelegationGroupLedger{Version: 2, Names: []string{"keep-disk"}}, Lineage: agent.ConversationLineage{Generations: []agent.ConversationGeneration{{ID: 1, Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "untouched"}}}}, NextGenerationID: 2}}
 	// No Background supervisor or SetCompletionSink is configured: this exercises
 	// interactive persistence with delegation runtime wiring disabled.
@@ -107,7 +107,7 @@ func TestRetiredSnapshotPersistsBothLedgersForCreateAndExisting(t *testing.T) {
 			if existing {
 				store.loadedSessions[id] = session.Session{ID: id, Model: "test", Title: "kept"}
 			}
-			groupLedger := agent.DelegationGroupLedger{Version: 1, Names: []string{"reserved"}}
+			groupLedger := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"reserved"}}
 			outstanding := []agent.SubAgentLedgerEntry{{AgentID: "child", AgentType: "code"}}
 			snap := agent.DriverSnapshot{
 				Lineage: agent.ConversationLineage{Generations: []agent.ConversationGeneration{{ID: 1, Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "retired"}}}}, NextGenerationID: 2},
@@ -169,8 +169,8 @@ func TestLoadLegacyGroupLedgerMigratesAndSavesModernLedger(t *testing.T) {
 }
 
 func TestSnapshotUnchangedChecksGroupLedgerForEmptyConversation(t *testing.T) {
-	before := &agent.DriverSnapshot{GroupLedger: agent.DelegationGroupLedger{Version: 1}}
-	after := agent.DriverSnapshot{GroupLedger: agent.DelegationGroupLedger{Version: 1, Names: []string{"group"}}}
+	before := &agent.DriverSnapshot{GroupLedger: agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion}}
+	after := agent.DriverSnapshot{GroupLedger: agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"group"}}}
 	if snapshotUnchanged(before, after) {
 		t.Fatal("ledger-only change on empty conversation treated as unchanged")
 	}
@@ -180,7 +180,7 @@ func TestForkSessionCopiesGroupLedgerIndependently(t *testing.T) {
 	store := newMockSessionStore()
 	s := testNewSession(t, Dependencies{SessionStore: store})
 	s.mu.Lock()
-	s.delegationGroups = &agent.DelegationGroupLedger{Version: 1, Names: []string{"reserved"}}
+	s.delegationGroups = &agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"reserved"}}
 	s.mu.Unlock()
 	if err := s.handleForkSession(context.Background()); err != nil {
 		t.Fatalf("handleForkSession() = %v", err)

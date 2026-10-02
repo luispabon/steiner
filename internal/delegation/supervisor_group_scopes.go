@@ -3,7 +3,6 @@ package delegation
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
 )
@@ -93,12 +92,7 @@ func (g *delegationGroupScope) sealThroughLocked(batchID string) {
 // is absent or not a string.
 func groupInput(input map[string]any) string {
 	group, _ := input["group"].(string)
-	return NormalizeGroup(group)
-}
-
-// NormalizeGroup returns value with surrounding whitespace trimmed.
-func NormalizeGroup(value string) string {
-	return strings.TrimSpace(value)
+	return agent.NormalizeDelegationGroup(group)
 }
 
 type groupReservationError struct {
@@ -122,7 +116,7 @@ func (e *groupReservationError) correctiveReason() string {
 }
 
 func (s *Supervisor) reserveGroupLocked(scope, name, batch string) error {
-	name = NormalizeGroup(name)
+	name = agent.NormalizeDelegationGroup(name)
 	if name == "" {
 		return nil
 	}

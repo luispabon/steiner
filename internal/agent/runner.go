@@ -97,6 +97,9 @@ type RunRequest struct {
 	// purposes. Nil means every call runs serially, which is the pre-existing
 	// behaviour and what child runs receive for the delegation class (children
 	// cannot themselves delegate — see CLAUDE.md's sub-agent nesting invariant).
+	// It also decides delegation admission: calls classified as
+	// ParallelClassDelegation get a defaulted admission, so a request carrying
+	// delegation tools must set it or no admission is recorded.
 	ParallelClassOf func(toolName string) ParallelClass
 
 	// MaxParallelTools bounds how many ParallelClassTool calls execute

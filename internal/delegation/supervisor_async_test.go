@@ -335,7 +335,7 @@ func TestSupervisorSpawnAndWaitPostsNothing(t *testing.T) {
 func TestSupervisorNilSinkPostsNothing(t *testing.T) {
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1})
 	a := newAsyncChild("a", "g")
-	a.job.GroupScope = s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	a.job.GroupScope = s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	spawnAsync(agent.WithToolBatchID(context.Background(), testBatchID(1)), t, s, a)
 	close(a.release)
 	waitFinished(t, s, "a")

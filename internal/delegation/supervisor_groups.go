@@ -27,7 +27,7 @@ func (s *Supervisor) enrollLocked(state *jobState, batchID string) {
 	if s.sink == nil || state.job.Group == "" || batchID == "" {
 		return
 	}
-	key := groupKey{scope: state.job.GroupScope, batch: batchID, label: NormalizeGroup(state.job.Group)}
+	key := groupKey{scope: state.job.GroupScope, batch: batchID, label: agent.NormalizeDelegationGroup(state.job.Group)}
 	group, ok := s.groups[key]
 	if !ok {
 		s.groupSeq++

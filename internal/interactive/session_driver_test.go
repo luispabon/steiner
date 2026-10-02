@@ -226,7 +226,7 @@ func TestSavedSessionKeepsEarlierCompactionGenerations(t *testing.T) {
 func TestCompactionSaveAndReopenKeepsGroupLedger(t *testing.T) {
 	t.Parallel()
 	store := newMockSessionStore()
-	groupLedger := agent.DelegationGroupLedger{Version: 1, Names: []string{"compacted-group"}}
+	groupLedger := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion, Names: []string{"compacted-group"}}
 	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
 	s.mu.Lock()
 	s.delegationGroups = agent.CloneDelegationGroupLedger(&groupLedger)

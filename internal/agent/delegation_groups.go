@@ -14,11 +14,17 @@ type DelegationGroupLedger struct {
 	Names   []string `json:"names"`
 }
 
+// NormalizeDelegationGroup returns name with surrounding whitespace trimmed. It
+// is the single rule for delegation group names; an empty result means no group.
+func NormalizeDelegationGroup(name string) string {
+	return strings.TrimSpace(name)
+}
+
 // Clone returns an independent ledger with normalized, sorted names.
 func (l DelegationGroupLedger) Clone() DelegationGroupLedger {
 	out := DelegationGroupLedger{Version: l.Version}
 	for _, name := range l.Names {
-		name = strings.TrimSpace(name)
+		name = NormalizeDelegationGroup(name)
 		if name != "" {
 			out.Names = append(out.Names, name)
 		}

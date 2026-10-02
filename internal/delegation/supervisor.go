@@ -173,7 +173,7 @@ func (s *Supervisor) SpawnAndWait(handlerCtx context.Context, job ChildJob) (too
 }
 
 func admissionFor(ctx context.Context, job ChildJob, status string) *tool.DelegationAdmission {
-	return &tool.DelegationAdmission{Status: status, BatchID: agent.ToolBatchIDFrom(ctx), Group: NormalizeGroup(job.Group), AgentID: job.AgentID}
+	return &tool.DelegationAdmission{Status: status, BatchID: agent.ToolBatchIDFrom(ctx), Group: agent.NormalizeDelegationGroup(job.Group), AgentID: job.AgentID}
 }
 
 func admissionForState(state *jobState) *tool.DelegationAdmission {

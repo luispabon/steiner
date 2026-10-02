@@ -147,7 +147,7 @@ func TestShutdownLatePublicationSettlesGroupedJobsAndScopes(t *testing.T) {
 	sink := newChannelSink()
 	s := NewSupervisor(SupervisorOptions{MaxParallel: 1, Events: events, JoinTimeout: 20 * time.Millisecond})
 	s.SetCompletionSink(sink)
-	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	ctx := agent.WithToolBatchID(context.Background(), testBatchID(1))
 	sibling := newAsyncChild("sibling", "same")
 	sibling.job.GroupScope = scope

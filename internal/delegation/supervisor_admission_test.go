@@ -46,7 +46,7 @@ func TestSupervisorAcceptedAdmissionSurvivesOutcomes(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			job.GroupScope = s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+			job.GroupScope = s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 			if tt.name == "shutdown error" {
 				s.joinTimeout = time.Millisecond
 				job.Execute = func(context.Context) (tool.ExecutionResult, error) {

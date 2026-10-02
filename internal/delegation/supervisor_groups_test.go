@@ -99,7 +99,7 @@ func TestSupervisorGroupOrderedBySeq(t *testing.T) {
 
 func TestSupervisorLabelReuseAcrossBatchesRejectsConversationReuse(t *testing.T) {
 	s, sink := newAsyncSupervisor(2, nil)
-	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	a, b := newAsyncChild("a", "g"), newAsyncChild("b", "g")
 	a.job.GroupScope, b.job.GroupScope = scope, scope
 	spawnAsync(batchCtx(testBatchID(1)), t, s, a)
@@ -169,7 +169,7 @@ func TestSupervisorGroupingRequiresBatchAndLabel(t *testing.T) {
 			s, sink := newAsyncSupervisor(1, nil)
 			a := newAsyncChild("a", tt.group)
 			if tt.name == "no batch id" {
-				a.job.GroupScope = s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+				a.job.GroupScope = s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 			}
 			if tt.group != "" {
 				if _, _, err := s.Spawn(tt.ctx, a.job); err == nil {
@@ -189,7 +189,7 @@ func TestSupervisorGroupingRequiresBatchAndLabel(t *testing.T) {
 
 func TestSupervisorNameRejectionDoesNotConsumeFreshName(t *testing.T) {
 	s, sink := newAsyncSupervisor(1, nil)
-	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: 1})
+	scope := s.NewGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})
 	a := newAsyncChild("a", "g")
 	a.job.GroupScope = scope
 	if _, _, err := s.Spawn(batchCtx(testBatchID(1)), a.job); err != nil {

@@ -32,9 +32,9 @@ func driverMutexAccessible(d *ConversationDriver) bool {
 }
 
 func TestSnapshotDelegationGroupsOutsideLockAndClones(t *testing.T) {
-	seed := DelegationGroupLedger{Version: 1, Names: []string{" seed "}}
+	seed := DelegationGroupLedger{Version: DelegationGroupLedgerVersion, Names: []string{" seed "}}
 	var driver *ConversationDriver
-	callbackLedger := DelegationGroupLedger{Version: 1, Names: []string{"callback"}}
+	callbackLedger := DelegationGroupLedger{Version: DelegationGroupLedgerVersion, Names: []string{"callback"}}
 	driver = NewConversationDriver(DriverOptions{
 		GroupLedger: seed,
 		SnapshotDelegationGroups: func() DelegationGroupLedger {
@@ -100,7 +100,7 @@ func TestSaveTransitionSnapshotsDelegationGroupsOutsideLock(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ledger := DelegationGroupLedger{Version: 1, Names: []string{"callback-group"}}
+			ledger := DelegationGroupLedger{Version: DelegationGroupLedgerVersion, Names: []string{"callback-group"}}
 			var driver *ConversationDriver
 			callbackBlocked := make(chan struct{}, 16)
 			h := newDriverHarnessOpts(t, nil, nil, func(opts *DriverOptions) {
@@ -137,7 +137,7 @@ func TestSaveTransitionSnapshotsDelegationGroupsOutsideLock(t *testing.T) {
 }
 
 func TestSnapshotDelegationGroupsSeedWithoutCallback(t *testing.T) {
-	seed := DelegationGroupLedger{Version: 1, Names: []string{"saved"}}
+	seed := DelegationGroupLedger{Version: DelegationGroupLedgerVersion, Names: []string{"saved"}}
 	driver := NewConversationDriver(DriverOptions{GroupLedger: seed}, nil, ConversationLineage{})
 	seed.Names[0] = "changed"
 	snap := driver.Snapshot()
