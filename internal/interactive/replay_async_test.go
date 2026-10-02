@@ -269,6 +269,49 @@ func TestReplayAsyncUnresolvedAckShownAsNoResult(t *testing.T) {
 	}
 }
 
+func TestReplayDuplicateIDRejectedThenLedgerOrphanEventSequence(t *testing.T) {
+	t.Parallel()
+	msgs := []agent.Message{
+		{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{
+			{ID: "same", Name: "sub_agent", Arguments: map[string]any{"task": "first"}},
+			{ID: "same", Name: "sub_agent", Arguments: map[string]any{"task": "second"}},
+		}},
+		{Role: agent.MessageRoleTool, ToolCallID: "same", Name: "sub_agent", Content: `{"ok":false,"error":{"message":"denied"}}`, DelegationAdmission: &tool.DelegationAdmission{Status: "rejected"}},
+	}
+	ledger := []agent.SubAgentLedgerEntry{{ParentCallID: "same", AgentID: "agent-orphan", AgentType: "explore", BatchID: "batch", Group: "group"}}
+	events := replayEventsWithLedger(t, msgs, ledger)
+	var sequence []string
+	for _, event := range events {
+		switch event.Type {
+		case output.EventTypeToolCallStarted:
+			p := event.Payload.(output.ToolCallStartedEvent)
+			sequence = append(sequence, "tool-start:"+p.CallID+":"+taskFromArgs(p.Arguments))
+		case output.EventTypeDelegationAccepted:
+			p := event.Payload.(output.DelegationAcceptedEvent)
+			sequence = append(sequence, "accepted:"+p.CallID+":"+p.AgentID+":"+p.BatchID+":"+p.Group)
+		case output.EventTypeDelegationStarted:
+			p := event.Payload.(output.DelegationStartedEvent)
+			sequence = append(sequence, "started:"+p.CallID+":"+p.AgentID+":"+p.TaskPreview)
+		case output.EventTypeToolCallFinished:
+			p := event.Payload.(output.ToolCallFinishedEvent)
+			if p.DelegationAdmission == nil || p.DelegationAdmission.Status != "rejected" {
+				t.Fatalf("finish admission = %#v, want rejected", p.DelegationAdmission)
+			}
+			sequence = append(sequence, "tool-finished:"+p.CallID+":"+p.DelegationAdmission.Status)
+		}
+	}
+	want := []string{
+		"tool-start:same:first",
+		"tool-start:same:second",
+		"accepted:same:agent-orphan:batch:group",
+		"started:same:agent-orphan:second",
+		"tool-finished:same:rejected",
+	}
+	if !reflect.DeepEqual(sequence, want) {
+		t.Fatalf("replayed event sequence = %v, want %v", sequence, want)
+	}
+}
+
 func TestReplayAdmissionOccurrenceLocalAndTypedFinish(t *testing.T) {
 	t.Parallel()
 	msgs := []agent.Message{

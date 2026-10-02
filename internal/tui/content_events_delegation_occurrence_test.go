@@ -81,6 +81,61 @@ func TestDelegationOccurrenceFIFOReusedCallIDStartsNewLifecycle(t *testing.T) {
 	}
 }
 
+func TestReplayDuplicateIDOrphanAdmissionTargetsSecondCard(t *testing.T) {
+	t.Parallel()
+	b := newGroupTestBuffer()
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", map[string]any{"task": "first"}))
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", map[string]any{"task": "second"}))
+	first, second := b.segments[0].delegData, b.segments[1].delegData
+
+	// Actual replay order: both parent starts, then ledger admission/start for
+	// the orphan occurrence, then the rejected result for the first occurrence.
+	b.AppendEvent(output.NewDelegationAcceptedEvent("same", "agent-orphan", "batch", "group"))
+	b.AppendEvent(output.NewDelegationStartedEventWithType("agent-orphan", "second", "same", "", "explore"))
+	b.AppendEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "same", `{"ok":false,"error":{"message":"denied"}}`, errors.New("denied"), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected"}))
+
+	if !second.groupAccepted || second.agentID != "agent-orphan" || first.groupAccepted {
+		t.Fatalf("orphan admission ownership: first accepted=%t agent=%q, second accepted=%t agent=%q", first.groupAccepted, first.agentID, second.groupAccepted, second.agentID)
+	}
+	if findDelegationSegment(b.segments, first) >= 0 {
+		t.Fatal("rejected first card remains")
+	}
+	if findDelegationSegment(b.segments, second) < 0 {
+		t.Fatal("accepted orphan card disappeared")
+	}
+}
+
+func TestLostOccurrenceDoesNotConsumeFreshRejectedReuse(t *testing.T) {
+	t.Parallel()
+	b := newGroupTestBuffer()
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", map[string]any{"task": "old"}))
+	b.AppendEvent(output.NewDelegationAcceptedEvent("same", "child", "old-batch", "old-group"))
+	b.AppendEvent(output.NewDelegationStartedEventWithType("child", "old", "same", "", "explore"))
+	old := b.activeDelegations["child"].dd
+	b.AppendEvent(output.Event{Type: output.EventTypeSubAgentsDelivered, Payload: output.SubAgentsDeliveredEvent{Items: []output.DeliveredSubAgent{{AgentID: "child", AgentType: "explore", Status: "lost", ParentCallID: "same"}}}})
+	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "same", map[string]any{"task": "fresh"}))
+	var fresh *delegationDisplayState
+	for _, token := range flattenDelegationSegments(b.segments) {
+		if token.dd != nil && token.dd.taskPreview == "fresh" {
+			fresh = token.dd
+		}
+	}
+	if fresh == nil {
+		t.Fatal("fresh delegation card missing")
+	}
+	b.AppendEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "same", `{"ok":false,"error":{"message":"fresh denied"}}`, errors.New("fresh denied"), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected"}))
+
+	if old.status != "failed" || old.resultStatus != "lost" {
+		t.Fatalf("lost original = %#v", old)
+	}
+	if findDelegationSegment(b.segments, old) < 0 {
+		t.Fatalf("lost original card disappeared: %#v", b.segments)
+	}
+	if findDelegationSegment(b.segments, fresh) >= 0 {
+		t.Fatalf("fresh rejected card remains after reuse: %#v", b.segments)
+	}
+}
+
 func countToolText(segments []contentSegment, text string) int {
 	count := 0
 	for _, segment := range segments {
