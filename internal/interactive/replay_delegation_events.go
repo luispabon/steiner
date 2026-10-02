@@ -53,12 +53,17 @@ func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, o
 	// A ledger entry on a still-running ack means the sub-agent is outstanding
 	// in the resumed session, so replay must not fabricate a "no result" failure.
 	outstanding := entry.AgentID != "" && isAckStatus(state.status)
-	if admission := acceptedAdmission(msg); admission != nil {
+	switch admission := acceptedAdmission(msg); {
+	case admission != nil:
 		s.events.Emit(output.NewDelegationAcceptedEvent(occ, admission.Group))
-	} else if outstanding {
+	case outstanding:
 		s.events.Emit(output.NewDelegationAcceptedEvent(occ, entry.Group))
-	} else if legacyChildAdmitted(msg, state.status) {
+	case legacyChildAdmitted(msg, state.status):
 		s.events.Emit(output.NewDelegationAcceptedEvent(occ, legacyCallGroup(call)))
+	default:
+		// No admission, no ledger entry and no sign a child ran: a setup
+		// failure. Like a rejected call it replays tool_call_finished only.
+		return
 	}
 	if outstanding {
 		s.emitDelegationProgress(occ, task, state.status)
@@ -84,15 +89,22 @@ func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, o
 // no ledger entry shows a real child was admitted. The result must decode to a
 // delegation projection whose merged status (retention included) is a known
 // child status, and either name an agent ID (a continuation or result
-// agent_id) or carry a running, queued or complete status. A failed, cancelled
+// agent_id) or carry a running, queued or complete status. Retention naming an agent
+// (other than a failed one) also counts, as does a compact result with no
+// status or reason. A failed, cancelled
 // or lost status with no agent ID is indistinguishable from a setup failure and
 // stays unaccepted, as do error envelopes, which decode to nothing. Sessions
 // that predate admission had no rejection, so a match means the child ran.
 func legacyChildAdmitted(msg agent.Message, status string) bool {
 	switch status {
-	case "running", "queued", "complete", "completed", "failed", "cancelled", "lost", "timeout":
+	case "running", "queued", "complete", "completed", "partial", "failed", "cancelled", "lost", "timeout":
 	default:
 		return false
+	}
+	// Retention is only written for children that ran, and legacy sessions
+	// persisted plain-text results alongside it.
+	if msg.Retention != nil && msg.Retention.AgentID != "" && msg.Retention.Status != "failed" {
+		return true
 	}
 	decoded, ok := decodeReplayedDelegateResult(msg.Content)
 	if !ok {
@@ -102,8 +114,11 @@ func legacyChildAdmitted(msg agent.Message, status string) bool {
 		return true
 	}
 	switch decoded.Status {
-	case "running", "queued", "complete", "completed":
+	case "running", "queued", "complete", "completed", "partial":
 		return true
+	case "":
+		// The compact projection omits status for a successful blocking result.
+		return decoded.compact && decoded.Reason == ""
 	}
 	return false
 }

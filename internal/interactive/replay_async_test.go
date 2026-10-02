@@ -847,22 +847,10 @@ func TestReplayQueuedLedgerHasNoSyntheticTerminal(t *testing.T) {
 func TestReplayLegacyPreparationFailureWithoutStart(t *testing.T) {
 	bad := agent.Message{Role: agent.MessageRoleTool, ToolCallID: "prep", Name: "sub_agent", Content: `{"output":"","status":"failed","reason":"setup failed"}`, Retention: &agent.MessageRetention{Status: "failed", AgentID: "misleading"}}
 	events := replayEvents(t, []agent.Message{delegateCall("prep", "sub_agent", "setup"), bad})
-	if got := len(eventsOfType(events, output.EventTypeDelegationAccepted)); got != 0 {
-		t.Fatalf("accepted events = %d, want 0", got)
-	}
-	if got := len(eventsOfType(events, output.EventTypeDelegationStarted)); got != 1 {
-		t.Fatalf("legacy started events = %d, want 1", got)
-	}
-	if p := eventsOfType(events, output.EventTypeDelegationStarted)[0].Payload.(output.DelegationStartedEvent); p.AgentID != "misleading" || p.CallID != "prep" || p.BatchID != "replay#0" {
-		t.Fatalf("legacy start = %+v, want retained agent, call ID and synthesised batch", p)
-	}
-	failed := eventsOfType(events, output.EventTypeDelegationFailed)
-	if len(failed) != 1 {
-		t.Fatalf("failed events = %d, want 1", len(failed))
-	}
-	p := failed[0].Payload.(output.DelegationFailedEvent)
-	if p.AgentID != "misleading" || p.CallID != "prep" || p.BatchID != "replay#0" || p.Error != "setup failed" {
-		t.Fatalf("failure = %+v, want retained agent, call ID, synthesised batch and setup failed", p)
+	for _, typ := range []string{output.EventTypeDelegationAccepted, output.EventTypeDelegationQueued, output.EventTypeDelegationStarted, output.EventTypeDelegationFailed, output.EventTypeDelegationComplete} {
+		if got := len(eventsOfType(events, typ)); got != 0 {
+			t.Fatalf("%s events = %d, want 0 for a legacy setup failure", typ, got)
+		}
 	}
 }
 
@@ -872,12 +860,10 @@ func TestReplayUnknownStatusIgnoresRetentionIdentity(t *testing.T) {
 	msg.Retention.AgentID = "retained-agent"
 	msg.Retention.Status = "unknown"
 	events := replayEvents(t, []agent.Message{delegateCall("status", "sub_agent", "task"), msg})
-	started := eventsOfType(events, output.EventTypeDelegationStarted)
-	if len(started) != 1 || started[0].Payload.(output.DelegationStartedEvent).AgentID != "retained-agent" || started[0].Payload.(output.DelegationStartedEvent).CallID != "status" {
-		t.Fatalf("legacy start = %+v", started)
-	}
-	if len(eventsOfType(events, output.EventTypeDelegationAccepted)) != 0 {
-		t.Fatal("unknown status emitted acceptance")
+	for _, typ := range []string{output.EventTypeDelegationAccepted, output.EventTypeDelegationQueued, output.EventTypeDelegationStarted, output.EventTypeDelegationFailed, output.EventTypeDelegationComplete} {
+		if got := len(eventsOfType(events, typ)); got != 0 {
+			t.Fatalf("unknown status emitted %s (%d events)", typ, got)
+		}
 	}
 }
 

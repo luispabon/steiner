@@ -180,6 +180,10 @@ func TestReplayLegacyAcceptedOnlyForAdmittedChildren(t *testing.T) {
 			Content: mustJSON(t, agent.DelegationResultEnvelope{Output: "done", Status: "complete", Continuation: &agent.DelegationContinuation{AgentID: "agent-a"}}),
 		}}, 1},
 		{"setup failure envelope", []agent.Message{delegateCall("c1", "sub_agent", "t"), setupFailure}, 0},
+		{"failed result without agent id", []agent.Message{delegateCall("c1", "sub_agent", "t"), {
+			Role: agent.MessageRoleTool, ToolCallID: "c1", Name: "sub_agent",
+			Content: mustJSON(t, agent.DelegationResultEnvelope{Output: "no worktree", Status: "failed"}),
+		}}, 0},
 		{"ack resolved by envelope", []agent.Message{
 			delegateCall("c1", "sub_agent", "t"),
 			ackResult(t, "c1", "sub_agent", "agent-a", "running"),
@@ -193,11 +197,7 @@ func TestReplayLegacyAcceptedOnlyForAdmittedChildren(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			events := replayEvents(t, tt.msgs)
-			if tt.wantAccepted > 0 {
-				// A pre-admission failure legitimately replays Started with no
-				// Accepted, so only admitted children get the strict check.
-				assertFullOccurrences(t, events)
-			}
+			assertFullOccurrences(t, events)
 			if got := len(eventsOfType(events, output.EventTypeDelegationAccepted)); got != tt.wantAccepted {
 				t.Errorf("accepted events = %d, want %d", got, tt.wantAccepted)
 			}

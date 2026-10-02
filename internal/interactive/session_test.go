@@ -3281,52 +3281,13 @@ func TestLoadSessionRestoresDelegationBoxesWithoutRetention(t *testing.T) {
 		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
 	}
 
-	// Verify DelegationStarted event
-	var delegationStarted []output.DelegationStartedEvent
+	// A legacy plain-text result with no retention or agent ID cannot be told
+	// from a setup failure, so replay emits no delegation lifecycle events.
 	for _, event := range events {
-		if event.Type == output.EventTypeDelegationStarted {
-			payload, ok := event.Payload.(output.DelegationStartedEvent)
-			if !ok {
-				t.Fatalf("delegation started payload type = %T, want output.DelegationStartedEvent", event.Payload)
-			}
-			delegationStarted = append(delegationStarted, payload)
+		switch event.Type {
+		case output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted, output.EventTypeDelegationComplete, output.EventTypeDelegationFailed:
+			t.Fatalf("unexpected delegation event %s for non-admitted legacy result", event.Type)
 		}
-	}
-	if got, want := len(delegationStarted), 1; got != want {
-		t.Fatalf("delegation started events = %d, want %d", got, want)
-	}
-	if got, want := delegationStarted[0].AgentID, "agent-call_delegate_2"; got != want {
-		t.Fatalf("delegation started agent id = %q, want %q", got, want)
-	}
-
-	// Verify DelegationComplete event with synthetic data (no retention)
-	var delegationComplete []output.DelegationCompleteEvent
-	for _, event := range events {
-		if event.Type == output.EventTypeDelegationComplete {
-			payload, ok := event.Payload.(output.DelegationCompleteEvent)
-			if !ok {
-				t.Fatalf("delegation complete payload type = %T, want output.DelegationCompleteEvent", event.Payload)
-			}
-			delegationComplete = append(delegationComplete, payload)
-		}
-	}
-	if got, want := len(delegationComplete), 1; got != want {
-		t.Fatalf("delegation complete events = %d, want %d", got, want)
-	}
-	if got, want := delegationComplete[0].AgentID, "agent-call_delegate_2"; got != want {
-		t.Fatalf("delegation complete agent id = %q, want %q (synthetic)", got, want)
-	}
-	if got, want := delegationComplete[0].Status, "complete"; got != want {
-		t.Fatalf("delegation complete status = %q, want %q", got, want)
-	}
-	if got, want := delegationComplete[0].TurnCount, 0; got != want {
-		t.Fatalf("delegation complete turn count = %d, want %d (no retention)", got, want)
-	}
-	if got, want := delegationComplete[0].TokenCount, 0; got != want {
-		t.Fatalf("delegation complete token count = %d, want %d (no retention)", got, want)
-	}
-	if got, want := delegationComplete[0].Output, "done"; got != want {
-		t.Fatalf("delegation complete output = %q, want %q", got, want)
 	}
 }
 
@@ -3750,36 +3711,13 @@ func TestLoadSessionRestoresDelegationBoxesWithMalformedStructuredResultFallback
 		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
 	}
 
-	var toolStarted []output.ToolCallStartedEvent
-	var delegationComplete []output.DelegationCompleteEvent
+	// A legacy plain-text result with no retention or agent ID cannot be told
+	// from a setup failure, so replay emits no delegation lifecycle events.
 	for _, event := range events {
 		switch event.Type {
-		case output.EventTypeToolCallStarted:
-			payload, ok := event.Payload.(output.ToolCallStartedEvent)
-			if !ok {
-				t.Fatalf("tool started payload type = %T, want output.ToolCallStartedEvent", event.Payload)
-			}
-			toolStarted = append(toolStarted, payload)
-		case output.EventTypeDelegationComplete:
-			payload, ok := event.Payload.(output.DelegationCompleteEvent)
-			if !ok {
-				t.Fatalf("delegation complete payload type = %T, want output.DelegationCompleteEvent", event.Payload)
-			}
-			delegationComplete = append(delegationComplete, payload)
+		case output.EventTypeDelegationAccepted, output.EventTypeDelegationStarted, output.EventTypeDelegationComplete, output.EventTypeDelegationFailed:
+			t.Fatalf("unexpected delegation event %s for non-admitted legacy result", event.Type)
 		}
-	}
-
-	if got, want := len(toolStarted), 1; got != want {
-		t.Fatalf("tool started events = %d, want %d", got, want)
-	}
-	if got, want := len(delegationComplete), 1; got != want {
-		t.Fatalf("delegation complete events = %d, want %d", got, want)
-	}
-	if got, want := delegationComplete[0].AgentID, "agent-call_research_1"; got != want {
-		t.Fatalf("delegation complete agent id = %q, want %q", got, want)
-	}
-	if got, want := delegationComplete[0].Output, "{not-json"; got != want {
-		t.Fatalf("delegation complete output = %q, want %q", got, want)
 	}
 }
 
