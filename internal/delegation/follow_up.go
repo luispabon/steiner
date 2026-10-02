@@ -16,7 +16,7 @@ import (
 const FollowUpToolName = "follow_up"
 
 // FollowUpToolDef returns a ToolDef for resuming a delegated child session.
-func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (any, error), _ ...bool) tool.ToolDef {
+func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (any, error)) tool.ToolDef {
 	properties := map[string]any{
 		"agent_id": map[string]any{"type": "string", "description": "Required. The delegated agent ID to resume."},
 		"message":  map[string]any{"type": "string", "description": "Required. The follow-up user message to append."},

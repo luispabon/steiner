@@ -38,7 +38,7 @@ In this session `sub_agent` and `follow_up` block and return the agent's result 
 
 Prefer `follow_up` on a sub-agent when the session is resumable, the work stays within the same deliverable, and its live workspace still exists.{{if .Async}} Call it only after the agent's result has been received; it fails while the agent is running, queued, or awaiting delivery.{{end}}
 
-Use it for continuation or fixes within the worker's existing domain. In async sessions, call it only after the prior result has been delivered; for a new grouped response, give it a fresh `group` name, or omit `group` to keep it ungrouped. For new domains or after workspace cleanup/handoff, dispatch a new sub-agent.
+Use it for continuation or fixes within the worker's existing domain. To group it with other calls in the current response, give it a fresh `group` name; otherwise omit `group`. For new domains or after workspace cleanup/handoff, dispatch a new sub-agent.
 
 {{if .Orchestrate}}## Delegation vs direct work
 

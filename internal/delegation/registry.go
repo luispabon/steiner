@@ -112,9 +112,8 @@ type DelegateDeps struct {
 	// GroupScope identifies the runtime conversation's group-name ledger. When
 	// empty, handlers create one empty scope once for this registry.
 	GroupScope string
-	// AsyncSubAgents switches sub_agent and follow_up to non-blocking spawns and
-	// adds the optional group parameter to the sub_agent schema. It is fixed for
-	// the session so tool definitions stay stable.
+	// AsyncSubAgents switches sub_agent and follow_up to non-blocking spawns. It is
+	// fixed for the session so tool definitions stay stable.
 	AsyncSubAgents bool
 	// ChildEvents receives child and Delegation* events. Children outlive the
 	// run that spawned them, so callers pass a runtime-lifetime sink here rather
@@ -353,7 +352,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 	ensureSupervisor(&subAgentDeps)
 
 	// Register the follow_up tool.
-	cloned.Register(FollowUpToolDef(NewFollowUpHandler(subAgentDeps), deps.AsyncSubAgents))
+	cloned.Register(FollowUpToolDef(NewFollowUpHandler(subAgentDeps)))
 
 	// Conditionally expose web_search to the parent model.
 	if deps.Searcher != nil {
