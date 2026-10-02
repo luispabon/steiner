@@ -22,7 +22,7 @@ Use `/compact` to compact the current conversation manually. Add optional focus 
 
 Manual compaction reuses the tool definitions and cache prefix of your last top-level request, not a sub-agent request. Work delegated to a sub-agent before you run `/compact` therefore does not change the summarisation request's cached prefix, so the provider's prompt cache still applies.
 
-Auto-compaction is never steered; it always uses an empty steering value. Manual compaction is refused while a run is generating. Session replacement is refused while a driver run, queued prompt, compaction, or pending sub-agent result is unsettled.
+Auto-compaction is never steered; it always uses an empty steering value. Manual compaction is refused while a run is generating. Session replacement is refused while a driver run, queued prompt, compaction, ungrouped busy work, or pending sub-agent result is unsettled. Finish or cancel busy work, then wait for result settlement before replacing or reopening the session.
 
 ## What survives compaction
 

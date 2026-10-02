@@ -199,6 +199,15 @@ func TestDelegationInstructionsAsyncStructure(t *testing.T) {
 		if async == blocking {
 			t.Errorf("level %q renders identically for async and blocking", level)
 		}
+		if !strings.Contains(async, "same assistant response") || !strings.Contains(async, "trimmed, case-sensitive") || !strings.Contains(async, "after completion, compaction, or reopening") {
+			t.Errorf("level %q async canon lacks group lifetime and uniqueness guidance", level)
+		}
+		if !strings.Contains(async, "fresh `group` name") || !strings.Contains(async, "omit `group`") {
+			t.Errorf("level %q async canon lacks follow-up grouping guidance", level)
+		}
+		if !strings.Contains(blocking, "block and return the agent's result directly") || !strings.Contains(blocking, "unique for the conversation") {
+			t.Errorf("level %q blocking canon lacks per-call group validation guidance", level)
+		}
 	}
 }
 
