@@ -298,17 +298,131 @@ func TestReplayDuplicateIDRejectedThenLedgerOrphanEventSequence(t *testing.T) {
 				t.Fatalf("finish admission = %#v, want rejected", p.DelegationAdmission)
 			}
 			sequence = append(sequence, "tool-finished:"+p.CallID+":"+p.DelegationAdmission.Status)
+		case output.EventTypeReplayDelegationParentClosed:
+			p := event.Payload.(output.ReplayDelegationParentClosedEvent)
+			sequence = append(sequence, "parent-closed:"+p.CallID)
 		}
 	}
+	// The rejected first occurrence is fully emitted, including its parent
+	// finish, before the second (ledger orphan) occurrence starts. The orphan
+	// closes its parent slot before the next delegation bundle and never emits
+	// a fabricated result or finish.
 	want := []string{
 		"tool-start:same:first",
+		"tool-finished:same:rejected",
 		"tool-start:same:second",
 		"accepted:same:agent-orphan:batch:group",
 		"started:same:agent-orphan:second",
-		"tool-finished:same:rejected",
+		"parent-closed:same",
 	}
 	if !reflect.DeepEqual(sequence, want) {
 		t.Fatalf("replayed event sequence = %v, want %v", sequence, want)
+	}
+}
+
+func TestReplayDelegationBundlesEmitInAssistantOrder(t *testing.T) {
+	t.Parallel()
+	msgs := []agent.Message{
+		{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{
+			{ID: "call-1", Name: "sub_agent", Arguments: map[string]any{"task": "one"}},
+			{ID: "call-2", Name: "sub_agent", Arguments: map[string]any{"task": "two"}},
+		}},
+		ackResult(t, "call-1", "sub_agent", "agent-a", "running"),
+		ackResult(t, "call-2", "sub_agent", "agent-b", "queued"),
+	}
+	ledger := []agent.SubAgentLedgerEntry{
+		{ParentCallID: "call-1", AgentID: "agent-a", BatchID: "batch-1", Group: "group-1"},
+		{ParentCallID: "call-2", AgentID: "agent-b", BatchID: "batch-2", Group: "group-2"},
+	}
+	events := replayEventsWithLedger(t, msgs, ledger)
+	var sequence []string
+	for _, event := range events {
+		switch event.Type {
+		case output.EventTypeToolCallStarted:
+			sequence = append(sequence, "tool-start:"+event.Payload.(output.ToolCallStartedEvent).CallID)
+		case output.EventTypeDelegationAccepted:
+			p := event.Payload.(output.DelegationAcceptedEvent)
+			sequence = append(sequence, "accepted:"+p.AgentID+":"+p.CallID+":"+p.BatchID+":"+p.Group)
+		case output.EventTypeDelegationStarted:
+			p := event.Payload.(output.DelegationStartedEvent)
+			sequence = append(sequence, "started:"+p.AgentID+":"+p.CallID)
+		case output.EventTypeDelegationQueued:
+			p := event.Payload.(output.DelegationQueuedEvent)
+			sequence = append(sequence, "queued:"+p.AgentID+":"+p.CallID)
+		}
+	}
+	// nil/unknown admission is still emitted as one serial bundle; call-1's
+	// whole lifecycle lands before call-2's start.
+	want := []string{
+		"tool-start:call-1",
+		"accepted:agent-a:call-1:batch-1:group-1",
+		"started:agent-a:call-1",
+		"tool-start:call-2",
+		"accepted:agent-b:call-2:batch-2:group-2",
+		"queued:agent-b:call-2",
+	}
+	if !reflect.DeepEqual(sequence, want) {
+		t.Fatalf("bundled event sequence = %v, want %v", sequence, want)
+	}
+}
+
+func TestReplayDelegationBundleEmitsEachEventOnce(t *testing.T) {
+	t.Parallel()
+	msgs := []agent.Message{
+		delegateCall("call-1", "sub_agent", "task"),
+		{Role: agent.MessageRoleTool, ToolCallID: "call-1", Name: "sub_agent", Content: `{"output":"done"}`, DelegationAdmission: &tool.DelegationAdmission{Status: "accepted", AgentID: "agent-a", BatchID: "batch", Group: "group"}},
+	}
+	ledger := []agent.SubAgentLedgerEntry{{ParentCallID: "call-1", AgentID: "agent-a", BatchID: "batch", Group: "group"}}
+	events := replayEventsWithLedger(t, msgs, ledger)
+	for _, tc := range []struct {
+		name string
+		typ  string
+	}{
+		{"accepted", output.EventTypeDelegationAccepted},
+		{"started", output.EventTypeDelegationStarted},
+		{"complete", output.EventTypeDelegationComplete},
+		{"finished", output.EventTypeToolCallFinished},
+	} {
+		if got := len(eventsOfType(events, tc.typ)); got != 1 {
+			t.Errorf("%s events = %d, want exactly 1", tc.name, got)
+		}
+	}
+}
+
+func TestReplayLedgerOrphanEmitsExactParentClosure(t *testing.T) {
+	t.Parallel()
+	msgs := []agent.Message{delegateCall("orphan", "sub_agent", "lost task")}
+	ledger := []agent.SubAgentLedgerEntry{{ParentCallID: "orphan", AgentID: "agent-lost", BatchID: "batch", Group: "group"}}
+	events := replayEventsWithLedger(t, msgs, ledger)
+	closed := eventsOfType(events, output.EventTypeReplayDelegationParentClosed)
+	if len(closed) != 1 {
+		t.Fatalf("parent closure events = %d, want 1", len(closed))
+	}
+	if got := closed[0].Payload.(output.ReplayDelegationParentClosedEvent).CallID; got != "orphan" {
+		t.Fatalf("closure CallID = %q, want orphan", got)
+	}
+	if got := len(eventsOfType(events, output.EventTypeToolCallFinished)); got != 0 {
+		t.Errorf("orphan fabricated %d tool finishes, want 0", got)
+	}
+	if got := len(eventsOfType(events, output.EventTypeDelegationComplete)); got != 0 {
+		t.Errorf("orphan fabricated %d completions, want 0", got)
+	}
+	if got := len(eventsOfType(events, output.EventTypeDelegationFailed)); got != 0 {
+		t.Errorf("orphan fabricated %d failures, want 0", got)
+	}
+	acceptedAt, startedAt, closedAt := -1, -1, -1
+	for i, event := range events {
+		switch event.Type {
+		case output.EventTypeDelegationAccepted:
+			acceptedAt = i
+		case output.EventTypeDelegationStarted:
+			startedAt = i
+		case output.EventTypeReplayDelegationParentClosed:
+			closedAt = i
+		}
+	}
+	if acceptedAt < 0 || startedAt <= acceptedAt || closedAt <= startedAt {
+		t.Fatalf("orphan accepted/started/closed positions = %d/%d/%d", acceptedAt, startedAt, closedAt)
 	}
 }
 

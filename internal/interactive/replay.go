@@ -122,15 +122,19 @@ func (s *Session) replaySessionMessages(msgs []agent.Message) {
 
 func (s *Session) replaySessionMessagesWithLedger(msgs []agent.Message, ledger []agent.SubAgentLedgerEntry) {
 	plan := buildReplayOccurrencePlan(msgs, ledger)
-	startedToolCalls := make(map[replayOccurrenceKey]bool)
-	acks := &replayAcks{}
+	state := replayState{
+		startedToolCalls: make(map[replayOccurrenceKey]bool),
+		acks:             &replayAcks{},
+		consumedResults:  make(map[int]bool),
+		msgs:             msgs,
+	}
 	for messageIndex, msg := range msgs {
 		if msg.Content == "" && len(msg.ToolCalls) == 0 && msg.ToolCallID == "" {
 			continue
 		}
-		s.replayMessage(msg, replayState{startedToolCalls: startedToolCalls, acks: acks}, replayLedger{entries: ledger, occurrences: plan.occurrences, owners: plan.resultOwners, messageIndex: messageIndex})
+		s.replayMessage(msg, state, replayLedger{entries: ledger, occurrences: plan.occurrences, owners: plan.resultOwners, messageIndex: messageIndex})
 	}
-	s.replayUnresolvedAcks(acks)
+	s.replayUnresolvedAcks(state.acks)
 }
 
 type replayOccurrenceKey struct {
@@ -187,6 +191,8 @@ func buildReplayOccurrencePlan(msgs []agent.Message, ledger []agent.SubAgentLedg
 type replayState struct {
 	startedToolCalls map[replayOccurrenceKey]bool
 	acks             *replayAcks
+	consumedResults  map[int]bool
+	msgs             []agent.Message
 }
 
 type replayLedger struct {
@@ -205,6 +211,9 @@ func (s *Session) replayMessage(msg agent.Message, state replayState, ledger rep
 	case agent.MessageRoleSummary:
 		s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{Kind: "compaction", Severity: "done", SummaryText: msg.Content}))
 	case agent.MessageRoleTool:
+		if state.consumedResults[ledger.messageIndex] {
+			return
+		}
 		owner, hasOwner := ledger.owners[ledger.messageIndex]
 		var occurrence *replayOccurrence
 		if hasOwner {
@@ -231,18 +240,63 @@ func (s *Session) replayAssistantMessage(msg agent.Message, state replayState, l
 			continue
 		}
 		if occurrence.resultMessageIndex >= 0 {
+			if isDelegateToolCall(call.Name) && replayBundlesOccurrence(state, occurrence) {
+				s.replayDelegationBundle(call, key, occurrence, state, ledger)
+				continue
+			}
 			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
 			state.startedToolCalls[key] = true
 			continue
 		}
 		if occurrence.ledgerIndex >= 0 && isDelegateToolCall(call.Name) {
-			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
-			entry := ledger.entries[occurrence.ledgerIndex]
-			s.emitAcceptedAdmission(call.ID, entry.AgentID, entry.BatchID, entry.Group)
-			s.events.Emit(output.NewDelegationStartedEvent(entry.AgentID, taskFromArgs(call.Arguments), call.ID))
-			state.startedToolCalls[key] = true
+			s.replayLedgerOrphanBundle(call, key, occurrence, state, ledger)
 		}
 	}
+}
+
+// replayBundlesOccurrence reports whether an owned delegation result replays as
+// one serial bundle at its assistant call position. Bundling needs
+// authoritative correlation evidence: a ledger entry or a typed accepted or
+// rejected admission. Retention-only legacy results keep the original
+// two-phase path so old-format sessions replay unchanged.
+func replayBundlesOccurrence(state replayState, occurrence *replayOccurrence) bool {
+	if occurrence == nil || occurrence.resultMessageIndex < 0 {
+		return false
+	}
+	if occurrence.ledgerIndex >= 0 {
+		return true
+	}
+	if occurrence.resultMessageIndex >= len(state.msgs) {
+		return false
+	}
+	return hasKnownAdmission(state.msgs[occurrence.resultMessageIndex].DelegationAdmission)
+}
+
+// replayDelegationBundle emits one owned persisted delegation result exactly
+// once: the parent start, admission, lifecycle and terminal, and the actual
+// parent finish, before the next delegation occurrence. The result message is
+// marked consumed so replayMessage cannot emit its events a second time.
+func (s *Session) replayDelegationBundle(call agent.ToolCall, key replayOccurrenceKey, occurrence *replayOccurrence, state replayState, ledger replayLedger) {
+	s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
+	state.startedToolCalls[key] = true
+	toolMsg := state.msgs[occurrence.resultMessageIndex]
+	s.replayLedgerAdmission(toolMsg, occurrence, ledger)
+	s.replayOwnedToolResult(toolMsg, key, call, state, ledgerEntryForOccurrence(ledger, occurrence))
+	state.consumedResults[occurrence.resultMessageIndex] = true
+}
+
+// replayLedgerOrphanBundle emits a ledger orphan: a delegate call with ledger
+// evidence but no persisted result. It emits the start, authoritative
+// acceptance and lifecycle, then closes exactly that parent correlation slot.
+// The closure is a control event, not a result, finish, or delivery
+// acknowledgement, so no orphan finish is fabricated.
+func (s *Session) replayLedgerOrphanBundle(call agent.ToolCall, key replayOccurrenceKey, occurrence *replayOccurrence, state replayState, ledger replayLedger) {
+	s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
+	entry := ledger.entries[occurrence.ledgerIndex]
+	s.emitAcceptedAdmission(call.ID, entry.AgentID, entry.BatchID, entry.Group)
+	s.events.Emit(output.NewDelegationStartedEvent(entry.AgentID, taskFromArgs(call.Arguments), call.ID))
+	s.events.Emit(output.NewReplayDelegationParentClosedEvent(call.ID))
+	state.startedToolCalls[key] = true
 }
 
 func (s *Session) replayLedgerAdmission(msg agent.Message, occurrence *replayOccurrence, ledger replayLedger) {
