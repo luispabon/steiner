@@ -46,10 +46,11 @@ func (s sidebarState) staticPrefixLines(width int) []string {
 
 // rosterTargetAtRow returns the agent ID of the roster row at inner row index row,
 // or "" when that row is not a clickable roster row.
-func (s sidebarState) rosterTargetAtRow(width, innerHeight, row int) string {
+func (s sidebarState) rosterTargetAtRow(innerHeight, row int) string {
 	if row < 0 || row >= innerHeight {
 		return ""
 	}
+	width := sidebarWidth - sidebarPadH*2 // same inner width renderSidebar lays out with
 	_, targets := s.subAgentsRows(width)
 	idx := row - len(s.staticPrefixLines(width))
 	if idx < 0 || idx >= len(targets) {

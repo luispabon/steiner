@@ -16,9 +16,8 @@ func (m *Model) sidebarRosterClick(x, y int) tea.Cmd {
 	if col < sidebarPadH || col >= sidebarWidth-sidebarPadH {
 		return nil
 	}
-	innerWidth := sidebarWidth - 2*sidebarPadH
 	innerHeight := max(0, m.height-2*sidebarPadV)
-	id := m.sidebar.rosterTargetAtRow(innerWidth, innerHeight, y-sidebarPadV)
+	id := m.sidebar.rosterTargetAtRow(innerHeight, y-sidebarPadV)
 	if id == "" {
 		return nil
 	}
