@@ -532,8 +532,8 @@ func NewDelegationWorktreeDisposalEvent(agentID string, removed bool, errMsg str
 }
 
 // NewSteerReceivedEvent creates an Event for a consumed steer message.
-func NewSteerReceivedEvent(text string) Event {
-	return newEvent(EventTypeSteerReceived, SteerReceivedEvent{Text: text})
+func NewSteerReceivedEvent(text string, images []ImageBlock) Event {
+	return newEvent(EventTypeSteerReceived, SteerReceivedEvent{Text: text, Images: images})
 }
 
 // DelegationFailedParams holds the arguments for NewDelegationFailedEvent.

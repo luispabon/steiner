@@ -645,7 +645,8 @@ type HistoryLoadedEvent struct {
 
 // SteerReceivedEvent is emitted when a between-turn steering message is consumed.
 type SteerReceivedEvent struct {
-	Text string `json:"text"`
+	Text   string       `json:"text"`
+	Images []ImageBlock `json:"images,omitempty"`
 }
 
 // DisplayFilePayload is the payload for EventTypeDisplayFile.

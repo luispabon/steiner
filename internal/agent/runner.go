@@ -157,9 +157,12 @@ type InboxDrain struct {
 	Message *Message
 	// Wake forces another turn after a complete assistant-only turn.
 	Wake bool
-	// UserText is the user-typed text carried by Message; it alone is the
-	// SteerReceived payload. Empty emits no event.
+	// UserText is the user-typed text carried by Message; with Images it is
+	// the SteerReceived payload. Empty text emits no event.
 	UserText string
+	// Images are the image blocks attached to UserText, carried into the
+	// SteerReceived payload for the UI to render.
+	Images []ImageBlock
 }
 
 // SteerInboxDrain adapts a steer queue drain to DrainInbox. Every non-empty
@@ -174,7 +177,7 @@ func SteerInboxDrain(drain func() []SteerMessage) func() InboxDrain {
 			return InboxDrain{}
 		}
 		merged := MergeSteers(steers)
-		return InboxDrain{Message: &merged, Wake: true, UserText: merged.Content}
+		return InboxDrain{Message: &merged, Wake: true, UserText: merged.Content, Images: merged.Images}
 	}
 }
 
@@ -242,7 +245,7 @@ func (r *Runner) run(ctx context.Context, req RunRequest) (RunState, error) {
 				state.Lineage = state.Lineage.WithAppendedMessages([]Message{*drain.Message})
 			}
 			if drain.UserText != "" {
-				emitEvent(req.Events, output.NewSteerReceivedEvent(drain.UserText))
+				emitEvent(req.Events, output.NewSteerReceivedEvent(drain.UserText, outputImageBlocks(drain.Images)))
 			}
 		}
 		if outcome.Error != nil {
@@ -478,4 +481,25 @@ func MergeSteers(steers []SteerMessage) Message {
 		images = append(images, s.Images...)
 	}
 	return Message{Role: MessageRoleUser, Content: strings.Join(texts, "\n\n"), Images: images}
+}
+
+// outputImageBlocks converts agent image blocks to the output-package mirror
+// used in event payloads. It returns nil for an empty slice.
+func outputImageBlocks(blocks []ImageBlock) []output.ImageBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	converted := make([]output.ImageBlock, len(blocks))
+	for i, b := range blocks {
+		converted[i] = output.ImageBlock{
+			ID:        b.ID,
+			FilePath:  b.FilePath,
+			MediaType: b.MediaType,
+			Data:      b.Data,
+			Width:     b.Width,
+			Height:    b.Height,
+			SizeBytes: b.SizeBytes,
+		}
+	}
+	return converted
 }

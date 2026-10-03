@@ -118,9 +118,9 @@ func (d *ConversationDriver) drainLocked(prefix DeliveryParts) InboxDrain {
 	return drain
 }
 
-// drainItemsLocked is drainLocked that also returns the text of the steers
-// taken from the queue, for hosts that must announce them.
-func (d *ConversationDriver) drainItemsLocked(prefix DeliveryParts) (InboxDrain, string) {
+// drainItemsLocked is drainLocked that also returns the steers taken from the
+// queue, for hosts that must announce them.
+func (d *ConversationDriver) drainItemsLocked(prefix DeliveryParts) (InboxDrain, SteerMessage) {
 	items := d.users
 	blocks := d.userBlocks
 	d.users = nil
@@ -130,7 +130,7 @@ func (d *ConversationDriver) drainItemsLocked(prefix DeliveryParts) (InboxDrain,
 	completions := d.completions
 	d.completions = nil
 	if len(items) == 0 && len(completions) == 0 {
-		return InboxDrain{}, ""
+		return InboxDrain{}, SteerMessage{}
 	}
 
 	parts := prefix
@@ -155,7 +155,7 @@ func (d *ConversationDriver) drainItemsLocked(prefix DeliveryParts) (InboxDrain,
 	}
 	msg, ok := BuildDeliveryMessage(parts)
 	if !ok {
-		return InboxDrain{}, ""
+		return InboxDrain{}, SteerMessage{}
 	}
 	d.disarmWindowLocked()
 	if len(completions) > 0 {
@@ -176,9 +176,13 @@ func (d *ConversationDriver) drainItemsLocked(prefix DeliveryParts) (InboxDrain,
 	if !d.exhausted {
 		wake = wake || slices.ContainsFunc(completions, func(c SubAgentCompletion) bool { return !c.Quiet })
 	}
-	steerText := ""
+	var steer SteerMessage
 	if len(steers) > 0 {
-		steerText = MergeSteers(steers).Content
+		merged := MergeSteers(steers)
+		steer = SteerMessage{Text: merged.Content, Images: merged.Images}
 	}
-	return InboxDrain{Message: &msg, Wake: wake, UserText: parts.UserText}, steerText
+	// Images carries only the consumed steers, so the SteerReceived event the
+	// runner emits never renders a normal prompt's images. The delivery Message
+	// above still carries every image through parts.Images.
+	return InboxDrain{Message: &msg, Wake: wake, UserText: parts.UserText, Images: steer.Images}, steer
 }

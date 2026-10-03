@@ -136,3 +136,36 @@ func TestDelegationOccurrenceOmitsEmptyCallAndBatch(t *testing.T) {
 		t.Errorf("event JSON = %s, want agent_id only", data)
 	}
 }
+
+func TestSteerReceivedEventIncludesImages(t *testing.T) {
+	event := NewSteerReceivedEvent("see [Image 1]", []ImageBlock{{
+		ID:        "img-1",
+		FilePath:  "/tmp/shot.png",
+		MediaType: "image/png",
+		Width:     10,
+		Height:    20,
+		SizeBytes: 128,
+	}})
+	payload, ok := event.Payload.(SteerReceivedEvent)
+	if !ok {
+		t.Fatalf("payload type = %T, want SteerReceivedEvent", event.Payload)
+	}
+	if payload.Text != "see [Image 1]" {
+		t.Errorf("Text = %q, want %q", payload.Text, "see [Image 1]")
+	}
+	if len(payload.Images) != 1 {
+		t.Fatalf("len(Images) = %d, want 1", len(payload.Images))
+	}
+	if payload.Images[0].FilePath != "/tmp/shot.png" {
+		t.Errorf("Images[0].FilePath = %q, want %q", payload.Images[0].FilePath, "/tmp/shot.png")
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	for _, want := range []string{`"type":"steer_received"`, `"text":"see [Image 1]"`, `"file_path":"/tmp/shot.png"`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("event JSON = %s, missing %s", data, want)
+		}
+	}
+}
