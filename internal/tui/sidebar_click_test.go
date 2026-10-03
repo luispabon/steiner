@@ -66,7 +66,7 @@ func TestRosterTargetAtRowMatchesRender(t *testing.T) {
 	prefix := len(m.sidebar.staticPrefixLines(w))
 	clickable := 0
 	for i, want := range targets {
-		if got := m.sidebar.rosterTargetAtRow(w, 70, prefix+i); got != want {
+		if got := m.sidebar.rosterTargetAtRow(70, prefix+i); got != want {
 			t.Errorf("row %d: target %q, want %q", i, got, want)
 		}
 		if want != "" {
@@ -76,10 +76,10 @@ func TestRosterTargetAtRowMatchesRender(t *testing.T) {
 	if clickable == 0 {
 		t.Error("no clickable rows")
 	}
-	if got := m.sidebar.rosterTargetAtRow(w, 70, prefix-1); got != "" {
+	if got := m.sidebar.rosterTargetAtRow(70, prefix-1); got != "" {
 		t.Errorf("row before section = %q", got)
 	}
-	if got := m.sidebar.rosterTargetAtRow(w, 70, prefix+len(lines)); got != "" {
+	if got := m.sidebar.rosterTargetAtRow(70, prefix+len(lines)); got != "" {
 		t.Errorf("row after section = %q", got)
 	}
 	// innerHeight truncation: the last clickable row is cut off.
@@ -89,7 +89,7 @@ func TestRosterTargetAtRowMatchesRender(t *testing.T) {
 			last = i
 		}
 	}
-	if got := m.sidebar.rosterTargetAtRow(w, prefix+last, prefix+last); got != "" {
+	if got := m.sidebar.rosterTargetAtRow(prefix+last, prefix+last); got != "" {
 		t.Errorf("row at innerHeight = %q, want none", got)
 	}
 }
