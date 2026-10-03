@@ -370,6 +370,7 @@ func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	m.content.tickCount++
 	m.sidebar.tickCount = m.content.tickCount
 	m.syncRoster()
+	m.refreshSubAgentPicker()
 	if m.pollLSPStatesFunc != nil {
 		m.lspServers = m.pollLSPStatesFunc()
 		m.syncSidebar()

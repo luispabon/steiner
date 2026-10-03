@@ -81,6 +81,14 @@ func (m *Model) openSubAgentPicker() {
 	})
 }
 
+// refreshSubAgentPicker keeps an open picker current; the tick runs while
+// delegations are active, so status changes reach it.
+func (m *Model) refreshSubAgentPicker() {
+	if m.subAgentPicker.IsOpen() {
+		m.subAgentPicker = m.subAgentPicker.refresh()
+	}
+}
+
 func (m *Model) openSubAgentPickerFromSlashCommand() *Model {
 	m.openSubAgentPicker()
 	return m

@@ -209,8 +209,8 @@ type Model struct {
 	contentDirty                 bool
 	syncDebounceSeq              int
 	mousePressX                  int
-	sidebarPressX, sidebarPressY int // sidebar press cell awaiting release; -1 when none
 	mousePressY                  int
+	sidebarPressX, sidebarPressY int // sidebar press cell awaiting release; -1 when none
 	selection                    selectionState
 	lastClickTime                time.Time
 	lastClickPos                 selectionPoint
