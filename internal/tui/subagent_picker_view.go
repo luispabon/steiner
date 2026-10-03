@@ -114,9 +114,10 @@ func (s subAgentPickerOverlay) styledCardRow(row subAgentPickerRow, w int, now i
 	if !ok {
 		typeStyle = s.styles.ToolTagDefault
 	}
-	meta := s.styles.FgMute
+	// Same scheme as the sidebar roster row.
+	meta := s.styles.FgDim
 	if finished {
-		typeStyle, meta = s.styles.FgDim, s.styles.FgFaint
+		typeStyle, meta = s.styles.FgDim, s.styles.FgMute
 	}
 	return s.styles.FgMute.Render(p.prefix) + iconStyle.Render(p.icon) + " " + typeStyle.Render(p.typ) + " " +
 		meta.Render(p.id+" "+p.elapsed) + "  " + s.styles.FgDim.Render(p.task)

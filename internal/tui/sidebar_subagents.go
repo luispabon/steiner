@@ -135,10 +135,12 @@ func (s sidebarState) rosterRow(e rosterEntry, prefix string, typeW, width int) 
 	if _, ok := s.styles.DelegateTagStyles[strings.ToLower(e.agentType)]; !ok {
 		typeStyle = s.styles.ToolTagDefault
 	}
-	meta := s.styles.FgMute
+	// In-flight IDs and durations share the finished type colour so they stay
+	// readable; finished rows drop to the darkest grey.
+	meta := s.styles.FgDim
 	if dim {
 		typeStyle = s.styles.FgDim
-		meta = s.styles.FgFaint
+		meta = s.styles.FgMute
 	}
 	return prefix + icon + s.styledWithBg(s.styles.FgMute, " ") + s.styledWithBg(typeStyle, typ) +
 		s.styledWithBg(meta, " "+id+" "+elapsed)
