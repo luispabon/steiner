@@ -204,7 +204,6 @@ func TestServeCallback(t *testing.T) {
 			if err != nil {
 				t.Fatalf("net.Listen() error = %v", err)
 			}
-			addr := l.Addr().(*net.TCPAddr)
 
 			codeChan := make(chan string, 1)
 			errChan := make(chan error, 1)
@@ -215,7 +214,10 @@ func TestServeCallback(t *testing.T) {
 				close(served)
 			}()
 
-			callbackURL := fmt.Sprintf("http://localhost:%d/callback?%s", addr.Port, tt.queryParams.Encode())
+			// Dial the exact bound address: "localhost" can resolve to the other
+			// loopback family first, where an unrelated process may hold the
+			// same port number and reset the connection.
+			callbackURL := fmt.Sprintf("http://%s/callback?%s", l.Addr().String(), tt.queryParams.Encode())
 			resp, err := http.Get(callbackURL) //nolint:noctx
 			if err != nil {
 				t.Fatalf("http.Get() error = %v", err)

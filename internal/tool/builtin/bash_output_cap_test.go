@@ -12,6 +12,7 @@ import (
 )
 
 func TestBashToolTruncatedFlag(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
 	toolDef := NewBashTool(Env{WorkDir: dir, PathPolicy: &policy})
@@ -75,6 +76,7 @@ func TestReadUntilMarkerCapsAndFindsMarker(t *testing.T) {
 }
 
 func TestBashSessionLargeOutputKeepsExitCode(t *testing.T) {
+	t.Parallel()
 	s := NewBashSession()
 	if err := s.Start(); err != nil {
 		t.Fatal(err)

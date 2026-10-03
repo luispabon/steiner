@@ -456,6 +456,7 @@ func waitForDelegationComplete(t *testing.T, h *asyncHarness, agentID string) {
 }
 
 func TestAsyncSubAgentsThroughInteractiveWiring(t *testing.T) {
+	t.Parallel()
 	t.Run("ack, guards, then result wakes a run", func(t *testing.T) {
 		prov := newAsyncScript("task-one", "task-two")
 		var firstAgentID string

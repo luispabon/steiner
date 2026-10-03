@@ -351,6 +351,7 @@ func TestComputeMatchFailure_OldLineCap(t *testing.T) {
 }
 
 func TestComputeMatchFailure_FileByteCap(t *testing.T) {
+	t.Parallel()
 	content := strings.Repeat("a\n", (maxFeatureFileBytes/2)+8)
 	f := computeMatchFailure(matchFeatureInput{old: "a\n", content: []byte(content)})
 	if !f.Truncated {
@@ -379,6 +380,7 @@ func TestComputeMatchFailure_PositionCap(t *testing.T) {
 // bounded on a 4 MiB file of 400 repetitive lines, where a naive scan would
 // explode on positions.
 func TestComputeMatchFailure_BoundedOnRepetitiveFile(t *testing.T) {
+	t.Parallel()
 	content := strings.Repeat("}\n", 2<<20)
 	old := strings.Repeat("}\n", 400)
 	f := computeMatchFailure(matchFeatureInput{old: old, content: []byte(content)})

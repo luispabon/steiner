@@ -143,6 +143,7 @@ func TestRunPhaseOnDriverSuccessSkipsShutdown(t *testing.T) {
 }
 
 func TestRunPhaseOnDriverWaitsForBackgroundChild(t *testing.T) {
+	t.Parallel()
 	h := &phaseHarness{bg: &phaseBackground{}}
 	ran := make(chan struct{})
 	host := h.host(func(_ context.Context, in agent.DriverRunInput) (agent.DriverRunOutput, error) {

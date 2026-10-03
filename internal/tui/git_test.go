@@ -87,8 +87,9 @@ func TestDetectGitSnapshotIncludesUntrackedFiles(t *testing.T) {
 }
 
 func TestNewGitStateUsesWorkingDirectoryWhenStartDirBlank(t *testing.T) {
+	prev := getWorkingDir
 	t.Cleanup(func() {
-		getWorkingDir = os.Getwd
+		getWorkingDir = prev
 	})
 
 	want := "/tmp/project"
@@ -106,8 +107,9 @@ func TestNewGitStateUsesWorkingDirectoryWhenStartDirBlank(t *testing.T) {
 }
 
 func TestNewGitStateLogsWorkingDirectoryResolutionFailure(t *testing.T) {
+	prev := getWorkingDir
 	t.Cleanup(func() {
-		getWorkingDir = os.Getwd
+		getWorkingDir = prev
 	})
 
 	cwdErr := errors.New("cwd unavailable")

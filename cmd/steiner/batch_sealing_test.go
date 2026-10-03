@@ -36,6 +36,7 @@ func toolBatchScript() *asyncScript {
 }
 
 func TestEveryModeSealsItsOwnScopeAndNoOther(t *testing.T) {
+	t.Parallel()
 	user := []agent.Message{{Role: agent.MessageRoleUser, Content: "go"}}
 	modes := []struct {
 		name string
@@ -91,6 +92,7 @@ func TestEveryModeSealsItsOwnScopeAndNoOther(t *testing.T) {
 }
 
 func TestRunWithoutScopeSealsNothing(t *testing.T) {
+	t.Parallel()
 	runner, sup, scope, _ := newGroupScopeTestRunner(t)
 	t.Cleanup(func() { sup.CancelAll(delegation.CancelCauseUser) })
 	script := toolBatchScript()
