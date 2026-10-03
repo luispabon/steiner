@@ -96,6 +96,8 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 		accentPreset:                 cfg.AccentPreset,
 		sidebarPosition:              cfg.SidebarPosition,
 		mousePressX:                  -1,
+		sidebarPressX:                -1,
+		sidebarPressY:                -1,
 		mousePressY:                  -1,
 		oneshotRunnerFactory:         cfg.OneshotRunnerFactory,
 		imageStore:                   cfg.ImageStore,
