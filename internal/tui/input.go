@@ -31,6 +31,7 @@ type inputAction struct {
 	setAccent                  string
 	toggleThinking             bool
 	requestSessionPicker       bool
+	requestSubAgentPicker      bool
 	requestOneshotResumePicker bool
 	forkSession                bool
 	openModelPicker            bool

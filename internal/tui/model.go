@@ -118,11 +118,16 @@ type Model struct {
 	sidebar  sidebarState
 	git      *gitState
 
-	approval            approvalState
-	activity            activityState
-	external            <-chan tea.Msg
-	autoScroll          bool
-	contentTopPad       int
+	approval      approvalState
+	activity      activityState
+	external      <-chan tea.Msg
+	autoScroll    bool
+	contentTopPad int
+	// sub-agent jump state (delegation_jump.go)
+	jumpTarget          occurrenceKey // last jump target; zero value = none
+	jumpAt              time.Time     // when jumpTarget was set; gates the alt+/ expand window
+	jumpFlashEpoch      int           // bumped on every jump; stale flash ticks are ignored
+	jumpFlashLeft       int           // remaining half-phases of the active flash
 	skillNames          []string
 	skillDescriptions   map[string]string
 	mcpEnabled          bool
@@ -166,6 +171,7 @@ type Model struct {
 	lspOverlay                   lspOverlay
 	filePicker                   filePickerOverlay
 	sessionPicker                sessionPickerOverlay
+	subAgentPicker               subAgentPickerOverlay
 	oneshotResumePicker          oneshotResumePickerOverlay
 	modelPicker                  modelPickerOverlay
 	modelReasoningCapabilities   map[string]provider.ReasoningCapabilities
@@ -204,6 +210,7 @@ type Model struct {
 	syncDebounceSeq              int
 	mousePressX                  int
 	mousePressY                  int
+	sidebarPressX, sidebarPressY int // sidebar press cell awaiting release; -1 when none
 	selection                    selectionState
 	lastClickTime                time.Time
 	lastClickPos                 selectionPoint

@@ -229,11 +229,31 @@ func (m *Model) renderOverlayView(base string, contentWidth int) string {
 
 func (m *Model) hasOpenBottomOverlay() bool {
 	return m.slashOverlay.IsOpen() || m.filePicker.IsOpen() ||
-		m.sessionPicker.IsOpen() || m.oneshotResumePicker.IsOpen() ||
+		m.sessionPicker.IsOpen() || m.subAgentPicker.IsOpen() || m.oneshotResumePicker.IsOpen() ||
 		(m.modelPicker.IsOpen() && !m.modelPicker.IsWorkflowHandoff()) ||
 		m.reasoningPicker.IsOpen() ||
 		m.planPicker.IsOpen() || m.accentPicker.IsOpen() || m.profilePicker.IsOpen() ||
 		m.orchestrationPicker.IsOpen()
+}
+
+// bottomAnchoredOverlay is a picker or overlay placed above the prompt box.
+type bottomAnchoredOverlay interface {
+	IsOpen() bool
+	View() string
+	PlaceBottomAnchoredAt(base, overlay string, inputHeight, xOffset int) string
+}
+
+// bottomOverlays returns the bottom-anchored overlays in render order (later
+// overlays draw over earlier ones). The model picker is skipped while it is
+// serving a workflow handoff, which renders elsewhere.
+func (m *Model) bottomOverlays() []bottomAnchoredOverlay {
+	overlays := []bottomAnchoredOverlay{
+		&m.slashOverlay, &m.filePicker, &m.sessionPicker, &m.subAgentPicker, &m.oneshotResumePicker,
+	}
+	if !m.modelPicker.IsWorkflowHandoff() {
+		overlays = append(overlays, &m.modelPicker)
+	}
+	return append(overlays, &m.reasoningPicker, &m.planPicker, &m.accentPicker, &m.profilePicker, &m.orchestrationPicker)
 }
 
 func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) string {
@@ -250,35 +270,10 @@ func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) stri
 		xOffset = m.width - contentWidth
 	}
 
-	if m.slashOverlay.IsOpen() {
-		base = m.slashOverlay.PlaceBottomAnchoredAt(base, m.slashOverlay.View(), offset, xOffset)
-	}
-	if m.filePicker.IsOpen() {
-		base = m.filePicker.PlaceBottomAnchoredAt(base, m.filePicker.View(), offset, xOffset)
-	}
-	if m.sessionPicker.IsOpen() {
-		base = m.sessionPicker.PlaceBottomAnchoredAt(base, m.sessionPicker.View(), offset, xOffset)
-	}
-	if m.oneshotResumePicker.IsOpen() {
-		base = m.oneshotResumePicker.PlaceBottomAnchoredAt(base, m.oneshotResumePicker.View(), offset, xOffset)
-	}
-	if m.modelPicker.IsOpen() && !m.modelPicker.IsWorkflowHandoff() {
-		base = m.modelPicker.PlaceBottomAnchoredAt(base, m.modelPicker.View(), offset, xOffset)
-	}
-	if m.reasoningPicker.IsOpen() {
-		base = m.reasoningPicker.PlaceBottomAnchoredAt(base, m.reasoningPicker.View(), offset, xOffset)
-	}
-	if m.planPicker.IsOpen() {
-		base = m.planPicker.PlaceBottomAnchoredAt(base, m.planPicker.View(), offset, xOffset)
-	}
-	if m.accentPicker.IsOpen() {
-		base = m.accentPicker.PlaceBottomAnchoredAt(base, m.accentPicker.View(), offset, xOffset)
-	}
-	if m.profilePicker.IsOpen() {
-		base = m.profilePicker.PlaceBottomAnchoredAt(base, m.profilePicker.View(), offset, xOffset)
-	}
-	if m.orchestrationPicker.IsOpen() {
-		base = m.orchestrationPicker.PlaceBottomAnchoredAt(base, m.orchestrationPicker.View(), offset, xOffset)
+	for _, o := range m.bottomOverlays() {
+		if o.IsOpen() {
+			base = o.PlaceBottomAnchoredAt(base, o.View(), offset, xOffset)
+		}
 	}
 	return base
 }

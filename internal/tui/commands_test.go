@@ -6,8 +6,8 @@ import (
 
 func TestRegistrySize(t *testing.T) {
 	t.Parallel()
-	if len(slashCommands) != 22 {
-		t.Fatalf("registry length = %d, want 22", len(slashCommands))
+	if len(slashCommands) != 23 {
+		t.Fatalf("registry length = %d, want 23", len(slashCommands))
 	}
 }
 
@@ -67,6 +67,7 @@ func TestRegistryOrder(t *testing.T) {
 		"/orchestration",
 		"/oneshot",
 		"/oneshot-resume",
+		"/agents",
 		"/resume",
 		"/review",
 		"/skill",
@@ -358,9 +359,9 @@ func TestProjectOverlayItemsWithSkills(t *testing.T) {
 	skillNames := []string{"foo"}
 	skillDescs := map[string]string{"foo": "a useful skill"}
 	got := projectOverlayItems(false, skillNames, skillDescs)
-	// 22 commands + 1 skill = 23 items
-	if len(got) != 23 {
-		t.Fatalf("projectOverlayItems with skill length = %d, want 23", len(got))
+	// 23 commands + 1 skill = 24 items
+	if len(got) != 24 {
+		t.Fatalf("projectOverlayItems with skill length = %d, want 24", len(got))
 	}
 	// Last item should be the skill
 	last := got[len(got)-1]
@@ -403,6 +404,7 @@ func TestProjectHelpLines(t *testing.T) {
 		{key: "/compact", desc: "trigger compaction with optional focus text"},
 		{key: "/fork", desc: "fork current conversation into a new session"},
 		{key: "/resume", desc: "load a previous session"},
+		{key: "/agents", desc: "find and jump to a sub-agent"},
 		{key: "/accent [preset]", desc: "change accent color"},
 		{key: "/thinking", desc: "show or hide thinking blocks"},
 		{key: "shift+tab / /mode [plan|build]", desc: "toggle or set mode: plan (restricted edits, plan artifacts only) or build (normal workspace editing)"},

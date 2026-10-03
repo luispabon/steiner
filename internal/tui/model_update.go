@@ -121,6 +121,8 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case phaseTransitionFailedMsg:
 		m.content.AppendLine(fmt.Sprintf("status: phase transition failed: %v", msg.err))
 		return m, nil
+	case jumpFlashTickMsg:
+		return m.handleJumpFlashTick(msg)
 	case mouseClickMsg, mouseMotionMsg, mouseReleaseMsg, mouseWheelMsg, dragAutoScrollTickMsg:
 		return m.handleMouseEventMsg(msg)
 	case tea.KeyPressMsg:
@@ -252,6 +254,10 @@ func (m *Model) resetConversationUI() {
 	}
 	m.sessionStartedAt = nil
 	m.content.Clear()
+	m.jumpTarget = occurrenceKey{}
+	m.jumpAt = time.Time{}
+	m.jumpFlashLeft = 0
+	m.jumpFlashEpoch++
 	m.convState = output.ConversationStateEvent{}
 	m.convStateSeen = false
 	m.convLabelShown = false
@@ -323,6 +329,7 @@ func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	m.lspOverlay.styles = m.styles
 	m.filePicker.styles = m.styles
 	m.sessionPicker.styles = m.styles
+	m.subAgentPicker.styles = m.styles
 	m.modelPicker.styles = m.styles
 	m.reasoningPicker.styles = m.styles
 	m.planPicker.styles = m.styles
@@ -363,6 +370,7 @@ func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	m.content.tickCount++
 	m.sidebar.tickCount = m.content.tickCount
 	m.syncRoster()
+	m.refreshSubAgentPicker()
 	if m.pollLSPStatesFunc != nil {
 		m.lspServers = m.pollLSPStatesFunc()
 		m.syncSidebar()
@@ -430,6 +438,7 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 	m.slashOverlay.OverlayShell = m.slashOverlay.WithDimensions(contentW, msg.Height)
 	m.orchestrationPicker.OverlayShell = m.orchestrationPicker.WithDimensions(contentW, msg.Height)
 	m.sessionPicker = m.sessionPicker.withDimensions(contentW, msg.Height)
+	m.subAgentPicker = m.subAgentPicker.withDimensions(contentW, msg.Height)
 	m.oneshotResumePicker = m.oneshotResumePicker.withDimensions(contentW, msg.Height)
 	m.layout()
 	return m, nil
@@ -554,6 +563,10 @@ func (m *Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 	m.lastClickPos = clickPos
 	m.activeRegion = m.detectRegion(msg.x, msg.y)
 
+	m.sidebarPressX, m.sidebarPressY = -1, -1
+	if m.activeRegion == regionSidebar {
+		m.sidebarPressX, m.sidebarPressY = msg.x, msg.y
+	}
 	if m.activeRegion == regionNone || m.activeRegion == regionSidebar {
 		m.selection = m.selection.clear()
 		m.mousePressX = -1
@@ -619,6 +632,11 @@ func (m *Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) {
 	m.dragScrollEpoch++
+	if m.activeRegion == regionSidebar && m.sidebarPressX >= 0 && msg.x == m.sidebarPressX && msg.y == m.sidebarPressY {
+		m.sidebarPressX, m.sidebarPressY = -1, -1
+		return m, m.sidebarRosterClick(msg.x, msg.y)
+	}
+	m.sidebarPressX, m.sidebarPressY = -1, -1
 	// mousePressX < 0 means the press was already fully handled at click time
 	// (e.g. word/line selection from a double/triple-click); nothing left to do.
 	if m.mousePressX < 0 {

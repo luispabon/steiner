@@ -97,6 +97,8 @@ func newModel(cfg Config, external <-chan tea.Msg) *Model {
 		sidebarPosition:              cfg.SidebarPosition,
 		mousePressX:                  -1,
 		mousePressY:                  -1,
+		sidebarPressX:                -1,
+		sidebarPressY:                -1,
 		oneshotRunnerFactory:         cfg.OneshotRunnerFactory,
 		imageStore:                   cfg.ImageStore,
 		visionCapabilities:           cfg.VisionCapabilities,
@@ -240,6 +242,12 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		match: func(m *Model) bool { return m.sessionPicker.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			return m.handleSessionPickerKey(msg)
+		},
+	},
+	overlayKeyHandlerFunc{
+		match: func(m *Model) bool { return m.subAgentPicker.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			return m.handleSubAgentPickerKey(msg)
 		},
 	},
 	overlayKeyHandlerFunc{
@@ -406,6 +414,9 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.sessionPicker = newSessionPickerOverlay(m.styles)
 	m.sessionPicker.width = m.width
 	m.sessionPicker.height = m.height
+	m.subAgentPicker = newSubAgentPickerOverlay(m.styles)
+	m.subAgentPicker.width = m.width
+	m.subAgentPicker.height = m.height
 	m.sessionStore = cfg.SessionStore
 
 	m.oneshotResumePicker = newOneshotResumePickerOverlay(m.styles)

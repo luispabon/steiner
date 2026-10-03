@@ -19,11 +19,24 @@ func formatRosterElapsed(startNano, endNano int64) string {
 // subAgentsSection renders the sidebar sub-agent roster. It is empty when no
 // sub-agent was dispatched since the last prompt.
 func (s sidebarState) subAgentsSection(width int) []string {
+	lines, _ := s.subAgentsRows(width)
+	return lines
+}
+
+// subAgentsRows renders the roster section and, in parallel, the agent ID each
+// line targets ("" for non-clickable lines: blank, label, group header,
+// "+N finished").
+func (s sidebarState) subAgentsRows(width int) (lines []string, targets []string) {
 	if len(s.subAgents) == 0 {
-		return nil
+		return nil, nil
+	}
+	add := func(line, target string) {
+		lines = append(lines, line)
+		targets = append(targets, target)
 	}
 	c := countRoster(s.subAgents)
-	lines := []string{"", cardLabel(rosterLabel(c), s.styles)}
+	add("", "")
+	add(cardLabel(rosterLabel(c), s.styles), "")
 
 	visible, hidden := visibleRosterEntries(s.subAgents)
 
@@ -35,7 +48,7 @@ func (s sidebarState) subAgentsSection(width int) []string {
 	emitted := map[groupKey]bool{}
 	for _, e := range visible {
 		if !e.admitted || e.occurrence.BatchID == "" || e.group == "" {
-			lines = append(lines, s.rosterRow(e, "", typeW, width))
+			add(s.rosterRow(e, "", typeW, width), e.agentID)
 			continue
 		}
 		key := groupKey{batchID: e.occurrence.BatchID, group: e.group}
@@ -43,17 +56,17 @@ func (s sidebarState) subAgentsSection(width int) []string {
 			continue
 		}
 		emitted[key] = true
-		lines = append(lines, s.styledWithBg(s.styles.FgMute, fitText("┌ "+e.group, width)))
+		add(s.styledWithBg(s.styles.FgMute, fitText("┌ "+e.group, width)), "")
 		for _, m := range visible {
 			if m.admitted && m.occurrence.BatchID == e.occurrence.BatchID && m.group == e.group {
-				lines = append(lines, s.rosterRow(m, s.styledWithBg(s.styles.FgMute, "│ "), typeW, width))
+				add(s.rosterRow(m, s.styledWithBg(s.styles.FgMute, "│ "), typeW, width), m.agentID)
 			}
 		}
 	}
 	if hidden > 0 {
-		lines = append(lines, s.styledWithBg(s.styles.FgMute, fmt.Sprintf("+%d finished", hidden)))
+		add(s.styledWithBg(s.styles.FgMute, fmt.Sprintf("+%d finished", hidden)), "")
 	}
-	return lines
+	return lines, targets
 }
 
 // rosterLabel builds the section heading from the roster counts.

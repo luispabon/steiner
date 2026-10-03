@@ -33,13 +33,34 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 	return lines
 }
 
-func (s sidebarState) staticLines(width int) []string {
+// staticPrefixLines returns the fixed lines that precede the sub-agents section.
+func (s sidebarState) staticPrefixLines(width int) []string {
 	lines := append([]string{}, s.brandLines(width)...)
 	lines = append(lines, lipgloss.NewStyle().Background(lipgloss.Color(s.styles.Palette.SidebarBG)).Render(""))
 	lines = append(lines, s.separatorLine(width))
 	lines = append(lines, s.modelSection(width)...)
 	lines = append(lines, s.contextSection(width)...)
 	lines = append(lines, s.statusSection(width)...)
+	return lines
+}
+
+// rosterTargetAtRow returns the agent ID of the roster row at inner row index row,
+// or "" when that row is not a clickable roster row.
+func (s sidebarState) rosterTargetAtRow(innerHeight, row int) string {
+	if row < 0 || row >= innerHeight {
+		return ""
+	}
+	width := sidebarWidth - sidebarPadH*2 // same inner width renderSidebar lays out with
+	_, targets := s.subAgentsRows(width)
+	idx := row - len(s.staticPrefixLines(width))
+	if idx < 0 || idx >= len(targets) {
+		return ""
+	}
+	return targets[idx]
+}
+
+func (s sidebarState) staticLines(width int) []string {
+	lines := s.staticPrefixLines(width)
 	lines = append(lines, s.subAgentsSection(width)...)
 	lines = append(lines, s.performanceSection(width)...)
 	if s.oneshotPhase != "" {
