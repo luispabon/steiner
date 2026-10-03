@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -77,5 +79,46 @@ func TestSidebarStateBrandLines(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSidebarStateBrandLinesWrapsLongVersion(t *testing.T) {
+	t.Parallel()
+	const version = "0.27.0-8-ga17d550e-dirty-with-a-very-long-local-suffix"
+	s := sidebarState{styles: testStyles(theme.AccentAmber), version: version}
+	lines := s.brandLines(brandLinesTestWidth)
+	if len(lines) <= 3 {
+		t.Fatalf("brandLines() returned %d lines, want the version wrapped past the logo", len(lines))
+	}
+	var text strings.Builder
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got > brandLinesTestWidth {
+			t.Errorf("line %d width = %d, want <= %d", i, got, brandLinesTestWidth)
+		}
+		if i >= 2 {
+			text.WriteString(strings.TrimSpace(ansi.Strip(line)))
+		}
+	}
+	if got := text.String(); !strings.HasSuffix(got, version) {
+		t.Errorf("wrapped version text = %q, want it to end with %q", got, version)
+	}
+}
+
+func TestWrapRunes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		text        string
+		first, rest int
+		want        []string
+	}{
+		{"", 3, 5, []string{""}},
+		{"abc", 3, 5, []string{"abc"}},
+		{"abcdefghij", 3, 5, []string{"abc", "defgh", "ij"}},
+		{"ab", 1, 1, []string{"a", "b"}},
+	}
+	for _, tc := range tests {
+		if got := wrapRunes(tc.text, tc.first, tc.rest); !slices.Equal(got, tc.want) {
+			t.Errorf("wrapRunes(%q, %d, %d) = %q, want %q", tc.text, tc.first, tc.rest, got, tc.want)
+		}
 	}
 }

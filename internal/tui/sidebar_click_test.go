@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // newSidebarClickModel builds a tall model with one running ungrouped agent, a
@@ -202,5 +204,31 @@ func TestSidebarReleaseWithoutPressDoesNothing(t *testing.T) {
 	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: 0})
 	if m.jumpTarget != (occurrenceKey{}) {
 		t.Error("phantom click jumped")
+	}
+}
+
+// TestSidebarRosterClickUsesRenderedRows clicks each agent where the rendered
+// sidebar actually draws it. A dev version too long for the logo row used to
+// soft-wrap, shifting every roster row down one screen row so a click landed
+// on the agent below.
+func TestSidebarRosterClickUsesRenderedRows(t *testing.T) {
+	m, keys := newSidebarClickModel(t, "left", 0)
+	m.sidebar.version = "0.27.0-8-ga17d550e-dirty"
+	rows := strings.Split(ansi.Strip(m.sidebar.View(m.width, m.height)), "\n")
+	for _, id := range []string{"solo", "g1", "g2"} {
+		row := -1
+		for i, line := range rows {
+			if strings.Contains(line, " "+id+" ") {
+				row = i
+				break
+			}
+		}
+		if row < 0 {
+			t.Fatalf("agent %q not rendered in sidebar", id)
+		}
+		m.jumpTarget = occurrenceKey{}
+		if cmd := m.sidebarRosterClick(sidebarClickX(m, sidebarPadH), row); cmd == nil || m.jumpTarget != keys[id] {
+			t.Errorf("click on %q row %d: jumpTarget = %+v, want %+v", id, row, m.jumpTarget, keys[id])
+		}
 	}
 }
