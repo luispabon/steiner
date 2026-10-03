@@ -219,20 +219,29 @@ func (b *contentBuffer) appendUserInputEvent(event output.Event) {
 		b.collapseState[idx] = false
 	}
 	if len(payload.Images) > 0 {
-		images := make([]agent.ImageBlock, len(payload.Images))
-		for i, img := range payload.Images {
-			images[i] = agent.ImageBlock{
-				ID:        img.ID,
-				FilePath:  img.FilePath,
-				MediaType: img.MediaType,
-				Data:      img.Data,
-				Width:     img.Width,
-				Height:    img.Height,
-				SizeBytes: img.SizeBytes,
-			}
-		}
-		b.AppendImagesAttached(images, b.workingDir, b.homeDir)
+		b.AppendImagesAttached(agentImageBlocks(payload.Images), b.workingDir, b.homeDir)
 	}
+}
+
+// agentImageBlocks converts output image blocks to agent image blocks for the
+// content buffer's attachment rendering. It returns nil for an empty slice.
+func agentImageBlocks(images []output.ImageBlock) []agent.ImageBlock {
+	if len(images) == 0 {
+		return nil
+	}
+	converted := make([]agent.ImageBlock, len(images))
+	for i, img := range images {
+		converted[i] = agent.ImageBlock{
+			ID:        img.ID,
+			FilePath:  img.FilePath,
+			MediaType: img.MediaType,
+			Data:      img.Data,
+			Width:     img.Width,
+			Height:    img.Height,
+			SizeBytes: img.SizeBytes,
+		}
+	}
+	return converted
 }
 
 func (b *contentBuffer) AppendLine(line string) {

@@ -605,3 +605,62 @@ func TestApplyEventModelWaitingStateOmitsModelDetail(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyEventSteerReceivedAppendsAttachedImages(t *testing.T) {
+	t.Parallel()
+	t.Run("with images appends attachment segment", func(t *testing.T) {
+		t.Parallel()
+		m := newModel(Config{}, nil)
+		m.sidebar.workingDir = "/home/user/project"
+		m.sidebar.homeDir = "/home/user"
+
+		_ = m.applyEvent(output.NewSteerReceivedEvent("describe this", []output.ImageBlock{{
+			ID:        "img-1",
+			FilePath:  "/home/user/project/shot.png",
+			MediaType: "image/png",
+			Width:     100,
+			Height:    50,
+			SizeBytes: 2048,
+		}}))
+
+		var userText string
+		var attached *imagesAttachedData
+		for i := range m.content.segments {
+			switch seg := m.content.segments[i]; seg.kind {
+			case segmentUserMarkdown:
+				userText = seg.text
+			case segmentImagesAttached:
+				attached = seg.imagesAttachedData
+			}
+		}
+		if userText != "describe this" {
+			t.Errorf("user segment text = %q, want %q", userText, "describe this")
+		}
+		if attached == nil || len(attached.rows) != 1 {
+			t.Fatalf("images attached data = %+v, want one row", attached)
+		}
+	})
+	t.Run("without images appends only the user segment", func(t *testing.T) {
+		t.Parallel()
+		m := newModel(Config{}, nil)
+
+		_ = m.applyEvent(output.NewSteerReceivedEvent("plain steer", nil))
+
+		var userText string
+		var attached int
+		for i := range m.content.segments {
+			switch seg := m.content.segments[i]; seg.kind {
+			case segmentUserMarkdown:
+				userText = seg.text
+			case segmentImagesAttached:
+				attached++
+			}
+		}
+		if userText != "plain steer" {
+			t.Errorf("user segment text = %q, want %q", userText, "plain steer")
+		}
+		if attached != 0 {
+			t.Errorf("images attached segments = %d, want 0", attached)
+		}
+	})
+}
