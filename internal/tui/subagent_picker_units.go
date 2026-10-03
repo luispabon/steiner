@@ -23,15 +23,6 @@ func (b *contentBuffer) subAgentPickerUnits() []pickerUnit {
 	return units
 }
 
-// pickerSegment resolves the segment that renders dd, or -1 when none does.
-func (b *contentBuffer) pickerSegment(loc delegationLocator, dd *delegationDisplayState) int {
-	seg := loc.seg
-	if seg < 0 || seg >= len(b.segments) || !segmentHoldsDelegation(b.segments[seg], dd) {
-		return findDelegationSegment(b.segments, dd)
-	}
-	return seg
-}
-
 // bucketPickerOccurrences buckets non-advisor occurrences by their segment.
 func (b *contentBuffer) bucketPickerOccurrences() map[int]*pickerUnit {
 	bySeg := map[int]*pickerUnit{}
@@ -40,7 +31,7 @@ func (b *contentBuffer) bucketPickerOccurrences() map[int]*pickerUnit {
 		if dd == nil || dd.isAdvisor {
 			continue
 		}
-		seg := b.pickerSegment(loc, dd)
+		seg := b.delegationSegmentIndex(loc, dd)
 		if seg < 0 {
 			continue
 		}

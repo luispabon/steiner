@@ -22,6 +22,15 @@ type jumpFlashState struct {
 // newer jump or a clear happened since it was armed) is ignored.
 type jumpFlashTickMsg struct{ epoch int }
 
+// delegationSegmentIndex resolves the segment that renders dd, or -1 when none does.
+func (b *contentBuffer) delegationSegmentIndex(loc delegationLocator, dd *delegationDisplayState) int {
+	seg := loc.seg
+	if seg < 0 || seg >= len(b.segments) || !segmentHoldsDelegation(b.segments[seg], dd) {
+		return findDelegationSegment(b.segments, dd)
+	}
+	return seg
+}
+
 // delegationTopRow returns the segment index and the row within that segment of the
 // target card's top edge (D2): row 0 for a standalone segmentDelegation; for a
 // segmentDelegationGroup member i, row 0 when i == 0, else the divider row directly
@@ -33,12 +42,9 @@ func (b *contentBuffer) delegationTopRow(key occurrenceKey, width int) (seg, row
 		return 0, 0, nil, false
 	}
 	dd = loc.dd
-	seg = loc.seg
-	if seg < 0 || seg >= len(b.segments) || !segmentHoldsDelegation(b.segments[seg], dd) {
-		seg = findDelegationSegment(b.segments, dd)
-		if seg < 0 {
-			return 0, 0, nil, false
-		}
+	seg = b.delegationSegmentIndex(loc, dd)
+	if seg < 0 {
+		return 0, 0, nil, false
 	}
 	s := b.segments[seg]
 	if s.delegData == dd {

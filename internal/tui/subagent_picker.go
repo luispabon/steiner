@@ -36,8 +36,13 @@ func (s subAgentPickerOverlay) Open(build func(query string) []subAgentPickerRow
 	s.build = build
 	s.query = ""
 	s.scrollOffset = 0
+	return s.countTotals().setQuery("")
+}
+
+// countTotals recomputes the running and finished card counts over every card.
+func (s subAgentPickerOverlay) countTotals() subAgentPickerOverlay {
 	s.totalRunning, s.totalDone = 0, 0
-	for _, r := range s.rebuild("").rows {
+	for _, r := range s.build("") {
 		if !r.selectable() {
 			continue
 		}
@@ -47,7 +52,30 @@ func (s subAgentPickerOverlay) Open(build func(query string) []subAgentPickerRow
 			s.totalDone++
 		}
 	}
-	return s.setQuery("")
+	return s
+}
+
+// refresh re-reads card state into an open picker, keeping the selected card
+// selected when it is still listed. It is a no-op when the picker is closed.
+func (s subAgentPickerOverlay) refresh() subAgentPickerOverlay {
+	if !s.IsOpen() {
+		return s
+	}
+	key, hadKey := s.SelectedKey()
+	s = s.countTotals().rebuild(s.query)
+	s.selection = -1
+	if hadKey {
+		for i, r := range s.rows {
+			if r.selectable() && r.key == key {
+				s.selection = i
+				break
+			}
+		}
+	}
+	if s.selection < 0 {
+		s.selection = s.nextSelectable(-1, 1)
+	}
+	return s.keepSelectionVisible()
 }
 
 func (s subAgentPickerOverlay) Close() subAgentPickerOverlay {

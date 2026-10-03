@@ -131,3 +131,35 @@ func TestSubAgentPickerViewBounds(t *testing.T) {
 		_ = m.View()
 	}
 }
+
+func TestSubAgentPickerRefreshMovesFinishedCard(t *testing.T) {
+	m, keys := pickerModel(t)
+	dd := m.content.delegations[keys["aaa"]].dd
+	dd.status = "active"
+	m.openSubAgentPicker()
+	for selectedID(m) != "aaa" {
+		before := m.subAgentPicker.selection
+		m.subAgentPicker.selection = m.subAgentPicker.nextSelectable(before, 1)
+		if m.subAgentPicker.selection == before {
+			t.Fatal("active card row not found")
+		}
+	}
+	if m.subAgentPicker.totalRunning != 1 {
+		t.Fatalf("totalRunning = %d, want 1", m.subAgentPicker.totalRunning)
+	}
+
+	dd.status = "complete"
+	m.refreshSubAgentPicker()
+
+	for _, r := range m.subAgentPicker.rows {
+		if r.section && r.heading == "RUNNING" {
+			t.Error("RUNNING section still present after the card completed")
+		}
+	}
+	if got := selectedID(m); got != "aaa" {
+		t.Errorf("selected = %q, want aaa", got)
+	}
+	if run, done := m.subAgentPicker.totalRunning, m.subAgentPicker.totalDone; run != 0 || done != 3 {
+		t.Errorf("totals = %d running / %d done, want 0 / 3", run, done)
+	}
+}
