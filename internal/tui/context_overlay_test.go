@@ -1,11 +1,11 @@
 package tui
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -177,8 +177,6 @@ func TestContextOverlayScrollsLongRenderedMarkdown(t *testing.T) {
 	}
 }
 
-var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
 func stripANSI(s string) string {
-	return ansiEscapePattern.ReplaceAllString(s, "")
+	return ansi.Strip(s)
 }

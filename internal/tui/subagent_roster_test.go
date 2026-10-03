@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -225,7 +226,7 @@ func TestRosterRowMetaColour(t *testing.T) {
 			t.Parallel()
 			s := rosterSidebar([]rosterEntry{tc.entry}, 2*sec1)
 			got := s.rosterRow(tc.entry, "", 6, 40)
-			if want := tc.meta.Background(bg).Render(tc.suffix); !strings.HasSuffix(got, want) {
+			if want := tc.meta.Background(bg).Render(tc.suffix) + ansi.ResetHyperlink(); !strings.HasSuffix(got, want) {
 				t.Errorf("rosterRow() = %q, want suffix %q", got, want)
 			}
 		})

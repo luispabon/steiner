@@ -2,6 +2,7 @@ package tui
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,30 +112,46 @@ func TestRecentMouseInputCountsMotion(t *testing.T) {
 	}
 }
 
-func TestSidebarHoverPointerShape(t *testing.T) {
+// TestRosterRowsAreHyperlinks checks every clickable roster row reaches the
+// final frame wrapped in its own OSC 8 link (which gives terminals their hand
+// pointer and underline) and non-clickable lines carry none.
+func TestRosterRowsAreHyperlinks(t *testing.T) {
 	m, _ := newSidebarClickModel(t, "left", 0)
-	steps := []struct {
-		name    string
-		agentID string
-		want    tea.Msg // nil means no command
-	}{
-		{"hovering a row shows the hand", "solo", tea.RawMsg{Msg: ansi.SetPointerShape("pointer")}},
-		{"moving to another row keeps the hand", "g1", nil},
-		{"leaving the rows restores the arrow", "", tea.RawMsg{Msg: ansi.SetPointerShape("default")}},
-		{"staying off the rows sends nothing", "", nil},
+	lines := strings.Split(m.View().Content, "\n")
+	for _, id := range []string{"solo", "g1", "g2"} {
+		row := renderedSidebarRow(m, id)
+		if row < 0 || row >= len(lines) {
+			t.Fatalf("agent %q not rendered", id)
+		}
+		open := ansi.SetHyperlink("steiner://agent/" + id)
+		i := strings.Index(lines[row], open)
+		if i < 0 {
+			t.Errorf("row %d for %q has no link %q: %q", row, id, open, lines[row])
+			continue
+		}
+		linked := lines[row][i+len(open):]
+		end := strings.Index(linked, ansi.ResetHyperlink())
+		if end < 0 {
+			t.Errorf("row %d for %q never closes its link", row, id)
+			continue
+		}
+		if text := ansi.Strip(linked[:end]); !strings.Contains(text, id) {
+			t.Errorf("link for %q covers %q, want the agent's row text", id, text)
+		}
 	}
-	for _, step := range steps {
-		_, cmd := m.handleSidebarHover(sidebarHoverMsg{agentID: step.agentID})
-		var got tea.Msg
-		if cmd != nil {
-			got = cmd()
+	for i, line := range lines {
+		if strings.Contains(ansi.Strip(line), "SUB-AGENTS") || strings.Contains(ansi.Strip(line), "┌ grp") {
+			if strings.Contains(line, "\x1b]8;") {
+				t.Errorf("non-clickable line %d carries a link: %q", i, line)
+			}
 		}
-		if got != step.want {
-			t.Errorf("%s: cmd msg = %#v, want %#v", step.name, got, step.want)
-		}
-		if m.sidebar.rosterHover != step.agentID {
-			t.Errorf("%s: rosterHover = %q", step.name, m.sidebar.rosterHover)
-		}
+	}
+}
+
+func TestRosterLinkEscapesAgentID(t *testing.T) {
+	got := rosterLink("odd id/1", "x")
+	if want := ansi.SetHyperlink("steiner://agent/odd%20id%2F1") + "x" + ansi.ResetHyperlink(); got != want {
+		t.Errorf("rosterLink = %q, want %q", got, want)
 	}
 }
 
@@ -149,16 +166,15 @@ func hoverRow(t *testing.T, m *Model, agentID string) int {
 	if msg := filterMouseMotion(m, tea.MouseMotionMsg{X: sidebarPadH, Y: row}); msg != nil {
 		updateModelDirect(m, msg)
 	}
-	if m.sidebar.rosterHover != agentID || !m.pointerHand {
-		t.Fatalf("hover = %q hand = %v, want %q with hand", m.sidebar.rosterHover, m.pointerHand, agentID)
+	if m.sidebar.rosterHover != agentID {
+		t.Fatalf("hover = %q, want %q", m.sidebar.rosterHover, agentID)
 	}
 	return row
 }
 
 // TestReconcileRosterHover covers hover changing without pointer motion: the
-// pointer must not stay a hand over a row that is gone, covered or replaced.
+// highlight must not stay on a row that is gone, covered or replaced.
 func TestReconcileRosterHover(t *testing.T) {
-	arrow := tea.RawMsg{Msg: ansi.SetPointerShape("default")}
 	tests := []struct {
 		name      string
 		start     string
@@ -187,7 +203,7 @@ func TestReconcileRosterHover(t *testing.T) {
 			m, _ := newSidebarClickModel(t, "left", 0)
 			row := hoverRow(t, m, tc.start)
 			tc.change(m)
-			cmd := m.reconcileRosterHover()
+			m.reconcileRosterHover()
 			want := ""
 			if tc.wantHover != nil {
 				want = tc.wantHover(m, row)
@@ -198,19 +214,12 @@ func TestReconcileRosterHover(t *testing.T) {
 			if m.sidebar.rosterHover != want {
 				t.Errorf("rosterHover = %q, want %q", m.sidebar.rosterHover, want)
 			}
-			if want == "" {
-				if cmd == nil || cmd() != arrow || m.pointerHand {
-					t.Errorf("pointer not restored to the arrow (cmd nil=%v, hand=%v)", cmd == nil, m.pointerHand)
-				}
-			} else if cmd != nil {
-				t.Errorf("hover moved between rows but sent pointer command %#v", cmd())
-			}
 		})
 	}
 }
 
 // TestUpdateReconcilesRosterHover checks Update runs the reconcile: toggling
-// the sidebar off with its key clears hover and the hand.
+// the sidebar off with its key clears hover.
 func TestUpdateReconcilesRosterHover(t *testing.T) {
 	m, _ := newSidebarClickModel(t, "left", 0)
 	hoverRow(t, m, "solo")
@@ -218,8 +227,8 @@ func TestUpdateReconcilesRosterHover(t *testing.T) {
 	if m.sidebar.Visible(m.width) {
 		t.Fatal("ctrl+b did not hide the sidebar")
 	}
-	if m.sidebar.rosterHover != "" || m.pointerHand {
-		t.Errorf("hover = %q hand = %v after hiding the sidebar", m.sidebar.rosterHover, m.pointerHand)
+	if m.sidebar.rosterHover != "" {
+		t.Errorf("hover = %q after hiding the sidebar", m.sidebar.rosterHover)
 	}
 }
 

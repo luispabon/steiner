@@ -144,12 +144,12 @@ func (s sidebarState) rosterRow(e rosterEntry, prefix string, typeW, width int) 
 		typeStyle = s.styles.FgDim
 		meta = s.styles.FgMute
 	}
-	lead := prefix + icon + s.styledWithBg(s.styles.FgMute, " ")
+	lead := icon + s.styledWithBg(s.styles.FgMute, " ")
 	if e.agentID != s.rosterHover {
-		return lead + s.styledWithBg(typeStyle, typ+typPad) + s.styledWithBg(meta, " "+id+" "+elapsed)
+		return prefix + rosterLink(e.agentID, lead+s.styledWithBg(typeStyle, typ+typPad)+s.styledWithBg(meta, " "+id+" "+elapsed))
 	}
 	// Hover marks the row clickable: underline the type and ID, brighten the ID.
 	idStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Underline(true)
-	return lead + s.styledWithBg(typeStyle.Underline(true), typ) + s.styledWithBg(meta, typPad+" ") +
-		s.styledWithBg(idStyle, id) + s.styledWithBg(meta, " "+elapsed)
+	return prefix + rosterLink(e.agentID, lead+s.styledWithBg(typeStyle.Underline(true), typ)+s.styledWithBg(meta, typPad+" ")+
+		s.styledWithBg(idStyle, id)+s.styledWithBg(meta, " "+elapsed))
 }

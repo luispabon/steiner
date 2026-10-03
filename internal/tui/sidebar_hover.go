@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"net/url"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -42,54 +43,32 @@ func filterMouseMotion(model tea.Model, msg tea.Msg) tea.Msg {
 	}
 	m.lastMouseMotionAt = time.Now()
 	id := m.rosterAgentAt(mouse.X, mouse.Y)
-	if !m.hoverChanged(id) {
+	if id == m.sidebar.rosterHover {
 		return nil
 	}
 	return sidebarHoverMsg{agentID: id}
 }
 
-// hoverChanged reports whether hovering id differs from the current hover or
-// pointer shape. Hover can be cleared without motion while the pointer is
-// still the hand, so both are compared.
-func (m *Model) hoverChanged(id string) bool {
-	return id != m.sidebar.rosterHover || m.pointerHand != (id != "")
-}
-
-// handleSidebarHover applies a hover change and switches the terminal pointer
-// between the link hand and the default arrow, like a link in a browser.
-func (m *Model) handleSidebarHover(msg sidebarHoverMsg) (tea.Model, tea.Cmd) {
-	m.sidebar.rosterHover = msg.agentID
-	hand := msg.agentID != ""
-	if hand == m.pointerHand {
-		return m, nil
-	}
-	m.pointerHand = hand
-	return m, tea.Raw(pointerShapeSeq(hand))
-}
-
 // reconcileRosterHover re-derives hover from the last pointer position after
-// every Update, so the highlight and pointer shape follow roster changes,
-// overlays and the sidebar hiding without waiting for motion that cell-motion
-// mode would never report.
-func (m *Model) reconcileRosterHover() tea.Cmd {
+// every Update, so the highlight follows roster changes, overlays and the
+// sidebar hiding without waiting for motion that cell-motion mode would never
+// report.
+func (m *Model) reconcileRosterHover() {
 	id := ""
 	if m.pointer.known {
 		id = m.rosterAgentAt(m.pointer.x, m.pointer.y)
 	}
-	if !m.hoverChanged(id) {
-		return nil
-	}
-	_, cmd := m.handleSidebarHover(sidebarHoverMsg{agentID: id})
-	return cmd
+	m.sidebar.rosterHover = id
 }
 
-// pointerShapeSeq returns the OSC 22 sequence for the link hand or the
-// default pointer. Terminals without OSC 22 support ignore it.
-func pointerShapeSeq(hand bool) string {
-	if hand {
-		return ansi.SetPointerShape("pointer")
-	}
-	return ansi.SetPointerShape("default")
+// rosterLink wraps a clickable roster row in an OSC 8 hyperlink. Terminals
+// show their own link affordance over it (underline and a hand pointer in
+// VTE, kitty, WezTerm, Ghostty and foot) even while the app captures the
+// mouse, which no pointer-shape sequence achieves portably. Plain clicks still
+// reach the app; only a terminal's open-link gesture (e.g. ctrl+click) acts on
+// the URI, which no handler is registered for.
+func rosterLink(agentID, row string) string {
+	return ansi.SetHyperlink("steiner://agent/"+url.PathEscape(agentID)) + row + ansi.ResetHyperlink()
 }
 
 // rosterHoverMouseMode reports the mouse mode View requests: all motion while
