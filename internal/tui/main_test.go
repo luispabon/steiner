@@ -31,6 +31,12 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed to set HOME for tui tests: %v\n", err)
 		os.Exit(1)
 	}
+	// Models built without an explicit WorkingDir fall back to getWorkingDir
+	// and run git against it. The package dir sits inside the steiner checkout,
+	// so every such model would shell out to git several times and observe the
+	// developer's branch and dirty state. A non-repo dir keeps them hermetic;
+	// tests that exercise git build their own repo and pass it as WorkingDir.
+	getWorkingDir = func() (string, error) { return tmp, nil }
 	code := m.Run()
 	if err := os.Setenv("HOME", oldHome); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to restore HOME for tui tests: %v\n", err)

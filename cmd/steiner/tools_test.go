@@ -134,6 +134,7 @@ func TestRuntimeRegistryMCPEnabledWithoutServersIsInert(t *testing.T) {
 }
 
 func TestRuntimeRegistryRegistersMCPToolsAlongsideBuiltins(t *testing.T) {
+	t.Parallel()
 	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mcpFixtureManager(t), nil)
 
 	for _, want := range []string{"bash", "read", "mcp__fixture__echo", "mcp__fixture__boom"} {
@@ -144,6 +145,7 @@ func TestRuntimeRegistryRegistersMCPToolsAlongsideBuiltins(t *testing.T) {
 }
 
 func TestSubAgentSubsetExcludesMCPToolsByDefault(t *testing.T) {
+	t.Parallel()
 	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mcpFixtureManager(t), nil)
 
 	// Missing or empty sub_agents grants no MCP tools to any child (D6).
@@ -162,6 +164,7 @@ func TestSubAgentSubsetExcludesMCPToolsByDefault(t *testing.T) {
 }
 
 func TestSubAgentSubsetResearchOnlyExposesMCPTools(t *testing.T) {
+	t.Parallel()
 	srv := config.MCPServerConfig{Enabled: true, Approval: "ask", SubAgents: []string{"research"}}
 	mgr := mcpFixtureManagerWithCfg(t, srv)
 	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr, nil)
@@ -188,6 +191,7 @@ func TestSubAgentSubsetResearchOnlyExposesMCPTools(t *testing.T) {
 }
 
 func TestSubAgentSubsetFilteredAndDeniedToolsAbsent(t *testing.T) {
+	t.Parallel()
 	t.Run("filtered tools are absent from every child", func(t *testing.T) {
 		srv := config.MCPServerConfig{Enabled: true, Approval: "ask", AllowedTools: []string{"echo"}, SubAgents: []string{"research"}}
 		mgr := mcpFixtureManagerWithCfg(t, srv)
@@ -239,6 +243,7 @@ func (r *capturingChildRunner) Run(_ context.Context, req agent.RunRequest) (age
 // call goes through the same MCP handler, so the approval request is raised
 // with MCPApprovalDetails and the emitted event carries the child agent scope.
 func TestMCPToolExposedToChildStillRequiresApproval(t *testing.T) {
+	t.Parallel()
 	srv := config.MCPServerConfig{Enabled: true, Approval: "ask", SubAgents: []string{"research"}}
 	mgr := mcpFixtureManagerWithCfg(t, srv)
 

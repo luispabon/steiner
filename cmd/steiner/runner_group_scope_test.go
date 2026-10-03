@@ -12,6 +12,7 @@ import (
 )
 
 func TestCLIRunnerRunReusesDelegationGroupScopeWithinStream(t *testing.T) {
+	t.Parallel()
 	runner, supervisor, scope, script := newGroupScopeTestRunner(t)
 	t.Cleanup(func() { supervisor.CancelAll(delegation.CancelCauseUser) })
 	runGroup := func(objective string) runResult {

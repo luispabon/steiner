@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -192,6 +193,18 @@ func TestCodexWSDialFailureErrors(t *testing.T) {
 		},
 	}
 
+	// A just-closed loopback port refuses the dial immediately. An unresolvable
+	// hostname would instead wait on the host's DNS resolver, which can run to
+	// the 5s context deadline and depends on the machine's network setup.
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve loopback port: %v", err)
+	}
+	refusedAddr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close loopback listener: %v", err)
+	}
+
 	newUnreachable := func(t *testing.T) *codexWSProvider {
 		t.Helper()
 		p, err := NewCodexResponsesWS(cfg)
@@ -199,7 +212,7 @@ func TestCodexWSDialFailureErrors(t *testing.T) {
 			t.Fatalf("create provider: %v", err)
 		}
 		wsProvider := p.(*codexWSProvider)
-		wsProvider.wsURL = "ws://invalid-unreachable-host-that-will-not-dial:9999"
+		wsProvider.wsURL = "ws://" + refusedAddr
 		return wsProvider
 	}
 

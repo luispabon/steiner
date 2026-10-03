@@ -1022,6 +1022,7 @@ func TestPromptAssemblyCarriesStaticContextCache(t *testing.T) {
 // `runtime.sandbox != nil && runtime.sandbox.Enabled()`, which is false for a
 // nil pointer without any wrapper normalization.
 func TestRunnerDelegateDepsCarryRuntimeSandboxState(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		sandboxCfg  config.SandboxConfig
@@ -1131,6 +1132,7 @@ func exploreDelegationResponses() []provider.ChatResponse {
 // child mutate on /tmp lands under the sandbox tmp dir; in --unsafe mode (nil
 // sandbox) the same call is denied for lack of an approver.
 func TestRunnerDelegateDepsCarrySandboxTmpDir(t *testing.T) {
+	t.Parallel()
 	workDir, _ := setupTestRepo(t)
 	sandboxTmpDir := filepath.Join(workDir, "sandbox-tmp")
 	mustMkdirAll(t, sandboxTmpDir)

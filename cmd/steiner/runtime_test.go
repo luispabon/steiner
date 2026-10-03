@@ -30,6 +30,7 @@ func allowApprover() tool.ApprovalResponder {
 // TestCloseRuntimeTerminatesMCPServers proves closeRuntime invokes the MCP
 // manager's Close: after teardown a connected server no longer serves calls.
 func TestCloseRuntimeTerminatesMCPServers(t *testing.T) {
+	t.Parallel()
 	mgr := mcpFixtureManager(t)
 	// The manager is connected with a nil approver, which denies before the
 	// session is reached. Wire an approving responder so the call actually
@@ -70,6 +71,7 @@ func TestCloseRuntimeTerminatesMCPServers(t *testing.T) {
 // TestCloseRuntimeTerminatesLSPServers proves closeRuntime invokes the LSP
 // manager's Close: after teardown a connected server process no longer exists.
 func TestCloseRuntimeTerminatesLSPServers(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	workDir := t.TempDir()
 	mgr, pid := lspFixtureManagerWithPID(t, cacheDir, workDir)
@@ -128,6 +130,7 @@ func TestCloseRuntimeWithoutMCPIsSafe(t *testing.T) {
 // Before that fix the handler returned an approval_denied envelope immediately;
 // with the approver wired it blocks on the interactive approval prompt instead.
 func TestBuildInteractiveRuntimeWiresMCPApprover(t *testing.T) {
+	t.Parallel()
 	sess, err := interactive.NewSession(interactive.Dependencies{})
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
