@@ -305,6 +305,7 @@ func (b *contentBuffer) Clear() {
 	b.activeToolCalls = nil
 	b.openDelegations = nil
 	b.delegations = nil
+	b.jumpFlash = jumpFlashState{}
 	b.pendingDelegationStarts = nil
 	b.queuedDelegations = nil
 	b.activeAdvisorSegment = 0
