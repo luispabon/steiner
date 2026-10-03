@@ -204,6 +204,60 @@ func rosterSidebar(entries []rosterEntry, now int64) sidebarState {
 	return sidebarState{styles: testStyles(theme.AccentAmber), subAgents: entries, subAgentsNow: now}
 }
 
+func TestRosterRowMetaColour(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	bg := lipgloss.Color(styles.Palette.SidebarBG)
+	const sec1 = int64(1_000_000_000)
+	cases := []struct {
+		name   string
+		entry  rosterEntry
+		suffix string
+		meta   lipgloss.Style
+	}{
+		{"running uses bright grey", rosterEntry{agentID: "child-1", agentType: "review", status: rosterRunning}, " child-1 0m02s", styles.FgDim},
+		{"queued uses bright grey", rosterEntry{agentID: "child-2", agentType: "review", status: rosterQueued}, " child-2 ", styles.FgDim},
+		{"done uses darkest grey", rosterEntry{agentID: "child-3", agentType: "review", status: rosterDone, finishTime: 2 * sec1}, " child-3 0m02s", styles.FgMute},
+		{"failed uses darkest grey", rosterEntry{agentID: "child-4", agentType: "review", status: rosterFailed, finishTime: 2 * sec1}, " child-4 0m02s", styles.FgMute},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := rosterSidebar([]rosterEntry{tc.entry}, 2*sec1)
+			got := s.rosterRow(tc.entry, "", 6, 40)
+			if want := tc.meta.Background(bg).Render(tc.suffix); !strings.HasSuffix(got, want) {
+				t.Errorf("rosterRow() = %q, want suffix %q", got, want)
+			}
+		})
+	}
+}
+
+func TestPickerCardRowMetaColour(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	o := newSubAgentPickerOverlay(styles)
+	cases := []struct {
+		name string
+		dd   delegationDisplayState
+		meta lipgloss.Style
+	}{
+		{"running uses bright grey", delegationDisplayState{agentID: "child-1", status: "active"}, styles.FgDim},
+		{"complete uses darkest grey", delegationDisplayState{agentID: "child-2", status: "complete", elapsed: "0m02s"}, styles.FgMute},
+		{"failed uses darkest grey", delegationDisplayState{agentID: "child-3", status: "failed", elapsed: "0m02s"}, styles.FgMute},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			row := subAgentPickerRow{dd: &tc.dd}
+			p := cardRowParts(row, 60, 2_000_000_000)
+			got := o.styledCardRow(row, 60, 2_000_000_000)
+			if want := tc.meta.Render(p.id + " " + p.elapsed); !strings.Contains(got, want) {
+				t.Errorf("styledCardRow() = %q, want meta %q", got, want)
+			}
+		})
+	}
+}
+
 func TestSubAgentsSectionRender(t *testing.T) {
 	t.Parallel()
 	sec := func(s sidebarState) string { return stripANSI(strings.Join(s.subAgentsSection(40), "\n")) }
