@@ -192,6 +192,17 @@ func headerRowText(m *Model, dd *delegationDisplayState) string {
 	return ""
 }
 
+// normalizeHeaderForComparison strips ANSI codes, masks elapsed timer,
+// and collapses runs of whitespace so headers from different renders
+// (with different elapsed timer widths) compare equal.
+func normalizeHeaderForComparison(m *Model, dd *delegationDisplayState) string {
+	raw := headerRowText(m, dd)
+	// Strip ANSI codes
+	stripped := ansi.Strip(raw)
+	// Collapse runs of whitespace into single spaces
+	return regexp.MustCompile(`\s+`).ReplaceAllString(strings.TrimSpace(stripped), " ")
+}
+
 func TestJumpFlashLifecycle(t *testing.T) {
 	m := newJumpTestModel(t)
 	addJumpFiller(m, 5)
@@ -210,8 +221,10 @@ func TestJumpFlashLifecycle(t *testing.T) {
 	if onText == plain {
 		t.Error("highlighted header identical to normal header")
 	}
-	if ansi.Strip(onText) != ansi.Strip(plain) && strings.TrimSpace(ansi.Strip(onText)) != strings.TrimSpace(ansi.Strip(plain)) {
-		t.Errorf("highlight changed header text: %q vs %q", ansi.Strip(onText), ansi.Strip(plain))
+	normOn := normalizeHeaderForComparison(m, dd)
+	normPlain := regexp.MustCompile(`\s+`).ReplaceAllString(strings.TrimSpace(ansi.Strip(plain)), " ")
+	if normOn != normPlain {
+		t.Errorf("highlight changed header text: %q vs %q", normOn, normPlain)
 	}
 
 	// 7 more half-phases toggle, the 8th tick clears.
@@ -240,7 +253,7 @@ func TestJumpFlashLifecycle(t *testing.T) {
 	if ticks != jumpFlashPhases {
 		t.Errorf("ticks = %d, want %d", ticks, jumpFlashPhases)
 	}
-	if got := headerRowText(m, dd); got != plain {
+	if got := normalizeHeaderForComparison(m, dd); got != normPlain {
 		t.Error("header not restored after flash")
 	}
 	if len(m.content.delegationRows(dd, m.viewport.Width())) != rowsBefore {
