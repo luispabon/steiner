@@ -190,6 +190,14 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		ID:   "/agents",
+		Name: "Sub-agents",
+		Desc: "find and jump to a sub-agent",
+		Build: func(_ string) inputAction {
+			return inputAction{requestSubAgentPicker: true}
+		},
+	},
+	{
 		ID:   "/resume",
 		Name: "Resume session",
 		Desc: "load a previous session",
@@ -388,6 +396,7 @@ var helpOrder = []string{
 	"/compact",
 	"/fork",
 	"/resume",
+	"/agents",
 	"/accent",
 	"/thinking",
 	"/mode",

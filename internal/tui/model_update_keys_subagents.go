@@ -64,9 +64,51 @@ func (m *Model) handleSubAgentNavKey(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		return true, m.cycleSubAgent(1)
 	case isAlt(msg, ','):
 		return true, m.cycleSubAgent(-1)
+	case isAlt(msg, 'a'):
+		m.openSubAgentPicker()
+		return true, nil
 	case isAlt(msg, '/'):
 		m.toggleJumpTargetCollapse()
 		return true, nil
 	}
 	return false, nil
+}
+
+// openSubAgentPicker opens the sub-agent picker over the conversation's cards.
+func (m *Model) openSubAgentPicker() {
+	m.subAgentPicker = m.subAgentPicker.Open(func(q string) []subAgentPickerRow {
+		return m.content.subAgentPickerRows(q)
+	})
+}
+
+func (m *Model) openSubAgentPickerFromSlashCommand() *Model {
+	m.openSubAgentPicker()
+	return m
+}
+
+func (m *Model) executeRequestSubAgentPickerAction() (tea.Model, tea.Cmd) {
+	m.openSubAgentPicker()
+	m.input.Reset()
+	m.syncInputChrome()
+	return m, nil
+}
+
+// handleSubAgentPickerKey routes keys while the picker is open: esc and alt+a
+// close it, enter jumps to the selected card and closes, the rest edit the picker.
+func (m *Model) handleSubAgentPickerKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch {
+	case msg.Code == tea.KeyEsc, isAlt(msg, 'a'):
+		m.subAgentPicker = m.subAgentPicker.Close()
+		return nil
+	case msg.Code == tea.KeyEnter:
+		key, ok := m.subAgentPicker.SelectedKey()
+		if !ok {
+			return nil
+		}
+		m.subAgentPicker = m.subAgentPicker.Close()
+		return m.jumpToDelegation(key)
+	}
+	var cmd tea.Cmd
+	m.subAgentPicker, cmd = m.subAgentPicker.Update(msg)
+	return cmd
 }

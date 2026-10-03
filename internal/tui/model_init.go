@@ -245,6 +245,12 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		},
 	},
 	overlayKeyHandlerFunc{
+		match: func(m *Model) bool { return m.subAgentPicker.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			return m.handleSubAgentPickerKey(msg)
+		},
+	},
+	overlayKeyHandlerFunc{
 		match: func(m *Model) bool { return m.oneshotResumePicker.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			_, cmd := m.handleOneshotResumePickerKey(msg)
@@ -408,6 +414,9 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.sessionPicker = newSessionPickerOverlay(m.styles)
 	m.sessionPicker.width = m.width
 	m.sessionPicker.height = m.height
+	m.subAgentPicker = newSubAgentPickerOverlay(m.styles)
+	m.subAgentPicker.width = m.width
+	m.subAgentPicker.height = m.height
 	m.sessionStore = cfg.SessionStore
 
 	m.oneshotResumePicker = newOneshotResumePickerOverlay(m.styles)

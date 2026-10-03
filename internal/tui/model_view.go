@@ -229,7 +229,7 @@ func (m *Model) renderOverlayView(base string, contentWidth int) string {
 
 func (m *Model) hasOpenBottomOverlay() bool {
 	return m.slashOverlay.IsOpen() || m.filePicker.IsOpen() ||
-		m.sessionPicker.IsOpen() || m.oneshotResumePicker.IsOpen() ||
+		m.sessionPicker.IsOpen() || m.subAgentPicker.IsOpen() || m.oneshotResumePicker.IsOpen() ||
 		(m.modelPicker.IsOpen() && !m.modelPicker.IsWorkflowHandoff()) ||
 		m.reasoningPicker.IsOpen() ||
 		m.planPicker.IsOpen() || m.accentPicker.IsOpen() || m.profilePicker.IsOpen() ||
@@ -258,6 +258,9 @@ func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) stri
 	}
 	if m.sessionPicker.IsOpen() {
 		base = m.sessionPicker.PlaceBottomAnchoredAt(base, m.sessionPicker.View(), offset, xOffset)
+	}
+	if m.subAgentPicker.IsOpen() {
+		base = m.subAgentPicker.PlaceBottomAnchoredAt(base, m.subAgentPicker.View(), offset, xOffset)
 	}
 	if m.oneshotResumePicker.IsOpen() {
 		base = m.oneshotResumePicker.PlaceBottomAnchoredAt(base, m.oneshotResumePicker.View(), offset, xOffset)
