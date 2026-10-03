@@ -81,7 +81,7 @@ func TestConversationDriverSteerStartedSequenceAnnouncesSteer(t *testing.T) {
 	h := newDriverHarness(t, nil, nil)
 	h.start()
 
-	h.steers.Add(SteerMessage{Text: "steer me"})
+	h.steers.Add(SteerMessage{Text: "steer me", Images: []ImageBlock{{MediaType: "image/png", Data: "steer-image-data"}}})
 	h.d.NotifySteer()
 	call := h.nextRun()
 	call.finish()
@@ -94,6 +94,9 @@ func TestConversationDriverSteerStartedSequenceAnnouncesSteer(t *testing.T) {
 			if p, ok := e.Payload.(output.SteerReceivedEvent); ok {
 				if p.Text != "steer me" {
 					t.Fatalf("SteerReceived text = %q, want steer me", p.Text)
+				}
+				if len(p.Images) != 1 || p.Images[0].Data != "steer-image-data" {
+					t.Fatalf("SteerReceived images = %+v, want one steer-image-data block", p.Images)
 				}
 				return
 			}

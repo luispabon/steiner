@@ -236,17 +236,17 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 		d.unlockEmit()
 		return false
 	}
-	drain, steerText := d.drainItemsLocked(parts)
+	drain, steer := d.drainItemsLocked(parts)
 	if drain.Message == nil {
 		// The wake item was taken back between the check and the drain.
 		d.settleLocked()
 		return d.saveAndUnlock(ctx, false)
 	}
 	d.appendLocked(*drain.Message)
-	if steerText != "" {
+	if steer.Text != "" {
 		// A steer that starts a sequence never passes the runner's boundary
 		// drain, so announce it here for the UI to render.
-		d.pendingEvents = append(d.pendingEvents, output.NewSteerReceivedEvent(steerText))
+		d.pendingEvents = append(d.pendingEvents, output.NewSteerReceivedEvent(steer.Text, outputImageBlocks(steer.Images)))
 	}
 	d.state = DriverGenerating
 	d.epoch++

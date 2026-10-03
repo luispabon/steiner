@@ -208,6 +208,9 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.activity = m.activity.static("tool complete", strings.TrimSpace(payload.Tool))
 	case output.SteerReceivedEvent:
 		m.content.AppendUser(payload.Text)
+		if len(payload.Images) > 0 {
+			m.content.AppendImagesAttached(agentImageBlocks(payload.Images), m.sidebar.workingDir, m.sidebar.homeDir)
+		}
 		m.syncInputChrome()
 		m.relayoutInput()
 	case output.PhaseTransitionEvent:

@@ -182,6 +182,7 @@ func TestSteerInjection(t *testing.T) {
 
 func TestSteerInjectionWithImages(t *testing.T) {
 	t.Run("delivers steer images into the next model request", func(t *testing.T) {
+		var events []output.Event
 		providerStub := &fakeProvider{
 			responses: []provider.ChatResponse{
 				{
@@ -226,6 +227,7 @@ func TestSteerInjectionWithImages(t *testing.T) {
 				drained = true
 				return []SteerMessage{{Text: "see [Image 1]", Images: []ImageBlock{{MediaType: "image/png", Data: "steer-image-data"}}}}
 			}),
+			Events: output.SinkFunc(func(event output.Event) { events = append(events, event) }),
 			ResolvedModel: provider.ResolvedModel{
 				Alias:  "test-model",
 				Vision: &vision,
@@ -258,6 +260,118 @@ func TestSteerInjectionWithImages(t *testing.T) {
 		}
 		if steerMsg.Images[0].Data != "steer-image-data" {
 			t.Errorf("steer image data = %q, want %q", steerMsg.Images[0].Data, "steer-image-data")
+		}
+		var steerEvent output.SteerReceivedEvent
+		var foundSteer bool
+		for _, ev := range events {
+			if p, ok := ev.Payload.(output.SteerReceivedEvent); ok {
+				steerEvent, foundSteer = p, true
+				break
+			}
+		}
+		if !foundSteer {
+			t.Fatalf("no %s event emitted; events: %v", output.EventTypeSteerReceived, eventTypes(events))
+		}
+		if len(steerEvent.Images) != 1 {
+			t.Fatalf("steer event images = %d, want 1", len(steerEvent.Images))
+		}
+		if steerEvent.Images[0].Data != "steer-image-data" {
+			t.Errorf("steer event image data = %q, want %q", steerEvent.Images[0].Data, "steer-image-data")
+		}
+	})
+}
+
+func TestSteerBoundaryEventExcludesPromptImages(t *testing.T) {
+	t.Run("boundary drain announces only queued steer images", func(t *testing.T) {
+		var events []output.Event
+		providerStub := &fakeProvider{
+			responses: []provider.ChatResponse{
+				{
+					Message: provider.Message{
+						Role: provider.MessageRoleAssistant,
+						ToolCalls: []provider.ToolCall{
+							{ID: "call_1", Name: "read", Arguments: map[string]any{"path": "a.txt"}},
+						},
+					},
+					FinishReason: "tool_calls",
+					Usage:        &provider.UsageStats{TotalTokens: 5, CompletionTokens: 5},
+				},
+				{
+					Message: provider.Message{
+						Role:    provider.MessageRoleAssistant,
+						Content: "done",
+					},
+					FinishReason: "stop",
+					Usage:        &provider.UsageStats{TotalTokens: 3, CompletionTokens: 3},
+				},
+			},
+		}
+		executor := &fakeExecutor{
+			execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
+				return map[string]any{"contents": "hello"}, nil
+			},
+		}
+
+		// A normal prompt with an image and a queued steer with a different
+		// image sit in the same boundary drain.
+		driver := NewConversationDriver(DriverOptions{Steers: NewSteerQueue()}, nil, ConversationLineage{})
+		driver.Submit("normal prompt", []ImageBlock{{MediaType: "image/png", Data: "prompt-image-data"}}, SubmitMeta{})
+		driver.opts.Steers.Add(SteerMessage{Text: "steer text", Images: []ImageBlock{{MediaType: "image/png", Data: "steer-image-data"}}})
+
+		vision := true
+		state, err := NewRunner().Run(context.Background(), RunRequest{
+			Provider:   providerStub,
+			Executor:   executor,
+			DrainInbox: driver.drainForRun,
+			Events:     output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+			Prompt: prompt.AssemblyOptions{
+				Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "fix the bug"}},
+			},
+			Limits: Limits{MaxTurns: 4, MaxTokens: 100},
+			ResolvedModel: provider.ResolvedModel{
+				Alias:  "test-model",
+				Vision: &vision,
+			},
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if got, want := state.StopReason, StopReasonComplete; got != want {
+			t.Fatalf("StopReason = %q, want %q", got, want)
+		}
+
+		var steerEvents []output.SteerReceivedEvent
+		for _, ev := range events {
+			if p, ok := ev.Payload.(output.SteerReceivedEvent); ok {
+				steerEvents = append(steerEvents, p)
+			}
+		}
+		if len(steerEvents) != 1 {
+			t.Fatalf("SteerReceived events = %d, want 1; events: %v", len(steerEvents), eventTypes(events))
+		}
+		if got := steerEvents[0]; got.Text != "normal prompt\n\nsteer text" {
+			t.Errorf("steer event text = %q, want the merged prompt and steer text", got.Text)
+		}
+		if got := steerEvents[0].Images; len(got) != 1 || got[0].Data != "steer-image-data" {
+			t.Errorf("steer event images = %+v, want only the steer image", got)
+		}
+
+		// The drained delivery message still hands the model both images.
+		if len(providerStub.requests) != 2 {
+			t.Fatalf("provider requests = %d, want 2", len(providerStub.requests))
+		}
+		var drained provider.Message
+		for _, msg := range providerStub.requests[1].Messages {
+			if msg.Role == provider.MessageRoleUser && strings.Contains(msg.Content, "steer text") {
+				drained = msg
+				break
+			}
+		}
+		if drained.Role == "" {
+			t.Fatalf("drained message not found in second request: %+v", providerStub.requests[1].Messages)
+		}
+		if len(drained.Images) != 2 || drained.Images[0].Data != "prompt-image-data" || drained.Images[1].Data != "steer-image-data" {
+			t.Errorf("drained model images = %+v, want the prompt and steer images", drained.Images)
 		}
 	})
 }
