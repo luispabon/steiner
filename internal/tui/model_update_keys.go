@@ -74,6 +74,12 @@ func isCtrl(msg tea.KeyPressMsg, letter rune) bool {
 	return msg.Mod&tea.ModCtrl != 0 && msg.Code == letter
 }
 
+// isAlt reports whether the key press is Alt+rune. Extra modifiers such as
+// shift do not match, so alt+< and alt+> stay free; lock states are ignored.
+func isAlt(msg tea.KeyPressMsg, r rune) bool {
+	return msg.Mod&^(tea.ModCapsLock|tea.ModNumLock|tea.ModScrollLock) == tea.ModAlt && msg.Code == r
+}
+
 func (m *Model) handleConversationKeyMsg(msg tea.KeyPressMsg, activeConversation bool) (bool, tea.Model) {
 	if msg.Code == tea.KeyEsc && m.helpVisible {
 		m.helpVisible = false
@@ -137,6 +143,9 @@ func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, te
 		return true, next, cmd
 	case isCtrl(msg, 'g'):
 		return true, m.executeTakeBackSteersAction(), nil
+	}
+	if handled, cmd := m.handleSubAgentNavKey(msg); handled {
+		return true, m, cmd
 	}
 	switch msg.Code {
 	case tea.KeyTab:
