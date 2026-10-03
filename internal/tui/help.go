@@ -58,6 +58,8 @@ func renderHelp(styles *theme.Styles, width int) string {
 					binding{"ctrl+b", "toggle sidebar"},
 					binding{"ctrl+t", "inspect context"},
 					binding{"ctrl+x", "toggle delegation output"},
+					binding{"alt+. / alt+,", "jump to next / previous running sub-agent"},
+					binding{"alt+/", "expand/collapse jumped-to sub-agent (10s)"},
 					binding{"ctrl+g", "edit queued messages"},
 				)
 				for _, hb := range projectHelpLines() {
