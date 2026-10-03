@@ -171,6 +171,7 @@ type Model struct {
 	lspOverlay                   lspOverlay
 	filePicker                   filePickerOverlay
 	sessionPicker                sessionPickerOverlay
+	subAgentPicker               subAgentPickerOverlay
 	oneshotResumePicker          oneshotResumePickerOverlay
 	modelPicker                  modelPickerOverlay
 	modelReasoningCapabilities   map[string]provider.ReasoningCapabilities

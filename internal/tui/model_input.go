@@ -91,6 +91,9 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.showLSP {
 		return m.executeShowLSPAction()
 	}
+	if action.requestSubAgentPicker {
+		return m.executeRequestSubAgentPickerAction()
+	}
 	if action.requestSessionPicker {
 		return m.executeRequestSessionPickerAction()
 	}

@@ -428,6 +428,7 @@ var pickerCompletionOpeners = map[string]func(*Model) *Model{
 	"openProfilePicker":          (*Model).openProfilePickerFromSlashCommand,
 	"openOrchestrationPicker":    (*Model).openOrchestrationPickerFromSlashCommand,
 	"requestSessionPicker":       (*Model).openSessionPickerFromSlashCommand,
+	"requestSubAgentPicker":      (*Model).openSubAgentPickerFromSlashCommand,
 	"requestOneshotResumePicker": (*Model).openOneshotResumePickerFromSlashCommand,
 }
 

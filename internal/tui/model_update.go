@@ -329,6 +329,7 @@ func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	m.lspOverlay.styles = m.styles
 	m.filePicker.styles = m.styles
 	m.sessionPicker.styles = m.styles
+	m.subAgentPicker.styles = m.styles
 	m.modelPicker.styles = m.styles
 	m.reasoningPicker.styles = m.styles
 	m.planPicker.styles = m.styles
@@ -436,6 +437,7 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 	m.slashOverlay.OverlayShell = m.slashOverlay.WithDimensions(contentW, msg.Height)
 	m.orchestrationPicker.OverlayShell = m.orchestrationPicker.WithDimensions(contentW, msg.Height)
 	m.sessionPicker = m.sessionPicker.withDimensions(contentW, msg.Height)
+	m.subAgentPicker = m.subAgentPicker.withDimensions(contentW, msg.Height)
 	m.oneshotResumePicker = m.oneshotResumePicker.withDimensions(contentW, msg.Height)
 	m.layout()
 	return m, nil
