@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -84,13 +85,9 @@ func TestRosterHoverMouseMode(t *testing.T) {
 	if got := m.rosterHoverMouseMode(); got != tea.MouseModeAllMotion {
 		t.Errorf("roster visible: mode = %v, want all motion", got)
 	}
-	m.sidebar.rosterHover = "solo"
 	m.sidebar.Toggle()
 	if got := m.rosterHoverMouseMode(); got != tea.MouseModeCellMotion {
 		t.Errorf("sidebar hidden: mode = %v, want cell motion", got)
-	}
-	if m.sidebar.rosterHover != "" {
-		t.Errorf("hiding the sidebar kept hover %q", m.sidebar.rosterHover)
 	}
 	m.sidebar.Toggle()
 	m.sidebar.subAgents = nil
@@ -127,7 +124,7 @@ func TestSidebarHoverPointerShape(t *testing.T) {
 		{"staying off the rows sends nothing", "", nil},
 	}
 	for _, step := range steps {
-		_, cmd := m.Update(sidebarHoverMsg{agentID: step.agentID})
+		_, cmd := m.handleSidebarHover(sidebarHoverMsg{agentID: step.agentID})
 		var got tea.Msg
 		if cmd != nil {
 			got = cmd()
@@ -141,27 +138,129 @@ func TestSidebarHoverPointerShape(t *testing.T) {
 	}
 }
 
-// TestFilterMouseMotionRestoresPointerAfterHoverCleared covers hover cleared
-// without motion: the next motion must still restore the default pointer.
-func TestFilterMouseMotionRestoresPointerAfterHoverCleared(t *testing.T) {
-	m, _ := newSidebarClickModel(t, "left", 0)
-	row := renderedSidebarRow(m, "solo")
-	updateModelDirect(m, filterMouseMotion(m, tea.MouseMotionMsg{X: sidebarPadH, Y: row}))
-	if !m.pointerHand {
-		t.Fatal("hovering did not set the hand pointer")
+// hoverRow points at agentID's rendered row and applies the resulting hover
+// through Update, as the program does.
+func hoverRow(t *testing.T, m *Model, agentID string) int {
+	t.Helper()
+	row := renderedSidebarRow(m, agentID)
+	if row < 0 {
+		t.Fatalf("agent %q not rendered", agentID)
 	}
-	m.sidebar.Toggle()
-	m.sidebar.Toggle()
-	if got := filterMouseMotion(m, tea.MouseMotionMsg{X: sidebarWidth + 10, Y: row}); got != (sidebarHoverMsg{}) {
-		t.Errorf("motion after hover cleared = %#v, want a clear to restore the pointer", got)
+	if msg := filterMouseMotion(m, tea.MouseMotionMsg{X: sidebarPadH, Y: row}); msg != nil {
+		updateModelDirect(m, msg)
+	}
+	if m.sidebar.rosterHover != agentID || !m.pointerHand {
+		t.Fatalf("hover = %q hand = %v, want %q with hand", m.sidebar.rosterHover, m.pointerHand, agentID)
+	}
+	return row
+}
+
+// TestReconcileRosterHover covers hover changing without pointer motion: the
+// pointer must not stay a hand over a row that is gone, covered or replaced.
+func TestReconcileRosterHover(t *testing.T) {
+	arrow := tea.RawMsg{Msg: ansi.SetPointerShape("default")}
+	tests := []struct {
+		name      string
+		start     string
+		change    func(m *Model)
+		wantHover func(m *Model, row int) string
+	}{
+		{"sidebar toggled off", "solo", func(m *Model) { m.sidebar.Toggle() }, nil},
+		{"resize hides the sidebar", "solo", func(m *Model) { m.width = sidebarMinWidth - 1 }, nil},
+		{"roster emptied", "solo", func(m *Model) { m.sidebar.subAgents = nil }, nil},
+		{"overlay opened", "solo", func(m *Model) { m.mcpOverlay = m.mcpOverlay.Open(nil, true) }, nil},
+		{
+			"rows reorder under a still pointer",
+			"g1",
+			func(m *Model) {
+				m.roster.entries["solo"].status = rosterDone
+				m.roster.entries["solo"].finishTime = 5
+				m.syncRoster()
+			},
+			func(m *Model, row int) string {
+				return m.cachedRosterLayout().targetAt(max(0, m.height-2*sidebarPadV), row-sidebarPadV)
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _ := newSidebarClickModel(t, "left", 0)
+			row := hoverRow(t, m, tc.start)
+			tc.change(m)
+			cmd := m.reconcileRosterHover()
+			want := ""
+			if tc.wantHover != nil {
+				want = tc.wantHover(m, row)
+				if want == tc.start || want == "" {
+					t.Fatalf("reorder left %q under the pointer; test setup is wrong", want)
+				}
+			}
+			if m.sidebar.rosterHover != want {
+				t.Errorf("rosterHover = %q, want %q", m.sidebar.rosterHover, want)
+			}
+			if want == "" {
+				if cmd == nil || cmd() != arrow || m.pointerHand {
+					t.Errorf("pointer not restored to the arrow (cmd nil=%v, hand=%v)", cmd == nil, m.pointerHand)
+				}
+			} else if cmd != nil {
+				t.Errorf("hover moved between rows but sent pointer command %#v", cmd())
+			}
+		})
 	}
 }
 
-func TestResizeHidingSidebarClearsHover(t *testing.T) {
+// TestUpdateReconcilesRosterHover checks Update runs the reconcile: toggling
+// the sidebar off with its key clears hover and the hand.
+func TestUpdateReconcilesRosterHover(t *testing.T) {
 	m, _ := newSidebarClickModel(t, "left", 0)
+	hoverRow(t, m, "solo")
+	updateModelDirect(m, tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	if m.sidebar.Visible(m.width) {
+		t.Fatal("ctrl+b did not hide the sidebar")
+	}
+	if m.sidebar.rosterHover != "" || m.pointerHand {
+		t.Errorf("hover = %q hand = %v after hiding the sidebar", m.sidebar.rosterHover, m.pointerHand)
+	}
+}
+
+func TestRosterAgentAtIgnoresOverlays(t *testing.T) {
+	m, _ := newSidebarClickModel(t, "left", 0)
+	row := renderedSidebarRow(m, "solo")
+	if got := m.rosterAgentAt(sidebarPadH, row); got != "solo" {
+		t.Fatalf("rosterAgentAt = %q, want solo", got)
+	}
+	m.mcpOverlay = m.mcpOverlay.Open(nil, true)
+	if got := m.rosterAgentAt(sidebarPadH, row); got != "" {
+		t.Errorf("rosterAgentAt under an overlay = %q, want none", got)
+	}
+	if cmd := m.sidebarRosterClick(sidebarPadH, row); cmd != nil {
+		t.Error("click under an overlay jumped")
+	}
+}
+
+func TestCachedRosterLayout(t *testing.T) {
+	m, _ := newSidebarClickModel(t, "left", 0)
+	first := m.cachedRosterLayout()
+
+	m.sidebar.tickCount++
+	m.sidebar.subAgentsNow += 1_000_000_000
 	m.sidebar.rosterHover = "solo"
-	updateModelDirect(m, tea.WindowSizeMsg{Width: sidebarMinWidth - 1, Height: 70})
-	if m.sidebar.rosterHover != "" {
-		t.Errorf("rosterHover = %q after the sidebar was hidden by resize", m.sidebar.rosterHover)
+	if got := m.cachedRosterLayout(); got.prefix != first.prefix || !slices.Equal(got.targets, first.targets) {
+		t.Errorf("glyph-only changes altered the layout: %+v vs %+v", got, first)
+	}
+	if want := m.sidebar.rosterLayout(); !slices.Equal(first.targets, want.targets) || first.prefix != want.prefix {
+		t.Errorf("cached layout %+v != fresh %+v", first, want)
+	}
+
+	m.sidebar.version = "0.27.0-8-ga17d550e-dirty-and-then-some"
+	if got := m.cachedRosterLayout(); got.prefix != m.sidebar.rosterLayout().prefix || got.prefix == first.prefix {
+		t.Errorf("version wrap: cached prefix %d, fresh %d, before %d", got.prefix, m.sidebar.rosterLayout().prefix, first.prefix)
+	}
+
+	m.roster.entries["solo"].status = rosterDone
+	m.roster.entries["solo"].finishTime = 5
+	m.syncRoster()
+	if got, want := m.cachedRosterLayout(), m.sidebar.rosterLayout(); !slices.Equal(got.targets, want.targets) {
+		t.Errorf("roster change: cached targets %q, fresh %q", got.targets, want.targets)
 	}
 }

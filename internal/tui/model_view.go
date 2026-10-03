@@ -201,30 +201,51 @@ func (m *Model) renderViewportWithScrollbar(viewportInner, scrollbar string) str
 }
 
 func (m *Model) renderOverlayView(base string, contentWidth int) string {
-	if m.fileList.IsOpen() {
-		return composeCenteredOverlay(base, m.fileList.View(), m.width, m.height)
+	if view := m.exclusiveOverlayView(); view != nil {
+		return composeCenteredOverlay(base, view(), m.width, m.height)
 	}
-	if m.mcpOverlay.IsOpen() {
-		return composeCenteredOverlay(base, m.mcpOverlay.View(), m.width, m.height)
-	}
-	if m.lspOverlay.IsOpen() {
-		return composeCenteredOverlay(base, m.lspOverlay.View(), m.width, m.height)
-	}
-
 	base = m.renderBottomAnchoredOverlays(base, contentWidth)
+	if view := m.modalOverlayView(); view != nil {
+		return composeCenteredOverlay(base, view(), m.width, m.height)
+	}
+	return base
+}
+
+// exclusiveOverlayView returns the renderer of the open centered overlay that
+// replaces the bottom-anchored ones (file list, MCP, LSP), or nil.
+func (m *Model) exclusiveOverlayView() func() string {
+	switch {
+	case m.fileList.IsOpen():
+		return m.fileList.View
+	case m.mcpOverlay.IsOpen():
+		return m.mcpOverlay.View
+	case m.lspOverlay.IsOpen():
+		return m.lspOverlay.View
+	}
+	return nil
+}
+
+// modalOverlayView returns the renderer of the open centered modal drawn over
+// the bottom-anchored overlays, or nil.
+func (m *Model) modalOverlayView() func() string {
 	switch {
 	case m.workflowHandoff.IsOpen():
-		return composeCenteredOverlay(base, m.renderWorkflowHandoffModal(), m.width, m.height)
+		return m.renderWorkflowHandoffModal
 	case m.delegateCancelModal.IsOpen():
-		return composeCenteredOverlay(base, m.renderDelegateCancelModal(), m.width, m.height)
+		return m.renderDelegateCancelModal
 	case m.contextOverlay.IsOpen():
-		return composeCenteredOverlay(base, m.renderContextOverlay(), m.width, m.height)
-	default:
-		if s := m.openConfirmModalView(); s != nil {
-			return composeCenteredOverlay(base, s.render(m.styles), m.width, m.height)
-		}
-		return base
+		return m.renderContextOverlay
 	}
+	if s := m.openConfirmModalView(); s != nil {
+		return func() string { return s.render(m.styles) }
+	}
+	return nil
+}
+
+// anyOverlayOpen reports whether any overlay, picker or modal is drawn over
+// the base view.
+func (m *Model) anyOverlayOpen() bool {
+	return m.exclusiveOverlayView() != nil || m.modalOverlayView() != nil || m.hasOpenBottomOverlay()
 }
 
 func (m *Model) hasOpenBottomOverlay() bool {

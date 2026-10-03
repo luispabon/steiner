@@ -47,16 +47,31 @@ func (s sidebarState) staticPrefixLines(width int) []string {
 // rosterTargetAtRow returns the agent ID of the roster row at inner row index row,
 // or "" when that row is not a clickable roster row.
 func (s sidebarState) rosterTargetAtRow(innerHeight, row int) string {
+	return s.rosterLayout().targetAt(innerHeight, row)
+}
+
+// rosterLayout is the sidebar geometry roster hit-testing needs: the number of
+// lines above the roster and the agent ID each roster line targets.
+type rosterLayout struct {
+	prefix  int
+	targets []string
+}
+
+func (s sidebarState) rosterLayout() rosterLayout {
+	width := sidebarWidth - sidebarPadH*2 // same inner width renderSidebar lays out with
+	_, targets := s.subAgentsRows(width)
+	return rosterLayout{prefix: len(s.staticPrefixLines(width)), targets: targets}
+}
+
+func (l rosterLayout) targetAt(innerHeight, row int) string {
 	if row < 0 || row >= innerHeight {
 		return ""
 	}
-	width := sidebarWidth - sidebarPadH*2 // same inner width renderSidebar lays out with
-	_, targets := s.subAgentsRows(width)
-	idx := row - len(s.staticPrefixLines(width))
-	if idx < 0 || idx >= len(targets) {
+	idx := row - l.prefix
+	if idx < 0 || idx >= len(l.targets) {
 		return ""
 	}
-	return targets[idx]
+	return l.targets[idx]
 }
 
 func (s sidebarState) staticLines(width int) []string {

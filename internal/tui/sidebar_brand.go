@@ -85,7 +85,9 @@ func cardFieldAccent(key string, keyWidth int, valStyle lipgloss.Style, value st
 }
 
 // wrapRunes hard-wraps text into a first chunk of at most first cells and
-// further chunks of at most rest cells. It always returns at least one chunk.
+// further chunks of at most rest cells. It always returns at least one chunk
+// and no chunk exceeds its limit: a wide rune that cannot fit the first chunk
+// leaves it empty, and one wider than rest truncates the text there.
 func wrapRunes(text string, first, rest int) []string {
 	var chunks []string
 	limit := first
@@ -93,14 +95,22 @@ func wrapRunes(text string, first, rest int) []string {
 	curW := 0
 	for _, r := range text {
 		rw := lipgloss.Width(string(r))
-		if curW+rw > limit && curW > 0 {
-			chunks = append(chunks, cur.String())
-			cur.Reset()
-			curW = 0
-			limit = rest
+		if curW+rw > limit {
+			if curW > 0 || (len(chunks) == 0 && limit != rest) {
+				chunks = append(chunks, cur.String())
+				cur.Reset()
+				curW = 0
+				limit = rest
+			}
+			if rw > limit {
+				break
+			}
 		}
 		cur.WriteRune(r)
 		curW += rw
 	}
-	return append(chunks, cur.String())
+	if cur.Len() > 0 || len(chunks) == 0 {
+		chunks = append(chunks, cur.String())
+	}
+	return chunks
 }

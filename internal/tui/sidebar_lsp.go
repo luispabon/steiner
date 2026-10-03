@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"charm.land/lipgloss/v2"
+
 	"fmt"
 	"strings"
 )
@@ -78,10 +80,10 @@ func (s sidebarState) lspRow(width int) (spinner, text string) {
 		spinner = spinnerFrames[s.tickCount%len(spinnerFrames)]
 		width -= 2 // the caller renders spinner + " " before the text
 	}
-	if len(s.lspSingleName) <= width {
+	if lipgloss.Width(s.lspSingleName) <= width {
 		text = s.lspSingleName
 	} else {
-		text = fmt.Sprintf("%d/%d", s.lspActive, s.lspTotalKnown)
+		text = fitText(fmt.Sprintf("%d/%d", s.lspActive, s.lspTotalKnown), width)
 	}
 	return spinner, text
 }

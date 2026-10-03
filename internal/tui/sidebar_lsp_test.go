@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 )
 
 func TestLSPRowEmptyWhenNoActiveServer(t *testing.T) {
@@ -55,7 +57,7 @@ func TestLSPRowFallsBackToCountWhenTooNarrow(t *testing.T) {
 		{Name: "ts-ls", Root: "/repo", Status: "starting"},
 	}}
 	s.recomputeLSPAggregate()
-	_, text := s.lspRow(3)
+	_, text := s.lspRow(5) // 3 cells for text after the starting spinner's 2
 	if text != "1/2" {
 		t.Errorf("lspRow() text = %q, want %q", text, "1/2")
 	}
@@ -147,5 +149,37 @@ func TestLSPRowReservesSpinnerCells(t *testing.T) {
 	}
 	if _, text := s.lspRow(names + 2); text != "gopls,ts-ls" {
 		t.Errorf("lspRow(%d) text = %q, want the names", names+2, text)
+	}
+}
+
+func TestLSPRowMeasuresCells(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		names []string
+		width int
+		want  string
+	}{
+		{"wide-rune name over width falls back", []string{"言語サーバ"}, 9, "1/1"},
+		{"wide-rune name within width is shown", []string{"言語サーバ"}, 10, "言語サーバ"},
+		{"count fallback fits the width", []string{"gopls-with-a-long-name", "ts-ls", "rust-analyzer", "pyright", "clangd", "lua-ls", "bash-ls", "yaml-ls", "json-ls", "html-ls"}, 4, "1..."},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var servers []LSPServerStatus
+			for _, n := range tc.names {
+				servers = append(servers, LSPServerStatus{Name: n, Root: "/repo", Status: "ready"})
+			}
+			s := sidebarState{lspServers: servers}
+			s.recomputeLSPAggregate()
+			_, text := s.lspRow(tc.width)
+			if lipgloss.Width(text) > tc.width {
+				t.Errorf("lspRow(%d) text %q is %d cells wide", tc.width, text, lipgloss.Width(text))
+			}
+			if text != tc.want {
+				t.Errorf("lspRow(%d) text = %q, want %q", tc.width, text, tc.want)
+			}
+		})
 	}
 }

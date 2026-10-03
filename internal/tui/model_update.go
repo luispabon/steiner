@@ -66,6 +66,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if blinkCmd := model.(*Model).ensureComposerBlinking(); blinkCmd != nil {
 		cmds = append(cmds, blinkCmd)
 	}
+	if hoverCmd := model.(*Model).reconcileRosterHover(); hoverCmd != nil {
+		cmds = append(cmds, hoverCmd)
+	}
 	if len(cmds) == 0 {
 		return model, nil
 	}
@@ -417,9 +420,6 @@ func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
-	if !m.sidebar.Visible(m.width) {
-		m.sidebar.rosterHover = ""
-	}
 	m.fileList.OverlayShell = m.fileList.WithDimensions(msg.Width, msg.Height)
 	m.mcpOverlay.OverlayShell = m.mcpOverlay.WithDimensions(msg.Width, msg.Height)
 	m.lspOverlay.OverlayShell = m.lspOverlay.WithDimensions(msg.Width, msg.Height)

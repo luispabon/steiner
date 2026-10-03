@@ -115,10 +115,25 @@ func TestWrapRunes(t *testing.T) {
 		{"abc", 3, 5, []string{"abc"}},
 		{"abcdefghij", 3, 5, []string{"abc", "defgh", "ij"}},
 		{"ab", 1, 1, []string{"a", "b"}},
+		{"日本", 3, 4, []string{"日", "本"}},
+		{"a日", 2, 4, []string{"a", "日"}},
+		{"日本", 1, 2, []string{"", "日", "本"}},
+		{"日本", 1, 1, []string{""}},
+		{"ab日c", 2, 1, []string{"ab"}},
 	}
 	for _, tc := range tests {
-		if got := wrapRunes(tc.text, tc.first, tc.rest); !slices.Equal(got, tc.want) {
+		got := wrapRunes(tc.text, tc.first, tc.rest)
+		if !slices.Equal(got, tc.want) {
 			t.Errorf("wrapRunes(%q, %d, %d) = %q, want %q", tc.text, tc.first, tc.rest, got, tc.want)
+		}
+		for i, chunk := range got {
+			limit := tc.rest
+			if i == 0 {
+				limit = tc.first
+			}
+			if w := lipgloss.Width(chunk); w > limit {
+				t.Errorf("wrapRunes(%q, %d, %d) chunk %d width %d > %d", tc.text, tc.first, tc.rest, i, w, limit)
+			}
 		}
 	}
 }

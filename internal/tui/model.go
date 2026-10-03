@@ -225,6 +225,8 @@ type Model struct {
 	lastWheelMouseAt             time.Time
 	lastMouseMotionAt            time.Time // buttonless motion, seen only by filterMouseMotion
 	pointerHand                  bool      // the terminal pointer is the link hand (OSC 22)
+	pointer                      pointerPos
+	rosterLayoutCache            rosterLayoutCache
 	primaryModel                 string
 	profileNames                 []string
 	imageMarkers                 []imageMarker

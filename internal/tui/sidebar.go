@@ -79,7 +79,6 @@ func (s *sidebarState) Toggle() {
 		return
 	}
 	s.expanded = !s.expanded
-	s.rosterHover = ""
 }
 
 func (s *sidebarState) SetExpanded(expanded bool) {
@@ -87,7 +86,6 @@ func (s *sidebarState) SetExpanded(expanded bool) {
 		return
 	}
 	s.expanded = expanded
-	s.rosterHover = ""
 }
 
 func (s sidebarState) Visible(width int) bool {
