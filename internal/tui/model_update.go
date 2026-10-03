@@ -560,6 +560,10 @@ func (m *Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 	m.lastClickPos = clickPos
 	m.activeRegion = m.detectRegion(msg.x, msg.y)
 
+	m.sidebarPressX, m.sidebarPressY = -1, -1
+	if m.activeRegion == regionSidebar {
+		m.sidebarPressX, m.sidebarPressY = msg.x, msg.y
+	}
 	if m.activeRegion == regionNone || m.activeRegion == regionSidebar {
 		m.selection = m.selection.clear()
 		m.mousePressX = -1
@@ -625,6 +629,11 @@ func (m *Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) {
 	m.dragScrollEpoch++
+	if m.activeRegion == regionSidebar && m.sidebarPressX >= 0 && msg.x == m.sidebarPressX && msg.y == m.sidebarPressY {
+		m.sidebarPressX, m.sidebarPressY = -1, -1
+		return m, m.sidebarRosterClick(msg.x, msg.y)
+	}
+	m.sidebarPressX, m.sidebarPressY = -1, -1
 	// mousePressX < 0 means the press was already fully handled at click time
 	// (e.g. word/line selection from a double/triple-click); nothing left to do.
 	if m.mousePressX < 0 {
