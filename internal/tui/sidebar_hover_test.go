@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestFilterMouseMotion(t *testing.T) {
@@ -110,5 +111,57 @@ func TestRecentMouseInputCountsMotion(t *testing.T) {
 	m.lastMouseMotionAt = time.Now().Add(-time.Second)
 	if m.recentMouseInput() {
 		t.Error("stale pointer motion reported as recent")
+	}
+}
+
+func TestSidebarHoverPointerShape(t *testing.T) {
+	m, _ := newSidebarClickModel(t, "left", 0)
+	steps := []struct {
+		name    string
+		agentID string
+		want    tea.Msg // nil means no command
+	}{
+		{"hovering a row shows the hand", "solo", tea.RawMsg{Msg: ansi.SetPointerShape("pointer")}},
+		{"moving to another row keeps the hand", "g1", nil},
+		{"leaving the rows restores the arrow", "", tea.RawMsg{Msg: ansi.SetPointerShape("default")}},
+		{"staying off the rows sends nothing", "", nil},
+	}
+	for _, step := range steps {
+		_, cmd := m.Update(sidebarHoverMsg{agentID: step.agentID})
+		var got tea.Msg
+		if cmd != nil {
+			got = cmd()
+		}
+		if got != step.want {
+			t.Errorf("%s: cmd msg = %#v, want %#v", step.name, got, step.want)
+		}
+		if m.sidebar.rosterHover != step.agentID {
+			t.Errorf("%s: rosterHover = %q", step.name, m.sidebar.rosterHover)
+		}
+	}
+}
+
+// TestFilterMouseMotionRestoresPointerAfterHoverCleared covers hover cleared
+// without motion: the next motion must still restore the default pointer.
+func TestFilterMouseMotionRestoresPointerAfterHoverCleared(t *testing.T) {
+	m, _ := newSidebarClickModel(t, "left", 0)
+	row := renderedSidebarRow(m, "solo")
+	updateModelDirect(m, filterMouseMotion(m, tea.MouseMotionMsg{X: sidebarPadH, Y: row}))
+	if !m.pointerHand {
+		t.Fatal("hovering did not set the hand pointer")
+	}
+	m.sidebar.Toggle()
+	m.sidebar.Toggle()
+	if got := filterMouseMotion(m, tea.MouseMotionMsg{X: sidebarWidth + 10, Y: row}); got != (sidebarHoverMsg{}) {
+		t.Errorf("motion after hover cleared = %#v, want a clear to restore the pointer", got)
+	}
+}
+
+func TestResizeHidingSidebarClearsHover(t *testing.T) {
+	m, _ := newSidebarClickModel(t, "left", 0)
+	m.sidebar.rosterHover = "solo"
+	updateModelDirect(m, tea.WindowSizeMsg{Width: sidebarMinWidth - 1, Height: 70})
+	if m.sidebar.rosterHover != "" {
+		t.Errorf("rosterHover = %q after the sidebar was hidden by resize", m.sidebar.rosterHover)
 	}
 }

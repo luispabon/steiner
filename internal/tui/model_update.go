@@ -122,8 +122,7 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.content.AppendLine(fmt.Sprintf("status: phase transition failed: %v", msg.err))
 		return m, nil
 	case sidebarHoverMsg:
-		m.sidebar.rosterHover = msg.agentID
-		return m, nil
+		return m.handleSidebarHover(msg)
 	case jumpFlashTickMsg:
 		return m.handleJumpFlashTick(msg)
 	case mouseClickMsg, mouseMotionMsg, mouseReleaseMsg, mouseWheelMsg, dragAutoScrollTickMsg:
@@ -418,6 +417,9 @@ func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
+	if !m.sidebar.Visible(m.width) {
+		m.sidebar.rosterHover = ""
+	}
 	m.fileList.OverlayShell = m.fileList.WithDimensions(msg.Width, msg.Height)
 	m.mcpOverlay.OverlayShell = m.mcpOverlay.WithDimensions(msg.Width, msg.Height)
 	m.lspOverlay.OverlayShell = m.lspOverlay.WithDimensions(msg.Width, msg.Height)

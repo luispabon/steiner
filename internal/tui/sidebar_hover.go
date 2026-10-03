@@ -4,6 +4,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // sidebarHoverMsg sets the sidebar roster row under the pointer ("" clears it).
@@ -29,10 +30,33 @@ func filterMouseMotion(model tea.Model, msg tea.Msg) tea.Msg {
 	}
 	m.lastMouseMotionAt = time.Now()
 	id := m.rosterAgentAt(mouse.X, mouse.Y)
-	if id == m.sidebar.rosterHover {
+	// Hover can be cleared without motion (sidebar toggle, resize) while the
+	// pointer is still the hand, so compare against both.
+	if id == m.sidebar.rosterHover && m.pointerHand == (id != "") {
 		return nil
 	}
 	return sidebarHoverMsg{agentID: id}
+}
+
+// handleSidebarHover applies a hover change and switches the terminal pointer
+// between the link hand and the default arrow, like a link in a browser.
+func (m *Model) handleSidebarHover(msg sidebarHoverMsg) (tea.Model, tea.Cmd) {
+	m.sidebar.rosterHover = msg.agentID
+	hand := msg.agentID != ""
+	if hand == m.pointerHand {
+		return m, nil
+	}
+	m.pointerHand = hand
+	return m, tea.Raw(pointerShapeSeq(hand))
+}
+
+// pointerShapeSeq returns the OSC 22 sequence for the link hand or the
+// default pointer. Terminals without OSC 22 support ignore it.
+func pointerShapeSeq(hand bool) string {
+	if hand {
+		return ansi.SetPointerShape("pointer")
+	}
+	return ansi.SetPointerShape("default")
 }
 
 // rosterHoverMouseMode reports the mouse mode View requests: all motion while
