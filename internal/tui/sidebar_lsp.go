@@ -74,13 +74,14 @@ func (s sidebarState) lspRow(width int) (spinner, text string) {
 	if s.lspTotalKnown == 0 {
 		return "", ""
 	}
+	if s.lspStarting {
+		spinner = spinnerFrames[s.tickCount%len(spinnerFrames)]
+		width -= 2 // the caller renders spinner + " " before the text
+	}
 	if len(s.lspSingleName) <= width {
 		text = s.lspSingleName
 	} else {
 		text = fmt.Sprintf("%d/%d", s.lspActive, s.lspTotalKnown)
-	}
-	if s.lspStarting {
-		spinner = spinnerFrames[s.tickCount%len(spinnerFrames)]
 	}
 	return spinner, text
 }

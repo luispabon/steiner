@@ -133,3 +133,19 @@ func TestLSPRowActiveCountsReadyServers(t *testing.T) {
 		t.Errorf("lspTotalKnown = %d, want 2", s.lspTotalKnown)
 	}
 }
+
+func TestLSPRowReservesSpinnerCells(t *testing.T) {
+	t.Parallel()
+	s := sidebarState{lspServers: []LSPServerStatus{
+		{Name: "gopls", Root: "/repo", Status: "ready"},
+		{Name: "ts-ls", Root: "/repo", Status: "starting"},
+	}}
+	s.recomputeLSPAggregate()
+	names := len("gopls,ts-ls")
+	if _, text := s.lspRow(names + 1); text != "1/2" {
+		t.Errorf("lspRow(%d) text = %q, want %q: names plus spinner overflow", names+1, text, "1/2")
+	}
+	if _, text := s.lspRow(names + 2); text != "gopls,ts-ls" {
+		t.Errorf("lspRow(%d) text = %q, want the names", names+2, text)
+	}
+}
