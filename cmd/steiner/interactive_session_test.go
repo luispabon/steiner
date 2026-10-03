@@ -209,6 +209,7 @@ func TestBuildInteractiveSessionUpdatesVisionCapabilitiesOnProfileSwitch(t *test
 }
 
 func TestMCPTUIStateEnabledMix(t *testing.T) {
+	t.Parallel()
 	fixtureBin := buildMCPFixture(t)
 
 	cfg := config.Config{
@@ -367,6 +368,7 @@ func TestMCPStateProducerDualListeners(t *testing.T) {
 }
 
 func TestEmitMCPServerStatesSnapshot(t *testing.T) {
+	t.Parallel()
 	mgr := mcpFixtureManager(t)
 	// Create a registry with MCP origins to verify they are NOT included
 	registry := tool.NewRegistry(tool.ToolDef{
@@ -409,6 +411,7 @@ func TestEmitMCPServerStatesSnapshot(t *testing.T) {
 }
 
 func TestEmitMCPStateSnapshot(t *testing.T) {
+	t.Parallel()
 	mgr := mcpFixtureManager(t)
 	registry := tool.NewRegistry(mgr.ToolDefs()...)
 	rt := cliRuntime{
@@ -452,6 +455,7 @@ func TestEmitMCPStateSnapshot(t *testing.T) {
 }
 
 func TestConnectRuntimeMCPBlockingWaitsAndRegistersTools(t *testing.T) {
+	t.Parallel()
 	fixtureBin := buildMCPFixture(t)
 	cfg := config.Config{
 		MCP: config.MCPConfig{
@@ -529,6 +533,7 @@ func TestConnectRuntimeMCPAsyncReturnsBeforeServersResolve(t *testing.T) {
 }
 
 func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
+	t.Parallel()
 	fixtureBin := buildMCPFixture(t)
 	connectStart := time.Now()
 	mgr := mcp.Connect(context.Background(), config.MCPConfig{
@@ -1014,6 +1019,7 @@ func mcpServerStateByName(states []mcp.ServerState, name string) *mcp.ServerStat
 }
 
 func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
+	t.Parallel()
 	fixtureBin := buildMCPFixture(t)
 	mgr := mcp.Connect(context.Background(), config.MCPConfig{
 		Enabled: true,
@@ -1209,6 +1215,7 @@ func TestSessionRunnerReturnsTokenCountAndStopReason(t *testing.T) {
 }
 
 func TestSessionRunnerForwardsExactDelegationGroupScope(t *testing.T) {
+	t.Parallel()
 	supervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: 1})
 	t.Cleanup(func() { supervisor.CancelAll(delegation.CancelCauseUser) })
 	explicit, releaseExplicit := supervisor.OpenGroupScope(agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion})

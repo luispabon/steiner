@@ -9,6 +9,7 @@ import (
 )
 
 func TestNamedGroupsAcceptedWhenProviderRepeatsOrOmitsCallIDs(t *testing.T) {
+	t.Parallel()
 	prov := newAsyncScript("one", "two", "three")
 	prov.parent = []func(provider.ChatRequest) provider.ChatResponse{
 		step(toolCallsResponse(subAgentCall("call_0", "one", "group-one"))),

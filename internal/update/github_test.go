@@ -1,6 +1,7 @@
 package update
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -214,14 +215,13 @@ func TestFetchLatestRelease_StreamingEndlessBody(t *testing.T) {
 		_, _ = w.Write([]byte(`{"tag_name":"v1.0.0","assets":[`))
 		flusher.Flush()
 
-		// Stream endless data to trigger size limit
-		for i := 0; i < maxReleaseJSONBytes*2; i++ {
-			if _, err := w.Write([]byte("a")); err != nil {
+		// Stream twice the size limit in flushed chunks to trigger it.
+		chunk := bytes.Repeat([]byte("a"), 32<<10)
+		for sent := 0; sent < maxReleaseJSONBytes*2; sent += len(chunk) {
+			if _, err := w.Write(chunk); err != nil {
 				return
 			}
-			if i%10000 == 0 {
-				flusher.Flush()
-			}
+			flusher.Flush()
 		}
 	}))
 	defer server.Close()
