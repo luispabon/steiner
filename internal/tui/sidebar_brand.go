@@ -26,12 +26,20 @@ func (s sidebarState) brandLines(width int) []string {
 		out = append(out, bg.Render(line))
 	}
 
-	ver := s.styles.FgMute.Background(lipgloss.Color(s.styles.Palette.SidebarBG)).Render(s.version)
-	third := out[2] + bg.Render(" ") + ver
-	if pad := width - lipgloss.Width(third); pad > 0 {
-		third += bg.Render(strings.Repeat(" ", pad))
+	// Wrap the version here rather than letting the sidebar style soft-wrap it:
+	// roster click hit-testing counts these lines, so each must be one screen row.
+	verStyle := s.styles.FgMute.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
+	chunks := wrapRunes(s.version, max(1, width-lipgloss.Width(out[2])-1), max(1, width))
+	padRow := func(row string) string {
+		if pad := width - lipgloss.Width(row); pad > 0 {
+			row += bg.Render(strings.Repeat(" ", pad))
+		}
+		return row
 	}
-	out[2] = third
+	out[2] = padRow(out[2] + bg.Render(" ") + verStyle.Render(chunks[0]))
+	for _, chunk := range chunks[1:] {
+		out = append(out, padRow(verStyle.Render(chunk)))
+	}
 
 	if s.updateAvailable && s.latestVersion != "" {
 		// Shortened from "↑ %s available · steiner upgrade" (Part D's spec
@@ -74,4 +82,35 @@ func cardFieldAccent(key string, keyWidth int, valStyle lipgloss.Style, value st
 	valStyleWithBg := valStyle.Background(lipgloss.Color(styles.Palette.SidebarBG))
 	keyStr := keyStyle.Render(fmt.Sprintf("%-*s", keyWidth, key))
 	return keyStr + valStyleWithBg.Render(value)
+}
+
+// wrapRunes hard-wraps text into a first chunk of at most first cells and
+// further chunks of at most rest cells. It always returns at least one chunk
+// and no chunk exceeds its limit: a wide rune that cannot fit the first chunk
+// leaves it empty, and one wider than rest truncates the text there.
+func wrapRunes(text string, first, rest int) []string {
+	var chunks []string
+	limit := first
+	var cur strings.Builder
+	curW := 0
+	for _, r := range text {
+		rw := lipgloss.Width(string(r))
+		if curW+rw > limit {
+			if curW > 0 || (len(chunks) == 0 && limit != rest) {
+				chunks = append(chunks, cur.String())
+				cur.Reset()
+				curW = 0
+				limit = rest
+			}
+			if rw > limit {
+				break
+			}
+		}
+		cur.WriteRune(r)
+		curW += rw
+	}
+	if cur.Len() > 0 || len(chunks) == 0 {
+		chunks = append(chunks, cur.String())
+	}
+	return chunks
 }

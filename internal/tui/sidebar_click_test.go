@@ -1,9 +1,13 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 // newSidebarClickModel builds a tall model with one running ungrouped agent, a
@@ -202,5 +206,68 @@ func TestSidebarReleaseWithoutPressDoesNothing(t *testing.T) {
 	m = updateModel(t, m, mouseReleaseMsg{x: 0, y: 0})
 	if m.jumpTarget != (occurrenceKey{}) {
 		t.Error("phantom click jumped")
+	}
+}
+
+// TestSidebarRosterClickUsesRenderedRows clicks each agent where the rendered
+// sidebar actually draws it. A dev version too long for the logo row used to
+// soft-wrap, shifting every roster row down one screen row so a click landed
+// on the agent below.
+func TestSidebarRosterClickUsesRenderedRows(t *testing.T) {
+	m, keys := newSidebarClickModel(t, "left", 0)
+	m.sidebar.version = "0.27.0-8-ga17d550e-dirty"
+	for _, id := range []string{"solo", "g1", "g2"} {
+		row := renderedSidebarRow(m, id)
+		if row < 0 {
+			t.Fatalf("agent %q not rendered in sidebar", id)
+		}
+		m.jumpTarget = occurrenceKey{}
+		if cmd := m.sidebarRosterClick(sidebarClickX(m, sidebarPadH), row); cmd == nil || m.jumpTarget != keys[id] {
+			t.Errorf("click on %q row %d: jumpTarget = %+v, want %+v", id, row, m.jumpTarget, keys[id])
+		}
+	}
+}
+
+// renderedSidebarRow returns the screen row the sidebar draws agentID on, or -1.
+func renderedSidebarRow(m *Model, agentID string) int {
+	for i, line := range strings.Split(ansi.Strip(m.sidebar.View(m.width, m.height)), "\n") {
+		if strings.Contains(line, " "+agentID+" ") {
+			return i
+		}
+	}
+	return -1
+}
+
+// TestSidebarRosterClickFinishedAgentFromEvents drives a sub-agent through
+// its real start and finish events and clicks its finished row.
+func TestSidebarRosterClickFinishedAgentFromEvents(t *testing.T) {
+	m := newModel(Config{Model: "m", ModelContexts: map[string]int{"m": 4096}}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 140, Height: 70})
+	occ := output.DelegationOccurrence{CallID: "call-1", BatchID: "batch", AgentID: "child-1"}
+	args := subAgentArgs("")
+	for _, ev := range []output.Event{
+		output.NewToolCallQueuedEvent(1, "sub_agent", occ.CallID, args),
+		output.NewToolCallStartedEvent(1, "sub_agent", occ.CallID, args),
+		output.NewDelegationAcceptedEvent(occ, ""),
+		output.NewDelegationStartedEvent(occ, "task", "model", "code"),
+		output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: occ, AgentType: "code", DurationMs: 1000, Status: "complete", Output: "done"}),
+		output.NewToolCallFinishedEvent(1, "sub_agent", occ.CallID, "done", nil),
+	} {
+		m.applyEvent(ev)
+	}
+	addJumpFiller(m, 80)
+	m.syncRoster()
+	m.syncViewport()
+
+	if e := m.roster.entries["child-1"]; e == nil || !e.finished() {
+		t.Fatalf("roster entry = %+v, want finished", e)
+	}
+	row := renderedSidebarRow(m, "child-1")
+	if row < 0 {
+		t.Fatal("finished agent not rendered in sidebar")
+	}
+	want := occurrenceKey{BatchID: occ.BatchID, CallID: occ.CallID}
+	if cmd := m.sidebarRosterClick(sidebarClickX(m, sidebarPadH), row); cmd == nil || m.jumpTarget != want {
+		t.Errorf("click on finished row %d: jumpTarget = %+v, want %+v", row, m.jumpTarget, want)
 	}
 }
