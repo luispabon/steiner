@@ -223,6 +223,7 @@ type Model struct {
 	dragLastX                    int
 	dragLastY                    int
 	lastWheelMouseAt             time.Time
+	lastMouseMotionAt            time.Time // buttonless motion, seen only by filterMouseMotion
 	primaryModel                 string
 	profileNames                 []string
 	imageMarkers                 []imageMarker

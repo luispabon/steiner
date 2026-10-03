@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 // subAgentsMaxRows is the row budget before finished entries collapse.
@@ -130,7 +132,7 @@ func (s sidebarState) rosterRow(e rosterEntry, prefix string, typeW, width int) 
 	avail := width - lipgloss.Width(prefix) - 2 - lipgloss.Width(id) - 1 - len(elapsed) - 1
 	tw := min(typeW, max(4, avail))
 	typ := fitText(e.agentType, tw)
-	typ += strings.Repeat(" ", max(0, tw-lipgloss.Width(typ)))
+	typPad := strings.Repeat(" ", max(0, tw-lipgloss.Width(typ)))
 	typeStyle := s.styles.DelegateTagStyles[strings.ToLower(e.agentType)]
 	if _, ok := s.styles.DelegateTagStyles[strings.ToLower(e.agentType)]; !ok {
 		typeStyle = s.styles.ToolTagDefault
@@ -142,6 +144,12 @@ func (s sidebarState) rosterRow(e rosterEntry, prefix string, typeW, width int) 
 		typeStyle = s.styles.FgDim
 		meta = s.styles.FgMute
 	}
-	return prefix + icon + s.styledWithBg(s.styles.FgMute, " ") + s.styledWithBg(typeStyle, typ) +
-		s.styledWithBg(meta, " "+id+" "+elapsed)
+	lead := prefix + icon + s.styledWithBg(s.styles.FgMute, " ")
+	if e.agentID != s.rosterHover {
+		return lead + s.styledWithBg(typeStyle, typ+typPad) + s.styledWithBg(meta, " "+id+" "+elapsed)
+	}
+	// Hover marks the row clickable: underline the type and ID, brighten the ID.
+	idStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Underline(true)
+	return lead + s.styledWithBg(typeStyle.Underline(true), typ) + s.styledWithBg(meta, typPad+" ") +
+		s.styledWithBg(idStyle, id) + s.styledWithBg(meta, " "+elapsed)
 }

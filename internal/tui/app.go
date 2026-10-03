@@ -230,6 +230,7 @@ func (a *App) EventSink() output.EventSink {
 // NewProgram constructs the Bubble Tea program for the TUI.
 func (a *App) NewProgram(options ...tea.ProgramOption) *tea.Program {
 	a.bridge.start()
+	options = append([]tea.ProgramOption{tea.WithFilter(filterMouseMotion)}, options...)
 	return tea.NewProgram(newModel(a.cfg, a.bridge.Messages()), options...)
 }
 

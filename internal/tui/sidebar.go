@@ -20,6 +20,7 @@ const (
 type sidebarState struct {
 	subAgents              []rosterEntry // roster snapshot; excluded from sidebarStateComparable
 	subAgentsNow           int64         // unix nano, second resolution, for running elapsed
+	rosterHover            string        // agent ID of the roster row under the pointer
 	expanded               bool
 	model                  string
 	reasoning              string
@@ -78,6 +79,7 @@ func (s *sidebarState) Toggle() {
 		return
 	}
 	s.expanded = !s.expanded
+	s.rosterHover = ""
 }
 
 func (s *sidebarState) SetExpanded(expanded bool) {
@@ -85,6 +87,7 @@ func (s *sidebarState) SetExpanded(expanded bool) {
 		return
 	}
 	s.expanded = expanded
+	s.rosterHover = ""
 }
 
 func (s sidebarState) Visible(width int) bool {

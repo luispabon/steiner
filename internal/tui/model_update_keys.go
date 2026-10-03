@@ -17,7 +17,7 @@ import (
 )
 
 func (m *Model) handleKeyMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if shouldIgnoreLeakedMouseRunes(msg, m.recentWheelMouseInput()) {
+	if shouldIgnoreLeakedMouseRunes(msg, m.recentMouseInput()) {
 		return m, nil
 	}
 	if handled, next, cmd := m.handleOverlayKeyMsg(msg); handled {
@@ -38,11 +38,11 @@ func (m *Model) handleKeyMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.handleComposerKeyMsg(msg)
 }
 
-func (m *Model) recentWheelMouseInput() bool {
-	if m.lastWheelMouseAt.IsZero() {
-		return false
-	}
-	return time.Since(m.lastWheelMouseAt) <= 200*time.Millisecond
+// recentMouseInput reports wheel or pointer motion within the window in which
+// a split mouse escape sequence can leak into the composer as key runes.
+func (m *Model) recentMouseInput() bool {
+	recent := func(at time.Time) bool { return !at.IsZero() && time.Since(at) <= 200*time.Millisecond }
+	return recent(m.lastWheelMouseAt) || recent(m.lastMouseMotionAt)
 }
 
 func (m *Model) handleOverlayKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {

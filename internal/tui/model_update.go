@@ -121,6 +121,9 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case phaseTransitionFailedMsg:
 		m.content.AppendLine(fmt.Sprintf("status: phase transition failed: %v", msg.err))
 		return m, nil
+	case sidebarHoverMsg:
+		m.sidebar.rosterHover = msg.agentID
+		return m, nil
 	case jumpFlashTickMsg:
 		return m.handleJumpFlashTick(msg)
 	case mouseClickMsg, mouseMotionMsg, mouseReleaseMsg, mouseWheelMsg, dragAutoScrollTickMsg:

@@ -33,7 +33,7 @@ func (m *Model) View() tea.View {
 	v := tea.View{
 		Content:         result,
 		AltScreen:       true,
-		MouseMode:       tea.MouseModeCellMotion,
+		MouseMode:       m.rosterHoverMouseMode(),
 		BackgroundColor: lipgloss.Color(m.resolvedPalette().ContentBG),
 	}
 	// Attach v2 mouse handler via View.OnMouse callback without capturing the model.

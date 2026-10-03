@@ -65,6 +65,7 @@ type sidebarStateComparable struct {
 	lspFailed              bool
 	lspSingleName          string
 	subAgentsNow           int64
+	rosterHover            string
 }
 
 // comparable projects s onto its comparable fields (everything but
@@ -117,6 +118,7 @@ func (s sidebarState) comparable() sidebarStateComparable {
 		lspFailed:              s.lspFailed,
 		lspSingleName:          s.lspSingleName,
 		subAgentsNow:           s.subAgentsNow,
+		rosterHover:            s.rosterHover,
 	}
 }
 
