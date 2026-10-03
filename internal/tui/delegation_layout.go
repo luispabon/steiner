@@ -2,6 +2,8 @@ package tui
 
 import (
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 type delegationRowKind int
@@ -35,12 +37,13 @@ func (b *contentBuffer) delegationRows(dd *delegationDisplayState, width int) []
 	if headerWidth < 1 {
 		headerWidth = 1
 	}
+	header := b.renderDelegationHeader(dd, headerWidth)
+	if b.jumpFlash.on && b.jumpFlash.dd == dd {
+		header = b.styles.AccentBg.Width(headerWidth).Render(ansi.Strip(header))
+	}
 	rows := []delegationRow{
 		{kind: delegationRowBorderTop},
-		{
-			kind: delegationRowHeader,
-			text: b.renderDelegationHeader(dd, headerWidth),
-		},
+		{kind: delegationRowHeader, text: header},
 	}
 	sectionRows, hasSections := b.delegationSectionRows(dd, headerWidth)
 	rows = append(rows, sectionRows...)

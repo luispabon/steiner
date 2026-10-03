@@ -121,6 +121,8 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case phaseTransitionFailedMsg:
 		m.content.AppendLine(fmt.Sprintf("status: phase transition failed: %v", msg.err))
 		return m, nil
+	case jumpFlashTickMsg:
+		return m.handleJumpFlashTick(msg)
 	case mouseClickMsg, mouseMotionMsg, mouseReleaseMsg, mouseWheelMsg, dragAutoScrollTickMsg:
 		return m.handleMouseEventMsg(msg)
 	case tea.KeyPressMsg:
@@ -252,6 +254,10 @@ func (m *Model) resetConversationUI() {
 	}
 	m.sessionStartedAt = nil
 	m.content.Clear()
+	m.jumpTarget = occurrenceKey{}
+	m.jumpAt = time.Time{}
+	m.jumpFlashLeft = 0
+	m.jumpFlashEpoch++
 	m.convState = output.ConversationStateEvent{}
 	m.convStateSeen = false
 	m.convLabelShown = false

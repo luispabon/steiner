@@ -318,6 +318,7 @@ type contentBuffer struct {
 	delegations             map[occurrenceKey]delegationLocator // occurrence → card
 	pendingDelegationStarts []delegationLocator                 // cards created by lifecycle events awaiting their parent tool call
 	queuedDelegations       map[string]delegationLocator        // parentCallID → delegation box announced as queued, awaiting ToolCallStarted
+	jumpFlash               jumpFlashState                      // delegation card whose header currently flashes after a jump
 	activeAdvisorSegment    int                                 // 1-based segment index; 0 means none active
 	skillNames              []string                            // skill names for command prefix matching
 	mcpToolOrigins          map[string]MCPToolOrigin            // registry tool name -> MCP server/tool it came from
