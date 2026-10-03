@@ -66,9 +66,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if blinkCmd := model.(*Model).ensureComposerBlinking(); blinkCmd != nil {
 		cmds = append(cmds, blinkCmd)
 	}
-	if hoverCmd := model.(*Model).reconcileRosterHover(); hoverCmd != nil {
-		cmds = append(cmds, hoverCmd)
-	}
+	model.(*Model).reconcileRosterHover()
 	if len(cmds) == 0 {
 		return model, nil
 	}
@@ -125,7 +123,8 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.content.AppendLine(fmt.Sprintf("status: phase transition failed: %v", msg.err))
 		return m, nil
 	case sidebarHoverMsg:
-		return m.handleSidebarHover(msg)
+		m.sidebar.rosterHover = msg.agentID
+		return m, nil
 	case jumpFlashTickMsg:
 		return m.handleJumpFlashTick(msg)
 	case mouseClickMsg, mouseMotionMsg, mouseReleaseMsg, mouseWheelMsg, dragAutoScrollTickMsg:

@@ -242,12 +242,11 @@ func (a *App) Run(options ...tea.ProgramOption) error {
 }
 
 // Cleanup disables terminal mode 1000 (normal mouse tracking) which Init enables
-// but bubbletea does not restore on exit (it only cleans up mode 1002/1003), and
-// restores the default pointer shape in case the program exited while hovering
-// a sidebar roster row. Call this after the bubbletea program has fully exited.
+// but bubbletea does not restore on exit (it only cleans up mode 1002/1003).
+// Call this after the bubbletea program has fully exited.
 func (a *App) Cleanup() {
 	a.bridge.close()
-	if _, err := os.Stdout.WriteString("\x1b[?1000l" + pointerShapeSeq(false)); err != nil {
+	if _, err := os.Stdout.WriteString("\x1b[?1000l"); err != nil {
 		slog.Error("reset terminal mouse tracking", "err", err)
 	}
 }
