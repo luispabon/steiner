@@ -291,6 +291,27 @@ func benchOverlayStationaryByName(b *testing.B, name string) {
 func BenchmarkOverlayMCPStationary(b *testing.B)     { benchOverlayStationaryByName(b, "mcp") }
 func BenchmarkOverlayContextStationary(b *testing.B) { benchOverlayStationaryByName(b, "context") }
 func BenchmarkOverlayHelpStationary(b *testing.B)    { benchOverlayStationaryByName(b, "help") }
+func BenchmarkOverlaySlashStationary(b *testing.B)   { benchOverlayStationaryByName(b, "slash") }
+func BenchmarkOverlayModelPickerStationary(b *testing.B) {
+	benchOverlayStationaryByName(b, "modelpicker")
+}
+
+func BenchmarkOverlayFilePickerType(b *testing.B) {
+	for _, sc := range benchScenarios() {
+		if sc.name != "filepicker" {
+			continue
+		}
+		m := setupOverlayBench(b, sc)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			m = updateModelDirect(m, sc.typed[i%len(sc.typed)])
+			benchViewSink = m.View().Content
+		}
+		return
+	}
+	b.Fatal("filepicker scenario missing")
+}
 
 func BenchmarkOverlay(b *testing.B) {
 	for _, sc := range benchScenarios() {

@@ -18,7 +18,7 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 	// separate foot-gun guard for `go test -tags perfguard -race`, where eight
 	// testing.Benchmark runs under race instrumentation take minutes.
 	if raceEnabled {
-		t.Skip("eight testing.Benchmark runs under race take minutes")
+		t.Skip("eleven testing.Benchmark runs under race take minutes")
 	}
 
 	cases := []struct {
@@ -86,6 +86,28 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			maxBytes:   258134,
 			maxAllocs:  11,
 			baseline:   "measured 224464 B/op, 9 allocs/op (Overlay/help/stationary, post-WI-5)",
+		},
+		{
+			name:       "OverlaySlashStationary",
+			fn:         BenchmarkOverlaySlashStationary,
+			checkBytes: true,
+			maxBytes:   183605,
+			maxAllocs:  32,
+			baseline:   "measured 159656 B/op, 26 allocs/op (Overlay/slash/stationary, post-WI-6)",
+		},
+		{
+			name:       "OverlayModelPickerStationary",
+			fn:         BenchmarkOverlayModelPickerStationary,
+			checkBytes: true,
+			maxBytes:   184148,
+			maxAllocs:  51,
+			baseline:   "measured 160128 B/op, 42 allocs/op (Overlay/modelpicker/stationary, post-WI-6)",
+		},
+		{
+			name:      "OverlayFilePickerType",
+			fn:        BenchmarkOverlayFilePickerType,
+			maxAllocs: 5824,
+			baseline:  "measured 4853 allocs/op (Overlay/filepicker/type, post-WI-6; allocs only, bytes vary with the typed-key cycle)",
 		},
 		{
 			name:       "DragSelectionFramePlain",
