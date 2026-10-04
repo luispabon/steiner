@@ -141,15 +141,15 @@ func TestDragReleaseExtractsLazilyFromLastFrame(t *testing.T) {
 		setup func(m *Model)
 		end   func(m *Model, x, y int) (int, int)
 	}{
-		{"single line", func(m *Model) {}, func(m *Model, x, y int) (int, int) { return x + 6, y }},
-		{"multi line", func(m *Model) {}, func(m *Model, x, y int) (int, int) { return x + 3, y - 1 }},
-		{"across sidebar boundary", func(m *Model) {}, func(m *Model, x, y int) (int, int) { return 1, y - 1 }},
+		{"single line", func(*Model) {}, func(_ *Model, x, y int) (int, int) { return x + 6, y }},
+		{"multi line", func(*Model) {}, func(_ *Model, x, y int) (int, int) { return x + 3, y - 1 }},
+		{"across sidebar boundary", func(*Model) {}, func(_ *Model, _, y int) (int, int) { return 1, y - 1 }},
 		{"overlay open", func(m *Model) {
 			m.accentPicker = m.accentPicker.Open(m.accentPreset)
-		}, func(m *Model, x, y int) (int, int) { return x + 8, y - 2 }},
+		}, func(_ *Model, x, y int) (int, int) { return x + 8, y - 2 }},
 		{"wide graphemes", func(m *Model) {
 			m.input.SetValue("日本語 wide 😀 text\n😀😀 second 世界 line\nthird")
-		}, func(m *Model, x, y int) (int, int) { return x + 9, y }},
+		}, func(_ *Model, x, y int) (int, int) { return x + 9, y }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
