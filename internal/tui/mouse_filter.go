@@ -22,6 +22,7 @@ type mouseReleaseMsg struct {
 type mouseWheelMsg struct {
 	direction string // "up" or "down"
 	x, y      int
+	raw       tea.MouseWheelMsg // original event for textarea scroll forwarding
 }
 
 // classifyMouse classifies v2 mouse events into internal message types for
@@ -43,9 +44,9 @@ func classifyMouse(msg tea.MouseMsg) tea.Cmd {
 		mouse := msg.Mouse()
 		switch mouse.Button {
 		case tea.MouseWheelUp:
-			return func() tea.Msg { return mouseWheelMsg{direction: "up", x: mouse.X, y: mouse.Y} }
+			return func() tea.Msg { return mouseWheelMsg{direction: "up", x: mouse.X, y: mouse.Y, raw: msg} }
 		case tea.MouseWheelDown:
-			return func() tea.Msg { return mouseWheelMsg{direction: "down", x: mouse.X, y: mouse.Y} }
+			return func() tea.Msg { return mouseWheelMsg{direction: "down", x: mouse.X, y: mouse.Y, raw: msg} }
 		}
 
 	case tea.MouseMotionMsg:

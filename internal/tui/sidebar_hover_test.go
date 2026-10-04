@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -56,48 +57,79 @@ func TestFilterMouseMotion(t *testing.T) {
 	}
 
 	// Classified button/wheel/drag events:
-	classifiedTests := []struct {
-		name string
-		msg  tea.MouseMsg
-		want tea.Msg
-	}{
-		{
-			"left click classified",
-			tea.MouseClickMsg{X: sidebarPadH, Y: row, Button: tea.MouseLeft},
-			mouseClickMsg{x: sidebarPadH, y: row},
-		},
-		{
-			"left release classified",
-			tea.MouseReleaseMsg{X: sidebarPadH, Y: row, Button: tea.MouseLeft},
-			mouseReleaseMsg{x: sidebarPadH, y: row},
-		},
-		{
-			"wheel up classified",
-			tea.MouseWheelMsg{X: 40, Y: 10, Button: tea.MouseWheelUp},
-			mouseWheelMsg{direction: "up", x: 40, y: 10},
-		},
-		{
-			"wheel down classified",
-			tea.MouseWheelMsg{X: 40, Y: 10, Button: tea.MouseWheelDown},
-			mouseWheelMsg{direction: "down", x: 40, y: 10},
-		},
-		{
-			"left drag motion classified",
-			tea.MouseMotionMsg{X: sidebarPadH + 5, Y: row + 1, Button: tea.MouseLeft},
-			mouseMotionMsg{x: sidebarPadH + 5, y: row + 1},
-		},
-		{
-			"right click (unclassified) passes raw",
-			tea.MouseClickMsg{X: sidebarPadH, Y: row, Button: tea.MouseRight},
-			tea.MouseClickMsg{X: sidebarPadH, Y: row, Button: tea.MouseRight},
-		},
-	}
-	for _, tc := range classifiedTests {
-		got := filterMouseMotion(m, tc.msg)
-		if got != tc.want {
-			t.Errorf("%s: got %#v, want %#v", tc.name, got, tc.want)
+	t.Run("left click classified", func(t *testing.T) {
+		msg := tea.MouseClickMsg{X: sidebarPadH, Y: row, Button: tea.MouseLeft}
+		got := filterMouseMotion(m, msg)
+		want, ok := got.(mouseClickMsg)
+		if !ok {
+			t.Fatalf("got %T, want mouseClickMsg", got)
 		}
-	}
+		if want.x != sidebarPadH || want.y != row {
+			t.Errorf("coords = (%d,%d), want (%d,%d)", want.x, want.y, sidebarPadH, row)
+		}
+	})
+
+	t.Run("left release classified", func(t *testing.T) {
+		msg := tea.MouseReleaseMsg{X: sidebarPadH, Y: row, Button: tea.MouseLeft}
+		got := filterMouseMotion(m, msg)
+		want, ok := got.(mouseReleaseMsg)
+		if !ok {
+			t.Fatalf("got %T, want mouseReleaseMsg", got)
+		}
+		if want.x != sidebarPadH || want.y != row {
+			t.Errorf("coords = (%d,%d), want (%d,%d)", want.x, want.y, sidebarPadH, row)
+		}
+	})
+
+	t.Run("wheel up classified", func(t *testing.T) {
+		msg := tea.MouseWheelMsg{X: 40, Y: 10, Button: tea.MouseWheelUp}
+		got := filterMouseMotion(m, msg)
+		want, ok := got.(mouseWheelMsg)
+		if !ok {
+			t.Fatalf("got %T, want mouseWheelMsg", got)
+		}
+		if want.direction != "up" || want.x != 40 || want.y != 10 {
+			t.Errorf("got direction=%q, x=%d, y=%d; want up, 40, 10", want.direction, want.x, want.y)
+		}
+		if want.raw != msg {
+			t.Errorf("raw message not preserved")
+		}
+	})
+
+	t.Run("wheel down classified", func(t *testing.T) {
+		msg := tea.MouseWheelMsg{X: 40, Y: 10, Button: tea.MouseWheelDown}
+		got := filterMouseMotion(m, msg)
+		want, ok := got.(mouseWheelMsg)
+		if !ok {
+			t.Fatalf("got %T, want mouseWheelMsg", got)
+		}
+		if want.direction != "down" || want.x != 40 || want.y != 10 {
+			t.Errorf("got direction=%q, x=%d, y=%d; want down, 40, 10", want.direction, want.x, want.y)
+		}
+		if want.raw != msg {
+			t.Errorf("raw message not preserved")
+		}
+	})
+
+	t.Run("left drag motion classified", func(t *testing.T) {
+		msg := tea.MouseMotionMsg{X: sidebarPadH + 5, Y: row + 1, Button: tea.MouseLeft}
+		got := filterMouseMotion(m, msg)
+		want, ok := got.(mouseMotionMsg)
+		if !ok {
+			t.Fatalf("got %T, want mouseMotionMsg", got)
+		}
+		if want.x != sidebarPadH+5 || want.y != row+1 {
+			t.Errorf("coords = (%d,%d), want (%d,%d)", want.x, want.y, sidebarPadH+5, row+1)
+		}
+	})
+
+	t.Run("right click (unclassified) passes raw", func(t *testing.T) {
+		msg := tea.MouseClickMsg{X: sidebarPadH, Y: row, Button: tea.MouseRight}
+		got := filterMouseMotion(m, msg)
+		if got != msg {
+			t.Errorf("got %#v, want passthrough of %#v", got, msg)
+		}
+	})
 }
 
 func TestRosterHoverRendering(t *testing.T) {
@@ -406,5 +438,34 @@ func TestCachedRosterLayout(t *testing.T) {
 	m.syncRoster()
 	if got, want := m.cachedRosterLayout(), m.sidebar.rosterLayout(); !slices.Equal(got.targets, want.targets) {
 		t.Errorf("roster change: cached targets %q, fresh %q", got.targets, want.targets)
+	}
+}
+
+// TestComposerWheelScrolling verifies that mouse wheel events still scroll an
+// overflowing composer textarea, preserving pre-change behaviour where raw
+// wheel messages reached the textarea via Update.
+func TestComposerWheelScrolling(t *testing.T) {
+	m := newModel(Config{
+		Model:         "test",
+		ModelContexts: map[string]int{"test": 1024},
+	}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.input.SetHeight(8) // Small viewport so text will overflow
+
+	// Fill the composer with many lines so the content overflows
+	for i := 0; i < 50; i++ {
+		m.input.InsertString(fmt.Sprintf("Line %d content here\n", i))
+	}
+	viewBefore := m.input.View()
+
+	// Send a wheel-up event through the normal dispatch path (filter + Update)
+	wheelMsg := tea.MouseWheelMsg{X: 40, Y: 4, Button: tea.MouseWheelUp}
+	filtered := filterMouseMotion(m, wheelMsg)
+	_, _ = m.Update(filtered)
+	viewAfter := m.input.View()
+
+	// Verify the composer scrolled (view changed)
+	if viewBefore == viewAfter {
+		t.Error("composer view unchanged after wheel-up; wheel scrolling broken")
 	}
 }

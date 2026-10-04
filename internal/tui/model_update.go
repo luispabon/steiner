@@ -732,6 +732,12 @@ func (m *Model) handleDragAutoScrollTick(msg dragAutoScrollTickMsg) (tea.Model, 
 
 func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 	m.lastWheelMouseAt = time.Now()
+	// Forward raw wheel to textarea for scrolling, preserving pre-change behaviour.
+	// Check for zero value to allow tests to construct mouseWheelMsg directly.
+	var cmd tea.Cmd
+	if msg.raw != (tea.MouseWheelMsg{}) {
+		m.input, cmd = m.input.Update(msg.raw)
+	}
 	if m.contextOverlayCapturesMouse(msg.x, msg.y) {
 		switch msg.direction {
 		case "up":
@@ -739,7 +745,7 @@ func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 		case "down":
 			m.contextOverlay = m.contextOverlay.scrollDown(m.viewport.mouseWheelDelta)
 		}
-		return m, nil
+		return m, cmd
 	}
 
 	switch msg.direction {
@@ -748,7 +754,7 @@ func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 	case "down":
 		m.scrollDown(m.viewport.mouseWheelDelta)
 	}
-	return m, nil
+	return m, cmd
 }
 
 func (m *Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.Cmd) {
