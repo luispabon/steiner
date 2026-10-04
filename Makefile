@@ -22,7 +22,7 @@ install-check-tools:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
 
-.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln bench bench-tui test-perf check test-scripts
+.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln bench bench-tui bench-compare test-perf check test-scripts
 
 build: build-binaries
 
@@ -132,6 +132,12 @@ test-perf:
 # suitable for benchstat comparison between two runs.
 bench-tui:
 	go test -run=$$^ -bench=. -benchmem -benchtime=1s -count=6 ./internal/tui/...
+
+# bench-compare runs an A/B benchstat comparison against a base git ref.
+# Usage: make bench-compare BASE=<git ref> BENCH=<regex> COUNT=10 [PKG=./internal/tui] [BENCHTIME=1s] [OUT=<dir>]
+# Example: make bench-compare BASE=HEAD BENCH='BenchmarkOverlay/closed/stationary' COUNT=2 BENCHTIME=100ms
+bench-compare:
+	./scripts/tui-bench-compare.sh
 
 format:
 	gofmt -w $(GO_FILES)
