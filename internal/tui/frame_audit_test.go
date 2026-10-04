@@ -37,13 +37,10 @@ func TestFrameAuditIdle(t *testing.T) {
 	} {
 		m := auditModel(t, tc.agents, tc.session)
 		if strings.Contains(tc.name, "cleared") {
-			// All roster entries done, no active delegations: the realistic
-			// "agents finished, user reading" state.
-			for _, e := range m.roster.entries {
-				e.status = rosterDone
-				e.finishTime = 5
-			}
-			m.syncRoster()
+			// The realistic "agents finished, user reading" state. Flipping
+			// roster status alone leaves the content buffer's delegations in
+			// flight, which legitimately keeps the tick chain alive.
+			m = finishAuditAgents(m, tc.agents)
 		}
 		d := newAuditDriver(m)
 		d.run(5*time.Second, timers(m), nil)

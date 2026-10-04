@@ -114,6 +114,33 @@ func TestIdleIsIdlePin(t *testing.T) {
 	}
 }
 
+func TestFinishedRosterIsIdlePin(t *testing.T) {
+	tests := []struct {
+		name      string
+		finish    bool
+		wantTicks func(n int) bool
+	}{
+		{"all sub-agents finished", true, func(n int) bool { return n <= 1 }},
+		{"sub-agents running", false, func(n int) bool { return n >= 9 }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := auditModelSized(t, 1, 3, true)
+			if tc.finish {
+				m = finishAuditAgents(m, 3)
+				if m.roster.hasRunning() || m.content.HasActiveDelegations() {
+					t.Fatal("agents still in flight after finishing them")
+				}
+			}
+			d := newAuditDriver(m)
+			d.run(5*time.Second, timers(m), nil)
+			if got := d.updates(tickMsg{}); !tc.wantTicks(got) {
+				t.Errorf("got %d tickMsg in 5s", got)
+			}
+		})
+	}
+}
+
 func TestChunksDoNotTouchViewportPin(t *testing.T) {
 	m := auditModelSized(t, 1, 0, false)
 	d := newAuditDriver(m)

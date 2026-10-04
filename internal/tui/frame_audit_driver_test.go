@@ -277,6 +277,21 @@ func auditModelSized(t *testing.T, heavy, subAgents int, session bool) *Model {
 	return m
 }
 
+// finishAuditAgents completes every sub-agent of an auditModel through the
+// production event path, so the roster and the content buffer's in-flight
+// delegation/tool-call state both settle.
+func finishAuditAgents(m *Model, subAgents int) *Model {
+	for i := 0; i < subAgents; i++ {
+		id := fmt.Sprintf("audit-agent-%d", i)
+		occ := agentOcc(id)
+		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+			DelegationOccurrence: occ, AgentType: "review", Status: "completed",
+		})})
+		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(100+i, "sub_agent", occ.CallID, "done", nil)})
+	}
+	return m
+}
+
 func chunk(turn int, scopeID string) tea.Msg {
 	ev := output.NewAssistantChunkEventWithSource(turn, "streaming token text that looks like a short markdown sentence. ", output.ChunkSourceAssistant)
 	if scopeID != "" {
