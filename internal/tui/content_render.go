@@ -200,8 +200,8 @@ func lastPartKind(kinds []contentSegmentKind) contentSegmentKind {
 // processSegment renders a single non-hidden segment, updating the per-segment
 // render cache and appending to parts/kinds. Returns true when the segment was
 // re-rendered rather than served from its per-segment cache, at this or a
-// recently used width (which prevents the settled prefix from folding over it). Extracted from String to keep the
-// outer loop readable; stays inlinable to preserve the per-frame hot path.
+// recently used width (which prevents the settled prefix from folding over
+// it). Extracted from String to keep the outer loop readable.
 func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]contentSegmentKind) bool {
 	seg := &b.segments[i]
 	if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {

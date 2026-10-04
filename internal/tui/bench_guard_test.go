@@ -104,6 +104,16 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			maxAllocs:  1415,
 			baseline:   "measured 13167578 B/op, 1179 allocs/op (max of 4 runs, post-WI-1)",
 		},
+		{
+			// B/op is diagnostic only: each toggle joins and reformats the whole
+			// transcript, so bytes track the fixture, not per-toggle overhead. A
+			// toggle that re-renders segments shows up as ~10^5 more allocs.
+			name:       "SidebarToggleSteady60",
+			fn:         func(b *testing.B) { benchSidebarToggleSteady(b, 60) },
+			checkBytes: false,
+			maxAllocs:  1364,
+			baseline:   "measured 1136 allocs/op (max of 4 runs, post-WI-2; B/op intentionally unguarded)",
+		},
 	}
 
 	for _, tc := range cases {
