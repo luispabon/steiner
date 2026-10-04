@@ -282,12 +282,12 @@ func TestModelRoutesShortContextReportToTranscript(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// Short single-line context report should go to the transcript, not the overlay.
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", "cave_human mode: on")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", "context usage: 10%")})
 
 	if m.contextOverlay.IsOpen() {
 		t.Fatal("contextOverlay.IsOpen() = true, want overlay closed for short context report")
 	}
-	if got := stripANSI(m.content.String(m.viewport.Width())); !strings.Contains(got, "cave_human mode: on") {
+	if got := stripANSI(m.content.String(m.viewport.Width())); !strings.Contains(got, "context usage: 10%") {
 		t.Fatalf("content = %q, want context report text in transcript", got)
 	}
 }

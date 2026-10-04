@@ -257,13 +257,6 @@ func (s *Session) WorkflowHandoffModelSelection(destination string) WorkflowHand
 	return selection
 }
 
-// CaveHuman returns whether cave_human-style terse prompting is enabled.
-func (s *Session) CaveHuman() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.deps.Config.CaveHuman
-}
-
 // CurrentModelConfig returns the currently active model config.
 func (s *Session) CurrentModelConfig() config.ModelConfig {
 	s.mu.RLock()

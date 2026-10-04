@@ -340,7 +340,6 @@ func TestBuildActiveRegistryMatchesDelegateRegistry(t *testing.T) {
 	)
 
 	cfg := config.Config{
-		CaveHuman: true,
 		Providers: map[string]config.ProviderConfig{
 			"testprov": {
 				Type:    config.ProviderTypeOpenAICompat,

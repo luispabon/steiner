@@ -329,7 +329,6 @@ func TestPromptAssemblyIncludesSessionDate(t *testing.T) {
 				SubAgent:       config.SubAgentConfig{Enabled: false},
 				Advisor:        config.AdvisorConfig{Enabled: false},
 				LSP:            config.LSPConfig{Enabled: false},
-				CaveHuman:      false,
 			},
 		},
 		sessionDateFn: func() prompt.SessionDate { return sessionDate },

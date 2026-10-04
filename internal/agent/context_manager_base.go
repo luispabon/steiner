@@ -22,7 +22,6 @@ type baseContextManager struct {
 		advisorEnabled        bool
 		lspEnabled            bool
 		workflowMode          prompt.WorkflowMode
-		caveHuman             bool
 		systemSuffix          string
 		sandboxEnabled        bool
 		sandboxWritableMounts []string
@@ -36,7 +35,7 @@ type baseContextManager struct {
 // which is required for prompt-cache reuse; orchestrationLevel changing
 // (e.g. via a mid-session /orchestration switch) is one of the inputs that
 // invalidates the cache like any other.
-func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, asyncSubAgents bool, orchestrationLevel config.OrchestrationLevel, advisorEnabled bool, lspEnabled bool, workflowMode prompt.WorkflowMode, caveHuman bool, systemSuffix string, sandboxEnabled bool, sandboxWritableMounts []string) string {
+func (b *baseContextManager) CachedSystemPreamble(override string, delegationEnabled bool, asyncSubAgents bool, orchestrationLevel config.OrchestrationLevel, advisorEnabled bool, lspEnabled bool, workflowMode prompt.WorkflowMode, systemSuffix string, sandboxEnabled bool, sandboxWritableMounts []string) string {
 	if b.cachedPreamble.content == "" ||
 		b.cachedPreamble.override != override ||
 		b.cachedPreamble.delegationEnabled != delegationEnabled ||
@@ -45,7 +44,6 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 		b.cachedPreamble.advisorEnabled != advisorEnabled ||
 		b.cachedPreamble.lspEnabled != lspEnabled ||
 		b.cachedPreamble.workflowMode != workflowMode ||
-		b.cachedPreamble.caveHuman != caveHuman ||
 		b.cachedPreamble.systemSuffix != systemSuffix ||
 		b.cachedPreamble.sandboxEnabled != sandboxEnabled ||
 		!slices.Equal(b.cachedPreamble.sandboxWritableMounts, sandboxWritableMounts) {
@@ -57,7 +55,6 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 			AdvisorEnabled:        advisorEnabled,
 			LSPEnabled:            lspEnabled,
 			Mode:                  workflowMode,
-			CaveHuman:             caveHuman,
 			SystemSuffix:          systemSuffix,
 			SandboxEnabled:        sandboxEnabled,
 			SandboxWritableMounts: sandboxWritableMounts,
@@ -69,7 +66,6 @@ func (b *baseContextManager) CachedSystemPreamble(override string, delegationEna
 		b.cachedPreamble.advisorEnabled = advisorEnabled
 		b.cachedPreamble.lspEnabled = lspEnabled
 		b.cachedPreamble.workflowMode = workflowMode
-		b.cachedPreamble.caveHuman = caveHuman
 		b.cachedPreamble.systemSuffix = systemSuffix
 		b.cachedPreamble.sandboxEnabled = sandboxEnabled
 		b.cachedPreamble.sandboxWritableMounts = append([]string(nil), sandboxWritableMounts...)

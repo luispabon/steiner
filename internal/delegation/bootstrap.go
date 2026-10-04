@@ -88,7 +88,6 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		workDir:            deps.WorkDir,
 		homeDir:            deps.HomeDir,
 		projectContextCfg:  deps.ProjectContextConfig,
-		caveHuman:          deps.CaveHuman,
 		skipProjectContext: skipProjectContext,
 		skipAgents:         skipAgents,
 		sandboxEnabled:     deps.SandboxEnabled,
@@ -186,7 +185,6 @@ func buildChildPrompt(p childPromptParams) prompt.AssemblyOptions {
 		ProjectContextBudgetBytes: p.projectContextCfg.MaxBytes,
 		SkipProjectContext:        p.skipProjectContext,
 		SkipAgents:                p.skipAgents,
-		CaveHuman:                 p.caveHuman,
 		SandboxEnabled:            p.sandboxEnabled,
 		SandboxWritableMounts:     append([]string(nil), p.writableMounts...),
 		SessionDate:               p.sessionDate,
@@ -215,7 +213,6 @@ type childPromptParams struct {
 	workDir            string
 	homeDir            string
 	projectContextCfg  config.ProjectContextConfig
-	caveHuman          bool
 	skipProjectContext bool
 	skipAgents         bool
 	sandboxEnabled     bool
@@ -336,7 +333,6 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		ModelBudget:            p.ModelBudget,
 		MaxTokens:              p.MaxTokens,
 		StreamingPreferred:     p.StreamingPreferred,
-		CaveHuman:              p.PromptOpts.CaveHuman,
 		PromptCacheKey:         childCacheKey,
 		CacheBaseline:          p.CacheBaseline,
 		UsageSource:            usagestats.SourceSubAgent,

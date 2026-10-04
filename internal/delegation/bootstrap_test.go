@@ -338,10 +338,9 @@ func TestBuildChildPrompt(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			promptOpts := buildChildPrompt(childPromptParams{
-				spec:      tt.spec,
-				workDir:   "/tmp/work",
-				homeDir:   "",
-				caveHuman: false,
+				spec:    tt.spec,
+				workDir: "/tmp/work",
+				homeDir: "",
 			})
 			if len(promptOpts.Conversation) != tt.wantLen {
 				t.Errorf("Conversation length = %d, want %d", len(promptOpts.Conversation), tt.wantLen)
@@ -388,9 +387,8 @@ func TestBuildChildPromptAssemblesSingleSystemMessage(t *testing.T) {
 			SystemPrompt: "Custom prompt",
 			AgentID:      "test-single-system",
 		},
-		workDir:   "/tmp/work",
-		homeDir:   "",
-		caveHuman: false,
+		workDir: "/tmp/work",
+		homeDir: "",
 	})
 
 	assembly, err := prompt.Assemble(context.Background(), promptOpts)
@@ -429,9 +427,8 @@ func TestBuildChildPromptUsesSharedSystemPreambleWhenOverrideEmpty(t *testing.T)
 			Task:    "do something",
 			AgentID: "test-shared-system",
 		},
-		workDir:   t.TempDir(),
-		homeDir:   "",
-		caveHuman: false,
+		workDir: t.TempDir(),
+		homeDir: "",
 	})
 
 	if promptOpts.PromptOverrides.System != "" {
@@ -621,10 +618,9 @@ func TestBuildChildPromptDefaultSystemPrompt(t *testing.T) {
 	t.Parallel()
 	spec := Spec{Task: "do something"}
 	opts := buildChildPrompt(childPromptParams{
-		spec:      spec,
-		workDir:   "/tmp/work",
-		homeDir:   "",
-		caveHuman: false,
+		spec:    spec,
+		workDir: "/tmp/work",
+		homeDir: "",
 	})
 	if opts.PromptOverrides.System != "" {
 		t.Errorf("default system prompt = %q, want %q", opts.PromptOverrides.System, "")
@@ -683,7 +679,6 @@ func TestBuildChildPromptSkipProjectContext(t *testing.T) {
 				workDir:            "/tmp/work",
 				homeDir:            "",
 				projectContextCfg:  config.ProjectContextConfig{MaxBytes: 4000},
-				caveHuman:          false,
 				skipProjectContext: tt.skipProjectContext,
 				skipAgents:         tt.skipAgents,
 			})

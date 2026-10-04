@@ -8,9 +8,6 @@ func applyPatch(cfg *Config, patch configPatch) {
 }
 
 func applyCoreConfigPatch(cfg *Config, patch configPatch) {
-	if patch.CaveHuman != nil {
-		cfg.CaveHuman = *patch.CaveHuman
-	}
 	if patch.TUI != nil {
 		applyTUIPatch(&cfg.TUI, patch.TUI)
 	}

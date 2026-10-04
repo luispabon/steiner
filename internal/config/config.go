@@ -258,7 +258,6 @@ type Config struct {
 	Logging              LoggingConfig              `yaml:"logging"`
 	Diagnostics          DiagnosticsConfig          `yaml:"diagnostics"`
 	ContextManagement    ContextManagementConfig    `yaml:"context_management"`
-	CaveHuman            bool                       `yaml:"cave_human"`
 	Search               SearchConfig               `yaml:"search"`
 	MCP                  MCPConfig                  `yaml:"mcp"`
 	LSP                  LSPConfig                  `yaml:"lsp"`

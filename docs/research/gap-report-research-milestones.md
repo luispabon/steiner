@@ -108,7 +108,6 @@ These features ship in the current codebase and form the baseline.
 - Advisor (stronger-model steering pass)
 - Desktop notifications (Linux)
 - Cache hit rate tracking
-- `cave_human` terse output mode
 - 13 TUI accent colour presets with picker
 - Web search (Google, Kagi, Brave, SearXNG backends — backend-configurable)
 - Codex OAuth (browser login, token refresh)
@@ -491,7 +490,7 @@ the limitations clearly.
 | `docs/user/sandboxing.md` | Sandbox mount layout, env var allowlist, platform support |
 | `docs/user/context-management.md` | Delegation, budgets, compaction description |
 | `docs/user/oneshot.md` | Oneshot invocation, configuration, resume behaviour |
-| `docs/user/optional-features.md` | Web search, image paste, forking, Codex OAuth, cave_human |
+| `docs/user/optional-features.md` | Web search, image paste, forking, Codex OAuth |
 | `internal/tool/registry.go` | Tool registry structure, definition fields |
 | `internal/delegation/` | Sub-agent implementation, registration and handler deps |
 
