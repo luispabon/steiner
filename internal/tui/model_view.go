@@ -3,6 +3,7 @@ package tui
 import (
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"charm.land/bubbles/v2/textarea"
@@ -15,6 +16,16 @@ import (
 
 // View renders the full TUI frame for the current model state.
 func (m *Model) View() tea.View {
+	if m.frame == nil {
+		return m.view()
+	}
+	start := time.Now()
+	v := m.view()
+	m.frame.recordView(time.Since(start))
+	return v
+}
+
+func (m *Model) view() tea.View {
 	contentWidth := m.contentWidth()
 	sidebarVisible := m.sidebar.Visible(m.width)
 

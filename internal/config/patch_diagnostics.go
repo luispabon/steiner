@@ -14,4 +14,5 @@ func applyDiagnosticsStreamsPatch(dst *DiagnosticsStreamsConfig, patch *diagnost
 	setIfPresent(&dst.Cache, patch.Cache)
 	setIfPresent(&dst.Provider, patch.Provider)
 	setIfPresent(&dst.Tool, patch.Tool)
+	setIfPresent(&dst.TUI, patch.TUI)
 }

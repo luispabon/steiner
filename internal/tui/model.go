@@ -112,6 +112,7 @@ type Model struct {
 	width    int
 	height   int
 	viewport scrollModel
+	frame    *frameStats
 	input    textarea.Model
 	content  contentBuffer
 	status   statusState

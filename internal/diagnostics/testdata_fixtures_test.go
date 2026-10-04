@@ -33,7 +33,7 @@ func TestSharedFixturesDecode(t *testing.T) {
 		dir   string
 		kinds []Kind
 	}{
-		{name: "flat", dir: root, kinds: []Kind{KindCache, KindProvider, KindTool}},
+		{name: "flat", dir: root, kinds: []Kind{KindCache, KindProvider, KindTool, KindTUI}},
 		{name: "coldturns", dir: filepath.Join(root, "coldturns"), kinds: []Kind{KindCache, KindTool}},
 		{name: "coldturns_seq", dir: filepath.Join(root, "coldturns_seq"), kinds: []Kind{KindCache, KindTool}},
 		{name: "mutate", dir: filepath.Join(root, "mutate"), kinds: []Kind{KindProvider, KindTool}},

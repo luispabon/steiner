@@ -58,6 +58,16 @@ func syncDebounceCmd(seq int) tea.Cmd {
 
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.frame == nil {
+		return m.update(msg)
+	}
+	start := time.Now()
+	model, cmd := m.update(msg)
+	m.frame.recordUpdate(msg, time.Since(start), m.snapshotFrame())
+	return model, cmd
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.updateDispatch(msg)
 	var cmds []tea.Cmd
 	if cmd != nil {
