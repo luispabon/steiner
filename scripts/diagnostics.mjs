@@ -6,7 +6,7 @@
 //   node scripts/diagnostics.mjs <mode> [flags]
 //   node scripts/diagnostics.mjs prefix <logfile> [flags]
 //
-// Modes: cache | provider | tools | coldturns | mutate | prefix <logfile>
+// Modes: cache | provider | tools | coldturns | mutate | tui | prefix <logfile>
 //
 // cache/provider/tools read the diagnostics directory (one JSONL file per
 // stream: cache.jsonl, provider.jsonl, tool.jsonl; see
@@ -52,6 +52,12 @@
 //   --samples N            print up to N raw capture_bodies samples
 //   --cause <bucket>       with --samples, keep one taxonomy bucket only
 //
+// tui mode reads tui.jsonl (internal/tui/frame_stats.go): per message type,
+// Update and View count, p50/p95 (histogram bucket upper bounds) and max in
+// ms, total CPU ms and share of window wall time, plus a window-level summary
+// (busy fraction, overlay-open fraction, peak running sub-agents, transcript
+// lines). It supports --since/--until, --sha, --json and --compare <a> <b>.
+//
 // VOCABULARY
 //   cold start   -- a run's first usage-bearing cache record (cold_start: true
 //                    on the record). Its warmth (cache_read/prompt) is how much
@@ -88,6 +94,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { runMutate } from "./diagnostics_mutate.mjs";
+import { runTui, runTuiCompare } from "./diagnostics_tui.mjs";
 
 const argv = process.argv.slice(2);
 const MODE = argv[0];
@@ -935,8 +942,24 @@ function main() {
 		return;
 	}
 
+	if (MODE === "tui") {
+		const helpers = { groupBy, sortedByCount, capTop };
+		const all = loadEnvelope("tui");
+		if (COMPARE) {
+			runTuiCompare({
+				recordsA: filterRecords(all, COMPARE[0]),
+				recordsB: filterRecords(all, COMPARE[1]),
+				helpers,
+				emitCompareSections,
+			});
+			return;
+		}
+		runTui({ records: filterRecords(all), helpers, printTable, asJson: AS_JSON });
+		return;
+	}
+
 	if (!["cache", "provider", "tools"].includes(MODE)) {
-		console.error("usage: node scripts/diagnostics.mjs <cache|provider|tools|coldturns|mutate> [flags]");
+		console.error("usage: node scripts/diagnostics.mjs <cache|provider|tools|coldturns|mutate|tui> [flags]");
 		console.error("       node scripts/diagnostics.mjs prefix <logfile> [flags]");
 		process.exit(1);
 	}

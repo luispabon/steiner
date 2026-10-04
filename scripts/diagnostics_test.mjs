@@ -401,3 +401,60 @@ test("loads rotated generations oldest first and active last", () => {
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+// tui fixture, build aaaa1111 (hand-computed): "key" has 20 Updates in two
+// windows; merged update hist is idx3 (0.5 ms) 11, idx4 (1 ms) 7, idx5 (2 ms)
+// 2, so p50 = 0.5 and p95 = 2; view hist idx5 10, idx6 14 cumulative, idx7 20,
+// so p50 = 2 and p95 = 8. CPU = 5 + 4 + 20 + 10 = 39 ms over 20 s of windows.
+test("tui mode: per-type percentiles, cpu and share from merged histograms", () => {
+	const out = run(["tui", "--dir", FIXTURES, "--sha", "aaaa1111", "--json"]);
+	assert.equal(out.by_type.length, 2);
+	const key = out.by_type.find((r) => r.key === "key");
+	assert.equal(key.n, 20);
+	assert.equal(key.metrics.updP50, 0.5);
+	assert.equal(key.metrics.updP95, 2);
+	assert.equal(key.metrics.updMax, 1.5);
+	assert.equal(key.metrics.viewN, 20);
+	assert.equal(key.metrics.viewP50, 2);
+	assert.equal(key.metrics.viewP95, 8);
+	assert.equal(key.metrics.viewMax, 6);
+	assert.ok(Math.abs(key.metrics.cpuMs - 39) < 1e-9);
+	assert.ok(Math.abs(key.metrics.share - 39 / 20000) < 1e-12);
+	const tick = out.by_type.find((r) => r.key === "tick");
+	assert.equal(tick.metrics.updP50, 0.25);
+	assert.equal(tick.metrics.updP95, 128);
+	assert.equal(tick.metrics.updMax, 70);
+});
+
+test("tui mode: window summary counts each window once", () => {
+	const out = run(["tui", "--dir", FIXTURES, "--sha", "aaaa1111", "--json"]);
+	const [w] = out.windows;
+	assert.equal(w.n, 2);
+	assert.equal(w.metrics.wallS, 20);
+	assert.ok(Math.abs(w.metrics.overlayOpen - 0.1) < 1e-12);
+	assert.ok(Math.abs(w.metrics.busy - 147 / 20000) < 1e-12);
+	assert.equal(w.metrics.subagentsMax, 3);
+	assert.equal(w.metrics.transcriptLinesMax, 700);
+	assert.equal(w.metrics.droppedWindows, 1);
+});
+
+test("tui mode: --since excludes records before the date and table output prints", () => {
+	const out = run(["tui", "--dir", FIXTURES, "--since", "2026-09-02", "--json"]);
+	assert.equal(out.by_type.length, 0);
+	const text = execFileSync("node", [SCRIPT, "tui", "--dir", FIXTURES], { encoding: "utf8" });
+	assert.match(text, /upd_p95_ms/);
+	assert.match(text, /overlay_open/);
+});
+
+test("tui mode --compare reports a delta between build_sha values", () => {
+	const out = run(["tui", "--dir", FIXTURES, "--compare", "aaaa1111", "bbbb2222", "--json"]);
+	const key = out.sections["tui by message type"].find((r) => r.key === "key");
+	assert.equal(key.n_a, 20);
+	assert.equal(key.n_b, 10);
+	assert.equal(key.upd_p95_ms.a, 2);
+	assert.equal(key.upd_p95_ms.b, 0.5);
+	assert.equal(key.upd_p95_ms.delta, -1.5);
+	const text = execFileSync("node", [SCRIPT, "tui", "--dir", FIXTURES, "--compare", "aaaa1111", "bbbb2222"], { encoding: "utf8" });
+	assert.match(text, /aaaa1111 vs bbbb2222/);
+	assert.match(text, /share\(delta\)/);
+});

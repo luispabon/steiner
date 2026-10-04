@@ -17,11 +17,13 @@ const (
 	KindProvider Kind = "provider"
 	// KindTool records tool execution and delegation lifecycle entries.
 	KindTool Kind = "tool"
+	// KindTUI records per-message TUI Update/View cost aggregated per window.
+	KindTUI Kind = "tui"
 )
 
 // Kinds lists every stream in a stable order.
 func Kinds() []Kind {
-	return []Kind{KindCache, KindProvider, KindTool}
+	return []Kind{KindCache, KindProvider, KindTool, KindTUI}
 }
 
 // fileName is the stream's file name inside the diagnostics directory.

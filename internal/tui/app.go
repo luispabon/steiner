@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -156,6 +157,9 @@ type Config struct {
 	// LSPEnabled reports whether LSP is switched on in config, distinguishing
 	// "off" from "on with zero configured servers" for the /lsp overlay.
 	LSPEnabled bool
+	// FrameStats receives per-message Update/View cost records; nil disables
+	// frame stats.
+	FrameStats FrameStatsSink
 }
 
 // OneshotRunnerFactoryBuilder builds a phase runner factory bound to a specific
@@ -167,6 +171,7 @@ type OneshotRunnerFactoryBuilder func(identity oneshot.RunIdentity) oneshot.Phas
 type App struct {
 	cfg    Config
 	bridge *eventBridge
+	frame  *frameStats
 }
 
 // NewApp creates a new TUI application with the given configuration.
@@ -231,7 +236,12 @@ func (a *App) EventSink() output.EventSink {
 func (a *App) NewProgram(options ...tea.ProgramOption) *tea.Program {
 	a.bridge.start()
 	options = append([]tea.ProgramOption{tea.WithFilter(filterMouseMotion)}, options...)
-	return tea.NewProgram(newModel(a.cfg, a.bridge.Messages()), options...)
+	if a.cfg.FrameStats != nil && a.frame == nil {
+		a.frame = newFrameStats(a.cfg.FrameStats)
+	}
+	m := newModel(a.cfg, a.bridge.Messages())
+	m.frame = a.frame
+	return tea.NewProgram(m, options...)
 }
 
 // Run starts the TUI program and waits for it to exit.
@@ -246,6 +256,9 @@ func (a *App) Run(options ...tea.ProgramOption) error {
 // Call this after the bubbletea program has fully exited.
 func (a *App) Cleanup() {
 	a.bridge.close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	a.frame.Close(ctx)
 	if _, err := os.Stdout.WriteString("\x1b[?1000l"); err != nil {
 		slog.Error("reset terminal mouse tracking", "err", err)
 	}
