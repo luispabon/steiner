@@ -218,6 +218,10 @@ type Model struct {
 	clickCount                   int
 	activeRegion                 selectionRegion
 	screenLines                  []string
+	screenFrame                  string // last pre-highlight frame rendered during a drag; stripped into screenLines on demand
+	screenFramePending           bool
+	highlightCache               highlightCache
+	highlightCacheStyles         *theme.Styles
 	dragScrollDir                int // 0 none, -1 up, 1 down while drag-hovering a viewport edge
 	dragScrollTicking            bool
 	dragScrollEpoch              int

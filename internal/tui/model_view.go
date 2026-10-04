@@ -32,13 +32,17 @@ func (m *Model) view() tea.View {
 	base := m.renderBaseView(contentWidth, sidebarVisible)
 	result := m.renderOverlayView(base, contentWidth)
 
-	// Only populate screenLines during an active selection drag; extract lazily on release.
+	// Keep the pre-highlight frame during a drag; screenLines are stripped from it on release.
 	if m.selection.active {
-		m.screenLines = strings.Split(ansi.Strip(result), "\n")
+		m.screenFrame, m.screenFramePending = result, true
 	}
 	if m.selection.hasSelection() {
+		if m.highlightCacheStyles != m.styles {
+			m.highlightCache.reset()
+			m.highlightCacheStyles = m.styles
+		}
 		regionLeft, regionRight := m.selectionHighlightBounds()
-		result = applyScreenHighlight(result, m.screenSelection(), m.styles.SelectionStyle, regionLeft, regionRight)
+		result = m.highlightCache.apply(result, m.screenSelection(), m.styles.SelectionStyle, regionLeft, regionRight)
 	}
 
 	v := tea.View{

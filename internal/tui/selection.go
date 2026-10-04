@@ -258,36 +258,8 @@ func stripBoxChrome(s string) string {
 // into the sidebar, divider, or padding columns. Pass 0, 0 to disable
 // constraining (matches the un-clamped legacy behaviour).
 func applyScreenHighlight(frame string, state selectionState, selStyle lipgloss.Style, regionLeft, regionRight int) string {
-	if !state.hasSelection() {
-		return frame
-	}
-	start, end := state.canonical()
-	lines := strings.Split(frame, "\n")
-	for i, line := range lines {
-		if i < start.line || i > end.line {
-			continue
-		}
-		lineWidth := ansi.StringWidth(line)
-		startCol, endCol := 0, lineWidth
-		if i == start.line {
-			startCol = start.col
-		}
-		if i == end.line {
-			endCol = end.col
-		}
-		if regionRight > 0 {
-			startCol = max(regionLeft, startCol)
-			endCol = min(regionRight, endCol)
-		}
-		if startCol >= endCol {
-			continue
-		}
-		before := ansi.Cut(line, 0, startCol)
-		mid := selStyle.Render(ansi.Strip(ansi.Cut(line, startCol, endCol)))
-		after := ansi.Cut(line, endCol, lineWidth)
-		lines[i] = before + mid + after
-	}
-	return strings.Join(lines, "\n")
+	var c highlightCache
+	return c.apply(frame, state, selStyle, regionLeft, regionRight)
 }
 
 // detectRegion classifies a screen coordinate (x, y) into a UI region.
@@ -716,6 +688,16 @@ func logicalLineBounds(lines []string, lineIdx, regionLeft, regionRight int) (st
 	return startLine, endLine, startCol, endCol
 }
 
+// flushScreenFrame strips the frame View kept during a drag into
+// m.screenLines. It is a no-op when no drag frame is pending.
+func (m *Model) flushScreenFrame() {
+	if !m.screenFramePending {
+		return
+	}
+	m.screenLines = strings.Split(ansi.Strip(m.screenFrame), "\n")
+	m.screenFrame, m.screenFramePending = "", false
+}
+
 // populateScreenLines renders the current frame exactly as View() does and
 // stores its ANSI-stripped lines in m.screenLines. This duplicates the
 // render+strip steps View() performs during an active selection drag,
@@ -728,4 +710,5 @@ func (m *Model) populateScreenLines() {
 	base := m.renderBaseView(contentWidth, sidebarVisible)
 	result := m.renderOverlayView(base, contentWidth)
 	m.screenLines = strings.Split(ansi.Strip(result), "\n")
+	m.screenFrame, m.screenFramePending = "", false
 }

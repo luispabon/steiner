@@ -3895,6 +3895,7 @@ func TestSelectionSmallHeight(t *testing.T) {
 			m.selection.active = true
 
 			_ = m.View().Content
+			m.flushScreenFrame()
 
 			if len(m.screenLines) != tt.wantScreenLines {
 				t.Fatalf("screenLines count = %d, want exactly %d entries", len(m.screenLines), tt.wantScreenLines)

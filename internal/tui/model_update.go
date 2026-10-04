@@ -670,6 +670,7 @@ func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) 
 			text = m.extractViewportText()
 		} else {
 			left, right := m.selectionHighlightBounds()
+			m.flushScreenFrame()
 			text = extractText(m.screenLines, m.selection, left, right)
 		}
 		if text != "" {

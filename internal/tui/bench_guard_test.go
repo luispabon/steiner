@@ -88,6 +88,14 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			baseline:   "measured 224464 B/op, 9 allocs/op (Overlay/help/stationary, post-WI-5)",
 		},
 		{
+			name:       "DragSelectionFramePlain",
+			fn:         func(b *testing.B) { benchDragFrame(b, false) },
+			checkBytes: true,
+			maxBytes:   302617,
+			maxAllocs:  86,
+			baseline:   "measured 263145 B/op, 71 allocs/op (DragSelectionFrame/plain, post-WI-7)",
+		},
+		{
 			name:       "AuditTickUpdateStreaming",
 			fn:         BenchmarkAuditTickUpdateStreaming,
 			checkBytes: true,
