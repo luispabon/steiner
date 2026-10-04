@@ -50,8 +50,8 @@ func BenchmarkAuditSyncViewportUnchanged(b *testing.B) {
 	}
 }
 
-// BenchmarkAuditSyncViewportContentChanged forces the WithBg+PadLines path that
-// any changed content string takes, to price the O(transcript) post-processing.
+// BenchmarkAuditSyncViewportContentChanged forces a full-transcript background
+// format (no lines reused), to price the O(transcript) post-processing.
 func BenchmarkAuditSyncViewportContentChanged(b *testing.B) {
 	m := auditModel(&testing.T{}, 3, true)
 	updateModelDirect(m, tickMsg{}) // warm the settled-prefix cache
@@ -59,6 +59,7 @@ func BenchmarkAuditSyncViewportContentChanged(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		m.fmtBgCacheInput = ""
+		m.bgFormat = bgFormatCache{}
 		m.syncViewport()
 	}
 }

@@ -256,7 +256,7 @@ type Model struct {
 	padLineCacheRendered    string
 	fmtBgCacheInput         string
 	fmtBgCacheWidth         int
-	fmtBgCacheOutput        string
+	bgFormat                bgFormatCache
 	vpViewCache             string
 	overlayCache            overlayComposeCache
 	vpViewCacheScrollY      int

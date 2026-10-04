@@ -4,8 +4,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-
-	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 const delegationBodyOverhead = 9
@@ -86,21 +84,10 @@ func (m *Model) setViewportContent(rendered string) {
 func (m *Model) syncViewport() {
 	rendered := m.content.String(m.viewport.Width())
 
-	// WithBg re-inserts the background escape after every ANSI reset in rendered
-	// content. This is necessary because terminals with transparency enabled
-	// composite ANSI resets (\x1b[0m) with their transparency setting, producing
-	// transparent gaps whenever nested lipgloss/glamour renders emit a reset.
-	// lipgloss Background() on a container does NOT fix this — it only fills
-	// padding/border cells. WithBg + PadLines ensures every cell in the viewport
-	// has an explicit SGR 48 background, making content fully opaque.
-	// The cache avoids re-running the O(n) byte scan on scroll-only updates where
-	// content hasn't changed (m.content.String returns the same string value).
 	widthChanged := m.viewport.Width() != m.fmtBgCacheWidth
 	if rendered != m.fmtBgCacheInput || widthChanged {
 		m.fmtBgCacheInput = rendered
 		m.fmtBgCacheWidth = m.viewport.Width()
-		formatted := theme.WithBg(rendered, m.resolvedPalette().ContentBG)
-		m.fmtBgCacheOutput = theme.PadLines(formatted, m.viewport.Width(), m.resolvedPalette().ContentBG)
 
 		// A width reflow invalidates row/col anchors (wrapping changes the
 		// rendered rows), so the selection clears; same-width content changes
@@ -116,7 +103,18 @@ func (m *Model) syncViewport() {
 			}
 		}
 	}
-	rendered = m.fmtBgCacheOutput
+
+	// The background escape is re-inserted after every ANSI reset in rendered
+	// content (theme.WithBg semantics). This is necessary because terminals with
+	// transparency enabled composite ANSI resets (\x1b[0m) with their
+	// transparency setting, producing transparent gaps whenever nested
+	// lipgloss/glamour renders emit a reset. lipgloss Background() on a
+	// container does NOT fix this — it only fills padding/border cells.
+	// Restoring the background and padding every line (WithBg + PadLines)
+	// ensures every cell in the viewport has an explicit SGR 48 background,
+	// making content fully opaque. bgFormat skips the work on scroll-only
+	// updates and otherwise reformats only the lines from the first changed one.
+	rendered = m.bgFormat.format(rendered, m.viewport.Width(), m.resolvedPalette().ContentBG)
 
 	contentLines := strings.Count(rendered, "\n") + 1
 	pad := m.viewport.Height() - contentLines
