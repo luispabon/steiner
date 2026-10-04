@@ -316,3 +316,24 @@ func BenchmarkContentResizeStorm(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkSidebarToggleRoundTrip: one ctrl+b sidebar toggle (off, on, off...)
+// through Update and View on a 200-message transcript, sidebar initially
+// visible. "first" rebuilds the fixture per op so only the cold toggle is
+// measured; "steady" keeps toggling the same model.
+func BenchmarkSidebarToggleRoundTrip(b *testing.B) {
+	toggle := tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl}
+	build := func() *Model {
+		m := populateLongTranscript(newContentBenchModel(), 200)
+		if !m.sidebar.Visible(m.width) {
+			b.Fatal("sidebar not visible at bench width")
+		}
+		return m
+	}
+	op := func(m *Model, _ int) {
+		_, _ = m.Update(toggle)
+		_ = m.View()
+	}
+	b.Run("first", func(b *testing.B) { benchResetEvery(b, 1, build, op) })
+	b.Run("steady", func(b *testing.B) { benchResetEvery(b, 1<<30, build, op) })
+}

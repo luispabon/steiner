@@ -1,23 +1,13 @@
 package tui
 
-// Frame audit harness. It drives a Model the way bubbletea's event loop does
-// (filter -> Update -> View, plus the OnMouse follow-up message) and counts
-// Update calls and View cost per message type.
-//
-// The audit scenarios are measurement tools, not regression tests: they run
-// only when STEINER_FRAME_AUDIT=1 and print their tables through t.Logf
-// (go test ./internal/tui -run TestFrameAudit -v). The sanity assertions guard
-// the harness itself so a broken scenario cannot report empty numbers.
-//
-// Time is simulated: periodic ticks are delivered by the driver at the
-// cadence the production tea.Tick chains would use, gated on the same model
-// flags the handlers use to re-arm themselves (m.ticking, m.composerBlinking,
-// m.sessionStartedAt).
+// Frame audit scenarios. They are measurement tools, not regression tests: they
+// run only when STEINER_FRAME_AUDIT=1 and print their tables through t.Log
+// (go test ./internal/tui -run TestFrameAudit -v). The driver they share with
+// the deterministic guard tests lives in frame_audit_driver_test.go.
 
 import (
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -31,202 +21,6 @@ func requireFrameAudit(t *testing.T) {
 	t.Helper()
 	if os.Getenv("STEINER_FRAME_AUDIT") != "1" {
 		t.Skip("set STEINER_FRAME_AUDIT=1 to run the frame audit")
-	}
-}
-
-type auditStat struct {
-	updates   int
-	updateDur time.Duration
-	viewDur   time.Duration
-	unchanged int // frames whose View content equals the previous frame
-}
-
-type auditDriver struct {
-	m        *Model
-	stats    map[string]*auditStat
-	dropped  map[string]int
-	filterNs time.Duration
-	lastView string
-	// useFilter routes messages through filterMouseMotion like the program does.
-	useFilter bool
-}
-
-func newAuditDriver(m *Model) *auditDriver {
-	d := &auditDriver{m: m, stats: map[string]*auditStat{}, dropped: map[string]int{}, useFilter: true}
-	d.lastView = m.View().Content
-	return d
-}
-
-func msgName(msg tea.Msg) string {
-	return strings.TrimPrefix(fmt.Sprintf("%T", msg), "*")
-}
-
-// send mimics Program.eventLoop for one message: filter, OnMouse follow-up,
-// Update, then View.
-func (d *auditDriver) send(msg tea.Msg) {
-	name := msgName(msg)
-	if d.useFilter {
-		t0 := time.Now()
-		out := filterMouseMotion(d.m, msg)
-		d.filterNs += time.Since(t0)
-		if out == nil {
-			d.dropped[name]++
-			return
-		}
-		msg = out
-		name = msgName(msg)
-	}
-	var follow tea.Cmd
-	if mm, ok := msg.(tea.MouseMsg); ok {
-		switch mm.(type) {
-		case tea.MouseClickMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg, tea.MouseMotionMsg:
-			follow = classifyMouse(mm)
-		}
-	}
-	d.step(name, msg)
-	if follow != nil {
-		d.send(follow())
-	}
-}
-
-func (d *auditDriver) step(name string, msg tea.Msg) {
-	st := d.stats[name]
-	if st == nil {
-		st = &auditStat{}
-		d.stats[name] = st
-	}
-	t0 := time.Now()
-	_, _ = d.m.Update(msg)
-	t1 := time.Now()
-	v := d.m.View()
-	t2 := time.Now()
-	st.updates++
-	st.updateDur += t1.Sub(t0)
-	st.viewDur += t2.Sub(t1)
-	if v.Content == d.lastView {
-		st.unchanged++
-	}
-	d.lastView = v.Content
-}
-
-func (d *auditDriver) report(t *testing.T, title string, simSeconds float64) {
-	t.Helper()
-	names := make([]string, 0, len(d.stats))
-	for n := range d.stats {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	var totalN int
-	var totalDur time.Duration
-	var b strings.Builder
-	fmt.Fprintf(&b, "\n== %s (simulated %.1fs) ==\n", title, simSeconds)
-	fmt.Fprintf(&b, "%-40s %7s %8s %10s %10s %10s %8s\n", "msg", "count", "per_sec", "upd_us", "view_us", "tot_ms/s", "same_frm")
-	for _, n := range names {
-		s := d.stats[n]
-		tot := s.updateDur + s.viewDur
-		totalN += s.updates
-		totalDur += tot
-		fmt.Fprintf(&b, "%-40s %7d %8.1f %10.1f %10.1f %10.2f %7d%%\n", n, s.updates, float64(s.updates)/simSeconds,
-			float64(s.updateDur.Microseconds())/float64(s.updates),
-			float64(s.viewDur.Microseconds())/float64(s.updates),
-			float64(tot.Microseconds())/1000/simSeconds,
-			100*s.unchanged/s.updates)
-	}
-	for n, c := range d.dropped {
-		fmt.Fprintf(&b, "%-40s dropped by filter: %d (%.1f/s)\n", n, c, float64(c)/simSeconds)
-	}
-	if d.filterNs > 0 {
-		fmt.Fprintf(&b, "filter total %.2f ms\n", float64(d.filterNs.Microseconds())/1000)
-	}
-	fmt.Fprintf(&b, "TOTAL update+view: %d msgs (%.1f/s), %.1f ms CPU per simulated second\n", totalN, float64(totalN)/simSeconds, float64(totalDur.Microseconds())/1000/simSeconds)
-	t.Log(b.String())
-	if totalN == 0 && len(d.dropped) == 0 {
-		t.Fatalf("%s: harness delivered no messages", title)
-	}
-}
-
-// auditModel builds a 220x60 model with the heavy transcript, optionally with
-// running sub-agents in the roster and an active session timer.
-func auditModel(t *testing.T, subAgents int, session bool) *Model {
-	t.Helper()
-	m := newModel(Config{
-		Model:         "bench-model",
-		ModelContexts: map[string]int{"bench-model": 4096},
-	}, nil)
-	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 220, Height: 60})
-	for range 4 {
-		populateBenchModelHeavy(m)
-	}
-	m.Init()
-	for i := 0; i < subAgents; i++ {
-		id := fmt.Sprintf("audit-agent-%d", i)
-		occ := agentOcc(id)
-		m.content.AppendEvent(output.NewToolCallQueuedEvent(100+i, "sub_agent", occ.CallID, subAgentArgs("")))
-		m.content.AppendEvent(output.NewToolCallStartedEvent(100+i, "sub_agent", occ.CallID, subAgentArgs("")))
-		m.content.AppendEvent(output.NewDelegationAcceptedEvent(occ, ""))
-		m.content.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEvent(occ, "audit task", "", "review"), id))
-		e := m.roster.upsert(id)
-		e.agentType = "review"
-		e.occurrence = occurrenceKey{BatchID: occ.BatchID, CallID: occ.CallID}
-		e.admitted = true
-		e.status = rosterRunning
-	}
-	if session {
-		now := time.Now()
-		m.sessionStartedAt = &now
-	}
-	m.syncRoster()
-	m.syncSidebar()
-	m.syncViewport()
-	if subAgents > 0 && len(m.sidebar.subAgents) == 0 {
-		t.Fatal("audit model has no roster entries")
-	}
-	return m
-}
-
-// periodic describes one self-rearming timer chain.
-type periodic struct {
-	every time.Duration
-	next  time.Duration
-	// armed reports whether the production handler would still re-arm it.
-	armed func(*Model) bool
-	msg   func() tea.Msg
-}
-
-func timers(_ *Model) []*periodic {
-	return []*periodic{
-		{every: 500 * time.Millisecond, next: 500 * time.Millisecond, armed: func(m *Model) bool { return m.ticking }, msg: func() tea.Msg { return tickMsg{} }},
-		{every: 500 * time.Millisecond, next: 500 * time.Millisecond, armed: func(m *Model) bool { return m.composerBlinking }, msg: func() tea.Msg { return composerBlinkMsg{} }},
-		{every: sessionTickInterval, next: sessionTickInterval, armed: func(m *Model) bool { return m.sessionStartedAt != nil }, msg: func() tea.Msg { return sessionTickMsg{} }},
-	}
-}
-
-// run advances simulated time in 1ms steps, firing timers, the 50ms
-// syncDebounce chain, and the supplied per-ms emitter (argument is ms).
-func (d *auditDriver) run(dur time.Duration, ts []*periodic, emit func(ms int)) {
-	lastSeq := d.m.syncDebounceSeq
-	debounceAt := -1
-	for now := time.Duration(0); now < dur; now += time.Millisecond {
-		ms := int(now / time.Millisecond)
-		if emit != nil {
-			emit(ms)
-		}
-		for _, p := range ts {
-			if now >= p.next {
-				p.next += p.every
-				if p.armed(d.m) {
-					d.send(p.msg())
-				}
-			}
-		}
-		if d.m.syncDebounceSeq != lastSeq {
-			lastSeq = d.m.syncDebounceSeq
-			debounceAt = ms + 50
-		}
-		if debounceAt >= 0 && ms >= debounceAt {
-			debounceAt = -1
-			d.send(syncDebounceFiredMsg{seq: d.m.syncDebounceSeq})
-		}
 	}
 }
 
@@ -253,16 +47,9 @@ func TestFrameAuditIdle(t *testing.T) {
 		}
 		d := newAuditDriver(m)
 		d.run(5*time.Second, timers(m), nil)
+		d.probeKeyWait(tickMsg{}, chunk(1, ""))
 		d.report(t, tc.name, 5)
 	}
-}
-
-func chunk(turn int, scopeID string) tea.Msg {
-	ev := output.NewAssistantChunkEventWithSource(turn, "streaming token text that looks like a short markdown sentence. ", output.ChunkSourceAssistant)
-	if scopeID != "" {
-		ev = output.WithAgentScope(ev, scopeID)
-	}
-	return runtimeEventMsg{Event: ev}
 }
 
 func TestFrameAuditStreaming(t *testing.T) {
@@ -270,7 +57,7 @@ func TestFrameAuditStreaming(t *testing.T) {
 	m := auditModel(t, 3, true)
 	d := newAuditDriver(m)
 	d.send(runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
-	d.stats = map[string]*auditStat{} // exclude setup
+	d.resetStats() // exclude setup
 	ids := []string{"audit-agent-0", "audit-agent-1", "audit-agent-2"}
 	// main: 40 chunks/s; each sub-agent: 20 chunks/s; one sub-agent tool call per 500ms.
 	d.run(5*time.Second, timers(m), func(now int) {
@@ -288,6 +75,8 @@ func TestFrameAuditStreaming(t *testing.T) {
 			}
 		}
 	})
+	d.probeKeyWait(tickMsg{}, chunk(1, ""))
+	d.probeKeyWait(syncDebounceFiredMsg{seq: m.syncDebounceSeq}, chunk(1, ""))
 	d.report(t, "streaming main + 3 sub-agents", 5)
 }
 
@@ -325,7 +114,7 @@ func TestFrameAuditMouseMotion(t *testing.T) {
 		// Drag (left button held): passes the filter, raw + classified.
 		d2 := newAuditDriver(tc.mk())
 		d2.send(tea.MouseClickMsg{X: 100, Y: 20, Button: tea.MouseLeft})
-		d2.stats = map[string]*auditStat{}
+		d2.resetStats()
 		motionSweep(d2, 200, tea.MouseLeft)
 		d2.report(t, tc.name+": left-drag motion", 2)
 	}
@@ -363,6 +152,69 @@ func TestFrameAuditWheel(t *testing.T) {
 			}
 			d.send(tea.MouseWheelMsg{X: 60, Y: 20, Button: btn})
 		}
+		d.probeKeyWait(tea.MouseWheelMsg{X: 60, Y: 20, Button: tea.MouseWheelUp})
 		d.report(t, tc.name, 4)
+	}
+}
+
+func TestFrameAuditSidebarToggle(t *testing.T) {
+	requireFrameAudit(t)
+	m := auditModel(t, 3, true)
+	if !m.sidebar.Visible(m.width) {
+		t.Fatal("sidebar not visible at audit width")
+	}
+	d := newAuditDriver(m)
+	toggle := tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl}
+	d.run(3*time.Second, timers(m), func(now int) {
+		if now%500 == 0 {
+			d.send(toggle)
+		}
+	})
+	d.probeKeyWait(toggle)
+	d.report(t, "sidebar_toggle: 6 toggles, 500ms apart", 3)
+	if got := d.updates(toggle); got != 6 {
+		t.Fatalf("toggle key Updates = %d, want 6", got)
+	}
+}
+
+func TestFrameAuditOverlayWheel(t *testing.T) {
+	requireFrameAudit(t)
+	m := auditModel(t, 3, true)
+	m.scrollUp(30)
+	m.contextOverlay = openContextOverlay("Context", benchContextReport(), m.width, m.height, m.styles, m.content.glamourStyleSheet)
+	bx, by, bw, bh := m.contextOverlayBounds()
+	inside := tea.MouseWheelMsg{X: bx + bw/2, Y: by + bh/2}
+	outside := tea.MouseWheelMsg{X: 1, Y: 1}
+	d := newAuditDriver(m)
+	for i := 0; i < 400; i++ {
+		msg := inside
+		if i%2 == 1 {
+			msg = outside
+		}
+		msg.Button = tea.MouseWheelUp
+		if i%4 >= 2 {
+			msg.Button = tea.MouseWheelDown
+		}
+		d.send(msg)
+	}
+	outside.Button = tea.MouseWheelUp
+	d.probeKeyWait(outside)
+	d.report(t, "overlay_wheel: context overlay, wheel inside/outside bounds", 4)
+}
+
+func TestFrameAuditResizeBurst(t *testing.T) {
+	requireFrameAudit(t)
+	m := auditModel(t, 3, true)
+	d := newAuditDriver(m)
+	widths := []int{200, 190, 180, 170, 160}
+	d.run(300*time.Millisecond, timers(m), func(now int) {
+		if now%30 == 0 && now/30 < len(widths) {
+			d.send(tea.WindowSizeMsg{Width: widths[now/30], Height: 60})
+		}
+	})
+	d.probeKeyWait(tea.WindowSizeMsg{Width: 150, Height: 60})
+	d.report(t, "resize_burst: 5 width changes, 30ms apart", 0.3)
+	if got := d.updates(tea.WindowSizeMsg{}); got != 5 {
+		t.Fatalf("WindowSizeMsg Updates = %d, want 5", got)
 	}
 }
