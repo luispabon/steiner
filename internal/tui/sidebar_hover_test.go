@@ -82,18 +82,78 @@ func TestRosterHoverRendering(t *testing.T) {
 }
 
 func TestRosterHoverMouseMode(t *testing.T) {
-	m, _ := newSidebarClickModel(t, "left", 0)
-	if got := m.rosterHoverMouseMode(); got != tea.MouseModeAllMotion {
-		t.Errorf("roster visible: mode = %v, want all motion", got)
+	tests := []struct {
+		name         string
+		setupSidebar func(*Model)
+		setupOverlay func(*Model)
+		wantMode     tea.MouseMode
+	}{
+		{
+			"roster visible and entries exist, no overlay",
+			func(m *Model) {
+				// sidebar already visible with entries from newSidebarClickModel
+			},
+			func(m *Model) {},
+			tea.MouseModeAllMotion,
+		},
+		{
+			"sidebar hidden",
+			func(m *Model) {
+				m.sidebar.Toggle()
+			},
+			func(m *Model) {},
+			tea.MouseModeCellMotion,
+		},
+		{
+			"empty roster",
+			func(m *Model) {
+				m.sidebar.subAgents = nil
+			},
+			func(m *Model) {},
+			tea.MouseModeCellMotion,
+		},
+		{
+			"exclusive overlay open (fileList)",
+			func(m *Model) {
+				// sidebar already visible with entries
+			},
+			func(m *Model) {
+				m.fileList = m.fileList.Open(".")
+			},
+			tea.MouseModeCellMotion,
+		},
+		{
+			"bottom-anchored overlay open (slash)",
+			func(m *Model) {
+				// sidebar already visible with entries
+			},
+			func(m *Model) {
+				m.slashOverlay = m.slashOverlay.Open(m.buildSlashOverlayItems())
+			},
+			tea.MouseModeCellMotion,
+		},
+		{
+			"modal overlay open (MCP)",
+			func(m *Model) {
+				// sidebar already visible with entries
+			},
+			func(m *Model) {
+				m.mcpOverlay = m.mcpOverlay.Open(nil, true)
+			},
+			tea.MouseModeCellMotion,
+		},
 	}
-	m.sidebar.Toggle()
-	if got := m.rosterHoverMouseMode(); got != tea.MouseModeCellMotion {
-		t.Errorf("sidebar hidden: mode = %v, want cell motion", got)
-	}
-	m.sidebar.Toggle()
-	m.sidebar.subAgents = nil
-	if got := m.rosterHoverMouseMode(); got != tea.MouseModeCellMotion {
-		t.Errorf("empty roster: mode = %v, want cell motion", got)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _ := newSidebarClickModel(t, "left", 0)
+			tc.setupSidebar(m)
+			tc.setupOverlay(m)
+			got := m.rosterHoverMouseMode()
+			if got != tc.wantMode {
+				t.Errorf("mode = %v, want %v", got, tc.wantMode)
+			}
+		})
 	}
 }
 
@@ -109,6 +169,40 @@ func TestRecentMouseInputCountsMotion(t *testing.T) {
 	m.lastMouseMotionAt = time.Now().Add(-time.Second)
 	if m.recentMouseInput() {
 		t.Error("stale pointer motion reported as recent")
+	}
+}
+
+func TestMouseModeChangesWhenOverlayOpens(t *testing.T) {
+	m, _ := newSidebarClickModel(t, "left", 0)
+
+	// Set hover on a roster row
+	hoverRow(t, m, "solo")
+	if m.sidebar.rosterHover != "solo" {
+		t.Fatalf("setup: hover = %q, want solo", m.sidebar.rosterHover)
+	}
+	if got := m.rosterHoverMouseMode(); got != tea.MouseModeAllMotion {
+		t.Errorf("before overlay: mode = %v, want all motion", got)
+	}
+
+	// Open an overlay and trigger reconcile via Update
+	m.fileList = m.fileList.Open(".")
+	updateModelDirect(m, tea.WindowSizeMsg{Width: m.width, Height: m.height}) // trigger reconcile
+	if m.sidebar.rosterHover != "" {
+		t.Errorf("after overlay open: hover = %q, want cleared", m.sidebar.rosterHover)
+	}
+	if got := m.rosterHoverMouseMode(); got != tea.MouseModeCellMotion {
+		t.Errorf("with overlay open: mode = %v, want cell motion", got)
+	}
+
+	// Close overlay and trigger reconcile; hover restoration depends on pointer position
+	// (which is still over the row from setup), so it should re-hover
+	m.fileList = m.fileList.Close()
+	updateModelDirect(m, tea.WindowSizeMsg{Width: m.width, Height: m.height})
+	if m.sidebar.rosterHover != "solo" {
+		t.Errorf("after overlay close: hover = %q, want restored to solo", m.sidebar.rosterHover)
+	}
+	if got := m.rosterHoverMouseMode(); got != tea.MouseModeAllMotion {
+		t.Errorf("after overlay close: mode = %v, want all motion", got)
 	}
 }
 
