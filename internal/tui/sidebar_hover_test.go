@@ -90,10 +90,10 @@ func TestRosterHoverMouseMode(t *testing.T) {
 	}{
 		{
 			"roster visible and entries exist, no overlay",
-			func(m *Model) {
+			func(_ *Model) {
 				// sidebar already visible with entries from newSidebarClickModel
 			},
-			func(m *Model) {},
+			func(_ *Model) {},
 			tea.MouseModeAllMotion,
 		},
 		{
@@ -101,7 +101,7 @@ func TestRosterHoverMouseMode(t *testing.T) {
 			func(m *Model) {
 				m.sidebar.Toggle()
 			},
-			func(m *Model) {},
+			func(_ *Model) {},
 			tea.MouseModeCellMotion,
 		},
 		{
@@ -109,12 +109,12 @@ func TestRosterHoverMouseMode(t *testing.T) {
 			func(m *Model) {
 				m.sidebar.subAgents = nil
 			},
-			func(m *Model) {},
+			func(_ *Model) {},
 			tea.MouseModeCellMotion,
 		},
 		{
 			"exclusive overlay open (fileList)",
-			func(m *Model) {
+			func(_ *Model) {
 				// sidebar already visible with entries
 			},
 			func(m *Model) {
@@ -124,7 +124,7 @@ func TestRosterHoverMouseMode(t *testing.T) {
 		},
 		{
 			"bottom-anchored overlay open (slash)",
-			func(m *Model) {
+			func(_ *Model) {
 				// sidebar already visible with entries
 			},
 			func(m *Model) {
@@ -134,7 +134,7 @@ func TestRosterHoverMouseMode(t *testing.T) {
 		},
 		{
 			"modal overlay open (MCP)",
-			func(m *Model) {
+			func(_ *Model) {
 				// sidebar already visible with entries
 			},
 			func(m *Model) {
