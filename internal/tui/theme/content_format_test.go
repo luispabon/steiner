@@ -183,4 +183,13 @@ func TestCommonPrefixLen(t *testing.T) {
 			}
 		})
 	}
+	for seed := range uint64(300) {
+		r := rand.New(rand.NewPCG(seed, 4))
+		a := strings.Repeat("y", r.IntN(40*commonPrefixChunk))
+		diff := r.IntN(len(a) + 1)
+		b := a[:diff] + "z" + a[min(diff+1, len(a)):]
+		if got := commonPrefixLen(a, b); got != diff {
+			t.Fatalf("seed %d: commonPrefixLen = %d, want %d (len %d)", seed, got, diff, len(a))
+		}
+	}
 }

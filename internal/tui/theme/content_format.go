@@ -6,9 +6,12 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// commonPrefixChunk is the block size compared with string equality (a
-// vectorised memequal) before falling back to a byte scan.
-const commonPrefixChunk = 4096
+// commonPrefixChunk is the initial block size compared with string equality
+// (a vectorised memequal); below commonPrefixMinChunk a byte scan finishes.
+const (
+	commonPrefixChunk    = 4096
+	commonPrefixMinChunk = 64
+)
 
 // FormatContent returns PadLines(WithBg(s, bg), width, bg) in a single
 // line-by-line pass. Every line except the trailing empty ones is a body line
@@ -66,11 +69,19 @@ func sharedBodyPrefix(a, b string, common int) int {
 }
 
 // commonPrefixLen returns the length of the longest common prefix of a and b.
+// Block size doubles while blocks match and halves when one differs, so an
+// unchanged transcript (often the same backing array, which memequal
+// short-circuits) costs a few dozen comparisons rather than one per block.
 func commonPrefixLen(a, b string) int {
 	n := min(len(a), len(b))
-	i := 0
-	for i+commonPrefixChunk <= n && a[i:i+commonPrefixChunk] == b[i:i+commonPrefixChunk] {
-		i += commonPrefixChunk
+	i, chunk := 0, commonPrefixChunk
+	for chunk >= commonPrefixMinChunk {
+		if i+chunk <= n && a[i:i+chunk] == b[i:i+chunk] {
+			i += chunk
+			chunk *= 2
+		} else {
+			chunk /= 2
+		}
 	}
 	for i < n && a[i] == b[i] {
 		i++

@@ -44,7 +44,7 @@ type bgFormatScenario struct {
 func (s *bgFormatScenario) op() func(m *Model) {
 	s.next++
 	id := fmt.Sprintf("op_%d", s.next)
-	switch s.r.IntN(13) {
+	switch s.r.IntN(15) {
 	case 0:
 		text := strings.Repeat("reply words ", 1+s.r.IntN(20)) + "\n\n`code` and **bold**\n\n- item\n- 世界 🎉\tok"
 		return sendMsg(runtimeEventMsg{Event: output.NewAssistantMessageEvent(1, "assistant", text)})
@@ -107,6 +107,10 @@ func (s *bgFormatScenario) op() func(m *Model) {
 		}
 	case 11:
 		return sendMsg(runtimeEventMsg{Event: output.NewUserInputEvent("look at "+id, "interactive", nil)})
+	case 12:
+		return sendMsg(runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "weighing "+id+". ", output.ChunkSourceAssistant)})
+	case 13:
+		return sendMsg(toggleThinkingMsg{})
 	default:
 		return sendMsg(tickMsg{})
 	}
