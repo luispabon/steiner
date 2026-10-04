@@ -71,9 +71,15 @@ func rosterLink(agentID, row string) string {
 	return ansi.SetHyperlink("steiner://agent/"+url.PathEscape(agentID)) + row + ansi.ResetHyperlink()
 }
 
-// rosterHoverMouseMode reports the mouse mode View requests: all motion while
-// a hoverable roster is visible, cell motion (drag only) otherwise.
+// rosterHoverMouseMode reports the mouse mode View requests: cell motion
+// (drag only) when an overlay is open (no hovering possible), all motion while
+// a hoverable roster is visible and no overlay blocks interaction, or cell
+// motion otherwise. Mode changes are free: Bubble Tea applies MouseMode only
+// when it differs from the last frame.
 func (m *Model) rosterHoverMouseMode() tea.MouseMode {
+	if m.anyOverlayOpen() {
+		return tea.MouseModeCellMotion
+	}
 	if m.sidebar.Visible(m.width) && len(m.sidebar.subAgents) > 0 {
 		return tea.MouseModeAllMotion
 	}
