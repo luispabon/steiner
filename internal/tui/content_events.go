@@ -274,9 +274,12 @@ type contentSegment struct {
 	imagesAttachedData *imagesAttachedData     // non-nil only for segmentImagesAttached
 	deliveredData      *deliveredRows          // non-nil only for segmentSubAgentsFinished
 	strandedData       *strandedResultsData    // non-nil only for segmentStrandedResults
-	// render cache
+	// render cache: the render at the active width, its stamp, and renders at
+	// recently used other widths (see renderAtWidth)
 	cachedRender      string
 	cachedRenderWidth int
+	cachedStamp       renderStamp
+	altRenders        widthRenders
 	renderDirty       bool
 	// renderGen increments each time processSegment re-renders this segment.
 	// Anchors record it at capture time so a same-width remap can skip the
@@ -293,8 +296,7 @@ type contentBuffer struct {
 	streaming         bool
 	hadChunks         bool
 	streamBuffer      string
-	renderer          *glamour.TermRenderer
-	renderWidth       int
+	glamour           glamourPool
 	styles            *theme.Styles
 	modelBadge        func(backend string) (alias, effort string)
 	modelAliasBadge   func(alias string) (name, effort string)
@@ -325,6 +327,11 @@ type contentBuffer struct {
 	maxDelegationBodyLines  int                                 // max lines for delegation body (transcript + prompt); 0 = uncapped
 	workingDir              string                              // current working directory for resolving relative paths
 	homeDir                 string                              // home directory for resolving ~ paths
+
+	// renderEpoch is bumped when a render input shared by all segments changes
+	// without dirtying them (MCP tool origins), so renders cached for inactive
+	// widths are not reused.
+	renderEpoch int
 
 	// Render cache.
 	stringCacheWidth    int

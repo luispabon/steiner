@@ -94,13 +94,14 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 		Background(userBgColor)
 	pad := padStyle.Render(barStyle.Render("┃"))
 
+	slot := b.glamour.slot(contentWidth - 2)
 	rendered, err := renderMarkdownBlock(markdownBlockParams{
 		block:       segment.text,
 		width:       contentWidth - 2,
 		styles:      b.styles,
 		styleSheet:  b.glamourStyleSheet,
-		renderer:    &b.renderer,
-		renderWidth: &b.renderWidth,
+		renderer:    &slot.renderer,
+		renderWidth: &slot.width,
 	})
 	if err != nil {
 		b.lastRenderErr = fmt.Errorf("render user markdown: %w", err)
@@ -237,13 +238,14 @@ func (b *contentBuffer) renderMarkdown(block string, isAssistant bool, width int
 	if isAssistant {
 		label = "assistant"
 	}
+	slot := b.glamour.slot(width)
 	rendered, err := renderMarkdownBlock(markdownBlockParams{
 		block:       block,
 		width:       width,
 		styles:      b.styles,
 		styleSheet:  b.glamourStyleSheet,
-		renderer:    &b.renderer,
-		renderWidth: &b.renderWidth,
+		renderer:    &slot.renderer,
+		renderWidth: &slot.width,
 	})
 	if err != nil {
 		b.lastRenderErr = fmt.Errorf("render markdown: %w", err)

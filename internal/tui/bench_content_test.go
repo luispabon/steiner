@@ -275,17 +275,19 @@ func benchToggleBlock(b *testing.B, n, k int) {
 }
 
 // BenchmarkContentResizeWidth: a single width change on a long transcript.
+// The widths cycle through one more than renderCacheWidths, so every change
+// lands on a width the per-width render cache no longer holds.
 func BenchmarkContentResizeWidth(b *testing.B) {
+	widths := []int{100, 105, 110, 115}
+	if len(widths) <= renderCacheWidths {
+		b.Fatalf("cycle of %d widths fits the %d-width render cache", len(widths), renderCacheWidths)
+	}
 	benchTranscriptSizes(b, func(b *testing.B, n int) {
 		b.ReportAllocs()
 		m := populateLongTranscript(newContentBenchModel(), n)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			w := 120
-			if i%2 == 0 {
-				w = 100
-			}
-			m = updateModelDirect(m, tea.WindowSizeMsg{Width: w, Height: 40})
+			m = updateModelDirect(m, tea.WindowSizeMsg{Width: widths[i%len(widths)], Height: 40})
 		}
 	})
 }
@@ -328,20 +330,33 @@ func BenchmarkContentResizeStorm(b *testing.B) {
 // BenchmarkSidebarToggleRoundTrip: one ctrl+b sidebar toggle (off, on, off...)
 // through Update and View on a 200-message transcript, sidebar initially
 // visible. "first" rebuilds the fixture per op so only the cold toggle is
-// measured; "steady" keeps toggling the same model.
+// measured; "steady" keeps toggling the same model after two untimed toggles
+// have visited both widths, so it measures the second and later toggles.
 func BenchmarkSidebarToggleRoundTrip(b *testing.B) {
-	toggle := tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl}
-	build := func() *Model {
-		m := populateLongTranscript(newContentBenchModel(), 200)
-		if !m.sidebar.Visible(m.width) {
-			b.Fatal("sidebar not visible at bench width")
-		}
+	b.Run("first", func(b *testing.B) {
+		benchResetEvery(b, 1, func() *Model { return sidebarToggleFixture(b, 200) }, sidebarToggleOp)
+	})
+	b.Run("steady", func(b *testing.B) { benchSidebarToggleSteady(b, 200) })
+}
+
+func sidebarToggleFixture(b *testing.B, msgs int) *Model {
+	m := populateLongTranscript(newContentBenchModel(), msgs)
+	if !m.sidebar.Visible(m.width) {
+		b.Fatal("sidebar not visible at bench width")
+	}
+	return m
+}
+
+func sidebarToggleOp(m *Model, _ int) {
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	_ = m.View()
+}
+
+func benchSidebarToggleSteady(b *testing.B, msgs int) {
+	benchResetEvery(b, 1<<30, func() *Model {
+		m := sidebarToggleFixture(b, msgs)
+		sidebarToggleOp(m, 0)
+		sidebarToggleOp(m, 0)
 		return m
-	}
-	op := func(m *Model, _ int) {
-		_, _ = m.Update(toggle)
-		_ = m.View()
-	}
-	b.Run("first", func(b *testing.B) { benchResetEvery(b, 1, build, op) })
-	b.Run("steady", func(b *testing.B) { benchResetEvery(b, 1<<30, build, op) })
+	}, sidebarToggleOp)
 }

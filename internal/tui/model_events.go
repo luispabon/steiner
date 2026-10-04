@@ -322,6 +322,7 @@ func (m *Model) applyMCPStatusEvent(payload output.MCPStatusEvent) {
 	if len(newOrigins) > 0 {
 		m.mcpToolOrigins = newOrigins
 		m.content.mcpToolOrigins = newOrigins
+		m.content.renderEpoch++
 	}
 
 	lines, warned := mcpTransitionWarnings(m.mcpServers, m.mcpWarned)
