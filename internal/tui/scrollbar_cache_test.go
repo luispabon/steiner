@@ -94,7 +94,7 @@ func TestRenderScrollbarMatchesReferenceLoop(t *testing.T) {
 					viewport: newScrollModel(40, 1),
 					styles:   testStyles(theme.AccentAmber),
 				}
-				m.setViewportContent(strings.Repeat("line of content\n", 100))
+				m.setViewportLines(strings.Split(strings.Repeat("line of content\n", 100), "\n"))
 				if m.viewport.Height() != 1 {
 					t.Fatalf("degenerate setup drifted: viewport height = %d, want 1", m.viewport.Height())
 				}
@@ -110,7 +110,7 @@ func TestRenderScrollbarMatchesReferenceLoop(t *testing.T) {
 					viewport: newScrollModel(40, 2),
 					styles:   testStyles(theme.AccentAmber),
 				}
-				m.setViewportContent(strings.Repeat("line of content\n", 100))
+				m.setViewportLines(strings.Split(strings.Repeat("line of content\n", 100), "\n"))
 				return m
 			},
 		},

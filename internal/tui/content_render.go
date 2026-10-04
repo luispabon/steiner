@@ -39,11 +39,21 @@ func segmentHasActiveDelegation(seg *contentSegment) bool {
 	}
 }
 
+// String returns the rendered transcript: blocks(width) joined with "\n".
 func (b *contentBuffer) String(width int) string {
+	return strings.Join(b.blocks(width), "\n")
+}
+
+// blocks renders the transcript as blocks whose "\n"-join is the transcript.
+// Unchanged cached segment renders appear as the same substrings frame after
+// frame, which lets the viewport reformat only from the first changed block.
+// A dirty frame always returns a freshly allocated slice: the viewport keeps
+// the previous slice to diff against, so it must never be written in place.
+func (b *contentBuffer) blocks(width int) []string {
 	// Check if we can return cached result.
 	isBufferDirty := b.checkBufferDirty(width)
-	if !isBufferDirty && b.stringCacheWidth == width && b.stringCacheRendered != "" {
-		return b.stringCacheRendered
+	if !isBufferDirty && b.stringCacheWidth == width && !blocksJoinEmpty(b.stringCacheBlocks) {
+		return b.stringCacheBlocks
 	}
 
 	// Extend the segment-height slice in place; heights of the cached prefix are
@@ -81,34 +91,50 @@ func (b *contentBuffer) String(width int) string {
 	// Fold the freshly settled tail into the prefix cache so the next dirty
 	// frame only walks the genuinely changing tail (preview, spinners, live
 	// segments). Anything that re-rendered this frame stays in the tail.
-	segmentJoin := joinWithUserMargin(parts, kinds)
 	if !anyRerender && start < len(b.segments) {
-		b.foldPrefix(segmentJoin, kinds, prefix, prefixLastKind, width)
+		b.foldPrefix(joinWithUserMargin(parts, kinds), kinds, prefix, prefixLastKind, width)
 	}
 
-	result := segmentJoin
-	if prefix != "" && len(parts) > 0 {
-		result = prefix + joinSeparator(prefixLastKind, kinds[0]) + segmentJoin
-	} else if prefix != "" {
-		result = prefix
-	}
-	if preview := b.inProgressPreview(width); preview != "" {
-		result = appendStreamPreview(result, preview)
-	}
-
+	result := transcriptBlocks(prefix, prefixLastKind, parts, kinds, b.inProgressPreview(width))
 	b.stringCacheWidth = width
-	b.stringCacheRendered = result
+	b.stringCacheBlocks = result
 	return result
 }
 
-// appendStreamPreview appends the trimmed streaming preview to result with a
-// single-newline separator, matching the sentinel rule of joinWithUserMargin.
-func appendStreamPreview(result, preview string) string {
-	trimmed := strings.TrimRight(preview, "\n")
-	if result == "" {
-		return trimmed
+// transcriptBlocks returns the blocks whose "\n"-join is the prefix followed
+// by the parts joined as joinWithUserMargin does, then the trimmed streaming
+// preview on its own line. A "\n\n" separator becomes an empty block.
+func transcriptBlocks(prefix string, prefixLastKind contentSegmentKind, parts []string, kinds []contentSegmentKind, preview string) []string {
+	blocks := make([]string, 0, 2*len(parts)+3)
+	if prefix != "" {
+		blocks = append(blocks, prefix)
 	}
-	return result + "\n" + trimmed
+	lastKind := contentSegmentKind(-1)
+	for i, p := range parts {
+		sep := ""
+		switch {
+		case i > 0:
+			sep = joinSeparator(lastKind, kinds[i])
+		case prefix != "":
+			sep = joinSeparator(prefixLastKind, kinds[i])
+		}
+		if sep == "\n\n" {
+			blocks = append(blocks, "")
+		}
+		blocks = append(blocks, p)
+		if kinds[i] >= 0 {
+			lastKind = kinds[i]
+		}
+	}
+	if preview != "" {
+		blocks = append(blocks, strings.TrimRight(preview, "\n"))
+	}
+	return blocks
+}
+
+// blocksJoinEmpty reports whether blocks join to the empty string.
+func blocksJoinEmpty(blocks []string) bool {
+	return len(blocks) == 0 || len(blocks) == 1 && blocks[0] == ""
 }
 
 // prefixCacheValid reports whether the settled-prefix cache can be reused for

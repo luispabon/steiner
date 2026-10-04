@@ -6,13 +6,6 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// commonPrefixChunk is the initial block size compared with string equality
-// (a vectorised memequal); below commonPrefixMinChunk a byte scan finishes.
-const (
-	commonPrefixChunk    = 4096
-	commonPrefixMinChunk = 64
-)
-
 // FormatContent returns PadLines(WithBg(s, bg), width, bg) in a single
 // line-by-line pass. Every line except the trailing empty ones is a body line
 // (background restored, then padded); trailing empty lines are padded raw.
@@ -22,71 +15,6 @@ func FormatContent(s string, width int, bg string) string {
 	sb.Grow(f.sizeHint(s))
 	f.writeContent(&sb, s)
 	return sb.String()
-}
-
-// ReformatContent returns FormatContent(s, width, bg), reusing the formatted
-// lines s shares with prev. prevFormatted must be FormatContent(prev, width,
-// bg); only the lines from the first differing one onwards are formatted.
-func ReformatContent(prev, prevFormatted, s string, width int, bg string) string {
-	common := commonPrefixLen(prev, s)
-	if common == len(prev) && common == len(s) {
-		return prevFormatted
-	}
-	reuse := sharedBodyPrefix(prev, s, common)
-	if reuse == 0 {
-		return FormatContent(s, width, bg)
-	}
-	// Formatting never adds or removes '\n', so the k-th newline of s maps to
-	// the k-th newline of prevFormatted.
-	pos := -1
-	for range strings.Count(s[:reuse], "\n") {
-		next := strings.IndexByte(prevFormatted[pos+1:], '\n')
-		if next < 0 {
-			return FormatContent(s, width, bg)
-		}
-		pos += next + 1
-	}
-	f := newContentFormatter(width, bg)
-	tail := s[reuse:]
-	var sb strings.Builder
-	sb.Grow(pos + 1 + f.sizeHint(tail))
-	sb.WriteString(prevFormatted[:pos+1])
-	f.writeContent(&sb, tail)
-	return sb.String()
-}
-
-// sharedBodyPrefix returns the length of the longest run of whole lines
-// (including their '\n') within the first common bytes that a and b share and
-// that are body lines in both, i.e. each string has a non-newline byte after
-// the run. Because those lines are body lines on both sides, their formatting
-// is identical in a and b.
-func sharedBodyPrefix(a, b string, common int) int {
-	limit := min(common, len(strings.TrimRight(a, "\n"))-1, len(strings.TrimRight(b, "\n"))-1)
-	if limit <= 0 {
-		return 0
-	}
-	return strings.LastIndexByte(b[:limit], '\n') + 1
-}
-
-// commonPrefixLen returns the length of the longest common prefix of a and b.
-// Block size doubles while blocks match and halves when one differs, so an
-// unchanged transcript (often the same backing array, which memequal
-// short-circuits) costs a few dozen comparisons rather than one per block.
-func commonPrefixLen(a, b string) int {
-	n := min(len(a), len(b))
-	i, chunk := 0, commonPrefixChunk
-	for chunk >= commonPrefixMinChunk {
-		if i+chunk <= n && a[i:i+chunk] == b[i:i+chunk] {
-			i += chunk
-			chunk *= 2
-		} else {
-			chunk /= 2
-		}
-	}
-	for i < n && a[i] == b[i] {
-		i++
-	}
-	return i
 }
 
 // contentFormatter formats content lines for one (width, bg) pair, memoising

@@ -258,7 +258,6 @@ type Model struct {
 	scrollbarTrackCell      string
 	padLineCacheWidth       int
 	padLineCacheRendered    string
-	fmtBgCacheInput         string
 	fmtBgCacheWidth         int
 	bgFormat                bgFormatCache
 	vpViewCache             string

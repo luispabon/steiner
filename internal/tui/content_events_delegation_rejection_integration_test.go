@@ -125,7 +125,7 @@ func TestRejectedCurrentCallRewriteRemapsPointersAndKeepsFollowUpChild(t *testin
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "other", subAgentArgs("shared")))
 	other := lastDelegationCard(b)
 	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "other", BatchID: "batch"}, "shared"))
-	b.stringCacheWidth, b.stringCacheRendered = 80, "stale"
+	b.stringCacheWidth, b.stringCacheBlocks = 80, []string{"stale"}
 	b.prefixCacheSet, b.prefixCacheRendered, b.segmentHeights = true, "stale", []int{1, 2, 3}
 	structureGen := b.structureGen
 
@@ -158,8 +158,8 @@ func TestRejectedCurrentCallRewriteRemapsPointersAndKeepsFollowUpChild(t *testin
 	if b.activeToolCalls["tool"].td != tool || b.activeToolCalls["tool"].seg != 1 {
 		t.Fatalf("tool locator = %#v", b.activeToolCalls)
 	}
-	if b.structureGen != structureGen+1 || b.segmentHeights != nil || b.stringCacheWidth != 0 || b.stringCacheRendered != "" || b.prefixCacheSet || b.prefixCacheRendered != "" {
-		t.Fatalf("rewrite caches/generation not invalidated: structure=%d heights=%v string=%d/%q prefix=%v/%q", b.structureGen, b.segmentHeights, b.stringCacheWidth, b.stringCacheRendered, b.prefixCacheSet, b.prefixCacheRendered)
+	if b.structureGen != structureGen+1 || b.segmentHeights != nil || b.stringCacheWidth != 0 || b.stringCacheBlocks != nil || b.prefixCacheSet || b.prefixCacheRendered != "" {
+		t.Fatalf("rewrite caches/generation not invalidated: structure=%d heights=%v string=%d/%q prefix=%v/%q", b.structureGen, b.segmentHeights, b.stringCacheWidth, b.stringCacheBlocks, b.prefixCacheSet, b.prefixCacheRendered)
 	}
 	if len(b.segments) != 2 || b.segments[0].kind != segmentDelegationGroup || b.segments[0].delegGroupData.entries[0] != accepted || b.segments[0].delegGroupData.entries[1] != other || b.segments[1].toolData != tool {
 		t.Fatalf("rewritten layout = %#v", b.segments)

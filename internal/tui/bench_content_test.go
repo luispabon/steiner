@@ -13,7 +13,7 @@ import (
 // Content-pipeline benchmarks: the cost of appending to / rebuilding a long
 // transcript (as opposed to the scroll/frame benchmarks in bench_test.go).
 // Every operation goes through Model.Update so the measured cost includes
-// contentBuffer.String, syncViewport (WithBg/PadLines/SetContent) and any
+// contentBuffer.blocks, syncViewport (background/padding format, lines) and any
 // chrome that Update refreshes.
 
 const benchMarkdownReply = "Here is the plan, covering **three** areas:\n\n" +

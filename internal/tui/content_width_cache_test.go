@@ -41,7 +41,7 @@ func clearRenderCaches(m *Model) {
 		b.segments[i].altRenders = widthRenders{}
 	}
 	b.glamour = glamourPool{}
-	b.stringCacheWidth, b.stringCacheRendered = 0, ""
+	b.stringCacheWidth, b.stringCacheBlocks = 0, nil
 	b.prefixCacheSet, b.prefixCacheRendered = false, ""
 }
 
@@ -117,8 +117,8 @@ func clickNthBlockFromEnd(m *Model, k int) {
 // which only match between twins that re-render at the same moments).
 func assertTwinViews(t *testing.T, label string, got, want *Model, selection bool) {
 	t.Helper()
-	if got.fmtBgCacheInput != want.fmtBgCacheInput {
-		gl, wl := strings.Split(got.fmtBgCacheInput, "\n"), strings.Split(want.fmtBgCacheInput, "\n")
+	if got.bgFormat.source() != want.bgFormat.source() {
+		gl, wl := strings.Split(got.bgFormat.source(), "\n"), strings.Split(want.bgFormat.source(), "\n")
 		i := 0
 		for i < min(len(gl), len(wl)) && gl[i] == wl[i] {
 			i++
@@ -247,7 +247,7 @@ func expandLongDelegation(m *Model) {
 func freshTranscript(m *Model) (string, []int) {
 	clearRenderCaches(m)
 	m.syncViewport()
-	return m.fmtBgCacheInput, slices.Clone(m.content.segmentHeights)
+	return m.bgFormat.source(), slices.Clone(m.content.segmentHeights)
 }
 
 // TestWidthRenderCacheEvictsOnMutation visits both sidebar widths, mutates
@@ -297,12 +297,12 @@ func TestWidthRenderCacheEvictsOnMutation(t *testing.T) {
 				tc.prepare(m)
 			}
 			updateModelDirect(m, sidebarToggleKey)
-			before := m.fmtBgCacheInput
+			before := m.bgFormat.source()
 			updateModelDirect(m, sidebarToggleKey)
 			tc.mutate(m)
 			m.syncViewport()
 			updateModelDirect(m, sidebarToggleKey)
-			got, gotHeights := m.fmtBgCacheInput, slices.Clone(m.content.segmentHeights)
+			got, gotHeights := m.bgFormat.source(), slices.Clone(m.content.segmentHeights)
 			if got == before {
 				t.Fatal("setup: mutation did not change the transcript at the cached width")
 			}
@@ -328,10 +328,10 @@ func TestWidthRenderCacheServesRevisitedWidths(t *testing.T) {
 		return func(m *Model) { updateModelDirect(m, tea.WindowSizeMsg{Width: w, Height: 40}) }
 	}
 	toggle := sendMsg(sidebarToggleKey)
-	first := map[int]string{m.viewport.Width(): m.fmtBgCacheInput}
+	first := map[int]string{m.viewport.Width(): m.bgFormat.source()}
 	for _, op := range []func(m *Model){toggle, resize(140)} {
 		op(m)
-		first[m.viewport.Width()] = m.fmtBgCacheInput
+		first[m.viewport.Width()] = m.bgFormat.source()
 	}
 	if len(first) != renderCacheWidths {
 		t.Fatalf("setup: visited %d distinct widths, want %d", len(first), renderCacheWidths)
@@ -353,13 +353,13 @@ func TestWidthRenderCacheServesRevisitedWidths(t *testing.T) {
 		if !ok {
 			t.Fatalf("step %d: width %d was not visited during setup", step, m.viewport.Width())
 		}
-		if m.fmtBgCacheInput != want {
+		if m.bgFormat.source() != want {
 			t.Fatalf("step %d: width %d re-rendered instead of serving its cached render", step, m.viewport.Width())
 		}
 	}
 
 	resize(100)(m)
-	if !strings.Contains(m.fmtBgCacheInput, poison) {
+	if !strings.Contains(m.bgFormat.source(), poison) {
 		t.Fatal("an uncached width must render the current segment text")
 	}
 }
@@ -379,7 +379,7 @@ func TestWidthRenderCacheLayoutRules(t *testing.T) {
 				if got := len(m.viewport.Lines()); got < m.viewport.Height() {
 					t.Fatalf("viewport has %d lines, want at least height %d", got, m.viewport.Height())
 				}
-				got := m.fmtBgCacheInput
+				got := m.bgFormat.source()
 				if want, _ := freshTranscript(m); got != want {
 					t.Fatal("transcript after a height-only resize differs from a fresh render")
 				}

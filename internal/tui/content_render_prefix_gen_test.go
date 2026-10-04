@@ -19,7 +19,7 @@ func newPrefixGenBuffer() *contentBuffer {
 // buffer is folded into the settled-prefix cache.
 func quietFrame(b *contentBuffer) {
 	for range 2 {
-		b.stringCacheWidth, b.stringCacheRendered = 0, ""
+		b.stringCacheWidth, b.stringCacheBlocks = 0, nil
 		b.String(prefixGenWidth)
 	}
 }

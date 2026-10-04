@@ -141,7 +141,7 @@ func (m *Model) withHelpOverlay(viewportView string, contentWidth int) string {
 }
 
 // visibleViewportContent slices the visible window out of the scroll model's
-// single line slice without re-deriving the full content. setViewportContent
+// single line slice without re-deriving the full content. setViewportLines
 // is the only writer of that slice, and the scrollbar's line count derives
 // from it, so the window and the scroll position cannot disagree.
 func (m *Model) visibleViewportContent() string {

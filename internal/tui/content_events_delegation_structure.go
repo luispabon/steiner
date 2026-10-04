@@ -266,7 +266,7 @@ func (b *contentBuffer) commitSegmentRewrite(next []contentSegment, oldToNew map
 	prefixHeld := b.prefixCacheSet && b.prefixCacheGen == b.gen && b.prefixCacheLen <= start
 	b.gen++
 	b.structureGen++
-	b.stringCacheWidth, b.stringCacheRendered = 0, ""
+	b.stringCacheWidth, b.stringCacheBlocks = 0, nil
 	if prefixHeld {
 		b.prefixCacheGen = b.gen
 	} else {

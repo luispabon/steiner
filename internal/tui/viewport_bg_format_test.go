@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -25,9 +26,31 @@ func stubBgFormatClock(t *testing.T) (advance func(time.Duration)) {
 	return func(d time.Duration) { now += int64(d) }
 }
 
-func oracleViewportFormat(m *Model) string {
-	bg := m.resolvedPalette().ContentBG
-	return theme.PadLines(theme.WithBg(m.fmtBgCacheInput, bg), m.viewport.Width(), bg)
+// oldPipelineLines is the pre-WI-8e viewport pipeline, kept verbatim as the
+// oracle: format the joined transcript in full, prepend pad rows, then split
+// as scrollModel.SetContent did ("\r\n" normalised, a single zero-width line
+// collapsed). It returns the scroll model lines and the top pad.
+func oldPipelineLines(rendered string, width, height int, bg, padLine string) ([]string, int) {
+	rendered = theme.PadLines(theme.WithBg(rendered, bg), width, bg)
+	contentLines := strings.Count(rendered, "\n") + 1
+	pad := max(height-contentLines, 0)
+	if pad > 0 {
+		rendered = strings.Repeat(padLine+"\n", pad) + rendered
+	}
+	if strings.ContainsRune(rendered, '\r') {
+		rendered = strings.ReplaceAll(rendered, "\r\n", "\n")
+	}
+	lines := strings.Split(rendered, "\n")
+	if len(lines) == 1 && ansi.StringWidth(lines[0]) == 0 {
+		lines = nil
+	}
+	return lines, pad
+}
+
+// oracleViewportLines returns the old pipeline's lines for m's current
+// transcript.
+func oracleViewportLines(m *Model) ([]string, int) {
+	return oldPipelineLines(m.bgFormat.source(), m.viewport.Width(), m.viewport.Height(), m.resolvedPalette().ContentBG, m.padLineCacheRendered)
 }
 
 // bgFormatScenario holds the event-sequence state shared by both twins so
@@ -87,14 +110,15 @@ func (s *bgFormatScenario) op() func(m *Model) {
 		}
 	case 8:
 		width := []int{90, 120, 150}[s.r.IntN(3)]
-		return sendMsg(tea.WindowSizeMsg{Width: width, Height: 40})
+		height := []int{12, 40, 120}[s.r.IntN(3)]
+		return sendMsg(tea.WindowSizeMsg{Width: width, Height: height})
 	case 9:
 		bg := []string{"#101010", "#1e1e2e", "#fafafa"}[s.r.IntN(3)]
 		return func(m *Model) { m.palette = theme.Palette{SidebarBG: "#050505", ContentBG: bg} }
 	case 10:
 		a, b := s.r.IntN(200), s.r.IntN(200)
 		return func(m *Model) {
-			lines := strings.Count(m.fmtBgCacheInput, "\n") + 1
+			lines := strings.Count(m.bgFormat.source(), "\n") + 1
 			startLine, startAnchor := m.viewportSelectionEndpoint(a % lines)
 			endLine, endAnchor := m.viewportSelectionEndpoint(b % lines)
 			m.activeRegion = regionViewport
@@ -129,43 +153,47 @@ func newBgFormatTwinModel(run func(m *Model)) *Model {
 	return m
 }
 
-// TestSyncViewportIncrementalBgMatchesFullFormat drives an incrementally
-// formatting model and a twin whose format cache is cleared before every sync
-// through the same random event sequence. Both must equal the original
-// PadLines(WithBg(...)) output byte for byte, and selection state must match.
-func TestSyncViewportIncrementalBgMatchesFullFormat(t *testing.T) {
+// TestSyncViewportIncrementalLinesMatchOldPipeline drives an incrementally
+// formatting model and an oracle twin through the same random event sequence.
+// After every sync the twin's viewport lines are replaced with the old
+// join -> format -> pad -> split pipeline's output for its transcript, so the
+// two models must agree on lines, pad, scroll offset, selection and the whole
+// rendered frame.
+func TestSyncViewportIncrementalLinesMatchOldPipeline(t *testing.T) {
 	advance := stubBgFormatClock(t)
 	for seed := range uint64(8) {
 		s := &bgFormatScenario{r: rand.New(rand.NewPCG(seed, 3))}
 		run := sendMsg(runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
-		inc, full := newBgFormatTwinModel(run), newBgFormatTwinModel(run)
-		for step := range 45 {
+		inc, oracle := newBgFormatTwinModel(run), newBgFormatTwinModel(run)
+		for step := range 60 {
 			advance(time.Duration(s.r.IntN(3)) * time.Second)
 			apply := s.op()
 			apply(inc)
-			apply(full)
-			if step < 10 {
-				continue
-			}
+			apply(oracle)
 			inc.syncViewport()
-			full.bgFormat = bgFormatCache{}
-			full.syncViewport()
+			oracle.syncViewport()
+			want, wantPad := oracleViewportLines(oracle)
+			oracle.setViewportLines(want)
+			if oracle.autoScroll {
+				oracle.viewport.GotoBottom()
+			}
 
-			if inc.bgFormat.source != inc.fmtBgCacheInput {
-				t.Fatalf("seed %d step %d: format source diverged from fmtBgCacheInput", seed, step)
+			if inc.bgFormat.source() != oracle.bgFormat.source() {
+				t.Fatalf("seed %d step %d: transcripts diverged", seed, step)
 			}
-			if got, want := inc.bgFormat.output, oracleViewportFormat(inc); got != want {
-				t.Fatalf("seed %d step %d: incremental output differs from PadLines(WithBg)\n got %q\nwant %q", seed, step, got, want)
+			if got := inc.viewport.Lines(); !slices.Equal(got, want) || (got == nil) != (want == nil) {
+				t.Fatalf("seed %d step %d: lines differ from the old pipeline\n got %q\nwant %q", seed, step, got, want)
 			}
-			if inc.bgFormat.output != full.bgFormat.output || inc.fmtBgCacheInput != full.fmtBgCacheInput {
-				t.Fatalf("seed %d step %d: incremental and full-format twins diverged", seed, step)
+			if inc.contentTopPad != wantPad || inc.viewport.YOffset() != oracle.viewport.YOffset() {
+				t.Fatalf("seed %d step %d: pad %d offset %d, want pad %d offset %d",
+					seed, step, inc.contentTopPad, inc.viewport.YOffset(), wantPad, oracle.viewport.YOffset())
 			}
-			if inc.selection != full.selection || inc.activeRegion != full.activeRegion {
-				t.Fatalf("seed %d step %d: selection %+v (region %v), full path %+v (region %v)",
-					seed, step, inc.selection, inc.activeRegion, full.selection, full.activeRegion)
+			if inc.selection != oracle.selection || inc.activeRegion != oracle.activeRegion {
+				t.Fatalf("seed %d step %d: selection %+v (region %v), oracle %+v (region %v)",
+					seed, step, inc.selection, inc.activeRegion, oracle.selection, oracle.activeRegion)
 			}
-			if !slices.Equal(inc.viewport.Lines(), full.viewport.Lines()) || inc.viewport.YOffset() != full.viewport.YOffset() {
-				t.Fatalf("seed %d step %d: viewport views differ", seed, step)
+			if got, want := inc.View().Content, oracle.View().Content; got != want {
+				t.Fatalf("seed %d step %d: rendered frames differ\n got %q\nwant %q", seed, step, got, want)
 			}
 		}
 	}
@@ -180,27 +208,25 @@ func TestSyncViewportBgFormatBoundsWork(t *testing.T) {
 	startInflightChildren(m, 1)
 	updateModelDirect(m, tickMsg{})
 	m.syncViewport()
-	settled := m.fmtBgCacheInput
+	settled := m.bgFormat.source()
 	if lines := strings.Count(settled, "\n") + 1; lines < 700 {
 		t.Fatalf("setup: transcript has %d lines, want >= 700", lines)
 	}
 
 	const marker = "POISONED"
-	poisoned := strings.Split(m.bgFormat.output, "\n")
-	for i := range poisoned {
-		poisoned[i] = marker
+	for i := range m.bgFormat.lines {
+		m.bgFormat.lines[i] = marker
 	}
-	m.bgFormat.output = strings.Join(poisoned, "\n")
 
 	advance(2 * time.Second)
 	updateModelDirect(m, tickMsg{})
 	m.syncViewport()
-	if m.fmtBgCacheInput == settled {
+	if m.bgFormat.source() == settled {
 		t.Fatal("setup: second tick did not change the transcript")
 	}
 
-	got := strings.Split(m.bgFormat.output, "\n")
-	want := strings.Split(oracleViewportFormat(m), "\n")
+	got := m.bgFormat.lines
+	want, _ := oldPipelineLines(m.bgFormat.source(), m.viewport.Width(), 0, m.resolvedPalette().ContentBG, "")
 	if len(got) != len(want) {
 		t.Fatalf("got %d lines, want %d", len(got), len(want))
 	}
@@ -213,7 +239,7 @@ func TestSyncViewportBgFormatBoundsWork(t *testing.T) {
 			t.Fatalf("line %d after the reused prefix = %q, want %q", i, got[i], want[i])
 		}
 	}
-	source := m.fmtBgCacheInput
+	source := m.bgFormat.source()
 	reusedBytes := 0
 	for range reused {
 		reusedBytes += strings.IndexByte(source[reusedBytes:], '\n') + 1

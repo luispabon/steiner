@@ -320,7 +320,7 @@ func (b *contentBuffer) Clear() {
 	b.activeAdvisorSegment = 0
 	// Invalidate render caches.
 	b.stringCacheWidth = 0
-	b.stringCacheRendered = ""
+	b.stringCacheBlocks = nil
 	b.gen = 0
 	b.prefixCacheSet = false
 	b.prefixCacheRendered = ""

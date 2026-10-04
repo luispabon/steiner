@@ -58,7 +58,6 @@ func BenchmarkAuditSyncViewportContentChanged(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m.fmtBgCacheInput = ""
 		m.bgFormat = bgFormatCache{}
 		m.syncViewport()
 	}

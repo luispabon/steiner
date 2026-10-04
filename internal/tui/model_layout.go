@@ -67,13 +67,13 @@ func (m *Model) computeInputRows(contentWidth int) (inputRows, activityRows int)
 	return inputRows, activityRows
 }
 
-// setViewportContent is the single choke point for viewport content updates.
+// setViewportLines is the single choke point for viewport content updates.
 // The scroll model owns the one line slice visibleViewportContent slices, and
-// vpViewCache invalidation lives here; calling m.viewport.SetContent or
-// m.viewport.SetLines directly would leave vpViewCache stale and serve frames
-// that disagree with the new content. Do not bypass this choke point.
-func (m *Model) setViewportContent(rendered string) {
-	m.viewport.SetContent(rendered)
+// vpViewCache invalidation lives here; calling m.viewport.SetLines directly
+// would leave vpViewCache stale and serve frames that disagree with the new
+// content. Do not bypass this choke point. lines must not contain '\n'.
+func (m *Model) setViewportLines(lines []string) {
+	m.viewport.SetLines(lines)
 	// vpViewCache is keyed on scroll position, width and scrollbar presence,
 	// none of which change when only the content does. Invalidating here
 	// rather than in syncViewport keeps the cache tied to the choke point
@@ -82,12 +82,23 @@ func (m *Model) setViewportContent(rendered string) {
 }
 
 func (m *Model) syncViewport() {
-	rendered := m.content.String(m.viewport.Width())
+	width := m.viewport.Width()
 
-	widthChanged := m.viewport.Width() != m.fmtBgCacheWidth
-	if rendered != m.fmtBgCacheInput || widthChanged {
-		m.fmtBgCacheInput = rendered
-		m.fmtBgCacheWidth = m.viewport.Width()
+	// The background escape is re-inserted after every ANSI reset in rendered
+	// content (theme.WithBg semantics). This is necessary because terminals with
+	// transparency enabled composite ANSI resets (\x1b[0m) with their
+	// transparency setting, producing transparent gaps whenever nested
+	// lipgloss/glamour renders emit a reset. lipgloss Background() on a
+	// container does NOT fix this — it only fills padding/border cells.
+	// Restoring the background and padding every line (WithBg + PadLines)
+	// ensures every cell in the viewport has an explicit SGR 48 background,
+	// making content fully opaque. bgFormat skips the work on scroll-only
+	// updates and otherwise reformats only the lines from the first changed one.
+	changed := m.bgFormat.update(m.content.blocks(width), width, m.resolvedPalette().ContentBG)
+
+	widthChanged := width != m.fmtBgCacheWidth
+	if changed || widthChanged {
+		m.fmtBgCacheWidth = width
 
 		// A width reflow invalidates row/col anchors (wrapping changes the
 		// rendered rows), so the selection clears; same-width content changes
@@ -104,34 +115,23 @@ func (m *Model) syncViewport() {
 		}
 	}
 
-	// The background escape is re-inserted after every ANSI reset in rendered
-	// content (theme.WithBg semantics). This is necessary because terminals with
-	// transparency enabled composite ANSI resets (\x1b[0m) with their
-	// transparency setting, producing transparent gaps whenever nested
-	// lipgloss/glamour renders emit a reset. lipgloss Background() on a
-	// container does NOT fix this — it only fills padding/border cells.
-	// Restoring the background and padding every line (WithBg + PadLines)
-	// ensures every cell in the viewport has an explicit SGR 48 background,
-	// making content fully opaque. bgFormat skips the work on scroll-only
-	// updates and otherwise reformats only the lines from the first changed one.
-	rendered = m.bgFormat.format(rendered, m.viewport.Width(), m.resolvedPalette().ContentBG)
-
-	contentLines := strings.Count(rendered, "\n") + 1
-	pad := m.viewport.Height() - contentLines
-	if pad < 0 {
-		pad = 0
-	}
+	lines := m.bgFormat.lines
+	pad := max(m.viewport.Height()-len(lines), 0)
 	m.contentTopPad = pad
 	if pad > 0 {
-		if m.padLineCacheWidth != m.viewport.Width() || m.padLineCacheRendered == "" {
-			m.padLineCacheWidth = m.viewport.Width()
+		if m.padLineCacheWidth != width || m.padLineCacheRendered == "" {
+			m.padLineCacheWidth = width
 			m.padLineCacheRendered = lipgloss.NewStyle().
 				Background(lipgloss.Color(m.resolvedPalette().ContentBG)).
-				Render(strings.Repeat(" ", m.viewport.Width()))
+				Render(strings.Repeat(" ", width))
 		}
-		rendered = strings.Repeat(m.padLineCacheRendered+"\n", pad) + rendered
+		padded := make([]string, pad, pad+len(lines))
+		for i := range padded {
+			padded[i] = m.padLineCacheRendered
+		}
+		lines = append(padded, lines...)
 	}
-	m.setViewportContent(rendered)
+	m.setViewportLines(lines)
 	if m.autoScroll {
 		m.viewport.GotoBottom()
 	}

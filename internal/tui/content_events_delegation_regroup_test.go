@@ -159,7 +159,7 @@ func TestRegroupKeepsSettledPrefixCache(t *testing.T) {
 		if !b.prefixCacheValid(80) || b.prefixCacheLen != prior || b.prefixCacheRendered != rendered {
 			t.Fatalf("prefix cache not retained across regroup of %s", id)
 		}
-		if b.stringCacheRendered != "" {
+		if b.stringCacheBlocks != nil {
 			t.Fatalf("string cache survived regroup of %s", id)
 		}
 	}

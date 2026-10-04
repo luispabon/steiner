@@ -329,9 +329,9 @@ type contentBuffer struct {
 
 	// Render cache. renderEpoch is bumped when MCP tool origins, a render input
 	// shared by all segments, change, so inactive-width renders are not reused.
-	renderEpoch         int
-	stringCacheWidth    int
-	stringCacheRendered string
+	renderEpoch       int
+	stringCacheWidth  int
+	stringCacheBlocks []string
 
 	// gen is bumped whenever an existing segment is mutated in place (never on
 	// append). It invalidates the settled-prefix cache below so a retroactive

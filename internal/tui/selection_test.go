@@ -2204,7 +2204,7 @@ func TestContentLineAtScreenY(t *testing.T) {
 			t.Parallel()
 			m := buildTestModel(100, 30, false, false)
 			m.viewport.SetHeight(5)
-			m.setViewportContent(strings.Repeat("\n", 19))
+			m.setViewportLines(make([]string, 20))
 			m.contentTopPad = tc.contentTopPad
 			m.viewport.SetYOffset(tc.yOffset)
 			if got := m.contentLineAtScreenY(tc.y); got != tc.want {
@@ -2234,7 +2234,7 @@ func TestScreenYAtContentLine(t *testing.T) {
 			t.Parallel()
 			m := buildTestModel(100, 30, false, false)
 			m.viewport.SetHeight(5)
-			m.setViewportContent(strings.Repeat("\n", 19))
+			m.setViewportLines(make([]string, 20))
 			m.contentTopPad = tc.contentTopPad
 			m.viewport.SetYOffset(tc.yOffset)
 			if got := m.screenYAtContentLine(tc.line); got != tc.want {
@@ -2298,7 +2298,7 @@ func TestScreenSelectionProjection(t *testing.T) {
 			t.Parallel()
 			m := buildTestModel(100, 30, tc.sidebarLeft, false)
 			m.viewport.SetHeight(5)
-			m.setViewportContent(strings.Repeat("\n", 19))
+			m.setViewportLines(make([]string, 20))
 			m.contentTopPad = tc.contentTopPad
 			m.viewport.SetYOffset(tc.yOffset)
 			m.activeRegion = regionViewport
@@ -2386,7 +2386,7 @@ func TestExtractViewportText(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			m := buildTestModel(100, 30, false, false)
-			m.setViewportContent(strings.Join(tc.lines, "\n"))
+			m.setViewportLines(tc.lines)
 			m.contentTopPad = tc.contentTopPad
 			m.activeRegion = regionViewport
 			m.selection = tc.state

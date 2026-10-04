@@ -21,7 +21,7 @@ func TestContextOverlayRendersMarkdownAndKeepsBaseVisible(t *testing.T) {
 	for i := 1; i < len(baseLines)-1; i++ {
 		baseLines[i] = "base filler"
 	}
-	m.setViewportContent(strings.Join(baseLines, "\n"))
+	m.setViewportLines(baseLines)
 	base := m.View().Content
 
 	report := strings.Join([]string{
