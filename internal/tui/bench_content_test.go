@@ -44,12 +44,12 @@ func stepSync(m *Model, msg tea.Msg) {
 	m.syncViewport()
 }
 
-func newContentBenchModel(width, height int) *Model {
+func newContentBenchModel() *Model {
 	m := newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 100000},
 	}, nil)
-	m = updateModelDirect(m, tea.WindowSizeMsg{Width: width, Height: height})
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	return updateModelDirect(m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
 }
 
@@ -109,8 +109,8 @@ func benchTranscriptSizes(b *testing.B, fn func(b *testing.B, msgs int)) {
 // on a long transcript, with a streaming buffer that grows to ~100 deltas.
 func BenchmarkContentStreamDelta(b *testing.B) {
 	benchTranscriptSizes(b, func(b *testing.B, n int) {
-		benchResetEvery(b, 100, func() *Model { return populateLongTranscript(newContentBenchModel(120, 40), n) },
-			func(m *Model, i int) {
+		benchResetEvery(b, 100, func() *Model { return populateLongTranscript(newContentBenchModel(), n) },
+			func(m *Model, _ int) {
 				stepSync(m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(2, "and some more streamed words, ", output.ChunkSourceAssistant)})
 			})
 	})
@@ -120,10 +120,10 @@ func BenchmarkContentStreamDelta(b *testing.B) {
 // already ~8KB (a long answer), isolating the O(buffer) preview re-render.
 func BenchmarkContentStreamDeltaLongBuffer(b *testing.B) {
 	benchResetEvery(b, 100, func() *Model {
-		m := populateLongTranscript(newContentBenchModel(120, 40), 200)
+		m := populateLongTranscript(newContentBenchModel(), 200)
 		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(2, strings.Repeat("streamed words here ", 400), output.ChunkSourceAssistant)})
 		return m
-	}, func(m *Model, i int) {
+	}, func(m *Model, _ int) {
 		stepSync(m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(2, "and some more streamed words, ", output.ChunkSourceAssistant)})
 	})
 }
@@ -132,8 +132,8 @@ func BenchmarkContentStreamDeltaLongBuffer(b *testing.B) {
 // contentBuffer.gen, which invalidates the settled-prefix cache.
 func BenchmarkContentThinkingDelta(b *testing.B) {
 	benchTranscriptSizes(b, func(b *testing.B, n int) {
-		benchResetEvery(b, 100, func() *Model { return populateLongTranscript(newContentBenchModel(120, 40), n) },
-			func(m *Model, i int) {
+		benchResetEvery(b, 100, func() *Model { return populateLongTranscript(newContentBenchModel(), n) },
+			func(m *Model, _ int) {
 				stepSync(m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(2, "considering the options carefully. ", output.ChunkSourceAssistant)})
 			})
 	})
@@ -142,7 +142,7 @@ func BenchmarkContentThinkingDelta(b *testing.B) {
 // BenchmarkContentToolCallStart: tool call start (new segment) on a long transcript.
 func BenchmarkContentToolCallStart(b *testing.B) {
 	benchTranscriptSizes(b, func(b *testing.B, n int) {
-		benchResetEvery(b, 50, func() *Model { return populateLongTranscript(newContentBenchModel(120, 40), n) },
+		benchResetEvery(b, 50, func() *Model { return populateLongTranscript(newContentBenchModel(), n) },
 			func(m *Model, i int) {
 				stepSync(m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(2, "read", fmt.Sprintf("s_%d", i), map[string]any{"file_path": "/src/new.go"})})
 			})
@@ -155,12 +155,12 @@ func BenchmarkContentToolCallFinish(b *testing.B) {
 	toolOut := strings.Repeat("package main\n\nfunc main() {\n\tprintln(\"hello\")\n}\n", 8)
 	benchTranscriptSizes(b, func(b *testing.B, n int) {
 		b.ReportAllocs()
-		m := populateLongTranscript(newContentBenchModel(120, 40), n)
+		m := populateLongTranscript(newContentBenchModel(), n)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			if i > 0 && i%50 == 0 {
 				b.StopTimer()
-				m = populateLongTranscript(newContentBenchModel(120, 40), n)
+				m = populateLongTranscript(newContentBenchModel(), n)
 				b.StartTimer()
 			}
 			b.StopTimer()
@@ -188,7 +188,7 @@ func BenchmarkContentDelegationChildEvent(b *testing.B) {
 	benchTranscriptSizes(b, func(b *testing.B, n int) {
 		var ids []string
 		benchResetEvery(b, 100, func() *Model {
-			m := populateLongTranscript(newContentBenchModel(120, 40), n)
+			m := populateLongTranscript(newContentBenchModel(), n)
 			ids = startInflightChildren(m, 3)
 			return m
 		}, func(m *Model, i int) {
@@ -204,7 +204,7 @@ func BenchmarkContentDelegationChildToolCall(b *testing.B) {
 	benchTranscriptSizes(b, func(b *testing.B, n int) {
 		var ids []string
 		benchResetEvery(b, 40, func() *Model {
-			m := populateLongTranscript(newContentBenchModel(120, 40), n)
+			m := populateLongTranscript(newContentBenchModel(), n)
 			ids = startInflightChildren(m, 3)
 			return m
 		}, func(m *Model, i int) {
@@ -221,7 +221,7 @@ func BenchmarkContentDelegationChildToolCall(b *testing.B) {
 func BenchmarkContentIdleFrameInflight(b *testing.B) {
 	benchTranscriptSizes(b, func(b *testing.B, n int) {
 		b.ReportAllocs()
-		m := populateLongTranscript(newContentBenchModel(120, 40), n)
+		m := populateLongTranscript(newContentBenchModel(), n)
 		startInflightChildren(m, 3)
 		m.syncViewport()
 		b.ResetTimer()
@@ -253,7 +253,7 @@ func BenchmarkContentToggleBlock(b *testing.B) {
 	}{{"tail", 0}, {"early", 330}} {
 		b.Run(pos.name, func(b *testing.B) {
 			b.ReportAllocs()
-			m := populateLongTranscript(newContentBenchModel(120, 40), 500)
+			m := populateLongTranscript(newContentBenchModel(), 500)
 			seg := toolSegFromEnd(m, pos.k)
 			if seg == nil {
 				b.Fatal("no tool segment")
@@ -270,7 +270,7 @@ func BenchmarkContentToggleBlock(b *testing.B) {
 func BenchmarkContentResizeWidth(b *testing.B) {
 	benchTranscriptSizes(b, func(b *testing.B, n int) {
 		b.ReportAllocs()
-		m := populateLongTranscript(newContentBenchModel(120, 40), n)
+		m := populateLongTranscript(newContentBenchModel(), n)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			w := 120
@@ -285,7 +285,7 @@ func BenchmarkContentResizeWidth(b *testing.B) {
 // BenchmarkContentResizeHeight: height-only change (no reflow expected).
 func BenchmarkContentResizeHeight(b *testing.B) {
 	b.ReportAllocs()
-	m := populateLongTranscript(newContentBenchModel(120, 40), 500)
+	m := populateLongTranscript(newContentBenchModel(), 500)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		h := 40
@@ -301,7 +301,7 @@ func BenchmarkContentResizeHeight(b *testing.B) {
 func BenchmarkContentResizeStorm(b *testing.B) {
 	benchTranscriptSizes(b, func(b *testing.B, n int) {
 		b.ReportAllocs()
-		m := populateLongTranscript(newContentBenchModel(120, 40), n)
+		m := populateLongTranscript(newContentBenchModel(), n)
 		b.ResetTimer()
 		prev := 120
 		for i := 0; i < b.N; i++ {
