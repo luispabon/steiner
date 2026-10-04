@@ -240,26 +240,44 @@ func splitSlashOverlayMatch(item slashOverlayItem, indexes []int) slashOverlayMa
 	return result
 }
 
+// renderMatchedText renders text with the runes at matchedIndexes (byte
+// offsets) highlighted, emitting one styled segment per run of equal state.
+// baseStyle must be a plain colour style (no padding, width, or borders).
 func renderMatchedText(text string, matchedIndexes []int, baseStyle lipgloss.Style, matchedColor color.Color) string {
 	if text == "" {
 		return ""
 	}
-
-	matched := make(map[int]struct{}, len(matchedIndexes))
-	for _, idx := range matchedIndexes {
-		matched[idx] = struct{}{}
+	if !sort.IntsAreSorted(matchedIndexes) {
+		matchedIndexes = append([]int(nil), matchedIndexes...)
+		sort.Ints(matchedIndexes)
 	}
 
-	colorHex := theme.ColorHex(matchedColor)
+	highlight := theme.HighlightStyle(theme.ColorHex(matchedColor))
 	var b strings.Builder
-	for idx, r := range text {
-		ch := string(r)
-		if _, ok := matched[idx]; ok {
-			b.WriteString(theme.HighlightMatch(ch, colorHex))
-			continue
+	next := 0
+	runStart := 0
+	runMatched := false
+	flush := func(end int) {
+		if end == runStart {
+			return
 		}
-		b.WriteString(baseStyle.Render(ch))
+		if runMatched {
+			b.WriteString(highlight.Render(text[runStart:end]))
+		} else {
+			b.WriteString(baseStyle.Render(text[runStart:end]))
+		}
 	}
+	for idx := range text {
+		for next < len(matchedIndexes) && matchedIndexes[next] < idx {
+			next++
+		}
+		isMatched := next < len(matchedIndexes) && matchedIndexes[next] == idx
+		if isMatched != runMatched {
+			flush(idx)
+			runStart, runMatched = idx, isMatched
+		}
+	}
+	flush(len(text))
 	return b.String()
 }
 
