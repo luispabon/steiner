@@ -63,6 +63,14 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			maxAllocs:  57,
 			baseline:   "measured 450305 B/op, 47 allocs/op (reference ~450435/50)",
 		},
+		{
+			name:       "OverlayMCPStationary",
+			fn:         BenchmarkOverlayMCPStationary,
+			checkBytes: true,
+			maxBytes:   410688,
+			maxAllocs:  4124,
+			baseline:   "measured 357119 B/op, 3436 allocs/op (Overlay/mcp/stationary; compose memoised, overlay render dominates)",
+		},
 	}
 
 	for _, tc := range cases {

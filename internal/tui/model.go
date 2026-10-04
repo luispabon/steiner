@@ -258,6 +258,7 @@ type Model struct {
 	fmtBgCacheWidth         int
 	fmtBgCacheOutput        string
 	vpViewCache             string
+	overlayCache            overlayComposeCache
 	vpViewCacheScrollY      int
 	vpViewCacheWidth        int
 	vpViewCacheHasScrollbar bool

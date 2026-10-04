@@ -211,11 +211,12 @@ func (m *Model) renderViewportWithScrollbar(viewportInner, scrollbar string) str
 
 func (m *Model) renderOverlayView(base string, contentWidth int) string {
 	if view := m.exclusiveOverlayView(); view != nil {
-		return composeCenteredOverlay(base, view(), m.width, m.height)
+		return m.overlayCache.compose(base, view(), m.width, m.height, true)
 	}
 	base = m.renderBottomAnchoredOverlays(base, contentWidth)
 	if view := m.modalOverlayView(); view != nil {
-		return composeCenteredOverlay(base, view(), m.width, m.height)
+		// Bottom-anchored overlays can leave rows wider than the screen.
+		return m.overlayCache.compose(base, view(), m.width, m.height, !m.hasOpenBottomOverlay())
 	}
 	return base
 }
@@ -271,6 +272,7 @@ type bottomAnchoredOverlay interface {
 	IsOpen() bool
 	View() string
 	PlaceBottomAnchoredAt(base, overlay string, inputHeight, xOffset int) string
+	shellHeight() int
 }
 
 // bottomOverlays returns the bottom-anchored overlays in render order (later
@@ -300,9 +302,9 @@ func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) stri
 		xOffset = m.width - contentWidth
 	}
 
-	for _, o := range m.bottomOverlays() {
+	for i, o := range m.bottomOverlays() {
 		if o.IsOpen() {
-			base = o.PlaceBottomAnchoredAt(base, o.View(), offset, xOffset)
+			base = m.overlayCache.placeBottom(i, o, base, o.View(), offset, xOffset)
 		}
 	}
 	return base

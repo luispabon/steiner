@@ -260,25 +260,39 @@ func benchScenarios() []overlayScenario {
 }
 
 // BenchmarkOverlay measures full-frame cost (Update + View) per overlay class.
+func setupOverlayBench(b *testing.B, sc overlayScenario) *Model {
+	m := newOverlayBenchModel(b)
+	sc.open(b, m)
+	for range 3 { // warm every cache
+		benchViewSink = m.View().Content
+	}
+	return m
+}
+
+func benchOverlayStationary(b *testing.B, sc overlayScenario) {
+	m := setupOverlayBench(b, sc)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchViewSink = m.View().Content
+	}
+}
+
+func BenchmarkOverlayMCPStationary(b *testing.B) {
+	for _, sc := range benchScenarios() {
+		if sc.name == "mcp" {
+			benchOverlayStationary(b, sc)
+			return
+		}
+	}
+	b.Fatal("mcp scenario missing")
+}
+
 func BenchmarkOverlay(b *testing.B) {
 	for _, sc := range benchScenarios() {
 		b.Run(sc.name, func(b *testing.B) {
-			setup := func(b *testing.B) *Model {
-				m := newOverlayBenchModel(b)
-				sc.open(b, m)
-				for range 3 { // warm every cache
-					benchViewSink = m.View().Content
-				}
-				return m
-			}
-			b.Run("stationary", func(b *testing.B) {
-				m := setup(b)
-				b.ReportAllocs()
-				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
-					benchViewSink = m.View().Content
-				}
-			})
+			setup := func(b *testing.B) *Model { return setupOverlayBench(b, sc) }
+			b.Run("stationary", func(b *testing.B) { benchOverlayStationary(b, sc) })
 			run := func(name string, msgs []tea.Msg) {
 				if len(msgs) == 0 {
 					return
