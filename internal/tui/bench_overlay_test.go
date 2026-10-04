@@ -278,15 +278,19 @@ func benchOverlayStationary(b *testing.B, sc overlayScenario) {
 	}
 }
 
-func BenchmarkOverlayMCPStationary(b *testing.B) {
+func benchOverlayStationaryByName(b *testing.B, name string) {
 	for _, sc := range benchScenarios() {
-		if sc.name == "mcp" {
+		if sc.name == name {
 			benchOverlayStationary(b, sc)
 			return
 		}
 	}
-	b.Fatal("mcp scenario missing")
+	b.Fatalf("%s scenario missing", name)
 }
+
+func BenchmarkOverlayMCPStationary(b *testing.B)     { benchOverlayStationaryByName(b, "mcp") }
+func BenchmarkOverlayContextStationary(b *testing.B) { benchOverlayStationaryByName(b, "context") }
+func BenchmarkOverlayHelpStationary(b *testing.B)    { benchOverlayStationaryByName(b, "help") }
 
 func BenchmarkOverlay(b *testing.B) {
 	for _, sc := range benchScenarios() {
