@@ -1,7 +1,7 @@
 //go:build perfguard
 
 // Package-level note: this file is behind the `perfguard` build tag so the
-// benchmarks it runs stay out of `go test ./...`. It costs ~7s, which is
+// benchmarks it runs stay out of `go test ./...`. It costs ~15s, which is
 // several times the rest of the package. Run it with `make test-perf`.
 
 package tui
@@ -15,10 +15,10 @@ import "testing"
 // allocs = ceil(measured*1.2).
 func TestBenchmarkAllocationCeilings(t *testing.T) {
 	// The perfguard tag keeps this out of the normal suite; this skip is the
-	// separate foot-gun guard for `go test -tags perfguard -race`, where four
+	// separate foot-gun guard for `go test -tags perfguard -race`, where eight
 	// testing.Benchmark runs under race instrumentation take minutes.
 	if raceEnabled {
-		t.Skip("four testing.Benchmark runs under race take minutes")
+		t.Skip("eight testing.Benchmark runs under race take minutes")
 	}
 
 	cases := []struct {
@@ -70,6 +70,39 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			maxBytes:   410688,
 			maxAllocs:  4124,
 			baseline:   "measured 357119 B/op, 3436 allocs/op (Overlay/mcp/stationary; compose memoised, overlay render dominates)",
+		},
+		{
+			name:       "AuditTickUpdateStreaming",
+			fn:         BenchmarkAuditTickUpdateStreaming,
+			checkBytes: true,
+			maxBytes:   6533808,
+			maxAllocs:  2918,
+			baseline:   "measured 5681572 B/op, 2431 allocs/op (max of 4 runs, post-WI-1)",
+		},
+		{
+			// Content guards use a 60-message transcript to keep the run short.
+			name:       "ContentToolCallFinish60",
+			fn:         func(b *testing.B) { benchToolCallFinish(b, 60) },
+			checkBytes: true,
+			maxBytes:   15932102,
+			maxAllocs:  17237,
+			baseline:   "measured 13854001 B/op, 14364 allocs/op (max of 4 runs, post-WI-1)",
+		},
+		{
+			name:       "ContentIdleFrameInflight60",
+			fn:         func(b *testing.B) { benchIdleFrameInflight(b, 60) },
+			checkBytes: true,
+			maxBytes:   13157598,
+			maxAllocs:  1678,
+			baseline:   "measured 11441389 B/op, 1398 allocs/op (max of 4 runs, post-WI-1)",
+		},
+		{
+			name:       "ContentToggleBlockTail60",
+			fn:         func(b *testing.B) { benchToggleBlock(b, 60, 0) },
+			checkBytes: true,
+			maxBytes:   15142715,
+			maxAllocs:  1415,
+			baseline:   "measured 13167578 B/op, 1179 allocs/op (max of 4 runs, post-WI-1)",
 		},
 	}
 

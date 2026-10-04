@@ -152,24 +152,26 @@ func BenchmarkContentToolCallStart(b *testing.B) {
 // BenchmarkContentToolCallFinish: finishing a tool call that was just started
 // at the tail of a long transcript. Start is excluded from the timed region.
 func BenchmarkContentToolCallFinish(b *testing.B) {
+	benchTranscriptSizes(b, benchToolCallFinish)
+}
+
+func benchToolCallFinish(b *testing.B, n int) {
 	toolOut := strings.Repeat("package main\n\nfunc main() {\n\tprintln(\"hello\")\n}\n", 8)
-	benchTranscriptSizes(b, func(b *testing.B, n int) {
-		b.ReportAllocs()
-		m := populateLongTranscript(newContentBenchModel(), n)
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			if i > 0 && i%50 == 0 {
-				b.StopTimer()
-				m = populateLongTranscript(newContentBenchModel(), n)
-				b.StartTimer()
-			}
+	b.ReportAllocs()
+	m := populateLongTranscript(newContentBenchModel(), n)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if i > 0 && i%50 == 0 {
 			b.StopTimer()
-			id := fmt.Sprintf("f_%d", i)
-			m = updateModelDirect(m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(2, "read", id, map[string]any{"file_path": "/src/new.go"})})
+			m = populateLongTranscript(newContentBenchModel(), n)
 			b.StartTimer()
-			stepSync(m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(2, "read", id, toolOut, nil)})
 		}
-	})
+		b.StopTimer()
+		id := fmt.Sprintf("f_%d", i)
+		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(2, "read", id, map[string]any{"file_path": "/src/new.go"})})
+		b.StartTimer()
+		stepSync(m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(2, "read", id, toolOut, nil)})
+	}
 }
 
 func startInflightChildren(m *Model, k int) []string {
@@ -219,16 +221,18 @@ func BenchmarkContentDelegationChildToolCall(b *testing.B) {
 // BenchmarkContentIdleFrameInflight: pure spinner tick cost with 3 in-flight
 // sub-agents: syncViewport only (what each animation tick pays).
 func BenchmarkContentIdleFrameInflight(b *testing.B) {
-	benchTranscriptSizes(b, func(b *testing.B, n int) {
-		b.ReportAllocs()
-		m := populateLongTranscript(newContentBenchModel(), n)
-		startInflightChildren(m, 3)
+	benchTranscriptSizes(b, benchIdleFrameInflight)
+}
+
+func benchIdleFrameInflight(b *testing.B, n int) {
+	b.ReportAllocs()
+	m := populateLongTranscript(newContentBenchModel(), n)
+	startInflightChildren(m, 3)
+	m.syncViewport()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		m.syncViewport()
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			m.syncViewport()
-		}
-	})
+	}
 }
 
 // toolSegFromEnd returns the k-th tool call segment counting from the end.
@@ -251,18 +255,22 @@ func BenchmarkContentToggleBlock(b *testing.B) {
 		name string
 		k    int
 	}{{"tail", 0}, {"early", 330}} {
-		b.Run(pos.name, func(b *testing.B) {
-			b.ReportAllocs()
-			m := populateLongTranscript(newContentBenchModel(), 500)
-			seg := toolSegFromEnd(m, pos.k)
-			if seg == nil {
-				b.Fatal("no tool segment")
-			}
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				m.handleToolCallClick(seg)
-			}
-		})
+		b.Run(pos.name, func(b *testing.B) { benchToggleBlock(b, 500, pos.k) })
+	}
+}
+
+// benchToggleBlock toggles the k-th tool block from the end of an n-message
+// transcript.
+func benchToggleBlock(b *testing.B, n, k int) {
+	b.ReportAllocs()
+	m := populateLongTranscript(newContentBenchModel(), n)
+	seg := toolSegFromEnd(m, k)
+	if seg == nil {
+		b.Fatal("no tool segment")
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.handleToolCallClick(seg)
 	}
 }
 

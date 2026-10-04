@@ -40,53 +40,44 @@ type bgFormatScenario struct {
 }
 
 // op picks one random transcript event and returns it as an applier.
+// Event messages are constructed once, outside the applier.
 func (s *bgFormatScenario) op() func(m *Model) {
 	s.next++
 	id := fmt.Sprintf("op_%d", s.next)
-	switch s.r.IntN(12) {
+	switch s.r.IntN(13) {
 	case 0:
 		text := strings.Repeat("reply words ", 1+s.r.IntN(20)) + "\n\n`code` and **bold**\n\n- item\n- 世界 🎉\tok"
-		return func(m *Model) {
-			updateModelDirect(m, runtimeEventMsg{Event: output.NewAssistantMessageEvent(1, "assistant", text)})
-		}
+		return sendMsg(runtimeEventMsg{Event: output.NewAssistantMessageEvent(1, "assistant", text)})
 	case 1:
 		s.openTools = append(s.openTools, id)
-		return func(m *Model) {
-			updateModelDirect(m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "read", id, map[string]any{"file_path": "/src/" + id + ".go"})})
-		}
+		return sendMsg(runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "read", id, map[string]any{"file_path": "/src/" + id + ".go"})})
 	case 2:
 		if len(s.openTools) == 0 {
 			return s.op()
 		}
 		call := s.openTools[0]
 		s.openTools = s.openTools[1:]
-		return func(m *Model) {
-			updateModelDirect(m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "read", call, "package a\n\nfunc A() {}\n", nil)})
-		}
+		return sendMsg(runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, "read", call, "package a\n\nfunc A() {}\n", nil)})
 	case 3:
-		return func(m *Model) { updateModelDirect(m, chunk(1, "")) }
+		return sendMsg(chunk(1, ""))
 	case 4:
 		s.children = append(s.children, id)
-		return func(m *Model) {
-			updateModelDirect(m, runtimeEventMsg{Event: output.WithAgentScope(output.NewDelegationStartedEvent(callOcc("call_"+id, id), "explore "+id, "", "explore"), id)})
-		}
+		return sendMsg(runtimeEventMsg{Event: output.WithAgentScope(output.NewDelegationStartedEvent(callOcc("call_"+id, id), "explore "+id, "", "explore"), id)})
 	case 5:
 		if len(s.children) == 0 {
 			return s.op()
 		}
 		child := s.children[s.r.IntN(len(s.children))]
-		return func(m *Model) { updateModelDirect(m, chunk(1, child)) }
+		return sendMsg(chunk(1, child))
 	case 6:
 		if len(s.children) == 0 {
 			return s.op()
 		}
 		child := s.children[0]
 		s.children = s.children[1:]
-		return func(m *Model) {
-			updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-				DelegationOccurrence: callOcc("call_"+child, child), Status: "complete", TurnCount: 1, Output: "done",
-			})})
-		}
+		return sendMsg(runtimeEventMsg{Event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+			DelegationOccurrence: callOcc("call_"+child, child), Status: "complete", TurnCount: 1, Output: "done",
+		})})
 	case 7:
 		k := s.r.IntN(2) * 6
 		return func(m *Model) {
@@ -96,7 +87,7 @@ func (s *bgFormatScenario) op() func(m *Model) {
 		}
 	case 8:
 		width := []int{90, 120, 150}[s.r.IntN(3)]
-		return func(m *Model) { updateModelDirect(m, tea.WindowSizeMsg{Width: width, Height: 40}) }
+		return sendMsg(tea.WindowSizeMsg{Width: width, Height: 40})
 	case 9:
 		bg := []string{"#101010", "#1e1e2e", "#fafafa"}[s.r.IntN(3)]
 		return func(m *Model) { m.palette = theme.Palette{SidebarBG: "#050505", ContentBG: bg} }
@@ -114,9 +105,24 @@ func (s *bgFormatScenario) op() func(m *Model) {
 				endAnchor:   endAnchor,
 			}
 		}
+	case 11:
+		return sendMsg(runtimeEventMsg{Event: output.NewUserInputEvent("look at "+id, "interactive", nil)})
 	default:
-		return func(m *Model) { updateModelDirect(m, tickMsg{}) }
+		return sendMsg(tickMsg{})
 	}
+}
+
+// sendMsg returns an applier that feeds msg, built once, to a model; events
+// carry wall-clock timestamps, so both twins must receive the same value.
+func sendMsg(msg tea.Msg) func(m *Model) {
+	return func(m *Model) { updateModelDirect(m, msg) }
+}
+
+func newBgFormatTwinModel(run func(m *Model)) *Model {
+	m := newModel(Config{Model: "bench-model", ModelContexts: map[string]int{"bench-model": 100000}}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	run(m)
+	return m
 }
 
 // TestSyncViewportIncrementalBgMatchesFullFormat drives an incrementally
@@ -127,13 +133,16 @@ func TestSyncViewportIncrementalBgMatchesFullFormat(t *testing.T) {
 	advance := stubBgFormatClock(t)
 	for seed := range uint64(8) {
 		s := &bgFormatScenario{r: rand.New(rand.NewPCG(seed, 3))}
-		inc := populateLongTranscript(newContentBenchModel(), 6)
-		full := populateLongTranscript(newContentBenchModel(), 6)
-		for step := range 35 {
+		run := sendMsg(runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
+		inc, full := newBgFormatTwinModel(run), newBgFormatTwinModel(run)
+		for step := range 45 {
 			advance(time.Duration(s.r.IntN(3)) * time.Second)
 			apply := s.op()
 			apply(inc)
 			apply(full)
+			if step < 10 {
+				continue
+			}
 			inc.syncViewport()
 			full.bgFormat = bgFormatCache{}
 			full.syncViewport()
