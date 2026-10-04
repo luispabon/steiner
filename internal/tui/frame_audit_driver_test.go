@@ -165,7 +165,7 @@ func (d *auditDriver) probeKeyWait(heavy tea.Msg, pre ...tea.Msg) {
 	d.keyWait[name] = max(d.keyWait[name], wait)
 }
 
-func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
+func durMs(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 
 // report logs one aligned table: per message type, offered count, Update
 // calls, CPU per simulated second, worst single Update+View and, for heavy
@@ -215,14 +215,14 @@ func (d *auditDriver) report(t *testing.T, title string, simSeconds float64) {
 		worstStall = max(worstStall, s.maxStall)
 		kw := "-"
 		if w, ok := d.keyWait[n]; ok {
-			kw = fmt.Sprintf("%.2f", ms(w))
+			kw = fmt.Sprintf("%.2f", durMs(w))
 			worstWait = max(worstWait, w)
 		}
-		fmt.Fprintf(&b, "%-28s %7d %8d %8d %16.2f %13.2f %12s\n", n, d.offered[n], s.updates, d.dropped[n], ms(tot)/simSeconds, ms(s.maxStall), kw)
+		fmt.Fprintf(&b, "%-28s %7d %8d %8d %16.2f %13.2f %12s\n", n, d.offered[n], s.updates, d.dropped[n], durMs(tot)/simSeconds, durMs(s.maxStall), kw)
 	}
-	fmt.Fprintf(&b, "%-28s %7s %8d %8s %16.2f %13.2f %12.2f\n", "TOTAL", "", totalN, "", ms(totalDur)/simSeconds, ms(worstStall), ms(worstWait))
+	fmt.Fprintf(&b, "%-28s %7s %8d %8s %16.2f %13.2f %12.2f\n", "TOTAL", "", totalN, "", durMs(totalDur)/simSeconds, durMs(worstStall), durMs(worstWait))
 	if d.filterNs > 0 {
-		fmt.Fprintf(&b, "filter total %.2f ms\n", ms(d.filterNs))
+		fmt.Fprintf(&b, "filter total %.2f ms\n", durMs(d.filterNs))
 	}
 	t.Log(b.String())
 	if totalN == 0 && len(d.dropped) == 0 {
