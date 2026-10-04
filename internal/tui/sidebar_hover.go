@@ -18,11 +18,16 @@ type pointerPos struct {
 }
 
 // filterMouseMotion is the program message filter. It records the pointer
-// position from every mouse event. View enables all-motion mouse reporting
-// while the roster is shown so rows can highlight on hover; buttonless motion
-// becomes a sidebarHoverMsg only when the hover changes and is dropped
-// otherwise, so plain pointer movement costs no Update or render. Everything
-// else, including drag motion, passes through.
+// position from every mouse event, classifies button/wheel events to internal
+// message types for single-dispatch, and handles hover detection on buttonless
+// motion.
+//
+// View enables all-motion mouse reporting while the roster is shown so rows can
+// highlight on hover; buttonless motion becomes a sidebarHoverMsg only when the
+// hover changes and is dropped otherwise, so plain pointer movement costs no
+// Update or render. Button/wheel/drag events are classified to mouseClickMsg,
+// mouseWheelMsg, mouseReleaseMsg, mouseMotionMsg for direct Update dispatch,
+// saving a View.OnMouse follow-up goroutine hop. Unclassified events pass raw.
 //
 // Bubble Tea runs the filter on its event loop goroutine with the model the
 // last Update returned. Update always returns m itself, so mutating m here is
@@ -39,6 +44,10 @@ func filterMouseMotion(model tea.Model, msg tea.Msg) tea.Msg {
 	mouse := mouseMsg.Mouse()
 	m.pointer = pointerPos{x: mouse.X, y: mouse.Y, known: true}
 	if _, motion := msg.(tea.MouseMotionMsg); !motion || mouse.Button != tea.MouseNone {
+		// Classify button, wheel, and drag events; return classified message or raw.
+		if cmd := classifyMouse(mouseMsg); cmd != nil {
+			return cmd()
+		}
 		return msg
 	}
 	m.lastMouseMotionAt = time.Now()

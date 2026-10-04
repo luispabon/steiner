@@ -6,7 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// Internal mouse message types for v2 dispatch via View.OnMouse.
+// Internal mouse message types for direct dispatch from the program filter.
 type mouseClickMsg struct {
 	x, y int
 }
@@ -24,11 +24,13 @@ type mouseWheelMsg struct {
 	x, y      int
 }
 
-// classifyMouse implements View.OnMouse handler for v2 mouse events.
-// It classifies MouseClickMsg, MouseMotionMsg, MouseReleaseMsg, and MouseWheelMsg,
-// extracting coordinates and emitting internal messages for Update to apply state mutations.
-// Motion events are only forwarded while the left button is held so ordinary
-// pointer movement does not create update churn.
+// classifyMouse classifies v2 mouse events into internal message types for
+// Update dispatch. It handles MouseClickMsg, MouseMotionMsg, MouseReleaseMsg,
+// and MouseWheelMsg, extracting coordinates and returning internal messages for
+// state mutations. Motion events are only forwarded while the left button is
+// held; ordinary pointer movement does not produce a classified message. Called
+// by the program filter (filterMouseMotion) to dispatch events in a single
+// Update+View cycle instead of deferring to View.OnMouse.
 func classifyMouse(msg tea.MouseMsg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:

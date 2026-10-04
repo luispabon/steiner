@@ -24,11 +24,8 @@ func TestFilterMouseMotion(t *testing.T) {
 	if got := filterMouseMotion(m, key); got != key {
 		t.Errorf("non-mouse message = %#v, want passthrough", got)
 	}
-	drag := tea.MouseMotionMsg{X: sidebarPadH, Y: row, Button: tea.MouseLeft}
-	if got := filterMouseMotion(m, drag); got != drag {
-		t.Errorf("drag motion = %#v, want passthrough", got)
-	}
 
+	// Buttonless motion (hover path, unchanged):
 	steps := []struct {
 		name string
 		msg  tea.MouseMotionMsg
@@ -55,6 +52,50 @@ func TestFilterMouseMotion(t *testing.T) {
 			if m.sidebar.rosterHover != hover.agentID {
 				t.Fatalf("%s: rosterHover = %q, want %q", step.name, m.sidebar.rosterHover, hover.agentID)
 			}
+		}
+	}
+
+	// Classified button/wheel/drag events:
+	classifiedTests := []struct {
+		name string
+		msg  tea.MouseMsg
+		want tea.Msg
+	}{
+		{
+			"left click classified",
+			tea.MouseClickMsg{X: sidebarPadH, Y: row, Button: tea.MouseLeft},
+			mouseClickMsg{x: sidebarPadH, y: row},
+		},
+		{
+			"left release classified",
+			tea.MouseReleaseMsg{X: sidebarPadH, Y: row, Button: tea.MouseLeft},
+			mouseReleaseMsg{x: sidebarPadH, y: row},
+		},
+		{
+			"wheel up classified",
+			tea.MouseWheelMsg{X: 40, Y: 10, Button: tea.MouseWheelUp},
+			mouseWheelMsg{direction: "up", x: 40, y: 10},
+		},
+		{
+			"wheel down classified",
+			tea.MouseWheelMsg{X: 40, Y: 10, Button: tea.MouseWheelDown},
+			mouseWheelMsg{direction: "down", x: 40, y: 10},
+		},
+		{
+			"left drag motion classified",
+			tea.MouseMotionMsg{X: sidebarPadH + 5, Y: row + 1, Button: tea.MouseLeft},
+			mouseMotionMsg{x: sidebarPadH + 5, y: row + 1},
+		},
+		{
+			"right click (unclassified) passes raw",
+			tea.MouseClickMsg{X: sidebarPadH, Y: row, Button: tea.MouseRight},
+			tea.MouseClickMsg{X: sidebarPadH, Y: row, Button: tea.MouseRight},
+		},
+	}
+	for _, tc := range classifiedTests {
+		got := filterMouseMotion(m, tc.msg)
+		if got != tc.want {
+			t.Errorf("%s: got %#v, want %#v", tc.name, got, tc.want)
 		}
 	}
 }

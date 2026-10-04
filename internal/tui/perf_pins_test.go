@@ -1,9 +1,9 @@
 package tui
 
 // Behaviour pins for the TUI performance programme. They fix user-visible
-// invariants that later stages (wheel coalescing, OnMouse removal, tick
-// gating) must keep, and drive the model through the frame-audit driver so the
-// path matches the program's: filter -> Update -> View -> OnMouse follow-up.
+// invariants that later stages (wheel coalescing, tick gating) must keep, and
+// drive the model through the frame-audit driver so the path matches the
+// program's: filter -> Update -> View.
 
 import (
 	"strings"

@@ -1,19 +1,18 @@
 package tui
 
 // Frame audit driver. It drives a Model the way bubbletea's event loop does
-// (filter -> Update -> View, plus the OnMouse follow-up message) and counts
-// Update calls and View cost per message type. It is shared by the env-gated
+// (filter -> Update -> View) and counts Update calls and View cost per message
+// type. Mouse events are classified in the filter (single Update+View per event);
+// View.OnMouse is no longer used for dispatch. It is shared by the env-gated
 // audit scenarios (frame_audit_test.go) and the deterministic guard tests
 // (perf_pins_test.go).
 //
 // Commands returned by Update are NOT executed: tea.Tick commands block for
 // real wall-clock time and would make runs slow and non-deterministic.
 // Messages the program would receive from commands are instead injected
-// explicitly: the OnMouse follow-up (taken from the last rendered
-// View().OnMouse, as the program does) and the periodic chains, which run()
-// fires at the production cadence, gated on the same model flags the handlers
-// use to re-arm themselves (m.ticking, m.composerBlinking,
-// m.sessionStartedAt) plus the 50ms syncDebounce chain.
+// explicitly: periodic chains which run() fires at the production cadence, gated
+// on the same model flags the handlers use to re-arm themselves (m.ticking,
+// m.composerBlinking, m.sessionStartedAt) plus the 50ms syncDebounce chain.
 
 import (
 	"fmt"
@@ -40,14 +39,13 @@ type auditDriver struct {
 	// stats is keyed by the message type that reached Update.
 	stats map[string]*auditStat
 	// offered counts messages entering send, keyed by their raw type (before
-	// the filter), including OnMouse follow-ups.
+	// the filter).
 	offered map[string]int
 	dropped map[string]int
 	// keyWait holds the worst measured key-wait per heavy message type.
 	keyWait  map[string]time.Duration
 	filterNs time.Duration
 	lastView string
-	onMouse  func(tea.MouseMsg) tea.Cmd
 	// useFilter routes messages through filterMouseMotion like the program does.
 	useFilter bool
 }
@@ -63,7 +61,6 @@ func newAuditDriver(m *Model) *auditDriver {
 	}
 	v := m.View()
 	d.lastView = v.Content
-	d.onMouse = v.OnMouse
 	return d
 }
 
@@ -71,8 +68,8 @@ func msgName(msg tea.Msg) string {
 	return strings.TrimPrefix(fmt.Sprintf("%T", msg), "*")
 }
 
-// send mimics Program.eventLoop for one message: filter, Update, View, then
-// the OnMouse follow-up when the rendered view registered one.
+// send mimics Program.eventLoop for one message: filter, Update, View.
+// Mouse events are classified in the filter and dispatched in a single Update.
 func (d *auditDriver) send(msg tea.Msg) {
 	d.offered[msgName(msg)]++
 	if d.useFilter {
@@ -85,14 +82,7 @@ func (d *auditDriver) send(msg tea.Msg) {
 		}
 		msg = out
 	}
-	var follow tea.Cmd
-	if mm, ok := msg.(tea.MouseMsg); ok && d.onMouse != nil {
-		follow = d.onMouse(mm)
-	}
 	d.step(msgName(msg), msg)
-	if follow != nil {
-		d.send(follow())
-	}
 }
 
 func (d *auditDriver) step(name string, msg tea.Msg) {
@@ -114,7 +104,6 @@ func (d *auditDriver) step(name string, msg tea.Msg) {
 		st.unchanged++
 	}
 	d.lastView = v.Content
-	d.onMouse = v.OnMouse
 }
 
 // updates returns the number of Update calls that received a message of the
@@ -144,10 +133,10 @@ func (d *auditDriver) resetStats() {
 
 // probeKeyWait measures how long a key press queued directly behind heavy
 // waits: from before heavy's Update starts to the end of the key's own
-// Update+View (heavy's OnMouse follow-up, if any, runs in between). The pre
-// messages are delivered first to put the model in the state that makes heavy
-// expensive. The probe does not count toward the scenario's stats; the result
-// is recorded under heavy's type, keeping the worst of repeated probes.
+// Update+View. The pre messages are delivered first to put the model in the
+// state that makes heavy expensive. The probe does not count toward the
+// scenario's stats; the result is recorded under heavy's type, keeping the
+// worst of repeated probes.
 func (d *auditDriver) probeKeyWait(heavy tea.Msg, pre ...tea.Msg) {
 	stats, offered, dropped, filterNs := d.stats, d.offered, d.dropped, d.filterNs
 	d.stats = map[string]*auditStat{}
