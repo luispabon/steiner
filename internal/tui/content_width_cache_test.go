@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/glamour/v2"
 
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -416,6 +417,79 @@ func TestWidthRenderCacheLayoutRules(t *testing.T) {
 				t.Fatal("setup: transcript not pinned to the bottom")
 			}
 			tc.check(t, m)
+		})
+	}
+}
+
+// TestGlamourPoolSlot checks the pool's LRU order: a hit moves the slot to the
+// front with its renderer, a miss adds an empty slot for the target width, and
+// a miss on a full pool evicts the least recently used width.
+func TestGlamourPoolSlot(t *testing.T) {
+	target := func(w int) int { return max(1, w-markdownRenderPadding) }
+	widths := func(p *glamourPool) []int {
+		out := make([]int, len(p.slots))
+		for i, s := range p.slots {
+			out[i] = s.width
+		}
+		return out
+	}
+	full := func() *glamourPool {
+		p := &glamourPool{}
+		for w := range glamourPoolSize {
+			p.slot(10 + w).renderer = &glamour.TermRenderer{}
+		}
+		return p
+	}
+	cases := []struct {
+		name         string
+		pool         func() *glamourPool
+		width        int
+		wantWidths   func(before []int) []int
+		wantRenderer bool
+	}{
+		{
+			name:         "miss on empty pool adds an empty slot",
+			pool:         func() *glamourPool { return &glamourPool{} },
+			width:        80,
+			wantWidths:   func([]int) []int { return []int{target(80)} },
+			wantRenderer: false,
+		},
+		{
+			name:  "hit moves the slot to the front and keeps its renderer",
+			pool:  full,
+			width: 10,
+			wantWidths: func(before []int) []int {
+				return append([]int{before[len(before)-1]}, before[:len(before)-1]...)
+			},
+			wantRenderer: true,
+		},
+		{
+			name:  "miss on a full pool evicts the least recently used width",
+			pool:  full,
+			width: 200,
+			wantWidths: func(before []int) []int {
+				return append([]int{target(200)}, before[:len(before)-1]...)
+			},
+			wantRenderer: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := tc.pool()
+			before := widths(p)
+			s := p.slot(tc.width)
+			if s != &p.slots[0] {
+				t.Fatal("slot is not the front of the pool")
+			}
+			if s.width != target(tc.width) {
+				t.Fatalf("slot width %d, want %d", s.width, target(tc.width))
+			}
+			if got := s.renderer != nil; got != tc.wantRenderer {
+				t.Fatalf("slot has renderer = %v, want %v", got, tc.wantRenderer)
+			}
+			if got, want := widths(p), tc.wantWidths(before); !slices.Equal(got, want) {
+				t.Fatalf("pool widths %v, want %v", got, want)
+			}
 		})
 	}
 }

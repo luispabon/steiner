@@ -274,8 +274,7 @@ type contentSegment struct {
 	imagesAttachedData *imagesAttachedData     // non-nil only for segmentImagesAttached
 	deliveredData      *deliveredRows          // non-nil only for segmentSubAgentsFinished
 	strandedData       *strandedResultsData    // non-nil only for segmentStrandedResults
-	// render cache: the render at the active width, its stamp, and renders at
-	// recently used other widths (see renderAtWidth)
+	// render cache at the active width, plus other recent widths (renderAtWidth)
 	cachedRender      string
 	cachedRenderWidth int
 	cachedStamp       renderStamp
@@ -328,12 +327,9 @@ type contentBuffer struct {
 	workingDir              string                              // current working directory for resolving relative paths
 	homeDir                 string                              // home directory for resolving ~ paths
 
-	// renderEpoch is bumped when a render input shared by all segments changes
-	// without dirtying them (MCP tool origins), so renders cached for inactive
-	// widths are not reused.
-	renderEpoch int
-
-	// Render cache.
+	// Render cache. renderEpoch is bumped when MCP tool origins, a render input
+	// shared by all segments, change, so inactive-width renders are not reused.
+	renderEpoch         int
 	stringCacheWidth    int
 	stringCacheRendered string
 
