@@ -6,7 +6,18 @@
 
 package tui
 
-import "testing"
+import (
+	"flag"
+	"testing"
+)
+
+// contentIterations is the fixed b.N for rows whose cheap timed op sits next
+// to expensive untimed fixture rebuilds. With the default 1s target,
+// testing.Benchmark raises b.N until the timed work fills a second and those
+// rows spend minutes in setup. Ceilings are per-op averages, so a fixed count
+// measures the same thing. Other rows keep the default target: their one-off
+// warm-up allocations need many ops to amortise.
+const contentIterations = "300x"
 
 // TestBenchmarkAllocationCeilings pins per-frame allocation ceilings for the
 // TUI frame benchmarks so a regression that re-introduces per-frame
@@ -25,6 +36,7 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 		name       string
 		fn         func(*testing.B)
 		setup      func() error
+		benchtime  string // fixed -test.benchtime for this row; empty keeps the default
 		checkBytes bool
 		maxBytes   int64
 		maxAllocs  int64
@@ -128,6 +140,7 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 		{
 			// Content guards use a 60-message transcript to keep the run short.
 			name:       "ContentToolCallFinish60",
+			benchtime:  contentIterations,
 			fn:         func(b *testing.B) { benchToolCallFinish(b, 60) },
 			checkBytes: true,
 			maxBytes:   663529,
@@ -136,6 +149,7 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 		},
 		{
 			name:       "ContentThinkingDelta60",
+			benchtime:  contentIterations,
 			fn:         func(b *testing.B) { benchThinkingDelta(b, 60) },
 			checkBytes: true,
 			maxBytes:   59274,
@@ -144,6 +158,7 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 		},
 		{
 			name:       "ContentIdleFrameInflight60",
+			benchtime:  contentIterations,
 			fn:         func(b *testing.B) { benchIdleFrameInflight(b, 60) },
 			checkBytes: true,
 			maxBytes:   53971,
@@ -152,6 +167,7 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 		},
 		{
 			name:       "ContentToggleBlockTail60",
+			benchtime:  contentIterations,
 			fn:         func(b *testing.B) { benchToggleBlock(b, 60, 0) },
 			checkBytes: true,
 			maxBytes:   15142715,
@@ -177,6 +193,9 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if tc.benchtime != "" {
+				setBenchtime(t, tc.benchtime)
+			}
 			res := testing.Benchmark(tc.fn)
 			// Always report, so a passing run shows the measured values
 			// rather than looking like it asserted nothing.
@@ -198,4 +217,19 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			}
 		})
 	}
+}
+
+// setBenchtime sets -test.benchtime for the rest of the calling (sub)test and
+// restores the previous value when it ends.
+func setBenchtime(t *testing.T, value string) {
+	t.Helper()
+	prev := flag.Lookup("test.benchtime").Value.String()
+	if err := flag.Set("test.benchtime", value); err != nil {
+		t.Fatalf("set benchtime: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := flag.Set("test.benchtime", prev); err != nil {
+			t.Errorf("restore benchtime: %v", err)
+		}
+	})
 }
