@@ -193,7 +193,7 @@ type periodic struct {
 	msg   func() tea.Msg
 }
 
-func timers(m *Model) []*periodic {
+func timers(_ *Model) []*periodic {
 	return []*periodic{
 		{every: 500 * time.Millisecond, next: 500 * time.Millisecond, armed: func(m *Model) bool { return m.ticking }, msg: func() tea.Msg { return tickMsg{} }},
 		{every: 500 * time.Millisecond, next: 500 * time.Millisecond, armed: func(m *Model) bool { return m.composerBlinking }, msg: func() tea.Msg { return composerBlinkMsg{} }},
