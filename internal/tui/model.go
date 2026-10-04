@@ -268,6 +268,7 @@ type Model struct {
 	statusViewCacheRendered string
 
 	sidebarViewCacheSet      bool
+	sidebarRenders           int // renderSidebar cache misses
 	sidebarViewCacheKey      sidebarCacheKey
 	sidebarViewCacheFiles    []gitModifiedFile
 	sidebarViewCacheRoster   []rosterEntry

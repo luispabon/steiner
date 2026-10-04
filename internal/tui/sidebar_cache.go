@@ -71,6 +71,14 @@ type sidebarStateComparable struct {
 // comparable projects s onto its comparable fields (everything but
 // modifiedFiles).
 func (s sidebarState) comparable() sidebarStateComparable {
+	tick, now := s.tickCount, s.subAgentsNow
+	spinning, clocked := s.animation()
+	if !spinning {
+		tick = 0
+	}
+	if !clocked {
+		now = 0
+	}
 	return sidebarStateComparable{
 		expanded:               s.expanded,
 		model:                  s.model,
@@ -94,7 +102,7 @@ func (s sidebarState) comparable() sidebarStateComparable {
 		workingDir:             s.workingDir,
 		activeSkill:            s.activeSkill,
 		styles:                 s.styles,
-		tickCount:              s.tickCount,
+		tickCount:              tick,
 		perfDurationMs:         s.perfDurationMs,
 		perfTTFTMs:             s.perfTTFTMs,
 		perfOutputTPS:          s.perfOutputTPS,
@@ -117,9 +125,29 @@ func (s sidebarState) comparable() sidebarStateComparable {
 		lspStarting:            s.lspStarting,
 		lspFailed:              s.lspFailed,
 		lspSingleName:          s.lspSingleName,
-		subAgentsNow:           s.subAgentsNow,
+		subAgentsNow:           now,
 		rosterHover:            s.rosterHover,
 	}
+}
+
+// animation reports what the sidebar currently displays that depends on the
+// tick phase (spinner frames, the compaction blink) and on the live clock
+// (elapsed time of roster rows with no finish time). The render cache keys on
+// tickCount and subAgentsNow only while the matching flag is set, so ticks that
+// change nothing visible do not invalidate it. Keep in sync with the readers of
+// tickCount (mcpRow, lspRow, rosterRow, compactDotLine) and subAgentsNow
+// (rosterRow).
+func (s sidebarState) animation() (spinning, clocked bool) {
+	spinning = s.mcpConnecting || s.lspStarting || s.compaction.Active()
+	for _, e := range s.subAgents {
+		if e.status == rosterRunning {
+			spinning = true
+		}
+		if e.status != rosterQueued && e.finishTime == 0 {
+			clocked = true
+		}
+	}
+	return spinning, clocked
 }
 
 // sidebarCacheKey is the full render cache key for sidebarState.View: the
@@ -148,6 +176,7 @@ func (m *Model) renderSidebar(width, height int) string {
 		slices.Equal(m.sidebarViewCacheRoster, m.sidebar.subAgents) {
 		return m.sidebarViewCacheRendered
 	}
+	m.sidebarRenders++
 	rendered := m.sidebar.View(width, height)
 	m.sidebarViewCacheSet = true
 	m.sidebarViewCacheKey = key
