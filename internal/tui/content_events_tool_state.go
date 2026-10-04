@@ -107,7 +107,7 @@ func (b *contentBuffer) applyFinishedRegularToolCall(payload output.ToolCallFini
 	if loc, active := b.activeToolCalls[payload.CallID]; active {
 		delete(b.activeToolCalls, payload.CallID)
 		if loc.td != nil && loc.td.callID == payload.CallID && loc.seg >= 0 && loc.seg < len(b.segments) {
-			b.applyFinishedToolCallResult(&b.segments[loc.seg], loc.td, payload)
+			b.applyFinishedToolCallResult(loc.seg, loc.td, payload)
 			return true
 		}
 	}
@@ -136,7 +136,7 @@ func (b *contentBuffer) applyFinishedRegularToolCallSegment(i int, payload outpu
 		if !regularToolCallIDsMatch(td, payload.CallID) {
 			return false
 		}
-		b.applyFinishedToolCallResult(&b.segments[i], td, payload)
+		b.applyFinishedToolCallResult(i, td, payload)
 		delete(b.activeToolCalls, payload.CallID)
 		return true
 	case segmentToolCallGroup:
@@ -149,7 +149,7 @@ func (b *contentBuffer) applyFinishedRegularToolCallSegment(i int, payload outpu
 			if !regularToolCallIDsMatch(td, payload.CallID) {
 				continue
 			}
-			b.applyFinishedToolCallResult(&b.segments[i], td, payload)
+			b.applyFinishedToolCallResult(i, td, payload)
 			delete(b.activeToolCalls, payload.CallID)
 			return true
 		}
@@ -355,7 +355,7 @@ func (b *contentBuffer) AdvanceToolCallSpinners() {
 		}
 		loc.td.spinnerFrame = (loc.td.spinnerFrame + 1) % len(spinnerFrames)
 		b.segments[loc.seg].renderDirty = true
-		b.gen++
+		b.invalidatePrefixIfCached(loc.seg)
 	}
 }
 
@@ -383,7 +383,7 @@ func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {
 		last.toolData = nil
 		last.kind = segmentToolCallGroup
 		last.renderDirty = true
-		b.gen++
+		b.invalidatePrefixIfCached(len(b.segments) - 1)
 		return true
 	case segmentToolCallGroup:
 		if last.toolGroupData == nil {
@@ -392,14 +392,14 @@ func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {
 		last.toolGroupData.mixed = last.toolGroupData.mixed || last.toolGroupData.tool != tc.tool
 		last.toolGroupData.entries = append(last.toolGroupData.entries, tc)
 		last.renderDirty = true
-		b.gen++
+		b.invalidatePrefixIfCached(len(b.segments) - 1)
 		return true
 	default:
 		return false
 	}
 }
 
-func (b *contentBuffer) applyFinishedToolCallResult(seg *contentSegment, td *toolCallSegment, payload output.ToolCallFinishedEvent) {
+func (b *contentBuffer) applyFinishedToolCallResult(idx int, td *toolCallSegment, payload output.ToolCallFinishedEvent) {
 	td.active = false
 	td.elapsed = formatElapsed(td.startTime, nanoNow())
 	td.body = payload.Result
@@ -422,8 +422,8 @@ func (b *contentBuffer) applyFinishedToolCallResult(seg *contentSegment, td *too
 	} else {
 		td.bodyKind = inferBodyKind(td.tool, payload.Result)
 	}
-	seg.renderDirty = true
-	b.gen++
+	b.segments[idx].renderDirty = true
+	b.invalidatePrefixIfCached(idx)
 }
 
 func callIDsMatch(existingCallID, payloadCallID string) bool {

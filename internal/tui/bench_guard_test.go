@@ -105,6 +105,14 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			baseline:   "measured 13854001 B/op, 14364 allocs/op (max of 4 runs, post-WI-1)",
 		},
 		{
+			name:       "ContentThinkingDelta60",
+			fn:         func(b *testing.B) { benchThinkingDelta(b, 60) },
+			checkBytes: true,
+			maxBytes:   59274,
+			maxAllocs:  9,
+			baseline:   "measured 51541 B/op, 7 allocs/op (post-WI-8d)",
+		},
+		{
 			name:       "ContentIdleFrameInflight60",
 			fn:         func(b *testing.B) { benchIdleFrameInflight(b, 60) },
 			checkBytes: true,

@@ -128,15 +128,17 @@ func BenchmarkContentStreamDeltaLongBuffer(b *testing.B) {
 	})
 }
 
-// BenchmarkContentThinkingDelta: a thinking delta; thinking chunks bump
-// contentBuffer.gen, which invalidates the settled-prefix cache.
+// BenchmarkContentThinkingDelta: a thinking delta on a long transcript. The
+// live thinking segment must not invalidate the settled-prefix cache.
 func BenchmarkContentThinkingDelta(b *testing.B) {
-	benchTranscriptSizes(b, func(b *testing.B, n int) {
-		benchResetEvery(b, 100, func() *Model { return populateLongTranscript(newContentBenchModel(), n) },
-			func(m *Model, _ int) {
-				stepSync(m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(2, "considering the options carefully. ", output.ChunkSourceAssistant)})
-			})
-	})
+	benchTranscriptSizes(b, benchThinkingDelta)
+}
+
+func benchThinkingDelta(b *testing.B, n int) {
+	benchResetEvery(b, 100, func() *Model { return populateLongTranscript(newContentBenchModel(), n) },
+		func(m *Model, _ int) {
+			stepSync(m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(2, "considering the options carefully. ", output.ChunkSourceAssistant)})
+		})
 }
 
 // BenchmarkContentToolCallStart: tool call start (new segment) on a long transcript.

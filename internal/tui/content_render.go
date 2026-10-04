@@ -122,6 +122,16 @@ func (b *contentBuffer) prefixCacheValid(width int) bool {
 		b.prefixCacheLen <= len(b.segments)
 }
 
+// invalidatePrefixIfCached bumps gen when segment i, mutated in place, lies
+// inside the cached settled prefix. A segment past the prefix is re-walked every
+// dirty frame, and a hidden one contributes nothing to the prefix (toggling
+// visibility invalidates it separately), so neither needs invalidation.
+func (b *contentBuffer) invalidatePrefixIfCached(i int) {
+	if b.prefixCacheSet && i < b.prefixCacheLen && !b.isSegmentHidden(i) {
+		b.gen++
+	}
+}
+
 // foldPrefix extends the settled-prefix cache to cover the whole buffer after a
 // dirty frame in which nothing in the tail re-rendered. segmentJoin is the
 // joined tail and kinds its segment kinds (no preview sentinel).
