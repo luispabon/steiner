@@ -56,9 +56,6 @@ type RunRequest struct {
 	// fallback. Interactive mode sets this to true; --exec defaults to false.
 	StreamingPreferred bool
 
-	// CaveHuman makes the model speak tersely and avoid AI-writing tells.
-	CaveHuman bool
-
 	// PromptCacheKey is a stable identifier sent to the provider to route
 	// requests to the same cache shard across turns. Empty disables it.
 	PromptCacheKey string
@@ -336,8 +333,6 @@ func postIngestionState(ctx context.Context, req RunRequest, state RunState) (Ru
 func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 	basePrompt := req.Prompt
 	basePrompt.Conversation = nil
-	// Plumb the merged cave/human prompt mode through to prompt assembly.
-	basePrompt.CaveHuman = req.CaveHuman
 	// Cache the system preamble once per session so every turn sends the
 	// byte-identical string, preventing KV cache busting on local servers.
 	manager := req.ContextManager
@@ -352,7 +347,6 @@ func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
 		basePrompt.AdvisorEnabled,
 		basePrompt.LSPEnabled,
 		basePrompt.WorkflowMode,
-		basePrompt.CaveHuman,
 		basePrompt.PromptOverrides.SystemSuffix,
 		basePrompt.SandboxEnabled,
 		basePrompt.SandboxWritableMounts,

@@ -161,7 +161,6 @@ Canonical compact reference for safe configuration edits.
 | `lsp.servers.<name>.initialization_options`|map[string]any|—|—|
 | `modes.default`|string|`build`|`plan`/`build`; plan edits only `.steiner/plans/`. |
 | `tui.fps`|int|`60`|Interactive renderer rate, 1 through 120. |
-| `cave_human`|bool|`false`|Add terse output and anti-AI-writing-tells instructions. |
 
 `steiner config` validates and prints resolved configuration. `/config` in the TUI opens the compiled-config modal. Resolved output can contain credentials: obtain consent before a full secret-bearing read, redact secrets by default, and never echo existing secret values.
 

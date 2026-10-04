@@ -37,9 +37,7 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 		{name: templateCompactionSystem},
 		{name: templateCompactionEmergency},
 		{name: templateCompactionDefaultBody},
-		{name: templateCaveHumanVoice},
-		{name: templateCompactionCaveHumanBody},
-		{name: templateCaveHumanCompactionEncode},
+		{name: templateOutputVoice},
 		{name: templateLSP},
 		{name: templateToolBatching},
 	}

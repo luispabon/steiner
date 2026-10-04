@@ -19,6 +19,7 @@ const (
 	templateDelegatedTask  = "delegated_task.md.tmpl"
 	templateSandbox        = "sandbox.md.tmpl"
 	templateExecutionModes = "execution_modes.md.tmpl"
+	templateOutputVoice    = "output_voice.md.tmpl"
 )
 
 type workflowMode string
@@ -46,7 +47,7 @@ const (
 	sectionToolBatching   sectionID = "tool_batching"
 	sectionWorkflow       sectionID = "workflow"
 	sectionExecutionModes sectionID = "execution_modes"
-	sectionCaveHuman      sectionID = "cave_human"
+	sectionOutputVoice    sectionID = "output_voice"
 )
 
 type sectionContext struct {
@@ -57,7 +58,6 @@ type sectionContext struct {
 	sandboxWritableMounts []string
 	advisorEnabled        bool
 	lspEnabled            bool
-	caveHuman             bool
 	workflowMode          workflowMode
 }
 
@@ -74,7 +74,7 @@ var defaultSectionOrder = []sectionID{
 	sectionWorkflow,
 	sectionSandbox,
 	sectionExecutionModes,
-	sectionCaveHuman,
+	sectionOutputVoice,
 }
 
 var systemSections = map[sectionID]sectionRenderer{
@@ -126,19 +126,16 @@ var systemSections = map[sectionID]sectionRenderer{
 		}
 		return renderTemplate(templateExecutionModes, nil)
 	},
-	sectionCaveHuman: func(ctx sectionContext) string {
-		if !ctx.caveHuman {
-			return ""
-		}
-		return caveHumanInstruction()
+	sectionOutputVoice: func(sectionContext) string {
+		return renderTemplate(templateOutputVoice, nil)
 	},
 }
 
 // overrideSectionOrder is the section sequence used when the user supplies a
 // system-prompt override: the shared rules, sandbox, and execution mode sections
 // are replaced by the override text, but identity, delegation mechanics, advisor
-// guidance, and workflow methodology still render around it. LSP guidance is
-// included when configured.
+// guidance, and workflow methodology still render around it. Tool batching and
+// output voice follow the override. LSP guidance is included when configured.
 var overrideSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
@@ -186,7 +183,6 @@ type SystemPreambleParams struct {
 	AdvisorEnabled        bool
 	LSPEnabled            bool
 	Mode                  WorkflowMode
-	CaveHuman             bool
 	SystemSuffix          string
 }
 
@@ -204,7 +200,6 @@ func systemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
 		sandboxWritableMounts: params.SandboxWritableMounts,
 		advisorEnabled:        params.AdvisorEnabled,
 		lspEnabled:            params.LSPEnabled,
-		caveHuman:             params.CaveHuman,
 		workflowMode:          normalizeWorkflowMode(params.Mode),
 	}
 
@@ -227,10 +222,7 @@ func systemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
 func buildOverridePreamble(override string, ctx sectionContext) string {
 	sections := renderSections(overrideSectionOrder, ctx)
 	sections = append(sections, override)
-	sections = append(sections, renderSections([]sectionID{sectionToolBatching}, ctx)...)
-	if caveHuman := strings.TrimSpace(systemSections[sectionCaveHuman](ctx)); caveHuman != "" {
-		sections = append(sections, caveHuman)
-	}
+	sections = append(sections, renderSections([]sectionID{sectionToolBatching, sectionOutputVoice}, ctx)...)
 	return strings.Join(sections, "\n\n")
 }
 

@@ -141,7 +141,6 @@ func defaultConfig(env map[string]string) Config {
 		ContextManagement: ContextManagementConfig{
 			ReadAnnotations: true,
 		},
-		CaveHuman: false,
 		MCP: MCPConfig{
 			Enabled: true,
 		},

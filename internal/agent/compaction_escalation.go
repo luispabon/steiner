@@ -159,7 +159,7 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 	}
 	messages := append(provider.CloneMessages(assembly.Messages), provider.Message{
 		Role:    provider.MessageRoleUser,
-		Content: prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, basePrompt.CaveHuman, steering),
+		Content: prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, steering),
 	})
 	// Mirror the normal-turn request shape (same Tools and Params) so the
 	// compaction call replays the identical cached prefix (system + tools +

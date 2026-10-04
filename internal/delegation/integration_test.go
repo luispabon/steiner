@@ -89,10 +89,9 @@ func (r *scopedEventRunner) Run(_ context.Context, req agent.RunRequest) (agent.
 // testBuildPrompt is a test helper that builds prompt options for a spec.
 func testBuildPrompt(spec Spec) prompt.AssemblyOptions {
 	return buildChildPrompt(childPromptParams{
-		spec:      spec,
-		workDir:   "/tmp/work",
-		homeDir:   "",
-		caveHuman: false,
+		spec:    spec,
+		workDir: "/tmp/work",
+		homeDir: "",
 	})
 }
 

@@ -31,7 +31,6 @@ type SubAgentHandlerDeps struct {
 	ResolvedModel      provider.ResolvedModel
 	MaxTokens          *int
 	StreamingPreferred bool
-	CaveHuman          bool
 	TraceLogger        *TraceLogger
 	// Diagnostics is the process diagnostics writer, threaded to child runs and
 	// child executors so delegated work lands in the same streams as the

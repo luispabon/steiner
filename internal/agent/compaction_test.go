@@ -389,7 +389,7 @@ func TestSummarizeCompactorCutsSourceBeforeRecentTurns(t *testing.T) {
 	if got, want := finalMessage.Role, provider.MessageRoleUser; got != want {
 		t.Fatalf("final compaction message role = %q, want %q", got, want)
 	}
-	if got := finalMessage.Content; !strings.Contains(got, "You are compacting the current working context for a coding agent.") {
+	if got := finalMessage.Content; got != prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal) {
 		t.Fatalf("final compaction message = %q, want compaction instruction", got)
 	}
 	if !messageContentsContain(promptMessages, "turn 1 user") {
@@ -1450,7 +1450,7 @@ func TestBuildCompactionRequestWithMode_CacheFields(t *testing.T) {
 			if lastMsg.Role != provider.MessageRoleUser {
 				t.Fatalf("last message role = %q, want %q", lastMsg.Role, provider.MessageRoleUser)
 			}
-			if !strings.Contains(lastMsg.Content, "You are compacting the current working context for a coding agent.") {
+			if !strings.Contains(lastMsg.Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal)) {
 				t.Fatalf("last message content = %q, want compaction instruction", lastMsg.Content)
 			}
 
@@ -1545,7 +1545,7 @@ func TestBuildCompactionRequestWithMode_PromptSuffix(t *testing.T) {
 		wantDouble bool // whether suffix would be duplicated if de-dup didn't work
 	}{
 		{name: "appends suffix to compaction instruction", suffix: "Be concise.", wantDouble: false},
-		{name: "does not duplicate suffix", suffix: "You are compacting", wantDouble: true},
+		{name: "does not duplicate suffix", suffix: "You compact working context", wantDouble: true},
 	}
 
 	for _, tt := range tests {
@@ -1593,7 +1593,7 @@ func TestBuildCompactionRequestWithMode_PromptSuffix(t *testing.T) {
 			if lastMsg.Role != provider.MessageRoleUser {
 				t.Fatalf("last message role = %q, want %q", lastMsg.Role, provider.MessageRoleUser)
 			}
-			if !strings.Contains(lastMsg.Content, "You are compacting the current working context for a coding agent.") {
+			if !strings.Contains(lastMsg.Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal)) {
 				t.Fatalf("last message missing compaction instruction: %q", lastMsg.Content)
 			}
 			if !strings.Contains(lastMsg.Content, tt.suffix) {

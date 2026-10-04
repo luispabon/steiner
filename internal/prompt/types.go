@@ -142,9 +142,6 @@ type AssemblyOptions struct {
 	// session reloads them. Leave empty when the cache itself is per-run.
 	StaticContextScope string
 
-	// CaveHuman makes the model speak tersely and avoid AI-writing tells.
-	CaveHuman bool
-
 	// SessionDate is the local date the session started, rendered as a
 	// user-role block after the static sources and before the conversation.
 	// The zero value omits the block.

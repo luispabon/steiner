@@ -221,8 +221,8 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 	if !strings.HasPrefix(preamble, testIdentityMarker) {
 		t.Fatalf("preamble block missing identity marker in %q", preamble)
 	}
-	if !strings.HasSuffix(strings.TrimSpace(preamble), "- Never batch a tool call whose arguments depend on a previous tool call.") {
-		t.Fatalf("preamble block missing override suffix in %q", preamble)
+	if !strings.HasSuffix(strings.TrimSpace(preamble), strings.TrimSpace(renderTemplate(templateOutputVoice, nil))) {
+		t.Fatalf("preamble block missing output voice after override in %q", preamble)
 	}
 	if assembly.Blocks[0].Truncated {
 		t.Fatalf("expected preamble block not to be truncated (bypasses budget)")
@@ -248,8 +248,8 @@ func TestAssembleClipsRenderedBlocksByBudget(t *testing.T) {
 	if !strings.HasPrefix(messagePreamble, testIdentityMarker) {
 		t.Fatalf("preamble message missing identity marker in %q", messagePreamble)
 	}
-	if !strings.HasSuffix(strings.TrimSpace(messagePreamble), "- Never batch a tool call whose arguments depend on a previous tool call.") {
-		t.Fatalf("preamble message missing override suffix in %q", messagePreamble)
+	if messagePreamble != preamble {
+		t.Fatalf("preamble message differs from the untruncated preamble block")
 	}
 	if got, want := assembly.Messages[1].Content, "proj"; got != want {
 		t.Fatalf("project context message content = %q, want %q", got, want)
@@ -387,16 +387,16 @@ func TestAssemblePassesFullConversationUnfiltered(t *testing.T) {
 func TestRenderConversationCompactionInstructionNormalAndEmergency(t *testing.T) {
 	t.Parallel()
 
-	normal := RenderConversationCompactionInstruction("", CompactionModeNormal, false)
-	if !strings.Contains(normal, "You are compacting the current working context for a coding agent.") {
+	normal := RenderConversationCompactionInstruction("", CompactionModeNormal)
+	if !strings.Contains(normal, "You compact working context for coding agent.") {
 		t.Fatalf("normal compaction instruction = %q, want standard instruction body", normal)
 	}
 	if strings.Contains(normal, "emergency handoff") {
 		t.Fatalf("normal compaction instruction = %q, want no emergency guidance", normal)
 	}
 
-	emergency := RenderConversationCompactionInstruction("", CompactionModeEmergency, false)
-	if !strings.Contains(emergency, "You are compacting the current working context for a coding agent.") {
+	emergency := RenderConversationCompactionInstruction("", CompactionModeEmergency)
+	if !strings.Contains(emergency, "You compact working context for coding agent.") {
 		t.Fatalf("emergency compaction instruction = %q, want standard instruction body", emergency)
 	}
 	if !strings.Contains(emergency, "emergency handoff") {
@@ -404,20 +404,12 @@ func TestRenderConversationCompactionInstructionNormalAndEmergency(t *testing.T)
 	}
 }
 
-func TestRenderConversationCompactionInstructionPreservesOverrideAndCaveHuman(t *testing.T) {
+func TestRenderConversationCompactionInstructionPreservesOverride(t *testing.T) {
 	t.Parallel()
 
-	override := RenderConversationCompactionInstruction("custom compaction prompt", CompactionModeNormal, true)
+	override := RenderConversationCompactionInstruction("custom compaction prompt", CompactionModeNormal)
 	if got, want := override, "custom compaction prompt"; got != want {
 		t.Fatalf("override compaction instruction = %q, want %q", got, want)
-	}
-
-	caveHuman := RenderConversationCompactionInstruction("", CompactionModeNormal, true)
-	if !strings.Contains(caveHuman, "compact working context for coding agent") {
-		t.Fatalf("cave-human compaction instruction = %q, want cave-human body", caveHuman)
-	}
-	if !strings.Contains(caveHuman, "Encoding directives:") {
-		t.Fatalf("cave-human compaction instruction = %q, want encoding directives block", caveHuman)
 	}
 }
 
@@ -433,14 +425,14 @@ func TestRenderConversationCompactionInstructionSteering(t *testing.T) {
 		wantBase string
 		wantTail string
 	}{
-		{name: "default", wantBase: "You are compacting the current working context for a coding agent."},
+		{name: "default", wantBase: "You compact working context for coding agent."},
 		{name: "override", override: "custom compaction prompt", wantBase: "custom compaction prompt"},
-		{name: "emergency", mode: CompactionModeEmergency, wantBase: "You are compacting the current working context for a coding agent.", wantTail: "emergency handoff"},
+		{name: "emergency", mode: CompactionModeEmergency, wantBase: "You compact working context for coding agent.", wantTail: "emergency handoff"},
 		{name: "override and emergency", override: "custom compaction prompt", mode: CompactionModeEmergency, wantBase: "custom compaction prompt", wantTail: "emergency handoff"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := RenderConversationCompactionInstruction(tt.override, tt.mode, false, steering)
+			got := RenderConversationCompactionInstruction(tt.override, tt.mode, steering)
 			if !strings.Contains(got, tt.wantBase) || !strings.Contains(got, marker) {
 				t.Fatalf("instruction = %q, want base %q and steering", got, tt.wantBase)
 			}
@@ -455,8 +447,8 @@ func TestRenderConversationCompactionInstructionSteering(t *testing.T) {
 			}
 		})
 	}
-	bare := RenderConversationCompactionInstruction("", CompactionModeNormal, false)
-	empty := RenderConversationCompactionInstruction("", CompactionModeNormal, false, "")
+	bare := RenderConversationCompactionInstruction("", CompactionModeNormal)
+	empty := RenderConversationCompactionInstruction("", CompactionModeNormal, "")
 	if bare != empty {
 		t.Fatalf("empty steering changed output: bare=%q empty=%q", bare, empty)
 	}

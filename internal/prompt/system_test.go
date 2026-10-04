@@ -14,7 +14,7 @@ const (
 	testCoreRulesMarker    = "Core rules:"
 	testToolBatchingMarker = "## Tool batching"
 	testWorkflowMarker     = "## Work methodology"
-	testCaveHumanMarker    = "## Output voice"
+	testOutputVoiceMarker  = "## Output voice"
 	parentApprovalLine     = "- Ask the user for confirmation before editing."
 	childApprovalLine      = "Do not ask the user for approval, confirmation, or feedback."
 )
@@ -53,7 +53,6 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 		sandbox         bool
 		mounts          []string
 		advisor         bool
-		caveHuman       bool
 		suffix          string
 		wantPresent     []string
 		wantAbsent      []string
@@ -99,12 +98,11 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			wantIdentityCnt: 1,
 		},
 		{
-			name:            "cave-human append after base sections",
+			name:            "output voice append after base sections",
 			delegation:      true,
-			caveHuman:       true,
 			suffix:          "system suffix",
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker, testCaveHumanMarker, "system suffix"},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker, testCaveHumanMarker, "system suffix"},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker, testOutputVoiceMarker, "system suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker, testOutputVoiceMarker, "system suffix"},
 			wantSuffixLast:  true,
 			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide."},
 			wantIdentityCnt: 1,
@@ -143,14 +141,13 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			wantIdentityCnt: 1,
 		},
 		{
-			name:            "override keeps cave-human before the suffix",
+			name:            "override keeps output voice before the suffix",
 			override:        "Custom override content",
 			delegation:      true,
-			caveHuman:       true,
 			suffix:          "suffix",
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", testCaveHumanMarker, "suffix"},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", testOutputVoiceMarker, "suffix"},
 			wantAbsent:      []string{testCoreRulesMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker, testCaveHumanMarker, "suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker, testOutputVoiceMarker, "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
 		},
@@ -172,7 +169,6 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 				SandboxEnabled:        tc.sandbox,
 				SandboxWritableMounts: tc.mounts,
 				Mode:                  workflowModeParent,
-				CaveHuman:             tc.caveHuman,
 				SystemSuffix:          tc.suffix,
 			}).Content
 
@@ -225,23 +221,22 @@ func TestOverridePreamblePlacesToolBatchingAfterOverride(t *testing.T) {
 	content := systemPreambleWithAdvisor(SystemPreambleParams{
 		Override:          "specialist override",
 		DelegationEnabled: true,
-		CaveHuman:         true,
 		Mode:              workflowModeParent,
 		SystemSuffix:      "caller suffix",
 	}).Content
 
 	override := strings.Index(content, "specialist override")
 	batching := strings.Index(content, testToolBatchingMarker)
-	caveHuman := strings.Index(content, testCaveHumanMarker)
+	outputVoice := strings.Index(content, testOutputVoiceMarker)
 	suffix := strings.Index(content, "caller suffix")
-	if override == -1 || batching == -1 || caveHuman == -1 || suffix == -1 {
+	if override == -1 || batching == -1 || outputVoice == -1 || suffix == -1 {
 		t.Fatalf("missing ordering marker in %q", content)
 	}
 	if override >= batching {
 		t.Fatalf("override marker at index %d should precede tool batching at index %d in %q", override, batching, content)
 	}
-	if batching >= caveHuman || caveHuman >= suffix {
-		t.Fatalf("expected tool batching, cave-human, and suffix order in %q", content)
+	if batching >= outputVoice || outputVoice >= suffix {
+		t.Fatalf("expected tool batching, output voice, and suffix order in %q", content)
 	}
 }
 
@@ -448,19 +443,19 @@ func TestDelegationCanonIndependentOfAdvisor(t *testing.T) {
 	}
 }
 
-func TestSystemPreambleCaveHumanMode(t *testing.T) {
+func TestSystemPreambleOutputVoiceMode(t *testing.T) {
 	t.Parallel()
 
-	content := SystemPreambleWithAdvisor(SystemPreambleParams{CaveHuman: true, Mode: workflowModeParent}).Content
-	if !strings.Contains(content, testCaveHumanMarker) {
-		t.Fatalf("cave-human preamble missing output voice block in %q", content)
+	content := SystemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent}).Content
+	if !strings.Contains(content, testOutputVoiceMarker) {
+		t.Fatalf("output voice preamble missing output voice block in %q", content)
 	}
 }
 
 func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 	t.Parallel()
 
-	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: true, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: true, Mode: workflowModeParent, SystemSuffix: ""}).Content
 	if !strings.Contains(content, "## Advisor") {
 		t.Fatalf("advisor preamble missing %q in %q", "## Advisor", content)
 	}
@@ -536,7 +531,7 @@ func TestDelegationCanonDoesNotNameAdvisorWhenDisabled(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			content := systemPreambleWithAdvisor(SystemPreambleParams{Override: tc.override, DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
+			content := systemPreambleWithAdvisor(SystemPreambleParams{Override: tc.override, DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, SystemSuffix: ""}).Content
 
 			if !strings.Contains(content, "## Your sub-agents") {
 				t.Fatalf("delegation canon not rendered in %q", content)
@@ -552,28 +547,24 @@ func TestSystemPreambleSystemSuffix(t *testing.T) {
 	cases := []struct {
 		name       string
 		suffix     string
-		caveHuman  bool
 		wantIn     string
 		wantInLast bool
 	}{
 		{
 			name:       "empty suffix produces unchanged output",
 			suffix:     "",
-			caveHuman:  false,
 			wantIn:     "You are steiner",
 			wantInLast: false,
 		},
 		{
 			name:       "suffix appended after default preamble",
 			suffix:     "Custom instruction here.",
-			caveHuman:  false,
 			wantIn:     "Custom instruction here.",
 			wantInLast: true,
 		},
 		{
-			name:       "suffix appended after cave-human mode",
+			name:       "suffix appended after output voice mode",
 			suffix:     "Extended thinking enabled",
-			caveHuman:  true,
 			wantIn:     "Extended thinking enabled",
 			wantInLast: true,
 		},
@@ -581,7 +572,7 @@ func TestSystemPreambleSystemSuffix(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			content := SystemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent, CaveHuman: tc.caveHuman, SystemSuffix: tc.suffix}).Content
+			content := SystemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent, SystemSuffix: tc.suffix}).Content
 			if !strings.Contains(content, tc.wantIn) {
 				t.Fatalf("preamble missing %q", tc.wantIn)
 			}
@@ -615,7 +606,7 @@ func TestSystemPreambleSuffixAfterOverride(t *testing.T) {
 func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
 	t.Parallel()
 
-	parent := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
+	parent := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, SystemSuffix: ""}).Content
 	if !strings.Contains(parent, testWorkflowMarker) {
 		t.Fatalf("parent preamble missing %q in %q", testWorkflowMarker, parent)
 	}
@@ -628,7 +619,7 @@ func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
 		}
 	}
 
-	child := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeDelegatedChild, CaveHuman: false, SystemSuffix: ""}).Content
+	child := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeDelegatedChild, SystemSuffix: ""}).Content
 	if strings.Contains(child, testWorkflowMarker) {
 		t.Fatalf("code child unexpectedly contains parent methodology")
 	}
@@ -643,7 +634,7 @@ func TestSystemPreambleWorkflowApprovalByMode(t *testing.T) {
 func TestSystemPreambleExecutionModesInParent(t *testing.T) {
 	t.Parallel()
 
-	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: false, Mode: workflowModeParent, SystemSuffix: ""}).Content
 	if !strings.Contains(content, "## Execution modes") {
 		t.Fatalf("parent preamble missing %q in %q", "## Execution modes", content)
 	}
@@ -652,7 +643,7 @@ func TestSystemPreambleExecutionModesInParent(t *testing.T) {
 func TestSystemPreambleExecutionModesAbsentInDelegatedChild(t *testing.T) {
 	t.Parallel()
 
-	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: false, Mode: workflowModeDelegatedChild, CaveHuman: false, SystemSuffix: ""}).Content
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: false, Mode: workflowModeDelegatedChild, SystemSuffix: ""}).Content
 	if strings.Contains(content, "## Execution modes") {
 		t.Fatalf("delegated child preamble should not contain execution modes section in %q", content)
 	}
@@ -670,8 +661,8 @@ func TestSystemPreambleByteStable(t *testing.T) {
 	// Call the preamble builder twice with identical inputs and verify byte-identity.
 	// This proves the preamble has no mode variance (since ExecutionMode is not a parameter)
 	// and no per-turn randomness.
-	first := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
-	second := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, CaveHuman: false, SystemSuffix: ""}).Content
+	first := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, SystemSuffix: ""}).Content
+	second := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: true, AdvisorEnabled: false, Mode: workflowModeParent, SystemSuffix: ""}).Content
 
 	if first != second {
 		t.Fatalf("preamble not byte-identical across builds:\nfirst:\n%s\n\nsecond:\n%s", first, second)

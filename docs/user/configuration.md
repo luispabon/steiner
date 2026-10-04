@@ -107,7 +107,6 @@ For scripted or CI use, pass `--trust-project-config` or set `STEINER_TRUST_PROJ
 | ----------------------- | ----- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `models`                | block | see below | Consolidated model configuration: shared model definitions and named execution profiles.                                                                                                                             |
 | `modes`                 | block | see below | Execution mode configuration.                                                                                                                                                                                        |
-| `cave_human`            | bool  | `false`   | When `true`, enables `cave_human` - combines terse output with an "avoid AI-writing tells" instruction that is applied to the system preamble, compaction prompts, and sub-agent prompts.                            |
 | `advisor`               | block | see below | Optional stronger-model steering config. When enabled, the advisor tool is available to the main loop and its per-run cap is enforced in handler state so the tool registry stays static for prompt-cache integrity. |
 | `oneshot`               | block | see below | Closeout settings for autonomous oneshot runs. Per-phase model assignments live in the selected model profile.                                                                                                       |
 | `desktop_notifications` | block | see below | Desktop notification settings for run completion and events.                                                                                                                                                         |
@@ -477,7 +476,7 @@ Provider usage and quota limits are never retried regardless of `retry` settings
 | Field           | Type   | Default | Description                                                                                                                                                              |
 | --------------- | ------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `system`        | string | —       | Overrides the embedded default system prompt for this model.                                                                                                             |
-| `system_suffix` | string | —       | Text appended after all default preamble content (including `cave_human` instructions). Enables per-model system prompt steering without replacing the default preamble. |
+| `system_suffix` | string | —       | Text appended after all default preamble content, including the built-in output voice. Enables per-model system prompt steering without replacing the default preamble. |
 | `compaction`    | string | —       | Overrides the embedded compaction (context summarisation) prompt for this model.                                                                                         |
 
 ### `AdvancedConfig` fields
@@ -1372,5 +1371,4 @@ search:
   backend: searxng
   searxng_url: http://localhost:8080
 
-cave_human: false
 ```

@@ -86,7 +86,6 @@ func preambleStep(opts AssemblyOptions) sourcePlanStep {
 					AdvisorEnabled:        opts.AdvisorEnabled,
 					LSPEnabled:            opts.LSPEnabled,
 					Mode:                  opts.WorkflowMode,
-					CaveHuman:             opts.CaveHuman,
 					SystemSuffix:          opts.PromptOverrides.SystemSuffix,
 				})
 			}

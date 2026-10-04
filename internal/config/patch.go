@@ -2,7 +2,6 @@ package config
 
 // configPatch represents a partial config update from YAML.
 type configPatch struct {
-	CaveHuman            *bool                      `yaml:"cave_human"`
 	TUI                  *tuiPatch                  `yaml:"tui"`
 	Providers            *map[string]providerPatch  `yaml:"providers"`
 	Sandbox              *sandboxPatch              `yaml:"sandbox"`
