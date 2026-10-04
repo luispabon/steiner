@@ -106,11 +106,10 @@ func (m *Model) renderViewportView(contentWidth int) string {
 	hasScrollbar := scrollbar != ""
 
 	if m.vpViewCache != "" &&
-		!m.helpVisible &&
 		m.vpViewCacheScrollY == scrollY &&
 		m.vpViewCacheWidth == contentWidth &&
 		m.vpViewCacheHasScrollbar == hasScrollbar {
-		return m.vpViewCache
+		return m.withHelpOverlay(m.vpViewCache, contentWidth)
 	}
 
 	viewportInner := m.visibleViewportContent()
@@ -120,16 +119,21 @@ func (m *Model) renderViewportView(contentWidth int) string {
 	}
 
 	viewportView := theme.ApplyPanePadding(viewportContent, contentWidth, hasScrollbar, m.resolvedPalette().ContentBG)
-	if m.helpVisible {
-		help := renderHelp(m.styles, max(20, contentWidth-4))
-		return composeCenteredOverlay(viewportView, help, contentWidth, lipgloss.Height(viewportView))
-	}
-
 	m.vpViewCache = viewportView
 	m.vpViewCacheScrollY = scrollY
 	m.vpViewCacheWidth = contentWidth
 	m.vpViewCacheHasScrollbar = hasScrollbar
-	return viewportView
+	return m.withHelpOverlay(viewportView, contentWidth)
+}
+
+// withHelpOverlay draws the help panel over the viewport when help is visible.
+// The cached viewport view stays the plain one, so closing help is a cache hit.
+func (m *Model) withHelpOverlay(viewportView string, contentWidth int) string {
+	if !m.helpVisible {
+		return viewportView
+	}
+	help := m.renderHelpMemo(max(20, contentWidth-4))
+	return m.helpCompose.compose(viewportView, help, contentWidth, lipgloss.Height(viewportView), false)
 }
 
 // visibleViewportContent slices the visible window out of the scroll model's
@@ -226,11 +230,11 @@ func (m *Model) renderOverlayView(base string, contentWidth int) string {
 func (m *Model) exclusiveOverlayView() func() string {
 	switch {
 	case m.fileList.IsOpen():
-		return m.fileList.View
+		return func() string { return m.fileList.memoView(&m.overlayMemos.fileList) }
 	case m.mcpOverlay.IsOpen():
-		return m.mcpOverlay.View
+		return func() string { return m.mcpOverlay.memoView(&m.overlayMemos.mcp) }
 	case m.lspOverlay.IsOpen():
-		return m.lspOverlay.View
+		return func() string { return m.lspOverlay.memoView(&m.overlayMemos.lsp) }
 	}
 	return nil
 }
@@ -304,10 +308,24 @@ func (m *Model) renderBottomAnchoredOverlays(base string, contentWidth int) stri
 
 	for i, o := range m.bottomOverlays() {
 		if o.IsOpen() {
-			base = m.overlayCache.placeBottom(i, o, base, o.View(), offset, xOffset)
+			base = m.overlayCache.placeBottom(i, o, base, m.bottomOverlayView(o), offset, xOffset)
 		}
 	}
 	return base
+}
+
+// bottomOverlayView renders o, skipping the render for the overlays that
+// memoise it while their state is unchanged.
+func (m *Model) bottomOverlayView(o bottomAnchoredOverlay) string {
+	switch v := o.(type) {
+	case *slashOverlay:
+		return v.memoView(&m.overlayMemos.slash)
+	case *filePickerOverlay:
+		return v.memoView(&m.overlayMemos.filePick)
+	case *modelPickerOverlay:
+		return v.memoView(&m.overlayMemos.modelPick)
+	}
+	return o.View()
 }
 
 func (m *Model) applyInputStyles() {

@@ -259,6 +259,8 @@ type Model struct {
 	bgFormat                bgFormatCache
 	vpViewCache             string
 	overlayCache            overlayComposeCache
+	helpCompose             overlayComposeCache
+	overlayMemos            overlayRenderMemos
 	vpViewCacheScrollY      int
 	vpViewCacheWidth        int
 	vpViewCacheHasScrollbar bool

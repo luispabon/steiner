@@ -97,8 +97,39 @@ func (s contextOverlayState) scrollDown(n int) contextOverlayState {
 	return s
 }
 
-// renderContextOverlay builds the rendered overlay string.
+// renderContextOverlay returns the rendered overlay string, reusing the
+// previous render while nothing it reads has changed.
 func (m *Model) renderContextOverlay() string {
+	out, _, _ := m.contextOverlayRendered()
+	return out
+}
+
+// contextOverlayRendered returns the rendered overlay and its cell size.
+func (m *Model) contextOverlayRendered() (out string, w, h int) {
+	memo := &m.overlayMemos.context
+	key := m.contextRenderKey()
+	if e := memo.lookup(key); e != nil {
+		return e.out, e.w, e.h
+	}
+	out = m.buildContextOverlay(&memo.styled)
+	w, h = measureOverlay(out)
+	memo.store(key, out, w, h)
+	return out, w, h
+}
+
+// measureOverlay returns the widest line width and the line count of a
+// rendered overlay.
+func measureOverlay(rendered string) (w, h int) {
+	lines := strings.Split(rendered, "\n")
+	for _, line := range lines {
+		w = max(w, lipgloss.Width(line))
+	}
+	return w, len(lines)
+}
+
+// buildContextOverlay renders the overlay string. styled caches the per-line
+// styling across scroll steps.
+func (m *Model) buildContextOverlay(styled *contextStyledLines) string {
 	s := m.contextOverlay
 	s.OverlayShell = s.WithDimensions(m.width, m.height)
 
@@ -123,12 +154,11 @@ func (m *Model) renderContextOverlay() string {
 	if end > len(lines) {
 		end = len(lines)
 	}
-	visible := lines[start:end]
 
-	lineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)).Width(innerWidth)
-	var renderedLines []string
-	for _, line := range visible {
-		renderedLines = append(renderedLines, lineStyle.Render(line))
+	styled.reset(lines, innerWidth)
+	renderedLines := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		renderedLines = append(renderedLines, styled.line(i, lines[i]))
 	}
 	body := strings.Join(renderedLines, "\n")
 
@@ -154,11 +184,7 @@ func (m *Model) renderContextOverlay() string {
 // contextOverlayBounds returns the centered context overlay rectangle clipped
 // to the terminal dimensions.
 func (m *Model) contextOverlayBounds() (x, y, w, h int) {
-	overlayLines := strings.Split(m.renderContextOverlay(), "\n")
-	h = len(overlayLines)
-	for _, line := range overlayLines {
-		w = max(w, lipgloss.Width(line))
-	}
+	_, w, h = m.contextOverlayRendered()
 	startX := (m.width - w) / 2
 	startY := (m.height - h) / 2
 	endX := min(m.width, startX+w)
