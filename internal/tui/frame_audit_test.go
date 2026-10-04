@@ -162,15 +162,22 @@ func TestFrameAuditSidebarToggle(t *testing.T) {
 	}
 	d := newAuditDriver(m)
 	toggle := tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl}
-	d.run(3*time.Second, timers(m), func(now int) {
+	every500ms := func(now int) {
 		if now%500 == 0 {
 			d.send(toggle)
 		}
-	})
+	}
+	// The first two toggles visit each width once; the later four return to
+	// widths visited before, which the per-width render cache serves.
+	d.run(time.Second, timers(m), every500ms)
+	d.report(t, "sidebar_toggle: first 2 toggles (new widths), 500ms apart", 1)
+	first := d.updates(toggle)
+	d.resetStats()
+	d.run(2*time.Second, timers(m), every500ms)
 	d.probeKeyWait(toggle)
-	d.report(t, "sidebar_toggle: 6 toggles, 500ms apart", 3)
-	if got := d.updates(toggle); got != 6 {
-		t.Fatalf("toggle key Updates = %d, want 6", got)
+	d.report(t, "sidebar_toggle: later 4 toggles (revisited widths), 500ms apart", 2)
+	if first != 2 || d.updates(toggle) != 4 {
+		t.Fatalf("toggle key Updates = %d then %d, want 2 then 4", first, d.updates(toggle))
 	}
 }
 
