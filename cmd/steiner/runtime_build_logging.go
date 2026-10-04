@@ -119,6 +119,7 @@ func buildRuntimeDiagnostics(cfg config.Config) (*diagnostics.Writer, error) {
 			Cache:    cfg.Diagnostics.Streams.Cache,
 			Provider: cfg.Diagnostics.Streams.Provider,
 			Tool:     cfg.Diagnostics.Streams.Tool,
+			TUI:      cfg.Diagnostics.Streams.TUI,
 		},
 		CaptureBodies: cfg.Diagnostics.CaptureBodies,
 		BuildSHA:      commit,

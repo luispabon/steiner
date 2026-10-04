@@ -13,7 +13,7 @@ import (
 )
 
 func allStreams() Streams {
-	return Streams{Cache: true, Provider: true, Tool: true}
+	return Streams{Cache: true, Provider: true, Tool: true, TUI: true}
 }
 
 func readRecords(t *testing.T, path string) []Record {
@@ -109,7 +109,8 @@ func TestWriterStreamGating(t *testing.T) {
 		{name: "cache only", streams: Streams{Cache: true}, want: map[Kind]bool{KindCache: true}},
 		{name: "provider only", streams: Streams{Provider: true}, want: map[Kind]bool{KindProvider: true}},
 		{name: "tool only", streams: Streams{Tool: true}, want: map[Kind]bool{KindTool: true}},
-		{name: "all", streams: allStreams(), want: map[Kind]bool{KindCache: true, KindProvider: true, KindTool: true}},
+		{name: "tui only", streams: Streams{TUI: true}, want: map[Kind]bool{KindTUI: true}},
+		{name: "all", streams: allStreams(), want: map[Kind]bool{KindCache: true, KindProvider: true, KindTool: true, KindTUI: true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

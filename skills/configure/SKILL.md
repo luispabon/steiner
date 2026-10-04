@@ -117,9 +117,10 @@ Canonical compact reference for safe configuration edits.
 | `diagnostics.enabled`|bool|`false`|Structured diagnostics capture; nothing created when false. |
 | `diagnostics.dir`|string|`$XDG_STATE_HOME/steiner/diagnostics`|JSONL dir, independent of `logging.file`; rejected inside project root. |
 | `diagnostics.retention_days`|int|`30`|Drop older records on open; must be > 0 when enabled. |
-| `diagnostics.streams.cache`|bool|`false`|Prompt-cache stream; records message count, call kind, reported upstream endpoint, never prompt content or cache key. |
+| `diagnostics.streams.cache`|bool|`false`|Prompt-cache stream; never prompt content or cache key. |
 | `diagnostics.streams.provider`|bool|`false`|Per-call stream; subsumes stream-error log. |
 | `diagnostics.streams.tool`|bool|`false`|Tool/delegation stream; subsumes delegation log. |
+| `diagnostics.streams.tui`|bool|`false`|TUI frame timings. |
 | `diagnostics.capture_bodies`|bool|`false`|Capture full message/tool/block content, mutate failure samples, and prompts, not scalars. |
 | `context_management.read_annotations`|bool|`true`|Annotate a read only when an earlier identical full read with the same tool-result `file_hash` and range exists in carried conversation. |
 | `search.backend`|string|—|`searxng`, `google`, `kagi`, or `brave`; selects requirements. |

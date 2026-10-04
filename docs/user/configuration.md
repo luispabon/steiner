@@ -994,7 +994,7 @@ independently of `logging` — the diagnostics directory is never derived from
 `logging.file`, so a week-long measurement never also captures prompts.
 
 Records are written as JSONL, one file per stream (`cache.jsonl`,
-`provider.jsonl`, `tool.jsonl`). Every record carries `run_id`, `build_sha`,
+`provider.jsonl`, `tool.jsonl`, `tui.jsonl`). Every record carries `run_id`, `build_sha`,
 and `dirty`, so a before/after comparison can be scoped to a build rather than
 to a time window. See [Configuration internals](../internals/configuration.md)
 for file permissions, rotation, retention, and writer details.
@@ -1007,6 +1007,7 @@ for file permissions, rotation, retention, and writer details.
 | `streams.cache`   | bool   | `false`                                    | Prompt-cache observations.                                                                                                                     |
 | `streams.provider`| bool   | `false`                                    | One record per model call, whatever the outcome. Subsumes the stream-error log, which otherwise writes next to `logging.file`.                  |
 | `streams.tool`    | bool   | `false`                                    | Tool execution and delegation traces. Subsumes the delegation trace log, which otherwise writes next to `logging.file`.                         |
+| `streams.tui`     | bool   | `false`                                    | Interactive TUI cost: per message type, Update and View count, total and max time and a latency histogram per 10 s window, plus overlay-open time, peak running sub-agents, transcript length and terminal size. Timings, counts and dimensions only; never content. Analyse with `node scripts/diagnostics.mjs tui`. |
 | `capture_bodies`  | bool   | `false`                                    | Allow full message, tool and block content instead of bounded scalar fields. Also unbounds the session log's `api_request` records, and makes failed mutate replaces record the attempted `old_string` and a bounded file region, at most 3 per call and 4 KiB each. Expensive, and captures prompts. |
 
 ```yaml
@@ -1018,6 +1019,7 @@ diagnostics:
     cache: true
     provider: true
     tool: false
+    tui: false
   capture_bodies: false
 ```
 

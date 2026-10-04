@@ -210,6 +210,7 @@ type diagnosticsStreamsPatch struct {
 	Cache    *bool `yaml:"cache"`
 	Provider *bool `yaml:"provider"`
 	Tool     *bool `yaml:"tool"`
+	TUI      *bool `yaml:"tui"`
 }
 
 type searchPatch struct {

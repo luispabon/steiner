@@ -88,6 +88,12 @@ func TestApplyDiagnosticsPatch(t *testing.T) {
 			patch: &diagnosticsPatch{Streams: &diagnosticsStreamsPatch{Cache: &cacheOn, Tool: &toolOff}},
 			want:  DiagnosticsConfig{Streams: DiagnosticsStreamsConfig{Cache: true, Provider: true}},
 		},
+		{
+			name:  "tui stream merges independently",
+			start: DiagnosticsConfig{Streams: DiagnosticsStreamsConfig{Cache: true}},
+			patch: &diagnosticsPatch{Streams: &diagnosticsStreamsPatch{TUI: &cacheOn}},
+			want:  DiagnosticsConfig{Streams: DiagnosticsStreamsConfig{Cache: true, TUI: true}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
