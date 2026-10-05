@@ -686,6 +686,13 @@ func NewSkillStateEvent(name, state string) Event {
 	})
 }
 
+// NewConversationResetEvent creates the conversation_reset event that tells
+// display consumers a loaded session is about to be replayed over the previous
+// conversation.
+func NewConversationResetEvent() Event {
+	return newEvent(EventTypeConversationReset, ConversationResetEvent{})
+}
+
 // NewMCPStatusEvent creates an mcp_status snapshot event carrying an immutable
 // view of the MCP surface: whether MCP is enabled, every configured server's
 // live state keyed by server name, and the registry's MCP tool origins.

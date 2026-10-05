@@ -132,6 +132,11 @@ const (
 	// payload is an immutable snapshot of the MCP surface, so display consumers
 	// never read the registry or manager concurrently.
 	EventTypeMCPStatus = "mcp_status"
+	// EventTypeConversationReset is emitted when a saved session replaces the
+	// live conversation (resume or fork), after the swap succeeded and before
+	// the replayed transcript. It is display-only: consumers drop transcript
+	// state tied to the previous conversation.
+	EventTypeConversationReset = "conversation_reset"
 )
 
 // Event is the timestamped envelope emitted by the runtime event stream.
@@ -708,6 +713,10 @@ type SkillStateEvent struct {
 	Name  string `json:"name"`
 	State string `json:"state"`
 }
+
+// ConversationResetEvent is the payload for EventTypeConversationReset. It
+// carries no fields: the event itself is the signal.
+type ConversationResetEvent struct{}
 
 // MCPServerState is the display-only view of one configured MCP server inside
 // an MCPStatusEvent. The map key in MCPStatusEvent.Servers is the server's

@@ -308,6 +308,9 @@ func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	}
 
 	m.input.Reset()
+	// Delete pending images now, while the store is still bound to the session
+	// being left; the load rebinds it asynchronously.
+	m.removePendingImages()
 	m.relayoutInput()
 	m.syncViewport()
 	if m.sessionResetCleanup != nil {

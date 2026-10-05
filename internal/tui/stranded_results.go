@@ -100,3 +100,22 @@ func (m *Model) clearReplayActivity() {
 	m.activity = m.activity.clear()
 	m.convLabelShown = false
 }
+
+// applyConversationReset drops everything tied to the previous conversation
+// when a saved session replaces it. The replay that follows rebuilds the
+// transcript, sub-agent roster and stranded-results warning from the loaded
+// messages.
+func (m *Model) applyConversationReset() {
+	// The image store is already bound to the loaded session, so deleting by
+	// ID here could hit that session's own images; the dispatch sites removed
+	// the pending ones while the old binding was live. Only forget the markers.
+	m.imageMarkers = nil
+	m.resetConversationDisplay()
+	m.roster = subAgentRoster{}
+	m.clearStrandedResults()
+	if m.recorder != nil {
+		m.recorder.ResetSession()
+	}
+	m.syncSidebar()
+	m.syncViewport()
+}

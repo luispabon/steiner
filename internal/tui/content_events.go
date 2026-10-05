@@ -426,6 +426,9 @@ var contentEventHandlers = map[string]contentEventHandler{
 	// MCPStatus is display-only state handled by model_events.go; no transcript
 	// line is emitted here.
 	output.EventTypeMCPStatus: func(*contentBuffer, output.Event) {},
+	// ConversationReset clears the transcript from model_events.go, after this
+	// no-op registration; the event carries no transcript line of its own.
+	output.EventTypeConversationReset: func(*contentBuffer, output.Event) {},
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {

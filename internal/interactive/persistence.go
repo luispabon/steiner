@@ -240,6 +240,12 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	s.mu.Unlock()
 	s.retireDriver(old)
 
+	// Reset display state before anything else the load emits: the image-store
+	// warning below and the replay must land on a clean transcript. Emitted only
+	// here, after preflight and the guard passed, so a refused load leaves the
+	// existing transcript untouched.
+	s.events.Emit(output.NewConversationResetEvent())
+
 	s.bindImageStore(sess.ID, agent.NextImageIDFloor(sess.Lineage))
 
 	// Notify after releasing the lock: the listener is caller-supplied and may
