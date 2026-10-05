@@ -60,8 +60,12 @@ function costMetrics(records, kind, field) {
 	};
 }
 
-function typeRows(records, wallMs, { groupBy, sortedByCount, capTop }) {
-	return capTop(sortedByCount(groupBy(records, (r) => r.payload?.type ?? "unknown"))).map(([key, xs]) => {
+// typeRows lists every message type, costliest first. Type names are bounded
+// by design, so --top does not apply: a rare but expensive type (window_size
+// appears in few windows) must never be cut, least of all from one side of a
+// --compare.
+function typeRows(records, wallMs, { groupBy }) {
+	const rows = [...groupBy(records, (r) => r.payload?.type ?? "unknown")].map(([key, xs]) => {
 		const update = costMetrics(xs, "update");
 		const view = costMetrics(xs, "view");
 		const cpu = update.sum + view.sum;
@@ -81,6 +85,7 @@ function typeRows(records, wallMs, { groupBy, sortedByCount, capTop }) {
 			},
 		};
 	});
+	return rows.sort((a, b) => b.metrics.cpuMs - a.metrics.cpuMs || a.key.localeCompare(b.key));
 }
 
 function windowRow(records) {

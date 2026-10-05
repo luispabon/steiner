@@ -32,7 +32,8 @@
 //                          prefix or coldturns mode, which read more or less
 //                          than one stream.
 //   --json                 print aggregates as JSON instead of tables
-//   --top N                cap unbounded per-key listings (default 20)
+//   --top N                cap unbounded per-key listings (default 20; tui lists every
+//                          message type, costliest first)
 //   --min-n N              coldturns only: below this many long-delegation
 //                          observations, a model's row prints "insufficient"
 //                          instead of a rate (default 10). A soft guard, not a

@@ -458,3 +458,40 @@ test("tui mode --compare reports a delta between build_sha values", () => {
 	assert.match(text, /aaaa1111 vs bbbb2222/);
 	assert.match(text, /share\(delta\)/);
 });
+
+// More than --top message types: a type seen in one window must survive, sort
+// first when it costs most, and appear on both sides of a comparison.
+test("tui mode lists every message type, costliest first, in both compare columns", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-tui-"));
+	try {
+		const hist = (i) => Array.from({ length: 15 }, (_, j) => (j === i ? 1 : 0));
+		const rec = (sha, window, type, ms) =>
+			JSON.stringify({
+				ts: `2026-09-01T10:00:${String(window).padStart(2, "0")}Z`, run_id: `run-${sha}`, build_sha: sha, kind: "tui", seq: window,
+				payload: {
+					type, window_id: window, window_ms: 10000, update_count: 1, update_sum_ms: ms, update_max_ms: ms, update_hist: hist(3),
+					view_count: 1, view_sum_ms: 0, view_max_ms: 0, view_hist: hist(0), overlay_open_ms: 0, subagents_running_max: 0,
+					transcript_lines: 10, width: 80, height: 24, dropped_windows: 0,
+				},
+			});
+		const lines = [];
+		for (const sha of ["aaaa1111", "bbbb2222"]) {
+			for (let w = 1; w <= 3; w++) {
+				for (let t = 0; t < 25; t++) lines.push(rec(sha, w, `cheap_${t}`, 0.1));
+			}
+			lines.push(rec(sha, 1, "rare_costly", 500));
+		}
+		writeFileSync(join(dir, "tui.jsonl"), lines.join("\n") + "\n");
+
+		const single = run(["tui", "--dir", dir, "--sha", "aaaa1111", "--json"]);
+		assert.equal(single.by_type.length, 26);
+		assert.equal(single.by_type[0].key, "rare_costly");
+
+		const cmp = run(["tui", "--dir", dir, "--compare", "aaaa1111", "bbbb2222", "--json"]);
+		const rare = cmp.sections["tui by message type"].find((r) => r.key === "rare_costly");
+		assert.equal(rare.n_a, 1);
+		assert.equal(rare.n_b, 1);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
