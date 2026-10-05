@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -141,9 +142,10 @@ func TestInvalidatePrefixIfCached(t *testing.T) {
 // single-segment mutation site that bumps gen through invalidatePrefixIfCached.
 func TestPrefixGenSitesMatchColdRender(t *testing.T) {
 	useTrueColor(t)
-	saved := nanoNow
+	savedNano, savedTime := nanoNow, timeNow
 	nanoNow = func() int64 { return 1_000_000_000 }
-	defer func() { nanoNow = saved }()
+	timeNow = func() time.Time { return time.Unix(0, nanoNow()) }
+	defer func() { nanoNow, timeNow = savedNano, savedTime }()
 
 	ev := func(e output.Event) func(*contentBuffer) {
 		return func(b *contentBuffer) { b.AppendEvent(e) }
