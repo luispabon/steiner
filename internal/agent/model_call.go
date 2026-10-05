@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -455,24 +456,42 @@ func handleStreamingChunk(sink output.EventSink, turn int, source output.ChunkSo
 	}
 }
 
+// emitUnseenFinalContent surfaces final text that never streamed. The TUI
+// renders streamed chunks and discards the finalized message when any chunk
+// arrived, so a final that extends the streamed text must emit its suffix or
+// the tail reaches history but never the screen. A final that does not extend
+// the streamed text cannot be placed in order; it is logged (lengths only, no
+// content) so the loss is observable instead of silent.
+func emitUnseenFinalContent(sink output.EventSink, turn int, source output.ChunkSource, streamed, final string) {
+	switch {
+	case strings.HasPrefix(streamed, final):
+		// Nothing unseen: the stream already carried all of the final text.
+	case strings.HasPrefix(final, streamed):
+		emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, final[len(streamed):], source))
+	default:
+		slog.Warn("final assistant content diverges from streamed content; not re-emitted",
+			"turn", turn, "streamed_len", len(streamed), "final_len", len(final))
+	}
+}
+
 func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message) {
 	response.Usage = chunk.Usage
 	response.FinishReason = chunk.FinishReason
 	response.UpstreamEndpoint = chunk.UpstreamEndpoint
 	content := chunk.Delta.Content
 	if chunk.ContentSnapshot {
-		wasEmpty := message.Content == ""
+		streamed := message.Content
 		message.Content = content
-		if wasEmpty && content != "" {
-			emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
-		}
+		emitUnseenFinalContent(sink, turn, source, streamed, content)
 	} else if content != "" {
 		switch {
 		case message.Content == "":
 			message.Content = content
 			emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
 		case strings.HasPrefix(content, message.Content):
+			streamed := message.Content
 			message.Content = content
+			emitUnseenFinalContent(sink, turn, source, streamed, content)
 		case strings.HasPrefix(message.Content, content):
 			// Final chunk already represented by prior deltas.
 		default:
