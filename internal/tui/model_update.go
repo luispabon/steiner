@@ -732,14 +732,12 @@ func (m *Model) handleDragAutoScrollTick(msg dragAutoScrollTickMsg) (tea.Model, 
 	})
 }
 
+// handleMouseWheelMsg scrolls the context overlay when the pointer is inside
+// it and the transcript otherwise. It never reaches the composer: the composer
+// window follows the cursor, so scrolling the textarea's own viewport has no
+// visible effect.
 func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 	m.lastWheelMouseAt = time.Now()
-	// Forward raw wheel to textarea for scrolling, preserving pre-change behaviour.
-	// Check for zero value to allow tests to construct mouseWheelMsg directly.
-	var cmd tea.Cmd
-	if msg.raw != (tea.MouseWheelMsg{}) {
-		m.input, cmd = m.input.Update(msg.raw)
-	}
 	if m.contextOverlayCapturesMouse(msg.x, msg.y) {
 		switch msg.direction {
 		case "up":
@@ -747,7 +745,7 @@ func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 		case "down":
 			m.contextOverlay = m.contextOverlay.scrollDown(m.viewport.mouseWheelDelta)
 		}
-		return m, cmd
+		return m, nil
 	}
 
 	switch msg.direction {
@@ -756,7 +754,7 @@ func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 	case "down":
 		m.scrollDown(m.viewport.mouseWheelDelta)
 	}
-	return m, cmd
+	return m, nil
 }
 
 func (m *Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.Cmd) {
