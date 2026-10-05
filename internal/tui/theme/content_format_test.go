@@ -4,6 +4,8 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 )
 
 var (
@@ -60,6 +62,46 @@ func TestFormatContentMatchesPadLinesWithBg(t *testing.T) {
 		bg := formatTestBgs[r.IntN(len(formatTestBgs))]
 		if got, want := FormatContent(s, width, bg), oldFormat(s, width, bg); got != want {
 			t.Fatalf("seed %d: FormatContent(%q, %d, %q)\n got %q\nwant %q", seed, s, width, bg, got, want)
+		}
+	}
+}
+
+func TestSimpleWidthMatchesLipglossWidth(t *testing.T) {
+	alphabet := []string{
+		"a", "Z", " ", "~", "\t", "\r", "\x00", "\x07", "\x7f", "\x1f", "\x80", "\xff",
+		"\x1b", "\x1b[", "\x1b[0m", "\x1b[1;31m", "\x1b[38;2;1;2;3m", "\x1b[?25h", "\x1b[4:3m",
+		"\x1b[1;", "\x1b[\x01", "\x1b[ q", "\x1b]0;t\x07", "\x1b[K", "\x1bM",
+		"世", "🎉", "👩‍💻", "é", "​", "‍",
+	}
+	fixed := []string{"", "plain text", "\x1b[0m", "\x1b[0m\x1b[m", "\x1b[", "x\ty", "x\ry", "\x7f", "a\x1b[31", "\x1b[31mred\x1b[0m"}
+	check := func(line string) {
+		t.Helper()
+		if w, ok := simpleWidth(line); ok && w != lipgloss.Width(line) {
+			t.Fatalf("simpleWidth(%q) = %d, lipgloss.Width = %d", line, w, lipgloss.Width(line))
+		}
+	}
+	for _, line := range fixed {
+		check(line)
+	}
+	accepted := 0
+	for seed := range uint64(20000) {
+		r := rand.New(rand.NewPCG(seed, 7))
+		var sb strings.Builder
+		for range r.IntN(8) {
+			sb.WriteString(alphabet[r.IntN(len(alphabet))])
+		}
+		line := sb.String()
+		check(line)
+		if _, ok := simpleWidth(line); ok {
+			accepted++
+		}
+	}
+	if accepted == 0 {
+		t.Fatal("fast path never accepted a random line")
+	}
+	for _, line := range []string{"a\tb", "a\rb", "a\x7fb", "a\x00b", "é", "\x1b", "\x1b[3"} {
+		if _, ok := simpleWidth(line); ok {
+			t.Errorf("simpleWidth(%q) accepted, want fallback", line)
 		}
 	}
 }

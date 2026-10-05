@@ -87,7 +87,17 @@ func (f *contentFormatter) writeLine(sb *strings.Builder, line string) {
 	default:
 		writeLineWithBg(sb, line, f.bgSeq)
 	}
-	f.writePadding(sb, start)
+	if f.width < 1 {
+		return
+	}
+	w, ok := simpleWidth(line)
+	switch {
+	case line == "" && f.bgSeq != "":
+		w = 1
+	case !ok:
+		w = lipgloss.Width(sb.String()[start:])
+	}
+	f.padTo(sb, w)
 }
 
 // writePadding pads the line written since start out to width, measuring the
@@ -96,9 +106,39 @@ func (f *contentFormatter) writePadding(sb *strings.Builder, start int) {
 	if f.width < 1 {
 		return
 	}
-	if w := lipgloss.Width(sb.String()[start:]); w < f.width {
+	f.padTo(sb, lipgloss.Width(sb.String()[start:]))
+}
+
+func (f *contentFormatter) padTo(sb *strings.Builder, w int) {
+	if w < f.width {
 		sb.WriteString(f.pad(f.width - w))
 	}
+}
+
+// simpleWidth returns the display width of line when it holds only printable
+// ASCII and complete CSI sequences, which lipgloss.Width counts as one cell and
+// zero cells respectively. Background re-insertion only adds zero-width SGR
+// sequences after such resets, so the source width equals the formatted width.
+// Anything else (tabs, C0 bytes, non-ASCII, other escapes) reports false.
+func simpleWidth(line string) (int, bool) {
+	w := 0
+	for i := 0; i < len(line); i++ {
+		switch c := line[i]; {
+		case c >= 0x20 && c <= 0x7e:
+			w++
+		case c == 0x1b && i+1 < len(line) && line[i+1] == '[':
+			i += 2
+			for i < len(line) && line[i] >= 0x30 && line[i] <= 0x3f {
+				i++
+			}
+			if i == len(line) || line[i] < 0x40 || line[i] > 0x7e {
+				return 0, false
+			}
+		default:
+			return 0, false
+		}
+	}
+	return w, true
 }
 
 // writeLineWithBg is WithBg's scan for a single non-empty line.
