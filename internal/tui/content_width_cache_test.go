@@ -16,22 +16,7 @@ import (
 
 var sidebarToggleKey = tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl}
 
-// stubWidthCacheClocks pins nanoNow and timeNow to one shared clock so twin
-// models render identical elapsed times and timestamps.
-func stubWidthCacheClocks(t *testing.T) (advance func(time.Duration)) {
-	t.Helper()
-	advanceNano := stubBgFormatClock(t)
-	original := timeNow
-	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
-	timeNow = func() time.Time { return now }
-	t.Cleanup(func() { timeNow = original })
-	return func(d time.Duration) {
-		advanceNano(d)
-		now = now.Add(d)
-	}
-}
-
-// clearRenderCaches drops every content render cache so the next String call
+// clearRenderCaches drops every content render cache so the next blocks call
 // renders each segment from scratch at the current width.
 func clearRenderCaches(m *Model) {
 	b := &m.content
@@ -145,7 +130,7 @@ func assertTwinViews(t *testing.T, label string, got, want *Model, selection boo
 // viewport width change (a fresh render at the new width). All three must
 // agree byte for byte.
 func TestWidthRenderCacheMatchesFreshRender(t *testing.T) {
-	advance := stubWidthCacheClocks(t)
+	advance := stubBgFormatClock(t)
 	revisits := 0
 	for seed := range uint64(8) {
 		s := &widthCacheScenario{bgFormatScenario: bgFormatScenario{r: rand.New(rand.NewPCG(seed, 11))}}
@@ -254,7 +239,7 @@ func freshTranscript(m *Model) (string, []int) {
 // the transcript at one, and toggles back to the other: the cached width must
 // serve exactly a fresh render of the mutated transcript.
 func TestWidthRenderCacheEvictsOnMutation(t *testing.T) {
-	stubWidthCacheClocks(t)
+	stubBgFormatClock(t)
 	clickKind := func(kind contentSegmentKind) func(m *Model) {
 		return func(m *Model) { m.handleSegmentClick(lastSegmentOfKind(m, kind), 0) }
 	}
