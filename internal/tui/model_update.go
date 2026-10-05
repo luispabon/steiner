@@ -127,6 +127,8 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleUpdateCheckResultMsg(msg)
 	case syncDebounceFiredMsg:
 		return m.handleSyncDebounceFiredMsg(msg)
+	case resizeReflowFiredMsg:
+		return m.handleResizeReflowFiredMsg(msg)
 	case clipboardImageMsg:
 		return m.handleClipboardImageMsg(msg)
 	case phaseTransitionFailedMsg:
@@ -454,8 +456,7 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 	m.sessionPicker = m.sessionPicker.withDimensions(contentW, msg.Height)
 	m.subAgentPicker = m.subAgentPicker.withDimensions(contentW, msg.Height)
 	m.oneshotResumePicker = m.oneshotResumePicker.withDimensions(contentW, msg.Height)
-	m.layout()
-	return m, nil
+	return m, m.layoutContent(true)
 }
 
 func (m *Model) handleRuntimeEventMsg(msg runtimeEventMsg) (tea.Model, tea.Cmd) {

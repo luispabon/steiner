@@ -196,6 +196,29 @@ func (c *bgFormatCache) reformatFrom(k int) {
 	c.lines = lines
 }
 
+// rawLines returns the unformatted transcript lines [from, to).
+func (c *bgFormatCache) rawLines(from, to int) []string {
+	bk := sort.SearchInts(c.lineStart[:len(c.blocks)], from+1) - 1
+	out := make([]string, 0, to-from)
+	rest, ln := c.blocks[bk], c.lineStart[bk]
+	for ln < to {
+		line, after, found := strings.Cut(rest, "\n")
+		if ln >= from {
+			out = append(out, line)
+		}
+		ln++
+		if found {
+			rest = after
+			continue
+		}
+		if bk++; bk == len(c.blocks) {
+			break
+		}
+		rest = c.blocks[bk]
+	}
+	return out
+}
+
 // source returns the transcript the lines were formatted from.
 func (c *bgFormatCache) source() string {
 	return strings.Join(c.blocks, "\n")

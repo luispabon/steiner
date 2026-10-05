@@ -111,7 +111,7 @@ func (s *bgFormatScenario) op() func(m *Model) {
 	case 8:
 		width := []int{90, 120, 150}[s.r.IntN(3)]
 		height := []int{12, 40, 120}[s.r.IntN(3)]
-		return sendMsg(tea.WindowSizeMsg{Width: width, Height: height})
+		return resizeNow(width, height)
 	case 9:
 		bg := []string{"#101010", "#1e1e2e", "#fafafa"}[s.r.IntN(3)]
 		return func(m *Model) { m.palette = theme.Palette{SidebarBG: "#050505", ContentBG: bg} }

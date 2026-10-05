@@ -307,6 +307,7 @@ func BenchmarkContentResizeWidth(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			m = updateModelDirect(m, tea.WindowSizeMsg{Width: widths[i%len(widths)], Height: 40})
+			flushResizeReflow(m)
 		}
 	})
 }
@@ -326,7 +327,7 @@ func BenchmarkContentResizeHeight(b *testing.B) {
 }
 
 // BenchmarkContentResizeStorm: 30 distinct width changes in a row (a window
-// drag); the unit of work is the whole storm.
+// drag) followed by the deferred reflow; the unit of work is the whole storm.
 func BenchmarkContentResizeStorm(b *testing.B) {
 	benchTranscriptSizes(b, func(b *testing.B, n int) {
 		b.ReportAllocs()
@@ -342,6 +343,7 @@ func BenchmarkContentResizeStorm(b *testing.B) {
 				prev = w
 				m = updateModelDirect(m, tea.WindowSizeMsg{Width: w, Height: 40})
 			}
+			flushResizeReflow(m)
 		}
 	})
 }

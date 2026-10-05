@@ -75,6 +75,7 @@ func TestClassifyMsg(t *testing.T) {
 		{"raw click", tea.MouseClickMsg{}, "mouse_raw"},
 		{"tick", tickMsg{}, "tick"},
 		{"sync debounce", syncDebounceFiredMsg{}, "sync_debounce"},
+		{"resize reflow", resizeReflowFiredMsg{}, "resize_reflow"},
 		{"runtime event", runtimeEventMsg{Event: output.Event{Type: output.EventTypeAssistantChunk}}, "runtime_event:" + output.EventTypeAssistantChunk},
 		{"window size", tea.WindowSizeMsg{}, "window_size"},
 		{"composer blink", composerBlinkMsg{}, "composer_blink"},

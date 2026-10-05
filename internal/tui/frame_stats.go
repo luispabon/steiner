@@ -54,6 +54,8 @@ func classifyMsg(msg tea.Msg) frameStatsKey {
 		return frameStatsKey{name: "tick"}
 	case syncDebounceFiredMsg:
 		return frameStatsKey{name: "sync_debounce"}
+	case resizeReflowFiredMsg:
+		return frameStatsKey{name: "resize_reflow"}
 	case runtimeEventMsg:
 		return frameStatsKey{name: "runtime_event", sub: msg.Event.Type}
 	case tea.WindowSizeMsg:

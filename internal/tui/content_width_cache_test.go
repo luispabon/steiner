@@ -61,7 +61,7 @@ func (s *widthCacheScenario) op() func(m *Model) {
 		return sendMsg(sidebarToggleKey)
 	case 2:
 		width := []int{100, 120, 150, 170}[s.r.IntN(4)]
-		return sendMsg(tea.WindowSizeMsg{Width: width, Height: 40})
+		return resizeNow(width, 40)
 	case 3:
 		h := []int{28, 34, 40}[s.r.IntN(3)]
 		return func(m *Model) { updateModelDirect(m, tea.WindowSizeMsg{Width: m.width, Height: h}) }
@@ -325,7 +325,7 @@ func TestWidthRenderCacheServesRevisitedWidths(t *testing.T) {
 	const poison = "POISONED"
 	m := populateLongTranscript(newContentBenchModel(), 30)
 	resize := func(w int) func(m *Model) {
-		return func(m *Model) { updateModelDirect(m, tea.WindowSizeMsg{Width: w, Height: 40}) }
+		return resizeNow(w, 40)
 	}
 	toggle := sendMsg(sidebarToggleKey)
 	first := map[int]string{m.viewport.Width(): m.bgFormat.source()}

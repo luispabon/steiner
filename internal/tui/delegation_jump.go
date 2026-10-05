@@ -83,7 +83,7 @@ func (b *contentBuffer) dirtyDelegationCard(dd *delegationDisplayState) {
 // disables follow-to-bottom, flashes its header, and arms the expand window.
 // It returns nil and changes nothing when the card cannot be resolved (D9).
 func (m *Model) jumpToDelegation(key occurrenceKey) tea.Cmd {
-	seg, row, dd, ok := m.content.delegationTopRow(key, m.viewport.Width())
+	seg, row, dd, ok := m.content.delegationTopRow(key, m.contentRenderWidth())
 	if !ok {
 		return nil
 	}
@@ -139,7 +139,7 @@ func (m *Model) toggleJumpTargetCollapse() bool {
 	if m.jumpTarget == (occurrenceKey{}) || time.Since(m.jumpAt) > jumpExpandWindow {
 		return false
 	}
-	_, _, dd, ok := m.content.delegationTopRow(m.jumpTarget, m.viewport.Width())
+	_, _, dd, ok := m.content.delegationTopRow(m.jumpTarget, m.contentRenderWidth())
 	if !ok {
 		return false
 	}
