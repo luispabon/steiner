@@ -69,6 +69,7 @@ func TestInProgressPreviewMatchesFullRender(t *testing.T) {
 		for _, width := range widths {
 			for seed := uint64(1); seed <= 6; seed++ {
 				t.Run(fmt.Sprintf("%s/w%d/seed%d", name, width, seed), func(t *testing.T) {
+					t.Parallel()
 					rng := rand.New(rand.NewPCG(seed, uint64(width)+7))
 					b := newPreviewBuffer(theme.DefaultPalette())
 					stream := randomStream(rng, tokens, 120)
@@ -91,6 +92,7 @@ func TestInProgressPreviewSurvivesStateChanges(t *testing.T) {
 	}
 	for seed := uint64(1); seed <= 8; seed++ {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
+			t.Parallel()
 			rng := rand.New(rand.NewPCG(seed, 99))
 			b := newPreviewBuffer(theme.DefaultPalette())
 			widths := []int{1, 2, 9, 30, 120}
@@ -138,6 +140,7 @@ func TestFreshWrapStartsMatchFullWrap(t *testing.T) {
 	for _, width := range []int{1, 2, 3, 4, 6, 10, 25} {
 		for seed := uint64(1); seed <= 40; seed++ {
 			t.Run(fmt.Sprintf("w%d/seed%d", width, seed), func(t *testing.T) {
+				t.Parallel()
 				rng := rand.New(rand.NewPCG(seed, uint64(width)))
 				text := strings.TrimRight(randomStream(rng, streamPreviewTokens, 60), "\n")
 				if strings.TrimSpace(text) == "" {
