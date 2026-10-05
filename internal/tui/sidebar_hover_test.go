@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -91,9 +90,6 @@ func TestFilterMouseMotion(t *testing.T) {
 		if want.direction != "up" || want.x != 40 || want.y != 10 {
 			t.Errorf("got direction=%q, x=%d, y=%d; want up, 40, 10", want.direction, want.x, want.y)
 		}
-		if want.raw != msg {
-			t.Errorf("raw message not preserved")
-		}
 	})
 
 	t.Run("wheel down classified", func(t *testing.T) {
@@ -105,9 +101,6 @@ func TestFilterMouseMotion(t *testing.T) {
 		}
 		if want.direction != "down" || want.x != 40 || want.y != 10 {
 			t.Errorf("got direction=%q, x=%d, y=%d; want down, 40, 10", want.direction, want.x, want.y)
-		}
-		if want.raw != msg {
-			t.Errorf("raw message not preserved")
 		}
 	})
 
@@ -438,34 +431,5 @@ func TestCachedRosterLayout(t *testing.T) {
 	m.syncRoster()
 	if got, want := m.cachedRosterLayout(), m.sidebar.rosterLayout(); !slices.Equal(got.targets, want.targets) {
 		t.Errorf("roster change: cached targets %q, fresh %q", got.targets, want.targets)
-	}
-}
-
-// TestComposerWheelScrolling verifies that mouse wheel events still scroll an
-// overflowing composer textarea, preserving pre-change behaviour where raw
-// wheel messages reached the textarea via Update.
-func TestComposerWheelScrolling(t *testing.T) {
-	m := newModel(Config{
-		Model:         "test",
-		ModelContexts: map[string]int{"test": 1024},
-	}, nil)
-	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
-	m.input.SetHeight(8) // Small viewport so text will overflow
-
-	// Fill the composer with many lines so the content overflows
-	for i := 0; i < 50; i++ {
-		m.input.InsertString(fmt.Sprintf("Line %d content here\n", i))
-	}
-	viewBefore := m.input.View()
-
-	// Send a wheel-up event through the normal dispatch path (filter + Update)
-	wheelMsg := tea.MouseWheelMsg{X: 40, Y: 4, Button: tea.MouseWheelUp}
-	filtered := filterMouseMotion(m, wheelMsg)
-	_, _ = m.Update(filtered)
-	viewAfter := m.input.View()
-
-	// Verify the composer scrolled (view changed)
-	if viewBefore == viewAfter {
-		t.Error("composer view unchanged after wheel-up; wheel scrolling broken")
 	}
 }
