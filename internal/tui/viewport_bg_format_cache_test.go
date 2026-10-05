@@ -131,6 +131,7 @@ func TestBgFormatCacheReusesLines(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var c bgFormatCache
 			c.update(tt.prev, 10, "#000000")
 			for i := range c.lines {

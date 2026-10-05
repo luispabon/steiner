@@ -395,6 +395,7 @@ func TestWidthRenderCacheLayoutRules(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := populateLongTranscript(newContentBenchModel(), 20)
 			updateModelDirect(m, sidebarToggleKey)
 			updateModelDirect(m, sidebarToggleKey)
