@@ -15,20 +15,20 @@ func (s sidebarState) lines(width, innerHeight int) []string {
 		static = static[:innerHeight]
 	}
 
-	sorted := sortedModifiedFiles(s.modifiedFiles)
+	files := s.modifiedFiles
 	availForFiles := max(0, innerHeight-len(static))
-	overflow := innerHeight > 0 && len(sorted) > availForFiles
-	displayCount := len(sorted)
+	overflow := innerHeight > 0 && len(files) > availForFiles
+	displayCount := len(files)
 	if overflow {
 		displayCount = max(0, availForFiles-1)
 	}
 
 	lines := static
-	for i := 0; i < displayCount && i < len(sorted); i++ {
-		lines = append(lines, s.modifiedFileLine(sorted[i], width))
+	for i := 0; i < displayCount && i < len(files); i++ {
+		lines = append(lines, s.modifiedFileLine(files[i], width))
 	}
 	if overflow && availForFiles > 0 {
-		lines = append(lines, s.styledWithBg(s.styles.FgMute, fmt.Sprintf("↓ %d more", len(sorted)-displayCount)))
+		lines = append(lines, s.styledWithBg(s.styles.FgMute, fmt.Sprintf("↓ %d more", len(files)-displayCount)))
 	}
 	return lines
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -108,27 +107,40 @@ func (s *gitState) takeError() error {
 }
 
 func detectGitSnapshot(ctx context.Context, startDir string, logError func(error)) gitSnapshot {
-	repoRoot, gitDir, ok := resolveGitRepo(startDir)
+	repoRoot, ok := resolveGitRepo(startDir)
 	if !ok {
 		return gitSnapshot{}
 	}
 
-	branch := readGitBranch(gitDir)
-	dirty := readGitDirty(ctx, repoRoot, logError)
-	ahead := readGitAhead(ctx, repoRoot, logError)
-	modifiedFiles := readGitModifiedFiles(ctx, repoRoot, logError)
+	status, err := readGitStatus(ctx, repoRoot)
+	if err != nil {
+		if logError != nil {
+			logError(err)
+		}
+		return gitSnapshot{repoRoot: repoRoot, ready: true}
+	}
+
+	files := status.files
+	if status.oid != gitInitialOID && len(files) > 0 {
+		counts, err := readGitNumstat(ctx, repoRoot)
+		if err != nil && logError != nil {
+			logError(err)
+		}
+		applyGitCounts(files, counts)
+	}
+	sortGitModifiedFiles(files)
 
 	return gitSnapshot{
 		repoRoot:      repoRoot,
-		branch:        branch,
-		dirty:         dirty,
-		ahead:         ahead,
-		modifiedFiles: modifiedFiles,
+		branch:        status.branch(),
+		dirty:         len(files) > 0,
+		ahead:         status.ahead,
+		modifiedFiles: files,
 		ready:         true,
 	}
 }
 
-func resolveGitRepo(startDir string) (repoRoot, gitDir string, ok bool) {
+func resolveGitRepo(startDir string) (repoRoot string, ok bool) {
 	absStart := startDir
 	if abs, err := filepath.Abs(startDir); err == nil {
 		absStart = abs
@@ -139,22 +151,21 @@ func resolveGitRepo(startDir string) (repoRoot, gitDir string, ok bool) {
 		info, err := os.Stat(gitPath)
 		switch {
 		case err == nil && info.IsDir():
-			return dir, gitPath, true
+			return dir, true
 		case err == nil:
-			resolvedGitDir, err := readGitDirFile(gitPath, dir)
-			if err != nil {
-				return "", "", false
+			if _, err := readGitDirFile(gitPath, dir); err != nil {
+				return "", false
 			}
-			return dir, resolvedGitDir, true
+			return dir, true
 		case errors.Is(err, os.ErrNotExist):
 			// Keep walking up until we reach the filesystem root.
 		default:
-			return "", "", false
+			return "", false
 		}
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", "", false
+			return "", false
 		}
 	}
 }
@@ -178,207 +189,4 @@ func readGitDirFile(path, repoRoot string) (string, error) {
 		gitDir = filepath.Join(repoRoot, gitDir)
 	}
 	return filepath.Clean(gitDir), nil
-}
-
-func readGitBranch(gitDir string) string {
-	headPath := filepath.Join(gitDir, "HEAD")
-	data, err := os.ReadFile(headPath)
-	if err != nil {
-		return ""
-	}
-
-	head := strings.TrimSpace(string(data))
-	if head == "" {
-		return ""
-	}
-
-	if ref, ok := strings.CutPrefix(head, "ref:"); ok {
-		ref = strings.TrimSpace(ref)
-		if ref == "" {
-			return ""
-		}
-		if branch, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
-			branch = strings.TrimSpace(branch)
-			if branch != "" {
-				return branch
-			}
-		}
-		return ref
-	}
-
-	fields := strings.Fields(head)
-	if len(fields) == 0 {
-		return ""
-	}
-
-	sha := fields[0]
-	if len(sha) > 7 {
-		sha = sha[:7]
-	}
-	return "detached@" + sha
-}
-
-func readGitDirty(ctx context.Context, repoRoot string, logError func(error)) bool {
-	out, err := readGitStatusPorcelain(ctx, repoRoot, logError)
-	if err != nil {
-		return false
-	}
-	return len(out) > 0
-}
-
-func readGitModifiedFiles(ctx context.Context, repoRoot string, logError func(error)) []gitModifiedFile {
-	statusLines, err := readGitStatusPorcelain(ctx, repoRoot, logError)
-	if err != nil {
-		return nil
-	}
-
-	numstatCmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "diff", "--numstat", "HEAD")
-	numstatOut, err := numstatCmd.Output()
-	if err != nil {
-		if logError != nil {
-			logError(fmt.Errorf("git diff --numstat: %w", err))
-		}
-	}
-
-	type counts struct{ added, deleted int }
-	countMap := make(map[string]counts)
-	for _, line := range strings.Split(strings.TrimSpace(string(numstatOut)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.SplitN(line, "\t", 3)
-		if len(fields) < 3 {
-			continue
-		}
-		path := filepath.Clean(strings.TrimSpace(fields[2]))
-		if strings.Contains(path, " => ") {
-			parts := strings.SplitN(path, " => ", 2)
-			path = filepath.Clean(strings.TrimSpace(parts[1]))
-		}
-		countMap[path] = counts{
-			added:   parseGitNumstatCount(fields[0]),
-			deleted: parseGitNumstatCount(fields[1]),
-		}
-	}
-
-	var files []gitModifiedFile
-	seen := make(map[string]bool)
-	for _, line := range statusLines {
-		status, path, ok := parseGitStatusLine(line)
-		if !ok || seen[path] {
-			continue
-		}
-		seen[path] = true
-
-		c := countMap[path]
-		files = append(files, gitModifiedFile{
-			Status:  status,
-			Path:    path,
-			Added:   c.added,
-			Deleted: c.deleted,
-		})
-	}
-	return files
-}
-
-func readGitStatusPorcelain(ctx context.Context, repoRoot string, logError func(error)) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "status", "--porcelain")
-	out, err := cmd.Output()
-	if err != nil {
-		if logError != nil {
-			logError(fmt.Errorf("git status --porcelain: %w", err))
-		}
-		return nil, err
-	}
-
-	text := strings.TrimRight(string(out), "\r\n")
-	if text == "" {
-		return nil, nil
-	}
-	return strings.Split(text, "\n"), nil
-}
-
-func parseGitStatusLine(line string) (string, string, bool) {
-	line = strings.TrimRight(line, "\r\n")
-	if len(line) < 3 {
-		return "", "", false
-	}
-
-	code := line[:2]
-	path := strings.TrimSpace(line[3:])
-	if path == "" {
-		return "", "", false
-	}
-	if strings.Contains(path, " -> ") {
-		parts := strings.SplitN(path, " -> ", 2)
-		path = strings.TrimSpace(parts[1])
-	}
-	path = filepath.Clean(path)
-
-	switch {
-	case code == "??":
-		return "U", path, true
-	case strings.Contains(code, "U"):
-		return "U", path, true
-	case strings.Contains(code, "D"):
-		return "D", path, true
-	case strings.Contains(code, "A"), strings.Contains(code, "R"), strings.Contains(code, "C"):
-		return "A", path, true
-	default:
-		return "M", path, true
-	}
-}
-
-func readGitAhead(ctx context.Context, repoRoot string, logError func(error)) int {
-	branchOut, err := exec.CommandContext(ctx, "git", "-C", repoRoot, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
-	if err != nil || strings.TrimSpace(string(branchOut)) == "" {
-		return 0
-	}
-	branch := strings.TrimSpace(string(branchOut))
-	configOut, err := exec.CommandContext(ctx, "git", "-C", repoRoot, "config", "--local", "--get-regexp", "^branch\\..*\\.(remote|merge)$").Output()
-	if err != nil {
-		return 0
-	}
-	prefix := "branch." + branch + "."
-	var hasRemote, hasMerge bool
-	for _, line := range strings.Split(strings.TrimSpace(string(configOut)), "\n") {
-		key, value, ok := strings.Cut(line, " ")
-		if !ok || !strings.HasPrefix(key, prefix) || strings.TrimSpace(value) == "" {
-			continue
-		}
-		switch strings.TrimPrefix(key, prefix) {
-		case "remote":
-			hasRemote = true
-		case "merge":
-			hasMerge = true
-		}
-	}
-	if !hasRemote || !hasMerge {
-		return 0
-	}
-
-	out, err := exec.CommandContext(ctx, "git", "-C", repoRoot, "rev-list", "--count", "@{u}..HEAD").Output()
-	if err != nil {
-		if logError != nil {
-			logError(fmt.Errorf("git rev-list --count: %w", err))
-		}
-		return 0
-	}
-	return parseGitNumstatCount(strings.TrimSpace(string(out)))
-}
-
-func parseGitNumstatCount(value string) int {
-	value = strings.TrimSpace(value)
-	if value == "" || value == "-" {
-		return 0
-	}
-	count := 0
-	for _, ch := range value {
-		if ch < '0' || ch > '9' {
-			return 0
-		}
-		count = count*10 + int(ch-'0')
-	}
-	return count
 }
