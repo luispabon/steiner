@@ -327,6 +327,10 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		VisionCapabilities: visionCapabilities,
 		ImageStore:         r.runtime.imageStore,
 		SourceConversation: setup.conversation,
+		// Reserve child agent IDs in parent call-emission order so concurrent
+		// specialized and vision handlers bind to their own call's ID instead of
+		// racing the ID generator.
+		ReserveDelegationAgentID: delegation.ReserveDelegationAgentID,
 	}
 	// delegation.IsDelegationTool matching a name has no effect when
 	// delegation is disabled: BuildDelegateRegistry never registers

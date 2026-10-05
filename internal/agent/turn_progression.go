@@ -226,6 +226,13 @@ type turnProgressor struct {
 	// rejected admissions the loop synthesises so every delegation finish
 	// carries its full occurrence identity.
 	batchID string
+	// delegationAgentIDs maps each spawning delegation call's ID to the child
+	// agent ID reserved for it in call-emission order this turn. The ordered
+	// queue phase fills it before any handler runs; invokeTool stamps the
+	// matching ID onto the call's context so concurrent handlers consume their
+	// own call's ID rather than racing the generator. Nil when reservation is
+	// disabled or the turn has no spawning delegation calls.
+	delegationAgentIDs map[string]string
 }
 
 func newTurnProgressor(req RunRequest, base prompt.AssemblyOptions, compactFn compactConversationFn) *turnProgressor {

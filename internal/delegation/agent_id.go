@@ -61,3 +61,16 @@ func resetAgentCounterForTesting() {
 func generateAgentID() string {
 	return idGen()
 }
+
+// ReserveDelegationAgentID mints the child agent ID for a spawning delegation
+// tool call. The parent's ordered tool-queue phase calls it once per call, in
+// emission order, before any concurrent handler runs, so each child binds to
+// its parent call's position rather than to handler execution order. It returns
+// "" for calls that spawn no new child: follow_up resumes an existing agent
+// under its original ID.
+func ReserveDelegationAgentID(toolName string) string {
+	if toolName != SubAgentToolName {
+		return ""
+	}
+	return generateAgentID()
+}
