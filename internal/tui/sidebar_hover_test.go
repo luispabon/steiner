@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -24,11 +25,8 @@ func TestFilterMouseMotion(t *testing.T) {
 	if got := filterMouseMotion(m, key); got != key {
 		t.Errorf("non-mouse message = %#v, want passthrough", got)
 	}
-	drag := tea.MouseMotionMsg{X: sidebarPadH, Y: row, Button: tea.MouseLeft}
-	if got := filterMouseMotion(m, drag); got != drag {
-		t.Errorf("drag motion = %#v, want passthrough", got)
-	}
 
+	// Buttonless motion (hover path, unchanged):
 	steps := []struct {
 		name string
 		msg  tea.MouseMotionMsg
@@ -57,6 +55,81 @@ func TestFilterMouseMotion(t *testing.T) {
 			}
 		}
 	}
+
+	// Classified button/wheel/drag events:
+	t.Run("left click classified", func(t *testing.T) {
+		msg := tea.MouseClickMsg{X: sidebarPadH, Y: row, Button: tea.MouseLeft}
+		got := filterMouseMotion(m, msg)
+		want, ok := got.(mouseClickMsg)
+		if !ok {
+			t.Fatalf("got %T, want mouseClickMsg", got)
+		}
+		if want.x != sidebarPadH || want.y != row {
+			t.Errorf("coords = (%d,%d), want (%d,%d)", want.x, want.y, sidebarPadH, row)
+		}
+	})
+
+	t.Run("left release classified", func(t *testing.T) {
+		msg := tea.MouseReleaseMsg{X: sidebarPadH, Y: row, Button: tea.MouseLeft}
+		got := filterMouseMotion(m, msg)
+		want, ok := got.(mouseReleaseMsg)
+		if !ok {
+			t.Fatalf("got %T, want mouseReleaseMsg", got)
+		}
+		if want.x != sidebarPadH || want.y != row {
+			t.Errorf("coords = (%d,%d), want (%d,%d)", want.x, want.y, sidebarPadH, row)
+		}
+	})
+
+	t.Run("wheel up classified", func(t *testing.T) {
+		msg := tea.MouseWheelMsg{X: 40, Y: 10, Button: tea.MouseWheelUp}
+		got := filterMouseMotion(m, msg)
+		want, ok := got.(mouseWheelMsg)
+		if !ok {
+			t.Fatalf("got %T, want mouseWheelMsg", got)
+		}
+		if want.direction != "up" || want.x != 40 || want.y != 10 {
+			t.Errorf("got direction=%q, x=%d, y=%d; want up, 40, 10", want.direction, want.x, want.y)
+		}
+		if want.raw != msg {
+			t.Errorf("raw message not preserved")
+		}
+	})
+
+	t.Run("wheel down classified", func(t *testing.T) {
+		msg := tea.MouseWheelMsg{X: 40, Y: 10, Button: tea.MouseWheelDown}
+		got := filterMouseMotion(m, msg)
+		want, ok := got.(mouseWheelMsg)
+		if !ok {
+			t.Fatalf("got %T, want mouseWheelMsg", got)
+		}
+		if want.direction != "down" || want.x != 40 || want.y != 10 {
+			t.Errorf("got direction=%q, x=%d, y=%d; want down, 40, 10", want.direction, want.x, want.y)
+		}
+		if want.raw != msg {
+			t.Errorf("raw message not preserved")
+		}
+	})
+
+	t.Run("left drag motion classified", func(t *testing.T) {
+		msg := tea.MouseMotionMsg{X: sidebarPadH + 5, Y: row + 1, Button: tea.MouseLeft}
+		got := filterMouseMotion(m, msg)
+		want, ok := got.(mouseMotionMsg)
+		if !ok {
+			t.Fatalf("got %T, want mouseMotionMsg", got)
+		}
+		if want.x != sidebarPadH+5 || want.y != row+1 {
+			t.Errorf("coords = (%d,%d), want (%d,%d)", want.x, want.y, sidebarPadH+5, row+1)
+		}
+	})
+
+	t.Run("right click (unclassified) passes raw", func(t *testing.T) {
+		msg := tea.MouseClickMsg{X: sidebarPadH, Y: row, Button: tea.MouseRight}
+		got := filterMouseMotion(m, msg)
+		if got != msg {
+			t.Errorf("got %#v, want passthrough of %#v", got, msg)
+		}
+	})
 }
 
 func TestRosterHoverRendering(t *testing.T) {
@@ -82,18 +155,78 @@ func TestRosterHoverRendering(t *testing.T) {
 }
 
 func TestRosterHoverMouseMode(t *testing.T) {
-	m, _ := newSidebarClickModel(t, "left", 0)
-	if got := m.rosterHoverMouseMode(); got != tea.MouseModeAllMotion {
-		t.Errorf("roster visible: mode = %v, want all motion", got)
+	tests := []struct {
+		name         string
+		setupSidebar func(*Model)
+		setupOverlay func(*Model)
+		wantMode     tea.MouseMode
+	}{
+		{
+			"roster visible and entries exist, no overlay",
+			func(_ *Model) {
+				// sidebar already visible with entries from newSidebarClickModel
+			},
+			func(_ *Model) {},
+			tea.MouseModeAllMotion,
+		},
+		{
+			"sidebar hidden",
+			func(m *Model) {
+				m.sidebar.Toggle()
+			},
+			func(_ *Model) {},
+			tea.MouseModeCellMotion,
+		},
+		{
+			"empty roster",
+			func(m *Model) {
+				m.sidebar.subAgents = nil
+			},
+			func(_ *Model) {},
+			tea.MouseModeCellMotion,
+		},
+		{
+			"exclusive overlay open (fileList)",
+			func(_ *Model) {
+				// sidebar already visible with entries
+			},
+			func(m *Model) {
+				m.fileList = m.fileList.Open(".")
+			},
+			tea.MouseModeCellMotion,
+		},
+		{
+			"bottom-anchored overlay open (slash)",
+			func(_ *Model) {
+				// sidebar already visible with entries
+			},
+			func(m *Model) {
+				m.slashOverlay = m.slashOverlay.Open(m.buildSlashOverlayItems())
+			},
+			tea.MouseModeCellMotion,
+		},
+		{
+			"modal overlay open (MCP)",
+			func(_ *Model) {
+				// sidebar already visible with entries
+			},
+			func(m *Model) {
+				m.mcpOverlay = m.mcpOverlay.Open(nil, true)
+			},
+			tea.MouseModeCellMotion,
+		},
 	}
-	m.sidebar.Toggle()
-	if got := m.rosterHoverMouseMode(); got != tea.MouseModeCellMotion {
-		t.Errorf("sidebar hidden: mode = %v, want cell motion", got)
-	}
-	m.sidebar.Toggle()
-	m.sidebar.subAgents = nil
-	if got := m.rosterHoverMouseMode(); got != tea.MouseModeCellMotion {
-		t.Errorf("empty roster: mode = %v, want cell motion", got)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _ := newSidebarClickModel(t, "left", 0)
+			tc.setupSidebar(m)
+			tc.setupOverlay(m)
+			got := m.rosterHoverMouseMode()
+			if got != tc.wantMode {
+				t.Errorf("mode = %v, want %v", got, tc.wantMode)
+			}
+		})
 	}
 }
 
@@ -109,6 +242,40 @@ func TestRecentMouseInputCountsMotion(t *testing.T) {
 	m.lastMouseMotionAt = time.Now().Add(-time.Second)
 	if m.recentMouseInput() {
 		t.Error("stale pointer motion reported as recent")
+	}
+}
+
+func TestMouseModeChangesWhenOverlayOpens(t *testing.T) {
+	m, _ := newSidebarClickModel(t, "left", 0)
+
+	// Set hover on a roster row
+	hoverRow(t, m, "solo")
+	if m.sidebar.rosterHover != "solo" {
+		t.Fatalf("setup: hover = %q, want solo", m.sidebar.rosterHover)
+	}
+	if got := m.rosterHoverMouseMode(); got != tea.MouseModeAllMotion {
+		t.Errorf("before overlay: mode = %v, want all motion", got)
+	}
+
+	// Open an overlay and trigger reconcile via Update
+	m.fileList = m.fileList.Open(".")
+	updateModelDirect(m, tea.WindowSizeMsg{Width: m.width, Height: m.height}) // trigger reconcile
+	if m.sidebar.rosterHover != "" {
+		t.Errorf("after overlay open: hover = %q, want cleared", m.sidebar.rosterHover)
+	}
+	if got := m.rosterHoverMouseMode(); got != tea.MouseModeCellMotion {
+		t.Errorf("with overlay open: mode = %v, want cell motion", got)
+	}
+
+	// Close overlay and trigger reconcile; hover restoration depends on pointer position
+	// (which is still over the row from setup), so it should re-hover
+	m.fileList = m.fileList.Close()
+	updateModelDirect(m, tea.WindowSizeMsg{Width: m.width, Height: m.height})
+	if m.sidebar.rosterHover != "solo" {
+		t.Errorf("after overlay close: hover = %q, want restored to solo", m.sidebar.rosterHover)
+	}
+	if got := m.rosterHoverMouseMode(); got != tea.MouseModeAllMotion {
+		t.Errorf("after overlay close: mode = %v, want all motion", got)
 	}
 }
 
@@ -271,5 +438,34 @@ func TestCachedRosterLayout(t *testing.T) {
 	m.syncRoster()
 	if got, want := m.cachedRosterLayout(), m.sidebar.rosterLayout(); !slices.Equal(got.targets, want.targets) {
 		t.Errorf("roster change: cached targets %q, fresh %q", got.targets, want.targets)
+	}
+}
+
+// TestComposerWheelScrolling verifies that mouse wheel events still scroll an
+// overflowing composer textarea, preserving pre-change behaviour where raw
+// wheel messages reached the textarea via Update.
+func TestComposerWheelScrolling(t *testing.T) {
+	m := newModel(Config{
+		Model:         "test",
+		ModelContexts: map[string]int{"test": 1024},
+	}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.input.SetHeight(8) // Small viewport so text will overflow
+
+	// Fill the composer with many lines so the content overflows
+	for i := 0; i < 50; i++ {
+		m.input.InsertString(fmt.Sprintf("Line %d content here\n", i))
+	}
+	viewBefore := m.input.View()
+
+	// Send a wheel-up event through the normal dispatch path (filter + Update)
+	wheelMsg := tea.MouseWheelMsg{X: 40, Y: 4, Button: tea.MouseWheelUp}
+	filtered := filterMouseMotion(m, wheelMsg)
+	_, _ = m.Update(filtered)
+	viewAfter := m.input.View()
+
+	// Verify the composer scrolled (view changed)
+	if viewBefore == viewAfter {
+		t.Error("composer view unchanged after wheel-up; wheel scrolling broken")
 	}
 }

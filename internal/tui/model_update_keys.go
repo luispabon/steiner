@@ -69,9 +69,11 @@ func (m *Model) hasActiveConversation() bool {
 	return m.content.streamingPhase != "" || m.status.mode == "running" || m.status.mode == "approval"
 }
 
-// isCtrl reports whether the key press is Ctrl+key for the given letter rune.
+// isCtrl reports whether the key press is Ctrl+letter. Extra modifiers do not
+// match, so ctrl+shift+c (a copy key in many terminals) never quits; lock
+// states are ignored.
 func isCtrl(msg tea.KeyPressMsg, letter rune) bool {
-	return msg.Mod&tea.ModCtrl != 0 && msg.Code == letter
+	return msg.Mod&^(tea.ModCapsLock|tea.ModNumLock|tea.ModScrollLock) == tea.ModCtrl && msg.Code == letter
 }
 
 // isAlt reports whether the key press is Alt+rune. Extra modifiers such as

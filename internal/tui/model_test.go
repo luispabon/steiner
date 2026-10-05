@@ -3895,6 +3895,7 @@ func TestSelectionSmallHeight(t *testing.T) {
 			m.selection.active = true
 
 			_ = m.View().Content
+			m.flushScreenFrame()
 
 			if len(m.screenLines) != tt.wantScreenLines {
 				t.Fatalf("screenLines count = %d, want exactly %d entries", len(m.screenLines), tt.wantScreenLines)
@@ -5216,7 +5217,7 @@ func selectionViewportModel(t *testing.T, yOffset int) *Model {
 	for i := range lines {
 		lines[i] = fmt.Sprintf("line %02d", i)
 	}
-	m.setViewportContent(strings.Join(lines, "\n"))
+	m.setViewportLines(lines)
 	m.contentTopPad = 0
 	m.viewport.SetYOffset(yOffset)
 	m.activeRegion = regionViewport
@@ -5228,7 +5229,7 @@ func TestSelectionFollowsScroll(t *testing.T) {
 	m := buildTestModel(100, 30, false, false)
 	m.viewport.SetHeight(8)
 	content := []string{"line 00", "line 01", "line 02", "line 03", "line 04", "line 05", "line 06", "line 07", "line 08", "line 09"}
-	m.setViewportContent(strings.Join(append([]string{"", "", ""}, content...), "\n"))
+	m.setViewportLines(append([]string{"", "", ""}, content...))
 	m.contentTopPad = 3
 	m.activeRegion = regionViewport
 	m.selection = selectionState{start: selectionPoint{2, 0}, end: selectionPoint{5, 7}, active: true}
@@ -5335,7 +5336,7 @@ func TestDragAutoScrollTickStopsOnRelease(t *testing.T) {
 	tickModel := func() *Model {
 		m := buildTestModel(100, 30, false, false)
 		m.viewport.SetHeight(10)
-		m.setViewportContent(strings.Repeat("line\n", 29) + "line")
+		m.setViewportLines(strings.Split(strings.Repeat("line\n", 29)+"line", "\n"))
 		m.viewport.SetYOffset(5)
 		m.dragScrollEpoch = 1
 		return m
@@ -5632,8 +5633,13 @@ func TestViewportSelectionNonBlankUnmappableEndpointClears(t *testing.T) {
 
 	// A non-blank line with no owning segment, e.g. streaming preview content
 	// that has not become a segment yet, must stay unanchored: no snapping.
-	m.fmtBgCacheInput += "\nextra streamed line"
-	lines := strings.Split(m.fmtBgCacheInput, "\n")
+	m.content.streaming = true
+	m.content.streamBuffer = "extra streamed line"
+	m.syncViewport()
+	lines := strings.Split(m.bgFormat.source(), "\n")
+	if !strings.Contains(lines[len(lines)-1], "extra streamed line") {
+		t.Fatalf("setup: last transcript line = %q, want the streaming preview", lines[len(lines)-1])
+	}
 	extraLine := len(lines) - 1
 	if got, anchor := m.viewportSelectionEndpoint(extraLine); anchor.ok {
 		t.Errorf("viewportSelectionEndpoint(%d) returned ok anchor %+v; want unanchored", extraLine, anchor)

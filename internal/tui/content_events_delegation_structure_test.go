@@ -40,14 +40,14 @@ func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing
 			"regular": {seg: 2, td: regular}, "lost": {seg: 2, td: lostTool}, "grouped": {seg: 5, td: groupedTool},
 		},
 		activeAdvisorSegment: 7,
-		stringCacheWidth:     80, stringCacheRendered: "stale string",
+		stringCacheWidth:     80, stringCacheBlocks: []string{"stale string"},
 		prefixCacheSet: true, prefixCacheRendered: "stale prefix", prefixCacheLen: 5,
 		segmentHeights: []int{1, 2, 3, 4, 5, 6}, gen: 7,
 	}
 
 	acceptDelegationCard(b, "call-first", "batch", "shared")
 	gen, structureGen := b.gen, b.structureGen
-	b.stringCacheWidth, b.stringCacheRendered = 80, "stale string"
+	b.stringCacheWidth, b.stringCacheBlocks = 80, []string{"stale string"}
 	b.prefixCacheSet, b.prefixCacheRendered, b.prefixCacheLen = true, "stale prefix", 5
 	b.segmentHeights = []int{1, 2, 3, 4, 5, 6, 7}
 	acceptDelegationCard(b, "call-second", "batch", "shared")
@@ -103,8 +103,8 @@ func TestDelegationStructureRewriteRemapsLocatorsAndInvalidatesCaches(t *testing
 			t.Fatalf("collapse state[%d] = %v (present=%v), want %v", index, got, ok, want)
 		}
 	}
-	if b.gen != gen+1 || b.structureGen != structureGen+1 || b.stringCacheWidth != 0 || b.stringCacheRendered != "" || b.prefixCacheSet || b.prefixCacheRendered != "" || !slices.Equal(b.segmentHeights, []int{1}) {
-		t.Fatalf("rewrite did not invalidate caches/generation: gen=%d structure=%d string=%d/%q prefix=%v/%q heights=%v", b.gen, b.structureGen, b.stringCacheWidth, b.stringCacheRendered, b.prefixCacheSet, b.prefixCacheRendered, b.segmentHeights)
+	if b.gen != gen+1 || b.structureGen != structureGen+1 || b.stringCacheWidth != 0 || b.stringCacheBlocks != nil || b.prefixCacheSet || b.prefixCacheRendered != "" || !slices.Equal(b.segmentHeights, []int{1}) {
+		t.Fatalf("rewrite did not invalidate caches/generation: gen=%d structure=%d string=%d/%q prefix=%v/%q heights=%v", b.gen, b.structureGen, b.stringCacheWidth, b.stringCacheBlocks, b.prefixCacheSet, b.prefixCacheRendered, b.segmentHeights)
 	}
 }
 

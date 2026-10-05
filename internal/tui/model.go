@@ -112,6 +112,7 @@ type Model struct {
 	width    int
 	height   int
 	viewport scrollModel
+	frame    *frameStats
 	input    textarea.Model
 	content  contentBuffer
 	status   statusState
@@ -208,6 +209,7 @@ type Model struct {
 	pendingWorkflowHandoffLaunch *workflowHandoffLaunch
 	contentDirty                 bool
 	syncDebounceSeq              int
+	reflow                       resizeReflow
 	mousePressX                  int
 	mousePressY                  int
 	sidebarPressX, sidebarPressY int // sidebar press cell awaiting release; -1 when none
@@ -217,6 +219,10 @@ type Model struct {
 	clickCount                   int
 	activeRegion                 selectionRegion
 	screenLines                  []string
+	screenFrame                  string // last pre-highlight frame rendered during a drag; stripped into screenLines on demand
+	screenFramePending           bool
+	highlightCache               highlightCache
+	highlightCacheStyles         *theme.Styles
 	dragScrollDir                int // 0 none, -1 up, 1 down while drag-hovering a viewport edge
 	dragScrollTicking            bool
 	dragScrollEpoch              int
@@ -253,10 +259,12 @@ type Model struct {
 	scrollbarTrackCell      string
 	padLineCacheWidth       int
 	padLineCacheRendered    string
-	fmtBgCacheInput         string
 	fmtBgCacheWidth         int
-	fmtBgCacheOutput        string
+	bgFormat                bgFormatCache
 	vpViewCache             string
+	overlayCache            overlayComposeCache
+	helpCompose             overlayComposeCache
+	overlayMemos            overlayRenderMemos
 	vpViewCacheScrollY      int
 	vpViewCacheWidth        int
 	vpViewCacheHasScrollbar bool
@@ -267,6 +275,7 @@ type Model struct {
 	statusViewCacheRendered string
 
 	sidebarViewCacheSet      bool
+	sidebarRenders           int // renderSidebar cache misses
 	sidebarViewCacheKey      sidebarCacheKey
 	sidebarViewCacheFiles    []gitModifiedFile
 	sidebarViewCacheRoster   []rosterEntry

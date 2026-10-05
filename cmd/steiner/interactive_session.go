@@ -14,6 +14,7 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
+	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
@@ -241,6 +242,9 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		return lspTUIStates(rt.cfg, rt.lspManager)
 	}
 	tuiCfg.Recorder = rt.usageRecorder
+	if rt.diagnostics.Enabled(diagnostics.KindTUI) {
+		tuiCfg.FrameStats = rt.diagnostics
+	}
 	tuiCfg.ImageStore = rt.imageStore
 	tuiCfg.VisionCapabilities = rt.visionCapabilities
 	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink(), sess.CurrentEffective, sess.OrchestrationLevel, sess.ActiveRunController().SteerQueue())

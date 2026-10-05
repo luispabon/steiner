@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -219,18 +220,18 @@ func TestScrollModelAtBottomComparison(t *testing.T) {
 	}
 }
 
-// TestScrollModelSetContentClampsOffset covers semantic 6: setting content
+// TestScrollModelSetLinesClampsOffset covers semantic 6: setting content
 // clamps a now-invalid offset by moving to the bottom, while an offset that
 // is still in range is kept.
-func TestScrollModelSetContentClampsOffset(t *testing.T) {
+func TestScrollModelSetLinesClampsOffset(t *testing.T) {
 	t.Parallel()
 
 	t.Run("shrinking content pulls to bottom", func(t *testing.T) {
 		t.Parallel()
 		m := scrollModel{height: 5}
 		m.SetLines(manyScrollLines(20))
-		m.ScrollDown(10)     // offset 10, max 15
-		m.SetContent("a\nb") // max shrinks to 0
+		m.ScrollDown(10)               // offset 10, max 15
+		m.SetLines([]string{"a", "b"}) // max shrinks to 0
 		if got := m.YOffset(); got != 0 {
 			t.Fatalf("YOffset() = %d, want 0 (clamped to new bottom)", got)
 		}
@@ -279,37 +280,27 @@ func TestScrollModelMouseWheelDeltaDefault(t *testing.T) {
 	}
 }
 
-// TestScrollModelSetContentSplitting covers the documented splitting rule:
-// "\r\n" is normalised to "\n" before splitting on "\n", a lone '\r' does
-// not split a line, a trailing newline yields a trailing empty line, and a
-// single zero-width line collapses to no lines.
-func TestScrollModelSetContentSplitting(t *testing.T) {
+// TestScrollModelSetLinesCollapse covers the documented collapse rule: a
+// single zero-width line collapses to no lines; anything else is kept as is.
+func TestScrollModelSetLinesCollapse(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name    string
-		content string
-		want    []string
+		name  string
+		lines []string
+		want  []string
 	}{
-		{"crlf normalised", "a\r\nb", []string{"a", "b"}},
-		{"lone cr preserved", "a\rb", []string{"a\rb"}},
-		{"trailing newline", "a\nb\n", []string{"a", "b", ""}},
-		{"empty collapses to no lines", "", nil},
-		{"ansi only line collapses to no lines", "\x1b[31m\x1b[0m", nil},
-		{"plain lines", "a\nb\nc", []string{"a", "b", "c"}},
+		{"empty collapses to no lines", []string{""}, nil},
+		{"ansi only line collapses to no lines", []string{"\x1b[31m\x1b[0m"}, nil},
+		{"two empty lines kept", []string{"", ""}, []string{"", ""}},
+		{"plain lines", []string{"a", "b", "c"}, []string{"a", "b", "c"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			m := scrollModel{}
-			m.SetContent(tc.content)
-			got := m.Lines()
-			if len(got) != len(tc.want) {
-				t.Fatalf("len(Lines()) = %d, want %d (%q)", len(got), len(tc.want), got)
-			}
-			for i := range got {
-				if got[i] != tc.want[i] {
-					t.Fatalf("Lines()[%d] = %q, want %q", i, got[i], tc.want[i])
-				}
+			m.SetLines(tc.lines)
+			if got := m.Lines(); !slices.Equal(got, tc.want) || (got == nil) != (tc.want == nil) {
+				t.Fatalf("Lines() = %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -324,7 +315,7 @@ func TestScrollModelVisibleWindowIsConsistent(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.viewport = newScrollModel(80, 3)
-	m.setViewportContent(strings.Repeat("line\n", 9) + "line")
+	m.setViewportLines(strings.Split(strings.Repeat("line\n", 9)+"line", "\n"))
 	m.viewport.SetYOffset(7)
 
 	if m.viewport.TotalLineCount() != 10 {

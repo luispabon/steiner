@@ -112,7 +112,7 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 		for i := len(b.segments) - 1; i >= 0; i-- {
 			if b.segments[i].kind == segmentThinkingBlock && b.segments[i].thinkData == td {
 				b.segments[i].renderDirty = true
-				b.gen++
+				b.invalidatePrefixIfCached(i)
 				break
 			}
 		}
@@ -140,7 +140,7 @@ func (b *contentBuffer) finalizeThinkingBlock() {
 		if idx := len(b.segments) - 1; idx >= 0 {
 			b.collapseState[idx] = true
 			b.segments[idx].renderDirty = true
-			b.gen++
+			b.invalidatePrefixIfCached(idx)
 		}
 	}
 }

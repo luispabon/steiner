@@ -130,6 +130,16 @@ func newModelInput() textarea.Model {
 	input.MaxHeight = 30
 	input.KeyMap.CharacterBackward = key.NewBinding(key.WithKeys("left"))
 	input.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("shift+enter", "alt+enter", "ctrl+j"))
+	// The composer renders its own lines, so a textarea selection would be
+	// invisible yet still replaced by the next keystroke. Keep it unreachable.
+	for _, b := range []*key.Binding{
+		&input.KeyMap.SelectCharacterForward, &input.KeyMap.SelectCharacterBackward,
+		&input.KeyMap.SelectWordForward, &input.KeyMap.SelectWordBackward,
+		&input.KeyMap.SelectLineUp, &input.KeyMap.SelectLineDown,
+		&input.KeyMap.SelectAll, &input.KeyMap.CopySelection,
+	} {
+		b.SetEnabled(false)
+	}
 	input.Focus()
 	return input
 }

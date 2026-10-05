@@ -350,7 +350,7 @@ func TestViewportViewCacheRefreshedOnScroll(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		lines = append(lines, fmt.Sprintf("content line %d", i))
 	}
-	m.setViewportContent(strings.Join(lines, "\n"))
+	m.setViewportLines(lines)
 
 	base := m.renderViewportView(40)
 	m.scrollDown(3)

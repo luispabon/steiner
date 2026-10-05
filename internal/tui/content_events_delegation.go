@@ -123,7 +123,7 @@ func (b *contentBuffer) markDelegationDirty(idx int) {
 		return
 	}
 	b.segments[idx].renderDirty = true
-	b.gen++
+	b.invalidatePrefixIfCached(idx)
 }
 
 func (dd *delegationDisplayState) applyUsage(cacheRead, input, cacheCreate, tokenCount int) {
@@ -311,7 +311,7 @@ func (b *contentBuffer) AdvanceDelegationSpinners() {
 				dd.spinnerFrame = (dd.spinnerFrame + 1) % len(spinnerFrames)
 			}
 			b.segments[loc.seg].renderDirty = true
-			b.gen++
+			b.invalidatePrefixIfCached(loc.seg)
 		}
 	}
 }
@@ -322,7 +322,7 @@ func (b *contentBuffer) ToggleLastDelegationOutput() {
 		if loc.dd != nil {
 			loc.dd.collapsed = !loc.dd.collapsed
 			b.segments[loc.seg].renderDirty = true
-			b.gen++
+			b.invalidatePrefixIfCached(loc.seg)
 			return true
 		}
 		return false

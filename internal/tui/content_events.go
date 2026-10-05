@@ -274,9 +274,11 @@ type contentSegment struct {
 	imagesAttachedData *imagesAttachedData     // non-nil only for segmentImagesAttached
 	deliveredData      *deliveredRows          // non-nil only for segmentSubAgentsFinished
 	strandedData       *strandedResultsData    // non-nil only for segmentStrandedResults
-	// render cache
+	// render cache at the active width, plus other recent widths (renderAtWidth)
 	cachedRender      string
 	cachedRenderWidth int
+	cachedStamp       renderStamp
+	altRenders        widthRenders
 	renderDirty       bool
 	// renderGen increments each time processSegment re-renders this segment.
 	// Anchors record it at capture time so a same-width remap can skip the
@@ -293,8 +295,8 @@ type contentBuffer struct {
 	streaming         bool
 	hadChunks         bool
 	streamBuffer      string
-	renderer          *glamour.TermRenderer
-	renderWidth       int
+	streamPreview     streamPreviewCache
+	glamour           glamourPool
 	styles            *theme.Styles
 	modelBadge        func(backend string) (alias, effort string)
 	modelAliasBadge   func(alias string) (name, effort string)
@@ -326,9 +328,11 @@ type contentBuffer struct {
 	workingDir              string                              // current working directory for resolving relative paths
 	homeDir                 string                              // home directory for resolving ~ paths
 
-	// Render cache.
-	stringCacheWidth    int
-	stringCacheRendered string
+	// Render cache. renderEpoch is bumped when MCP tool origins, a render input
+	// shared by all segments, change, so inactive-width renders are not reused.
+	renderEpoch       int
+	stringCacheWidth  int
+	stringCacheBlocks []string
 
 	// gen is bumped whenever an existing segment is mutated in place (never on
 	// append). It invalidates the settled-prefix cache below so a retroactive

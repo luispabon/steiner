@@ -92,7 +92,7 @@ func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
 		dd.resultStatus = "failed"
 	}
 	b.segments[idx].renderDirty = true
-	b.gen++
+	b.invalidatePrefixIfCached(idx)
 	b.activeAdvisorSegment = 0
 
 	// Append labeled block with advisor note outside the box.
@@ -175,6 +175,6 @@ func (b *contentBuffer) handleAdvisorThinkingChunk(event output.Event) {
 	dd := b.segments[idx].delegData
 	if b.applyDelegationThinkingChunk(dd, event) {
 		b.segments[idx].renderDirty = true
-		b.gen++
+		b.invalidatePrefixIfCached(idx)
 	}
 }

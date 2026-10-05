@@ -57,7 +57,7 @@ func (m *Model) viewportSelectionEndpoint(line int) (int, selectionAnchor) {
 	if segIndex, rowInSeg, ok := m.content.segmentAtContentLine(line); ok {
 		return line, m.content.selectionAnchorForSegmentRow(segIndex, rowInSeg)
 	}
-	lines := strings.Split(m.fmtBgCacheInput, "\n")
+	lines := strings.Split(m.bgFormat.source(), "\n")
 	if m.viewportLineBlank(lines, line) {
 		if snapped, ok := m.nearestMappableContentLine(lines, line); ok {
 			if segIndex, rowInSeg, ok := m.content.segmentAtContentLine(snapped); ok {

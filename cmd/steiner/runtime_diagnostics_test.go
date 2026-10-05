@@ -45,6 +45,11 @@ func TestBuildRuntimeDiagnosticsStreamGates(t *testing.T) {
 			streams: config.DiagnosticsStreamsConfig{Cache: true, Provider: true},
 			want:    map[diagnostics.Kind]bool{diagnostics.KindCache: true, diagnostics.KindProvider: true},
 		},
+		{
+			name:    "tui only",
+			streams: config.DiagnosticsStreamsConfig{TUI: true},
+			want:    map[diagnostics.Kind]bool{diagnostics.KindTUI: true},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

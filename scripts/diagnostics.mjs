@@ -6,7 +6,7 @@
 //   node scripts/diagnostics.mjs <mode> [flags]
 //   node scripts/diagnostics.mjs prefix <logfile> [flags]
 //
-// Modes: cache | provider | tools | coldturns | mutate | prefix <logfile>
+// Modes: cache | provider | tools | coldturns | mutate | tui | prefix <logfile>
 //
 // cache/provider/tools read the diagnostics directory (one JSONL file per
 // stream: cache.jsonl, provider.jsonl, tool.jsonl; see
@@ -32,7 +32,8 @@
 //                          prefix or coldturns mode, which read more or less
 //                          than one stream.
 //   --json                 print aggregates as JSON instead of tables
-//   --top N                cap unbounded per-key listings (default 20)
+//   --top N                cap unbounded per-key listings (default 20; tui lists every
+//                          message type, costliest first)
 //   --min-n N              coldturns only: below this many long-delegation
 //                          observations, a model's row prints "insufficient"
 //                          instead of a rate (default 10). A soft guard, not a
@@ -51,6 +52,12 @@
 //   --model <prefix>       keep only calls attributed to a matching model
 //   --samples N            print up to N raw capture_bodies samples
 //   --cause <bucket>       with --samples, keep one taxonomy bucket only
+//
+// tui mode reads tui.jsonl (internal/tui/frame_stats.go): per message type,
+// Update and View count, p50/p95 (histogram bucket upper bounds) and max in
+// ms, total CPU ms and share of window wall time, plus a window-level summary
+// (busy fraction, overlay-open fraction, peak running sub-agents, transcript
+// lines). It supports --since/--until, --sha, --json and --compare <a> <b>.
 //
 // VOCABULARY
 //   cold start   -- a run's first usage-bearing cache record (cold_start: true
@@ -88,6 +95,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { runMutate } from "./diagnostics_mutate.mjs";
+import { runTui, runTuiCompare } from "./diagnostics_tui.mjs";
 
 const argv = process.argv.slice(2);
 const MODE = argv[0];
@@ -935,8 +943,24 @@ function main() {
 		return;
 	}
 
+	if (MODE === "tui") {
+		const helpers = { groupBy, sortedByCount, capTop };
+		const all = loadEnvelope("tui");
+		if (COMPARE) {
+			runTuiCompare({
+				recordsA: filterRecords(all, COMPARE[0]),
+				recordsB: filterRecords(all, COMPARE[1]),
+				helpers,
+				emitCompareSections,
+			});
+			return;
+		}
+		runTui({ records: filterRecords(all), helpers, printTable, asJson: AS_JSON });
+		return;
+	}
+
 	if (!["cache", "provider", "tools"].includes(MODE)) {
-		console.error("usage: node scripts/diagnostics.mjs <cache|provider|tools|coldturns|mutate> [flags]");
+		console.error("usage: node scripts/diagnostics.mjs <cache|provider|tools|coldturns|mutate|tui> [flags]");
 		console.error("       node scripts/diagnostics.mjs prefix <logfile> [flags]");
 		process.exit(1);
 	}

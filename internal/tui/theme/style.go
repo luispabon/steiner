@@ -16,7 +16,7 @@ const (
 )
 
 // ColorHex converts a color.Color to a "#RRGGBB" hex string suitable for
-// use with HighlightMatch, WithBg, and PadLines.
+// use with HighlightStyle, WithBg, and PadLines.
 // Returns an empty string for nil or zero-alpha colors.
 func ColorHex(c color.Color) string {
 	if c == nil {
@@ -166,17 +166,15 @@ func PadLines(s string, width int, bg string) string {
 	return sb.String()
 }
 
-// HighlightMatch wraps text in explicit ANSI emphasis so matched glyphs stay
-// visible even when rendering without an attached TTY profile.
-func HighlightMatch(text string, fg string) string {
-	if text == "" {
-		return ""
-	}
+// HighlightStyle returns the bold, underlined emphasis style for matched
+// glyphs, with fg applied when non-empty. The attributes are explicit so
+// matches stay visible even when rendering without an attached TTY profile.
+func HighlightStyle(fg string) lipgloss.Style {
 	style := lipgloss.NewStyle().Bold(true).Underline(true)
 	if fg != "" {
 		style = style.Foreground(lipgloss.Color(fg))
 	}
-	return style.Render(text)
+	return style
 }
 
 // ApplyPanePadding applies ContentPane or ContentPaneWithScrollbar padding to

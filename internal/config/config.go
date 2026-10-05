@@ -470,6 +470,7 @@ type DiagnosticsStreamsConfig struct {
 	Cache    bool `yaml:"cache"`
 	Provider bool `yaml:"provider"`
 	Tool     bool `yaml:"tool"`
+	TUI      bool `yaml:"tui"`
 }
 
 // copyStringAnyMap creates a shallow copy of a map[string]any.

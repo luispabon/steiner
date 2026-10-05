@@ -1,10 +1,6 @@
 package tui
 
-import (
-	"strings"
-
-	"github.com/charmbracelet/x/ansi"
-)
+import "github.com/charmbracelet/x/ansi"
 
 // scrollModel is a minimal vertical scroll-position calculator. It replaces
 // charm.land/bubbles/v2/viewport.Model for the conversation pane, where no
@@ -14,11 +10,9 @@ import (
 // scrollModel owns the single line slice of the viewport: visibleViewportContent
 // slices this slice and the scrollbar line count derives from it, so the
 // rendered content and the scroll position cannot disagree by construction.
-// The line splitting rule: SetContent normalises "\r\n" to "\n" and splits on
-// "\n", matching exactly what the renderer emits (a lone '\r' not followed by
-// '\n' is preserved and does not split a line). SetLines takes pre-split lines
-// and must not contain embedded '\n'. Like the bubbles viewport, a single
-// zero-width line is collapsed to no lines.
+// SetLines takes pre-split lines (bgFormatCache applies the splitting rule)
+// and they must not contain embedded '\n'. Like the bubbles viewport, a
+// single zero-width line is collapsed to no lines.
 type scrollModel struct {
 	lines           []string
 	width           int
@@ -57,7 +51,7 @@ func (m *scrollModel) SetHeight(h int) {
 }
 
 // Lines returns the viewport content lines. It is the single owned slice the
-// renderer slices; only SetLines and SetContent write it.
+// renderer slices; only SetLines writes it.
 func (m scrollModel) Lines() []string { return m.lines }
 
 // TotalLineCount returns the number of content lines.
@@ -100,16 +94,6 @@ func (m *scrollModel) ScrollUp(n int) {
 
 // GotoBottom sets the scroll position to the bottom.
 func (m *scrollModel) GotoBottom() { m.SetYOffset(m.maxYOffset()) }
-
-// SetContent sets the content from a single string, normalising "\r\n" to
-// "\n" before splitting on "\n". If the resulting offset is past the new
-// maximum, the view is pulled to the bottom, matching the bubbles viewport.
-func (m *scrollModel) SetContent(s string) {
-	if strings.ContainsRune(s, '\r') {
-		s = strings.ReplaceAll(s, "\r\n", "\n")
-	}
-	m.SetLines(strings.Split(s, "\n"))
-}
 
 // SetLines replaces the content lines, taking ownership of the slice. A
 // single zero-width line is collapsed to no lines, matching the bubbles

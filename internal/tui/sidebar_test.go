@@ -232,6 +232,7 @@ func TestRenderSidebarInvalidation(t *testing.T) {
 	t.Run("tick_changes_tickCount", func(t *testing.T) {
 		t.Parallel()
 		m := newSidebarTestModel(t)
+		m.sidebar.mcpTotal, m.sidebar.mcpConnecting = 1, true
 		m.renderSidebar(m.width, m.height)
 		cachedKey := m.sidebarViewCacheKey
 
@@ -348,6 +349,10 @@ func TestSidebarComparableCopiesEveryField(t *testing.T) {
 		}
 		setDistinctValue(t, sv.Field(i), i)
 	}
+	// tickCount and subAgentsNow are only projected while the sidebar shows
+	// something that reads them.
+	s.mcpConnecting = true
+	s.subAgents = []rosterEntry{{status: rosterRunning}}
 
 	projVal := s.comparable()
 	proj := reflect.ValueOf(&projVal).Elem() // addressable, so unexported fields can be read

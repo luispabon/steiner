@@ -257,7 +257,7 @@ func setupFixedViewportBenchmark() (*Model, error) {
 		wantBytes  = 12189
 		wantSHA256 = "6f0b5b12ee83b86e2d52efd82579a0f8fa4b0ee8771d7cc9050da65e84897e49"
 	)
-	m.setViewportContent(benchFixedViewportPayload())
+	m.setViewportLines(strings.Split(benchFixedViewportPayload(), "\n"))
 	benchViewSink = m.View().Content
 
 	visible := m.visibleViewportContent()

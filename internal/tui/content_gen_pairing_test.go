@@ -10,7 +10,8 @@ import (
 
 // TestRetroactiveDirtyMarksArePairedWithGenBump enforces the invariant the
 // settled-prefix cache in contentBuffer.String depends on: marking an existing
-// segment dirty in place must also bump contentBuffer.gen.
+// segment dirty in place must also bump contentBuffer.gen, directly or through
+// invalidatePrefixIfCached.
 //
 // prefixCacheValid compares prefixCacheGen against gen, so a mutation site that
 // sets renderDirty without bumping gen leaves the cached prefix serving the
@@ -23,6 +24,7 @@ func TestRetroactiveDirtyMarksArePairedWithGenBump(t *testing.T) {
 	// Built by concatenation so this file does not match its own needles.
 	dirtyPattern := regexp.MustCompile(`segments\[[^\]]+\]\.` + `renderDirty = true`)
 	genBump := "gen" + "++"
+	prefixInvalidate := "invalidatePrefix" + "IfCached("
 
 	const window = 6
 
@@ -50,7 +52,8 @@ func TestRetroactiveDirtyMarksArePairedWithGenBump(t *testing.T) {
 			matched++
 			lo := max(0, i-window)
 			hi := min(len(lines), i+window+1)
-			if !strings.Contains(strings.Join(lines[lo:hi], "\n"), genBump) {
+			nearby := strings.Join(lines[lo:hi], "\n")
+			if !strings.Contains(nearby, genBump) && !strings.Contains(nearby, prefixInvalidate) {
 				t.Errorf("%s:%d marks an existing segment dirty without a nearby %s:\n\t%s\n"+
 					"the settled-prefix cache keys on gen, so this mutation will not "+
 					"invalidate the cached prefix and the segment will render stale",

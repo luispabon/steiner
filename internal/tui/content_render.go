@@ -39,11 +39,21 @@ func segmentHasActiveDelegation(seg *contentSegment) bool {
 	}
 }
 
+// String returns the rendered transcript: blocks(width) joined with "\n".
 func (b *contentBuffer) String(width int) string {
+	return strings.Join(b.blocks(width), "\n")
+}
+
+// blocks renders the transcript as blocks whose "\n"-join is the transcript.
+// Unchanged cached segment renders appear as the same substrings frame after
+// frame, which lets the viewport reformat only from the first changed block.
+// A dirty frame always returns a freshly allocated slice: the viewport keeps
+// the previous slice to diff against, so it must never be written in place.
+func (b *contentBuffer) blocks(width int) []string {
 	// Check if we can return cached result.
 	isBufferDirty := b.checkBufferDirty(width)
-	if !isBufferDirty && b.stringCacheWidth == width && b.stringCacheRendered != "" {
-		return b.stringCacheRendered
+	if !isBufferDirty && b.stringCacheWidth == width && !blocksJoinEmpty(b.stringCacheBlocks) {
+		return b.stringCacheBlocks
 	}
 
 	// Extend the segment-height slice in place; heights of the cached prefix are
@@ -81,34 +91,50 @@ func (b *contentBuffer) String(width int) string {
 	// Fold the freshly settled tail into the prefix cache so the next dirty
 	// frame only walks the genuinely changing tail (preview, spinners, live
 	// segments). Anything that re-rendered this frame stays in the tail.
-	segmentJoin := joinWithUserMargin(parts, kinds)
 	if !anyRerender && start < len(b.segments) {
-		b.foldPrefix(parts, kinds, prefix, prefixLastKind, width)
+		b.foldPrefix(joinWithUserMargin(parts, kinds), kinds, prefix, prefixLastKind, width)
 	}
 
-	result := segmentJoin
-	if prefix != "" && len(parts) > 0 {
-		result = prefix + joinSeparator(prefixLastKind, kinds[0]) + segmentJoin
-	} else if prefix != "" {
-		result = prefix
-	}
-	if preview := b.inProgressPreview(width); preview != "" {
-		result = appendStreamPreview(result, preview)
-	}
-
+	result := transcriptBlocks(prefix, prefixLastKind, parts, kinds, b.inProgressPreview(width))
 	b.stringCacheWidth = width
-	b.stringCacheRendered = result
+	b.stringCacheBlocks = result
 	return result
 }
 
-// appendStreamPreview appends the trimmed streaming preview to result with a
-// single-newline separator, matching the sentinel rule of joinWithUserMargin.
-func appendStreamPreview(result, preview string) string {
-	trimmed := strings.TrimRight(preview, "\n")
-	if result == "" {
-		return trimmed
+// transcriptBlocks returns the blocks whose "\n"-join is the prefix followed
+// by the parts joined as joinWithUserMargin does, then the trimmed streaming
+// preview on its own line. A "\n\n" separator becomes an empty block.
+func transcriptBlocks(prefix string, prefixLastKind contentSegmentKind, parts []string, kinds []contentSegmentKind, preview string) []string {
+	blocks := make([]string, 0, 2*len(parts)+3)
+	if prefix != "" {
+		blocks = append(blocks, prefix)
 	}
-	return result + "\n" + trimmed
+	lastKind := contentSegmentKind(-1)
+	for i, p := range parts {
+		sep := ""
+		switch {
+		case i > 0:
+			sep = joinSeparator(lastKind, kinds[i])
+		case prefix != "":
+			sep = joinSeparator(prefixLastKind, kinds[i])
+		}
+		if sep == "\n\n" {
+			blocks = append(blocks, "")
+		}
+		blocks = append(blocks, p)
+		if kinds[i] >= 0 {
+			lastKind = kinds[i]
+		}
+	}
+	if preview != "" {
+		blocks = append(blocks, strings.TrimRight(preview, "\n"))
+	}
+	return blocks
+}
+
+// blocksJoinEmpty reports whether blocks join to the empty string.
+func blocksJoinEmpty(blocks []string) bool {
+	return len(blocks) == 0 || len(blocks) == 1 && blocks[0] == ""
 }
 
 // prefixCacheValid reports whether the settled-prefix cache can be reused for
@@ -122,13 +148,22 @@ func (b *contentBuffer) prefixCacheValid(width int) bool {
 		b.prefixCacheLen <= len(b.segments)
 }
 
+// invalidatePrefixIfCached bumps gen when segment i, mutated in place, lies
+// inside the cached settled prefix. A segment past the prefix is re-walked every
+// dirty frame, and a hidden one contributes nothing to the prefix (toggling
+// visibility invalidates it separately), so neither needs invalidation.
+func (b *contentBuffer) invalidatePrefixIfCached(i int) {
+	if b.prefixCacheSet && i < b.prefixCacheLen && !b.isSegmentHidden(i) {
+		b.gen++
+	}
+}
+
 // foldPrefix extends the settled-prefix cache to cover the whole buffer after a
-// dirty frame in which nothing in the tail re-rendered. parts/kinds must be the
-// tail's segment parts (no preview sentinel).
-func (b *contentBuffer) foldPrefix(parts []string, kinds []contentSegmentKind, prefix string, prefixLastKind contentSegmentKind, width int) {
-	segmentJoin := joinWithUserMargin(parts, kinds)
+// dirty frame in which nothing in the tail re-rendered. segmentJoin is the
+// joined tail and kinds its segment kinds (no preview sentinel).
+func (b *contentBuffer) foldPrefix(segmentJoin string, kinds []contentSegmentKind, prefix string, prefixLastKind contentSegmentKind, width int) {
 	switch {
-	case prefix != "" && len(parts) > 0:
+	case prefix != "" && len(kinds) > 0:
 		b.prefixCacheRendered = prefix + joinSeparator(prefixLastKind, kinds[0]) + segmentJoin
 		b.prefixCacheLastKind = kinds[len(kinds)-1]
 	case prefix != "":
@@ -200,9 +235,9 @@ func lastPartKind(kinds []contentSegmentKind) contentSegmentKind {
 
 // processSegment renders a single non-hidden segment, updating the per-segment
 // render cache and appending to parts/kinds. Returns true when the segment was
-// re-rendered rather than served from its per-segment cache (which prevents the
-// settled prefix from folding over it). Extracted from String to keep the
-// outer loop readable; stays inlinable to preserve the per-frame hot path.
+// re-rendered rather than served from its per-segment cache, at this or a
+// recently used width (which prevents the settled prefix from folding over
+// it). Extracted from String to keep the outer loop readable.
 func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]contentSegmentKind) bool {
 	seg := &b.segments[i]
 	if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
@@ -220,18 +255,18 @@ func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]c
 		}
 		return false
 	}
-	rendered := b.renderSegment(*seg, width)
-	rendered = strings.TrimRight(rendered, "\n")
-	seg.cachedRender = rendered
+	r, fresh := b.renderAtWidth(seg, width)
+	seg.cachedRender = r.rendered
 	seg.cachedRenderWidth = width
+	seg.cachedStamp = r.stamp
 	seg.renderDirty = false
 	seg.renderGen++
-	b.segmentHeights[i] = strings.Count(rendered, "\n") + 1
-	if rendered != "" {
-		*parts = append(*parts, rendered)
+	b.segmentHeights[i] = strings.Count(r.rendered, "\n") + 1
+	if r.rendered != "" {
+		*parts = append(*parts, r.rendered)
 		*kinds = append(*kinds, seg.kind)
 	}
-	return true
+	return fresh
 }
 
 // checkBufferDirty checks if any condition requires a full re-render of the buffer.
@@ -276,7 +311,12 @@ func (b *contentBuffer) checkBufferDirty(width int) bool {
 // Parts whose kind entry is -1 are preview sentinels and only receive
 // single-newline separators.
 func joinWithUserMargin(parts []string, kinds []contentSegmentKind) string {
+	n := 2 * len(parts)
+	for _, p := range parts {
+		n += len(p)
+	}
 	var sb strings.Builder
+	sb.Grow(n)
 	lastKind := contentSegmentKind(-1)
 	for i, p := range parts {
 		if i > 0 {
@@ -391,17 +431,16 @@ func (b *contentBuffer) inProgressPreview(width int) string {
 	if strings.TrimSpace(preview) == "" {
 		return ""
 	}
-	return b.styles.AssistantProse.Width(max(1, width)).Render(preview) + "\n"
+	return b.streamPreview.render(b.styles.AssistantProse, preview, max(1, width))
 }
 
 func (b *contentBuffer) baseTextStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 }
 
-// setGlamourStyleSheet rebuilds the glamour stylesheet and invalidates the cached
-// renderer so the next markdown render picks up the new accent colour.
+// setGlamourStyleSheet rebuilds the glamour stylesheet and drops the pooled
+// renderers so the next markdown render picks up the new accent colour.
 func (b *contentBuffer) setGlamourStyleSheet(accentHex string, palettes ...theme.Palette) {
 	b.glamourStyleSheet = theme.BuildGlamourStyleSheet(accentHex, palettes...)
-	b.renderer = nil
-	b.renderWidth = 0
+	b.glamour = glamourPool{}
 }

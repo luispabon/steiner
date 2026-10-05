@@ -58,6 +58,16 @@ func syncDebounceCmd(seq int) tea.Cmd {
 
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.frame == nil {
+		return m.update(msg)
+	}
+	start := time.Now()
+	model, cmd := m.update(msg)
+	m.frame.recordUpdate(msg, time.Since(start), m.snapshotFrame())
+	return model, cmd
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.updateDispatch(msg)
 	var cmds []tea.Cmd
 	if cmd != nil {
@@ -117,6 +127,8 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleUpdateCheckResultMsg(msg)
 	case syncDebounceFiredMsg:
 		return m.handleSyncDebounceFiredMsg(msg)
+	case resizeReflowFiredMsg:
+		return m.handleResizeReflowFiredMsg(msg)
 	case clipboardImageMsg:
 		return m.handleClipboardImageMsg(msg)
 	case phaseTransitionFailedMsg:
@@ -444,8 +456,7 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 	m.sessionPicker = m.sessionPicker.withDimensions(contentW, msg.Height)
 	m.subAgentPicker = m.subAgentPicker.withDimensions(contentW, msg.Height)
 	m.oneshotResumePicker = m.oneshotResumePicker.withDimensions(contentW, msg.Height)
-	m.layout()
-	return m, nil
+	return m, m.layoutContent(true)
 }
 
 func (m *Model) handleRuntimeEventMsg(msg runtimeEventMsg) (tea.Model, tea.Cmd) {
@@ -660,6 +671,7 @@ func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) 
 			text = m.extractViewportText()
 		} else {
 			left, right := m.selectionHighlightBounds()
+			m.flushScreenFrame()
 			text = extractText(m.screenLines, m.selection, left, right)
 		}
 		if text != "" {
@@ -722,6 +734,12 @@ func (m *Model) handleDragAutoScrollTick(msg dragAutoScrollTickMsg) (tea.Model, 
 
 func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 	m.lastWheelMouseAt = time.Now()
+	// Forward raw wheel to textarea for scrolling, preserving pre-change behaviour.
+	// Check for zero value to allow tests to construct mouseWheelMsg directly.
+	var cmd tea.Cmd
+	if msg.raw != (tea.MouseWheelMsg{}) {
+		m.input, cmd = m.input.Update(msg.raw)
+	}
 	if m.contextOverlayCapturesMouse(msg.x, msg.y) {
 		switch msg.direction {
 		case "up":
@@ -729,7 +747,7 @@ func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 		case "down":
 			m.contextOverlay = m.contextOverlay.scrollDown(m.viewport.mouseWheelDelta)
 		}
-		return m, nil
+		return m, cmd
 	}
 
 	switch msg.direction {
@@ -738,7 +756,7 @@ func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 	case "down":
 		m.scrollDown(m.viewport.mouseWheelDelta)
 	}
-	return m, nil
+	return m, cmd
 }
 
 func (m *Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.Cmd) {
