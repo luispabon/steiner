@@ -86,7 +86,10 @@ func TestHandleFinalChunkContentReconciliation(t *testing.T) {
 	}{
 		{name: "empty streamed content", final: "XAB", want: "XAB", wantEmitted: "XAB"},
 		{name: "equal content", streamed: "AB", final: "AB", want: "AB"},
-		{name: "final is superset", streamed: "AB", final: "ABC", want: "ABC"},
+		{name: "final is superset", streamed: "AB", final: "ABC", want: "ABC", wantEmitted: "C"},
+		{name: "snapshot extends streamed text", streamed: "AB", final: "ABC", want: "ABC", wantEmitted: "C", contentSnapshot: true},
+		{name: "unrelated non-snapshot final appends", streamed: "AB", final: "XY", want: "ABXY", wantEmitted: "XY"},
+		{name: "snapshot equal to streamed text", streamed: "AB", final: "AB", want: "AB", contentSnapshot: true},
 		{name: "final is prefix", streamed: "ABC", final: "AB", want: "ABC"},
 		{name: "snapshot shorter prefix", streamed: "ABC", final: "AB", want: "AB", contentSnapshot: true},
 		{name: "empty snapshot clears content", streamed: "ABC", want: "", contentSnapshot: true},
@@ -123,6 +126,30 @@ func TestHandleFinalChunkContentReconciliation(t *testing.T) {
 				t.Errorf("emitted assistant chunks = %q, want %q", emitted, tc.wantEmitted)
 			}
 		})
+	}
+}
+
+// TestStreamedDeltasThenSnapshotEmitTextOnce replays the Codex adapter's shape
+// (deltas, a recovery suffix delta at completion, then a snapshot final) and
+// asserts each character reaches the sink exactly once.
+func TestStreamedDeltasThenSnapshotEmitTextOnce(t *testing.T) {
+	var emitted strings.Builder
+	sink := output.SinkFunc(func(event output.Event) {
+		if chunk, ok := event.Payload.(output.AssistantChunkEvent); ok {
+			emitted.WriteString(chunk.Content)
+		}
+	})
+	message := provider.Message{Role: provider.MessageRoleAssistant}
+	for _, delta := range []string{"I will ", "read it.", "\n\nDone."} {
+		handleStreamingChunk(sink, 1, output.ChunkSourceAssistant, provider.ChatChunk{Delta: provider.Message{Content: delta}}, &message)
+	}
+	handleFinalChunk(sink, 1, output.ChunkSourceAssistant, provider.ChatChunk{
+		Done:            true,
+		Delta:           provider.Message{Content: "I will read it.\n\nDone."},
+		ContentSnapshot: true,
+	}, &provider.ChatResponse{}, &message)
+	if want := "I will read it.\n\nDone."; emitted.String() != want || message.Content != want {
+		t.Errorf("emitted = %q, Content = %q, want both %q", emitted.String(), message.Content, want)
 	}
 }
 
