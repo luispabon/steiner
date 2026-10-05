@@ -12,7 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-var benchStringSink string
+var benchBlocksSink []string
 var benchViewSink string
 
 // BenchmarkView measures m.View() steady state performance at a realistic
@@ -49,11 +49,11 @@ func BenchmarkViewSmall(b *testing.B) {
 	}
 }
 
-// BenchmarkContentString measures contentBuffer.String(width) on the full-render
+// BenchmarkContentBlocks measures contentBuffer.blocks(width) on the full-render
 // (cache-miss) path. streaming=true with a non-empty streamBuffer causes
 // checkBufferDirty to return true every call, so the full segment render runs
-// each iteration. See BenchmarkContentStringCacheHit for the settled cache-hit path.
-func BenchmarkContentString(b *testing.B) {
+// each iteration. See BenchmarkContentBlocksCacheHit for the settled cache-hit path.
+func BenchmarkContentBlocks(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 4096},
@@ -68,14 +68,14 @@ func BenchmarkContentString(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchStringSink = m.content.String(m.viewport.Width())
+		benchBlocksSink = m.content.blocks(m.viewport.Width())
 	}
 }
 
-// BenchmarkContentStringCacheHit measures contentBuffer.String(width) when the
+// BenchmarkContentBlocksCacheHit measures contentBuffer.blocks(width) when the
 // buffer is settled (no streaming, no active delegations), which exercises the
 // wholesale cache-hit path. This is the cache optimization introduced in Phase 4.
-func BenchmarkContentStringCacheHit(b *testing.B) {
+func BenchmarkContentBlocksCacheHit(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 4096},
@@ -87,12 +87,12 @@ func BenchmarkContentStringCacheHit(b *testing.B) {
 	m.content.activeDelegations = nil
 	m.content.streaming = false
 
-	// Pre-warm the cache by calling String once to populate all caches.
-	benchStringSink = m.content.String(m.viewport.Width())
+	// Pre-warm the cache by calling blocks once to populate all caches.
+	benchBlocksSink = m.content.blocks(m.viewport.Width())
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchStringSink = m.content.String(m.viewport.Width())
+		benchBlocksSink = m.content.blocks(m.viewport.Width())
 	}
 }
 
@@ -170,8 +170,8 @@ func BenchmarkSyncViewportHeavy(b *testing.B) {
 	}
 }
 
-// BenchmarkContentStringHeavy measures dirty String() path with ~100 fixture events.
-func BenchmarkContentStringHeavy(b *testing.B) {
+// BenchmarkContentBlocksHeavy measures dirty blocks() path with ~100 fixture events.
+func BenchmarkContentBlocksHeavy(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 4096},
@@ -184,13 +184,13 @@ func BenchmarkContentStringHeavy(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchStringSink = m.content.String(m.viewport.Width())
+		benchBlocksSink = m.content.blocks(m.viewport.Width())
 	}
 }
 
-// BenchmarkContentStringUltraHeavy measures dirty String() path with ~400
+// BenchmarkContentBlocksUltraHeavy measures dirty blocks() path with ~400
 // fixture events (4× the heavy fixture), the streaming-conversation worst case.
-func BenchmarkContentStringUltraHeavy(b *testing.B) {
+func BenchmarkContentBlocksUltraHeavy(b *testing.B) {
 	m := newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 4096},
@@ -206,7 +206,7 @@ func BenchmarkContentStringUltraHeavy(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchStringSink = m.content.String(m.viewport.Width())
+		benchBlocksSink = m.content.blocks(m.viewport.Width())
 	}
 }
 

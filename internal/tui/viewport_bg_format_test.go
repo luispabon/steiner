@@ -15,15 +15,17 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-// stubBgFormatClock pins nanoNow so twin models render identical elapsed
-// times; advance moves the shared clock forward.
+// stubBgFormatClock pins nanoNow and timeNow so twin models render identical
+// elapsed times and timestamps whatever the wall clock does between their
+// updates; advance moves the shared clock forward.
 func stubBgFormatClock(t *testing.T) (advance func(time.Duration)) {
 	t.Helper()
-	original := nanoNow
-	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC).UnixNano()
-	nanoNow = func() int64 { return now }
-	t.Cleanup(func() { nanoNow = original })
-	return func(d time.Duration) { now += int64(d) }
+	originalNano, originalTime := nanoNow, timeNow
+	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	timeNow = func() time.Time { return now }
+	nanoNow = func() int64 { return timeNow().UnixNano() }
+	t.Cleanup(func() { nanoNow, timeNow = originalNano, originalTime })
+	return func(d time.Duration) { now = now.Add(d) }
 }
 
 // oldPipelineLines is the pre-WI-8e viewport pipeline, kept verbatim as the
