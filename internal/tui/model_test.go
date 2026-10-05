@@ -1911,6 +1911,8 @@ func TestModelStartupSnapshotPopulatesSidebarModifiedFiles(t *testing.T) {
 	writeRepoFile(t, repo, "scratch.txt", "draft\n")
 
 	m := newModel(Config{WorkingDir: repo}, nil)
+	m.git.Refresh(context.Background())
+	m = updateModel(t, m, gitRefreshDoneMsg{})
 
 	if !m.sidebar.dirty {
 		t.Fatal("sidebar.dirty = false, want true")

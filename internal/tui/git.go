@@ -8,21 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-
-	tea "charm.land/bubbletea/v2"
 )
 
 var getWorkingDir = os.Getwd
 
-type gitRefreshDoneMsg struct{}
-
-func gitRefreshCmd(gs *gitState) tea.Cmd {
-	return func() tea.Msg {
-		gs.Refresh(context.Background())
-		return gitRefreshDoneMsg{}
-	}
-}
-
+// gitSnapshot is an immutable value: once Refresh publishes it, neither it nor
+// its modifiedFiles backing array is mutated, so readers may alias the slice.
 type gitSnapshot struct {
 	repoRoot      string
 	branch        string
@@ -44,10 +35,15 @@ type gitState struct {
 	startDir string
 	snapshot gitSnapshot
 	err      error
+
+	detect     func(ctx context.Context, startDir string, logError func(error)) gitSnapshot
+	refreshing bool
+	pending    bool
+	surfaced   string
 }
 
 func newGitState(startDir string) *gitState {
-	state := &gitState{}
+	state := &gitState{detect: detectGitSnapshot}
 	if strings.TrimSpace(startDir) == "" {
 		cwd, err := getWorkingDir()
 		if err != nil {
@@ -77,10 +73,21 @@ func (s *gitState) Refresh(ctx context.Context) gitSnapshot {
 		ctx = context.Background()
 	}
 
-	snapshot := detectGitSnapshot(ctx, s.startDir, s.recordError)
+	detect := s.detect
+	if detect == nil {
+		detect = detectGitSnapshot
+	}
+	logged := false
+	snapshot := detect(ctx, s.startDir, func(err error) {
+		logged = true
+		s.recordError(err)
+	})
 
 	s.mu.Lock()
 	s.snapshot = snapshot
+	if !logged {
+		s.surfaced = ""
+	}
 	s.mu.Unlock()
 
 	return snapshot
@@ -103,6 +110,10 @@ func (s *gitState) takeError() error {
 	defer s.mu.Unlock()
 	err := s.err
 	s.err = nil
+	if err == nil || err.Error() == s.surfaced {
+		return nil
+	}
+	s.surfaced = err.Error()
 	return err
 }
 
