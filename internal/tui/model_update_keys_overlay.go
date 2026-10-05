@@ -104,6 +104,9 @@ func (m *Model) dispatchSelectedSessionAction(makeAction func(sessionID string) 
 	selected := m.sessionPicker.candidates[m.sessionPicker.selection]
 	m.sessionPicker = m.sessionPicker.Close()
 	m.input.Reset()
+	// Delete pending images now, while the store is still bound to the session
+	// being left; the load rebinds it asynchronously.
+	m.removePendingImages()
 	m.relayoutInput()
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()

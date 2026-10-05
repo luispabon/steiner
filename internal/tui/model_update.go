@@ -270,6 +270,7 @@ func (m *Model) resetConversationUI() {
 	}
 	m.sessionStartedAt = nil
 	m.status.mode = ""
+	m.removePendingImages()
 	m.resetConversationDisplay()
 	m.input.Reset()
 	m.syncInputChrome()
@@ -277,7 +278,8 @@ func (m *Model) resetConversationUI() {
 }
 
 // resetConversationDisplay drops the transcript and the display state derived
-// from it. It leaves the composer, status mode and session cleanup callbacks
+// from it. It does not touch the image store (callers decide whether pending
+// images are deleted or merely forgotten). It leaves the composer, status mode and session cleanup callbacks
 // alone, so it is safe to run mid-stream when a loaded session replaces the
 // conversation.
 func (m *Model) resetConversationDisplay() {
@@ -291,7 +293,6 @@ func (m *Model) resetConversationDisplay() {
 	m.convLabelShown = false
 	m.selection = m.selection.clear()
 	m.clearDragState()
-	m.removePendingImages()
 	m.activity = m.activity.clear()
 	m.status.approvalActive = false
 	m.status.streaming = false

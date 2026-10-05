@@ -106,6 +106,10 @@ func (m *Model) clearReplayActivity() {
 // transcript, sub-agent roster and stranded-results warning from the loaded
 // messages.
 func (m *Model) applyConversationReset() {
+	// The image store is already bound to the loaded session, so deleting by
+	// ID here could hit that session's own images; the dispatch sites removed
+	// the pending ones while the old binding was live. Only forget the markers.
+	m.imageMarkers = nil
 	m.resetConversationDisplay()
 	m.roster = subAgentRoster{}
 	m.clearStrandedResults()
