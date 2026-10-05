@@ -68,7 +68,7 @@ func TestFormatContentMatchesPadLinesWithBg(t *testing.T) {
 
 func TestSimpleWidthMatchesLipglossWidth(t *testing.T) {
 	alphabet := []string{
-		"a", "Z", " ", "~", "\t", "\r", "\x00", "\x07", "\x7f", "\x1f", "\x80", "\xff",
+		"a", "Z", " ", "~", "\t", "─", "│", "·", "\u00a0", "–", "✓", "▸", "→", "\r", "\x00", "\x07", "\x7f", "\x1f", "\x80", "\xff",
 		"\x1b", "\x1b[", "\x1b[0m", "\x1b[1;31m", "\x1b[38;2;1;2;3m", "\x1b[?25h", "\x1b[4:3m",
 		"\x1b[1;", "\x1b[\x01", "\x1b[ q", "\x1b]0;t\x07", "\x1b[K", "\x1bM",
 		"世", "🎉", "👩‍💻", "é", "​", "‍",
@@ -99,9 +99,36 @@ func TestSimpleWidthMatchesLipglossWidth(t *testing.T) {
 	if accepted == 0 {
 		t.Fatal("fast path never accepted a random line")
 	}
-	for _, line := range []string{"a\tb", "a\rb", "a\x7fb", "a\x00b", "é", "\x1b", "\x1b[3"} {
+	for _, line := range []string{"世", "🎉", "e\u0301", "\u200d", "\ufe0f", "\x1b", "\x1b[3", "\x1b]0;t\x07", "\xff", "\u00ad"} {
 		if _, ok := simpleWidth(line); ok {
 			t.Errorf("simpleWidth(%q) accepted, want fallback", line)
+		}
+	}
+}
+
+func TestSingleCellRunesAreOneCellAndNeverJoin(t *testing.T) {
+	for r := rune(0x80); r <= 0x2fff; r++ {
+		if !singleCell(r) {
+			continue
+		}
+		for _, s := range []string{string(r), "a" + string(r) + "a", string(r) + string(r)} {
+			if got, want := lipgloss.Width(s), len([]rune(s)); got != want {
+				t.Fatalf("singleCell(%U): lipgloss.Width(%q) = %d, want %d", r, s, got, want)
+			}
+		}
+	}
+}
+
+func TestFormatBodyTreatsEveryLineAsBody(t *testing.T) {
+	for seed := range uint64(1000) {
+		r := rand.New(rand.NewPCG(seed, 5))
+		s := randomFormatContent(r)
+		width := formatTestWidths[r.IntN(len(formatTestWidths))]
+		bg := formatTestBgs[r.IntN(len(formatTestBgs))]
+		full := FormatContent(s+"\nz", width, bg)
+		want := full[:strings.LastIndexByte(full, '\n')]
+		if got := FormatBody(s, width, bg); got != want {
+			t.Fatalf("seed %d: FormatBody(%q, %d, %q)\n got %q\nwant %q", seed, s, width, bg, got, want)
 		}
 	}
 }
