@@ -212,19 +212,23 @@ func messageToResponsesItems(msg Message) ([]responsesItem, error) {
 			blocks = msg.ProviderMetadata.Codex.Blocks
 		}
 		if len(blocks) == 0 {
-			if msg.Content != "" || len(msg.Images) > 0 {
+			if msg.Content != "" {
 				items = append(items, messageItem("assistant", outputContentParts(msg.Content)))
 			}
 			for _, call := range msg.ToolCalls {
 				items = append(items, responsesFunctionCallItem(call))
 			}
-			return items, nil
+			return dropLoneReasoning(items), nil
 		}
 		callIndex := 0
 		usedCalls := make([]bool, len(msg.ToolCalls))
 		for _, block := range blocks {
 			if block.Kind == "message" {
-				items = append(items, responsesItem{Type: "message", Role: "assistant", Content: outputContentParts(block.Text), Phase: block.Phase})
+				// The API rejects message items without content, and the model can
+				// emit empty ones (e.g. an empty final_answer after commentary).
+				if block.Text != "" {
+					items = append(items, responsesItem{Type: "message", Role: "assistant", Content: outputContentParts(block.Text), Phase: block.Phase})
+				}
 				continue
 			}
 			if block.Kind != "function_call" {
@@ -257,7 +261,7 @@ func messageToResponsesItems(msg Message) ([]responsesItem, error) {
 				items = append(items, responsesFunctionCallItem(call))
 			}
 		}
-		return items, nil
+		return dropLoneReasoning(items), nil
 	case MessageRoleTool:
 		items := []responsesItem{{
 			Type:   "function_call_output",
@@ -271,6 +275,15 @@ func messageToResponsesItems(msg Message) ([]responsesItem, error) {
 	default:
 		return []responsesItem{messageItem(string(msg.Role), inputContentParts(msg))}, nil
 	}
+}
+
+// dropLoneReasoning removes a reasoning item that nothing follows; the API
+// requires reasoning to be followed by an output item.
+func dropLoneReasoning(items []responsesItem) []responsesItem {
+	if len(items) == 1 && items[0].Type == "reasoning" {
+		return nil
+	}
+	return items
 }
 
 func responsesFunctionCallItem(call ToolCall) responsesItem {
