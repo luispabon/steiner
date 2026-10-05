@@ -170,9 +170,18 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			benchtime:  contentIterations,
 			fn:         func(b *testing.B) { benchToggleBlock(b, 60, 0) },
 			checkBytes: true,
-			maxBytes:   15142715,
-			maxAllocs:  1415,
-			baseline:   "measured 13167578 B/op, 1179 allocs/op (max of 4 runs, post-WI-1)",
+			maxBytes:   1882715,
+			maxAllocs:  1383,
+			baseline:   "measured 1637143 B/op, 1152 allocs/op (max of 4 runs, post-WI-10)",
+		},
+		{
+			name:       "ContentToggleBlockEarly60",
+			benchtime:  contentIterations,
+			fn:         func(b *testing.B) { benchToggleBlock(b, 60, 40) },
+			checkBytes: true,
+			maxBytes:   692823,
+			maxAllocs:  1424,
+			baseline:   "measured 602454 B/op, 1186 allocs/op (max of 4 runs, post-WI-10)",
 		},
 		{
 			// B/op is diagnostic only: each toggle joins and reformats the whole

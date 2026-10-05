@@ -50,34 +50,118 @@ func (c *bgFormatCache) update(blocks []string, width int, bg string) (changed b
 	if len(blocks) == 0 {
 		blocks = emptyTranscript
 	}
-	same := 0
-	for same < min(len(blocks), len(c.blocks)) && blocks[same] == c.blocks[same] {
-		same++
-	}
-	if same == len(blocks) && same == len(c.blocks) && width == c.width && bg == c.bg {
+	same := sameHeadBlocks(c.blocks, blocks)
+	sameFormat := width == c.width && bg == c.bg
+	if same == len(blocks) && same == len(c.blocks) && sameFormat {
 		return false
 	}
 	pos, equal := joinedCommonPrefix(c.blocks, blocks, same)
 
 	oldBody := c.bodyLines
-	c.lineStart = c.lineStart[:same+1]
-	for _, b := range blocks[same:] {
-		c.lineStart = append(c.lineStart, c.lineStart[len(c.lineStart)-1]+strings.Count(b, "\n")+1)
-	}
-	c.blocks = blocks
-	if equal && width == c.width && bg == c.bg {
+	tail := sameTailBlocks(c.blocks, blocks, same)
+	tailOld := c.lineStart[len(c.blocks)-tail]
+	c.rebuildLineStart(blocks, same)
+	if equal && sameFormat {
 		return false
 	}
 	c.bodyLines = bodyLineCount(blocks, c.lineStart)
 
 	k := 0
-	if width == c.width && bg == c.bg {
+	if sameFormat {
 		common := c.lineStart[pos.block] + strings.Count(blocks[pos.block][:pos.off], "\n")
 		k = min(common, oldBody, c.bodyLines)
 	}
 	c.width, c.bg = width, bg
+	if tail > 0 && sameFormat && c.reformatAroundTail(k, tail, tailOld, oldBody) {
+		return !equal
+	}
 	c.reformatFrom(k)
 	return !equal
+}
+
+// rebuildLineStart sets blocks and recomputes lineStart, keeping the entries
+// of the first same blocks.
+func (c *bgFormatCache) rebuildLineStart(blocks []string, same int) {
+	c.lineStart = c.lineStart[:same+1]
+	for _, b := range blocks[same:] {
+		c.lineStart = append(c.lineStart, c.lineStart[len(c.lineStart)-1]+strings.Count(b, "\n")+1)
+	}
+	c.blocks = blocks
+}
+
+// sameHeadBlocks counts the equal blocks at the start of a and b.
+func sameHeadBlocks(a, b []string) int {
+	n := 0
+	for n < min(len(a), len(b)) && a[n] == b[n] {
+		n++
+	}
+	return n
+}
+
+// sameTailBlocks counts the blocks at the end of a and b that are equal,
+// leaving the first from blocks to the prefix comparison.
+func sameTailBlocks(a, b []string, from int) int {
+	n := 0
+	for n < min(len(a), len(b))-from && a[len(a)-1-n] == b[len(b)-1-n] {
+		n++
+	}
+	return n
+}
+
+// reformatAroundTail reformats only the lines between the common prefix (the
+// first k lines) and the last tail blocks, which are unchanged but may have
+// moved; their formatted lines are shifted rather than formatted again. tailOld
+// is the old first line of those blocks and oldBody the old body line count. It
+// reports false, leaving the cache untouched, when the tail's lines are not
+// body lines at the same distance from the body end in both transcripts.
+func (c *bgFormatCache) reformatAroundTail(k, tail, tailOld, oldBody int) bool {
+	tailNew := c.lineStart[len(c.blocks)-tail]
+	if tailNew >= c.bodyLines || tailOld >= oldBody || c.bodyLines-tailNew != oldBody-tailOld {
+		return false
+	}
+	from := max(tailNew, k)
+	if from >= c.bodyLines {
+		return false
+	}
+	shift := tailNew - tailOld
+	total := c.lineStart[len(c.blocks)]
+
+	old := c.lines
+	lines := old
+	if cap(old) >= total {
+		lines = old[:total]
+	} else {
+		lines = make([]string, total, total+total/4)
+		copy(lines, old[:k])
+	}
+	copy(lines[from:c.bodyLines], old[from-shift:oldBody])
+
+	if k < tailNew {
+		bk := sort.SearchInts(c.lineStart[:len(c.blocks)], k+1) - 1
+		off := 0
+		for range k - c.lineStart[bk] {
+			off += strings.IndexByte(c.blocks[bk][off:], '\n') + 1
+		}
+		middle := c.blocks[bk][off:]
+		if end := len(c.blocks) - tail; bk+1 < end {
+			middle += "\n" + strings.Join(c.blocks[bk+1:end], "\n")
+		}
+		formatted := theme.FormatBody(middle, c.width, c.bg)
+		for i := k; i < tailNew; i++ {
+			line, after, _ := strings.Cut(formatted, "\n")
+			lines[i] = strings.TrimSuffix(line, "\r")
+			formatted = after
+		}
+	}
+	trailing := theme.FormatContent("", c.width, c.bg)
+	for i := c.bodyLines; i < total; i++ {
+		lines[i] = trailing
+	}
+	if len(lines) < len(old) {
+		clear(old[len(lines):])
+	}
+	c.lines = lines
+	return true
 }
 
 // reformatFrom replaces the formatted lines from line k to the end. Lines

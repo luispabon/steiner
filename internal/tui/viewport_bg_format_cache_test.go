@@ -110,23 +110,24 @@ func TestBgFormatCacheMatchesOldPipeline(t *testing.T) {
 }
 
 // TestBgFormatCacheReusesLines poisons the cached lines and checks which
-// survive an update: reused lines keep the poison, the rest match the oracle.
+// survive an update: reused lines (the common prefix and any unchanged trailing
+// blocks, possibly shifted) keep the poison, the rest match the oracle.
 func TestBgFormatCacheReusesLines(t *testing.T) {
 	const marker = "REUSED"
 	tests := []struct {
 		name       string
 		prev, next []string
-		wantMarked int
+		wantMarked []int
 	}{
-		{name: "unchanged", prev: []string{"a", "b"}, next: []string{"a", "b"}, wantMarked: 2},
-		{name: "re-blocked identical bytes", prev: []string{"a", "b", "c"}, next: []string{"a\nb", "c"}, wantMarked: 3},
-		{name: "tail block edited", prev: []string{"a\nb", "c"}, next: []string{"a\nb", "C"}, wantMarked: 2},
-		{name: "block appended", prev: []string{"a", "b"}, next: []string{"a", "b", "c"}, wantMarked: 1},
-		{name: "head edited", prev: []string{"a", "b", "c"}, next: []string{"A", "b", "c"}, wantMarked: 0},
-		{name: "edit inside a block", prev: []string{"a\nb\nc", "d"}, next: []string{"a\nb\nC", "d"}, wantMarked: 2},
-		{name: "prev trailing empty lines are not body lines", prev: []string{"a\n", ""}, next: []string{"a\n", "b"}, wantMarked: 1},
-		{name: "new trailing empty lines are not body lines", prev: []string{"a\n", "b"}, next: []string{"a\n", ""}, wantMarked: 1},
-		{name: "empty block lines reused", prev: []string{"a", "", "b"}, next: []string{"a", "", "c"}, wantMarked: 2},
+		{name: "unchanged", prev: []string{"a", "b"}, next: []string{"a", "b"}, wantMarked: []int{0, 1}},
+		{name: "re-blocked identical bytes", prev: []string{"a", "b", "c"}, next: []string{"a\nb", "c"}, wantMarked: []int{0, 1, 2}},
+		{name: "tail block edited", prev: []string{"a\nb", "c"}, next: []string{"a\nb", "C"}, wantMarked: []int{0, 1}},
+		{name: "block appended", prev: []string{"a", "b"}, next: []string{"a", "b", "c"}, wantMarked: []int{0}},
+		{name: "head edited", prev: []string{"a", "b", "c"}, next: []string{"A", "b", "c"}, wantMarked: []int{1, 2}},
+		{name: "edit inside a block", prev: []string{"a\nb\nc", "d"}, next: []string{"a\nb\nC", "d"}, wantMarked: []int{0, 1, 3}},
+		{name: "prev trailing empty lines are not body lines", prev: []string{"a\n", ""}, next: []string{"a\n", "b"}, wantMarked: []int{0}},
+		{name: "new trailing empty lines are not body lines", prev: []string{"a\n", "b"}, next: []string{"a\n", ""}, wantMarked: []int{0}},
+		{name: "empty block lines reused", prev: []string{"a", "", "b"}, next: []string{"a", "", "c"}, wantMarked: []int{0, 1}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -142,7 +143,7 @@ func TestBgFormatCacheReusesLines(t *testing.T) {
 			}
 			for i := range c.lines {
 				wantLine := want[i]
-				if i < tt.wantMarked {
+				if slices.Contains(tt.wantMarked, i) {
 					wantLine = marker
 				}
 				if c.lines[i] != wantLine {
