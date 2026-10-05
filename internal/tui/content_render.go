@@ -431,7 +431,7 @@ func (b *contentBuffer) inProgressPreview(width int) string {
 	if strings.TrimSpace(preview) == "" {
 		return ""
 	}
-	return b.styles.AssistantProse.Width(max(1, width)).Render(preview) + "\n"
+	return b.streamPreview.render(b.styles.AssistantProse, preview, max(1, width))
 }
 
 func (b *contentBuffer) baseTextStyle() lipgloss.Style {

@@ -295,6 +295,7 @@ type contentBuffer struct {
 	streaming         bool
 	hadChunks         bool
 	streamBuffer      string
+	streamPreview     streamPreviewCache
 	glamour           glamourPool
 	styles            *theme.Styles
 	modelBadge        func(backend string) (alias, effort string)

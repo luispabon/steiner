@@ -157,6 +157,26 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			baseline:   "measured 51541 B/op, 7 allocs/op (post-WI-8d)",
 		},
 		{
+			// The delta appends to an 8KB (resp. ~32KB) streaming buffer; a preview
+			// that re-wraps the whole buffer shows up as ~10^4 (~3.6*10^4) allocs.
+			name:       "ContentStreamDeltaLongBuffer",
+			benchtime:  contentIterations,
+			fn:         BenchmarkContentStreamDeltaLongBuffer,
+			checkBytes: true,
+			maxBytes:   128245,
+			maxAllocs:  364,
+			baseline:   "measured 111517 B/op, 303 allocs/op (max of 3 runs, post-WI-8f)",
+		},
+		{
+			name:       "ContentStreamDeltaLongBuffer32K",
+			benchtime:  contentIterations,
+			fn:         BenchmarkContentStreamDeltaLongBuffer32K,
+			checkBytes: true,
+			maxBytes:   283935,
+			maxAllocs:  674,
+			baseline:   "measured 246899 B/op, 561 allocs/op (max of 3 runs, post-WI-8f)",
+		},
+		{
 			name:       "ContentIdleFrameInflight60",
 			benchtime:  contentIterations,
 			fn:         func(b *testing.B) { benchIdleFrameInflight(b, 60) },

@@ -128,6 +128,23 @@ func BenchmarkContentStreamDeltaLongBuffer(b *testing.B) {
 	})
 }
 
+// BenchmarkContentStreamDeltaLongBuffer32K: the streaming buffer is ~32KB: six
+// settled paragraphs plus an ~8KB trailing paragraph the delta appends to.
+func BenchmarkContentStreamDeltaLongBuffer32K(b *testing.B) {
+	var buf strings.Builder
+	for range 6 {
+		buf.WriteString(strings.Repeat("ordinary prose words flow along here ", 110))
+		buf.WriteString("\n\n")
+	}
+	buf.WriteString(strings.Repeat("streamed words here ", 400))
+	benchResetEvery(b, 100, func() *Model {
+		m := populateLongTranscript(newContentBenchModel(), 200)
+		return updateModelDirect(m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(2, buf.String(), output.ChunkSourceAssistant)})
+	}, func(m *Model, _ int) {
+		stepSync(m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(2, "and some more streamed words, ", output.ChunkSourceAssistant)})
+	})
+}
+
 // BenchmarkContentThinkingDelta: a thinking delta on a long transcript. The
 // live thinking segment must not invalidate the settled-prefix cache.
 func BenchmarkContentThinkingDelta(b *testing.B) {
