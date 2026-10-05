@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
@@ -17,6 +18,12 @@ func (m *Model) contentWidth() int {
 }
 
 func (m *Model) layout() {
+	m.layoutContent(false)
+}
+
+// layoutContent sizes the viewport and syncs it. A window resize
+// (resize=true) may defer the content reflow; the returned command arms it.
+func (m *Model) layoutContent(resize bool) tea.Cmd {
 	contentWidth := m.contentWidth()
 	// ContentPane has PaddingTop(1)+PaddingLeft(3)+PaddingRight(3), so inner = contentWidth-6.
 	// Total rows: top_pad(1) + viewport + hDivider(1) + input + activity + status(1).
@@ -31,7 +38,9 @@ func (m *Model) layout() {
 	// Overhead: lipgloss border (2) + blank after box (1) + hint+newline (2) + header (1) + separator (1) + stats (1) = 8.
 	// Using delegationBodyOverhead leaves one spare row so the box never grazes the viewport edge.
 	m.content.maxDelegationBodyLines = max(0, m.viewport.Height()-delegationBodyOverhead)
+	cmd := m.planReflow(resize)
 	m.syncViewport()
+	return cmd
 }
 
 // relayoutInput recalculates viewport height after the input content changes
@@ -82,7 +91,7 @@ func (m *Model) setViewportLines(lines []string) {
 }
 
 func (m *Model) syncViewport() {
-	width := m.viewport.Width()
+	width := m.contentRenderWidth()
 
 	// The background escape is re-inserted after every ANSI reset in rendered
 	// content (theme.WithBg semantics). This is necessary because terminals with
@@ -116,14 +125,15 @@ func (m *Model) syncViewport() {
 	}
 
 	lines := m.bgFormat.lines
+	vw := m.viewport.Width()
 	pad := max(m.viewport.Height()-len(lines), 0)
 	m.contentTopPad = pad
 	if pad > 0 {
-		if m.padLineCacheWidth != width || m.padLineCacheRendered == "" {
-			m.padLineCacheWidth = width
+		if m.padLineCacheWidth != vw || m.padLineCacheRendered == "" {
+			m.padLineCacheWidth = vw
 			m.padLineCacheRendered = lipgloss.NewStyle().
 				Background(lipgloss.Color(m.resolvedPalette().ContentBG)).
-				Render(strings.Repeat(" ", width))
+				Render(strings.Repeat(" ", vw))
 		}
 		padded := make([]string, pad, pad+len(lines))
 		for i := range padded {
@@ -346,7 +356,7 @@ func (m *Model) delegationRowAction(dd *delegationDisplayState, contentRow int) 
 	if dd == nil || contentRow < 0 {
 		return -1
 	}
-	contentRows := m.content.delegationContentRows(dd, m.viewport.Width())
+	contentRows := m.content.delegationContentRows(dd, m.contentRenderWidth())
 	if contentRow >= len(contentRows) {
 		return -1
 	}
@@ -387,7 +397,7 @@ func (m *Model) delegationRowInSegment(dd *delegationDisplayState, rowInSegment 
 	if dd == nil || rowInSegment < 0 {
 		return -1
 	}
-	rows := m.content.delegationRows(dd, m.viewport.Width())
+	rows := m.content.delegationRows(dd, m.contentRenderWidth())
 	if rowInSegment >= len(rows) {
 		return -1
 	}
@@ -476,7 +486,7 @@ func (m *Model) handleToolCallGroupClick(seg *contentSegment, rowInSegment int) 
 	if seg.toolGroupData == nil {
 		return
 	}
-	entryIndex := m.content.toolCallGroupEntryAtRow(seg.toolGroupData, rowInSegment, m.viewport.Width())
+	entryIndex := m.content.toolCallGroupEntryAtRow(seg.toolGroupData, rowInSegment, m.contentRenderWidth())
 	if entryIndex < 0 || entryIndex >= len(seg.toolGroupData.entries) {
 		return
 	}
@@ -505,7 +515,7 @@ func (m *Model) handleDelegationGroupClick(seg *contentSegment, rowInSegment int
 	if seg.delegGroupData == nil {
 		return
 	}
-	entry, rowInEntry := m.content.delegationGroupEntryAtRow(seg.delegGroupData, rowInSegment, m.viewport.Width())
+	entry, rowInEntry := m.content.delegationGroupEntryAtRow(seg.delegGroupData, rowInSegment, m.contentRenderWidth())
 	if entry < 0 {
 		return
 	}

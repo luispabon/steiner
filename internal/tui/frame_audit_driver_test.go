@@ -307,10 +307,12 @@ func timers(_ *Model) []*periodic {
 }
 
 // run advances simulated time in 1ms steps, firing timers, the 50ms
-// syncDebounce chain, and the supplied per-ms emitter (argument is ms).
+// syncDebounce chain, the resize-reflow timer, and the supplied per-ms emitter (argument is ms).
 func (d *auditDriver) run(dur time.Duration, ts []*periodic, emit func(ms int)) {
 	lastSeq := d.m.syncDebounceSeq
 	debounceAt := -1
+	lastReflowSeq := d.m.reflow.seq
+	reflowAt := -1
 	for now := time.Duration(0); now < dur; now += time.Millisecond {
 		ms := int(now / time.Millisecond)
 		if emit != nil {
@@ -331,6 +333,16 @@ func (d *auditDriver) run(dur time.Duration, ts []*periodic, emit func(ms int)) 
 		if debounceAt >= 0 && ms >= debounceAt {
 			debounceAt = -1
 			d.send(syncDebounceFiredMsg{seq: d.m.syncDebounceSeq})
+		}
+		if d.m.reflow.seq != lastReflowSeq {
+			lastReflowSeq = d.m.reflow.seq
+			if d.m.reflow.pending {
+				reflowAt = ms + int(resizeReflowDelay/time.Millisecond)
+			}
+		}
+		if reflowAt >= 0 && ms >= reflowAt {
+			reflowAt = -1
+			d.send(resizeReflowFiredMsg{seq: d.m.reflow.seq})
 		}
 	}
 }

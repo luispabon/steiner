@@ -158,6 +158,9 @@ func (m *Model) visibleViewportContent() string {
 	if start >= end {
 		return ""
 	}
+	if m.reflow.pending {
+		return strings.Join(m.adaptedWindow(start, end), "\n")
+	}
 	return strings.Join(lines[start:end], "\n")
 }
 

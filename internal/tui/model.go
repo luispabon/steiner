@@ -209,6 +209,7 @@ type Model struct {
 	pendingWorkflowHandoffLaunch *workflowHandoffLaunch
 	contentDirty                 bool
 	syncDebounceSeq              int
+	reflow                       resizeReflow
 	mousePressX                  int
 	mousePressY                  int
 	sidebarPressX, sidebarPressY int // sidebar press cell awaiting release; -1 when none
