@@ -24,6 +24,7 @@ type queuedDelegationCalls struct {
 // parallelism slot is visible in the UI. Regular tool calls are never queued.
 // Returns nil when nothing was queued.
 func (p *turnProgressor) queueDelegationCalls(turn int, calls []provider.ToolCall) *queuedDelegationCalls {
+	p.delegationAgentIDs = nil
 	if p.request.ParallelClassOf == nil {
 		return nil
 	}
@@ -32,6 +33,7 @@ func (p *turnProgressor) queueDelegationCalls(turn int, calls []provider.ToolCal
 		if p.request.ParallelClassOf(call.Name) != ParallelClassDelegation {
 			continue
 		}
+		p.reserveDelegationAgentID(call)
 		if queued == nil {
 			queued = &queuedDelegationCalls{started: make(map[string]bool)}
 		}
@@ -39,6 +41,23 @@ func (p *turnProgressor) queueDelegationCalls(turn int, calls []provider.ToolCal
 		emitEvent(p.request.Events, output.NewToolCallQueuedEvent(turn, call.Name, call.ID, cloneInput(call.Arguments)))
 	}
 	return queued
+}
+
+// reserveDelegationAgentID binds the child agent ID for a spawning delegation
+// call to its call ID, in emission order, before any handler runs. Calls that
+// spawn no new child (follow_up) get no reservation and keep their existing ID.
+func (p *turnProgressor) reserveDelegationAgentID(call provider.ToolCall) {
+	if p.request.ReserveDelegationAgentID == nil {
+		return
+	}
+	id := p.request.ReserveDelegationAgentID(call.Name)
+	if id == "" {
+		return
+	}
+	if p.delegationAgentIDs == nil {
+		p.delegationAgentIDs = make(map[string]string)
+	}
+	p.delegationAgentIDs[call.ID] = id
 }
 
 // markDelegationStarted records that a queued delegation call reached dispatch.

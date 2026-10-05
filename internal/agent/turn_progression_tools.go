@@ -197,6 +197,7 @@ func (p *turnProgressor) executeSingleToolCall(ctx context.Context, state RunSta
 // this is where the file-observed checker is injected for mutate's
 // replace-operation guard.
 func (p *turnProgressor) invokeTool(ctx context.Context, turn int, call provider.ToolCall) (result any, err error) {
+	ctx = WithDelegationAgentID(ctx, p.delegationAgentIDs[call.ID])
 	defer func() {
 		if r := recover(); r != nil {
 			result, err = nil, p.recoverToolPanic(turn, call, r)

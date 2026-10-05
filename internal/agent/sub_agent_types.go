@@ -129,6 +129,28 @@ func ToolBatchIDFrom(ctx context.Context) string {
 	return id
 }
 
+// delegationAgentIDKey is the context key carrying the child agent ID reserved
+// for the current delegation tool-call occurrence.
+type delegationAgentIDKey struct{}
+
+// WithDelegationAgentID returns ctx stamped with the child agent ID reserved
+// for the current delegation tool-call occurrence. An empty id leaves ctx
+// unchanged, so callers can pass a missing reservation through directly.
+func WithDelegationAgentID(ctx context.Context, id string) context.Context {
+	if id == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, delegationAgentIDKey{}, id)
+}
+
+// DelegationAgentIDFrom returns the child agent ID reserved for the current
+// delegation tool-call occurrence, or "" when the call carried no reservation.
+// Delegation handlers fall back to generating an ID when it is empty.
+func DelegationAgentIDFrom(ctx context.Context) string {
+	id, _ := ctx.Value(delegationAgentIDKey{}).(string)
+	return id
+}
+
 // ProjectedToolResult returns the JSON of value's provider-facing projection
 // when value defines one.
 func ProjectedToolResult(value any) (string, bool) {

@@ -121,6 +121,16 @@ type RunRequest struct {
 	// contract as MaxParallelTools.
 	MaxParallelDelegations int
 
+	// ReserveDelegationAgentID, when non-nil, mints the child agent ID for a
+	// delegation tool call in the order the parent emitted its calls. The
+	// ordered tool-queue phase calls it once per spawning call before any
+	// handler runs, and the reserved ID is stamped on that call's execution
+	// context so a concurrent handler binds its child to the parent's call
+	// order instead of racing the ID generator. It returns "" for calls that
+	// spawn no new child, such as follow_up resuming an existing agent. Nil
+	// keeps the pre-existing behaviour: handlers generate their own ID.
+	ReserveDelegationAgentID func(toolName string) string
+
 	// SourceConversation is the real conversation with internal roles intact
 	// (e.g. compaction summaries); when set, initializeRunState uses it
 	// instead of reconstructing from Prompt.Conversation.
