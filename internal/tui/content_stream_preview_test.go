@@ -69,6 +69,7 @@ func TestInProgressPreviewMatchesFullRender(t *testing.T) {
 		for _, width := range widths {
 			for seed := uint64(1); seed <= 6; seed++ {
 				t.Run(fmt.Sprintf("%s/w%d/seed%d", name, width, seed), func(t *testing.T) {
+					t.Parallel()
 					rng := rand.New(rand.NewPCG(seed, uint64(width)+7))
 					b := newPreviewBuffer(theme.DefaultPalette())
 					stream := randomStream(rng, tokens, 120)
