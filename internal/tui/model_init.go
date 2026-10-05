@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"os"
@@ -398,7 +397,6 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 	m.status.styles = m.styles
 	m.activity = newActivityState(m.styles)
 
-	m.git.Refresh(context.Background())
 	m.syncSidebar()
 	m.layout()
 
@@ -476,7 +474,7 @@ func composerBlinkCmd() tea.Cmd {
 func (m *Model) Init() tea.Cmd {
 	m.composerBlinking = true
 	m.composerBlinkOn = true
-	cmds := []tea.Cmd{m.input.Focus(), tickCmd(), composerBlinkCmd()}
+	cmds := []tea.Cmd{m.input.Focus(), tickCmd(), composerBlinkCmd(), gitRefreshCmd(m.git)}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))
 	}

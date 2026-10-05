@@ -1,9 +1,7 @@
 package tui
 
 import (
-	"cmp"
 	"fmt"
-	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -81,30 +79,4 @@ func (s sidebarState) modifiedFileLine(file gitModifiedFile, width int) string {
 		line += spaceBgStyle.Render(strings.Repeat(" ", padding)) + statsText
 	}
 	return line
-}
-
-func statusPriority(s string) int {
-	switch s {
-	case "M":
-		return 0
-	case "A":
-		return 1
-	case "D":
-		return 2
-	case "U":
-		return 3
-	default:
-		return 4
-	}
-}
-
-func sortedModifiedFiles(files []gitModifiedFile) []gitModifiedFile {
-	out := append([]gitModifiedFile(nil), files...)
-	slices.SortStableFunc(out, func(a, b gitModifiedFile) int {
-		if pa, pb := statusPriority(a.Status), statusPriority(b.Status); pa != pb {
-			return cmp.Compare(pa, pb)
-		}
-		return cmp.Compare(a.Path, b.Path)
-	})
-	return out
 }

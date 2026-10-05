@@ -61,14 +61,14 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 				m.content.AppendLine("status: " + line)
 				m.contentDirty = true
 				m.syncDebounceSeq++
-				return tea.Batch(syncDebounceCmd(m.syncDebounceSeq))
+				return tea.Batch(gitRefreshCmd(m.git), syncDebounceCmd(m.syncDebounceSeq))
 			}
 		}
 		if event.Type != output.EventTypeHistoryLoaded {
 			m.content.AppendEvent(event)
 		}
 		var cmds []tea.Cmd
-		if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeModelCallFinished {
+		if shouldRefreshGit(event) {
 			cmds = append(cmds, gitRefreshCmd(m.git))
 		}
 		if event.Type != output.EventTypeAssistantChunk && event.Type != output.EventTypeThinkingChunk {
@@ -253,7 +253,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	}
 
 	var cmds []tea.Cmd
-	if event.Type == output.EventTypeToolCallFinished || event.Type == output.EventTypeModelCallFinished {
+	if shouldRefreshGit(event) {
 		cmds = append(cmds, gitRefreshCmd(m.git))
 	}
 	m.syncInputChrome()
