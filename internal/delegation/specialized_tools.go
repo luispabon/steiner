@@ -446,7 +446,10 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 
 		task := assembleTaskContent(brief)
 
-		agentID := generateAgentID()
+		agentID := agent.DelegationAgentIDFrom(ctx)
+		if agentID == "" {
+			agentID = generateAgentID()
+		}
 		callID, _ := ctx.Value(tool.ExecutionCallIDKey{}).(string)
 		spec := Spec{
 			Task:         task,

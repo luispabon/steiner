@@ -40,7 +40,10 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 			return nil, err
 		}
 
-		agentID := generateAgentID()
+		agentID := agent.DelegationAgentIDFrom(ctx)
+		if agentID == "" {
+			agentID = generateAgentID()
+		}
 		callID, _ := ctx.Value(tool.ExecutionCallIDKey{}).(string)
 		spec := Spec{
 			Task:         task,
