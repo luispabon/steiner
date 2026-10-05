@@ -269,6 +269,18 @@ func (m *Model) resetConversationUI() {
 		m.sessionResetCleanup()
 	}
 	m.sessionStartedAt = nil
+	m.status.mode = ""
+	m.resetConversationDisplay()
+	m.input.Reset()
+	m.syncInputChrome()
+	m.syncViewport()
+}
+
+// resetConversationDisplay drops the transcript and the display state derived
+// from it. It leaves the composer, status mode and session cleanup callbacks
+// alone, so it is safe to run mid-stream when a loaded session replaces the
+// conversation.
+func (m *Model) resetConversationDisplay() {
 	m.content.Clear()
 	m.jumpTarget = occurrenceKey{}
 	m.jumpAt = time.Time{}
@@ -281,7 +293,6 @@ func (m *Model) resetConversationUI() {
 	m.clearDragState()
 	m.removePendingImages()
 	m.activity = m.activity.clear()
-	m.status.mode = ""
 	m.status.approvalActive = false
 	m.status.streaming = false
 	m.approval = approvalState{}
@@ -304,9 +315,6 @@ func (m *Model) resetConversationUI() {
 	}
 	m.setCompaction(compactionState{})
 	m.syncSidebar()
-	m.input.Reset()
-	m.syncInputChrome()
-	m.syncViewport()
 }
 
 func (m *Model) handleToggleThinkingMsg(_ toggleThinkingMsg) (tea.Model, tea.Cmd) {

@@ -243,6 +243,8 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.content.AppendLine(fmt.Sprintf("status: skill %s %s", payload.Name, payload.State))
 	case output.MCPStatusEvent:
 		m.applyMCPStatusEvent(payload)
+	case output.ConversationResetEvent:
+		m.applyConversationReset()
 	case output.OneshotFinishedEvent:
 		m.oneshotRunning = false
 		m.oneshotPhase = ""
