@@ -50,11 +50,9 @@ func (c *bgFormatCache) update(blocks []string, width int, bg string) (changed b
 	if len(blocks) == 0 {
 		blocks = emptyTranscript
 	}
-	same := 0
-	for same < min(len(blocks), len(c.blocks)) && blocks[same] == c.blocks[same] {
-		same++
-	}
-	if same == len(blocks) && same == len(c.blocks) && width == c.width && bg == c.bg {
+	same := sameHeadBlocks(c.blocks, blocks)
+	sameFormat := width == c.width && bg == c.bg
+	if same == len(blocks) && same == len(c.blocks) && sameFormat {
 		return false
 	}
 	pos, equal := joinedCommonPrefix(c.blocks, blocks, same)
@@ -62,28 +60,42 @@ func (c *bgFormatCache) update(blocks []string, width int, bg string) (changed b
 	oldBody := c.bodyLines
 	tail := sameTailBlocks(c.blocks, blocks, same)
 	tailOld := c.lineStart[len(c.blocks)-tail]
-	c.lineStart = c.lineStart[:same+1]
-	for _, b := range blocks[same:] {
-		c.lineStart = append(c.lineStart, c.lineStart[len(c.lineStart)-1]+strings.Count(b, "\n")+1)
-	}
-	c.blocks = blocks
-	if equal && width == c.width && bg == c.bg {
+	c.rebuildLineStart(blocks, same)
+	if equal && sameFormat {
 		return false
 	}
 	c.bodyLines = bodyLineCount(blocks, c.lineStart)
 
 	k := 0
-	if width == c.width && bg == c.bg {
+	if sameFormat {
 		common := c.lineStart[pos.block] + strings.Count(blocks[pos.block][:pos.off], "\n")
 		k = min(common, oldBody, c.bodyLines)
 	}
-	reuseTail := tail > 0 && width == c.width && bg == c.bg
 	c.width, c.bg = width, bg
-	if reuseTail && c.reformatAroundTail(k, tail, tailOld, oldBody) {
+	if tail > 0 && sameFormat && c.reformatAroundTail(k, tail, tailOld, oldBody) {
 		return !equal
 	}
 	c.reformatFrom(k)
 	return !equal
+}
+
+// rebuildLineStart sets blocks and recomputes lineStart, keeping the entries
+// of the first same blocks.
+func (c *bgFormatCache) rebuildLineStart(blocks []string, same int) {
+	c.lineStart = c.lineStart[:same+1]
+	for _, b := range blocks[same:] {
+		c.lineStart = append(c.lineStart, c.lineStart[len(c.lineStart)-1]+strings.Count(b, "\n")+1)
+	}
+	c.blocks = blocks
+}
+
+// sameHeadBlocks counts the equal blocks at the start of a and b.
+func sameHeadBlocks(a, b []string) int {
+	n := 0
+	for n < min(len(a), len(b)) && a[n] == b[n] {
+		n++
+	}
+	return n
 }
 
 // sameTailBlocks counts the blocks at the end of a and b that are equal,

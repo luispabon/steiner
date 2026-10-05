@@ -71,7 +71,7 @@ func TestSimpleWidthMatchesLipglossWidth(t *testing.T) {
 		"a", "Z", " ", "~", "\t", "─", "│", "·", "\u00a0", "–", "✓", "▸", "→", "\r", "\x00", "\x07", "\x7f", "\x1f", "\x80", "\xff",
 		"\x1b", "\x1b[", "\x1b[0m", "\x1b[1;31m", "\x1b[38;2;1;2;3m", "\x1b[?25h", "\x1b[4:3m",
 		"\x1b[1;", "\x1b[\x01", "\x1b[ q", "\x1b]0;t\x07", "\x1b[K", "\x1bM",
-		"世", "🎉", "👩‍💻", "é", "​", "‍",
+		"世", "🎉", "👩‍💻", "é", "\u200b", "\u200d",
 	}
 	fixed := []string{"", "plain text", "\x1b[0m", "\x1b[0m\x1b[m", "\x1b[", "x\ty", "x\ry", "\x7f", "a\x1b[31", "\x1b[31mred\x1b[0m"}
 	check := func(line string) {

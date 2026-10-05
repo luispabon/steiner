@@ -145,16 +145,11 @@ func simpleWidth(line string) (int, bool) {
 		case c >= 0x20 && c <= 0x7e:
 			w++
 		case c == 0x1b:
-			if i+1 >= len(line) || line[i+1] != '[' {
+			next, ok := skipCSI(line, i)
+			if !ok {
 				return 0, false
 			}
-			i += 2
-			for i < len(line) && line[i] >= 0x30 && line[i] <= 0x3f {
-				i++
-			}
-			if i == len(line) || line[i] < 0x40 || line[i] > 0x7e {
-				return 0, false
-			}
+			i = next
 		case c < 0x20 || c == 0x7f:
 		default:
 			r, size := utf8.DecodeRuneInString(line[i:])
@@ -166,6 +161,22 @@ func simpleWidth(line string) (int, bool) {
 		}
 	}
 	return w, true
+}
+
+// skipCSI returns the index of the final byte of the complete CSI sequence
+// starting at the ESC at line[i].
+func skipCSI(line string, i int) (int, bool) {
+	if i+1 >= len(line) || line[i+1] != '[' {
+		return 0, false
+	}
+	i += 2
+	for i < len(line) && line[i] >= 0x30 && line[i] <= 0x3f {
+		i++
+	}
+	if i == len(line) || line[i] < 0x40 || line[i] > 0x7e {
+		return 0, false
+	}
+	return i, true
 }
 
 // singleCell reports whether r is a non-ASCII rune that always occupies one
