@@ -14,7 +14,7 @@ import (
 
 func reflowFixture(t *testing.T) *Model {
 	t.Helper()
-	stubWidthCacheClocks(t)
+	stubBgFormatClock(t)
 	return populateLongTranscript(newContentBenchModel(), 12)
 }
 

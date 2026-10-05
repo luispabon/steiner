@@ -39,11 +39,6 @@ func segmentHasActiveDelegation(seg *contentSegment) bool {
 	}
 }
 
-// String returns the rendered transcript: blocks(width) joined with "\n".
-func (b *contentBuffer) String(width int) string {
-	return strings.Join(b.blocks(width), "\n")
-}
-
 // blocks renders the transcript as blocks whose "\n"-join is the transcript.
 // Unchanged cached segment renders appear as the same substrings frame after
 // frame, which lets the viewport reformat only from the first changed block.

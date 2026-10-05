@@ -4746,7 +4746,7 @@ func TestMultiLineInputViewHeightNeverExceedsTerminal(t *testing.T) {
 	}
 }
 
-func TestContentStringCacheInvalidationOnDirtySegment(t *testing.T) {
+func TestContentBlocksCacheInvalidationOnDirtySegment(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -4765,7 +4765,7 @@ func TestContentStringCacheInvalidationOnDirtySegment(t *testing.T) {
 	}
 }
 
-func TestContentStringCacheInvalidationOnWidthChange(t *testing.T) {
+func TestContentBlocksCacheInvalidationOnWidthChange(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -4817,7 +4817,7 @@ func TestHiddenThinkingSegmentCleared(t *testing.T) {
 	}
 }
 
-func TestContentStringCacheInvalidationOnActiveDelegation(t *testing.T) {
+func TestContentBlocksCacheInvalidationOnActiveDelegation(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})

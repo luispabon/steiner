@@ -8,13 +8,13 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-// TestContentStringPrefixCache verifies that the settled-prefix cache produces
+// TestContentBlocksPrefixCache verifies that the settled-prefix cache produces
 // exactly the output of the uncached full walk across the four invalidation
 // hazards: append-only streaming, retroactive mutation of a settled segment, a
 // width change, and a showThinking toggle. Each case warms the prefix cache,
 // applies the changing condition, and compares the rendered output against a
 // cold reference buffer built from the same content.
-func TestContentStringPrefixCache(t *testing.T) {
+func TestContentBlocksPrefixCache(t *testing.T) {
 	t.Parallel()
 	useTrueColor(t)
 	styles := testStyles(theme.AccentAmber)
@@ -132,11 +132,11 @@ func TestContentStringPrefixCache(t *testing.T) {
 	}
 }
 
-// TestContentStringPrefixCacheToolCallFinished exercises a real production
+// TestContentBlocksPrefixCacheToolCallFinished exercises a real production
 // mutation of a settled segment (ToolCallFinishedEvent updating the tool-call
 // segment inside the prefix) and verifies the cached output matches a cold
 // render.
-func TestContentStringPrefixCacheToolCallFinished(t *testing.T) {
+func TestContentBlocksPrefixCacheToolCallFinished(t *testing.T) {
 	useTrueColor(t)
 	originalNanoNow := nanoNow
 	nanoNow = func() int64 { return 1_000_000_000 }
