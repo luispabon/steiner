@@ -9,11 +9,6 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-func scoped(event output.Event, agentID string) output.Event {
-	event.Scope.AgentID = agentID
-	return event
-}
-
 func TestShouldRefreshGit(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -35,11 +30,11 @@ func TestShouldRefreshGit(t *testing.T) {
 		{"advisor", output.NewToolCallFinishedEvent(1, "advisor", "c", "", nil), false},
 		{"workflow_handoff", output.NewToolCallFinishedEvent(1, "workflow_handoff", "c", "", nil), false},
 		{"lsp tool", output.NewToolCallFinishedEvent(1, "lsp_hover", "c", "", nil), false},
-		{"sub-agent bash", scoped(output.NewToolCallFinishedEvent(1, "bash", "c", "", nil), "a1"), false},
+		{"sub-agent bash", output.WithAgentScope(output.NewToolCallFinishedEvent(1, "bash", "c", "", nil), "a1"), false},
 		{"delegation complete", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{}), true},
-		{"delegation complete sub-agent scope", scoped(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{}), "a1"), true},
-		{"delegation failed", scoped(output.NewDelegationFailedEvent(output.DelegationFailedParams{}), "a1"), true},
-		{"worktree disposal", scoped(output.NewDelegationWorktreeDisposalEvent("a1", true, ""), "a1"), true},
+		{"delegation complete sub-agent scope", output.WithAgentScope(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{}), "a1"), true},
+		{"delegation failed", output.WithAgentScope(output.NewDelegationFailedEvent(output.DelegationFailedParams{}), "a1"), true},
+		{"worktree disposal", output.WithAgentScope(output.NewDelegationWorktreeDisposalEvent("a1", true, ""), "a1"), true},
 		{"run finished", output.NewRunFinishedEvent(1, "stop", "", "", nil), true},
 		{"run started", output.NewRunStartedEvent("interactive", "m", "", 1, 1), false},
 	}
@@ -69,10 +64,10 @@ func TestModelGitRefreshTriggers(t *testing.T) {
 		{"main bash", output.NewToolCallFinishedEvent(1, "bash", "c", "", nil), true},
 		{"main read", output.NewToolCallFinishedEvent(1, "read", "c", "", nil), false},
 		{"model call finished", output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{Turn: 1}), false},
-		{"sub-agent bash", scoped(output.NewToolCallFinishedEvent(1, "bash", "c", "", nil), "a1"), false},
+		{"sub-agent bash", output.WithAgentScope(output.NewToolCallFinishedEvent(1, "bash", "c", "", nil), "a1"), false},
 		{"delegation complete", output.NewDelegationCompleteEvent(output.DelegationCompleteParams{}), true},
-		{"scoped delegation complete", scoped(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{}), "a1"), true},
-		{"scoped worktree disposal", scoped(output.NewDelegationWorktreeDisposalEvent("a1", true, ""), "a1"), true},
+		{"scoped delegation complete", output.WithAgentScope(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{}), "a1"), true},
+		{"scoped worktree disposal", output.WithAgentScope(output.NewDelegationWorktreeDisposalEvent("a1", true, ""), "a1"), true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
