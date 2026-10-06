@@ -99,6 +99,43 @@ func registryTestConfig() config.Config {
 	}
 }
 
+// TestBashToolTimeoutCapWiredFromConfig proves coreToolDefinitions threads
+// limits.tool_timeouts["bash"] into the bash tool schema, and that Registry.Subset
+// (the mechanism that builds sub-agent tool sets) inherits the same schema.
+func TestBashToolTimeoutCapWiredFromConfig(t *testing.T) {
+	cfg := registryTestConfig()
+	cfg.Limits.ToolTimeouts = map[string]config.Duration{"bash": config.MustDuration("300s")}
+
+	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, nil)
+
+	checkSchema := func(t *testing.T, label string, def tool.ToolDef) {
+		t.Helper()
+		props, _ := def.ParameterSchema["properties"].(map[string]any)
+		ts, _ := props["timeout_seconds"].(map[string]any)
+		if ts == nil {
+			t.Fatalf("%s schema missing timeout_seconds", label)
+		}
+		if got := ts["maximum"]; got != 300 {
+			t.Errorf("%s timeout_seconds maximum = %v, want 300", label, got)
+		}
+		if got := ts["default"]; got != 30 {
+			t.Errorf("%s timeout_seconds default = %v, want 30", label, got)
+		}
+	}
+
+	def, ok := registry.Get("bash")
+	if !ok {
+		t.Fatal("registry missing bash")
+	}
+	checkSchema(t, "registry", def)
+
+	subsetDef, ok := registry.Subset([]string{"bash"}, nil).Get("bash")
+	if !ok {
+		t.Fatal("subset missing bash")
+	}
+	checkSchema(t, "subset", subsetDef)
+}
+
 func TestRuntimeRegistryWithNilManagerRegistersNoMCPTools(t *testing.T) {
 	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, nil)
 	for _, name := range registry.Names() {

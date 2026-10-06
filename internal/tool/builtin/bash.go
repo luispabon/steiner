@@ -27,17 +27,18 @@ func (r *BashResult) AppendOutput(s string) { r.Output += s }
 
 // NewBashTool creates a ToolDef for the bash tool backed by a local BashSession.
 func NewBashTool(env Env) tool.ToolDef {
+	maxTimeoutSeconds := resolveBashTimeoutCapSeconds(env.BashTimeoutCap)
 	return tool.ToolDef{
 		Name:            "bash",
 		Description:     "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated.",
-		ParameterSchema: BashSchema(),
+		ParameterSchema: BashSchema(maxTimeoutSeconds),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[BashInput](input)
 			if err != nil {
 				return nil, fmt.Errorf("bash: %w", err)
 			}
 
-			normalizeBash(&in)
+			normalizeBash(&in, maxTimeoutSeconds)
 
 			var cwd string
 			if in.CWD != "" {

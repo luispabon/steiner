@@ -131,14 +131,16 @@ func DisplayFileSchema() map[string]any {
 	}
 }
 
-// BashSchema returns the JSON schema for the bash tool.
-func BashSchema() map[string]any {
+// BashSchema returns the JSON schema for the bash tool. maxTimeoutSeconds is
+// the resolved configured cap: the timeout default is the smaller of the
+// 30-second request default and the cap, and the cap is the maximum.
+func BashSchema(maxTimeoutSeconds int) map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"command":          map[string]any{"type": "string", "description": "Shell command to execute"},
 			"cwd":              map[string]any{"type": "string", "description": "Working directory"},
-			"timeout_seconds":  map[string]any{"type": "integer", "description": "Max execution time", "default": defaultBashTimeoutSeconds, "maximum": maxBashTimeoutSeconds},
+			"timeout_seconds":  map[string]any{"type": "integer", "description": "Max execution time", "default": min(defaultBashTimeoutSeconds, maxTimeoutSeconds), "maximum": maxTimeoutSeconds},
 			"max_output_chars": map[string]any{"type": "integer", "description": "Max output characters", "default": defaultBashMaxOutputChars, "maximum": maxBashMaxOutputChars},
 		},
 		"required":             []string{"command"},

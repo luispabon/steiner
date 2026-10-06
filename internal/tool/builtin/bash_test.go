@@ -227,3 +227,86 @@ func TestBashToolFailsClosedWithoutSandboxWrapperKey(t *testing.T) {
 		})
 	}
 }
+
+// TestBashToolConfiguredTimeoutCapInSchema proves NewBashTool threads the Env
+// cap into the parameter schema: the 300-second cap is the schema maximum and
+// the default stays at the 30-second request default.
+func TestBashToolConfiguredTimeoutCapInSchema(t *testing.T) {
+	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
+	toolDef := NewBashTool(Env{PathPolicy: &policy, BashTimeoutCap: 300 * time.Second})
+
+	props, _ := toolDef.ParameterSchema["properties"].(map[string]any)
+	ts, _ := props["timeout_seconds"].(map[string]any)
+	if ts == nil {
+		t.Fatal("bash schema missing timeout_seconds")
+	}
+	if got := ts["maximum"]; got != 300 {
+		t.Errorf("timeout_seconds maximum = %v, want 300", got)
+	}
+	if got := ts["default"]; got != defaultBashTimeoutSeconds {
+		t.Errorf("timeout_seconds default = %v, want %d", got, defaultBashTimeoutSeconds)
+	}
+}
+
+// TestBashToolZeroEnvUsesFiniteCap proves a zero-valued Env cap falls back to
+// the finite 120-second default in the schema rather than a zero maximum.
+func TestBashToolZeroEnvUsesFiniteCap(t *testing.T) {
+	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
+	toolDef := NewBashTool(Env{PathPolicy: &policy})
+
+	props, _ := toolDef.ParameterSchema["properties"].(map[string]any)
+	ts, _ := props["timeout_seconds"].(map[string]any)
+	if ts == nil {
+		t.Fatal("bash schema missing timeout_seconds")
+	}
+	if got := ts["maximum"]; got != defaultBashTimeoutCapSeconds {
+		t.Errorf("timeout_seconds maximum = %v, want %d", got, defaultBashTimeoutCapSeconds)
+	}
+	if got := ts["default"]; got != defaultBashTimeoutSeconds {
+		t.Errorf("timeout_seconds default = %v, want %d", got, defaultBashTimeoutSeconds)
+	}
+}
+
+// TestBashToolTimeoutResultAndRecovery proves a short lifecycle timeout still
+// yields the existing timeout result (not a Go error) and that the tool stays
+// usable for a later call.
+func TestBashToolTimeoutResultAndRecovery(t *testing.T) {
+	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
+	toolDef := NewBashTool(Env{PathPolicy: &policy, BashTimeoutCap: time.Second})
+
+	shortCtx, cancel := context.WithTimeout(withUnsandboxedWrapper(context.Background()), 20*time.Millisecond)
+	defer cancel()
+
+	resultValue, err := toolDef.Handler(shortCtx, map[string]any{
+		"command":         "sleep 5",
+		"timeout_seconds": 30,
+	})
+	if err != nil {
+		t.Fatalf("timeout handler error = %v", err)
+	}
+	timeoutResult, ok := resultValue.(*BashResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *BashResult", resultValue)
+	}
+	if timeoutResult.ExitCode == 0 {
+		t.Errorf("ExitCode = 0, want non-zero for timed out command")
+	}
+	if timeoutResult.Output == "" {
+		t.Error("Output is empty, want timeout error message")
+	}
+
+	recoveryValue, err := toolDef.Handler(withUnsandboxedWrapper(context.Background()), map[string]any{"command": "echo recovered"})
+	if err != nil {
+		t.Fatalf("recovery handler error = %v", err)
+	}
+	recovery, ok := recoveryValue.(*BashResult)
+	if !ok {
+		t.Fatalf("recovery result type = %T, want *BashResult", recoveryValue)
+	}
+	if recovery.ExitCode != 0 {
+		t.Errorf("recovery ExitCode = %d, want 0", recovery.ExitCode)
+	}
+	if !strings.Contains(recovery.Output, "recovered") {
+		t.Errorf("recovery Output = %q, want to contain %q", recovery.Output, "recovered")
+	}
+}

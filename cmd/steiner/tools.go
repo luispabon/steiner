@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -30,6 +31,7 @@ func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.E
 		WorkDir:                  workDir,
 		PathPolicy:               &pp,
 		Excluder:                 &excluder,
+		BashTimeoutCap:           time.Duration(cfg.Limits.ToolTimeouts["bash"].Duration()),
 		EventSink:                displaySink,
 		Interactive:              interactive,
 		WorkflowHandoffResponder: handoffResponder,

@@ -1,5 +1,7 @@
 package builtin
 
+import "time"
+
 // ReadInput is the typed input for the read tool.
 type ReadInput struct {
 	Path        string `json:"path"`
@@ -100,10 +102,13 @@ const (
 	defaultDisplayFileLimit   = 120
 	maxDisplayFileLimit       = 1000
 	defaultBashTimeoutSeconds = 30
-	maxBashTimeoutSeconds     = 120
-	defaultBashMaxOutputChars = 30000
-	maxBashMaxOutputChars     = 100000
-	defaultFetchURLMaxSize    = 10 << 20
+	// defaultBashTimeoutCapSeconds is the finite fallback cap used when a
+	// programmatically constructed Env cap is non-positive or not a whole
+	// number of seconds.
+	defaultBashTimeoutCapSeconds = 120
+	defaultBashMaxOutputChars    = 30000
+	maxBashMaxOutputChars        = 100000
+	defaultFetchURLMaxSize       = 10 << 20
 	// fetchRawText reads up to MaxSize+1 bytes into memory. An opted-in 32 MiB
 	// fetch therefore holds about 32 MiB plus saveFetchedContent's copies.
 	maxFetchURLMaxSize    = 32 << 20
@@ -155,12 +160,27 @@ func normalizeLS(in *LSInput) {
 	in.Limit = min(in.Limit, maxLSLimit)
 }
 
-// normalizeBash applies defaults and caps to bash input.
-func normalizeBash(in *BashInput) {
+// resolveBashTimeoutCapSeconds converts a configured bash timeout cap into
+// whole seconds. Config validation guarantees a positive whole-second value,
+// but programmatic Env construction bypasses it, so a non-positive cap or one
+// that is not an exact multiple of a second falls back to the 120-second
+// default.
+func resolveBashTimeoutCapSeconds(cap time.Duration) int {
+	if cap <= 0 || cap%time.Second != 0 {
+		return defaultBashTimeoutCapSeconds
+	}
+	return int(cap / time.Second)
+}
+
+// normalizeBash applies defaults and caps to bash input. maxTimeoutSeconds is
+// the resolved configured cap: non-positive requests default to 30 seconds,
+// then every request is clamped to maxTimeoutSeconds before the handler
+// multiplies by time.Second.
+func normalizeBash(in *BashInput, maxTimeoutSeconds int) {
 	if in.TimeoutSeconds <= 0 {
 		in.TimeoutSeconds = defaultBashTimeoutSeconds
 	}
-	in.TimeoutSeconds = min(in.TimeoutSeconds, maxBashTimeoutSeconds)
+	in.TimeoutSeconds = min(in.TimeoutSeconds, maxTimeoutSeconds)
 	if in.MaxOutputChars <= 0 {
 		in.MaxOutputChars = defaultBashMaxOutputChars
 	}
