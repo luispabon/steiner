@@ -101,6 +101,7 @@ func formatSplit(blocks []string, width int, bg string) []string {
 }
 
 func TestBgFormatCacheUpdateMatchesFullFormat(t *testing.T) {
+	t.Parallel()
 	for seed := range uint64(300) {
 		r := rand.New(rand.NewPCG(seed, 11))
 		var c bgFormatCache
