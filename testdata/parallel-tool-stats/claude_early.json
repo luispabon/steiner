@@ -1,0 +1,55 @@
+{
+  "id": "a",
+  "created_at": "2026-09-01T10:00:00Z",
+  "model": "claude-sonnet-x",
+  "lineage": {
+    "generations": [
+      {
+        "id": "g",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "c0",
+                "name": "read",
+                "arguments": {}
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "c0",
+                "name": "read",
+                "arguments": {}
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "c0",
+                "name": "read",
+                "arguments": {}
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          }
+        ]
+      }
+    ]
+  }
+}

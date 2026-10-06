@@ -1,0 +1,26 @@
+{
+  "id": "d",
+  "created_at": "2026-10-03T11:00:00Z",
+  "model": "gpt-test",
+  "lineage": {
+    "generations": [
+      {
+        "id": "g",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          }
+        ]
+      }
+    ]
+  }
+}
