@@ -310,3 +310,57 @@ func TestBashToolTimeoutResultAndRecovery(t *testing.T) {
 		t.Errorf("recovery Output = %q, want to contain %q", recovery.Output, "recovered")
 	}
 }
+
+// TestBashToolEnforcesConfiguredTimeoutCap proves the handler's own configured
+// cap, rather than parent-context cancellation, expires an over-cap request:
+// with an uncancelled parent context, a request above the 1-second cap, and a
+// command that would otherwise outlive the cap, the handler still returns the
+// established timeout result once the cap elapses, and the session recovers
+// afterwards.
+func TestBashToolEnforcesConfiguredTimeoutCap(t *testing.T) {
+	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
+	toolDef := NewBashTool(Env{PathPolicy: &policy, BashTimeoutCap: time.Second})
+
+	// No parent deadline: only the configured cap can expire this call.
+	ctx := withUnsandboxedWrapper(context.Background())
+
+	start := time.Now()
+	resultValue, err := toolDef.Handler(ctx, map[string]any{
+		"command":         "sleep 10",
+		"timeout_seconds": 30,
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("handler error = %v", err)
+	}
+	result, ok := resultValue.(*BashResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *BashResult", resultValue)
+	}
+	if result.ExitCode == 0 {
+		t.Errorf("ExitCode = 0, want non-zero for cap-expired command")
+	}
+	if !strings.Contains(result.Output, "context deadline exceeded") {
+		t.Errorf("Output = %q, want to contain %q", result.Output, "context deadline exceeded")
+	}
+	// The 1-second cap, not the 30-second request, governs: without cap
+	// enforcement the command would run its full 10 seconds.
+	if elapsed >= 5*time.Second {
+		t.Errorf("elapsed = %v, want well under the 10s command runtime", elapsed)
+	}
+
+	recoveryValue, err := toolDef.Handler(withUnsandboxedWrapper(context.Background()), map[string]any{"command": "echo recovered"})
+	if err != nil {
+		t.Fatalf("recovery handler error = %v", err)
+	}
+	recovery, ok := recoveryValue.(*BashResult)
+	if !ok {
+		t.Fatalf("recovery result type = %T, want *BashResult", recoveryValue)
+	}
+	if recovery.ExitCode != 0 {
+		t.Errorf("recovery ExitCode = %d, want 0", recovery.ExitCode)
+	}
+	if !strings.Contains(recovery.Output, "recovered") {
+		t.Errorf("recovery Output = %q, want to contain %q", recovery.Output, "recovered")
+	}
+}
