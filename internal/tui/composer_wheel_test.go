@@ -40,6 +40,7 @@ func screenRow(t *testing.T, m *Model, sub string) int {
 // composer window follows the cursor, so the textarea's own viewport is hidden
 // state. Wherever the pointer is, only the transcript scrolls.
 func TestComposerWheelScrolling(t *testing.T) {
+	t.Parallel()
 	probe := composerWheelModel(t)
 	composerY := screenRow(t, probe, "composer line 59")
 	if chrome := probe.inputChromeHeight(probe.contentWidth()); chrome < 30 {
@@ -67,6 +68,7 @@ func TestComposerWheelScrolling(t *testing.T) {
 	for _, tc := range tests {
 		for _, button := range []tea.MouseButton{tea.MouseWheelUp, tea.MouseWheelDown} {
 			t.Run(fmt.Sprintf("%s/%v", tc.name, button), func(t *testing.T) {
+				t.Parallel()
 				m := composerWheelModel(t)
 				composerState, composerRows := m.input.View(), composerFrameRows(t, m, composerY)
 				vpBefore := m.viewport.YOffset()

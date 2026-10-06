@@ -16,6 +16,7 @@ import (
 )
 
 func TestWheelRoutingPin(t *testing.T) {
+	t.Parallel()
 	const (
 		scrollTranscript = "transcript"
 		scrollOverlay    = "context overlay"
@@ -56,6 +57,7 @@ func TestWheelRoutingPin(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := populateLongTranscript(newContentBenchModel(), 5)
 			m.viewport.SetYOffset(m.viewport.maxYOffset() / 2)
 			tc.open(m)
@@ -115,6 +117,7 @@ func TestIdleIsIdlePin(t *testing.T) {
 }
 
 func TestFinishedRosterIsIdlePin(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		finish    bool
@@ -125,6 +128,7 @@ func TestFinishedRosterIsIdlePin(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := auditModelSized(t, 1, 3, true)
 			if tc.finish {
 				m = finishAuditAgents(m, 3)
@@ -168,6 +172,7 @@ func TestChunksDoNotTouchViewportPin(t *testing.T) {
 }
 
 func TestButtonlessMotionIsFreePin(t *testing.T) {
+	t.Parallel()
 	const n = 1000
 	tests := []struct {
 		name  string
@@ -190,6 +195,7 @@ func TestButtonlessMotionIsFreePin(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := tc.model(t)
 			d := newAuditDriver(m)
 			y := 0

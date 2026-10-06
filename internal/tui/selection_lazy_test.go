@@ -136,6 +136,7 @@ func inputRegionCell(t *testing.T, m *Model) (x, y int) {
 }
 
 func TestDragReleaseExtractsLazilyFromLastFrame(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		setup func(m *Model)
@@ -153,6 +154,7 @@ func TestDragReleaseExtractsLazilyFromLastFrame(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m := auditModelSized(t, 1, 1, true)
 			m.input.SetValue("first line of input text\nsecond line of input text\nthird")
 			tc.setup(m)

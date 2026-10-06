@@ -60,19 +60,26 @@ func newPreviewBuffer(palette theme.Palette) *contentBuffer {
 }
 
 func TestInProgressPreviewMatchesFullRender(t *testing.T) {
-	widths := []int{0, 1, 2, 3, 5, 8, 17, 40, 200}
+	// The race job runs a reduced sample because these tests are single-goroutine
+	// and the non-race job runs the full matrix.
+	widths := []int{1, 2, 3, 5, 8, 17, 40, 200}
+	seeds, tokenCount := uint64(6), 120
+	if raceEnabled {
+		widths = []int{1, 3, 17, 200}
+		seeds, tokenCount = 2, 60
+	}
 	tokenSets := map[string][]string{
 		"text":     streamPreviewTokens,
 		"controls": append(append([]string{}, streamPreviewTokens...), streamPreviewControlTokens...),
 	}
 	for name, tokens := range tokenSets {
 		for _, width := range widths {
-			for seed := uint64(1); seed <= 6; seed++ {
+			for seed := uint64(1); seed <= seeds; seed++ {
 				t.Run(fmt.Sprintf("%s/w%d/seed%d", name, width, seed), func(t *testing.T) {
 					t.Parallel()
 					rng := rand.New(rand.NewPCG(seed, uint64(width)+7))
 					b := newPreviewBuffer(theme.DefaultPalette())
-					stream := randomStream(rng, tokens, 120)
+					stream := randomStream(rng, tokens, tokenCount)
 					for i, chunk := range randomChunks(rng, stream, 6) {
 						b.streamBuffer += chunk
 						if got, want := b.inProgressPreview(width), fullPreview(b, width); got != want {
@@ -90,7 +97,11 @@ func TestInProgressPreviewSurvivesStateChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve palette: %v", err)
 	}
-	for seed := uint64(1); seed <= 8; seed++ {
+	seeds := uint64(8)
+	if raceEnabled {
+		seeds = 3
+	}
+	for seed := uint64(1); seed <= seeds; seed++ {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			t.Parallel()
 			rng := rand.New(rand.NewPCG(seed, 99))

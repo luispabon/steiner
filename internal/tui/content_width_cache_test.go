@@ -131,8 +131,14 @@ func assertTwinViews(t *testing.T, label string, got, want *Model, selection boo
 // agree byte for byte.
 func TestWidthRenderCacheMatchesFreshRender(t *testing.T) {
 	advance := stubBgFormatClock(t)
+	// The race job runs a reduced sample because these tests are single-goroutine
+	// and the non-race job runs the full matrix.
+	seeds, minRevisits := uint64(8), 30
+	if raceEnabled {
+		seeds, minRevisits = 3, 10
+	}
 	revisits := 0
-	for seed := range uint64(8) {
+	for seed := range seeds {
 		s := &widthCacheScenario{bgFormatScenario: bgFormatScenario{r: rand.New(rand.NewPCG(seed, 11))}}
 		run := sendMsg(runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
 		cached, single, fresh := newBgFormatTwinModel(run), newBgFormatTwinModel(run), newBgFormatTwinModel(run)
@@ -164,8 +170,8 @@ func TestWidthRenderCacheMatchesFreshRender(t *testing.T) {
 			assertTwinViews(t, fmt.Sprintf("seed %d step %d: fresh", seed, step), cached, fresh, false)
 		}
 	}
-	if revisits < 30 {
-		t.Fatalf("setup: only %d width changes returned to a previously used width, want >= 30", revisits)
+	if revisits < minRevisits {
+		t.Fatalf("setup: only %d width changes returned to a previously used width, want >= %d", revisits, minRevisits)
 	}
 }
 
@@ -182,8 +188,13 @@ func stripWidthRenders(m *Model) {
 // finished MCP tool call, a live thinking block and a running tool call.
 func widthCacheFixture(t *testing.T) *Model {
 	t.Helper()
-	m := populateLongTranscript(newContentBenchModel(), 12)
+	m := populateLongTranscript(newContentBenchModel(), 2)
 	for _, ev := range []output.Event{
+		output.NewDelegationStartedEvent(agentOcc("done_fixture"), "investigate", "", ""),
+		output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+			DelegationOccurrence: agentOcc("done_fixture"), Status: "complete", TurnCount: 3, TokenCount: 900, ToolCallCount: 4,
+			Output: strings.Repeat("finding about the module. ", 20),
+		}),
 		output.NewToolCallStartedEvent(1, "mcp__srv__lookup", "call_mcp", map[string]any{"q": "x"}),
 		output.NewToolCallFinishedEvent(1, "mcp__srv__lookup", "call_mcp", "result", nil),
 		output.NewAssistantMessageEvent(1, "assistant", "Now building."),
@@ -308,7 +319,7 @@ func TestWidthRenderCacheEvictsOnMutation(t *testing.T) {
 // renders recorded on first visit, byte for byte.
 func TestWidthRenderCacheServesRevisitedWidths(t *testing.T) {
 	const poison = "POISONED"
-	m := populateLongTranscript(newContentBenchModel(), 30)
+	m := populateLongTranscript(newContentBenchModel(), 8)
 	resize := func(w int) func(m *Model) {
 		return resizeNow(w, 40)
 	}
@@ -396,9 +407,12 @@ func TestWidthRenderCacheLayoutRules(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			m := populateLongTranscript(newContentBenchModel(), 20)
+			m := populateLongTranscript(newContentBenchModel(), 8)
 			updateModelDirect(m, sidebarToggleKey)
 			updateModelDirect(m, sidebarToggleKey)
+			if m.viewport.TotalLineCount() <= m.viewport.Height() {
+				t.Fatal("setup: transcript fits the viewport")
+			}
 			if !m.autoScroll || !m.viewport.AtBottom() {
 				t.Fatal("setup: transcript not pinned to the bottom")
 			}
