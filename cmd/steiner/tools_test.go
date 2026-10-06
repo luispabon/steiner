@@ -25,6 +25,7 @@ import (
 	"github.com/luispabon/steiner/internal/mcp/testdata/fixtureserver"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 // cliHelperEnv makes the test binary act as the CLI helper (see cliHelperMain).
@@ -134,6 +135,25 @@ func TestBashToolTimeoutCapWiredFromConfig(t *testing.T) {
 		t.Fatal("subset missing bash")
 	}
 	checkSchema(t, "subset", subsetDef)
+
+	ctx := context.WithValue(context.Background(), tool.SandboxWrapperKey{}, tool.ResolvedSandbox{Wrapper: tool.Unsandboxed{}})
+	resultValue, err := def.Handler(ctx, map[string]any{
+		"command":         "printf registry-ok",
+		"timeout_seconds": 300,
+	})
+	if err != nil {
+		t.Fatalf("bash handler error = %v", err)
+	}
+	result, ok := resultValue.(*builtin.BashResult)
+	if !ok {
+		t.Fatalf("bash result type = %T, want *builtin.BashResult", resultValue)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("bash ExitCode = %d, want 0", result.ExitCode)
+	}
+	if !strings.Contains(result.Output, "registry-ok") {
+		t.Errorf("bash Output = %q, want to contain %q", result.Output, "registry-ok")
+	}
 }
 
 func TestRuntimeRegistryWithNilManagerRegistersNoMCPTools(t *testing.T) {

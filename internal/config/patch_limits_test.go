@@ -11,10 +11,13 @@ import (
 // merge.
 func TestLoadValidatesBashTimeoutWholeSeconds(t *testing.T) {
 	tests := []struct {
-		name    string
-		bash    string
-		want    Duration
-		wantErr string
+		name     string
+		bash     string
+		omitBash bool
+		read     string
+		want     Duration
+		wantRead Duration
+		wantErr  string
 	}{
 		{
 			name: "whole seconds accepted and merged",
@@ -41,11 +44,31 @@ func TestLoadValidatesBashTimeoutWholeSeconds(t *testing.T) {
 			bash:    "-10s",
 			wantErr: `limits.tool_timeouts["bash"] must be greater than zero`,
 		},
+		{
+			name:     "bash omitted uses 120s default",
+			omitBash: true,
+			want:     MustDuration("120s"),
+		},
+		{
+			name:     "sub-second non-bash timeout retained",
+			bash:     "300s",
+			read:     "500ms",
+			want:     MustDuration("300s"),
+			wantRead: MustDuration("500ms"),
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			contents := "limits:\n  tool_timeouts:\n    bash: " + tt.bash + "\n"
+			var entries strings.Builder
+			entries.WriteString("limits:\n  tool_timeouts:\n")
+			if !tt.omitBash {
+				entries.WriteString("    bash: " + tt.bash + "\n")
+			}
+			if tt.read != "" {
+				entries.WriteString("    read: " + tt.read + "\n")
+			}
+			contents := entries.String()
 			cfg, err := loadProfileTestConfigResult(t, contents, CLIOverrides{}, map[string]string{})
 			if tt.wantErr != "" {
 				if err == nil {
@@ -62,8 +85,12 @@ func TestLoadValidatesBashTimeoutWholeSeconds(t *testing.T) {
 			if got := cfg.Limits.ToolTimeouts["bash"]; got != tt.want {
 				t.Errorf("Limits.ToolTimeouts[bash] = %v, want %v", got, tt.want)
 			}
-			if got, want := cfg.Limits.ToolTimeouts["read"], MustDuration("5s"); got != want {
-				t.Errorf("Limits.ToolTimeouts[read] = %v, want default %v (merge clobbered other entries)", got, want)
+			wantRead := tt.wantRead
+			if wantRead == (Duration{}) {
+				wantRead = MustDuration("5s")
+			}
+			if got := cfg.Limits.ToolTimeouts["read"]; got != wantRead {
+				t.Errorf("Limits.ToolTimeouts[read] = %v, want %v", got, wantRead)
 			}
 		})
 	}
