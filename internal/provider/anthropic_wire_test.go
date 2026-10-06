@@ -638,20 +638,22 @@ func TestAnthropicRequestWire_ImageToolResultsKeepToolResultFirst(t *testing.T) 
 
 	wire := anthropicRequestWire(request, "claude-3-7-sonnet", false)
 
-	if got, want := len(wire.Messages), 4; got != want {
+	if got, want := len(wire.Messages), 2; got != want {
 		t.Fatalf("messages = %d, want %d", got, want)
 	}
 	if got, want := wire.Messages[0].Role, "assistant"; got != want {
 		t.Fatalf("messages[0].Role = %q, want %q", got, want)
 	}
-	for i, msg := range wire.Messages[1:] {
-		if got, want := msg.Role, "user"; got != want {
-			t.Fatalf("messages[%d].Role = %q, want %q", i+1, got, want)
-		}
-		for j, block := range msg.Content {
-			if got, want := block.Type, "tool_result"; got != want {
-				t.Fatalf("messages[%d].Content[%d].Type = %q, want %q", i+1, j, got, want)
-			}
+	batch := wire.Messages[1]
+	if got, want := batch.Role, "user"; got != want {
+		t.Fatalf("messages[1].Role = %q, want %q", got, want)
+	}
+	if got, want := len(batch.Content), 3; got != want {
+		t.Fatalf("messages[1] blocks = %d, want %d", got, want)
+	}
+	for j, block := range batch.Content {
+		if got, want := block.Type, "tool_result"; got != want {
+			t.Fatalf("messages[1].Content[%d].Type = %q, want %q", j, got, want)
 		}
 	}
 }
