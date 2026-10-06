@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // validate checks cfg for problems. projectRoot is the resolved working
@@ -138,6 +139,12 @@ func validateLimitsConfig(problems *[]string, cfg LimitsConfig) {
 		}
 		if timeout.Duration() <= 0 {
 			*problems = append(*problems, fmt.Sprintf("limits.tool_timeouts[%q] must be greater than zero", name))
+			continue
+		}
+		// The Bash cap must be a whole number of seconds; other tools may keep
+		// sub-second timeouts.
+		if name == "bash" && timeout.Duration()%int64(time.Second) != 0 {
+			*problems = append(*problems, fmt.Sprintf("limits.tool_timeouts[%q] must be a whole number of seconds", name))
 		}
 	}
 }

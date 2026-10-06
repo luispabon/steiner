@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
@@ -12,6 +13,11 @@ type Env struct {
 	WorkDir    string
 	PathPolicy *tool.PathPolicy
 	Excluder   *tool.PathExcluder
+	// BashTimeoutCap is the authoritative execution-timeout cap for the bash
+	// tool, normally sourced from limits.tool_timeouts["bash"]. NewBashTool
+	// resolves it to whole seconds, falling back to a 120-second cap when it is
+	// non-positive or not an exact multiple of one second.
+	BashTimeoutCap time.Duration
 	// httpClient is a test seam. Production callers use the SSRF-safe default.
 	httpClient func() *http.Client
 	// EventSink is the sink used to emit side-channel events (e.g. display_file).

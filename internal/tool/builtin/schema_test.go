@@ -141,7 +141,7 @@ func TestLSSchema(t *testing.T) {
 }
 
 func TestBashSchema(t *testing.T) {
-	s := BashSchema()
+	s := BashSchema(defaultBashTimeoutCapSeconds)
 	if got := schemaType(s); got != "object" {
 		t.Errorf("type = %q, want %q", got, "object")
 	}
@@ -151,5 +151,46 @@ func TestBashSchema(t *testing.T) {
 	req := schemaRequired(s)
 	if len(req) != 1 || req[0] != "command" {
 		t.Errorf("required = %v, want [command]", req)
+	}
+	props := schemaProperties(s)
+	if props == nil {
+		t.Fatal("properties is nil")
+	}
+	ts, _ := props["timeout_seconds"].(map[string]any)
+	if ts == nil {
+		t.Fatal("missing timeout_seconds property")
+	}
+	if got := ts["default"]; got != defaultBashTimeoutSeconds {
+		t.Errorf("timeout_seconds default = %v, want %d", got, defaultBashTimeoutSeconds)
+	}
+	if got := ts["maximum"]; got != defaultBashTimeoutCapSeconds {
+		t.Errorf("timeout_seconds maximum = %v, want %d", got, defaultBashTimeoutCapSeconds)
+	}
+}
+
+func TestBashSchemaConfiguredCap(t *testing.T) {
+	tests := []struct {
+		name        string
+		capSeconds  int
+		wantDefault int
+	}{
+		{"cap above 30 keeps the 30s default", 300, defaultBashTimeoutSeconds},
+		{"cap equal to 30", 30, 30},
+		{"cap below 30 becomes the default", 10, 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			props := schemaProperties(BashSchema(tt.capSeconds))
+			ts, _ := props["timeout_seconds"].(map[string]any)
+			if ts == nil {
+				t.Fatal("missing timeout_seconds property")
+			}
+			if got := ts["default"]; got != tt.wantDefault {
+				t.Errorf("timeout_seconds default = %v, want %d", got, tt.wantDefault)
+			}
+			if got := ts["maximum"]; got != tt.capSeconds {
+				t.Errorf("timeout_seconds maximum = %v, want %d", got, tt.capSeconds)
+			}
+		})
 	}
 }

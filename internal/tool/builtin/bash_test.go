@@ -227,3 +227,175 @@ func TestBashToolFailsClosedWithoutSandboxWrapperKey(t *testing.T) {
 		})
 	}
 }
+
+// TestBashToolConfiguredTimeoutCapInSchema proves NewBashTool threads the Env
+// cap into the parameter schema: the 300-second cap is the schema maximum and
+// the default stays at the 30-second request default.
+func TestBashToolConfiguredTimeoutCapInSchema(t *testing.T) {
+	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
+	toolDef := NewBashTool(Env{PathPolicy: &policy, BashTimeoutCap: 300 * time.Second})
+
+	props, _ := toolDef.ParameterSchema["properties"].(map[string]any)
+	ts, _ := props["timeout_seconds"].(map[string]any)
+	if ts == nil {
+		t.Fatal("bash schema missing timeout_seconds")
+	}
+	if got := ts["maximum"]; got != 300 {
+		t.Errorf("timeout_seconds maximum = %v, want 300", got)
+	}
+	if got := ts["default"]; got != defaultBashTimeoutSeconds {
+		t.Errorf("timeout_seconds default = %v, want %d", got, defaultBashTimeoutSeconds)
+	}
+}
+
+// TestBashToolZeroEnvUsesFiniteCap proves a non-positive or sub-second Env cap
+// falls back to the finite 120-second default in the schema rather than a zero
+// maximum, and that the fallback actually governs handler execution: a fresh
+// tool for each fallback cap runs a command bounded by the requested
+// timeout_seconds (2) rather than an invalid zero cap.
+func TestBashToolZeroEnvUsesFiniteCap(t *testing.T) {
+	tests := []struct {
+		name string
+		cap  time.Duration
+	}{
+		{name: "zero cap", cap: 0},
+		{name: "negative cap", cap: -1 * time.Second},
+		{name: "sub-second cap", cap: 500 * time.Millisecond},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
+			toolDef := NewBashTool(Env{PathPolicy: &policy, BashTimeoutCap: tt.cap})
+
+			props, _ := toolDef.ParameterSchema["properties"].(map[string]any)
+			ts, _ := props["timeout_seconds"].(map[string]any)
+			if ts == nil {
+				t.Fatal("bash schema missing timeout_seconds")
+			}
+			if got := ts["maximum"]; got != defaultBashTimeoutCapSeconds {
+				t.Errorf("timeout_seconds maximum = %v, want %d", got, defaultBashTimeoutCapSeconds)
+			}
+			if got := ts["default"]; got != defaultBashTimeoutSeconds {
+				t.Errorf("timeout_seconds default = %v, want %d", got, defaultBashTimeoutSeconds)
+			}
+
+			ctx := withUnsandboxedWrapper(context.Background())
+			resultValue, err := toolDef.Handler(ctx, map[string]any{
+				"command":         "sleep 0.75; printf fallback-ok",
+				"timeout_seconds": 2,
+			})
+			if err != nil {
+				t.Fatalf("handler error = %v", err)
+			}
+			result, ok := resultValue.(*BashResult)
+			if !ok {
+				t.Fatalf("result type = %T, want *BashResult", resultValue)
+			}
+			if result.ExitCode != 0 {
+				t.Errorf("ExitCode = %d, want 0", result.ExitCode)
+			}
+			if !strings.Contains(result.Output, "fallback-ok") {
+				t.Errorf("Output = %q, want to contain %q", result.Output, "fallback-ok")
+			}
+		})
+	}
+}
+
+// TestBashToolTimeoutResultAndRecovery proves a short lifecycle timeout still
+// yields the existing timeout result (not a Go error) and that the tool stays
+// usable for a later call.
+func TestBashToolTimeoutResultAndRecovery(t *testing.T) {
+	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
+	toolDef := NewBashTool(Env{PathPolicy: &policy, BashTimeoutCap: time.Second})
+
+	shortCtx, cancel := context.WithTimeout(withUnsandboxedWrapper(context.Background()), 20*time.Millisecond)
+	defer cancel()
+
+	resultValue, err := toolDef.Handler(shortCtx, map[string]any{
+		"command":         "sleep 5",
+		"timeout_seconds": 30,
+	})
+	if err != nil {
+		t.Fatalf("timeout handler error = %v", err)
+	}
+	timeoutResult, ok := resultValue.(*BashResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *BashResult", resultValue)
+	}
+	if timeoutResult.ExitCode == 0 {
+		t.Errorf("ExitCode = 0, want non-zero for timed out command")
+	}
+	if timeoutResult.Output == "" {
+		t.Error("Output is empty, want timeout error message")
+	}
+
+	recoveryValue, err := toolDef.Handler(withUnsandboxedWrapper(context.Background()), map[string]any{"command": "echo recovered"})
+	if err != nil {
+		t.Fatalf("recovery handler error = %v", err)
+	}
+	recovery, ok := recoveryValue.(*BashResult)
+	if !ok {
+		t.Fatalf("recovery result type = %T, want *BashResult", recoveryValue)
+	}
+	if recovery.ExitCode != 0 {
+		t.Errorf("recovery ExitCode = %d, want 0", recovery.ExitCode)
+	}
+	if !strings.Contains(recovery.Output, "recovered") {
+		t.Errorf("recovery Output = %q, want to contain %q", recovery.Output, "recovered")
+	}
+}
+
+// TestBashToolEnforcesConfiguredTimeoutCap proves the handler's own configured
+// cap, rather than parent-context cancellation, expires an over-cap request:
+// with an uncancelled parent context, a request above the 1-second cap, and a
+// command that would otherwise outlive the cap, the handler still returns the
+// established timeout result once the cap elapses, and the session recovers
+// afterwards.
+func TestBashToolEnforcesConfiguredTimeoutCap(t *testing.T) {
+	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
+	toolDef := NewBashTool(Env{PathPolicy: &policy, BashTimeoutCap: time.Second})
+
+	// No parent deadline: only the configured cap can expire this call.
+	ctx := withUnsandboxedWrapper(context.Background())
+
+	start := time.Now()
+	resultValue, err := toolDef.Handler(ctx, map[string]any{
+		"command":         "sleep 10",
+		"timeout_seconds": 30,
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("handler error = %v", err)
+	}
+	result, ok := resultValue.(*BashResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *BashResult", resultValue)
+	}
+	if result.ExitCode == 0 {
+		t.Errorf("ExitCode = 0, want non-zero for cap-expired command")
+	}
+	if !strings.Contains(result.Output, "context deadline exceeded") {
+		t.Errorf("Output = %q, want to contain %q", result.Output, "context deadline exceeded")
+	}
+	// The 1-second cap, not the 30-second request, governs: without cap
+	// enforcement the command would run its full 10 seconds.
+	if elapsed >= 5*time.Second {
+		t.Errorf("elapsed = %v, want well under the 10s command runtime", elapsed)
+	}
+
+	recoveryValue, err := toolDef.Handler(withUnsandboxedWrapper(context.Background()), map[string]any{"command": "echo recovered"})
+	if err != nil {
+		t.Fatalf("recovery handler error = %v", err)
+	}
+	recovery, ok := recoveryValue.(*BashResult)
+	if !ok {
+		t.Fatalf("recovery result type = %T, want *BashResult", recoveryValue)
+	}
+	if recovery.ExitCode != 0 {
+		t.Errorf("recovery ExitCode = %d, want 0", recovery.ExitCode)
+	}
+	if !strings.Contains(recovery.Output, "recovered") {
+		t.Errorf("recovery Output = %q, want to contain %q", recovery.Output, "recovered")
+	}
+}

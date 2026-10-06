@@ -1,7 +1,9 @@
 package builtin
 
 import (
+	"math"
 	"testing"
+	"time"
 )
 
 func TestNormalizeRead(t *testing.T) {
@@ -144,7 +146,7 @@ func TestNormalizeLS(t *testing.T) {
 func TestNormalizeBash(t *testing.T) {
 	t.Run("defaults timeout and max_output_chars", func(t *testing.T) {
 		in := &BashInput{}
-		normalizeBash(in)
+		normalizeBash(in, defaultBashTimeoutCapSeconds)
 		if in.TimeoutSeconds != defaultBashTimeoutSeconds {
 			t.Errorf("TimeoutSeconds = %d, want %d", in.TimeoutSeconds, defaultBashTimeoutSeconds)
 		}
@@ -153,17 +155,49 @@ func TestNormalizeBash(t *testing.T) {
 		}
 	})
 
-	t.Run("caps timeout at maxBashTimeoutSeconds", func(t *testing.T) {
+	t.Run("caps timeout at configured cap", func(t *testing.T) {
 		in := &BashInput{TimeoutSeconds: 500}
-		normalizeBash(in)
-		if in.TimeoutSeconds != maxBashTimeoutSeconds {
-			t.Errorf("TimeoutSeconds = %d, want %d", in.TimeoutSeconds, maxBashTimeoutSeconds)
+		normalizeBash(in, 300)
+		if in.TimeoutSeconds != 300 {
+			t.Errorf("TimeoutSeconds = %d, want 300", in.TimeoutSeconds)
+		}
+	})
+
+	t.Run("preserves request equal to configured cap", func(t *testing.T) {
+		in := &BashInput{TimeoutSeconds: 300}
+		normalizeBash(in, 300)
+		if in.TimeoutSeconds != 300 {
+			t.Errorf("TimeoutSeconds = %d, want 300", in.TimeoutSeconds)
+		}
+	})
+
+	t.Run("defaults request to cap when cap is below 30", func(t *testing.T) {
+		in := &BashInput{}
+		normalizeBash(in, 10)
+		if in.TimeoutSeconds != 10 {
+			t.Errorf("TimeoutSeconds = %d, want 10", in.TimeoutSeconds)
+		}
+	})
+
+	t.Run("clamps negative request to cap below the 30s default", func(t *testing.T) {
+		in := &BashInput{TimeoutSeconds: -5}
+		normalizeBash(in, 10)
+		if in.TimeoutSeconds != 10 {
+			t.Errorf("TimeoutSeconds = %d, want 10", in.TimeoutSeconds)
+		}
+	})
+
+	t.Run("very large request clamps without overflow", func(t *testing.T) {
+		in := &BashInput{TimeoutSeconds: math.MaxInt}
+		normalizeBash(in, 300)
+		if in.TimeoutSeconds != 300 {
+			t.Errorf("TimeoutSeconds = %d, want 300", in.TimeoutSeconds)
 		}
 	})
 
 	t.Run("caps max_output_chars at maxBashMaxOutputChars", func(t *testing.T) {
 		in := &BashInput{MaxOutputChars: 500000}
-		normalizeBash(in)
+		normalizeBash(in, defaultBashTimeoutCapSeconds)
 		if in.MaxOutputChars != maxBashMaxOutputChars {
 			t.Errorf("MaxOutputChars = %d, want %d", in.MaxOutputChars, maxBashMaxOutputChars)
 		}
@@ -171,7 +205,7 @@ func TestNormalizeBash(t *testing.T) {
 
 	t.Run("preserves valid values", func(t *testing.T) {
 		in := &BashInput{TimeoutSeconds: 10, MaxOutputChars: 5000}
-		normalizeBash(in)
+		normalizeBash(in, defaultBashTimeoutCapSeconds)
 		if in.TimeoutSeconds != 10 {
 			t.Errorf("TimeoutSeconds = %d, want 10", in.TimeoutSeconds)
 		}
@@ -182,7 +216,7 @@ func TestNormalizeBash(t *testing.T) {
 
 	t.Run("corrects zero timeout to default", func(t *testing.T) {
 		in := &BashInput{TimeoutSeconds: 0, MaxOutputChars: 100}
-		normalizeBash(in)
+		normalizeBash(in, defaultBashTimeoutCapSeconds)
 		if in.TimeoutSeconds != defaultBashTimeoutSeconds {
 			t.Errorf("TimeoutSeconds = %d, want %d", in.TimeoutSeconds, defaultBashTimeoutSeconds)
 		}
@@ -190,9 +224,31 @@ func TestNormalizeBash(t *testing.T) {
 
 	t.Run("corrects negative timeout to default", func(t *testing.T) {
 		in := &BashInput{TimeoutSeconds: -1}
-		normalizeBash(in)
+		normalizeBash(in, defaultBashTimeoutCapSeconds)
 		if in.TimeoutSeconds != defaultBashTimeoutSeconds {
 			t.Errorf("TimeoutSeconds = %d, want %d", in.TimeoutSeconds, defaultBashTimeoutSeconds)
 		}
 	})
+}
+
+func TestResolveBashTimeoutCapSeconds(t *testing.T) {
+	tests := []struct {
+		name string
+		cap  time.Duration
+		want int
+	}{
+		{"zero falls back to 120", 0, defaultBashTimeoutCapSeconds},
+		{"negative falls back to 120", -1 * time.Second, defaultBashTimeoutCapSeconds},
+		{"sub-second falls back to 120", 1500 * time.Millisecond, defaultBashTimeoutCapSeconds},
+		{"default 120 preserved", 120 * time.Second, 120},
+		{"configured 300 preserved", 300 * time.Second, 300},
+		{"below 30 preserved", 10 * time.Second, 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveBashTimeoutCapSeconds(tt.cap); got != tt.want {
+				t.Errorf("resolveBashTimeoutCapSeconds(%v) = %d, want %d", tt.cap, got, tt.want)
+			}
+		})
+	}
 }

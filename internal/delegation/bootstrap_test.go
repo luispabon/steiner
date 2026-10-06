@@ -1837,3 +1837,56 @@ func TestBuildChildPromptSessionDateZero(t *testing.T) {
 		t.Errorf("SessionDate = %v, want zero value", promptOpts.SessionDate)
 	}
 }
+
+// TestChildBashSubsetPreservesTimeoutCap proves buildChildRegistries, the
+// mechanism that builds a child's tool set, inherits the parent bash ToolDef
+// unchanged: the configured timeout cap survives in both the schema and the
+// handler closure, and both the visible and execution registries expose bash.
+func TestChildBashSubsetPreservesTimeoutCap(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skipf("bash not available: %v", err)
+	}
+
+	workDir := t.TempDir()
+	pp := tool.NewPathPolicy(workDir, config.PathsConfig{})
+	env := builtin.Env{WorkDir: workDir, PathPolicy: &pp, BashTimeoutCap: 300 * time.Second}
+	parent := tool.NewRegistry(builtin.NewBashTool(env))
+
+	visible, execReg := buildChildRegistries(parent, []string{"bash"})
+	def, ok := visible.Get("bash")
+	if !ok {
+		t.Fatal("child visible registry missing bash")
+	}
+	execDef, ok := execReg.Get("bash")
+	if !ok {
+		t.Fatal("child execution registry missing bash")
+	}
+	props, _ := def.ParameterSchema["properties"].(map[string]any)
+	ts, _ := props["timeout_seconds"].(map[string]any)
+	if ts == nil {
+		t.Fatal("child bash schema missing timeout_seconds")
+	}
+	if got := ts["maximum"]; got != 300 {
+		t.Errorf("child bash timeout_seconds maximum = %v, want 300", got)
+	}
+	if got := ts["default"]; got != 30 {
+		t.Errorf("child bash timeout_seconds default = %v, want 30", got)
+	}
+
+	ctx := context.WithValue(context.Background(), tool.SandboxWrapperKey{}, tool.ResolvedSandbox{Wrapper: tool.Unsandboxed{}})
+	resultValue, err := execDef.Handler(ctx, map[string]any{"command": "printf subset-ok", "timeout_seconds": 300})
+	if err != nil {
+		t.Fatalf("child bash handler error = %v", err)
+	}
+	result, ok := resultValue.(*builtin.BashResult)
+	if !ok {
+		t.Fatalf("child bash result type = %T, want *builtin.BashResult", resultValue)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("child bash ExitCode = %d, want 0", result.ExitCode)
+	}
+	if !strings.Contains(result.Output, "subset-ok") {
+		t.Errorf("child bash Output = %q, want to contain %q", result.Output, "subset-ok")
+	}
+}

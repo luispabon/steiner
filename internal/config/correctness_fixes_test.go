@@ -320,3 +320,74 @@ lsp:
 		t.Errorf("LSP.CacheDir = %q, want %q", cfg.LSP.CacheDir, expectedCacheDir)
 	}
 }
+
+// Bash is the only tool with a subprocess cap, so its configured timeout must
+// be a positive whole number of seconds. Other tools keep sub-second support.
+func TestValidateLimitsConfigBashTimeoutWholeSeconds(t *testing.T) {
+	tests := []struct {
+		name     string
+		timeouts map[string]Duration
+		wantErr  string
+	}{
+		{
+			name:     "bash whole seconds accepted",
+			timeouts: map[string]Duration{"bash": MustDuration("300s")},
+		},
+		{
+			name:     "bash default value accepted",
+			timeouts: map[string]Duration{"bash": MustDuration("120s")},
+		},
+		{
+			name:     "bash zero rejected",
+			timeouts: map[string]Duration{"bash": MustDuration("0s")},
+			wantErr:  `limits.tool_timeouts["bash"] must be greater than zero`,
+		},
+		{
+			name:     "bash negative rejected",
+			timeouts: map[string]Duration{"bash": MustDuration("-10s")},
+			wantErr:  `limits.tool_timeouts["bash"] must be greater than zero`,
+		},
+		{
+			name:     "bash fractional milliseconds rejected",
+			timeouts: map[string]Duration{"bash": MustDuration("500ms")},
+			wantErr:  `limits.tool_timeouts["bash"] must be a whole number of seconds`,
+		},
+		{
+			name:     "bash fractional seconds rejected",
+			timeouts: map[string]Duration{"bash": MustDuration("1.5s")},
+			wantErr:  `limits.tool_timeouts["bash"] must be a whole number of seconds`,
+		},
+		{
+			name:     "non-bash fractional milliseconds accepted",
+			timeouts: map[string]Duration{"read": MustDuration("500ms")},
+		},
+		{
+			name:     "non-bash fractional seconds accepted",
+			timeouts: map[string]Duration{"grep": MustDuration("1.5s")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var problems []string
+			validateLimitsConfig(&problems, LimitsConfig{
+				MaxTurns:           10,
+				MaxTokens:          100000,
+				ToolTimeoutDefault: MustDuration("30s"),
+				ToolTimeouts:       tt.timeouts,
+				ToolOutputMaxBytes: 65536,
+				MaxParallelTools:   1,
+			})
+			joined := strings.Join(problems, "; ")
+			if tt.wantErr == "" {
+				if len(problems) != 0 {
+					t.Fatalf("validateLimitsConfig() problems = %q, want none", joined)
+				}
+				return
+			}
+			if !strings.Contains(joined, tt.wantErr) {
+				t.Fatalf("validateLimitsConfig() problems = %q, want substring %q", joined, tt.wantErr)
+			}
+		})
+	}
+}

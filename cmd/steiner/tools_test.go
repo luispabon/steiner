@@ -25,6 +25,7 @@ import (
 	"github.com/luispabon/steiner/internal/mcp/testdata/fixtureserver"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 // cliHelperEnv makes the test binary act as the CLI helper (see cliHelperMain).
@@ -96,6 +97,62 @@ func registryTestConfig() config.Config {
 	return config.Config{
 		Limits: config.LimitsConfig{ToolTimeoutDefault: config.MustDuration("30s")},
 		Tools:  map[string]config.ToolConfig{},
+	}
+}
+
+// TestBashToolTimeoutCapWiredFromConfig proves coreToolDefinitions threads
+// limits.tool_timeouts["bash"] into the bash tool schema, and that Registry.Subset
+// (the mechanism that builds sub-agent tool sets) inherits the same schema.
+func TestBashToolTimeoutCapWiredFromConfig(t *testing.T) {
+	cfg := registryTestConfig()
+	cfg.Limits.ToolTimeouts = map[string]config.Duration{"bash": config.MustDuration("300s")}
+
+	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, nil)
+
+	checkSchema := func(t *testing.T, label string, def tool.ToolDef) {
+		t.Helper()
+		props, _ := def.ParameterSchema["properties"].(map[string]any)
+		ts, _ := props["timeout_seconds"].(map[string]any)
+		if ts == nil {
+			t.Fatalf("%s schema missing timeout_seconds", label)
+		}
+		if got := ts["maximum"]; got != 300 {
+			t.Errorf("%s timeout_seconds maximum = %v, want 300", label, got)
+		}
+		if got := ts["default"]; got != 30 {
+			t.Errorf("%s timeout_seconds default = %v, want 30", label, got)
+		}
+	}
+
+	def, ok := registry.Get("bash")
+	if !ok {
+		t.Fatal("registry missing bash")
+	}
+	checkSchema(t, "registry", def)
+
+	subsetDef, ok := registry.Subset([]string{"bash"}, nil).Get("bash")
+	if !ok {
+		t.Fatal("subset missing bash")
+	}
+	checkSchema(t, "subset", subsetDef)
+
+	ctx := context.WithValue(context.Background(), tool.SandboxWrapperKey{}, tool.ResolvedSandbox{Wrapper: tool.Unsandboxed{}})
+	resultValue, err := def.Handler(ctx, map[string]any{
+		"command":         "printf registry-ok",
+		"timeout_seconds": 300,
+	})
+	if err != nil {
+		t.Fatalf("bash handler error = %v", err)
+	}
+	result, ok := resultValue.(*builtin.BashResult)
+	if !ok {
+		t.Fatalf("bash result type = %T, want *builtin.BashResult", resultValue)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("bash ExitCode = %d, want 0", result.ExitCode)
+	}
+	if !strings.Contains(result.Output, "registry-ok") {
+		t.Errorf("bash Output = %q, want to contain %q", result.Output, "registry-ok")
 	}
 }
 
