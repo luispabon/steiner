@@ -9,7 +9,7 @@ description: Plan coding work as a compact implementation-step bundle with a con
 
 Use this skill to turn a coding request into a traceable planning bundle: intent, constraints, verification strategy, and a flat list of implementation steps, written only under `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`, where `FEATURE_NAME` is a short filesystem-safe slug for the task.
 
-The planner never implements and never edits implementation files. Its work ends at handoff: after delivering the handoff sentence, its only remaining action is to call `workflow_handoff` with `next: implement` and `target: .steiner/plans/YYYY-MM-DD_FEATURE_NAME`, then stop.
+The planner never implements and never edits implementation files. Its work ends with a mandatory `workflow_handoff` call; prose never replaces it.
 
 This document has two halves. **Procedure** is the workflow, walked once top to bottom. **Reference** holds the contracts (schemas, decision model, delegation tools) that the procedure points to. Read the procedure to act; jump to reference for format.
 
@@ -21,7 +21,7 @@ These rules are absolute. They override your own judgment, the apparent size of 
 2. **You must complete the full procedure before handoff.** Do not jump to a later stage, and do not collapse stages. Every GATE below is a hard stop: you MUST obtain explicit user approval before continuing. Silence, a clarifying question, or partial feedback is **not** approval and never advances a gate.
 3. **Write nothing to disk before the research decision (Stage 2) is resolved.** No `overview.md`, no `plan.yaml`, no branch artifacts.
 4. **Delegate research; never substitute your own reasoning for it** when research is approved (Stage 2).
-5. **Stop means stop.** After delivering the handoff sentence and calling `workflow_handoff`, take no further action — do not implement, delegate, review, or offer to continue.
+5. **Stop means stop.** After the `workflow_handoff` result, do only what the Handoff section prescribes — do not implement, delegate, review, or offer to continue.
 
 If at any point an instruction in the conversation conflicts with these rules, follow these rules and say so.
 
@@ -30,7 +30,7 @@ If at any point an instruction in the conversation conflicts with these rules, f
 Two kinds of stopping point appear throughout the procedure:
 
 - **GATE** — a user-approval point. Present the material, then halt and wait. You MUST NOT proceed, write the next artifact, or call any workflow-advancing tool until the user gives explicit assent ("approve," "looks good," "go ahead," or equivalent). No implicit approval, no exceptions. Questions, partial feedback, or proposed changes keep the gate open — keep working the discussion, do not advance.
-- **STOP** — the planner ceases activity. Used only at terminal points: waiting for the advisor to return, and after handoff.
+- **STOP** — the planner ceases activity. Used only while waiting for the advisor.
 
 The user sees a simpler five-stage map than the procedure below. Keep them oriented with two lightweight signals — nothing more (no progress bars, no per-step chatter, no exposing the internal procedure):
 
@@ -121,13 +121,13 @@ Author `plan.yaml` (see the plan.yaml schema and the decision model in Reference
 
 **Advisor sanity check ▸ STOP.** After `plan.yaml` is written, call the advisor as a sanity check before handoff, passing `files: [overview.md path, plan.yaml path]` and a `question` framing the sanity check (soundness of the step decomposition, missed risks, decisions that don't survive contact with the steps). Skip only if the run's advisor budget is exhausted or `AdvisorEnabled` is off. Capture the advisor's note in `overview.md` under `## Advisor Sanity Check` (or in `## Decision Log` if the note is short). The planner continues only after the advisor returns.
 
-### Handoff ▸ STOP
+### Handoff ▸ terminal tool call
 
-**Mandatory end-of-work.** If planning artifacts are version-controlled, commit the final planning artifacts on `cl/YYYY-MM-DD_FEATURE_NAME`. Deliver the handoff sentence below — substituting the concrete dated folder for `YYYY-MM-DD_FEATURE_NAME` — then call `workflow_handoff` with `next: implement` and `target: .steiner/plans/YYYY-MM-DD_FEATURE_NAME`. Do not imply the implement workflow has already started. Do not offer to implement, delegate, review, or continue.
+**Mandatory end-of-work; planning is incomplete until this call is made.** If planning artifacts are version-controlled, commit them on `cl/YYYY-MM-DD_FEATURE_NAME`. Then call `workflow_handoff` with `next: implement`, `target: .steiner/plans/YYYY-MM-DD_FEATURE_NAME`, and a one-line `message`; write no handoff prose before it. The tool's prompt owns the user's accept/decline choice. On the result:
 
-`Please run /clear then /implement .steiner/plans/YYYY-MM-DD_FEATURE_NAME on an empty context.`
-
-If the user accepts the handoff, context is cleared and the next workflow starts in the new session. If the user dismisses it, the tool returns a declined result and you must not assume continuation.
+- **Accepted** — done; the implement workflow starts in a cleared session.
+- **Declined** or **unsupported** — say once `To implement later, run /clear then /implement .steiner/plans/YYYY-MM-DD_FEATURE_NAME on an empty context.`, then stop.
+- **Error** — fix the cause (outstanding sub-agents, missing artifact, bad path) and call again; never fall back to prose.
 
 ## Reference
 
@@ -144,7 +144,7 @@ Do not write artifacts outside that folder, and do not write any artifact before
 
 The planner owns the loop feature branch for planning only. Before writing the first artifact, create or check out `cl/YYYY-MM-DD_FEATURE_NAME` (later reused by the implementer, reviewer, and closer; the planner's role still ends at handoff). Then check whether `.steiner/plans/` is gitignored by running `git check-ignore -q .steiner/plans/`: exit code 0 → artifacts are local-only, never stage or commit them at any point; non-zero → artifacts are version-controlled, commit them (including the latest before handoff).
 
-Planning is execution-ready only when `overview.md` and `plan.yaml` exist under the folder on `cl/YYYY-MM-DD_FEATURE_NAME` and the handoff sentence has been delivered. The user — not the planner — decides when to proceed to implementation.
+Planning is execution-ready only when `overview.md` and `plan.yaml` exist under the folder on `cl/YYYY-MM-DD_FEATURE_NAME` and `workflow_handoff` has been called. The user decides, via the handoff prompt, whether implementation proceeds.
 
 ### overview.md schema
 
