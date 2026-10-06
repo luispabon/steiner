@@ -131,6 +131,9 @@ func superviseDelegate(
 	if setupFailed != nil {
 		setupFailed()
 	}
+	if errors.Is(err, ErrOutstandingCap) {
+		return tool.ExecutionResult{}, err
+	}
 	return tool.ExecutionResult{}, childSetupError(err)
 }
 

@@ -62,6 +62,21 @@ func TestDelegationDenialsModelGuidance(t *testing.T) {
 			_, err := NewFollowUpHandler(followUpDeps())(context.Background(), map[string]any{"agent_id": "exhausted", "message": "go", "group": "g"})
 			return err
 		}},
+		{name: "follow_up agent still pending", want: true, call: func() error {
+			s, _ := newAsyncSupervisor(1)
+			warm := newAsyncChild("warm", "")
+			spawnAsync(context.Background(), t, s, warm)
+			defer func() {
+				<-warm.started
+				close(warm.release)
+				waitFinished(t, s, "warm")
+			}()
+			deps := followUpDeps()
+			deps.AsyncSubAgents = true
+			deps.Supervisor = s
+			_, err := NewFollowUpHandler(deps)(context.Background(), map[string]any{"agent_id": "warm", "message": "go"})
+			return err
+		}},
 		{name: "follow_up plan mode stays visible", want: false, call: func() error {
 			_, err := NewFollowUpHandler(followUpDeps())(planCtx, map[string]any{"agent_id": "coder", "message": "go"})
 			return err
@@ -126,6 +141,39 @@ func TestSupervisorRejectionsModelGuidance(t *testing.T) {
 		_, _, err := s.Spawn(context.Background(), newAsyncChild("over", "").job)
 		if !errors.Is(err, ErrOutstandingCap) || !tool.IsModelGuidance(err) {
 			t.Fatalf("err = %v, want ErrOutstandingCap marked as model guidance", err)
+		}
+		<-a.started
+		close(a.release)
+		close(b.release)
+		waitFinished(t, s, "a")
+		waitFinished(t, s, "b")
+	})
+	t.Run("outstanding cap on blocking path", func(t *testing.T) {
+		s, _ := newAsyncSupervisor(1)
+		a, b := newAsyncChild("a", ""), newAsyncChild("b", "")
+		spawnAsync(context.Background(), t, s, a)
+		spawnAsync(context.Background(), t, s, b)
+		setupFailed := false
+		_, err := superviseDelegate(context.Background(), SubAgentHandlerDeps{Supervisor: s}, Spec{AgentID: "over", AgentType: AgentTypeExplore}, "", CodeWorktree{}, nil,
+			func(context.Context) (tool.ExecutionResult, error) {
+				t.Error("over-cap child executed")
+				return tool.ExecutionResult{}, nil
+			},
+			func() tool.ExecutionResult { return tool.ExecutionResult{} },
+			func() { setupFailed = true },
+		)
+		if !errors.Is(err, ErrOutstandingCap) || !tool.IsModelGuidance(err) {
+			t.Fatalf("err = %v, want ErrOutstandingCap marked as model guidance", err)
+		}
+		var setupErr *SetupError
+		if errors.As(err, &setupErr) {
+			t.Fatalf("err = %v, want the cap error raw, not projected as a setup failure", err)
+		}
+		if admission := tool.DelegationAdmissionFromError(err); admission == nil || admission.Status != tool.DelegationAdmissionRejected {
+			t.Fatalf("admission = %#v, want rejected", admission)
+		}
+		if !setupFailed {
+			t.Fatal("setupFailed was not called for the rejected job")
 		}
 		<-a.started
 		close(a.release)
