@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 type delegationGroupScope struct {
@@ -107,7 +108,7 @@ func requireGroupScope(deps SubAgentHandlerDeps, input map[string]any) error {
 		return nil
 	}
 	if group := groupInput(input); group != "" {
-		return fmt.Errorf("group %q rejected: grouped delegation needs a run-stream group scope, which this session does not provide; omit group to delegate without grouping", group)
+		return tool.WithModelGuidance(fmt.Errorf("group %q rejected: grouped delegation needs a run-stream group scope, which this session does not provide; omit group to delegate without grouping", group))
 	}
 	return nil
 }
@@ -156,13 +157,13 @@ func (s *Supervisor) reserveGroupLocked(scope, name, batch string) error {
 		return fmt.Errorf("parse delegation group batch id %q: no sequence number", batch)
 	}
 	if seq <= state.sealedThrough {
-		return &groupReservationError{name: name, batch: batch, sealed: true}
+		return tool.WithModelGuidance(&groupReservationError{name: name, batch: batch, sealed: true})
 	}
 	if owner, exists := state.names[name]; exists {
 		if owner == batch {
 			return nil
 		}
-		return &groupReservationError{name: name, batch: batch}
+		return tool.WithModelGuidance(&groupReservationError{name: name, batch: batch})
 	}
 	state.names[name] = batch
 	return nil

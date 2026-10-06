@@ -149,25 +149,25 @@ func newSubAgentDispatchHandler(deps SpecializedToolDeps, excluded map[AgentType
 		rawType, _ := input["type"].(string)
 		rawType = strings.TrimSpace(rawType)
 		if rawType == "" {
-			return nil, fmt.Errorf("sub_agent: type is required and must be non-empty")
+			return nil, tool.WithModelGuidance(fmt.Errorf("sub_agent: type is required and must be non-empty"))
 		}
 
 		if !ValidAgentType(rawType) {
 			validTypes := availableAgentTypeNames(excluded)
-			return nil, fmt.Errorf("sub_agent: unknown or unavailable type %q; valid types: %s", rawType, strings.Join(validTypes, ", "))
+			return nil, tool.WithModelGuidance(fmt.Errorf("sub_agent: unknown or unavailable type %q; valid types: %s", rawType, strings.Join(validTypes, ", ")))
 		}
 
 		agentType := AgentType(rawType)
 		if excluded[agentType] {
 			validTypes := availableAgentTypeNames(excluded)
-			return nil, fmt.Errorf("sub_agent: type %q is unavailable; valid types: %s", rawType, strings.Join(validTypes, ", "))
+			return nil, tool.WithModelGuidance(fmt.Errorf("sub_agent: type %q is unavailable; valid types: %s", rawType, strings.Join(validTypes, ", ")))
 		}
 
 		if agentType == AgentTypeVision {
 			imageID, _ := input["image_id"].(string)
 			imageID = strings.TrimSpace(imageID)
 			if imageID == "" {
-				return nil, fmt.Errorf("sub_agent: type is \"vision\" but image_id is missing or empty")
+				return nil, tool.WithModelGuidance(fmt.Errorf("sub_agent: type is \"vision\" but image_id is missing or empty"))
 			}
 		}
 		return handlers[agentType](ctx, input)
@@ -441,7 +441,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 
 		brief, err := parseStructuredBrief(string(agentType), input)
 		if err != nil {
-			return nil, err
+			return nil, tool.WithModelGuidance(err)
 		}
 
 		task := assembleTaskContent(brief)

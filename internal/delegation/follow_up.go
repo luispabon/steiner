@@ -66,25 +66,25 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 		return nil, err
 	}
 	if pendingID, _ := input["agent_id"].(string); deps.AsyncSubAgents && deps.Supervisor.IsPending(pendingID) {
-		return nil, fmt.Errorf("follow_up: agent %s is still running, queued, or has a result you have not received yet; wait for its result or cancel it first", pendingID)
+		return nil, tool.WithModelGuidance(fmt.Errorf("follow_up: agent %s is still running, queued, or has a result you have not received yet; wait for its result or cancel it first", pendingID))
 	}
 	agentID, message, session, err := validateFollowUp(input, deps)
 	if err != nil {
-		return nil, err
+		return nil, tool.WithModelGuidance(err)
 	}
 	childHasMutate := childHasMutateTool(session.Request)
 	isCode := childHasMutate && session.Remediation != nil
 	if err := denyFollowUpOnDeadCodeWorktree(ctx, agentID, isCode, session.Remediation); err != nil {
-		return nil, err
+		return nil, tool.WithModelGuidance(err)
 	}
 	if err := denyFollowUpInPlanMode(ctx, childHasMutate); err != nil {
 		return nil, err
 	}
 	if session.FollowUpCount >= deps.SubAgentCfg.MaxFollowUps {
-		return nil, fmt.Errorf(
+		return nil, tool.WithModelGuidance(fmt.Errorf(
 			"follow_up: agent %q has reached the maximum of %d follow-up resumes; "+
 				"delegate a fresh sub-agent for further work instead of continuing this one",
-			agentID, deps.SubAgentCfg.MaxFollowUps)
+			agentID, deps.SubAgentCfg.MaxFollowUps))
 	}
 	freshLimits := DefaultLimits(deps.SubAgentCfg)
 	req := buildContinuationRequest(session.Request, session.Conversation, message, followUpImages(session), session.TurnCount, freshLimits)

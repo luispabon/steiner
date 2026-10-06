@@ -15,6 +15,9 @@ type DelegationAdmission struct {
 	Group        string `json:"group"`
 	AgentID      string `json:"agent_id"`
 	PolicyNotice bool   `json:"policy_notice"`
+	// ModelGuidance marks a rejection whose error only steers the model's
+	// recovery (see WithModelGuidance); UIs need not show its text.
+	ModelGuidance bool `json:"model_guidance,omitempty"`
 }
 
 // Clone returns an independent copy of the admission metadata.
@@ -58,4 +61,25 @@ func DelegationAdmissionFromError(err error) *DelegationAdmission {
 		return carrier.DelegationAdmissionMetadata()
 	}
 	return nil
+}
+
+type modelGuidanceError struct{ err error }
+
+func (e *modelGuidanceError) Error() string { return e.err.Error() }
+func (e *modelGuidanceError) Unwrap() error { return e.err }
+
+// WithModelGuidance marks err as a recovery instruction aimed at the model,
+// such as a denial that tells it to dispatch a fresh sub-agent. The model
+// still receives the full message; only user-facing rendering may omit it.
+func WithModelGuidance(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &modelGuidanceError{err: err}
+}
+
+// IsModelGuidance reports whether err carries the WithModelGuidance marker.
+func IsModelGuidance(err error) bool {
+	var guidance *modelGuidanceError
+	return errors.As(err, &guidance)
 }

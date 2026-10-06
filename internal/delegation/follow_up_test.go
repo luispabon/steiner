@@ -745,6 +745,9 @@ func TestFollowUpHandler_RejectsDeadCodeWorktree(t *testing.T) {
 			if !strings.Contains(err.Error(), tt.wantCause) {
 				t.Fatalf("error = %q, want it to wrap the underlying cause %q", err.Error(), tt.wantCause)
 			}
+			if !tool.IsModelGuidance(err) {
+				t.Fatalf("error = %q, want it marked as model guidance so the TUI omits it", err.Error())
+			}
 			if runs != 0 {
 				t.Fatalf("runs = %d, want 0 (child must never run against a dead worktree)", runs)
 			}

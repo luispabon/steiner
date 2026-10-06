@@ -149,3 +149,41 @@ func TestDelegationRejectedErrorRetainsExactText(t *testing.T) {
 		})
 	}
 }
+
+func TestModelGuidanceRejectionLeavesNoTranscriptTrace(t *testing.T) {
+	const guidance = `follow_up: agent "child-6"'s code worktree is no longer usable; delegate a fresh code agent instead of resuming this one`
+	tests := []struct {
+		name  string
+		tool  string
+		args  map[string]any
+		guide bool
+		want  int
+	}{
+		{name: "follow_up guidance hidden", tool: "follow_up", args: map[string]any{"agent_id": "child-6", "message": "continue"}, guide: true, want: 0},
+		{name: "sub_agent guidance hidden", tool: "sub_agent", args: map[string]any{"type": "wizard"}, guide: true, want: 0},
+		{name: "unmarked rejection stays visible", tool: "follow_up", args: map[string]any{"agent_id": "child-6", "message": "continue"}, guide: false, want: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &contentBuffer{collapseState: make(map[int]bool)}
+			b.appendToolCallStartedEvent(output.NewToolCallStartedEvent(1, tt.tool, "call", tt.args))
+			if countDelegationCards(b.segments) != 1 {
+				t.Fatalf("test setup: segments = %#v, want one provisional card", b.segments)
+			}
+			admission := &output.DelegationAdmission{Status: "rejected", ModelGuidance: tt.guide}
+			b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, tt.tool, "call", "", errors.New(guidance), output.ToolPreview{}, admission))
+			if countDelegationCards(b.segments) != 0 {
+				t.Fatalf("rejected card survived: %#v", b.segments)
+			}
+			if len(b.segments) != tt.want {
+				t.Fatalf("segments = %#v, want %d", b.segments, tt.want)
+			}
+			if tt.want == 1 && (b.segments[0].kind != segmentTool || b.segments[0].text != guidance) {
+				t.Fatalf("segment = %#v, want exact error evidence", b.segments[0])
+			}
+			if _, open := b.openDelegations["call"]; open {
+				t.Fatal("rejected call left an open delegation")
+			}
+		})
+	}
+}
