@@ -432,9 +432,8 @@ func TestContextOverlayBoundsMatchUncachedMeasurement(t *testing.T) {
 		}
 		return x, y, w, h
 	}
-	sizes := [][2]int{{80, 24}, {300, 80}, {24, 8}}
-	for _, size := range sizes {
-		for _, items := range []int{0, 31, 80} {
+	for _, size := range raceSample([][2]int{{80, 24}, {300, 80}, {24, 8}}) {
+		for _, items := range raceSample([]int{31, 0, 80}) {
 			m := newMemoTestModel(t)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 			m.contextOverlay = openContextOverlay("Context", contextOverlayMouseReport(items), m.width, m.height, m.styles, m.content.glamourStyleSheet)

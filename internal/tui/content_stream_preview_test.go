@@ -60,14 +60,8 @@ func newPreviewBuffer(palette theme.Palette) *contentBuffer {
 }
 
 func TestInProgressPreviewMatchesFullRender(t *testing.T) {
-	// The race job runs a reduced sample because these tests are single-goroutine
-	// and the non-race job runs the full matrix.
-	widths := []int{1, 2, 3, 5, 8, 17, 40, 200}
-	seeds, tokenCount := uint64(6), 120
-	if raceEnabled {
-		widths = []int{1, 3, 17, 200}
-		seeds, tokenCount = 2, 60
-	}
+	widths := raceSample([]int{17, 1, 2, 3, 5, 8, 40, 200})
+	seeds, tokenCount := raceSeeds(6), 120
 	tokenSets := map[string][]string{
 		"text":     streamPreviewTokens,
 		"controls": append(append([]string{}, streamPreviewTokens...), streamPreviewControlTokens...),
@@ -97,11 +91,7 @@ func TestInProgressPreviewSurvivesStateChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve palette: %v", err)
 	}
-	seeds := uint64(8)
-	if raceEnabled {
-		seeds = 3
-	}
-	for seed := uint64(1); seed <= seeds; seed++ {
+	for seed := uint64(1); seed <= raceSeeds(8); seed++ {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			t.Parallel()
 			rng := rand.New(rand.NewPCG(seed, 99))

@@ -1,3 +1,10 @@
+//go:build perfguard || race
+
+// The headless harness drives a real tea.Program against the wall clock for
+// about 2.5s. The race build keeps it for data-race coverage of the renderer
+// tick goroutine and the shared writer; the perfguard build (`make test-perf`)
+// runs it with Guard 4's timing threshold. The plain suite skips it.
+
 package tui
 
 import (

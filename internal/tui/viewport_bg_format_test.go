@@ -163,11 +163,7 @@ func newBgFormatTwinModel(run func(m *Model)) *Model {
 // rendered frame.
 func TestSyncViewportIncrementalLinesMatchOldPipeline(t *testing.T) {
 	advance := stubBgFormatClock(t)
-	seeds := uint64(8)
-	if raceEnabled {
-		seeds = 3
-	}
-	for seed := range seeds {
+	for seed := range raceSeeds(8) {
 		s := &bgFormatScenario{r: rand.New(rand.NewPCG(seed, 3))}
 		run := sendMsg(runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
 		inc, oracle := newBgFormatTwinModel(run), newBgFormatTwinModel(run)

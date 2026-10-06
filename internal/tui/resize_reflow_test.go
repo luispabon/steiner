@@ -12,10 +12,15 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+// reflowTurns is the fixture length: six turns hold every segment kind
+// populateLongTranscript emits (a delegation arrives at turn five) and run
+// well past the 120-line scroll the anchor test needs.
+const reflowTurns = 6
+
 func reflowFixture(t *testing.T) *Model {
 	t.Helper()
 	stubBgFormatClock(t)
-	return populateLongTranscript(newContentBenchModel(), 12)
+	return populateLongTranscript(newContentBenchModel(), reflowTurns)
 }
 
 // reflowOracle builds the transcript directly at window width w: the size
@@ -27,7 +32,7 @@ func reflowOracle(w int) *Model {
 	}, nil)
 	m = updateModelDirect(m, tea.WindowSizeMsg{Width: w, Height: 40})
 	m = updateModelDirect(m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
-	return populateLongTranscript(m, 12)
+	return populateLongTranscript(m, reflowTurns)
 }
 
 func resizeTo(m *Model, w, h int) tea.Cmd {
@@ -101,16 +106,16 @@ func TestResizeBurstReflowsOnce(t *testing.T) {
 }
 
 func TestResizeReflowStaleFrame(t *testing.T) {
-	for _, tc := range []struct {
+	for _, tc := range raceSample([]struct {
 		name   string
 		width  int
 		scroll int
 	}{
+		{"narrower scrolled", 104, 37},
 		{"narrower at bottom", 104, 0},
 		{"wider at bottom", 150, 0},
-		{"narrower scrolled", 104, 37},
 		{"wider scrolled", 150, 37},
-	} {
+	}) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := reflowFixture(t)
 			if tc.scroll > 0 {
@@ -244,6 +249,9 @@ func TestResizeReflowScrollAnchor(t *testing.T) {
 	t.Run("scrolled", func(t *testing.T) {
 		m := reflowFixture(t)
 		m.scrollUp(120)
+		if m.viewport.YOffset() == 0 {
+			t.Fatal("setup: transcript too short to scroll 120 lines without reaching the top")
+		}
 		seg, _, ok := m.scrollAnchor()
 		if !ok {
 			t.Fatal("no anchor segment")

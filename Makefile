@@ -123,10 +123,11 @@ test-scripts:
 bench:
 	go test -run=$$^ -bench=$(or $(BENCH),.) $(BENCH_FLAGS) -benchtime=$(or $(BENCHTIME),1s) -count=$(or $(COUNT),1) ./internal/tui/...
 
-# test-perf runs the allocation-ceiling guards, which are behind the perfguard
-# build tag so their ~23s of benchmark runs stay out of the normal test suite.
+# test-perf runs the allocation-ceiling guards and the TUI's wall-clock headless
+# harness, which are behind the perfguard build tag so their ~25s of benchmark
+# and real-time runs stay out of the normal test suite.
 test-perf:
-	go test -tags perfguard -run TestBenchmarkAllocationCeilings -v ./internal/tui/... ./internal/agent/...
+	go test -tags perfguard -run 'TestBenchmarkAllocationCeilings|TestHarness' -v ./internal/tui/... ./internal/agent/...
 
 # bench-tui runs the TUI benchmarks with -benchmem and a fixed benchtime,
 # suitable for benchstat comparison between two runs.
