@@ -623,7 +623,7 @@ Runtime limits for turns, tokens, and tool execution.
 | `max_turns`             | int                        | `50`      | Maximum agent loop turns before the run is stopped.                                                                                                                                                                                                                                                                                                                                               |
 | `max_tokens`            | int                        | `500000`  | Maximum total tokens (input + output) consumed before the run is stopped.                                                                                                                                                                                                                                                                                                                         |
 | `tool_timeout_default`  | duration string            | `"30s"`   | Default timeout applied to any tool not listed in `tool_timeouts`.                                                                                                                                                                                                                                                                                                                                |
-| `tool_timeouts`         | map[string]duration string | see below | Per-tool timeout overrides.                                                                                                                                                                                                                                                                                                                                                                       |
+| `tool_timeouts`         | map[string]duration string | see below | Per-tool timeout overrides. `bash` caps the built-in Bash tool and must be a positive whole number of seconds; see below.                                                                                                                                                                                                                                                                                                                                                                       |
 | `tool_output_max_bytes` | int                        | `65536`   | Maximum bytes of output captured from a single tool call. Output is truncated to this limit. Applies to both the parent run and each child sub-agent's own tool executor.                                                                                                                                                                                                                         |
 | `max_parallel_tools`    | int                        | `4`       | Maximum number of ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`) executed concurrently within a single turn. Must be at least `1`; `1` forces serial execution for these tools. Distinct from `sub_agent.max_parallel`, which caps concurrently running sub-agents session-wide, independently. Applies to both the parent run and each child sub-agent's own turns. |
 
@@ -651,6 +651,17 @@ limits:
   tool_output_max_bytes: 65536
   max_parallel_tools: 4
 ```
+
+`limits.tool_timeouts.bash` caps the built-in Bash tool: it is the maximum
+wall-clock duration of a Bash call and must be a positive whole number of
+seconds (`500ms`, `1.5s`, `0s`, and negative values are rejected at load).
+The model's requested `timeout_seconds` (30 seconds by default, or the cap
+when the cap is lower) is clamped to this value, so a longer configured
+timeout is honoured rather than ignored, and the timeout cannot be disabled.
+Raising the cap above the `120s` default is supported; `180s` and `300s` allow
+longer commands. This cap applies to the built-in Bash tool only: MCP tools
+keep the timeout behaviour described below, and config-defined subprocess
+tools keep their `tools.<tool>.timeout` setting.
 
 `tool_timeout_default` and `tool_timeouts` also apply to MCP tools: every MCP call is
 bounded by `tool_timeout_default` (the `30s` default), unless the tool's full registered
