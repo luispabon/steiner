@@ -92,6 +92,10 @@ type anthropicContentBlock struct {
 	ContentBlocks []anthropicContentBlock
 	Source        *anthropicImageSource  `json:"source,omitempty"`
 	CacheControl  *anthropicCacheControl `json:"cache_control,omitempty"`
+
+	// volatile marks blocks whose bytes change on the next request because
+	// the agent strips image data after one use. Never serialised.
+	volatile bool
 }
 
 func (b anthropicContentBlock) MarshalJSON() ([]byte, error) {
@@ -229,26 +233,62 @@ func assignCacheBreakpoints(wire *anthropicRequest) {
 	cacheControl := &anthropicCacheControl{Type: "ephemeral"}
 	numBreakpoints := markStaticPrefixBreakpoint(wire, cacheControl)
 
-	// ROLLING CONVERSATION: Find last two user-turn boundaries and mark final message's last block.
+	// ROLLING CONVERSATION: mark the final block and the second-to-last user
+	// message's last block. Image data is stripped after one request, so a
+	// breakpoint at or after the first volatile block would write a cache entry
+	// that is never read back; the rolling breakpoint moves to just before it.
 	if len(wire.Messages) == 0 {
 		return
 	}
 
-	// Mark the last content block of the final message.
-	if len(wire.Messages[len(wire.Messages)-1].Content) > 0 && numBreakpoints < anthropicMaxCacheBreakpoints {
-		wire.Messages[len(wire.Messages)-1].Content[len(wire.Messages[len(wire.Messages)-1].Content)-1].CacheControl = cacheControl
+	finalMsg, finalBlock, limitMsg, limitBlock := rollingBreakpointTarget(wire.Messages)
+	if finalMsg >= 0 && finalBlock >= 0 && numBreakpoints < anthropicMaxCacheBreakpoints {
+		wire.Messages[finalMsg].Content[finalBlock].CacheControl = cacheControl
 		numBreakpoints++
 	}
 
-	// Find second-to-last user message and mark its last content block (avoid duplicating if it's the same as final message).
 	userMsgIndices := lastNUserMsgIndices(wire.Messages, 2)
 	if len(userMsgIndices) < 2 || numBreakpoints >= anthropicMaxCacheBreakpoints {
 		return
 	}
-	secondLastUserMsgIdx := userMsgIndices[0]
-	if len(wire.Messages[secondLastUserMsgIdx].Content) > 0 {
-		wire.Messages[secondLastUserMsgIdx].Content[len(wire.Messages[secondLastUserMsgIdx].Content)-1].CacheControl = cacheControl
+	userMsg := userMsgIndices[0]
+	userBlock := len(wire.Messages[userMsg].Content) - 1
+	beforeLimit := userMsg < limitMsg || (userMsg == limitMsg && userBlock < limitBlock)
+	if userBlock >= 0 && beforeLimit && (userMsg != finalMsg || userBlock != finalBlock) {
+		wire.Messages[userMsg].Content[userBlock].CacheControl = cacheControl
 	}
+}
+
+// rollingBreakpointTarget returns the block for the rolling breakpoint (-1
+// when none) and the first block position that is not eligible for any
+// breakpoint (one past the final block when nothing is volatile).
+func rollingBreakpointTarget(messages []anthropicMessage) (msg, block, limitMsg, limitBlock int) {
+	msg = len(messages) - 1
+	block = len(messages[msg].Content) - 1
+	i, j, ok := firstVolatileBlock(messages)
+	if !ok {
+		return msg, block, msg, block + 1
+	}
+	msg, block = i, j-1
+	if block < 0 {
+		msg--
+		if msg >= 0 {
+			block = len(messages[msg].Content) - 1
+		}
+	}
+	return msg, block, i, j
+}
+
+// firstVolatileBlock returns the position of the first block marked volatile.
+func firstVolatileBlock(messages []anthropicMessage) (int, int, bool) {
+	for i, msg := range messages {
+		for j, block := range msg.Content {
+			if block.volatile {
+				return i, j, true
+			}
+		}
+	}
+	return 0, 0, false
 }
 
 // assignAdvisorCacheBreakpoints places cache breakpoints for advisor-shaped
@@ -323,6 +363,11 @@ func userMessageToAnthropic(message Message) *anthropicMessage {
 		// keep at least empty text block to avoid empty content array
 		content = append(content, anthropicContentBlock{Type: "text", Text: ""})
 	}
+	if len(message.Images) > 0 {
+		for i := range content {
+			content[i].volatile = true
+		}
+	}
 	return &anthropicMessage{Role: "user", Content: content}
 }
 
@@ -391,6 +436,7 @@ func toolMessageToAnthropicBlock(message Message) anthropicContentBlock {
 			blocks = append(blocks, anthropicContentBlock{Type: "text", Text: message.Content})
 		}
 		block.ContentBlocks = appendImageBlocks(blocks, message.Images)
+		block.volatile = true
 	} else {
 		block.Content = message.Content
 	}
