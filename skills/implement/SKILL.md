@@ -216,8 +216,8 @@ Failed verification blocks reviewer handoff by default. Proceed to review with k
 
 If planning artifacts are version-controlled, commit the final executor state before handing off to review.
 
-Then call `workflow_handoff` with `next: review`, `target: .steiner/plans/FEATURE`, and a one-line `message`; write no handoff prose before it. The call is mandatory, and the tool's prompt owns the user's accept/decline choice. On the result:
+Then call `workflow_handoff` with `next: review`, `target: .steiner/plans/FEATURE`, and optionally a one-line `message`; write no handoff prose before it. The call is mandatory, and the tool's prompt owns the user's accept/decline choice. On the result:
 
 - **Accepted** — done; the review workflow starts in a cleared session.
-- **Declined** or **unsupported** — say once `To review later, run /clear then /review .steiner/plans/FEATURE on an empty context.`, then stop.
+- **Declined** or **unsupported** — say once `To review later, run /clear then /review .steiner/plans/FEATURE on an empty context.`, then stop; do not imply review has started or offer to continue.
 - **Error** — fix the cause (outstanding sub-agents, missing artifact, bad path) and call again; never fall back to prose.

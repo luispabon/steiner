@@ -123,10 +123,10 @@ Author `plan.yaml` (see the plan.yaml schema and the decision model in Reference
 
 ### Handoff ▸ terminal tool call
 
-**Mandatory end-of-work; planning is incomplete until this call is made.** If planning artifacts are version-controlled, commit them on `cl/YYYY-MM-DD_FEATURE_NAME`. Then call `workflow_handoff` with `next: implement`, `target: .steiner/plans/YYYY-MM-DD_FEATURE_NAME`, and a one-line `message`; write no handoff prose before it. The tool's prompt owns the user's accept/decline choice. On the result:
+**Mandatory end-of-work; planning is incomplete until this call is made.** If planning artifacts are version-controlled, commit them on `cl/YYYY-MM-DD_FEATURE_NAME`. Then call `workflow_handoff` with `next: implement`, `target: .steiner/plans/YYYY-MM-DD_FEATURE_NAME`, and optionally a one-line `message`; write no handoff prose before it. The tool's prompt owns the user's accept/decline choice. On the result:
 
 - **Accepted** — done; the implement workflow starts in a cleared session.
-- **Declined** or **unsupported** — say once `To implement later, run /clear then /implement .steiner/plans/YYYY-MM-DD_FEATURE_NAME on an empty context.`, then stop.
+- **Declined** or **unsupported** — say once `To implement later, run /clear then /implement .steiner/plans/YYYY-MM-DD_FEATURE_NAME on an empty context.`, then stop; do not imply implement has started or offer to continue.
 - **Error** — fix the cause (outstanding sub-agents, missing artifact, bad path) and call again; never fall back to prose.
 
 ## Reference
