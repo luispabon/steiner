@@ -1,0 +1,106 @@
+{
+  "id": "b",
+  "created_at": "2026-10-02T10:00:00Z",
+  "model": "claude-sonnet-x",
+  "lineage": {
+    "generations": [
+      {
+        "id": "g",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "c0",
+                "name": "read",
+                "arguments": {}
+              },
+              {
+                "id": "c1",
+                "name": "read",
+                "arguments": {}
+              },
+              {
+                "id": "c2",
+                "name": "read",
+                "arguments": {}
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "c0",
+                "name": "read",
+                "arguments": {}
+              },
+              {
+                "id": "c1",
+                "name": "read",
+                "arguments": {}
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "c0",
+                "name": "read",
+                "arguments": {}
+              },
+              {
+                "id": "c1",
+                "name": "read",
+                "arguments": {}
+              },
+              {
+                "id": "c2",
+                "name": "read",
+                "arguments": {}
+              },
+              {
+                "id": "c3",
+                "name": "read",
+                "arguments": {}
+              },
+              {
+                "id": "c4",
+                "name": "read",
+                "arguments": {}
+              },
+              {
+                "id": "c5",
+                "name": "read",
+                "arguments": {}
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "c0",
+                "name": "read",
+                "arguments": {}
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          }
+        ]
+      }
+    ]
+  }
+}

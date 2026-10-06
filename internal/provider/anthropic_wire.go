@@ -174,8 +174,20 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 			})
 		}
 	}
+	// Anthropic requires every tool_result of one assistant turn in a single
+	// user message, so a contiguous run of tool messages is coalesced.
+	inToolBatch := false
 	for _, msg := range request.Messages {
 		switch msg.Role {
+		case MessageRoleTool:
+			block := toolMessageToAnthropicBlock(msg)
+			if inToolBatch {
+				last := &wire.Messages[len(wire.Messages)-1]
+				last.Content = append(last.Content, block)
+			} else {
+				wire.Messages = append(wire.Messages, anthropicMessage{Role: "user", Content: []anthropicContentBlock{block}})
+				inToolBatch = true
+			}
 		case MessageRoleSystem:
 			if strings.TrimSpace(msg.Content) == "" {
 				continue
@@ -188,6 +200,7 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 			wireMsg := toAnthropicMessage(msg)
 			if wireMsg != nil {
 				wire.Messages = append(wire.Messages, *wireMsg)
+				inToolBatch = false
 			}
 		}
 	}
@@ -361,6 +374,10 @@ func assistantThinkingBlock(message Message) *anthropicContentBlock {
 }
 
 func toolMessageToAnthropic(message Message) *anthropicMessage {
+	return &anthropicMessage{Role: "user", Content: []anthropicContentBlock{toolMessageToAnthropicBlock(message)}}
+}
+
+func toolMessageToAnthropicBlock(message Message) anthropicContentBlock {
 	block := anthropicContentBlock{
 		Type:      "tool_result",
 		ToolUseID: message.ToolCallID,
@@ -377,7 +394,7 @@ func toolMessageToAnthropic(message Message) *anthropicMessage {
 	} else {
 		block.Content = message.Content
 	}
-	return &anthropicMessage{Role: "user", Content: []anthropicContentBlock{block}}
+	return block
 }
 
 func genericMessageToAnthropic(message Message) *anthropicMessage {
