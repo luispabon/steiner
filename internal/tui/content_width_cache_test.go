@@ -131,11 +131,10 @@ func assertTwinViews(t *testing.T, label string, got, want *Model, selection boo
 // agree byte for byte.
 func TestWidthRenderCacheMatchesFreshRender(t *testing.T) {
 	advance := stubBgFormatClock(t)
-	// The race job runs a reduced sample because these tests are single-goroutine
-	// and the non-race job runs the full matrix.
-	seeds, minRevisits := uint64(8), 30
+	seeds, minRevisits := raceSeeds(8), 30
 	if raceEnabled {
-		seeds, minRevisits = 3, 10
+		// One seed: a single revisit is enough to reach the cache-hit path.
+		minRevisits = 1
 	}
 	revisits := 0
 	for seed := range seeds {
@@ -286,7 +285,7 @@ func TestWidthRenderCacheEvictsOnMutation(t *testing.T) {
 			mutate:  func(m *Model) { updateModelDirect(m, tea.WindowSizeMsg{Width: m.width, Height: 22}) },
 		},
 	}
-	for _, tc := range cases {
+	for _, tc := range raceSample(cases) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := widthCacheFixture(t)
 			if tc.prepare != nil {

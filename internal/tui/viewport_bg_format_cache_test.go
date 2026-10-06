@@ -71,7 +71,7 @@ func editBgCacheBlocks(r *rand.Rand, blocks []string) []string {
 // whether the joined source changed.
 func TestBgFormatCacheMatchesOldPipeline(t *testing.T) {
 	t.Parallel()
-	for seed := range uint64(400) {
+	for seed := range raceSeeds(400) {
 		r := rand.New(rand.NewPCG(seed, 5))
 		var c bgFormatCache
 		var blocks []string
