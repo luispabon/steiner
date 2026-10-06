@@ -25,14 +25,14 @@ func newVisionHandler(deps SpecializedToolDeps) func(ctx context.Context, input 
 		}
 		brief, err := parseStructuredBrief(string(AgentTypeVision), input)
 		if err != nil {
-			return nil, err
+			return nil, tool.WithModelGuidance(err)
 		}
 
 		task := assembleTaskContent(brief)
 
 		imageID, _ := input["image_id"].(string)
 		if imageID == "" {
-			return nil, fmt.Errorf("vision: image_id is required")
+			return nil, tool.WithModelGuidance(fmt.Errorf("vision: image_id is required"))
 		}
 
 		imgBlock, err := loadVisionImageBlock(imageID, deps.ImageStore)

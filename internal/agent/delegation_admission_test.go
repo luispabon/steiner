@@ -39,6 +39,11 @@ func TestBuildToolMessageDelegationAdmission(t *testing.T) {
 		{name: "policy denied", tool: "delegate", err: &tool.ToolExecutionError{Tool: "delegate", Kind: "policy_denied", Message: "blocked"}, want: &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, PolicyNotice: true}},
 		{name: "approval denied", tool: "delegate", err: fmt.Errorf("approval: %w", &tool.ToolExecutionError{Tool: "delegate", Kind: "policy_denied", Message: "approval denied"}), want: &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, PolicyNotice: true}},
 		{name: "not dispatched", tool: "delegate", err: errNotDispatched, want: &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected}},
+		{name: "model guidance", tool: "delegate", err: tool.WithModelGuidance(errors.New("dispatch fresh")), want: &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, ModelGuidance: true}},
+		{name: "wrapped model guidance", tool: "delegate", err: fmt.Errorf("outer: %w", tool.WithModelGuidance(errors.New("dispatch fresh"))), want: &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, ModelGuidance: true}},
+		{name: "model guidance on supervisor rejection", tool: "delegate", err: tool.WithDelegationAdmission(tool.WithModelGuidance(errors.New("fresh group")), rejected), want: &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, BatchID: "batch", ModelGuidance: true}},
+		{name: "model guidance never marks accepted", tool: "delegate", result: tool.ExecutionResult{DelegationAdmission: authoritative}, err: tool.WithModelGuidance(errors.New("after admission")), want: authoritative},
+		{name: "model guidance on non-delegation tool", tool: "read", err: tool.WithModelGuidance(errors.New("retry"))},
 		{name: "non-delegation success", tool: "read", result: "ok"},
 		{name: "non-delegation error", tool: "read", err: &tool.ToolExecutionError{Kind: "policy_denied"}},
 	} {
@@ -61,6 +66,23 @@ func TestSynthesisedRejectedAdmissionCarriesBatchID(t *testing.T) {
 	p.batchID = "batch-1"
 	message := p.buildToolMessage(1, provider.ToolCall{ID: "call", Name: "delegate"}, nil, errNotDispatched, nil)
 	assertAdmission(t, "message", message.DelegationAdmission, &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, BatchID: "batch-1"})
+}
+
+func TestModelGuidanceKeepsToolMessageContent(t *testing.T) {
+	cause := errors.New(`follow_up: agent "child-6"'s code worktree is no longer usable; delegate a fresh code agent instead of resuming this one`)
+	var events []output.Event
+	p := newTurnProgressor(RunRequest{ParallelClassOf: delegateClassifier, Events: output.SinkFunc(func(e output.Event) { events = append(events, e) })}, prompt.AssemblyOptions{}, nil)
+	plain := p.buildToolMessage(1, provider.ToolCall{ID: "plain", Name: "delegate"}, nil, cause, nil)
+	marked := p.buildToolMessage(1, provider.ToolCall{ID: "marked", Name: "delegate"}, nil, tool.WithModelGuidance(cause), nil)
+	if marked.Content != plain.Content {
+		t.Fatalf("marked content = %q, want model-facing content unchanged %q", marked.Content, plain.Content)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %d, want two tool_call_finished events", len(events))
+	}
+	if got := events[1].Payload.(output.ToolCallFinishedEvent).Error; got != cause.Error() {
+		t.Fatalf("event error = %q, want machine-readable error kept %q", got, cause.Error())
+	}
 }
 
 func assertAdmission(t *testing.T, label string, got, want *tool.DelegationAdmission) {

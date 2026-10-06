@@ -22,6 +22,7 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		if normalizedResult.DelegationAdmission == nil {
 			normalizedResult.DelegationAdmission = p.defaultRejectedAdmission(call.Name, err)
 		}
+		markModelGuidance(normalizedResult.DelegationAdmission, err)
 		if projected, ok := projectedToolError(err); ok {
 			toolContent = projected
 		} else {

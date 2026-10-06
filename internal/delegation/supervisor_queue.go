@@ -38,7 +38,7 @@ func (s *Supervisor) enqueue(handlerCtx context.Context, job ChildJob, blocking 
 	}
 	if outstanding := s.running + len(s.queue); outstanding >= 2*s.maxParallel {
 		s.mu.Unlock()
-		return nil, outstandingCapError{outstanding: outstanding}
+		return nil, tool.WithModelGuidance(outstandingCapError{outstanding: outstanding})
 	}
 	batchID := agent.ToolBatchIDFrom(handlerCtx)
 	groupName := agent.NormalizeDelegationGroup(job.Group)

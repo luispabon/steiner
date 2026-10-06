@@ -25,7 +25,11 @@ func (b *contentBuffer) handleDelegationAdmissionFinish(payload output.ToolCallF
 			loc.dd.errMsg = "delegation failed"
 		}
 	}
-	b.appendAdmissionError(payload.Error)
+	// Model-guidance rejections steer the model's own recovery; the model
+	// still receives the text, so the transcript stays quiet.
+	if !admission.ModelGuidance {
+		b.appendAdmissionError(payload.Error)
+	}
 	return true
 }
 
