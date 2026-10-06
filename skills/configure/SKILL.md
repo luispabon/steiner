@@ -66,7 +66,7 @@ Canonical compact reference for safe configuration edits.
 | `limits.max_tokens`|int|`500000`|Input plus output tokens; at least 1. |
 | `limits.model_call_timeout`|duration|`10m`|Model-call limit. |
 | `limits.tool_timeout_default`|duration|`30s`|Default tool and MCP timeout; positive. |
-| `limits.tool_timeouts.<tool>`|duration|—|One per-tool timeout override; `bash` caps only the built-in Bash tool, defaults to `120s`, honours values above `120s`, must be a positive whole number of seconds, and cannot be disabled. |
+| `limits.tool_timeouts.<tool>`|duration|—|Per-tool override; `bash` (built-in only) default `120s`, higher allowed, positive whole seconds, cannot be disabled. |
 | `limits.tool_output_max_bytes`|int|`65536`|Captured output limit per tool call; at least 1. |
 | `limits.max_parallel_tools`|int|`4`|Concurrent ordinary tools; >=1. |
 | `sandbox`|block|see fields below|Bubblewrap sandbox settings. |
