@@ -1838,9 +1838,10 @@ func TestBuildChildPromptSessionDateZero(t *testing.T) {
 	}
 }
 
-// TestChildBashSubsetPreservesTimeoutCap proves Registry.Subset, the mechanism
-// that builds a child's tool set, inherits the parent bash ToolDef unchanged: the
-// configured timeout cap survives in both the schema and the handler closure.
+// TestChildBashSubsetPreservesTimeoutCap proves buildChildRegistries, the
+// mechanism that builds a child's tool set, inherits the parent bash ToolDef
+// unchanged: the configured timeout cap survives in both the schema and the
+// handler closure, and both the visible and execution registries expose bash.
 func TestChildBashSubsetPreservesTimeoutCap(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("bash"); err != nil {
@@ -1852,10 +1853,14 @@ func TestChildBashSubsetPreservesTimeoutCap(t *testing.T) {
 	env := builtin.Env{WorkDir: workDir, PathPolicy: &pp, BashTimeoutCap: 300 * time.Second}
 	parent := tool.NewRegistry(builtin.NewBashTool(env))
 
-	child := parent.Subset([]string{"bash"}, nil)
-	def, ok := child.Get("bash")
+	visible, execReg := buildChildRegistries(parent, []string{"bash"})
+	def, ok := visible.Get("bash")
 	if !ok {
-		t.Fatal("child subset missing bash")
+		t.Fatal("child visible registry missing bash")
+	}
+	execDef, ok := execReg.Get("bash")
+	if !ok {
+		t.Fatal("child execution registry missing bash")
 	}
 	props, _ := def.ParameterSchema["properties"].(map[string]any)
 	ts, _ := props["timeout_seconds"].(map[string]any)
@@ -1870,7 +1875,7 @@ func TestChildBashSubsetPreservesTimeoutCap(t *testing.T) {
 	}
 
 	ctx := context.WithValue(context.Background(), tool.SandboxWrapperKey{}, tool.ResolvedSandbox{Wrapper: tool.Unsandboxed{}})
-	resultValue, err := def.Handler(ctx, map[string]any{"command": "echo subset-ok"})
+	resultValue, err := execDef.Handler(ctx, map[string]any{"command": "printf subset-ok", "timeout_seconds": 300})
 	if err != nil {
 		t.Fatalf("child bash handler error = %v", err)
 	}

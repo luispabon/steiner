@@ -248,22 +248,57 @@ func TestBashToolConfiguredTimeoutCapInSchema(t *testing.T) {
 	}
 }
 
-// TestBashToolZeroEnvUsesFiniteCap proves a zero-valued Env cap falls back to
-// the finite 120-second default in the schema rather than a zero maximum.
+// TestBashToolZeroEnvUsesFiniteCap proves a non-positive or sub-second Env cap
+// falls back to the finite 120-second default in the schema rather than a zero
+// maximum, and that the fallback actually governs handler execution: a fresh
+// tool for each fallback cap runs a command bounded by the requested
+// timeout_seconds (2) rather than an invalid zero cap.
 func TestBashToolZeroEnvUsesFiniteCap(t *testing.T) {
-	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
-	toolDef := NewBashTool(Env{PathPolicy: &policy})
+	tests := []struct {
+		name string
+		cap  time.Duration
+	}{
+		{name: "zero cap", cap: 0},
+		{name: "negative cap", cap: -1 * time.Second},
+		{name: "sub-second cap", cap: 500 * time.Millisecond},
+	}
 
-	props, _ := toolDef.ParameterSchema["properties"].(map[string]any)
-	ts, _ := props["timeout_seconds"].(map[string]any)
-	if ts == nil {
-		t.Fatal("bash schema missing timeout_seconds")
-	}
-	if got := ts["maximum"]; got != defaultBashTimeoutCapSeconds {
-		t.Errorf("timeout_seconds maximum = %v, want %d", got, defaultBashTimeoutCapSeconds)
-	}
-	if got := ts["default"]; got != defaultBashTimeoutSeconds {
-		t.Errorf("timeout_seconds default = %v, want %d", got, defaultBashTimeoutSeconds)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
+			toolDef := NewBashTool(Env{PathPolicy: &policy, BashTimeoutCap: tt.cap})
+
+			props, _ := toolDef.ParameterSchema["properties"].(map[string]any)
+			ts, _ := props["timeout_seconds"].(map[string]any)
+			if ts == nil {
+				t.Fatal("bash schema missing timeout_seconds")
+			}
+			if got := ts["maximum"]; got != defaultBashTimeoutCapSeconds {
+				t.Errorf("timeout_seconds maximum = %v, want %d", got, defaultBashTimeoutCapSeconds)
+			}
+			if got := ts["default"]; got != defaultBashTimeoutSeconds {
+				t.Errorf("timeout_seconds default = %v, want %d", got, defaultBashTimeoutSeconds)
+			}
+
+			ctx := withUnsandboxedWrapper(context.Background())
+			resultValue, err := toolDef.Handler(ctx, map[string]any{
+				"command":         "sleep 0.75; printf fallback-ok",
+				"timeout_seconds": 2,
+			})
+			if err != nil {
+				t.Fatalf("handler error = %v", err)
+			}
+			result, ok := resultValue.(*BashResult)
+			if !ok {
+				t.Fatalf("result type = %T, want *BashResult", resultValue)
+			}
+			if result.ExitCode != 0 {
+				t.Errorf("ExitCode = %d, want 0", result.ExitCode)
+			}
+			if !strings.Contains(result.Output, "fallback-ok") {
+				t.Errorf("Output = %q, want to contain %q", result.Output, "fallback-ok")
+			}
+		})
 	}
 }
 
