@@ -168,7 +168,9 @@ func TestClaudeSubArgs(t *testing.T) {
 			want: withBase("--thinking", "disabled"),
 		},
 		{name: "invalid effort omitted", opts: claudeSubSpawnOptions{Model: "claude-haiku-5-5", Effort: "turbo"}, want: withBase(adaptive...)},
-		{name: "effort none omitted", opts: claudeSubSpawnOptions{Model: "claude-haiku-5-5", Effort: "none"}, want: withBase(adaptive...)},
+		{name: "effort none disables thinking", opts: claudeSubSpawnOptions{Model: "claude-haiku-5-5", Effort: "none"}, want: withBase("--thinking", "disabled")},
+		{name: "effort none with explicit thinking disabled", opts: claudeSubSpawnOptions{Model: "claude-haiku-5-5", Effort: "NONE", ThinkingDisabled: true}, want: withBase("--thinking", "disabled")},
+		{name: "thinking disabled with valid effort", opts: claudeSubSpawnOptions{Model: "claude-haiku-5-5", Effort: "low", ThinkingDisabled: true}, want: withBase("--thinking", "disabled", "--effort", "low")},
 		{name: "model only", opts: claudeSubSpawnOptions{Model: "claude-haiku-5-5"}, want: withBase(adaptive...)},
 	}
 	for _, tc := range tests {

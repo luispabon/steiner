@@ -72,6 +72,7 @@ func TestClaudeSubRateLimitVerdict(t *testing.T) {
 		wantResetsAt int64
 	}{
 		{"allowed", `{"status":"allowed","rateLimitType":"five_hour","resetsAt":1791477000,"isUsingOverage":false,"overageInUse":false}`, false, false, false, "", 0},
+		{"recorded allowed shape", `{"status":"allowed","resetsAt":1791477000,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"org_level_disabled_until","isUsingOverage":false,"unifiedWindows":{"five_hour":{"utilization":0.06,"resetsAt":1791477000},"seven_day":{"utilization":0.01,"resetsAt":1791928800}}}`, false, false, false, "", 0},
 		{"using overage flag", `{"status":"allowed","isUsingOverage":true}`, true, false, false, "", 0},
 		{"overage in use flag", `{"status":"allowed","overageInUse":true}`, true, false, false, "", 0},
 		{"rate limit type overage", `{"status":"allowed","rateLimitType":"overage"}`, true, false, false, "", 0},
@@ -81,6 +82,9 @@ func TestClaudeSubRateLimitVerdict(t *testing.T) {
 		{"rejected without reset", `{"status":"rejected","rateLimitType":"five_hour"}`, false, false, true, "five_hour", 0},
 		{"undecodable", `not json`, true, true, false, "", 0},
 		{"empty", ``, true, true, false, "", 0},
+		{"empty object", `{}`, true, true, false, "", 0},
+		{"json null", `null`, true, true, false, "", 0},
+		{"unknown status", `{"status":"unknown"}`, true, true, false, "", 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

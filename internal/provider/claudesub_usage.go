@@ -57,8 +57,9 @@ type claudeSubRateLimitInfo struct {
 
 // claudeSubRateLimitVerdict classifies a rate_limit_event's rate_limit_info.
 // overage reports that paid extra usage started; it fails closed (true) when
-// the event cannot be decoded. limit carries the usage window when the CLI
-// rejected the turn for a plain (non-overage) usage limit.
+// the event cannot be decoded or its shape is unrecognised. limit carries the
+// usage window when the CLI rejected the turn for a plain (non-overage) usage
+// limit.
 func claudeSubRateLimitVerdict(raw json.RawMessage) (overage bool, limit *UsageLimitError, err error) {
 	var info claudeSubRateLimitInfo
 	if err := json.Unmarshal(raw, &info); err != nil {
@@ -78,6 +79,9 @@ func claudeSubRateLimitVerdict(raw json.RawMessage) (overage bool, limit *UsageL
 			limit.ResetsAt = time.Unix(info.ResetsAt, 0)
 		}
 		return false, limit, nil
+	}
+	if info.Status != "allowed" {
+		return true, nil, fmt.Errorf("could not classify claude rate limit event: %s", truncateRunes(string(raw), usageLimitBodyRunes))
 	}
 	return false, nil, nil
 }

@@ -167,12 +167,13 @@ func claudeSubArgs(o claudeSubSpawnOptions) []string {
 	if o.SystemPromptFile != "" {
 		args = append(args, "--system-prompt-file", o.SystemPromptFile)
 	}
-	if o.ThinkingDisabled {
+	effort, effortDisablesThinking := claudeSubEffort(o.Effort)
+	if o.ThinkingDisabled || effortDisablesThinking {
 		args = append(args, "--thinking", "disabled")
 	} else {
 		args = append(args, "--thinking", "adaptive", "--thinking-display", "summarized")
 	}
-	if effort, _ := claudeSubEffort(o.Effort); effort != "" {
+	if effort != "" {
 		args = append(args, "--effort", effort)
 	}
 	return args
