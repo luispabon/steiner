@@ -3,7 +3,9 @@ package provider
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -70,9 +72,10 @@ func claudeSubMCPWaitWaiter(t *testing.T, h *claudeSubMCPHost, id string) {
 	deadline := time.Now().Add(claudeSubMCPTestTimeout)
 	for time.Now().Before(deadline) {
 		h.mu.Lock()
-		_, ok := h.waiters[id]
+		call := h.calls[id]
+		waiting := call != nil && call.waiter != nil
 		h.mu.Unlock()
-		if ok {
+		if waiting {
 			return
 		}
 		time.Sleep(time.Millisecond)
@@ -80,21 +83,21 @@ func claudeSubMCPWaitWaiter(t *testing.T, h *claudeSubMCPHost, id string) {
 	t.Fatalf("waiter for %q never registered", id)
 }
 
-// claudeSubMCPWaitCancelled blocks until the host has tombstoned id after a
-// cancelled or closed call.
-func claudeSubMCPWaitCancelled(t *testing.T, h *claudeSubMCPHost, id string) {
+// claudeSubMCPWaitRetired blocks until the host has retired (removed) the call
+// for id after it was cancelled or consumed.
+func claudeSubMCPWaitRetired(t *testing.T, h *claudeSubMCPHost, id string) {
 	t.Helper()
 	deadline := time.Now().Add(claudeSubMCPTestTimeout)
 	for time.Now().Before(deadline) {
 		h.mu.Lock()
-		_, done := h.cancelled[id]
+		_, live := h.calls[id]
 		h.mu.Unlock()
-		if done {
+		if !live {
 			return
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatalf("%q was never tombstoned", id)
+	t.Fatalf("%q was never retired", id)
 }
 
 func claudeSubMCPText(res *mcp.CallToolResult) string {
@@ -196,7 +199,7 @@ func TestClaudeSubMCPResolveBeforeCallReturnsImmediately(t *testing.T) {
 	cs := claudeSubMCPConnect(t, h, h.token, nil)
 
 	imageData := base64.StdEncoding.EncodeToString([]byte("abc"))
-	h.resolve("toolu_1", claudeSubToolResult{
+	h.resolve(h.beginCall("toolu_1"), claudeSubToolResult{
 		Text:   "hello",
 		Images: []ImageBlock{{MediaType: "image/png", Data: imageData}, {MediaType: "image/png", Data: "not base64"}},
 	})
@@ -233,10 +236,10 @@ func TestClaudeSubMCPResolveBeforeCallReturnsImmediately(t *testing.T) {
 	}
 
 	h.mu.Lock()
-	_, stillStored := h.results["toolu_1"]
+	_, live := h.calls["toolu_1"]
 	h.mu.Unlock()
-	if stillStored {
-		t.Error("consumed result was not deleted")
+	if live {
+		t.Error("consumed call was not retired")
 	}
 }
 
@@ -270,7 +273,7 @@ func TestClaudeSubMCPResolveAfterCallBlocksUntilResult(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	h.resolve("toolu_2", claudeSubToolResult{Text: "world"})
+	h.resolve(h.beginCall("toolu_2"), claudeSubToolResult{Text: "world"})
 	select {
 	case res := <-results:
 		if got := claudeSubMCPText(res); got != "world" {
@@ -330,7 +333,7 @@ func TestClaudeSubMCPEmitsProgressHeartbeatsWhileWaiting(t *testing.T) {
 		t.Fatal("no progress notification while the call waited")
 	}
 
-	h.resolve("toolu_3", claudeSubToolResult{Text: "done"})
+	h.resolve(h.beginCall("toolu_3"), claudeSubToolResult{Text: "done"})
 	select {
 	case res := <-results:
 		if got := claudeSubMCPText(res); got != "done" {
@@ -519,13 +522,14 @@ func TestClaudeSubMCPRejectsDuplicateToolUseIDKeepsOriginal(t *testing.T) {
 	}
 
 	h.mu.Lock()
-	_, live := h.waiters["toolu_dup"]
+	call := h.calls["toolu_dup"]
+	live := call != nil && call.owner
 	h.mu.Unlock()
 	if !live {
-		t.Fatal("original waiter was clobbered by the duplicate call")
+		t.Fatal("original call was clobbered by the duplicate call")
 	}
 
-	h.resolve("toolu_dup", claudeSubToolResult{Text: "original"})
+	h.resolve(h.beginCall("toolu_dup"), claudeSubToolResult{Text: "original"})
 	select {
 	case res := <-first:
 		if got := claudeSubMCPText(res); got != "original" {
@@ -594,105 +598,130 @@ func TestClaudeSubMCPLateResolveAfterCancelIsDiscarded(t *testing.T) {
 	h.setTools([]ToolSpec{{Function: ToolFunctionSpec{Name: "read", Parameters: claudeSubMCPObjectSchema(nil)}}})
 	cs := claudeSubMCPConnect(t, h, h.token, nil)
 
+	call := h.beginCall("toolu_cancel")
 	ctx, cancel := context.WithTimeout(context.Background(), claudeSubMCPTestTimeout)
 	defer cancel()
 	firstErr := make(chan error, 1)
 	go func() {
 		_, err := cs.CallTool(ctx, &mcp.CallToolParams{
 			Name: "read",
-			Meta: mcp.Meta{"claudecode/toolUseId": "toolu_reuse"},
+			Meta: mcp.Meta{"claudecode/toolUseId": "toolu_cancel"},
 		})
 		firstErr <- err
 	}()
-	claudeSubMCPWaitWaiter(t, h, "toolu_reuse")
+	claudeSubMCPWaitWaiter(t, h, "toolu_cancel")
 	cancel()
 	select {
 	case <-firstErr:
 	case <-time.After(claudeSubMCPTestTimeout):
 		t.Fatal("cancelled call did not return")
 	}
-	claudeSubMCPWaitCancelled(t, h, "toolu_reuse")
+	claudeSubMCPWaitRetired(t, h, "toolu_cancel")
 
-	// A late result for the cancelled call must not be stored.
-	h.resolve("toolu_reuse", claudeSubToolResult{Text: "stale"})
+	// A late result on the cancelled handle must not be stored or revive the id.
+	h.resolve(call, claudeSubToolResult{Text: "stale"})
 	h.mu.Lock()
-	_, stored := h.results["toolu_reuse"]
+	_, live := h.calls["toolu_cancel"]
 	h.mu.Unlock()
-	if stored {
-		t.Fatal("late resolve stored a result for a cancelled id")
-	}
-
-	// A reused id must not receive the stale result, nor a later late resolve.
-	reuseCtx, reuseCancel := context.WithTimeout(t.Context(), claudeSubMCPTestTimeout)
-	defer reuseCancel()
-	reused := make(chan *mcp.CallToolResult, 1)
-	reusedErr := make(chan error, 1)
-	go func() {
-		res, err := cs.CallTool(reuseCtx, &mcp.CallToolParams{
-			Name: "read",
-			Meta: mcp.Meta{"claudecode/toolUseId": "toolu_reuse"},
-		})
-		if err != nil {
-			reusedErr <- err
-			return
-		}
-		reused <- res
-	}()
-	claudeSubMCPWaitWaiter(t, h, "toolu_reuse")
-	h.resolve("toolu_reuse", claudeSubToolResult{Text: "still stale"})
-	select {
-	case res := <-reused:
-		t.Fatalf("reused id received stale result %q", claudeSubMCPText(res))
-	case err := <-reusedErr:
-		t.Fatalf("reused CallTool: %v", err)
-	case <-time.After(100 * time.Millisecond):
-	}
-	reuseCancel()
-	select {
-	case <-reusedErr:
-	case res := <-reused:
-		t.Fatalf("reused id unexpectedly resolved with %q", claudeSubMCPText(res))
-	case <-time.After(claudeSubMCPTestTimeout):
-		t.Fatal("reused call was not released by cancellation")
-	}
-
-	// A never-cancelled id still supports resolve-before-call.
-	h.resolve("toolu_fresh", claudeSubToolResult{Text: "fresh"})
-	freshCtx, freshCancel := context.WithTimeout(t.Context(), claudeSubMCPTestTimeout)
-	defer freshCancel()
-	res, err := cs.CallTool(freshCtx, &mcp.CallToolParams{
-		Name: "read",
-		Meta: mcp.Meta{"claudecode/toolUseId": "toolu_fresh"},
-	})
-	if err != nil {
-		t.Fatalf("fresh CallTool: %v", err)
-	}
-	if got := claudeSubMCPText(res); got != "fresh" {
-		t.Errorf("fresh text = %q, want %q", got, "fresh")
+	if live {
+		t.Fatal("late resolve revived a cancelled id")
 	}
 }
 
-func TestClaudeSubMCPTombstonesAreBounded(t *testing.T) {
+// TestClaudeSubMCPDuplicateCannotStealResolvedResult pins the exact window the
+// old waiter/result maps left open: resolve has delivered the result and
+// released the waiter, but the original handler has not consumed it yet. It
+// drives the same openCall/claimResult transitions the real handler uses, so the
+// sequencing is deterministic rather than scheduler-dependent.
+func TestClaudeSubMCPDuplicateCannotStealResolvedResult(t *testing.T) {
 	h := claudeSubMCPNewHost(t)
-	h.maxTombstones = 2
-	h.cancelCall("a")
-	h.cancelCall("b")
-	h.cancelCall("c") // evicts the oldest tombstone, "a"
 
-	h.resolve("a", claudeSubToolResult{Text: "reopened"})
-	h.mu.Lock()
-	_, storedA := h.results["a"]
-	h.mu.Unlock()
-	if !storedA {
-		t.Error("evicted tombstone still discarded resolve; the set is not bounded")
+	call := h.beginCall("toolu_win")
+	original, waiter, state := h.openCall("toolu_win")
+	if state != claudeSubCallAcquired || original != call || waiter == nil {
+		t.Fatalf("original openCall = (%v, %v, %v), want the registered call and a waiter", original, waiter, state)
 	}
 
-	h.resolve("b", claudeSubToolResult{Text: "discarded"})
+	// resolve stores the result and releases the waiter, but the original has
+	// not called claimResult yet.
+	h.resolve(call, claudeSubToolResult{Text: "original"})
+
+	dup, dupWaiter, dupState := h.openCall("toolu_win")
+	if dupState != claudeSubCallDuplicate {
+		t.Fatalf("duplicate openCall state = %v, want duplicate", dupState)
+	}
+	if dup != nil || dupWaiter != nil {
+		t.Fatalf("duplicate openCall returned (%v, %v), want nils", dup, dupWaiter)
+	}
+
+	got, ok := h.claimResult(original)
+	if !ok {
+		t.Fatal("original lost its resolved result to the duplicate")
+	}
+	if got.Text != "original" {
+		t.Errorf("original text = %q, want %q", got.Text, "original")
+	}
+}
+
+// TestClaudeSubMCPBoundedStateSurvivesCapacityPressure proves the cancel/late
+// result protection does not depend on a fixed-capacity terminal set: after far
+// more cancellations than the old tombstone bound, a cancelled id still cannot
+// receive a late result, the live call set stays empty, and reusing the raw id
+// allocates a fresh call the retired handle cannot touch.
+func TestClaudeSubMCPBoundedStateSurvivesCapacityPressure(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+
+	cancelled := h.beginCall("toolu_reuse")
+	h.cancelCall(cancelled)
+
+	for i := 0; i < 2048; i++ {
+		h.cancelCall(h.beginCall(fmt.Sprintf("toolu_flood_%d", i)))
+	}
 	h.mu.Lock()
-	_, storedB := h.results["b"]
+	live := len(h.calls)
 	h.mu.Unlock()
-	if storedB {
-		t.Error("live tombstone did not discard resolve")
+	if live != 0 {
+		t.Fatalf("live calls after cancellations = %d, want 0 (state is not bounded)", live)
+	}
+
+	// A late result on the retired handle is discarded.
+	h.resolve(cancelled, claudeSubToolResult{Text: "stale"})
+	h.mu.Lock()
+	_, revived := h.calls["toolu_reuse"]
+	h.mu.Unlock()
+	if revived {
+		t.Fatal("late resolve revived a cancelled id")
+	}
+
+	// Reusing the raw id allocates a fresh call; the retired handle cannot reach
+	// it even though the raw id string is the same.
+	reused := h.beginCall("toolu_reuse")
+	if reused == cancelled {
+		t.Fatal("reused id returned the retired call")
+	}
+	got, waiter, state := h.openCall("toolu_reuse")
+	if state != claudeSubCallAcquired || got != reused || waiter == nil {
+		t.Fatalf("reused openCall = (%v, %v, %v), want the fresh call and a waiter", got, waiter, state)
+	}
+	h.resolve(cancelled, claudeSubToolResult{Text: "still stale"})
+	h.mu.Lock()
+	stale := got.result != nil
+	h.mu.Unlock()
+	if stale {
+		t.Fatal("reused id received a stale result from the retired handle")
+	}
+
+	// A resolve on the reused handle still works normally.
+	h.resolve(reused, claudeSubToolResult{Text: "fresh"})
+	r, ok := h.claimResult(got)
+	if !ok || r.Text != "fresh" {
+		t.Fatalf("reused claimResult = (%q, %v), want (fresh, true)", r.Text, ok)
+	}
+	h.mu.Lock()
+	left := len(h.calls)
+	h.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("live calls after reuse = %d, want 0", left)
 	}
 }
 
@@ -726,7 +755,7 @@ func TestClaudeSubMCPConcurrentCallsResolveIndependently(t *testing.T) {
 		claudeSubMCPWaitWaiter(t, h, fmt.Sprintf("toolu_c%d", i))
 	}
 	for _, i := range []int{5, 1, 7, 3, 0, 6, 2, 4} {
-		h.resolve(fmt.Sprintf("toolu_c%d", i), claudeSubToolResult{Text: fmt.Sprintf("r%d", i)})
+		h.resolve(h.beginCall(fmt.Sprintf("toolu_c%d", i)), claudeSubToolResult{Text: fmt.Sprintf("r%d", i)})
 	}
 	for i := 0; i < n; i++ {
 		select {
@@ -864,5 +893,44 @@ func TestClaudeSubMCPWriteConfigRejectsNonRegularFile(t *testing.T) {
 
 	if _, err := h.writeConfig(dir); err == nil {
 		t.Error("writeConfig over a directory succeeded, want an error")
+	}
+}
+
+// TestClaudeSubMCPWriteConfigStaysInOpenedRoot replaces the config directory
+// path with a symlink after opening it as a Root and checks the config still
+// lands in the directory the Root pinned, never in the symlink target. It
+// exercises the same root-relative inspect/temp/rename path writeConfig uses.
+func TestClaudeSubMCPWriteConfigStaysInOpenedRoot(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "cfg")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatalf("mkdir cfg: %v", err)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatalf("open root: %v", err)
+	}
+	defer root.Close()
+
+	attacker := filepath.Join(parent, "attacker")
+	if err := os.Mkdir(attacker, 0o700); err != nil {
+		t.Fatalf("mkdir attacker: %v", err)
+	}
+	moved := filepath.Join(parent, "cfg-moved")
+	if err := os.Rename(dir, moved); err != nil {
+		t.Skipf("directory rename unavailable: %v", err)
+	}
+	if err := os.Symlink(attacker, dir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	if err := claudeSubMCPReplaceConfig(root, "mcp.json", []byte("{}")); err != nil {
+		t.Fatalf("replace config: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(moved, "mcp.json")); err != nil {
+		t.Errorf("config not written into the opened root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(attacker, "mcp.json")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("config escaped the opened root into the symlink target (stat err = %v)", err)
 	}
 }

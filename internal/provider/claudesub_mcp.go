@@ -38,9 +38,6 @@ const (
 	// claudeSubShutdownGrace bounds HTTP-server shutdown before lingering
 	// connections (such as a client's standalone SSE stream) are force-closed.
 	claudeSubShutdownGrace = 2 * time.Second
-	// claudeSubMCPMaxTombstones caps how many cancelled tool-use ids are kept so
-	// a late resolve cannot re-store a cancelled result.
-	claudeSubMCPMaxTombstones = 1024
 )
 
 // claudeSubToolName returns the name the claude CLI publishes for a steiner tool.
@@ -62,6 +59,32 @@ type claudeSubToolResult struct {
 	IsError bool
 }
 
+// claudeSubCall is the per-tool-use state the host allocates for one tool_use
+// id. Ownership lives on this value rather than in maps keyed by the raw id, so
+// resolve can only target the exact call it was handed: a cancelled or reused id
+// can never be delivered a stale result, and the host never has to remember
+// unbounded terminal ids. A call leaves the live set once its handler consumes
+// the result or it is cancelled, so the set stays bounded by in-flight calls.
+type claudeSubCall struct {
+	id     string
+	waiter chan struct{}        // non-nil while a tools/call handler blocks
+	result *claudeSubToolResult // set once by resolve, taken by the handler
+	owner  bool                 // a tools/call handler currently owns the call
+	done   bool                 // terminal: consumed, cancelled, or host closed
+}
+
+// claudeSubCallState is the outcome of a tools/call trying to own a call.
+type claudeSubCallState int
+
+const (
+	// claudeSubCallAcquired means the handler now owns the call.
+	claudeSubCallAcquired claudeSubCallState = iota
+	// claudeSubCallDuplicate means another handler already owns the id.
+	claudeSubCallDuplicate
+	// claudeSubCallClosed means the host is shutting down.
+	claudeSubCallClosed
+)
+
 // claudeSubMCPHost is one per-session in-process MCP server. It publishes
 // steiner's tool specs over loopback streamable HTTP and answers tools/call from
 // results steiner stores with resolve, holding calls open with progress
@@ -81,17 +104,13 @@ type claudeSubMCPHost struct {
 	shutdownGrace time.Duration
 
 	mu sync.Mutex
-	// maxTombstones caps the cancelled-id set; tests may lower it.
-	maxTombstones int
-	names         map[string]string // published CLI name (prefix stripped) -> steiner tool name
-	toolKey       string            // fingerprint of the currently published specs
-	results       map[string]claudeSubToolResult
-	waiters       map[string]chan struct{}
-	cancelled     map[string]struct{} // terminal tool-use ids; resolve discards them
-	cancelOrder   []string            // bounded FIFO ring backing cancelled
-	cancelNext    int
-	closed        bool
-	closeCh       chan struct{}
+	// calls holds only live calls keyed by tool-use id; tests observe it to
+	// follow registration and retirement.
+	calls   map[string]*claudeSubCall
+	names   map[string]string // published CLI name (prefix stripped) -> steiner tool name
+	toolKey string            // fingerprint of the currently published specs
+	closed  bool
+	closeCh chan struct{}
 }
 
 // newClaudeSubMCPHost starts a loopback MCP host with a random bearer token.
@@ -111,11 +130,8 @@ func newClaudeSubMCPHost() (*claudeSubMCPHost, error) {
 		ln:            ln,
 		heartbeat:     claudeSubHeartbeat,
 		shutdownGrace: claudeSubShutdownGrace,
-		maxTombstones: claudeSubMCPMaxTombstones,
+		calls:         map[string]*claudeSubCall{},
 		names:         map[string]string{},
-		results:       map[string]claudeSubToolResult{},
-		waiters:       map[string]chan struct{}{},
-		cancelled:     map[string]struct{}{},
 		closeCh:       make(chan struct{}),
 	}
 	h.srv = mcp.NewServer(&mcp.Implementation{Name: claudeSubMCPServerName, Version: "1"}, nil)
@@ -199,25 +215,22 @@ func (h *claudeSubMCPHost) callTool(ctx context.Context, req *mcp.CallToolReques
 		return claudeSubMCPTextResult("missing tool use id", true), nil
 	}
 
-	h.mu.Lock()
-	if h.closed {
-		h.mu.Unlock()
+	call, waiter, state := h.openCall(id)
+	switch state {
+	case claudeSubCallClosed:
 		return claudeSubMCPTextResult("tool call cancelled", true), nil
-	}
-	if _, live := h.waiters[id]; live {
-		// A tools/call reusing an in-flight id must not clobber the original
-		// waiter; reject the duplicate and leave the original blocked.
-		h.mu.Unlock()
+	case claudeSubCallDuplicate:
+		// Another handler still owns this id, either waiting or holding a
+		// resolved result it has not consumed yet; it must not be stolen.
 		return claudeSubMCPTextResult("duplicate tool use id", true), nil
 	}
-	if r, ok := h.results[id]; ok {
-		delete(h.results, id)
-		h.mu.Unlock()
-		return claudeSubMCPResult(r), nil
+	if waiter == nil {
+		// resolve ran before this tools/call; hand the stored result back.
+		if r, ok := h.claimResult(call); ok {
+			return claudeSubMCPResult(r), nil
+		}
+		return claudeSubMCPTextResult("tool call cancelled", true), nil
 	}
-	waiter := make(chan struct{})
-	h.waiters[id] = waiter
-	h.mu.Unlock()
 
 	timer := time.NewTimer(h.heartbeat)
 	defer timer.Stop()
@@ -225,19 +238,15 @@ func (h *claudeSubMCPHost) callTool(ctx context.Context, req *mcp.CallToolReques
 	for {
 		select {
 		case <-waiter:
-			h.mu.Lock()
-			r, ok := h.results[id]
-			delete(h.results, id)
-			h.mu.Unlock()
-			if !ok {
-				return claudeSubMCPTextResult("tool call cancelled", true), nil
+			if r, ok := h.claimResult(call); ok {
+				return claudeSubMCPResult(r), nil
 			}
-			return claudeSubMCPResult(r), nil
+			return claudeSubMCPTextResult("tool call cancelled", true), nil
 		case <-ctx.Done():
-			h.cancelCall(id)
+			h.cancelCall(call)
 			return claudeSubMCPTextResult("tool call cancelled", true), nil
 		case <-h.closeCh:
-			h.cancelCall(id)
+			h.cancelCall(call)
 			return claudeSubMCPTextResult("tool call cancelled", true), nil
 		case <-timer.C:
 			elapsed += h.heartbeat
@@ -255,69 +264,123 @@ func (h *claudeSubMCPHost) callTool(ctx context.Context, req *mcp.CallToolReques
 	}
 }
 
-// resolve stores a tool result and wakes the blocked call, if any. It works
-// whether it runs before or after the CLI's tools/call arrives. A result for a
-// cancelled id is discarded so a reused id can never be handed a stale result.
-func (h *claudeSubMCPHost) resolve(id string, r claudeSubToolResult) {
+// beginCall allocates the per-call state for a tool-use id. steiner calls it as
+// soon as the CLI emits a tool_use block, before the matching tools/call may
+// arrive, and holds the returned call to resolve the result later, so resolve
+// works whether it runs before or after the tools/call (D18). Registration is
+// the only way to obtain a resolvable call, so a result is never stored for an
+// id that was not explicitly opened, and a reused id gets a fresh call rather
+// than the retired one.
+func (h *claudeSubMCPHost) beginCall(id string) *claudeSubCall {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.closed {
+		return nil
+	}
+	if call, ok := h.calls[id]; ok {
+		return call
+	}
+	call := &claudeSubCall{id: id}
+	h.calls[id] = call
+	return call
+}
+
+// openCall gives this tools/call handler ownership of the call for id, creating
+// the call when the CLI's tools/call arrived before steiner registered it. A
+// call already owned by another handler is a duplicate: ownership persists from
+// registration until the handler consumes a resolved result or retires the
+// call, so a duplicate cannot race in and claim the original's result. When a
+// result is already stored it returns a nil waiter and the caller must take the
+// result with claimResult; otherwise it returns the waiter to block on. The
+// ownership check and the waiter install share one lock, so a resolve can never
+// slip between the readiness check and the block.
+func (h *claudeSubMCPHost) openCall(id string) (*claudeSubCall, chan struct{}, claudeSubCallState) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return nil, nil, claudeSubCallClosed
+	}
+	call, ok := h.calls[id]
+	if !ok {
+		call = &claudeSubCall{id: id}
+		h.calls[id] = call
+	}
+	if call.owner {
+		return nil, nil, claudeSubCallDuplicate
+	}
+	call.owner = true
+	if call.result != nil {
+		return call, nil, claudeSubCallAcquired
+	}
+	waiter := make(chan struct{})
+	call.waiter = waiter
+	return call, waiter, claudeSubCallAcquired
+}
+
+// claimResult consumes the result stored on a call the handler owns and retires
+// the call. It reports whether a result was present; false means the call was
+// cancelled or the host closed.
+func (h *claudeSubMCPHost) claimResult(call *claudeSubCall) (claudeSubToolResult, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	r := call.result
+	h.retireLocked(call)
+	if r == nil {
+		return claudeSubToolResult{}, false
+	}
+	return *r, true
+}
+
+// resolve stores a tool result on the call and wakes a blocked handler, if any.
+// It works whether it runs before or after the CLI's tools/call arrives. A call
+// that is already retired (cancelled, consumed, or closed) is ignored, so a late
+// result can never be delivered to a cancelled or reused id.
+func (h *claudeSubMCPHost) resolve(call *claudeSubCall, r claudeSubToolResult) {
+	if call == nil {
 		return
 	}
-	if _, done := h.cancelled[id]; done {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if call.done || call.result != nil {
 		return
 	}
-	h.results[id] = r
-	if waiter, ok := h.waiters[id]; ok {
-		delete(h.waiters, id)
-		close(waiter)
+	call.result = &r
+	if call.waiter != nil {
+		close(call.waiter)
+		call.waiter = nil
 	}
 }
 
-// cancelAll releases every blocked call as cancelled and drops stored results.
+// cancelAll releases every live call as cancelled and drops stored results.
 func (h *claudeSubMCPHost) cancelAll() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for id := range h.results {
-		h.markCancelledLocked(id)
+	for _, call := range h.calls {
+		h.retireLocked(call)
 	}
-	for id, waiter := range h.waiters {
-		delete(h.waiters, id)
-		h.markCancelledLocked(id)
-		close(waiter)
-	}
-	h.results = map[string]claudeSubToolResult{}
 }
 
-// cancelCall drops one waiter that is no longer waiting (context done or host
-// closed) and tombstones its id so a late resolve is discarded.
-func (h *claudeSubMCPHost) cancelCall(id string) {
+// cancelCall retires a call whose handler is no longer waiting (context done or
+// host closed) and wakes it so it returns a cancelled result.
+func (h *claudeSubMCPHost) cancelCall(call *claudeSubCall) {
 	h.mu.Lock()
-	delete(h.waiters, id)
-	delete(h.results, id)
-	h.markCancelledLocked(id)
-	h.mu.Unlock()
+	defer h.mu.Unlock()
+	h.retireLocked(call)
 }
 
-// markCancelledLocked records id as terminal so resolve discards it. The set is
-// a bounded FIFO: once it is full, the oldest tombstone is evicted, so a
-// long-lived host cannot grow it without limit. Tool-use ids are unique per call
-// in practice, so eviction only re-opens pathological reuse.
-func (h *claudeSubMCPHost) markCancelledLocked(id string) {
-	if h.maxTombstones <= 0 {
-		return
+// retireLocked terminally ends a call: it clears any stored result, drops the
+// call from the live set, and wakes a blocked handler. Once retired the call can
+// never accept a result, so a late resolve on its handle is discarded.
+func (h *claudeSubMCPHost) retireLocked(call *claudeSubCall) {
+	call.done = true
+	call.result = nil
+	if h.calls[call.id] == call {
+		delete(h.calls, call.id)
 	}
-	if _, ok := h.cancelled[id]; ok {
-		return
+	if call.waiter != nil {
+		close(call.waiter)
+		call.waiter = nil
 	}
-	if len(h.cancelOrder) < h.maxTombstones {
-		h.cancelOrder = append(h.cancelOrder, id)
-	} else {
-		delete(h.cancelled, h.cancelOrder[h.cancelNext])
-		h.cancelOrder[h.cancelNext] = id
-		h.cancelNext = (h.cancelNext + 1) % h.maxTombstones
-	}
-	h.cancelled[id] = struct{}{}
 }
 
 // writeConfig writes the claude CLI --mcp-config file into dir (which the caller
@@ -340,43 +403,70 @@ func (h *claudeSubMCPHost) writeConfig(dir string) (string, error) {
 		return "", fmt.Errorf("open claude_subscription mcp dir: %w", err)
 	}
 	defer root.Close()
-	// Refuse to write the token through a symlink or any other non-regular path
-	// in the private directory.
+	if err := claudeSubMCPReplaceConfig(root, name, data); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, name), nil
+}
+
+// claudeSubMCPReplaceConfig writes data to name beneath root as an exact-0o600
+// regular file, replacing any existing regular file. Every step (inspect, temp
+// create, rename, cleanup) uses a root-relative operation, so the write stays
+// anchored to the directory the Root was opened on even if that path is later
+// swapped for a symlink; the token is never written through a symlink. A symlink
+// or non-regular target is refused.
+func claudeSubMCPReplaceConfig(root *os.Root, name string, data []byte) error {
 	if info, err := root.Lstat(name); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("refuse to write claude_subscription mcp config: %s is a symlink", name)
+			return fmt.Errorf("refuse to write claude_subscription mcp config: %s is a symlink", name)
 		}
 		if !info.Mode().IsRegular() {
-			return "", fmt.Errorf("refuse to write claude_subscription mcp config: %s is not a regular file", name)
+			return fmt.Errorf("refuse to write claude_subscription mcp config: %s is not a regular file", name)
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("inspect claude_subscription mcp config: %w", err)
+		return fmt.Errorf("inspect claude_subscription mcp config: %w", err)
 	}
-	// Write a fresh 0o600 temp file and atomically replace the target, so the
-	// token is never written through a symlink and any pre-existing permissive
-	// file is replaced with the exact mode.
-	tmp, err := os.CreateTemp(dir, name+".tmp-*")
+	// Write a fresh 0o600 temp file and atomically rename it into place, so any
+	// pre-existing permissive file is replaced with the exact mode.
+	tmpName, tmp, err := claudeSubMCPCreateTemp(root, name)
 	if err != nil {
-		return "", fmt.Errorf("create claude_subscription mcp config: %w", err)
+		return fmt.Errorf("create claude_subscription mcp config: %w", err)
 	}
-	tmpPath := tmp.Name()
-	defer func() { _ = os.Remove(tmpPath) }() // no-op once renamed
+	defer func() { _ = root.Remove(tmpName) }() // no-op once renamed
 	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
-		return "", fmt.Errorf("set claude_subscription mcp config mode: %w", err)
+		return fmt.Errorf("set claude_subscription mcp config mode: %w", err)
 	}
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		return "", fmt.Errorf("write claude_subscription mcp config: %w", err)
+		return fmt.Errorf("write claude_subscription mcp config: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return "", fmt.Errorf("close claude_subscription mcp config: %w", err)
+		return fmt.Errorf("close claude_subscription mcp config: %w", err)
 	}
-	path := filepath.Join(dir, name)
-	if err := os.Rename(tmpPath, path); err != nil {
-		return "", fmt.Errorf("replace claude_subscription mcp config: %w", err)
+	if err := root.Rename(tmpName, name); err != nil {
+		return fmt.Errorf("replace claude_subscription mcp config: %w", err)
 	}
-	return path, nil
+	return nil
+}
+
+// claudeSubMCPCreateTemp creates a fresh 0o600 file inside root named after the
+// target, using only root-relative operations so the temp file cannot be
+// redirected outside the directory. os.Root has no CreateTemp in Go 1.26, so it
+// retries an O_EXCL open with a random suffix rather than falling back to raw
+// os.CreateTemp.
+func claudeSubMCPCreateTemp(root *os.Root, name string) (string, *os.File, error) {
+	for i := 0; i < 100; i++ {
+		tmpName := name + ".tmp-" + rand.Text()
+		f, err := root.OpenFile(tmpName, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			return tmpName, f, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", nil, err
+		}
+	}
+	return "", nil, errors.New("claude_subscription mcp config: could not allocate a temp file")
 }
 
 // Close shuts the HTTP server down and releases every blocked call.
