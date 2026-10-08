@@ -332,16 +332,18 @@ func (h *claudeSubMCPHost) claimResult(call *claudeSubCall) (claudeSubToolResult
 }
 
 // resolve stores a tool result on the call and wakes a blocked handler, if any.
-// It works whether it runs before or after the CLI's tools/call arrives. A call
-// that is already retired (cancelled, consumed, or closed) is ignored, so a late
-// result can never be delivered to a cancelled or reused id.
+// It works whether it runs before or after the CLI's tools/call arrives. Only a
+// call this host currently owns and is live accepts a result: a handle from
+// another host, or one already retired or replaced by a reused id, is ignored
+// without touching its waiter, so a late or foreign result can never be
+// delivered to a cancelled or reused id.
 func (h *claudeSubMCPHost) resolve(call *claudeSubCall, r claudeSubToolResult) {
 	if call == nil {
 		return
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if call.done || call.result != nil {
+	if call.done || h.calls[call.id] != call || call.result != nil {
 		return
 	}
 	call.result = &r

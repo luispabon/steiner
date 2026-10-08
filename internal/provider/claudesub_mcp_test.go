@@ -934,3 +934,61 @@ func TestClaudeSubMCPWriteConfigStaysInOpenedRoot(t *testing.T) {
 		t.Errorf("config escaped the opened root into the symlink target (stat err = %v)", err)
 	}
 }
+
+// TestClaudeSubMCPResolveRejectsForeignHandle proves resolve only accepts a call
+// this host currently owns: a handle allocated by another host must be ignored
+// and must not release this host's waiting handler.
+func TestClaudeSubMCPResolveRejectsForeignHandle(t *testing.T) {
+	a := claudeSubMCPNewHost(t)
+	a.setTools([]ToolSpec{{Function: ToolFunctionSpec{Name: "read", Parameters: claudeSubMCPObjectSchema(nil)}}})
+	cs := claudeSubMCPConnect(t, a, a.token, nil)
+
+	callA := a.beginCall("toolu_shared")
+	ctx, cancel := context.WithTimeout(t.Context(), claudeSubMCPTestTimeout)
+	defer cancel()
+	results := make(chan *mcp.CallToolResult, 1)
+	errs := make(chan error, 1)
+	go func() {
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+			Name: "read",
+			Meta: mcp.Meta{"claudecode/toolUseId": "toolu_shared"},
+		})
+		if err != nil {
+			errs <- err
+			return
+		}
+		results <- res
+	}()
+	claudeSubMCPWaitWaiter(t, a, "toolu_shared")
+
+	// A second host does not own A's call; resolving it there must be a no-op.
+	b := claudeSubMCPNewHost(t)
+	b.resolve(callA, claudeSubToolResult{Text: "foreign"})
+	select {
+	case res := <-results:
+		t.Fatalf("foreign resolve released host A's call with %q", claudeSubMCPText(res))
+	case err := <-errs:
+		t.Fatalf("foreign resolve failed host A's call: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	a.mu.Lock()
+	_, live := a.calls["toolu_shared"]
+	hasResult := callA.result != nil
+	a.mu.Unlock()
+	if !live || hasResult {
+		t.Fatalf("foreign resolve mutated host A's call (live=%v, result=%v)", live, hasResult)
+	}
+
+	// Host A's own resolve still delivers the result.
+	a.resolve(callA, claudeSubToolResult{Text: "local"})
+	select {
+	case res := <-results:
+		if got := claudeSubMCPText(res); got != "local" {
+			t.Errorf("text = %q, want %q", got, "local")
+		}
+	case err := <-errs:
+		t.Fatalf("CallTool after host A resolve: %v", err)
+	case <-time.After(claudeSubMCPTestTimeout):
+		t.Fatal("host A resolve did not release the call")
+	}
+}
