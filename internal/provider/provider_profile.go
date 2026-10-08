@@ -72,6 +72,17 @@ var providerProfiles = map[config.ProviderType]providerProfile{
 		FixedTransport: nil,
 		LiveProbe:      false,
 	},
+	config.ProviderTypeClaudeSubscription: {
+		ModelsDevID:    "anthropic",
+		DefaultBaseURL: "",
+		Generic:        false,
+		FixedTransport: &transportChoice{
+			ProviderType: config.ProviderTypeClaudeSubscription,
+			Transport:    TransportConfigured,
+			Reason:       "claude_subscription provider drives the claude CLI",
+		},
+		LiveProbe: false,
+	},
 	config.ProviderTypeLMStudio: {
 		ModelsDevID:    "lmstudio",
 		DefaultBaseURL: "",

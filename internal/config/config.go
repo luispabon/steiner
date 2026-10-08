@@ -66,6 +66,8 @@ const (
 	ProviderTypeOpencodeGo ProviderType = "opencode_go"
 	// ProviderTypeOpencodeZen targets the OpenCode Zen API.
 	ProviderTypeOpencodeZen ProviderType = "opencode_zen"
+	// ProviderTypeClaudeSubscription drives the user's signed-in claude CLI on their Claude subscription.
+	ProviderTypeClaudeSubscription ProviderType = "claude_subscription"
 )
 
 // CodexTransport specifies the transport mode for Codex requests.

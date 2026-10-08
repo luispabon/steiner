@@ -22,6 +22,7 @@ func TestProviderProfilesExhaustive(t *testing.T) {
 		config.ProviderTypeOpenAICompat,
 		config.ProviderTypeOllama,
 		config.ProviderTypeLiteLLM,
+		config.ProviderTypeClaudeSubscription,
 	}
 
 	for _, typ := range allTypes {
@@ -152,6 +153,19 @@ func TestProviderProfileTable(t *testing.T) {
 			wantGeneric:        true,
 			wantFixedTransport: nil,
 			wantLiveProbe:      false,
+		},
+		{
+			name:            "claude_subscription",
+			typ:             config.ProviderTypeClaudeSubscription,
+			wantModelsDevID: "anthropic",
+			wantBaseURL:     "",
+			wantGeneric:     false,
+			wantFixedTransport: &transportChoice{
+				ProviderType: config.ProviderTypeClaudeSubscription,
+				Transport:    TransportConfigured,
+				Reason:       "claude_subscription provider drives the claude CLI",
+			},
+			wantLiveProbe: false,
 		},
 	}
 

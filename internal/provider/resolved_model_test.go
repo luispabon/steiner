@@ -1533,3 +1533,39 @@ func TestResolveFacts(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveClaudeSubscriptionUsesAnthropicModelsDevFacts(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	data := []byte(`{
+		"anthropic":{"models":{"claude-haiku-5-5":{"limit":{"context":200000,"output":64000}}}}
+	}`)
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"claude": {Type: config.ProviderTypeClaudeSubscription},
+		},
+		Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
+			"haiku": {Provider: "claude", ID: "claude-haiku-5-5"},
+		}},
+	}
+
+	rm, err := resolveReferenceWithLoader(context.Background(), &cfg, "haiku", true, &http.Client{}, fixtureLoader(t, data), nil)
+	if err != nil {
+		t.Fatalf("resolveReferenceWithLoader() error = %v", err)
+	}
+	if rm.EffectiveProviderType != config.ProviderTypeClaudeSubscription {
+		t.Errorf("EffectiveProviderType = %q, want %q", rm.EffectiveProviderType, config.ProviderTypeClaudeSubscription)
+	}
+	if rm.EffectiveTransport != TransportConfigured {
+		t.Errorf("EffectiveTransport = %q, want %q", rm.EffectiveTransport, TransportConfigured)
+	}
+	if got := rm.Facts.ContextWindow; !got.Known || got.Value != 200000 || got.Source != FactSourceModelsDev {
+		t.Errorf("ContextWindow = %+v, want 200000 from %q", got, FactSourceModelsDev)
+	}
+	if rm.EffectiveLimits.ContextWindow != 200000 {
+		t.Errorf("EffectiveLimits.ContextWindow = %d, want 200000", rm.EffectiveLimits.ContextWindow)
+	}
+	if rm.EffectiveLimits.MaxOutputTokens != 64000 {
+		t.Errorf("EffectiveLimits.MaxOutputTokens = %d, want 64000", rm.EffectiveLimits.MaxOutputTokens)
+	}
+}

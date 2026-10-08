@@ -2643,3 +2643,63 @@ func TestExecuteToolCalls_SeparateLimitsForDelegationAndToolClasses(t *testing.T
 		t.Fatalf("max delegation-class in-flight = %d, want 1 (max_parallel_delegations: 1)", got)
 	}
 }
+
+// statefulTestProvider is a fakeProvider that also implements
+// provider.StatefulTranscript, for the compaction guard tests.
+type statefulTestProvider struct {
+	*fakeProvider
+}
+
+func (statefulTestProvider) StatefulTranscript() bool { return true }
+
+func TestHandleCompaction_StatefulTranscriptFitsWithoutCompacting(t *testing.T) {
+	stub := &statefulTestProvider{fakeProvider: &fakeProvider{}}
+	compactCalls := 0
+	req := RunRequest{
+		Provider:    stub,
+		Events:      output.NoopSink{},
+		ModelBudget: prompt.ModelTokenBudget{ContextSize: 10, MaxCompletionTokens: 5, SummaryMaxTokens: 5},
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+		compactCalls++
+		return true, nil
+	})
+
+	outcome := p.handleCompaction(context.Background(), RunState{TurnCount: 1}, prompt.RequestTokenBudget{ContextSize: 10, TotalTokens: 8, Fits: true})
+
+	if compactCalls != 0 {
+		t.Fatalf("compactFn calls = %d, want 0", compactCalls)
+	}
+	if outcome.Error != nil || outcome.Stop || outcome.Retry {
+		t.Fatalf("outcome = %+v, want plain continue", outcome)
+	}
+}
+
+func TestHandleCompaction_StatefulTranscriptDoesNotFitStops(t *testing.T) {
+	stub := &statefulTestProvider{fakeProvider: &fakeProvider{}}
+	compactCalls := 0
+	req := RunRequest{
+		Provider:    stub,
+		Events:      output.NoopSink{},
+		ModelBudget: prompt.ModelTokenBudget{ContextSize: 10, MaxCompletionTokens: 5, SummaryMaxTokens: 5},
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, error) {
+		compactCalls++
+		return true, nil
+	})
+
+	outcome := p.handleCompaction(context.Background(), RunState{TurnCount: 1}, prompt.RequestTokenBudget{ContextSize: 10, TotalTokens: 100, Fits: false})
+
+	if compactCalls != 0 {
+		t.Fatalf("compactFn calls = %d, want 0", compactCalls)
+	}
+	if outcome.Error == nil {
+		t.Fatal("outcome.Error = nil, want non-nil")
+	}
+	if !errors.Is(outcome.Error, errStatefulCompaction) {
+		t.Fatalf("outcome.Error = %v, want wrapping errStatefulCompaction", outcome.Error)
+	}
+	if !outcome.Stop {
+		t.Fatal("outcome.Stop = false, want true")
+	}
+}

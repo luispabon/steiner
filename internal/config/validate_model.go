@@ -111,7 +111,8 @@ func validateProvidersConfig(problems *[]string, providers map[string]ProviderCo
 			switch p.Type {
 			case ProviderTypeOpenAICompat, ProviderTypeOllama, ProviderTypeLMStudio,
 				ProviderTypeOpenRouter, ProviderTypeOpenAI, ProviderTypeAnthropic,
-				ProviderTypeGemini, ProviderTypeLiteLLM, ProviderTypeCodex, ProviderTypeOpencodeGo, ProviderTypeOpencodeZen:
+				ProviderTypeGemini, ProviderTypeLiteLLM, ProviderTypeCodex, ProviderTypeOpencodeGo, ProviderTypeOpencodeZen,
+				ProviderTypeClaudeSubscription:
 				// valid
 			default:
 				*problems = append(*problems, fmt.Sprintf("providers[%q].type %q is not supported", name, p.Type))
@@ -122,6 +123,10 @@ func validateProvidersConfig(problems *[]string, providers map[string]ProviderCo
 		}
 		if providerNeedsCredential(p.Type) && strings.TrimSpace(p.APIKey) == "" && strings.TrimSpace(p.APIKeyEnv) == "" {
 			*problems = append(*problems, fmt.Sprintf("providers[%q] must set api_key or api_key_env", name))
+		}
+		if p.Type == ProviderTypeClaudeSubscription &&
+			(strings.TrimSpace(p.BaseURL) != "" || strings.TrimSpace(p.APIKey) != "" || strings.TrimSpace(p.APIKeyEnv) != "" || len(p.Headers) > 0) {
+			*problems = append(*problems, fmt.Sprintf("providers[%q]: claude_subscription takes no base_url, api_key, api_key_env or headers — it uses your claude CLI login", name))
 		}
 		if p.Type == ProviderTypeCodex {
 			switch p.Codex.Transport {
