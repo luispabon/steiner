@@ -181,9 +181,24 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 
 	var delta claudeSubDelta
 	var recorded []claudeSubEntry
+	// A tool result whose call id already exists in the record must never be
+	// appended again. This closes the reorder hole left by omitting an
+	// interrupted assistant: dropping its recorded tool entries must not let a
+	// later same-id tool result (unchanged or changed) be re-sent as a suffix
+	// result. Recorded ids are read from s.entries, which still holds the
+	// entries dropped by the omission above.
+	recordedToolIDs := make(map[string]struct{})
+	for _, e := range s.entries {
+		if e.Role == MessageRoleTool && e.ToolCallID != "" {
+			recordedToolIDs[e.ToolCallID] = struct{}{}
+		}
+	}
 	for si, m := range msgs[mi:] {
 		switch m.Role {
 		case MessageRoleTool:
+			if _, ok := recordedToolIDs[m.ToolCallID]; ok {
+				return claudeSubDelta{}, errClaudeSubHistoryChanged
+			}
 			delta.ToolResults = append(delta.ToolResults, m)
 		case MessageRoleUser:
 			delta.User = append(delta.User, m)
@@ -378,10 +393,18 @@ func claudeSubToolCallIDs(m Message) []string {
 }
 
 // claudeSubTextOnlyAssistant reports whether an assistant message carries only
-// text. The one D22 partial assistant steiner keeps must not smuggle tool
-// calls, images or any other replay payload into the recorded transcript.
+// text content. The one D22 partial assistant steiner keeps must not smuggle
+// any other Message field into the recorded transcript; every field of Message
+// other than Content must be empty, and the role must be assistant.
 func claudeSubTextOnlyAssistant(m Message) bool {
-	return len(m.ToolCalls) == 0 && len(m.Images) == 0 && m.ToolCallID == "" && m.ProviderMetadata == nil
+	return m.Role == MessageRoleAssistant &&
+		m.ReasoningContent == "" &&
+		m.Name == "" &&
+		m.ToolCallID == "" &&
+		len(m.ToolCalls) == 0 &&
+		len(m.Images) == 0 &&
+		m.Turn == 0 &&
+		m.ProviderMetadata == nil
 }
 
 // claudeSubEntrySnapshotEqual reports whether a recorded advisor-snapshot entry

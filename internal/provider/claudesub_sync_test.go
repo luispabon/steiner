@@ -368,6 +368,30 @@ func TestClaudeSubSyncInterruptOmittedToolResult(t *testing.T) {
 			t.Fatalf("entries = %+v, want just the user entry", s.entries)
 		}
 	})
+
+	t.Run("user before changed tool result errors", func(t *testing.T) {
+		s := base(t)
+		msgs := []Message{claudeSubSyncUserMsg("hi"), claudeSubSyncUserMsg("steer"), claudeSubSyncToolMsg("c1", "changed")}
+		if _, err := s.plan(ChatRequest{Messages: msgs}); !errors.Is(err, errClaudeSubHistoryChanged) {
+			t.Fatalf("err = %v, want errClaudeSubHistoryChanged", err)
+		}
+	})
+
+	t.Run("user before unchanged reordered tool result errors", func(t *testing.T) {
+		s := base(t)
+		msgs := []Message{claudeSubSyncUserMsg("hi"), claudeSubSyncUserMsg("steer"), claudeSubSyncToolMsg("c1", "orig")}
+		if _, err := s.plan(ChatRequest{Messages: msgs}); !errors.Is(err, errClaudeSubHistoryChanged) {
+			t.Fatalf("err = %v, want errClaudeSubHistoryChanged", err)
+		}
+	})
+
+	t.Run("duplicate same-id suffix tool result errors", func(t *testing.T) {
+		s := base(t)
+		msgs := []Message{claudeSubSyncUserMsg("hi"), claudeSubSyncToolMsg("c1", "orig"), claudeSubSyncToolMsg("c1", "orig again")}
+		if _, err := s.plan(ChatRequest{Messages: msgs}); !errors.Is(err, errClaudeSubHistoryChanged) {
+			t.Fatalf("err = %v, want errClaudeSubHistoryChanged", err)
+		}
+	})
 }
 
 // TestClaudeSubSyncInterruptPartialTextOnly proves the one appended D22 partial
@@ -410,11 +434,24 @@ func TestClaudeSubSyncInterruptPartialTextOnly(t *testing.T) {
 		}
 	})
 
-	t.Run("metadata-bearing partial errors", func(t *testing.T) {
-		s := base(t)
-		partial := Message{Role: MessageRoleAssistant, Content: "partial", ProviderMetadata: &MessageProviderMetadata{Anthropic: &AnthropicMessageMetadata{ThinkingSignature: "sig"}}}
-		if _, err := s.plan(ChatRequest{Messages: []Message{claudeSubSyncUserMsg("hi"), claudeSubSyncAssistantMsg("a1", "c1"), partial}}); !errors.Is(err, errClaudeSubHistoryChanged) {
-			t.Fatalf("err = %v, want errClaudeSubHistoryChanged", err)
+	t.Run("non-text payload partial errors", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			partial Message
+		}{
+			{name: "reasoning", partial: Message{Role: MessageRoleAssistant, Content: "partial", ReasoningContent: "thinking"}},
+			{name: "name", partial: Message{Role: MessageRoleAssistant, Content: "partial", Name: "helper"}},
+			{name: "turn", partial: Message{Role: MessageRoleAssistant, Content: "partial", Turn: 3}},
+			{name: "tool call id", partial: Message{Role: MessageRoleAssistant, Content: "partial", ToolCallID: "c9"}},
+			{name: "metadata", partial: Message{Role: MessageRoleAssistant, Content: "partial", ProviderMetadata: &MessageProviderMetadata{Anthropic: &AnthropicMessageMetadata{ThinkingSignature: "sig"}}}},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				s := base(t)
+				if _, err := s.plan(ChatRequest{Messages: []Message{claudeSubSyncUserMsg("hi"), claudeSubSyncAssistantMsg("a1", "c1"), tc.partial}}); !errors.Is(err, errClaudeSubHistoryChanged) {
+					t.Fatalf("err = %v, want errClaudeSubHistoryChanged", err)
+				}
+			})
 		}
 	})
 }
