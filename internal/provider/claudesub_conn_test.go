@@ -231,6 +231,44 @@ func TestClaudeSubControlSendFailureTerminates(t *testing.T) {
 	}
 }
 
+// TestClaudeSubControlSendFailureShutsDownTransport proves a control send
+// failure hands off to the transport's non-blocking shutdown exactly once, so a
+// control channel that can no longer write cannot leave a live CLI.
+func TestClaudeSubControlSendFailureShutsDownTransport(t *testing.T) {
+	fake := newClaudeSubFakeConn()
+	fake.sendErr = errors.New("pipe closed")
+	control := newClaudeSubTestControl(t, fake)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := control.request(context.Background(), "get_usage", nil)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "pipe closed") {
+			t.Fatalf("error = %v, want the send failure", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("pending request not failed when the control send failed")
+	}
+
+	// The handoff runs after the pending request is failed, so join the writer
+	// before asserting it happened.
+	select {
+	case <-control.writerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("control writer did not stop after the send failure")
+	}
+	shutdowns := fake.shutdownRequests()
+	if len(shutdowns) != 1 {
+		t.Fatalf("transport shutdown handoffs = %d, want exactly 1", len(shutdowns))
+	}
+	if shutdowns[0] == nil || !strings.Contains(shutdowns[0].Error(), "pipe closed") {
+		t.Fatalf("shutdown cause = %v, want the send failure", shutdowns[0])
+	}
+}
+
 func TestClaudeSubControlUnknownRequestID(t *testing.T) {
 	control := newClaudeSubTestControl(t, newClaudeSubFakeConn())
 	if !control.dispatch(claudeSubSuccessEvent("stale", nil)) {

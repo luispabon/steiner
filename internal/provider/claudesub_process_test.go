@@ -228,6 +228,67 @@ func TestClaudeSubProcessTreeTerminationFailureIsCleanupError(t *testing.T) {
 	}
 }
 
+// TestClaudeSubForceCloseSkipsBothGraces proves forced teardown skips both grace
+// intervals. A graceful Close of the same child waits out the natural-exit grace
+// and the reader-drain grace, so discovery could spend two grace periods past
+// its reserve; ForceClose must not.
+func TestClaudeSubForceCloseSkipsBothGraces(t *testing.T) {
+	if os.Getenv(claudeSubHelperModeEnv) != "" {
+		t.Skip("helper process")
+	}
+	claudeSubShortGrace(t, time.Second)
+
+	env := append(os.Environ(), claudeSubHelperModeEnv+"=hold-open")
+	conn, err := spawnClaudeSubProcess(context.Background(), os.Args[0], []string{"-test.run=TestClaudeSubHelperProcess"}, env, "")
+	if err != nil {
+		t.Fatalf("spawnClaudeSubProcess() error = %v", err)
+	}
+
+	start := time.Now()
+	if err := conn.ForceClose(context.Background()); err != nil {
+		t.Errorf("ForceClose() error = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed >= time.Second {
+		t.Errorf("ForceClose took %s; it must skip both grace intervals", elapsed)
+	}
+}
+
+// TestClaudeSubForceCloseEscalatesRunningCoordinator proves forcing escalates an
+// already-running graceful coordinator: a Close that has entered the
+// natural-exit grace is cut short by a later ForceClose instead of waiting out
+// the full grace.
+func TestClaudeSubForceCloseEscalatesRunningCoordinator(t *testing.T) {
+	claudeSubShortGrace(t, 30*time.Second)
+	child := newClaudeSubFakeChild()
+	p := claudeSubSpawnFake(t, child)
+	claudeSubDrainEvents(p)
+
+	graceful := make(chan error, 1)
+	go func() { graceful <- p.Close(context.Background()) }()
+	select {
+	case <-p.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("coordinator did not start")
+	}
+	time.Sleep(20 * time.Millisecond) // let the coordinator enter the grace wait
+
+	start := time.Now()
+	if err := p.ForceClose(context.Background()); err != nil {
+		t.Fatalf("ForceClose() error = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("ForceClose took %s; escalation did not cut the grace short", elapsed)
+	}
+	select {
+	case err := <-graceful:
+		if err != nil {
+			t.Errorf("graceful Close() error = %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("graceful Close did not observe the terminal result")
+	}
+}
+
 // TestClaudeSubProcessCloseCallersShareOneCoordinator proves an expired caller
 // context does not control later callers: the coordinator keeps running and a
 // later Close observes the terminal result.
@@ -393,6 +454,7 @@ func newClaudeSubTestProcess(t *testing.T, child claudeSubChild) (*claudeSubProc
 		started:     make(chan struct{}),
 		stopping:    make(chan struct{}),
 		terminal:    make(chan struct{}),
+		forced:      make(chan struct{}),
 		readersDone: make(chan struct{}),
 		writerDone:  make(chan struct{}),
 	}

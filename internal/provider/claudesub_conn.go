@@ -33,6 +33,17 @@ type claudeSubConn interface {
 	// once the whole process tree was terminated and the child reaped without a
 	// terminal cleanup error.
 	Close(ctx context.Context) error
+	// ForceClose is Close with forced teardown: the coordinator skips its grace
+	// intervals, so terminal cleanup fits the caller's deadline instead of
+	// spending two grace periods past it. Discovery uses it so its reserved
+	// teardown budget is never overrun. Like Close it waits on the shared
+	// terminal result or ctx, and one caller's ctx never controls another.
+	ForceClose(ctx context.Context) error
+	// RequestShutdown starts the single lifecycle coordinator without waiting
+	// for it. It is the non-blocking fatal handoff: a control writer whose Send
+	// failed calls it so a dead control channel can never leave a live CLI. The
+	// owner still joins the terminal result through Close or ForceClose.
+	RequestShutdown(cause error)
 }
 
 // claudeSubEvent is one decoded stdout envelope. Type and Subtype are the
@@ -76,6 +87,8 @@ type claudeSubControl struct {
 	sendQueue  [][]byte
 	sendClosed bool
 	writerDone chan struct{}
+
+	fatalOnce sync.Once
 }
 
 func newClaudeSubControl(conn claudeSubConn) *claudeSubControl {
@@ -118,8 +131,9 @@ func (c *claudeSubControl) writeLoop() {
 
 		if err := c.conn.Send(line); err != nil {
 			// A send failure is terminal for the whole control, exactly like the
-			// router seeing Events close.
-			c.terminate(fmt.Errorf("send control line: %w", err))
+			// router seeing Events close, and it hands off to the transport so a
+			// dead control channel cannot leave a live CLI.
+			c.fatal(fmt.Errorf("send control line: %w", err))
 			return
 		}
 	}
@@ -164,6 +178,14 @@ func (c *claudeSubControl) terminate(cause error) {
 func (c *claudeSubControl) close() {
 	c.terminate(nil)
 	<-c.writerDone
+}
+
+// fatal enters the terminal state and, once, hands off to the transport's
+// non-blocking shutdown so a control channel that can no longer write cannot
+// leave the CLI alive. It is safe to call from any goroutine and never blocks.
+func (c *claudeSubControl) fatal(cause error) {
+	c.terminate(cause)
+	c.fatalOnce.Do(func() { c.conn.RequestShutdown(cause) })
 }
 
 // dispatch delivers a control message and reports whether ev was consumed.

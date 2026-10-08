@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -20,20 +21,27 @@ type claudeSubFakeConn struct {
 	events     chan claudeSubEvent
 	err        error
 	closed     bool
+	forceClose bool
 	sendErr    error
 	sendBlock  chan struct{} // when non-nil, Send waits for it before recording
 	closeDelay time.Duration // models a bounded Close; Events closes afterwards
 	closeErr   error         // when set, Close reports local shutdown did not complete
 	responder  func(line []byte) []claudeSubEvent
 
-	drainOnce sync.Once
-	drained   chan struct{} // closed on the first Err call (the router's control.close)
+	releaseOnce sync.Once
+	releaseSend chan struct{} // closed by Close/ForceClose to release a blocked Send
+	drainOnce   sync.Once
+	drained     chan struct{} // closed on the first Err call (the router's control.close)
+
+	shutdownMu    sync.Mutex
+	shutdownCalls []error // causes passed to RequestShutdown
 }
 
 func newClaudeSubFakeConn() *claudeSubFakeConn {
 	return &claudeSubFakeConn{
-		events:  make(chan claudeSubEvent, claudeSubEventBuffer),
-		drained: make(chan struct{}),
+		events:      make(chan claudeSubEvent, claudeSubEventBuffer),
+		releaseSend: make(chan struct{}),
+		drained:     make(chan struct{}),
 	}
 }
 
@@ -44,7 +52,11 @@ func (f *claudeSubFakeConn) Send(line []byte) error {
 	f.mu.Unlock()
 
 	if block != nil {
-		<-block
+		select {
+		case <-block:
+		case <-f.releaseSend:
+			return errors.New("fake connection closed during send")
+		}
 	}
 	if sendErr != nil {
 		return sendErr
@@ -77,6 +89,27 @@ func (f *claudeSubFakeConn) Err() error {
 }
 
 func (f *claudeSubFakeConn) Close(ctx context.Context) error {
+	return f.shutdown(ctx)
+}
+
+func (f *claudeSubFakeConn) ForceClose(ctx context.Context) error {
+	f.mu.Lock()
+	f.forceClose = true
+	f.mu.Unlock()
+	return f.shutdown(ctx)
+}
+
+// RequestShutdown records the non-blocking fatal handoff. It never blocks.
+func (f *claudeSubFakeConn) RequestShutdown(cause error) {
+	f.shutdownMu.Lock()
+	f.shutdownCalls = append(f.shutdownCalls, cause)
+	f.shutdownMu.Unlock()
+}
+
+func (f *claudeSubFakeConn) shutdown(ctx context.Context) error {
+	// Release a blocked Send first, exactly like a real forced stdin close.
+	f.releaseOnce.Do(func() { close(f.releaseSend) })
+
 	f.mu.Lock()
 	delay := f.closeDelay
 	cerr := f.closeErr
@@ -101,6 +134,18 @@ func (f *claudeSubFakeConn) Close(ctx context.Context) error {
 		close(f.events)
 	}
 	return nil
+}
+
+func (f *claudeSubFakeConn) isForceClosed() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.forceClose
+}
+
+func (f *claudeSubFakeConn) shutdownRequests() []error {
+	f.shutdownMu.Lock()
+	defer f.shutdownMu.Unlock()
+	return append([]error(nil), f.shutdownCalls...)
 }
 
 // push queues an event for the router. Tests must not push after Close.

@@ -374,3 +374,47 @@ func TestClaudeSubBoundedBuffer(t *testing.T) {
 		t.Error("overflowed() = true for in-bounds output")
 	}
 }
+
+// TestClaudeSubDiscoverClosesConnWhenRouterStalled proves discovery performs the
+// terminal connection shutdown even when the router cannot be joined: a control
+// writer blocked on its send keeps the router from finishing, and discovery must
+// still close the connection before it returns.
+func TestClaudeSubDiscoverClosesConnWhenRouterStalled(t *testing.T) {
+	oldTotal := claudeSubDiscoveryTimeout
+	oldWork := claudeSubDiscoveryWorkTimeout
+	oldReserve := claudeSubDiscoveryReserve
+	claudeSubDiscoveryTimeout = 500 * time.Millisecond
+	claudeSubDiscoveryWorkTimeout = 50 * time.Millisecond
+	claudeSubDiscoveryReserve = 100 * time.Millisecond
+	t.Cleanup(func() {
+		claudeSubDiscoveryTimeout = oldTotal
+		claudeSubDiscoveryWorkTimeout = oldWork
+		claudeSubDiscoveryReserve = oldReserve
+	})
+
+	conn := newClaudeSubFakeConn()
+	// The control writer's send blocks, so the router cannot join the writer and
+	// finish until the connection is closed.
+	block := make(chan struct{})
+	conn.sendBlock = block
+	t.Cleanup(func() { close(block) })
+	claudeSubStubDiscovery(t, conn)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := DiscoverClaudeSubscriptionModels(context.Background())
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("want a cleanup error")
+		}
+		if !conn.isForceClosed() {
+			t.Error("discovery returned without attempting the terminal connection shutdown")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("discovery did not return; the terminal connection shutdown was blocked by the router")
+	}
+}

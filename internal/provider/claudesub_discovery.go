@@ -143,7 +143,6 @@ func DiscoverClaudeSubscriptionModels(ctx context.Context) ([]ClaudeSubscription
 	}
 
 	control := newClaudeSubControl(conn)
-	defer control.close()
 	stop := make(chan struct{})
 	routerDone := make(chan struct{})
 	go func() {
@@ -159,20 +158,44 @@ func DiscoverClaudeSubscriptionModels(ctx context.Context) ([]ClaudeSubscription
 	cleanupCtx, cancelCleanup := context.WithDeadline(context.WithoutCancel(ctx), outerDeadline)
 	defer cancelCleanup()
 
+	// Stop the router's pump. The router releases pending control requests as
+	// it exits; that must not gate the terminal connection shutdown below.
 	close(stop)
-	select {
-	case <-routerDone:
-	case <-cleanupCtx.Done():
-		return nil, fmt.Errorf("claude CLI model discovery: cleanup did not complete before the deadline: %w", cleanupCtx.Err())
+
+	// Terminal connection shutdown is unconditional and comes before the router
+	// join: a router or control writer that never settles must not leave the CLI
+	// alive. ForceClose skips the coordinator's grace intervals so teardown fits
+	// the reserved budget instead of spending two grace periods past it.
+	closeErr := conn.ForceClose(cleanupCtx)
+
+	// Join the router and the control writer with whatever budget remains. The
+	// router terminates the control and joins its writer as it exits; joining
+	// both here keeps the join bounded by the cleanup budget so a stalled router
+	// cannot extend discovery past the outer deadline.
+	routerJoined := claudeSubJoined(cleanupCtx, routerDone)
+	writerJoined := claudeSubJoined(cleanupCtx, control.writerDone)
+
+	if closeErr != nil {
+		return nil, fmt.Errorf("claude CLI model discovery: cleanup did not complete: %w", closeErr)
 	}
-	if err := conn.Close(cleanupCtx); err != nil {
-		return nil, fmt.Errorf("claude CLI model discovery: cleanup did not complete: %w", err)
+	if !routerJoined || !writerJoined {
+		return nil, fmt.Errorf("claude CLI model discovery: cleanup did not complete before the deadline: %w", cleanupCtx.Err())
 	}
 
 	if reqErr != nil {
 		return nil, fmt.Errorf("claude CLI model discovery: %w", reqErr)
 	}
 	return claudeSubParseModels(raw)
+}
+
+// claudeSubJoined reports whether done closed before ctx expired.
+func claudeSubJoined(ctx context.Context, done <-chan struct{}) bool {
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // claudeSubInitializeResponse is the model list carried by an initialize

@@ -140,6 +140,11 @@ type claudeSubProcess struct {
 	stopping  chan struct{} // closed when the coordinator stops the queues
 	terminal  chan struct{} // closed when the coordinator finishes
 
+	// forced is closed once when forced teardown is armed: the coordinator then
+	// skips its grace intervals so terminal cleanup fits a caller's deadline.
+	forced    chan struct{}
+	forceOnce sync.Once
+
 	handlesOnce sync.Once
 
 	readersLeft atomic.Int32
@@ -210,6 +215,7 @@ func spawnClaudeSubProcess(_ context.Context, path string, args, env []string, d
 		started:     make(chan struct{}),
 		stopping:    make(chan struct{}),
 		terminal:    make(chan struct{}),
+		forced:      make(chan struct{}),
 		readersDone: make(chan struct{}),
 		writerDone:  make(chan struct{}),
 	}
@@ -266,6 +272,31 @@ func (p *claudeSubProcess) Err() error {
 // termination) or nil.
 func (p *claudeSubProcess) Close(ctx context.Context) error {
 	p.startShutdown(nil)
+	return p.waitTerminal(ctx)
+}
+
+// ForceClose is Close with forced teardown. It arms the coordinator's forced
+// mode before starting it, so the two grace intervals are skipped and terminal
+// cleanup fits the caller's deadline rather than spending two grace periods
+// past it. It is used by discovery, whose reserved teardown budget is smaller
+// than two graceful waits. A caller's ctx never controls another caller.
+func (p *claudeSubProcess) ForceClose(ctx context.Context) error {
+	p.armForced()
+	p.startShutdown(nil)
+	return p.waitTerminal(ctx)
+}
+
+// RequestShutdown starts the single lifecycle coordinator without waiting for
+// it. It is the non-blocking fatal handoff used by the control writer: it
+// guarantees the tree is torn down and the child reaped even though no caller
+// is waiting. The owner still joins through Close or ForceClose.
+func (p *claudeSubProcess) RequestShutdown(cause error) {
+	p.startShutdown(cause)
+}
+
+// waitTerminal waits for the shared terminal result or ctx, whichever comes
+// first, and returns the terminal cleanup error or a deadline error.
+func (p *claudeSubProcess) waitTerminal(ctx context.Context) error {
 	select {
 	case <-p.terminal:
 		p.errMu.Lock()
@@ -274,6 +305,11 @@ func (p *claudeSubProcess) Close(ctx context.Context) error {
 	case <-ctx.Done():
 		return fmt.Errorf("claude CLI shutdown did not complete: %w", ctx.Err())
 	}
+}
+
+// armForced closes the forced channel exactly once.
+func (p *claudeSubProcess) armForced() {
+	p.forceOnce.Do(func() { close(p.forced) })
 }
 
 // observeExit starts the coordinator when the child exits on its own, so a
@@ -291,14 +327,16 @@ func (p *claudeSubProcess) observeExit() {
 // root cause when shutdown was requested by a reader or writer failure; it is
 // nil for a caller Close or a natural exit.
 func (p *claudeSubProcess) startShutdown(cause error) {
-	p.startOnce.Do(func() {
-		if cause != nil {
-			p.errMu.Lock()
-			if p.forcedErr == nil {
-				p.forcedErr = cause
-			}
-			p.errMu.Unlock()
+	// Record the cause even if the coordinator already started, so a failure
+	// racing an in-progress shutdown is not silently lost.
+	if cause != nil {
+		p.errMu.Lock()
+		if p.forcedErr == nil {
+			p.forcedErr = cause
 		}
+		p.errMu.Unlock()
+	}
+	p.startOnce.Do(func() {
 		close(p.started)
 		go p.coordinator()
 	})
@@ -313,16 +351,15 @@ func (p *claudeSubProcess) startShutdown(cause error) {
 // The final wait cannot be interrupted by a context: if tree termination fails
 // the child may never exit and this goroutine can outlive a caller's deadline.
 // That OS-level limitation is why Close waits on ctx rather than forcing the
-// wait to return.
+// wait to return. Forced teardown (ForceClose) skips both grace intervals, so
+// cleanup fits a caller's deadline instead of spending two grace periods.
 func (p *claudeSubProcess) coordinator() {
 	p.stopQueues()
 
 	// Give a well-behaved CLI one grace interval to exit on stdin EOF. The
 	// tree is terminated either way, so descendants are always cleaned up.
-	select {
-	case <-p.child.exited():
-	case <-time.After(p.grace):
-	}
+	// Forced teardown skips the wait.
+	p.waitGrace(p.child.exited())
 
 	cleanupErr := p.child.terminateTree()
 	p.errMu.Lock()
@@ -330,11 +367,9 @@ func (p *claudeSubProcess) coordinator() {
 	p.errMu.Unlock()
 
 	// Let the readers drain to EOF, then force-close the owned read handles so
-	// a descendant that escaped the tree cannot keep them blocked.
-	select {
-	case <-p.readersDone:
-	case <-time.After(p.grace):
-	}
+	// a descendant that escaped the tree cannot keep them blocked. Forced
+	// teardown skips the wait.
+	p.waitGrace(p.readersDone)
 	p.closeReadHandles()
 	<-p.readersDone
 
@@ -350,6 +385,24 @@ func (p *claudeSubProcess) coordinator() {
 	close(p.events)
 	p.child.close()
 	close(p.terminal)
+}
+
+// waitGrace waits for done or the shutdown grace, whichever comes first. When
+// forced teardown is armed the wait is skipped entirely, and an in-flight wait
+// is cut short, so forced cleanup cannot spend a grace interval.
+func (p *claudeSubProcess) waitGrace(done <-chan struct{}) {
+	select {
+	case <-p.forced:
+		return
+	default:
+	}
+	timer := time.NewTimer(p.grace)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+	case <-p.forced:
+	}
 }
 
 // stopQueues stops the outbound queue and closes stdin so the writer is
