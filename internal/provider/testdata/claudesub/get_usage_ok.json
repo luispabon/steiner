@@ -1,0 +1,32 @@
+{
+  "session": {"id": "sess_01HXYZ", "cwd": "/tmp/steiner"},
+  "subscription_type": "pro",
+  "rate_limits_available": true,
+  "rate_limits": {
+    "five_hour": {"utilization": 26, "resets_at": "2026-10-08T16:30:00.444533+00:00"},
+    "seven_day": {"utilization": 4, "resets_at": "2026-10-13T22:00:00.444559+00:00"},
+    "seven_day_oauth_apps": {"utilization": 0, "resets_at": "2026-10-13T22:00:00.444559+00:00"},
+    "seven_day_opus": null,
+    "seven_day_sonnet": null,
+    "tangelo": {"utilization": 0, "resets_at": null},
+    "iguana_necktie": {"utilization": 0},
+    "extra_usage": {
+      "is_enabled": false,
+      "monthly_limit": 0,
+      "used_credits": 0,
+      "utilization": null,
+      "currency": "GBP",
+      "decimal_places": 2,
+      "disabled_reason": "org_level_disabled_until",
+      "user_disabled": false,
+      "spend_limit_reached": false,
+      "credits_ever_enabled": true,
+      "daily": null,
+      "weekly": null
+    },
+    "limits": [],
+    "spend": {},
+    "model_scoped": []
+  },
+  "behaviors": {"fast_mode_state": "off", "extra_usage_disabled": true}
+}
