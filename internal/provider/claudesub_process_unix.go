@@ -3,8 +3,10 @@
 package provider
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -91,4 +93,33 @@ func killClaudeSubLocator(cmd *exec.Cmd) error {
 		return err
 	}
 	return nil
+}
+
+// claudeSubPrepareInheritance is a no-op outside Windows: Unix has no handle
+// inheritance flag to manage, and file descriptors are not inherited unless
+// explicitly duped into the child.
+func claudeSubPrepareInheritance(...*os.File) error { return nil }
+
+// claudeSubExecRunner runs one short-lived claude CLI subcommand for the
+// locator. It groups the command like the connection process and bounds it with
+// a finite WaitDelay and bounded output, so a descendant that holds the output
+// pipe cannot hang discovery. It replaces the bare CommandContext.Output
+// pattern.
+func claudeSubExecRunner(ctx context.Context, path string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.SysProcAttr = claudeSubLocatorSysProcAttr()
+	cmd.WaitDelay = claudeSubLocatorWaitDelay
+	cmd.Cancel = func() error { return killClaudeSubLocator(cmd) }
+	out := newClaudeSubBoundedBuffer(claudeSubLocatorOutputMaxBytes)
+	errOut := newClaudeSubBoundedBuffer(claudeSubLocatorOutputMaxBytes)
+	cmd.Stdout = out
+	cmd.Stderr = errOut
+
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	if out.overflowed() {
+		return nil, fmt.Errorf("claude CLI %s produced more than %d bytes of output", path, claudeSubLocatorOutputMaxBytes)
+	}
+	return out.bytes(), nil
 }

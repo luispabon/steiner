@@ -175,6 +175,14 @@ func spawnClaudeSubProcess(_ context.Context, path string, args, env []string, d
 		return nil, fmt.Errorf("create claude CLI stderr pipe: %w", err)
 	}
 
+	// The transport-owned ends must never be inheritable: on Windows a
+	// CreateProcess without a handle list would otherwise leak them into the
+	// child, and the child would keep the read end of stdout open forever.
+	if err := claudeSubPrepareInheritance(stdinW, stdoutR, stderrR); err != nil {
+		closeFiles(stdinR, stdinW, stdoutR, stdoutW, stderrR, stderrW)
+		return nil, err
+	}
+
 	child, err := claudeSubLaunch(claudeSubLaunchSpec{
 		Path:   path,
 		Args:   args,

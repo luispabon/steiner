@@ -3,28 +3,38 @@
 package provider
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
+	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-// procThreadAttributeJobList is PROC_THREAD_ATTRIBUTE_JOB_LIST (winnt.h). The
-// job list makes the child a member of the job atomically at creation, so
-// TerminateJobObject always reaches it and every descendant it spawns.
-const procThreadAttributeJobList = 0x0002000D
+// PROC_THREAD_ATTRIBUTE_JOB_LIST and PROC_THREAD_ATTRIBUTE_HANDLE_LIST (winnt.h).
+// The job list makes the child a member of the job atomically at creation, so
+// TerminateJobObject always reaches it and every descendant it spawns. The
+// handle list restricts inheritance to exactly the three child standard handles,
+// so the transport-owned parent ends can never leak into the child.
+const (
+	procThreadAttributeJobList    = 0x0002000D
+	procThreadAttributeHandleList = 0x00020002
+)
 
 // claudeSubWinAttrList is the process attribute list the launcher populates with
-// the job handle. It is an interface so tests can prove the ordering.
+// the job handle and the inheritable handle list. It is an interface so tests
+// can inspect the captured attribute values, not just the call order.
 type claudeSubWinAttrList interface {
 	setJob(job windows.Handle) error
+	setHandles(handles []windows.Handle) error
 	list() *windows.ProcThreadAttributeList
 	delete()
 }
@@ -95,6 +105,9 @@ func launchClaudeSubChildWith(spec claudeSubLaunchSpec, ops claudeSubWinOps) (cl
 		return nil, fmt.Errorf("attach claude CLI job object attribute: %w", err)
 	}
 
+	// Only these three child ends may be inherited. Mark them inheritable, put
+	// exactly them in the handle list, and clear the flag again once the child
+	// has inherited them.
 	stdHandles := []windows.Handle{
 		windows.Handle(spec.Stdin.Fd()),
 		windows.Handle(spec.Stdout.Fd()),
@@ -111,6 +124,10 @@ func launchClaudeSubChildWith(spec claudeSubLaunchSpec, ops claudeSubWinOps) (cl
 			_ = windows.SetHandleInformation(h, windows.HANDLE_FLAG_INHERIT, 0)
 		}
 	}()
+	if err := attrs.setHandles(stdHandles); err != nil {
+		ops.closeHandle(job)
+		return nil, fmt.Errorf("attach claude CLI handle list attribute: %w", err)
+	}
 
 	cmdLine, err := claudeSubWindowsCommandLine(spec.Path, spec.Args)
 	if err != nil {
@@ -230,7 +247,8 @@ type claudeSubRealAttrList struct {
 }
 
 func newClaudeSubWinAttrList() (claudeSubWinAttrList, error) {
-	c, err := windows.NewProcThreadAttributeList(1)
+	// Two attributes: the job list and the handle list.
+	c, err := windows.NewProcThreadAttributeList(2)
 	if err != nil {
 		return nil, err
 	}
@@ -239,6 +257,17 @@ func newClaudeSubWinAttrList() (claudeSubWinAttrList, error) {
 
 func (a *claudeSubRealAttrList) setJob(job windows.Handle) error {
 	return a.c.Update(procThreadAttributeJobList, unsafe.Pointer(&job), unsafe.Sizeof(job))
+}
+
+func (a *claudeSubRealAttrList) setHandles(handles []windows.Handle) error {
+	if len(handles) == 0 {
+		return fmt.Errorf("claude CLI handle list is empty")
+	}
+	return a.c.Update(
+		procThreadAttributeHandleList,
+		unsafe.Pointer(&handles[0]),
+		unsafe.Sizeof(handles[0])*uintptr(len(handles)),
+	)
 }
 
 func (a *claudeSubRealAttrList) list() *windows.ProcThreadAttributeList { return a.c.List() }
@@ -296,15 +325,108 @@ func claudeSubWindowsEnvBlock(env []string) (*uint16, error) {
 	return &block[0], nil
 }
 
-// claudeSubLocatorSysProcAttr: a locator command is a direct child, so it needs
-// no special attributes on Windows.
-func claudeSubLocatorSysProcAttr() *syscall.SysProcAttr { return nil }
-
-// killClaudeSubLocator terminates a locator command directly. The locator is
-// short-lived and does not own a tree, so a direct kill is correct here.
-func killClaudeSubLocator(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return nil
+// claudeSubPrepareInheritance clears the inherit flag on the transport-owned
+// pipe ends, so they can never be inherited by a child. It runs before the
+// launcher and fails closed if a handle is invalid.
+func claudeSubPrepareInheritance(files ...*os.File) error {
+	for _, f := range files {
+		if err := windows.SetHandleInformation(windows.Handle(f.Fd()), windows.HANDLE_FLAG_INHERIT, 0); err != nil {
+			return fmt.Errorf("clear claude CLI pipe handle inheritance: %w", err)
+		}
 	}
-	return cmd.Process.Kill()
+	return nil
+}
+
+// claudeSubLocatorLaunch launches a locator command. Tests replace it to prove
+// the locator uses Job Object ownership and never a direct process kill.
+var claudeSubLocatorLaunch claudeSubLauncher = launchClaudeSubChild
+
+// claudeSubExecRunner runs one short-lived claude CLI subcommand for the
+// locator. On Windows it launches through the same Job Object ownership as the
+// connection, so cancellation and the bounded drain terminate the whole tree
+// with TerminateJobObject. There is no exec.Cmd Process.Kill path.
+func claudeSubExecRunner(ctx context.Context, path string, args ...string) ([]byte, error) {
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		closeFiles(stdinR, stdinW)
+		return nil, err
+	}
+	stderrR, stderrW, err := os.Pipe()
+	if err != nil {
+		closeFiles(stdinR, stdinW, stdoutR, stdoutW)
+		return nil, err
+	}
+	if err := claudeSubPrepareInheritance(stdinW, stdoutR, stderrR); err != nil {
+		closeFiles(stdinR, stdinW, stdoutR, stdoutW, stderrR, stderrW)
+		return nil, err
+	}
+
+	child, err := claudeSubLocatorLaunch(claudeSubLaunchSpec{
+		Path:   path,
+		Args:   args,
+		Stdin:  stdinR,
+		Stdout: stdoutW,
+		Stderr: stderrW,
+	})
+	closeFiles(stdinR, stdoutW, stderrW)
+	if err != nil {
+		closeFiles(stdinW, stdoutR, stderrR)
+		return nil, err
+	}
+	_ = stdinW.Close() // the locator needs no stdin
+
+	out := newClaudeSubBoundedBuffer(claudeSubLocatorOutputMaxBytes)
+	var readers sync.WaitGroup
+	readers.Add(2)
+	readDone := make(chan struct{})
+	go func() {
+		defer readers.Done()
+		_, _ = io.Copy(out, stdoutR)
+	}()
+	go func() {
+		defer readers.Done()
+		_, _ = io.Copy(io.Discard, stderrR)
+	}()
+	go func() {
+		readers.Wait()
+		close(readDone)
+	}()
+
+	// Wait for the locator to exit or for the caller to cancel it, then
+	// terminate the whole job tree and reap, exactly as the connection
+	// coordinator does.
+	select {
+	case <-child.exited():
+	case <-ctx.Done():
+	}
+	cleanupErr := child.terminateTree()
+	waitErr := child.wait()
+	child.close()
+
+	// A descendant that escaped the job and holds the pipe is bounded by the
+	// locator WaitDelay, after which the owned read handles are force-closed.
+	select {
+	case <-readDone:
+	case <-time.After(claudeSubLocatorWaitDelay):
+	}
+	closeFiles(stdoutR, stderrR)
+	<-readDone
+
+	if cleanupErr != nil {
+		return nil, cleanupErr
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	if waitErr != nil {
+		return nil, waitErr
+	}
+	if out.overflowed() {
+		return nil, fmt.Errorf("claude CLI %s produced more than %d bytes of output", path, claudeSubLocatorOutputMaxBytes)
+	}
+	return out.bytes(), nil
 }
