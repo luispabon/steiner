@@ -98,6 +98,7 @@ func TestClaudeSubWindowsJobObjectOrder(t *testing.T) {
 			record("newAttrList")
 			return attrs, nil
 		},
+		setHandleInherit: func(windows.Handle, bool) error { record("setHandleInherit"); return nil },
 		createProcess: func(_ *uint16, _ *uint16, _ string, si *windows.StartupInfoEx, inherit bool) (windows.ProcessInformation, error) {
 			record("createProcess")
 			capturedSI = *si
@@ -266,5 +267,92 @@ func TestClaudeSubWindowsHelperLifecycle(t *testing.T) {
 	claudeSubDrainEvents(conn)
 	if err := conn.Close(context.Background()); err != nil {
 		t.Errorf("Close() error = %v", err)
+	}
+}
+
+// TestClaudeSubWindowsInheritCleanupOnFailure proves that when marking the
+// child standard handles inheritable fails part-way through, every handle
+// already marked has its inherit flag cleared before the launcher returns, so
+// no unintended transport handle is left inheritable for a concurrent launch.
+func TestClaudeSubWindowsInheritCleanupOnFailure(t *testing.T) {
+	cases := []struct {
+		name   string
+		failOn int // 1-based index of the setHandleInherit(true) call that fails
+	}{
+		{name: "second handle fails", failOn: 2},
+		{name: "third handle fails", failOn: 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stdinR, stdinW, err := os.Pipe()
+			if err != nil {
+				t.Fatalf("os.Pipe() error = %v", err)
+			}
+			stdoutR, stdoutW, err := os.Pipe()
+			if err != nil {
+				t.Fatalf("os.Pipe() error = %v", err)
+			}
+			stderrR, stderrW, err := os.Pipe()
+			if err != nil {
+				t.Fatalf("os.Pipe() error = %v", err)
+			}
+			t.Cleanup(func() { closeFiles(stdinR, stdinW, stdoutR, stdoutW, stderrR, stderrW) })
+
+			var marked []windows.Handle
+			var cleared []windows.Handle
+			setCalls := 0
+			jobClosed := false
+			ops := claudeSubWinOps{
+				createJobObject: func() (windows.Handle, error) { return windows.Handle(1), nil },
+				setJobLimit:     func(windows.Handle) error { return nil },
+				newAttrList: func() (claudeSubWinAttrList, error) {
+					return &claudeSubFakeAttrList{record: func(string) {}, sentinel: new(windows.ProcThreadAttributeList)}, nil
+				},
+				setHandleInherit: func(h windows.Handle, inherit bool) error {
+					if !inherit {
+						cleared = append(cleared, h)
+						return nil
+					}
+					setCalls++
+					if setCalls == tc.failOn {
+						return errors.New("injected SetHandleInformation failure")
+					}
+					marked = append(marked, h)
+					return nil
+				},
+				createProcess: func(*uint16, *uint16, string, *windows.StartupInfoEx, bool) (windows.ProcessInformation, error) {
+					t.Fatalf("createProcess called after an inheritance failure")
+					return windows.ProcessInformation{}, nil
+				},
+				closeHandle: func(windows.Handle) { jobClosed = true },
+			}
+
+			spec := claudeSubLaunchSpec{
+				Path:   `C:\tools\claude.exe`,
+				Stdin:  stdinR,
+				Stdout: stdoutW,
+				Stderr: stderrW,
+			}
+			if _, err := launchClaudeSubChildWith(spec, ops); err == nil {
+				t.Fatal("launchClaudeSubChildWith() error = nil, want the injected failure")
+			}
+
+			// Only the handles marked before the failure may be marked, and each
+			// must have been cleared again before the launcher returned.
+			if want := tc.failOn - 1; len(marked) != want {
+				t.Fatalf("marked handles = %v, want %d", marked, want)
+			}
+			if len(cleared) != len(marked) {
+				t.Fatalf("cleared handles = %v, want exactly the %d marked handles", cleared, len(marked))
+			}
+			for i, h := range marked {
+				if cleared[i] != h {
+					t.Errorf("cleared[%d] = %v, want the marked handle %v", i, cleared[i], h)
+				}
+			}
+			if !jobClosed {
+				t.Error("job object not closed after an inheritance failure")
+			}
+		})
 	}
 }

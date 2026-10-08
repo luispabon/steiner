@@ -42,23 +42,31 @@ type claudeSubWinAttrList interface {
 // claudeSubWinOps are the Windows API calls the launcher makes. Tests replace
 // them to prove the Job Object ownership ordering without a Windows host.
 type claudeSubWinOps struct {
-	createJobObject func() (windows.Handle, error)
-	setJobLimit     func(job windows.Handle) error
-	newAttrList     func() (claudeSubWinAttrList, error)
-	createProcess   func(cmdLine, env *uint16, dir string, si *windows.StartupInfoEx, inherit bool) (windows.ProcessInformation, error)
-	terminateJob    func(job windows.Handle) error
-	waitProcess     func(proc windows.Handle) (uint32, error)
-	processExitCode func(proc windows.Handle) (uint32, error)
-	closeHandle     func(h windows.Handle)
+	createJobObject  func() (windows.Handle, error)
+	setJobLimit      func(job windows.Handle) error
+	newAttrList      func() (claudeSubWinAttrList, error)
+	setHandleInherit func(h windows.Handle, inherit bool) error
+	createProcess    func(cmdLine, env *uint16, dir string, si *windows.StartupInfoEx, inherit bool) (windows.ProcessInformation, error)
+	terminateJob     func(job windows.Handle) error
+	waitProcess      func(proc windows.Handle) (uint32, error)
+	processExitCode  func(proc windows.Handle) (uint32, error)
+	closeHandle      func(h windows.Handle)
 }
 
 var claudeSubWindowsOps = claudeSubWinOps{
 	createJobObject: func() (windows.Handle, error) { return windows.CreateJobObject(nil, nil) },
 	setJobLimit:     setClaudeSubJobKillOnClose,
 	newAttrList:     newClaudeSubWinAttrList,
-	createProcess:   createClaudeSubProcess,
-	terminateJob:    func(job windows.Handle) error { return windows.TerminateJobObject(job, 1) },
-	waitProcess:     func(proc windows.Handle) (uint32, error) { return windows.WaitForSingleObject(proc, windows.INFINITE) },
+	setHandleInherit: func(h windows.Handle, inherit bool) error {
+		var flags uint32
+		if inherit {
+			flags = windows.HANDLE_FLAG_INHERIT
+		}
+		return windows.SetHandleInformation(h, windows.HANDLE_FLAG_INHERIT, flags)
+	},
+	createProcess: createClaudeSubProcess,
+	terminateJob:  func(job windows.Handle) error { return windows.TerminateJobObject(job, 1) },
+	waitProcess:   func(proc windows.Handle) (uint32, error) { return windows.WaitForSingleObject(proc, windows.INFINITE) },
 	processExitCode: func(proc windows.Handle) (uint32, error) {
 		var code uint32
 		err := windows.GetExitCodeProcess(proc, &code)
@@ -113,17 +121,23 @@ func launchClaudeSubChildWith(spec claudeSubLaunchSpec, ops claudeSubWinOps) (cl
 		windows.Handle(spec.Stdout.Fd()),
 		windows.Handle(spec.Stderr.Fd()),
 	}
+	// Track the handles actually marked, so every return path clears exactly
+	// those. A failure part-way through the loop must not leave an earlier
+	// child standard handle inheritable for a concurrent process launch to
+	// inherit, and the flag is cleared again once the child has inherited them.
+	var inheritable []windows.Handle
+	defer func() {
+		for _, h := range inheritable {
+			_ = ops.setHandleInherit(h, false)
+		}
+	}()
 	for _, h := range stdHandles {
-		if err := windows.SetHandleInformation(h, windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT); err != nil {
+		if err := ops.setHandleInherit(h, true); err != nil {
 			ops.closeHandle(job)
 			return nil, fmt.Errorf("make claude CLI standard handle inheritable: %w", err)
 		}
+		inheritable = append(inheritable, h)
 	}
-	defer func() {
-		for _, h := range stdHandles {
-			_ = windows.SetHandleInformation(h, windows.HANDLE_FLAG_INHERIT, 0)
-		}
-	}()
 	if err := attrs.setHandles(stdHandles); err != nil {
 		ops.closeHandle(job)
 		return nil, fmt.Errorf("attach claude CLI handle list attribute: %w", err)
