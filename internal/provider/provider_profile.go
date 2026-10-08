@@ -14,7 +14,7 @@ type providerProfile struct {
 	ModelsDevID    string // "" = generic: no canonical models.dev key
 	DefaultBaseURL string
 	Generic        bool             // fronts arbitrary backends (openai_compat, ollama, litellm)
-	FixedTransport *transportChoice // non-nil only for codex; nil otherwise
+	FixedTransport *transportChoice // non-nil for providers with a fixed transport (codex, claude_subscription); nil otherwise
 	LiveProbe      bool             // true only for ollama
 }
 
