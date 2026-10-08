@@ -38,6 +38,9 @@ func claudeSubMCPNewHost(t *testing.T) *claudeSubMCPHost {
 	if err != nil {
 		t.Fatalf("newClaudeSubMCPHost: %v", err)
 	}
+	// Keep the shutdown-deadline fallback fast in tests; production defaults to
+	// claudeSubShutdownGrace.
+	h.shutdownGrace = 100 * time.Millisecond
 	t.Cleanup(func() { _ = h.Close() })
 	return h
 }
@@ -75,6 +78,23 @@ func claudeSubMCPWaitWaiter(t *testing.T, h *claudeSubMCPHost, id string) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("waiter for %q never registered", id)
+}
+
+// claudeSubMCPWaitCancelled blocks until the host has tombstoned id after a
+// cancelled or closed call.
+func claudeSubMCPWaitCancelled(t *testing.T, h *claudeSubMCPHost, id string) {
+	t.Helper()
+	deadline := time.Now().Add(claudeSubMCPTestTimeout)
+	for time.Now().Before(deadline) {
+		h.mu.Lock()
+		_, done := h.cancelled[id]
+		h.mu.Unlock()
+		if done {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("%q was never tombstoned", id)
 }
 
 func claudeSubMCPText(res *mcp.CallToolResult) string {
@@ -450,8 +470,399 @@ func TestClaudeSubMCPWriteConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}
-	want := fmt.Sprintf(`{"mcpServers":{"steiner":{"type":"http","url":%q,"headers":{"Authorization":"Bearer %s"}}}}`, h.url, h.token)
+	want := claudeSubMCPWantConfig(h)
 	if string(data) != want {
 		t.Errorf("config JSON = %s, want %s", data, want)
+	}
+}
+
+func claudeSubMCPWantConfig(h *claudeSubMCPHost) string {
+	return fmt.Sprintf(`{"mcpServers":{"steiner":{"type":"http","url":%q,"headers":{"Authorization":"Bearer %s"}}}}`, h.url, h.token)
+}
+
+func TestClaudeSubMCPRejectsDuplicateToolUseIDKeepsOriginal(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+	h.setTools([]ToolSpec{{Function: ToolFunctionSpec{Name: "read", Parameters: claudeSubMCPObjectSchema(nil)}}})
+	cs := claudeSubMCPConnect(t, h, h.token, nil)
+
+	ctx, cancel := context.WithTimeout(t.Context(), claudeSubMCPTestTimeout)
+	defer cancel()
+	first := make(chan *mcp.CallToolResult, 1)
+	firstErr := make(chan error, 1)
+	go func() {
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+			Name: "read",
+			Meta: mcp.Meta{"claudecode/toolUseId": "toolu_dup"},
+		})
+		if err != nil {
+			firstErr <- err
+			return
+		}
+		first <- res
+	}()
+	claudeSubMCPWaitWaiter(t, h, "toolu_dup")
+
+	dupCtx, dupCancel := context.WithTimeout(t.Context(), claudeSubMCPTestTimeout)
+	defer dupCancel()
+	dup, err := cs.CallTool(dupCtx, &mcp.CallToolParams{
+		Name: "read",
+		Meta: mcp.Meta{"claudecode/toolUseId": "toolu_dup"},
+	})
+	if err != nil {
+		t.Fatalf("duplicate CallTool: %v", err)
+	}
+	if !dup.IsError {
+		t.Error("duplicate result IsError = false, want true")
+	}
+	if got := claudeSubMCPText(dup); got != "duplicate tool use id" {
+		t.Errorf("duplicate text = %q, want %q", got, "duplicate tool use id")
+	}
+
+	h.mu.Lock()
+	_, live := h.waiters["toolu_dup"]
+	h.mu.Unlock()
+	if !live {
+		t.Fatal("original waiter was clobbered by the duplicate call")
+	}
+
+	h.resolve("toolu_dup", claudeSubToolResult{Text: "original"})
+	select {
+	case res := <-first:
+		if got := claudeSubMCPText(res); got != "original" {
+			t.Errorf("original text = %q, want %q", got, "original")
+		}
+	case err := <-firstErr:
+		t.Fatalf("original CallTool: %v", err)
+	case <-time.After(claudeSubMCPTestTimeout):
+		t.Fatal("resolve did not release the original call after a duplicate")
+	}
+}
+
+func TestClaudeSubMCPDuplicateThenCancelAllReleasesOriginal(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+	h.setTools([]ToolSpec{{Function: ToolFunctionSpec{Name: "read", Parameters: claudeSubMCPObjectSchema(nil)}}})
+	cs := claudeSubMCPConnect(t, h, h.token, nil)
+
+	ctx, cancel := context.WithTimeout(t.Context(), claudeSubMCPTestTimeout)
+	defer cancel()
+	first := make(chan *mcp.CallToolResult, 1)
+	firstErr := make(chan error, 1)
+	go func() {
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+			Name: "read",
+			Meta: mcp.Meta{"claudecode/toolUseId": "toolu_dup_cancel"},
+		})
+		if err != nil {
+			firstErr <- err
+			return
+		}
+		first <- res
+	}()
+	claudeSubMCPWaitWaiter(t, h, "toolu_dup_cancel")
+
+	dupCtx, dupCancel := context.WithTimeout(t.Context(), claudeSubMCPTestTimeout)
+	defer dupCancel()
+	dup, err := cs.CallTool(dupCtx, &mcp.CallToolParams{
+		Name: "read",
+		Meta: mcp.Meta{"claudecode/toolUseId": "toolu_dup_cancel"},
+	})
+	if err != nil {
+		t.Fatalf("duplicate CallTool: %v", err)
+	}
+	if !dup.IsError {
+		t.Error("duplicate result IsError = false, want true")
+	}
+
+	h.cancelAll()
+	select {
+	case res := <-first:
+		if !res.IsError {
+			t.Error("cancelled original IsError = false, want true")
+		}
+		if got := claudeSubMCPText(res); got != "tool call cancelled" {
+			t.Errorf("cancelled original text = %q, want %q", got, "tool call cancelled")
+		}
+	case err := <-firstErr:
+		t.Fatalf("original CallTool: %v", err)
+	case <-time.After(claudeSubMCPTestTimeout):
+		t.Fatal("cancelAll did not release the original call after a duplicate")
+	}
+}
+
+func TestClaudeSubMCPLateResolveAfterCancelIsDiscarded(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+	h.setTools([]ToolSpec{{Function: ToolFunctionSpec{Name: "read", Parameters: claudeSubMCPObjectSchema(nil)}}})
+	cs := claudeSubMCPConnect(t, h, h.token, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), claudeSubMCPTestTimeout)
+	defer cancel()
+	firstErr := make(chan error, 1)
+	go func() {
+		_, err := cs.CallTool(ctx, &mcp.CallToolParams{
+			Name: "read",
+			Meta: mcp.Meta{"claudecode/toolUseId": "toolu_reuse"},
+		})
+		firstErr <- err
+	}()
+	claudeSubMCPWaitWaiter(t, h, "toolu_reuse")
+	cancel()
+	select {
+	case <-firstErr:
+	case <-time.After(claudeSubMCPTestTimeout):
+		t.Fatal("cancelled call did not return")
+	}
+	claudeSubMCPWaitCancelled(t, h, "toolu_reuse")
+
+	// A late result for the cancelled call must not be stored.
+	h.resolve("toolu_reuse", claudeSubToolResult{Text: "stale"})
+	h.mu.Lock()
+	_, stored := h.results["toolu_reuse"]
+	h.mu.Unlock()
+	if stored {
+		t.Fatal("late resolve stored a result for a cancelled id")
+	}
+
+	// A reused id must not receive the stale result, nor a later late resolve.
+	reuseCtx, reuseCancel := context.WithTimeout(t.Context(), claudeSubMCPTestTimeout)
+	defer reuseCancel()
+	reused := make(chan *mcp.CallToolResult, 1)
+	reusedErr := make(chan error, 1)
+	go func() {
+		res, err := cs.CallTool(reuseCtx, &mcp.CallToolParams{
+			Name: "read",
+			Meta: mcp.Meta{"claudecode/toolUseId": "toolu_reuse"},
+		})
+		if err != nil {
+			reusedErr <- err
+			return
+		}
+		reused <- res
+	}()
+	claudeSubMCPWaitWaiter(t, h, "toolu_reuse")
+	h.resolve("toolu_reuse", claudeSubToolResult{Text: "still stale"})
+	select {
+	case res := <-reused:
+		t.Fatalf("reused id received stale result %q", claudeSubMCPText(res))
+	case err := <-reusedErr:
+		t.Fatalf("reused CallTool: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	reuseCancel()
+	select {
+	case <-reusedErr:
+	case res := <-reused:
+		t.Fatalf("reused id unexpectedly resolved with %q", claudeSubMCPText(res))
+	case <-time.After(claudeSubMCPTestTimeout):
+		t.Fatal("reused call was not released by cancellation")
+	}
+
+	// A never-cancelled id still supports resolve-before-call.
+	h.resolve("toolu_fresh", claudeSubToolResult{Text: "fresh"})
+	freshCtx, freshCancel := context.WithTimeout(t.Context(), claudeSubMCPTestTimeout)
+	defer freshCancel()
+	res, err := cs.CallTool(freshCtx, &mcp.CallToolParams{
+		Name: "read",
+		Meta: mcp.Meta{"claudecode/toolUseId": "toolu_fresh"},
+	})
+	if err != nil {
+		t.Fatalf("fresh CallTool: %v", err)
+	}
+	if got := claudeSubMCPText(res); got != "fresh" {
+		t.Errorf("fresh text = %q, want %q", got, "fresh")
+	}
+}
+
+func TestClaudeSubMCPTombstonesAreBounded(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+	h.maxTombstones = 2
+	h.cancelCall("a")
+	h.cancelCall("b")
+	h.cancelCall("c") // evicts the oldest tombstone, "a"
+
+	h.resolve("a", claudeSubToolResult{Text: "reopened"})
+	h.mu.Lock()
+	_, storedA := h.results["a"]
+	h.mu.Unlock()
+	if !storedA {
+		t.Error("evicted tombstone still discarded resolve; the set is not bounded")
+	}
+
+	h.resolve("b", claudeSubToolResult{Text: "discarded"})
+	h.mu.Lock()
+	_, storedB := h.results["b"]
+	h.mu.Unlock()
+	if storedB {
+		t.Error("live tombstone did not discard resolve")
+	}
+}
+
+func TestClaudeSubMCPConcurrentCallsResolveIndependently(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+	h.setTools([]ToolSpec{{Function: ToolFunctionSpec{Name: "read", Parameters: claudeSubMCPObjectSchema(nil)}}})
+	cs := claudeSubMCPConnect(t, h, h.token, nil)
+
+	ctx, cancel := context.WithTimeout(t.Context(), claudeSubMCPTestTimeout)
+	defer cancel()
+	const n = 8
+	results := make([]chan *mcp.CallToolResult, n)
+	errs := make([]chan error, n)
+	for i := 0; i < n; i++ {
+		results[i] = make(chan *mcp.CallToolResult, 1)
+		errs[i] = make(chan error, 1)
+		go func(i int) {
+			id := fmt.Sprintf("toolu_c%d", i)
+			res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+				Name: "read",
+				Meta: mcp.Meta{"claudecode/toolUseId": id},
+			})
+			if err != nil {
+				errs[i] <- err
+				return
+			}
+			results[i] <- res
+		}(i)
+	}
+	for i := 0; i < n; i++ {
+		claudeSubMCPWaitWaiter(t, h, fmt.Sprintf("toolu_c%d", i))
+	}
+	for _, i := range []int{5, 1, 7, 3, 0, 6, 2, 4} {
+		h.resolve(fmt.Sprintf("toolu_c%d", i), claudeSubToolResult{Text: fmt.Sprintf("r%d", i)})
+	}
+	for i := 0; i < n; i++ {
+		select {
+		case res := <-results[i]:
+			if got, want := claudeSubMCPText(res), fmt.Sprintf("r%d", i); got != want {
+				t.Errorf("call %d text = %q, want %q", i, got, want)
+			}
+		case err := <-errs[i]:
+			t.Errorf("call %d: %v", i, err)
+		case <-time.After(claudeSubMCPTestTimeout):
+			t.Fatalf("call %d did not return", i)
+		}
+	}
+}
+
+func TestClaudeSubMCPCloseForceClosesStandaloneSSE(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+	httpClient := &http.Client{Transport: claudeSubMCPBearerTransport{token: h.token, base: http.DefaultTransport}}
+	tr := &mcp.StreamableClientTransport{Endpoint: h.url, HTTPClient: httpClient, MaxRetries: -1}
+	client := mcp.NewClient(&mcp.Implementation{Name: "claudesub-test", Version: "1"}, nil)
+	ctx, cancel := context.WithTimeout(t.Context(), claudeSubMCPTestTimeout)
+	defer cancel()
+	cs, err := client.Connect(ctx, tr, nil)
+	if err != nil {
+		t.Fatalf("connect mcp client: %v", err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+
+	// The default client holds a standalone SSE stream open, so Shutdown cannot
+	// complete until Close's deadline fallback force-closes the connection.
+	waited := make(chan struct{})
+	go func() {
+		_ = cs.Wait()
+		close(waited)
+	}()
+
+	start := time.Now()
+	if err := h.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < h.shutdownGrace {
+		t.Errorf("Close returned after %v, before the %v shutdown grace; the standalone SSE stream was not held open", elapsed, h.shutdownGrace)
+	}
+	select {
+	case <-waited:
+	case <-time.After(claudeSubMCPTestTimeout):
+		t.Fatal("standalone SSE stream was not force-closed")
+	}
+}
+
+func TestClaudeSubMCPWriteConfigReplacesPermissiveFile(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod dir: %v", err)
+	}
+	path := filepath.Join(dir, "mcp.json")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	if err := os.Chmod(path, 0o666); err != nil {
+		t.Fatalf("chmod seed: %v", err)
+	}
+
+	got, err := h.writeConfig(dir)
+	if err != nil {
+		t.Fatalf("writeConfig: %v", err)
+	}
+	if got != path {
+		t.Errorf("path = %q, want %q", got, path)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat config: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("config mode = %v, want 0o600", info.Mode().Perm())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if want := claudeSubMCPWantConfig(h); string(data) != want {
+		t.Errorf("config JSON = %s, want %s", data, want)
+	}
+}
+
+func TestClaudeSubMCPWriteConfigRejectsSymlink(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod dir: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "target.json")
+	if err := os.WriteFile(target, []byte("secret-target"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	link := filepath.Join(dir, "mcp.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	got, err := h.writeConfig(dir)
+	if err == nil {
+		t.Fatalf("writeConfig through a symlink succeeded with %q, want an error", got)
+	}
+	if strings.Contains(err.Error(), h.token) {
+		t.Error("symlink rejection error leaked the bearer token")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if string(data) != "secret-target" {
+		t.Errorf("symlink target was modified: %q", data)
+	}
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatalf("lstat link: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Error("symlink was replaced by writeConfig")
+	}
+}
+
+func TestClaudeSubMCPWriteConfigRejectsNonRegularFile(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod dir: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "mcp.json"), 0o700); err != nil {
+		t.Fatalf("mkdir config path: %v", err)
+	}
+
+	if _, err := h.writeConfig(dir); err == nil {
+		t.Error("writeConfig over a directory succeeded, want an error")
 	}
 }

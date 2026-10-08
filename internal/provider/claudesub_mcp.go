@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -34,6 +35,12 @@ const (
 	// claudeSubHeartbeat is the default progress-notification interval while a
 	// tool call waits for steiner to produce the result.
 	claudeSubHeartbeat = 20 * time.Second
+	// claudeSubShutdownGrace bounds HTTP-server shutdown before lingering
+	// connections (such as a client's standalone SSE stream) are force-closed.
+	claudeSubShutdownGrace = 2 * time.Second
+	// claudeSubMCPMaxTombstones caps how many cancelled tool-use ids are kept so
+	// a late resolve cannot re-store a cancelled result.
+	claudeSubMCPMaxTombstones = 1024
 )
 
 // claudeSubToolName returns the name the claude CLI publishes for a steiner tool.
@@ -69,14 +76,22 @@ type claudeSubMCPHost struct {
 
 	// heartbeat is the progress-notification interval; tests shorten it.
 	heartbeat time.Duration
+	// shutdownGrace bounds HTTP-server shutdown before force-closing; tests
+	// shorten it.
+	shutdownGrace time.Duration
 
-	mu      sync.Mutex
-	names   map[string]string // published CLI name (prefix stripped) -> steiner tool name
-	toolKey string            // fingerprint of the currently published specs
-	results map[string]claudeSubToolResult
-	waiters map[string]chan struct{}
-	closed  bool
-	closeCh chan struct{}
+	mu sync.Mutex
+	// maxTombstones caps the cancelled-id set; tests may lower it.
+	maxTombstones int
+	names         map[string]string // published CLI name (prefix stripped) -> steiner tool name
+	toolKey       string            // fingerprint of the currently published specs
+	results       map[string]claudeSubToolResult
+	waiters       map[string]chan struct{}
+	cancelled     map[string]struct{} // terminal tool-use ids; resolve discards them
+	cancelOrder   []string            // bounded FIFO ring backing cancelled
+	cancelNext    int
+	closed        bool
+	closeCh       chan struct{}
 }
 
 // newClaudeSubMCPHost starts a loopback MCP host with a random bearer token.
@@ -92,13 +107,16 @@ func newClaudeSubMCPHost() (*claudeSubMCPHost, error) {
 		return nil, fmt.Errorf("listen claude_subscription mcp host: %w", err)
 	}
 	h := &claudeSubMCPHost{
-		token:     hex.EncodeToString(tokenBytes),
-		ln:        ln,
-		heartbeat: claudeSubHeartbeat,
-		names:     map[string]string{},
-		results:   map[string]claudeSubToolResult{},
-		waiters:   map[string]chan struct{}{},
-		closeCh:   make(chan struct{}),
+		token:         hex.EncodeToString(tokenBytes),
+		ln:            ln,
+		heartbeat:     claudeSubHeartbeat,
+		shutdownGrace: claudeSubShutdownGrace,
+		maxTombstones: claudeSubMCPMaxTombstones,
+		names:         map[string]string{},
+		results:       map[string]claudeSubToolResult{},
+		waiters:       map[string]chan struct{}{},
+		cancelled:     map[string]struct{}{},
+		closeCh:       make(chan struct{}),
 	}
 	h.srv = mcp.NewServer(&mcp.Implementation{Name: claudeSubMCPServerName, Version: "1"}, nil)
 	h.url = "http://" + ln.Addr().String() + "/mcp"
@@ -186,6 +204,12 @@ func (h *claudeSubMCPHost) callTool(ctx context.Context, req *mcp.CallToolReques
 		h.mu.Unlock()
 		return claudeSubMCPTextResult("tool call cancelled", true), nil
 	}
+	if _, live := h.waiters[id]; live {
+		// A tools/call reusing an in-flight id must not clobber the original
+		// waiter; reject the duplicate and leave the original blocked.
+		h.mu.Unlock()
+		return claudeSubMCPTextResult("duplicate tool use id", true), nil
+	}
 	if r, ok := h.results[id]; ok {
 		delete(h.results, id)
 		h.mu.Unlock()
@@ -210,10 +234,10 @@ func (h *claudeSubMCPHost) callTool(ctx context.Context, req *mcp.CallToolReques
 			}
 			return claudeSubMCPResult(r), nil
 		case <-ctx.Done():
-			h.removeWaiter(id)
+			h.cancelCall(id)
 			return claudeSubMCPTextResult("tool call cancelled", true), nil
 		case <-h.closeCh:
-			h.removeWaiter(id)
+			h.cancelCall(id)
 			return claudeSubMCPTextResult("tool call cancelled", true), nil
 		case <-timer.C:
 			elapsed += h.heartbeat
@@ -232,11 +256,15 @@ func (h *claudeSubMCPHost) callTool(ctx context.Context, req *mcp.CallToolReques
 }
 
 // resolve stores a tool result and wakes the blocked call, if any. It works
-// whether it runs before or after the CLI's tools/call arrives.
+// whether it runs before or after the CLI's tools/call arrives. A result for a
+// cancelled id is discarded so a reused id can never be handed a stale result.
 func (h *claudeSubMCPHost) resolve(id string, r claudeSubToolResult) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.closed {
+		return
+	}
+	if _, done := h.cancelled[id]; done {
 		return
 	}
 	h.results[id] = r
@@ -250,18 +278,46 @@ func (h *claudeSubMCPHost) resolve(id string, r claudeSubToolResult) {
 func (h *claudeSubMCPHost) cancelAll() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.results = map[string]claudeSubToolResult{}
+	for id := range h.results {
+		h.markCancelledLocked(id)
+	}
 	for id, waiter := range h.waiters {
 		delete(h.waiters, id)
+		h.markCancelledLocked(id)
 		close(waiter)
 	}
+	h.results = map[string]claudeSubToolResult{}
 }
 
-// removeWaiter drops a waiter that is no longer waiting (cancelled or closed).
-func (h *claudeSubMCPHost) removeWaiter(id string) {
+// cancelCall drops one waiter that is no longer waiting (context done or host
+// closed) and tombstones its id so a late resolve is discarded.
+func (h *claudeSubMCPHost) cancelCall(id string) {
 	h.mu.Lock()
 	delete(h.waiters, id)
+	delete(h.results, id)
+	h.markCancelledLocked(id)
 	h.mu.Unlock()
+}
+
+// markCancelledLocked records id as terminal so resolve discards it. The set is
+// a bounded FIFO: once it is full, the oldest tombstone is evicted, so a
+// long-lived host cannot grow it without limit. Tool-use ids are unique per call
+// in practice, so eviction only re-opens pathological reuse.
+func (h *claudeSubMCPHost) markCancelledLocked(id string) {
+	if h.maxTombstones <= 0 {
+		return
+	}
+	if _, ok := h.cancelled[id]; ok {
+		return
+	}
+	if len(h.cancelOrder) < h.maxTombstones {
+		h.cancelOrder = append(h.cancelOrder, id)
+	} else {
+		delete(h.cancelled, h.cancelOrder[h.cancelNext])
+		h.cancelOrder[h.cancelNext] = id
+		h.cancelNext = (h.cancelNext + 1) % h.maxTombstones
+	}
+	h.cancelled[id] = struct{}{}
 }
 
 // writeConfig writes the claude CLI --mcp-config file into dir (which the caller
@@ -278,9 +334,47 @@ func (h *claudeSubMCPHost) writeConfig(dir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal claude_subscription mcp config: %w", err)
 	}
-	path := filepath.Join(dir, "mcp.json")
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	const name = "mcp.json"
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return "", fmt.Errorf("open claude_subscription mcp dir: %w", err)
+	}
+	defer root.Close()
+	// Refuse to write the token through a symlink or any other non-regular path
+	// in the private directory.
+	if info, err := root.Lstat(name); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("refuse to write claude_subscription mcp config: %s is a symlink", name)
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("refuse to write claude_subscription mcp config: %s is not a regular file", name)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("inspect claude_subscription mcp config: %w", err)
+	}
+	// Write a fresh 0o600 temp file and atomically replace the target, so the
+	// token is never written through a symlink and any pre-existing permissive
+	// file is replaced with the exact mode.
+	tmp, err := os.CreateTemp(dir, name+".tmp-*")
+	if err != nil {
+		return "", fmt.Errorf("create claude_subscription mcp config: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }() // no-op once renamed
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return "", fmt.Errorf("set claude_subscription mcp config mode: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
 		return "", fmt.Errorf("write claude_subscription mcp config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("close claude_subscription mcp config: %w", err)
+	}
+	path := filepath.Join(dir, name)
+	if err := os.Rename(tmpPath, path); err != nil {
+		return "", fmt.Errorf("replace claude_subscription mcp config: %w", err)
 	}
 	return path, nil
 }
@@ -296,7 +390,7 @@ func (h *claudeSubMCPHost) Close() error {
 	h.mu.Unlock()
 	h.cancelAll()
 	close(h.closeCh)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), h.shutdownGrace)
 	defer cancel()
 	err := h.httpSrv.Shutdown(ctx)
 	if errors.Is(err, context.DeadlineExceeded) {
