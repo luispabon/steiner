@@ -654,6 +654,44 @@ func TestClaudeSubSyncFailedPlanRetriesIdentically(t *testing.T) {
 	}
 }
 
+func TestClaudeSubSyncDuplicateSuffixToolResult(t *testing.T) {
+	tests := []struct {
+		name        string
+		suffix      []Message
+		wantErr     error
+		wantResults int
+	}{
+		{
+			name:    "same call id twice",
+			suffix:  []Message{claudeSubSyncToolMsg("toolu_1", "a"), claudeSubSyncToolMsg("toolu_1", "b")},
+			wantErr: errClaudeSubHistoryChanged,
+		},
+		{
+			name:        "distinct call ids",
+			suffix:      []Message{claudeSubSyncToolMsg("toolu_1", "a"), claudeSubSyncToolMsg("toolu_2", "b")},
+			wantResults: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
+			s.commitAssistant(claudeSubSyncAssistantMsg("", "toolu_1", "toolu_2"))
+			before := append([]claudeSubEntry(nil), s.entries...)
+			msgs := append([]Message{claudeSubSyncUserMsg("hi"), claudeSubSyncAssistantMsg("", "toolu_1", "toolu_2")}, tt.suffix...)
+			delta, err := s.plan(ChatRequest{Messages: msgs})
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("plan error = %v, want %v", err, tt.wantErr)
+			}
+			if got := len(delta.ToolResults); got != tt.wantResults {
+				t.Errorf("tool results = %d, want %d", got, tt.wantResults)
+			}
+			if !reflect.DeepEqual(s.entries, before) {
+				t.Errorf("sync record changed: got %+v, want %+v", s.entries, before)
+			}
+		})
+	}
+}
+
 func TestClaudeSubSyncAdvisor(t *testing.T) {
 	advisorReq := func(final string, snapshot ...Message) ChatRequest {
 		msgs := []Message{{Role: MessageRoleSystem, Content: "advisor system prompt"}}
