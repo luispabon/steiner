@@ -657,6 +657,72 @@ func TestClaudeSubDecodeResultError(t *testing.T) {
 	}
 }
 
+func TestClaudeSubDecodeErrorResultWithoutStreamedMessage(t *testing.T) {
+	// An error result that arrives with no streamed message is a recognised
+	// terminal error, not a decode error: its subtype, text and usage survive.
+	events := claudeSubDecodeAll(t, claudeSubDecodeHooks{}, claudeSubDecodeEvents(t, "result_error_no_stream.jsonl"))
+	if got := claudeSubDecodedOfKind(events, claudeSubDecodeMessage); len(got) != 0 {
+		t.Errorf("message events = %d, want 0", len(got))
+	}
+	results := claudeSubDecodedOfKind(events, claudeSubDecodeResult)
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+	r := results[0].Result
+	if r == nil || !r.IsError || r.Subtype != "error_during_execution" {
+		t.Fatalf("result = %+v, want an error_during_execution error", r)
+	}
+	if r.Text != "Credit balance is too low" {
+		t.Errorf("result text = %q, want %q", r.Text, "Credit balance is too low")
+	}
+	if r.Usage == nil || r.Usage.PromptTokens != 8 || r.Usage.CompletionTokens != 3 {
+		t.Errorf("result usage = %+v, want prompt 8 completion 3", r.Usage)
+	}
+}
+
+func TestClaudeSubDecodeErrorResultBeforeStopTerminatesTurn(t *testing.T) {
+	// An error result may arrive while a message is unfinished or never started.
+	// It must surface its subtype and text, emit no message for the unfinished
+	// one, and close the turn so a later result is rejected.
+	stream := func(inner string) claudeSubEvent {
+		return claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":` + inner + `}`)}
+	}
+	tests := []struct {
+		name     string
+		streamed []string
+	}{
+		{"no streamed message", nil},
+		{"partial streamed message", []string{
+			`{"type":"message_start","message":{"usage":{}}}`,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}`,
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newClaudeSubDecoder(claudeSubDecodeHooks{})
+			for _, inner := range tc.streamed {
+				if _, err := d.decode(stream(inner)); err != nil {
+					t.Fatalf("decode %s: %v", inner, err)
+				}
+			}
+			got, err := d.decode(claudeSubEvent{Type: "result", Raw: json.RawMessage(`{"subtype":"error_max_turns","is_error":true,"result":"stopped early"}`)})
+			if err != nil {
+				t.Fatalf("decode error result: %v", err)
+			}
+			if len(got) != 1 || got[0].Kind != claudeSubDecodeResult || got[0].Result == nil {
+				t.Fatalf("events = %+v, want one result and no message", got)
+			}
+			if r := got[0].Result; r.Subtype != "error_max_turns" || !r.IsError || r.Text != "stopped early" {
+				t.Errorf("result = %+v, want error_max_turns with text %q", r, "stopped early")
+			}
+			if _, err := d.decode(claudeSubEvent{Type: "result", Raw: json.RawMessage(`{"subtype":"error_during_execution","is_error":true}`)}); !errors.Is(err, errClaudeSubResultEnvelope) {
+				t.Errorf("second result error = %v, want wrapping %v", err, errClaudeSubResultEnvelope)
+			}
+		})
+	}
+}
+
 func TestClaudeSubDecodeUsageSplit(t *testing.T) {
 	events := claudeSubDecodeAll(t, claudeSubDecodeHooks{}, claudeSubDecodeEvents(t, "turn_usage_split.jsonl"))
 

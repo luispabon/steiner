@@ -28,8 +28,8 @@ import (
 // single streamed block start per message, and only a streamed tool_use block
 // start authorises input_json_delta content. Each delta and stop must name an
 // index a streamed start already claimed and match that block's canonical type,
-// and a stopped block rejects later deltas; a second message_start and a result
-// before message_stop both fail closed, so no invalid ordering resets or drops
+// and a stopped block rejects later deltas; a second message_start and a success
+// result before message_stop both fail closed, so no invalid ordering resets or drops
 // accumulated content.
 
 var (
@@ -862,11 +862,14 @@ func (d *claudeSubDecoder) decodeResult(raw json.RawMessage) ([]claudeSubDecoded
 	if err != nil {
 		return nil, err
 	}
-	// A well-formed result is only valid once message_stop has closed the
-	// streamed message. Accepting it earlier would close the turn while content
-	// is still streaming and strand the final assistant message, so fail closed
-	// without flushing, advancing the phase or emitting the result.
-	if d.phase != claudeSubPhaseStopped {
+	// A success result is only valid once message_stop has closed the streamed
+	// message. Accepting it earlier would close the turn while content is still
+	// streaming and strand the final assistant message, so fail closed without
+	// flushing, advancing the phase or emitting the result. A recognised error
+	// result is surfaced before message_stop too: the CLI can fail before any
+	// message completes, and its subtype and text are the real cause. No
+	// message is emitted for a message_stop that never arrived.
+	if d.phase != claudeSubPhaseStopped && !isError {
 		return nil, fmt.Errorf("%w: result before message_stop", errClaudeSubDecodeStream)
 	}
 	// A stopped message is flushed before the terminal result so a turn whose
