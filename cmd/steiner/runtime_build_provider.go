@@ -94,11 +94,8 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 	return newCodexResponsesWS(cfg)
 }
 
-// isCodexWSDispatch reports whether rm resolves to a Codex WebSocket
-// transport (explicit websocket only; anything else, including unset,
-// dispatches to HTTP). This is the single place defining WS eligibility;
-// buildRuntimeProviderFactory's dispatch and cliRunner.runtimeProvider's
-// caching both consult it.
+// effectiveProviderType returns the resolved effective provider type, falling
+// back to the configured provider type for models without an override.
 func effectiveProviderType(rm provider.ResolvedModel) config.ProviderType {
 	if rm.EffectiveProviderType != "" {
 		return rm.EffectiveProviderType
@@ -106,6 +103,11 @@ func effectiveProviderType(rm provider.ResolvedModel) config.ProviderType {
 	return rm.ProviderConfig.Type
 }
 
+// isCodexWSDispatch reports whether rm resolves to a Codex WebSocket
+// transport (explicit websocket only; anything else, including unset,
+// dispatches to HTTP). This is the single place defining WS eligibility;
+// buildRuntimeProviderFactory's dispatch and cliRunner.runtimeProvider's
+// caching both consult it.
 func isCodexWSDispatch(rm provider.ResolvedModel) bool {
 	providerType := effectiveProviderType(rm)
 	if providerType != config.ProviderTypeCodex {

@@ -372,6 +372,37 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 	runFactory(t, unsupportedRM, `provider type "gemini" is not implemented by the runtime provider factory`, "")
 }
 
+func TestBuildRuntimeWithRootsConstructsClaudeSubscriptionPool(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(projectRoot, "config.yaml")
+	writeFile(t, configPath, `providers:
+  claude:
+    type: claude_subscription
+models:
+  profiles:
+    default:
+      default_model: claude
+  definitions:
+    claude:
+      provider: claude
+      id: claude-sonnet
+`)
+	cmd := &cobra.Command{}
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	flags := &cliFlags{configPath: configPath, trustProjectConfig: true, exec: true}
+
+	rt, err := buildRuntimeWithRoots(context.Background(), cmd, flags, projectRoot, projectRoot, "")
+	if err != nil {
+		t.Fatalf("buildRuntimeWithRoots() error = %v", err)
+	}
+	if rt.claudeSubPool == nil {
+		t.Fatal("buildRuntimeWithRoots() claudeSubPool = nil, want non-nil")
+	}
+	closeRuntime(&rt)
+}
+
 func TestBuildRuntimeProviderFactoryClaudeSubscriptionDispatchesAndRequiresPool(t *testing.T) {
 	rm := provider.ResolvedModel{Alias: "claude", ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeClaudeSubscription}, EffectiveProviderType: config.ProviderTypeClaudeSubscription}
 	if _, err := buildRuntimeProviderFactory(nil, nil, nil)(rm, "session"); err == nil || err.Error() != "the claude_subscription provider is not available for this run" {
