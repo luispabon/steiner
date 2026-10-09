@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 func TestExecutorRejectsUnparsedInputBeforeHandlerAndApproval(t *testing.T) {
@@ -25,7 +26,7 @@ func TestExecutorRejectsUnparsedInputBeforeHandlerAndApproval(t *testing.T) {
 			approver := &testUnparsedApprover{}
 			executor := NewExecutor(NewRegistry(tc.def), config.Config{}, approver, t.TempDir(), "", Unsandboxed{})
 			input := map[string]any{
-				unparsedToolInputKey: map[string]any{"raw": `{"path":`, "len": float64(8)},
+				provider.UnparsedToolInputKey: map[string]any{"raw": `{"path":`, "len": float64(8)},
 			}
 			_, err := executor.Execute(context.Background(), tc.def.Name, "call-unparsed", input)
 			if err == nil {
@@ -74,7 +75,7 @@ func TestExecutorOnlyRejectsExactUnparsedShape(t *testing.T) {
 	})
 	executor := NewExecutor(reg, config.Config{}, nil, t.TempDir(), "", Unsandboxed{})
 	input := map[string]any{
-		unparsedToolInputKey: map[string]any{"raw": `{"path":`, "len": float64(8), "extra": true},
+		provider.UnparsedToolInputKey: map[string]any{"raw": `{"path":`, "len": float64(8), "extra": true},
 	}
 	if _, err := executor.Execute(context.Background(), "read", "call-extra", input); err != nil {
 		t.Fatalf("Execute() error = %v, want normal handler path", err)

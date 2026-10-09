@@ -32,6 +32,13 @@ var (
 	claudeSubDiscoveryReserve     = 8 * time.Second
 )
 
+// ClaudeSubscriptionDiscoveryTimeout returns the total budget for one Claude
+// subscription discovery, including CLI teardown. Callers must not end discovery
+// earlier than this budget.
+func ClaudeSubscriptionDiscoveryTimeout() time.Duration {
+	return claudeSubDiscoveryTimeout
+}
+
 // claudeSubLocatorWaitDelay bounds how long a locator command's Wait may spend
 // on a descendant that inherited and holds its output pipe.
 var claudeSubLocatorWaitDelay = time.Second

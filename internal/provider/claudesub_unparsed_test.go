@@ -17,7 +17,7 @@ func TestClaudeSubDecodeCertifiedUnparsedToolInput(t *testing.T) {
 	if call.ID != "toolu_unparsed" || call.Name != "read" || call.RawArguments != wantRaw {
 		t.Fatalf("call = %+v, want original identity and raw arguments", call)
 	}
-	sentinel, ok := call.Arguments[claudeSubUnparsedToolInputKey].(map[string]any)
+	sentinel, ok := call.Arguments[UnparsedToolInputKey].(map[string]any)
 	if !ok || sentinel["raw"] != wantRaw {
 		t.Fatalf("arguments = %+v, want exact sentinel", call.Arguments)
 	}
@@ -61,7 +61,7 @@ func TestClaudeSubDecodeMismatchedUnparsedSentinelFails(t *testing.T) {
 			t.Fatalf("decode %s: %v", ev.Type, err)
 		}
 	}
-	input := map[string]any{claudeSubUnparsedToolInputKey: map[string]any{"raw": "{\"other\":", "len": 9}}
+	input := map[string]any{UnparsedToolInputKey: map[string]any{"raw": "{\"other\":", "len": 9}}
 	block := map[string]any{"type": "tool_use", "id": "toolu_bad", "name": "read", "input": input}
 	echo, err := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{block}}})
 	if err != nil {

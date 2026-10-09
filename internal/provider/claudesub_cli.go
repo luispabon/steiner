@@ -192,7 +192,7 @@ func claudeSubArgs(o claudeSubSpawnOptions) []string {
 		"--permission-mode", "dontAsk",
 	}
 	if o.MCPConfigFile != "" {
-		args = append(args, "--mcp-config", o.MCPConfigFile, "--allowedTools", "mcp__steiner__*")
+		args = append(args, "--mcp-config", o.MCPConfigFile, "--allowedTools", claudeSubToolPrefix+"*")
 	}
 	if o.SystemPromptFile != "" {
 		args = append(args, "--system-prompt-file", o.SystemPromptFile)

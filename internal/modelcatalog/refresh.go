@@ -8,13 +8,11 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 const (
 	catalogEnumerationTimeout = 5 * time.Second
-	// Claude subscription discovery reserves 8 seconds for CLI teardown inside
-	// its 20-second budget, so the catalog deadline must not end it at 5 seconds.
-	claudeSubscriptionEnumerationTimeout = 20 * time.Second
 
 	// RefreshStatusFreshSkipped marks a provider whose cache is still fresh.
 	RefreshStatusFreshSkipped = "fresh-skipped"
@@ -178,7 +176,8 @@ func (s *Service) cachedETag(endpoint Endpoint) string {
 
 func catalogEnumerationTimeoutFor(providerType string) time.Duration {
 	if providerType == string(config.ProviderTypeClaudeSubscription) {
-		return claudeSubscriptionEnumerationTimeout
+		// The provider owns the discovery budget, which includes CLI teardown time.
+		return provider.ClaudeSubscriptionDiscoveryTimeout()
 	}
 	return catalogEnumerationTimeout
 }

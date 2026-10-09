@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 type executionInput struct {
@@ -76,8 +77,6 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, cal
 	return nil, nil, policyDeniedError(def.Name, err)
 }
 
-const unparsedToolInputKey = "__unparsedToolInput"
-
 // isUnparsedToolInput recognizes only the reserved sentinel shape. It runs
 // before policy, approval, handler and subprocess dispatch so malformed model
 // input cannot cause side effects, including through MCP handlers.
@@ -85,7 +84,7 @@ func isUnparsedToolInput(input map[string]any) bool {
 	if len(input) != 1 {
 		return false
 	}
-	sentinel, ok := input[unparsedToolInputKey].(map[string]any)
+	sentinel, ok := input[provider.UnparsedToolInputKey].(map[string]any)
 	if !ok || len(sentinel) != 2 {
 		return false
 	}
