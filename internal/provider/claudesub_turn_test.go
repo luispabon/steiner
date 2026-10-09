@@ -155,6 +155,66 @@ func TestClaudeSubConsumeNormalTextTurn(t *testing.T) {
 	if len(chunks) == 0 || chunks[len(chunks)-1].Delta.Content != "Hello world" || !chunks[len(chunks)-1].Done {
 		t.Fatalf("chunks = %+v, want final Hello world chunk", chunks)
 	}
+	wantUsage := UsageStats{PromptTokens: 1194, CacheCreationInputTokens: 1192, CompletionTokens: 245, TotalTokens: 1439}
+	if got := chunks[len(chunks)-1].Usage; got == nil || *got != wantUsage {
+		t.Errorf("final usage = %+v, want the message's own usage %+v, not the query result", got, wantUsage)
+	}
+}
+
+// TestClaudeSubConsumeUsageCountsEachMessageOnce drives a tool, tool, text
+// query. Each consume returns at one message, so the three Done chunks must
+// carry that message's usage and sum to the result's cumulative usage.
+func TestClaudeSubConsumeUsageCountsEachMessageOnce(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	spec := claudeSubTestSpec()
+	spec.Tools = []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	s, err := pool.acquire(context.Background(), "usage-sequence", spec)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer pool.release(s)
+	events := claudeSubDecodeEvents(t, "turn_tool_tool_text_usage.jsonl")
+	conn := spawner.call(t, 0).Conn
+	for _, ev := range events {
+		conn.push(ev)
+	}
+	wantFinish := []string{"tool_calls", "tool_calls", "stop"}
+	wantUsage := []UsageStats{
+		{PromptTokens: 12, CacheCreationInputTokens: 10, CompletionTokens: 40, TotalTokens: 52},
+		{PromptTokens: 13, CacheReadInputTokens: 10, CompletionTokens: 60, TotalTokens: 73},
+		{PromptTokens: 29, CacheReadInputTokens: 25, CompletionTokens: 30, TotalTokens: 59},
+	}
+	var sum UsageStats
+	for i := range wantFinish {
+		var final ChatChunk
+		if err := claudeSubConsume(context.Background(), s, func(chunk ChatChunk) error { final = chunk; return nil }); err != nil {
+			t.Fatalf("consume %d: %v", i, err)
+		}
+		if !final.Done || final.FinishReason != wantFinish[i] || final.Usage == nil || *final.Usage != wantUsage[i] {
+			t.Fatalf("consume %d final = %+v, want finish %q usage %+v", i, final, wantFinish[i], wantUsage[i])
+		}
+		sum.PromptTokens += final.Usage.PromptTokens
+		sum.CompletionTokens += final.Usage.CompletionTokens
+		sum.CacheCreationInputTokens += final.Usage.CacheCreationInputTokens
+		sum.CacheReadInputTokens += final.Usage.CacheReadInputTokens
+	}
+	// The result reports the query's cumulative usage. Decode only the final
+	// message and its result, from the last message_start onward.
+	start := 0
+	for i, ev := range events {
+		if strings.Contains(string(ev.Raw), `"type":"message_start"`) {
+			start = i
+		}
+	}
+	results := claudeSubDecodedOfKind(claudeSubDecodeAll(t, claudeSubDecodeHooks{}, events[start:]), claudeSubDecodeResult)
+	if len(results) != 1 || results[0].Result.Usage == nil {
+		t.Fatalf("results = %+v, want one result with usage", results)
+	}
+	query := *results[0].Result.Usage
+	if sum.PromptTokens != query.PromptTokens || sum.CompletionTokens != query.CompletionTokens ||
+		sum.CacheCreationInputTokens != query.CacheCreationInputTokens || sum.CacheReadInputTokens != query.CacheReadInputTokens {
+		t.Errorf("summed chunk usage %+v != query result usage %+v; each message must count once", sum, query)
+	}
 }
 
 func TestClaudeSubConsumeStopsAtStreamEchoedToolCall(t *testing.T) {

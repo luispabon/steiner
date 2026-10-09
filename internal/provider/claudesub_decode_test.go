@@ -219,6 +219,12 @@ func TestClaudeSubDecodeToolTurn(t *testing.T) {
 	if messages[0].FinishReason != "tool_calls" {
 		t.Errorf("finish reason = %q, want tool_calls", messages[0].FinishReason)
 	}
+	// The message carries its final stream usage (message_delta), not the
+	// echo's, so the tool-call chunk reports this call's own cost.
+	wantUsage := UsageStats{PromptTokens: 12, CacheCreationInputTokens: 10, CompletionTokens: 245, TotalTokens: 257}
+	if got := messages[0].Usage; got == nil || *got != wantUsage {
+		t.Errorf("message usage = %+v, want %+v", got, wantUsage)
+	}
 }
 
 func TestClaudeSubDecodeEchoOpensToolUse(t *testing.T) {

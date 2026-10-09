@@ -226,7 +226,7 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 					if s.host != nil {
 						s.host.settle()
 					}
-					if err := emit(ChatChunk{Delta: *item.Message, ContentSnapshot: true, Done: true, FinishReason: item.FinishReason}); err != nil {
+					if err := emit(ChatChunk{Delta: *item.Message, ContentSnapshot: true, Done: true, FinishReason: item.FinishReason, Usage: item.Usage}); err != nil {
 						return err
 					}
 					return nil
@@ -241,12 +241,15 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				if item.Result.IsError {
 					return claudeSubTurnFailure(item.Result)
 				}
+				// Result usage is cumulative over the whole CLI query, including the
+				// tool-call messages already reported on their own Done chunks. The
+				// final chunk therefore carries only this message's usage.
 				if ordinary != nil {
 					s.sync.commitAssistant(*ordinary.Message)
-					if err := emit(ChatChunk{Delta: *ordinary.Message, ContentSnapshot: true, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: item.Result.Usage}); err != nil {
+					if err := emit(ChatChunk{Delta: *ordinary.Message, ContentSnapshot: true, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: ordinary.Usage}); err != nil {
 						return err
 					}
-				} else if err := emit(ChatChunk{Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: item.Result.Usage}); err != nil {
+				} else if err := emit(ChatChunk{Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason)}); err != nil {
 					return err
 				}
 				return nil

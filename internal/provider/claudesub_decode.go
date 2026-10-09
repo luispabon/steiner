@@ -88,7 +88,8 @@ type claudeSubDecoded struct {
 	// translated from the CLI's mcp__steiner__ form to the steiner tool name.
 	ToolUseID string
 	ToolName  string
-	// Usage carries a cumulative per-message usage snapshot.
+	// Usage carries a cumulative per-message usage snapshot. On a
+	// claudeSubDecodeMessage event it is the message's final usage.
 	Usage *UsageStats
 	// Message and FinishReason carry the assembled assistant message.
 	Message      *Message
@@ -1153,6 +1154,7 @@ func (d *claudeSubDecoder) assembleMessage() (*claudeSubDecoded, error) {
 		Kind:         claudeSubDecodeMessage,
 		Message:      &message,
 		FinishReason: d.stopReason,
+		Usage:        d.usage.toUsageStats(),
 	}, nil
 }
 
