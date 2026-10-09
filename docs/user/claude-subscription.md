@@ -60,7 +60,7 @@ You can select a discovered model with `/model`, or use a raw reference such as 
 
 ## Limitations
 
-- Conversation history is append-only. Rewriting or removing previously sent messages is refused. The one tolerated retroactive change is removal of image data after it has been consumed. Start a new session when history no longer matches.
+- Conversation history is append-only. Rewriting or removing previously sent messages is refused. The one tolerated retroactive change is removal of image data after it has been consumed. Start a new session when history no longer matches. In an interactive conversation, `/clear` starts a fresh Claude CLI session; it does not rewrite the prior transcript.
 - This limitation is tracked in [#895](https://github.com/luispabon/steiner/issues/895).
 - The CLI owns its process identity and transcript. Its identity or reminders can change as the CLI changes, and switching models can reset model-specific cache state. Do not treat those details as stable Steiner storage.
 - The provider is not a replacement for the native `anthropic` API provider. It uses the signed-in CLI and the subscription's account controls.

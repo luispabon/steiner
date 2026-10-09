@@ -323,6 +323,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		GroupScope:         setup.delegationGroupScope,
 		PendingSubAgents:   hooks.pendingSubAgents,
 		PromptCacheKey:     r.promptCacheKey(),
+		TransportSession:   r.sessionID(),
 		CacheBaseline:      r.cacheBaseline,
 		VisionCapabilities: visionCapabilities,
 		ImageStore:         r.runtime.imageStore,

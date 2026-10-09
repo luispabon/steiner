@@ -55,6 +55,25 @@ func TestBuildRunRequestUsesCapturedDelegationGroupScope(t *testing.T) {
 	}
 }
 
+func TestBuildRunRequestForwardsCurrentTransportSession(t *testing.T) {
+	currentSessionID := "session-before-clear"
+	runner := cliRunner{sessionIDFn: func() string { return currentSessionID }}
+
+	first := buildRunRequest(runner, runnerSetup{}, tool.NewRegistry(), nil, runHooks{})
+	if first.TransportSession != currentSessionID {
+		t.Fatalf("first request TransportSession = %q, want %q", first.TransportSession, currentSessionID)
+	}
+
+	currentSessionID = "session-after-clear"
+	second := buildRunRequest(runner, runnerSetup{}, tool.NewRegistry(), nil, runHooks{})
+	if second.TransportSession != currentSessionID {
+		t.Fatalf("second request TransportSession = %q, want %q", second.TransportSession, currentSessionID)
+	}
+	if second.TransportSession == first.TransportSession {
+		t.Fatalf("rotated TransportSession = %q, want a distinct session key", second.TransportSession)
+	}
+}
+
 func TestBuildRunRequestWithoutSupervisorHasNilSealer(t *testing.T) {
 	request := buildRunRequest(cliRunner{}, runnerSetup{delegationGroupScope: "chosen"}, tool.NewRegistry(), nil, runHooks{})
 	if request.Sealer != nil {

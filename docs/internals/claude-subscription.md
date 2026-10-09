@@ -4,7 +4,7 @@ The `claude_subscription` provider is a stateful adapter around the user's signe
 
 ## Process pool and session identity
 
-`ClaudeSubscriptionPool` owns CLI processes. A normal session is pooled by `TransportSession` alone, with the parent transport session and `default` used only when that value is absent. Model ID and reasoning effort are not pool-key components. The pool starts a process lazily, serializes calls for one key, and reuses the process until teardown.
+`ClaudeSubscriptionPool` owns CLI processes. A normal session is pooled by `TransportSession` alone, with the parent transport session and `default` used only when that value is absent. The parent run forwards the current interactive session ID as `TransportSession`, so `/clear` routes the new conversation to a fresh pool key and CLI process. Model ID and reasoning effort are not pool-key components. The pool starts a process lazily, serializes calls for one key, and reuses the process until teardown.
 
 The provider changes model live with the CLI's `set_model` control request. It changes effort with `apply_flag_settings` and `settings.effortLevel`. These changes update the existing session's state rather than creating a second process. Advisor mode uses a separate `|advisor` session key derived from the parent key. Advisor processes are tool-less and have their own append-only advisor transcript.
 
