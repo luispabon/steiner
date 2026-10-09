@@ -3,8 +3,9 @@
 Steiner can discover models exposed by configured providers and add them to the
 interactive `/model` chooser. Discovery is enabled by default. Cached choices are
 available synchronously at startup; missing or stale providers refresh in the
-background, with results added to the chooser when they arrive. Each provider
-refresh has a roughly five-second timeout.
+background, with results added to the chooser when they arrive. Provider refresh
+timeouts are type-specific; the Claude subscription discovery budget is 20
+seconds.
 
 ## Provider discovery
 
@@ -18,6 +19,7 @@ used under `providers`; they are not model aliases.
 | `lmstudio` | `GET /api/v1/models` | Bearer API key when configured | Entries with `type: embedding` are excluded. `max_context_length` is used as the context length. |
 | `openrouter` | `GET /api/v1/models` | Bearer API key when configured | Text-only models are kept by default. `links.next` pagination is followed only when it stays on the same host. |
 | `anthropic` | `GET /v1/models` | `x-api-key` or Bearer; sends `anthropic-version: 2023-06-01` | Model capabilities provide supported reasoning efforts. Pagination starts with `limit=1000` and falls back to `limit=20` when the larger limit is rejected. |
+| `claude_subscription` | Signed-in `claude` CLI `initialize` control response | Claude subscription login in the CLI | Lists full resolved model IDs and supported efforts. Discovery has a 20-second outer budget and falls back to a static catalog when it fails or returns no usable models. |
 | `codex` | `GET {codex-base}/models?client_version=<steiner version>` | OAuth Bearer token and `ChatGPT-Account-ID` | Only models with `visibility: list` are included. `context_window` and optional `max_context_window` are retained. Reasoning levels provide supported reasoning efforts. |
 
 Native `gemini` is not a runtime-supported provider type and is not shown as a
@@ -26,6 +28,10 @@ supported discovery type. A user-provided compatible endpoint can use generic
 
 Configured provider headers are sent with enumeration requests. Credentials are
 used for requests and are never written to the model cache.
+
+## Claude subscription
+
+Claude subscription discovery runs the signed-in `claude` CLI and does not make a model call. It skips the CLI's `default` alias, keeps the first entry for each resolved model ID, and preserves the CLI's display name, description, and supported effort levels. Its 20-second outer budget includes an 8-second cleanup reserve. Discovery is fail-soft: when the CLI cannot be located, authentication or initialization fails, cleanup does not finish, or no usable models are returned, the chooser receives the static fallback catalog instead.
 
 ## Cache
 

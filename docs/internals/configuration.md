@@ -24,6 +24,10 @@ Trust and notice dialogs load styling only from `~/.config/steiner/prefs.yaml` (
 
 `internal/config/security_fields_test.go` pins `securityFieldPatterns` (in `security_fields.go`) against reflection over the config patch structs' `yaml` tags: one test confirms every pattern still resolves against `configPatch`, and another walks every `mcpServerPatch` field, failing if it's neither covered by a `mcp.servers.*` pattern nor in a small named exception set (`enabled`, `connect_timeout`, `allowed_tools`, `blocked_tools`, `sub_agents`). A newly added MCP server field fails CI until it's explicitly classified as security-relevant or added to the exception set.
 
+## Claude subscription provider configuration
+
+The `claude_subscription` provider has a fixed models.dev identity of `anthropic` for model metadata resolution. It does not use `base_url`, API keys, API-key environment variables, or configured provider headers. The provider locates the `claude` executable through `PATH`, checks its version and first-party `claude.ai` login, and then owns the CLI process through the Claude subscription pool. Full model IDs come from the signed-in CLI's model discovery; they are not inferred from an API endpoint.
+
 ## Stable handler and prompt-cache identities
 
 The advisor tool definition is registered once for the session when the advisor is enabled. Its per-run and per-child limits are checked in shared handler state instead of by removing or changing the tool definition between turns. This keeps the registry and the prompt prefix stable while still enforcing the configured budgets. The advisor's model alias is resolved from the selected profile.

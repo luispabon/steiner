@@ -6,6 +6,7 @@
 - [Updates](user-updates)
 - [CLI reference](user-cli)
 - [Configuration](user-configuration)
+- [Claude subscription](user-claude-subscription)
 
 **Core Concepts**
 - [Context management](user-context-management)
@@ -28,6 +29,7 @@
 
 **Internals**
 - [Internals index](internals-index)
+- [Claude subscription internals](internals-claude-subscription)
 - [Context management](internals-context-management)
 - [Sub-agent delegation](internals-sub-agent-delegation)
 - [Oneshot](internals-oneshot)
