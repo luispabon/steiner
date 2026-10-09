@@ -341,28 +341,47 @@ func (q *claudeSubQueue) push(ev claudeSubEvent) {
 // pop returns the oldest event, waiting until one is available, the queue
 // closes or ctx is done. ok is false in the latter two cases.
 func (q *claudeSubQueue) pop(ctx context.Context) (claudeSubEvent, bool) {
-	stop := make(chan struct{})
-	defer close(stop)
+	ev, ok, _ := q.popInterruptible(ctx, nil)
+	return ev, ok
+}
+
+// popInterruptible waits for the oldest event. An interrupt is checked before
+// removing an ordinary event, including when both are already ready. The third
+// result reports that the wait ended because interrupt was signaled.
+func (q *claudeSubQueue) popInterruptible(ctx context.Context, interrupt <-chan struct{}) (claudeSubEvent, bool, bool) {
+	wake := make(chan struct{})
+	defer close(wake)
 	go func() {
 		select {
 		case <-ctx.Done():
 			q.mu.Lock()
 			q.cond.Broadcast()
 			q.mu.Unlock()
-		case <-stop:
+		case <-interrupt:
+			q.mu.Lock()
+			q.cond.Broadcast()
+			q.mu.Unlock()
+		case <-wake:
 		}
 	}()
 
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	for {
+		if interrupt != nil {
+			select {
+			case <-interrupt:
+				return claudeSubEvent{}, false, true
+			default:
+			}
+		}
 		if len(q.items) > 0 {
 			ev := q.items[0]
 			q.items = q.items[1:]
-			return ev, true
+			return ev, true, false
 		}
 		if q.closed || ctx.Err() != nil {
-			return claudeSubEvent{}, false
+			return claudeSubEvent{}, false, false
 		}
 		q.cond.Wait()
 	}
@@ -393,26 +412,33 @@ func (q *claudeSubQueue) drain() []claudeSubEvent {
 // the queue is unbounded, push never blocks and dispatch only queues sends, the
 // router never blocks, so control responses are always delivered even while no
 // caller reads the queue.
-func claudeSubRoute(events <-chan claudeSubEvent, stop <-chan struct{}, control *claudeSubControl, q *claudeSubQueue) {
+func claudeSubRoute(events <-chan claudeSubEvent, stop <-chan struct{}, control *claudeSubControl, q *claudeSubQueue, observers ...func(claudeSubEvent)) {
+	defer func() {
+		if control != nil {
+			control.close()
+		}
+		if q != nil {
+			q.close()
+		}
+	}()
 	for {
 		select {
 		case ev, ok := <-events:
 			if !ok {
-				if control != nil {
-					control.close()
-				}
 				return
 			}
 			if control != nil && control.dispatch(ev) {
 				continue
 			}
+			for _, observer := range observers {
+				if observer != nil {
+					observer(ev)
+				}
+			}
 			if q != nil {
 				q.push(ev)
 			}
 		case <-stop:
-			if control != nil {
-				control.close()
-			}
 			return
 		}
 	}

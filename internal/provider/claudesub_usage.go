@@ -118,3 +118,53 @@ func claudeSubNotificationIsOverage(text string) bool {
 	}
 	return false
 }
+
+func claudeSubEventUsageLimit(ev claudeSubEvent) *UsageLimitError {
+	if ev.Type != "rate_limit_event" {
+		return nil
+	}
+	var envelope struct {
+		RateLimitInfo json.RawMessage `json:"rate_limit_info"`
+	}
+	if json.Unmarshal(ev.Raw, &envelope) != nil || len(envelope.RateLimitInfo) == 0 {
+		return nil
+	}
+	_, limit, err := claudeSubRateLimitVerdict(envelope.RateLimitInfo)
+	if err != nil {
+		return nil
+	}
+	return limit
+}
+
+// claudeSubEventIsOverage applies the fail-closed overage policy to an event
+// before the turn decoder sees it. Plain rejected usage limits are not overage.
+func claudeSubEventIsOverage(ev claudeSubEvent) bool {
+	if ev.Type == "rate_limit_event" {
+		var envelope struct {
+			RateLimitInfo json.RawMessage `json:"rate_limit_info"`
+		}
+		if err := json.Unmarshal(ev.Raw, &envelope); err != nil || len(envelope.RateLimitInfo) == 0 {
+			return true
+		}
+		overage, _, err := claudeSubRateLimitVerdict(envelope.RateLimitInfo)
+		return overage || err != nil
+	}
+	if ev.Type != "system" {
+		return false
+	}
+	var envelope struct {
+		Subtype string `json:"subtype"`
+		Message string `json:"message"`
+		Text    string `json:"text"`
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(ev.Raw, &envelope) != nil {
+		return true
+	}
+	if envelope.Subtype != "notification" && envelope.Subtype != "status" && envelope.Subtype != "" {
+		return false
+	}
+	return claudeSubNotificationIsOverage(envelope.Message) ||
+		claudeSubNotificationIsOverage(envelope.Text) ||
+		claudeSubNotificationIsOverage(envelope.Content)
+}
