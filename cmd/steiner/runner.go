@@ -291,6 +291,10 @@ func (p loggingProvider) SupportsUsageStats() bool {
 	return p.inner.SupportsUsageStats()
 }
 
+func (p loggingProvider) StatefulTranscript() bool {
+	return provider.IsStatefulTranscript(p.inner)
+}
+
 // WithEventSink implements delegation.EventSinkScoper so child runs can tag
 // provider events with their agent scope without mutating the parent's provider.
 func (p loggingProvider) WithEventSink(wrap func(output.EventSink) output.EventSink) provider.Provider {

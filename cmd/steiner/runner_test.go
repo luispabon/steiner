@@ -1266,6 +1266,27 @@ func registerChild(c *delegation.ActiveController, agentID string, parent contex
 	return child, nil
 }
 
+func TestLoggingProviderForwardsStatefulTranscript(t *testing.T) {
+	inner := statefulLoggingProvider{}
+	wrapped := loggingProvider{inner: inner}
+	if !provider.IsStatefulTranscript(wrapped) {
+		t.Fatal("loggingProvider did not forward stateful transcript capability")
+	}
+}
+
+type statefulLoggingProvider struct{}
+
+func (statefulLoggingProvider) ChatCompletion(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+	return provider.ChatResponse{}, nil
+}
+
+func (statefulLoggingProvider) StreamChatCompletion(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	return nil, nil
+}
+
+func (statefulLoggingProvider) SupportsUsageStats() bool { return true }
+func (statefulLoggingProvider) StatefulTranscript() bool { return true }
+
 func TestLoggingProviderWithEventSinkLeavesParentSinkUnchanged(t *testing.T) {
 	t.Parallel()
 	var got []output.Event

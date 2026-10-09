@@ -13,9 +13,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 type fakeOneshotOrchestrator struct {
@@ -205,6 +208,83 @@ func TestOneshotCommandResume(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestNewPhaseRunnerRejectsClaudeSubscriptionEffectiveProvider(t *testing.T) {
+	oldBuildPhaseRuntime := buildPhaseRuntime
+	t.Cleanup(func() { buildPhaseRuntime = oldBuildPhaseRuntime })
+	buildPhaseRuntime = func(context.Context, *cobra.Command, *cliFlags, string, string, string) (cliRuntime, error) {
+		return cliRuntime{
+			providerFactory: func(provider.ResolvedModel, string) (provider.Provider, error) {
+				return &fakeProvider{}, nil
+			},
+		}, nil
+	}
+	runner, err := newPhaseRunner(context.Background(), nil, &cliFlags{}, phaseRunnerParams{})
+	if err != nil {
+		t.Fatalf("newPhaseRunner() error = %v", err)
+	}
+	phase := runner.(phaseRunner)
+	for _, rm := range []provider.ResolvedModel{
+		{ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeClaudeSubscription}},
+		{ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeOpenAICompat}, EffectiveProviderType: config.ProviderTypeClaudeSubscription},
+	} {
+		if _, err := phase.runner.runtime.providerFactory(rm, "session"); !errors.Is(err, errClaudeSubscriptionOneshot) {
+			t.Fatalf("providerFactory(%#v) error = %v, want %v", rm, err, errClaudeSubscriptionOneshot)
+		}
+	}
+}
+
+func TestNewPhaseRunnerRejectsClaudeSubscriptionThroughDelegatedChildFactory(t *testing.T) {
+	oldBuildPhaseRuntime := buildPhaseRuntime
+	t.Cleanup(func() { buildPhaseRuntime = oldBuildPhaseRuntime })
+
+	cfg := testRuntimeConfig("claude")
+	cfg.Providers = map[string]config.ProviderConfig{
+		"claude": {Type: config.ProviderTypeClaudeSubscription},
+		"local":  {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+	}
+	cfg.Models.Definitions["claude"] = config.ModelConfig{Provider: "claude", ID: "claude-sonnet"}
+	cfg.Models.Definitions["test-model"] = config.ModelConfig{Provider: "local", ID: "test-model"}
+	cfg.Models.Effective.DefaultModel = "claude"
+	cfg.Models.Effective.Advisor = "test-model"
+	cfg.SubAgent.Enabled = true
+	workDir := t.TempDir()
+	underlyingCalls := 0
+	buildPhaseRuntime = func(context.Context, *cobra.Command, *cliFlags, string, string, string) (cliRuntime, error) {
+		return cliRuntime{
+			cfg:      cfg,
+			workDir:  workDir,
+			events:   output.NoopSink{},
+			registry: tool.NewRegistry(),
+			providerFactory: func(provider.ResolvedModel, string) (provider.Provider, error) {
+				underlyingCalls++
+				return &fakeProvider{}, nil
+			},
+		}, nil
+	}
+
+	runner, err := newPhaseRunner(context.Background(), &cobra.Command{}, &cliFlags{}, phaseRunnerParams{})
+	if err != nil {
+		t.Fatalf("newPhaseRunner() error = %v", err)
+	}
+	phase := runner.(phaseRunner)
+	deps := phase.runner.newDelegateDeps(runnerSetup{provider: &fakeProvider{}}, nil, nil, nil, "")
+	registry, err := delegation.BuildDelegateRegistry(deps)
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+	def, ok := registry.Get(delegation.SubAgentToolName)
+	if !ok {
+		t.Fatal("delegated sub_agent tool missing")
+	}
+	_, err = def.Handler(context.Background(), subAgentTask("explore", "inspect", "context", "findings"))
+	if !errors.Is(err, errClaudeSubscriptionOneshot) && !strings.Contains(err.Error(), errClaudeSubscriptionOneshot.Error()) {
+		t.Fatalf("delegated child error = %v, want %v", err, errClaudeSubscriptionOneshot)
+	}
+	if underlyingCalls != 1 {
+		t.Fatalf("underlying provider factory calls = %d, want 1 for the advisor only", underlyingCalls)
 	}
 }
 
