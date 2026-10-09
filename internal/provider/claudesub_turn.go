@@ -77,13 +77,21 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 			return err
 		}
 	}
+	// Check every tool result before resolving any, so an unknown result
+	// changes nothing.
 	for _, result := range delta.ToolResults {
-		call := claudeSubPendingByID(s, result.ToolCallID)
-		if call == nil {
+		if claudeSubPendingByID(s, result.ToolCallID) == nil {
 			return fmt.Errorf("claude_subscription tool result %q has no pending call", result.ToolCallID)
 		}
+	}
+	if !req.AdvisorCacheProfile {
+		s.sync.adopt(delta)
+	}
+	for _, result := range delta.ToolResults {
+		call := claudeSubPendingByID(s, result.ToolCallID)
 		s.host.resolve(call.Handle, claudeSubToolResultFromMessage(result))
 		claudeSubRemovePending(s, result.ToolCallID)
+		s.sync.commitToolResult(result)
 	}
 	if len(delta.User) > 0 {
 		if err := writeClaudeSubUser(s.conn, claudeSubUserBlocks(delta.User)); err != nil {

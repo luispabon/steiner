@@ -57,9 +57,14 @@ const claudeSubToolNote = "Your tools are provided by steiner over MCP and appea
 
 // claudeSubDelta is the set of messages a request adds to the CLI transcript:
 // tool results (delivered to the CLI's pending tool calls) and user messages.
+// keep and keepInterruptible are the sync record a normal-mode request leaves
+// behind; plan computes them and adopt applies them once delivery starts.
 type claudeSubDelta struct {
 	ToolResults []Message
 	User        []Message
+
+	keep              []claudeSubEntry
+	keepInterruptible int
 }
 
 // claudeSubSync is the per-process append-only record of what has been sent to
@@ -119,6 +124,8 @@ func claudeSubMessages(msgs []Message) []Message {
 // plan returns the messages a normal-mode request adds to the CLI transcript.
 // It enforces D8's append-only rule: an already-sent message may only lose
 // images, and a fresh process may not start with assistant or tool history.
+// plan does not change the record: a request that fails before delivery leaves
+// it exactly as it was, so a retry plans the same delta.
 func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 	msgs := claudeSubMessages(req.Messages)
 	if !s.started {
@@ -128,13 +135,14 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 			}
 		}
 		s.systemPrompt = claudeSubSystemPrompt(req.Messages)
-		return claudeSubDelta{User: msgs}, nil
+		return claudeSubDelta{User: msgs, keep: s.entries, keepInterruptible: s.interruptible}, nil
 	}
 	if !s.interrupted && len(msgs) < len(s.entries) {
 		return claudeSubDelta{}, errClaudeSubHistoryChanged
 	}
 
 	out := make([]claudeSubEntry, 0, len(s.entries))
+	keepInterruptible := s.interruptible
 	ei, mi := 0, 0
 	for ei < len(s.entries) {
 		entry := s.entries[ei]
@@ -156,6 +164,7 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 			// the record and are still compared, so a same-id tool result can
 			// never be rewritten into an appended "new" result (D22). A tool
 			// result the request also dropped is tolerated.
+			keepInterruptible = -1
 			ei++
 			for ei < len(s.entries) && s.entries[ei].Role == MessageRoleTool {
 				e := s.entries[ei]
@@ -217,17 +226,31 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 			return claudeSubDelta{}, errClaudeSubHistoryChanged
 		}
 	}
-	s.entries = append(out, recorded...)
+	delta.keep = append(out, recorded...)
+	delta.keepInterruptible = keepInterruptible
 	return delta, nil
 }
 
-// commitSent records a delta as delivered. It is called right after the tool
-// results and/or user line have been written to the CLI, not on call success,
-// so a cancelled call never re-sends user content (D22).
+// adopt replaces the record with the state plan computed for a normal-mode
+// request. Call it only after every check that can fail before delivery has
+// passed.
+func (s *claudeSubSync) adopt(delta claudeSubDelta) {
+	s.entries = delta.keep
+	s.interruptible = delta.keepInterruptible
+}
+
+// commitToolResult records one tool result as delivered to the CLI. It is
+// called as each result is resolved, so a later failure in the same turn cannot
+// leave a delivered result unrecorded and a retry never resolves it again (D22).
+func (s *claudeSubSync) commitToolResult(m Message) {
+	s.entries = append(s.entries, claudeSubEntryFromMessage(m))
+}
+
+// commitSent records a delta's user messages as delivered and clears the
+// interrupt state. It is called right after the user line has been written to
+// the CLI, not on call success, so a cancelled call never re-sends user content
+// (D22). Tool results were already recorded by commitToolResult.
 func (s *claudeSubSync) commitSent(delta claudeSubDelta) {
-	for _, m := range delta.ToolResults {
-		s.entries = append(s.entries, claudeSubEntryFromMessage(m))
-	}
 	for _, m := range delta.User {
 		s.entries = append(s.entries, claudeSubEntryFromMessage(m))
 	}
