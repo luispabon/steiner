@@ -75,6 +75,21 @@ func claudeSubJoinedText(events []claudeSubDecoded) string {
 	return b.String()
 }
 
+func TestClaudeSubDecodeRealRun3TurnShape(t *testing.T) {
+	events := claudeSubDecodeAll(t, claudeSubDecodeHooks{}, claudeSubDecodeEvents(t, "real_run3_turn_success.jsonl"))
+	if got := claudeSubJoinedText(events); got != "redacted answer" {
+		t.Fatalf("joined text = %q, want redacted answer", got)
+	}
+	messages := claudeSubDecodedOfKind(events, claudeSubDecodeMessage)
+	if len(messages) != 1 || messages[0].Message == nil || messages[0].Message.Content != "redacted answer" {
+		t.Fatalf("messages = %+v, want one redacted answer message", messages)
+	}
+	results := claudeSubDecodedOfKind(events, claudeSubDecodeResult)
+	if len(results) != 1 || results[0].Result == nil || results[0].Result.Subtype != "success" {
+		t.Fatalf("results = %+v, want one successful result", results)
+	}
+}
+
 // claudeSubKindIndex returns the position of the first event of kind, or -1.
 func claudeSubKindIndex(events []claudeSubDecoded, kind claudeSubDecodedKind) int {
 	for i, ev := range events {
