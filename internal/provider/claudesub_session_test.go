@@ -281,6 +281,48 @@ func TestClaudeSubSessionAdvisorWithToolsOmitsMCP(t *testing.T) {
 	}
 }
 
+// TestClaudeSubSessionOverageErrorNamesUnrecognisedStatus proves an unknown
+// rate-limit status fails closed with its classifier error, while real overage
+// keeps the paid-usage error. Both interrupt the session.
+func TestClaudeSubSessionOverageErrorNamesUnrecognisedStatus(t *testing.T) {
+	overage := claudeSubDecodeEvents(t, "rate_limit_overage.jsonl")[0]
+	tests := []struct {
+		name    string
+		ev      claudeSubEvent
+		wantErr error
+	}{
+		{
+			name:    "unrecognised status",
+			ev:      claudeSubEvent{Type: "rate_limit_event", Raw: []byte(`{"type":"rate_limit_event","rate_limit_info":{"status":"mystery"}}`)},
+			wantErr: errClaudeSubUnrecognisedStatus,
+		},
+		{
+			name:    "real overage",
+			ev:      overage,
+			wantErr: errClaudeSubPaidExtraUsage,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+			s, err := pool.acquire(context.Background(), "overage", claudeSubTestSpec())
+			if err != nil {
+				t.Fatalf("acquire: %v", err)
+			}
+			pool.release(s)
+			s.observeEvent(tt.ev)
+			if !errors.Is(s.overage(), tt.wantErr) {
+				t.Fatalf("overage = %v, want %v", s.overage(), tt.wantErr)
+			}
+			select {
+			case <-s.overageAbort:
+			case <-time.After(time.Second):
+				t.Fatal("overage abort was not closed")
+			}
+		})
+	}
+}
+
 func TestClaudeSubSessionToolOutputBudgetEnv(t *testing.T) {
 	cases := []struct {
 		name    string

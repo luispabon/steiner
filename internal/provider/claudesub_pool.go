@@ -42,6 +42,10 @@ var (
 	// spawn may ignore context cancellation and outlive it, so the pool must not
 	// claim every resource ended.
 	errClaudeSubPoolShutdownIncomplete = errors.New("claude_subscription pool shutdown did not complete within deadline")
+	// errClaudeSubSessionExited reports that a parent or child session's CLI
+	// process ended. The dead session is never respawned: resuming its history is
+	// not supported yet (#895).
+	errClaudeSubSessionExited = errors.New("claude CLI process exited; start a new session (resume is not supported yet, #895)")
 	// errClaudeSubDirCleanupIncomplete reports that a session's directory removal
 	// did not finish before the caller's deadline. os.RemoveAll cannot be
 	// canceled, so removal keeps running after this error is returned; the pool
@@ -331,10 +335,25 @@ func (p *ClaudeSubscriptionPool) acquire(ctx context.Context, key string, spec c
 		return nil, err
 	}
 	if s, ok := p.sessions[key]; ok {
-		s.active++
-		p.active++
+		if !s.exited() {
+			s.active++
+			p.active++
+			p.mu.Unlock()
+			return p.takeLease(ctx, s)
+		}
+		if !s.advisor {
+			p.mu.Unlock()
+			return nil, errClaudeSubSessionExited
+		}
+		// Evict the dead advisor, then retry so this call starts a fresh process
+		// that re-renders the snapshot. The eviction teardown is registered as an
+		// in-flight startup so Close waits for it like any other startup.
+		delete(p.sessions, key)
+		st := &claudeSubStartup{done: make(chan struct{})}
+		p.startups[st] = struct{}{}
 		p.mu.Unlock()
-		return p.takeLease(ctx, s)
+		p.finishEviction(st, s, p.closeSession(s))
+		return p.acquire(ctx, key, spec)
 	}
 
 	// Register the startup under the pool mutex BEFORE locating or spawning, so
@@ -846,6 +865,35 @@ func (p *ClaudeSubscriptionPool) forceCloseSession(s *claudeSubSession) error {
 	return s.forceClose(ctx)
 }
 
+// finishEviction settles the teardown of a dead advisor that acquire evicted and
+// releases its startup registration so shutdown can stop waiting for it. A
+// failed teardown follows the same ownership rules as a reaped session.
+func (p *ClaudeSubscriptionPool) finishEviction(st *claudeSubStartup, s *claudeSubSession, err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err != nil {
+		p.settleRetiredLocked(s, err)
+	}
+	st.err = err
+	delete(p.startups, st)
+	close(st.done)
+}
+
+// settleRetiredLocked records a failed teardown of a session the pool already
+// removed from its map (a reaped or evicted advisor). A failure that leaves the
+// CLI process not provably terminated is a safety failure: the session is
+// retained and the pool fails closed. When only the private directory removal
+// failed, the process is terminated, so the session and its leftover directory
+// stay pool-owned without closing the pool; Close still reports the removal
+// error through the cleanup ledger. It must be called with mu held.
+func (p *ClaudeSubscriptionPool) settleRetiredLocked(s *claudeSubSession, err error) {
+	if s.procErr != nil {
+		p.retainUnresolvedLocked(s, err)
+		return
+	}
+	p.unresolved = append(p.unresolved, claudeSubUnresolved{session: s, err: err})
+}
+
 func (p *ClaudeSubscriptionPool) reapLoop() {
 	defer close(p.reaperDone)
 	ticker := time.NewTicker(claudeSubReaperInterval)
@@ -863,9 +911,9 @@ func (p *ClaudeSubscriptionPool) reapLoop() {
 // reapIdleAdvisors closes advisor sessions idle longer than IdleTTL. It selects
 // them under the pool mutex and removes them from the map there, so a later
 // acquire starts a fresh process, then closes them outside the lock. Sessions
-// with an active call and every non-advisor session are left alone (D23). Any
-// teardown failure retains the session and its error and fails the pool closed,
-// so a later Close reports it instead of the failure being dropped.
+// with an active call and every non-advisor session are left alone (D23). A
+// teardown failure is settled by settleRetiredLocked, which keeps the same
+// ownership rules for a reaped and an evicted session.
 func (p *ClaudeSubscriptionPool) reapIdleAdvisors(now time.Time) {
 	p.mu.Lock()
 	if p.state != claudeSubPoolRunning {
@@ -886,11 +934,9 @@ func (p *ClaudeSubscriptionPool) reapIdleAdvisors(now time.Time) {
 	p.mu.Unlock()
 	for _, s := range expired {
 		if err := p.closeSession(s); err != nil {
-			// Any reaper teardown failure is a pool-owned safety failure: retain
-			// the session and its error and fail the pool closed instead of
-			// recording a transient error and dropping ownership. No failure may
-			// remove ownership and leave the pool running.
-			p.retainUnresolved(s, err)
+			p.mu.Lock()
+			p.settleRetiredLocked(s, err)
+			p.mu.Unlock()
 		}
 	}
 }

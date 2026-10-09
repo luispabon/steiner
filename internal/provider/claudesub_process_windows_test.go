@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +15,32 @@ import (
 
 	"golang.org/x/sys/windows"
 )
+
+// TestClaudeSubWindowsEnvBlock proves every environment block is a valid
+// CreateProcess block, including the empty one, which needs two NUL code units.
+func TestClaudeSubWindowsEnvBlock(t *testing.T) {
+	tests := []struct {
+		name string
+		env  []string
+		want []uint16
+	}{
+		{name: "nil", env: nil, want: []uint16{0, 0}},
+		{name: "empty", env: []string{}, want: []uint16{0, 0}},
+		{name: "one entry", env: []string{"A=1"}, want: []uint16{'A', '=', '1', 0, 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ptr, err := claudeSubWindowsEnvBlock(tt.env)
+			if err != nil {
+				t.Fatalf("claudeSubWindowsEnvBlock() error = %v", err)
+			}
+			got := unsafe.Slice(ptr, len(tt.want))
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("claudeSubWindowsEnvBlock(%q) = %v, want %v", tt.env, got, tt.want)
+			}
+		})
+	}
+}
 
 // claudeSubFakeAttrList captures the attribute values the launcher sets, so a
 // test can inspect the job handle and the exact inheritable handle list rather
