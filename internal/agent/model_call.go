@@ -218,6 +218,10 @@ func tryNonStreamFirst(
 			Message:  fmt.Sprintf("model requires streaming; non-stream requests will be skipped in subsequent turns: %v", chatErr),
 		}))
 	}
+	if provider.IsStatefulTranscript(prov) {
+		emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(nil, nil, "", chatErr), turn, requestID))
+		return provider.ChatResponse{}, true, chatErr
+	}
 	return provider.ChatResponse{}, false, nil
 }
 
