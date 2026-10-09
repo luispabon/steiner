@@ -39,7 +39,7 @@ func TestExecuteChatRequestStatefulChatErrorDoesNotFallback(t *testing.T) {
 	_, _, err := executeChatRequest(context.Background(), prov, 3, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{}, output.SinkFunc(func(event output.Event) {
 		events = append(events, event)
 	}), nil, false, false, nil, nil)
-	if err != chatErr {
+	if !errors.Is(err, chatErr) {
 		t.Fatalf("executeChatRequest() error = %v, want original %v", err, chatErr)
 	}
 	if got := len(base.requests); got != 1 {
