@@ -176,6 +176,11 @@ type claudeSubDecoder struct {
 	// message_start; every accepted tool use appears once with no duplicate.
 	toolOrder []int
 
+	// unparsedToolInputs records stream-authorised CLI sentinel arguments by
+	// accumulator key. The raw input is preserved for the final ToolCall instead
+	// of being repaired or passed through strict JSON parsing.
+	unparsedToolInputs map[int]string
+
 	// phase is where the decoder is in the turn's stream-json sequence. It
 	// bounds which later envelopes may still mutate state or invoke callbacks.
 	phase claudeSubDecodePhase
@@ -663,11 +668,11 @@ func (d *claudeSubDecoder) claudeSubToolIDIndex(id string) (int, bool) {
 // when one is present the decoder checks it so an echo-only tool use cannot
 // claim an index the stream already owns.
 type claudeSubEchoBlock struct {
-	Type  string         `json:"type"`
-	ID    string         `json:"id"`
-	Name  string         `json:"name"`
-	Input map[string]any `json:"input"`
-	Index *int           `json:"index"`
+	Type  string          `json:"type"`
+	ID    string          `json:"id"`
+	Name  string          `json:"name"`
+	Input json.RawMessage `json:"input"`
+	Index *int            `json:"index"`
 }
 
 // decodeAssistantEcho reads a per-content-block `assistant` echo. Its text and
@@ -704,6 +709,7 @@ func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage, allowEchoOnl
 		key     int
 		input   string
 	}
+	stagedUnparsed := make(map[int]string)
 	var pending []pendingEchoToolUse
 	stagedIDs := make(map[string]struct{})
 	stagedKeys := make(map[int]struct{})
@@ -725,6 +731,11 @@ func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage, allowEchoOnl
 			if block.Index != nil && *block.Index != index {
 				return nil, fmt.Errorf("%w: assistant echo tool_use id %q claims index %d but streamed index %d", errClaudeSubDecodeStream, block.ID, *block.Index, index)
 			}
+			if raw, ok, err := claudeSubValidatedUnparsedToolInput(block.Input, acc.Input.String()); err != nil {
+				return nil, err
+			} else if ok {
+				stagedUnparsed[index] = raw
+			}
 			continue
 		}
 		if !allowEchoOnly {
@@ -739,8 +750,12 @@ func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage, allowEchoOnl
 		}
 		stagedKeys[key] = struct{}{}
 		var input string
-		if len(block.Input) > 0 {
-			encoded, err := json.Marshal(block.Input)
+		if len(block.Input) > 0 && string(block.Input) != "null" {
+			var object map[string]any
+			if err := json.Unmarshal(block.Input, &object); err != nil {
+				return nil, fmt.Errorf("%w: decode assistant echo tool call %q arguments: %v", errClaudeSubDecodeStream, block.Name, err)
+			}
+			encoded, err := json.Marshal(object)
 			if err != nil {
 				return nil, fmt.Errorf("%w: encode assistant echo tool call %q arguments: %v", errClaudeSubDecodeStream, block.Name, err)
 			}
@@ -758,6 +773,12 @@ func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage, allowEchoOnl
 		d.streamEchoProcessed = true
 	}
 	d.echoToolIndex = nextEchoIndex
+	for index, raw := range stagedUnparsed {
+		if d.unparsedToolInputs == nil {
+			d.unparsedToolInputs = make(map[int]string)
+		}
+		d.unparsedToolInputs[index] = raw
+	}
 	var out []claudeSubDecoded
 	for _, p := range pending {
 		if ev, ok := d.observeToolUse(p.id, p.cliName); ok {
@@ -911,6 +932,7 @@ func (d *claudeSubDecoder) beginMessage() {
 	d.usage = nil
 	d.observed = map[string]struct{}{}
 	d.toolOrder = nil
+	d.unparsedToolInputs = nil
 	d.phase = claudeSubPhaseStreaming
 	d.messagePending = false
 	d.echoProcessed = false
@@ -1139,15 +1161,75 @@ func (d *claudeSubDecoder) assembleMessage() (*claudeSubDecoded, error) {
 // calls that preceded them. Every key appears once, so no call is duplicated or
 // dropped.
 func (d *claudeSubDecoder) finalizeOrderedToolUses() ([]ToolCall, error) {
-	ordered := make(map[int]*anthropicToolUseAccumulator, len(d.toolOrder))
-	for i, key := range d.toolOrder {
-		ordered[i] = d.toolUses[key]
+	calls := make([]ToolCall, 0, len(d.toolOrder))
+	for _, key := range d.toolOrder {
+		acc := d.toolUses[key]
+		if raw, ok := d.unparsedToolInputs[key]; ok {
+			calls = append(calls, ToolCall{
+				ID:           acc.ID,
+				Name:         acc.Name,
+				RawArguments: raw,
+				Arguments: map[string]any{
+					claudeSubUnparsedToolInputKey: map[string]any{
+						"raw": raw,
+						"len": len([]byte(raw)),
+					},
+				},
+			})
+			continue
+		}
+		ordinary, err := finalizeAnthropicToolUses(map[int]*anthropicToolUseAccumulator{0: acc})
+		if err != nil {
+			return nil, err
+		}
+		calls = append(calls, ordinary...)
 	}
-	return finalizeAnthropicToolUses(ordered)
+	return calls, nil
 }
 
 // toolName translates a CLI-published tool name through the hook, defaulting to
 // the name unchanged when no hook is set.
+const claudeSubUnparsedToolInputKey = "__unparsedToolInput"
+
+// claudeSubValidatedUnparsedToolInput accepts the CLI-certified sentinel only
+// for an assistant echo that confirms a streamed tool use. Its shape, raw bytes
+// and byte length must all match the accumulated input exactly.
+func claudeSubValidatedUnparsedToolInput(input json.RawMessage, accumulated string) (string, bool, error) {
+	if len(input) == 0 || string(input) == "null" {
+		return "", false, nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(input, &object); err != nil {
+		return "", false, fmt.Errorf("%w: decode unparsed tool input sentinel: %v", errClaudeSubDecodeStream, err)
+	}
+	field, present := object[claudeSubUnparsedToolInputKey]
+	if !present {
+		return "", false, nil
+	}
+	if len(object) != 1 {
+		return "", false, fmt.Errorf("%w: unparsed tool input sentinel has extra fields", errClaudeSubDecodeStream)
+	}
+	var sentinel map[string]json.RawMessage
+	if err := json.Unmarshal(field, &sentinel); err != nil || len(sentinel) != 2 {
+		return "", false, fmt.Errorf("%w: malformed unparsed tool input sentinel", errClaudeSubDecodeStream)
+	}
+	var raw string
+	var length int
+	if rawField, ok := sentinel["raw"]; !ok || json.Unmarshal(rawField, &raw) != nil {
+		return "", false, fmt.Errorf("%w: unparsed tool input sentinel raw field is invalid", errClaudeSubDecodeStream)
+	}
+	if lenField, ok := sentinel["len"]; !ok || json.Unmarshal(lenField, &length) != nil || length != len([]byte(raw)) {
+		return "", false, fmt.Errorf("%w: unparsed tool input sentinel length is invalid", errClaudeSubDecodeStream)
+	}
+	if raw != accumulated {
+		return "", false, fmt.Errorf("%w: unparsed tool input sentinel does not match accumulated input", errClaudeSubDecodeStream)
+	}
+	if len([]byte(raw)) > claudeSubDecodeMaxToolInputBytes {
+		return "", false, claudeSubToolInputBoundError("unparsed")
+	}
+	return raw, true, nil
+}
+
 func (d *claudeSubDecoder) toolName(cliName string) string {
 	if d.hooks.ToolName == nil {
 		return cliName
