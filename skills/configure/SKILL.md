@@ -27,11 +27,11 @@ Canonical compact reference for safe configuration edits.
 
 |Path|Type|Default|Semantics|
 |-|-|-|-
-| `providers.<name>.type`|string|—|`openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`; `gemini` validates but is unimplemented. |
-| `providers.<name>.base_url`|string|local: `http://localhost:11434/v1`|API endpoint; required for `openai_compat`, `ollama`, `lmstudio`, `litellm`. |
-| `providers.<name>.api_key`|string|—|Credential; prefer `api_key_env`, required if unset. |
-| `providers.<name>.api_key_env`|string|—|Environment variable containing credential. |
-| `providers.<name>.headers.<key>`|string|—|One extra header value. |
+| `providers.<name>.type`|string|—|`openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`, `claude_subscription`; `gemini` validates but is unimplemented. `claude_subscription` runs the signed-in Claude CLI and does not use `base_url`, `api_key`, `api_key_env`, or `headers`. |
+| `providers.<name>.base_url`|string|local: `http://localhost:11434/v1`|API endpoint; required for `openai_compat`, `ollama`, `lmstudio`, `litellm`; not applicable to `claude_subscription`. |
+| `providers.<name>.api_key`|string|—|Credential; prefer `api_key_env`, required if unset. Not applicable to `claude_subscription`. |
+| `providers.<name>.api_key_env`|string|—|Environment variable containing credential; not applicable to `claude_subscription`. |
+| `providers.<name>.headers.<key>`|string|—|One extra header value; not applicable to `claude_subscription`. |
 | `providers.<name>.timeout`|duration|local: `30s`|Request timeout. |
 | `providers.<name>.codex.min_request_interval`|duration|`0s`|Positive values pace Codex requests. |
 | `providers.<name>.codex.transport`|string|`http`|`http` or experimental `websocket`; no HTTP fallback. |

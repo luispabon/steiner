@@ -3,6 +3,7 @@
 These pages describe implementation mechanics and calibration details. User-facing behavior belongs in the [user documentation](../index.md).
 
 - [Configuration](configuration.md)
+- [Claude subscription](claude-subscription.md)
 - [Context management](context-management.md)
 - [Execution modes](execution-modes.md)
 - [Sub-agent delegation](sub-agent-delegation.md)
