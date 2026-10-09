@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -28,6 +30,8 @@ type oneshotOrchestrator interface {
 var newOneshotOrchestrator = func(deps oneshot.Dependencies) (oneshotOrchestrator, error) {
 	return oneshot.NewOrchestrator(deps)
 }
+
+var errClaudeSubscriptionOneshot = errors.New("the claude_subscription provider cannot be used for oneshot runs; choose another provider for oneshot")
 
 var listOneshotRuns = oneshot.ListRuns
 
@@ -91,6 +95,14 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 	}
 	phaseAdvisor.Enabled = true
 	runtime.cfg.Advisor = phaseAdvisor
+	if providerFactory := runtime.providerFactory; providerFactory != nil {
+		runtime.providerFactory = func(rm provider.ResolvedModel, sessionID string) (provider.Provider, error) {
+			if effectiveProviderType(rm) == config.ProviderTypeClaudeSubscription {
+				return nil, errClaudeSubscriptionOneshot
+			}
+			return providerFactory(rm, sessionID)
+		}
+	}
 
 	runner := cliRunner{
 		runtime:              runtime,
@@ -156,6 +168,38 @@ func requireSubAgentsForOneshot(cfg config.Config) error {
 	return nil
 }
 
+// requireOneshotProviders refuses a oneshot run when a model alias the run can
+// route to resolves to the claude_subscription provider. It reads configuration
+// only, so it runs before any run identity, lock, manifest or worktree exists.
+// The providerFactory wrapper in newPhaseRunner stays as the backstop.
+func requireOneshotProviders(cfg config.Config) error {
+	for _, alias := range oneshotModelAliases(cfg) {
+		modelCfg, ok := config.ResolveModelConfig(&cfg, strings.TrimSpace(alias))
+		if !ok {
+			continue
+		}
+		if cfg.Providers[modelCfg.Provider].Type == config.ProviderTypeClaudeSubscription {
+			return errClaudeSubscriptionOneshot
+		}
+	}
+	return nil
+}
+
+// oneshotModelAliases lists the configured aliases a oneshot run can use: the
+// advisor, the default model that phases and sub-agents fall back to, each
+// phase model, and each sub-agent model.
+func oneshotModelAliases(cfg config.Config) []string {
+	effective := cfg.Models.Effective
+	aliases := []string{effective.DefaultModel, effective.Advisor}
+	for _, alias := range effective.OneShot {
+		aliases = append(aliases, alias)
+	}
+	for _, alias := range effective.SubAgents {
+		aliases = append(aliases, alias)
+	}
+	return aliases
+}
+
 func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
@@ -163,6 +207,9 @@ func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 	}
 	defer closeRuntime(&rt)
 	if err := requireSubAgentsForOneshot(rt.cfg); err != nil {
+		return err
+	}
+	if err := requireOneshotProviders(rt.cfg); err != nil {
 		return err
 	}
 
@@ -211,6 +258,9 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 	}
 	defer closeRuntime(&rt)
 	if err := requireSubAgentsForOneshot(rt.cfg); err != nil {
+		return err
+	}
+	if err := requireOneshotProviders(rt.cfg); err != nil {
 		return err
 	}
 

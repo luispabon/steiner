@@ -93,11 +93,16 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		return cliRuntime{}, fmt.Errorf("build stream error logger: %w", err)
 	}
 	rt.streamErrorLog = streamErrorLog
-	providerFactory := buildRuntimeProviderFactory(httpClient, streamErrorLog)
 	compactionLogFile := runtimeCompactionLogFile(cfg, flags)
 	delegationActiveController := delegation.NewActiveController()
 	delegationSupervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: max(cfg.SubAgent.MaxParallel, 1), Controller: delegationActiveController})
 	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir, delegationSupervisor)
+	claudeSubPool := provider.NewClaudeSubscriptionPool(provider.ClaudeSubscriptionPoolOptions{
+		ToolOutputMaxBytes: cfg.Limits.ToolOutputMaxBytes,
+		WorkDir:            workDir,
+	})
+	rt.claudeSubPool = claudeSubPool
+	providerFactory := buildRuntimeProviderFactory(httpClient, streamErrorLog, claudeSubPool)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
 	if err != nil {
 		closeRuntime(&rt)
@@ -197,6 +202,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		sessionStore:                 sessionStore,
 		delegationLogger:             delegationLogger,
 		streamErrorLog:               streamErrorLog,
+		claudeSubPool:                claudeSubPool,
 		diagnostics:                  diagnosticsWriter,
 		delegationSessionStore:       delegation.NewSessionStore(),
 		delegationCacheKeyStore:      delegation.NewCacheKeyStore(),

@@ -1533,3 +1533,86 @@ func TestResolveFacts(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveClaudeSubscriptionUsesAnthropicModelsDevFacts(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	data := []byte(`{
+		"anthropic":{
+			"models":{
+				"claude-haiku-5-5":{
+					"limit":{"context":200000,"output":64000},
+					"modalities":{"input":["text","image"]},
+					"reasoning_options":[{"type":"effort","values":["low","medium","high","xhigh","max"]}]
+				},
+				"claude-opus-5":{"limit":{"context":500000,"output":128000}}
+			}
+		}
+	}`)
+
+	tests := []struct {
+		name          string
+		modelID       string
+		wantContext   int
+		wantMaxOutput int
+		wantVision    bool
+		wantEfforts   []string
+	}{
+		{
+			name:          "resolves limits, vision and efforts by full backend ID",
+			modelID:       "claude-haiku-5-5",
+			wantContext:   200000,
+			wantMaxOutput: 64000,
+			wantVision:    true,
+			wantEfforts:   []string{"low", "medium", "high", "xhigh", "max"},
+		},
+		{
+			name:          "text-only model reports no vision and unknown efforts",
+			modelID:       "claude-opus-5",
+			wantContext:   500000,
+			wantMaxOutput: 128000,
+			wantVision:    false,
+			wantEfforts:   nil,
+		},
+	}
+
+	loader := fixtureLoader(t, data)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Config{
+				Providers: map[string]config.ProviderConfig{
+					"claude": {Type: config.ProviderTypeClaudeSubscription},
+				},
+				Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
+					"model": {Provider: "claude", ID: tt.modelID},
+				}},
+			}
+
+			rm, err := resolveReferenceWithLoader(context.Background(), &cfg, "model", true, &http.Client{}, loader, nil)
+			if err != nil {
+				t.Fatalf("resolveReferenceWithLoader() error = %v", err)
+			}
+			if rm.EffectiveProviderType != config.ProviderTypeClaudeSubscription {
+				t.Errorf("EffectiveProviderType = %q, want %q", rm.EffectiveProviderType, config.ProviderTypeClaudeSubscription)
+			}
+			if rm.EffectiveTransport != TransportConfigured {
+				t.Errorf("EffectiveTransport = %q, want %q", rm.EffectiveTransport, TransportConfigured)
+			}
+			if got := rm.Facts.ContextWindow; !got.Known || got.Value != tt.wantContext || got.Source != FactSourceModelsDev {
+				t.Errorf("ContextWindow = %+v, want %d from %q", got, tt.wantContext, FactSourceModelsDev)
+			}
+			if rm.EffectiveLimits.MaxOutputTokens != tt.wantMaxOutput {
+				t.Errorf("EffectiveLimits.MaxOutputTokens = %d, want %d", rm.EffectiveLimits.MaxOutputTokens, tt.wantMaxOutput)
+			}
+			if got := rm.Facts.Vision; !got.Known || got.Value != tt.wantVision || got.Source != FactSourceModelsDev {
+				t.Errorf("Vision = %+v, want %v from %q", got, tt.wantVision, FactSourceModelsDev)
+			}
+			if tt.wantEfforts == nil {
+				if rm.Facts.ReasoningEfforts.Known {
+					t.Errorf("ReasoningEfforts = %+v, want unknown", rm.Facts.ReasoningEfforts)
+				}
+			} else if !equalStrings(rm.Facts.ReasoningEfforts.Value, tt.wantEfforts) {
+				t.Errorf("ReasoningEfforts = %v, want %v", rm.Facts.ReasoningEfforts.Value, tt.wantEfforts)
+			}
+		})
+	}
+}

@@ -8,9 +8,12 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 const (
+	catalogEnumerationTimeout = 5 * time.Second
+
 	// RefreshStatusFreshSkipped marks a provider whose cache is still fresh.
 	RefreshStatusFreshSkipped = "fresh-skipped"
 	// RefreshStatusUpdated marks a provider whose cache was refreshed.
@@ -112,7 +115,7 @@ func (s *Service) refreshOne(parent context.Context, endpoint Endpoint, force bo
 			return result
 		}
 	}
-	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	ctx, cancel := context.WithTimeout(parent, catalogEnumerationTimeoutFor(endpoint.Type))
 	defer cancel()
 	etag := s.cachedETag(endpoint)
 	enumerator, err := s.dispatcher(endpoint.Type, s.client)
@@ -169,6 +172,14 @@ func (s *Service) cachedETag(endpoint Endpoint) string {
 		return ""
 	}
 	return etag
+}
+
+func catalogEnumerationTimeoutFor(providerType string) time.Duration {
+	if providerType == string(config.ProviderTypeClaudeSubscription) {
+		// The provider owns the discovery budget, which includes CLI teardown time.
+		return provider.ClaudeSubscriptionDiscoveryTimeout()
+	}
+	return catalogEnumerationTimeout
 }
 
 func failedRefresh(result RefreshResult, err error) RefreshResult {

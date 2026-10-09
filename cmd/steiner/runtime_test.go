@@ -15,6 +15,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
 )
@@ -119,6 +120,19 @@ func TestCloseRuntimeWithoutMCPIsSafe(t *testing.T) {
 
 	if len(events) != 0 {
 		t.Fatalf("closeRuntime emitted %d events with no manager, want 0: %v", len(events), events)
+	}
+}
+
+func TestCloseRuntimeClosesClaudeSubscriptionPool(t *testing.T) {
+	pool := provider.NewClaudeSubscriptionPool(provider.ClaudeSubscriptionPoolOptions{})
+	rt := cliRuntime{claudeSubPool: pool, events: output.NoopSink{}}
+
+	closeRuntime(&rt)
+
+	claude := provider.NewClaudeSubscriptionProvider(pool)
+	_, err := claude.ChatCompletion(context.Background(), provider.ChatRequest{TransportSession: "runtime-close"})
+	if err == nil || !strings.Contains(err.Error(), "pool is closed") {
+		t.Fatalf("Claude request after closeRuntime error = %v, want closed-pool error", err)
 	}
 }
 

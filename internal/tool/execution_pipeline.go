@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 type executionInput struct {
@@ -76,6 +77,36 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, cal
 	return nil, nil, policyDeniedError(def.Name, err)
 }
 
+// isUnparsedToolInput recognizes only the reserved sentinel shape. It runs
+// before policy, approval, handler and subprocess dispatch so malformed model
+// input cannot cause side effects, including through MCP handlers.
+func isUnparsedToolInput(input map[string]any) bool {
+	if len(input) != 1 {
+		return false
+	}
+	sentinel, ok := input[provider.UnparsedToolInputKey].(map[string]any)
+	if !ok || len(sentinel) != 2 {
+		return false
+	}
+	raw, rawOK := sentinel["raw"].(string)
+	if !rawOK {
+		return false
+	}
+	var length int
+	switch value := sentinel["len"].(type) {
+	case int:
+		length = value
+	case float64:
+		if value < 0 || value != float64(int(value)) {
+			return false
+		}
+		length = int(value)
+	default:
+		return false
+	}
+	return length >= 0 && length == len([]byte(raw))
+}
+
 func policyDeniedError(toolName string, err error) *ToolExecutionError {
 	return &ToolExecutionError{
 		Tool:    toolName,
@@ -85,6 +116,14 @@ func policyDeniedError(toolName string, err error) *ToolExecutionError {
 }
 
 func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, error) {
+	if isUnparsedToolInput(in.Input) {
+		return nil, &ToolExecutionError{
+			Tool:    in.ToolName,
+			Kind:    "invalid_tool_input",
+			Message: "tool input contains an unparsed tool input sentinel",
+		}
+	}
+
 	def, err := e.resolveDefinition(in)
 	if err != nil {
 		return nil, err

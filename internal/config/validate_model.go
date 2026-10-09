@@ -105,34 +105,73 @@ func validateProvidersConfig(problems *[]string, providers map[string]ProviderCo
 		if strings.TrimSpace(name) == "" {
 			*problems = append(*problems, "providers contains an empty alias")
 		}
-		if p.Type == "" {
-			*problems = append(*problems, fmt.Sprintf("providers[%q].type is required", name))
-		} else {
-			switch p.Type {
-			case ProviderTypeOpenAICompat, ProviderTypeOllama, ProviderTypeLMStudio,
-				ProviderTypeOpenRouter, ProviderTypeOpenAI, ProviderTypeAnthropic,
-				ProviderTypeGemini, ProviderTypeLiteLLM, ProviderTypeCodex, ProviderTypeOpencodeGo, ProviderTypeOpencodeZen:
-				// valid
-			default:
-				*problems = append(*problems, fmt.Sprintf("providers[%q].type %q is not supported", name, p.Type))
-			}
+		appendProviderProblems(problems, name, p)
+	}
+}
+
+func appendProviderProblems(problems *[]string, name string, p ProviderConfig) {
+	if p.Type == "" {
+		*problems = append(*problems, fmt.Sprintf("providers[%q].type is required", name))
+	} else {
+		switch p.Type {
+		case ProviderTypeOpenAICompat, ProviderTypeOllama, ProviderTypeLMStudio,
+			ProviderTypeOpenRouter, ProviderTypeOpenAI, ProviderTypeAnthropic,
+			ProviderTypeGemini, ProviderTypeLiteLLM, ProviderTypeCodex, ProviderTypeOpencodeGo, ProviderTypeOpencodeZen,
+			ProviderTypeClaudeSubscription:
+			// valid
+		default:
+			*problems = append(*problems, fmt.Sprintf("providers[%q].type %q is not supported", name, p.Type))
 		}
-		if providerNeedsBaseURL(p.Type) && strings.TrimSpace(p.BaseURL) == "" {
-			*problems = append(*problems, fmt.Sprintf("providers[%q].base_url is required", name))
+	}
+	if providerNeedsBaseURL(p.Type) && strings.TrimSpace(p.BaseURL) == "" {
+		*problems = append(*problems, fmt.Sprintf("providers[%q].base_url is required", name))
+	}
+	if providerNeedsCredential(p.Type) && strings.TrimSpace(p.APIKey) == "" && strings.TrimSpace(p.APIKeyEnv) == "" {
+		*problems = append(*problems, fmt.Sprintf("providers[%q] must set api_key or api_key_env", name))
+	}
+	appendClaudeSubscriptionProblems(problems, name, p)
+	appendCodexTransportProblems(problems, name, p)
+}
+
+// claudeSubscriptionRejectedFields lists the provider fields claude_subscription
+// does not accept. The check and the error text both derive from this table.
+var claudeSubscriptionRejectedFields = []struct {
+	name string
+	set  func(ProviderConfig) bool
+}{
+	{"base_url", func(p ProviderConfig) bool { return strings.TrimSpace(p.BaseURL) != "" }},
+	{"api_key", func(p ProviderConfig) bool { return strings.TrimSpace(p.APIKey) != "" }},
+	{"api_key_env", func(p ProviderConfig) bool { return strings.TrimSpace(p.APIKeyEnv) != "" }},
+	{"headers", func(p ProviderConfig) bool { return len(p.Headers) > 0 }},
+	{"timeout", func(p ProviderConfig) bool { return !p.Timeout.IsZero() }},
+}
+
+func appendClaudeSubscriptionProblems(problems *[]string, name string, p ProviderConfig) {
+	if p.Type != ProviderTypeClaudeSubscription {
+		return
+	}
+	var rejected []string
+	for _, field := range claudeSubscriptionRejectedFields {
+		if field.set(p) {
+			rejected = append(rejected, field.name)
 		}
-		if providerNeedsCredential(p.Type) && strings.TrimSpace(p.APIKey) == "" && strings.TrimSpace(p.APIKeyEnv) == "" {
-			*problems = append(*problems, fmt.Sprintf("providers[%q] must set api_key or api_key_env", name))
-		}
-		if p.Type == ProviderTypeCodex {
-			switch p.Codex.Transport {
-			case "", CodexTransportHTTP, CodexTransportWebSocket:
-				// valid
-			case "auto":
-				*problems = append(*problems, fmt.Sprintf("providers[%q].codex.transport %q was removed — the auto transport no longer exists, set http or websocket", name, p.Codex.Transport))
-			default:
-				*problems = append(*problems, fmt.Sprintf("providers[%q].codex.transport %q is not supported", name, p.Codex.Transport))
-			}
-		}
+	}
+	if len(rejected) > 0 {
+		*problems = append(*problems, fmt.Sprintf("providers[%q]: claude_subscription takes no %s — it uses your claude CLI login", name, strings.Join(rejected, ", ")))
+	}
+}
+
+func appendCodexTransportProblems(problems *[]string, name string, p ProviderConfig) {
+	if p.Type != ProviderTypeCodex {
+		return
+	}
+	switch p.Codex.Transport {
+	case "", CodexTransportHTTP, CodexTransportWebSocket:
+		// valid
+	case "auto":
+		*problems = append(*problems, fmt.Sprintf("providers[%q].codex.transport %q was removed — the auto transport no longer exists, set http or websocket", name, p.Codex.Transport))
+	default:
+		*problems = append(*problems, fmt.Sprintf("providers[%q].codex.transport %q is not supported", name, p.Codex.Transport))
 	}
 }
 

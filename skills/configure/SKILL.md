@@ -17,17 +17,17 @@ Use this skill when a user asks to understand or change Steiner configuration. A
 
 ## Configure Skill Reference
 
-Canonical compact reference for safe configuration edits.
+Compact canonical reference for safe configuration edits.
 
-**Targets/precedence.** Project: `.steiner/config.yaml` or `--config <path>`; global: `~/.config/steiner/config.yaml`. Order: defaults, global, project, env, CLI; later wins; project needs trust. `--profile <name>` selects a profile; `STEINER_MODEL`, then `--model <ref>`, select active model; `--verbose` enables verbose logging; `--unsafe` disables `sandbox.enabled`. Scalar expansion: `${VAR}`, `${VAR:-default}`, `$VAR`, `$$`; undefined variables fail except `${VAR:-}`.
+**Targets/precedence.** Project: `.steiner/config.yaml` or `--config <path>`; global: `~/.config/steiner/config.yaml`. Precedence: defaults, global, project, env, CLI; later wins; project needs trust. `--profile <name>` selects a profile; `STEINER_MODEL`, then `--model <ref>`, select the model; `--verbose` enables verbose logging; `--unsafe` disables `sandbox.enabled`. Expansion: `${VAR}`, `${VAR:-default}`, `$VAR`, `$$`; undefined fails except `${VAR:-}`.
 
-**Environment.** `STEINER_MODEL` -> active model; `STEINER_SUB_AGENTS_MAX_PARALLEL` -> `sub_agent.max_parallel`; `STEINER_TUI_FPS` -> `tui.fps`; `STEINER_MAX_TURNS`, `STEINER_MAX_TOKENS`, `STEINER_TOOL_OUTPUT_MAX_BYTES`, `STEINER_MAX_PARALLEL_TOOLS` -> `limits`; `STEINER_LOG_LEVEL`, `STEINER_LOG_FILE`, `STEINER_COMPACTION_LOG_FILE` -> `logging`. Search keys `GOOGLE_SEARCH_CX`, `GOOGLE_SEARCH_API_KEY`, `KAGI_API_KEY`, `BRAVE_API_KEY` fill empty fields. Integer overrides must parse.
+**Environment.** `STEINER_MODEL` -> model; `STEINER_SUB_AGENTS_MAX_PARALLEL` -> `sub_agent.max_parallel`; `STEINER_TUI_FPS` -> `tui.fps`; `STEINER_MAX_TURNS`, `STEINER_MAX_TOKENS`, `STEINER_TOOL_OUTPUT_MAX_BYTES`, `STEINER_MAX_PARALLEL_TOOLS` -> `limits`; `STEINER_LOG_LEVEL`, `STEINER_LOG_FILE`, `STEINER_COMPACTION_LOG_FILE` -> `logging`. Search keys `GOOGLE_SEARCH_CX`, `GOOGLE_SEARCH_API_KEY`, `KAGI_API_KEY`, `BRAVE_API_KEY` fill empty fields. Integer overrides parse.
 
-**Path notation.** Angle-bracket names are map keys; `<index>` is list index. `—` means unset/required.
+**Path notation.** `<name>` is a map key; `<index>` is a list index. `—` means unset/required.
 
 |Path|Type|Default|Semantics|
 |-|-|-|-
-| `providers.<name>.type`|string|—|`openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`; `gemini` validates but is unimplemented. |
+| `providers.<name>.type`|string|—|`openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`, `claude_subscription`; `gemini` validates but is unimplemented. `claude_subscription` uses the signed-in Claude CLI and does not use `base_url`, `api_key`, `api_key_env`, `headers`, or `timeout`. |
 | `providers.<name>.base_url`|string|local: `http://localhost:11434/v1`|API endpoint; required for `openai_compat`, `ollama`, `lmstudio`, `litellm`. |
 | `providers.<name>.api_key`|string|—|Credential; prefer `api_key_env`, required if unset. |
 | `providers.<name>.api_key_env`|string|—|Environment variable containing credential. |
@@ -41,16 +41,16 @@ Canonical compact reference for safe configuration edits.
 | `models.definitions.<alias>.params`|map[string]any|—|Request params. |
 | `models.definitions.<alias>.extra_params`|map[string]any|—|Provider params. |
 | `models.definitions.<alias>.prompt_suffix`|string|—|Appended to each user message. |
-| `models.definitions.<alias>.retry.enabled`|bool|`true`|Retry transient or rate-limit errors. |
-| `models.definitions.<alias>.retry.max_attempts`|int|`5`|Total attempts; at least 1. |
+| `models.definitions.<alias>.retry.enabled`|bool|`true`|Retry transient/rate-limit errors. |
+| `models.definitions.<alias>.retry.max_attempts`|int|`5`|Total attempts; >=1. |
 | `models.definitions.<alias>.retry.initial_backoff`|duration|`250ms`|First retry wait. |
-| `models.definitions.<alias>.retry.max_backoff`|duration|`5s`|Exponential cap; not below initial backoff. |
-| `models.definitions.<alias>.retry.retry_after_max`|duration|`60s`|Max `Retry-After`; not below initial backoff. |
+| `models.definitions.<alias>.retry.max_backoff`|duration|`5s`|Exponential cap; >= initial. |
+| `models.definitions.<alias>.retry.retry_after_max`|duration|`60s`|Max `Retry-After`; >= initial. |
 | `models.definitions.<alias>.prompts.system`|string|—|Replaces default system prompt. |
 | `models.definitions.<alias>.prompts.system_suffix`|string|—|Appends to default system prompt. |
 | `models.definitions.<alias>.prompts.compaction`|string|—|Replaces compaction prompt. |
 | `models.definitions.<alias>.advanced.limits.context_window`|int|`32768`|Context window in tokens; explicit value wins over metadata. |
-| `models.definitions.<alias>.advanced.codex.use_max_context_window`|bool|`false`|Codex: use positive catalog `max_context_window`, else `context_window`. |
+| `models.definitions.<alias>.advanced.codex.use_max_context_window`|bool|`false`|Codex: use catalog `max_context_window` if positive, else `context_window`. |
 | `models.definitions.<alias>.advanced.limits.max_output_tokens`|int|`8192`|Output-token ceiling per response. |
 | `models.definitions.<alias>.advanced.reasoning_echo_back`|bool or null|—|Provider reasoning echo control. |
 | `models.definitions.<alias>.advanced.transport`|string|`auto`|`auto`, `openai_compat`, `anthropic`; explicit overrides metadata. |
@@ -83,7 +83,7 @@ Canonical compact reference for safe configuration edits.
 | `sub_agent.max_turns`|int|`120`|Enabled values 1-14 are rejected; effective cap is at least 15. |
 | `sub_agent.max_tokens`|int|`400000`|Max completion tokens per child run. |
 | `sub_agent.max_parallel`|int|`3`|Session-wide running cap; extras queue (2x max).|
-| `sub_agent.max_follow_ups`|int|`5`|Follow-up resumes per child; default accumulated turn budget max: `120 + 5×120 = 720`. |
+| `sub_agent.max_follow_ups`|int|`5`|Follow-up resumes per child; default budget max: `120 + 5×120 = 720`. |
 | `advisor.enabled`|bool|`false`|Enable advisor. |
 | `advisor.max_uses_per_run`|int|`3`|Session advisor cap (min 1). |
 | `advisor.max_uses_per_sub_agent`|int|`1`|Child advisor cap (min 1). |
@@ -121,8 +121,8 @@ Canonical compact reference for safe configuration edits.
 | `diagnostics.streams.provider`|bool|`false`|Per-call stream; subsumes stream-error log. |
 | `diagnostics.streams.tool`|bool|`false`|Tool/delegation stream; subsumes delegation log. |
 | `diagnostics.streams.tui`|bool|`false`|TUI frame timings. |
-| `diagnostics.capture_bodies`|bool|`false`|Capture full message/tool/block content, mutate failure samples, and prompts, not scalars. |
-| `context_management.read_annotations`|bool|`true`|Annotate a read only when an earlier identical full read with the same tool-result `file_hash` and range exists in carried conversation. |
+| `diagnostics.capture_bodies`|bool|`false`|Capture full message/tool/block content, mutate failures, and prompts, not scalars. |
+| `context_management.read_annotations`|bool|`true`|Annotate reads only after an identical full read with the same tool-result `file_hash` and range in conversation. |
 | `search.backend`|string|—|`searxng`, `google`, `kagi`, or `brave`; selects requirements. |
 | `search.searxng_url`|string|—|Required for `searxng`. |
 | `search.google_cx`|string|—|Required for `google`. |
@@ -163,7 +163,7 @@ Canonical compact reference for safe configuration edits.
 | `modes.default`|string|`build`|`plan`/`build`; plan edits only `.steiner/plans/`. |
 | `tui.fps`|int|`60`|Interactive renderer rate, 1 through 120. |
 
-`steiner config` validates and prints resolved configuration. `/config` in the TUI opens the compiled-config modal. Resolved output can contain credentials: obtain consent before a full secret-bearing read, redact secrets by default, and never echo existing secret values.
+`steiner config` validates and prints resolved configuration; `/config` opens the TUI compiled-config modal. Resolved output can contain credentials: obtain consent before a full secret-bearing read, redact by default, and never echo secrets.
 
-When editing, preserve unrelated YAML text and make the smallest textual mutation. Use `mutate`, never `bash`, for file changes. Changes require a `steiner` restart.
+When editing, preserve unrelated YAML and make the smallest mutation. Use `mutate`, never `bash`. Changes require a `steiner` restart.
 

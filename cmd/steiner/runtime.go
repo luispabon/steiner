@@ -109,6 +109,7 @@ type cliRuntime struct {
 	advisorState                 *advisor.SharedState
 	delegationLogger             *delegation.TraceLogger
 	streamErrorLog               *provider.StreamErrorLogger
+	claudeSubPool                *provider.ClaudeSubscriptionPool
 	diagnostics                  *diagnostics.Writer
 	compactionLogFile            string
 	usageRecorder                *usagestats.Recorder
@@ -153,6 +154,9 @@ func closeRuntime(rt *cliRuntime) {
 	// Children must stop before the resources they use (sandbox tmp dir, LSP,
 	// MCP) are torn down. Idempotent, so a prior interactive shutdown makes this a no-op.
 	shutdownDelegation(context.Background(), rt, delegation.CancelCauseSystem)
+	if rt.claudeSubPool != nil {
+		emitCloseWarning(rt.events, "close claude_subscription pool", rt.claudeSubPool.Close())
+	}
 	if rt.imageStore != nil {
 		emitCloseWarning(rt.events, "close image store", rt.imageStore.Cleanup())
 	}

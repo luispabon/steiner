@@ -61,8 +61,8 @@ func configTransportOverride(override config.ModelTransportType) (transportChoic
 }
 
 // providerFixedSource answers Transport for providers with a fixed
-// transport (currently only Codex). It reports FactSourceConfig because,
-// like an explicit config override, the Codex transport choice is
+// transport (codex, claude_subscription). It reports FactSourceConfig because,
+// like an explicit config override, the fixed transport choice is
 // deterministic from ProviderConfig.Type rather than a network lookup; this
 // label is provisional pending stage B2's full transport precedence model.
 type providerFixedSource struct{}

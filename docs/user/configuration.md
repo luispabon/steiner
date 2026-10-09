@@ -297,19 +297,22 @@ providers:
 | `codex`         | OpenAI Codex subscription via OAuth. Authenticates using your OpenAI account instead of an API key and uses the Responses wire format. Run `steiner login codex` before use. When login can exchange the ChatGPT ID token for an API-key style credential, Steiner sends requests to `https://api.openai.com/v1/responses`; otherwise it uses `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and `ChatGPT-Account-ID`. `api_key` and `api_key_env` are not used - authentication is managed by the OAuth token stored at `~/.config/steiner/codex_auth.json`. Older token files still load, but re-running `steiner login codex` refreshes stored ChatGPT account metadata and the optional exchanged API credential used for direct OpenAI Responses API calls. |
 | `opencode_go`   | opencode.ai's OpenCode Go gateway. `base_url` defaults to `https://opencode.ai/zen/go/v1`. Requires `api_key` or `api_key_env` (generated in your account on the OpenCode website — no OAuth/login flow in steiner). Requests carry an `X-Opencode-Session` header: the parent uses its stable session ID, children use `<parent>-<agentID>`, and the advisor uses `<parent>-advisor`. Child and advisor requests also send the parent session ID in the parent header.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `opencode_zen`  | opencode.ai's OpenCode Zen gateway. `base_url` defaults to `https://opencode.ai/zen/v1`. Requires `api_key` or `api_key_env`, same as `opencode_go`. Claude-family models served through Zen automatically dispatch over the Anthropic-native transport (via the existing models.dev-driven transport fallback) while still carrying the `X-Opencode-Session` header.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `claude_subscription` | Unofficial provider that runs the user's signed-in `claude` CLI. See [Claude subscription](claude-subscription.md). It uses the Claude subscription login and full CLI model IDs; it does not use an API endpoint or API key. |
 
 **Field applicability by provider type:**
 
-| Field         | openai_compat |  ollama  | lmstudio | openrouter | openai | anthropic | gemini¹ | litellm  |  codex   | opencode_go | opencode_zen |
-| ------------- | :-----------: | :------: | :------: | :--------: | :----: | :-------: | :-----: | :------: | :------: | :---------: | :----------: |
-| `base_url`    |   required    | optional | required |     —      |   —    |     —     |    —    | required | optional |  optional   |   optional   |
-| `api_key`     |   optional    |    —     |    —     |     ✓      |   ✓    |     ✓     |    ✓    | optional |    —     |      ✓      |      ✓       |
-| `api_key_env` |   optional    |    —     |    —     |     ✓      |   ✓    |     ✓     |    ✓    | optional |    —     |      ✓      |      ✓       |
-| `headers`     |       ✓       |    ✓     |    ✓     |     ✓      |   ✓    |     ✓     |    ✓    |    ✓     |    ✓     |      ✓      |      ✓       |
-| `timeout`     |       ✓       |    ✓     |    ✓     |     ✓      |   ✓    |     ✓     |    ✓    |    ✓     |    ✓     |      ✓      |      ✓       |
-| `codex`       |       —       |    —     |    —     |     —      |   —    |     —     |    —    |    —     |    ✓     |      —      |      —       |
+| Field         | openai_compat |  ollama  | lmstudio | openrouter | openai | anthropic | gemini¹ | litellm  |  codex   | opencode_go | opencode_zen | claude_subscription |
+| ------------- | :-----------: | :------: | :------: | :--------: | :----: | :-------: | :-----: | :------: | :------: | :---------: | :----------: | :-----------------: |
+| `base_url`    |   required    | optional | required |     —      |   —    |     —     |    —    | required | optional |  optional   |   optional   |         —           |
+| `api_key`     |   optional    |    —     |    —     |     ✓      |   ✓    |     ✓     |    ✓    | optional |    —     |      ✓      |      ✓       |         —           |
+| `api_key_env` |   optional    |    —     |    —     |     ✓      |   ✓    |     ✓     |    ✓    | optional |    —     |      ✓      |      ✓       |         —           |
+| `headers`     |       ✓       |    ✓     |    ✓     |     ✓      |   ✓    |     ✓     |    ✓    |    ✓     |    ✓     |      ✓      |      ✓       |         —           |
+| `timeout`     |       ✓       |    ✓     |    ✓     |     ✓      |   ✓    |     ✓     |    ✓    |    ✓     |    ✓     |      ✓      |      ✓       |         —           |
+| `codex`       |       —       |    —     |    —     |     —      |   —    |     —     |    —    |    —     |    ✓     |      —      |      —       |         —           |
 
 ¹ Native `gemini` is not a runtime-supported provider type. A user-provided endpoint may use `openai_compat` only when it exposes the supported OpenAI-compatible shape.
+
+For `claude_subscription`, `base_url`, `api_key`, `api_key_env`, `headers`, and `timeout` are not applicable. Authentication comes from the signed-in Claude CLI session.
 
 ### `codex` sub-block
 

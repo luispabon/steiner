@@ -316,6 +316,18 @@ func (p *turnProgressor) handleError(ctx context.Context, state RunState, err er
 // should re-run the turn with the compacted state) or an error outcome on
 // failure.
 func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, fit prompt.RequestTokenBudget) turnOutcome {
+	if provider.IsStatefulTranscript(p.request.Provider) {
+		if fit.Fits {
+			// Soft compaction threshold crossed, but the request fits the hard
+			// limit: carry on without compacting a provider-owned transcript.
+			return turnOutcome{State: state}
+		}
+		return turnOutcome{
+			State: state,
+			Error: fmt.Errorf("request exceeds context window: %s: %w", fit.String(), errStatefulCompaction),
+			Stop:  true,
+		}
+	}
 	turn := state.TurnCount + 1
 	emitCompactionStartedEvent(p.request.Events, turn)
 	compacted, err := p.compactFn(ctx, p.request, &state, turn, &fit, p.compactionHistory, &p.compactionCount)

@@ -17,6 +17,76 @@ import (
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
+type statefulFakeProvider struct {
+	*fakeProvider
+}
+
+func (p *statefulFakeProvider) StatefulTranscript() bool { return true }
+
+func TestExecuteChatRequestStatefulChatErrorDoesNotFallback(t *testing.T) {
+	chatErr := errors.New("malformed tool arguments")
+	base := &fakeProvider{
+		chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+			return provider.ChatResponse{}, chatErr
+		},
+		streamFn: func(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+			t.Fatal("StreamChatCompletion should not be called")
+			return nil, nil
+		},
+	}
+	prov := &statefulFakeProvider{fakeProvider: base}
+	var events []output.Event
+	_, _, err := executeChatRequest(context.Background(), prov, 3, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{}, output.SinkFunc(func(event output.Event) {
+		events = append(events, event)
+	}), nil, false, false, nil, nil)
+	if !errors.Is(err, chatErr) {
+		t.Fatalf("executeChatRequest() error = %v, want original %v", err, chatErr)
+	}
+	if got := len(base.requests); got != 1 {
+		t.Fatalf("provider calls = %d, want 1", got)
+	}
+
+	var responses []output.APIResponseEvent
+	for _, event := range events {
+		if event.Type != output.EventTypeAPIResponse {
+			continue
+		}
+		response, ok := event.Payload.(output.APIResponseEvent)
+		if !ok {
+			t.Fatalf("API response payload type = %T", event.Payload)
+		}
+		responses = append(responses, response)
+	}
+	if len(responses) != 1 {
+		t.Fatalf("API response events = %d, want 1", len(responses))
+	}
+	if responses[0].Error != chatErr.Error() {
+		t.Fatalf("API response error = %q, want %q", responses[0].Error, chatErr.Error())
+	}
+}
+
+func TestExecuteChatRequestStatelessChatErrorFallsBackToStream(t *testing.T) {
+	chatErr := errors.New("non-stream request failed")
+	stream := make(chan provider.ChatChunk, 1)
+	stream <- provider.ChatChunk{Done: true, FinishReason: "stop", Delta: provider.Message{Content: "streamed"}}
+	close(stream)
+	prov := &fakeProvider{
+		chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+			return provider.ChatResponse{}, chatErr
+		},
+		streamFn: func(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+			return stream, nil
+		},
+	}
+	_, _, err := executeChatRequest(context.Background(), prov, 3, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{}, output.NoopSink{}, nil, false, false, nil, nil)
+	if err != nil {
+		t.Fatalf("executeChatRequest() error = %v", err)
+	}
+	if got := len(prov.requests); got != 2 {
+		t.Fatalf("provider calls = %d, want 2", got)
+	}
+}
+
 func TestCompleteModelCallEmitsAssistantChunkSource(t *testing.T) {
 	chunks := make(chan provider.ChatChunk, 2)
 	chunks <- provider.ChatChunk{

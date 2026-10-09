@@ -55,6 +55,25 @@ func TestBuildRunRequestUsesCapturedDelegationGroupScope(t *testing.T) {
 	}
 }
 
+func TestBuildRunRequestForwardsCurrentTransportSession(t *testing.T) {
+	currentSessionID := "session-before-clear"
+	runner := cliRunner{sessionIDFn: func() string { return currentSessionID }}
+
+	first := buildRunRequest(runner, runnerSetup{}, tool.NewRegistry(), nil, runHooks{})
+	if first.TransportSession != currentSessionID {
+		t.Fatalf("first request TransportSession = %q, want %q", first.TransportSession, currentSessionID)
+	}
+
+	currentSessionID = "session-after-clear"
+	second := buildRunRequest(runner, runnerSetup{}, tool.NewRegistry(), nil, runHooks{})
+	if second.TransportSession != currentSessionID {
+		t.Fatalf("second request TransportSession = %q, want %q", second.TransportSession, currentSessionID)
+	}
+	if second.TransportSession == first.TransportSession {
+		t.Fatalf("rotated TransportSession = %q, want a distinct session key", second.TransportSession)
+	}
+}
+
 func TestBuildRunRequestWithoutSupervisorHasNilSealer(t *testing.T) {
 	request := buildRunRequest(cliRunner{}, runnerSetup{delegationGroupScope: "chosen"}, tool.NewRegistry(), nil, runHooks{})
 	if request.Sealer != nil {
@@ -1265,6 +1284,27 @@ func registerChild(c *delegation.ActiveController, agentID string, parent contex
 	}
 	return child, nil
 }
+
+func TestLoggingProviderForwardsStatefulTranscript(t *testing.T) {
+	inner := statefulLoggingProvider{}
+	wrapped := loggingProvider{inner: inner}
+	if !provider.IsStatefulTranscript(wrapped) {
+		t.Fatal("loggingProvider did not forward stateful transcript capability")
+	}
+}
+
+type statefulLoggingProvider struct{}
+
+func (statefulLoggingProvider) ChatCompletion(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+	return provider.ChatResponse{}, nil
+}
+
+func (statefulLoggingProvider) StreamChatCompletion(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+	return nil, nil
+}
+
+func (statefulLoggingProvider) SupportsUsageStats() bool { return true }
+func (statefulLoggingProvider) StatefulTranscript() bool { return true }
 
 func TestLoggingProviderWithEventSinkLeavesParentSinkUnchanged(t *testing.T) {
 	t.Parallel()

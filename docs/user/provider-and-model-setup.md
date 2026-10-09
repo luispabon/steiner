@@ -114,6 +114,10 @@ models:
 
 OpenRouter model IDs commonly contain a slash, such as `openai/gpt-4o`, so the complete reference can be `openrouter/openai/gpt-4o`.
 
+## Claude subscription
+
+For the unofficial Claude subscription provider, see [Claude subscription](claude-subscription.md) for setup, account requirements, safety gates, privacy, and limitations. The provider type is `claude_subscription`; its model references use the full IDs reported by the signed-in `claude` CLI.
+
 ## OpenAI-compatible gateways
 
 Use `openai_compat` for a server that exposes the OpenAI-compatible chat-completions shape. Set the URL and key requirements for that server:

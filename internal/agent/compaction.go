@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/luispabon/steiner/internal/prompt"
@@ -25,6 +26,11 @@ const (
 	normalCompactionRetainTurns    = 3
 	emergencyCompactionRetainTurns = 1
 )
+
+// errStatefulCompaction is returned when compaction is attempted for a provider
+// that owns its transcript (StatefulTranscript), where rewriting sent history is
+// not supported yet.
+var errStatefulCompaction = errors.New("compaction is not supported yet with the claude_subscription provider (tracked in #895); start a new session to continue")
 
 // CompactionOutcome captures the state mutation and diagnostics emitted by a
 // compaction strategy.
@@ -277,6 +283,9 @@ func fitConversationState(ctx context.Context, req RunRequest, state RunState) (
 
 // Compact reduces the current conversation to fit the model budget.
 func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Message, steerings ...string) ([]Message, error) {
+	if provider.IsStatefulTranscript(req.Provider) {
+		return nil, fmt.Errorf("compact conversation: %w", errStatefulCompaction)
+	}
 	steering := ""
 	if len(steerings) > 0 {
 		steering = steerings[0]

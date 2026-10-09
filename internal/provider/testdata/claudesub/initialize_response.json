@@ -1,0 +1,43 @@
+{
+  "models": [
+    {
+      "value": "default",
+      "resolvedModel": "claude-opus-5-5",
+      "displayName": "Default (recommended)",
+      "description": "Opus 5.5, best for everyday complex tasks",
+      "supportsEffort": true,
+      "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"],
+      "supportsAdaptiveThinking": true,
+      "supportsFastMode": true
+    },
+    {
+      "value": "opus",
+      "resolvedModel": "claude-opus-5-5",
+      "displayName": "Opus 5.5",
+      "description": "Best for everyday, complex tasks",
+      "supportsEffort": true,
+      "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]
+    },
+    {
+      "value": "claude-opus-5",
+      "resolvedModel": "claude-opus-5-5",
+      "displayName": "Opus 5.5 alias",
+      "description": "duplicate resolved model",
+      "supportedEffortLevels": ["low"]
+    },
+    {
+      "value": "haiku",
+      "resolvedModel": "claude-haiku-5-5",
+      "displayName": "Haiku 5.5",
+      "description": "Fastest for quick answers",
+      "supportsEffort": true,
+      "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]
+    },
+    {
+      "value": "claude-haiku-4-5-20251001",
+      "resolvedModel": "claude-haiku-4-5-20251001",
+      "displayName": "Haiku 4.5",
+      "description": "Fastest for quick answers"
+    }
+  ]
+}

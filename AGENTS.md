@@ -144,6 +144,7 @@ A code change must update its matching docs in the same commit:
 | 14 | `internal/diagnostics`: envelope fields, streams, writer/rotation/retention behaviour | docs/configuration.md `diagnostics` block; compact reference in `skills/configure/SKILL.md`; README if the high-level description changed |
 | 15 | Project config trust: trust store, project diff/security classification (`internal/config/{trust_store,project_diff*,security_fields}.go`), trust resolution (`cmd/steiner/project_trust.go`), or the trust dialog (`internal/tui/trust_dialog*.go`) | docs/user/configuration.md "Project trust" section (incl. the security-relevant field list when `securityFieldPatterns` changes); docs/internals/configuration.md trust-gate notes; README "Safety" if the high-level description changed |
 | 17 | `skills/security-audit/SKILL.md`: workflow, lenses, verdicts, report format, or invocation | docs/user/security-audit.md; README "Features" bullet if the one-line summary changed |
+| 18 | Claude subscription provider or `claude_subscription` type behavior | docs/user/claude-subscription.md; docs/internals/claude-subscription.md; provider/configuration and model-enumeration references; README and navigation links |
 
 **16.** `delegationInstructions`/consumer-file changes (`internal/prompt/system.go`'s `delegationInstructions`, `internal/prompt/specialists.go`'s `specialists` slice, or any of `skills/{implement,review,simplify,plan,pull-request}/SKILL.md`, `internal/oneshot/prompts/*.md`):
 

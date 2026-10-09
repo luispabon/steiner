@@ -13,21 +13,23 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) func(provider.ResolvedModel, string) (provider.Provider, error) {
+func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, claudePool *provider.ClaudeSubscriptionPool) func(provider.ResolvedModel, string) (provider.Provider, error) {
 	return func(rm provider.ResolvedModel, sessionID string) (provider.Provider, error) {
 		if rm.ProviderConfig.Type == config.ProviderTypeOpencodeGo || rm.ProviderConfig.Type == config.ProviderTypeOpencodeZen {
 			return newOpencodeProvider(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog, sessionID)
 		}
 
-		providerType := rm.EffectiveProviderType
-		if providerType == "" {
-			providerType = rm.ProviderConfig.Type
-		}
+		providerType := effectiveProviderType(rm)
 		if providerType == "" {
 			return nil, fmt.Errorf("resolved provider type is empty for model %q", rm.Alias)
 		}
 
 		switch providerType {
+		case config.ProviderTypeClaudeSubscription:
+			if claudePool == nil {
+				return nil, fmt.Errorf("the claude_subscription provider is not available for this run")
+			}
+			return provider.NewClaudeSubscriptionProvider(claudePool), nil
 		case config.ProviderTypeOpenAICompat, config.ProviderTypeOllama, config.ProviderTypeLMStudio,
 			config.ProviderTypeOpenRouter, config.ProviderTypeOpenAI, config.ProviderTypeLiteLLM:
 			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog))
@@ -92,16 +94,22 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 	return newCodexResponsesWS(cfg)
 }
 
+// effectiveProviderType returns the resolved effective provider type, falling
+// back to the configured provider type for models without an override.
+func effectiveProviderType(rm provider.ResolvedModel) config.ProviderType {
+	if rm.EffectiveProviderType != "" {
+		return rm.EffectiveProviderType
+	}
+	return rm.ProviderConfig.Type
+}
+
 // isCodexWSDispatch reports whether rm resolves to a Codex WebSocket
 // transport (explicit websocket only; anything else, including unset,
 // dispatches to HTTP). This is the single place defining WS eligibility;
 // buildRuntimeProviderFactory's dispatch and cliRunner.runtimeProvider's
 // caching both consult it.
 func isCodexWSDispatch(rm provider.ResolvedModel) bool {
-	providerType := rm.EffectiveProviderType
-	if providerType == "" {
-		providerType = rm.ProviderConfig.Type
-	}
+	providerType := effectiveProviderType(rm)
 	if providerType != config.ProviderTypeCodex {
 		return false
 	}
