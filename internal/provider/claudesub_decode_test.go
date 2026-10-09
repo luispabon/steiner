@@ -75,6 +75,35 @@ func claudeSubJoinedText(events []claudeSubDecoded) string {
 	return b.String()
 }
 
+func TestClaudeSubDecodeRealRun3TurnShape(t *testing.T) {
+	events := claudeSubDecodeAll(t, claudeSubDecodeHooks{}, claudeSubDecodeEvents(t, "real_run3_turn_success.jsonl"))
+	texts := claudeSubDecodedOfKind(events, claudeSubDecodeText)
+	if len(texts) != 2 || texts[0].Text != "redacted " || texts[1].Text != "answer" {
+		t.Fatalf("text deltas = %+v, want two accumulated redacted text deltas", texts)
+	}
+	if got := claudeSubJoinedText(events); got != "redacted answer" {
+		t.Fatalf("joined text = %q, want redacted answer", got)
+	}
+	messages := claudeSubDecodedOfKind(events, claudeSubDecodeMessage)
+	if len(messages) != 1 || messages[0].Message == nil || messages[0].Message.Content != "redacted answer" {
+		t.Fatalf("messages = %+v, want one redacted answer message", messages)
+	}
+	if messages[0].FinishReason != "stop" {
+		t.Fatalf("finish reason = %q, want stop", messages[0].FinishReason)
+	}
+	results := claudeSubDecodedOfKind(events, claudeSubDecodeResult)
+	if len(results) != 1 || results[0].Result == nil || results[0].Result.Subtype != "success" {
+		t.Fatalf("results = %+v, want one successful result", results)
+	}
+	if got := results[0].Result.StopReason; got != "end_turn" {
+		t.Fatalf("result stop reason = %q, want end_turn", got)
+	}
+	messageIndex, resultIndex := claudeSubKindIndex(events, claudeSubDecodeMessage), claudeSubKindIndex(events, claudeSubDecodeResult)
+	if messageIndex < 0 || resultIndex < 0 || messageIndex >= resultIndex {
+		t.Fatalf("decoded event order = %+v, want final message before result", events)
+	}
+}
+
 // claudeSubKindIndex returns the position of the first event of kind, or -1.
 func claudeSubKindIndex(events []claudeSubDecoded, kind claudeSubDecodedKind) int {
 	for i, ev := range events {
