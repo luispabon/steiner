@@ -29,6 +29,15 @@ func TestServiceRefreshUsesClaudeSubscriptionDiscoveryTimeout(t *testing.T) {
 	}
 }
 
+func TestCatalogEnumerationTimeoutForNonClaudeProvider(t *testing.T) {
+	if got := catalogEnumerationTimeoutFor(string(config.ProviderTypeOpenAI)); got != 5*time.Second {
+		t.Fatalf("OpenAI catalog timeout = %s, want 5s", got)
+	}
+	if got := catalogEnumerationTimeoutFor(string(config.ProviderTypeClaudeSubscription)); got != 20*time.Second {
+		t.Fatalf("Claude subscription catalog timeout = %s, want 20s", got)
+	}
+}
+
 func TestServiceRefreshPrepareFailureUsesFreshCache(t *testing.T) {
 	cache := NewCache(t.TempDir())
 	endpoint := Endpoint{Alias: "codex", Type: "codex", BaseURL: "current"}

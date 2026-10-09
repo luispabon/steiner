@@ -117,11 +117,7 @@ func (s *Service) refreshOne(parent context.Context, endpoint Endpoint, force bo
 			return result
 		}
 	}
-	enumerationTimeout := catalogEnumerationTimeout
-	if endpoint.Type == string(config.ProviderTypeClaudeSubscription) {
-		enumerationTimeout = claudeSubscriptionEnumerationTimeout
-	}
-	ctx, cancel := context.WithTimeout(parent, enumerationTimeout)
+	ctx, cancel := context.WithTimeout(parent, catalogEnumerationTimeoutFor(endpoint.Type))
 	defer cancel()
 	etag := s.cachedETag(endpoint)
 	enumerator, err := s.dispatcher(endpoint.Type, s.client)
@@ -178,6 +174,13 @@ func (s *Service) cachedETag(endpoint Endpoint) string {
 		return ""
 	}
 	return etag
+}
+
+func catalogEnumerationTimeoutFor(providerType string) time.Duration {
+	if providerType == string(config.ProviderTypeClaudeSubscription) {
+		return claudeSubscriptionEnumerationTimeout
+	}
+	return catalogEnumerationTimeout
 }
 
 func failedRefresh(result RefreshResult, err error) RefreshResult {

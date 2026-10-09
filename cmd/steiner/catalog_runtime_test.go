@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -263,6 +264,43 @@ func TestClaudeSubscriptionCatalogAdapterConvertsModels(t *testing.T) {
 	model, found := fresh.Model(catalogConfigCopy(&cfg), "claude", "claude-live")
 	if !found || model.DisplayName != "Live" || model.Description != "desc" || !reflect.DeepEqual(model.SupportedEfforts, []string{"low"}) || model.ProviderAlias != "claude" || model.ProviderType != string(config.ProviderTypeClaudeSubscription) {
 		t.Fatalf("discovered Claude model = %#v found=%v, want converted fields and stamped identity", model, found)
+	}
+}
+
+func TestClaudeSubscriptionCatalogAdapterFallsBackOnDiscoveryFailures(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		discover func(context.Context) ([]providerpkg.ClaudeSubscriptionModel, error)
+	}{
+		{name: "error", discover: func(context.Context) ([]providerpkg.ClaudeSubscriptionModel, error) {
+			return nil, errors.New("discovery failed")
+		}},
+		{name: "empty", discover: func(context.Context) ([]providerpkg.ClaudeSubscriptionModel, error) {
+			return []providerpkg.ClaudeSubscriptionModel{}, nil
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			old := claudeSubscriptionCatalogDiscover
+			claudeSubscriptionCatalogDiscover = test.discover
+			t.Cleanup(func() { claudeSubscriptionCatalogDiscover = old })
+			cfg := config.Config{Models: config.ModelsConfig{DiscoveryEnabled: true}, Providers: map[string]config.ProviderConfig{"claude": {Type: config.ProviderTypeClaudeSubscription}}}
+			service, endpoints, _ := buildModelCatalogService(&cfg, nil)
+			report := service.RefreshAll(context.Background(), endpoints, modelcatalog.RefreshOptions{Force: true})
+			if report.Results[0].Err != nil {
+				t.Fatalf("refresh error = %v, want nil", report.Results[0].Err)
+			}
+			refs := choiceRefs(service.Choices(catalogConfigCopy(&cfg), ""))
+			for _, id := range []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"} {
+				if !refs["claude/"+id] {
+					t.Fatalf("catalog refs = %v, missing fallback model %s", refs, id)
+				}
+			}
+			fresh := modelcatalog.NewService(nil, modelcatalog.NewCache(""), modelcatalog.NewStore(t.TempDir()+"/popularity.json"), nil, true)
+			if got := choiceRefs(fresh.Choices(catalogConfigCopy(&cfg), "")); len(got) != 4 {
+				t.Fatalf("fresh catalog refs = %v, want four cached fallback models", got)
+			}
+		})
 	}
 }
 
