@@ -272,7 +272,8 @@ func startClaudeSubSession(ctx context.Context, p *ClaudeSubscriptionPool, key s
 		return s, err
 	}
 
-	conn, err := p.spawn(ctx, cli.Path, claudeSubArgs(spawnOpts), claudeSubSessionEnv(os.Environ(), p.opts.ToolOutputMaxBytes), p.opts.WorkDir)
+	spawnCtx := claudeSubContextWithSessionKey(ctx, key)
+	conn, err := p.spawn(spawnCtx, cli.Path, claudeSubArgs(spawnOpts), claudeSubSessionEnv(os.Environ(), p.opts.ToolOutputMaxBytes), p.opts.WorkDir)
 	if err != nil {
 		return s, fmt.Errorf("start claude CLI: %w", err)
 	}
