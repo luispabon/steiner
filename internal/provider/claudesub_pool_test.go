@@ -172,6 +172,60 @@ func TestClaudeSubPoolSessionKeyClassification(t *testing.T) {
 	}
 }
 
+// TestClaudeSubPoolAdvisorIdleTTL pins the advisor idle TTL: the default is 60
+// minutes, and an explicit IdleTTL still overrides it. Each case checks that an
+// idle advisor survives just under the TTL and is reaped just over it, while a
+// non-advisor session is never reaped.
+func TestClaudeSubPoolAdvisorIdleTTL(t *testing.T) {
+	tests := []struct {
+		name string
+		opts ClaudeSubscriptionPoolOptions
+		ttl  time.Duration
+	}{
+		{name: "default", opts: ClaudeSubscriptionPoolOptions{}, ttl: 60 * time.Minute},
+		{name: "explicit short override", opts: ClaudeSubscriptionPoolOptions{IdleTTL: time.Minute}, ttl: time.Minute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pool, _ := newClaudeSubTestPool(t, tt.opts)
+			if pool.opts.IdleTTL != tt.ttl {
+				t.Fatalf("IdleTTL = %v, want %v", pool.opts.IdleTTL, tt.ttl)
+			}
+
+			ctx := context.Background()
+			advisorKey := claudeSubAdvisorSessionKey("s")
+			parentKey := "s"
+			for _, key := range []string{advisorKey, parentKey} {
+				s, err := pool.acquire(ctx, key, claudeSubTestSpec())
+				if err != nil {
+					t.Fatalf("acquire(%q): %v", key, err)
+				}
+				pool.release(s)
+			}
+
+			pool.reapIdleAdvisors(time.Now().Add(tt.ttl - time.Second))
+			pool.mu.Lock()
+			_, advisorEarly := pool.sessions[advisorKey]
+			pool.mu.Unlock()
+			if !advisorEarly {
+				t.Error("advisor session reaped before its idle TTL elapsed")
+			}
+
+			pool.reapIdleAdvisors(time.Now().Add(tt.ttl + time.Second))
+			pool.mu.Lock()
+			_, advisorLate := pool.sessions[advisorKey]
+			_, parentStill := pool.sessions[parentKey]
+			pool.mu.Unlock()
+			if advisorLate {
+				t.Error("idle advisor session not reaped after its idle TTL")
+			}
+			if !parentStill {
+				t.Error("non-advisor session reaped by the advisor idle policy")
+			}
+		})
+	}
+}
+
 func TestClaudeSubPoolReapsOnlyIdleAdvisorSessions(t *testing.T) {
 	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{IdleTTL: time.Minute})
 	ctx := context.Background()

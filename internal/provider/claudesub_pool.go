@@ -13,7 +13,7 @@ import (
 const (
 	// claudeSubDefaultIdleTTL is how long an advisor session may sit unused
 	// before the reaper closes it (D23).
-	claudeSubDefaultIdleTTL = 10 * time.Minute
+	claudeSubDefaultIdleTTL = 60 * time.Minute
 	// claudeSubAdvisorKeySuffix marks the advisor session of a parent session.
 	// The advisor gets its own CLI process per parent session (D9, D19), and it
 	// is the only session kind the reaper closes (D23).
@@ -120,7 +120,7 @@ type ClaudeSubscriptionPoolOptions struct {
 	// working directory.
 	WorkDir string
 	// IdleTTL is how long an advisor session may sit unused before the reaper
-	// closes it. Zero or negative defaults to 10 minutes (D23).
+	// closes it. Zero or negative defaults to 60 minutes (D23).
 	IdleTTL time.Duration
 }
 
