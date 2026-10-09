@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -104,15 +105,33 @@ var claudeSubStrippedEnvKeys = map[string]struct{}{
 	"CLAUDE_CODE_ENTRYPOINT":  {},
 }
 
+// claudeSubForcedEnvKeys are the variables steiner always sets on the child.
+// Any inherited entry with one of these names is dropped before the override is
+// appended, so the child never sees a second value.
+var claudeSubForcedEnvKeys = map[string]struct{}{
+	"CLAUDE_CODE_DISABLE_FAST_MODE": {},
+	"CLAUDE_CODE_RETRY_WATCHDOG":    {},
+	"MAX_MCP_OUTPUT_TOKENS":         {},
+}
+
 // claudeSubChildEnv builds the child environment: base minus the credential and
 // entrypoint variables, plus the three steiner-owned overrides (D4, D12).
+// Windows environment names are case-insensitive, so there every case variant
+// of those names is removed; elsewhere names match exactly.
 // MAX_MCP_OUTPUT_TOKENS over-estimates the byte budget as tokens so the CLI
 // never truncates steiner's already-bounded tool output.
 func claudeSubChildEnv(base []string, toolOutputMaxBytes int) []string {
+	return claudeSubChildEnvFold(base, toolOutputMaxBytes, runtime.GOOS == "windows")
+}
+
+// claudeSubChildEnvFold is claudeSubChildEnv with the name matching mode passed
+// in, so both modes are testable on any OS. foldCase compares names
+// case-insensitively.
+func claudeSubChildEnvFold(base []string, toolOutputMaxBytes int, foldCase bool) []string {
 	out := make([]string, 0, len(base)+3)
 	for _, kv := range base {
 		key, _, _ := strings.Cut(kv, "=")
-		if _, drop := claudeSubStrippedEnvKeys[key]; drop {
+		if claudeSubEnvNameIn(key, claudeSubStrippedEnvKeys, foldCase) || claudeSubEnvNameIn(key, claudeSubForcedEnvKeys, foldCase) {
 			continue
 		}
 		out = append(out, kv)
@@ -122,6 +141,17 @@ func claudeSubChildEnv(base []string, toolOutputMaxBytes int) []string {
 		"CLAUDE_CODE_RETRY_WATCHDOG=1",
 		fmt.Sprintf("MAX_MCP_OUTPUT_TOKENS=%d", claudeSubMaxMCPOutputTokens(toolOutputMaxBytes)),
 	)
+}
+
+// claudeSubEnvNameIn reports whether key is a member of names. With foldCase the
+// comparison is case-insensitive.
+func claudeSubEnvNameIn(key string, names map[string]struct{}, foldCase bool) bool {
+	for name := range names {
+		if key == name || foldCase && strings.EqualFold(key, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // claudeSubMaxMCPOutputTokens converts a tool-output byte budget into the CLI's

@@ -110,6 +110,53 @@ func TestClaudeSubChildEnv(t *testing.T) {
 	}
 }
 
+func TestClaudeSubChildEnvFold(t *testing.T) {
+	tests := []struct {
+		name     string
+		base     []string
+		foldCase bool
+		want     []string
+	}{
+		{
+			name:     "exact mode strips exact names",
+			base:     []string{"PATH=/bin", "ANTHROPIC_API_KEY=sk-1", "CLAUDE_CODE_ENTRYPOINT=cli"},
+			foldCase: false,
+			want:     []string{"PATH=/bin", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768"},
+		},
+		{
+			name:     "exact mode keeps case variants",
+			base:     []string{"Anthropic_Api_Key=sk-1", "anthropic_auth_token=t-1", "Max_Mcp_Output_Tokens=7"},
+			foldCase: false,
+			want:     []string{"Anthropic_Api_Key=sk-1", "anthropic_auth_token=t-1", "Max_Mcp_Output_Tokens=7", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768"},
+		},
+		{
+			name:     "exact mode replaces forced names exactly",
+			base:     []string{"CLAUDE_CODE_DISABLE_FAST_MODE=0", "claude_code_retry_watchdog=0", "HOME=/h"},
+			foldCase: false,
+			want:     []string{"claude_code_retry_watchdog=0", "HOME=/h", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768"},
+		},
+		{
+			name:     "fold mode strips every case variant",
+			base:     []string{"PATH=/bin", "anthropic_api_key=sk-1", "Anthropic_Auth_Token=t-1", "claude_code_oauth_token=o-1", "Claude_Code_Entrypoint=cli"},
+			foldCase: true,
+			want:     []string{"PATH=/bin", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768"},
+		},
+		{
+			name:     "fold mode replaces forced names in any case",
+			base:     []string{"claude_code_disable_fast_mode=0", "Claude_Code_Retry_Watchdog=0", "max_mcp_output_tokens=1", "HOME=/h"},
+			foldCase: true,
+			want:     []string{"HOME=/h", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := claudeSubChildEnvFold(tc.base, 65536, tc.foldCase); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("claudeSubChildEnvFold() = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestClaudeSubMaxMCPOutputTokens(t *testing.T) {
 	tests := []struct {
 		name  string

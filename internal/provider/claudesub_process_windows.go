@@ -382,6 +382,7 @@ func claudeSubExecRunner(ctx context.Context, path string, args ...string) ([]by
 	child, err := claudeSubLocatorLaunch(claudeSubLaunchSpec{
 		Path:   path,
 		Args:   args,
+		Env:    claudeSubChildEnv(os.Environ(), 0),
 		Stdin:  stdinR,
 		Stdout: stdoutW,
 		Stderr: stderrW,

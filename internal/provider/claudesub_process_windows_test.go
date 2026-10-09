@@ -251,6 +251,40 @@ func TestClaudeSubWindowsLocatorUsesJobObject(t *testing.T) {
 	}
 }
 
+// TestClaudeSubWindowsLocatorPassesChildEnv proves the locator launches the CLI
+// with the steiner-built environment. A nil Env would give CreateProcess an
+// empty block, and an inherited environment would forward credentials.
+func TestClaudeSubWindowsLocatorPassesChildEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+	var launched claudeSubLaunchSpec
+	old := claudeSubLocatorLaunch
+	claudeSubLocatorLaunch = func(spec claudeSubLaunchSpec) (claudeSubChild, error) {
+		launched = spec
+		return nil, errors.New("launch stopped by test")
+	}
+	t.Cleanup(func() { claudeSubLocatorLaunch = old })
+
+	if _, err := claudeSubExecRunner(context.Background(), `C:\tools\claude.exe`, "--version"); err == nil {
+		t.Fatal("claudeSubExecRunner() error = nil, want the launch error")
+	}
+	if len(launched.Env) == 0 {
+		t.Fatal("locator launch Env is empty, want the steiner child environment")
+	}
+	sawForced := false
+	for _, kv := range launched.Env {
+		key, _, _ := strings.Cut(kv, "=")
+		if strings.EqualFold(key, "ANTHROPIC_API_KEY") {
+			t.Errorf("locator launch env carries %q, want it stripped", key)
+		}
+		if kv == "CLAUDE_CODE_DISABLE_FAST_MODE=1" {
+			sawForced = true
+		}
+	}
+	if !sawForced {
+		t.Error("locator launch env lacks CLAUDE_CODE_DISABLE_FAST_MODE=1")
+	}
+}
+
 // TestClaudeSubWindowsHelperLifecycle exercises the full Windows transport with
 // the shared helper process. It is compile-checked locally and runs on Windows.
 func TestClaudeSubWindowsHelperLifecycle(t *testing.T) {
