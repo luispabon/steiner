@@ -105,39 +105,52 @@ func validateProvidersConfig(problems *[]string, providers map[string]ProviderCo
 		if strings.TrimSpace(name) == "" {
 			*problems = append(*problems, "providers contains an empty alias")
 		}
-		if p.Type == "" {
-			*problems = append(*problems, fmt.Sprintf("providers[%q].type is required", name))
-		} else {
-			switch p.Type {
-			case ProviderTypeOpenAICompat, ProviderTypeOllama, ProviderTypeLMStudio,
-				ProviderTypeOpenRouter, ProviderTypeOpenAI, ProviderTypeAnthropic,
-				ProviderTypeGemini, ProviderTypeLiteLLM, ProviderTypeCodex, ProviderTypeOpencodeGo, ProviderTypeOpencodeZen,
-				ProviderTypeClaudeSubscription:
-				// valid
-			default:
-				*problems = append(*problems, fmt.Sprintf("providers[%q].type %q is not supported", name, p.Type))
-			}
+		appendProviderProblems(problems, name, p)
+	}
+}
+
+func appendProviderProblems(problems *[]string, name string, p ProviderConfig) {
+	if p.Type == "" {
+		*problems = append(*problems, fmt.Sprintf("providers[%q].type is required", name))
+	} else {
+		switch p.Type {
+		case ProviderTypeOpenAICompat, ProviderTypeOllama, ProviderTypeLMStudio,
+			ProviderTypeOpenRouter, ProviderTypeOpenAI, ProviderTypeAnthropic,
+			ProviderTypeGemini, ProviderTypeLiteLLM, ProviderTypeCodex, ProviderTypeOpencodeGo, ProviderTypeOpencodeZen,
+			ProviderTypeClaudeSubscription:
+			// valid
+		default:
+			*problems = append(*problems, fmt.Sprintf("providers[%q].type %q is not supported", name, p.Type))
 		}
-		if providerNeedsBaseURL(p.Type) && strings.TrimSpace(p.BaseURL) == "" {
-			*problems = append(*problems, fmt.Sprintf("providers[%q].base_url is required", name))
-		}
-		if providerNeedsCredential(p.Type) && strings.TrimSpace(p.APIKey) == "" && strings.TrimSpace(p.APIKeyEnv) == "" {
-			*problems = append(*problems, fmt.Sprintf("providers[%q] must set api_key or api_key_env", name))
-		}
-		if p.Type == ProviderTypeClaudeSubscription &&
-			(strings.TrimSpace(p.BaseURL) != "" || strings.TrimSpace(p.APIKey) != "" || strings.TrimSpace(p.APIKeyEnv) != "" || len(p.Headers) > 0) {
-			*problems = append(*problems, fmt.Sprintf("providers[%q]: claude_subscription takes no base_url, api_key, api_key_env or headers — it uses your claude CLI login", name))
-		}
-		if p.Type == ProviderTypeCodex {
-			switch p.Codex.Transport {
-			case "", CodexTransportHTTP, CodexTransportWebSocket:
-				// valid
-			case "auto":
-				*problems = append(*problems, fmt.Sprintf("providers[%q].codex.transport %q was removed — the auto transport no longer exists, set http or websocket", name, p.Codex.Transport))
-			default:
-				*problems = append(*problems, fmt.Sprintf("providers[%q].codex.transport %q is not supported", name, p.Codex.Transport))
-			}
-		}
+	}
+	if providerNeedsBaseURL(p.Type) && strings.TrimSpace(p.BaseURL) == "" {
+		*problems = append(*problems, fmt.Sprintf("providers[%q].base_url is required", name))
+	}
+	if providerNeedsCredential(p.Type) && strings.TrimSpace(p.APIKey) == "" && strings.TrimSpace(p.APIKeyEnv) == "" {
+		*problems = append(*problems, fmt.Sprintf("providers[%q] must set api_key or api_key_env", name))
+	}
+	appendClaudeSubscriptionProblems(problems, name, p)
+	appendCodexTransportProblems(problems, name, p)
+}
+
+func appendClaudeSubscriptionProblems(problems *[]string, name string, p ProviderConfig) {
+	if p.Type == ProviderTypeClaudeSubscription &&
+		(strings.TrimSpace(p.BaseURL) != "" || strings.TrimSpace(p.APIKey) != "" || strings.TrimSpace(p.APIKeyEnv) != "" || len(p.Headers) > 0) {
+		*problems = append(*problems, fmt.Sprintf("providers[%q]: claude_subscription takes no base_url, api_key, api_key_env or headers — it uses your claude CLI login", name))
+	}
+}
+
+func appendCodexTransportProblems(problems *[]string, name string, p ProviderConfig) {
+	if p.Type != ProviderTypeCodex {
+		return
+	}
+	switch p.Codex.Transport {
+	case "", CodexTransportHTTP, CodexTransportWebSocket:
+		// valid
+	case "auto":
+		*problems = append(*problems, fmt.Sprintf("providers[%q].codex.transport %q was removed — the auto transport no longer exists, set http or websocket", name, p.Codex.Transport))
+	default:
+		*problems = append(*problems, fmt.Sprintf("providers[%q].codex.transport %q is not supported", name, p.Codex.Transport))
 	}
 }
 
