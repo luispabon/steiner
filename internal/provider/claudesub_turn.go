@@ -89,6 +89,9 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 	}
 	for _, result := range delta.ToolResults {
 		call := claudeSubPendingByID(s, result.ToolCallID)
+		if call == nil {
+			return fmt.Errorf("claude_subscription tool result %q has no pending call", result.ToolCallID)
+		}
 		s.host.resolve(call.Handle, claudeSubToolResultFromMessage(result))
 		claudeSubRemovePending(s, result.ToolCallID)
 		s.sync.commitToolResult(result)

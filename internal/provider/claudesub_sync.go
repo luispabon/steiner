@@ -203,12 +203,19 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 			recordedToolIDs[e.ToolCallID] = struct{}{}
 		}
 	}
+	// Two suffix results for one call id would resolve the same pending call
+	// twice, so the second must fail the whole request before anything applies.
+	suffixToolIDs := make(map[string]struct{})
 	for si, m := range msgs[mi:] {
 		switch m.Role {
 		case MessageRoleTool:
 			if _, ok := recordedToolIDs[m.ToolCallID]; ok {
 				return claudeSubDelta{}, errClaudeSubHistoryChanged
 			}
+			if _, ok := suffixToolIDs[m.ToolCallID]; ok {
+				return claudeSubDelta{}, errClaudeSubHistoryChanged
+			}
+			suffixToolIDs[m.ToolCallID] = struct{}{}
 			delta.ToolResults = append(delta.ToolResults, m)
 		case MessageRoleUser:
 			delta.User = append(delta.User, m)
