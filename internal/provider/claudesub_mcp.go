@@ -38,6 +38,9 @@ const (
 	// claudeSubShutdownGrace bounds HTTP-server shutdown before lingering
 	// connections (such as a client's standalone SSE stream) are force-closed.
 	claudeSubShutdownGrace = 2 * time.Second
+	// claudeSubRetiredMax bounds how many completed call ids the host remembers
+	// to answer a repeat tools/call immediately. The oldest id is forgotten first.
+	claudeSubRetiredMax = 1024
 )
 
 // claudeSubToolName returns the name the claude CLI publishes for a steiner tool.
@@ -66,11 +69,12 @@ type claudeSubToolResult struct {
 // unbounded terminal ids. A call leaves the live set once its handler consumes
 // the result or it is cancelled, so the set stays bounded by in-flight calls.
 type claudeSubCall struct {
-	id     string
-	waiter chan struct{}        // non-nil while a tools/call handler blocks
-	result *claudeSubToolResult // set once by resolve, taken by the handler
-	owner  bool                 // a tools/call handler currently owns the call
-	done   bool                 // terminal: consumed, cancelled, or host closed
+	id         string
+	waiter     chan struct{}        // non-nil while a tools/call handler blocks
+	result     *claudeSubToolResult // set once by resolve, taken by the handler
+	owner      bool                 // a tools/call handler currently owns the call
+	done       bool                 // terminal: consumed, cancelled, or host closed
+	registered bool                 // beginCall announced the id (the model issued a tool_use)
 }
 
 // claudeSubCallState is the outcome of a tools/call trying to own a call.
@@ -81,6 +85,8 @@ const (
 	claudeSubCallAcquired claudeSubCallState = iota
 	// claudeSubCallDuplicate means another handler already owns the id.
 	claudeSubCallDuplicate
+	// claudeSubCallRetired means the id already completed and is not reopened.
+	claudeSubCallRetired
 	// claudeSubCallClosed means the host is shutting down.
 	claudeSubCallClosed
 )
@@ -111,6 +117,11 @@ type claudeSubMCPHost struct {
 	toolKey string            // fingerprint of the currently published specs
 	closed  bool
 	closeCh chan struct{}
+
+	// retired remembers ids whose calls completed, oldest first in retiredOrder,
+	// so a repeat tools/call is answered at once. Bounded by claudeSubRetiredMax.
+	retired      map[string]struct{}
+	retiredOrder []string
 }
 
 // newClaudeSubMCPHost starts a loopback MCP host with a random bearer token.
@@ -132,6 +143,7 @@ func newClaudeSubMCPHost() (*claudeSubMCPHost, error) {
 		shutdownGrace: claudeSubShutdownGrace,
 		calls:         map[string]*claudeSubCall{},
 		names:         map[string]string{},
+		retired:       map[string]struct{}{},
 		closeCh:       make(chan struct{}),
 	}
 	h.srv = mcp.NewServer(&mcp.Implementation{Name: claudeSubMCPServerName, Version: "1"}, nil)
@@ -163,35 +175,86 @@ func (h *claudeSubMCPHost) authorize(next http.Handler) http.Handler {
 
 // setTools republishes the server's tools when the spec set changes. The claude
 // CLI always applies the mcp__steiner__ prefix itself, so long names are
-// shortened here and recorded for the reverse mapping.
-func (h *claudeSubMCPHost) setTools(specs []ToolSpec) {
+// shortened here and recorded for the reverse mapping. Every tool is built and
+// checked before the live set changes, so an invalid schema returns an error and
+// leaves the previously published tools in place.
+func (h *claudeSubMCPHost) setTools(specs []ToolSpec) error {
 	key := claudeSubToolsKey(specs)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if key == h.toolKey {
-		return
+		return nil
+	}
+	tools := make([]*mcp.Tool, 0, len(specs))
+	names := make(map[string]string, len(specs))
+	for _, spec := range specs {
+		tool, err := claudeSubPublishedTool(spec)
+		if err != nil {
+			return fmt.Errorf("publish claude_subscription tool %q: %w", spec.Function.Name, err)
+		}
+		tools = append(tools, tool)
+		names[tool.Name] = spec.Function.Name
 	}
 	old := make([]string, 0, len(h.names))
 	for name := range h.names {
 		old = append(old, name)
 	}
 	h.srv.RemoveTools(old...)
-	h.names = make(map[string]string, len(specs))
-	for _, spec := range specs {
-		short := claudeSubToolName(spec.Function.Name)
-		h.names[short] = spec.Function.Name
-		params := spec.Function.Parameters
-		if params == nil {
-			params = map[string]any{"type": "object"}
-		}
-		h.srv.AddTool(&mcp.Tool{
-			Name:        short,
-			Description: spec.Function.Description,
-			InputSchema: params,
-			Meta:        mcp.Meta{"anthropic/alwaysLoad": true},
-		}, h.callTool)
+	h.names = names
+	for _, tool := range tools {
+		h.srv.AddTool(tool, h.callTool)
 	}
 	h.toolKey = key
+	return nil
+}
+
+// claudeSubPublishedTool builds the MCP tool for spec with its own copy of the
+// input schema. The go-sdk rejects a bad schema by panicking inside AddTool, so
+// the tool is first added to a scratch server and that panic becomes an error.
+func claudeSubPublishedTool(spec ToolSpec) (tool *mcp.Tool, err error) {
+	schema, err := claudeSubToolSchema(spec.Function.Parameters)
+	if err != nil {
+		return nil, err
+	}
+	tool = &mcp.Tool{
+		Name:        claudeSubToolName(spec.Function.Name),
+		Description: spec.Function.Description,
+		InputSchema: schema,
+		Meta:        mcp.Meta{"anthropic/alwaysLoad": true},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tool, err = nil, fmt.Errorf("go-sdk rejected input schema: %v", r)
+		}
+	}()
+	mcp.NewServer(&mcp.Implementation{Name: claudeSubMCPServerName, Version: "1"}, nil).AddTool(tool, nil)
+	return tool, nil
+}
+
+// claudeSubToolSchema returns a copy of a tool's input schema. A missing type
+// becomes "object"; any other type is an error, since the go-sdk requires an
+// object schema. The copy keeps the registry's map from being modified.
+func claudeSubToolSchema(params map[string]any) (map[string]any, error) {
+	if params == nil {
+		return map[string]any{"type": "object"}, nil
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("marshal input schema: %w", err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return nil, fmt.Errorf("copy input schema: %w", err)
+	}
+	typ, ok := schema["type"]
+	if !ok {
+		schema["type"] = "object"
+		return schema, nil
+	}
+	if typ != "object" {
+		return nil, fmt.Errorf("input schema type must be \"object\", got %v", typ)
+	}
+	return schema, nil
 }
 
 // steinerToolName maps a CLI-published tool name back to the steiner tool name.
@@ -223,6 +286,10 @@ func (h *claudeSubMCPHost) callTool(ctx context.Context, req *mcp.CallToolReques
 		// Another handler still owns this id, either waiting or holding a
 		// resolved result it has not consumed yet; it must not be stolen.
 		return claudeSubMCPTextResult("duplicate tool use id", true), nil
+	case claudeSubCallRetired:
+		// The id already completed. A repeat (CLI retry) is answered now rather
+		// than held open for a result that will never be resolved.
+		return claudeSubMCPTextResult("tool call already completed", true), nil
 	}
 	if waiter == nil {
 		// resolve ran before this tools/call; hand the stored result back.
@@ -278,9 +345,10 @@ func (h *claudeSubMCPHost) beginCall(id string) *claudeSubCall {
 		return nil
 	}
 	if call, ok := h.calls[id]; ok {
+		call.registered = true
 		return call
 	}
-	call := &claudeSubCall{id: id}
+	call := &claudeSubCall{id: id, registered: true}
 	h.calls[id] = call
 	return call
 }
@@ -302,6 +370,10 @@ func (h *claudeSubMCPHost) openCall(id string) (*claudeSubCall, chan struct{}, c
 	}
 	call, ok := h.calls[id]
 	if !ok {
+		// A retired id is not reopened: the call it named already completed.
+		if _, retired := h.retired[id]; retired {
+			return nil, nil, claudeSubCallRetired
+		}
 		call = &claudeSubCall{id: id}
 		h.calls[id] = call
 	}
@@ -378,10 +450,50 @@ func (h *claudeSubMCPHost) retireLocked(call *claudeSubCall) {
 	call.result = nil
 	if h.calls[call.id] == call {
 		delete(h.calls, call.id)
+		h.rememberRetiredLocked(call.id)
 	}
 	if call.waiter != nil {
 		close(call.waiter)
 		call.waiter = nil
+	}
+}
+
+// rememberRetiredLocked records a completed id, forgetting the oldest one once
+// claudeSubRetiredMax ids are held.
+func (h *claudeSubMCPHost) rememberRetiredLocked(id string) {
+	if _, ok := h.retired[id]; ok {
+		return
+	}
+	if len(h.retiredOrder) == claudeSubRetiredMax {
+		delete(h.retired, h.retiredOrder[0])
+		h.retiredOrder = h.retiredOrder[1:]
+	}
+	h.retired[id] = struct{}{}
+	h.retiredOrder = append(h.retiredOrder, id)
+}
+
+// settle fails every call that a tools/call opened for an id the model never
+// issued. It runs once the turn's assistant message is fully decoded (or the
+// turn ends without tool calls), so every tool_use the model issued has already
+// been registered through beginCall.
+//
+// Race: the CLI sends the HTTP tools/call and the stdout tool_use on separate
+// channels, so a tools/call for a legitimate id can open its call before
+// beginCall runs. That call is left alone here, because its tool_use is
+// registered during streaming, before the message is decoded. Only calls still
+// unregistered at settle time are failed, so an early legitimate call is never
+// failed. A failed call is retired, and its handler returns the failure at once.
+func (h *claudeSubMCPHost) settle() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, call := range h.calls {
+		if call.registered {
+			continue
+		}
+		h.retireLocked(call)
+		// retireLocked clears any stored result, so the failure is set after it.
+		// claimResult reads it when the woken handler takes the result.
+		call.result = &claudeSubToolResult{Text: "tool call id was not issued by the model", IsError: true}
 	}
 }
 

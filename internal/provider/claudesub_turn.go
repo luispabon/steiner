@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 )
 
 func claudeSubSessionKey(req ChatRequest) string {
@@ -72,7 +73,9 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 		s.effort = effort
 	}
 	if s.host != nil {
-		s.host.setTools(req.Tools)
+		if err := s.host.setTools(req.Tools); err != nil {
+			return err
+		}
 	}
 	for _, result := range delta.ToolResults {
 		call := claudeSubPendingByID(s, result.ToolCallID)
@@ -209,6 +212,9 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 			case claudeSubDecodeMessage:
 				if len(item.Message.ToolCalls) > 0 {
 					s.sync.commitAssistant(*item.Message)
+					if s.host != nil {
+						s.host.settle()
+					}
 					if err := emit(ChatChunk{Delta: *item.Message, ContentSnapshot: true, Done: true, FinishReason: item.FinishReason}); err != nil {
 						return err
 					}
@@ -217,8 +223,12 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				copy := item
 				ordinary = &copy
 			case claudeSubDecodeResult:
+				if s.host != nil {
+					// The turn has no tool calls left to wait for.
+					s.host.settle()
+				}
 				if item.Result.IsError {
-					return fmt.Errorf("claude_subscription turn failed: %s", item.Result.Subtype)
+					return claudeSubTurnFailure(item.Result)
 				}
 				if ordinary != nil {
 					s.sync.commitAssistant(*ordinary.Message)
@@ -232,6 +242,26 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 			}
 		}
 	}
+}
+
+// claudeSubFailureTextMax bounds the result text quoted in a turn failure.
+const claudeSubFailureTextMax = 300
+
+// claudeSubTurnFailure reports a failed turn, quoting the result text when the
+// CLI supplied one. Long text is cut at a rune boundary and marked with "...".
+func claudeSubTurnFailure(r *claudeSubResult) error {
+	text := r.Text
+	if len(text) > claudeSubFailureTextMax {
+		cut := claudeSubFailureTextMax
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		text = text[:cut] + "..."
+	}
+	if text == "" {
+		return fmt.Errorf("claude_subscription turn failed: %s", r.Subtype)
+	}
+	return fmt.Errorf("claude_subscription turn failed: %s: %s", r.Subtype, text)
 }
 
 var _ Provider = (*ClaudeSubscriptionProvider)(nil)
