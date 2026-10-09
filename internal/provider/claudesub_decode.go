@@ -191,10 +191,6 @@ type claudeSubDecoder struct {
 	// streamEchoProcessed records that a valid echo arrived before message_stop.
 	// It is what permits finishMessage to emit the assembled message immediately.
 	streamEchoProcessed bool
-	// echoSeen is retained as a diagnostic flag for transactional tests. Unlike
-	// the old lifecycle guard, it does not reject later per-content-block echoes.
-	echoSeen bool
-
 	// messageStarted records that this decoder's single message_start has been
 	// accepted. One decoder follows one CLI turn, which carries exactly one
 	// message_start, so a second one fails closed instead of silently resetting
@@ -919,7 +915,6 @@ func (d *claudeSubDecoder) beginMessage() {
 	d.messagePending = false
 	d.echoProcessed = false
 	d.streamEchoProcessed = false
-	d.echoSeen = false
 	d.messageStarted = true
 	d.stopped = nil
 }
