@@ -15,23 +15,22 @@ import (
 // as hooks.
 //
 // The CLI reports one assistant message up to three times, as the streamed
-// `stream_event` deltas (raw Anthropic Messages SSE events), the
-// per-content-block `assistant` echo, and the terminal `result`. To avoid
-// double-counting, the decoder emits assistant text and thinking only from the
-// streamed deltas, surfaces usage only as cumulative `usage` events, and never
-// turns the `assistant` echo body or the `result` text into deltas. The
-// `assistant` echo is read only for its tool_use blocks: one the stream already
-// announced is confirmed against the streamed name, and one it did not is
-// registered once so the assembled message carries its translated call. Because
-// the echo can add a fallback call after the stream's message_stop, the
-// assembled message is held until the echo has been processed and then emitted
-// exactly once, or at the terminal result when no echo follows. Every
-// content-block index belongs to a single streamed block start per message, and
-// only a streamed tool_use block start authorises input_json_delta content.
-// Each delta and stop must name an index a streamed start already claimed and
-// match that block's canonical type, and a stopped block rejects later deltas;
-// a second message_start and a result before message_stop both fail closed, so
-// no invalid ordering resets or drops accumulated content.
+// `stream_event` deltas (raw Anthropic Messages SSE events), per-content-block
+// `assistant` echoes, and the terminal `result`. To avoid double-counting, the
+// decoder emits assistant text and thinking only from the streamed deltas,
+// surfaces usage only as cumulative `usage` events, and never turns the
+// `assistant` echo body or the `result` text into deltas. An echo for a streamed
+// block confirms its tool_use identity and name; an echo-only tool_use is
+// accepted only as the existing post-message_stop fallback. Echoes are
+// idempotent across blocks, and the assembled message is emitted at
+// message_stop once an in-stream echo has been processed, or at the post-stop
+// echo or terminal result otherwise. Every content-block index belongs to a
+// single streamed block start per message, and only a streamed tool_use block
+// start authorises input_json_delta content. Each delta and stop must name an
+// index a streamed start already claimed and match that block's canonical type,
+// and a stopped block rejects later deltas; a second message_start and a result
+// before message_stop both fail closed, so no invalid ordering resets or drops
+// accumulated content.
 
 var (
 	// errClaudeSubDecodeStream marks a malformed streamed envelope or
@@ -181,13 +180,19 @@ type claudeSubDecoder struct {
 	// bounds which later envelopes may still mutate state or invoke callbacks.
 	phase claudeSubDecodePhase
 	// messagePending records that the stopped message's final assistant message
-	// is being held for emission. The CLI's streamed stop precedes the
-	// per-content-block assistant echo, and the echo may introduce a fallback
-	// tool use, so the assembled message is emitted only once the echo has been
-	// processed, or at the terminal result when no echo follows.
+	// is being held for emission. An in-stream echo allows the message to flush
+	// at message_stop; a post-stop fallback echo or the terminal result flushes
+	// it otherwise.
 	messagePending bool
-	// echoSeen records that the current message's assistant echo has been
-	// processed, so a second echo for the same message fails closed.
+	// echoProcessed records that at least one valid assistant echo was processed
+	// for this message. Repeated per-content-block echoes are accepted
+	// idempotently rather than treated as duplicate messages.
+	echoProcessed bool
+	// streamEchoProcessed records that a valid echo arrived before message_stop.
+	// It is what permits finishMessage to emit the assembled message immediately.
+	streamEchoProcessed bool
+	// echoSeen is retained as a diagnostic flag for transactional tests. Unlike
+	// the old lifecycle guard, it does not reject later per-content-block echoes.
 	echoSeen bool
 
 	// messageStarted records that this decoder's single message_start has been
@@ -239,19 +244,20 @@ func (d *claudeSubDecoder) decode(ev claudeSubEvent) ([]claudeSubDecoded, error)
 	case "stream_event":
 		return d.decodeStreamEvent(ev.Raw)
 	case "assistant":
-		// The assistant echo is valid only in the stopped phase: after
-		// message_stop has closed the streamed message and before the terminal
-		// result. It may introduce a fallback tool use the stream missed, but it
-		// must never be accepted while content is still streaming or after the
-		// turn has closed, so a rejection here mutates nothing and calls no
-		// hook.
+		// Assistant echoes identify individual content blocks and can arrive
+		// while the stream is still delivering later blocks. During streaming,
+		// only already-announced tool uses are valid; the echo-only fallback is
+		// retained for the stopped phase. After the terminal result, a rejection
+		// mutates nothing and calls no hook.
 		switch d.phase {
+		case claudeSubPhaseStreaming:
+			return d.decodeAssistantEcho(ev.Raw, false)
 		case claudeSubPhaseStopped:
-			return d.decodeAssistantEcho(ev.Raw)
+			return d.decodeAssistantEcho(ev.Raw, d.messagePending)
 		case claudeSubPhaseTerminal:
 			return nil, fmt.Errorf("%w: assistant echo after terminal result", errClaudeSubDecodeStream)
 		default:
-			return nil, fmt.Errorf("%w: assistant echo before message_stop", errClaudeSubDecodeStream)
+			return nil, fmt.Errorf("%w: assistant echo in invalid phase", errClaudeSubDecodeStream)
 		}
 	case "result":
 		if d.phase == claudeSubPhaseTerminal {
@@ -672,18 +678,19 @@ type claudeSubEchoBlock struct {
 // usage duplicate the streamed events, so they are ignored. A tool_use the
 // stream already announced is confirmed: the echo must translate to the same
 // steiner name, and its accumulator and input are never touched. A tool_use the
-// stream did not announce is registered once, with an accumulator built from
-// the echo, so the assembled message carries its translated call. An entry with
-// no id or name cannot be registered and is skipped.
+// stream did not announce is registered only when allowEchoOnly is true, with an
+// accumulator built from the echo, so the existing post-stop fallback carries
+// its translated call. An entry with no id or name cannot be registered and is
+// skipped.
 //
 // The echo is processed transactionally: every tool_use block is parsed,
 // translated and validated against a staged view of the decoder state first,
-// and only then are the canonical accumulators, tool order, echoSeen flag and
-// callbacks committed. A repeated id, a conflicting name, an incompatible index
-// claim or an oversized input fails closed before any of that, so a decode call
-// never leaves a partial echo, invokes a hook, or emits a final message and then
-// fails.
-func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage) ([]claudeSubDecoded, error) {
+// and only then are the canonical accumulators, tool order, echo state and
+// callbacks committed. A repeated id in a later per-block echo is idempotent; a
+// conflicting name, an incompatible index claim or an oversized input fails
+// closed before any of that, so a decode call never leaves a partial echo,
+// invokes a hook, or emits a final message and then fails.
+func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage, allowEchoOnly bool) ([]claudeSubDecoded, error) {
 	var envelope struct {
 		Message *struct {
 			Content []claudeSubEchoBlock `json:"content"`
@@ -692,12 +699,9 @@ func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage) ([]claudeSub
 	if err := json.Unmarshal(raw, &envelope); err != nil || envelope.Message == nil {
 		return nil, nil
 	}
-	if d.echoSeen {
-		return nil, fmt.Errorf("%w: duplicate assistant echo for one message", errClaudeSubDecodeStream)
-	}
 	// Stage the echo's new tool uses and validate every block against the
 	// current, uncommitted state, so a later block's error leaves no
-	// accumulator, tool order, echoSeen flag or callback from an earlier block.
+	// accumulator, tool order, echo state or callback from an earlier block.
 	type pendingEchoToolUse struct {
 		id      string
 		cliName string
@@ -727,6 +731,12 @@ func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage) ([]claudeSub
 			}
 			continue
 		}
+		if !allowEchoOnly {
+			return nil, fmt.Errorf("%w: assistant echo tool_use id %q was not announced by the stream", errClaudeSubDecodeStream, block.ID)
+		}
+		if d.echoProcessed {
+			return nil, fmt.Errorf("%w: assistant echo introduces tool_use id %q after fallback echo", errClaudeSubDecodeStream, block.ID)
+		}
 		key, err := d.echoToolKey(block.Index, stagedKeys, &nextEchoIndex)
 		if err != nil {
 			return nil, err
@@ -745,10 +755,12 @@ func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage) ([]claudeSub
 		}
 		pending = append(pending, pendingEchoToolUse{id: block.ID, cliName: block.Name, key: key, input: input})
 	}
-	// Every block validated: commit the staged echo, invoke the observation
-	// callbacks and emit the message the stream stopped on, assembled from the
-	// committed state. A validation failure above returns before this point.
-	d.echoSeen = true
+	// Every block validated: commit the staged echo and invoke the observation
+	// callbacks. A validation failure above returns before this point.
+	d.echoProcessed = true
+	if d.phase == claudeSubPhaseStreaming {
+		d.streamEchoProcessed = true
+	}
 	d.echoToolIndex = nextEchoIndex
 	var out []claudeSubDecoded
 	for _, p := range pending {
@@ -905,6 +917,8 @@ func (d *claudeSubDecoder) beginMessage() {
 	d.toolOrder = nil
 	d.phase = claudeSubPhaseStreaming
 	d.messagePending = false
+	d.echoProcessed = false
+	d.streamEchoProcessed = false
 	d.echoSeen = false
 	d.messageStarted = true
 	d.stopped = nil
@@ -1048,17 +1062,25 @@ func appendBoundedToolInput(acc *anthropicToolUseAccumulator, partial string) er
 	return nil
 }
 
-// finishMessage records that the current message's stream has stopped and holds
-// its final assistant message pending emission. The CLI emits message_stop
-// before the per-content-block assistant echo, and the echo may introduce a
-// fallback tool use the stream never announced, so the message is assembled and
-// emitted only once the echo has been processed, or at the terminal result when
-// no echo follows. The phase guard rejects a second stop before this point, so
-// reaching here means the current message's stream has stopped exactly once.
+// finishMessage records that the current message's stream has stopped. A
+// per-content-block echo may already have been processed while streaming, in
+// which case the assembled message is emitted at message_stop. Otherwise it is
+// held for a post-stop fallback echo or the terminal result. The phase guard
+// rejects a second stop before this point.
 func (d *claudeSubDecoder) finishMessage() ([]claudeSubDecoded, error) {
 	d.phase = claudeSubPhaseStopped
 	d.messagePending = true
-	return nil, nil
+	if !d.streamEchoProcessed {
+		return nil, nil
+	}
+	msg, err := d.flushPendingMessage()
+	if err != nil {
+		return nil, err
+	}
+	if msg == nil {
+		return nil, nil
+	}
+	return []claudeSubDecoded{*msg}, nil
 }
 
 // flushPendingMessage emits the held final assistant message for the stopped
@@ -1082,8 +1104,8 @@ func (d *claudeSubDecoder) flushPendingMessage() (*claudeSubDecoded, error) {
 
 // assembleMessage builds the final assistant message for the current message
 // from its accumulated state, translating each tool-call name. It is called once
-// per message: at the assistant echo when one follows the stream's stop, or at
-// the terminal result otherwise.
+// per message: at message_stop after an in-stream echo, at a post-stop fallback
+// echo, or at the terminal result otherwise.
 func (d *claudeSubDecoder) assembleMessage() (*claudeSubDecoded, error) {
 	message := Message{Role: MessageRoleAssistant}
 	if d.sawContent {
