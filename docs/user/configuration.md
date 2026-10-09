@@ -307,16 +307,12 @@ providers:
 | `api_key`     |   optional    |    —     |    —     |     ✓      |   ✓    |     ✓     |    ✓    | optional |    —     |      ✓      |      ✓       |         —           |
 | `api_key_env` |   optional    |    —     |    —     |     ✓      |   ✓    |     ✓     |    ✓    | optional |    —     |      ✓      |      ✓       |         —           |
 | `headers`     |       ✓       |    ✓     |    ✓     |     ✓      |   ✓    |     ✓     |    ✓    |    ✓     |    ✓     |      ✓      |      ✓       |         —           |
-| `timeout`     |       ✓       |    ✓     |    ✓     |     ✓      |   ✓    |     ✓     |    ✓    |    ✓     |    ✓     |      ✓      |      ✓       |         ✓           |
+| `timeout`     |       ✓       |    ✓     |    ✓     |     ✓      |   ✓    |     ✓     |    ✓    |    ✓     |    ✓     |      ✓      |      ✓       |         —           |
 | `codex`       |       —       |    —     |    —     |     —      |   —    |     —     |    —    |    —     |    ✓     |      —      |      —       |         —           |
 
 ¹ Native `gemini` is not a runtime-supported provider type. A user-provided endpoint may use `openai_compat` only when it exposes the supported OpenAI-compatible shape.
 
-For `claude_subscription`, `base_url`, `api_key`, `api_key_env`, and `headers` are not applicable. Authentication comes from the signed-in Claude CLI session. Only `timeout` applies from this table.
-
-
-
-
+For `claude_subscription`, `base_url`, `api_key`, `api_key_env`, `headers`, and `timeout` are not applicable. Authentication comes from the signed-in Claude CLI session.
 
 ### `codex` sub-block
 
