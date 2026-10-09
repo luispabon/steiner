@@ -168,6 +168,38 @@ func requireSubAgentsForOneshot(cfg config.Config) error {
 	return nil
 }
 
+// requireOneshotProviders refuses a oneshot run when a model alias the run can
+// route to resolves to the claude_subscription provider. It reads configuration
+// only, so it runs before any run identity, lock, manifest or worktree exists.
+// The providerFactory wrapper in newPhaseRunner stays as the backstop.
+func requireOneshotProviders(cfg config.Config) error {
+	for _, alias := range oneshotModelAliases(cfg) {
+		modelCfg, ok := config.ResolveModelConfig(&cfg, strings.TrimSpace(alias))
+		if !ok {
+			continue
+		}
+		if cfg.Providers[modelCfg.Provider].Type == config.ProviderTypeClaudeSubscription {
+			return errClaudeSubscriptionOneshot
+		}
+	}
+	return nil
+}
+
+// oneshotModelAliases lists the configured aliases a oneshot run can use: the
+// advisor, the default model that phases and sub-agents fall back to, each
+// phase model, and each sub-agent model.
+func oneshotModelAliases(cfg config.Config) []string {
+	effective := cfg.Models.Effective
+	aliases := []string{effective.DefaultModel, effective.Advisor}
+	for _, alias := range effective.OneShot {
+		aliases = append(aliases, alias)
+	}
+	for _, alias := range effective.SubAgents {
+		aliases = append(aliases, alias)
+	}
+	return aliases
+}
+
 func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
@@ -175,6 +207,9 @@ func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 	}
 	defer closeRuntime(&rt)
 	if err := requireSubAgentsForOneshot(rt.cfg); err != nil {
+		return err
+	}
+	if err := requireOneshotProviders(rt.cfg); err != nil {
 		return err
 	}
 
@@ -223,6 +258,9 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 	}
 	defer closeRuntime(&rt)
 	if err := requireSubAgentsForOneshot(rt.cfg); err != nil {
+		return err
+	}
+	if err := requireOneshotProviders(rt.cfg); err != nil {
 		return err
 	}
 

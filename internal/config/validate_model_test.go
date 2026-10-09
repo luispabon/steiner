@@ -15,35 +15,49 @@ func TestClaudeSubscriptionNeedsNoBaseURLCredential(t *testing.T) {
 }
 
 func TestValidateProvidersConfigClaudeSubscription(t *testing.T) {
-	const forbidden = `providers["claude"]: claude_subscription takes no base_url, api_key, api_key_env or headers — it uses your claude CLI login`
 	tests := []struct {
 		name     string
 		provider ProviderConfig
-		wantErr  bool
+		// wantFields is the field list the problem names; empty means valid.
+		wantFields string
 	}{
 		{
 			name:     "type only is valid",
 			provider: ProviderConfig{Type: ProviderTypeClaudeSubscription},
 		},
 		{
-			name:     "base_url is rejected",
-			provider: ProviderConfig{Type: ProviderTypeClaudeSubscription, BaseURL: "https://example.invalid"},
-			wantErr:  true,
+			name:     "explicit zero timeout is valid",
+			provider: ProviderConfig{Type: ProviderTypeClaudeSubscription, Timeout: MustDuration("0s")},
 		},
 		{
-			name:     "api_key is rejected",
-			provider: ProviderConfig{Type: ProviderTypeClaudeSubscription, APIKey: "sk-test"},
-			wantErr:  true,
+			name:       "base_url is rejected",
+			provider:   ProviderConfig{Type: ProviderTypeClaudeSubscription, BaseURL: "https://example.invalid"},
+			wantFields: "base_url",
 		},
 		{
-			name:     "api_key_env is rejected",
-			provider: ProviderConfig{Type: ProviderTypeClaudeSubscription, APIKeyEnv: "ANTHROPIC_API_KEY"},
-			wantErr:  true,
+			name:       "api_key is rejected",
+			provider:   ProviderConfig{Type: ProviderTypeClaudeSubscription, APIKey: "sk-test"},
+			wantFields: "api_key",
 		},
 		{
-			name:     "headers are rejected",
-			provider: ProviderConfig{Type: ProviderTypeClaudeSubscription, Headers: map[string]string{"x-test": "1"}},
-			wantErr:  true,
+			name:       "api_key_env is rejected",
+			provider:   ProviderConfig{Type: ProviderTypeClaudeSubscription, APIKeyEnv: "ANTHROPIC_API_KEY"},
+			wantFields: "api_key_env",
+		},
+		{
+			name:       "headers are rejected",
+			provider:   ProviderConfig{Type: ProviderTypeClaudeSubscription, Headers: map[string]string{"x-test": "1"}},
+			wantFields: "headers",
+		},
+		{
+			name:       "timeout is rejected",
+			provider:   ProviderConfig{Type: ProviderTypeClaudeSubscription, Timeout: MustDuration("45s")},
+			wantFields: "timeout",
+		},
+		{
+			name:       "every rejected field is named in order",
+			provider:   ProviderConfig{Type: ProviderTypeClaudeSubscription, BaseURL: "https://example.invalid", APIKey: "sk-test", APIKeyEnv: "ANTHROPIC_API_KEY", Headers: map[string]string{"x-test": "1"}, Timeout: MustDuration("45s")},
+			wantFields: "base_url, api_key, api_key_env, headers, timeout",
 		},
 	}
 	for _, tt := range tests {
@@ -51,14 +65,15 @@ func TestValidateProvidersConfigClaudeSubscription(t *testing.T) {
 			var problems []string
 			validateProvidersConfig(&problems, map[string]ProviderConfig{"claude": tt.provider})
 			joined := strings.Join(problems, "; ")
-			if tt.wantErr {
-				if !strings.Contains(joined, forbidden) {
-					t.Fatalf("problems = %q, want to contain %q", joined, forbidden)
+			if tt.wantFields == "" {
+				if joined != "" {
+					t.Fatalf("problems = %q, want none", joined)
 				}
 				return
 			}
-			if joined != "" {
-				t.Fatalf("problems = %q, want none", joined)
+			want := `providers["claude"]: claude_subscription takes no ` + tt.wantFields + ` — it uses your claude CLI login`
+			if joined != want {
+				t.Fatalf("problems = %q, want %q", joined, want)
 			}
 		})
 	}
