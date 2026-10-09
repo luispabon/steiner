@@ -739,6 +739,56 @@ func TestClaudeSubSyncSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestClaudeSubTranscript(t *testing.T) {
+	tests := []struct {
+		name     string
+		msgs     []Message
+		contains []string
+		absent   []string
+	}{
+		{
+			name:     "user and assistant text keep their labels",
+			msgs:     []Message{claudeSubSyncUserMsg("q1"), claudeSubSyncAssistantMsg("a1")},
+			contains: []string{"[user]\nq1", "[assistant]\na1"},
+		},
+		{
+			name:     "tool result is attributed to tool output",
+			msgs:     []Message{claudeSubSyncAssistantMsg("", "c1"), claudeSubSyncToolMsg("c1", "file body")},
+			contains: []string{"[tool output]\nfile body"},
+			absent:   []string{"[assistant]\nfile body"},
+		},
+		{
+			name: "tool-call-only assistant shows name and arguments",
+			msgs: []Message{{Role: MessageRoleAssistant, ToolCalls: []ToolCall{
+				{ID: "c1", Name: "read", Arguments: map[string]any{"path": "main.go"}},
+			}}},
+			contains: []string{"read", `"path":"main.go"`},
+		},
+		{
+			name: "raw tool-call arguments are rendered verbatim",
+			msgs: []Message{{Role: MessageRoleAssistant, ToolCalls: []ToolCall{
+				{ID: "c2", Name: "grep", RawArguments: `{"pattern":"TODO"}`},
+			}}},
+			contains: []string{"grep", `{"pattern":"TODO"}`},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := claudeSubTranscript(tc.msgs)
+			for _, want := range tc.contains {
+				if !strings.Contains(got, want) {
+					t.Errorf("transcript = %q, want it to contain %q", got, want)
+				}
+			}
+			for _, bad := range tc.absent {
+				if strings.Contains(got, bad) {
+					t.Errorf("transcript = %q, must not contain %q", got, bad)
+				}
+			}
+		})
+	}
+}
+
 func TestClaudeSubSyncUserBlocks(t *testing.T) {
 	msgs := []Message{
 		{Role: MessageRoleUser, Content: "hi", Images: []ImageBlock{{MediaType: "image/png", Data: "AAAA"}}},

@@ -3,6 +3,7 @@ package provider
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -316,15 +317,39 @@ func claudeSubTranscript(msgs []Message) string {
 	var b strings.Builder
 	b.WriteString("Conversation so far:\n\n")
 	for _, m := range msgs {
-		if m.Role == MessageRoleUser {
+		switch m.Role {
+		case MessageRoleUser:
 			b.WriteString("[user]\n")
-		} else {
+		case MessageRoleTool:
+			b.WriteString("[tool output]\n")
+		default:
 			b.WriteString("[assistant]\n")
 		}
 		b.WriteString(m.Content)
+		for _, c := range m.ToolCalls {
+			fmt.Fprintf(&b, "\n[tool call] %s %s", c.Name, claudeSubToolArguments(c))
+		}
 		b.WriteString("\n\n")
 	}
 	return b.String()
+}
+
+// claudeSubToolArguments returns a tool call's arguments as JSON text, using
+// the raw arguments the model produced when present.
+func claudeSubToolArguments(c ToolCall) string {
+	if c.RawArguments != "" {
+		return c.RawArguments
+	}
+	if c.Arguments == nil {
+		return "{}"
+	}
+	data, err := json.Marshal(c.Arguments)
+	if err != nil {
+		// Arguments come from decoded JSON, so this should not happen. Keep the
+		// call visible in the transcript rather than dropping it.
+		return fmt.Sprintf("%v", c.Arguments)
+	}
+	return string(data)
 }
 
 // claudeSubUserBlocks renders user messages as claude CLI content blocks: a text
