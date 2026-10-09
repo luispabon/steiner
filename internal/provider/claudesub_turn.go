@@ -28,7 +28,7 @@ func claudeSubEffortFor(req ChatRequest) string {
 	return req.Reasoning.Effort
 }
 
-func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, emit func(ChatChunk) error) (err error) {
+func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, emit func(ChatChunk) error) error {
 	key := claudeSubSessionKey(req)
 	spec := claudeSubStartSpec{Model: req.Model, Effort: claudeSubEffortFor(req)}
 	if !req.AdvisorCacheProfile {
@@ -40,12 +40,6 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 		return err
 	}
 	defer pool.release(s)
-	defer func() {
-		if err != nil {
-			// A failed turn ends the CLI query, so its usage no longer counts.
-			s.queryUsage = UsageStats{}
-		}
-	}()
 
 	if err := claudeSubFinishPending(ctx, s, req); err != nil {
 		return err
@@ -116,7 +110,14 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 		messages := claudeSubMessages(req.Messages)
 		s.sync.commitAdvisor(messages[:len(messages)-1])
 	}
-	return claudeSubConsume(ctx, s, emit)
+	if err := claudeSubConsume(ctx, s, emit); err != nil {
+		// A consume error aborts the query's stream, so its reported usage no
+		// longer applies. Pre-consume failures return above and keep it, because
+		// the query is still running and the retry continues it.
+		s.queryUsage = UsageStats{}
+		return err
+	}
+	return nil
 }
 
 func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRequest) error {
@@ -255,6 +256,10 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				// chunks already reported part of it, so the final chunk carries the rest.
 				usage := claudeSubResidualUsage(item.Result.Usage, s.queryUsage)
 				s.queryUsage = UsageStats{}
+				if item.Result.Usage == nil && ordinary != nil {
+					// The result carries no usage, so use this message's own usage.
+					usage = ordinary.Usage
+				}
 				if ordinary != nil {
 					s.sync.commitAssistant(*ordinary.Message)
 					if err := emit(ChatChunk{Delta: *ordinary.Message, ContentSnapshot: true, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: usage}); err != nil {
