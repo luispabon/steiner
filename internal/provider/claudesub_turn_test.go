@@ -21,6 +21,122 @@ func TestClaudeSubSessionKeySelection(t *testing.T) {
 	}
 }
 
+func TestClaudeSubTurnMultiTurnResolvesOpaqueToolResultAndOrdersCommit(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	spec := claudeSubTestSpec()
+	spec.Tools = []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	conn := (*claudeSubFakeConn)(nil)
+	var userSends int
+	connResponder := func(line []byte) []claudeSubEvent {
+		var envelope struct {
+			Type      string `json:"type"`
+			RequestID string `json:"request_id"`
+			Request   struct {
+				Subtype string `json:"subtype"`
+			} `json:"request"`
+		}
+		if json.Unmarshal(line, &envelope) != nil {
+			return nil
+		}
+		switch envelope.Type {
+		case "control_request":
+			if envelope.Request.Subtype == "get_usage" {
+				return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":false}}}`))}
+			}
+			return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, nil)}
+		case "user":
+			userSends++
+			all := claudeSubDecodeEvents(t, "turn_text.jsonl")
+			if userSends == 1 {
+				all = claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:9]
+			}
+			for _, ev := range all {
+				conn.push(ev)
+			}
+		}
+		return nil
+	}
+	s, err := pool.acquire(context.Background(), "multi", spec)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	conn = spawner.call(t, 0).Conn
+	conn.mu.Lock()
+	conn.responder = connResponder
+	conn.mu.Unlock()
+	pool.release(s)
+
+	first := ChatRequest{TransportSession: "multi", Model: claudeSubTestSpec().Model, Messages: []Message{{Role: MessageRoleUser, Content: "read notes"}}}
+	var firstChunks []ChatChunk
+	if err := claudeSubTurn(context.Background(), pool, first, func(chunk ChatChunk) error {
+		firstChunks = append(firstChunks, chunk)
+		return nil
+	}); err != nil {
+		t.Fatalf("first turn: %v", err)
+	}
+	if len(firstChunks) == 0 || len(firstChunks[len(firstChunks)-1].Delta.ToolCalls) != 1 {
+		t.Fatalf("first chunks = %+v, want tool call", firstChunks)
+	}
+
+	s, err = pool.acquire(context.Background(), "multi", spec)
+	if err != nil {
+		t.Fatalf("reacquire: %v", err)
+	}
+	if len(s.pending) != 1 {
+		t.Fatalf("pending = %+v, want one opaque call", s.pending)
+	}
+	call := s.pending[0].Handle
+	pool.release(s)
+	second := ChatRequest{
+		TransportSession: "multi",
+		Model:            "claude-sonnet-5-5",
+		Messages: []Message{
+			{Role: MessageRoleUser, Content: "read notes"},
+			{Role: MessageRoleAssistant, ToolCalls: []ToolCall{{ID: "toolu_1", Name: "read", Arguments: map[string]any{}}}, Content: ""},
+			{Role: MessageRoleTool, ToolCallID: "toolu_1", Content: "notes body"},
+			{Role: MessageRoleUser, Content: "summarize it"},
+		},
+	}
+	if err := claudeSubTurn(context.Background(), pool, second, func(ChatChunk) error { return nil }); err != nil {
+		t.Fatalf("second turn: %v", err)
+	}
+	result, ok := func() (claudeSubToolResult, bool) {
+		s, err := pool.acquire(context.Background(), "multi", spec)
+		if err != nil {
+			t.Fatalf("final reacquire: %v", err)
+		}
+		defer pool.release(s)
+		return s.host.claimResult(call)
+	}()
+	if !ok || result.Text != "notes body" || result.IsError {
+		t.Fatalf("opaque result = %+v, %v, want notes body", result, ok)
+	}
+	lines := conn.sentLines()
+	modelIndex, userIndex := -1, -1
+	for i, line := range lines {
+		if strings.Contains(line, `"subtype":"set_model"`) {
+			modelIndex = i
+		}
+		if strings.Contains(line, `"type":"user"`) {
+			userIndex = i
+		}
+		if strings.Contains(line, `"subtype":"apply_flag_settings"`) {
+			t.Fatalf("empty effort emitted an unverified reset control: %s", line)
+		}
+	}
+	if modelIndex < 0 || userIndex < 0 || modelIndex > userIndex {
+		t.Fatalf("sent lines = %v, want model switch before follow-up user write", lines)
+	}
+	s, err = pool.acquire(context.Background(), "multi", spec)
+	if err != nil {
+		t.Fatalf("ordering reacquire: %v", err)
+	}
+	if len(s.sync.entries) < 4 || s.sync.entries[2].Role != MessageRoleTool || s.sync.entries[3].Digest != claudeSubDigest(second.Messages[3]) {
+		t.Fatalf("sync entries = %+v, want tool result then committed follow-up", s.sync.entries)
+	}
+	pool.release(s)
+}
+
 func TestClaudeSubConsumeNormalTextTurn(t *testing.T) {
 	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	s, err := pool.acquire(context.Background(), "text", claudeSubTestSpec())

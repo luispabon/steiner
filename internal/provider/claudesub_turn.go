@@ -58,7 +58,7 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 		}
 		s.model = req.Model
 	}
-	if effort := claudeSubEffortFor(req); effort != s.effort {
+	if effort := claudeSubEffortFor(req); effort != "" && effort != s.effort {
 		if _, err := s.control.setEffort(ctx, effort); err != nil {
 			return err
 		}
