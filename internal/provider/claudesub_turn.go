@@ -222,7 +222,7 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				}
 				if ordinary != nil {
 					s.sync.commitAssistant(*ordinary.Message)
-					if err := emit(ChatChunk{Delta: *ordinary.Message, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: item.Result.Usage}); err != nil {
+					if err := emit(ChatChunk{Delta: *ordinary.Message, ContentSnapshot: true, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: item.Result.Usage}); err != nil {
 						return err
 					}
 				} else if err := emit(ChatChunk{Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: item.Result.Usage}); err != nil {

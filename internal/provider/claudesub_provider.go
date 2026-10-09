@@ -26,8 +26,16 @@ func (p *ClaudeSubscriptionProvider) ChatCompletion(ctx context.Context, req Cha
 	if err != nil {
 		return ChatResponse{}, err
 	}
-	var response ChatResponse
+	var chunks []ChatChunk
 	for chunk := range stream {
+		chunks = append(chunks, chunk)
+	}
+	return foldClaudeSubChunks(chunks)
+}
+
+func foldClaudeSubChunks(chunks []ChatChunk) (ChatResponse, error) {
+	var response ChatResponse
+	for _, chunk := range chunks {
 		if chunk.Error != "" {
 			if chunk.OriginalError != nil {
 				return ChatResponse{}, chunk.OriginalError
@@ -43,7 +51,9 @@ func (p *ClaudeSubscriptionProvider) ChatCompletion(ctx context.Context, req Cha
 			response.Message.Content += chunk.Delta.Content
 		}
 		response.Message.ReasoningContent += chunk.Thinking
-		response.Message.ReasoningContent += chunk.Delta.ReasoningContent
+		if chunk.Delta.ReasoningContent != "" && response.Message.ReasoningContent == "" {
+			response.Message.ReasoningContent = chunk.Delta.ReasoningContent
+		}
 		if len(chunk.Delta.ToolCalls) > 0 {
 			response.Message.ToolCalls = append(response.Message.ToolCalls, chunk.Delta.ToolCalls...)
 		}
