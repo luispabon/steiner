@@ -189,6 +189,7 @@ func (b *contentBuffer) applyDelegationAssistantChunk(dd *delegationDisplayState
 		return true
 	}
 	entry := dd.appendOrMergeAssistantEntry(payload.Content)
+	dd.streamedAssistantText += payload.Content
 	dd.currentOperation = previewDelegationText(entry.body)
 	return true
 }
@@ -201,6 +202,8 @@ func (b *contentBuffer) applyDelegationAssistantMessage(dd *delegationDisplaySta
 	if !ok {
 		return false
 	}
+	streamedAssistant := dd.streamedAssistantText
+	dd.streamedAssistantText = ""
 	if strings.TrimSpace(payload.Content) == "" {
 		return true
 	}
@@ -208,6 +211,10 @@ func (b *contentBuffer) applyDelegationAssistantMessage(dd *delegationDisplaySta
 		last.kind == delegationTranscriptEntryAssistant &&
 		normalizeDelegationText(last.body) == normalizeDelegationText(payload.Content) {
 		dd.currentOperation = previewDelegationText(last.body)
+		return true
+	}
+	if streamedAssistant != "" && normalizeDelegationText(streamedAssistant) == normalizeDelegationText(payload.Content) {
+		dd.currentOperation = previewDelegationText(payload.Content)
 		return true
 	}
 	idx := dd.appendTranscriptEntry(delegationTranscriptEntry{

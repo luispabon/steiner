@@ -224,6 +224,11 @@ type delegationDisplayState struct {
 	currentOperation string
 	entries          []delegationTranscriptEntry
 	childToolEntries map[string]int
+	// streamedAssistantText accumulates assistant chunk text for the current
+	// assistant turn. It is reset when the turn's finalized message arrives, and
+	// deliberately excludes thinking chunks so interleaved reasoning cannot hide
+	// the streamed answer from the duplicate-final suppression check.
+	streamedAssistantText string
 	// follow_up state: set when this is a follow-up call to an existing child
 	isFollowUp      bool
 	followUpAgentID string // the child agent being followed up on
