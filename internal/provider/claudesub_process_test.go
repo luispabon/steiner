@@ -30,6 +30,10 @@ func TestClaudeSubHelperProcess(t *testing.T) {
 	case "exit":
 		_, _ = io.WriteString(os.Stdout, `{"type":"system","subtype":"init"}`+"\n")
 		os.Exit(0)
+	case "record-output":
+		_, _ = io.WriteString(os.Stdout, "  {\"type\":\"system\",\"subtype\":\"init\"}  \n")
+		_, _ = io.WriteString(os.Stderr, "stderr-secret\n")
+		os.Exit(0)
 	case "stream-ignore-eof":
 		_, _ = io.WriteString(os.Stdout, `{"type":"system","subtype":"init","model":"claude-haiku-5-5"}`+"\n")
 		_, _ = io.WriteString(os.Stdout, `{"type":"control_response","response":{"subtype":"success","request_id":"steiner-1"}}`+"\n")
@@ -469,6 +473,62 @@ func newClaudeSubTestProcess(t *testing.T, child claudeSubChild) (*claudeSubProc
 	return p, stdoutW
 }
 
+func TestClaudeSubRecordingDisabledCreatesNoOutput(t *testing.T) {
+	if os.Getenv(claudeSubHelperModeEnv) != "" {
+		t.Skip("helper process")
+	}
+	root := filepath.Join(t.TempDir(), "recordings")
+	t.Setenv("STEINER_CLAUDESUB_RECORD", "")
+	child := newClaudeSubFakeChild()
+	claudeSubUseFakeChild(t, child)
+	conn, err := spawnClaudeSubProcess(claudeSubContextWithSessionKey(context.Background(), "session"), "unused", nil, nil, "")
+	if err != nil {
+		t.Fatalf("spawnClaudeSubProcess() error = %v", err)
+	}
+	proc := conn.(*claudeSubProcess)
+	if proc.recorder != nil {
+		t.Fatal("recorder is non-nil when recording is disabled")
+	}
+	if err := proc.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("recording root stat error = %v, want absent", err)
+	}
+}
+
+func TestClaudeSubProcessRecordsStdoutOnly(t *testing.T) {
+	if os.Getenv(claudeSubHelperModeEnv) != "" {
+		t.Skip("helper process")
+	}
+	root := filepath.Join(t.TempDir(), "recordings")
+	t.Setenv("STEINER_CLAUDESUB_RECORD", root)
+	env := append(os.Environ(), claudeSubHelperModeEnv+"=record-output")
+	conn, err := spawnClaudeSubProcess(claudeSubContextWithSessionKey(context.Background(), "session"), os.Args[0], []string{"-test.run=TestClaudeSubHelperProcess"}, env, "")
+	if err != nil {
+		t.Fatalf("spawnClaudeSubProcess() error = %v", err)
+	}
+	if err := conn.Send([]byte(`{"type":"user","message":"stdin-secret"}`)); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if err := conn.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	digest := sha256.Sum256([]byte("session"))
+	path := filepath.Join(root, fmt.Sprintf("%x.jsonl", digest))
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	want := "  {\"type\":\"system\",\"subtype\":\"init\"}  \n"
+	if string(got) != want {
+		t.Errorf("recorded content = %q, want stdout only %q", got, want)
+	}
+	if strings.Contains(string(got), "stdin-secret") || strings.Contains(string(got), "stderr-secret") {
+		t.Errorf("recorded content contains non-stdout data: %q", got)
+	}
+}
+
 func TestClaudeSubStdoutRecorder(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "recordings")
 	key := "parent|../hostile\\\\key"
@@ -577,6 +637,39 @@ func TestClaudeSubStdoutRecorderFailureStopsProcess(t *testing.T) {
 	}
 	if cause := p.Err(); cause == nil || !strings.Contains(cause.Error(), "record claude CLI stdout") {
 		t.Fatalf("Err() = %v, want recorder failure", cause)
+	}
+}
+
+func TestClaudeSubStdoutRecorderConcurrentWriteClose(t *testing.T) {
+	recorder, err := newClaudeSubStdoutRecorder(t.TempDir(), "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const writers = 8
+	const linesPerWriter = 100
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < linesPerWriter; j++ {
+				_ = recorder.writeLine([]byte(fmt.Sprintf("writer-%d-line-%d", i, j)))
+			}
+		}(i)
+	}
+	closeDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		_ = recorder.close()
+		close(closeDone)
+	}()
+	select {
+	case <-closeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("concurrent recorder writes and close did not finish")
+	}
+	if err := recorder.close(); err != nil {
+		t.Fatalf("second close() error = %v", err)
 	}
 }
 
