@@ -133,10 +133,31 @@ func appendProviderProblems(problems *[]string, name string, p ProviderConfig) {
 	appendCodexTransportProblems(problems, name, p)
 }
 
+// claudeSubscriptionRejectedFields lists the provider fields claude_subscription
+// does not accept. The check and the error text both derive from this table.
+var claudeSubscriptionRejectedFields = []struct {
+	name string
+	set  func(ProviderConfig) bool
+}{
+	{"base_url", func(p ProviderConfig) bool { return strings.TrimSpace(p.BaseURL) != "" }},
+	{"api_key", func(p ProviderConfig) bool { return strings.TrimSpace(p.APIKey) != "" }},
+	{"api_key_env", func(p ProviderConfig) bool { return strings.TrimSpace(p.APIKeyEnv) != "" }},
+	{"headers", func(p ProviderConfig) bool { return len(p.Headers) > 0 }},
+	{"timeout", func(p ProviderConfig) bool { return !p.Timeout.IsZero() }},
+}
+
 func appendClaudeSubscriptionProblems(problems *[]string, name string, p ProviderConfig) {
-	if p.Type == ProviderTypeClaudeSubscription &&
-		(strings.TrimSpace(p.BaseURL) != "" || strings.TrimSpace(p.APIKey) != "" || strings.TrimSpace(p.APIKeyEnv) != "" || len(p.Headers) > 0) {
-		*problems = append(*problems, fmt.Sprintf("providers[%q]: claude_subscription takes no base_url, api_key, api_key_env or headers — it uses your claude CLI login", name))
+	if p.Type != ProviderTypeClaudeSubscription {
+		return
+	}
+	var rejected []string
+	for _, field := range claudeSubscriptionRejectedFields {
+		if field.set(p) {
+			rejected = append(rejected, field.name)
+		}
+	}
+	if len(rejected) > 0 {
+		*problems = append(*problems, fmt.Sprintf("providers[%q]: claude_subscription takes no %s — it uses your claude CLI login", name, strings.Join(rejected, ", ")))
 	}
 }
 
