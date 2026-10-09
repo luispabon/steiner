@@ -55,6 +55,10 @@ type claudeSubRateLimitInfo struct {
 	OverageInUse   *bool  `json:"overageInUse"`
 }
 
+// errClaudeSubUnrecognisedStatus marks a rate_limit_info status outside the
+// known set. Such events fail closed.
+var errClaudeSubUnrecognisedStatus = errors.New("unrecognised rate-limit status")
+
 // claudeSubRateLimitVerdict classifies a rate_limit_event's rate_limit_info.
 // overage reports that paid extra usage started; it fails closed (true) when
 // the event cannot be decoded or its shape is unrecognised. limit carries the
@@ -80,10 +84,18 @@ func claudeSubRateLimitVerdict(raw json.RawMessage) (overage bool, limit *UsageL
 		}
 		return false, limit, nil
 	}
-	if info.Status != "allowed" {
-		return true, nil, fmt.Errorf("could not classify claude rate limit event: %s", truncateRunes(string(raw), usageLimitBodyRunes))
+	switch info.Status {
+	case "allowed":
+		return false, nil, nil
+	case "allowed_warning":
+		// The bundled CLI schema lists allowed_warning as a status value. It is
+		// accepted only when the overage fields are explicitly present.
+		if info.IsUsingOverage == nil || info.OverageStatus == "" || info.RateLimitType == "" {
+			return true, nil, fmt.Errorf("%w %q without explicit overage fields", errClaudeSubUnrecognisedStatus, info.Status)
+		}
+		return false, nil, nil
 	}
-	return false, nil, nil
+	return true, nil, fmt.Errorf("%w %q", errClaudeSubUnrecognisedStatus, info.Status)
 }
 
 func claudeSubRateLimitIsOverage(info claudeSubRateLimitInfo) bool {
