@@ -17,10 +17,7 @@ func claudeSubStream(ctx context.Context, pool *ClaudeSubscriptionPool, req Chat
 			}
 		})
 		if err != nil {
-			select {
-			case out <- ChatChunk{Done: true, Error: err.Error(), OriginalError: err}:
-			case <-ctx.Done():
-			}
+			sendChunk(ctx, out, ChatChunk{Done: true, Error: err.Error(), OriginalError: err})
 		}
 	}()
 	return out, nil

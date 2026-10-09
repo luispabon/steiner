@@ -155,7 +155,7 @@ type claudeSubProcess struct {
 	errMu      sync.Mutex
 	err        error
 	waitErr    error
-	forcedErr  error
+	rootErr    error
 	scanErr    error
 	writeErr   error
 	cleanupErr error // terminal cleanup error, published before terminal closes
@@ -357,8 +357,8 @@ func (p *claudeSubProcess) startShutdown(cause error) {
 	// racing an in-progress shutdown is not silently lost.
 	if cause != nil {
 		p.errMu.Lock()
-		if p.forcedErr == nil {
-			p.forcedErr = cause
+		if p.rootErr == nil {
+			p.rootErr = cause
 		}
 		p.errMu.Unlock()
 	}
@@ -460,8 +460,8 @@ func (p *claudeSubProcess) finalizeErr() {
 	p.errMu.Lock()
 	var err error
 	switch {
-	case p.forcedErr != nil:
-		err = p.forcedErr
+	case p.rootErr != nil:
+		err = p.rootErr
 	case p.writeErr != nil:
 		err = p.writeErr
 	case p.scanErr != nil:

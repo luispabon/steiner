@@ -1173,7 +1173,7 @@ func (d *claudeSubDecoder) finalizeOrderedToolUses() ([]ToolCall, error) {
 				Name:         acc.Name,
 				RawArguments: raw,
 				Arguments: map[string]any{
-					claudeSubUnparsedToolInputKey: map[string]any{
+					UnparsedToolInputKey: map[string]any{
 						"raw": raw,
 						"len": len([]byte(raw)),
 					},
@@ -1190,10 +1190,6 @@ func (d *claudeSubDecoder) finalizeOrderedToolUses() ([]ToolCall, error) {
 	return calls, nil
 }
 
-// toolName translates a CLI-published tool name through the hook, defaulting to
-// the name unchanged when no hook is set.
-const claudeSubUnparsedToolInputKey = "__unparsedToolInput"
-
 // claudeSubValidatedUnparsedToolInput accepts the CLI-certified sentinel only
 // for an assistant echo that confirms a streamed tool use. Its shape, raw bytes
 // and byte length must all match the accumulated input exactly.
@@ -1205,7 +1201,7 @@ func claudeSubValidatedUnparsedToolInput(input json.RawMessage, accumulated stri
 	if err := json.Unmarshal(input, &object); err != nil {
 		return "", false, fmt.Errorf("%w: decode unparsed tool input sentinel: %v", errClaudeSubDecodeStream, err)
 	}
-	field, present := object[claudeSubUnparsedToolInputKey]
+	field, present := object[UnparsedToolInputKey]
 	if !present {
 		return "", false, nil
 	}
@@ -1233,6 +1229,8 @@ func claudeSubValidatedUnparsedToolInput(input json.RawMessage, accumulated stri
 	return raw, true, nil
 }
 
+// toolName translates a CLI-published tool name through the hook, defaulting to
+// the name unchanged when no hook is set.
 func (d *claudeSubDecoder) toolName(cliName string) string {
 	if d.hooks.ToolName == nil {
 		return cliName

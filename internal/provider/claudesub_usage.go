@@ -131,17 +131,28 @@ func claudeSubNotificationIsOverage(text string) bool {
 	return false
 }
 
-func claudeSubEventUsageLimit(ev claudeSubEvent) *UsageLimitError {
-	if ev.Type != "rate_limit_event" {
-		return nil
-	}
+// claudeSubEventRateLimitInfo returns the rate_limit_info payload of ev. ok is false
+// when the payload is missing or malformed; callers choose their own policy for
+// that case.
+func claudeSubEventRateLimitInfo(ev claudeSubEvent) (info json.RawMessage, ok bool) {
 	var envelope struct {
 		RateLimitInfo json.RawMessage `json:"rate_limit_info"`
 	}
 	if json.Unmarshal(ev.Raw, &envelope) != nil || len(envelope.RateLimitInfo) == 0 {
+		return nil, false
+	}
+	return envelope.RateLimitInfo, true
+}
+
+func claudeSubEventUsageLimit(ev claudeSubEvent) *UsageLimitError {
+	if ev.Type != "rate_limit_event" {
 		return nil
 	}
-	_, limit, err := claudeSubRateLimitVerdict(envelope.RateLimitInfo)
+	info, ok := claudeSubEventRateLimitInfo(ev)
+	if !ok {
+		return nil
+	}
+	_, limit, err := claudeSubRateLimitVerdict(info)
 	if err != nil {
 		return nil
 	}
@@ -152,13 +163,11 @@ func claudeSubEventUsageLimit(ev claudeSubEvent) *UsageLimitError {
 // before the turn decoder sees it. Plain rejected usage limits are not overage.
 func claudeSubEventIsOverage(ev claudeSubEvent) bool {
 	if ev.Type == "rate_limit_event" {
-		var envelope struct {
-			RateLimitInfo json.RawMessage `json:"rate_limit_info"`
-		}
-		if err := json.Unmarshal(ev.Raw, &envelope); err != nil || len(envelope.RateLimitInfo) == 0 {
+		info, ok := claudeSubEventRateLimitInfo(ev)
+		if !ok {
 			return true
 		}
-		overage, _, err := claudeSubRateLimitVerdict(envelope.RateLimitInfo)
+		overage, _, err := claudeSubRateLimitVerdict(info)
 		return overage || err != nil
 	}
 	if ev.Type != "system" {

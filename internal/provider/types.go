@@ -35,6 +35,11 @@ type ToolCall struct {
 	RawArguments string         `json:"raw_arguments,omitempty"`
 }
 
+// UnparsedToolInputKey is the reserved ToolCall.Arguments key marking input the
+// CLI certified but the provider could not parse. internal/tool rejects such
+// calls before policy, approval, or dispatch.
+const UnparsedToolInputKey = "__unparsedToolInput"
+
 // AnthropicMessageMetadata carries Anthropic-native replay fields that must be
 // preserved on specific assistant messages.
 type AnthropicMessageMetadata struct {

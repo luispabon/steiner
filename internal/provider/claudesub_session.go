@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -374,11 +373,8 @@ var errClaudeSubPaidExtraUsage = errors.New("claude_subscription stopped because
 // errClaudeSubPaidExtraUsage. The session fails closed either way.
 func claudeSubOverageError(ev claudeSubEvent) error {
 	if ev.Type == "rate_limit_event" {
-		var envelope struct {
-			RateLimitInfo json.RawMessage `json:"rate_limit_info"`
-		}
-		if json.Unmarshal(ev.Raw, &envelope) == nil && len(envelope.RateLimitInfo) > 0 {
-			if _, _, err := claudeSubRateLimitVerdict(envelope.RateLimitInfo); errors.Is(err, errClaudeSubUnrecognisedStatus) {
+		if info, ok := claudeSubEventRateLimitInfo(ev); ok {
+			if _, _, err := claudeSubRateLimitVerdict(info); errors.Is(err, errClaudeSubUnrecognisedStatus) {
 				return err
 			}
 		}

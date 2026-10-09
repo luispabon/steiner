@@ -70,9 +70,8 @@ type claudeSubDelta struct {
 // claudeSubSync is the per-process append-only record of what has been sent to
 // the claude CLI, plus advisor-mode bookkeeping and D22 interrupt state.
 type claudeSubSync struct {
-	entries      []claudeSubEntry
-	systemPrompt string
-	started      bool
+	entries []claudeSubEntry
+	started bool
 
 	// advisorEntries is the parent-snapshot prefix already sent to the advisor.
 	advisorEntries []claudeSubEntry
@@ -134,7 +133,6 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 				return claudeSubDelta{}, errClaudeSubHistoryChanged
 			}
 		}
-		s.systemPrompt = claudeSubSystemPrompt(req.Messages)
 		return claudeSubDelta{User: msgs, keep: s.entries, keepInterruptible: s.interruptible}, nil
 	}
 	if !s.interrupted && len(msgs) < len(s.entries) {
@@ -321,7 +319,6 @@ func (s *claudeSubSync) planAdvisor(req ChatRequest) (claudeSubDelta, error) {
 	from := len(s.advisorEntries)
 	if !s.started {
 		from = 0
-		s.systemPrompt = claudeSubSystemPrompt(req.Messages)
 	}
 	var user []Message
 	if part := snapshot[from:]; len(part) > 0 {

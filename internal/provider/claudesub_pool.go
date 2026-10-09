@@ -731,6 +731,19 @@ func (p *ClaudeSubscriptionPool) shutdown() {
 	p.mu.Unlock()
 
 	var wg sync.WaitGroup
+	// join waits for done in a tracked goroutine. If the shutdown deadline expires
+	// first, the shutdown is marked incomplete.
+	join := func(done <-chan struct{}) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case <-done:
+			case <-ctx.Done():
+				p.markCleanupIncomplete()
+			}
+		}()
+	}
 	for _, s := range sessions {
 		wg.Add(1)
 		go func(s *claudeSubSession) {
@@ -752,39 +765,15 @@ func (p *ClaudeSubscriptionPool) shutdown() {
 	// any cleanup failure to the ledger; a startup that has not settled by the
 	// deadline leaves shutdown incomplete.
 	for _, st := range startups {
-		wg.Add(1)
-		go func(st *claudeSubStartup) {
-			defer wg.Done()
-			select {
-			case <-st.done:
-			case <-ctx.Done():
-				p.markCleanupIncomplete()
-			}
-		}(st)
+		join(st.done)
 	}
 	// Join the reaper under the same deadline.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		select {
-		case <-p.reaperDone:
-		case <-ctx.Done():
-			p.markCleanupIncomplete()
-		}
-	}()
+	join(p.reaperDone)
 	// Await the shared CLI lookup only to the same deadline. Its completion is
 	// durable, so if an injected lookup ignores cancellation the pool reports
 	// incomplete and keeps the job (and its one lookup) tracked.
 	if cliStarted {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			select {
-			case <-cliJob.done:
-			case <-ctx.Done():
-				p.markCleanupIncomplete()
-			}
-		}()
+		join(cliJob.done)
 	}
 	waitGroup(&wg)
 

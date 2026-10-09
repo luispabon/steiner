@@ -85,11 +85,8 @@ func TestClaudeSubSyncFirstRequest(t *testing.T) {
 		t.Fatalf("delta tool results = %+v, want none", delta.ToolResults)
 	}
 	wantSys := "steiner preamble\n\nAGENTS.md contents\n\n" + claudeSubToolNote
-	if s.systemPrompt != wantSys {
-		t.Fatalf("system prompt = %q, want %q", s.systemPrompt, wantSys)
-	}
-	if !strings.HasSuffix(s.systemPrompt, claudeSubToolNote) {
-		t.Fatalf("system prompt %q does not end with the tool note", s.systemPrompt)
+	if got := claudeSubSystemPrompt(req.Messages); got != wantSys {
+		t.Fatalf("system prompt = %q, want %q", got, wantSys)
 	}
 	if s.started {
 		t.Fatal("sync started before commitSent")
@@ -703,7 +700,8 @@ func TestClaudeSubSyncAdvisor(t *testing.T) {
 	t.Run("first call renders the whole snapshot", func(t *testing.T) {
 		var s claudeSubSync
 		snapshot := []Message{claudeSubSyncUserMsg("q1"), claudeSubSyncAssistantMsg("a1")}
-		delta, err := s.planAdvisor(advisorReq("files and question", snapshot...))
+		req := advisorReq("files and question", snapshot...)
+		delta, err := s.planAdvisor(req)
 		if err != nil {
 			t.Fatalf("planAdvisor: %v", err)
 		}
@@ -714,8 +712,8 @@ func TestClaudeSubSyncAdvisor(t *testing.T) {
 		if !strings.Contains(delta.User[0].Content, "[user]\nq1") || !strings.Contains(delta.User[0].Content, "[assistant]\na1") {
 			t.Fatalf("transcript = %q", delta.User[0].Content)
 		}
-		if s.systemPrompt != "advisor system prompt\n\n"+claudeSubToolNote {
-			t.Fatalf("system prompt = %q", s.systemPrompt)
+		if got := claudeSubSystemPrompt(req.Messages); got != "advisor system prompt\n\n"+claudeSubToolNote {
+			t.Fatalf("system prompt = %q", got)
 		}
 		s.commitAdvisor(snapshot)
 		if !s.started {

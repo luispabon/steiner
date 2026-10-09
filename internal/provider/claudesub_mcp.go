@@ -281,7 +281,7 @@ func (h *claudeSubMCPHost) callTool(ctx context.Context, req *mcp.CallToolReques
 	call, waiter, state := h.openCall(id)
 	switch state {
 	case claudeSubCallClosed:
-		return claudeSubMCPTextResult("tool call cancelled", true), nil
+		return claudeSubMCPCancelledResult(), nil
 	case claudeSubCallDuplicate:
 		// Another handler still owns this id, either waiting or holding a
 		// resolved result it has not consumed yet; it must not be stolen.
@@ -296,7 +296,7 @@ func (h *claudeSubMCPHost) callTool(ctx context.Context, req *mcp.CallToolReques
 		if r, ok := h.claimResult(call); ok {
 			return claudeSubMCPResult(r), nil
 		}
-		return claudeSubMCPTextResult("tool call cancelled", true), nil
+		return claudeSubMCPCancelledResult(), nil
 	}
 
 	timer := time.NewTimer(h.heartbeat)
@@ -308,13 +308,13 @@ func (h *claudeSubMCPHost) callTool(ctx context.Context, req *mcp.CallToolReques
 			if r, ok := h.claimResult(call); ok {
 				return claudeSubMCPResult(r), nil
 			}
-			return claudeSubMCPTextResult("tool call cancelled", true), nil
+			return claudeSubMCPCancelledResult(), nil
 		case <-ctx.Done():
 			h.cancelCall(call)
-			return claudeSubMCPTextResult("tool call cancelled", true), nil
+			return claudeSubMCPCancelledResult(), nil
 		case <-h.closeCh:
 			h.cancelCall(call)
-			return claudeSubMCPTextResult("tool call cancelled", true), nil
+			return claudeSubMCPCancelledResult(), nil
 		case <-timer.C:
 			elapsed += h.heartbeat
 			if token := req.Params.GetProgressToken(); token != nil {
@@ -634,6 +634,12 @@ func claudeSubMCPResult(r claudeSubToolResult) *mcp.CallToolResult {
 
 func claudeSubMCPTextResult(text string, isError bool) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: isError, Content: []mcp.Content{&mcp.TextContent{Text: text}}}
+}
+
+// claudeSubMCPCancelledResult is the error result returned for a tool call that
+// was cancelled before it produced a result.
+func claudeSubMCPCancelledResult() *mcp.CallToolResult {
+	return claudeSubMCPTextResult("tool call cancelled", true)
 }
 
 // claudeSubToolsKey fingerprints a spec set so setTools can skip no-op updates.
