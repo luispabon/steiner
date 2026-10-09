@@ -575,3 +575,59 @@ func TestClaudeSubQueueCloseDrainsBeforeExit(t *testing.T) {
 		t.Fatal("closed queue returned an event after draining")
 	}
 }
+
+func TestClaudeSubTurnFailureIncludesResultText(t *testing.T) {
+	cases := []struct {
+		name    string
+		subtype string
+		text    string
+		want    string
+	}{
+		{
+			name:    "result text is quoted",
+			subtype: "error_max_turns",
+			text:    "stopped early",
+			want:    "claude_subscription turn failed: error_max_turns: stopped early",
+		},
+		{
+			name:    "empty text keeps the subtype only",
+			subtype: "error_during_execution",
+			want:    "claude_subscription turn failed: error_during_execution",
+		},
+		{
+			name:    "long text is cut to the limit",
+			subtype: "error_max_turns",
+			text:    strings.Repeat("a", 400),
+			want:    "claude_subscription turn failed: error_max_turns: " + strings.Repeat("a", 300) + "...",
+		},
+		{
+			name:    "cut backs up to a rune boundary",
+			subtype: "error_max_turns",
+			text:    "a" + strings.Repeat("\u00e9", 200),
+			want:    "claude_subscription turn failed: error_max_turns: a" + strings.Repeat("\u00e9", 149) + "...",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := claudeSubTurnFailure(&claudeSubResult{Subtype: tc.subtype, Text: tc.text, IsError: true})
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestClaudeSubConsumeErrorResultReportsText(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	s, err := pool.acquire(context.Background(), "error-result", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer pool.release(s)
+	spawner.call(t, 0).Conn.push(claudeSubEvent{Type: "result", Raw: json.RawMessage(`{"subtype":"error_max_turns","is_error":true,"result":"stopped early"}`)})
+	err = claudeSubConsume(context.Background(), s, func(ChatChunk) error { return nil })
+	const want = "claude_subscription turn failed: error_max_turns: stopped early"
+	if err == nil || err.Error() != want {
+		t.Fatalf("consume error = %v, want %q", err, want)
+	}
+}

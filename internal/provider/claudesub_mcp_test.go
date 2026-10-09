@@ -992,3 +992,207 @@ func TestClaudeSubMCPResolveRejectsForeignHandle(t *testing.T) {
 		t.Fatal("host A resolve did not release the call")
 	}
 }
+
+func TestClaudeSubMCPPublishedToolSchema(t *testing.T) {
+	cases := []struct {
+		name    string
+		params  map[string]any
+		wantErr bool
+	}{
+		{name: "nil defaults to object"},
+		{name: "empty map gets object type", params: map[string]any{}},
+		{name: "missing type gets object type", params: map[string]any{"properties": map[string]any{"path": map[string]any{"type": "string"}}}},
+		{name: "explicit object kept", params: claudeSubMCPObjectSchema(nil)},
+		{name: "string type rejected", params: map[string]any{"type": "string"}, wantErr: true},
+		{name: "null type rejected", params: map[string]any{"type": nil}, wantErr: true},
+		{name: "unmarshalable schema rejected", params: map[string]any{"default": func() {}}, wantErr: true},
+		{name: "invalid x-mcp-header rejected", params: map[string]any{"type": "object", "properties": map[string]any{"a": map[string]any{"type": "object", "x-mcp-header": "X-A"}}}, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, hadType := tc.params["type"]
+			tool, err := claudeSubPublishedTool(ToolSpec{Function: ToolFunctionSpec{Name: "read", Parameters: tc.params}})
+			if _, has := tc.params["type"]; has != hadType {
+				t.Fatal("input schema was mutated")
+			}
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("err = nil, want an error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("claudeSubPublishedTool: %v", err)
+			}
+			schema, ok := tool.InputSchema.(map[string]any)
+			if !ok || schema["type"] != "object" {
+				t.Fatalf("input schema = %#v, want type object", tool.InputSchema)
+			}
+		})
+	}
+}
+
+func TestClaudeSubMCPSetToolsFailureKeepsPublishedSet(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+	if err := h.setTools(nil); err != nil {
+		t.Fatalf("setTools(nil): %v", err)
+	}
+	if err := h.setTools([]ToolSpec{{Function: ToolFunctionSpec{Name: "read", Parameters: claudeSubMCPObjectSchema(nil)}}}); err != nil {
+		t.Fatalf("setTools(read): %v", err)
+	}
+	h.mu.Lock()
+	before := h.toolKey
+	h.mu.Unlock()
+
+	// The valid spec comes after the bad one; nothing from this set may publish.
+	err := h.setTools([]ToolSpec{
+		{Function: ToolFunctionSpec{Name: "write", Parameters: map[string]any{"type": "string"}}},
+		{Function: ToolFunctionSpec{Name: "grep", Parameters: claudeSubMCPObjectSchema(nil)}},
+	})
+	if err == nil {
+		t.Fatal("setTools with a string-typed schema: err = nil, want an error")
+	}
+	h.mu.Lock()
+	key, names := h.toolKey, h.names
+	h.mu.Unlock()
+	if key != before {
+		t.Error("toolKey changed after a failed setTools")
+	}
+	if len(names) != 1 || names["read"] != "read" {
+		t.Errorf("names = %v, want only the previously published read tool", names)
+	}
+}
+
+func TestClaudeSubMCPRepeatedCompletedCallGetsImmediateError(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+	if err := h.setTools([]ToolSpec{{Function: ToolFunctionSpec{Name: "read", Parameters: claudeSubMCPObjectSchema(nil)}}}); err != nil {
+		t.Fatalf("setTools: %v", err)
+	}
+	cs := claudeSubMCPConnect(t, h, h.token, nil)
+
+	ctx, cancel := context.WithTimeout(t.Context(), claudeSubMCPTestTimeout)
+	defer cancel()
+	params := &mcp.CallToolParams{
+		Name: "read",
+		Meta: mcp.Meta{"claudecode/toolUseId": "toolu_done"},
+	}
+	first := make(chan *mcp.CallToolResult, 1)
+	firstErr := make(chan error, 1)
+	go func() {
+		res, err := cs.CallTool(ctx, params)
+		if err != nil {
+			firstErr <- err
+			return
+		}
+		first <- res
+	}()
+	claudeSubMCPWaitWaiter(t, h, "toolu_done")
+	h.resolve(h.beginCall("toolu_done"), claudeSubToolResult{Text: "done"})
+	select {
+	case res := <-first:
+		if got := claudeSubMCPText(res); got != "done" {
+			t.Fatalf("first text = %q, want done", got)
+		}
+	case err := <-firstErr:
+		t.Fatalf("first CallTool: %v", err)
+	case <-time.After(claudeSubMCPTestTimeout):
+		t.Fatal("resolve did not release the first call")
+	}
+
+	repeat, err := cs.CallTool(ctx, params)
+	if err != nil {
+		t.Fatalf("repeat CallTool: %v", err)
+	}
+	if !repeat.IsError {
+		t.Error("repeat result IsError = false, want true")
+	}
+	if got := claudeSubMCPText(repeat); got != "tool call already completed" {
+		t.Errorf("repeat text = %q, want %q", got, "tool call already completed")
+	}
+}
+
+func TestClaudeSubMCPRetiredIDsAreBounded(t *testing.T) {
+	h := claudeSubMCPNewHost(t)
+	for i := 0; i <= claudeSubRetiredMax; i++ {
+		h.cancelCall(h.beginCall(fmt.Sprintf("toolu_retired_%d", i)))
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.retired) != claudeSubRetiredMax || len(h.retiredOrder) != claudeSubRetiredMax {
+		t.Fatalf("retired = %d ids, order = %d, want %d each", len(h.retired), len(h.retiredOrder), claudeSubRetiredMax)
+	}
+	if _, ok := h.retired["toolu_retired_0"]; ok {
+		t.Error("oldest retired id is still remembered")
+	}
+	if _, ok := h.retired[fmt.Sprintf("toolu_retired_%d", claudeSubRetiredMax)]; !ok {
+		t.Error("newest retired id was not remembered")
+	}
+}
+
+func claudeSubMCPSignalled(c chan struct{}) bool {
+	select {
+	case <-c:
+		return true
+	default:
+		return false
+	}
+}
+
+func TestClaudeSubMCPSettle(t *testing.T) {
+	cases := []struct {
+		name       string
+		callFirst  bool // tools/call opens the call before beginCall registers the id
+		announce   bool // beginCall registers the id
+		wantFailed bool
+	}{
+		{name: "early call for an announced id is kept", callFirst: true, announce: true},
+		{name: "announced id with a later call is kept", announce: true},
+		{name: "call for a never announced id is failed", callFirst: true, wantFailed: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := claudeSubMCPNewHost(t)
+			const id = "toolu_settle"
+			var (
+				call   *claudeSubCall
+				waiter chan struct{}
+			)
+			open := func() {
+				c, w, state := h.openCall(id)
+				if state != claudeSubCallAcquired {
+					t.Fatalf("openCall state = %v, want acquired", state)
+				}
+				call, waiter = c, w
+			}
+			if tc.callFirst {
+				open()
+			}
+			if tc.announce {
+				h.beginCall(id)
+			}
+			if !tc.callFirst {
+				open()
+			}
+
+			h.settle()
+			if got := claudeSubMCPSignalled(waiter); got != tc.wantFailed {
+				t.Fatalf("waiter settled = %v, want %v", got, tc.wantFailed)
+			}
+			if tc.wantFailed {
+				r, ok := h.claimResult(call)
+				if !ok || !r.IsError {
+					t.Fatalf("claimResult = (%+v, %v), want an error result", r, ok)
+				}
+				if _, _, state := h.openCall(id); state != claudeSubCallRetired {
+					t.Fatalf("openCall after failure = %v, want retired", state)
+				}
+				return
+			}
+			h.resolve(call, claudeSubToolResult{Text: "ok"})
+			r, ok := h.claimResult(call)
+			if !ok || r.Text != "ok" {
+				t.Fatalf("claimResult = (%+v, %v), want (ok, true)", r, ok)
+			}
+		})
+	}
+}
