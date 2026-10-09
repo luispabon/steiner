@@ -232,15 +232,11 @@ func TestClaudeSubSessionPendingHandles(t *testing.T) {
 	if handle.id != "toolu_1" {
 		t.Errorf("handle id = %q, want toolu_1", handle.id)
 	}
-	pending := s.takePending()
-	if len(pending) != 1 {
-		t.Fatalf("takePending returned %d calls, want 1", len(pending))
+	if len(s.pending) != 1 {
+		t.Fatalf("pending calls = %d, want 1", len(s.pending))
 	}
-	if pending[0].ID != "toolu_1" || pending[0].Handle != handle {
-		t.Errorf("pending call = %+v, want id toolu_1 and the returned handle", pending[0])
-	}
-	if got := s.takePending(); len(got) != 0 {
-		t.Errorf("takePending did not clear the record: %v", got)
+	if s.pending[0].ID != "toolu_1" || s.pending[0].Handle != handle {
+		t.Errorf("pending call = %+v, want id toolu_1 and the returned handle", s.pending[0])
 	}
 }
 
@@ -255,8 +251,8 @@ func TestClaudeSubSessionPendingHandlesToolLess(t *testing.T) {
 	if handle := s.beginPendingCall("toolu_1"); handle != nil {
 		t.Error("tool-less session must not register a pending call")
 	}
-	if got := s.takePending(); len(got) != 0 {
-		t.Errorf("tool-less session recorded %d pending calls", len(got))
+	if len(s.pending) != 0 {
+		t.Errorf("tool-less session recorded %d pending calls", len(s.pending))
 	}
 }
 

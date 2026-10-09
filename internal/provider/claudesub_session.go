@@ -103,6 +103,13 @@ type claudeSubSession struct {
 	stop       chan struct{}
 	routerDone chan struct{}
 
+	// overage is terminal for this session's lifetime. It is independent of the
+	// whole-call lock so the router can fail a parked call immediately.
+	overageMu    sync.Mutex
+	overageErr   error
+	overageOnce  sync.Once
+	overageAbort chan struct{}
+
 	// active and lastUsed are guarded by the owning pool's mutex.
 	active   int
 	lastUsed time.Time
@@ -275,9 +282,10 @@ func startClaudeSubSession(ctx context.Context, p *ClaudeSubscriptionPool, key s
 	s.queue = newClaudeSubQueue()
 	s.stop = make(chan struct{})
 	s.routerDone = make(chan struct{})
+	s.overageAbort = make(chan struct{})
 	go func() {
 		defer close(s.routerDone)
-		claudeSubRoute(conn.Events(), s.stop, s.control, s.queue)
+		claudeSubRoute(conn.Events(), s.stop, s.control, s.queue, s.observeEvent)
 	}()
 	return s, nil
 }
@@ -296,14 +304,6 @@ func (s *claudeSubSession) beginPendingCall(id string) *claudeSubCall {
 	}
 	s.pending = append(s.pending, claudeSubPendingCall{ID: id, Handle: call})
 	return call
-}
-
-// takePending returns the recorded pending calls and clears the record. The
-// caller must hold the whole-call lock.
-func (s *claudeSubSession) takePending() []claudeSubPendingCall {
-	calls := s.pending
-	s.pending = nil
-	return calls
 }
 
 // lockCall takes the session's whole-call lock, waiting until it is free, the
@@ -341,6 +341,27 @@ func (s *claudeSubSession) isGone() bool {
 	default:
 		return false
 	}
+}
+
+var errClaudeSubPaidExtraUsage = errors.New("claude_subscription stopped because paid extra usage was detected")
+
+func (s *claudeSubSession) observeEvent(ev claudeSubEvent) {
+	if !claudeSubEventIsOverage(ev) {
+		return
+	}
+	s.overageOnce.Do(func() {
+		s.overageMu.Lock()
+		s.overageErr = errClaudeSubPaidExtraUsage
+		close(s.overageAbort)
+		s.overageMu.Unlock()
+		go func() { _ = s.pool.Close() }()
+	})
+}
+
+func (s *claudeSubSession) overage() error {
+	s.overageMu.Lock()
+	defer s.overageMu.Unlock()
+	return s.overageErr
 }
 
 // close terminates the session once with a graceful teardown bounded by ctx. It
