@@ -435,6 +435,63 @@ func TestClaudeSubProcessWriteFailureReachesCoordinator(t *testing.T) {
 	}
 }
 
+// TestClaudeSubProcessSendBounds proves Send rejects a line over the stdin
+// ceiling before queueing it, and that the process stays usable afterwards.
+func TestClaudeSubProcessSendBounds(t *testing.T) {
+	oldCeiling := claudeSubMaxSendBytes
+	claudeSubMaxSendBytes = 16
+	t.Cleanup(func() { claudeSubMaxSendBytes = oldCeiling })
+
+	tests := []struct {
+		name       string
+		size       int
+		wantErr    bool
+		wantQueued int
+	}{
+		{name: "at ceiling is queued", size: 16, wantQueued: 1},
+		{name: "over ceiling is rejected", size: 17, wantErr: true, wantQueued: 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// No writer goroutine runs here, so the queue length is stable.
+			p := &claudeSubProcess{started: make(chan struct{})}
+			p.sendCond = sync.NewCond(&p.sendMu)
+			queued := func() int {
+				p.sendMu.Lock()
+				defer p.sendMu.Unlock()
+				return len(p.sendQueue)
+			}
+
+			err := p.Send([]byte(strings.Repeat("x", tc.size)))
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "exceeds") {
+					t.Fatalf("Send(%d bytes) error = %v, want exceeds error", tc.size, err)
+				}
+			} else if err != nil {
+				t.Fatalf("Send(%d bytes) error = %v", tc.size, err)
+			}
+			if got := queued(); got != tc.wantQueued {
+				t.Fatalf("queued after Send(%d bytes) = %d, want %d", tc.size, got, tc.wantQueued)
+			}
+
+			if err := p.Send([]byte("{}")); err != nil {
+				t.Fatalf("small Send() after rejection error = %v", err)
+			}
+			if got := queued(); got != tc.wantQueued+1 {
+				t.Errorf("queued after small Send() = %d, want %d", got, tc.wantQueued+1)
+			}
+			select {
+			case <-p.started:
+				t.Error("Send started the coordinator")
+			default:
+			}
+			if cause := p.Err(); cause != nil {
+				t.Errorf("Err() = %v, want nil", cause)
+			}
+		})
+	}
+}
+
 // newClaudeSubTestProcess builds a claudeSubProcess with an owned stdout pipe so
 // a test can drive one reader directly. It returns the process and the stdout
 // write end the test feeds.

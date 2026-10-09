@@ -19,6 +19,10 @@ import (
 // reader's ceiling is directly testable.
 var claudeSubScannerMaxBytes = 64 << 20 // 64 MiB
 
+// claudeSubMaxSendBytes bounds one stdin JSON line. It is a variable so the
+// send ceiling is directly testable.
+var claudeSubMaxSendBytes = 64 << 20 // 64 MiB
+
 const (
 	claudeSubEventBuffer     = 256
 	claudeSubStderrTailBytes = 8 << 10 // last 8 KiB of stderr
@@ -267,6 +271,9 @@ func closeFiles(files ...*os.File) {
 // writeLoop, so a full stdin pipe blocks only the writer goroutine, never the
 // caller.
 func (p *claudeSubProcess) Send(line []byte) error {
+	if len(line) > claudeSubMaxSendBytes {
+		return fmt.Errorf("claude CLI stdin line exceeds %d bytes", claudeSubMaxSendBytes)
+	}
 	buf := make([]byte, 0, len(line)+1)
 	buf = append(buf, line...)
 	buf = append(buf, '\n')

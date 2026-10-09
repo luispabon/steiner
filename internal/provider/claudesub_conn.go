@@ -20,7 +20,7 @@ import (
 type claudeSubConn interface {
 	// Send enqueues line plus a trailing newline for the CLI's stdin and returns
 	// without waiting for the write to complete. It reports an error only when
-	// the connection is already closed.
+	// the connection is already closed or line exceeds the stdin size ceiling.
 	Send(line []byte) error
 	// Events yields decoded stdout events and is closed when the process exits.
 	Events() <-chan claudeSubEvent
