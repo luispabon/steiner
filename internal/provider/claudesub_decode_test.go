@@ -981,6 +981,67 @@ func TestClaudeSubDecodeEchoOnlyFallbackAfterStop(t *testing.T) {
 	}
 }
 
+func TestClaudeSubDecodeStreamEchoBlocks(t *testing.T) {
+	var seen []string
+	events := claudeSubDecodeAll(t, claudeSubDecodeHooks{
+		ToolName:       claudeSubStripPrefix,
+		ObserveToolUse: func(id, name string) { seen = append(seen, id+":"+name) },
+	}, claudeSubDecodeEvents(t, "turn_stream_echo_blocks.jsonl"))
+	if len(seen) != 1 || seen[0] != "toolu_stream_echo:read" {
+		t.Fatalf("hook calls = %v, want one streamed tool observation", seen)
+	}
+	if thinking := claudeSubDecodedOfKind(events, claudeSubDecodeThinking); len(thinking) != 1 || thinking[0].Thinking != "Think first" {
+		t.Fatalf("thinking events = %+v, want one thinking delta", thinking)
+	}
+	messages := claudeSubDecodedOfKind(events, claudeSubDecodeMessage)
+	if len(messages) != 1 || messages[0].Message == nil || len(messages[0].Message.ToolCalls) != 1 {
+		t.Fatalf("messages = %+v, want one assembled tool message", messages)
+	}
+	if messages[0].Message.ToolCalls[0].ID != "toolu_stream_echo" || messages[0].Message.ToolCalls[0].Arguments["path"] != "stream.txt" {
+		t.Fatalf("tool call = %+v, want streamed arguments", messages[0].Message.ToolCalls[0])
+	}
+	messageAt := claudeSubKindIndex(events, claudeSubDecodeMessage)
+	resultAt := claudeSubKindIndex(events, claudeSubDecodeResult)
+	if messageAt < 0 || resultAt < 0 || messageAt > resultAt {
+		t.Fatalf("message/result order = %d/%d, want message before result", messageAt, resultAt)
+	}
+}
+
+func TestClaudeSubDecodeInStreamEchoThenPostStopConfirmation(t *testing.T) {
+	stream := func(inner string) claudeSubEvent {
+		return claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":` + inner + `}`)}
+	}
+	echo := claudeSubEvent{Type: "assistant", Raw: json.RawMessage(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_confirm","name":"mcp__steiner__read","input":{"path":"confirmed.txt"}}]}}`)}
+	var seen []string
+	d := newClaudeSubDecoder(claudeSubDecodeHooks{
+		ToolName:       claudeSubStripPrefix,
+		ObserveToolUse: func(id, name string) { seen = append(seen, id+":"+name) },
+	})
+	var all []claudeSubDecoded
+	for _, ev := range []claudeSubEvent{
+		stream(`{"type":"message_start","message":{"usage":{}}}`),
+		stream(`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_confirm","name":"mcp__steiner__read"}}`),
+		echo,
+		stream(`{"type":"content_block_stop","index":0}`),
+		stream(`{"type":"message_stop"}`),
+		echo,
+		{Type: "result", Raw: json.RawMessage(`{"subtype":"success","is_error":false}`)},
+	} {
+		got, err := d.decode(ev)
+		if err != nil {
+			t.Fatalf("decode %s: %v", ev.Type, err)
+		}
+		all = append(all, got...)
+	}
+	messages := claudeSubDecodedOfKind(all, claudeSubDecodeMessage)
+	if len(messages) != 1 || messages[0].Message == nil || len(messages[0].Message.ToolCalls) != 1 {
+		t.Fatalf("messages = %+v, want exactly one message with one tool call", messages)
+	}
+	if seenCount := len(claudeSubDecodedOfKind(all, claudeSubDecodeToolUse)); seenCount != 1 || len(seen) != 1 || seen[0] != "toolu_confirm:read" {
+		t.Fatalf("tool observations = %d, hooks = %v, want exactly one toolu_confirm/read", seenCount, seen)
+	}
+}
+
 func TestClaudeSubDecodeNoEchoFlushesAtResult(t *testing.T) {
 	// A turn whose stream stopped without an assistant echo must still emit its
 	// final assistant message, flushed immediately before the terminal result.
@@ -1053,20 +1114,35 @@ func TestClaudeSubDecodeInvalidEchoAfterStopEmitsNoMessage(t *testing.T) {
 	}
 }
 
-func TestClaudeSubDecodeDuplicateEchoFailsClosed(t *testing.T) {
+func TestClaudeSubDecodeRepeatedPerBlockEchoIsIdempotent(t *testing.T) {
 	echo := claudeSubEvent{Type: "assistant", Raw: json.RawMessage(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"mcp__steiner__read","input":{"path":"a"}}]}}`)}
-	d := newClaudeSubDecoder(claudeSubDecodeHooks{ToolName: claudeSubStripPrefix})
+	var seen []string
+	d := newClaudeSubDecoder(claudeSubDecodeHooks{
+		ToolName:       claudeSubStripPrefix,
+		ObserveToolUse: func(id, name string) { seen = append(seen, id+":"+name) },
+	})
 	if _, err := d.decode(claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"message_start","message":{"usage":{}}}}`)}); err != nil {
 		t.Fatalf("decode message_start: %v", err)
 	}
-	if _, err := d.decode(claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"message_stop"}}`)}); err != nil {
-		t.Fatalf("decode message_stop: %v", err)
+	start := claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"mcp__steiner__read"}}}`)}
+	if _, err := d.decode(start); err != nil {
+		t.Fatalf("decode tool start: %v", err)
 	}
 	if _, err := d.decode(echo); err != nil {
 		t.Fatalf("decode first echo: %v", err)
 	}
-	if _, err := d.decode(echo); !errors.Is(err, errClaudeSubDecodeStream) {
-		t.Fatalf("second echo error = %v, want wrapping %v", err, errClaudeSubDecodeStream)
+	if _, err := d.decode(echo); err != nil {
+		t.Fatalf("decode repeated echo: %v", err)
+	}
+	if len(seen) != 1 || seen[0] != "toolu_1:read" {
+		t.Fatalf("hook calls = %v, want one toolu_1/read observation", seen)
+	}
+	got, err := d.decode(claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"message_stop"}}`)})
+	if err != nil {
+		t.Fatalf("decode message_stop: %v", err)
+	}
+	if len(got) != 1 || got[0].Kind != claudeSubDecodeMessage || got[0].Message == nil || len(got[0].Message.ToolCalls) != 1 {
+		t.Fatalf("message_stop events = %+v, want one assembled message with one tool call", got)
 	}
 }
 
@@ -1537,11 +1613,10 @@ func TestClaudeSubDecodeAcceptsZeroLengthOptionalData(t *testing.T) {
 	}
 }
 
-func TestClaudeSubDecodeEchoBeforeStopRejectsWithoutState(t *testing.T) {
-	// The assistant echo is only valid in the stopped phase. An echo while the
-	// stream is still delivering content must fail closed without observing a
-	// tool use, recording the echo, or touching any accumulator, order or
-	// pending-message state.
+func TestClaudeSubDecodeEchoBeforeStreamToolStartRejectsWithoutState(t *testing.T) {
+	// An echo for a tool use the stream has not announced must fail closed while
+	// streaming without observing a tool use, recording the echo, or touching any
+	// accumulator, order or pending-message state.
 	var seen []string
 	hooks := claudeSubDecodeHooks{
 		ToolName:       claudeSubStripPrefix,
@@ -1562,8 +1637,8 @@ func TestClaudeSubDecodeEchoBeforeStopRejectsWithoutState(t *testing.T) {
 	if len(seen) != 0 {
 		t.Errorf("hook calls = %v, want none", seen)
 	}
-	if d.echoSeen {
-		t.Errorf("echoSeen set by a rejected echo")
+	if d.echoProcessed || d.streamEchoProcessed {
+		t.Errorf("rejected echo advanced echo state: processed=%v streamProcessed=%v", d.echoProcessed, d.streamEchoProcessed)
 	}
 	if d.sawToolUse || len(d.toolUses) != 0 || len(d.toolOrder) != 0 {
 		t.Errorf("rejected echo mutated tool state: sawToolUse=%v toolUses=%v order=%v", d.sawToolUse, d.toolUses, d.toolOrder)
@@ -1578,7 +1653,7 @@ func TestClaudeSubDecodeEchoBeforeStopRejectsWithoutState(t *testing.T) {
 
 func TestClaudeSubDecodeEchoIsTransactional(t *testing.T) {
 	// A multi-block echo must be validated as a whole: a later block's error
-	// must leave no accumulator, tool order, echoSeen flag or callback from an
+	// must leave no accumulator, tool order, echo state or callback from an
 	// earlier valid block.
 	begin := claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"message_start","message":{"usage":{}}}}`)}
 	stop := claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"message_stop"}}`)}
@@ -1612,8 +1687,8 @@ func TestClaudeSubDecodeEchoIsTransactional(t *testing.T) {
 		if len(seen) != 0 {
 			t.Errorf("hook calls = %v, want none", seen)
 		}
-		if d.echoSeen {
-			t.Errorf("echoSeen set by a rejected echo")
+		if d.echoProcessed || d.streamEchoProcessed {
+			t.Errorf("rejected echo advanced echo state: processed=%v streamProcessed=%v", d.echoProcessed, d.streamEchoProcessed)
 		}
 		if d.sawToolUse || len(d.toolUses) != 0 || len(d.toolOrder) != 0 {
 			t.Errorf("rejected echo committed tool state: sawToolUse=%v toolUses=%v order=%v", d.sawToolUse, d.toolUses, d.toolOrder)
@@ -1644,8 +1719,8 @@ func TestClaudeSubDecodeEchoIsTransactional(t *testing.T) {
 		if len(seen) != 0 {
 			t.Errorf("hook calls = %v, want none", seen)
 		}
-		if d.echoSeen {
-			t.Errorf("echoSeen set by a rejected echo")
+		if d.echoProcessed || d.streamEchoProcessed {
+			t.Errorf("rejected echo advanced echo state: processed=%v streamProcessed=%v", d.echoProcessed, d.streamEchoProcessed)
 		}
 		if d.sawToolUse || len(d.toolUses) != 0 || len(d.toolOrder) != 0 {
 			t.Errorf("rejected echo committed tool state: sawToolUse=%v toolUses=%v order=%v", d.sawToolUse, d.toolUses, d.toolOrder)

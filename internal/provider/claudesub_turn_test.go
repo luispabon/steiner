@@ -156,6 +156,43 @@ func TestClaudeSubConsumeNormalTextTurn(t *testing.T) {
 	}
 }
 
+func TestClaudeSubConsumeStopsAtStreamEchoedToolCall(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	spec := claudeSubTestSpec()
+	spec.Tools = []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	s, err := pool.acquire(context.Background(), "stream-echo-tool", spec)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer pool.release(s)
+	conn := spawner.call(t, 0).Conn
+	for _, ev := range claudeSubDecodeEvents(t, "turn_stream_echo_blocks.jsonl") {
+		conn.push(ev)
+	}
+	var chunks []ChatChunk
+	if err := claudeSubConsume(context.Background(), s, func(chunk ChatChunk) error {
+		chunks = append(chunks, chunk)
+		return nil
+	}); err != nil {
+		t.Fatalf("consume: %v", err)
+	}
+	var doneToolCalls int
+	for _, chunk := range chunks {
+		if chunk.Done && chunk.FinishReason == "tool_calls" {
+			doneToolCalls++
+			if len(chunk.Delta.ToolCalls) != 1 {
+				t.Fatalf("tool-call chunk = %+v, want one tool call", chunk)
+			}
+		}
+	}
+	if doneToolCalls != 1 {
+		t.Fatalf("chunks = %+v, want exactly one Done tool_calls chunk", chunks)
+	}
+	if len(s.pending) != 1 || s.pending[0].ID != "toolu_stream_echo" {
+		t.Fatalf("pending = %+v, want opaque streamed-echo tool handle", s.pending)
+	}
+}
+
 func TestClaudeSubConsumeStopsAtToolCall(t *testing.T) {
 	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	spec := claudeSubTestSpec()
