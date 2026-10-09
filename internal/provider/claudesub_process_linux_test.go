@@ -52,6 +52,17 @@ func TestClaudeSubLinuxHelperProcess(t *testing.T) {
 		pid := spawnClaudeSubHelperChild(t, "hold-open", true)
 		writeClaudeSubHelperFile(strconv.Itoa(pid))
 		os.Exit(0)
+	case "locator-env":
+		// Record which credential variables the locator child inherited.
+		var seen []string
+		for _, name := range claudeSubLocatorCredentialVars {
+			if _, ok := os.LookupEnv(name); ok {
+				seen = append(seen, name)
+			}
+		}
+		if err := os.WriteFile(os.Getenv(claudeSubHelperFileEnv), []byte(strings.Join(seen, "\n")), 0o600); err != nil {
+			t.Fatalf("write locator env report: %v", err)
+		}
 	default:
 		t.Fatalf("unknown helper mode %q", mode)
 	}
@@ -130,6 +141,38 @@ func TestClaudeSubProcessEscapedDescendantReleasesReaders(t *testing.T) {
 	case <-proc.readersDone:
 	default:
 		t.Error("readers still active after Close with an escaped descendant holding the pipe")
+	}
+}
+
+// claudeSubLocatorCredentialVars are the credential variables steiner must not
+// hand to the locator's claude subcommands.
+var claudeSubLocatorCredentialVars = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+
+// TestClaudeSubLocatorDropsCredentialEnv proves the locator child never inherits
+// the credential variables, so claude --version and claude auth status cannot
+// see or report an API key from steiner's environment.
+func TestClaudeSubLocatorDropsCredentialEnv(t *testing.T) {
+	if os.Getenv(claudeSubHelperModeEnv) != "" {
+		t.Skip("helper process")
+	}
+	for _, name := range claudeSubLocatorCredentialVars {
+		t.Setenv(name, "secret-"+name)
+	}
+	reportFile := filepath.Join(t.TempDir(), "locator-env")
+	t.Setenv(claudeSubHelperModeEnv, "locator-env")
+	t.Setenv(claudeSubHelperFileEnv, reportFile)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := claudeSubExecRunner(ctx, os.Args[0], "-test.run=TestClaudeSubLinuxHelperProcess"); err != nil {
+		t.Fatalf("claudeSubExecRunner() error = %v", err)
+	}
+	report, err := os.ReadFile(reportFile)
+	if err != nil {
+		t.Fatalf("read locator env report: %v (the locator helper did not run)", err)
+	}
+	if got := string(report); got != "" {
+		t.Errorf("locator child inherited credential variables %q, want none", strings.Split(got, "\n"))
 	}
 }
 

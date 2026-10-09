@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -118,6 +119,12 @@ type claudeSubSession struct {
 	// completion; every other caller waits only to its own deadline through the
 	// teardown job, so none blocks behind a teardown already in progress.
 	teardownStarted atomic.Bool
+
+	// procErr is the process-level teardown result (transport, router, control
+	// writer and MCP host), set by teardown before directory removal. It is nil
+	// only when the CLI process is provably terminated. Only the goroutine that
+	// runs teardown writes it.
+	procErr error
 }
 
 // claudeSubJob is a once-started asynchronous cleanup owned by a pool or one of
@@ -334,6 +341,21 @@ func (s *claudeSubSession) unlockCall() {
 	s.call <- struct{}{}
 }
 
+// exited reports whether the session's CLI process ended on its own: its event
+// router has stopped while teardown has not begun. An exited session can never
+// serve another call.
+func (s *claudeSubSession) exited() bool {
+	if s.routerDone == nil || s.isGone() {
+		return false
+	}
+	select {
+	case <-s.routerDone:
+		return true
+	default:
+		return false
+	}
+}
+
 // isGone reports whether teardown has begun, which marks the session terminal.
 func (s *claudeSubSession) isGone() bool {
 	select {
@@ -346,13 +368,31 @@ func (s *claudeSubSession) isGone() bool {
 
 var errClaudeSubPaidExtraUsage = errors.New("claude_subscription stopped because paid extra usage was detected")
 
+// claudeSubOverageError returns the terminal error for an event that
+// claudeSubEventIsOverage flagged. An unrecognised rate-limit status keeps its
+// classifier error so the user sees why the turn stopped; real overage reports
+// errClaudeSubPaidExtraUsage. The session fails closed either way.
+func claudeSubOverageError(ev claudeSubEvent) error {
+	if ev.Type == "rate_limit_event" {
+		var envelope struct {
+			RateLimitInfo json.RawMessage `json:"rate_limit_info"`
+		}
+		if json.Unmarshal(ev.Raw, &envelope) == nil && len(envelope.RateLimitInfo) > 0 {
+			if _, _, err := claudeSubRateLimitVerdict(envelope.RateLimitInfo); errors.Is(err, errClaudeSubUnrecognisedStatus) {
+				return err
+			}
+		}
+	}
+	return errClaudeSubPaidExtraUsage
+}
+
 func (s *claudeSubSession) observeEvent(ev claudeSubEvent) {
 	if !claudeSubEventIsOverage(ev) {
 		return
 	}
 	s.overageOnce.Do(func() {
 		s.overageMu.Lock()
-		s.overageErr = errClaudeSubPaidExtraUsage
+		s.overageErr = claudeSubOverageError(ev)
 		close(s.overageAbort)
 		s.overageMu.Unlock()
 		go func() { _ = s.pool.Close() }()
@@ -446,6 +486,7 @@ func (s *claudeSubSession) teardown(ctx context.Context, force bool) error {
 			errs = append(errs, fmt.Errorf("stop claude_subscription mcp host: %w", err))
 		}
 	}
+	s.procErr = errors.Join(errs...)
 	if s.dir != "" && s.removeAll != nil {
 		// os.RemoveAll cannot be canceled, so run the removal as a one-time async
 		// job and wait for it only up to this teardown's deadline. If the deadline

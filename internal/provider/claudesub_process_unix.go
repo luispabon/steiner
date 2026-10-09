@@ -107,6 +107,9 @@ func claudeSubPrepareInheritance(...*os.File) error { return nil }
 // pattern.
 func claudeSubExecRunner(ctx context.Context, path string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
+	// The locator gets the same credential-free environment as the CLI child, so
+	// claude --version and auth status cannot pick up an inherited API key.
+	cmd.Env = claudeSubChildEnv(os.Environ(), 0)
 	cmd.SysProcAttr = claudeSubLocatorSysProcAttr()
 	cmd.WaitDelay = claudeSubLocatorWaitDelay
 	cmd.Cancel = func() error { return killClaudeSubLocator(cmd) }

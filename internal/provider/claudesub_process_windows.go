@@ -335,6 +335,10 @@ func claudeSubWindowsEnvBlock(env []string) (*uint16, error) {
 		block = append(block, utf16.Encode([]rune(kv))...)
 		block = append(block, 0)
 	}
+	if len(entries) == 0 {
+		// An empty environment block is two NULs; a lone terminator is malformed.
+		block = append(block, 0)
+	}
 	block = append(block, 0)
 	return &block[0], nil
 }

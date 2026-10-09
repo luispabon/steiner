@@ -723,6 +723,139 @@ func TestClaudeSubPoolReaperTeardownFailureFailsPoolClosed(t *testing.T) {
 	}
 }
 
+// claudeSubWaitExited waits until the pool's session for key reports that its
+// CLI process exited on its own. The pool keeps the dead session in its map.
+func claudeSubWaitExited(t *testing.T, pool *ClaudeSubscriptionPool, key string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		pool.mu.Lock()
+		s := pool.sessions[key]
+		pool.mu.Unlock()
+		if s != nil && s.exited() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("session %q did not report exit", key)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestClaudeSubPoolDeadParentOrChildReturnsTypedError proves a dead parent or
+// child session is not respawned: acquire returns errClaudeSubSessionExited.
+// Closing the fake connection models the CLI process exiting on its own.
+func TestClaudeSubPoolDeadParentOrChildReturnsTypedError(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+	}{
+		{name: "parent", key: "s"},
+		{name: "child", key: "s-child-1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+			ctx := context.Background()
+			s, err := pool.acquire(ctx, tt.key, claudeSubTestSpec())
+			if err != nil {
+				t.Fatalf("acquire: %v", err)
+			}
+			pool.release(s)
+			if err := spawner.call(t, 0).Conn.Close(ctx); err != nil {
+				t.Fatalf("close fake CLI: %v", err)
+			}
+			claudeSubWaitExited(t, pool, tt.key)
+
+			if _, err := pool.acquire(ctx, tt.key, claudeSubTestSpec()); !errors.Is(err, errClaudeSubSessionExited) {
+				t.Fatalf("acquire after exit = %v, want errClaudeSubSessionExited", err)
+			}
+			if n := spawner.callCount(); n != 1 {
+				t.Errorf("spawn count = %d, want 1 (no respawn of a dead session)", n)
+			}
+		})
+	}
+}
+
+// TestClaudeSubPoolDeadAdvisorIsReplaced proves a dead advisor is evicted and
+// the next advisor call starts a fresh process whose teardown ran before it.
+func TestClaudeSubPoolDeadAdvisorIsReplaced(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	ctx := context.Background()
+	key := claudeSubAdvisorSessionKey("s")
+	first, err := pool.acquire(ctx, key, claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	pool.release(first)
+	if err := spawner.call(t, 0).Conn.Close(ctx); err != nil {
+		t.Fatalf("close fake CLI: %v", err)
+	}
+	claudeSubWaitExited(t, pool, key)
+
+	second, err := pool.acquire(ctx, key, claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire dead advisor = %v, want a fresh session", err)
+	}
+	defer pool.release(second)
+	if second == first {
+		t.Fatal("acquire returned the dead advisor session")
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (fresh advisor process)", n)
+	}
+	select {
+	case <-first.teardownJob.done:
+	default:
+		t.Error("evicted advisor teardown did not finish before the replacement was returned")
+	}
+}
+
+// TestClaudeSubPoolReaperDirRemovalFailureKeepsPoolRunning proves a reaped
+// advisor whose process terminated but whose directory removal failed does not
+// close the pool. The leftover directory stays pool-owned and Close reports it.
+func TestClaudeSubPoolReaperDirRemovalFailureKeepsPoolRunning(t *testing.T) {
+	removeErr := errors.New("remove denied")
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{IdleTTL: time.Minute})
+	pool.removeAll = func(string) error { return removeErr }
+	ctx := context.Background()
+
+	advisor, err := pool.acquire(ctx, claudeSubAdvisorSessionKey("s"), claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire advisor: %v", err)
+	}
+	pool.release(advisor)
+	parent, err := pool.acquire(ctx, "s", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire parent: %v", err)
+	}
+	pool.release(parent)
+
+	pool.reapIdleAdvisors(time.Now().Add(time.Hour))
+
+	pool.mu.Lock()
+	state := pool.state
+	owned := append([]claudeSubUnresolved(nil), pool.unresolved...)
+	pool.mu.Unlock()
+	if len(owned) != 1 || !errors.Is(owned[0].err, removeErr) {
+		t.Fatalf("unresolved = %v, want the directory removal error retained", owned)
+	}
+	dir := owned[0].session.dir
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if state != claudeSubPoolRunning {
+		t.Fatalf("state = %d after a directory removal failure, want running", state)
+	}
+	if spawner.call(t, 1).Conn.isClosed() {
+		t.Error("parent connection was closed by the advisor reap")
+	}
+	if _, err := pool.acquire(ctx, "s", claudeSubTestSpec()); err != nil {
+		t.Fatalf("acquire after reap = %v, want the pool still running", err)
+	}
+	if err := pool.Close(); !errors.Is(err, removeErr) {
+		t.Fatalf("Close = %v, want it to report the directory removal error", err)
+	}
+}
+
 // TestClaudeSubPoolCancelledAcquireDoesNotPoisonCLILookup proves a transient
 // caller cancellation cannot poison the pool's single CLI lookup: the lookup
 // runs under the pool lifetime, a canceled first acquirer returns promptly
