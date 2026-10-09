@@ -274,6 +274,162 @@ func TestClaudeSubUsageGateRejectsBeforeUserWrite(t *testing.T) {
 	}
 }
 
+func TestClaudeSubUsageGateRefusesToolResultsWithUserBeforeResolve(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	spec := claudeSubTestSpec()
+	spec.Tools = []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	ctx := context.Background()
+	refuseUsage := false
+	var conn *claudeSubFakeConn
+	responder := func(line []byte) []claudeSubEvent {
+		var envelope struct {
+			Type      string `json:"type"`
+			RequestID string `json:"request_id"`
+			Request   struct {
+				Subtype string `json:"subtype"`
+			} `json:"request"`
+		}
+		if json.Unmarshal(line, &envelope) != nil {
+			return nil
+		}
+		switch envelope.Type {
+		case "control_request":
+			if envelope.Request.Subtype == "get_usage" {
+				if refuseUsage {
+					return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, json.RawMessage(`{"rate_limits_available":false}`))}
+				}
+				return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":false}}}`))}
+			}
+			return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, nil)}
+		case "user":
+			for _, ev := range claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:9] {
+				conn.push(ev)
+			}
+		}
+		return nil
+	}
+	s, err := pool.acquire(ctx, "b1", spec)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	conn = spawner.call(t, 0).Conn
+	conn.mu.Lock()
+	conn.responder = responder
+	conn.mu.Unlock()
+	pool.release(s)
+
+	if err := claudeSubTurn(ctx, pool, ChatRequest{TransportSession: "b1", Model: spec.Model, Messages: []Message{{Role: MessageRoleUser, Content: "read notes"}}}, func(ChatChunk) error { return nil }); err != nil {
+		t.Fatalf("first turn: %v", err)
+	}
+	s, err = pool.acquire(ctx, "b1", spec)
+	if err != nil {
+		t.Fatalf("reacquire: %v", err)
+	}
+	if len(s.pending) != 1 {
+		t.Fatalf("pending = %+v, want one opaque call", s.pending)
+	}
+	call := s.pending[0].Handle
+	entries := len(s.sync.entries)
+	pool.release(s)
+	countLines := func(needle string) int {
+		n := 0
+		for _, line := range conn.sentLines() {
+			if strings.Contains(line, needle) {
+				n++
+			}
+		}
+		return n
+	}
+	userWrites := countLines(`"type":"user"`)
+
+	refuseUsage = true
+	second := ChatRequest{
+		TransportSession: "b1",
+		Model:            "claude-sonnet-5-5",
+		Messages: []Message{
+			{Role: MessageRoleUser, Content: "read notes"},
+			{Role: MessageRoleAssistant, ToolCalls: []ToolCall{{ID: "toolu_1", Name: "read", Arguments: map[string]any{}}}, Content: ""},
+			{Role: MessageRoleTool, ToolCallID: "toolu_1", Content: "notes body"},
+			{Role: MessageRoleUser, Content: "summarize it"},
+		},
+	}
+	if err := claudeSubTurn(ctx, pool, second, func(ChatChunk) error { return nil }); err == nil || err.Error() != claudeSubFailClosedWant {
+		t.Fatalf("second turn error = %v, want fail-closed usage gate", err)
+	}
+
+	s, err = pool.acquire(ctx, "b1", spec)
+	if err != nil {
+		t.Fatalf("final reacquire: %v", err)
+	}
+	defer pool.release(s)
+	if len(s.pending) != 1 || s.pending[0].ID != "toolu_1" {
+		t.Fatalf("pending = %+v, want toolu_1 still pending", s.pending)
+	}
+	if result, ok := s.host.claimResult(call); ok {
+		t.Errorf("refused tool result was resolved: %+v", result)
+	}
+	if got := len(s.sync.entries); got != entries {
+		t.Errorf("sync entries = %d, want %d: refused turn committed", got, entries)
+	}
+	if got := countLines(`"type":"user"`); got != userWrites {
+		t.Errorf("user writes = %d, want %d: refused turn wrote user content", got, userWrites)
+	}
+}
+
+func TestClaudeSubFreshProcessSendsGetUsageBeforeUserWrite(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	ctx := context.Background()
+	spec := claudeSubTestSpec()
+	s, err := pool.acquire(ctx, "fresh", spec)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	conn := spawner.call(t, 0).Conn
+	conn.mu.Lock()
+	conn.responder = func(line []byte) []claudeSubEvent {
+		var envelope struct {
+			Type      string `json:"type"`
+			RequestID string `json:"request_id"`
+			Request   struct {
+				Subtype string `json:"subtype"`
+			} `json:"request"`
+		}
+		if json.Unmarshal(line, &envelope) != nil {
+			return nil
+		}
+		switch envelope.Type {
+		case "control_request":
+			if envelope.Request.Subtype == "get_usage" {
+				return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":false}}}`))}
+			}
+			return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, nil)}
+		case "user":
+			for _, ev := range claudeSubDecodeEvents(t, "turn_text.jsonl") {
+				conn.push(ev)
+			}
+		}
+		return nil
+	}
+	conn.mu.Unlock()
+	pool.release(s)
+
+	if err := claudeSubTurn(ctx, pool, ChatRequest{TransportSession: "fresh", Model: spec.Model, Messages: []Message{{Role: MessageRoleUser, Content: "hello"}}}, func(ChatChunk) error { return nil }); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	usageIndex, userIndex := -1, -1
+	for i, line := range conn.sentLines() {
+		if usageIndex < 0 && strings.Contains(line, `"subtype":"get_usage"`) {
+			usageIndex = i
+		}
+		if userIndex < 0 && strings.Contains(line, `"type":"user"`) {
+			userIndex = i
+		}
+	}
+	if usageIndex < 0 || userIndex < 0 || usageIndex > userIndex {
+		t.Fatalf("sent lines = %v, want get_usage before the first user write", conn.sentLines())
+	}
+}
+
 func TestClaudeSubOverageObserverIsTerminal(t *testing.T) {
 	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	s, err := pool.acquire(context.Background(), "overage", claudeSubTestSpec())

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -85,6 +86,15 @@ func TestClaudeSubRateLimitVerdict(t *testing.T) {
 		{"empty object", `{}`, true, true, false, "", 0},
 		{"json null", `null`, true, true, false, "", 0},
 		{"unknown status", `{"status":"unknown"}`, true, true, false, "", 0},
+		{"unknown status with overage fields", `{"status":"surprise","rateLimitType":"five_hour","overageStatus":"rejected","isUsingOverage":false}`, true, true, false, "", 0},
+		{"allowed without overage fields", `{"status":"allowed"}`, false, false, false, "", 0},
+		{"allowed warning with overage fields", `{"status":"allowed_warning","rateLimitType":"five_hour","overageStatus":"rejected","isUsingOverage":false}`, false, false, false, "", 0},
+		{"allowed warning overage available", `{"status":"allowed_warning","rateLimitType":"five_hour","overageStatus":"allowed","isUsingOverage":false,"overageInUse":false}`, false, false, false, "", 0},
+		{"allowed warning using overage", `{"status":"allowed_warning","rateLimitType":"five_hour","overageStatus":"allowed_warning","isUsingOverage":true}`, true, false, false, "", 0},
+		{"allowed warning overage window", `{"status":"allowed_warning","rateLimitType":"overage","overageStatus":"rejected","isUsingOverage":false}`, true, false, false, "", 0},
+		{"allowed warning without overage fields", `{"status":"allowed_warning","rateLimitType":"five_hour"}`, true, true, false, "", 0},
+		{"allowed warning without is using overage", `{"status":"allowed_warning","rateLimitType":"five_hour","overageStatus":"rejected"}`, true, true, false, "", 0},
+		{"allowed warning without overage status", `{"status":"allowed_warning","rateLimitType":"five_hour","isUsingOverage":false}`, true, true, false, "", 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -126,6 +136,29 @@ func TestClaudeSubRateLimitVerdict(t *testing.T) {
 			}
 			if !limit.ResetsAt.Equal(wantReset) {
 				t.Errorf("limit.ResetsAt = %v, want %v", limit.ResetsAt, wantReset)
+			}
+		})
+	}
+}
+
+func TestClaudeSubRateLimitVerdictUnrecognisedStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"unknown status", `{"status":"unknown"}`, `unrecognised rate-limit status "unknown"`},
+		{"unknown status with overage fields", `{"status":"surprise","isUsingOverage":false,"overageStatus":"rejected","rateLimitType":"five_hour"}`, `unrecognised rate-limit status "surprise"`},
+		{"allowed warning without overage fields", `{"status":"allowed_warning","rateLimitType":"five_hour"}`, `unrecognised rate-limit status "allowed_warning" without explicit overage fields`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := claudeSubRateLimitVerdict(json.RawMessage(tc.raw))
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("claudeSubRateLimitVerdict() error = %v, want %q", err, tc.want)
+			}
+			if !errors.Is(err, errClaudeSubUnrecognisedStatus) {
+				t.Errorf("error %v does not wrap errClaudeSubUnrecognisedStatus", err)
 			}
 		})
 	}

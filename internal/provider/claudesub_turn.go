@@ -52,6 +52,13 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 	if err != nil {
 		return err
 	}
+	if len(delta.User) > 0 {
+		if usage, usageErr := s.control.getUsage(ctx); usageErr != nil {
+			return usageErr
+		} else if err := claudeSubUsageGate(usage); err != nil {
+			return err
+		}
+	}
 	if s.model != req.Model {
 		if _, err := s.control.setModel(ctx, req.Model); err != nil {
 			return err
@@ -74,13 +81,6 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 		}
 		s.host.resolve(call.Handle, claudeSubToolResultFromMessage(result))
 		claudeSubRemovePending(s, result.ToolCallID)
-	}
-	if len(delta.User) > 0 {
-		if usage, usageErr := s.control.getUsage(ctx); usageErr != nil {
-			return usageErr
-		} else if err := claudeSubUsageGate(usage); err != nil {
-			return err
-		}
 	}
 	if len(delta.User) > 0 {
 		if err := writeClaudeSubUser(s.conn, claudeSubUserBlocks(delta.User)); err != nil {
