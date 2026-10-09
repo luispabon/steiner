@@ -1,0 +1,8 @@
+{"type":"stream_event","event":{"type":"message_start","message":{"usage":{}}}}
+{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_unparsed","name":"mcp__steiner__read","input":{}}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\": \"x\""}}}
+{"type":"stream_event","event":{"type":"content_block_stop","index":0}}
+{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"tool_use"}}}
+{"type":"stream_event","event":{"type":"message_stop"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_unparsed","name":"mcp__steiner__read","input":{"__unparsedToolInput":{"raw":"{\"path\": \"x\"","len":12}}}]}}
+{"type":"result","subtype":"success","is_error":false,"stop_reason":"tool_use"}
