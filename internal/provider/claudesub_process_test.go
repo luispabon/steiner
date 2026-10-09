@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -27,6 +29,10 @@ func TestClaudeSubHelperProcess(t *testing.T) {
 		return
 	case "exit":
 		_, _ = io.WriteString(os.Stdout, `{"type":"system","subtype":"init"}`+"\n")
+		os.Exit(0)
+	case "record-output":
+		_, _ = io.WriteString(os.Stdout, "  {\"type\":\"system\",\"subtype\":\"init\"}  \n")
+		_, _ = io.WriteString(os.Stderr, "stderr-secret\n")
 		os.Exit(0)
 	case "stream-ignore-eof":
 		_, _ = io.WriteString(os.Stdout, `{"type":"system","subtype":"init","model":"claude-haiku-5-5"}`+"\n")
@@ -465,6 +471,255 @@ func newClaudeSubTestProcess(t *testing.T, child claudeSubChild) (*claudeSubProc
 	p.sendCond = sync.NewCond(&p.sendMu)
 	go p.writeLoop()
 	return p, stdoutW
+}
+
+func TestClaudeSubRecordingDisabledCreatesNoOutput(t *testing.T) {
+	if os.Getenv(claudeSubHelperModeEnv) != "" {
+		t.Skip("helper process")
+	}
+	root := filepath.Join(t.TempDir(), "recordings")
+	t.Setenv("STEINER_CLAUDESUB_RECORD", "")
+	child := newClaudeSubFakeChild()
+	claudeSubUseFakeChild(t, child)
+	conn, err := spawnClaudeSubProcess(claudeSubContextWithSessionKey(context.Background(), "session"), "unused", nil, nil, "")
+	if err != nil {
+		t.Fatalf("spawnClaudeSubProcess() error = %v", err)
+	}
+	proc := conn.(*claudeSubProcess)
+	if proc.recorder != nil {
+		t.Fatal("recorder is non-nil when recording is disabled")
+	}
+	if err := proc.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("recording root stat error = %v, want absent", err)
+	}
+}
+
+func TestClaudeSubProcessRecordsStdoutOnly(t *testing.T) {
+	if os.Getenv(claudeSubHelperModeEnv) != "" {
+		t.Skip("helper process")
+	}
+	root := filepath.Join(t.TempDir(), "recordings")
+	t.Setenv("STEINER_CLAUDESUB_RECORD", root)
+	env := append(os.Environ(), claudeSubHelperModeEnv+"=record-output")
+	conn, err := spawnClaudeSubProcess(claudeSubContextWithSessionKey(context.Background(), "session"), os.Args[0], []string{"-test.run=TestClaudeSubHelperProcess"}, env, "")
+	if err != nil {
+		t.Fatalf("spawnClaudeSubProcess() error = %v", err)
+	}
+	if err := conn.Send([]byte(`{"type":"user","message":"stdin-secret"}`)); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if err := conn.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	digest := sha256.Sum256([]byte("session"))
+	path := filepath.Join(root, fmt.Sprintf("%x.jsonl", digest))
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	want := "  {\"type\":\"system\",\"subtype\":\"init\"}  \n"
+	if string(got) != want {
+		t.Errorf("recorded content = %q, want stdout only %q", got, want)
+	}
+	if strings.Contains(string(got), "stdin-secret") || strings.Contains(string(got), "stderr-secret") {
+		t.Errorf("recorded content contains non-stdout data: %q", got)
+	}
+}
+
+func TestClaudeSubStdoutRecorder(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "recordings")
+	key := "parent|../hostile\\\\key"
+	recorder, err := newClaudeSubStdoutRecorder(root, key)
+	if err != nil {
+		t.Fatalf("newClaudeSubStdoutRecorder() error = %v", err)
+	}
+	if err := recorder.writeLine([]byte("  {\"type\":\"assistant\"}  ")); err != nil {
+		t.Fatalf("writeLine() error = %v", err)
+	}
+	if err := recorder.writeLine([]byte("not json")); err != nil {
+		t.Fatalf("writeLine() second error = %v", err)
+	}
+	if err := recorder.close(); err != nil {
+		t.Fatalf("close() error = %v", err)
+	}
+	second, err := newClaudeSubStdoutRecorder(root, key)
+	if err != nil {
+		t.Fatalf("second newClaudeSubStdoutRecorder() error = %v", err)
+	}
+	if err := second.writeLine([]byte("appended")); err != nil {
+		t.Fatalf("second writeLine() error = %v", err)
+	}
+	if err := second.close(); err != nil {
+		t.Fatalf("second close() error = %v", err)
+	}
+
+	digest := sha256.Sum256([]byte(key))
+	path := filepath.Join(root, fmt.Sprintf("%x.jsonl", digest))
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	want := "  {\"type\":\"assistant\"}  \nnot json\nappended\n"
+	if string(got) != want {
+		t.Errorf("recorded bytes = %q, want %q", got, want)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("recording file mode = %v, want 0600", err)
+	}
+	if info, err := os.Stat(root); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("recording directory mode = %v, want 0700", err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(root))
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "recordings" {
+		t.Fatalf("recording escaped root: entries = %v", entries)
+	}
+}
+
+func TestClaudeSubProcessRecordsRawStdoutLines(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "recordings")
+	recorder, err := newClaudeSubStdoutRecorder(root, "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := newClaudeSubFakeChild()
+	p, feed := newClaudeSubTestProcess(t, child)
+	p.recorder = recorder
+	input := "  {\"type\":\"assistant\"}  \n\nnot-json\n"
+	if _, err := feed.Write([]byte(input)); err != nil {
+		t.Fatal(err)
+	}
+	if err := feed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p.readStdout()
+	if err := p.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	digest := sha256.Sum256([]byte("session"))
+	path := filepath.Join(root, fmt.Sprintf("%x.jsonl", digest))
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "  {\"type\":\"assistant\"}  \nnot-json\n"
+	if string(got) != want {
+		t.Errorf("recorded stdout = %q, want %q", got, want)
+	}
+}
+
+func TestClaudeSubStdoutRecorderFailureStopsProcess(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "recordings")
+	recorder, err := newClaudeSubStdoutRecorder(root, "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.close(); err != nil {
+		t.Fatal(err)
+	}
+	child := newClaudeSubFakeChild()
+	p, feed := newClaudeSubTestProcess(t, child)
+	p.recorder = recorder
+	if _, err := feed.Write([]byte(`{"type":"assistant"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := feed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p.readStdout()
+	if err := p.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if cause := p.Err(); cause == nil || !strings.Contains(cause.Error(), "record claude CLI stdout") {
+		t.Fatalf("Err() = %v, want recorder failure", cause)
+	}
+}
+
+func TestClaudeSubStdoutRecorderConcurrentWriteClose(t *testing.T) {
+	recorder, err := newClaudeSubStdoutRecorder(t.TempDir(), "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const writers = 8
+	const linesPerWriter = 100
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < linesPerWriter; j++ {
+				_ = recorder.writeLine([]byte(fmt.Sprintf("writer-%d-line-%d", i, j)))
+			}
+		}(i)
+	}
+	closeDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		_ = recorder.close()
+		close(closeDone)
+	}()
+	select {
+	case <-closeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("concurrent recorder writes and close did not finish")
+	}
+	if err := recorder.close(); err != nil {
+		t.Fatalf("second close() error = %v", err)
+	}
+}
+
+func TestClaudeSubStdoutRecorderRejectsSymlink(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "recordings")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	key := "session"
+	digest := sha256.Sum256([]byte(key))
+	path := filepath.Join(root, fmt.Sprintf("%x.jsonl", digest))
+	target := filepath.Join(t.TempDir(), "outside.jsonl")
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := newClaudeSubStdoutRecorder(root, key); err == nil {
+		t.Fatal("newClaudeSubStdoutRecorder() succeeded for a symlink")
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("symlink target stat error = %v, want absent", err)
+	}
+}
+
+func TestClaudeSubStdoutRecorderFailureBeforeLaunch(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "recordings")
+	if err := os.WriteFile(root, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Getenv("STEINER_CLAUDESUB_RECORD")
+	if err := os.Setenv("STEINER_CLAUDESUB_RECORD", root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Setenv("STEINER_CLAUDESUB_RECORD", old) })
+	oldLaunch := claudeSubLaunch
+	launched := false
+	claudeSubLaunch = func(claudeSubLaunchSpec) (claudeSubChild, error) {
+		launched = true
+		return nil, errors.New("unexpected launch")
+	}
+	t.Cleanup(func() { claudeSubLaunch = oldLaunch })
+	ctx := claudeSubContextWithSessionKey(context.Background(), "session")
+	if _, err := spawnClaudeSubProcess(ctx, "unused", nil, nil, ""); err == nil {
+		t.Fatal("spawnClaudeSubProcess() succeeded with an invalid recording root")
+	}
+	if launched {
+		t.Fatal("launcher was called after recorder setup failed")
+	}
+	if info, err := os.Stat(root); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("recording root changed: info=%v err=%v", info, err)
+	}
 }
 
 func TestClaudeSubStderrTail(t *testing.T) {

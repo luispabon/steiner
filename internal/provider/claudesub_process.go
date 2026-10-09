@@ -125,6 +125,7 @@ type claudeSubProcess struct {
 
 	events     chan claudeSubEvent
 	stderrTail *claudeSubStderrTail
+	recorder   *claudeSubStdoutRecorder
 
 	// grace is captured at spawn so the coordinator never reads the package
 	// variable concurrently with a test that shortens it.
@@ -164,19 +165,41 @@ type claudeSubProcess struct {
 // does not use exec.CommandContext: the process outlives the request context
 // and is stopped only by Close. It owns the pipes: it creates them, passes the
 // child-side ends to the platform launcher and then closes its copies.
-func spawnClaudeSubProcess(_ context.Context, path string, args, env []string, dir string) (claudeSubConn, error) {
+func spawnClaudeSubProcess(ctx context.Context, path string, args, env []string, dir string) (claudeSubConn, error) {
+	var recorder *claudeSubStdoutRecorder
+	if root := os.Getenv("STEINER_CLAUDESUB_RECORD"); root != "" {
+		key, ok := claudeSubSessionKeyFromContext(ctx)
+		if !ok {
+			// The short-lived model discovery process has no pooled session key.
+			// Keep its capture separate from conversational sessions.
+			key = "discovery"
+		}
+		var err error
+		recorder, err = newClaudeSubStdoutRecorder(root, key)
+		if err != nil {
+			return nil, err
+		}
+	}
+	closeRecorder := func() {
+		if recorder != nil {
+			_ = recorder.close()
+		}
+	}
 	stdinR, stdinW, err := os.Pipe()
 	if err != nil {
+		closeRecorder()
 		return nil, fmt.Errorf("create claude CLI stdin pipe: %w", err)
 	}
 	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
 		closeFiles(stdinR, stdinW)
+		closeRecorder()
 		return nil, fmt.Errorf("create claude CLI stdout pipe: %w", err)
 	}
 	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
 		closeFiles(stdinR, stdinW, stdoutR, stdoutW)
+		closeRecorder()
 		return nil, fmt.Errorf("create claude CLI stderr pipe: %w", err)
 	}
 
@@ -185,6 +208,7 @@ func spawnClaudeSubProcess(_ context.Context, path string, args, env []string, d
 	// child, and the child would keep the read end of stdout open forever.
 	if err := claudeSubPrepareInheritance(stdinW, stdoutR, stderrR); err != nil {
 		closeFiles(stdinR, stdinW, stdoutR, stdoutW, stderrR, stderrW)
+		closeRecorder()
 		return nil, err
 	}
 
@@ -201,6 +225,7 @@ func spawnClaudeSubProcess(_ context.Context, path string, args, env []string, d
 	closeFiles(stdinR, stdoutW, stderrW)
 	if err != nil {
 		closeFiles(stdinW, stdoutR, stderrR)
+		closeRecorder()
 		return nil, err
 	}
 
@@ -211,6 +236,7 @@ func spawnClaudeSubProcess(_ context.Context, path string, args, env []string, d
 		stderr:      stderrR,
 		events:      make(chan claudeSubEvent, claudeSubEventBuffer),
 		stderrTail:  newClaudeSubStderrTail(claudeSubStderrTailBytes),
+		recorder:    recorder,
 		grace:       claudeSubCloseGrace,
 		started:     make(chan struct{}),
 		stopping:    make(chan struct{}),
@@ -457,25 +483,54 @@ func (p *claudeSubProcess) finalizeErr() {
 // closed by a forced shutdown. A scan failure requests coordinator shutdown
 // rather than killing anything itself.
 func (p *claudeSubProcess) readStdout() {
-	defer p.readerFinished()
+	defer func() {
+		if p.recorder != nil {
+			if err := p.recorder.close(); err != nil {
+				cause := fmt.Errorf("close claude CLI stdout recorder: %w", err)
+				p.errMu.Lock()
+				if p.scanErr == nil {
+					p.scanErr = cause
+				}
+				cause = p.scanErr
+				p.errMu.Unlock()
+				p.startShutdown(cause)
+			}
+		}
+		p.readerFinished()
+	}()
 	scanner := bufio.NewScanner(p.stdout)
 	scanner.Buffer(nil, claudeSubScannerMaxBytes)
 	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
+		line := scanner.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 		raw := make([]byte, len(line))
 		copy(raw, line)
+		if p.recorder != nil {
+			if err := p.recorder.writeLine(raw); err != nil {
+				cause := fmt.Errorf("record claude CLI stdout: %w", err)
+				p.errMu.Lock()
+				if p.scanErr == nil {
+					p.scanErr = cause
+				}
+				cause = p.scanErr
+				p.errMu.Unlock()
+				p.startShutdown(cause)
+				return
+			}
+		}
+
+		decoded := bytes.TrimSpace(raw)
 
 		var env struct {
 			Type    string `json:"type"`
 			Subtype string `json:"subtype"`
 		}
-		if err := json.Unmarshal(raw, &env); err != nil {
+		if err := json.Unmarshal(decoded, &env); err != nil {
 			continue // not a decodable envelope; ignore the line
 		}
-		ev := claudeSubEvent{Type: env.Type, Subtype: env.Subtype, Raw: json.RawMessage(raw)}
+		ev := claudeSubEvent{Type: env.Type, Subtype: env.Subtype, Raw: json.RawMessage(decoded)}
 		select {
 		case p.events <- ev:
 		case <-p.stopping:
