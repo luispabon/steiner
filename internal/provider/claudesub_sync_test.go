@@ -48,8 +48,18 @@ func claudeSubSyncStartedSync(t *testing.T, msgs ...Message) *claudeSubSync {
 	if err != nil {
 		t.Fatalf("setup plan: %v", err)
 	}
-	s.commitSent(delta)
+	claudeSubSyncCommit(s, delta)
 	return s
+}
+
+// claudeSubSyncCommit delivers a planned delta the way claudeSubTurn does: adopt
+// the record, record each tool result as resolved, then mark the turn sent.
+func claudeSubSyncCommit(s *claudeSubSync, delta claudeSubDelta) {
+	s.adopt(delta)
+	for _, m := range delta.ToolResults {
+		s.commitToolResult(m)
+	}
+	s.commitSent(delta)
 }
 
 func TestClaudeSubSyncFirstRequest(t *testing.T) {
@@ -242,6 +252,7 @@ func TestClaudeSubSyncInterruptTolerance(t *testing.T) {
 			if err != nil {
 				t.Fatalf("plan: %v", err)
 			}
+			s.adopt(delta)
 			tc.check(t, s, delta)
 		})
 	}
@@ -304,7 +315,7 @@ func TestClaudeSubSyncInterruptOldAssistantImmutable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan follow-up user: %v", err)
 	}
-	s.commitSent(d)
+	claudeSubSyncCommit(s, d)
 
 	// The next assistant call was cancelled before any assistant committed, so
 	// the committed a1 is a completed call and must not be interruptible.
@@ -336,7 +347,7 @@ func TestClaudeSubSyncInterruptOmittedToolResult(t *testing.T) {
 		if err != nil {
 			t.Fatalf("plan tool result: %v", err)
 		}
-		s.commitSent(d)
+		claudeSubSyncCommit(s, d)
 		s.markInterrupted()
 		return s
 	}
@@ -361,9 +372,11 @@ func TestClaudeSubSyncInterruptOmittedToolResult(t *testing.T) {
 
 	t.Run("omitted assistant and tool result together is tolerated", func(t *testing.T) {
 		s := base(t)
-		if _, err := s.plan(ChatRequest{Messages: []Message{claudeSubSyncUserMsg("hi")}}); err != nil {
+		delta, err := s.plan(ChatRequest{Messages: []Message{claudeSubSyncUserMsg("hi")}})
+		if err != nil {
 			t.Fatalf("plan: %v", err)
 		}
+		s.adopt(delta)
 		if len(s.entries) != 1 {
 			t.Fatalf("entries = %+v, want just the user entry", s.entries)
 		}
@@ -411,6 +424,7 @@ func TestClaudeSubSyncInterruptPartialTextOnly(t *testing.T) {
 		if err != nil {
 			t.Fatalf("plan: %v", err)
 		}
+		s.adopt(delta)
 		if len(delta.User) != 0 || len(delta.ToolResults) != 0 {
 			t.Fatalf("delta = %+v, want empty", delta)
 		}
@@ -465,7 +479,7 @@ func TestClaudeSubSyncCanceledCallDoesNotResend(t *testing.T) {
 	}
 	// The user line was written, then the call was cancelled: no assistant is
 	// committed, but the sent user content is already recorded (D22).
-	s.commitSent(delta)
+	claudeSubSyncCommit(s, delta)
 	repeat, err := s.plan(req)
 	if err != nil {
 		t.Fatalf("repeat plan: %v", err)
@@ -488,7 +502,7 @@ func TestClaudeSubSyncHistoryEdits(t *testing.T) {
 		if err != nil {
 			t.Fatalf("setup plan 2: %v", err)
 		}
-		s.commitSent(d1)
+		claudeSubSyncCommit(s, d1)
 		return s
 	}
 
@@ -571,6 +585,70 @@ func TestClaudeSubSyncHistoryEdits(t *testing.T) {
 			}
 			if len(delta.User) != 0 || len(delta.ToolResults) != 0 {
 				t.Fatalf("delta = %+v, want empty", delta)
+			}
+		})
+	}
+}
+
+// TestClaudeSubSyncFailedPlanRetriesIdentically proves plan leaves the record
+// untouched, so a request that fails before delivery plans the same delta on
+// retry, including when the interrupted assistant is omitted.
+func TestClaudeSubSyncFailedPlanRetriesIdentically(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T) *claudeSubSync
+		msgs    []Message
+		wantLen int
+	}{
+		{
+			name:    "first request",
+			setup:   func(t *testing.T) *claudeSubSync { return &claudeSubSync{} },
+			msgs:    []Message{claudeSubSyncUserMsg("hi")},
+			wantLen: 1,
+		},
+		{
+			name:    "interrupted assistant omitted",
+			setup:   func(t *testing.T) *claudeSubSync { return claudeSubSyncInterruptedBase(t, true) },
+			msgs:    []Message{claudeSubSyncUserMsg("hi"), claudeSubSyncUserMsg("steer")},
+			wantLen: 2,
+		},
+		{
+			name:  "tool results then user",
+			setup: func(t *testing.T) *claudeSubSync { return claudeSubSyncInterruptedBase(t, false) },
+			msgs: []Message{
+				claudeSubSyncUserMsg("hi"),
+				claudeSubSyncAssistantMsg("a1", "c1", "c2"),
+				claudeSubSyncToolMsg("c1", "one"),
+				claudeSubSyncToolMsg("c2", "two"),
+				claudeSubSyncUserMsg("steer"),
+			},
+			wantLen: 5,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := tc.setup(t)
+			before := append([]claudeSubEntry(nil), s.entries...)
+			interrupted, interruptible := s.interrupted, s.interruptible
+			req := ChatRequest{Messages: tc.msgs}
+			first, err := s.plan(req)
+			if err != nil {
+				t.Fatalf("first plan: %v", err)
+			}
+			// The request fails before delivery, so nothing is adopted.
+			if !reflect.DeepEqual(s.entries, before) || s.interrupted != interrupted || s.interruptible != interruptible {
+				t.Fatalf("plan changed the record: entries = %+v, want %+v", s.entries, before)
+			}
+			retry, err := s.plan(req)
+			if err != nil {
+				t.Fatalf("retry plan: %v", err)
+			}
+			if !reflect.DeepEqual(first, retry) {
+				t.Fatalf("retry delta = %+v, want %+v", retry, first)
+			}
+			claudeSubSyncCommit(s, retry)
+			if len(s.entries) != tc.wantLen {
+				t.Fatalf("entries after delivery = %d, want %d", len(s.entries), tc.wantLen)
 			}
 		})
 	}

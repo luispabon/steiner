@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -226,6 +227,184 @@ func TestClaudeSubEventUsageLimitPlainRejected(t *testing.T) {
 	}
 	if claudeSubEventIsOverage(claudeSubEvent{Type: "rate_limit_event", Raw: raw}) {
 		t.Error("plain rejected usage limit classified as overage")
+	}
+}
+
+// claudeSubRetryFault arms one failure for the first attempt of
+// TestClaudeSubTurnFailureThenRetry.
+type claudeSubRetryFault struct {
+	modelErr bool // set_model returns an error
+	usageErr bool // get_usage returns an error
+	refuse   bool // get_usage reports credits not confirmed off
+	writeErr bool // the user line write after the usage check fails
+}
+
+// TestClaudeSubTurnFailureThenRetry proves a turn that fails after planning
+// leaves the sync record unchanged, except for tool results already resolved
+// into the CLI. Retrying the same request must not error on a delivered result,
+// resolve it again, or send the user content twice.
+func TestClaudeSubTurnFailureThenRetry(t *testing.T) {
+	tests := []struct {
+		name  string
+		model string // empty uses the session model
+		fault claudeSubRetryFault
+		// delivered is true when the tool result is resolved before the failure.
+		delivered bool
+	}{
+		{name: "set model fails", model: "claude-sonnet-5-5", fault: claudeSubRetryFault{modelErr: true}},
+		{name: "usage lookup fails", fault: claudeSubRetryFault{usageErr: true}},
+		{name: "usage gate refuses", fault: claudeSubRetryFault{refuse: true}},
+		{name: "user write fails after tool result", fault: claudeSubRetryFault{writeErr: true}, delivered: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+			spec := claudeSubTestSpec()
+			spec.Tools = []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+			ctx := context.Background()
+			var fault claudeSubRetryFault
+			var conn *claudeSubFakeConn
+			userSends := 0
+			responder := func(line []byte) []claudeSubEvent {
+				var envelope struct {
+					Type      string `json:"type"`
+					RequestID string `json:"request_id"`
+					Request   struct {
+						Subtype string `json:"subtype"`
+					} `json:"request"`
+				}
+				if json.Unmarshal(line, &envelope) != nil {
+					return nil
+				}
+				switch envelope.Type {
+				case "control_request":
+					switch envelope.Request.Subtype {
+					case "set_model":
+						if fault.modelErr {
+							return []claudeSubEvent{claudeSubErrorEvent(envelope.RequestID, "model unavailable")}
+						}
+					case "get_usage":
+						if fault.usageErr {
+							return []claudeSubEvent{claudeSubErrorEvent(envelope.RequestID, "usage unavailable")}
+						}
+						if fault.refuse {
+							return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, json.RawMessage(`{"rate_limits_available":false}`))}
+						}
+						if fault.writeErr {
+							// Fails the next send, which is the user line after the usage check.
+							conn.mu.Lock()
+							conn.sendErr = errors.New("write failed")
+							conn.mu.Unlock()
+						}
+						return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":false}}}`))}
+					}
+					return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, nil)}
+				case "user":
+					userSends++
+					all := claudeSubDecodeEvents(t, "turn_text.jsonl")
+					if userSends == 1 {
+						all = claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:9]
+					}
+					for _, ev := range all {
+						conn.push(ev)
+					}
+				}
+				return nil
+			}
+			s, err := pool.acquire(ctx, "retry", spec)
+			if err != nil {
+				t.Fatalf("acquire: %v", err)
+			}
+			conn = spawner.call(t, 0).Conn
+			conn.mu.Lock()
+			conn.responder = responder
+			conn.mu.Unlock()
+			pool.release(s)
+
+			first := ChatRequest{TransportSession: "retry", Model: spec.Model, Messages: []Message{{Role: MessageRoleUser, Content: "read notes"}}}
+			if err := claudeSubTurn(ctx, pool, first, func(ChatChunk) error { return nil }); err != nil {
+				t.Fatalf("first turn: %v", err)
+			}
+			s, err = pool.acquire(ctx, "retry", spec)
+			if err != nil {
+				t.Fatalf("reacquire: %v", err)
+			}
+			if len(s.pending) != 1 {
+				t.Fatalf("pending = %+v, want one opaque call", s.pending)
+			}
+			call := s.pending[0].Handle
+			before := append([]claudeSubEntry(nil), s.sync.entries...)
+			pool.release(s)
+
+			model := tc.model
+			if model == "" {
+				model = spec.Model
+			}
+			second := ChatRequest{
+				TransportSession: "retry",
+				Model:            model,
+				Messages: []Message{
+					{Role: MessageRoleUser, Content: "read notes"},
+					{Role: MessageRoleAssistant, ToolCalls: []ToolCall{{ID: "toolu_1", Name: "read", Arguments: map[string]any{}}}, Content: ""},
+					{Role: MessageRoleTool, ToolCallID: "toolu_1", Content: "notes body"},
+					{Role: MessageRoleUser, Content: "summarize it"},
+				},
+			}
+			fault = tc.fault
+			if err := claudeSubTurn(ctx, pool, second, func(ChatChunk) error { return nil }); err == nil {
+				t.Fatal("failing turn returned nil error")
+			}
+			fault = claudeSubRetryFault{}
+			conn.mu.Lock()
+			conn.sendErr = nil
+			conn.mu.Unlock()
+
+			wantFailed := before
+			if tc.delivered {
+				wantFailed = append(append([]claudeSubEntry(nil), before...), claudeSubEntryFromMessage(second.Messages[2]))
+			}
+			s, err = pool.acquire(ctx, "retry", spec)
+			if err != nil {
+				t.Fatalf("acquire after failure: %v", err)
+			}
+			if !reflect.DeepEqual(s.sync.entries, wantFailed) {
+				t.Errorf("sync entries after failure = %+v, want %+v", s.sync.entries, wantFailed)
+			}
+			wantPending := 1
+			if tc.delivered {
+				wantPending = 0
+			}
+			if len(s.pending) != wantPending {
+				t.Errorf("pending after failure = %+v, want %d calls", s.pending, wantPending)
+			}
+			pool.release(s)
+
+			if err := claudeSubTurn(ctx, pool, second, func(ChatChunk) error { return nil }); err != nil {
+				t.Fatalf("retry turn: %v", err)
+			}
+			s, err = pool.acquire(ctx, "retry", spec)
+			if err != nil {
+				t.Fatalf("final acquire: %v", err)
+			}
+			defer pool.release(s)
+			wantEntries := append(append([]claudeSubEntry(nil), before...), claudeSubEntryFromMessage(second.Messages[2]), claudeSubEntryFromMessage(second.Messages[3]))
+			// The turn's assistant reply is committed after the follow-up user.
+			if got := s.sync.entries; len(got) != len(wantEntries)+1 || !reflect.DeepEqual(got[:len(wantEntries)], wantEntries) {
+				t.Errorf("sync entries after retry = %+v, want %+v plus the assistant reply", got, wantEntries)
+			}
+			if result, ok := s.host.claimResult(call); !ok || result.Text != "notes body" || result.IsError {
+				t.Errorf("opaque result = %+v, %v, want notes body", result, ok)
+			}
+			sent := 0
+			for _, line := range conn.sentLines() {
+				if strings.Contains(line, "summarize it") {
+					sent++
+				}
+			}
+			if sent != 1 {
+				t.Errorf("follow-up user line sent %d times, want 1", sent)
+			}
+		})
 	}
 }
 
