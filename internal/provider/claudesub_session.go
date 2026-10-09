@@ -98,6 +98,11 @@ type claudeSubSession struct {
 	// pending holds the opaque handles for tool-use ids awaiting results.
 	// Guarded by the whole-call lock (the caller holds it for the whole call).
 	pending []claudeSubPendingCall
+	// queryUsage is the usage the current CLI query has already reported on
+	// tool-call chunks. The query's result is cumulative, so its final text chunk
+	// reports the remainder. Guarded by the whole-call lock. It is reset at query
+	// start, at the terminal result, and on any failed or interrupted turn.
+	queryUsage UsageStats
 
 	queue      *claudeSubQueue
 	stop       chan struct{}

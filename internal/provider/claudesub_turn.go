@@ -28,7 +28,7 @@ func claudeSubEffortFor(req ChatRequest) string {
 	return req.Reasoning.Effort
 }
 
-func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, emit func(ChatChunk) error) error {
+func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, emit func(ChatChunk) error) (err error) {
 	key := claudeSubSessionKey(req)
 	spec := claudeSubStartSpec{Model: req.Model, Effort: claudeSubEffortFor(req)}
 	if !req.AdvisorCacheProfile {
@@ -40,6 +40,12 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 		return err
 	}
 	defer pool.release(s)
+	defer func() {
+		if err != nil {
+			// A failed turn ends the CLI query, so its usage no longer counts.
+			s.queryUsage = UsageStats{}
+		}
+	}()
 
 	if err := claudeSubFinishPending(ctx, s, req); err != nil {
 		return err
@@ -97,6 +103,8 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 		s.sync.commitToolResult(result)
 	}
 	if len(delta.User) > 0 {
+		// A user line starts a new CLI query.
+		s.queryUsage = UsageStats{}
 		if err := writeClaudeSubUser(s.conn, claudeSubUserBlocks(delta.User)); err != nil {
 			return err
 		}
@@ -134,6 +142,7 @@ func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRe
 		return err
 	}
 	s.sync.markInterrupted()
+	s.queryUsage = UsageStats{}
 	for _, pending := range stale {
 		s.host.resolve(pending.Handle, claudeSubToolResult{Text: "tool call interrupted", IsError: true})
 		claudeSubRemovePending(s, pending.ID)
@@ -223,6 +232,7 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 			case claudeSubDecodeMessage:
 				if len(item.Message.ToolCalls) > 0 {
 					s.sync.commitAssistant(*item.Message)
+					claudeSubAddUsage(&s.queryUsage, item.Usage)
 					if s.host != nil {
 						s.host.settle()
 					}
@@ -241,20 +251,49 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				if item.Result.IsError {
 					return claudeSubTurnFailure(item.Result)
 				}
-				// Result usage is cumulative over the whole CLI query, including the
-				// tool-call messages already reported on their own Done chunks. The
-				// final chunk therefore carries only this message's usage.
+				// The result's usage is cumulative over the whole CLI query. Tool-call
+				// chunks already reported part of it, so the final chunk carries the rest.
+				usage := claudeSubResidualUsage(item.Result.Usage, s.queryUsage)
+				s.queryUsage = UsageStats{}
 				if ordinary != nil {
 					s.sync.commitAssistant(*ordinary.Message)
-					if err := emit(ChatChunk{Delta: *ordinary.Message, ContentSnapshot: true, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: ordinary.Usage}); err != nil {
+					if err := emit(ChatChunk{Delta: *ordinary.Message, ContentSnapshot: true, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: usage}); err != nil {
 						return err
 					}
-				} else if err := emit(ChatChunk{Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason)}); err != nil {
+				} else if err := emit(ChatChunk{Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: usage}); err != nil {
 					return err
 				}
 				return nil
 			}
 		}
+	}
+}
+
+// claudeSubAddUsage adds src to dst field by field. A nil src adds nothing.
+func claudeSubAddUsage(dst *UsageStats, src *UsageStats) {
+	if src == nil {
+		return
+	}
+	dst.PromptTokens += src.PromptTokens
+	dst.CompletionTokens += src.CompletionTokens
+	dst.TotalTokens += src.TotalTokens
+	dst.CacheCreationInputTokens += src.CacheCreationInputTokens
+	dst.CacheReadInputTokens += src.CacheReadInputTokens
+}
+
+// claudeSubResidualUsage returns result minus reported, clamped at zero
+// independently for each field. A nil result has no usage to report, so it
+// yields nil. With nothing reported, the residual is the full result.
+func claudeSubResidualUsage(result *UsageStats, reported UsageStats) *UsageStats {
+	if result == nil {
+		return nil
+	}
+	return &UsageStats{
+		PromptTokens:             max(0, result.PromptTokens-reported.PromptTokens),
+		CompletionTokens:         max(0, result.CompletionTokens-reported.CompletionTokens),
+		TotalTokens:              max(0, result.TotalTokens-reported.TotalTokens),
+		CacheCreationInputTokens: max(0, result.CacheCreationInputTokens-reported.CacheCreationInputTokens),
+		CacheReadInputTokens:     max(0, result.CacheReadInputTokens-reported.CacheReadInputTokens),
 	}
 }
 

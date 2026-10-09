@@ -155,9 +155,11 @@ func TestClaudeSubConsumeNormalTextTurn(t *testing.T) {
 	if len(chunks) == 0 || chunks[len(chunks)-1].Delta.Content != "Hello world" || !chunks[len(chunks)-1].Done {
 		t.Fatalf("chunks = %+v, want final Hello world chunk", chunks)
 	}
-	wantUsage := UsageStats{PromptTokens: 1194, CacheCreationInputTokens: 1192, CompletionTokens: 245, TotalTokens: 1439}
+	// No tool-call usage was reported in this query, so the residual is the
+	// full result.
+	wantUsage := UsageStats{PromptTokens: 4452, CacheCreationInputTokens: 1689, CacheReadInputTokens: 2757, CompletionTokens: 343, TotalTokens: 4795}
 	if got := chunks[len(chunks)-1].Usage; got == nil || *got != wantUsage {
-		t.Errorf("final usage = %+v, want the message's own usage %+v, not the query result", got, wantUsage)
+		t.Errorf("final usage = %+v, want the full result %+v", got, wantUsage)
 	}
 }
 
@@ -214,6 +216,117 @@ func TestClaudeSubConsumeUsageCountsEachMessageOnce(t *testing.T) {
 	if sum.PromptTokens != query.PromptTokens || sum.CompletionTokens != query.CompletionTokens ||
 		sum.CacheCreationInputTokens != query.CacheCreationInputTokens || sum.CacheReadInputTokens != query.CacheReadInputTokens {
 		t.Errorf("summed chunk usage %+v != query result usage %+v; each message must count once", sum, query)
+	}
+}
+
+// claudeSubConsumeFinal runs one claudeSubConsume call and returns the last
+// chunk it emitted, which is the Done chunk that ends the call.
+func claudeSubConsumeFinal(t *testing.T, s *claudeSubSession) ChatChunk {
+	t.Helper()
+	var final ChatChunk
+	if err := claudeSubConsume(context.Background(), s, func(chunk ChatChunk) error { final = chunk; return nil }); err != nil {
+		t.Fatalf("consume: %v", err)
+	}
+	return final
+}
+
+// TestClaudeSubConsumeTextUsageResidual checks the final text chunk reports the
+// result minus the tool-call usage already reported in the same query.
+func TestClaudeSubConsumeTextUsageResidual(t *testing.T) {
+	tests := []struct {
+		name    string
+		fixture string
+		want    UsageStats
+	}{
+		{
+			name:    "result equals message sum",
+			fixture: "turn_tool_tool_text_usage.jsonl",
+			want:    UsageStats{PromptTokens: 29, CacheReadInputTokens: 25, CompletionTokens: 30, TotalTokens: 59},
+		},
+		{
+			// The result carries accounting beyond the messages; the residual keeps it.
+			name:    "result exceeds message sum including cache",
+			fixture: "turn_tool_text_extra_usage.jsonl",
+			want:    UsageStats{PromptTokens: 50, CacheCreationInputTokens: 4, CacheReadInputTokens: 40, CompletionTokens: 35, TotalTokens: 85},
+		},
+		{
+			// The text message has no usage and nothing was reported: the full result.
+			name:    "nil message usage yields full result",
+			fixture: "turn_text_nil_usage.jsonl",
+			want:    UsageStats{PromptTokens: 506, CacheReadInputTokens: 500, CompletionTokens: 50, TotalTokens: 556},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+			spec := claudeSubTestSpec()
+			spec.Tools = []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+			s, err := pool.acquire(context.Background(), "residual", spec)
+			if err != nil {
+				t.Fatalf("acquire: %v", err)
+			}
+			defer pool.release(s)
+			conn := spawner.call(t, 0).Conn
+			for _, ev := range claudeSubDecodeEvents(t, tc.fixture) {
+				conn.push(ev)
+			}
+			final := claudeSubConsumeFinal(t, s)
+			for final.FinishReason == "tool_calls" {
+				final = claudeSubConsumeFinal(t, s)
+			}
+			if !final.Done || final.Usage == nil || *final.Usage != tc.want {
+				t.Errorf("text usage = %+v, want %+v", final.Usage, tc.want)
+			}
+		})
+	}
+}
+
+// TestClaudeSubConsumeQueryUsageResetsBetweenQueries checks that a finished
+// query leaves no reported usage for the next query on the same session.
+func TestClaudeSubConsumeQueryUsageResetsBetweenQueries(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	spec := claudeSubTestSpec()
+	spec.Tools = []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	s, err := pool.acquire(context.Background(), "query-reset", spec)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer pool.release(s)
+	conn := spawner.call(t, 0).Conn
+	for _, name := range []string{"turn_tool_tool_text_usage.jsonl", "turn_text.jsonl"} {
+		for _, ev := range claudeSubDecodeEvents(t, name) {
+			conn.push(ev)
+		}
+	}
+	// Query one: tool, tool, then the text that its result closes.
+	for range 2 {
+		if final := claudeSubConsumeFinal(t, s); final.FinishReason != "tool_calls" {
+			t.Fatalf("query one tool chunk = %+v, want tool_calls", final)
+		}
+	}
+	if final := claudeSubConsumeFinal(t, s); final.FinishReason != "stop" {
+		t.Fatalf("query one text chunk = %+v, want stop", final)
+	}
+	if s.queryUsage != (UsageStats{}) {
+		t.Fatalf("query usage after result = %+v, want reset", s.queryUsage)
+	}
+	// Query two reported no tool-call usage, so its residual is its full result.
+	final := claudeSubConsumeFinal(t, s)
+	want := UsageStats{PromptTokens: 4452, CacheCreationInputTokens: 1689, CacheReadInputTokens: 2757, CompletionTokens: 343, TotalTokens: 4795}
+	if !final.Done || final.Usage == nil || *final.Usage != want {
+		t.Errorf("query two usage = %+v, want full result %+v; query one usage leaked", final.Usage, want)
+	}
+}
+
+func TestClaudeSubResidualUsageClampsPerField(t *testing.T) {
+	if got := claudeSubResidualUsage(nil, UsageStats{PromptTokens: 1}); got != nil {
+		t.Errorf("residual of nil result = %+v, want nil", got)
+	}
+	result := &UsageStats{PromptTokens: 10, CompletionTokens: 3, TotalTokens: 13, CacheReadInputTokens: 5}
+	reported := UsageStats{PromptTokens: 12, CompletionTokens: 1, TotalTokens: 13, CacheReadInputTokens: 2}
+	want := UsageStats{CompletionTokens: 2, CacheReadInputTokens: 3}
+	if got := claudeSubResidualUsage(result, reported); got == nil || *got != want {
+		t.Errorf("residual = %+v, want %+v (prompt and total clamp to zero per field)", got, want)
 	}
 }
 
