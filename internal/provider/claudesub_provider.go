@@ -1,6 +1,9 @@
 package provider
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // ClaudeSubscriptionProvider is the stateful provider facade for a signed-in
 // Claude Code subscription. The pool owns process lifetime; the provider owns
@@ -30,17 +33,34 @@ func (p *ClaudeSubscriptionProvider) ChatCompletion(ctx context.Context, req Cha
 	for chunk := range stream {
 		chunks = append(chunks, chunk)
 	}
-	return foldClaudeSubChunks(chunks)
+	response, err := foldClaudeSubChunks(chunks)
+	if err != nil && ctx.Err() != nil && !claudeSubChunksHaveDone(chunks) {
+		return ChatResponse{}, ctx.Err()
+	}
+	return response, err
+}
+
+func claudeSubChunksHaveDone(chunks []ChatChunk) bool {
+	for _, chunk := range chunks {
+		if chunk.Done {
+			return true
+		}
+	}
+	return false
 }
 
 func foldClaudeSubChunks(chunks []ChatChunk) (ChatResponse, error) {
 	var response ChatResponse
+	terminal := false
 	for _, chunk := range chunks {
 		if chunk.Error != "" {
 			if chunk.OriginalError != nil {
 				return ChatResponse{}, chunk.OriginalError
 			}
 			return ChatResponse{}, &claudeSubTurnError{message: chunk.Error}
+		}
+		if chunk.Done {
+			terminal = true
 		}
 		if chunk.Delta.Role == MessageRoleAssistant {
 			response.Message.Role = MessageRoleAssistant
@@ -63,6 +83,9 @@ func foldClaudeSubChunks(chunks []ChatChunk) (ChatResponse, error) {
 		if chunk.FinishReason != "" {
 			response.FinishReason = chunk.FinishReason
 		}
+	}
+	if !terminal {
+		return ChatResponse{}, errors.New("claude_subscription stream closed without a terminal chunk")
 	}
 	return response, nil
 }

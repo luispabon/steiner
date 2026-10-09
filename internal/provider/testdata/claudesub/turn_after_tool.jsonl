@@ -1,9 +1,0 @@
-{"type":"system","subtype":"init","session_id":"sess-2","tools":["mcp__steiner__read"],"model":"claude-haiku-5-5","uuid":"v0"}
-{"type":"stream_event","event":{"type":"message_start","message":{"type":"message","id":"msg_3","role":"assistant","content":[],"stop_reason":null,"usage":{"input_tokens":2,"output_tokens":1}}},"session_id":"sess-2","parent_tool_use_id":null,"uuid":"v1"}
-{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"session_id":"sess-2","parent_tool_use_id":null,"uuid":"v2"}
-{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"continued"}},"session_id":"sess-2","parent_tool_use_id":null,"uuid":"v3"}
-{"type":"stream_event","event":{"type":"content_block_stop","index":0},"session_id":"sess-2","parent_tool_use_id":null,"uuid":"v4"}
-{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":2,"output_tokens":3}},"session_id":"sess-2","parent_tool_use_id":null,"uuid":"v5"}
-{"type":"stream_event","event":{"type":"message_stop"},"session_id":"sess-2","parent_tool_use_id":null,"uuid":"v6"}
-{"type":"assistant","message":{"model":"claude-haiku-5-5","id":"msg_3","type":"message","role":"assistant","content":[{"type":"text","text":"continued"}],"stop_reason":null,"usage":{"input_tokens":2,"output_tokens":3}},"parent_tool_use_id":null,"session_id":"sess-2","uuid":"v7","request_id":"req_3"}
-{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"continued","stop_reason":"end_turn","session_id":"sess-2","usage":{"input_tokens":2,"output_tokens":3},"permission_denials":[]}

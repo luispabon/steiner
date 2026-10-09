@@ -310,6 +310,9 @@ func (c *claudeSubControl) setModel(ctx context.Context, model string) (json.Raw
 }
 
 func (c *claudeSubControl) setEffort(ctx context.Context, effort string) (json.RawMessage, error) {
+	if effort == "" {
+		effort = "default"
+	}
 	return c.request(ctx, "apply_flag_settings", map[string]any{"settings": map[string]any{"effortLevel": effort}})
 }
 

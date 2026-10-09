@@ -31,8 +31,30 @@ func TestFoldClaudeSubChunks(t *testing.T) {
 	if got.Message.Content != "final" || got.Message.ReasoningContent != "think" || got.FinishReason != "stop" {
 		t.Fatalf("response = %+v, want final content, thinking, and stop", got)
 	}
+	if got.Message.Content == "oldnewfinal" {
+		t.Fatal("snapshot final chunk duplicated streamed text")
+	}
 	if got.Usage != usage {
 		t.Error("fold did not retain final usage pointer")
+	}
+}
+
+func TestFoldClaudeSubChunksTextAndToolSnapshot(t *testing.T) {
+	got, err := foldClaudeSubChunks([]ChatChunk{
+		{Delta: Message{Role: MessageRoleAssistant, Content: "before"}},
+		{Delta: Message{Content: "final", ToolCalls: []ToolCall{{ID: "call-1", Name: "read"}}}, ContentSnapshot: true, Done: true, FinishReason: "tool_calls"},
+	})
+	if err != nil {
+		t.Fatalf("foldClaudeSubChunks() error = %v", err)
+	}
+	if got.Message.Content != "final" || len(got.Message.ToolCalls) != 1 || got.FinishReason != "tool_calls" {
+		t.Fatalf("response = %+v, want final text and one tool call", got)
+	}
+}
+
+func TestFoldClaudeSubChunksRequiresTerminal(t *testing.T) {
+	if _, err := foldClaudeSubChunks([]ChatChunk{{Delta: Message{Content: "partial"}}}); err == nil {
+		t.Fatal("fold without Done returned nil error")
 	}
 }
 

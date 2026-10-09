@@ -40,6 +40,13 @@ func TestClaudeSubControlRequestShapes(t *testing.T) {
 			},
 			want: map[string]any{"subtype": "apply_flag_settings", "settings": map[string]any{"effortLevel": "high"}},
 		},
+		{
+			name: "reset effort",
+			call: func(ctx context.Context, c *claudeSubControl) (json.RawMessage, error) {
+				return c.setEffort(ctx, "")
+			},
+			want: map[string]any{"subtype": "apply_flag_settings", "settings": map[string]any{"effortLevel": "default"}},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

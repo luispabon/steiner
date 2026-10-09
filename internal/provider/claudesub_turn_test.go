@@ -92,10 +92,13 @@ func TestClaudeSubUsageGateRejectsBeforeUserWrite(t *testing.T) {
 				Subtype string `json:"subtype"`
 			} `json:"request"`
 		}
-		if json.Unmarshal(line, &request) != nil || request.Request.Subtype != "get_usage" {
+		if json.Unmarshal(line, &request) != nil {
 			return nil
 		}
-		return []claudeSubEvent{claudeSubSuccessEvent(request.RequestID, json.RawMessage(`{"rate_limits_available":false}`))}
+		if request.Request.Subtype == "get_usage" {
+			return []claudeSubEvent{claudeSubSuccessEvent(request.RequestID, json.RawMessage(`{"rate_limits_available":false}`))}
+		}
+		return []claudeSubEvent{claudeSubSuccessEvent(request.RequestID, nil)}
 	}
 	conn.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -175,6 +178,80 @@ func TestClaudeSubRouteObserverPreservesFIFO(t *testing.T) {
 		if !ok || ev.Type != want {
 			t.Fatalf("queue event = %+v, %v, want %q, true", ev, ok, want)
 		}
+	}
+}
+
+func TestClaudeSubPendingCleanupInterruptsAndResolvesOpaqueHandle(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	spec := claudeSubTestSpec()
+	spec.Tools = []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	s, err := pool.acquire(context.Background(), "pending-cleanup", spec)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer pool.release(s)
+	conn := spawner.call(t, 0).Conn
+	conn.mu.Lock()
+	conn.responder = func(line []byte) []claudeSubEvent {
+		var req struct {
+			RequestID string `json:"request_id"`
+		}
+		if json.Unmarshal(line, &req) != nil {
+			return nil
+		}
+		return []claudeSubEvent{claudeSubSuccessEvent(req.RequestID, nil)}
+	}
+	conn.mu.Unlock()
+	call := s.beginPendingCall("toolu-stale")
+	if call == nil {
+		t.Fatal("beginPendingCall returned nil")
+	}
+	if err := claudeSubFinishPending(context.Background(), s, ChatRequest{}); err != nil {
+		t.Fatalf("finish pending: %v", err)
+	}
+	if len(s.pending) != 0 || !s.sync.interrupted {
+		t.Fatalf("pending = %+v, interrupted = %v, want cleared and interrupted", s.pending, s.sync.interrupted)
+	}
+	result, ok := s.host.claimResult(call)
+	if !ok || !result.IsError || result.Text != "tool call interrupted" {
+		t.Fatalf("resolved result = %+v, %v, want interrupted error result", result, ok)
+	}
+}
+
+func TestClaudeSubRouteNaturalCloseWakesConsumer(t *testing.T) {
+	events := make(chan claudeSubEvent)
+	q := newClaudeSubQueue()
+	done := make(chan struct{})
+	go func() {
+		claudeSubRoute(events, nil, nil, q)
+		close(done)
+	}()
+	close(events)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("router did not stop after natural event close")
+	}
+	if _, ok := q.pop(context.Background()); ok {
+		t.Fatal("closed router queue returned an event")
+	}
+}
+
+func TestClaudeSubMalformedUsageEventsFailClosedAsOverage(t *testing.T) {
+	for _, ev := range []claudeSubEvent{
+		{Type: "rate_limit_event", Raw: json.RawMessage(`{"type":"rate_limit_event","rate_limit_info":`)},
+		{Type: "system", Raw: json.RawMessage(`{"type":"system","subtype":"notification","message":`)},
+	} {
+		if !claudeSubEventIsOverage(ev) {
+			t.Errorf("event %+v was not classified as overage", ev)
+		}
+	}
+}
+
+func TestClaudeSubSystemNotificationOverage(t *testing.T) {
+	ev := claudeSubEvent{Type: "system", Raw: json.RawMessage(`{"type":"system","subtype":"notification","message":"You're now using usage credits"}`)}
+	if !claudeSubEventIsOverage(ev) {
+		t.Fatal("usage-credit system notification was not classified as overage")
 	}
 }
 

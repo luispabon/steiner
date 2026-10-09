@@ -306,14 +306,6 @@ func (s *claudeSubSession) beginPendingCall(id string) *claudeSubCall {
 	return call
 }
 
-// takePending returns the recorded pending calls and clears the record. The
-// caller must hold the whole-call lock.
-func (s *claudeSubSession) takePending() []claudeSubPendingCall {
-	calls := s.pending
-	s.pending = nil
-	return calls
-}
-
 // lockCall takes the session's whole-call lock, waiting until it is free, the
 // session is torn down, or ctx is canceled. acquire is the only caller, and
 // every successful lockCall is paired with release (or unlockCall on the
