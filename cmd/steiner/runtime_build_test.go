@@ -154,7 +154,7 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 			return &fakeProvider{}, nil
 		}
 
-		factory := buildRuntimeProviderFactory(httpClient, streamErrorLog)
+		factory := buildRuntimeProviderFactory(httpClient, streamErrorLog, nil)
 
 		gotProvider, err := factory(rm, "test-session")
 		if wantErr != "" {
@@ -372,6 +372,22 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 	runFactory(t, unsupportedRM, `provider type "gemini" is not implemented by the runtime provider factory`, "")
 }
 
+func TestBuildRuntimeProviderFactoryClaudeSubscriptionDispatchesAndRequiresPool(t *testing.T) {
+	rm := provider.ResolvedModel{Alias: "claude", ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeClaudeSubscription}, EffectiveProviderType: config.ProviderTypeClaudeSubscription}
+	if _, err := buildRuntimeProviderFactory(nil, nil, nil)(rm, "session"); err == nil || err.Error() != "the claude_subscription provider is not available for this run" {
+		t.Fatalf("nil pool error = %v", err)
+	}
+	pool := provider.NewClaudeSubscriptionPool(provider.ClaudeSubscriptionPoolOptions{})
+	t.Cleanup(func() { _ = pool.Close() })
+	got, err := buildRuntimeProviderFactory(nil, nil, pool)(rm, "session")
+	if err != nil {
+		t.Fatalf("factory() error = %v", err)
+	}
+	if !provider.IsStatefulTranscript(got) {
+		t.Fatal("factory() returned provider without stateful transcript support")
+	}
+}
+
 func TestBuildRuntimeProviderFactoryCodexUsesChatGPTBackendWithoutExchangedAPIKey(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
@@ -391,7 +407,7 @@ func TestBuildRuntimeProviderFactoryCodexUsesChatGPTBackendWithoutExchangedAPIKe
 		return &fakeProvider{}, nil
 	}
 
-	factory := buildRuntimeProviderFactory(&http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -424,7 +440,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 		t.Fatalf("write token: %v", err)
 	}
 
-	factory := buildRuntimeProviderFactory(&http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -445,7 +461,7 @@ func TestBuildRuntimeProviderFactoryCodexMissingAccountMetadata(t *testing.T) {
 func TestBuildRuntimeProviderFactoryCodexMissingToken(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	factory := buildRuntimeProviderFactory(&http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil)
 
 	codexRM := provider.ResolvedModel{
 		Alias:                 "codex",
@@ -473,7 +489,7 @@ func TestBuildRuntimeProviderFactoryOpencodeInjectsSessionHeader(t *testing.T) {
 		return &fakeProvider{}, nil
 	}
 
-	factory := buildRuntimeProviderFactory(&http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil)
 
 	rm := provider.ResolvedModel{
 		Alias:                 "opencode-go-model",
@@ -505,7 +521,7 @@ func TestBuildRuntimeProviderFactoryOpencodeZenAnthropicSurvivesEffectiveTranspo
 		return &fakeProvider{}, nil
 	}
 
-	factory := buildRuntimeProviderFactory(&http.Client{}, nil)
+	factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil)
 
 	rm := provider.ResolvedModel{
 		Alias:                 "claude-on-opencode-zen",
@@ -574,7 +590,7 @@ func TestCodexTransportSwitch(t *testing.T) {
 				return &fakeProvider{}, nil
 			}
 
-			factory := buildRuntimeProviderFactory(&http.Client{}, nil)
+			factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil)
 
 			codexRM := provider.ResolvedModel{
 				Alias:                 "codex",

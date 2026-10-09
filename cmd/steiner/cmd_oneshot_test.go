@@ -16,6 +16,7 @@ import (
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 type fakeOneshotOrchestrator struct {
@@ -205,6 +206,31 @@ func TestOneshotCommandResume(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestNewPhaseRunnerRejectsClaudeSubscriptionEffectiveProvider(t *testing.T) {
+	oldBuildPhaseRuntime := buildPhaseRuntime
+	t.Cleanup(func() { buildPhaseRuntime = oldBuildPhaseRuntime })
+	buildPhaseRuntime = func(context.Context, *cobra.Command, *cliFlags, string, string, string) (cliRuntime, error) {
+		return cliRuntime{
+			providerFactory: func(provider.ResolvedModel, string) (provider.Provider, error) {
+				return &fakeProvider{}, nil
+			},
+		}, nil
+	}
+	runner, err := newPhaseRunner(context.Background(), nil, &cliFlags{}, phaseRunnerParams{})
+	if err != nil {
+		t.Fatalf("newPhaseRunner() error = %v", err)
+	}
+	phase := runner.(phaseRunner)
+	for _, rm := range []provider.ResolvedModel{
+		{ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeClaudeSubscription}},
+		{ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeOpenAICompat}, EffectiveProviderType: config.ProviderTypeClaudeSubscription},
+	} {
+		if _, err := phase.runner.runtime.providerFactory(rm, "session"); !errors.Is(err, errClaudeSubscriptionOneshot) {
+			t.Fatalf("providerFactory(%#v) error = %v, want %v", rm, err, errClaudeSubscriptionOneshot)
+		}
 	}
 }
 
