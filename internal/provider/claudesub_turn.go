@@ -97,6 +97,8 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 		s.sync.commitToolResult(result)
 	}
 	if len(delta.User) > 0 {
+		// A user line starts a new CLI query.
+		s.queryUsage = UsageStats{}
 		if err := writeClaudeSubUser(s.conn, claudeSubUserBlocks(delta.User)); err != nil {
 			return err
 		}
@@ -108,7 +110,14 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 		messages := claudeSubMessages(req.Messages)
 		s.sync.commitAdvisor(messages[:len(messages)-1])
 	}
-	return claudeSubConsume(ctx, s, emit)
+	if err := claudeSubConsume(ctx, s, emit); err != nil {
+		// A consume error aborts the query's stream, so its reported usage no
+		// longer applies. Pre-consume failures return above and keep it, because
+		// the query is still running and the retry continues it.
+		s.queryUsage = UsageStats{}
+		return err
+	}
+	return nil
 }
 
 func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRequest) error {
@@ -134,6 +143,7 @@ func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRe
 		return err
 	}
 	s.sync.markInterrupted()
+	s.queryUsage = UsageStats{}
 	for _, pending := range stale {
 		s.host.resolve(pending.Handle, claudeSubToolResult{Text: "tool call interrupted", IsError: true})
 		claudeSubRemovePending(s, pending.ID)
@@ -223,10 +233,11 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 			case claudeSubDecodeMessage:
 				if len(item.Message.ToolCalls) > 0 {
 					s.sync.commitAssistant(*item.Message)
+					claudeSubAddUsage(&s.queryUsage, item.Usage)
 					if s.host != nil {
 						s.host.settle()
 					}
-					if err := emit(ChatChunk{Delta: *item.Message, ContentSnapshot: true, Done: true, FinishReason: item.FinishReason}); err != nil {
+					if err := emit(ChatChunk{Delta: *item.Message, ContentSnapshot: true, Done: true, FinishReason: item.FinishReason, Usage: item.Usage}); err != nil {
 						return err
 					}
 					return nil
@@ -241,17 +252,53 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				if item.Result.IsError {
 					return claudeSubTurnFailure(item.Result)
 				}
+				// The result's usage is cumulative over the whole CLI query. Tool-call
+				// chunks already reported part of it, so the final chunk carries the rest.
+				usage := claudeSubResidualUsage(item.Result.Usage, s.queryUsage)
+				s.queryUsage = UsageStats{}
+				if item.Result.Usage == nil && ordinary != nil {
+					// The result carries no usage, so use this message's own usage.
+					usage = ordinary.Usage
+				}
 				if ordinary != nil {
 					s.sync.commitAssistant(*ordinary.Message)
-					if err := emit(ChatChunk{Delta: *ordinary.Message, ContentSnapshot: true, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: item.Result.Usage}); err != nil {
+					if err := emit(ChatChunk{Delta: *ordinary.Message, ContentSnapshot: true, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: usage}); err != nil {
 						return err
 					}
-				} else if err := emit(ChatChunk{Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: item.Result.Usage}); err != nil {
+				} else if err := emit(ChatChunk{Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: usage}); err != nil {
 					return err
 				}
 				return nil
 			}
 		}
+	}
+}
+
+// claudeSubAddUsage adds src to dst field by field. A nil src adds nothing.
+func claudeSubAddUsage(dst *UsageStats, src *UsageStats) {
+	if src == nil {
+		return
+	}
+	dst.PromptTokens += src.PromptTokens
+	dst.CompletionTokens += src.CompletionTokens
+	dst.TotalTokens += src.TotalTokens
+	dst.CacheCreationInputTokens += src.CacheCreationInputTokens
+	dst.CacheReadInputTokens += src.CacheReadInputTokens
+}
+
+// claudeSubResidualUsage returns result minus reported, clamped at zero
+// independently for each field. A nil result has no usage to report, so it
+// yields nil. With nothing reported, the residual is the full result.
+func claudeSubResidualUsage(result *UsageStats, reported UsageStats) *UsageStats {
+	if result == nil {
+		return nil
+	}
+	return &UsageStats{
+		PromptTokens:             max(0, result.PromptTokens-reported.PromptTokens),
+		CompletionTokens:         max(0, result.CompletionTokens-reported.CompletionTokens),
+		TotalTokens:              max(0, result.TotalTokens-reported.TotalTokens),
+		CacheCreationInputTokens: max(0, result.CacheCreationInputTokens-reported.CacheCreationInputTokens),
+		CacheReadInputTokens:     max(0, result.CacheReadInputTokens-reported.CacheReadInputTokens),
 	}
 }
 

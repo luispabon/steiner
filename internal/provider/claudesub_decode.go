@@ -18,7 +18,8 @@ import (
 // `stream_event` deltas (raw Anthropic Messages SSE events), per-content-block
 // `assistant` echoes, and the terminal `result`. To avoid double-counting, the
 // decoder emits assistant text and thinking only from the streamed deltas,
-// surfaces usage only as cumulative `usage` events, and never turns the
+// surfaces usage as cumulative `usage` events, attaches each message's final
+// usage to its assembled message event, and never turns the
 // `assistant` echo body or the `result` text into deltas. An echo for a streamed
 // block confirms its tool_use identity and name; an echo-only tool_use is
 // accepted only as the existing post-message_stop fallback. Echoes are
@@ -31,6 +32,11 @@ import (
 // and a stopped block rejects later deltas; a second message_start and a success
 // result before message_stop both fail closed, so no invalid ordering resets or drops
 // accumulated content.
+//
+// The result envelope's usage covers the whole CLI query, including the
+// tool-call messages that already carried their own usage. The decoder never
+// sums or reconciles usage; claudeSubConsume reports the remainder on the final
+// text chunk.
 
 var (
 	// errClaudeSubDecodeStream marks a malformed streamed envelope or
@@ -88,7 +94,8 @@ type claudeSubDecoded struct {
 	// translated from the CLI's mcp__steiner__ form to the steiner tool name.
 	ToolUseID string
 	ToolName  string
-	// Usage carries a cumulative per-message usage snapshot.
+	// Usage carries a cumulative per-message usage snapshot. On a
+	// claudeSubDecodeMessage event it is the message's final usage.
 	Usage *UsageStats
 	// Message and FinishReason carry the assembled assistant message.
 	Message      *Message
@@ -1153,6 +1160,7 @@ func (d *claudeSubDecoder) assembleMessage() (*claudeSubDecoded, error) {
 		Kind:         claudeSubDecodeMessage,
 		Message:      &message,
 		FinishReason: d.stopReason,
+		Usage:        d.usage.toUsageStats(),
 	}, nil
 }
 

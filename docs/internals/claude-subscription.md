@@ -12,7 +12,7 @@ For test-only fixture capture, set `STEINER_CLAUDESUB_RECORD` to a directory. Re
 
 Recordings can contain prompts, tool inputs and outputs, file contents, account details, and other sensitive model data. Treat them as sensitive test artifacts. Before committing fixtures, copy only representative lines into `internal/provider/testdata/claudesub/`, remove prompts and tool or account data that are not needed for the test, redact emails, organization IDs, paths, and file contents, and review the diff. Do not use recordings from a real project as fixtures without this redaction step.
 
-The pool locates `claude` once on `PATH`, checks `claude --version`, and checks `claude auth status`. It requires CLI version `2.1.294` or later, `authMethod: claude.ai`, and `apiProvider: firstParty`. It does not read a credential file. Process teardown, temporary-directory cleanup, advisor reaping, and shutdown deadlines are owned by the pool.
+The pool locates `claude` once on `PATH`, checks `claude --version`, and checks `claude auth status`. It requires CLI version `2.1.294` or later, `authMethod: claude.ai`, and `apiProvider: firstParty`. It does not read a credential file. Process teardown, temporary-directory cleanup, advisor reaping, and shutdown deadlines are owned by the pool. Inactive advisor sessions are reaped after 60 minutes without a call. Non-advisor sessions are not reaped by this policy and stay open until the pool closes them.
 
 ## CLI invocation
 
