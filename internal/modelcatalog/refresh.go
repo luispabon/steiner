@@ -11,6 +11,11 @@ import (
 )
 
 const (
+	catalogEnumerationTimeout = 5 * time.Second
+	// Claude subscription discovery reserves 8 seconds for CLI teardown inside
+	// its 20-second budget, so the catalog deadline must not end it at 5 seconds.
+	claudeSubscriptionEnumerationTimeout = 20 * time.Second
+
 	// RefreshStatusFreshSkipped marks a provider whose cache is still fresh.
 	RefreshStatusFreshSkipped = "fresh-skipped"
 	// RefreshStatusUpdated marks a provider whose cache was refreshed.
@@ -112,7 +117,11 @@ func (s *Service) refreshOne(parent context.Context, endpoint Endpoint, force bo
 			return result
 		}
 	}
-	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	enumerationTimeout := catalogEnumerationTimeout
+	if endpoint.Type == string(config.ProviderTypeClaudeSubscription) {
+		enumerationTimeout = claudeSubscriptionEnumerationTimeout
+	}
+	ctx, cancel := context.WithTimeout(parent, enumerationTimeout)
 	defer cancel()
 	etag := s.cachedETag(endpoint)
 	enumerator, err := s.dispatcher(endpoint.Type, s.client)

@@ -7,7 +7,27 @@ import (
 	"os"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/luispabon/steiner/internal/config"
 )
+
+func TestServiceRefreshUsesClaudeSubscriptionDiscoveryTimeout(t *testing.T) {
+	service := NewService(func(_ string, _ *http.Client) (Enumerator, error) {
+		return testEnumerator{enumerate: func(ctx context.Context, _ Endpoint, _ EnumerationOptions) (EnumerationResult, error) {
+			select {
+			case <-time.After(6 * time.Second):
+				return EnumerationResult{Models: []DiscoveredModel{{ID: "model"}}}, nil
+			case <-ctx.Done():
+				return EnumerationResult{}, ctx.Err()
+			}
+		}}, nil
+	}, NewCache(t.TempDir()), NewStore(""), nil)
+	got := service.RefreshAll(context.Background(), []Endpoint{{Alias: "claude", Type: string(config.ProviderTypeClaudeSubscription)}}, RefreshOptions{Force: true})
+	if got.Results[0].Err != nil {
+		t.Fatalf("Claude subscription refresh error = %v, want nil", got.Results[0].Err)
+	}
+}
 
 func TestServiceRefreshPrepareFailureUsesFreshCache(t *testing.T) {
 	cache := NewCache(t.TempDir())

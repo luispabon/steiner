@@ -14,6 +14,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/modelcatalog"
+	providerpkg "github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tui"
 )
 
@@ -221,6 +222,61 @@ func writeCodexCatalogToken(t *testing.T, contents string) {
 	}
 	if err := os.WriteFile(tokenPath, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write token: %v", err)
+	}
+}
+
+func TestCatalogConfigCopyPinsClaudeSubscriptionProviderBaseURL(t *testing.T) {
+	cfg := config.Config{Providers: map[string]config.ProviderConfig{
+		"claude": {Type: config.ProviderTypeClaudeSubscription, BaseURL: "https://ignored.example"},
+	}}
+	copied := catalogConfigCopy(&cfg)
+	if got := copied.Providers["claude"].BaseURL; got != claudeSubscriptionCatalogBaseURL {
+		t.Fatalf("catalog Claude subscription base URL = %q, want %q", got, claudeSubscriptionCatalogBaseURL)
+	}
+	if got := cfg.Providers["claude"].BaseURL; got != "https://ignored.example" {
+		t.Fatalf("runtime Claude subscription base URL = %q, want untouched", got)
+	}
+}
+
+func TestClaudeSubscriptionCatalogAdapterConvertsModels(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	old := claudeSubscriptionCatalogDiscover
+	claudeSubscriptionCatalogDiscover = func(context.Context) ([]providerpkg.ClaudeSubscriptionModel, error) {
+		return []providerpkg.ClaudeSubscriptionModel{{ID: "claude-live", DisplayName: "Live", Description: "desc", SupportedEfforts: []string{"low"}}}, nil
+	}
+	t.Cleanup(func() { claudeSubscriptionCatalogDiscover = old })
+	cfg := config.Config{Models: config.ModelsConfig{DiscoveryEnabled: true}, Providers: map[string]config.ProviderConfig{"claude": {Type: config.ProviderTypeClaudeSubscription}}}
+	service, endpoints, _ := buildModelCatalogService(&cfg, nil)
+	report := service.RefreshAll(context.Background(), endpoints, modelcatalog.RefreshOptions{Force: true})
+	if report.Results[0].Err != nil {
+		t.Fatalf("refresh error = %v", report.Results[0].Err)
+	}
+	models := service.Choices(catalogConfigCopy(&cfg), "")
+	if len(models) != 1 || models[0].Ref != "claude/claude-live" || !reflect.DeepEqual(models[0].SupportedEfforts, []string{"low"}) {
+		t.Fatalf("catalog choices = %#v, want converted Claude model", models)
+	}
+	fresh := modelcatalog.NewService(nil, modelcatalog.NewCache(""), modelcatalog.NewStore(t.TempDir()+"/popularity.json"), nil, true)
+	freshModels := fresh.Choices(catalogConfigCopy(&cfg), "")
+	if len(freshModels) != 1 || freshModels[0].Ref != "claude/claude-live" {
+		t.Fatalf("fresh catalog choices = %#v, want pinned cache model", freshModels)
+	}
+	model, found := fresh.Model(catalogConfigCopy(&cfg), "claude", "claude-live")
+	if !found || model.DisplayName != "Live" || model.Description != "desc" || !reflect.DeepEqual(model.SupportedEfforts, []string{"low"}) || model.ProviderAlias != "claude" || model.ProviderType != string(config.ProviderTypeClaudeSubscription) {
+		t.Fatalf("discovered Claude model = %#v found=%v, want converted fields and stamped identity", model, found)
+	}
+}
+
+func TestBuildModelCatalogServicePinsClaudeSubscriptionEndpointBaseURL(t *testing.T) {
+	cfg := config.Config{
+		Models:    config.ModelsConfig{DiscoveryEnabled: true},
+		Providers: map[string]config.ProviderConfig{"claude": {Type: config.ProviderTypeClaudeSubscription, BaseURL: "https://ignored.example"}},
+	}
+	_, endpoints, _ := buildModelCatalogService(&cfg, &http.Client{})
+	if len(endpoints) != 1 || endpoints[0].BaseURL != claudeSubscriptionCatalogBaseURL {
+		t.Fatalf("Claude subscription endpoints = %#v, want pinned endpoint", endpoints)
+	}
+	if endpoints[0].Prepare != nil {
+		t.Fatal("Claude subscription endpoint Prepare is non-nil")
 	}
 }
 

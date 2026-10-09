@@ -22,6 +22,7 @@ func TestForTypeWithClient(t *testing.T) {
 		{config.ProviderTypeOpenRouter, false},
 		{config.ProviderTypeAnthropic, false},
 		{config.ProviderTypeCodex, false},
+		{config.ProviderTypeClaudeSubscription, false},
 		{config.ProviderType("unknown"), true},
 	}
 
@@ -62,6 +63,7 @@ func TestSupportsType(t *testing.T) {
 		{config.ProviderTypeOpenRouter, true},
 		{config.ProviderTypeAnthropic, true},
 		{config.ProviderTypeCodex, true},
+		{config.ProviderTypeClaudeSubscription, true},
 		{config.ProviderType("unknown"), false},
 	}
 
