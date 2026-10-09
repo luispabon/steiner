@@ -62,6 +62,8 @@ func ForTypeWithClient(t config.ProviderType, client *http.Client) (Enumerator, 
 		return NewAnthropicEnumerator(client), nil
 	case config.ProviderTypeCodex:
 		return NewCodexEnumerator(client, "", nil), nil
+	case config.ProviderTypeClaudeSubscription:
+		return NewClaudeSubscriptionEnumerator(nil), nil
 	default:
 		return nil, fmt.Errorf("unknown enumerator type %q", t)
 	}
@@ -72,7 +74,8 @@ func SupportsType(providerType config.ProviderType) bool {
 	switch providerType {
 	case config.ProviderTypeOpenAI, config.ProviderTypeOpenAICompat, config.ProviderTypeLiteLLM,
 		config.ProviderTypeOllama, config.ProviderTypeLMStudio, config.ProviderTypeOpenRouter,
-		config.ProviderTypeAnthropic, config.ProviderTypeCodex, config.ProviderTypeOpencodeGo, config.ProviderTypeOpencodeZen:
+		config.ProviderTypeAnthropic, config.ProviderTypeCodex, config.ProviderTypeClaudeSubscription,
+		config.ProviderTypeOpencodeGo, config.ProviderTypeOpencodeZen:
 		return true
 	default:
 		return false

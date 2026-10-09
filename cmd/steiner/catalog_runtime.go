@@ -21,6 +21,10 @@ import (
 // Platform API host used when the Codex token carries its own API key.
 const codexChatGPTBackendURL = "https://chatgpt.com/backend-api/codex"
 
+const claudeSubscriptionCatalogBaseURL = "claude-subscription://local"
+
+var claudeSubscriptionCatalogDiscover = providerpkg.DiscoverClaudeSubscriptionModels
+
 // codexCatalogClientVersion is the Codex client version reported during catalog
 // discovery. Codex gates catalog models on a compatible client version, so
 // discovery sends this fixed value instead of Steiner's build version ("dev"
@@ -38,6 +42,22 @@ func buildModelCatalogService(cfg *config.Config, httpClient *http.Client) (*mod
 	dispatcher := func(providerType string, client *http.Client) (modelcatalog.Enumerator, error) {
 		if providerType == string(config.ProviderTypeCodex) {
 			return modelcatalog.NewCodexEnumerator(client, codexCatalogClientVersion, codexCatalogCredentials), nil
+		}
+		if providerType == string(config.ProviderTypeClaudeSubscription) {
+			return modelcatalog.NewClaudeSubscriptionEnumerator(func(ctx context.Context) ([]modelcatalog.DiscoveredModel, error) {
+				models, err := claudeSubscriptionCatalogDiscover(ctx)
+				if err != nil {
+					return nil, err
+				}
+				converted := make([]modelcatalog.DiscoveredModel, 0, len(models))
+				for _, model := range models {
+					converted = append(converted, modelcatalog.DiscoveredModel{
+						ID: model.ID, DisplayName: model.DisplayName, Description: model.Description,
+						SupportedEfforts: model.SupportedEfforts,
+					})
+				}
+				return converted, nil
+			}), nil
 		}
 		return modelcatalog.DefaultDispatcher(providerType, client)
 	}
@@ -60,6 +80,9 @@ func buildModelCatalogService(cfg *config.Config, httpClient *http.Client) (*mod
 		provider = providerpkg.ResolveProviderConfig(provider)
 		provider.BaseURL = strings.TrimSpace(provider.BaseURL)
 		endpoint := modelcatalog.Endpoint{Alias: alias, Type: string(provider.Type), BaseURL: provider.BaseURL, APIKey: provider.APIKey, Headers: cloneStringMap(provider.Headers)}
+		if provider.Type == config.ProviderTypeClaudeSubscription {
+			endpoint.BaseURL = claudeSubscriptionCatalogBaseURL
+		}
 		if provider.Type == config.ProviderTypeCodex {
 			// Codex discovery always lists against the ChatGPT backend: the cached
 			// fingerprint must not follow the configured host or the token's
@@ -74,8 +97,8 @@ func buildModelCatalogService(cfg *config.Config, httpClient *http.Client) (*mod
 	return service, endpoints, popularity
 }
 
-// catalogConfigCopy returns a copy of cfg whose Codex providers point at the
-// ChatGPT backend, matching the base URL catalog discovery stores in its cache.
+// catalogConfigCopy returns a copy of cfg whose subscription providers point at
+// their catalog base URLs, matching the fingerprints stored in the catalog cache.
 // The runtime config is left untouched.
 func catalogConfigCopy(cfg *config.Config) *config.Config {
 	if cfg == nil {
@@ -85,6 +108,9 @@ func catalogConfigCopy(cfg *config.Config) *config.Config {
 	copied.Providers = make(map[string]config.ProviderConfig, len(cfg.Providers))
 	for alias, provider := range cfg.Providers {
 		provider = providerpkg.ResolveProviderConfig(provider)
+		if provider.Type == config.ProviderTypeClaudeSubscription {
+			provider.BaseURL = claudeSubscriptionCatalogBaseURL
+		}
 		if provider.Type == config.ProviderTypeCodex {
 			provider.BaseURL = codexChatGPTBackendURL
 		}
