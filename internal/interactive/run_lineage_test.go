@@ -63,8 +63,8 @@ func TestMergeRunLineageBackendState(t *testing.T) {
 		{
 			name:  "generations added by the run keep their own state",
 			prior: lineageWithStates(lineageFromMessages([]agent.Message{user("old")}), `{"s":"old"}`),
-			run:   lineageWithStates(lineageFromMessages([]agent.Message{user("old")}), `{"s":"run"}`).WithNewGeneration([]agent.Message{summary}, []agent.Message{user("c")}),
-			want:  []string{`{"s":"run"}`, ""},
+			run:   lineageWithStates(lineageFromMessages([]agent.Message{user("old")}).WithNewGeneration([]agent.Message{summary}, []agent.Message{user("c")}), `{"s":"run"}`, `{"s":"appended"}`),
+			want:  []string{`{"s":"run"}`, `{"s":"appended"}`},
 		},
 	}
 	for _, tt := range tests {
@@ -91,6 +91,36 @@ func TestMergeRunLineageBackendStateNoAliasing(t *testing.T) {
 	}
 	if got := string(prior.Generations[0].BackendState); got != `{"s":"old"}` {
 		t.Errorf("prior backend state mutated to %s", got)
+	}
+}
+
+// TestMergeRunLineageAppendedGenerationStateIndependent checks that every
+// generation the run appends keeps its own backend state after adoption, and
+// that the merged lineage shares no bytes with the run.
+func TestMergeRunLineageAppendedGenerationStateIndependent(t *testing.T) {
+	t.Parallel()
+	user := func(text string) agent.Message { return agent.Message{Role: agent.MessageRoleUser, Content: text} }
+	summary := agent.Message{Role: agent.MessageRoleSummary, Content: "sum"}
+	prior := lineageWithStates(lineageFromMessages([]agent.Message{user("old")}), `{"s":"old"}`)
+	run := lineageWithStates(
+		lineageFromMessages([]agent.Message{user("old"), user("a")}).
+			WithNewGeneration([]agent.Message{summary}, []agent.Message{user("b")}).
+			WithNewGeneration([]agent.Message{summary}, []agent.Message{user("c")}),
+		`{"s":"run"}`, `{"s":"first"}`, `{"s":"second"}`,
+	)
+
+	merged := mergeRunLineage(prior, run)
+	if got, want := generationStates(merged), []string{`{"s":"run"}`, `{"s":"first"}`, `{"s":"second"}`}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("backend states = %q, want %q", got, want)
+	}
+
+	run.Generations[2].BackendState[6] = 'X'
+	merged.Generations[2].BackendState[6] = 'Y'
+	if got := string(run.Generations[2].BackendState); got != `{"s":"Xecond"}` {
+		t.Errorf("run appended state = %s, want the run's own bytes", got)
+	}
+	if got := string(merged.Generations[2].BackendState); got != `{"s":"Yecond"}` {
+		t.Errorf("merged appended state = %s, want the merged bytes", got)
 	}
 }
 

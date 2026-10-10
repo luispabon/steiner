@@ -40,6 +40,8 @@ func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope 
 		SkipAdoption: result.WorkflowHandoff != nil,
 	}
 	runLineage := result.Lineage
+	// A failed run returns no lineage. The conversation-only fallback carries no
+	// backend state, so the prior state is cleared and the next run reseeds.
 	if runLineage.Empty() && len(result.Conversation) > 0 {
 		runLineage = lineageFromMessages(result.Conversation)
 	}
@@ -86,6 +88,8 @@ func mergeRunLineage(prior, run agent.ConversationLineage) agent.ConversationLin
 	latest.BackendState = append(json.RawMessage(nil), run.Generations[0].BackendState...)
 	for _, generation := range run.Generations[1:] {
 		merged = merged.WithNewGeneration(generation.SummaryPrefix, generation.Messages)
+		// WithNewGeneration drops backend state, so restore the run's own.
+		merged.Generations[len(merged.Generations)-1].BackendState = append(json.RawMessage(nil), generation.BackendState...)
 	}
 	return merged
 }
