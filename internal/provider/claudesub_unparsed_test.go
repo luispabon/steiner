@@ -3,6 +3,7 @@ package provider
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -72,16 +73,21 @@ func TestClaudeSubDecodeMismatchedUnparsedSentinelFails(t *testing.T) {
 	}
 }
 
-// claudeSubSentinelCall streams one tool_use whose input is raw, then confirms
-// it with an assistant echo carrying the CLI sentinel with the given length. It
-// returns the single assembled tool call.
-func claudeSubSentinelCall(t *testing.T, raw string, length int) ToolCall {
+// claudeSubSentinelDecode streams one tool_use whose input is raw, then confirms
+// it with an assistant echo carrying the CLI sentinel. lengthJSON is the len
+// field as JSON text, so invalid JSON types can be expressed. It returns the
+// events of the whole turn, or the first decode error.
+func claudeSubSentinelDecode(t *testing.T, raw, lengthJSON string) ([]claudeSubDecoded, error) {
 	t.Helper()
+	rawJSON, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal raw: %v", err)
+	}
 	delta, err := json.Marshal(map[string]any{"event": map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "input_json_delta", "partial_json": raw}}})
 	if err != nil {
 		t.Fatalf("marshal delta: %v", err)
 	}
-	input := map[string]any{UnparsedToolInputKey: map[string]any{"raw": raw, "len": length}}
+	input := json.RawMessage(`{"` + UnparsedToolInputKey + `":{"raw":` + string(rawJSON) + `,"len":` + lengthJSON + `}}`)
 	echo, err := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{map[string]any{"type": "tool_use", "id": "toolu_sentinel", "name": "read", "input": input}}}})
 	if err != nil {
 		t.Fatalf("marshal echo: %v", err)
@@ -99,9 +105,20 @@ func claudeSubSentinelCall(t *testing.T, raw string, length int) ToolCall {
 	for _, ev := range events {
 		got, err := d.decode(ev)
 		if err != nil {
-			t.Fatalf("decode %s: %v", ev.Type, err)
+			return nil, err
 		}
 		out = append(out, got...)
+	}
+	return out, nil
+}
+
+// claudeSubSentinelCall decodes a sentinel with a valid len and returns the
+// single assembled tool call.
+func claudeSubSentinelCall(t *testing.T, raw, lengthJSON string) ToolCall {
+	t.Helper()
+	out, err := claudeSubSentinelDecode(t, raw, lengthJSON)
+	if err != nil {
+		t.Fatalf("decode sentinel: %v", err)
 	}
 	messages := claudeSubDecodedOfKind(out, claudeSubDecodeMessage)
 	if len(messages) != 1 || messages[0].Message == nil || len(messages[0].Message.ToolCalls) != 1 {
@@ -110,40 +127,40 @@ func claudeSubSentinelCall(t *testing.T, raw string, length int) ToolCall {
 	return messages[0].Message.ToolCalls[0]
 }
 
-// TestClaudeSubDecodeUnparsedSentinelLengthUnits accepts a sentinel length
-// measured in bytes, Unicode code points or UTF-16 code units for non-ASCII raw
-// input.
-func TestClaudeSubDecodeUnparsedSentinelLengthUnits(t *testing.T) {
+// TestClaudeSubDecodeUnparsedSentinelLengthIsNormalized accepts any non-negative
+// source len for non-ASCII raw input. The CLI's len unit is unconfirmed, so the
+// emitted sentinel carries the UTF-8 byte length computed by the decoder.
+func TestClaudeSubDecodeUnparsedSentinelLengthIsNormalized(t *testing.T) {
 	// 10 ASCII bytes, then é (2 bytes, 1 rune, 1 UTF-16 unit), 😀 (4 bytes,
 	// 1 rune, 2 UTF-16 units) and a closing quote: 17 bytes, 13 runes, 14 units.
 	raw := "{\"path\": \"é😀\""
-	for _, tc := range []struct {
-		name   string
-		length int
-	}{
-		{"bytes", 17},
-		{"runes", 13},
-		{"utf16 units", 14},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			call := claudeSubSentinelCall(t, raw, tc.length)
+	for _, lengthJSON := range []string{"0", "13", "14", "17", "99"} {
+		t.Run(lengthJSON, func(t *testing.T) {
+			call := claudeSubSentinelCall(t, raw, lengthJSON)
 			if call.RawArguments != raw {
 				t.Fatalf("raw arguments = %q, want %q", call.RawArguments, raw)
+			}
+			sentinel, ok := call.Arguments[UnparsedToolInputKey].(map[string]any)
+			if !ok || sentinel["raw"] != raw {
+				t.Fatalf("arguments = %+v, want exact sentinel", call.Arguments)
+			}
+			if got, want := sentinel["len"], len([]byte(raw)); got != want {
+				t.Fatalf("sentinel length = %v, want %d", got, want)
 			}
 		})
 	}
 }
 
-// TestClaudeSubDecodeUnknownUnparsedSentinelLengthKeepsRaw keeps the raw
-// unparsed input when the sentinel length matches no supported unit, instead of
-// failing the turn.
-func TestClaudeSubDecodeUnknownUnparsedSentinelLengthKeepsRaw(t *testing.T) {
+// TestClaudeSubDecodeUnparsedSentinelInvalidLengthFails rejects a len field that
+// is not a non-negative JSON integer.
+func TestClaudeSubDecodeUnparsedSentinelInvalidLengthFails(t *testing.T) {
 	raw := "{\"path\": \"é😀\""
-	for _, length := range []int{16, 99} {
-		call := claudeSubSentinelCall(t, raw, length)
-		sentinel, ok := call.Arguments[UnparsedToolInputKey].(map[string]any)
-		if call.RawArguments != raw || !ok || sentinel["raw"] != raw {
-			t.Fatalf("length %d: call = %+v, want raw input kept", length, call)
-		}
+	for _, lengthJSON := range []string{`-1`, `1.5`, `1e2`, `"17"`, `null`, `true`, `9223372036854775808`} {
+		t.Run(lengthJSON, func(t *testing.T) {
+			_, err := claudeSubSentinelDecode(t, raw, lengthJSON)
+			if !errors.Is(err, errClaudeSubDecodeStream) || !strings.Contains(err.Error(), "length is invalid") {
+				t.Fatalf("decode error = %v, want length error wrapping %v", err, errClaudeSubDecodeStream)
+			}
+		})
 	}
 }

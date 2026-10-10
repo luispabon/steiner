@@ -1977,7 +1977,7 @@ func TestClaudeSubDecodeAssembledMessageUUID(t *testing.T) {
 	}
 }
 
-func TestClaudeSubDecodeToleratesStrayBlockStop(t *testing.T) {
+func TestClaudeSubDecodeToleratesOrphanStop(t *testing.T) {
 	decodeOK := func(d *claudeSubDecoder, raw string) []claudeSubDecoded {
 		t.Helper()
 		got, err := d.decode(claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(raw)})
@@ -1993,11 +1993,13 @@ func TestClaudeSubDecodeToleratesStrayBlockStop(t *testing.T) {
 	if len(text) != 1 || text[0].Text != "hi" {
 		t.Fatalf("text = %+v, want hi", text)
 	}
-	// A stop for index 2 that no start claimed is ignored, so the turn goes on.
-	decodeOK(d, `{"event":{"type":"content_block_stop","index":2}}`)
+	// A stop for index 2 that no start claimed is ignored: no error, no events.
+	if got := decodeOK(d, `{"event":{"type":"content_block_stop","index":2}}`); len(got) != 0 {
+		t.Fatalf("orphan stop events = %+v, want none", got)
+	}
 	// The ignored stop must not claim index 2: a delta for it still fails closed.
 	if _, err := d.decode(claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"x"}}}`)}); !errors.Is(err, errClaudeSubDecodeStream) {
-		t.Fatalf("delta after stray stop error = %v, want %v", err, errClaudeSubDecodeStream)
+		t.Fatalf("delta after orphan stop error = %v, want %v", err, errClaudeSubDecodeStream)
 	}
 
 	// A later valid lifecycle on the same index still works after the stray stop.

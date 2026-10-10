@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"unicode/utf16"
-	"unicode/utf8"
 )
 
 // This file is the pure decoder for the claude CLI's `--output-format
@@ -1220,9 +1218,9 @@ func (d *claudeSubDecoder) finalizeOrderedToolUses() ([]ToolCall, error) {
 
 // claudeSubValidatedUnparsedToolInput accepts the CLI-certified sentinel only
 // for an assistant echo that confirms a streamed tool use. Its shape and raw
-// bytes must match the accumulated input exactly. The len field must be an
-// integer, but a length that matches no supported unit is only logged, so a
-// differently measured sentinel still keeps its raw input.
+// bytes must match the accumulated input exactly. The len field must be a
+// non-negative JSON integer. Its unit is not confirmed, so it is not compared
+// with raw; the emitted sentinel recomputes the byte length.
 func claudeSubValidatedUnparsedToolInput(input json.RawMessage, accumulated string) (string, bool, error) {
 	if len(input) == 0 || string(input) == "null" {
 		return "", false, nil
@@ -1243,37 +1241,21 @@ func claudeSubValidatedUnparsedToolInput(input json.RawMessage, accumulated stri
 		return "", false, fmt.Errorf("%w: malformed unparsed tool input sentinel", errClaudeSubDecodeStream)
 	}
 	var raw string
-	var length int
 	if rawField, ok := sentinel["raw"]; !ok || json.Unmarshal(rawField, &raw) != nil {
 		return "", false, fmt.Errorf("%w: unparsed tool input sentinel raw field is invalid", errClaudeSubDecodeStream)
 	}
-	if lenField, ok := sentinel["len"]; !ok || json.Unmarshal(lenField, &length) != nil {
+	// A pointer makes a JSON null fail the nil check instead of decoding as 0.
+	var length *int
+	if lenField, ok := sentinel["len"]; !ok || json.Unmarshal(lenField, &length) != nil || length == nil || *length < 0 {
 		return "", false, fmt.Errorf("%w: unparsed tool input sentinel length is invalid", errClaudeSubDecodeStream)
 	}
 	if raw != accumulated {
 		return "", false, fmt.Errorf("%w: unparsed tool input sentinel does not match accumulated input", errClaudeSubDecodeStream)
 	}
-	if !claudeSubSentinelLengthMatches(raw, length) {
-		slog.Debug("claude_subscription unparsed tool input length matches no supported unit", "len", length, "bytes", len(raw))
-	}
 	if len([]byte(raw)) > claudeSubDecodeMaxToolInputBytes {
 		return "", false, claudeSubToolInputBoundError("unparsed")
 	}
 	return raw, true, nil
-}
-
-// claudeSubSentinelLengthMatches reports whether length measures raw in bytes,
-// Unicode code points or UTF-16 code units. The CLI's unit is not confirmed, so
-// any of the three is accepted.
-func claudeSubSentinelLengthMatches(raw string, length int) bool {
-	if length == len(raw) || length == utf8.RuneCountInString(raw) {
-		return true
-	}
-	units := 0
-	for _, r := range raw {
-		units += utf16.RuneLen(r)
-	}
-	return length == units
 }
 
 // toolName translates a CLI-published tool name through the hook, defaulting to
