@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime"
@@ -1044,6 +1045,80 @@ func TestAdvance_AssistantOnlyStops(t *testing.T) {
 	}
 	if !containsSequence(got, wantSequence) {
 		t.Fatalf("event types = %v, want sequence %v", got, wantSequence)
+	}
+}
+
+func TestAdvance_BackendStateWriteBack(t *testing.T) {
+	const stored = `{"session":"old"}`
+	tests := []struct {
+		name     string
+		response provider.ChatResponse
+		want     string // stored backend state after the turn; "" means nil
+	}{
+		{
+			name:     "nil response state keeps stored state",
+			response: provider.ChatResponse{},
+			want:     stored,
+		},
+		{
+			name:     "response state replaces stored state",
+			response: provider.ChatResponse{BackendState: json.RawMessage(`{"session":"new"}`)},
+			want:     `{"session":"new"}`,
+		},
+		{
+			name:     "explicit clear removes stored state",
+			response: provider.ChatResponse{ClearBackendState: true},
+			want:     "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := tt.response
+			response.Message = provider.Message{Role: provider.MessageRoleAssistant, Content: "hello"}
+			providerStub := &fakeProvider{responses: []provider.ChatResponse{response}}
+			lineage := newConversationLineage([]Message{{Role: MessageRoleUser, Content: "hi"}})
+			lineage.Generations[0].BackendState = json.RawMessage(stored)
+			state := RunState{
+				Conversation: []Message{{Role: MessageRoleUser, Content: "hi"}},
+				Lineage:      lineage,
+			}
+			req := RunRequest{
+				Provider: providerStub,
+				Executor: &fakeExecutor{},
+				Prompt: prompt.AssemblyOptions{
+					Conversation: []provider.Message{
+						{Role: provider.MessageRoleUser, Content: "hi"},
+					},
+					ProjectContextBudgetBytes: 128,
+				},
+				ModelBudget: prompt.ModelTokenBudget{
+					ContextSize:         4096,
+					MaxCompletionTokens: 256,
+				},
+				ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+				Limits:        Limits{MaxTurns: 2},
+				Events:        output.SinkFunc(func(output.Event) {}),
+			}
+
+			outcome := newTurnProgressor(req, prompt.AssemblyOptions{}, nil).advance(context.Background(), state)
+
+			if outcome.Error != nil {
+				t.Fatalf("advance error = %v", outcome.Error)
+			}
+			if len(providerStub.requests) != 1 {
+				t.Fatalf("provider requests = %d, want 1", len(providerStub.requests))
+			}
+			if got := string(providerStub.requests[0].BackendState); got != stored {
+				t.Errorf("request BackendState = %q, want issuing generation state %q", got, stored)
+			}
+			latest, ok := outcome.State.Lineage.Latest()
+			if !ok {
+				t.Fatal("lineage has no generations after advance")
+			}
+			if got := string(latest.BackendState); got != tt.want {
+				t.Errorf("stored BackendState = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
