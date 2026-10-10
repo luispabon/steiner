@@ -1589,10 +1589,6 @@ func TestClaudeSubDecodeRejectsUnclaimedOrMismatchedBlockEvents(t *testing.T) {
 			prior: []string{`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`},
 			inner: `{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"x"}}`,
 		},
-		{
-			name:  "stop with no block start",
-			inner: `{"type":"content_block_stop","index":0}`,
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1930,4 +1926,39 @@ func TestClaudeSubDecodeOversizedStartLeavesNoState(t *testing.T) {
 	if acc == nil || acc.ID != "toolu_1" || acc.Name != "mcp__steiner__read" {
 		t.Errorf("valid start accumulator = %+v, want the streamed identity", acc)
 	}
+}
+
+func TestClaudeSubDecodeToleratesStrayBlockStop(t *testing.T) {
+	decodeOK := func(d *claudeSubDecoder, raw string) []claudeSubDecoded {
+		t.Helper()
+		got, err := d.decode(claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(raw)})
+		if err != nil {
+			t.Fatalf("decode %s: %v", raw, err)
+		}
+		return got
+	}
+	d := newClaudeSubDecoder(claudeSubDecodeHooks{})
+	decodeOK(d, `{"event":{"type":"message_start","message":{"usage":{}}}}`)
+	decodeOK(d, `{"event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}`)
+	text := claudeSubDecodedOfKind(decodeOK(d, `{"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}}`), claudeSubDecodeText)
+	if len(text) != 1 || text[0].Text != "hi" {
+		t.Fatalf("text = %+v, want hi", text)
+	}
+	// A stop for index 2 that no start claimed is ignored, so the turn goes on.
+	decodeOK(d, `{"event":{"type":"content_block_stop","index":2}}`)
+	// The ignored stop must not claim index 2: a delta for it still fails closed.
+	if _, err := d.decode(claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"x"}}}`)}); !errors.Is(err, errClaudeSubDecodeStream) {
+		t.Fatalf("delta after stray stop error = %v, want %v", err, errClaudeSubDecodeStream)
+	}
+
+	// A later valid lifecycle on the same index still works after the stray stop.
+	d = newClaudeSubDecoder(claudeSubDecodeHooks{})
+	decodeOK(d, `{"event":{"type":"message_start","message":{"usage":{}}}}`)
+	decodeOK(d, `{"event":{"type":"content_block_stop","index":2}}`)
+	decodeOK(d, `{"event":{"type":"content_block_start","index":2,"content_block":{"type":"text","text":""}}}`)
+	text = claudeSubDecodedOfKind(decodeOK(d, `{"event":{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"ok"}}}`), claudeSubDecodeText)
+	if len(text) != 1 || text[0].Text != "ok" {
+		t.Fatalf("text after stray stop = %+v, want ok", text)
+	}
+	decodeOK(d, `{"event":{"type":"content_block_stop","index":2}}`)
 }
