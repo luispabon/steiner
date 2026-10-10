@@ -34,6 +34,11 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 
 	emitEvent(p.request.Events, output.NewModelCallStartedEvent(turn, p.request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 
+	// Pin the issuing generation so its backend state is sent with the request
+	// and any state the response returns is written back to this generation.
+	issuedGenerationID := state.Lineage.latestGenerationID()
+	chatRequest.BackendState = state.Lineage.latestBackendState()
+
 	startTime := time.Now()
 	response, firstChunkTime, err := completeModelCall(ctx, p.request, turn, chatRequest, assembly.Blocks, p.request.ModelBudget, &p.skipNonStream)
 	if err != nil {
@@ -49,6 +54,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 
 	response = p.normalizeModelResponse(state, turn, response)
 	state, turnTokens := p.finalizeModelCallState(state, turn, response)
+	state.Lineage = state.Lineage.withBackendState(issuedGenerationID, response.BackendState, response.ClearBackendState)
 	visionState, subAgentConfigured := p.getVisionCapabilityContext()
 	state.Lineage = state.Lineage.WithCurrentMessages(stripDeferredReadImages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
 	state.Conversation = state.Lineage.FullMessages()

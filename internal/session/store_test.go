@@ -183,6 +183,62 @@ func TestLoadFallsBackToIDForRecordWrittenWithoutPromptCacheKey(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadPreservesBackendState(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	original := Session{
+		ID:        "backend-state",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+		Title:     "Backend State",
+		Model:     "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{{
+				ID:           1,
+				Messages:     []agent.Message{{Role: agent.MessageRoleUser, Content: "hi"}},
+				BackendState: json.RawMessage(`{"session":"abc"}`),
+			}},
+			NextGenerationID: 2,
+		},
+	}
+
+	if err := store.Save(original); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	loaded, err := store.Load(original.ID)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if got, want := string(loaded.Lineage.Generations[0].BackendState), `{"session":"abc"}`; got != want {
+		t.Errorf("loaded BackendState = %q, want %q", got, want)
+	}
+}
+
+func TestLoadLegacyRecordWithoutBackendStateIsNil(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	// Record written before generations carried backend_state.
+	legacy := `{"id":"legacy-lineage","created_at":"2026-10-10T00:00:00Z","updated_at":"2026-10-10T00:00:00Z","title":"Legacy","model":"test-model","lineage":{"generations":[{"id":1,"summary_prefix":null,"messages":[{"role":"user","content":"hi"}]}],"next_generation_id":2}}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "legacy-lineage.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy session file: %v", err)
+	}
+
+	loaded, err := store.Load("legacy-lineage")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if got := loaded.Lineage.Generations[0].BackendState; got != nil {
+		t.Errorf("legacy BackendState = %q, want nil", got)
+	}
+}
+
 func TestSaveAndLoadPreservesToolCallTranscript(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := NewStore(tmpDir)

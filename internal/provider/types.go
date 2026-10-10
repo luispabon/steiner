@@ -1,5 +1,7 @@
 package provider
 
+import "encoding/json"
+
 // MessageRole identifies the provider-side role for a chat message.
 type MessageRole string
 
@@ -126,6 +128,9 @@ type ChatRequest struct {
 	// of wasting a breakpoint on the per-call unique final message. Defaults
 	// to false for every other caller, leaving their requests unchanged.
 	AdvisorCacheProfile bool `json:"-"`
+	// BackendState is the opaque, provider-owned state the issuing conversation
+	// generation stored from its previous response. Generic layers never decode it.
+	BackendState json.RawMessage `json:"-"`
 }
 
 // ChatResponse is the normalized provider response payload.
@@ -135,6 +140,12 @@ type ChatResponse struct {
 	FinishReason string      `json:"finish_reason,omitempty"`
 	// UpstreamEndpoint is the upstream endpoint id reported by compatible gateways.
 	UpstreamEndpoint string `json:"-"`
+	// BackendState, when non-nil, replaces the opaque state stored on the
+	// generation that issued the request. Nil means no change.
+	BackendState json.RawMessage `json:"-"`
+	// ClearBackendState removes the stored backend state from the issuing
+	// generation. It takes precedence over BackendState.
+	ClearBackendState bool `json:"-"`
 }
 
 // ChatChunk is a streamed response fragment from a provider.

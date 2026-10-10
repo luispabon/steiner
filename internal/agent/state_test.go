@@ -359,6 +359,117 @@ func TestConversationLineageJSONRoundTripPreservesRetentionMetadata(t *testing.T
 	}
 }
 
+func TestConversationGenerationCloneDeepCopiesBackendState(t *testing.T) {
+	original := newConversationLineage([]Message{{Role: MessageRoleUser, Content: "hi"}})
+	original.Generations[0].BackendState = json.RawMessage(`{"session":"a"}`)
+
+	clone := original.Clone()
+	original.Generations[0].BackendState[12] = 'b'
+
+	if got, want := string(clone.Generations[0].BackendState), `{"session":"a"}`; got != want {
+		t.Fatalf("cloned BackendState = %q, want %q (aliased to original)", got, want)
+	}
+}
+
+func TestConversationGenerationCloneNormalizesEmptyBackendState(t *testing.T) {
+	tests := []struct {
+		name  string
+		state json.RawMessage
+	}{
+		{name: "nil", state: nil},
+		{name: "zero length", state: json.RawMessage{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			generation := ConversationGeneration{ID: 1, BackendState: tt.state}
+			clone := generation.Clone()
+			if clone.BackendState != nil {
+				t.Fatalf("cloned BackendState = %q, want nil", clone.BackendState)
+			}
+			if _, err := json.Marshal(clone); err != nil {
+				t.Fatalf("marshal cloned generation: %v", err)
+			}
+		})
+	}
+}
+
+func TestConversationLineageWithBackendState(t *testing.T) {
+	const first = `{"gen":1}`
+	const second = `{"gen":2}`
+	const replaced = `{"gen":"new"}`
+	tests := []struct {
+		name       string
+		id         int
+		state      json.RawMessage
+		clearState bool
+		want       [2]string // backend state of generation 1 and 2; "" means nil
+	}{
+		{name: "replaces latest generation", id: 2, state: json.RawMessage(replaced), want: [2]string{first, replaced}},
+		{name: "nil state keeps stored state", id: 2, state: nil, want: [2]string{first, second}},
+		{name: "zero length state keeps stored state", id: 2, state: json.RawMessage{}, want: [2]string{first, second}},
+		{name: "clear removes latest state", id: 2, clearState: true, want: [2]string{first, ""}},
+		{name: "clear takes precedence over state", id: 2, state: json.RawMessage(replaced), clearState: true, want: [2]string{first, ""}},
+		{name: "targets earlier generation only", id: 1, state: json.RawMessage(replaced), want: [2]string{replaced, second}},
+		{name: "unknown id changes nothing", id: 9, state: json.RawMessage(replaced), want: [2]string{first, second}},
+	}
+	base := newConversationLineage([]Message{{Role: MessageRoleUser, Content: "one"}}).
+		WithNewGeneration(nil, []Message{{Role: MessageRoleUser, Content: "two"}})
+	base.Generations[0].BackendState = json.RawMessage(first)
+	base.Generations[1].BackendState = json.RawMessage(second)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := base.withBackendState(tt.id, tt.state, tt.clearState)
+			for i, want := range tt.want {
+				if gotState := string(got.Generations[i].BackendState); gotState != want {
+					t.Errorf("generation %d BackendState = %q, want %q", got.Generations[i].ID, gotState, want)
+				}
+			}
+			if string(base.Generations[0].BackendState) != first || string(base.Generations[1].BackendState) != second {
+				t.Error("withBackendState mutated the receiver lineage")
+			}
+		})
+	}
+}
+
+func TestConversationLineageWithBackendStateCopiesInput(t *testing.T) {
+	base := newConversationLineage([]Message{{Role: MessageRoleUser, Content: "hi"}})
+	state := json.RawMessage(`{"session":"a"}`)
+
+	got := base.withBackendState(1, state, false)
+	state[12] = 'b'
+
+	if got, want := string(got.Generations[0].BackendState), `{"session":"a"}`; got != want {
+		t.Fatalf("stored BackendState = %q, want %q (aliased to caller input)", got, want)
+	}
+}
+
+func TestConversationLineageBackendStateJSON(t *testing.T) {
+	lineage := newConversationLineage([]Message{{Role: MessageRoleUser, Content: "hi"}})
+	lineage.Generations[0].BackendState = json.RawMessage(`{"session":"abc"}`)
+
+	data, err := json.Marshal(lineage)
+	if err != nil {
+		t.Fatalf("marshal lineage: %v", err)
+	}
+	var loaded ConversationLineage
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("unmarshal lineage: %v", err)
+	}
+	if got, want := string(loaded.Generations[0].BackendState), `{"session":"abc"}`; got != want {
+		t.Errorf("round-tripped BackendState = %q, want %q", got, want)
+	}
+
+	legacy := `{"generations":[{"id":1,"summary_prefix":null,"messages":[{"role":"user","content":"hi"}]}],"next_generation_id":2}`
+	var old ConversationLineage
+	if err := json.Unmarshal([]byte(legacy), &old); err != nil {
+		t.Fatalf("unmarshal legacy lineage: %v", err)
+	}
+	if old.Generations[0].BackendState != nil {
+		t.Errorf("legacy BackendState = %q, want nil", old.Generations[0].BackendState)
+	}
+}
+
 func TestConversationLineageViewsAreFreshClonesAndLatestMessagesAliases(t *testing.T) {
 	lineage := newConversationLineage([]Message{
 		{Role: MessageRoleUser, Content: "user"},

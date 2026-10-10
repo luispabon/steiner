@@ -164,6 +164,30 @@ func TestForkLineageIndependence(t *testing.T) {
 	}
 }
 
+func TestForkDeepCopiesBackendState(t *testing.T) {
+	parent := Session{
+		ID:    "parent",
+		Title: "Parent",
+		Lineage: agent.ConversationLineage{
+			Generations:      []agent.ConversationGeneration{{ID: 1, BackendState: json.RawMessage(`{"session":"a"}`)}},
+			NextGenerationID: 2,
+		},
+	}
+
+	fork, err := Fork(parent)
+	if err != nil {
+		t.Fatalf("Fork failed: %v", err)
+	}
+	if got, want := string(fork.Lineage.Generations[0].BackendState), `{"session":"a"}`; got != want {
+		t.Fatalf("fork BackendState = %q, want %q", got, want)
+	}
+
+	parent.Lineage.Generations[0].BackendState[12] = 'b'
+	if got, want := string(fork.Lineage.Generations[0].BackendState), `{"session":"a"}`; got != want {
+		t.Fatalf("fork BackendState = %q after parent mutation, want %q (aliased)", got, want)
+	}
+}
+
 func TestForkTitleTruncation(t *testing.T) {
 	// Create a session with title that, when prefixed, exceeds 80 chars
 	original := Session{
