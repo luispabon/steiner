@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -898,6 +899,180 @@ func TestClaudeSubTranscript(t *testing.T) {
 				if strings.Contains(got, bad) {
 					t.Errorf("transcript = %q, must not contain %q", got, bad)
 				}
+			}
+		})
+	}
+}
+
+func TestClaudeSubBackendState(t *testing.T) {
+	tests := []struct {
+		name        string
+		fingerprint string
+		cliSession  string
+		wantNil     bool
+	}{
+		{name: "no fingerprint (advisor process)", cliSession: "sess-1", wantNil: true},
+		{name: "no cli session id", fingerprint: "fp", wantNil: true},
+		{name: "fingerprint and cli session id", fingerprint: "fp", cliSession: "sess-1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
+			assistant := claudeSubSyncAssistantMsg("a1", "c1")
+			s.commitAssistant(assistant, "u7")
+			s.fingerprint = tc.fingerprint
+			s.cliSessionID = tc.cliSession
+			raw, err := s.backendState("transport")
+			if err != nil {
+				t.Fatalf("backendState: %v", err)
+			}
+			if tc.wantNil {
+				if raw != nil {
+					t.Fatalf("backend state = %s, want nil", raw)
+				}
+				return
+			}
+			var fields map[string]any
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				t.Fatalf("decode backend state: %v", err)
+			}
+			for _, key := range []string{"provider", "version", "cli_session_id", "transport_session", "sync_entries", "sync_chain_digest", "final_message_digest", "final_uuid", "prompt_tools_fingerprint"} {
+				if _, ok := fields[key]; !ok {
+					t.Errorf("backend state missing key %q: %s", key, raw)
+				}
+			}
+			if fields["version"] != float64(1) {
+				t.Errorf("version = %v, want 1", fields["version"])
+			}
+			chain, err := claudeSubChainDigest(s.entries)
+			if err != nil {
+				t.Fatalf("chain digest: %v", err)
+			}
+			want := claudeSubBackendState{
+				Provider:               "claude_subscription",
+				Version:                1,
+				CLISessionID:           "sess-1",
+				TransportSession:       "transport",
+				SyncEntries:            2,
+				SyncChainDigest:        chain,
+				FinalMessageDigest:     claudeSubDigest(assistant),
+				FinalUUID:              "u7",
+				PromptToolsFingerprint: "fp",
+			}
+			var got claudeSubBackendState
+			if err := json.Unmarshal(raw, &got); err != nil {
+				t.Fatalf("decode backend state: %v", err)
+			}
+			if got != want {
+				t.Errorf("backend state = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+// TestClaudeSubBackendStateTracksEntryUUID checks that the chain digest and the
+// final uuid both change when the final assistant entry's uuid changes.
+func TestClaudeSubBackendStateTracksEntryUUID(t *testing.T) {
+	stateFor := func(t *testing.T, uuid string) claudeSubBackendState {
+		t.Helper()
+		s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
+		s.commitAssistant(claudeSubSyncAssistantMsg("a1", "c1"), uuid)
+		s.fingerprint = "fp"
+		s.cliSessionID = "sess-1"
+		raw, err := s.backendState("transport")
+		if err != nil {
+			t.Fatalf("backendState: %v", err)
+		}
+		var state claudeSubBackendState
+		if err := json.Unmarshal(raw, &state); err != nil {
+			t.Fatalf("decode backend state: %v", err)
+		}
+		return state
+	}
+	base := stateFor(t, "u7")
+	if again := stateFor(t, "u7"); again != base {
+		t.Errorf("identical record gave %+v, want %+v", again, base)
+	}
+	changed := stateFor(t, "u8")
+	if changed.SyncChainDigest == base.SyncChainDigest {
+		t.Error("sync chain digest unchanged after entry uuid changed")
+	}
+	if changed.FinalUUID != "u8" || base.FinalUUID != "u7" {
+		t.Errorf("final uuids = %q, %q, want u8, u7", changed.FinalUUID, base.FinalUUID)
+	}
+}
+
+func TestClaudeSubChainDigest(t *testing.T) {
+	user := claudeSubEntry{Role: MessageRoleUser, Digest: "du"}
+	assistant := claudeSubEntry{Role: MessageRoleAssistant, Digest: "da", ToolCallIDs: []string{"c1"}, UUID: "u7"}
+	assistantOtherUUID := assistant
+	assistantOtherUUID.UUID = "u8"
+	chainOf := func(t *testing.T, entries ...claudeSubEntry) string {
+		t.Helper()
+		digest, err := claudeSubChainDigest(entries)
+		if err != nil {
+			t.Fatalf("claudeSubChainDigest: %v", err)
+		}
+		return digest
+	}
+	if got := chainOf(t); got != "" {
+		t.Errorf("empty record digest = %q, want empty", got)
+	}
+	base := chainOf(t, user, assistant)
+	tests := []struct {
+		name     string
+		entries  []claudeSubEntry
+		wantSame bool
+	}{
+		{name: "same entries repeat", entries: []claudeSubEntry{user, assistant}, wantSame: true},
+		{name: "reversed order differs", entries: []claudeSubEntry{assistant, user}},
+		{name: "entry uuid differs", entries: []claudeSubEntry{user, assistantOtherUUID}},
+		{name: "shorter record differs", entries: []claudeSubEntry{user}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := chainOf(t, tc.entries...); (got == base) != tc.wantSame {
+				t.Errorf("digest = %q, base = %q, same = %v, want same = %v", got, base, got == base, tc.wantSame)
+			}
+		})
+	}
+}
+
+func TestClaudeSubFingerprint(t *testing.T) {
+	tools := func(description string) []ToolSpec {
+		return []ToolSpec{{Type: "function", Function: ToolFunctionSpec{
+			Name:        "read",
+			Description: description,
+			Parameters: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"path": map[string]any{"type": "string"}, "offset": map[string]any{"type": "integer"}},
+			},
+		}}}
+	}
+	fingerprintOf := func(t *testing.T, prompt string, tools []ToolSpec) string {
+		t.Helper()
+		digest, err := claudeSubFingerprint(prompt, tools)
+		if err != nil {
+			t.Fatalf("claudeSubFingerprint: %v", err)
+		}
+		return digest
+	}
+	base := fingerprintOf(t, "system", tools("Read a file."))
+	tests := []struct {
+		name     string
+		prompt   string
+		tools    []ToolSpec
+		wantSame bool
+	}{
+		{name: "equal inputs with rebuilt parameter maps", prompt: "system", tools: tools("Read a file."), wantSame: true},
+		{name: "system prompt differs", prompt: "system!", tools: tools("Read a file.")},
+		{name: "tool description differs", prompt: "system", tools: tools("Read a file, carefully.")},
+		{name: "no tools differs", prompt: "system"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := fingerprintOf(t, tc.prompt, tc.tools); (got == base) != tc.wantSame {
+				t.Errorf("fingerprint = %q, base = %q, same = %v, want same = %v", got, base, got == base, tc.wantSame)
 			}
 		})
 	}

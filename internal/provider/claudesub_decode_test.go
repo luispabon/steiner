@@ -1930,6 +1930,53 @@ func TestClaudeSubDecodeOversizedStartLeavesNoState(t *testing.T) {
 	}
 }
 
+// TestClaudeSubDecodeAssembledMessageUUID pins the uuid an emitted assistant
+// message carries: the uuid of the last echo accepted before emission.
+func TestClaudeSubDecodeAssembledMessageUUID(t *testing.T) {
+	withoutEchoUUID := claudeSubDecodeEvents(t, "turn_tool_use.jsonl")
+	for i := range withoutEchoUUID {
+		if withoutEchoUUID[i].Type == "assistant" {
+			withoutEchoUUID[i].UUID = ""
+		}
+	}
+	stream := func(inner string) claudeSubEvent {
+		return claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":` + inner + `}`)}
+	}
+	echo := func(uuid string) claudeSubEvent {
+		return claudeSubEvent{Type: "assistant", UUID: uuid, Raw: json.RawMessage(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_confirm","name":"mcp__steiner__read","input":{"path":"confirmed.txt"}}]}}`)}
+	}
+	result := claudeSubEvent{Type: "result", Raw: json.RawMessage(`{"subtype":"success","is_error":false}`)}
+	streamed := []claudeSubEvent{
+		stream(`{"type":"message_start","message":{"usage":{}}}`),
+		stream(`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_confirm","name":"mcp__steiner__read"}}`),
+		echo("u-stream"),
+		stream(`{"type":"content_block_stop","index":0}`),
+		stream(`{"type":"message_stop"}`),
+	}
+	tests := []struct {
+		name   string
+		events []claudeSubEvent
+		want   string
+	}{
+		{name: "fixture echo uuid", events: claudeSubDecodeEvents(t, "turn_tool_use.jsonl"), want: "u7"},
+		{name: "later echo without uuid", events: withoutEchoUUID, want: ""},
+		{name: "in-stream echo before message_stop", events: append(append([]claudeSubEvent{}, streamed...), result), want: "u-stream"},
+		{name: "post-stop confirmation does not replace emitted uuid", events: append(append([]claudeSubEvent{}, streamed...), echo("u-confirm"), result), want: "u-stream"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hooks := claudeSubDecodeHooks{ToolName: claudeSubStripPrefix}
+			messages := claudeSubDecodedOfKind(claudeSubDecodeAll(t, hooks, tc.events), claudeSubDecodeMessage)
+			if len(messages) != 1 {
+				t.Fatalf("messages = %d, want 1", len(messages))
+			}
+			if messages[0].UUID != tc.want {
+				t.Errorf("message UUID = %q, want %q", messages[0].UUID, tc.want)
+			}
+		})
+	}
+}
+
 func TestClaudeSubDecodeToleratesStrayBlockStop(t *testing.T) {
 	decodeOK := func(d *claudeSubDecoder, raw string) []claudeSubDecoded {
 		t.Helper()
