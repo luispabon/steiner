@@ -41,6 +41,16 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 	}
 	defer pool.release(s)
 
+	if !req.AdvisorCacheProfile && s.sync.fingerprint == "" {
+		// The first normal call starts the process, so its prompt and tools are
+		// the ones the process holds.
+		fingerprint, err := claudeSubFingerprint(spec.SystemPrompt, spec.Tools)
+		if err != nil {
+			return err
+		}
+		s.sync.fingerprint = fingerprint
+	}
+
 	if err := claudeSubFinishPending(ctx, s, req); err != nil {
 		return err
 	}
@@ -186,6 +196,16 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 		},
 	})
 	var ordinary *claudeSubDecoded
+	// emitFinal sends a Done chunk carrying the parent backend state as of the
+	// messages committed so far. Advisor calls carry none.
+	emitFinal := func(chunk ChatChunk) error {
+		state, err := s.sync.backendState(s.key)
+		if err != nil {
+			return err
+		}
+		chunk.BackendState = state
+		return emit(chunk)
+	}
 	for {
 		if err := s.overage(); err != nil {
 			return err
@@ -208,6 +228,9 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 		}
 		if limit := claudeSubEventUsageLimit(ev); limit != nil {
 			return limit
+		}
+		if ev.SessionID != "" {
+			s.sync.cliSessionID = ev.SessionID
 		}
 		decoded, err := decoder.decode(ev)
 		if err != nil {
@@ -232,12 +255,12 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				// later assistant message exposes the complete call.
 			case claudeSubDecodeMessage:
 				if len(item.Message.ToolCalls) > 0 {
-					s.sync.commitAssistant(*item.Message)
+					s.sync.commitAssistant(*item.Message, item.UUID)
 					claudeSubAddUsage(&s.queryUsage, item.Usage)
 					if s.host != nil {
 						s.host.settle()
 					}
-					if err := emit(ChatChunk{Delta: *item.Message, ContentSnapshot: true, Done: true, FinishReason: item.FinishReason, Usage: item.Usage}); err != nil {
+					if err := emitFinal(ChatChunk{Delta: *item.Message, ContentSnapshot: true, Done: true, FinishReason: item.FinishReason, Usage: item.Usage}); err != nil {
 						return err
 					}
 					return nil
@@ -261,11 +284,11 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 					usage = ordinary.Usage
 				}
 				if ordinary != nil {
-					s.sync.commitAssistant(*ordinary.Message)
-					if err := emit(ChatChunk{Delta: *ordinary.Message, ContentSnapshot: true, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: usage}); err != nil {
+					s.sync.commitAssistant(*ordinary.Message, ordinary.UUID)
+					if err := emitFinal(ChatChunk{Delta: *ordinary.Message, ContentSnapshot: true, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: usage}); err != nil {
 						return err
 					}
-				} else if err := emit(ChatChunk{Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: usage}); err != nil {
+				} else if err := emitFinal(ChatChunk{Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: usage}); err != nil {
 					return err
 				}
 				return nil

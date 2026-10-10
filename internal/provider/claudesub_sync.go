@@ -21,6 +21,9 @@ type claudeSubEntry struct {
 	Images      []string
 	ToolCallIDs []string
 	ToolCallID  string
+	// UUID is the final CLI transcript uuid of an assistant entry. It is empty
+	// for user and tool entries, which steiner writes itself.
+	UUID string
 }
 
 // claudeSubDigest returns the content identity of a message for the append-only
@@ -84,6 +87,13 @@ type claudeSubSync struct {
 	// from the record: the last assistant is interruptible only when no user
 	// message was sent after it, otherwise it belongs to a completed call.
 	interruptible int
+
+	// cliSessionID is the CLI session ID from the latest envelope that carried
+	// one. fingerprint is the SHA-256 of the system prompt and tools the process
+	// started with, set once by its first normal parent call. Both feed the
+	// backend state.
+	cliSessionID string
+	fingerprint  string
 }
 
 // claudeSubSystemPrompt joins the system messages of a first request, in order,
@@ -265,8 +275,94 @@ func (s *claudeSubSync) commitSent(delta claudeSubDelta) {
 }
 
 // commitAssistant records the assistant message a successful call returned.
-func (s *claudeSubSync) commitAssistant(m Message) {
-	s.entries = append(s.entries, claudeSubEntryFromMessage(m))
+// uuid is that message's final CLI transcript uuid, or empty when the CLI
+// reported none.
+func (s *claudeSubSync) commitAssistant(m Message, uuid string) {
+	entry := claudeSubEntryFromMessage(m)
+	entry.UUID = uuid
+	s.entries = append(s.entries, entry)
+}
+
+// claudeSubBackendStateVersion is the schema version of claudeSubBackendState.
+// Readers must reject any other version.
+const claudeSubBackendStateVersion = 1
+
+// claudeSubBackendState is the opaque state a Claude parent generation stores
+// for resumption (D2). It holds identifiers and digests only, never message
+// text, tool payloads or credentials.
+type claudeSubBackendState struct {
+	Provider               string `json:"provider"`
+	Version                int    `json:"version"`
+	CLISessionID           string `json:"cli_session_id"`
+	TransportSession       string `json:"transport_session"`
+	SyncEntries            int    `json:"sync_entries"`
+	SyncChainDigest        string `json:"sync_chain_digest"`
+	FinalMessageDigest     string `json:"final_message_digest"`
+	FinalUUID              string `json:"final_uuid"`
+	PromptToolsFingerprint string `json:"prompt_tools_fingerprint"`
+}
+
+// backendState encodes the parent transcript as of its last committed entry,
+// owned by transportSession. It returns nil, with no error, when the process
+// has no fingerprint (advisor sessions) or the CLI has reported no session ID,
+// because such a state cannot resume anything.
+func (s *claudeSubSync) backendState(transportSession string) (json.RawMessage, error) {
+	if s.fingerprint == "" || s.cliSessionID == "" {
+		return nil, nil
+	}
+	chain, err := claudeSubChainDigest(s.entries)
+	if err != nil {
+		return nil, err
+	}
+	state := claudeSubBackendState{
+		Provider:               "claude_subscription",
+		Version:                claudeSubBackendStateVersion,
+		CLISessionID:           s.cliSessionID,
+		TransportSession:       transportSession,
+		SyncEntries:            len(s.entries),
+		SyncChainDigest:        chain,
+		PromptToolsFingerprint: s.fingerprint,
+	}
+	if n := len(s.entries); n > 0 {
+		last := s.entries[n-1]
+		state.FinalMessageDigest = last.Digest
+		state.FinalUUID = last.UUID
+	}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return nil, fmt.Errorf("encode claude backend state: %w", err)
+	}
+	return raw, nil
+}
+
+// claudeSubChainDigest folds every sync entry, in order, into one SHA-256
+// chain. Each link hashes the previous link with the entry's JSON, so the digest
+// changes when an entry, its order or its final uuid changes.
+func claudeSubChainDigest(entries []claudeSubEntry) (string, error) {
+	chain := ""
+	for _, entry := range entries {
+		raw, err := json.Marshal(entry)
+		if err != nil {
+			return "", fmt.Errorf("encode sync entry: %w", err)
+		}
+		sum := sha256.Sum256([]byte(chain + "\x00" + string(raw)))
+		chain = hex.EncodeToString(sum[:])
+	}
+	return chain, nil
+}
+
+// claudeSubFingerprint returns the SHA-256 of a process's system prompt and
+// tool specs. encoding/json sorts map keys, so the digest is stable.
+func claudeSubFingerprint(systemPrompt string, tools []ToolSpec) (string, error) {
+	raw, err := json.Marshal(struct {
+		SystemPrompt string     `json:"system_prompt"`
+		Tools        []ToolSpec `json:"tools"`
+	}{systemPrompt, tools})
+	if err != nil {
+		return "", fmt.Errorf("encode prompt and tools fingerprint: %w", err)
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // markInterrupted records that the CLI was interrupted (Esc or tool

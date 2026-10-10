@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -141,6 +142,73 @@ func TestCompleteModelCallEmitsAssistantChunkSource(t *testing.T) {
 	}
 	if !hasAssistantChunk {
 		t.Error("no AssistantChunkEvent emitted")
+	}
+}
+
+// TestHandleFinalChunkPropagatesBackendState checks that a Done chunk's backend
+// state and clear flag are copied into the response.
+func TestHandleFinalChunkPropagatesBackendState(t *testing.T) {
+	tests := []struct {
+		name  string
+		state json.RawMessage
+		clear bool
+	}{
+		{name: "no state"},
+		{name: "backend state", state: json.RawMessage(`{"version":1}`)},
+		{name: "clear backend state", clear: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := output.SinkFunc(func(output.Event) {})
+			var response provider.ChatResponse
+			var message provider.Message
+			handleFinalChunk(sink, 1, output.ChunkSourceAssistant, provider.ChatChunk{
+				Done:              true,
+				BackendState:      tc.state,
+				ClearBackendState: tc.clear,
+			}, &response, &message)
+			if string(response.BackendState) != string(tc.state) || response.ClearBackendState != tc.clear {
+				t.Errorf("response state = %q clear = %v, want %q clear = %v", response.BackendState, response.ClearBackendState, tc.state, tc.clear)
+			}
+		})
+	}
+}
+
+// TestCompleteModelCallStreamPropagatesBackendState checks that the streamed
+// Done chunk's backend state reaches the ChatResponse returned by completeModelCall.
+func TestCompleteModelCallStreamPropagatesBackendState(t *testing.T) {
+	tests := []struct {
+		name  string
+		state json.RawMessage
+		clear bool
+	}{
+		{name: "backend state", state: json.RawMessage(`{"version":1}`)},
+		{name: "clear backend state", clear: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			chunks := make(chan provider.ChatChunk, 1)
+			chunks <- provider.ChatChunk{Done: true, FinishReason: "stop", BackendState: tc.state, ClearBackendState: tc.clear}
+			close(chunks)
+			prov := &fakeProvider{
+				streamFn: func(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+					return chunks, nil
+				},
+			}
+			budget := prompt.ModelTokenBudget{ContextSize: 4096, MaxCompletionTokens: 128}
+			response, _, err := completeModelCall(context.Background(), RunRequest{
+				Provider:           prov,
+				ModelBudget:        budget,
+				Events:             output.SinkFunc(func(output.Event) {}),
+				StreamingPreferred: true,
+			}, 2, provider.ChatRequest{Model: "test"}, nil, budget, nil)
+			if err != nil {
+				t.Fatalf("completeModelCall() error = %v", err)
+			}
+			if string(response.BackendState) != string(tc.state) || response.ClearBackendState != tc.clear {
+				t.Errorf("response state = %q clear = %v, want %q clear = %v", response.BackendState, response.ClearBackendState, tc.state, tc.clear)
+			}
+		})
 	}
 }
 

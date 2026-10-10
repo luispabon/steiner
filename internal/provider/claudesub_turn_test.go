@@ -1268,6 +1268,75 @@ func TestClaudeSubTurnFailureIncludesResultText(t *testing.T) {
 	}
 }
 
+// TestClaudeSubTurnFinalChunkBackendState checks the backend state on the Done
+// chunk of a parent tool turn and that an advisor turn carries none.
+func TestClaudeSubTurnFinalChunkBackendState(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	t.Run("parent tool turn carries state", func(t *testing.T) {
+		sc := &claudeSubScript{batches: [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_tool_use.jsonl")}}
+		pool, _ := claudeSubScriptedPool(t, "state-parent", sc)
+		req := ChatRequest{TransportSession: "state-parent", Model: model, Messages: []Message{{Role: MessageRoleUser, Content: "read notes"}}}
+		var final ChatChunk
+		if err := claudeSubTurn(context.Background(), pool, req, func(chunk ChatChunk) error {
+			if chunk.Done {
+				final = chunk
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("turn: %v", err)
+		}
+		if !final.Done || final.FinishReason != "tool_calls" || len(final.Delta.ToolCalls) != 1 {
+			t.Fatalf("final chunk = %+v, want Done tool_calls chunk with one tool call", final)
+		}
+		if final.BackendState == nil {
+			t.Fatal("parent tool turn final chunk has nil backend state")
+		}
+		var state claudeSubBackendState
+		if err := json.Unmarshal(final.BackendState, &state); err != nil {
+			t.Fatalf("decode backend state: %v", err)
+		}
+		if state.SyncChainDigest == "" || state.FinalMessageDigest == "" {
+			t.Errorf("state digests = %q, %q, want both set", state.SyncChainDigest, state.FinalMessageDigest)
+		}
+		// The CLI session ID comes from the system/init envelope, and the
+		// fingerprint from the prompt and tools of the first normal call.
+		fingerprint, err := claudeSubFingerprint(claudeSubSystemPrompt(req.Messages), nil)
+		if err != nil {
+			t.Fatalf("claudeSubFingerprint: %v", err)
+		}
+		state.SyncChainDigest, state.FinalMessageDigest = "", ""
+		want := claudeSubBackendState{
+			Provider:               "claude_subscription",
+			Version:                1,
+			CLISessionID:           "sess-1",
+			TransportSession:       "state-parent",
+			SyncEntries:            2,
+			FinalUUID:              "u7",
+			PromptToolsFingerprint: fingerprint,
+		}
+		if state != want {
+			t.Errorf("backend state = %+v, want %+v", state, want)
+		}
+	})
+	t.Run("advisor turn carries no state", func(t *testing.T) {
+		sc := &claudeSubScript{batches: [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_text.jsonl")}}
+		pool, _ := claudeSubScriptedPool(t, "state-advisor|advisor", sc)
+		req := ChatRequest{ParentTransportSession: "state-advisor", AdvisorCacheProfile: true, Model: model, Messages: []Message{{Role: MessageRoleUser, Content: "is this right?"}}}
+		var final ChatChunk
+		if err := claudeSubTurn(context.Background(), pool, req, func(chunk ChatChunk) error {
+			if chunk.Done {
+				final = chunk
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("advisor turn: %v", err)
+		}
+		if !final.Done || final.BackendState != nil {
+			t.Errorf("advisor final chunk = %+v, want Done with nil backend state", final)
+		}
+	})
+}
+
 func TestClaudeSubConsumeErrorResultReportsText(t *testing.T) {
 	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	s, err := pool.acquire(context.Background(), "error-result", claudeSubTestSpec())

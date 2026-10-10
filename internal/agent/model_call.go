@@ -482,6 +482,8 @@ func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource
 	response.Usage = chunk.Usage
 	response.FinishReason = chunk.FinishReason
 	response.UpstreamEndpoint = chunk.UpstreamEndpoint
+	response.BackendState = chunk.BackendState
+	response.ClearBackendState = chunk.ClearBackendState
 	content := chunk.Delta.Content
 	if chunk.ContentSnapshot {
 		streamed := message.Content
