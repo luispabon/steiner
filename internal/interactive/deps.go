@@ -26,6 +26,9 @@ type RunResult struct {
 // RunInput is what the session hands a runExecutor for one turn sequence.
 type RunInput struct {
 	Conversation []agent.Message
+	// Lineage is the conversation's lineage; the run resumes the latest
+	// generation's backend state from it.
+	Lineage agent.ConversationLineage
 	// DrainInbox returns the next boundary delivery for the run.
 	DrainInbox func() agent.InboxDrain
 	// PendingSubAgents lists the sub-agents still running; nil when the session

@@ -735,6 +735,7 @@ func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (intera
 		drainInbox:           in.DrainInbox,
 		pendingSubAgents:     in.PendingSubAgents,
 		delegationGroupScope: in.DelegationGroupScope,
+		lineage:              in.Lineage,
 		maxTokens:            in.MaxTokens,
 	})
 	return interactive.RunResult{

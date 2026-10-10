@@ -285,6 +285,8 @@ type runHooks struct {
 	drainInbox           func() agent.InboxDrain
 	pendingSubAgents     func() []agent.PendingSubAgent
 	delegationGroupScope string
+	// lineage seeds the run's backend state; the zero value starts without one.
+	lineage agent.ConversationLineage
 	// maxTokens tightens the configured token limit when positive.
 	maxTokens int
 }
@@ -338,6 +340,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		VisionCapabilities: visionCapabilities,
 		ImageStore:         r.runtime.imageStore,
 		SourceConversation: setup.conversation,
+		SeedLineage:        hooks.lineage,
 		// Reserve child agent IDs in parent call-emission order so concurrent
 		// specialized and vision handlers bind to their own call's ID instead of
 		// racing the ID generator.

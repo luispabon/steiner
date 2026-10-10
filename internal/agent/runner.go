@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -135,6 +136,11 @@ type RunRequest struct {
 	// (e.g. compaction summaries); when set, initializeRunState uses it
 	// instead of reconstructing from Prompt.Conversation.
 	SourceConversation []Message
+
+	// SeedLineage is the lineage the run resumes from. Only its latest
+	// generation's BackendState is used, and only when that generation matches
+	// the source conversation (see seedRunLineage).
+	SeedLineage ConversationLineage
 
 	// Diagnostics receives cache-stream records for this run; emission is added
 	// by stage 2 of the unified-diagnostics plan (issue #707). A nil writer is
@@ -312,11 +318,24 @@ func initializeRunState(req RunRequest) RunState {
 	}
 	state := RunState{
 		Conversation: conversation,
-		Lineage:      newConversationLineage(conversation),
+		Lineage:      seedRunLineage(req.SeedLineage, conversation),
 	}
 	state.TurnCount = initialConversationTurnCount(conversation)
 	state.BudgetStartTurn = state.TurnCount
 	return state
+}
+
+// seedRunLineage returns the run's single flat generation over conversation.
+// It carries the seed's latest backend state only when the seed's latest
+// generation matches conversation; otherwise the run starts with no backend
+// state and the provider reseeds from the conversation.
+func seedRunLineage(seed ConversationLineage, conversation []Message) ConversationLineage {
+	lineage := newConversationLineage(conversation)
+	latest, ok := seed.Latest()
+	if !ok || !reflect.DeepEqual(latest.FullMessages(), lineage.FullMessages()) {
+		return lineage
+	}
+	return lineage.withBackendState(lineage.latestGenerationID(), latest.BackendState, false)
 }
 
 func validateRunRequest(ctx context.Context, req RunRequest, state RunState) (RunState, bool, error) {
@@ -337,7 +356,12 @@ func validateRunRequest(ctx context.Context, req RunRequest, state RunState) (Ru
 }
 
 func postIngestionState(ctx context.Context, req RunRequest, state RunState) (RunState, error) {
-	return req.ContextManager.PostIngestion(ctx, state)
+	// PostIngestion rebuilds the lineage without backend state. It leaves the
+	// messages unchanged, so the run's backend state still applies.
+	backend := state.Lineage.latestBackendState()
+	next, err := req.ContextManager.PostIngestion(ctx, state)
+	next.Lineage = next.Lineage.withBackendState(next.Lineage.latestGenerationID(), backend, false)
+	return next, err
 }
 
 func prepareBasePrompt(req RunRequest) prompt.AssemblyOptions {
