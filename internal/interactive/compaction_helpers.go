@@ -10,9 +10,14 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func (s *Session) compactRunner(conversation []agent.Message, steering string) func(context.Context) ([]agent.Message, error) {
+func (s *Session) compactRunner(conversation []agent.Message, lineage agent.ConversationLineage, steering string, cleared *bool) func(context.Context) ([]agent.Message, error) {
 	return func(ctx context.Context) ([]agent.Message, error) {
 		runner := s.currentRunner()
+		if lc, ok := runner.(lineageCompactor); ok {
+			compacted, clearedState, err := lc.CompactWithLineage(ctx, conversation, lineage, snapshotTools(s.snapshots), steering)
+			*cleared = clearedState
+			return compacted, err
+		}
 		return runner.Compact(ctx, conversation, snapshotTools(s.snapshots), steering)
 	}
 }

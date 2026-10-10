@@ -719,6 +719,11 @@ func (r sessionRunner) Compact(ctx context.Context, conversation []agent.Message
 	return r.runner.Compact(ctx, conversation, nil, tools, steering)
 }
 
+// CompactWithLineage compacts against the run's lineage (see lineageCompactor).
+func (r sessionRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, error) {
+	return r.runner.CompactWithLineage(ctx, conversation, lineage, nil, tools, steering)
+}
+
 func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (interactive.RunResult, error) {
 	if r.mcpInit != nil {
 		r.mcpInit.once.Do(func() { r.mcpInit.run(ctx, r.runner.runtime) })

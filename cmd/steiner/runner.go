@@ -295,6 +295,12 @@ func (p loggingProvider) StatefulTranscript() bool {
 	return provider.IsStatefulTranscript(p.inner)
 }
 
+// SupportsStatefulCompaction forwards the inner provider's compaction transition
+// support, so the agent sees the same capability through the wrapper.
+func (p loggingProvider) SupportsStatefulCompaction() bool {
+	return provider.SupportsStatefulCompaction(p.inner)
+}
+
 // WithEventSink implements delegation.EventSinkScoper so child runs can tag
 // provider events with their agent scope without mutating the parent's provider.
 func (p loggingProvider) WithEventSink(wrap func(output.EventSink) output.EventSink) provider.Provider {

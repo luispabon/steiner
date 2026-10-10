@@ -49,6 +49,15 @@ type runExecutor interface {
 	Compact(ctx context.Context, conversation []agent.Message, tools []provider.ToolSpec, steering string) ([]agent.Message, error)
 }
 
+// lineageCompactor is implemented by runExecutors that compact against the
+// run's lineage, so the summary request carries its backend state. Executors
+// without it compact from the conversation alone.
+type lineageCompactor interface {
+	// CompactWithLineage reports whether the summary cleared the backend state of
+	// the lineage's latest generation.
+	CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, error)
+}
+
 // skillLoader loads a skill document by name for submit-time injection.
 // Consumer-defined to avoid coupling to internal/skill or cmd/steiner.
 type skillLoader interface {

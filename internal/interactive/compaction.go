@@ -15,9 +15,14 @@ import (
 func (s *Session) manualCompaction(drv *agent.ConversationDriver, steering string) func(context.Context, []agent.Message) ([]agent.Message, agent.ConversationLineage, error) {
 	return func(ctx context.Context, conversation []agent.Message) ([]agent.Message, agent.ConversationLineage, error) {
 		lineage := drv.Snapshot().Lineage
-		compacted, ok := s.compactConversation(ctx, conversation, steering)
+		compacted, cleared, ok := s.compactConversation(ctx, conversation, lineage, steering)
 		if !ok {
 			return conversation, lineage, nil
+		}
+		if cleared {
+			// The provider retired the live transcript this generation was summarized
+			// from, so its stored state must go before the new generation forms.
+			lineage = lineage.WithoutLatestBackendState()
 		}
 		prefix, rest := splitSummaryPrefix(compacted)
 		lineage = lineage.WithNewGeneration(prefix, rest)
@@ -25,24 +30,26 @@ func (s *Session) manualCompaction(drv *agent.ConversationDriver, steering strin
 	}
 }
 
-// compactConversation runs one manual compaction and reports whether it
-// produced a new conversation.
-func (s *Session) compactConversation(ctx context.Context, conversation []agent.Message, steering string) ([]agent.Message, bool) {
+// compactConversation runs one manual compaction. It reports the new
+// conversation, whether the provider cleared the lineage's latest backend state,
+// and whether a new conversation was produced.
+func (s *Session) compactConversation(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, steering string) ([]agent.Message, bool, bool) {
 	if len(conversation) == 0 {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", "No conversation to compact."))
-		return nil, false
+		return nil, false, false
 	}
 	if !manualCompactionHasSource(conversation) {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", "Nothing to compact yet; need at least two conversation turns."))
-		return nil, false
+		return nil, false, false
 	}
 
-	compacted, err := s.runManualCompaction(ctx, s.CurrentModelAlias(), s.compactRunner(conversation, steering))
+	var cleared bool
+	compacted, err := s.runManualCompaction(ctx, s.CurrentModelAlias(), s.compactRunner(conversation, lineage, steering, &cleared))
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			s.emitCompactError(err)
 		}
-		return nil, false
+		return nil, false, false
 	}
-	return compacted, true
+	return compacted, cleared, true
 }

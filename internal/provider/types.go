@@ -131,6 +131,14 @@ type ChatRequest struct {
 	// BackendState is the opaque, provider-owned state the issuing conversation
 	// generation stored from its previous response. Generic layers never decode it.
 	BackendState json.RawMessage `json:"-"`
+	// CompactionSummary marks a request that asks for a conversation summary
+	// for compaction. Only providers with a compaction transition read it.
+	CompactionSummary bool `json:"-"`
+	// CompactionSourceMessages is the number of leading non-system request
+	// messages that the summary covers. The messages after them are the
+	// retained tail, and the last one is the summary instruction. Set with
+	// CompactionSummary.
+	CompactionSourceMessages int `json:"-"`
 }
 
 // ChatResponse is the normalized provider response payload.
@@ -146,6 +154,20 @@ type ChatResponse struct {
 	// ClearBackendState removes the stored backend state from the issuing
 	// generation. It takes precedence over BackendState.
 	ClearBackendState bool `json:"-"`
+}
+
+// StatefulCompactor is implemented by StatefulTranscript providers that accept
+// compaction summary requests through their transition contract. Other
+// stateful providers still refuse compaction.
+type StatefulCompactor interface {
+	SupportsStatefulCompaction() bool
+}
+
+// SupportsStatefulCompaction reports whether p implements StatefulCompactor and
+// reports support.
+func SupportsStatefulCompaction(p Provider) bool {
+	c, ok := p.(StatefulCompactor)
+	return ok && c.SupportsStatefulCompaction()
 }
 
 // ChatChunk is a streamed response fragment from a provider.

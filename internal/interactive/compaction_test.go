@@ -347,6 +347,66 @@ func TestManualCompactionPersistsCompactSessionWithoutFollowupPrompt(t *testing.
 	}
 }
 
+// lineageRecordingRunner is a runExecutor that also compacts against the run's
+// lineage, and records the lineage it was given.
+type lineageRecordingRunner struct {
+	runExecutorFunc
+	lineage agent.ConversationLineage
+	// clearState is reported back as the summary clearing the backend state.
+	clearState bool
+}
+
+func (r *lineageRecordingRunner) CompactWithLineage(_ context.Context, conversation []agent.Message, lineage agent.ConversationLineage, _ []provider.ToolSpec, _ string) ([]agent.Message, bool, error) {
+	r.lineage = lineage
+	return conversation, r.clearState, nil
+}
+
+// TestManualCompactionPassesDriverLineageToLineageRunner proves a manual
+// compaction hands the driver's live lineage, backend state included, to the
+// executor seam rather than rebuilding an empty lineage.
+func TestManualCompactionPassesDriverLineageToLineageRunner(t *testing.T) {
+	conv := twoTurnConversation()
+	lineage := agent.ConversationLineage{
+		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: conv, BackendState: []byte(`{"provider":"claude_subscription","version":1}`)}},
+		NextGenerationID: 2,
+	}
+	runner := &lineageRecordingRunner{}
+	s := mustCompactionSession(t, Dependencies{Runner: runner})
+	drv := agent.NewConversationDriver(agent.DriverOptions{}, conv, lineage)
+	if _, _, err := s.manualCompaction(drv, "")(context.Background(), conv); err != nil {
+		t.Fatalf("manualCompaction() error = %v", err)
+	}
+	if !reflect.DeepEqual(runner.lineage.Generations, lineage.Generations) {
+		t.Fatalf("runner lineage = %+v, want the driver lineage %+v", runner.lineage.Generations, lineage.Generations)
+	}
+}
+
+// TestManualCompactionClearsGenerationStateWhenProviderClears proves a summary
+// that clears backend state drops it from the driver's old generation, and that
+// the new generation starts empty.
+func TestManualCompactionClearsGenerationStateWhenProviderClears(t *testing.T) {
+	conv := twoTurnConversation()
+	lineage := agent.ConversationLineage{
+		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: conv, BackendState: []byte(`{"version":1}`)}},
+		NextGenerationID: 2,
+	}
+	runner := &lineageRecordingRunner{clearState: true}
+	s := mustCompactionSession(t, Dependencies{Runner: runner})
+	drv := agent.NewConversationDriver(agent.DriverOptions{}, conv, lineage)
+	_, got, err := s.manualCompaction(drv, "")(context.Background(), conv)
+	if err != nil {
+		t.Fatalf("manualCompaction() error = %v", err)
+	}
+	if len(got.Generations) != 2 {
+		t.Fatalf("generations = %d, want the old generation and a new one", len(got.Generations))
+	}
+	for _, gen := range got.Generations {
+		if gen.BackendState != nil {
+			t.Errorf("generation %d kept backend state %s, want none after the clear", gen.ID, gen.BackendState)
+		}
+	}
+}
+
 func mustCompactionSession(t *testing.T, deps Dependencies) *Session {
 	t.Helper()
 	s, err := NewSession(deps)
