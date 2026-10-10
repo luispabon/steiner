@@ -32,6 +32,8 @@ Auto-compaction is never steered; it always uses an empty steering value. Manual
 - Your latest message, verbatim, when it fits the context budget even if it is older than those turns
 - A restatement of any sub-agents still pending, added after the summary
 
+With `claude_subscription`, the 70% trigger uses the total input usage the Claude CLI reports for the last response, including cached input. Steiner prefers a summary made in a forked CLI session. When it cannot, the summary runs in the live session or is rebuilt from Steiner's transcript. Those fallbacks may not reuse the prompt cache.
+
 ### Skills in interactive sessions
 
 Enabling or disabling a skill in an interactive session does not rewrite anything already sent, so the session's cached prefix is preserved; the change is delivered with your next message. An active skill survives compaction (it is re-applied after the summary), while a disabled skill disappears the next time compaction runs. A skill longer than 98304 bytes is truncated with a marker, and Steiner warns with the original size and the cap. The `/context` report shows leftover blocks for skills you have turned off as inactive until compaction removes them.
@@ -45,5 +47,7 @@ The session date does not count against context budgets and is always delivered 
 ## What you can do
 
 Nothing is required — context management is fully automatic. Persist important state to disk or git when it needs to survive the current session.
+
+With `claude_subscription`, `/clear` starts a new empty session. It does not rewind the current conversation.
 
 For the full assembly pipeline, budget tables, and escalation policy, see [Context Management Internals](../internals/context-management.md).

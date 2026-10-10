@@ -44,7 +44,20 @@ Turn off extra usage in Claude at **Settings -> Usage**, then retry. This gate i
 
 Steiner owns the model request, system prompt, tool definitions, tool approval policy, sandbox policy, output limits, and session lifecycle. The `claude` process performs the subscription-backed model request. Steiner does not grant the CLI access to tools beyond the MCP tools it publishes for that session, and the CLI is started with settings that disable its own tool prompts for these published tools.
 
-Steiner starts the CLI with a private temporary session directory, no session persistence, and a private system-prompt file. Tool calls return through a loopback MCP endpoint owned by Steiner. Steiner keeps tool output within its configured output budget and does not forward API credential environment variables to the child process.
+Steiner starts the CLI with a private temporary session directory and a private system-prompt file. Tool calls return through a loopback MCP endpoint owned by Steiner. Steiner keeps tool output within its configured output budget and does not forward API credential environment variables to the child process.
+
+## Session continuity
+
+Only parent interactive turns persist CLI session state. Steiner stores that state as opaque backend data with the parent conversation. Advisor, sub-agent, and compaction helper processes never persist CLI state.
+
+For each parent turn, Steiner either:
+
+- appends the new messages to the live CLI session, when it matches the Steiner transcript;
+- resumes the stored CLI session after a restart, when it matches the session owner and transcript;
+- forks the stored CLI session, when the session owner changed, such as after a Steiner Fork;
+- reseeds a CLI session from the Steiner transcript, when the stored state is missing, dead, mismatched, or was built for a different system prompt or tool set.
+
+A reseed sends the non-system history as one transcript message. Prompt cache reuse is not expected for a reseeded turn. Images still held in memory are included. Image data stripped after it was consumed cannot return. Earlier tool calls appear as text.
 
 ## Privacy and telemetry
 
@@ -60,8 +73,8 @@ You can select a discovered model with `/model`, or use a raw reference such as 
 
 ## Limitations
 
-- Conversation history is append-only. Rewriting or removing previously sent messages is refused. The one tolerated retroactive change is removal of image data after it has been consumed. Start a new session when history no longer matches. In an interactive conversation, `/clear` starts a fresh Claude CLI session; it does not rewrite the prior transcript.
-- This limitation is tracked in [#895](https://github.com/luispabon/steiner/issues/895).
+- Previously sent history is not rewritten in the CLI. Changes to sent messages, other than removal of consumed image data, are not patched into the live session. Steiner reseeds instead, as described in Session continuity. In an interactive conversation, `/clear` starts a new empty Steiner and Claude CLI session; it does not rewrite the prior transcript. There is no user-facing rewind.
+- Support for changing already-sent history is tracked in [#895](https://github.com/luispabon/steiner/issues/895).
 - The CLI owns its process identity and transcript. Its identity or reminders can change as the CLI changes, and switching models can reset model-specific cache state. Do not treat those details as stable Steiner storage.
 - The provider is not a replacement for the native `anthropic` API provider. It uses the signed-in CLI and the subscription's account controls.
 - Claude CLI and Anthropic can change these behaviors without a corresponding Steiner release. Recheck the compliance links and CLI version when an account or model stops working.
