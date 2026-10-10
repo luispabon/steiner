@@ -227,6 +227,11 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
+	if response.ClearBackendState {
+		// An in-place summary retired the generation's live process, so the
+		// generation's stored backend state no longer names a live transcript.
+		state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), nil, true)
+	}
 
 	summaryText := compactionSummaryText(response.Message.Content, plan.candidate)
 	if summaryText == "" {
@@ -283,7 +288,14 @@ func fitConversationState(ctx context.Context, req RunRequest, state RunState) (
 
 // Compact reduces the current conversation to fit the model budget.
 func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Message, steerings ...string) ([]Message, error) {
-	if provider.IsStatefulTranscript(req.Provider) {
+	return r.CompactWithLineage(ctx, req, ConversationLineage{}, currentConv, steerings...)
+}
+
+// CompactWithLineage is Compact for a caller that holds the run's lineage. The
+// lineage contributes only its latest backend state, which the summary request
+// is issued against. The messages compacted are still currentConv.
+func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage ConversationLineage, currentConv []Message, steerings ...string) ([]Message, error) {
+	if provider.IsStatefulTranscript(req.Provider) && !provider.SupportsStatefulCompaction(req.Provider) {
 		return nil, fmt.Errorf("compact conversation: %w", errStatefulCompaction)
 	}
 	steering := ""
@@ -294,6 +306,7 @@ func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Mess
 		Conversation: currentConv,
 		Lineage:      newConversationLineage(currentConv),
 	}
+	state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), lineage.latestBackendState(), false)
 
 	skipped := map[string]bool{}
 	compactionCount := 0

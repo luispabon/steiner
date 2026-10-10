@@ -347,6 +347,38 @@ func TestManualCompactionPersistsCompactSessionWithoutFollowupPrompt(t *testing.
 	}
 }
 
+// lineageRecordingRunner is a runExecutor that also compacts against the run's
+// lineage, and records the lineage it was given.
+type lineageRecordingRunner struct {
+	runExecutorFunc
+	lineage agent.ConversationLineage
+}
+
+func (r *lineageRecordingRunner) CompactWithLineage(_ context.Context, conversation []agent.Message, lineage agent.ConversationLineage, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
+	r.lineage = lineage
+	return conversation, nil
+}
+
+// TestManualCompactionPassesDriverLineageToLineageRunner proves a manual
+// compaction hands the driver's live lineage, backend state included, to the
+// executor seam rather than rebuilding an empty lineage.
+func TestManualCompactionPassesDriverLineageToLineageRunner(t *testing.T) {
+	conv := twoTurnConversation()
+	lineage := agent.ConversationLineage{
+		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: conv, BackendState: []byte(`{"provider":"claude_subscription","version":1}`)}},
+		NextGenerationID: 2,
+	}
+	runner := &lineageRecordingRunner{}
+	s := mustCompactionSession(t, Dependencies{Runner: runner})
+	drv := agent.NewConversationDriver(agent.DriverOptions{}, conv, lineage)
+	if _, _, err := s.manualCompaction(drv, "")(context.Background(), conv); err != nil {
+		t.Fatalf("manualCompaction() error = %v", err)
+	}
+	if !reflect.DeepEqual(runner.lineage.Generations, lineage.Generations) {
+		t.Fatalf("runner lineage = %+v, want the driver lineage %+v", runner.lineage.Generations, lineage.Generations)
+	}
+}
+
 func mustCompactionSession(t *testing.T, deps Dependencies) *Session {
 	t.Helper()
 	s, err := NewSession(deps)

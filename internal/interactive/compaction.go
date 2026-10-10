@@ -15,7 +15,7 @@ import (
 func (s *Session) manualCompaction(drv *agent.ConversationDriver, steering string) func(context.Context, []agent.Message) ([]agent.Message, agent.ConversationLineage, error) {
 	return func(ctx context.Context, conversation []agent.Message) ([]agent.Message, agent.ConversationLineage, error) {
 		lineage := drv.Snapshot().Lineage
-		compacted, ok := s.compactConversation(ctx, conversation, steering)
+		compacted, ok := s.compactConversation(ctx, conversation, lineage, steering)
 		if !ok {
 			return conversation, lineage, nil
 		}
@@ -27,7 +27,7 @@ func (s *Session) manualCompaction(drv *agent.ConversationDriver, steering strin
 
 // compactConversation runs one manual compaction and reports whether it
 // produced a new conversation.
-func (s *Session) compactConversation(ctx context.Context, conversation []agent.Message, steering string) ([]agent.Message, bool) {
+func (s *Session) compactConversation(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, steering string) ([]agent.Message, bool) {
 	if len(conversation) == 0 {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", "No conversation to compact."))
 		return nil, false
@@ -37,7 +37,7 @@ func (s *Session) compactConversation(ctx context.Context, conversation []agent.
 		return nil, false
 	}
 
-	compacted, err := s.runManualCompaction(ctx, s.CurrentModelAlias(), s.compactRunner(conversation, steering))
+	compacted, err := s.runManualCompaction(ctx, s.CurrentModelAlias(), s.compactRunner(conversation, lineage, steering))
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			s.emitCompactError(err)

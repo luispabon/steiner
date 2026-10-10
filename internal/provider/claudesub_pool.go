@@ -381,6 +381,31 @@ func (p *ClaudeSubscriptionPool) acquire(ctx context.Context, key string, spec c
 	return p.settleStartup(ctx, st, key, s, err)
 }
 
+// acquireLive returns the running session for key with its whole-call lock
+// held, or nil with no error when none runs. It never starts a process, so a
+// caller can inspect the live record before it decides how to answer. The caller
+// releases a non-nil session.
+func (p *ClaudeSubscriptionPool) acquireLive(ctx context.Context, key string) (*claudeSubSession, error) {
+	p.mu.Lock()
+	if p.state != claudeSubPoolRunning {
+		p.mu.Unlock()
+		return nil, errClaudeSubPoolClosed
+	}
+	if err := ctx.Err(); err != nil {
+		p.mu.Unlock()
+		return nil, err
+	}
+	s, ok := p.sessions[key]
+	if !ok || s.exited() {
+		p.mu.Unlock()
+		return nil, nil
+	}
+	s.active++
+	p.active++
+	p.mu.Unlock()
+	return p.takeLease(ctx, s)
+}
+
 // takeLease finishes an acquisition whose reservation (active counters) was
 // already taken under the pool mutex. It takes the session's whole-call lock in
 // a cancellation-aware way, then under the pool mutex rechecks that the pool is

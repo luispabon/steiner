@@ -40,6 +40,9 @@ type claudeSubStartSpec struct {
 	Persist bool
 	// Resume restores a stored CLI session when the process starts.
 	Resume claudeSubResume
+	// MaxTurns caps the CLI turns of the process when positive (see
+	// claudeSubSpawnOptions.MaxTurns).
+	MaxTurns int
 }
 
 // claudeSubPendingCall is one pending tool call: the tool-use id plus the
@@ -264,7 +267,7 @@ func startClaudeSubSession(ctx context.Context, p *ClaudeSubscriptionPool, key s
 		return s, fmt.Errorf("secure claude_subscription session dir: %w", err)
 	}
 
-	spawnOpts := claudeSubSpawnOptions{Model: spec.Model, Persist: spec.Persist, Resume: spec.Resume}
+	spawnOpts := claudeSubSpawnOptions{Model: spec.Model, Persist: spec.Persist, Resume: spec.Resume, MaxTurns: spec.MaxTurns}
 	spawnOpts.Effort, spawnOpts.ThinkingDisabled = claudeSubEffort(spec.Effort)
 
 	// The MCP host and --mcp-config exist only when steiner has tools to

@@ -32,7 +32,7 @@ func claudeSubEffortFor(req ChatRequest) string {
 // calls persist their CLI session and return durable backend state (D4).
 // Advisor and sub-agent processes stay ephemeral.
 func claudeSubPersists(req ChatRequest) bool {
-	return !req.AdvisorCacheProfile && req.ParentTransportSession == ""
+	return !req.AdvisorCacheProfile && !req.CompactionSummary && req.ParentTransportSession == ""
 }
 
 func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, emit func(ChatChunk) error) error {
@@ -43,6 +43,9 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 	}
 	spec.SystemPrompt = claudeSubSystemPrompt(req.Messages)
 	spec.Tools = req.Tools
+	if req.CompactionSummary {
+		return claudeSubSummaryTurn(ctx, pool, req, key, spec, emit)
+	}
 	return claudeSubNormalTurn(ctx, pool, req, key, spec, emit)
 }
 
@@ -129,6 +132,200 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 			return err
 		}
 		forceReseed = true
+	}
+}
+
+// claudeSubSummarySuffix keys the ephemeral helper processes that answer a
+// compaction summary. A helper never uses the parent's key, so the parent's
+// process and its persisted state are never touched by it.
+const claudeSubSummarySuffix = "|summary"
+
+// claudeSubSummaryTurn answers a compaction summary request. A sub-agent
+// summarizes in place on its own process. A parent forks its live process when
+// the stored state and a source-tail uuid allow it. Otherwise it summarizes in
+// place on the live process and retires that process. Only a parent with no
+// live process cold-reseeds an ephemeral helper.
+func claudeSubSummaryTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
+	if req.ParentTransportSession != "" {
+		return claudeSubSubAgentSummary(ctx, pool, req, key, spec, emit)
+	}
+	live, err := pool.acquireLive(ctx, key)
+	if err != nil {
+		return err
+	}
+	if live == nil {
+		return claudeSubReseedSummary(ctx, pool, req, key, spec, emit)
+	}
+	fingerprint, err := claudeSubFingerprint(spec.SystemPrompt, spec.Tools)
+	if err != nil {
+		pool.release(live)
+		return err
+	}
+	src, forkable, err := claudeSubForkSourceOf(live, req, key, fingerprint)
+	if err != nil {
+		pool.release(live)
+		return err
+	}
+	if forkable {
+		// The fork copied the record it needs, so the live process is untouched.
+		pool.release(live)
+		return claudeSubForkSummary(ctx, pool, req, key, src, spec, emit)
+	}
+	err = claudeSubInPlaceSummary(ctx, live, req, claudeSubClearOnDone(emit))
+	// The in-place summary is part of the live transcript now, so the process
+	// is retired. Its generation's backend state is cleared by the final chunk.
+	pool.retire(key, live)
+	pool.release(live)
+	if errors.Is(err, errClaudeSubSummaryNoPlace) {
+		return claudeSubReseedSummary(ctx, pool, req, key, spec, emit)
+	}
+	return err
+}
+
+// claudeSubForkSource is what a summary fork starts from: the stored CLI
+// session, the uuid that ends the summarized source, and a copy of the record up
+// to that uuid.
+type claudeSubForkSource struct {
+	sessionID   string
+	atUUID      string
+	entries     []claudeSubEntry
+	fingerprint string
+}
+
+// claudeSubForkSourceOf reports whether the live process s can be forked for a
+// summary. The stored state must be the live checkpoint, owned by key and built
+// with the same prompt and tools, and the source must end at an assistant uuid.
+// The caller holds s's lock.
+func claudeSubForkSourceOf(s *claudeSubSession, req ChatRequest, key, fingerprint string) (claudeSubForkSource, bool, error) {
+	stored, ok := claudeSubParseState(req.BackendState)
+	if !ok || stored.TransportSession != key || stored.PromptToolsFingerprint != fingerprint {
+		return claudeSubForkSource{}, false, nil
+	}
+	live, ok, err := s.sync.checkpoint(key)
+	if err != nil {
+		return claudeSubForkSource{}, false, err
+	}
+	if !ok || !claudeSubStateMatches(live, stored) {
+		return claudeSubForkSource{}, false, nil
+	}
+	uuid, ok := s.sync.sourceTailUUID(claudeSubMessages(req.Messages), req.CompactionSourceMessages)
+	if !ok {
+		return claudeSubForkSource{}, false, nil
+	}
+	return claudeSubForkSource{
+		sessionID:   stored.CLISessionID,
+		atUUID:      uuid,
+		entries:     append([]claudeSubEntry(nil), s.sync.entries[:req.CompactionSourceMessages]...),
+		fingerprint: fingerprint,
+	}, true, nil
+}
+
+// claudeSubForkSummary answers a summary request from an ephemeral helper that
+// forks the stored CLI session at the source tail. The helper holds only the
+// source, runs one turn, and is retired. It returns no backend state.
+func claudeSubForkSummary(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, src claudeSubForkSource, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
+	helperKey := key + claudeSubSummarySuffix
+	spec.Persist = false
+	spec.MaxTurns = 1
+	spec.Resume = claudeSubResume{SessionID: src.sessionID, AtUUID: src.atUUID, Fork: true}
+	h, err := pool.acquire(ctx, helperKey, spec)
+	if err != nil {
+		return err
+	}
+	defer pool.release(h)
+	defer pool.retire(helperKey, h)
+	h.sync.entries = src.entries
+	h.sync.started = true
+	h.sync.interruptible = -1
+	h.sync.fingerprint = src.fingerprint
+	h.primed = true
+	delta, err := h.sync.plan(req)
+	if err != nil {
+		return err
+	}
+	return claudeSubDeliver(ctx, h, req, delta, emit)
+}
+
+// claudeSubReseedSummary answers a summary request from an ephemeral helper that
+// is cold-reseeded with the whole request. It runs only when no live parent
+// process exists. The helper is retired afterwards and returns no backend state.
+func claudeSubReseedSummary(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
+	helperKey := key + claudeSubSummarySuffix
+	spec.Persist = false
+	spec.MaxTurns = 1
+	spec.Resume = claudeSubResume{}
+	h, err := pool.acquire(ctx, helperKey, spec)
+	if err != nil {
+		return err
+	}
+	defer pool.release(h)
+	defer pool.retire(helperKey, h)
+	return claudeSubDeliverNormal(ctx, h, req, true, emit)
+}
+
+// claudeSubSubAgentSummary answers a sub-agent summary request in place on the
+// sub-agent's own process, which is then tainted. A process that cannot take the
+// request is replaced, and the marked request is reseeded on the new process.
+func claudeSubSubAgentSummary(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
+	s, err := pool.acquire(ctx, key, spec)
+	if err != nil {
+		return err
+	}
+	err = claudeSubInPlaceSummary(ctx, s, req, emit)
+	if !errors.Is(err, errClaudeSubSummaryNoPlace) {
+		pool.release(s)
+		return err
+	}
+	pool.retire(key, s)
+	pool.release(s)
+	s, err = pool.acquire(ctx, key, spec)
+	if err != nil {
+		return err
+	}
+	defer pool.release(s)
+	return claudeSubDeliverTainted(ctx, s, req, claudeSubMarkedReseedDelta(req), emit)
+}
+
+// claudeSubMarkedReseedDelta renders a whole summary request as a reseeded
+// transcript. Its instruction is marked as an in-place summary with no retained
+// tail.
+func claudeSubMarkedReseedDelta(req ChatRequest) claudeSubDelta {
+	msgs := claudeSubMessages(req.Messages)
+	if n := req.CompactionSourceMessages; n == len(msgs)-1 {
+		msgs[n] = claudeSubMarkSummary(msgs[n], n, 0)
+	}
+	return claudeSubReseedDelta(msgs)
+}
+
+// claudeSubInPlaceSummary sends a summary request on the locked live process s
+// as one marked instruction appended to its record.
+func claudeSubInPlaceSummary(ctx context.Context, s *claudeSubSession, req ChatRequest, emit func(ChatChunk) error) error {
+	if err := claudeSubFinishPending(ctx, s, req); err != nil {
+		return err
+	}
+	delta, err := s.sync.planSummary(claudeSubMessages(req.Messages), req.CompactionSourceMessages)
+	if err != nil {
+		return err
+	}
+	return claudeSubDeliverTainted(ctx, s, req, delta, emit)
+}
+
+// claudeSubDeliverTainted taints s before delivering delta. The taint lands
+// before the first write, so a failure at any later point leaves the record
+// unusable for reuse.
+func claudeSubDeliverTainted(ctx context.Context, s *claudeSubSession, req ChatRequest, delta claudeSubDelta, emit func(ChatChunk) error) error {
+	s.sync.taint()
+	return claudeSubDeliver(ctx, s, req, delta, emit)
+}
+
+// claudeSubClearOnDone wraps emit so the final chunk tells the issuing
+// generation to drop its backend state.
+func claudeSubClearOnDone(emit func(ChatChunk) error) func(ChatChunk) error {
+	return func(chunk ChatChunk) error {
+		if chunk.Done {
+			chunk.ClearBackendState = true
+		}
+		return emit(chunk)
 	}
 }
 
@@ -531,5 +728,10 @@ func claudeSubTurnFailure(r *claudeSubResult) error {
 	return fmt.Errorf("claude_subscription turn failed: %s: %s", r.Subtype, text)
 }
 
+// SupportsStatefulCompaction reports that compaction summaries follow the
+// claude_subscription transition contract (see claudeSubSummaryTurn).
+func (p *ClaudeSubscriptionProvider) SupportsStatefulCompaction() bool { return true }
+
 var _ Provider = (*ClaudeSubscriptionProvider)(nil)
 var _ StatefulTranscript = (*ClaudeSubscriptionProvider)(nil)
+var _ StatefulCompactor = (*ClaudeSubscriptionProvider)(nil)

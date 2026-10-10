@@ -185,6 +185,9 @@ type claudeSubSpawnOptions struct {
 	Persist bool
 	// Resume restores a stored CLI session instead of starting an empty one.
 	Resume claudeSubResume
+	// MaxTurns caps the CLI turns of the process when positive. Summary helpers
+	// use 1 (D-compaction).
+	MaxTurns int
 }
 
 // claudeSubArgs returns the child argv in the fixed order the CLI is driven
@@ -231,6 +234,9 @@ func claudeSubArgs(o claudeSubSpawnOptions) []string {
 	}
 	if effort != "" {
 		args = append(args, "--effort", effort)
+	}
+	if o.MaxTurns > 0 {
+		args = append(args, "--max-turns", strconv.Itoa(o.MaxTurns))
 	}
 	return args
 }

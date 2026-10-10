@@ -53,6 +53,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	durationMs := endTime.Sub(startTime).Milliseconds()
 
 	response = p.normalizeModelResponse(state, turn, response)
+	p.lastUsage = response.Usage
 	state, turnTokens := p.finalizeModelCallState(state, turn, response)
 	state.Lineage = state.Lineage.withBackendState(issuedGenerationID, response.BackendState, response.ClearBackendState)
 	visionState, subAgentConfigured := p.getVisionCapabilityContext()
@@ -221,6 +222,11 @@ type turnProgressor struct {
 	// meter reflects mid-turn prompt growth.
 	lastBudget *prompt.RequestTokenBudget
 
+	// lastUsage is the usage of the most recent model response in this run. A
+	// stateful compaction provider triggers compaction from it (see
+	// compactionDue). It is cleared once a compaction applies.
+	lastUsage *provider.UsageStats
+
 	// queuedDelegations holds the delegation calls announced via
 	// tool_call_queued for the tool-execution phase currently running. Entries
 	// are marked started as each call is dispatched; any left when the phase
@@ -264,7 +270,7 @@ func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcom
 		return p.handleError(ctx, state, err)
 	}
 
-	if fit.ShouldCompact || !fit.Fits {
+	if p.compactionDue(fit) {
 		outcome := p.handleCompaction(ctx, state, fit)
 		if outcome.Error != nil {
 			return p.handleError(ctx, outcome.State, outcome.Error)
@@ -322,7 +328,7 @@ func (p *turnProgressor) handleError(ctx context.Context, state RunState, err er
 // should re-run the turn with the compacted state) or an error outcome on
 // failure.
 func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, fit prompt.RequestTokenBudget) turnOutcome {
-	if provider.IsStatefulTranscript(p.request.Provider) {
+	if provider.IsStatefulTranscript(p.request.Provider) && !provider.SupportsStatefulCompaction(p.request.Provider) {
 		if fit.Fits {
 			// Soft compaction threshold crossed, but the request fits the hard
 			// limit: carry on without compacting a provider-owned transcript.
@@ -341,6 +347,7 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 		return turnOutcome{State: state, Error: err, Stop: true}
 	}
 	if compacted {
+		p.lastUsage = nil
 		return turnOutcome{State: state, Retry: true}
 	}
 	if fit.Fits {
@@ -353,6 +360,28 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 		Error: fmt.Errorf("request exceeds context window: %s", fit.String()),
 		Stop:  true,
 	}
+}
+
+// compactionDue reports whether the turn compacts before its model call. A
+// native provider uses the estimated fit. A stateful compaction provider uses the
+// last response's CLI usage against the model context window. The hard limit
+// still forces compaction for every provider.
+func (p *turnProgressor) compactionDue(fit prompt.RequestTokenBudget) bool {
+	if !provider.SupportsStatefulCompaction(p.request.Provider) {
+		return fit.ShouldCompact || !fit.Fits
+	}
+	return !fit.Fits || statefulUsageAboveThreshold(p.lastUsage, fit.ContextSize)
+}
+
+// statefulUsageAboveThreshold reports whether a response's prompt usage reaches
+// the compaction threshold of contextSize. The prompt usage is the CLI input
+// tokens plus cache read and cache creation tokens.
+func statefulUsageAboveThreshold(usage *provider.UsageStats, contextSize int) bool {
+	if usage == nil || contextSize <= 0 {
+		return false
+	}
+	tokens := usage.PromptTokens + usage.CacheReadInputTokens + usage.CacheCreationInputTokens
+	return float64(tokens) >= float64(contextSize)*compactionUsageThreshold
 }
 
 // prepareTurn assembles the prompt, constructs the chat request, and fits it

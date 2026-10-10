@@ -97,6 +97,10 @@ type claudeSubSync struct {
 	// backend state.
 	cliSessionID string
 	fingerprint  string
+	// tainted is set once an in-place summary is sent: the CLI transcript then
+	// holds steiner's summary request, which the record does not describe. A
+	// tainted record plans and checkpoints nothing (see taint).
+	tainted bool
 }
 
 // claudeSubSystemPrompt joins the system messages of a first request, in order,
@@ -139,6 +143,9 @@ func claudeSubMessages(msgs []Message) []Message {
 // plan does not change the record: a request that fails before delivery leaves
 // it exactly as it was, so a retry plans the same delta.
 func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
+	if s.tainted {
+		return claudeSubDelta{}, errClaudeSubHistoryChanged
+	}
 	msgs := claudeSubMessages(req.Messages)
 	if !s.started {
 		for _, m := range msgs {
@@ -313,7 +320,7 @@ type claudeSubBackendState struct {
 // sessions) or the CLI has reported no session ID, because such a state cannot
 // resume anything.
 func (s *claudeSubSync) checkpoint(transportSession string) (state claudeSubBackendState, ok bool, err error) {
-	if s.fingerprint == "" || s.cliSessionID == "" {
+	if s.fingerprint == "" || s.cliSessionID == "" || s.tainted {
 		return claudeSubBackendState{}, false, nil
 	}
 	chain, err := claudeSubChainDigest(s.entries)
@@ -568,6 +575,66 @@ func (s *claudeSubSync) commitAdvisor(snapshot []Message) {
 		s.advisorEntries = append(s.advisorEntries, claudeSubEntryFromMessage(m))
 	}
 	s.started = true
+}
+
+// errClaudeSubSummaryNoPlace reports that an in-place summary cannot be
+// appended to the live transcript. The caller falls back to a reseed.
+var errClaudeSubSummaryNoPlace = errors.New("claude_subscription summary request does not extend the live transcript")
+
+// taint marks the record as no longer describing the CLI transcript, after an
+// in-place summary was sent. A tainted record plans and checkpoints nothing, so
+// its process is never reused and returns no backend state.
+func (s *claudeSubSync) taint() {
+	s.tainted = true
+}
+
+// sourceTailUUID returns the CLI uuid of the entry that ends the first source
+// request messages. It reports false unless the record starts with exactly those
+// messages and that entry is an assistant message with a uuid.
+func (s *claudeSubSync) sourceTailUUID(msgs []Message, source int) (string, bool) {
+	if source <= 0 || source > len(msgs) || source > len(s.entries) {
+		return "", false
+	}
+	for i := range source {
+		if !claudeSubEntryMatches(s.entries[i], msgs[i]) {
+			return "", false
+		}
+	}
+	last := s.entries[source-1]
+	if last.Role != MessageRoleAssistant || last.UUID == "" {
+		return "", false
+	}
+	return last.UUID, true
+}
+
+// planSummary returns the delta of an in-place summary request. The source
+// messages must be a prefix of the record, and the instruction after them is
+// appended after the whole record, retained tail included. It never changes the
+// record, and it reports errClaudeSubSummaryNoPlace when the record cannot take
+// the request.
+func (s *claudeSubSync) planSummary(msgs []Message, source int) (claudeSubDelta, error) {
+	if s.tainted || !s.started || s.interrupted || source <= 0 || len(msgs) != source+1 || len(s.entries) < source || msgs[source].Role != MessageRoleUser {
+		return claudeSubDelta{}, errClaudeSubSummaryNoPlace
+	}
+	for i := range source {
+		if !claudeSubEntryMatches(s.entries[i], msgs[i]) {
+			return claudeSubDelta{}, errClaudeSubSummaryNoPlace
+		}
+	}
+	instruction := claudeSubMarkSummary(msgs[source], source, len(s.entries)-source)
+	return claudeSubDelta{
+		User:              []Message{instruction},
+		keep:              append([]claudeSubEntry(nil), s.entries...),
+		keepInterruptible: s.interruptible,
+	}, nil
+}
+
+// claudeSubMarkSummary marks a summary instruction sent in place. It names the
+// older source the summary covers and the retained tail that already sits in
+// the transcript.
+func claudeSubMarkSummary(instruction Message, source, tail int) Message {
+	instruction.Content = fmt.Sprintf("[steiner compaction summary request: summarize the %d older source messages earlier in this transcript. The %d retained tail messages after them are already part of this transcript.]\n\n%s", source, tail, instruction.Content)
+	return instruction
 }
 
 // claudeSubTranscript renders snapshot messages as one labelled transcript the
