@@ -209,6 +209,42 @@ func TestClearConversationResetsLineage(t *testing.T) {
 	}
 }
 
+func TestClearConversationDropsBackendState(t *testing.T) {
+	t.Parallel()
+	store := newMockSessionStore()
+	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
+	const state = `{"session_id":"secret"}`
+	seedConversation(s, []agent.Message{userMsg("secret")}, agent.ConversationLineage{
+		Generations: []agent.ConversationGeneration{
+			{ID: 1, Messages: []agent.Message{userMsg("secret")}, BackendState: []byte(state)},
+		},
+		NextGenerationID: 2,
+	})
+	oldID := s.SessionID()
+	if err := s.saveSession(); err != nil {
+		t.Fatalf("saveSession before clear: %v", err)
+	}
+
+	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
+		t.Fatalf("ClearConversation: %v", err)
+	}
+	if s.SessionID() == oldID {
+		t.Fatal("session ID did not rotate")
+	}
+	if !s.lineage.Empty() {
+		t.Fatalf("live lineage after clear = %+v, want no generations", s.lineage)
+	}
+	if err := s.saveSession(); err != nil {
+		t.Fatalf("saveSession after clear: %v", err)
+	}
+	if got := store.savedSessions[s.SessionID()].Lineage; !got.Empty() {
+		t.Fatalf("saved cleared lineage = %+v, want no generations", got)
+	}
+	if got := string(store.savedSessions[oldID].Lineage.Generations[0].BackendState); got != state {
+		t.Fatalf("original saved BackendState = %q, want %q preserved", got, state)
+	}
+}
+
 func TestActiveRunControllerReleaseRequiresOwnerToken(t *testing.T) {
 	t.Parallel()
 	c := NewActiveRunController()
