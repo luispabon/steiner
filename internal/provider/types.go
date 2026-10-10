@@ -164,4 +164,10 @@ type ChatChunk struct {
 	OriginalError   error       `json:"-"` // preserves the original error type (not serialized)
 	// UpstreamEndpoint is the upstream endpoint id reported by compatible gateways.
 	UpstreamEndpoint string `json:"-"`
+	// BackendState, when non-nil, is the opaque state the final chunk hands to
+	// the issuing generation. Only a Done chunk's value is used. Nil means no change.
+	BackendState json.RawMessage `json:"-"`
+	// ClearBackendState removes the stored backend state from the issuing
+	// generation. It takes precedence over BackendState.
+	ClearBackendState bool `json:"-"`
 }

@@ -104,6 +104,10 @@ type claudeSubDecoded struct {
 	// Message and FinishReason carry the assembled assistant message.
 	Message      *Message
 	FinishReason string
+	// UUID is the final CLI transcript uuid of the assembled message: the
+	// top-level uuid of the last assistant echo accepted before emission. Empty
+	// when no such echo carried one.
+	UUID string
 	// Result carries terminal turn metadata.
 	Result *claudeSubResult
 }
@@ -207,6 +211,10 @@ type claudeSubDecoder struct {
 	// streamEchoProcessed records that a valid echo arrived before message_stop.
 	// It is what permits finishMessage to emit the assembled message immediately.
 	streamEchoProcessed bool
+	// messageUUID is the top-level uuid of the last assistant echo accepted while
+	// the current message was still pending emission: its final CLI transcript
+	// entry. Reset at message_start.
+	messageUUID string
 	// messageStarted records that this decoder's single message_start has been
 	// accepted. One decoder follows one CLI turn, which carries exactly one
 	// message_start, so a second one fails closed instead of silently resetting
@@ -263,9 +271,9 @@ func (d *claudeSubDecoder) decode(ev claudeSubEvent) ([]claudeSubDecoded, error)
 		// mutates nothing and calls no hook.
 		switch d.phase {
 		case claudeSubPhaseStreaming:
-			return d.decodeAssistantEcho(ev.Raw, false)
+			return d.decodeAssistantEcho(ev.Raw, ev.UUID, false)
 		case claudeSubPhaseStopped:
-			return d.decodeAssistantEcho(ev.Raw, d.messagePending)
+			return d.decodeAssistantEcho(ev.Raw, ev.UUID, d.messagePending)
 		case claudeSubPhaseTerminal:
 			return nil, fmt.Errorf("%w: assistant echo after terminal result", errClaudeSubDecodeStream)
 		default:
@@ -703,7 +711,7 @@ type claudeSubEchoBlock struct {
 // conflicting name, an incompatible index claim or an oversized input fails
 // closed before any of that, so a decode call never leaves a partial echo,
 // invokes a hook, or emits a final message and then fails.
-func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage, allowEchoOnly bool) ([]claudeSubDecoded, error) {
+func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage, uuid string, allowEchoOnly bool) ([]claudeSubDecoded, error) {
 	var envelope struct {
 		Message *struct {
 			Content []claudeSubEchoBlock `json:"content"`
@@ -783,6 +791,11 @@ func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage, allowEchoOnl
 	d.echoProcessed = true
 	if d.phase == claudeSubPhaseStreaming {
 		d.streamEchoProcessed = true
+	}
+	// An echo that arrives after the message was emitted belongs to no emitted
+	// message, so it must not replace the message's final uuid.
+	if d.phase == claudeSubPhaseStreaming || d.messagePending {
+		d.messageUUID = uuid
 	}
 	d.echoToolIndex = nextEchoIndex
 	for index, raw := range stagedUnparsed {
@@ -952,6 +965,7 @@ func (d *claudeSubDecoder) beginMessage() {
 	d.messagePending = false
 	d.echoProcessed = false
 	d.streamEchoProcessed = false
+	d.messageUUID = ""
 	d.messageStarted = true
 	d.stopped = nil
 }
@@ -1166,6 +1180,7 @@ func (d *claudeSubDecoder) assembleMessage() (*claudeSubDecoded, error) {
 		Message:      &message,
 		FinishReason: d.stopReason,
 		Usage:        d.usage.toUsageStats(),
+		UUID:         d.messageUUID,
 	}, nil
 }
 

@@ -28,13 +28,15 @@ func claudeSubDecodeEvents(t *testing.T, name string) []claudeSubEvent {
 			continue
 		}
 		var env struct {
-			Type    string `json:"type"`
-			Subtype string `json:"subtype"`
+			Type      string `json:"type"`
+			Subtype   string `json:"subtype"`
+			UUID      string `json:"uuid"`
+			SessionID string `json:"session_id"`
 		}
 		if err := json.Unmarshal([]byte(line), &env); err != nil {
 			t.Fatalf("parse fixture %s line %q: %v", name, line, err)
 		}
-		events = append(events, claudeSubEvent{Type: env.Type, Subtype: env.Subtype, Raw: json.RawMessage(line)})
+		events = append(events, claudeSubEvent{Type: env.Type, Subtype: env.Subtype, UUID: env.UUID, SessionID: env.SessionID, Raw: json.RawMessage(line)})
 	}
 	if err := sc.Err(); err != nil {
 		t.Fatalf("scan fixture %s: %v", name, err)

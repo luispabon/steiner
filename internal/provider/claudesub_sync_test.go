@@ -115,7 +115,7 @@ func TestClaudeSubSyncFirstRequestRejectsHistory(t *testing.T) {
 func TestClaudeSubSyncAppendToolAndUser(t *testing.T) {
 	s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
 	assistant := claudeSubSyncAssistantMsg("working", "c1", "c2")
-	s.commitAssistant(assistant)
+	s.commitAssistant(assistant, "")
 
 	req := ChatRequest{Messages: []Message{
 		claudeSubSyncUserMsg("hi"),
@@ -143,7 +143,7 @@ func TestClaudeSubSyncAppendToolAndUser(t *testing.T) {
 func claudeSubSyncInterruptedBase(t *testing.T, mark bool) *claudeSubSync {
 	t.Helper()
 	s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
-	s.commitAssistant(claudeSubSyncAssistantMsg("a1", "c1", "c2"))
+	s.commitAssistant(claudeSubSyncAssistantMsg("a1", "c1", "c2"), "")
 	if mark {
 		s.markInterrupted()
 	}
@@ -288,7 +288,7 @@ func TestClaudeSubSyncAssistantIDMultiset(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
-			s.commitAssistant(claudeSubSyncAssistantMsg("a1", "c1", "c2"))
+			s.commitAssistant(claudeSubSyncAssistantMsg("a1", "c1", "c2"), "")
 			_, err := s.plan(ChatRequest{Messages: []Message{claudeSubSyncUserMsg("hi"), claudeSubSyncAssistantMsg("a1", tc.ids...)}})
 			wantErr := tc.name != "reordered ids match"
 			if wantErr && !errors.Is(err, errClaudeSubHistoryChanged) {
@@ -307,7 +307,7 @@ func TestClaudeSubSyncAssistantIDMultiset(t *testing.T) {
 func TestClaudeSubSyncInterruptOldAssistantImmutable(t *testing.T) {
 	s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("u1"))
 	a1 := claudeSubSyncAssistantMsg("a1", "c1")
-	s.commitAssistant(a1)
+	s.commitAssistant(a1, "")
 	d, err := s.plan(ChatRequest{Messages: []Message{claudeSubSyncUserMsg("u1"), a1, claudeSubSyncUserMsg("u2")}})
 	if err != nil {
 		t.Fatalf("plan follow-up user: %v", err)
@@ -339,7 +339,7 @@ func TestClaudeSubSyncInterruptOmittedToolResult(t *testing.T) {
 		t.Helper()
 		s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
 		a1 := claudeSubSyncAssistantMsg("a1", "c1", "c2")
-		s.commitAssistant(a1)
+		s.commitAssistant(a1, "")
 		d, err := s.plan(ChatRequest{Messages: []Message{claudeSubSyncUserMsg("hi"), a1, claudeSubSyncToolMsg("c1", "orig")}})
 		if err != nil {
 			t.Fatalf("plan tool result: %v", err)
@@ -410,7 +410,7 @@ func TestClaudeSubSyncInterruptPartialTextOnly(t *testing.T) {
 	base := func(t *testing.T) *claudeSubSync {
 		t.Helper()
 		s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
-		s.commitAssistant(claudeSubSyncAssistantMsg("a1", "c1"))
+		s.commitAssistant(claudeSubSyncAssistantMsg("a1", "c1"), "")
 		s.markInterrupted()
 		return s
 	}
@@ -494,7 +494,7 @@ func TestClaudeSubSyncHistoryEdits(t *testing.T) {
 		t.Helper()
 		s := claudeSubSyncStartedSync(t, imageUser)
 		assistant := claudeSubSyncAssistantMsg("a1", "c1")
-		s.commitAssistant(assistant)
+		s.commitAssistant(assistant, "")
 		d1, err := s.plan(ChatRequest{Messages: []Message{imageUser, assistant, imageTool}})
 		if err != nil {
 			t.Fatalf("setup plan 2: %v", err)
@@ -672,7 +672,7 @@ func TestClaudeSubSyncDuplicateSuffixToolResult(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
-			s.commitAssistant(claudeSubSyncAssistantMsg("", "toolu_1", "toolu_2"))
+			s.commitAssistant(claudeSubSyncAssistantMsg("", "toolu_1", "toolu_2"), "")
 			before := append([]claudeSubEntry(nil), s.entries...)
 			msgs := append([]Message{claudeSubSyncUserMsg("hi"), claudeSubSyncAssistantMsg("", "toolu_1", "toolu_2")}, tt.suffix...)
 			delta, err := s.plan(ChatRequest{Messages: msgs})
