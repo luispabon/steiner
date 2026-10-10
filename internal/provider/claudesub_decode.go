@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
+	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // This file is the pure decoder for the claude CLI's `--output-format
@@ -27,9 +30,10 @@ import (
 // message_stop once an in-stream echo has been processed, or at the post-stop
 // echo or terminal result otherwise. Every content-block index belongs to a
 // single streamed block start per message, and only a streamed tool_use block
-// start authorises input_json_delta content. Each delta and stop must name an
-// index a streamed start already claimed and match that block's canonical type,
-// and a stopped block rejects later deltas; a second message_start and a success
+// start authorises input_json_delta content. Each delta must name an index a
+// streamed start already claimed and match that block's canonical type, and a
+// stopped block rejects later deltas. A stop for an unclaimed index is ignored
+// with a debug record; a second message_start and a success
 // result before message_stop both fail closed, so no invalid ordering resets or drops
 // accumulated content.
 //
@@ -600,14 +604,15 @@ func (d *claudeSubDecoder) requireOpenBlock(index int, blockType, deltaType stri
 	return nil
 }
 
-// stopBlock records that the streamed content block at index has stopped. It
-// requires the index to have been claimed by a streamed content_block_start, so
-// a stop for an index the stream never opened fails closed, and it rejects a
-// repeated stop for the same index. A stopped block then rejects any later
-// delta through requireOpenBlock.
+// stopBlock records that the streamed content block at index has stopped. A
+// stop for an index no streamed content_block_start claimed has no block to
+// finish, so it is ignored with a debug record and does not claim the index. It
+// rejects a repeated stop for the same index. A stopped block then rejects any
+// later delta through requireOpenBlock.
 func (d *claudeSubDecoder) stopBlock(index int) error {
 	if _, claimed := d.blocks[index]; !claimed {
-		return fmt.Errorf("%w: content_block_stop for index %d with no streamed content_block_start", errClaudeSubDecodeStream, index)
+		slog.Debug("claude_subscription content_block_stop without streamed content_block_start ignored", "index", index)
+		return nil
 	}
 	if d.stopped[index] {
 		return fmt.Errorf("%w: duplicate content_block_stop for index %d", errClaudeSubDecodeStream, index)
@@ -1199,8 +1204,10 @@ func (d *claudeSubDecoder) finalizeOrderedToolUses() ([]ToolCall, error) {
 }
 
 // claudeSubValidatedUnparsedToolInput accepts the CLI-certified sentinel only
-// for an assistant echo that confirms a streamed tool use. Its shape, raw bytes
-// and byte length must all match the accumulated input exactly.
+// for an assistant echo that confirms a streamed tool use. Its shape and raw
+// bytes must match the accumulated input exactly. The len field must be an
+// integer, but a length that matches no supported unit is only logged, so a
+// differently measured sentinel still keeps its raw input.
 func claudeSubValidatedUnparsedToolInput(input json.RawMessage, accumulated string) (string, bool, error) {
 	if len(input) == 0 || string(input) == "null" {
 		return "", false, nil
@@ -1225,16 +1232,33 @@ func claudeSubValidatedUnparsedToolInput(input json.RawMessage, accumulated stri
 	if rawField, ok := sentinel["raw"]; !ok || json.Unmarshal(rawField, &raw) != nil {
 		return "", false, fmt.Errorf("%w: unparsed tool input sentinel raw field is invalid", errClaudeSubDecodeStream)
 	}
-	if lenField, ok := sentinel["len"]; !ok || json.Unmarshal(lenField, &length) != nil || length != len([]byte(raw)) {
+	if lenField, ok := sentinel["len"]; !ok || json.Unmarshal(lenField, &length) != nil {
 		return "", false, fmt.Errorf("%w: unparsed tool input sentinel length is invalid", errClaudeSubDecodeStream)
 	}
 	if raw != accumulated {
 		return "", false, fmt.Errorf("%w: unparsed tool input sentinel does not match accumulated input", errClaudeSubDecodeStream)
 	}
+	if !claudeSubSentinelLengthMatches(raw, length) {
+		slog.Debug("claude_subscription unparsed tool input length matches no supported unit", "len", length, "bytes", len(raw))
+	}
 	if len([]byte(raw)) > claudeSubDecodeMaxToolInputBytes {
 		return "", false, claudeSubToolInputBoundError("unparsed")
 	}
 	return raw, true, nil
+}
+
+// claudeSubSentinelLengthMatches reports whether length measures raw in bytes,
+// Unicode code points or UTF-16 code units. The CLI's unit is not confirmed, so
+// any of the three is accepted.
+func claudeSubSentinelLengthMatches(raw string, length int) bool {
+	if length == len(raw) || length == utf8.RuneCountInString(raw) {
+		return true
+	}
+	units := 0
+	for _, r := range raw {
+		units += utf16.RuneLen(r)
+	}
+	return length == units
 }
 
 // toolName translates a CLI-published tool name through the hook, defaulting to
