@@ -6,6 +6,8 @@ The `claude_subscription` provider is a stateful adapter around the user's signe
 
 `ClaudeSubscriptionPool` owns CLI processes. A normal session is pooled by `TransportSession` alone, with the parent transport session and `default` used only when that value is absent. The parent run forwards the current interactive session ID as `TransportSession`, so `/clear` routes the new conversation to a fresh pool key and CLI process. Model ID and reasoning effort are not pool-key components. The pool starts a process lazily, serializes calls for one key, and reuses the process until teardown.
 
+Only parent normal calls persist (`claudeSubPersists`). Advisor, sub-agent, and compaction summary calls are ephemeral and store no backend state. A parent turn returns an opaque `claudeSubBackendState` for its generation. It holds the CLI session ID, transport session, sync record counts and digests, final message UUID, and a prompt/tools fingerprint, never message text. A process that exits is evicted, and its successor reseeds. A resumed process that produces no output is retired and the request reseeded once.
+
 The provider changes model live with the CLI's `set_model` control request. It changes effort with `apply_flag_settings` and `settings.effortLevel`. These changes update the existing session's state rather than creating a second process. Advisor mode uses a separate `|advisor` session key derived from the parent key. Advisor processes are tool-less and have their own append-only advisor transcript.
 
 For test-only fixture capture, set `STEINER_CLAUDESUB_RECORD` to a directory. Recording is opt-in and disabled by default. When enabled, startup creates the directory if needed, normalizes its permissions to `0700`, and appends each raw, nonempty stdout line to a safely encoded per-session JSONL file, normalizing that existing or new file's permissions to `0600`; a recorder setup failure aborts startup rather than starting an unrecorded session. The encoded filename is not the literal session key, so hostile keys cannot escape the requested directory.
@@ -19,10 +21,12 @@ The pool locates `claude` once on `PATH`, checks `claude --version`, and checks 
 Normal sessions use the stream-json process shape:
 
 ```text
-claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --model <model> --tools "" --strict-mcp-config --setting-sources= --no-session-persistence --settings {"autoCompactEnabled":false,"fastMode":false} --permission-mode dontAsk
+claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --model <model> --tools "" --strict-mcp-config --setting-sources= --settings {"autoCompactEnabled":false,"fastMode":false} --permission-mode dontAsk
 ```
 
-When tools exist, the process also receives a private MCP config and an allowlist for `mcp__steiner__*`. A private system prompt is passed with `--system-prompt-file`. Reasoning `none` maps to `--thinking disabled`; other known effort values use adaptive thinking with summarized display and `--effort`. Steiner sets `CLAUDE_CODE_DISABLE_FAST_MODE=1`, `CLAUDE_CODE_RETRY_WATCHDOG=1`, and a bounded `MAX_MCP_OUTPUT_TOKENS` value. Credential and CLI entrypoint variables are stripped from the child environment.
+When tools exist, the process also receives a private MCP config and an allowlist for `mcp__steiner__*`. Ephemeral processes (advisor, sub-agent, summary helper, and discovery) add `--no-session-persistence`. Parent processes omit it. A process that restores stored state adds `--resume <session-id>` and `--resume-session-at <final-uuid>`. A fork also adds `--fork-session`. Summary helpers add `--max-turns 1`.
+
+A private system prompt is passed with `--system-prompt-file`. Reasoning `none` maps to `--thinking disabled`; other known effort values use adaptive thinking with summarized display and `--effort`. Steiner sets `CLAUDE_CODE_DISABLE_FAST_MODE=1`, `CLAUDE_CODE_RETRY_WATCHDOG=1`, and a bounded `MAX_MCP_OUTPUT_TOKENS` value. Credential and CLI entrypoint variables are stripped from the child environment.
 
 ## Loopback MCP host
 
@@ -47,12 +51,27 @@ Usage is checked before a new user message is written. The gate passes only when
 
 ## Transcript synchronization
 
-The sync record is append-only. User and tool entries are compared by role and content digest. Assistant entries are compared by tool-call IDs because the CLI may normalize assistant text and reasoning. Images are excluded from the content digest, and sent image fingerprints are tracked separately. This permits the one tolerated retroactive edit: Steiner may remove image data after consumption. Other rewrites, omissions, or reordering return the history-changed error and reference #895.
+The sync record is append-only. User and tool entries are compared by role and content digest. Assistant entries are compared by tool-call IDs because the CLI may normalize assistant text and reasoning. Images are excluded from the content digest, and sent image fingerprints are tracked separately. This permits the one tolerated retroactive edit: Steiner may remove image data after consumption. Other rewrites, omissions, or reordering make the live process unusable for that request. The process is retired, and the request forks or reseeds (see Session recovery and compaction). Advisor requests retry once on a fresh process.
 
 After an interrupt, only the assistant entry produced by that interrupted call has the narrow cleanup tolerance. A follow-up user message makes that assistant entry immutable. Advisor mode sends the parent snapshot as labelled transcript text, then the advisor question, and records the parent snapshot so later advisor calls append only the new parent delta.
+
+## Session recovery and compaction
+
+A new parent process restores stored state only when the stored CLI session ID, prompt/tools fingerprint, and final message UUID match the request's history (`claudeSubRestoreFor`). The restore target always carries the stored final UUID as `--resume-session-at`. When the transport session matches the stored owner, the process resumes. When it differs, as after a Steiner Fork, the process forks at that UUID with `--fork-session`. Any other failed check reseeds.
+
+A reseed (`claudeSubReseedDelta`) sends the whole non-system history as one user transcript message. In-memory images are included, earlier tool calls are rendered as text, and image data stripped after consumption cannot return. The rendered entries become the new sync record. A reseeded turn does not reuse prompt cache.
+
+The compaction trigger for this provider is `statefulUsageAboveThreshold` in `internal/agent/turn_progression.go`. It compares the last response's `PromptTokens` with 70% of the context window. For `claude_subscription`, `PromptTokens` is the CLI's total input, summed by `claudeSubUsage.toUsageStats` from input, cache creation, and cache read tokens. A request that does not fit also triggers compaction. `errStatefulCompaction` applies only to stateful providers without `SupportsStatefulCompaction`, which this provider implements.
+
+Summary routing in `claudeSubSummaryTurn`:
+
+- Sub-agent (`ParentTransportSession` set): marked in-place summary on the sub-agent's own process. The process is tainted and retired. A process that cannot take the request is replaced, and the marked request is reseeded on it.
+- Parent fork: when the stored state matches the live checkpoint and fingerprint, and the source ends at an assistant UUID, an ephemeral helper forks the stored CLI session at that UUID. The helper uses no persistence, `MaxTurns` 1, and returns no backend state.
+- Parent in place: when the fork is not possible or fails before any output, and a live process exists, the marked summary is appended to the live transcript. The process is tainted and retired, and the final chunk clears the generation's backend state.
+- Parent cold reseed: when no live process exists, the marked history is reseeded on an ephemeral helper with no persistence and `MaxTurns` 1. A stored state that is not live is not forked for the summary.
 
 ## Model enumeration
 
 Discovery has a 20-second outer budget, with work capped at 12 seconds and an 8-second cleanup reserve. It uses the signed-in CLI's `initialize` response, skips the `default` alias, keeps the first entry for each resolved model ID, and preserves display names, descriptions, and supported effort levels. Discovery is fail-soft: an error or empty usable result returns the static fallback catalog.
 
-The manual verification checklist is intentionally Haiku-only. Run it with one full Haiku model ID from the signed-in CLI and confirm: CLI version and auth validation, model discovery, one text turn, one tool call with heartbeat behavior, usage-gate refusal with extra usage enabled, live model and effort switching, interrupt cleanup, append-only history refusal, and process and temporary-directory teardown. Do not use Opus, Sonnet, or other models for this checklist.
+The manual verification checklist is intentionally Haiku-only. Run it with one full Haiku model ID from the signed-in CLI and confirm: CLI version and auth validation, model discovery, one text turn, one tool call with heartbeat behavior, usage-gate refusal with extra usage enabled, live model and effort switching, interrupt cleanup, and process and temporary-directory teardown. Do not use Opus, Sonnet, or other models for this checklist. The checklist does not yet cover resume, fork, reseed, or compaction against the live CLI.

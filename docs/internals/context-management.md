@@ -106,6 +106,19 @@ Both stages work the same way:
 
 `ConversationLineage` keeps all generations — nothing is ever pruned. This means the full conversation history is theoretically recoverable, but subsequent turns only see the latest generation.
 
+### Stateful transcript providers (`claude_subscription`)
+
+Steiner cannot rewrite history the CLI already holds, so compaction for a stateful transcript runs through the CLI. `statefulUsageAboveThreshold` in `internal/agent/turn_progression.go` triggers compaction when the last response's `PromptTokens` reaches 70% of the context window. For `claude_subscription`, `PromptTokens` is the CLI's total input: input, cache creation, and cache read tokens, summed by `claudeSubUsage.toUsageStats` in `internal/provider/claudesub_decode.go`. A request that does not fit also triggers compaction. `errStatefulCompaction` in `internal/agent/compaction.go` applies only to stateful providers without `SupportsStatefulCompaction`.
+
+`claudeSubSummaryTurn` in `internal/provider/claudesub_turn.go` answers the summary request:
+
+| Caller | Path | Persistence |
+|--------|------|-------------|
+| Sub-agent (`ParentTransportSession` set) | Marked in-place summary on its own process. The process is tainted and retired. A process that cannot take the request is replaced and the request reseeded. | Ephemeral |
+| Parent with stored state matching the live checkpoint and fingerprint, source ending at an assistant UUID | Ephemeral helper forks the stored CLI session at that UUID (`--resume-session-at`, `--fork-session`). Returns no backend state. | None, `MaxTurns` 1 |
+| Parent, fork not possible or failed before output, live process present | Marked summary appended to the live transcript. The process is tainted and retired; the final chunk clears the generation's backend state. | In place |
+| Parent, no live process | Marked history reseeded on an ephemeral helper. A reseed does not reuse prompt cache. | None, `MaxTurns` 1 |
+
 ### Retention anchor and pending re-injection
 
 After the last-N-chunks rule picks the normal-stage retained tail, `anchorRealUserRetention` extends it back to the latest real user message (`IsRealUserMessage`: user role, `Source` not `sub_agent_result`) when the chunk rule left that message in the source. Assistant-led wake sequences would otherwise evict the prompt. The extension reuses `fitRunner`, the same fit check the stage applies to retained messages, and is discarded if the extended tail does not fit or would leave nothing to summarise (the anchor is the first message). The emergency stages keep their plain chunk retention.
