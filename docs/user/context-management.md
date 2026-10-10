@@ -32,7 +32,7 @@ Auto-compaction is never steered; it always uses an empty steering value. Manual
 - Your latest message, verbatim, when it fits the context budget even if it is older than those turns
 - A restatement of any sub-agents still pending, added after the summary
 
-With `claude_subscription`, the 70% trigger uses the total input usage the Claude CLI reports for the last response, including cached input. Steiner prefers a summary made in a forked CLI session. When it cannot, the summary runs in the live session or is rebuilt from Steiner's transcript. Those fallbacks may not reuse the prompt cache.
+With `claude_subscription`, the 70% trigger uses the total input usage the Claude CLI reports for the last response, including cached input. Steiner prefers a summary made in a forked CLI session, which applies only when the stored session state matches. When no fork is possible and a live session exists, the summary is appended in place to that session and reuses its full cache path. Without a live session, the summary is rebuilt from Steiner's transcript, and that rebuild may not reuse the prompt cache. Fork cache behavior is not yet confirmed against the live CLI.
 
 ### Skills in interactive sessions
 

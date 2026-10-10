@@ -48,7 +48,7 @@ Steiner starts the CLI with a private temporary session directory and a private 
 
 ## Session continuity
 
-Only parent interactive turns persist CLI session state. Steiner stores that state as opaque backend data with the parent conversation. Advisor, sub-agent, and compaction helper processes never persist CLI state.
+Only parent normal calls persist CLI session state. Steiner stores that state as opaque backend data with the parent conversation. Advisor, sub-agent, and compaction helper processes never persist CLI state.
 
 For each parent turn, Steiner either:
 

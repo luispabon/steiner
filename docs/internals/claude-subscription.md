@@ -24,7 +24,7 @@ Normal sessions use the stream-json process shape:
 claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --model <model> --tools "" --strict-mcp-config --setting-sources= --settings {"autoCompactEnabled":false,"fastMode":false} --permission-mode dontAsk
 ```
 
-When tools exist, the process also receives a private MCP config and an allowlist for `mcp__steiner__*`. Ephemeral processes (advisor, sub-agent, summary helper, and discovery) add `--no-session-persistence`. Parent processes omit it. A process that restores stored state adds `--resume <session-id>`, plus `--resume-session-at <final-uuid>` for a restore and `--fork-session` for a fork. Summary helpers add `--max-turns 1`.
+When tools exist, the process also receives a private MCP config and an allowlist for `mcp__steiner__*`. Ephemeral processes (advisor, sub-agent, summary helper, and discovery) add `--no-session-persistence`. Parent processes omit it. A process that restores stored state adds `--resume <session-id>` and `--resume-session-at <final-uuid>`. A fork also adds `--fork-session`. Summary helpers add `--max-turns 1`.
 
 A private system prompt is passed with `--system-prompt-file`. Reasoning `none` maps to `--thinking disabled`; other known effort values use adaptive thinking with summarized display and `--effort`. Steiner sets `CLAUDE_CODE_DISABLE_FAST_MODE=1`, `CLAUDE_CODE_RETRY_WATCHDOG=1`, and a bounded `MAX_MCP_OUTPUT_TOKENS` value. Credential and CLI entrypoint variables are stripped from the child environment.
 
@@ -57,7 +57,7 @@ After an interrupt, only the assistant entry produced by that interrupted call h
 
 ## Session recovery and compaction
 
-A new parent process restores stored state only when the CLI session ID, transport session, prompt/tools fingerprint, and final message UUID all match the request's history (`claudeSubRestoreFor`). A changed transport session restores with a fork at the stored UUID. Any other failed check reseeds.
+A new parent process restores stored state only when the stored CLI session ID, prompt/tools fingerprint, and final message UUID match the request's history (`claudeSubRestoreFor`). The restore target always carries the stored final UUID as `--resume-session-at`. When the transport session matches the stored owner, the process resumes. When it differs, as after a Steiner Fork, the process forks at that UUID with `--fork-session`. Any other failed check reseeds.
 
 A reseed (`claudeSubReseedDelta`) sends the whole non-system history as one user transcript message. In-memory images are included, earlier tool calls are rendered as text, and image data stripped after consumption cannot return. The rendered entries become the new sync record. A reseeded turn does not reuse prompt cache.
 
@@ -74,4 +74,4 @@ Summary routing in `claudeSubSummaryTurn`:
 
 Discovery has a 20-second outer budget, with work capped at 12 seconds and an 8-second cleanup reserve. It uses the signed-in CLI's `initialize` response, skips the `default` alias, keeps the first entry for each resolved model ID, and preserves display names, descriptions, and supported effort levels. Discovery is fail-soft: an error or empty usable result returns the static fallback catalog.
 
-The manual verification checklist is intentionally Haiku-only. Run it with one full Haiku model ID from the signed-in CLI and confirm: CLI version and auth validation, model discovery, one text turn, one tool call with heartbeat behavior, usage-gate refusal with extra usage enabled, live model and effort switching, interrupt cleanup, append-only history refusal, and process and temporary-directory teardown. Do not use Opus, Sonnet, or other models for this checklist. The checklist does not yet cover resume, fork, reseed, or compaction against the live CLI.
+The manual verification checklist is intentionally Haiku-only. Run it with one full Haiku model ID from the signed-in CLI and confirm: CLI version and auth validation, model discovery, one text turn, one tool call with heartbeat behavior, usage-gate refusal with extra usage enabled, live model and effort switching, interrupt cleanup, and process and temporary-directory teardown. Do not use Opus, Sonnet, or other models for this checklist. The checklist does not yet cover resume, fork, reseed, or compaction against the live CLI.
