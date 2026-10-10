@@ -374,14 +374,14 @@ func (p *turnProgressor) compactionDue(fit prompt.RequestTokenBudget) bool {
 }
 
 // statefulUsageAboveThreshold reports whether a response's prompt usage reaches
-// the compaction threshold of contextSize. The prompt usage is the CLI input
-// tokens plus cache read and cache creation tokens.
+// the compaction threshold of contextSize. PromptTokens is the total input of the
+// response: the provider folds CLI input, cache read and cache creation tokens
+// into it, so they must not be added again.
 func statefulUsageAboveThreshold(usage *provider.UsageStats, contextSize int) bool {
 	if usage == nil || contextSize <= 0 {
 		return false
 	}
-	tokens := usage.PromptTokens + usage.CacheReadInputTokens + usage.CacheCreationInputTokens
-	return float64(tokens) >= float64(contextSize)*compactionUsageThreshold
+	return float64(usage.PromptTokens) >= float64(contextSize)*compactionUsageThreshold
 }
 
 // prepareTurn assembles the prompt, constructs the chat request, and fits it

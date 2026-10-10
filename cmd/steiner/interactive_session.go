@@ -720,7 +720,7 @@ func (r sessionRunner) Compact(ctx context.Context, conversation []agent.Message
 }
 
 // CompactWithLineage compacts against the run's lineage (see lineageCompactor).
-func (r sessionRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
+func (r sessionRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, error) {
 	return r.runner.CompactWithLineage(ctx, conversation, lineage, nil, tools, steering)
 }
 

@@ -149,6 +149,51 @@ func claudeSubSummaryTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req
 	if req.ParentTransportSession != "" {
 		return claudeSubSubAgentSummary(ctx, pool, req, key, spec, emit)
 	}
+	emitted := false
+	track := func(chunk ChatChunk) error {
+		emitted = true
+		return emit(chunk)
+	}
+	attempted, err := claudeSubTryParentFork(ctx, pool, req, key, spec, track)
+	switch {
+	case attempted && err == nil:
+		return nil
+	case err != nil && (!attempted || emitted || ctx.Err() != nil):
+		return err
+	}
+	// No fork, or a fork that failed before any output. The live parent is
+	// untouched in both cases, so it answers in place or the request reseeds.
+	// Either way the parent's generation loses its backend state, so the final
+	// chunk clears it.
+	return claudeSubParentInPlace(ctx, pool, req, key, spec, claudeSubClearOnDone(emit))
+}
+
+// claudeSubTryParentFork answers a parent summary by forking the live process,
+// when the stored state and a source-tail uuid allow it. It reports whether a
+// fork was attempted. The live process is released before the helper runs,
+// because the fork copied the record it needs.
+func claudeSubTryParentFork(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, spec claudeSubStartSpec, emit func(ChatChunk) error) (bool, error) {
+	live, err := pool.acquireLive(ctx, key)
+	if err != nil || live == nil {
+		return false, err
+	}
+	fingerprint, err := claudeSubFingerprint(spec.SystemPrompt, spec.Tools)
+	if err != nil {
+		pool.release(live)
+		return false, err
+	}
+	src, forkable, err := claudeSubForkSourceOf(live, req, key, fingerprint)
+	pool.release(live)
+	if err != nil || !forkable {
+		return false, err
+	}
+	return true, claudeSubForkSummary(ctx, pool, req, key, src, spec, emit)
+}
+
+// claudeSubParentInPlace answers a parent summary on the live process, which is
+// retired once it has taken the summary. Without a live process, or when the
+// record cannot take the request, the request is cold-reseeded on a helper.
+func claudeSubParentInPlace(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
 	live, err := pool.acquireLive(ctx, key)
 	if err != nil {
 		return err
@@ -156,24 +201,9 @@ func claudeSubSummaryTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req
 	if live == nil {
 		return claudeSubReseedSummary(ctx, pool, req, key, spec, emit)
 	}
-	fingerprint, err := claudeSubFingerprint(spec.SystemPrompt, spec.Tools)
-	if err != nil {
-		pool.release(live)
-		return err
-	}
-	src, forkable, err := claudeSubForkSourceOf(live, req, key, fingerprint)
-	if err != nil {
-		pool.release(live)
-		return err
-	}
-	if forkable {
-		// The fork copied the record it needs, so the live process is untouched.
-		pool.release(live)
-		return claudeSubForkSummary(ctx, pool, req, key, src, spec, emit)
-	}
-	err = claudeSubInPlaceSummary(ctx, live, req, claudeSubClearOnDone(emit))
-	// The in-place summary is part of the live transcript now, so the process
-	// is retired. Its generation's backend state is cleared by the final chunk.
+	err = claudeSubInPlaceSummary(ctx, live, req, emit)
+	// The in-place summary is part of the live transcript now, so the process is
+	// retired. A no-place result retires it too, before the reseed.
 	pool.retire(key, live)
 	pool.release(live)
 	if errors.Is(err, errClaudeSubSummaryNoPlace) {
@@ -272,17 +302,19 @@ func claudeSubSubAgentSummary(ctx context.Context, pool *ClaudeSubscriptionPool,
 		return err
 	}
 	err = claudeSubInPlaceSummary(ctx, s, req, emit)
-	if !errors.Is(err, errClaudeSubSummaryNoPlace) {
-		pool.release(s)
-		return err
-	}
+	// The summary tainted this process, so it is retired at once rather than
+	// left pooled for lazy retirement.
 	pool.retire(key, s)
 	pool.release(s)
+	if !errors.Is(err, errClaudeSubSummaryNoPlace) {
+		return err
+	}
 	s, err = pool.acquire(ctx, key, spec)
 	if err != nil {
 		return err
 	}
 	defer pool.release(s)
+	defer pool.retire(key, s)
 	return claudeSubDeliverTainted(ctx, s, req, claudeSubMarkedReseedDelta(req), emit)
 }
 

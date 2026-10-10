@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -147,8 +148,8 @@ func TestClaudeSubSummaryColdReseedWithoutLiveProcess(t *testing.T) {
 	if !strings.Contains(strings.Join(claudeSubUserLines(spawner.call(t, 0).Conn), "\n"), "Conversation so far") {
 		t.Error("cold helper was not reseeded with the transcript")
 	}
-	if summary.BackendState != nil || summary.ClearBackendState {
-		t.Errorf("cold summary chunk = state %s clear %v, want no state change", summary.BackendState, summary.ClearBackendState)
+	if summary.BackendState != nil || !summary.ClearBackendState {
+		t.Errorf("cold summary chunk = state %s clear %v, want no state and clear of the generation's old state", summary.BackendState, summary.ClearBackendState)
 	}
 }
 
@@ -175,8 +176,96 @@ func TestClaudeSubSummarySubAgentAppendsMarkedRequestInPlace(t *testing.T) {
 	if lines := strings.Join(spawner.call(t, 0).Conn.sentLines(), "\n"); !strings.Contains(lines, "steiner compaction summary request") {
 		t.Error("sub-agent summary was not sent marked")
 	}
+	pool.mu.Lock()
+	_, live := pool.sessions["parent-agent-1"]
+	pool.mu.Unlock()
+	if live {
+		t.Error("sub-agent summary left its tainted process pooled")
+	}
 	if summary.BackendState != nil || summary.ClearBackendState {
 		t.Errorf("sub-agent summary chunk = state %s clear %v, want no state change", summary.BackendState, summary.ClearBackendState)
+	}
+}
+
+// claudeSubFailedResumeBatch is the CLI answer to a fork whose resume fails
+// before any output.
+func claudeSubFailedResumeBatch() []claudeSubEvent {
+	return []claudeSubEvent{{Type: "result", Raw: json.RawMessage(`{"subtype":"error_during_execution","is_error":true,"result":"resume failed"}`)}}
+}
+
+// TestClaudeSubSummaryForkFailureFallsBackInPlace proves a fork whose helper
+// fails before output does not fail compaction: the live parent, which the fork
+// never touched, takes the marked summary in place and is retired with its state
+// cleared.
+func TestClaudeSubSummaryForkFailureFallsBackInPlace(t *testing.T) {
+	helper := &claudeSubScript{batches: [][]claudeSubEvent{claudeSubFailedResumeBatch()}}
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 3), helper)
+	_, a1, _, _, second := claudeSubTwoTurnParent(t, pool)
+	summary := claudeSubRunTurn(t, pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 []Message{claudeSubUserText("first question"), a1, claudeSubUserText("summarize the older part")},
+		BackendState:             second.BackendState,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	})
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawned %d processes, want 2 (parent and the failed fork helper)", got)
+	}
+	if _, ok := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); !ok {
+		t.Error("fork helper did not resume: the fallback was not exercised")
+	}
+	lines := strings.Join(spawner.call(t, 0).Conn.sentLines(), "\n")
+	if !strings.Contains(lines, "steiner compaction summary request") {
+		t.Error("fallback did not append the marked summary to the live parent")
+	}
+	if summary.BackendState != nil || !summary.ClearBackendState {
+		t.Errorf("fallback summary chunk = state %s clear %v, want no state and clear", summary.BackendState, summary.ClearBackendState)
+	}
+	pool.mu.Lock()
+	_, live := pool.sessions["parent"]
+	pool.mu.Unlock()
+	if live {
+		t.Error("fallback in-place left the tainted parent pooled")
+	}
+}
+
+// TestClaudeSubSummaryNoPlaceReseedClearsParentState proves a live parent whose
+// record cannot take the summary is retired, the summary is cold-reseeded on a
+// helper, and the final chunk clears the old generation's backend state.
+func TestClaudeSubSummaryNoPlaceReseedClearsParentState(t *testing.T) {
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 2), claudeSubTextTurns(t, 1))
+	_, a1, _, _, second := claudeSubTwoTurnParent(t, pool)
+	// The source opens with a message the record does not hold, so neither the
+	// fork nor the in-place append can take it.
+	summary := claudeSubRunTurn(t, pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 []Message{claudeSubUserText("not the first question"), a1, claudeSubUserText("summarize")},
+		BackendState:             second.BackendState,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	})
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawned %d processes, want 2 (parent and cold helper)", got)
+	}
+	if _, ok := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); ok {
+		t.Error("cold reseed resumed a session")
+	}
+	if n := len(claudeSubUserLines(spawner.call(t, 0).Conn)); n != 2 {
+		t.Errorf("live parent received %d user lines, want only the 2 turns", n)
+	}
+	if !strings.Contains(strings.Join(claudeSubUserLines(spawner.call(t, 1).Conn), "\n"), "Conversation so far") {
+		t.Error("cold helper was not reseeded with the transcript")
+	}
+	if summary.BackendState != nil || !summary.ClearBackendState {
+		t.Errorf("reseed summary chunk = state %s clear %v, want no state and clear", summary.BackendState, summary.ClearBackendState)
+	}
+	pool.mu.Lock()
+	_, live := pool.sessions["parent"]
+	pool.mu.Unlock()
+	if live {
+		t.Error("no-place retirement left the parent pooled")
 	}
 }
 

@@ -479,9 +479,12 @@ func TestRunnerCompactStatefulSummaryUsesTransitionContract(t *testing.T) {
 	req := compactionTestBudget()
 	req.Provider = prov
 
-	got, err := (&Runner{}).CompactWithLineage(context.Background(), req, lineage, conv)
+	got, cleared, err := (&Runner{}).CompactWithLineage(context.Background(), req, lineage, conv)
 	if err != nil {
 		t.Fatalf("CompactWithLineage() error = %v", err)
+	}
+	if cleared {
+		t.Error("cleared = true for a summary that does not clear backend state")
 	}
 	if len(got) >= len(conv) {
 		t.Errorf("conversation length = %d, want fewer than %d after compaction", len(got), len(conv))
@@ -543,6 +546,31 @@ func TestSummarizeCompactorClearsOldGenerationBackendStateWhenSummaryClears(t *t
 	}
 }
 
+// TestRunnerCompactStatefulSummaryReportsClearedState proves a summary that
+// clears the generation's backend state is reported, so the caller can drop that
+// state from the lineage it keeps.
+func TestRunnerCompactStatefulSummaryReportsClearedState(t *testing.T) {
+	prov := newClaudeLikeCompactionProvider(true)
+	conv := compactionTestTurns(5)
+	lineage := ConversationLineage{
+		Generations:      []ConversationGeneration{{ID: 1, Messages: conv, BackendState: []byte(`{"version":1}`)}},
+		NextGenerationID: 2,
+	}
+	req := compactionTestBudget()
+	req.Provider = prov
+
+	got, cleared, err := (&Runner{}).CompactWithLineage(context.Background(), req, lineage, conv)
+	if err != nil {
+		t.Fatalf("CompactWithLineage() error = %v", err)
+	}
+	if len(got) >= len(conv) {
+		t.Fatalf("conversation length = %d, want fewer than %d after compaction", len(got), len(conv))
+	}
+	if !cleared {
+		t.Error("cleared = false, want true for a summary that clears backend state")
+	}
+}
+
 // TestTurnProgressorCompactionDue proves the automatic trigger: a native
 // provider keeps the estimated fit, a stateful compaction provider triggers on
 // CLI usage against the context window, and the hard limit always triggers.
@@ -559,8 +587,10 @@ func TestTurnProgressorCompactionDue(t *testing.T) {
 		{name: "native estimate triggers", prov: native, fit: prompt.RequestTokenBudget{Fits: true, ShouldCompact: true, ContextSize: 1000}, want: true},
 		{name: "native ignores response usage", prov: native, fit: prompt.RequestTokenBudget{Fits: true, ContextSize: 1000}, usage: &provider.UsageStats{PromptTokens: 900}},
 		{name: "native hard limit", prov: native, fit: prompt.RequestTokenBudget{Fits: false, ContextSize: 1000}, want: true},
-		{name: "stateful usage with cache reaches threshold", prov: stateful, fit: prompt.RequestTokenBudget{Fits: true, ContextSize: 1000}, usage: &provider.UsageStats{PromptTokens: 10, CacheReadInputTokens: 500, CacheCreationInputTokens: 200}, want: true},
-		{name: "stateful usage below threshold", prov: stateful, fit: prompt.RequestTokenBudget{Fits: true, ContextSize: 1000}, usage: &provider.UsageStats{PromptTokens: 10, CacheReadInputTokens: 500}},
+		// PromptTokens is the total input, cache included, as the provider decodes it.
+		// Adding the cache counts again would turn the 650 case into 1300.
+		{name: "stateful total with cache reaches threshold", prov: stateful, fit: prompt.RequestTokenBudget{Fits: true, ContextSize: 1000}, usage: &provider.UsageStats{PromptTokens: 710, CacheReadInputTokens: 500, CacheCreationInputTokens: 200}, want: true},
+		{name: "stateful total below threshold despite large cache", prov: stateful, fit: prompt.RequestTokenBudget{Fits: true, ContextSize: 1000}, usage: &provider.UsageStats{PromptTokens: 650, CacheReadInputTokens: 500, CacheCreationInputTokens: 150}},
 		{name: "stateful estimate alone does not trigger", prov: stateful, fit: prompt.RequestTokenBudget{Fits: true, ShouldCompact: true, ContextSize: 1000}, usage: &provider.UsageStats{PromptTokens: 100}},
 		{name: "stateful without usage does not trigger", prov: stateful, fit: prompt.RequestTokenBudget{Fits: true, ContextSize: 1000}},
 		{name: "stateful hard limit triggers", prov: stateful, fit: prompt.RequestTokenBudget{Fits: false, ContextSize: 1000}, want: true},
