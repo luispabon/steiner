@@ -9,9 +9,12 @@ import (
 
 func TestClaudeSubStreamEmitsTerminalError(t *testing.T) {
 	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	if err := pool.Close(); err != nil {
+		t.Fatalf("pool close: %v", err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	stream, err := claudeSubStream(ctx, pool, ChatRequest{Model: "m", Messages: []Message{{Role: MessageRoleAssistant, Content: "invalid"}}})
+	stream, err := claudeSubStream(ctx, pool, ChatRequest{Model: "m", Messages: []Message{{Role: MessageRoleUser, Content: "hello"}}})
 	if err != nil {
 		t.Fatalf("claudeSubStream() error = %v", err)
 	}

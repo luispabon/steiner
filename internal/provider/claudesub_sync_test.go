@@ -936,7 +936,7 @@ func TestClaudeSubBackendState(t *testing.T) {
 			if err := json.Unmarshal(raw, &fields); err != nil {
 				t.Fatalf("decode backend state: %v", err)
 			}
-			for _, key := range []string{"provider", "version", "cli_session_id", "transport_session", "sync_entries", "sync_chain_digest", "final_message_digest", "final_uuid", "prompt_tools_fingerprint"} {
+			for _, key := range []string{"provider", "version", "cli_session_id", "transport_session", "sync_entries", "sync_chain_digest", "sync_prefix_digest", "final_message_digest", "final_uuid", "prompt_tools_fingerprint"} {
 				if _, ok := fields[key]; !ok {
 					t.Errorf("backend state missing key %q: %s", key, raw)
 				}
@@ -948,6 +948,10 @@ func TestClaudeSubBackendState(t *testing.T) {
 			if err != nil {
 				t.Fatalf("chain digest: %v", err)
 			}
+			prefix, err := claudeSubPrefixDigest(s.entries)
+			if err != nil {
+				t.Fatalf("prefix digest: %v", err)
+			}
 			want := claudeSubBackendState{
 				Provider:               "claude_subscription",
 				Version:                1,
@@ -955,6 +959,7 @@ func TestClaudeSubBackendState(t *testing.T) {
 				TransportSession:       "transport",
 				SyncEntries:            2,
 				SyncChainDigest:        chain,
+				SyncPrefixDigest:       prefix,
 				FinalMessageDigest:     claudeSubDigest(assistant),
 				FinalUUID:              "u7",
 				PromptToolsFingerprint: "fp",
@@ -1091,5 +1096,138 @@ func TestClaudeSubSyncUserBlocks(t *testing.T) {
 	}
 	if got := claudeSubUserBlocks(msgs); !reflect.DeepEqual(got, want) {
 		t.Fatalf("blocks = %#v, want %#v", got, want)
+	}
+}
+
+// TestClaudeSubRestoreFor pins the restore selection. A stored state resumes
+// only when every check holds, and each failed check reseeds (D3, D5).
+func TestClaudeSubRestoreFor(t *testing.T) {
+	history := []Message{
+		claudeSubSyncUserMsg("read notes"),
+		claudeSubSyncAssistantMsg("looking"),
+		claudeSubSyncUserMsg("more"),
+	}
+	entries := []claudeSubEntry{claudeSubEntryFromMessage(history[0]), claudeSubEntryFromMessage(history[1])}
+	entries[1].UUID = "u-final"
+	prefix, err := claudeSubPrefixDigest(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := claudeSubBackendState{
+		Provider:               "claude_subscription",
+		Version:                claudeSubBackendStateVersion,
+		CLISessionID:           "sess-1",
+		TransportSession:       "parent",
+		SyncEntries:            2,
+		FinalMessageDigest:     entries[1].Digest,
+		FinalUUID:              "u-final",
+		SyncPrefixDigest:       prefix,
+		PromptToolsFingerprint: "fp",
+	}
+	with := func(change func(*claudeSubBackendState)) claudeSubBackendState {
+		st := stored
+		change(&st)
+		return st
+	}
+	rewritten := []Message{claudeSubSyncUserMsg("changed"), history[1], history[2]}
+	tests := []struct {
+		name     string
+		stored   claudeSubBackendState
+		hasState bool
+		msgs     []Message
+		fp       string
+		wantOK   bool
+		wantFork bool
+	}{
+		{name: "restart resumes", stored: stored, hasState: true, msgs: history, fp: "fp", wantOK: true},
+		{name: "owner mismatch forks", stored: with(func(st *claudeSubBackendState) { st.TransportSession = "previous" }), hasState: true, msgs: history, fp: "fp", wantOK: true, wantFork: true},
+		{name: "no stored state reseeds", msgs: history, fp: "fp"},
+		{name: "no history reseeds", stored: stored, hasState: true, msgs: history[:1], fp: "fp"},
+		{name: "stale fingerprint reseeds", stored: with(func(st *claudeSubBackendState) { st.PromptToolsFingerprint = "stale" }), hasState: true, msgs: history, fp: "fp"},
+		{name: "missing cli session reseeds", stored: with(func(st *claudeSubBackendState) { st.CLISessionID = "" }), hasState: true, msgs: history, fp: "fp"},
+		{name: "missing final uuid reseeds", stored: with(func(st *claudeSubBackendState) { st.FinalUUID = "" }), hasState: true, msgs: history, fp: "fp"},
+		{name: "final digest mismatch reseeds", stored: with(func(st *claudeSubBackendState) { st.FinalMessageDigest = "other" }), hasState: true, msgs: history, fp: "fp"},
+		{name: "state past the history reseeds", stored: with(func(st *claudeSubBackendState) { st.SyncEntries = 9 }), hasState: true, msgs: history, fp: "fp"},
+		{name: "rewritten history reseeds", stored: stored, hasState: true, msgs: rewritten, fp: "fp"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resume, ok, err := claudeSubRestoreFor(tt.msgs, tt.stored, tt.hasState, "parent", tt.fp)
+			if err != nil {
+				t.Fatalf("restore: %v", err)
+			}
+			if ok != tt.wantOK {
+				t.Fatalf("restorable = %v, want %v", ok, tt.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if resume.SessionID != "sess-1" || resume.AtUUID != "u-final" || resume.Fork != tt.wantFork {
+				t.Errorf("resume = %+v, want session sess-1 at u-final, fork %v", resume, tt.wantFork)
+			}
+		})
+	}
+}
+
+// TestClaudeSubParseState proves only a current-schema claude_subscription state
+// is accepted. Anything else reseeds.
+func TestClaudeSubParseState(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  json.RawMessage
+		want bool
+	}{
+		{name: "absent", raw: nil},
+		{name: "malformed", raw: json.RawMessage(`{"provider":`)},
+		{name: "other provider", raw: json.RawMessage(`{"provider":"codex","version":1}`)},
+		{name: "other version", raw: json.RawMessage(`{"provider":"claude_subscription","version":2}`)},
+		{name: "current schema", raw: json.RawMessage(`{"provider":"claude_subscription","version":1,"cli_session_id":"sess-1"}`), want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st, ok := claudeSubParseState(tt.raw)
+			if ok != tt.want {
+				t.Fatalf("ok = %v, want %v", ok, tt.want)
+			}
+			if ok && st.CLISessionID != "sess-1" {
+				t.Errorf("cli session = %q, want sess-1", st.CLISessionID)
+			}
+		})
+	}
+}
+
+// TestClaudeSubReseedDelta checks the transcript reseed: one user request that
+// renders the whole history, carrying only images still held in memory. The
+// record becomes the history itself, so committing the reseed appends nothing
+// on top of it.
+func TestClaudeSubReseedDelta(t *testing.T) {
+	inMemory := ImageBlock{MediaType: "image/png", Data: "AAAA"}
+	pathOnly := ImageBlock{MediaType: "image/png", FilePath: "/tmp/shot.png"}
+	msgs := []Message{
+		{Role: MessageRoleUser, Content: "look", Images: []ImageBlock{inMemory, pathOnly}},
+		claudeSubSyncAssistantMsg("seen"),
+		claudeSubSyncToolMsg("c1", "tool text"),
+	}
+	delta := claudeSubReseedDelta(msgs)
+	if !delta.reseeded || len(delta.User) != 1 {
+		t.Fatalf("delta = %+v, want one reseeded user request", delta)
+	}
+	transcript := delta.User[0]
+	for _, want := range []string{"[user]\nlook", "[assistant]\nseen", "[tool output]\ntool text"} {
+		if !strings.Contains(transcript.Content, want) {
+			t.Errorf("transcript = %q, want it to contain %q", transcript.Content, want)
+		}
+	}
+	if len(transcript.Images) != 1 || transcript.Images[0].Data != "AAAA" {
+		t.Errorf("transcript images = %+v, want only the in-memory image", transcript.Images)
+	}
+	var s claudeSubSync
+	s.adopt(delta)
+	s.commitSent(delta)
+	if got := len(s.entries); got != len(msgs) {
+		t.Fatalf("record entries = %d, want %d (the history, no transcript entry)", got, len(msgs))
+	}
+	if !s.started || s.entries[0].Digest != claudeSubDigest(msgs[0]) {
+		t.Errorf("record = %+v, want started with the history digests", s)
 	}
 }

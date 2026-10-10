@@ -42,10 +42,6 @@ var (
 	// spawn may ignore context cancellation and outlive it, so the pool must not
 	// claim every resource ended.
 	errClaudeSubPoolShutdownIncomplete = errors.New("claude_subscription pool shutdown did not complete within deadline")
-	// errClaudeSubSessionExited reports that a parent or child session's CLI
-	// process ended. The dead session is never respawned: resuming its history is
-	// not supported yet (#895).
-	errClaudeSubSessionExited = errors.New("claude CLI process exited; start a new session (resume is not supported yet, #895)")
 	// errClaudeSubDirCleanupIncomplete reports that a session's directory removal
 	// did not finish before the caller's deadline. os.RemoveAll cannot be
 	// canceled, so removal keeps running after this error is returned; the pool
@@ -341,16 +337,11 @@ func (p *ClaudeSubscriptionPool) acquire(ctx context.Context, key string, spec c
 			p.mu.Unlock()
 			return p.takeLease(ctx, s)
 		}
-		if !s.advisor {
-			p.mu.Unlock()
-			return nil, errClaudeSubSessionExited
-		}
-		// Evict the dead advisor, then retry so this call starts a fresh process
-		// that re-renders the snapshot. The eviction teardown is registered as an
-		// in-flight startup so Close waits for it like any other startup.
-		delete(p.sessions, key)
-		st := &claudeSubStartup{done: make(chan struct{})}
-		p.startups[st] = struct{}{}
+		// Evict the exited process, then retry so this call starts a fresh one. The
+		// caller's spawn spec decides whether it resumes or reseeds (D3). The
+		// eviction teardown is registered as an in-flight startup so Close waits for
+		// it like any other startup.
+		st := p.evictLocked(key, s)
 		p.mu.Unlock()
 		p.finishEviction(st, s, p.closeSession(s))
 		return p.acquire(ctx, key, spec)
@@ -866,6 +857,45 @@ func (p *ClaudeSubscriptionPool) finishEviction(st *claudeSubStartup, s *claudeS
 	st.err = err
 	delete(p.startups, st)
 	close(st.done)
+}
+
+// evictLocked removes s from the reusable map, only while it still owns key,
+// and registers its teardown as an in-flight startup so Close waits for it. It
+// must be called with mu held; settle the result with finishEviction after
+// unlocking.
+func (p *ClaudeSubscriptionPool) evictLocked(key string, s *claudeSubSession) *claudeSubStartup {
+	if p.sessions[key] == s {
+		delete(p.sessions, key)
+	}
+	st := &claudeSubStartup{done: make(chan struct{})}
+	p.startups[st] = struct{}{}
+	return st
+}
+
+// retire removes the process under key from the reusable map and tears it
+// down. The caller holds s's whole-call lock and must still release it; the
+// next acquire under key starts a fresh process.
+func (p *ClaudeSubscriptionPool) retire(key string, s *claudeSubSession) {
+	p.mu.Lock()
+	st := p.evictLocked(key, s)
+	p.mu.Unlock()
+	p.finishEviction(st, s, p.closeSession(s))
+}
+
+// evictDead retires the process under key when it has exited, so the next
+// acquire under key starts a fresh one. It reports whether a dead process was
+// evicted. The check and the removal happen under one mutex hold.
+func (p *ClaudeSubscriptionPool) evictDead(key string) bool {
+	p.mu.Lock()
+	s, ok := p.sessions[key]
+	if p.state != claudeSubPoolRunning || !ok || !s.exited() {
+		p.mu.Unlock()
+		return false
+	}
+	st := p.evictLocked(key, s)
+	p.mu.Unlock()
+	p.finishEviction(st, s, p.closeSession(s))
+	return true
 }
 
 // settleRetiredLocked records a failed teardown of a session the pool already

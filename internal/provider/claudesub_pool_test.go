@@ -48,6 +48,8 @@ type claudeSubTestSpawner struct {
 	mu    sync.Mutex
 	err   error
 	calls []claudeSubTestSpawn
+	// onSpawn, when set, configures each fake connection before it is returned.
+	onSpawn func(*claudeSubFakeConn)
 }
 
 func (s *claudeSubTestSpawner) spawn(_ context.Context, path string, args, env []string, dir string) (claudeSubConn, error) {
@@ -57,6 +59,9 @@ func (s *claudeSubTestSpawner) spawn(_ context.Context, path string, args, env [
 		return nil, s.err
 	}
 	conn := newClaudeSubFakeConn()
+	if s.onSpawn != nil {
+		s.onSpawn(conn)
+	}
 	s.calls = append(s.calls, claudeSubTestSpawn{
 		Path: path,
 		Args: append([]string(nil), args...),
@@ -796,10 +801,11 @@ func claudeSubWaitExited(t *testing.T, pool *ClaudeSubscriptionPool, key string)
 	}
 }
 
-// TestClaudeSubPoolDeadParentOrChildReturnsTypedError proves a dead parent or
-// child session is not respawned: acquire returns errClaudeSubSessionExited.
-// Closing the fake connection models the CLI process exiting on its own.
-func TestClaudeSubPoolDeadParentOrChildReturnsTypedError(t *testing.T) {
+// TestClaudeSubPoolDeadParentOrChildIsReplaced proves a dead parent or child
+// session is evicted and the next acquire starts a fresh process. Whether that
+// process resumes or reseeds is the caller's decision (D3). Closing the fake
+// connection models the CLI process exiting on its own.
+func TestClaudeSubPoolDeadParentOrChildIsReplaced(t *testing.T) {
 	tests := []struct {
 		name string
 		key  string
@@ -821,11 +827,13 @@ func TestClaudeSubPoolDeadParentOrChildReturnsTypedError(t *testing.T) {
 			}
 			claudeSubWaitExited(t, pool, tt.key)
 
-			if _, err := pool.acquire(ctx, tt.key, claudeSubTestSpec()); !errors.Is(err, errClaudeSubSessionExited) {
-				t.Fatalf("acquire after exit = %v, want errClaudeSubSessionExited", err)
+			s2, err := pool.acquire(ctx, tt.key, claudeSubTestSpec())
+			if err != nil {
+				t.Fatalf("acquire after exit: %v", err)
 			}
-			if n := spawner.callCount(); n != 1 {
-				t.Errorf("spawn count = %d, want 1 (no respawn of a dead session)", n)
+			pool.release(s2)
+			if n := spawner.callCount(); n != 2 {
+				t.Errorf("spawn count = %d, want 2 (fresh process replaces the dead one)", n)
 			}
 		})
 	}

@@ -229,6 +229,42 @@ func TestClaudeSubArgs(t *testing.T) {
 	}
 }
 
+// TestClaudeSubArgsPersistAndResume checks D4 and the restore flags. Only a
+// persisting process omits --no-session-persistence, and a restore adds
+// --resume, --resume-session-at and, when forking, --fork-session.
+func TestClaudeSubArgsPersistAndResume(t *testing.T) {
+	tests := []struct {
+		name          string
+		opts          claudeSubSpawnOptions
+		wantNoPersist bool
+		wantResume    string
+		wantAt        string
+		wantFork      bool
+	}{
+		{name: "default is ephemeral", opts: claudeSubSpawnOptions{Model: "m"}, wantNoPersist: true},
+		{name: "parent persists", opts: claudeSubSpawnOptions{Model: "m", Persist: true}},
+		{name: "restore", opts: claudeSubSpawnOptions{Model: "m", Persist: true, Resume: claudeSubResume{SessionID: "sess-1", AtUUID: "u-final"}}, wantResume: "sess-1", wantAt: "u-final"},
+		{name: "fork", opts: claudeSubSpawnOptions{Model: "m", Persist: true, Resume: claudeSubResume{SessionID: "sess-1", AtUUID: "u-final", Fork: true}}, wantResume: "sess-1", wantAt: "u-final", wantFork: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := claudeSubArgs(tt.opts)
+			if got := claudeSubHasArg(args, "--no-session-persistence"); got != tt.wantNoPersist {
+				t.Errorf("--no-session-persistence present = %v, want %v", got, tt.wantNoPersist)
+			}
+			if got, _ := claudeSubArgValue(args, "--resume"); got != tt.wantResume {
+				t.Errorf("--resume = %q, want %q", got, tt.wantResume)
+			}
+			if got, _ := claudeSubArgValue(args, "--resume-session-at"); got != tt.wantAt {
+				t.Errorf("--resume-session-at = %q, want %q", got, tt.wantAt)
+			}
+			if got := claudeSubHasArg(args, "--fork-session"); got != tt.wantFork {
+				t.Errorf("--fork-session present = %v, want %v", got, tt.wantFork)
+			}
+		})
+	}
+}
+
 func TestClaudeSubEffort(t *testing.T) {
 	tests := []struct {
 		in      string
