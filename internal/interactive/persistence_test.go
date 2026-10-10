@@ -220,6 +220,74 @@ func TestForkSessionPreservesMode(t *testing.T) {
 	}
 }
 
+func TestLoadSessionRestoresActiveGenerationBackendState(t *testing.T) {
+	t.Parallel()
+	store := newMockSessionStore()
+	store.loadedSessions["backend-state"] = session.Session{
+		ID:    "backend-state",
+		Title: "Backend State",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{ID: 1, Messages: []agent.Message{userMsg("old")}, BackendState: []byte(`{"generation":"old"}`)},
+				{ID: 2, Messages: []agent.Message{userMsg("new")}, BackendState: []byte(`{"generation":"active"}`)},
+			},
+			NextGenerationID: 3,
+		},
+	}
+	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
+
+	if err := s.loadSession(context.Background(), "backend-state"); err != nil {
+		t.Fatalf("loadSession() = %v, want nil", err)
+	}
+
+	gens := s.lineage.Generations
+	if len(gens) != 2 {
+		t.Fatalf("generations after load = %+v, want 2", gens)
+	}
+	if got, want := string(gens[1].BackendState), `{"generation":"active"}`; got != want {
+		t.Fatalf("active generation BackendState = %q, want %q", got, want)
+	}
+	if got, want := string(gens[0].BackendState), `{"generation":"old"}`; got != want {
+		t.Fatalf("older generation BackendState = %q, want %q", got, want)
+	}
+}
+
+func TestForkSessionDeepCopiesBackendState(t *testing.T) {
+	t.Parallel()
+	store := newMockSessionStore()
+	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
+	const state = `{"session_id":"parent"}`
+	seedConversation(s, []agent.Message{userMsg("hi")}, agent.ConversationLineage{
+		Generations: []agent.ConversationGeneration{
+			{ID: 1, Messages: []agent.Message{userMsg("hi")}, BackendState: []byte(state)},
+		},
+		NextGenerationID: 2,
+	})
+	parentID := s.SessionID()
+	parentState := s.lineage.Generations[0].BackendState
+
+	if err := s.Handle(context.Background(), ForkSession{}); err != nil {
+		t.Fatalf("ForkSession: %v", err)
+	}
+	if s.SessionID() == parentID {
+		t.Fatal("fork kept parent session ID")
+	}
+	forkState := s.lineage.Generations[0].BackendState
+	if got := string(forkState); got != state {
+		t.Fatalf("fork BackendState = %q, want %q", got, state)
+	}
+
+	// Mutating the fork's copy must not reach the parent's live or saved state.
+	forkState[0] = 'X'
+	if got := string(parentState); got != state {
+		t.Fatalf("parent live BackendState = %q after fork edit, want %q", got, state)
+	}
+	if got := string(store.savedSessions[parentID].Lineage.Generations[0].BackendState); got != state {
+		t.Fatalf("parent saved BackendState = %q after fork edit, want %q", got, state)
+	}
+}
+
 func TestForkSavedSessionRejectsUnsupportedLedgerBeforeSideEffects(t *testing.T) {
 	store := newMockSessionStore()
 	store.loadedSessions["unsupported"] = session.Session{
