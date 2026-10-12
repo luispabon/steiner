@@ -68,9 +68,9 @@ The compaction trigger for this provider is `statefulUsageAboveThreshold` in `in
 Summary routing in `claudeSubSummaryTurn`:
 
 - Sub-agent (`ParentTransportSession` set): marked in-place summary on the sub-agent's own process. The process is tainted and retired. A process that cannot take the request is replaced, and the marked request is reseeded on it.
-- Parent fork: when the stored state matches the live checkpoint and fingerprint, and the source ends at an assistant UUID, an ephemeral helper forks the stored CLI session at the source-tail UUID, which is the final assistant uuid of the source messages and is not necessarily the record tip. The helper runs with `--resume <session-id>`, `--resume-session-at <source-tail-uuid>`, `--fork-session`, `--no-session-persistence`, and `--max-turns 1`. It returns no backend state, and the live parent is left untouched.
+- Parent fork: when the stored state matches the live checkpoint (`claudeSubStateMatches`, which ignores the fingerprint) and its prompt/tools fingerprint equals the request's, and the source ends at an assistant UUID, an ephemeral helper forks the stored CLI session at the source-tail UUID, which is the final assistant uuid of the source messages and is not necessarily the record tip. The helper runs with `--resume <session-id>`, `--resume-session-at <source-tail-uuid>`, `--fork-session`, `--no-session-persistence`, and `--max-turns 1`. It returns no backend state, and the live parent is left untouched.
 - Parent in place: when the fork is not possible or fails before any output, and a live process exists, the marked summary is appended to the live transcript. The process is tainted and retired, and the final chunk clears the generation's backend state.
-- Parent cold reseed: when no live process exists, the marked history is reseeded on an ephemeral helper with no persistence and `MaxTurns` 1. A stored state that is not live is not forked for the summary.
+- Parent cold reseed: when no live process exists, the request's messages are reseeded unmarked on an ephemeral helper with no persistence and `MaxTurns` 1. The request already ends in the compaction instruction, so no marker is added. A stored state that is not live is not forked for the summary.
 
 ## Model enumeration
 

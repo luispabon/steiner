@@ -3,6 +3,7 @@ package interactive
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -121,6 +122,30 @@ func TestMergeRunLineageAppendedGenerationStateIndependent(t *testing.T) {
 	}
 	if got := string(merged.Generations[2].BackendState); got != `{"s":"Yecond"}` {
 		t.Errorf("merged appended state = %s, want the merged bytes", got)
+	}
+}
+
+// TestDriverRunKeepsBackendStateOnRunError checks that the lineage of a run
+// which returns an error is adopted with its backend state, so the next run
+// resumes from that state instead of reseeding.
+func TestDriverRunKeepsBackendStateOnRunError(t *testing.T) {
+	t.Parallel()
+	conversation := []agent.Message{{Role: agent.MessageRoleUser, Content: "hi"}}
+	s := testNewSession(t, Dependencies{})
+	s.SetRunner(&inputRunner{run: func(_ context.Context, in RunInput) (RunResult, error) {
+		result := lineageWithStates(lineageFromMessages(in.Conversation), `{"s":"failed"}`)
+		return RunResult{Conversation: in.Conversation, Lineage: result}, errors.New("boom")
+	}})
+
+	out, err := s.driverRun(context.Background(), agent.DriverRunInput{
+		Conversation: conversation,
+		Lineage:      lineageWithStates(lineageFromMessages(conversation), `{"s":"loaded"}`),
+	}, "")
+	if err != nil {
+		t.Fatalf("driverRun() error = %v", err)
+	}
+	if got, want := generationStates(out.Lineage), []string{`{"s":"failed"}`}; !reflect.DeepEqual(got, want) {
+		t.Errorf("adopted backend states = %q, want %q", got, want)
 	}
 }
 
