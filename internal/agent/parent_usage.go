@@ -16,6 +16,9 @@ type ParentUsage struct {
 	ContextSize int
 	// Usage is the provider usage of the response.
 	Usage *provider.UsageStats
+	// StatefulFloor is the provider prompt floor, in prompt tokens, armed after
+	// a stateful compaction. Zero when unarmed (see turnProgressor.statefulFloor).
+	StatefulFloor int
 }
 
 // newParentUsage returns the parent usage of a successful response made by

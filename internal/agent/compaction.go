@@ -14,6 +14,8 @@ const (
 	compactionCriticalThreshold       = 3
 	compactionFragilityOveragePercent = 20
 	compactionUsageThreshold          = 0.70
+	compactionHysteresisPercent       = 10
+	compactionCapUsagePercent         = 90
 )
 
 const (

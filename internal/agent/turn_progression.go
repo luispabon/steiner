@@ -54,7 +54,11 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 
 	response = p.normalizeModelResponse(state, turn, response)
 	p.lastUsage = response.Usage
+	p.observeStatefulUsage(response.Usage)
 	state.ParentUsage = newParentUsage(p.request, response.Usage)
+	if state.ParentUsage != nil {
+		state.ParentUsage.StatefulFloor = p.statefulFloor
+	}
 	state, turnTokens := p.finalizeModelCallState(state, turn, response)
 	state.Lineage = state.Lineage.withBackendState(issuedGenerationID, response.BackendState, response.ClearBackendState)
 	visionState, subAgentConfigured := p.getVisionCapabilityContext()
@@ -228,6 +232,19 @@ type turnProgressor struct {
 	// it (see compactionDue). It is cleared once a compaction applies.
 	lastUsage *provider.UsageStats
 
+	// statefulFloor is the provider prompt floor, in prompt tokens, armed after a
+	// stateful compaction. While set, the soft trigger waits for usage to reach
+	// statefulReleaseTokens. Zero when unarmed. Seeded and carried through
+	// ParentUsage.StatefulFloor.
+	statefulFloor int
+	// awaitingPostCompaction is set by a successful stateful compaction. The next
+	// response decides whether statefulFloor is armed or statefulCapReached is set.
+	awaitingPostCompaction bool
+	// statefulCapReached is set when the first response after a stateful
+	// compaction is at or above the cap. The run stops at its next compaction
+	// decision. It is run-local and never carried.
+	statefulCapReached bool
+
 	// queuedDelegations holds the delegation calls announced via
 	// tool_call_queued for the tool-execution phase currently running. Entries
 	// are marked started as each call is dispatched; any left when the phase
@@ -341,6 +358,9 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 			Stop:  true,
 		}
 	}
+	if p.statefulCapReached {
+		return p.statefulCapStop(state, fit)
+	}
 	turn := state.TurnCount + 1
 	emitCompactionStartedEvent(p.request.Events, turn)
 	compacted, err := p.compactFn(ctx, p.request, &state, turn, &fit, p.compactionHistory, &p.compactionCount)
@@ -350,6 +370,10 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 	if compacted {
 		p.lastUsage = nil
 		state.ParentUsage = nil
+		if provider.SupportsStatefulCompaction(p.request.Provider) {
+			p.statefulFloor = 0
+			p.awaitingPostCompaction = true
+		}
 		return turnOutcome{State: state, Retry: true}
 	}
 	if fit.Fits {
@@ -366,13 +390,20 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 
 // compactionDue reports whether the turn compacts before its model call. A
 // native provider uses the estimated fit. A stateful compaction provider uses the
-// last response's CLI usage against the model context window. The hard limit
-// still forces compaction for every provider.
+// last response's CLI usage against the model context window. An armed
+// statefulFloor holds the soft trigger until usage reaches its release point.
+// The hard limit still forces compaction for every provider.
 func (p *turnProgressor) compactionDue(fit prompt.RequestTokenBudget) bool {
 	if !provider.SupportsStatefulCompaction(p.request.Provider) {
 		return fit.ShouldCompact || !fit.Fits
 	}
-	return !fit.Fits || statefulUsageAboveThreshold(p.lastUsage, fit.ContextSize)
+	if !fit.Fits || p.statefulCapReached {
+		return true
+	}
+	if p.statefulFloor > 0 {
+		return statefulUsageReaches(p.lastUsage, statefulReleaseTokens(p.statefulFloor, fit.ContextSize))
+	}
+	return statefulUsageAboveThreshold(p.lastUsage, fit.ContextSize)
 }
 
 // statefulUsageAboveThreshold reports whether a response's prompt usage reaches
