@@ -11,7 +11,8 @@ import (
 
 // driverRun is the ConversationDriver's run function: it adapts the session's
 // runExecutor to one turn sequence. A run error is reported as a stop-reason
-// event here and not returned, so the driver does not warn a second time.
+// event here unless the runner already emitted one (agent.ReportedError), and
+// is not returned, so the driver does not warn a second time.
 func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope string) (agent.DriverRunOutput, error) {
 	result, err := s.currentRunner().Run(ctx, RunInput{
 		Conversation:         in.Conversation,
@@ -23,7 +24,10 @@ func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope 
 		ParentUsage:          in.ParentUsage,
 	})
 	if err != nil {
-		s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
+		var reported *agent.ReportedError
+		if !errors.As(err, &reported) {
+			s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
+		}
 		if !errors.Is(err, context.Canceled) {
 			conv := result.Conversation
 			if len(conv) == 0 {

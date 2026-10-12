@@ -291,7 +291,7 @@ func fitConversationState(ctx context.Context, req RunRequest, state RunState) (
 // Compact reduces the current conversation to fit the model budget.
 func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Message, steerings ...string) ([]Message, error) {
 	// Without a lineage there is no backend state to clear.
-	compacted, _, err := r.CompactWithLineage(ctx, req, ConversationLineage{}, currentConv, steerings...)
+	compacted, _, _, err := r.CompactWithLineage(ctx, req, ConversationLineage{}, currentConv, steerings...)
 	return compacted, err
 }
 
@@ -299,10 +299,10 @@ func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Mess
 // lineage contributes only its latest backend state, which the summary request
 // is issued against. The messages compacted are still currentConv. It also
 // reports whether the summary cleared that backend state, so the caller can drop
-// it from the lineage it keeps.
-func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage ConversationLineage, currentConv []Message, steerings ...string) ([]Message, bool, error) {
+// it from the lineage it keeps. It also reports whether a compaction stage applied.
+func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage ConversationLineage, currentConv []Message, steerings ...string) ([]Message, bool, bool, error) {
 	if provider.IsStatefulTranscript(req.Provider) && !provider.SupportsStatefulCompaction(req.Provider) {
-		return nil, false, fmt.Errorf("compact conversation: %w", errStatefulCompaction)
+		return nil, false, false, fmt.Errorf("compact conversation: %w", errStatefulCompaction)
 	}
 	steering := ""
 	if len(steerings) > 0 {
@@ -319,17 +319,15 @@ func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage
 	skipped := map[string]bool{}
 	compactionCount := 0
 
-	// A not-applied candidate leaves state unchanged, so the applied flag is not
-	// needed here: the conversation is returned as-is either way.
-	compacted, _, err := r.compactConversationForBudgetWithSteering(ctx, req, &state, 0, nil, skipped, &compactionCount, steering)
+	compacted, applied, err := r.compactConversationForBudgetWithSteering(ctx, req, &state, 0, nil, skipped, &compactionCount, steering)
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
 	if !compacted {
-		return currentConv, false, nil
+		return currentConv, false, false, nil
 	}
 
-	return state.Conversation, backendStateCleared(state.Lineage, startID, hadState), nil
+	return state.Conversation, backendStateCleared(state.Lineage, startID, hadState), applied, nil
 }
 
 // backendStateCleared reports whether generation id held backend state and the

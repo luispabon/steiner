@@ -57,3 +57,49 @@ func TestModelSkippedCompactionClearsCompactingState(t *testing.T) {
 		t.Fatalf("content = %q, want no compacted banner for skipped compaction", got)
 	}
 }
+
+// TestModelSkippedCompactionRunEndsIdle proves a manual compaction that applies
+// no stage, run from RunStarted through RunFinished, leaves no compacting state
+// and an idle activity once the run finishes.
+func TestModelSkippedCompactionRunEndsIdle(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "test-model", "", 0, 0)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:     "compaction",
+		Scope:    "conversation",
+		Severity: "compacting",
+		Turn:     3,
+	})})
+	if !m.compaction.Active() {
+		t.Fatal("compaction.Active() = false after compacting event, want true")
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:     "compaction",
+		Scope:    "conversation",
+		Severity: "skipped",
+		Turn:     3,
+		Notes:    []string{"compaction skipped: no stage applied"},
+	})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunFinishedEvent(0, "complete", "", "", nil)})
+	// The ticker flushes the dirty content after RunFinished, then stops.
+	m = updateModel(t, m, tickMsg{})
+
+	if m.compaction.Active() {
+		t.Fatal("compaction.Active() = true after RunFinished, want false")
+	}
+	if m.sidebar.compaction.Active() {
+		t.Fatal("sidebar.compaction.Active() = true after RunFinished, want false")
+	}
+	if m.content.compaction.Active() || m.content.HasActiveCompactions() {
+		t.Fatal("content compaction still active after RunFinished, want inactive")
+	}
+	if m.activity.busy() {
+		t.Fatalf("activity = %#v, want not busy after RunFinished", m.activity)
+	}
+	if m.needsTicking() {
+		t.Fatal("needsTicking() = true after RunFinished, want false")
+	}
+}

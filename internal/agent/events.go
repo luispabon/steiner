@@ -18,6 +18,23 @@ func emitStop(sink output.EventSink, state RunState, err error) {
 	emitEvent(sink, output.NewStopReasonEvent(state.TurnCount, string(state.StopReason), err))
 }
 
+// ReportedError is a run error whose stop-reason event the runner has already
+// emitted, so callers must not report it again. Unwrap keeps the underlying
+// error reachable through errors.Is and errors.As.
+type ReportedError struct {
+	Err error
+}
+
+// Error returns the underlying error's message.
+func (e *ReportedError) Error() string {
+	return e.Err.Error()
+}
+
+// Unwrap returns the underlying error.
+func (e *ReportedError) Unwrap() error {
+	return e.Err
+}
+
 func emitRequestTokenDiagnostic(sink output.EventSink, turn int, fit prompt.RequestTokenBudget, truncated bool) {
 	if sink == nil {
 		return
