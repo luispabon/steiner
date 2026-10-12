@@ -52,10 +52,10 @@ Only parent normal calls persist CLI session state. Steiner stores that state as
 
 For each parent turn, Steiner either:
 
-- appends the new messages to the live CLI session, when it matches the Steiner transcript;
+- appends the new messages to the live CLI session, when it matches the Steiner transcript. A live session keeps the system prompt and tool set it started with, even if they have since changed;
 - resumes the stored CLI session after a restart, when it matches the session owner and transcript;
 - forks the stored CLI session, when the session owner changed, such as after a Steiner Fork;
-- reseeds a CLI session from the Steiner transcript, when the stored state is missing, dead, mismatched, or was built for a different system prompt or tool set.
+- reseeds a CLI session from the Steiner transcript, when the restored stored state is missing, dead, mismatched, or was built for a different system prompt or tool set. A session that is still live is not reseeded for a changed prompt or tool set.
 
 A reseed sends the non-system history as one transcript message. Prompt cache reuse is not expected for a reseeded turn. Images still held in memory are included. Image data stripped after it was consumed cannot return. Earlier tool calls appear as text.
 

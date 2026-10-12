@@ -57,7 +57,9 @@ After an interrupt, only the assistant entry produced by that interrupted call h
 
 ## Session recovery and compaction
 
-A new parent process restores stored state only when the stored CLI session ID, prompt/tools fingerprint, and final message UUID match the request's history (`claudeSubRestoreFor`). The restore target always carries the stored final UUID as `--resume-session-at`. When the transport session matches the stored owner, the process resumes. When it differs, as after a Steiner Fork, the process forks at that UUID with `--fork-session`. Any other failed check reseeds.
+A new parent process restores stored state only when the stored CLI session ID, prompt/tools fingerprint, and final message UUID match the request's history (`claudeSubRestoreFor`). The restore target always carries the stored final UUID as `--resume-session-at`. An ordinary restore is `--resume <session-id> --resume-session-at <final-uuid>` with no fork flag, so the process resumes at the Steiner record even if the CLI session has advanced independently. When the transport session matches the stored owner, the process resumes. When it differs, as after a Steiner Fork, the process forks at that UUID with `--fork-session`. Any other failed check, including a prompt/tools fingerprint mismatch in the stored state, reseeds.
+
+A compatible live parent process is different. Restore compares the stored fingerprint, but a primed live process that accepts the request's history is reused as is and keeps the prompt and tools it started with (D5). A changed system prompt or tool set does not reseed a live process. Only restoring stored state compares the fingerprint.
 
 A reseed (`claudeSubReseedDelta`) sends the whole non-system history as one user transcript message. In-memory images are included, earlier tool calls are rendered as text, and image data stripped after consumption cannot return. The rendered entries become the new sync record. A reseeded turn does not reuse prompt cache.
 
@@ -66,7 +68,7 @@ The compaction trigger for this provider is `statefulUsageAboveThreshold` in `in
 Summary routing in `claudeSubSummaryTurn`:
 
 - Sub-agent (`ParentTransportSession` set): marked in-place summary on the sub-agent's own process. The process is tainted and retired. A process that cannot take the request is replaced, and the marked request is reseeded on it.
-- Parent fork: when the stored state matches the live checkpoint and fingerprint, and the source ends at an assistant UUID, an ephemeral helper forks the stored CLI session at that UUID. The helper uses no persistence, `MaxTurns` 1, and returns no backend state.
+- Parent fork: when the stored state matches the live checkpoint and fingerprint, and the source ends at an assistant UUID, an ephemeral helper forks the stored CLI session at the source-tail UUID, which is the final assistant uuid of the source messages and is not necessarily the record tip. The helper runs with `--resume <session-id>`, `--resume-session-at <source-tail-uuid>`, `--fork-session`, `--no-session-persistence`, and `--max-turns 1`. It returns no backend state, and the live parent is left untouched.
 - Parent in place: when the fork is not possible or fails before any output, and a live process exists, the marked summary is appended to the live transcript. The process is tainted and retired, and the final chunk clears the generation's backend state.
 - Parent cold reseed: when no live process exists, the marked history is reseeded on an ephemeral helper with no persistence and `MaxTurns` 1. A stored state that is not live is not forked for the summary.
 

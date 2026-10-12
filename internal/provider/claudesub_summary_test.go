@@ -48,13 +48,44 @@ func TestClaudeSubArgsMaxTurns(t *testing.T) {
 	}
 }
 
+// claudeSubTextTurnWithUUID returns the text turn fixture with its final
+// assistant uuid set to uuid, so scripted turns can end at distinct CLI uuids.
+func claudeSubTextTurnWithUUID(t *testing.T, uuid string) []claudeSubEvent {
+	t.Helper()
+	events := claudeSubDecodeEvents(t, "turn_text.jsonl")
+	for i, ev := range events {
+		if ev.Type != "assistant" {
+			continue
+		}
+		events[i].UUID = uuid
+		events[i].Raw = json.RawMessage(strings.Replace(string(ev.Raw), `"uuid":"u12"`, `"uuid":"`+uuid+`"`, 1))
+		return events
+	}
+	t.Fatal("turn_text.jsonl has no assistant event")
+	return nil
+}
+
 func TestClaudeSubSummaryForkResumesAtSourceTail(t *testing.T) {
-	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 2), claudeSubTextTurns(t, 1))
-	u1, a1, _, first, second := claudeSubTwoTurnParent(t, pool)
+	// Each parent turn ends at its own CLI uuid. The fork must cut at the source
+	// tail (first turn), not at the record tip (second turn).
+	parent := &claudeSubScript{batches: [][]claudeSubEvent{
+		claudeSubTextTurnWithUUID(t, "uuid-first"),
+		claudeSubTextTurnWithUUID(t, "uuid-second"),
+	}}
+	pool, spawner := claudeSubPoolWithScripts(t, parent, claudeSubTextTurns(t, 1))
+	u1, a1, u2, first, second := claudeSubTwoTurnParent(t, pool)
+	firstUUID := claudeSubDecodeState(t, first.BackendState).FinalUUID
+	secondState := claudeSubDecodeState(t, second.BackendState)
+	if firstUUID != "uuid-first" || secondState.FinalUUID != "uuid-second" {
+		t.Fatalf("turn final uuids = %q, %q, want uuid-first, uuid-second", firstUUID, secondState.FinalUUID)
+	}
+	// The source is [u1, a1]. The retained tail u2 and the summary instruction
+	// follow it. The record also holds the second answer, which the request
+	// does not cover.
 	summary := claudeSubRunTurn(t, pool, ChatRequest{
 		TransportSession:         "parent",
 		Model:                    claudeSubTestSpec().Model,
-		Messages:                 []Message{u1, a1, claudeSubUserText("summarize the older part")},
+		Messages:                 []Message{u1, a1, u2, claudeSubUserText("summarize the older part")},
 		BackendState:             second.BackendState,
 		CompactionSummary:        true,
 		CompactionSourceMessages: 2,
@@ -66,10 +97,9 @@ func TestClaudeSubSummaryForkResumesAtSourceTail(t *testing.T) {
 		t.Fatalf("spawned %d processes, want 2 (parent and summary helper)", got)
 	}
 	helper := spawner.call(t, 1).Args
-	second2 := claudeSubDecodeState(t, second.BackendState)
 	want := map[string]string{
-		"--resume":            second2.CLISessionID,
-		"--resume-session-at": claudeSubDecodeState(t, first.BackendState).FinalUUID,
+		"--resume":            secondState.CLISessionID,
+		"--resume-session-at": firstUUID,
 		"--max-turns":         "1",
 	}
 	for flag, value := range want {
@@ -81,6 +111,12 @@ func TestClaudeSubSummaryForkResumesAtSourceTail(t *testing.T) {
 		if !claudeSubHasArg(helper, flag) {
 			t.Errorf("helper args lack %s: %v", flag, helper)
 		}
+	}
+	if lines := claudeSubUserLines(spawner.call(t, 1).Conn); len(lines) != 1 || !strings.Contains(lines[0], "second question") || !strings.Contains(lines[0], "summarize the older part") {
+		t.Errorf("helper user lines = %q, want one line carrying the retained tail and the instruction", lines)
+	}
+	if n := len(claudeSubUserLines(spawner.call(t, 0).Conn)); n != 2 {
+		t.Errorf("live parent received %d user lines, want only its 2 turns", n)
 	}
 	if spawner.call(t, 0).Conn.isClosed() {
 		t.Error("fork closed the live parent process")
