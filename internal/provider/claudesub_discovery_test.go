@@ -72,6 +72,7 @@ func TestClaudeSubDiscoveryArgs(t *testing.T) {
 		"--tools", "",
 		"--strict-mcp-config",
 		"--setting-sources=",
+		"--disable-slash-commands",
 		"--no-session-persistence",
 	}
 	if got := claudeSubDiscoveryArgs(); !reflect.DeepEqual(got, want) {

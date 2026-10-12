@@ -490,13 +490,21 @@ func claudeSubChainDigest(entries []claudeSubEntry) (string, error) {
 	return chain, nil
 }
 
-// claudeSubFingerprint returns the SHA-256 of a process's system prompt and
-// tool specs. encoding/json sorts map keys, so the digest is stable.
+// claudeSubLaunchProfile versions the child launch flags and env that shape what
+// the CLI injects into a session. Bump it when those change, so stored CLI
+// transcripts from the old profile are reseeded instead of resumed: they hold
+// CLI-injected memory and account context.
+const claudeSubLaunchProfile = 2
+
+// claudeSubFingerprint returns the SHA-256 of a process's system prompt, tool
+// specs and launch profile. encoding/json sorts map keys, so the digest is
+// stable.
 func claudeSubFingerprint(systemPrompt string, tools []ToolSpec) (string, error) {
 	raw, err := json.Marshal(struct {
-		SystemPrompt string     `json:"system_prompt"`
-		Tools        []ToolSpec `json:"tools"`
-	}{systemPrompt, tools})
+		SystemPrompt  string     `json:"system_prompt"`
+		Tools         []ToolSpec `json:"tools"`
+		LaunchProfile int        `json:"launch_profile"`
+	}{systemPrompt, tools, claudeSubLaunchProfile})
 	if err != nil {
 		return "", fmt.Errorf("encode prompt and tools fingerprint: %w", err)
 	}

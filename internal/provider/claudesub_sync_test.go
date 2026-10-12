@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -1080,6 +1082,29 @@ func TestClaudeSubFingerprint(t *testing.T) {
 				t.Errorf("fingerprint = %q, base = %q, same = %v, want same = %v", got, base, got == base, tc.wantSame)
 			}
 		})
+	}
+}
+
+// TestClaudeSubFingerprintLaunchProfile checks that the launch profile is part of
+// the digest. A digest of prompt and tools alone (the shape before the profile
+// field) must not match, so transcripts from the old launch profile reseed.
+func TestClaudeSubFingerprintLaunchProfile(t *testing.T) {
+	prompt := "system"
+	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	got, err := claudeSubFingerprint(prompt, tools)
+	if err != nil {
+		t.Fatalf("claudeSubFingerprint: %v", err)
+	}
+	raw, err := json.Marshal(struct {
+		SystemPrompt string     `json:"system_prompt"`
+		Tools        []ToolSpec `json:"tools"`
+	}{prompt, tools})
+	if err != nil {
+		t.Fatalf("marshal legacy fingerprint: %v", err)
+	}
+	sum := sha256.Sum256(raw)
+	if legacy := hex.EncodeToString(sum[:]); got == legacy {
+		t.Errorf("fingerprint = legacy digest %q, want launch profile included", got)
 	}
 }
 

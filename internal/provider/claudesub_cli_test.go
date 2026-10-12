@@ -85,7 +85,7 @@ func TestClaudeSubLocateCLI(t *testing.T) {
 
 func TestClaudeSubChildEnv(t *testing.T) {
 	base := []string{"PATH=/usr/bin:/bin", "ANTHROPIC_API_KEY=sk-secret", "ANTHROPIC_AUTH_TOKEN=auth-token", "CLAUDE_CODE_OAUTH_TOKEN=oauth-token", "CLAUDE_CODE_ENTRYPOINT=cli", "HOME=/home/user"}
-	want := []string{"PATH=/usr/bin:/bin", "HOME=/home/user", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768"}
+	want := []string{"PATH=/usr/bin:/bin", "HOME=/home/user", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off", "CLAUDE_CODE_TODO_REMINDER_MODE=off", "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1"}
 	if got := claudeSubChildEnv(base, 65536); !reflect.DeepEqual(got, want) {
 		t.Fatalf("claudeSubChildEnv() = %#v, want %#v", got, want)
 	}
@@ -104,8 +104,8 @@ func TestClaudeSubChildEnv(t *testing.T) {
 		{200000, "MAX_MCP_OUTPUT_TOKENS=100000"},
 	} {
 		env := claudeSubChildEnv(nil, tc.budget)
-		if last := env[len(env)-1]; last != tc.want {
-			t.Errorf("claudeSubChildEnv(nil, %d) last entry = %q, want %q", tc.budget, last, tc.want)
+		if got, _ := claudeSubEnvValue(env, "MAX_MCP_OUTPUT_TOKENS"); "MAX_MCP_OUTPUT_TOKENS="+got != tc.want {
+			t.Errorf("claudeSubChildEnv(nil, %d) MAX_MCP_OUTPUT_TOKENS entry = %q, want %q", tc.budget, "MAX_MCP_OUTPUT_TOKENS="+got, tc.want)
 		}
 	}
 }
@@ -121,31 +121,43 @@ func TestClaudeSubChildEnvFold(t *testing.T) {
 			name:     "exact mode strips exact names",
 			base:     []string{"PATH=/bin", "ANTHROPIC_API_KEY=sk-1", "CLAUDE_CODE_ENTRYPOINT=cli"},
 			foldCase: false,
-			want:     []string{"PATH=/bin", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768"},
+			want:     []string{"PATH=/bin", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off", "CLAUDE_CODE_TODO_REMINDER_MODE=off", "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1"},
 		},
 		{
 			name:     "exact mode keeps case variants",
 			base:     []string{"Anthropic_Api_Key=sk-1", "anthropic_auth_token=t-1", "Max_Mcp_Output_Tokens=7"},
 			foldCase: false,
-			want:     []string{"Anthropic_Api_Key=sk-1", "anthropic_auth_token=t-1", "Max_Mcp_Output_Tokens=7", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768"},
+			want:     []string{"Anthropic_Api_Key=sk-1", "anthropic_auth_token=t-1", "Max_Mcp_Output_Tokens=7", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off", "CLAUDE_CODE_TODO_REMINDER_MODE=off", "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1"},
 		},
 		{
 			name:     "exact mode replaces forced names exactly",
 			base:     []string{"CLAUDE_CODE_DISABLE_FAST_MODE=0", "claude_code_retry_watchdog=0", "HOME=/h"},
 			foldCase: false,
-			want:     []string{"claude_code_retry_watchdog=0", "HOME=/h", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768"},
+			want:     []string{"claude_code_retry_watchdog=0", "HOME=/h", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off", "CLAUDE_CODE_TODO_REMINDER_MODE=off", "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1"},
 		},
 		{
 			name:     "fold mode strips every case variant",
 			base:     []string{"PATH=/bin", "anthropic_api_key=sk-1", "Anthropic_Auth_Token=t-1", "claude_code_oauth_token=o-1", "Claude_Code_Entrypoint=cli"},
 			foldCase: true,
-			want:     []string{"PATH=/bin", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768"},
+			want:     []string{"PATH=/bin", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off", "CLAUDE_CODE_TODO_REMINDER_MODE=off", "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1"},
+		},
+		{
+			name:     "exact mode replaces launch names exactly",
+			base:     []string{"CLAUDE_CODE_DISABLE_AUTO_MEMORY=0", "claude_code_disable_claude_mds=0", "HOME=/h"},
+			foldCase: false,
+			want:     []string{"claude_code_disable_claude_mds=0", "HOME=/h", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off", "CLAUDE_CODE_TODO_REMINDER_MODE=off", "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1"},
+		},
+		{
+			name:     "fold mode replaces launch names in any case",
+			base:     []string{"PATH=/bin", "claude_code_disable_auto_memory=0", "Claude_Code_Todo_Reminder_Mode=on", "claude_code_silent_turn_reminder=1"},
+			foldCase: true,
+			want:     []string{"PATH=/bin", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off", "CLAUDE_CODE_TODO_REMINDER_MODE=off", "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1"},
 		},
 		{
 			name:     "fold mode replaces forced names in any case",
 			base:     []string{"claude_code_disable_fast_mode=0", "Claude_Code_Retry_Watchdog=0", "max_mcp_output_tokens=1", "HOME=/h"},
 			foldCase: true,
-			want:     []string{"HOME=/h", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768"},
+			want:     []string{"HOME=/h", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off", "CLAUDE_CODE_TODO_REMINDER_MODE=off", "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1"},
 		},
 	}
 	for _, tc := range tests {
@@ -182,7 +194,7 @@ func TestClaudeSubMaxMCPOutputTokens(t *testing.T) {
 }
 
 func TestClaudeSubArgs(t *testing.T) {
-	base := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--model", "claude-haiku-5-5", "--tools", "", "--strict-mcp-config", "--setting-sources=", "--no-session-persistence", "--settings", `{"autoCompactEnabled":false,"fastMode":false}`, "--permission-mode", "dontAsk"}
+	base := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--model", "claude-haiku-5-5", "--tools", "", "--strict-mcp-config", "--setting-sources=", "--disable-slash-commands", "--no-session-persistence", "--settings", `{"autoCompactEnabled":false,"fastMode":false}`, "--permission-mode", "dontAsk"}
 	adaptive := []string{"--thinking", "adaptive", "--thinking-display", "summarized"}
 	withBase := func(extra ...string) []string {
 		out := make([]string, 0, len(base)+len(extra))

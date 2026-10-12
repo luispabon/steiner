@@ -108,6 +108,7 @@ func claudeSubDiscoveryArgs() []string {
 		"--tools", "",
 		"--strict-mcp-config",
 		"--setting-sources=",
+		"--disable-slash-commands",
 		"--no-session-persistence",
 	}
 }
