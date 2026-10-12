@@ -34,6 +34,8 @@ Auto-compaction is never steered; it always uses an empty steering value. Manual
 
 With `claude_subscription`, the 70% trigger uses the total input usage the Claude CLI reports for the last response, including cached input. Steiner prefers a summary made in a forked CLI session, which applies only when the stored session state matches. When no fork is possible and a live session exists, the summary is appended in place to that session and reuses its full cache path. Without a live session, the summary is rebuilt from Steiner's transcript, and that rebuild may not reuse the prompt cache. Fork cache behavior is not yet confirmed against the live CLI.
 
+If the first response after a `claude_subscription` compaction reports prompt usage at or above 90% of the configured context window, Steiner stops instead of compacting again, even when the request would still fit. It shows a critical message with restart guidance: start a new session and carry the context over.
+
 ### Skills in interactive sessions
 
 Enabling or disabling a skill in an interactive session does not rewrite anything already sent, so the session's cached prefix is preserved; the change is delivered with your next message. An active skill survives compaction (it is re-applied after the summary), while a disabled skill disappears the next time compaction runs. A skill longer than 98304 bytes is truncated with a marker, and Steiner warns with the original size and the cap. The `/context` report shows leftover blocks for skills you have turned off as inactive until compaction removes them.
