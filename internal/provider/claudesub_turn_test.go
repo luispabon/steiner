@@ -221,10 +221,13 @@ func TestClaudeSubConsumeUsageCountsEachMessageOnce(t *testing.T) {
 
 // claudeSubScript answers control requests and, on each user line, pushes the
 // next scripted batch of stream events. setModelErr makes set_model fail.
+// usage replaces the get_usage reply and usageErr makes get_usage fail.
 type claudeSubScript struct {
 	batches     [][]claudeSubEvent
 	users       int
 	setModelErr bool
+	usage       json.RawMessage
+	usageErr    string
 }
 
 func (sc *claudeSubScript) respond(line []byte) []claudeSubEvent {
@@ -242,6 +245,12 @@ func (sc *claudeSubScript) respond(line []byte) []claudeSubEvent {
 	case "control_request":
 		switch envelope.Request.Subtype {
 		case "get_usage":
+			if sc.usageErr != "" {
+				return []claudeSubEvent{claudeSubErrorEvent(envelope.RequestID, sc.usageErr)}
+			}
+			if sc.usage != nil {
+				return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, sc.usage)}
+			}
 			return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":false}}}`))}
 		case "set_model":
 			if sc.setModelErr {
@@ -896,7 +905,7 @@ func TestClaudeSubUsageGateRejectsBeforeUserWrite(t *testing.T) {
 	conn.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	stream, err := claudeSubStream(ctx, pool, ChatRequest{TransportSession: "gate", Model: claudeSubTestSpec().Model, Messages: []Message{{Role: MessageRoleUser, Content: "hello"}}})
+	stream, err := claudeSubStream(ctx, pool, ChatRequest{TransportSession: "gate", Model: claudeSubTestSpec().Model, Messages: []Message{{Role: MessageRoleUser, Content: "hello"}}}, nil)
 	if err != nil {
 		t.Fatalf("stream: %v", err)
 	}

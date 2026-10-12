@@ -1042,6 +1042,10 @@ full. The `tool` stream rotates at 20 MB with 3 generations kept, so a long
 collection window overwrites its oldest records; snapshot the diagnostics
 directory when the window matters.
 
+### Provider diagnostics fields
+
+Provider records (`provider.jsonl`) carry `call_kind` for `claude_subscription` turns: `advisor`, `summary`, `sub_agent`, or `normal`, with advisor taking precedence over summary and summary over sub-agent. Their `transport` is `cli`, and they never carry a request URL, headers, or body. The field is omitted for HTTP and WebSocket providers. Each `claude_subscription` model call writes one record, including calls refused before the CLI starts (`outcome` `exhausted`). The exception is a nil or uninitialized provider, which writes none. `attempts` is always `1`: a resumed process reseeded internally is not counted. Records never carry CLI result text, stderr output, or control-response error text in `error`.
+
 ### Cache diagnostics fields
 
 Usage-bearing responses produce `cache.jsonl` records when `streams.cache` is enabled. Cache payloads include `upstream_endpoint` when reported by the gateway, `message_count` for the exact outbound request, and `call_kind` (`compaction` for compaction escalation; omitted for normal calls). Compaction diagnostics report usage but do not advance the prefix-comparison baseline. These records never contain prompt content or the prompt cache key.

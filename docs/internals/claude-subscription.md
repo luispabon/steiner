@@ -72,6 +72,14 @@ Summary routing in `claudeSubSummaryTurn`:
 - Parent in place: when the fork is not possible or fails before any output, and a live process exists, the marked summary is appended to the live transcript. The process is tainted and retired, and the final chunk clears the generation's backend state.
 - Parent cold reseed: when no live process exists, the request's messages are reseeded unmarked on an ephemeral helper with no persistence and `MaxTurns` 1. The request already ends in the compaction instruction, so no marker is added. A stored state that is not live is not forked for the summary.
 
+## Provider diagnostics
+
+`ClaudeSubscriptionProvider` writes one provider-stream record per turn through the provider stream-error logger, whatever the outcome (`claudeSubStream` in `claudesub_stream.go`). The record has `transport` `cli` and `attempts` `1`. `call_kind` is `advisor`, `summary`, `sub_agent`, or `normal` (`claudeSubCallKind`). Advisor takes precedence over summary, and summary over sub-agent. The record carries the outcome, duration, chunk count, TTFT, and a bounded error. The error is the diagnostic form of the failure: CLI terminal result text, the stderr tail, and control-response error text are never recorded, though the caller's chunk error keeps them. `partial_stream` is set when chunks reached the caller and the turn then failed. The CLI transport has no HTTP exchange, so the record never has `request_url`, request or response headers, or bodies, even with `capture_bodies` enabled.
+
+When a provider stream-error logger is configured, each model call writes exactly one record, including a closed-pool refusal before the CLI starts and a usage-gate refusal before the CLI accepts the user request. Those record `exhausted` with `attempts` `1`. A nil or uninitialized provider returns before streaming and writes nothing. A resumed process that fails before output is reseeded inside the same call. That internal reseed is not reflected in `attempts`, which stays `1`.
+
+A decode error from the CLI stream (`errClaudeSubDecodeStream`) is classed `decode_error` in `error_class`, like other decode failures. The classifier is diagnostics only: retry and remediation decisions do not read it.
+
 ## Model enumeration
 
 Discovery has a 20-second outer budget, with work capped at 12 seconds and an 8-second cleanup reserve. It uses the signed-in CLI's `initialize` response, skips the `default` alias, keeps the first entry for each resolved model ID, and preserves display names, descriptions, and supported effort levels. Discovery is fail-soft: an error or empty usable result returns the static fallback catalog.

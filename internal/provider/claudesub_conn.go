@@ -300,7 +300,10 @@ func (c *claudeSubControl) dispatch(ev claudeSubEvent) bool {
 		case "success":
 			result.response = res.Response
 		case "error":
-			result.err = errors.New(res.Error)
+			result.err = &claudeSubDetailError{
+				detail: errors.New(res.Error),
+				safe:   errors.New("claude CLI control request returned an error"),
+			}
 		default:
 			result.err = fmt.Errorf("claude CLI returned unknown control response subtype %q", res.Subtype)
 		}
@@ -481,15 +484,6 @@ func (q *claudeSubQueue) close() {
 	q.closed = true
 	q.cond.Broadcast()
 	q.mu.Unlock()
-}
-
-// drain removes and returns every buffered event.
-func (q *claudeSubQueue) drain() []claudeSubEvent {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	items := q.items
-	q.items = nil
-	return items
 }
 
 // claudeSubRoute pumps events through control.dispatch, forwarding non-control

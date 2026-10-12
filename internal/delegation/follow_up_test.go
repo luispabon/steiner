@@ -1402,6 +1402,83 @@ func TestFollowUpHandler_AccumulatesTokenUsageFromPriorSession(t *testing.T) {
 	}
 }
 
+func TestFollowUpHandler_FailedRunReportsCumulativeTokenUsage(t *testing.T) {
+	t.Parallel()
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: Spec{
+			AgentID: "child-failed-cache",
+			Task:    "inspect code",
+			Limits:  Limits{MaxTurns: 5, OutputLimitTokens: 50},
+		},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Limits: agent.Limits{MaxTurns: 5, MaxTokens: 50},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "initial task"},
+			{Role: agent.MessageRoleAssistant, Content: "first answer"},
+		},
+		TurnCount:     1,
+		TokenCount:    10,
+		ToolCallCount: 0,
+		TokenUsage:    TokenUsage{InputTokens: 100, CacheReadTokens: 900, CacheCreateTokens: 30, OutputTokens: 10},
+	})
+
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+			return agent.RunState{
+				Conversation: []agent.Message{
+					{Role: agent.MessageRoleUser, Content: "initial task"},
+					{Role: agent.MessageRoleAssistant, Content: "partial answer"},
+				},
+				TurnCount:         1,
+				TokenCount:        5,
+				InputTokens:       20,
+				CacheReadTokens:   5,
+				CacheCreateTokens: 3,
+				StopReason:        agent.StopReasonError,
+			}, errors.New("provider stream failed")
+		}},
+	})
+
+	got, err := handler(context.Background(), map[string]any{
+		"agent_id": "child-failed-cache",
+		"message":  "continue",
+	})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	result := got.(tool.ExecutionResult).Value.(Result)
+	if result.Status != StatusFailed {
+		t.Fatalf("Status=%q, want %q", result.Status, StatusFailed)
+	}
+	if result.TokenCount != 15 {
+		t.Fatalf("TokenCount=%d, want 15 (prior 10 + run 5)", result.TokenCount)
+	}
+	if result.InputTokens != 120 {
+		t.Fatalf("InputTokens=%d, want 120 (prior 100 + run 20)", result.InputTokens)
+	}
+	if result.CacheReadTokens != 905 {
+		t.Fatalf("CacheReadTokens=%d, want 905 (prior 900 + run 5)", result.CacheReadTokens)
+	}
+	if result.CacheCreateTokens != 33 {
+		t.Fatalf("CacheCreateTokens=%d, want 33 (prior 30 + run 3)", result.CacheCreateTokens)
+	}
+
+	session, ok := store.Get("child-failed-cache")
+	if !ok {
+		t.Fatal("session missing after follow-up")
+	}
+	wantUsage := TokenUsage{InputTokens: 120, CacheReadTokens: 905, CacheCreateTokens: 33, OutputTokens: 15}
+	if session.TokenUsage != wantUsage {
+		t.Fatalf("stored TokenUsage=%+v, want %+v", session.TokenUsage, wantUsage)
+	}
+}
+
 func TestFollowUpHandler_ReusesOriginalProjectRoot(t *testing.T) {
 	t.Parallel()
 	// Verify that follow_up reuses the original session's ProjectRoot,

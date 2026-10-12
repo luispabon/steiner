@@ -427,21 +427,21 @@ func TestClaudeSubQueueCancelWakesPop(t *testing.T) {
 	}
 }
 
-func TestClaudeSubQueueDrainAndPushAfterClose(t *testing.T) {
+func TestClaudeSubQueuePushAndPopAfterClose(t *testing.T) {
 	q := newClaudeSubQueue()
 	q.push(claudeSubEvent{Type: "a"})
 	q.push(claudeSubEvent{Type: "b"})
 	q.close()
 	q.push(claudeSubEvent{Type: "dropped"})
 
-	if got := q.drain(); len(got) != 2 || got[0].Type != "a" || got[1].Type != "b" {
-		t.Errorf("drain() = %#v, want a then b", got)
+	for _, want := range []string{"a", "b"} {
+		ev, ok := q.pop(context.Background())
+		if !ok || ev.Type != want {
+			t.Fatalf("pop() = %q, %v; want %q, true", ev.Type, ok, want)
+		}
 	}
-	if got := q.drain(); got != nil {
-		t.Errorf("second drain() = %#v, want nil", got)
-	}
-	if _, ok := q.pop(context.Background()); ok {
-		t.Error("pop after close/drain reported an event")
+	if ev, ok := q.pop(context.Background()); ok {
+		t.Errorf("pop after buffered events = %q, want closed empty queue", ev.Type)
 	}
 }
 

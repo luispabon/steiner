@@ -10,11 +10,15 @@ import (
 // request routing and turn orchestration.
 type ClaudeSubscriptionProvider struct {
 	pool *ClaudeSubscriptionPool
+	// streamErrorLog receives one provider-stream diagnostics record per turn.
+	// Nil disables it.
+	streamErrorLog *StreamErrorLogger
 }
 
-// NewClaudeSubscriptionProvider creates a provider backed by pool.
-func NewClaudeSubscriptionProvider(pool *ClaudeSubscriptionPool) *ClaudeSubscriptionProvider {
-	return &ClaudeSubscriptionProvider{pool: pool}
+// NewClaudeSubscriptionProvider creates a provider backed by pool. Each turn
+// writes one provider-stream diagnostics record to streamErrorLog when set.
+func NewClaudeSubscriptionProvider(pool *ClaudeSubscriptionPool, streamErrorLog *StreamErrorLogger) *ClaudeSubscriptionProvider {
+	return &ClaudeSubscriptionProvider{pool: pool, streamErrorLog: streamErrorLog}
 }
 
 // SupportsUsageStats reports that Claude subscription turns expose usage.
@@ -101,7 +105,7 @@ func (p *ClaudeSubscriptionProvider) StreamChatCompletion(ctx context.Context, r
 	if p == nil || p.pool == nil {
 		return nil, &claudeSubTurnError{message: "claude_subscription provider is not initialized"}
 	}
-	return claudeSubStream(ctx, p.pool, req)
+	return claudeSubStream(ctx, p.pool, req, p.streamErrorLog)
 }
 
 type claudeSubTurnError struct{ message string }

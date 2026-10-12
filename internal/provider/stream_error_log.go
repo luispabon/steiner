@@ -30,7 +30,8 @@ type streamErrorRecord struct {
 	Timestamp      time.Time `json:"ts"`
 	Provider       string    `json:"provider,omitempty"`
 	Model          string    `json:"model,omitempty"`
-	Transport      string    `json:"transport,omitempty"` // "ws" | "http" | "sse"
+	Transport      string    `json:"transport,omitempty"` // "ws" | "http" | "sse" | "cli"
+	CallKind       string    `json:"call_kind,omitempty"` // claude_subscription only: "normal" | "advisor" | "summary" | "sub_agent"
 	Outcome        string    `json:"outcome"`             // "ok" | "retried" | "exhausted" | "cancelled"
 	Attempts       int       `json:"attempts"`
 	TTFTMillis     int       `json:"ttft_ms,omitempty"`
@@ -155,7 +156,8 @@ type providerCallInput struct {
 	log       *StreamErrorLogger
 	provider  string
 	model     string
-	transport string // "ws" | "http" | "sse"
+	transport string // "ws" | "http" | "sse" | "cli"
+	callKind  string // claude_subscription only; empty for other transports
 
 	start time.Time
 	ttft  time.Duration
@@ -204,6 +206,7 @@ func emitProviderCall(in providerCallInput) {
 		Provider:       in.provider,
 		Model:          in.model,
 		Transport:      in.transport,
+		CallKind:       in.callKind,
 		Outcome:        outcome,
 		Attempts:       attempts,
 		TTFTMillis:     int(in.ttft.Milliseconds()),

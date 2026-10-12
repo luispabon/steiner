@@ -478,7 +478,10 @@ func (p *claudeSubProcess) finalizeErr() {
 	}
 	if err != nil {
 		if tail := strings.TrimSpace(p.stderrTail.String()); tail != "" {
-			err = fmt.Errorf("%w (stderr: %s)", err, tail)
+			err = &claudeSubDetailError{
+				detail: fmt.Errorf("%w (stderr: %s)", err, tail),
+				safe:   err,
+			}
 		}
 	}
 	p.err = err
