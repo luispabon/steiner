@@ -155,6 +155,9 @@ func delegationCompactionOperation(payload output.ContextCompactionEvent) string
 	if payload.Severity == "compacting" {
 		return "compacting context"
 	}
+	if payload.Severity == "skipped" {
+		return "compaction skipped"
+	}
 	if payload.SummaryTitle != "" {
 		return payload.SummaryTitle
 	}

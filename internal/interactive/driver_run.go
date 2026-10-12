@@ -15,10 +15,12 @@ import (
 func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope string) (agent.DriverRunOutput, error) {
 	result, err := s.currentRunner().Run(ctx, RunInput{
 		Conversation:         in.Conversation,
+		Lineage:              in.Lineage,
 		DrainInbox:           in.DrainInbox,
 		PendingSubAgents:     in.PendingSubAgents,
 		MaxTokens:            in.MaxTokens,
 		DelegationGroupScope: scope,
+		ParentUsage:          in.ParentUsage,
 	})
 	if err != nil {
 		s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
@@ -36,8 +38,12 @@ func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope 
 		TokenCount:   result.TokenCount,
 		StopReason:   result.StopReason,
 		SkipAdoption: result.WorkflowHandoff != nil,
+		ParentUsage:  result.ParentUsage,
 	}
 	runLineage := result.Lineage
+	// A run that returns no lineage falls back to its conversation. That fallback
+	// carries no backend state, so the prior state is cleared and the next run
+	// reseeds. Failed and cancelled runs return their lineage and keep its state.
 	if runLineage.Empty() && len(result.Conversation) > 0 {
 		runLineage = lineageFromMessages(result.Conversation)
 	}
@@ -69,7 +75,9 @@ func lineageFromMessages(messages []agent.Message) agent.ConversationLineage {
 // mergeRunLineage folds a run's lineage into the conversation's full lineage.
 // The runner always starts from a single flat generation, so its first
 // generation replaces the prior latest one and any generations it added by
-// compacting are appended. Earlier generations are kept untouched.
+// compacting are appended. Earlier generations are kept untouched. The latest
+// generation's backend state is the run's, so a state the run cleared or
+// replaced is not resurrected from prior.
 func mergeRunLineage(prior, run agent.ConversationLineage) agent.ConversationLineage {
 	if prior.Empty() {
 		return run.Clone()
@@ -79,8 +87,9 @@ func mergeRunLineage(prior, run agent.ConversationLineage) agent.ConversationLin
 	latest := &merged.Generations[len(merged.Generations)-1]
 	latest.SummaryPrefix = cloneMessages(prefix)
 	latest.Messages = cloneMessages(rest)
+	merged = merged.WithLatestBackendState(run.Generations[0].BackendState)
 	for _, generation := range run.Generations[1:] {
-		merged = merged.WithNewGeneration(generation.SummaryPrefix, generation.Messages)
+		merged = merged.WithNewGenerationState(generation.SummaryPrefix, generation.Messages, generation.BackendState)
 	}
 	return merged
 }

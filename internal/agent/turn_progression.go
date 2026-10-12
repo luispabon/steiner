@@ -14,8 +14,11 @@ import (
 )
 
 // compactConversationFn is the compaction operation decoupled from *Runner.
-// It matches the signature of Runner.compactConversationForBudget.
-type compactConversationFn func(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (bool, error)
+// It matches the signature of Runner.compactConversationForBudget. attempted
+// reports whether a candidate was processed; applied reports whether its
+// compaction changed the conversation. A candidate that was attempted but not
+// applied is marked in skipped, so the caller's retry moves to the next one.
+type compactConversationFn func(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (attempted, applied bool, err error)
 
 // executeModelCall runs the model-call phase of the turn lifecycle and applies
 // the assistant response to the conversation state. It owns:
@@ -34,6 +37,11 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 
 	emitEvent(p.request.Events, output.NewModelCallStartedEvent(turn, p.request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 
+	// Pin the issuing generation so its backend state is sent with the request
+	// and any state the response returns is written back to this generation.
+	issuedGenerationID := state.Lineage.latestGenerationID()
+	chatRequest.BackendState = state.Lineage.latestBackendState()
+
 	startTime := time.Now()
 	response, firstChunkTime, err := completeModelCall(ctx, p.request, turn, chatRequest, assembly.Blocks, p.request.ModelBudget, &p.skipNonStream)
 	if err != nil {
@@ -48,7 +56,14 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	durationMs := endTime.Sub(startTime).Milliseconds()
 
 	response = p.normalizeModelResponse(state, turn, response)
+	p.lastUsage = response.Usage
+	p.observeStatefulUsage(response.Usage)
+	state.ParentUsage = newParentUsage(p.request, response.Usage)
+	if state.ParentUsage != nil {
+		state.ParentUsage.StatefulFloor = p.statefulFloor
+	}
 	state, turnTokens := p.finalizeModelCallState(state, turn, response)
+	state.Lineage = state.Lineage.withBackendState(issuedGenerationID, response.BackendState, response.ClearBackendState)
 	visionState, subAgentConfigured := p.getVisionCapabilityContext()
 	state.Lineage = state.Lineage.WithCurrentMessages(stripDeferredReadImages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
 	state.Conversation = state.Lineage.FullMessages()
@@ -215,6 +230,24 @@ type turnProgressor struct {
 	// meter reflects mid-turn prompt growth.
 	lastBudget *prompt.RequestTokenBudget
 
+	// lastUsage is the usage of the most recent model response, seeded from the
+	// run's ParentUsage. A stateful compaction provider triggers compaction from
+	// it (see compactionDue). It is cleared once a compaction applies.
+	lastUsage *provider.UsageStats
+
+	// statefulFloor is the provider prompt floor, in prompt tokens, armed after a
+	// stateful compaction. While set, the soft trigger waits for usage to reach
+	// statefulReleaseTokens. Zero when unarmed. Seeded and carried through
+	// ParentUsage.StatefulFloor.
+	statefulFloor int
+	// awaitingPostCompaction is set by a successful stateful compaction. The next
+	// response decides whether statefulFloor is armed or statefulCapReached is set.
+	awaitingPostCompaction bool
+	// statefulCapReached is set when the first response after a stateful
+	// compaction is at or above the cap. The run stops at its next compaction
+	// decision. It is run-local and never carried.
+	statefulCapReached bool
+
 	// queuedDelegations holds the delegation calls announced via
 	// tool_call_queued for the tool-execution phase currently running. Entries
 	// are marked started as each call is dispatched; any left when the phase
@@ -258,7 +291,7 @@ func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcom
 		return p.handleError(ctx, state, err)
 	}
 
-	if fit.ShouldCompact || !fit.Fits {
+	if p.compactionDue(fit) {
 		outcome := p.handleCompaction(ctx, state, fit)
 		if outcome.Error != nil {
 			return p.handleError(ctx, outcome.State, outcome.Error)
@@ -316,7 +349,7 @@ func (p *turnProgressor) handleError(ctx context.Context, state RunState, err er
 // should re-run the turn with the compacted state) or an error outcome on
 // failure.
 func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, fit prompt.RequestTokenBudget) turnOutcome {
-	if provider.IsStatefulTranscript(p.request.Provider) {
+	if provider.IsStatefulTranscript(p.request.Provider) && !provider.SupportsStatefulCompaction(p.request.Provider) {
 		if fit.Fits {
 			// Soft compaction threshold crossed, but the request fits the hard
 			// limit: carry on without compacting a provider-owned transcript.
@@ -328,13 +361,28 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 			Stop:  true,
 		}
 	}
+	if p.statefulCapReached {
+		return p.statefulCapStop(state, fit)
+	}
 	turn := state.TurnCount + 1
 	emitCompactionStartedEvent(p.request.Events, turn)
-	compacted, err := p.compactFn(ctx, p.request, &state, turn, &fit, p.compactionHistory, &p.compactionCount)
+	attempted, applied, err := p.compactFn(ctx, p.request, &state, turn, &fit, p.compactionHistory, &p.compactionCount)
 	if err != nil {
 		return turnOutcome{State: state, Error: err, Stop: true}
 	}
-	if compacted {
+	if applied {
+		p.lastUsage = nil
+		state.ParentUsage = nil
+		if provider.SupportsStatefulCompaction(p.request.Provider) {
+			p.statefulFloor = 0
+			p.awaitingPostCompaction = true
+		}
+	} else {
+		emitCompactionSkippedEvent(p.request.Events, turn)
+	}
+	if attempted {
+		// Usage is kept on a not-applied attempt, so the retry re-checks the
+		// compaction trigger and moves to the next candidate.
 		return turnOutcome{State: state, Retry: true}
 	}
 	if fit.Fits {

@@ -531,13 +531,15 @@ func (p *claudeSubProcess) readStdout() {
 		decoded := bytes.TrimSpace(raw)
 
 		var env struct {
-			Type    string `json:"type"`
-			Subtype string `json:"subtype"`
+			Type      string `json:"type"`
+			Subtype   string `json:"subtype"`
+			UUID      string `json:"uuid"`
+			SessionID string `json:"session_id"`
 		}
 		if err := json.Unmarshal(decoded, &env); err != nil {
 			continue // not a decodable envelope; ignore the line
 		}
-		ev := claudeSubEvent{Type: env.Type, Subtype: env.Subtype, Raw: json.RawMessage(decoded)}
+		ev := claudeSubEvent{Type: env.Type, Subtype: env.Subtype, UUID: env.UUID, SessionID: env.SessionID, Raw: json.RawMessage(decoded)}
 		select {
 		case p.events <- ev:
 		case <-p.stopping:

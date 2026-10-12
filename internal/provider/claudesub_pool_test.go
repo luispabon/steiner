@@ -48,6 +48,8 @@ type claudeSubTestSpawner struct {
 	mu    sync.Mutex
 	err   error
 	calls []claudeSubTestSpawn
+	// onSpawn, when set, configures each fake connection before it is returned.
+	onSpawn func(*claudeSubFakeConn)
 }
 
 func (s *claudeSubTestSpawner) spawn(_ context.Context, path string, args, env []string, dir string) (claudeSubConn, error) {
@@ -57,6 +59,9 @@ func (s *claudeSubTestSpawner) spawn(_ context.Context, path string, args, env [
 		return nil, s.err
 	}
 	conn := newClaudeSubFakeConn()
+	if s.onSpawn != nil {
+		s.onSpawn(conn)
+	}
 	s.calls = append(s.calls, claudeSubTestSpawn{
 		Path: path,
 		Args: append([]string(nil), args...),
@@ -535,6 +540,101 @@ func TestClaudeSubPoolWaiterBehindSessionLockReturnsClosed(t *testing.T) {
 	}
 }
 
+// TestClaudeSubPoolWaiterBehindRetiredSessionAcquiresSuccessor proves a call
+// parked on a session's whole-call lock gets a fresh session when the holder
+// retires that session while the pool still runs. It must not fail as if the
+// pool closed.
+func TestClaudeSubPoolWaiterBehindRetiredSessionAcquiresSuccessor(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	ctx := context.Background()
+	holder, err := pool.acquire(ctx, "parent", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire holder: %v", err)
+	}
+
+	type result struct {
+		s   *claudeSubSession
+		err error
+	}
+	waiter := make(chan result, 1)
+	go func() {
+		s, err := pool.acquire(ctx, "parent", claudeSubTestSpec())
+		waiter <- result{s: s, err: err}
+	}()
+	claudeSubWaitFor(t, func() bool {
+		pool.mu.Lock()
+		defer pool.mu.Unlock()
+		return pool.active >= 2
+	})
+
+	pool.retire("parent", holder)
+	pool.release(holder)
+
+	select {
+	case res := <-waiter:
+		if res.err != nil {
+			t.Fatalf("waiter acquire after retire = %v, want a fresh session", res.err)
+		}
+		if res.s == holder {
+			t.Error("waiter received the retired session")
+		}
+		pool.release(res.s)
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiter behind the retired session did not acquire a successor")
+	}
+	if got := spawner.callCount(); got != 2 {
+		t.Errorf("spawned %d processes, want 2 (retired holder and successor)", got)
+	}
+}
+
+// TestClaudeSubPoolStaleRetireKeepsSuccessor proves retiring a session that a
+// successor already replaced does not unmap the successor, and that retiring the
+// same session twice is harmless while the pool keeps running.
+func TestClaudeSubPoolStaleRetireKeepsSuccessor(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	ctx := context.Background()
+	first, err := pool.acquire(ctx, "parent", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire first: %v", err)
+	}
+	pool.retire("parent", first)
+	pool.release(first)
+	second, err := pool.acquire(ctx, "parent", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire successor: %v", err)
+	}
+
+	// first is already replaced and torn down, so this stale retire must leave
+	// the successor mapped.
+	pool.retire("parent", first)
+	pool.mu.Lock()
+	mapped := pool.sessions["parent"]
+	pool.mu.Unlock()
+	if mapped != second {
+		t.Fatalf("stale retire changed sessions[parent] = %p, want successor %p", mapped, second)
+	}
+
+	pool.retire("parent", second)
+	pool.release(second)
+	pool.retire("parent", second)
+	pool.mu.Lock()
+	_, mapped2 := pool.sessions["parent"]
+	state := pool.state
+	pool.mu.Unlock()
+	if mapped2 {
+		t.Error("retired successor is still mapped")
+	}
+	if state != claudeSubPoolRunning {
+		t.Fatalf("pool state = %v after double retire, want running", state)
+	}
+	if _, err := pool.acquire(ctx, "parent", claudeSubTestSpec()); err != nil {
+		t.Fatalf("acquire after double retire: %v", err)
+	}
+	if err := pool.Close(); err != nil {
+		t.Fatalf("Close after double retire: %v", err)
+	}
+}
+
 // TestClaudeSubPoolCloseDuringBlockedStartup proves Close is bounded while a
 // startup is blocked in an injected spawn that ignores context cancellation. It
 // returns the incomplete-shutdown error, and once the spawn is released the late
@@ -796,10 +896,11 @@ func claudeSubWaitExited(t *testing.T, pool *ClaudeSubscriptionPool, key string)
 	}
 }
 
-// TestClaudeSubPoolDeadParentOrChildReturnsTypedError proves a dead parent or
-// child session is not respawned: acquire returns errClaudeSubSessionExited.
-// Closing the fake connection models the CLI process exiting on its own.
-func TestClaudeSubPoolDeadParentOrChildReturnsTypedError(t *testing.T) {
+// TestClaudeSubPoolDeadParentOrChildIsReplaced proves a dead parent or child
+// session is evicted and the next acquire starts a fresh process. Whether that
+// process resumes or reseeds is the caller's decision (D3). Closing the fake
+// connection models the CLI process exiting on its own.
+func TestClaudeSubPoolDeadParentOrChildIsReplaced(t *testing.T) {
 	tests := []struct {
 		name string
 		key  string
@@ -821,11 +922,13 @@ func TestClaudeSubPoolDeadParentOrChildReturnsTypedError(t *testing.T) {
 			}
 			claudeSubWaitExited(t, pool, tt.key)
 
-			if _, err := pool.acquire(ctx, tt.key, claudeSubTestSpec()); !errors.Is(err, errClaudeSubSessionExited) {
-				t.Fatalf("acquire after exit = %v, want errClaudeSubSessionExited", err)
+			s2, err := pool.acquire(ctx, tt.key, claudeSubTestSpec())
+			if err != nil {
+				t.Fatalf("acquire after exit: %v", err)
 			}
-			if n := spawner.callCount(); n != 1 {
-				t.Errorf("spawn count = %d, want 1 (no respawn of a dead session)", n)
+			pool.release(s2)
+			if n := spawner.callCount(); n != 2 {
+				t.Errorf("spawn count = %d, want 2 (fresh process replaces the dead one)", n)
 			}
 		})
 	}

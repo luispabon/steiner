@@ -51,4 +51,6 @@ type RunResult struct {
 	Lineage         agent.ConversationLineage
 	TokenCount      int
 	StopReason      agent.StopReason
+	// ParentUsage is set only by interactive runs; oneshot phases leave it nil.
+	ParentUsage *agent.ParentUsage
 }

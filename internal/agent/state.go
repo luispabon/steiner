@@ -1,6 +1,10 @@
 package agent
 
-import "github.com/luispabon/steiner/internal/tool"
+import (
+	"encoding/json"
+
+	"github.com/luispabon/steiner/internal/tool"
+)
 
 // StopReason records why a run terminated.
 type StopReason string
@@ -38,10 +42,14 @@ const (
 // SummaryPrefix holds any earlier compacted content that is still part of the
 // active lineage, while Messages holds the raw messages that were added in this
 // generation after the summary prefix was established.
+//
+// BackendState is opaque, provider-owned state used to resume the provider's
+// transcript. It is stored per generation and never decoded by generic layers.
 type ConversationGeneration struct {
-	ID            int       `json:"id"`
-	SummaryPrefix []Message `json:"summary_prefix"`
-	Messages      []Message `json:"messages"`
+	ID            int             `json:"id"`
+	SummaryPrefix []Message       `json:"summary_prefix"`
+	Messages      []Message       `json:"messages"`
+	BackendState  json.RawMessage `json:"backend_state,omitempty"`
 }
 
 func newConversationGeneration(id int, summaryPrefix, messages []Message) ConversationGeneration {
@@ -54,7 +62,18 @@ func newConversationGeneration(id int, summaryPrefix, messages []Message) Conver
 
 // Clone returns a deep copy of the generation.
 func (g ConversationGeneration) Clone() ConversationGeneration {
-	return newConversationGeneration(g.ID, g.SummaryPrefix, g.Messages)
+	out := newConversationGeneration(g.ID, g.SummaryPrefix, g.Messages)
+	out.BackendState = cloneBackendState(g.BackendState)
+	return out
+}
+
+// cloneBackendState returns a deep copy of state. Empty state normalizes to
+// nil so it is omitted on marshal instead of failing it.
+func cloneBackendState(state json.RawMessage) json.RawMessage {
+	if len(state) == 0 {
+		return nil
+	}
+	return append(json.RawMessage(nil), state...)
 }
 
 // FullMessages returns the complete generation view, including the summary
@@ -177,6 +196,72 @@ func (l ConversationLineage) WithAppendedMessages(messages []Message) Conversati
 	return next
 }
 
+// latestGenerationID returns the ID of the newest generation, or 0 when the
+// lineage is empty.
+func (l ConversationLineage) latestGenerationID() int {
+	if len(l.Generations) == 0 {
+		return 0
+	}
+	return l.Generations[len(l.Generations)-1].ID
+}
+
+// latestBackendState returns a copy of the newest generation's backend state.
+func (l ConversationLineage) latestBackendState() json.RawMessage {
+	if len(l.Generations) == 0 {
+		return nil
+	}
+	return cloneBackendState(l.Generations[len(l.Generations)-1].BackendState)
+}
+
+// withBackendState returns a copy with the backend state of the generation
+// identified by id updated. clearState removes the stored state and takes
+// precedence over state. A nil state leaves the stored state unchanged. An
+// unknown id, or an unchanged state, returns l itself rather than a copy.
+func (l ConversationLineage) withBackendState(id int, state json.RawMessage, clearState bool) ConversationLineage {
+	if !clearState && len(state) == 0 {
+		return l
+	}
+	for i := range l.Generations {
+		if l.Generations[i].ID != id {
+			continue
+		}
+		next := l.Clone()
+		if clearState {
+			next.Generations[i].BackendState = nil
+		} else {
+			next.Generations[i].BackendState = cloneBackendState(state)
+		}
+		return next
+	}
+	return l
+}
+
+// WithoutLatestBackendState returns l with the latest generation's backend state
+// cleared.
+func (l ConversationLineage) WithoutLatestBackendState() ConversationLineage {
+	return l.withBackendState(l.latestGenerationID(), nil, true)
+}
+
+// WithLatestBackendState returns a copy with the latest generation's backend
+// state set to a deep copy of state. A nil or empty state clears it.
+func (l ConversationLineage) WithLatestBackendState(state json.RawMessage) ConversationLineage {
+	next := l.Clone()
+	if len(next.Generations) == 0 {
+		return next
+	}
+	next.Generations[len(next.Generations)-1].BackendState = cloneBackendState(state)
+	return next
+}
+
+// WithNewGenerationState is WithNewGeneration with the new generation's backend
+// state set to a deep copy of state. A nil or empty state adds it without
+// backend state.
+func (l ConversationLineage) WithNewGenerationState(summaryPrefix, messages []Message, state json.RawMessage) ConversationLineage {
+	next := l.WithNewGeneration(summaryPrefix, messages)
+	next.Generations[len(next.Generations)-1].BackendState = cloneBackendState(state)
+	return next
+}
+
 // WithNewGeneration returns a copy with a newly appended generation.
 func (l ConversationLineage) WithNewGeneration(summaryPrefix, messages []Message) ConversationLineage {
 	next := l.Clone()
@@ -246,6 +331,9 @@ type RunState struct {
 	WorkflowHandoff     *tool.WorkflowHandoffTransition
 	BudgetNoticesIssued int
 	BudgetStartTurn     int
+	// ParentUsage is the last successful parent model response's usage. It is
+	// in-memory only and is not part of the persisted lineage.
+	ParentUsage *ParentUsage
 }
 
 // Clone returns a deep copy of the run state.
@@ -263,6 +351,7 @@ func (s RunState) Clone() RunState {
 		WorkflowHandoff:     cloneWorkflowHandoffTransition(s.WorkflowHandoff),
 		BudgetNoticesIssued: s.BudgetNoticesIssued,
 		BudgetStartTurn:     s.BudgetStartTurn,
+		ParentUsage:         s.ParentUsage.Clone(),
 	}
 }
 

@@ -21,6 +21,9 @@ type claudeSubEntry struct {
 	Images      []string
 	ToolCallIDs []string
 	ToolCallID  string
+	// UUID is the final CLI transcript uuid of an assistant entry. It is empty
+	// for user and tool entries, which steiner writes itself.
+	UUID string
 }
 
 // claudeSubDigest returns the content identity of a message for the append-only
@@ -65,6 +68,9 @@ type claudeSubDelta struct {
 
 	keep              []claudeSubEntry
 	keepInterruptible int
+	// reseeded marks a transcript delivery: its User message is the rendered
+	// history, so keep (not User) is the record and commitSent must not append.
+	reseeded bool
 }
 
 // claudeSubSync is the per-process append-only record of what has been sent to
@@ -84,6 +90,17 @@ type claudeSubSync struct {
 	// from the record: the last assistant is interruptible only when no user
 	// message was sent after it, otherwise it belongs to a completed call.
 	interruptible int
+
+	// cliSessionID is the CLI session ID from the latest envelope that carried
+	// one. fingerprint is the SHA-256 of the system prompt and tools the process
+	// started with, set once by its first normal parent call. Both feed the
+	// backend state.
+	cliSessionID string
+	fingerprint  string
+	// tainted is set once an in-place summary is sent: the CLI transcript then
+	// holds steiner's summary request, which the record does not describe. A
+	// tainted record plans and checkpoints nothing (see taint).
+	tainted bool
 }
 
 // claudeSubSystemPrompt joins the system messages of a first request, in order,
@@ -126,6 +143,9 @@ func claudeSubMessages(msgs []Message) []Message {
 // plan does not change the record: a request that fails before delivery leaves
 // it exactly as it was, so a retry plans the same delta.
 func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
+	if s.tainted {
+		return claudeSubDelta{}, errClaudeSubHistoryChanged
+	}
 	msgs := claudeSubMessages(req.Messages)
 	if !s.started {
 		for _, m := range msgs {
@@ -256,8 +276,10 @@ func (s *claudeSubSync) commitToolResult(m Message) {
 // the CLI, not on call success, so a cancelled call never re-sends user content
 // (D22). Tool results were already recorded by commitToolResult.
 func (s *claudeSubSync) commitSent(delta claudeSubDelta) {
-	for _, m := range delta.User {
-		s.entries = append(s.entries, claudeSubEntryFromMessage(m))
+	if !delta.reseeded {
+		for _, m := range delta.User {
+			s.entries = append(s.entries, claudeSubEntryFromMessage(m))
+		}
 	}
 	s.started = true
 	s.interrupted = false
@@ -265,8 +287,221 @@ func (s *claudeSubSync) commitSent(delta claudeSubDelta) {
 }
 
 // commitAssistant records the assistant message a successful call returned.
-func (s *claudeSubSync) commitAssistant(m Message) {
-	s.entries = append(s.entries, claudeSubEntryFromMessage(m))
+// uuid is that message's final CLI transcript uuid, or empty when the CLI
+// reported none.
+func (s *claudeSubSync) commitAssistant(m Message, uuid string) {
+	entry := claudeSubEntryFromMessage(m)
+	entry.UUID = uuid
+	s.entries = append(s.entries, entry)
+}
+
+// claudeSubBackendStateVersion is the schema version of claudeSubBackendState.
+// Readers must reject any other version.
+const claudeSubBackendStateVersion = 1
+
+// claudeSubBackendState is the opaque state a Claude parent generation stores
+// for resumption (D2). It holds identifiers and digests only, never message
+// text, tool payloads or credentials.
+type claudeSubBackendState struct {
+	Provider               string `json:"provider"`
+	Version                int    `json:"version"`
+	CLISessionID           string `json:"cli_session_id"`
+	TransportSession       string `json:"transport_session"`
+	SyncEntries            int    `json:"sync_entries"`
+	SyncChainDigest        string `json:"sync_chain_digest"`
+	SyncPrefixDigest       string `json:"sync_prefix_digest"`
+	FinalMessageDigest     string `json:"final_message_digest"`
+	FinalUUID              string `json:"final_uuid"`
+	PromptToolsFingerprint string `json:"prompt_tools_fingerprint"`
+}
+
+// checkpoint describes the record as of its last committed entry, owned by
+// transportSession. ok is false when the process has no fingerprint (advisor
+// sessions) or the CLI has reported no session ID, because such a state cannot
+// resume anything.
+func (s *claudeSubSync) checkpoint(transportSession string) (state claudeSubBackendState, ok bool, err error) {
+	if s.fingerprint == "" || s.cliSessionID == "" || s.tainted {
+		return claudeSubBackendState{}, false, nil
+	}
+	chain, err := claudeSubChainDigest(s.entries)
+	if err != nil {
+		return claudeSubBackendState{}, false, err
+	}
+	prefix, err := claudeSubPrefixDigest(s.entries)
+	if err != nil {
+		return claudeSubBackendState{}, false, err
+	}
+	state = claudeSubBackendState{
+		Provider:               "claude_subscription",
+		Version:                claudeSubBackendStateVersion,
+		CLISessionID:           s.cliSessionID,
+		TransportSession:       transportSession,
+		SyncEntries:            len(s.entries),
+		SyncChainDigest:        chain,
+		SyncPrefixDigest:       prefix,
+		PromptToolsFingerprint: s.fingerprint,
+	}
+	if n := len(s.entries); n > 0 {
+		last := s.entries[n-1]
+		state.FinalMessageDigest = last.Digest
+		state.FinalUUID = last.UUID
+	}
+	return state, true, nil
+}
+
+// backendState encodes the checkpoint as the opaque state a final chunk hands
+// back. It returns nil, with no error, when the checkpoint has no state.
+func (s *claudeSubSync) backendState(transportSession string) (json.RawMessage, error) {
+	state, ok, err := s.checkpoint(transportSession)
+	if err != nil || !ok {
+		return nil, err
+	}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return nil, fmt.Errorf("encode claude backend state: %w", err)
+	}
+	return raw, nil
+}
+
+// claudeSubParseState decodes a stored backend state. It reports false for an
+// absent, malformed or other-version state, so the caller reseeds instead.
+func claudeSubParseState(raw json.RawMessage) (claudeSubBackendState, bool) {
+	var st claudeSubBackendState
+	if len(raw) == 0 || json.Unmarshal(raw, &st) != nil {
+		return claudeSubBackendState{}, false
+	}
+	if st.Provider != "claude_subscription" || st.Version != claudeSubBackendStateVersion {
+		return claudeSubBackendState{}, false
+	}
+	return st, true
+}
+
+// claudeSubStateMatches reports whether a live checkpoint equals a stored state.
+// The prompt and tools fingerprint is not compared: a live process keeps the
+// prompt it started with (D5).
+func claudeSubStateMatches(live, stored claudeSubBackendState) bool {
+	return live.CLISessionID == stored.CLISessionID &&
+		live.TransportSession == stored.TransportSession &&
+		live.SyncEntries == stored.SyncEntries &&
+		live.SyncChainDigest == stored.SyncChainDigest &&
+		live.FinalMessageDigest == stored.FinalMessageDigest &&
+		live.FinalUUID == stored.FinalUUID
+}
+
+// claudeSubResumeEntries rebuilds the record a process resumed from stored
+// holds: the first stored.SyncEntries request messages, the last of which must
+// be the assistant message that carried stored.FinalUUID. It reports false when
+// the request's own history does not reproduce the stored final message.
+func claudeSubResumeEntries(msgs []Message, stored claudeSubBackendState) ([]claudeSubEntry, bool) {
+	n := stored.SyncEntries
+	if n <= 0 || n > len(msgs) || stored.FinalUUID == "" {
+		return nil, false
+	}
+	entries := claudeSubEntriesFromMessages(msgs[:n])
+	last := &entries[n-1]
+	if last.Role != MessageRoleAssistant || last.Digest != stored.FinalMessageDigest {
+		return nil, false
+	}
+	last.UUID = stored.FinalUUID
+	return entries, true
+}
+
+// claudeSubPrefixDigest is the chain digest of entries with their CLI uuids
+// cleared. Steiner can recompute it from request messages alone, so a stored
+// state can prove the history prefix without the CLI transcript.
+func claudeSubPrefixDigest(entries []claudeSubEntry) (string, error) {
+	bare := make([]claudeSubEntry, len(entries))
+	for i, e := range entries {
+		e.UUID = ""
+		bare[i] = e
+	}
+	return claudeSubChainDigest(bare)
+}
+
+// claudeSubRestoreFor reports whether a new process may resume the stored state
+// for msgs, and the resume target. Every failed check reseeds instead: a missing
+// or foreign state, a prompt and tools fingerprint that differs from the
+// request's (D5), a missing final uuid, or a history whose prefix or final
+// message the stored state does not reproduce. A state owned by another key
+// forks (D3).
+func claudeSubRestoreFor(msgs []Message, stored claudeSubBackendState, hasState bool, key, fingerprint string) (claudeSubResume, bool, error) {
+	if !hasState || !claudeSubHasHistory(msgs) || stored.CLISessionID == "" || stored.TransportSession == "" || stored.PromptToolsFingerprint != fingerprint {
+		return claudeSubResume{}, false, nil
+	}
+	entries, ok := claudeSubResumeEntries(msgs, stored)
+	if !ok {
+		return claudeSubResume{}, false, nil
+	}
+	prefix, err := claudeSubPrefixDigest(entries)
+	if err != nil {
+		return claudeSubResume{}, false, err
+	}
+	if prefix != stored.SyncPrefixDigest {
+		return claudeSubResume{}, false, nil
+	}
+	dry := claudeSubSync{entries: entries, started: true, interruptible: -1}
+	if _, err := dry.plan(ChatRequest{Messages: msgs}); err != nil {
+		return claudeSubResume{}, false, nil
+	}
+	return claudeSubResume{SessionID: stored.CLISessionID, AtUUID: stored.FinalUUID, Fork: stored.TransportSession != key}, true, nil
+}
+
+// claudeSubHasHistory reports whether msgs carry assistant or tool messages,
+// which a fresh process cannot take as appended input.
+func claudeSubHasHistory(msgs []Message) bool {
+	for _, m := range msgs {
+		if m.Role == MessageRoleAssistant || m.Role == MessageRoleTool {
+			return true
+		}
+	}
+	return false
+}
+
+// claudeSubReseedDelta renders the whole non-system history as one transcript
+// user request, carrying only the images still held in memory. The record
+// becomes the history itself, so later appends compare against the same
+// messages.
+func claudeSubReseedDelta(msgs []Message) claudeSubDelta {
+	transcript := Message{Role: MessageRoleUser, Content: claudeSubTranscript(msgs)}
+	entries := claudeSubEntriesFromMessages(msgs)
+	for _, m := range msgs {
+		for _, img := range m.Images {
+			if img.Data != "" {
+				transcript.Images = append(transcript.Images, img)
+			}
+		}
+	}
+	return claudeSubDelta{User: []Message{transcript}, keep: entries, keepInterruptible: -1, reseeded: true}
+}
+
+// claudeSubChainDigest folds every sync entry, in order, into one SHA-256
+// chain. Each link hashes the previous link with the entry's JSON, so the digest
+// changes when an entry, its order or its final uuid changes.
+func claudeSubChainDigest(entries []claudeSubEntry) (string, error) {
+	chain := ""
+	for _, entry := range entries {
+		raw, err := json.Marshal(entry)
+		if err != nil {
+			return "", fmt.Errorf("encode sync entry: %w", err)
+		}
+		sum := sha256.Sum256([]byte(chain + "\x00" + string(raw)))
+		chain = hex.EncodeToString(sum[:])
+	}
+	return chain, nil
+}
+
+// claudeSubFingerprint returns the SHA-256 of a process's system prompt and
+// tool specs. encoding/json sorts map keys, so the digest is stable.
+func claudeSubFingerprint(systemPrompt string, tools []ToolSpec) (string, error) {
+	raw, err := json.Marshal(struct {
+		SystemPrompt string     `json:"system_prompt"`
+		Tools        []ToolSpec `json:"tools"`
+	}{systemPrompt, tools})
+	if err != nil {
+		return "", fmt.Errorf("encode prompt and tools fingerprint: %w", err)
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // markInterrupted records that the CLI was interrupted (Esc or tool
@@ -336,6 +571,73 @@ func (s *claudeSubSync) commitAdvisor(snapshot []Message) {
 		s.advisorEntries = append(s.advisorEntries, claudeSubEntryFromMessage(m))
 	}
 	s.started = true
+}
+
+// errClaudeSubSummaryNoPlace reports that an in-place summary cannot be
+// appended to the live transcript. The caller falls back to a reseed.
+var errClaudeSubSummaryNoPlace = errors.New("claude_subscription summary request does not extend the live transcript")
+
+// taint marks the record as no longer describing the CLI transcript, after an
+// in-place summary was sent. A tainted record plans and checkpoints nothing, so
+// its process is never reused and returns no backend state.
+func (s *claudeSubSync) taint() {
+	s.tainted = true
+}
+
+// sourceTailUUID returns the CLI uuid of the entry that ends the first source
+// request messages. It reports false unless the record starts with exactly those
+// messages and that entry is an assistant message with a uuid.
+func (s *claudeSubSync) sourceTailUUID(msgs []Message, source int) (string, bool) {
+	if source <= 0 || source > len(msgs) || source > len(s.entries) {
+		return "", false
+	}
+	if !s.sourcePrefixMatches(msgs, source) {
+		return "", false
+	}
+	last := s.entries[source-1]
+	if last.Role != MessageRoleAssistant || last.UUID == "" {
+		return "", false
+	}
+	return last.UUID, true
+}
+
+// planSummary returns the delta of an in-place summary request. The source
+// messages must be a prefix of the record, and the instruction after them is
+// appended after the whole record, retained tail included. It never changes the
+// record, and it reports errClaudeSubSummaryNoPlace when the record cannot take
+// the request.
+func (s *claudeSubSync) planSummary(msgs []Message, source int) (claudeSubDelta, error) {
+	if s.tainted || !s.started || s.interrupted || source <= 0 || len(msgs) != source+1 || len(s.entries) < source || msgs[source].Role != MessageRoleUser {
+		return claudeSubDelta{}, errClaudeSubSummaryNoPlace
+	}
+	if !s.sourcePrefixMatches(msgs, source) {
+		return claudeSubDelta{}, errClaudeSubSummaryNoPlace
+	}
+	instruction := claudeSubMarkSummary(msgs[source], source, len(s.entries)-source)
+	return claudeSubDelta{
+		User:              []Message{instruction},
+		keep:              append([]claudeSubEntry(nil), s.entries...),
+		keepInterruptible: s.interruptible,
+	}, nil
+}
+
+// sourcePrefixMatches reports whether the record's first source entries match
+// the first source request messages. The caller bounds source against both.
+func (s *claudeSubSync) sourcePrefixMatches(msgs []Message, source int) bool {
+	for i := range source {
+		if !claudeSubEntryMatches(s.entries[i], msgs[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// claudeSubMarkSummary marks a summary instruction sent in place. It names the
+// older source the summary covers and the retained tail that already sits in
+// the transcript.
+func claudeSubMarkSummary(instruction Message, source, tail int) Message {
+	instruction.Content = fmt.Sprintf("[steiner compaction summary request: summarize the %d older source messages earlier in this transcript. The %d retained tail messages after them are already part of this transcript.]\n\n%s", source, tail, instruction.Content)
+	return instruction
 }
 
 // claudeSubTranscript renders snapshot messages as one labelled transcript the
@@ -421,6 +723,15 @@ func claudeSubEntryMatches(entry claudeSubEntry, m Message) bool {
 		return false
 	}
 	return entry.Digest == claudeSubDigest(m) && claudeSubImagesSubset(claudeSubImageFingerprints(m), entry.Images)
+}
+
+// claudeSubEntriesFromMessages returns the sync entry of each message in msgs.
+func claudeSubEntriesFromMessages(msgs []Message) []claudeSubEntry {
+	entries := make([]claudeSubEntry, 0, len(msgs))
+	for _, m := range msgs {
+		entries = append(entries, claudeSubEntryFromMessage(m))
+	}
+	return entries
 }
 
 func claudeSubEntryFromMessage(m Message) claudeSubEntry {

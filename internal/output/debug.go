@@ -352,7 +352,7 @@ func formatDiagnosticHeadline(payload ContextDiagnosticsEvent, subject string) s
 	if payload.Turn > 0 {
 		parts = append(parts, fmt.Sprintf("turn %d", payload.Turn))
 	}
-	if subject == "compaction" {
+	if subject == "compaction" && payload.Severity != "skipped" {
 		parts = append(parts, fmt.Sprintf(
 			"compacted %d %s/%d %s; retained %d %s/%d %s",
 			payload.CompactedTurns,

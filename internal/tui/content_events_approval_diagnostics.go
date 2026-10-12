@@ -175,6 +175,16 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompac
 		})
 		return
 	}
+	if payload.Severity == "skipped" {
+		b.upsertCompactionBanner(compactionBannerData{
+			label:           "Compaction skipped",
+			subtitle:        "skipped: no stage applied",
+			finished:        true,
+			skipped:         true,
+			compactionCount: payload.CompactionCount,
+		})
+		return
+	}
 
 	msgCount := payload.CompactedMessages
 	summary := "context compacted"

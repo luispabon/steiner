@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -27,9 +28,10 @@ import (
 // message_stop once an in-stream echo has been processed, or at the post-stop
 // echo or terminal result otherwise. Every content-block index belongs to a
 // single streamed block start per message, and only a streamed tool_use block
-// start authorises input_json_delta content. Each delta and stop must name an
-// index a streamed start already claimed and match that block's canonical type,
-// and a stopped block rejects later deltas; a second message_start and a success
+// start authorises input_json_delta content. Each delta must name an index a
+// streamed start already claimed and match that block's canonical type, and a
+// stopped block rejects later deltas. A stop for an unclaimed index is ignored
+// with a debug record; a second message_start and a success
 // result before message_stop both fail closed, so no invalid ordering resets or drops
 // accumulated content.
 //
@@ -100,6 +102,10 @@ type claudeSubDecoded struct {
 	// Message and FinishReason carry the assembled assistant message.
 	Message      *Message
 	FinishReason string
+	// UUID is the final CLI transcript uuid of the assembled message: the
+	// top-level uuid of the last assistant echo accepted before emission. Empty
+	// when no such echo carried one.
+	UUID string
 	// Result carries terminal turn metadata.
 	Result *claudeSubResult
 }
@@ -203,6 +209,10 @@ type claudeSubDecoder struct {
 	// streamEchoProcessed records that a valid echo arrived before message_stop.
 	// It is what permits finishMessage to emit the assembled message immediately.
 	streamEchoProcessed bool
+	// messageUUID is the top-level uuid of the last assistant echo accepted while
+	// the current message was still pending emission: its final CLI transcript
+	// entry. Reset at message_start.
+	messageUUID string
 	// messageStarted records that this decoder's single message_start has been
 	// accepted. One decoder follows one CLI turn, which carries exactly one
 	// message_start, so a second one fails closed instead of silently resetting
@@ -259,9 +269,9 @@ func (d *claudeSubDecoder) decode(ev claudeSubEvent) ([]claudeSubDecoded, error)
 		// mutates nothing and calls no hook.
 		switch d.phase {
 		case claudeSubPhaseStreaming:
-			return d.decodeAssistantEcho(ev.Raw, false)
+			return d.decodeAssistantEcho(ev.Raw, ev.UUID, false)
 		case claudeSubPhaseStopped:
-			return d.decodeAssistantEcho(ev.Raw, d.messagePending)
+			return d.decodeAssistantEcho(ev.Raw, ev.UUID, d.messagePending)
 		case claudeSubPhaseTerminal:
 			return nil, fmt.Errorf("%w: assistant echo after terminal result", errClaudeSubDecodeStream)
 		default:
@@ -600,14 +610,15 @@ func (d *claudeSubDecoder) requireOpenBlock(index int, blockType, deltaType stri
 	return nil
 }
 
-// stopBlock records that the streamed content block at index has stopped. It
-// requires the index to have been claimed by a streamed content_block_start, so
-// a stop for an index the stream never opened fails closed, and it rejects a
-// repeated stop for the same index. A stopped block then rejects any later
-// delta through requireOpenBlock.
+// stopBlock records that the streamed content block at index has stopped. A
+// stop for an index no streamed content_block_start claimed has no block to
+// finish, so it is ignored with a debug record and does not claim the index. It
+// rejects a repeated stop for the same index. A stopped block then rejects any
+// later delta through requireOpenBlock.
 func (d *claudeSubDecoder) stopBlock(index int) error {
 	if _, claimed := d.blocks[index]; !claimed {
-		return fmt.Errorf("%w: content_block_stop for index %d with no streamed content_block_start", errClaudeSubDecodeStream, index)
+		slog.Debug("claude_subscription content_block_stop without streamed content_block_start ignored", "index", index)
+		return nil
 	}
 	if d.stopped[index] {
 		return fmt.Errorf("%w: duplicate content_block_stop for index %d", errClaudeSubDecodeStream, index)
@@ -698,7 +709,7 @@ type claudeSubEchoBlock struct {
 // conflicting name, an incompatible index claim or an oversized input fails
 // closed before any of that, so a decode call never leaves a partial echo,
 // invokes a hook, or emits a final message and then fails.
-func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage, allowEchoOnly bool) ([]claudeSubDecoded, error) {
+func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage, uuid string, allowEchoOnly bool) ([]claudeSubDecoded, error) {
 	var envelope struct {
 		Message *struct {
 			Content []claudeSubEchoBlock `json:"content"`
@@ -778,6 +789,11 @@ func (d *claudeSubDecoder) decodeAssistantEcho(raw json.RawMessage, allowEchoOnl
 	d.echoProcessed = true
 	if d.phase == claudeSubPhaseStreaming {
 		d.streamEchoProcessed = true
+	}
+	// An echo that arrives after the message was emitted belongs to no emitted
+	// message, so it must not replace the message's final uuid.
+	if d.phase == claudeSubPhaseStreaming || d.messagePending {
+		d.messageUUID = uuid
 	}
 	d.echoToolIndex = nextEchoIndex
 	for index, raw := range stagedUnparsed {
@@ -947,6 +963,7 @@ func (d *claudeSubDecoder) beginMessage() {
 	d.messagePending = false
 	d.echoProcessed = false
 	d.streamEchoProcessed = false
+	d.messageUUID = ""
 	d.messageStarted = true
 	d.stopped = nil
 }
@@ -1161,6 +1178,7 @@ func (d *claudeSubDecoder) assembleMessage() (*claudeSubDecoded, error) {
 		Message:      &message,
 		FinishReason: d.stopReason,
 		Usage:        d.usage.toUsageStats(),
+		UUID:         d.messageUUID,
 	}, nil
 }
 
@@ -1199,8 +1217,10 @@ func (d *claudeSubDecoder) finalizeOrderedToolUses() ([]ToolCall, error) {
 }
 
 // claudeSubValidatedUnparsedToolInput accepts the CLI-certified sentinel only
-// for an assistant echo that confirms a streamed tool use. Its shape, raw bytes
-// and byte length must all match the accumulated input exactly.
+// for an assistant echo that confirms a streamed tool use. Its shape and raw
+// bytes must match the accumulated input exactly. The len field must be a
+// non-negative JSON integer. Its unit is not confirmed, so it is not compared
+// with raw; the emitted sentinel recomputes the byte length.
 func claudeSubValidatedUnparsedToolInput(input json.RawMessage, accumulated string) (string, bool, error) {
 	if len(input) == 0 || string(input) == "null" {
 		return "", false, nil
@@ -1221,11 +1241,12 @@ func claudeSubValidatedUnparsedToolInput(input json.RawMessage, accumulated stri
 		return "", false, fmt.Errorf("%w: malformed unparsed tool input sentinel", errClaudeSubDecodeStream)
 	}
 	var raw string
-	var length int
 	if rawField, ok := sentinel["raw"]; !ok || json.Unmarshal(rawField, &raw) != nil {
 		return "", false, fmt.Errorf("%w: unparsed tool input sentinel raw field is invalid", errClaudeSubDecodeStream)
 	}
-	if lenField, ok := sentinel["len"]; !ok || json.Unmarshal(lenField, &length) != nil || length != len([]byte(raw)) {
+	// A pointer makes a JSON null fail the nil check instead of decoding as 0.
+	var length *int
+	if lenField, ok := sentinel["len"]; !ok || json.Unmarshal(lenField, &length) != nil || length == nil || *length < 0 {
 		return "", false, fmt.Errorf("%w: unparsed tool input sentinel length is invalid", errClaudeSubDecodeStream)
 	}
 	if raw != accumulated {

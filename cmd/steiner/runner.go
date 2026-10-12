@@ -152,7 +152,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		err,
 	))
 	if err != nil {
-		return runResult{Conversation: state.Conversation, TokenCount: state.TokenCount, StopReason: state.StopReason}, err
+		return runResult{Conversation: state.Conversation, Lineage: state.Lineage, TokenCount: state.TokenCount, StopReason: state.StopReason, ParentUsage: state.ParentUsage}, err
 	}
 
 	return runResult{
@@ -163,6 +163,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		Lineage:         state.Lineage,
 		TokenCount:      state.TokenCount,
 		StopReason:      state.StopReason,
+		ParentUsage:     state.ParentUsage,
 	}, nil
 }
 
@@ -293,6 +294,12 @@ func (p loggingProvider) SupportsUsageStats() bool {
 
 func (p loggingProvider) StatefulTranscript() bool {
 	return provider.IsStatefulTranscript(p.inner)
+}
+
+// SupportsStatefulCompaction forwards the inner provider's compaction transition
+// support, so the agent sees the same capability through the wrapper.
+func (p loggingProvider) SupportsStatefulCompaction() bool {
+	return provider.SupportsStatefulCompaction(p.inner)
 }
 
 // WithEventSink implements delegation.EventSinkScoper so child runs can tag

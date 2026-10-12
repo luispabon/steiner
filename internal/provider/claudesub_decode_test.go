@@ -28,13 +28,15 @@ func claudeSubDecodeEvents(t *testing.T, name string) []claudeSubEvent {
 			continue
 		}
 		var env struct {
-			Type    string `json:"type"`
-			Subtype string `json:"subtype"`
+			Type      string `json:"type"`
+			Subtype   string `json:"subtype"`
+			UUID      string `json:"uuid"`
+			SessionID string `json:"session_id"`
 		}
 		if err := json.Unmarshal([]byte(line), &env); err != nil {
 			t.Fatalf("parse fixture %s line %q: %v", name, line, err)
 		}
-		events = append(events, claudeSubEvent{Type: env.Type, Subtype: env.Subtype, Raw: json.RawMessage(line)})
+		events = append(events, claudeSubEvent{Type: env.Type, Subtype: env.Subtype, UUID: env.UUID, SessionID: env.SessionID, Raw: json.RawMessage(line)})
 	}
 	if err := sc.Err(); err != nil {
 		t.Fatalf("scan fixture %s: %v", name, err)
@@ -1589,10 +1591,6 @@ func TestClaudeSubDecodeRejectsUnclaimedOrMismatchedBlockEvents(t *testing.T) {
 			prior: []string{`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`},
 			inner: `{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"x"}}`,
 		},
-		{
-			name:  "stop with no block start",
-			inner: `{"type":"content_block_stop","index":0}`,
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1930,4 +1928,88 @@ func TestClaudeSubDecodeOversizedStartLeavesNoState(t *testing.T) {
 	if acc == nil || acc.ID != "toolu_1" || acc.Name != "mcp__steiner__read" {
 		t.Errorf("valid start accumulator = %+v, want the streamed identity", acc)
 	}
+}
+
+// TestClaudeSubDecodeAssembledMessageUUID pins the uuid an emitted assistant
+// message carries: the uuid of the last echo accepted before emission.
+func TestClaudeSubDecodeAssembledMessageUUID(t *testing.T) {
+	withoutEchoUUID := claudeSubDecodeEvents(t, "turn_tool_use.jsonl")
+	for i := range withoutEchoUUID {
+		if withoutEchoUUID[i].Type == "assistant" {
+			withoutEchoUUID[i].UUID = ""
+		}
+	}
+	stream := func(inner string) claudeSubEvent {
+		return claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":` + inner + `}`)}
+	}
+	echo := func(uuid string) claudeSubEvent {
+		return claudeSubEvent{Type: "assistant", UUID: uuid, Raw: json.RawMessage(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_confirm","name":"mcp__steiner__read","input":{"path":"confirmed.txt"}}]}}`)}
+	}
+	result := claudeSubEvent{Type: "result", Raw: json.RawMessage(`{"subtype":"success","is_error":false}`)}
+	streamed := []claudeSubEvent{
+		stream(`{"type":"message_start","message":{"usage":{}}}`),
+		stream(`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_confirm","name":"mcp__steiner__read"}}`),
+		echo("u-stream"),
+		stream(`{"type":"content_block_stop","index":0}`),
+		stream(`{"type":"message_stop"}`),
+	}
+	tests := []struct {
+		name   string
+		events []claudeSubEvent
+		want   string
+	}{
+		{name: "fixture echo uuid", events: claudeSubDecodeEvents(t, "turn_tool_use.jsonl"), want: "u7"},
+		{name: "later echo without uuid", events: withoutEchoUUID, want: ""},
+		{name: "in-stream echo before message_stop", events: append(append([]claudeSubEvent{}, streamed...), result), want: "u-stream"},
+		{name: "post-stop confirmation does not replace emitted uuid", events: append(append([]claudeSubEvent{}, streamed...), echo("u-confirm"), result), want: "u-stream"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hooks := claudeSubDecodeHooks{ToolName: claudeSubStripPrefix}
+			messages := claudeSubDecodedOfKind(claudeSubDecodeAll(t, hooks, tc.events), claudeSubDecodeMessage)
+			if len(messages) != 1 {
+				t.Fatalf("messages = %d, want 1", len(messages))
+			}
+			if messages[0].UUID != tc.want {
+				t.Errorf("message UUID = %q, want %q", messages[0].UUID, tc.want)
+			}
+		})
+	}
+}
+
+func TestClaudeSubDecodeToleratesOrphanStop(t *testing.T) {
+	decodeOK := func(d *claudeSubDecoder, raw string) []claudeSubDecoded {
+		t.Helper()
+		got, err := d.decode(claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(raw)})
+		if err != nil {
+			t.Fatalf("decode %s: %v", raw, err)
+		}
+		return got
+	}
+	d := newClaudeSubDecoder(claudeSubDecodeHooks{})
+	decodeOK(d, `{"event":{"type":"message_start","message":{"usage":{}}}}`)
+	decodeOK(d, `{"event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}`)
+	text := claudeSubDecodedOfKind(decodeOK(d, `{"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}}`), claudeSubDecodeText)
+	if len(text) != 1 || text[0].Text != "hi" {
+		t.Fatalf("text = %+v, want hi", text)
+	}
+	// A stop for index 2 that no start claimed is ignored: no error, no events.
+	if got := decodeOK(d, `{"event":{"type":"content_block_stop","index":2}}`); len(got) != 0 {
+		t.Fatalf("orphan stop events = %+v, want none", got)
+	}
+	// The ignored stop must not claim index 2: a delta for it still fails closed.
+	if _, err := d.decode(claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"x"}}}`)}); !errors.Is(err, errClaudeSubDecodeStream) {
+		t.Fatalf("delta after orphan stop error = %v, want %v", err, errClaudeSubDecodeStream)
+	}
+
+	// A later valid lifecycle on the same index still works after the stray stop.
+	d = newClaudeSubDecoder(claudeSubDecodeHooks{})
+	decodeOK(d, `{"event":{"type":"message_start","message":{"usage":{}}}}`)
+	decodeOK(d, `{"event":{"type":"content_block_stop","index":2}}`)
+	decodeOK(d, `{"event":{"type":"content_block_start","index":2,"content_block":{"type":"text","text":""}}}`)
+	text = claudeSubDecodedOfKind(decodeOK(d, `{"event":{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"ok"}}}`), claudeSubDecodeText)
+	if len(text) != 1 || text[0].Text != "ok" {
+		t.Fatalf("text after stray stop = %+v, want ok", text)
+	}
+	decodeOK(d, `{"event":{"type":"content_block_stop","index":2}}`)
 }

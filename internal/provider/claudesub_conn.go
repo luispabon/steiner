@@ -51,11 +51,13 @@ type claudeSubConn interface {
 }
 
 // claudeSubEvent is one decoded stdout envelope. Type and Subtype are the
-// top-level "type" and "subtype" fields; Raw is the full original line.
+// top-level "type", "subtype", "uuid" and "session_id" fields; Raw is the full original line.
 type claudeSubEvent struct {
-	Type    string
-	Subtype string
-	Raw     json.RawMessage
+	Type      string
+	Subtype   string
+	UUID      string
+	SessionID string
+	Raw       json.RawMessage
 }
 
 // claudeSubSpawner starts a claude CLI process. ctx bounds spawn setup only:

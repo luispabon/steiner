@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -408,5 +409,221 @@ func TestRunnerLargeToolResultCrossingSoftThresholdButFittingCompletes(t *testin
 	}
 	if got, want := len(providerStub.requests), 2; got != want {
 		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+}
+
+// claudeLikeCompactionProvider is a stateful provider with the compaction
+// transition contract. Its summary stream is one done chunk, and it records the
+// requests it receives through fakeProvider.
+type claudeLikeCompactionProvider struct {
+	*fakeProvider
+}
+
+func (claudeLikeCompactionProvider) StatefulTranscript() bool         { return true }
+func (claudeLikeCompactionProvider) SupportsStatefulCompaction() bool { return true }
+
+// newClaudeLikeCompactionProvider returns a claudeLikeCompactionProvider whose
+// summary done chunk sets ClearBackendState to clearState.
+func newClaudeLikeCompactionProvider(clearState bool) claudeLikeCompactionProvider {
+	return claudeLikeCompactionProvider{fakeProvider: &fakeProvider{
+		streamFn: func(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+			ch := make(chan provider.ChatChunk, 1)
+			ch <- provider.ChatChunk{
+				Delta:             provider.Message{Role: provider.MessageRoleAssistant, Content: "summary"},
+				ContentSnapshot:   true,
+				Done:              true,
+				FinishReason:      "stop",
+				ClearBackendState: clearState,
+			}
+			close(ch)
+			return ch, nil
+		},
+	}}
+}
+
+// compactionTestTurns returns five user and assistant turns.
+func compactionTestTurns() []Message {
+	const n = 5
+	msgs := make([]Message, 0, 2*n)
+	for i := range n {
+		msgs = append(msgs,
+			Message{Role: MessageRoleUser, Content: fmt.Sprintf("turn %d user", i)},
+			Message{Role: MessageRoleAssistant, Content: fmt.Sprintf("turn %d answer", i)},
+		)
+	}
+	return msgs
+}
+
+func compactionTestBudget() RunRequest {
+	return RunRequest{
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         100000,
+			MaxCompletionTokens: 256,
+			SummaryMaxTokens:    128,
+		},
+	}
+}
+
+// TestRunnerCompactStatefulSummaryUsesTransitionContract proves a stateful
+// provider with the transition contract is compacted, and that the summary
+// request carries the marker, the source count and the generation's backend
+// state.
+func TestRunnerCompactStatefulSummaryUsesTransitionContract(t *testing.T) {
+	prov := newClaudeLikeCompactionProvider(false)
+	conv := compactionTestTurns()
+	state := []byte(`{"provider":"claude_subscription","version":1}`)
+	lineage := ConversationLineage{
+		Generations:      []ConversationGeneration{{ID: 1, Messages: conv, BackendState: state}},
+		NextGenerationID: 2,
+	}
+	req := compactionTestBudget()
+	req.Provider = prov
+
+	got, cleared, err := (&Runner{}).CompactWithLineage(context.Background(), req, lineage, conv)
+	if err != nil {
+		t.Fatalf("CompactWithLineage() error = %v", err)
+	}
+	if cleared {
+		t.Error("cleared = true for a summary that does not clear backend state")
+	}
+	if len(got) >= len(conv) {
+		t.Errorf("conversation length = %d, want fewer than %d after compaction", len(got), len(conv))
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1", len(prov.requests))
+	}
+	sent := prov.requests[0]
+	if !sent.CompactionSummary {
+		t.Error("summary request lacks CompactionSummary")
+	}
+	if sent.CompactionSourceMessages <= 0 || sent.CompactionSourceMessages >= len(conv) {
+		t.Errorf("CompactionSourceMessages = %d, want between 1 and %d", sent.CompactionSourceMessages, len(conv)-1)
+	}
+	if string(sent.BackendState) != string(state) {
+		t.Errorf("summary BackendState = %s, want the generation state %s", sent.BackendState, state)
+	}
+}
+
+// TestSummarizeCompactorClearsOldGenerationBackendStateWhenSummaryClears proves
+// a summary whose response clears backend state drops the old generation's
+// stored state, and that the summary does not change the state of the
+// generation it compacts into.
+func TestSummarizeCompactorClearsOldGenerationBackendStateWhenSummaryClears(t *testing.T) {
+	prov := newClaudeLikeCompactionProvider(true)
+	conv := compactionTestTurns()
+	state := RunState{Conversation: conv, Lineage: newConversationLineage(conv)}
+	oldID := state.Lineage.latestGenerationID()
+	state.Lineage = state.Lineage.withBackendState(oldID, []byte(`{"version":1}`), false)
+	if state.Lineage.latestBackendState() == nil {
+		t.Fatal("test setup: latest generation has no backend state")
+	}
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+	req := compactionTestBudget()
+	req.Provider = prov
+
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 3, candidate, "")
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if !outcome.Applied {
+		t.Fatal("summary not applied")
+	}
+	found := false
+	for _, gen := range outcome.State.Lineage.Generations {
+		if gen.ID != oldID {
+			continue
+		}
+		found = true
+		if gen.BackendState != nil {
+			t.Errorf("old generation kept backend state %s, want it cleared", gen.BackendState)
+		}
+	}
+	if !found {
+		t.Fatalf("old generation %d missing from compacted lineage", oldID)
+	}
+}
+
+// TestRunnerCompactStatefulSummaryReportsClearedState proves a summary that
+// clears the generation's backend state is reported, so the caller can drop that
+// state from the lineage it keeps.
+func TestRunnerCompactStatefulSummaryReportsClearedState(t *testing.T) {
+	prov := newClaudeLikeCompactionProvider(true)
+	conv := compactionTestTurns()
+	lineage := ConversationLineage{
+		Generations:      []ConversationGeneration{{ID: 1, Messages: conv, BackendState: []byte(`{"version":1}`)}},
+		NextGenerationID: 2,
+	}
+	req := compactionTestBudget()
+	req.Provider = prov
+
+	got, cleared, err := (&Runner{}).CompactWithLineage(context.Background(), req, lineage, conv)
+	if err != nil {
+		t.Fatalf("CompactWithLineage() error = %v", err)
+	}
+	if len(got) >= len(conv) {
+		t.Fatalf("conversation length = %d, want fewer than %d after compaction", len(got), len(conv))
+	}
+	if !cleared {
+		t.Error("cleared = false, want true for a summary that clears backend state")
+	}
+}
+
+// TestTurnProgressorCompactionDue proves the automatic trigger: a native
+// provider keeps the estimated fit, a stateful compaction provider triggers on
+// CLI usage against the context window, and the hard limit always triggers.
+func TestTurnProgressorCompactionDue(t *testing.T) {
+	stateful := newClaudeLikeCompactionProvider(false)
+	native := &fakeProvider{}
+	tests := []struct {
+		name  string
+		prov  provider.Provider
+		fit   prompt.RequestTokenBudget
+		usage *provider.UsageStats
+		want  bool
+	}{
+		{name: "native estimate triggers", prov: native, fit: prompt.RequestTokenBudget{Fits: true, ShouldCompact: true, ContextSize: 1000}, want: true},
+		{name: "native ignores response usage", prov: native, fit: prompt.RequestTokenBudget{Fits: true, ContextSize: 1000}, usage: &provider.UsageStats{PromptTokens: 900}},
+		{name: "native hard limit", prov: native, fit: prompt.RequestTokenBudget{Fits: false, ContextSize: 1000}, want: true},
+		// PromptTokens is the total input, cache included, as the provider decodes it.
+		// Adding the cache counts again would turn the 650 case into 1300.
+		{name: "stateful total with cache reaches threshold", prov: stateful, fit: prompt.RequestTokenBudget{Fits: true, ContextSize: 1000}, usage: &provider.UsageStats{PromptTokens: 710, CacheReadInputTokens: 500, CacheCreationInputTokens: 200}, want: true},
+		{name: "stateful total below threshold despite large cache", prov: stateful, fit: prompt.RequestTokenBudget{Fits: true, ContextSize: 1000}, usage: &provider.UsageStats{PromptTokens: 650, CacheReadInputTokens: 500, CacheCreationInputTokens: 150}},
+		{name: "stateful estimate alone does not trigger", prov: stateful, fit: prompt.RequestTokenBudget{Fits: true, ShouldCompact: true, ContextSize: 1000}, usage: &provider.UsageStats{PromptTokens: 100}},
+		{name: "stateful without usage does not trigger", prov: stateful, fit: prompt.RequestTokenBudget{Fits: true, ContextSize: 1000}},
+		{name: "stateful hard limit triggers", prov: stateful, fit: prompt.RequestTokenBudget{Fits: false, ContextSize: 1000}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &turnProgressor{request: RunRequest{Provider: tt.prov}, lastUsage: tt.usage}
+			if got := p.compactionDue(tt.fit); got != tt.want {
+				t.Errorf("compactionDue() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestHandleCompactionStatefulTransitionCompactsWhileFitting proves a stateful
+// compaction provider that fits the hard limit still compacts when the trigger
+// fires, and that a completed compaction resets the usage trigger.
+func TestHandleCompactionStatefulTransitionCompactsWhileFitting(t *testing.T) {
+	calls := 0
+	p := newTurnProgressor(RunRequest{Provider: newClaudeLikeCompactionProvider(false)}, prompt.AssemblyOptions{}, func(context.Context, RunRequest, *RunState, int, *prompt.RequestTokenBudget, map[string]bool, *int) (bool, bool, error) {
+		calls++
+		return true, true, nil
+	})
+	p.lastUsage = &provider.UsageStats{PromptTokens: 800}
+	outcome := p.handleCompaction(context.Background(), RunState{}, prompt.RequestTokenBudget{Fits: true, ContextSize: 1000})
+	if outcome.Error != nil || !outcome.Retry {
+		t.Fatalf("handleCompaction() = %+v, want retry without error", outcome)
+	}
+	if calls != 1 {
+		t.Errorf("compaction ran %d times, want 1", calls)
+	}
+	if p.lastUsage != nil {
+		t.Error("lastUsage kept after a completed compaction")
 	}
 }

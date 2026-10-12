@@ -18,9 +18,9 @@ func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testin
 	var events []output.Event
 	s := mustCompactionSession(t, Dependencies{BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
 	ctrl := s.ActiveRunController()
-	result, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, error) {
+	result, _, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, bool, error) {
 		s.events.Emit(output.NewAssistantChunkEventWithSource(1, "chunk", output.ChunkSourceAssistant))
-		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
+		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, false, nil
 	})
 	if err != nil || len(result) != 1 {
 		t.Fatalf("runManualCompaction() = %#v, %v", result, err)
@@ -51,13 +51,13 @@ func TestRunManualCompactionRetainsSteerQueuedWhileActive(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, error) {
+		_, _, _ = s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, bool, error) {
 			close(started)
 			select {
 			case <-release:
-				return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
+				return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, false, nil
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, false, ctx.Err()
 			}
 		})
 	}()
@@ -81,9 +81,9 @@ func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testin
 	s := mustCompactionSession(t, Dependencies{BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
 	ctrl := s.ActiveRunController()
 	want := agent.SteerMessage{Text: "queued before compaction error"}
-	_, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, error) {
+	_, _, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, bool, error) {
 		ctrl.SteerQueue().Add(want)
-		return nil, errors.New("boom")
+		return nil, false, errors.New("boom")
 	})
 	if err == nil || err.Error() != "boom" {
 		t.Fatalf("error = %v, want boom", err)
@@ -106,11 +106,11 @@ func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 	started := make(chan struct{})
 	want := agent.SteerMessage{Text: "queued before compaction cancellation"}
 	go func() { <-started; ctrl.Interrupt() }()
-	_, err := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, error) {
+	_, _, err := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, bool, error) {
 		close(started)
 		ctrl.SteerQueue().Add(want)
 		<-ctx.Done()
-		return nil, ctx.Err()
+		return nil, false, ctx.Err()
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
@@ -344,6 +344,66 @@ func TestManualCompactionPersistsCompactSessionWithoutFollowupPrompt(t *testing.
 	}
 	if !reflect.DeepEqual(loaded.Lineage.FullMessages(), s.Conversation()) {
 		t.Fatal("persisted conversation differs")
+	}
+}
+
+// lineageRecordingRunner is a runExecutor that also compacts against the run's
+// lineage, and records the lineage it was given.
+type lineageRecordingRunner struct {
+	runExecutorFunc
+	lineage agent.ConversationLineage
+	// clearState is reported back as the summary clearing the backend state.
+	clearState bool
+}
+
+func (r *lineageRecordingRunner) CompactWithLineage(_ context.Context, conversation []agent.Message, lineage agent.ConversationLineage, _ []provider.ToolSpec, _ string) ([]agent.Message, bool, error) {
+	r.lineage = lineage
+	return conversation, r.clearState, nil
+}
+
+// TestManualCompactionPassesDriverLineageToLineageRunner proves a manual
+// compaction hands the driver's live lineage, backend state included, to the
+// executor seam rather than rebuilding an empty lineage.
+func TestManualCompactionPassesDriverLineageToLineageRunner(t *testing.T) {
+	conv := twoTurnConversation()
+	lineage := agent.ConversationLineage{
+		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: conv, BackendState: []byte(`{"provider":"claude_subscription","version":1}`)}},
+		NextGenerationID: 2,
+	}
+	runner := &lineageRecordingRunner{}
+	s := mustCompactionSession(t, Dependencies{Runner: runner})
+	drv := agent.NewConversationDriver(agent.DriverOptions{}, conv, lineage)
+	if _, _, err := s.manualCompaction(drv, "")(context.Background(), conv); err != nil {
+		t.Fatalf("manualCompaction() error = %v", err)
+	}
+	if !reflect.DeepEqual(runner.lineage.Generations, lineage.Generations) {
+		t.Fatalf("runner lineage = %+v, want the driver lineage %+v", runner.lineage.Generations, lineage.Generations)
+	}
+}
+
+// TestManualCompactionClearsGenerationStateWhenProviderClears proves a summary
+// that clears backend state drops it from the driver's old generation, and that
+// the new generation starts empty.
+func TestManualCompactionClearsGenerationStateWhenProviderClears(t *testing.T) {
+	conv := twoTurnConversation()
+	lineage := agent.ConversationLineage{
+		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: conv, BackendState: []byte(`{"version":1}`)}},
+		NextGenerationID: 2,
+	}
+	runner := &lineageRecordingRunner{clearState: true}
+	s := mustCompactionSession(t, Dependencies{Runner: runner})
+	drv := agent.NewConversationDriver(agent.DriverOptions{}, conv, lineage)
+	_, got, err := s.manualCompaction(drv, "")(context.Background(), conv)
+	if err != nil {
+		t.Fatalf("manualCompaction() error = %v", err)
+	}
+	if len(got.Generations) != 2 {
+		t.Fatalf("generations = %d, want the old generation and a new one", len(got.Generations))
+	}
+	for _, gen := range got.Generations {
+		if gen.BackendState != nil {
+			t.Errorf("generation %d kept backend state %s, want none after the clear", gen.ID, gen.BackendState)
+		}
 	}
 }
 

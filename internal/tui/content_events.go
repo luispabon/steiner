@@ -106,6 +106,7 @@ type compactionBannerData struct {
 	label    string
 	subtitle string
 	finished bool
+	skipped  bool // finished without a compaction; renders no success mark
 	summary  string
 	msgCount int // number of messages compacted (for finished summary)
 

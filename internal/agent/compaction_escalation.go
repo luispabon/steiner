@@ -157,6 +157,12 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 	if err != nil {
 		return provider.ChatRequest{}, nil, "", err
 	}
+	sourceMessages := 0
+	for _, msg := range assembly.Messages {
+		if msg.Role != provider.MessageRoleSystem {
+			sourceMessages++
+		}
+	}
 	messages := append(provider.CloneMessages(assembly.Messages), provider.Message{
 		Role:    provider.MessageRoleUser,
 		Content: prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, steering),
@@ -177,6 +183,12 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 		Params:                 req.ResolvedModel.Params,
 		ExtraParams:            req.ResolvedModel.ExtraParams,
 		MaxTokens:              compactionMaxTokensForMode(maxTokens),
+		// The summary is issued against the generation's backend state. A
+		// Claude-style provider uses the marker and source count to answer it
+		// without touching that state; other providers ignore both.
+		BackendState:             state.Lineage.latestBackendState(),
+		CompactionSummary:        true,
+		CompactionSourceMessages: sourceMessages,
 	}
 	request = applyPromptSuffix(req.ResolvedModel.PromptSuffix, request)
 	request.IncludeEmptyReasoning = req.ResolvedModel.ReasoningEchoBack

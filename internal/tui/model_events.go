@@ -341,9 +341,13 @@ func (m *Model) applyMCPStatusEvent(payload output.MCPStatusEvent) {
 func (m *Model) applyCompactionEvent(payload output.ContextCompactionEvent) {
 	cs := newCompactionState(payload)
 	m.setCompaction(cs)
-	if cs.Active() {
+	switch {
+	case cs.Active():
 		m.activity = m.activity.waiting("compacting context", compactingLabel(payload))
-	} else {
+	case payload.Severity == "skipped":
+		// Nothing was compacted; the run continues in the same waiting state a model call uses.
+		m.activity = m.activity.waiting("waiting", "")
+	default:
 		m.activity = m.activity.static("context compacted", compactedLabel(payload))
 		m.applyContextBudget(payload.BudgetSnapshot())
 	}

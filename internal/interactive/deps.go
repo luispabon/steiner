@@ -21,11 +21,16 @@ type RunResult struct {
 	Lineage    agent.ConversationLineage
 	TokenCount int
 	StopReason agent.StopReason
+	// ParentUsage is the run's last successful parent usage, in memory only.
+	ParentUsage *agent.ParentUsage
 }
 
 // RunInput is what the session hands a runExecutor for one turn sequence.
 type RunInput struct {
 	Conversation []agent.Message
+	// Lineage is the conversation's lineage; the run resumes the latest
+	// generation's backend state from it.
+	Lineage agent.ConversationLineage
 	// DrainInbox returns the next boundary delivery for the run.
 	DrainInbox func() agent.InboxDrain
 	// PendingSubAgents lists the sub-agents still running; nil when the session
@@ -35,6 +40,8 @@ type RunInput struct {
 	MaxTokens int
 	// DelegationGroupScope identifies the run's delegation group-name ledger.
 	DelegationGroupScope string
+	// ParentUsage seeds the run's stateful compaction trigger; nil starts without one.
+	ParentUsage *agent.ParentUsage
 }
 
 // runExecutor starts and manages model-in-the-loop runs. Consumer-defined to
@@ -47,6 +54,15 @@ type runExecutor interface {
 	// Compact reduces the conversation through the same runner seam used by
 	// normal runs.
 	Compact(ctx context.Context, conversation []agent.Message, tools []provider.ToolSpec, steering string) ([]agent.Message, error)
+}
+
+// lineageCompactor is implemented by runExecutors that compact against the
+// run's lineage, so the summary request carries its backend state. Executors
+// without it compact from the conversation alone.
+type lineageCompactor interface {
+	// CompactWithLineage reports whether the summary cleared the backend state of
+	// the lineage's latest generation.
+	CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, error)
 }
 
 // skillLoader loads a skill document by name for submit-time injection.

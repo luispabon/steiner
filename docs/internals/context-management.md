@@ -106,6 +106,29 @@ Both stages work the same way:
 
 `ConversationLineage` keeps all generations — nothing is ever pruned. This means the full conversation history is theoretically recoverable, but subsequent turns only see the latest generation.
 
+### Stateful transcript providers (`claude_subscription`)
+
+Steiner cannot rewrite history the CLI already holds, so compaction for a stateful transcript runs through the CLI. `statefulUsageAboveThreshold` in `internal/agent/turn_progression.go` triggers compaction when the last response's `PromptTokens` reaches 70% of the context window. For `claude_subscription`, `PromptTokens` is the CLI's total input: input, cache creation, and cache read tokens, summed by `claudeSubUsage.toUsageStats` in `internal/provider/claudesub_decode.go`. A request that does not fit also triggers compaction. `errStatefulCompaction` in `internal/agent/compaction.go` applies only to stateful providers without `SupportsStatefulCompaction`.
+
+In interactive sessions, the last successful parent response's usage is carried into the next run in memory (`agent.ParentUsage`, held by `ConversationDriver`). It is used only while the lineage generation is unchanged and the model backend ID and context window still match. A generation change drops it. The exception is automatic in-run compaction completion, which carries usage with an armed prompt floor (see the guard below) to the new generation. Explicit manual compaction always clears it, including an armed floor. Sub-agent, advisor, and compaction-summary calls never set it. It is not written to backend state or saved session files, so after a restart the first run of a session has no carried usage and the trigger waits for the first response of the new process.
+
+The stateful guard stops recompaction from a fixed prompt floor. The CLI's system prompt and tools keep `PromptTokens` above a small window's 70% line even after compaction, so without a guard every parent turn would compact again. After a successful stateful compaction, the first parent response decides the guard, in memory only:
+
+- Below 70%: nothing is armed, and the 70% trigger applies as before.
+- From 70% up to 90% of the window: the response's `PromptTokens` is armed as `StatefulFloor` on `agent.ParentUsage`. The soft trigger then waits until usage reaches `min(floor + ceil(10% of window), ceil(90% of window))`, inclusive. Below that point the floor stays armed. Reaching it releases the floor and compaction is due.
+- At or above 90%: the run is marked cap-reached and its next compaction decision stops it with `request exceeds context window`, without calling the compactor. That decision is made even when the request still fits the hard limit. The stop emits a critical `likely_lossy` session health event with critical restart guidance. The cap is run-local and never carried.
+
+A carried floor is `ParentUsage.StatefulFloor`. It follows the same model and context-window match as the usage and is carried across interactive parent runs. A successful compaction clears it. It is never written to backend state or saved session files, so a restart drops it.
+
+`claudeSubSummaryTurn` in `internal/provider/claudesub_turn.go` answers the summary request:
+
+| Caller | Path | Persistence |
+|--------|------|-------------|
+| Sub-agent (`ParentTransportSession` set) | Marked in-place summary on its own process. The process is tainted and retired. A process that cannot take the request is replaced and the request reseeded. | Ephemeral |
+| Parent with stored state matching the live checkpoint and the request's prompt/tools fingerprint, source ending at an assistant UUID | Ephemeral helper forks the stored CLI session at that UUID (`--resume-session-at`, `--fork-session`). Returns no backend state. | None, `MaxTurns` 1 |
+| Parent, fork not possible or failed before output, live process present | Marked summary appended to the live transcript. The process is tainted and retired; the final chunk clears the generation's backend state. | In place |
+| Parent, no live process | Request messages reseeded unmarked on an ephemeral helper. A reseed does not reuse prompt cache. | None, `MaxTurns` 1 |
+
 ### Retention anchor and pending re-injection
 
 After the last-N-chunks rule picks the normal-stage retained tail, `anchorRealUserRetention` extends it back to the latest real user message (`IsRealUserMessage`: user role, `Source` not `sub_agent_result`) when the chunk rule left that message in the source. Assistant-led wake sequences would otherwise evict the prompt. The extension reuses `fitRunner`, the same fit check the stage applies to retained messages, and is discarded if the extended tail does not fit or would leave nothing to summarise (the anchor is the first message). The emergency stages keep their plain chunk retention.

@@ -35,6 +35,14 @@ type claudeSubStartSpec struct {
 	// Effort is steiner's reasoning effort, mapped by claudeSubEffort to the
 	// CLI's --effort and thinking flags (D11).
 	Effort string
+	// Persist keeps the started CLI session on disk and lets it return backend
+	// state. Only parent calls set it (D4).
+	Persist bool
+	// Resume restores a stored CLI session when the process starts.
+	Resume claudeSubResume
+	// MaxTurns caps the CLI turns of the process when positive (see
+	// claudeSubSpawnOptions.MaxTurns).
+	MaxTurns int
 }
 
 // claudeSubPendingCall is one pending tool call: the tool-use id plus the
@@ -94,6 +102,13 @@ type claudeSubSession struct {
 
 	model  string
 	effort string
+	// resume is the spawn-time restore target of this process. primed is set once
+	// the process record is ready for a delivery. parentCall is set per delivery:
+	// only a parent call's final chunk returns backend state (D4). All three are
+	// guarded by the whole-call lock.
+	resume     claudeSubResume
+	primed     bool
+	parentCall bool
 
 	// pending holds the opaque handles for tool-use ids awaiting results.
 	// Guarded by the whole-call lock (the caller holds it for the whole call).
@@ -228,6 +243,7 @@ func startClaudeSubSession(ctx context.Context, p *ClaudeSubscriptionPool, key s
 		dir:         dir,
 		model:       spec.Model,
 		effort:      spec.Effort,
+		resume:      spec.Resume,
 		sync:        &claudeSubSync{},
 		call:        make(chan struct{}, 1),
 		gone:        make(chan struct{}),
@@ -251,7 +267,7 @@ func startClaudeSubSession(ctx context.Context, p *ClaudeSubscriptionPool, key s
 		return s, fmt.Errorf("secure claude_subscription session dir: %w", err)
 	}
 
-	spawnOpts := claudeSubSpawnOptions{Model: spec.Model}
+	spawnOpts := claudeSubSpawnOptions{Model: spec.Model, Persist: spec.Persist, Resume: spec.Resume, MaxTurns: spec.MaxTurns}
 	spawnOpts.Effort, spawnOpts.ThinkingDisabled = claudeSubEffort(spec.Effort)
 
 	// The MCP host and --mcp-config exist only when steiner has tools to
@@ -319,8 +335,8 @@ func (s *claudeSubSession) beginPendingCall(id string) *claudeSubCall {
 }
 
 // lockCall takes the session's whole-call lock, waiting until it is free, the
-// session is torn down, or ctx is canceled. acquire is the only caller, and
-// every successful lockCall is paired with release (or unlockCall on the
+// session is torn down, or ctx is canceled. takeLease and settleStartup call it,
+// and every successful lockCall is paired with release (or unlockCall on the
 // reservation-rollback paths).
 func (s *claudeSubSession) lockCall(ctx context.Context) error {
 	// Reject an already-canceled request deterministically before the select:

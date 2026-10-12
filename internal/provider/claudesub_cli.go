@@ -165,6 +165,15 @@ func claudeSubMaxMCPOutputTokens(toolOutputMaxBytes int) int {
 	return tokens
 }
 
+// claudeSubResume names the stored CLI session a new process restores (D3).
+// AtUUID stops the restore at that transcript message. Fork starts a new
+// session ID from it instead of continuing the stored one.
+type claudeSubResume struct {
+	SessionID string
+	AtUUID    string
+	Fork      bool
+}
+
 // claudeSubSpawnOptions are the per-process knobs that shape the child argv.
 type claudeSubSpawnOptions struct {
 	Model            string
@@ -172,6 +181,13 @@ type claudeSubSpawnOptions struct {
 	ThinkingDisabled bool
 	SystemPromptFile string
 	MCPConfigFile    string
+	// Persist keeps the CLI session on disk. Only parent calls persist (D4).
+	Persist bool
+	// Resume restores a stored CLI session instead of starting an empty one.
+	Resume claudeSubResume
+	// MaxTurns caps the CLI turns of the process when positive. Summary helpers
+	// use 1 (D-compaction).
+	MaxTurns int
 }
 
 // claudeSubArgs returns the child argv in the fixed order the CLI is driven
@@ -187,9 +203,22 @@ func claudeSubArgs(o claudeSubSpawnOptions) []string {
 		"--tools", "",
 		"--strict-mcp-config",
 		"--setting-sources=",
-		"--no-session-persistence",
+	}
+	if !o.Persist {
+		args = append(args, "--no-session-persistence")
+	}
+	args = append(args,
 		"--settings", `{"autoCompactEnabled":false,"fastMode":false}`,
 		"--permission-mode", "dontAsk",
+	)
+	if o.Resume.SessionID != "" {
+		args = append(args, "--resume", o.Resume.SessionID)
+		if o.Resume.AtUUID != "" {
+			args = append(args, "--resume-session-at", o.Resume.AtUUID)
+		}
+		if o.Resume.Fork {
+			args = append(args, "--fork-session")
+		}
 	}
 	if o.MCPConfigFile != "" {
 		args = append(args, "--mcp-config", o.MCPConfigFile, "--allowedTools", claudeSubToolPrefix+"*")
@@ -205,6 +234,9 @@ func claudeSubArgs(o claudeSubSpawnOptions) []string {
 	}
 	if effort != "" {
 		args = append(args, "--effort", effort)
+	}
+	if o.MaxTurns > 0 {
+		args = append(args, "--max-turns", strconv.Itoa(o.MaxTurns))
 	}
 	return args
 }

@@ -14,6 +14,8 @@ const (
 	compactionCriticalThreshold       = 3
 	compactionFragilityOveragePercent = 20
 	compactionUsageThreshold          = 0.70
+	compactionHysteresisPercent       = 10
+	compactionCapUsagePercent         = 90
 )
 
 const (
@@ -227,6 +229,11 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
+	if response.ClearBackendState {
+		// An in-place summary retired the generation's live process, so the
+		// generation's stored backend state no longer names a live transcript.
+		state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), nil, true)
+	}
 
 	summaryText := compactionSummaryText(response.Message.Content, plan.candidate)
 	if summaryText == "" {
@@ -283,8 +290,19 @@ func fitConversationState(ctx context.Context, req RunRequest, state RunState) (
 
 // Compact reduces the current conversation to fit the model budget.
 func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Message, steerings ...string) ([]Message, error) {
-	if provider.IsStatefulTranscript(req.Provider) {
-		return nil, fmt.Errorf("compact conversation: %w", errStatefulCompaction)
+	// Without a lineage there is no backend state to clear.
+	compacted, _, err := r.CompactWithLineage(ctx, req, ConversationLineage{}, currentConv, steerings...)
+	return compacted, err
+}
+
+// CompactWithLineage is Compact for a caller that holds the run's lineage. The
+// lineage contributes only its latest backend state, which the summary request
+// is issued against. The messages compacted are still currentConv. It also
+// reports whether the summary cleared that backend state, so the caller can drop
+// it from the lineage it keeps.
+func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage ConversationLineage, currentConv []Message, steerings ...string) ([]Message, bool, error) {
+	if provider.IsStatefulTranscript(req.Provider) && !provider.SupportsStatefulCompaction(req.Provider) {
+		return nil, false, fmt.Errorf("compact conversation: %w", errStatefulCompaction)
 	}
 	steering := ""
 	if len(steerings) > 0 {
@@ -294,44 +312,65 @@ func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Mess
 		Conversation: currentConv,
 		Lineage:      newConversationLineage(currentConv),
 	}
+	state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), lineage.latestBackendState(), false)
+	startID := state.Lineage.latestGenerationID()
+	hadState := state.Lineage.latestBackendState() != nil
 
 	skipped := map[string]bool{}
 	compactionCount := 0
 
-	compacted, err := r.compactConversationForBudgetWithSteering(ctx, req, &state, 0, nil, skipped, &compactionCount, steering)
+	// A not-applied candidate leaves state unchanged, so the applied flag is not
+	// needed here: the conversation is returned as-is either way.
+	compacted, _, err := r.compactConversationForBudgetWithSteering(ctx, req, &state, 0, nil, skipped, &compactionCount, steering)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !compacted {
-		return currentConv, nil
+		return currentConv, false, nil
 	}
 
-	return state.Conversation, nil
+	return state.Conversation, backendStateCleared(state.Lineage, startID, hadState), nil
 }
 
-func (r *Runner) compactConversationForBudget(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (bool, error) {
+// backendStateCleared reports whether generation id held backend state and the
+// compaction has since cleared it.
+func backendStateCleared(l ConversationLineage, id int, hadState bool) bool {
+	if !hadState {
+		return false
+	}
+	for _, gen := range l.Generations {
+		if gen.ID == id {
+			return gen.BackendState == nil
+		}
+	}
+	return false
+}
+
+func (r *Runner) compactConversationForBudget(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (bool, bool, error) {
 	return r.compactConversationForBudgetWithSteering(ctx, req, state, turn, beforeFit, skipped, compactionCount, "")
 }
 
-func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int, steering string) (bool, error) {
+// compactConversationForBudgetWithSteering processes the next candidate. It
+// reports whether a candidate was attempted and whether its compaction applied.
+func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int, steering string) (bool, bool, error) {
 	candidate, ok := selectCompactionCandidate(state.Lineage, skipped)
 	if !ok {
-		return false, nil
+		return false, false, nil
 	}
 
 	currentFit, err := compactionCurrentFit(ctx, req, *state, beforeFit)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	outcome, err := summarizeCompactor{}.Compact(ctx, req, *state, turn, candidate, steering)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	if !outcome.Applied {
 		skipped[compactionCandidateKey(candidate)] = true
-		return true, nil
+		return true, false, nil
 	}
 
 	*state = outcome.State
@@ -353,7 +392,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 		})
 	}
 	skipped[compactionCandidateKey(candidate)] = true
-	return true, nil
+	return true, true, nil
 }
 
 func compactionCurrentFit(ctx context.Context, req RunRequest, state RunState, beforeFit *prompt.RequestTokenBudget) (prompt.RequestTokenBudget, error) {

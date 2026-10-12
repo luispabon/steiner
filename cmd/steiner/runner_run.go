@@ -166,9 +166,18 @@ func (r cliRunner) cachedCodexWSProvider(cache *provider.CodexWSCache, rm provid
 }
 
 func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
+	// Without a lineage there is no backend state to clear.
+	compacted, _, err := r.CompactWithLineage(ctx, conversation, agent.ConversationLineage{}, skillNames, tools, steering)
+	return compacted, err
+}
+
+// CompactWithLineage compacts conversation for the run whose lineage is given.
+// The lineage supplies the backend state the summary request is issued against.
+// It reports whether the summary cleared that state.
+func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, error) {
 	setup, err := r.prepareRun(nil, skillNames)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	req := agent.RunRequest{
 		Provider:          setup.provider,
@@ -179,6 +188,7 @@ func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, sk
 		Events:            r.runtime.events,
 		CompactionLogPath: r.runtime.compactionLogFile,
 		PromptCacheKey:    r.promptCacheKey(),
+		TransportSession:  r.sessionID(),
 		Diagnostics:       r.runtime.diagnostics,
 		// Compaction shares the session's cache baseline so its diagnostics can
 		// report the shared prefix with the parent's last accepted request. It
@@ -189,7 +199,7 @@ func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, sk
 	if r.runtime.usageRecorder != nil {
 		req.UsageRecorder = r.runtime.usageRecorder
 	}
-	return agent.NewRunner().Compact(ctx, req, conversation, steering)
+	return agent.NewRunner().CompactWithLineage(ctx, req, lineage, conversation, steering)
 }
 
 func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []string, modelBudget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {
@@ -275,8 +285,12 @@ type runHooks struct {
 	drainInbox           func() agent.InboxDrain
 	pendingSubAgents     func() []agent.PendingSubAgent
 	delegationGroupScope string
+	// lineage seeds the run's backend state; the zero value starts without one.
+	lineage agent.ConversationLineage
 	// maxTokens tightens the configured token limit when positive.
 	maxTokens int
+	// parentUsage seeds the run's stateful compaction trigger; nil starts without one.
+	parentUsage *agent.ParentUsage
 }
 
 func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, hooks runHooks) agent.RunRequest {
@@ -328,6 +342,8 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		VisionCapabilities: visionCapabilities,
 		ImageStore:         r.runtime.imageStore,
 		SourceConversation: setup.conversation,
+		SeedLineage:        hooks.lineage,
+		SeedParentUsage:    hooks.parentUsage,
 		// Reserve child agent IDs in parent call-emission order so concurrent
 		// specialized and vision handlers bind to their own call's ID instead of
 		// racing the ID generator.
