@@ -494,7 +494,7 @@ func claudeSubChainDigest(entries []claudeSubEntry) (string, error) {
 // the CLI injects into a session. Bump it when those change, so stored CLI
 // transcripts from the old profile are reseeded instead of resumed: they hold
 // CLI-injected memory and account context.
-const claudeSubLaunchProfile = 2
+const claudeSubLaunchProfile = 1
 
 // claudeSubFingerprint returns the SHA-256 of a process's system prompt, tool
 // specs and launch profile. encoding/json sorts map keys, so the digest is

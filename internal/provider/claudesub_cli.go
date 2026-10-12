@@ -105,6 +105,10 @@ var claudeSubStrippedEnvKeys = map[string]struct{}{
 	"CLAUDE_CODE_ENTRYPOINT":  {},
 }
 
+// claudeSubMaxMCPOutputTokensEnv is the CLI variable that caps MCP tool output
+// in tokens.
+const claudeSubMaxMCPOutputTokensEnv = "MAX_MCP_OUTPUT_TOKENS"
+
 // claudeSubFixedEnv are the KEY=value overrides steiner always sets on the
 // child, ahead of MAX_MCP_OUTPUT_TOKENS.
 var claudeSubFixedEnv = []string{
@@ -128,7 +132,7 @@ var claudeSubLaunchEnv = []string{
 // derived from claudeSubFixedEnv, claudeSubLaunchEnv and MAX_MCP_OUTPUT_TOKENS.
 // Any inherited entry with one of these names is dropped before the override is
 // appended, so the child never sees a second value.
-var claudeSubForcedEnvKeys = claudeSubEnvNames([]string{"MAX_MCP_OUTPUT_TOKENS"}, claudeSubFixedEnv, claudeSubLaunchEnv)
+var claudeSubForcedEnvKeys = claudeSubEnvNames([]string{claudeSubMaxMCPOutputTokensEnv}, claudeSubFixedEnv, claudeSubLaunchEnv)
 
 // claudeSubEnvNames returns the names in extra plus the names of the KEY=value
 // entries in groups.
@@ -169,7 +173,7 @@ func claudeSubChildEnvFold(base []string, toolOutputMaxBytes int, foldCase bool)
 		out = append(out, kv)
 	}
 	out = append(out, claudeSubFixedEnv...)
-	out = append(out, fmt.Sprintf("MAX_MCP_OUTPUT_TOKENS=%d", claudeSubMaxMCPOutputTokens(toolOutputMaxBytes)))
+	out = append(out, fmt.Sprintf(claudeSubMaxMCPOutputTokensEnv+"=%d", claudeSubMaxMCPOutputTokens(toolOutputMaxBytes)))
 	return append(out, claudeSubLaunchEnv...)
 }
 

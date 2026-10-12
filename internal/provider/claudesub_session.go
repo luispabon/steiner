@@ -541,7 +541,7 @@ func claudeSubWritePrivateFile(dir, name, content string) (string, error) {
 func claudeSubSessionEnv(base []string, toolOutputMaxBytes int) []string {
 	env := claudeSubChildEnv(base, toolOutputMaxBytes)
 	if toolOutputMaxBytes <= 0 {
-		env = claudeSubEnvWithout(env, "MAX_MCP_OUTPUT_TOKENS")
+		env = claudeSubEnvWithout(env, claudeSubMaxMCPOutputTokensEnv)
 	}
 	return env
 }
