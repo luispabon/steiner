@@ -789,10 +789,11 @@ func TestClaudeSubTurnFailureThenRetry(t *testing.T) {
 func TestClaudeSubDecodeErrorRetiresProcess(t *testing.T) {
 	turn := claudeSubDecodeEvents(t, "turn_text.jsonl")
 	// system init, message_start, the text block up to "Hello", a duplicate
-	// message_start (decode error), then the rest of the turn.
+	// message_start (decode error), then message_stop, which stays queued as
+	// the stale tail. A reused process answers the next user line with a batch
+	// that starts at message_start, so the stale message_stop comes first.
 	broken := append([]claudeSubEvent{}, turn[:8]...)
-	broken = append(broken, turn[1])
-	broken = append(broken, turn[8:]...)
+	broken = append(broken, turn[1], turn[11])
 	advisorMessages := []Message{claudeSubUserText("read notes"), {Role: MessageRoleAssistant, Content: "Hello world"}, claudeSubUserText("is it right?")}
 	tests := []struct {
 		name string
@@ -804,7 +805,7 @@ func TestClaudeSubDecodeErrorRetiresProcess(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			pool, spawner := claudeSubPoolWithScripts(t,
-				&claudeSubScript{batches: [][]claudeSubEvent{broken}},
+				&claudeSubScript{batches: [][]claudeSubEvent{broken, turn[1:]}},
 				claudeSubTextTurns(t, 1))
 			req := tc.req
 			req.Model = claudeSubTestSpec().Model
@@ -826,7 +827,11 @@ func TestClaudeSubDecodeErrorRetiresProcess(t *testing.T) {
 			if !spawner.call(t, 0).Conn.isClosed() {
 				t.Error("failed process was not closed")
 			}
-			final := claudeSubRunTurn(t, pool, req)
+			// The second request adds a user line so the reused process, if any,
+			// writes a line and reads its next batch.
+			second := req
+			second.Messages = append(append([]Message{}, req.Messages...), claudeSubUserText("more"))
+			final := claudeSubRunTurn(t, pool, second)
 			if final.Delta.Content != "Hello world" {
 				t.Errorf("second turn text = %q, want Hello world", final.Delta.Content)
 			}
