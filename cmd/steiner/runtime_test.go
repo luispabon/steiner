@@ -129,7 +129,7 @@ func TestCloseRuntimeClosesClaudeSubscriptionPool(t *testing.T) {
 
 	closeRuntime(&rt)
 
-	claude := provider.NewClaudeSubscriptionProvider(pool)
+	claude := provider.NewClaudeSubscriptionProvider(pool, nil)
 	_, err := claude.ChatCompletion(context.Background(), provider.ChatRequest{TransportSession: "runtime-close"})
 	if err == nil || !strings.Contains(err.Error(), "pool is closed") {
 		t.Fatalf("Claude request after closeRuntime error = %v, want closed-pool error", err)

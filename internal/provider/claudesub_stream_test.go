@@ -14,7 +14,7 @@ func TestClaudeSubStreamEmitsTerminalError(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	stream, err := claudeSubStream(ctx, pool, ChatRequest{Model: "m", Messages: []Message{{Role: MessageRoleUser, Content: "hello"}}})
+	stream, err := claudeSubStream(ctx, pool, ChatRequest{Model: "m", Messages: []Message{{Role: MessageRoleUser, Content: "hello"}}}, nil)
 	if err != nil {
 		t.Fatalf("claudeSubStream() error = %v", err)
 	}
@@ -32,7 +32,7 @@ func TestClaudeSubStreamEmitsTerminalError(t *testing.T) {
 func TestClaudeSubStreamCancellationStopsDelivery(t *testing.T) {
 	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	ctx, cancel := context.WithCancel(context.Background())
-	stream, err := claudeSubStream(ctx, pool, ChatRequest{Model: "m", Messages: []Message{{Role: MessageRoleAssistant, Content: "invalid"}}})
+	stream, err := claudeSubStream(ctx, pool, ChatRequest{Model: "m", Messages: []Message{{Role: MessageRoleAssistant, Content: "invalid"}}}, nil)
 	if err != nil {
 		t.Fatalf("claudeSubStream() error = %v", err)
 	}

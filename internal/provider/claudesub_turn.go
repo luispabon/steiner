@@ -775,7 +775,10 @@ func claudeSubTurnFailure(r *claudeSubResult) error {
 	if text == "" {
 		return fmt.Errorf("claude_subscription turn failed: %s", r.Subtype)
 	}
-	return fmt.Errorf("claude_subscription turn failed: %s: %s", r.Subtype, text)
+	return &claudeSubDetailError{
+		detail: fmt.Errorf("claude_subscription turn failed: %s: %s", r.Subtype, text),
+		safe:   fmt.Errorf("claude_subscription turn failed: %s", r.Subtype),
+	}
 }
 
 // SupportsStatefulCompaction reports that compaction summaries follow the

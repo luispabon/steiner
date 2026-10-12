@@ -82,7 +82,8 @@ func isDecodeError(err error) bool {
 	return errors.Is(err, errDecodeChatCompletionResponse) ||
 		errors.Is(err, errDecodeStreamChunk) ||
 		errors.Is(err, errDecodeStreamChunkUnexpected) ||
-		errors.Is(err, errDecodeToolCallArguments)
+		errors.Is(err, errDecodeToolCallArguments) ||
+		errors.Is(err, errClaudeSubDecodeStream)
 }
 
 func isTimeoutError(err error) bool {

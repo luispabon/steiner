@@ -7,7 +7,7 @@ import (
 )
 
 func TestClaudeSubscriptionProviderCapabilities(t *testing.T) {
-	p := NewClaudeSubscriptionProvider(nil)
+	p := NewClaudeSubscriptionProvider(nil, nil)
 	if !p.SupportsUsageStats() {
 		t.Error("SupportsUsageStats() = false, want true")
 	}

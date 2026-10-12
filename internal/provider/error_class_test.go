@@ -70,6 +70,12 @@ func TestClassifyErrorClass(t *testing.T) {
 			want: errorClassDecodeError,
 		},
 		{
+			name: "claude subscription decode stream",
+			ctx:  context.Background(),
+			err:  fmt.Errorf("%w: duplicate message_start", errClaudeSubDecodeStream),
+			want: errorClassDecodeError,
+		},
+		{
 			name: "http 429 rate limited",
 			ctx:  context.Background(),
 			err:  &HTTPError{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"},

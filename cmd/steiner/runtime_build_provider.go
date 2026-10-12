@@ -29,7 +29,7 @@ func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provid
 			if claudePool == nil {
 				return nil, fmt.Errorf("the claude_subscription provider is not available for this run")
 			}
-			return provider.NewClaudeSubscriptionProvider(claudePool), nil
+			return provider.NewClaudeSubscriptionProvider(claudePool, streamErrorLog), nil
 		case config.ProviderTypeOpenAICompat, config.ProviderTypeOllama, config.ProviderTypeLMStudio,
 			config.ProviderTypeOpenRouter, config.ProviderTypeOpenAI, config.ProviderTypeLiteLLM:
 			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog))
