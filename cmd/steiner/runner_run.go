@@ -289,6 +289,8 @@ type runHooks struct {
 	lineage agent.ConversationLineage
 	// maxTokens tightens the configured token limit when positive.
 	maxTokens int
+	// parentUsage seeds the run's stateful compaction trigger; nil starts without one.
+	parentUsage *agent.ParentUsage
 }
 
 func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, hooks runHooks) agent.RunRequest {
@@ -341,6 +343,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		ImageStore:         r.runtime.imageStore,
 		SourceConversation: setup.conversation,
 		SeedLineage:        hooks.lineage,
+		SeedParentUsage:    hooks.parentUsage,
 		// Reserve child agent IDs in parent call-emission order so concurrent
 		// specialized and vision handlers bind to their own call's ID instead of
 		// racing the ID generator.
