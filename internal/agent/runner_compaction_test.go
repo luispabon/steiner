@@ -441,8 +441,9 @@ func newClaudeLikeCompactionProvider(clearState bool) claudeLikeCompactionProvid
 	}}
 }
 
-// compactionTestTurns returns n user and assistant turns.
-func compactionTestTurns(n int) []Message {
+// compactionTestTurns returns five user and assistant turns.
+func compactionTestTurns() []Message {
+	const n = 5
 	msgs := make([]Message, 0, 2*n)
 	for i := range n {
 		msgs = append(msgs,
@@ -470,7 +471,7 @@ func compactionTestBudget() RunRequest {
 // state.
 func TestRunnerCompactStatefulSummaryUsesTransitionContract(t *testing.T) {
 	prov := newClaudeLikeCompactionProvider(false)
-	conv := compactionTestTurns(5)
+	conv := compactionTestTurns()
 	state := []byte(`{"provider":"claude_subscription","version":1}`)
 	lineage := ConversationLineage{
 		Generations:      []ConversationGeneration{{ID: 1, Messages: conv, BackendState: state}},
@@ -510,7 +511,7 @@ func TestRunnerCompactStatefulSummaryUsesTransitionContract(t *testing.T) {
 // generation it compacts into.
 func TestSummarizeCompactorClearsOldGenerationBackendStateWhenSummaryClears(t *testing.T) {
 	prov := newClaudeLikeCompactionProvider(true)
-	conv := compactionTestTurns(5)
+	conv := compactionTestTurns()
 	state := RunState{Conversation: conv, Lineage: newConversationLineage(conv)}
 	oldID := state.Lineage.latestGenerationID()
 	state.Lineage = state.Lineage.withBackendState(oldID, []byte(`{"version":1}`), false)
@@ -551,7 +552,7 @@ func TestSummarizeCompactorClearsOldGenerationBackendStateWhenSummaryClears(t *t
 // state from the lineage it keeps.
 func TestRunnerCompactStatefulSummaryReportsClearedState(t *testing.T) {
 	prov := newClaudeLikeCompactionProvider(true)
-	conv := compactionTestTurns(5)
+	conv := compactionTestTurns()
 	lineage := ConversationLineage{
 		Generations:      []ConversationGeneration{{ID: 1, Messages: conv, BackendState: []byte(`{"version":1}`)}},
 		NextGenerationID: 2,

@@ -98,7 +98,7 @@ func TestParentUsageCloneIsDeep(t *testing.T) {
 // report promptTokens, and its summary stream completes with one done chunk.
 func statefulRunProvider(promptTokens int) claudeLikeCompactionProvider {
 	prov := newClaudeLikeCompactionProvider(false)
-	prov.fakeProvider.chatFn = func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+	prov.chatFn = func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
 		return provider.ChatResponse{
 			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"},
 			Usage:   &provider.UsageStats{PromptTokens: promptTokens},
@@ -128,7 +128,7 @@ func statefulRunRequest(prov provider.Provider, seed *ParentUsage) RunRequest {
 		ResolvedModel:      provider.ResolvedModel{BackendModelID: "model-a"},
 		ModelBudget:        prompt.ModelTokenBudget{ContextSize: 10000, MaxCompletionTokens: 16, SummaryMaxTokens: 64, NormalSummaryMaxTokens: 64, EmergencySummaryMaxTokens: 32},
 		Limits:             Limits{MaxTurns: 8},
-		SourceConversation: compactionTestTurns(5),
+		SourceConversation: compactionTestTurns(),
 		SeedParentUsage:    seed,
 	}
 }
@@ -167,7 +167,7 @@ func TestRunKeepsParentUsageWhenLaterCallFails(t *testing.T) {
 	// without compacting, which would clear the usage.
 	calls := 0
 	prov := statefulRunProvider(100)
-	prov.fakeProvider.chatFn = func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+	prov.chatFn = func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
 		calls++
 		if calls == 1 {
 			return provider.ChatResponse{
