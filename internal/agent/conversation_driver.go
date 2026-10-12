@@ -318,9 +318,10 @@ type carriedParentUsage struct {
 }
 
 // carriedParentUsageLocked returns a copy of the carried usage when it was
-// measured in the latest generation, or nil.
+// measured in the latest generation, or nil. An empty lineage has no latest
+// generation, so it never returns usage.
 func (d *ConversationDriver) carriedParentUsageLocked() *ParentUsage {
-	if d.parentUsage.usage == nil || d.parentUsage.generationID != d.lineage.latestGenerationID() {
+	if len(d.lineage.Generations) == 0 || d.parentUsage.usage == nil || d.parentUsage.generationID != d.lineage.latestGenerationID() {
 		return nil
 	}
 	return d.parentUsage.usage.Clone()
@@ -330,9 +331,10 @@ func (d *ConversationDriver) carriedParentUsageLocked() *ParentUsage {
 // usage, tagged with the current latest generation. A run that advanced the
 // lineage drops it: the usage describes the pre-compaction context. The one
 // exception is usage with an armed StatefulFloor, which was measured after the
-// advancing compaction and so describes the new generation.
+// advancing compaction and so describes the new generation. Usage is not carried
+// while the lineage is empty, because there is no generation to tag it with.
 func (d *ConversationDriver) carryParentUsageLocked(advanced bool, usage *ParentUsage) {
-	if usage == nil || (advanced && usage.StatefulFloor <= 0) {
+	if usage == nil || len(d.lineage.Generations) == 0 || (advanced && usage.StatefulFloor <= 0) {
 		d.parentUsage = carriedParentUsage{}
 		return
 	}

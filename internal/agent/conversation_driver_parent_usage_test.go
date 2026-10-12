@@ -148,3 +148,37 @@ func TestCarriedParentUsageInvalidatedByGeneration(t *testing.T) {
 		t.Errorf("carried usage after generation change = %+v, want nil", got)
 	}
 }
+
+// TestCarriedParentUsageNeverForEmptyLineage proves usage is neither carried nor
+// returned while the lineage has no generations, since an empty lineage's
+// latest generation ID of 0 would otherwise match a zero tag.
+func TestCarriedParentUsageNeverForEmptyLineage(t *testing.T) {
+	tests := []struct {
+		name     string
+		advanced bool
+		usage    *ParentUsage
+	}{
+		{name: "plain run", usage: parentUsageFixture(8000)},
+		{name: "advanced run", advanced: true, usage: parentUsageFixture(8000)},
+		{name: "stateful floor after advance", advanced: true, usage: func() *ParentUsage {
+			u := parentUsageFixture(8000)
+			u.StatefulFloor = 7500
+			return u
+		}()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := NewConversationDriver(DriverOptions{}, nil, ConversationLineage{})
+			d.mu.Lock()
+			defer d.mu.Unlock()
+
+			d.carryParentUsageLocked(tt.advanced, tt.usage)
+			if d.parentUsage.usage != nil {
+				t.Errorf("carried usage = %+v, want none for empty lineage", d.parentUsage.usage)
+			}
+			if got := d.carriedParentUsageLocked(); got != nil {
+				t.Errorf("carriedParentUsageLocked() = %+v, want nil for empty lineage", got)
+			}
+		})
+	}
+}

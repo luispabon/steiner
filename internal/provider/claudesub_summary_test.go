@@ -223,6 +223,54 @@ func TestClaudeSubSummarySubAgentAppendsMarkedRequestInPlace(t *testing.T) {
 	}
 }
 
+// TestClaudeSubSummarySubAgentNoPlaceReseedsOnFreshProcess proves a sub-agent
+// whose record cannot take the in-place summary retires its live process, and
+// the summary is cold-reseeded on a fresh process that answers without state.
+func TestClaudeSubSummarySubAgentNoPlaceReseedsOnFreshProcess(t *testing.T) {
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1), claudeSubTextTurns(t, 1))
+	model := claudeSubTestSpec().Model
+	u1 := claudeSubUserText("look")
+	first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent-agent-1", ParentTransportSession: "parent", Model: model, Messages: []Message{u1}})
+	// The source opens with a message the record does not hold, so the
+	// in-place append cannot take it.
+	summary := claudeSubRunTurn(t, pool, ChatRequest{
+		TransportSession:         "parent-agent-1",
+		ParentTransportSession:   "parent",
+		Model:                    model,
+		Messages:                 []Message{claudeSubUserText("not the first question"), first.Delta, claudeSubUserText("summarize")},
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	})
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawned %d processes, want 2 (retired sub-agent and fresh reseed helper)", got)
+	}
+	if !spawner.call(t, 0).Conn.isClosed() {
+		t.Error("no-place summary left the live sub-agent process running")
+	}
+	pool.mu.Lock()
+	_, live := pool.sessions["parent-agent-1"]
+	pool.mu.Unlock()
+	if live {
+		t.Error("no-place retirement left the sub-agent pooled")
+	}
+	helper := spawner.call(t, 1).Args
+	if !claudeSubHasArg(helper, "--no-session-persistence") {
+		t.Errorf("reseed helper persists its session: %v", helper)
+	}
+	if _, ok := claudeSubArgValue(helper, "--resume"); ok {
+		t.Errorf("reseed helper resumed a session: %v", helper)
+	}
+	if lines := strings.Join(claudeSubUserLines(spawner.call(t, 1).Conn), "\n"); !strings.Contains(lines, "steiner compaction summary request") {
+		t.Errorf("reseed helper was not sent the marked summary request: %s", lines)
+	}
+	if summary.Delta.Content != "Hello world" {
+		t.Errorf("summary text = %q, want %q", summary.Delta.Content, "Hello world")
+	}
+	if summary.BackendState != nil || summary.ClearBackendState {
+		t.Errorf("sub-agent reseed summary chunk = state %s clear %v, want no state change", summary.BackendState, summary.ClearBackendState)
+	}
+}
+
 // claudeSubFailedResumeBatch is the CLI answer to a fork whose resume fails
 // before any output.
 func claudeSubFailedResumeBatch() []claudeSubEvent {
