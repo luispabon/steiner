@@ -149,6 +149,8 @@ func TestClaudeSubDecodeTruncatedUnparsedSentinelUsesFullInput(t *testing.T) {
 	}{
 		{"ascii over cap", long, long[:2048]},
 		{"surrogate pair cut", surrogate, `{"p": "` + strings.Repeat("a", 2040)},
+		{"exactly cap", claudeSubInputOfUnits(2048), claudeSubInputOfUnits(2048)},
+		{"one unit over cap", claudeSubInputOfUnits(2049), claudeSubInputOfUnits(2049)[:2048]},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := claudeSubStreamedSentinelDecode(t, tc.streamed, tc.echoRaw, "2048")
@@ -174,6 +176,40 @@ func TestClaudeSubDecodeTruncatedUnparsedSentinelUsesFullInput(t *testing.T) {
 	}
 }
 
+// claudeSubInputOfUnits returns an ASCII input of exactly n UTF-16 code units.
+func claudeSubInputOfUnits(n int) string {
+	const open, closing = `{"p": "`, `"}`
+	return open + strings.Repeat("a", n-len(open)-len(closing)) + closing
+}
+
+// TestClaudeSubUnparsedRawPrefix checks the CLI cap at its boundaries, for a cut
+// surrogate pair, and for invalid UTF-8. Every result must be a byte prefix of
+// the input.
+func TestClaudeSubUnparsedRawPrefix(t *testing.T) {
+	invalid := `{"p": "` + "\xff" + strings.Repeat("a", 3000) + `"}`
+	for _, tc := range []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"under cap", "abc", "abc"},
+		{"exactly cap", claudeSubInputOfUnits(2048), claudeSubInputOfUnits(2048)},
+		{"one unit over cap", claudeSubInputOfUnits(2049), claudeSubInputOfUnits(2049)[:2048]},
+		{"surrogate pair cut", `{"p": "` + strings.Repeat("a", 2040) + "😀bbbb" + `"}`, `{"p": "` + strings.Repeat("a", 2040)},
+		{"invalid byte over cap", invalid, invalid[:2048]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := claudeSubUnparsedRawPrefix(tc.in)
+			if !strings.HasPrefix(tc.in, got) {
+				t.Fatalf("prefix %q is not a byte prefix of input", got)
+			}
+			if got != tc.want {
+				t.Fatalf("prefix = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestClaudeSubDecodeTruncatedUnparsedSentinelMismatchFails rejects raw values
 // that are neither the streamed input nor the CLI's truncated prefix of it.
 func TestClaudeSubDecodeTruncatedUnparsedSentinelMismatchFails(t *testing.T) {
@@ -187,6 +223,7 @@ func TestClaudeSubDecodeTruncatedUnparsedSentinelMismatchFails(t *testing.T) {
 		{"prefix one unit short", long, long[:2047]},
 		{"prefix one unit long", long, long[:2049]},
 		{"short raw not the input", `{"path": "x"}`, `{"path":`},
+		{"exact cap truncated", claudeSubInputOfUnits(2048), claudeSubInputOfUnits(2048)[:2047]},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := claudeSubStreamedSentinelDecode(t, tc.streamed, tc.echoRaw, "2048")

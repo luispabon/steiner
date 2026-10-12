@@ -1222,19 +1222,23 @@ func (d *claudeSubDecoder) finalizeOrderedToolUses() ([]ToolCall, error) {
 const claudeSubUnparsedRawMaxUnits = 2048
 
 // claudeSubUnparsedRawPrefix reproduces the CLI's truncation of a streamed tool
-// input. It keeps the first claudeSubUnparsedRawMaxUnits UTF-16 code units and
-// drops a trailing high surrogate whose pair was cut. Inputs within the cap are
-// returned unchanged.
+// input. It returns the longest byte prefix of s that fits in
+// claudeSubUnparsedRawMaxUnits UTF-16 code units, so a surrogate pair cut by
+// the cap is dropped. Invalid UTF-8 bytes count as one unit each. Inputs within
+// the cap are returned unchanged.
 func claudeSubUnparsedRawPrefix(s string) string {
-	units := utf16.Encode([]rune(s))
-	if len(units) <= claudeSubUnparsedRawMaxUnits {
-		return s
+	units := 0
+	for i, r := range s {
+		n := utf16.RuneLen(r)
+		if n < 0 {
+			n = 1
+		}
+		if units+n > claudeSubUnparsedRawMaxUnits {
+			return s[:i]
+		}
+		units += n
 	}
-	prefix := units[:claudeSubUnparsedRawMaxUnits]
-	if last := prefix[len(prefix)-1]; last >= 0xD800 && last <= 0xDBFF {
-		prefix = prefix[:len(prefix)-1]
-	}
-	return string(utf16.Decode(prefix))
+	return s
 }
 
 // claudeSubValidatedUnparsedToolInput accepts the CLI-certified sentinel only
