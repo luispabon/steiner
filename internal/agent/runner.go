@@ -280,7 +280,7 @@ func (r *Runner) run(ctx context.Context, req RunRequest) (RunState, error) {
 						return state, nil
 					}
 					emitStop(req.Events, state, outcome.Error)
-					return state, outcome.Error
+					return state, &ReportedError{Err: outcome.Error}
 				}
 				continue
 			}
@@ -293,7 +293,7 @@ func (r *Runner) run(ctx context.Context, req RunRequest) (RunState, error) {
 				}
 			}
 			emitStop(req.Events, state, outcome.Error)
-			return state, outcome.Error
+			return state, &ReportedError{Err: outcome.Error}
 		}
 		runnerRetries = 0
 		if outcome.Stop {
