@@ -480,9 +480,12 @@ func TestRunnerCompactStatefulSummaryUsesTransitionContract(t *testing.T) {
 	req := compactionTestBudget()
 	req.Provider = prov
 
-	got, cleared, err := (&Runner{}).CompactWithLineage(context.Background(), req, lineage, conv)
+	got, cleared, applied, err := (&Runner{}).CompactWithLineage(context.Background(), req, lineage, conv)
 	if err != nil {
 		t.Fatalf("CompactWithLineage() error = %v", err)
+	}
+	if !applied {
+		t.Error("applied = false for a summary that was applied")
 	}
 	if cleared {
 		t.Error("cleared = true for a summary that does not clear backend state")
@@ -560,9 +563,12 @@ func TestRunnerCompactStatefulSummaryReportsClearedState(t *testing.T) {
 	req := compactionTestBudget()
 	req.Provider = prov
 
-	got, cleared, err := (&Runner{}).CompactWithLineage(context.Background(), req, lineage, conv)
+	got, cleared, applied, err := (&Runner{}).CompactWithLineage(context.Background(), req, lineage, conv)
 	if err != nil {
 		t.Fatalf("CompactWithLineage() error = %v", err)
+	}
+	if !applied {
+		t.Fatal("applied = false for a summary that was applied")
 	}
 	if len(got) >= len(conv) {
 		t.Fatalf("conversation length = %d, want fewer than %d after compaction", len(got), len(conv))

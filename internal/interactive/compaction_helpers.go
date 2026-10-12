@@ -10,14 +10,16 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func (s *Session) compactRunner(conversation []agent.Message, lineage agent.ConversationLineage, steering string) func(context.Context) ([]agent.Message, bool, error) {
-	return func(ctx context.Context) ([]agent.Message, bool, error) {
+func (s *Session) compactRunner(conversation []agent.Message, lineage agent.ConversationLineage, steering string) func(context.Context) ([]agent.Message, bool, bool, error) {
+	return func(ctx context.Context) ([]agent.Message, bool, bool, error) {
 		runner := s.currentRunner()
 		if lc, ok := runner.(lineageCompactor); ok {
 			return lc.CompactWithLineage(ctx, conversation, lineage, snapshotTools(s.snapshots), steering)
 		}
+		// Compact does not expose whether a stage applied. A nil error means the
+		// fallback completed, so it counts as applied.
 		compacted, err := runner.Compact(ctx, conversation, snapshotTools(s.snapshots), steering)
-		return compacted, false, err
+		return compacted, false, err == nil, err
 	}
 }
 
@@ -30,7 +32,7 @@ func splitSummaryPrefix(messages []agent.Message) (prefix, rest []agent.Message)
 	return messages, nil
 }
 
-func (s *Session) runManualCompaction(ctx context.Context, model string, run func(context.Context) ([]agent.Message, bool, error)) (result []agent.Message, cleared bool, err error) {
+func (s *Session) runManualCompaction(ctx context.Context, model string, run func(context.Context) ([]agent.Message, bool, bool, error)) (result []agent.Message, cleared, applied bool, err error) {
 	runCtx, cancel := context.WithCancel(ctx)
 	token := s.runController.Set(cancel)
 	defer func() {
@@ -44,6 +46,12 @@ func (s *Session) runManualCompaction(ctx context.Context, model string, run fun
 			} else {
 				reason = "error"
 			}
+		}
+		if err != nil || !applied {
+			// Clears the compacting state the run started with; no stage changed the conversation.
+			s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+				Kind: "compaction", Scope: "conversation", Severity: "skipped", Notes: []string{"compaction skipped: no stage applied"},
+			}))
 		}
 		s.events.Emit(output.NewRunFinishedEvent(0, reason, "", "", err))
 	}()

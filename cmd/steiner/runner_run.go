@@ -167,17 +167,17 @@ func (r cliRunner) cachedCodexWSProvider(cache *provider.CodexWSCache, rm provid
 
 func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
 	// Without a lineage there is no backend state to clear.
-	compacted, _, err := r.CompactWithLineage(ctx, conversation, agent.ConversationLineage{}, skillNames, tools, steering)
+	compacted, _, _, err := r.CompactWithLineage(ctx, conversation, agent.ConversationLineage{}, skillNames, tools, steering)
 	return compacted, err
 }
 
 // CompactWithLineage compacts conversation for the run whose lineage is given.
 // The lineage supplies the backend state the summary request is issued against.
-// It reports whether the summary cleared that state.
-func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, error) {
+// It reports whether the summary cleared that state and whether a stage applied.
+func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error) {
 	setup, err := r.prepareRun(nil, skillNames)
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
 	req := agent.RunRequest{
 		Provider:          setup.provider,

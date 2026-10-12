@@ -18,9 +18,9 @@ func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testin
 	var events []output.Event
 	s := mustCompactionSession(t, Dependencies{BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
 	ctrl := s.ActiveRunController()
-	result, _, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, bool, error) {
+	result, _, _, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, bool, bool, error) {
 		s.events.Emit(output.NewAssistantChunkEventWithSource(1, "chunk", output.ChunkSourceAssistant))
-		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, false, nil
+		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, false, true, nil
 	})
 	if err != nil || len(result) != 1 {
 		t.Fatalf("runManualCompaction() = %#v, %v", result, err)
@@ -51,13 +51,13 @@ func TestRunManualCompactionRetainsSteerQueuedWhileActive(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _, _ = s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, bool, error) {
+		_, _, _, _ = s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, bool, bool, error) {
 			close(started)
 			select {
 			case <-release:
-				return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, false, nil
+				return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, false, true, nil
 			case <-ctx.Done():
-				return nil, false, ctx.Err()
+				return nil, false, false, ctx.Err()
 			}
 		})
 	}()
@@ -81,9 +81,9 @@ func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testin
 	s := mustCompactionSession(t, Dependencies{BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
 	ctrl := s.ActiveRunController()
 	want := agent.SteerMessage{Text: "queued before compaction error"}
-	_, _, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, bool, error) {
+	_, _, _, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, bool, bool, error) {
 		ctrl.SteerQueue().Add(want)
-		return nil, false, errors.New("boom")
+		return nil, false, false, errors.New("boom")
 	})
 	if err == nil || err.Error() != "boom" {
 		t.Fatalf("error = %v, want boom", err)
@@ -106,11 +106,11 @@ func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 	started := make(chan struct{})
 	want := agent.SteerMessage{Text: "queued before compaction cancellation"}
 	go func() { <-started; ctrl.Interrupt() }()
-	_, _, err := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, bool, error) {
+	_, _, _, err := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, bool, bool, error) {
 		close(started)
 		ctrl.SteerQueue().Add(want)
 		<-ctx.Done()
-		return nil, false, ctx.Err()
+		return nil, false, false, ctx.Err()
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
@@ -120,6 +120,65 @@ func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 	}
 	if got := ctrl.SteerQueue().Snapshot(); !reflect.DeepEqual(got, []agent.SteerMessage{want}) {
 		t.Fatalf("queued steers = %+v, want %+v", got, []agent.SteerMessage{want})
+	}
+}
+
+// TestRunManualCompactionEmitsSkippedBeforeRunFinishedWhenNotApplied proves a
+// manual compaction that applies no stage, fails, or is cancelled emits one
+// skipped compaction diagnostic before RunFinished, clearing the compacting state
+// the run started with.
+func TestRunManualCompactionEmitsSkippedBeforeRunFinishedWhenNotApplied(t *testing.T) {
+	tests := []struct {
+		name       string
+		run        func(ctx context.Context, ctrl *ActiveRunController) ([]agent.Message, bool, bool, error)
+		wantReason string
+	}{
+		{
+			name: "not applied without error",
+			run: func(context.Context, *ActiveRunController) ([]agent.Message, bool, bool, error) {
+				return nil, false, false, nil
+			},
+			wantReason: "complete",
+		},
+		{
+			name: "error",
+			run: func(context.Context, *ActiveRunController) ([]agent.Message, bool, bool, error) {
+				return nil, false, false, errors.New("boom")
+			},
+			wantReason: "error",
+		},
+		{
+			name: "cancelled",
+			run: func(ctx context.Context, ctrl *ActiveRunController) ([]agent.Message, bool, bool, error) {
+				ctrl.Interrupt()
+				<-ctx.Done()
+				return nil, false, false, ctx.Err()
+			},
+			wantReason: "cancelled",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var events []output.Event
+			s := mustCompactionSession(t, Dependencies{BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
+			_, _, applied, _ := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, bool, bool, error) {
+				return tt.run(ctx, s.ActiveRunController())
+			})
+			if applied {
+				t.Fatal("applied = true, want false")
+			}
+			want := []string{output.EventTypeRunStarted, output.EventTypeContextDiagnostics, output.EventTypeContextDiagnostics, output.EventTypeRunFinished}
+			if got := eventTypes(events); !reflect.DeepEqual(got, want) {
+				t.Fatalf("event types = %v, want %v", got, want)
+			}
+			if got := output.ContextDiagnosticSeverity(events[2].Payload); got != "skipped" {
+				t.Fatalf("severity before RunFinished = %q, want skipped", got)
+			}
+			finished := events[len(events)-1].Payload.(output.RunFinishedEvent)
+			if finished.Reason != tt.wantReason {
+				t.Fatalf("run finished reason = %q, want %q", finished.Reason, tt.wantReason)
+			}
+		})
 	}
 }
 
@@ -356,9 +415,9 @@ type lineageRecordingRunner struct {
 	clearState bool
 }
 
-func (r *lineageRecordingRunner) CompactWithLineage(_ context.Context, conversation []agent.Message, lineage agent.ConversationLineage, _ []provider.ToolSpec, _ string) ([]agent.Message, bool, error) {
+func (r *lineageRecordingRunner) CompactWithLineage(_ context.Context, conversation []agent.Message, lineage agent.ConversationLineage, _ []provider.ToolSpec, _ string) ([]agent.Message, bool, bool, error) {
 	r.lineage = lineage
-	return conversation, r.clearState, nil
+	return conversation, r.clearState, true, nil
 }
 
 // TestManualCompactionPassesDriverLineageToLineageRunner proves a manual
