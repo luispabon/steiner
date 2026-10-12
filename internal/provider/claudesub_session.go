@@ -335,8 +335,8 @@ func (s *claudeSubSession) beginPendingCall(id string) *claudeSubCall {
 }
 
 // lockCall takes the session's whole-call lock, waiting until it is free, the
-// session is torn down, or ctx is canceled. acquire is the only caller, and
-// every successful lockCall is paired with release (or unlockCall on the
+// session is torn down, or ctx is canceled. takeLease and settleStartup call it,
+// and every successful lockCall is paired with release (or unlockCall on the
 // reservation-rollback paths).
 func (s *claudeSubSession) lockCall(ctx context.Context) error {
 	// Reject an already-canceled request deterministically before the select:

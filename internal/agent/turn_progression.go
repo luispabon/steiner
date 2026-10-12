@@ -370,6 +370,9 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 	if err != nil {
 		return turnOutcome{State: state, Error: err, Stop: true}
 	}
+	if !applied {
+		emitCompactionSkippedEvent(p.request.Events, turn)
+	}
 	if applied {
 		p.lastUsage = nil
 		state.ParentUsage = nil

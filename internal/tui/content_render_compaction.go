@@ -65,7 +65,9 @@ func (b *contentBuffer) renderCompactionHeaderMeta(cd *compactionBannerData) str
 	var parts []string
 
 	if cd.finished {
-		parts = append(parts, b.styles.SuccessStyle.Render("✓"))
+		if !cd.skipped {
+			parts = append(parts, b.styles.SuccessStyle.Render("✓"))
+		}
 	} else {
 		frame := spinnerFrames[cd.spinnerFrame%len(spinnerFrames)]
 		parts = append(parts, b.styles.FgMute.Render(frame))
