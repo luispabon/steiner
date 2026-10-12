@@ -788,9 +788,11 @@ func TestClaudeSubTurnFailureThenRetry(t *testing.T) {
 // its turn queued, so reusing it would feed stale events to the next request.
 func TestClaudeSubDecodeErrorRetiresProcess(t *testing.T) {
 	turn := claudeSubDecodeEvents(t, "turn_text.jsonl")
-	// system init, message_start, a duplicate message_start (decode error),
-	// then the rest of the turn.
-	broken := append([]claudeSubEvent{turn[0], turn[1], turn[1]}, turn[2:]...)
+	// system init, message_start, the text block up to "Hello", a duplicate
+	// message_start (decode error), then the rest of the turn.
+	broken := append([]claudeSubEvent{}, turn[:8]...)
+	broken = append(broken, turn[1])
+	broken = append(broken, turn[8:]...)
 	advisorMessages := []Message{claudeSubUserText("read notes"), {Role: MessageRoleAssistant, Content: "Hello world"}, claudeSubUserText("is it right?")}
 	tests := []struct {
 		name string
@@ -806,9 +808,20 @@ func TestClaudeSubDecodeErrorRetiresProcess(t *testing.T) {
 				claudeSubTextTurns(t, 1))
 			req := tc.req
 			req.Model = claudeSubTestSpec().Model
-			err := claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil })
+			var streamed []ChatChunk
+			err := claudeSubTurn(context.Background(), pool, req, func(chunk ChatChunk) error {
+				streamed = append(streamed, chunk)
+				return nil
+			})
 			if !errors.Is(err, errClaudeSubDecodeStream) {
 				t.Fatalf("first turn error = %v, want decode stream error", err)
+			}
+			emittedText := false
+			for _, chunk := range streamed {
+				emittedText = emittedText || strings.Contains(chunk.Delta.Content, "Hello")
+			}
+			if !emittedText {
+				t.Error("first turn emitted no text before the decode error, want the output path")
 			}
 			if !spawner.call(t, 0).Conn.isClosed() {
 				t.Error("failed process was not closed")
@@ -821,6 +834,33 @@ func TestClaudeSubDecodeErrorRetiresProcess(t *testing.T) {
 				t.Errorf("spawn count = %d, want 2 (fresh process after decode error)", n)
 			}
 		})
+	}
+}
+
+// TestClaudeSubDecodeErrorOnResumeDoesNotReseed proves a decode stream error on
+// a resumed process with no output retires the process without an inline
+// reseed. The next request starts the fresh process instead.
+func TestClaudeSubDecodeErrorOnResumeDoesNotReseed(t *testing.T) {
+	turn := claudeSubDecodeEvents(t, "turn_text.jsonl")
+	// system init, then a text delta with no open content block (decode error
+	// before any chunk is emitted), then the rest of the turn.
+	broken := append([]claudeSubEvent{turn[0], turn[7]}, turn[8:]...)
+	assistant, st := claudeSubOpeningTurn(t)
+	pool, spawner := claudeSubPoolWithScripts(t, &claudeSubScript{batches: [][]claudeSubEvent{broken}}, claudeSubTextTurns(t, 1))
+	msgs := []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")}
+	req := ChatRequest{TransportSession: "parent", Model: claudeSubTestSpec().Model, Messages: msgs, BackendState: claudeSubEncodeState(t, st)}
+	err := claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil })
+	if !errors.Is(err, errClaudeSubDecodeStream) {
+		t.Fatalf("turn error = %v, want decode stream error", err)
+	}
+	if resume, _ := claudeSubArgValue(spawner.call(t, 0).Args, "--resume"); resume != st.CLISessionID {
+		t.Errorf("spawn --resume = %q, want %q (resumed process)", resume, st.CLISessionID)
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Errorf("spawn count = %d, want 1 (no inline reseed after decode error)", n)
+	}
+	if !spawner.call(t, 0).Conn.isClosed() {
+		t.Error("resumed process was not closed")
 	}
 }
 
