@@ -19,6 +19,9 @@ type DriverRunInput struct {
 	PendingSubAgents func() []PendingSubAgent
 	// MaxTokens of 0 means the host default.
 	MaxTokens int
+	// ParentUsage seeds the run's stateful compaction trigger. Nil when the
+	// driver carries none for the current generation.
+	ParentUsage *ParentUsage
 }
 
 // DriverRunOutput is what a run function returns to the driver.
@@ -30,6 +33,9 @@ type DriverRunOutput struct {
 	// SkipAdoption keeps the driver's conversation and adopts only the
 	// lineage; set for workflow handoff.
 	SkipAdoption bool
+	// ParentUsage is the run's last successful parent usage, carried into the
+	// driver's next run for the same generation.
+	ParentUsage *ParentUsage
 }
 
 // DriverRunFunc runs one turn sequence. The host builds the RunRequest. It
@@ -123,6 +129,10 @@ type ConversationDriver struct {
 	window        Timer
 	windowGen     uint64
 	windowExpired bool
+
+	// parentUsage is the in-memory parent usage carried between runs. It is
+	// never snapshotted or persisted.
+	parentUsage carriedParentUsage
 
 	lastEmitted   driverStateKey
 	emitted       bool
@@ -258,6 +268,7 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 		DrainInbox:       d.drainForRun,
 		PendingSubAgents: d.pendingFn(),
 		MaxTokens:        d.runMaxTokensLocked(),
+		ParentUsage:      d.carriedParentUsageLocked(),
 	}
 	snap := d.snapshotLocked()
 	d.unlockEmit()
@@ -284,9 +295,11 @@ func (d *ConversationDriver) finish(ctx context.Context, out DriverRunOutput, er
 	if !out.SkipAdoption && len(out.Conversation) > 0 {
 		d.conv = out.Conversation
 	}
+	advanced := len(out.Lineage.Generations) > len(d.lineage.Generations)
 	if len(out.Lineage.Generations) > 0 {
 		d.lineage = out.Lineage.Clone()
 	}
+	d.carryParentUsageLocked(advanced, out.ParentUsage)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		d.warnLocked(fmt.Sprintf("run failed: %v", err))
 	}
@@ -295,6 +308,33 @@ func (d *ConversationDriver) finish(ctx context.Context, out DriverRunOutput, er
 		d.settleLocked()
 	}
 	d.saveAndUnlock(ctx, false)
+}
+
+// carriedParentUsage is parent usage tagged with the latest lineage generation
+// it was measured in. A later generation makes it stale.
+type carriedParentUsage struct {
+	generationID int
+	usage        *ParentUsage
+}
+
+// carriedParentUsageLocked returns a copy of the carried usage when it was
+// measured in the latest generation, or nil.
+func (d *ConversationDriver) carriedParentUsageLocked() *ParentUsage {
+	if d.parentUsage.usage == nil || d.parentUsage.generationID != d.lineage.latestGenerationID() {
+		return nil
+	}
+	return d.parentUsage.usage.Clone()
+}
+
+// carryParentUsageLocked replaces the carried usage with a finished run's
+// usage, tagged with the current latest generation. A run that advanced the
+// lineage drops it: the usage describes the pre-compaction context.
+func (d *ConversationDriver) carryParentUsageLocked(advanced bool, usage *ParentUsage) {
+	if advanced || usage == nil {
+		d.parentUsage = carriedParentUsage{}
+		return
+	}
+	d.parentUsage = carriedParentUsage{generationID: d.lineage.latestGenerationID(), usage: usage.Clone()}
 }
 
 // appendLocked adds msg to the conversation and to the latest lineage
@@ -348,6 +388,7 @@ func (d *ConversationDriver) compact(ctx context.Context) bool {
 	case err == nil:
 		d.conv = newConv
 		d.lineage = lineage.Clone()
+		d.parentUsage = carriedParentUsage{}
 		if d.opts.Background != nil {
 			if msg, ok := BuildDeliveryMessage(DeliveryParts{Pending: d.opts.Background.Pending()}); ok {
 				d.appendLocked(msg)

@@ -21,6 +21,7 @@ func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope 
 		PendingSubAgents:     in.PendingSubAgents,
 		MaxTokens:            in.MaxTokens,
 		DelegationGroupScope: scope,
+		ParentUsage:          in.ParentUsage,
 	})
 	if err != nil {
 		s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
@@ -38,6 +39,7 @@ func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope 
 		TokenCount:   result.TokenCount,
 		StopReason:   result.StopReason,
 		SkipAdoption: result.WorkflowHandoff != nil,
+		ParentUsage:  result.ParentUsage,
 	}
 	runLineage := result.Lineage
 	// A failed run returns no lineage. The conversation-only fallback carries no

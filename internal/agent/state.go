@@ -303,6 +303,9 @@ type RunState struct {
 	WorkflowHandoff     *tool.WorkflowHandoffTransition
 	BudgetNoticesIssued int
 	BudgetStartTurn     int
+	// ParentUsage is the last successful parent model response's usage. It is
+	// in-memory only and is not part of the persisted lineage.
+	ParentUsage *ParentUsage
 }
 
 // Clone returns a deep copy of the run state.
@@ -320,6 +323,7 @@ func (s RunState) Clone() RunState {
 		WorkflowHandoff:     cloneWorkflowHandoffTransition(s.WorkflowHandoff),
 		BudgetNoticesIssued: s.BudgetNoticesIssued,
 		BudgetStartTurn:     s.BudgetStartTurn,
+		ParentUsage:         s.ParentUsage.Clone(),
 	}
 }
 

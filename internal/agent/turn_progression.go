@@ -54,6 +54,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 
 	response = p.normalizeModelResponse(state, turn, response)
 	p.lastUsage = response.Usage
+	state.ParentUsage = newParentUsage(p.request, response.Usage)
 	state, turnTokens := p.finalizeModelCallState(state, turn, response)
 	state.Lineage = state.Lineage.withBackendState(issuedGenerationID, response.BackendState, response.ClearBackendState)
 	visionState, subAgentConfigured := p.getVisionCapabilityContext()
@@ -222,9 +223,9 @@ type turnProgressor struct {
 	// meter reflects mid-turn prompt growth.
 	lastBudget *prompt.RequestTokenBudget
 
-	// lastUsage is the usage of the most recent model response in this run. A
-	// stateful compaction provider triggers compaction from it (see
-	// compactionDue). It is cleared once a compaction applies.
+	// lastUsage is the usage of the most recent model response, seeded from the
+	// run's ParentUsage. A stateful compaction provider triggers compaction from
+	// it (see compactionDue). It is cleared once a compaction applies.
 	lastUsage *provider.UsageStats
 
 	// queuedDelegations holds the delegation calls announced via
@@ -348,6 +349,7 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 	}
 	if compacted {
 		p.lastUsage = nil
+		state.ParentUsage = nil
 		return turnOutcome{State: state, Retry: true}
 	}
 	if fit.Fits {

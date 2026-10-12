@@ -737,6 +737,7 @@ func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (intera
 		delegationGroupScope: in.DelegationGroupScope,
 		lineage:              in.Lineage,
 		maxTokens:            in.MaxTokens,
+		parentUsage:          in.ParentUsage,
 	})
 	return interactive.RunResult{
 		Conversation:    result.Conversation,
@@ -744,5 +745,6 @@ func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (intera
 		Lineage:         result.Lineage,
 		TokenCount:      result.TokenCount,
 		StopReason:      result.StopReason,
+		ParentUsage:     result.ParentUsage,
 	}, err
 }

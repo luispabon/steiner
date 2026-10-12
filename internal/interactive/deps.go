@@ -21,6 +21,8 @@ type RunResult struct {
 	Lineage    agent.ConversationLineage
 	TokenCount int
 	StopReason agent.StopReason
+	// ParentUsage is the run's last successful parent usage, in memory only.
+	ParentUsage *agent.ParentUsage
 }
 
 // RunInput is what the session hands a runExecutor for one turn sequence.
@@ -38,6 +40,8 @@ type RunInput struct {
 	MaxTokens int
 	// DelegationGroupScope identifies the run's delegation group-name ledger.
 	DelegationGroupScope string
+	// ParentUsage seeds the run's stateful compaction trigger; nil starts without one.
+	ParentUsage *agent.ParentUsage
 }
 
 // runExecutor starts and manages model-in-the-loop runs. Consumer-defined to

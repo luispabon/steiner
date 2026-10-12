@@ -110,6 +110,8 @@ Both stages work the same way:
 
 Steiner cannot rewrite history the CLI already holds, so compaction for a stateful transcript runs through the CLI. `statefulUsageAboveThreshold` in `internal/agent/turn_progression.go` triggers compaction when the last response's `PromptTokens` reaches 70% of the context window. For `claude_subscription`, `PromptTokens` is the CLI's total input: input, cache creation, and cache read tokens, summed by `claudeSubUsage.toUsageStats` in `internal/provider/claudesub_decode.go`. A request that does not fit also triggers compaction. `errStatefulCompaction` in `internal/agent/compaction.go` applies only to stateful providers without `SupportsStatefulCompaction`.
 
+In interactive sessions, the last successful parent response's usage is carried into the next run in memory (`agent.ParentUsage`, held by `ConversationDriver`). It is used only while the lineage generation is unchanged and the model backend ID and context window still match. A generation change, whether automatic or manual compaction, drops it. Sub-agent, advisor, and compaction-summary calls never set it. It is not written to backend state or saved session files, so after a restart the first run of a session has no carried usage and the trigger waits for the first response of the new process.
+
 `claudeSubSummaryTurn` in `internal/provider/claudesub_turn.go` answers the summary request:
 
 | Caller | Path | Persistence |

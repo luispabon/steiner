@@ -142,6 +142,11 @@ type RunRequest struct {
 	// the source conversation (see seedRunLineage).
 	SeedLineage ConversationLineage
 
+	// SeedParentUsage is the last parent usage the run resumes from. It is
+	// used only when it was measured on this run's model and context window
+	// (see seedParentUsage). Nil starts without one.
+	SeedParentUsage *ParentUsage
+
 	// Diagnostics receives cache-stream records for this run; emission is added
 	// by stage 2 of the unified-diagnostics plan (issue #707). A nil writer is
 	// a no-op, so unwired paths and tests need no special handling.
@@ -229,6 +234,9 @@ func (r *Runner) run(ctx context.Context, req RunRequest) (RunState, error) {
 
 	basePrompt := prepareBasePrompt(req)
 	p := newTurnProgressor(req, basePrompt, r.compactConversationForBudget)
+	if state.ParentUsage != nil {
+		p.lastUsage = state.ParentUsage.Usage
+	}
 	runnerRetries := 0
 
 	for {
@@ -319,6 +327,7 @@ func initializeRunState(req RunRequest) RunState {
 	state := RunState{
 		Conversation: conversation,
 		Lineage:      seedRunLineage(req.SeedLineage, conversation),
+		ParentUsage:  seedParentUsage(req.SeedParentUsage, req),
 	}
 	state.TurnCount = initialConversationTurnCount(conversation)
 	state.BudgetStartTurn = state.TurnCount
