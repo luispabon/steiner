@@ -46,6 +46,18 @@ Steiner owns the model request, system prompt, tool definitions, tool approval p
 
 Steiner starts the CLI with a private temporary session directory and a private system-prompt file. Tool calls return through a loopback MCP endpoint owned by Steiner. Steiner keeps tool output within its configured output budget and does not forward API credential environment variables to the child process.
 
+## Context the CLI adds
+
+Steiner turns off these CLI context sources in every `claude_subscription` request: auto-memory, `CLAUDE.md` files (project, local, and user), the skills listing, token-count and todo reminders, "user hasn't heard from you" nudges, and git instructions.
+
+The CLI still sends the following to the model. Steiner cannot turn them off:
+
+- Account email: the email address of the signed-in account, in a system reminder on every request. Only bare or simple mode and `ANTHROPIC_UNIX_SOCKET` remove it, and both disable subscription login.
+- Environment: working directory, whether it is a git repository, platform, shell, OS version, and the model name and knowledge cutoff.
+- Date: a "Today's date" line that duplicates Steiner's own.
+- An SDK identity line before Steiner's system prompt.
+- Account, project, or git context, re-announced if it changes during a session.
+
 ## Session continuity
 
 Only parent normal calls persist CLI session state. Steiner stores that state as opaque backend data with the parent conversation. Advisor, sub-agent, and compaction helper processes never persist CLI state.
@@ -61,7 +73,7 @@ A reseed sends the non-system history as one transcript message. Prompt cache re
 
 ## Privacy and telemetry
 
-Prompts, system instructions, images that are accepted by the provider, tool calls, and tool results are sent to the local `claude` process. The process then handles the network request under the signed-in Claude account. Claude's own data handling, telemetry, retention, and account controls apply; see Anthropic's legal and compliance documentation linked above.
+Prompts, system instructions, images that are accepted by the provider, tool calls, and tool results are sent to the local `claude` process. The process then handles the network request under the signed-in Claude account. Claude's own data handling, telemetry, retention, and account controls apply; see Anthropic's legal and compliance documentation linked above. The email address of the signed-in account is also sent to the model on every request, and Steiner cannot prevent it. See [Context the CLI adds](#context-the-cli-adds).
 
 Steiner does not read the Claude credential file or copy its token into provider configuration. It checks `claude auth status`, starts the CLI, and removes the credential and CLI entrypoint variables from the child environment. Steiner's own logging and diagnostics settings still apply. Logs and diagnostics can contain prompts or tool output when enabled, so review `logging` and `diagnostics` settings before using this provider.
 
@@ -75,6 +87,6 @@ You can select a discovered model with `/model`, or use a raw reference such as 
 
 - Previously sent history is not rewritten in the CLI. Changes to sent messages, other than removal of consumed image data, are not patched into the live session. Steiner reseeds instead, as described in Session continuity. In an interactive conversation, `/clear` starts a new empty Steiner and Claude CLI session; it does not rewrite the prior transcript. There is no user-facing rewind.
 - Support for changing already-sent history is tracked in [#895](https://github.com/luispabon/steiner/issues/895).
-- The CLI owns its process identity and transcript. Its identity or reminders can change as the CLI changes, and switching models can reset model-specific cache state. Do not treat those details as stable Steiner storage.
+- The CLI owns its process identity and transcript. Its identity or reminders can change as the CLI changes, and switching models can reset model-specific cache state. Do not treat those details as stable Steiner storage. The CLI also adds context that Steiner cannot disable; see [Context the CLI adds](#context-the-cli-adds).
 - The provider is not a replacement for the native `anthropic` API provider. It uses the signed-in CLI and the subscription's account controls.
 - Claude CLI and Anthropic can change these behaviors without a corresponding Steiner release. Recheck the compliance links and CLI version when an account or model stops working.

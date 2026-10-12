@@ -7,11 +7,55 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// TestClaudeSubSessionEnvLaunchOverrides checks that session env keeps the CLI
+// context gates with and without a tool-output budget, and that inherited values
+// of the same names are replaced.
+func TestClaudeSubSessionEnvLaunchOverrides(t *testing.T) {
+	overrides := []string{
+		"CLAUDE_CODE_DISABLE_FAST_MODE=1",
+		"CLAUDE_CODE_RETRY_WATCHDOG=1",
+		"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+		"CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",
+		"CLAUDE_CODE_SILENT_TURN_REMINDER=0",
+		"CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off",
+		"CLAUDE_CODE_TODO_REMINDER_MODE=off",
+		"CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1",
+	}
+	stale := []string{"CLAUDE_CODE_DISABLE_AUTO_MEMORY=0", "CLAUDE_CODE_TODO_REMINDER_MODE=on"}
+	base := []string{"HOME=/h", stale[0], stale[1]}
+	for _, tc := range []struct {
+		name   string
+		bytes  int
+		maxSet bool
+	}{
+		{name: "zero budget omits MAX_MCP_OUTPUT_TOKENS", bytes: 0, maxSet: false},
+		{name: "nonzero budget keeps MAX_MCP_OUTPUT_TOKENS", bytes: 65536, maxSet: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := claudeSubSessionEnv(base, tc.bytes)
+			for _, want := range overrides {
+				if !slices.Contains(env, want) {
+					t.Errorf("session env lacks %q; env = %#v", want, env)
+				}
+			}
+			for _, kv := range stale {
+				if slices.Contains(env, kv) {
+					t.Errorf("session env kept inherited %q", kv)
+				}
+			}
+			if _, ok := claudeSubEnvValue(env, "MAX_MCP_OUTPUT_TOKENS"); ok != tc.maxSet {
+				t.Errorf("MAX_MCP_OUTPUT_TOKENS present = %v, want %v", ok, tc.maxSet)
+			}
+		})
+	}
+}
 
 func TestClaudeSubSessionStartWritesPrivateFilesAndArgs(t *testing.T) {
 	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{ToolOutputMaxBytes: 65536, WorkDir: "/work"})

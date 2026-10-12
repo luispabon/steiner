@@ -105,17 +105,53 @@ var claudeSubStrippedEnvKeys = map[string]struct{}{
 	"CLAUDE_CODE_ENTRYPOINT":  {},
 }
 
-// claudeSubForcedEnvKeys are the variables steiner always sets on the child.
+// claudeSubMaxMCPOutputTokensEnv is the CLI variable that caps MCP tool output
+// in tokens.
+const claudeSubMaxMCPOutputTokensEnv = "MAX_MCP_OUTPUT_TOKENS"
+
+// claudeSubFixedEnv are the KEY=value overrides steiner always sets on the
+// child, ahead of MAX_MCP_OUTPUT_TOKENS.
+var claudeSubFixedEnv = []string{
+	"CLAUDE_CODE_DISABLE_FAST_MODE=1",
+	"CLAUDE_CODE_RETRY_WATCHDOG=1",
+}
+
+// claudeSubLaunchEnv are the CLI context-injection gates (#905), appended after
+// MAX_MCP_OUTPUT_TOKENS. Each turns off context the CLI would add that steiner
+// did not supply. None of them breaks the CLI's stored subscription OAuth.
+var claudeSubLaunchEnv = []string{
+	"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+	"CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",
+	"CLAUDE_CODE_SILENT_TURN_REMINDER=0",
+	"CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off",
+	"CLAUDE_CODE_TODO_REMINDER_MODE=off",
+	"CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1",
+}
+
+// claudeSubForcedEnvKeys are the variables steiner always sets on the child,
+// derived from claudeSubFixedEnv, claudeSubLaunchEnv and MAX_MCP_OUTPUT_TOKENS.
 // Any inherited entry with one of these names is dropped before the override is
 // appended, so the child never sees a second value.
-var claudeSubForcedEnvKeys = map[string]struct{}{
-	"CLAUDE_CODE_DISABLE_FAST_MODE": {},
-	"CLAUDE_CODE_RETRY_WATCHDOG":    {},
-	"MAX_MCP_OUTPUT_TOKENS":         {},
+var claudeSubForcedEnvKeys = claudeSubEnvNames([]string{claudeSubMaxMCPOutputTokensEnv}, claudeSubFixedEnv, claudeSubLaunchEnv)
+
+// claudeSubEnvNames returns the names in extra plus the names of the KEY=value
+// entries in groups.
+func claudeSubEnvNames(extra []string, groups ...[]string) map[string]struct{} {
+	names := make(map[string]struct{}, len(extra))
+	for _, name := range extra {
+		names[name] = struct{}{}
+	}
+	for _, group := range groups {
+		for _, kv := range group {
+			key, _, _ := strings.Cut(kv, "=")
+			names[key] = struct{}{}
+		}
+	}
+	return names
 }
 
 // claudeSubChildEnv builds the child environment: base minus the credential and
-// entrypoint variables, plus the three steiner-owned overrides (D4, D12).
+// entrypoint variables, plus the steiner-owned overrides (D4, D12).
 // Windows environment names are case-insensitive, so there every case variant
 // of those names is removed; elsewhere names match exactly.
 // MAX_MCP_OUTPUT_TOKENS over-estimates the byte budget as tokens so the CLI
@@ -128,7 +164,7 @@ func claudeSubChildEnv(base []string, toolOutputMaxBytes int) []string {
 // in, so both modes are testable on any OS. foldCase compares names
 // case-insensitively.
 func claudeSubChildEnvFold(base []string, toolOutputMaxBytes int, foldCase bool) []string {
-	out := make([]string, 0, len(base)+3)
+	out := make([]string, 0, len(base)+len(claudeSubFixedEnv)+len(claudeSubLaunchEnv)+1)
 	for _, kv := range base {
 		key, _, _ := strings.Cut(kv, "=")
 		if claudeSubEnvNameIn(key, claudeSubStrippedEnvKeys, foldCase) || claudeSubEnvNameIn(key, claudeSubForcedEnvKeys, foldCase) {
@@ -136,11 +172,9 @@ func claudeSubChildEnvFold(base []string, toolOutputMaxBytes int, foldCase bool)
 		}
 		out = append(out, kv)
 	}
-	return append(out,
-		"CLAUDE_CODE_DISABLE_FAST_MODE=1",
-		"CLAUDE_CODE_RETRY_WATCHDOG=1",
-		fmt.Sprintf("MAX_MCP_OUTPUT_TOKENS=%d", claudeSubMaxMCPOutputTokens(toolOutputMaxBytes)),
-	)
+	out = append(out, claudeSubFixedEnv...)
+	out = append(out, fmt.Sprintf(claudeSubMaxMCPOutputTokensEnv+"=%d", claudeSubMaxMCPOutputTokens(toolOutputMaxBytes)))
+	return append(out, claudeSubLaunchEnv...)
 }
 
 // claudeSubEnvNameIn reports whether key is a member of names. With foldCase the
@@ -203,6 +237,7 @@ func claudeSubArgs(o claudeSubSpawnOptions) []string {
 		"--tools", "",
 		"--strict-mcp-config",
 		"--setting-sources=",
+		"--disable-slash-commands",
 	}
 	if !o.Persist {
 		args = append(args, "--no-session-persistence")
