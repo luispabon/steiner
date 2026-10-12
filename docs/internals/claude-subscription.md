@@ -21,12 +21,42 @@ The pool locates `claude` once on `PATH`, checks `claude --version`, and checks 
 Normal sessions use the stream-json process shape:
 
 ```text
-claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --model <model> --tools "" --strict-mcp-config --setting-sources= --settings {"autoCompactEnabled":false,"fastMode":false} --permission-mode dontAsk
+claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --model <model> --tools "" --strict-mcp-config --setting-sources= --disable-slash-commands --settings {"autoCompactEnabled":false,"fastMode":false} --permission-mode dontAsk
 ```
 
 When tools exist, the process also receives a private MCP config and an allowlist for `mcp__steiner__*`. Ephemeral processes (advisor, sub-agent, summary helper, and discovery) add `--no-session-persistence`. Parent processes omit it. A process that restores stored state adds `--resume <session-id>` and `--resume-session-at <final-uuid>`. A fork also adds `--fork-session`. Summary helpers add `--max-turns 1`.
 
-A private system prompt is passed with `--system-prompt-file`. Reasoning `none` maps to `--thinking disabled`; other known effort values use adaptive thinking with summarized display and `--effort`. Steiner sets `CLAUDE_CODE_DISABLE_FAST_MODE=1`, `CLAUDE_CODE_RETRY_WATCHDOG=1`, and a bounded `MAX_MCP_OUTPUT_TOKENS` value. Credential and CLI entrypoint variables are stripped from the child environment.
+A private system prompt is passed with `--system-prompt-file`. Reasoning `none` maps to `--thinking disabled`; other known effort values use adaptive thinking with summarized display and `--effort`. Steiner sets `CLAUDE_CODE_DISABLE_FAST_MODE=1`, `CLAUDE_CODE_RETRY_WATCHDOG=1`, and a bounded `MAX_MCP_OUTPUT_TOKENS` value. It also forces `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`, `CLAUDE_CODE_SILENT_TURN_REMINDER=0`, `CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off`, `CLAUDE_CODE_TODO_REMINDER_MODE=off`, and `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1`. These override inherited values. Credential and CLI entrypoint variables are stripped from the child environment. The discovery argv also includes `--disable-slash-commands`.
+
+### Context injections
+
+Steiner turns off these CLI context sources, by environment override or argv flag:
+
+- Auto-memory `MEMORY.md`: `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`.
+- `CLAUDE.md`, `CLAUDE.local.md`, and `~/.claude/CLAUDE.md` discovery: `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`. `--setting-sources=` does not cover these files.
+- Skills listing: `--disable-slash-commands`.
+- "The user hasn't heard from you" nudges: `CLAUDE_CODE_SILENT_TURN_REMINDER=0`.
+- Token-count reminders: `CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off`.
+- Todo reminders: `CLAUDE_CODE_TODO_REMINDER_MODE=off`.
+- Git instructions and status prefetch: `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1`.
+
+These switches were verified against CLI 2.1.296.
+
+The CLI still injects the following. No compatible switch exists:
+
+- Account email. A system reminder ("As you answer the user's questions, you can use the following context:") carries the email from `oauthAccount` in the CLI global config (`~/.claude.json`). Only bare or simple mode and `ANTHROPIC_UNIX_SOCKET` suppress it, and both disable stored subscription OAuth. `CLAUDE_CODE_USER_EMAIL` is a fallback only and cannot override the stored value. The stream-json `initialize` request has no field for it.
+- SDK identity prefix. "You are a Claude agent, built on Anthropic's Claude Agent SDK." precedes the custom system prompt. It is fixed in `-p` mode. `--append-system-prompt` only swaps it for another SDK identity string.
+- `# Environment` block: working directory, git-repo flag, platform, shell, OS version, a rule about treating downloaded files and archives as untrusted, and model name, ID, and knowledge cutoff. `--exclude-dynamic-system-prompt-sections` only relocates this block and is ignored with a custom system prompt. A sub-agent in a worktree sees its own working directory (`<cwd>`).
+- "Today's date is <date>." line. It is always built and duplicates Steiner's `Current date:` line. A long session can also get a date-change reminder.
+- Account, project, or git context can be re-announced mid-session if it changes.
+
+Rejected options:
+
+- `--bare` or `CLAUDE_CODE_SIMPLE`: refuses subscription OAuth. Auth works only with `ANTHROPIC_API_KEY` or `apiKeyHelper`.
+- `--safe-mode`: also disables MCP servers, which the tool bridge needs.
+- `ANTHROPIC_UNIX_SOCKET`: requires an explicit OAuth token.
+
+The account email reaches the model on every `claude_subscription` request. Steiner cannot prevent this. See [Context the CLI adds](../user/claude-subscription.md#context-the-cli-adds).
 
 ## Loopback MCP host
 
@@ -60,6 +90,8 @@ After an interrupt, only the assistant entry produced by that interrupted call h
 A new parent process restores stored state only when the stored CLI session ID, prompt/tools fingerprint, and final message UUID match the request's history (`claudeSubRestoreFor`). The restore target always carries the stored final UUID as `--resume-session-at`. An ordinary restore is `--resume <session-id> --resume-session-at <final-uuid>` with no fork flag, so the process resumes at the Steiner record even if the CLI session has advanced independently. When the transport session matches the stored owner, the process resumes. When it differs, as after a Steiner Fork, the process forks at that UUID with `--fork-session`. Any other failed check, including a prompt/tools fingerprint mismatch in the stored state, reseeds.
 
 A compatible live parent process is different. Restore compares the stored fingerprint, but a primed live process that accepts the request's history is reused as is and keeps the prompt and tools it started with (D5). A changed system prompt or tool set does not reseed a live process. Only restoring stored state compares the fingerprint.
+
+The prompt/tools fingerprint includes the launch profile (the disabled context sources in CLI invocation). CLI sessions stored before that change fail the fingerprint check once and reseed instead of resuming. Their transcripts may contain injected memory or account context. The reseed costs one uncached turn per resumed session.
 
 A reseed (`claudeSubReseedDelta`) sends the whole non-system history as one user transcript message. In-memory images are included, earlier tool calls are rendered as text, and image data stripped after consumption cannot return. The rendered entries become the new sync record. A reseeded turn does not reuse prompt cache.
 
