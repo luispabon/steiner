@@ -273,14 +273,15 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 	})
 
 	advisorUses, advisorDenied := countAdvisorUsage(state.Conversation)
+	total := spec.PriorTokenUsage.Add(runUsage)
 	result := Result{
 		AgentID:           spec.AgentID,
 		Status:            status,
 		TurnCount:         state.TurnCount,
-		TokenCount:        runUsage.OutputTokens,
-		InputTokens:       runUsage.InputTokens,
-		CacheReadTokens:   runUsage.CacheReadTokens,
-		CacheCreateTokens: runUsage.CacheCreateTokens,
+		TokenCount:        total.OutputTokens,
+		InputTokens:       total.InputTokens,
+		CacheReadTokens:   total.CacheReadTokens,
+		CacheCreateTokens: total.CacheCreateTokens,
 		ToolCallCount:     countToolCalls(state.Conversation),
 		StopReason:        stopReason,
 		SessionResumable:  ctxCancelled || ctxDeadline,
