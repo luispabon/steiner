@@ -79,11 +79,19 @@ func TestClaudeSubDecodeMismatchedUnparsedSentinelFails(t *testing.T) {
 // events of the whole turn, or the first decode error.
 func claudeSubSentinelDecode(t *testing.T, raw, lengthJSON string) ([]claudeSubDecoded, error) {
 	t.Helper()
-	rawJSON, err := json.Marshal(raw)
+	return claudeSubStreamedSentinelDecode(t, raw, raw, lengthJSON)
+}
+
+// claudeSubStreamedSentinelDecode streams one tool_use whose input is streamed,
+// then confirms it with an assistant echo whose sentinel raw is echoRaw. The
+// two differ when the CLI truncated the raw prefix.
+func claudeSubStreamedSentinelDecode(t *testing.T, streamed, echoRaw, lengthJSON string) ([]claudeSubDecoded, error) {
+	t.Helper()
+	rawJSON, err := json.Marshal(echoRaw)
 	if err != nil {
 		t.Fatalf("marshal raw: %v", err)
 	}
-	delta, err := json.Marshal(map[string]any{"event": map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "input_json_delta", "partial_json": raw}}})
+	delta, err := json.Marshal(map[string]any{"event": map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "input_json_delta", "partial_json": streamed}}})
 	if err != nil {
 		t.Fatalf("marshal delta: %v", err)
 	}
@@ -125,6 +133,68 @@ func claudeSubSentinelCall(t *testing.T, raw, lengthJSON string) ToolCall {
 		t.Fatalf("messages = %+v, want one tool call", messages)
 	}
 	return messages[0].Message.ToolCalls[0]
+}
+
+// TestClaudeSubDecodeTruncatedUnparsedSentinelUsesFullInput accepts the CLI's
+// truncated raw prefix and emits the full streamed input, with its byte length.
+func TestClaudeSubDecodeTruncatedUnparsedSentinelUsesFullInput(t *testing.T) {
+	long := `{"path": "` + strings.Repeat("a", 3000) + `"}`
+	// The 2048th UTF-16 unit is the high surrogate of the emoji, so the CLI
+	// drops it and the raw prefix holds 2047 units.
+	surrogate := `{"p": "` + strings.Repeat("a", 2040) + "😀" + strings.Repeat("b", 10) + `"}`
+	for _, tc := range []struct {
+		name     string
+		streamed string
+		echoRaw  string
+	}{
+		{"ascii over cap", long, long[:2048]},
+		{"surrogate pair cut", surrogate, `{"p": "` + strings.Repeat("a", 2040)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := claudeSubStreamedSentinelDecode(t, tc.streamed, tc.echoRaw, "2048")
+			if err != nil {
+				t.Fatalf("decode truncated sentinel: %v", err)
+			}
+			messages := claudeSubDecodedOfKind(out, claudeSubDecodeMessage)
+			if len(messages) != 1 || messages[0].Message == nil || len(messages[0].Message.ToolCalls) != 1 {
+				t.Fatalf("messages = %+v, want one tool call", messages)
+			}
+			call := messages[0].Message.ToolCalls[0]
+			if call.RawArguments != tc.streamed {
+				t.Fatalf("raw arguments = %q, want full input %q", call.RawArguments, tc.streamed)
+			}
+			sentinel, ok := call.Arguments[UnparsedToolInputKey].(map[string]any)
+			if !ok || sentinel["raw"] != tc.streamed {
+				t.Fatalf("arguments = %+v, want sentinel with full input", call.Arguments)
+			}
+			if got, want := sentinel["len"], len([]byte(tc.streamed)); got != want {
+				t.Fatalf("sentinel length = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// TestClaudeSubDecodeTruncatedUnparsedSentinelMismatchFails rejects raw values
+// that are neither the streamed input nor the CLI's truncated prefix of it.
+func TestClaudeSubDecodeTruncatedUnparsedSentinelMismatchFails(t *testing.T) {
+	long := `{"path": "` + strings.Repeat("a", 3000) + `"}`
+	for _, tc := range []struct {
+		name     string
+		streamed string
+		echoRaw  string
+	}{
+		{"wrong prefix content", long, "X" + long[1:2048]},
+		{"prefix one unit short", long, long[:2047]},
+		{"prefix one unit long", long, long[:2049]},
+		{"short raw not the input", `{"path": "x"}`, `{"path":`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := claudeSubStreamedSentinelDecode(t, tc.streamed, tc.echoRaw, "2048")
+			if !errors.Is(err, errClaudeSubDecodeStream) || !strings.Contains(err.Error(), "does not match accumulated input") {
+				t.Fatalf("decode error = %v, want mismatch error wrapping %v", err, errClaudeSubDecodeStream)
+			}
+		})
+	}
 }
 
 // TestClaudeSubDecodeUnparsedSentinelLengthIsNormalized accepts any non-negative

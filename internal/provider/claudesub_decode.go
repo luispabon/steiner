@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode/utf16"
 )
 
 // This file is the pure decoder for the claude CLI's `--output-format
@@ -1216,11 +1217,33 @@ func (d *claudeSubDecoder) finalizeOrderedToolUses() ([]ToolCall, error) {
 	return calls, nil
 }
 
+// claudeSubUnparsedRawMaxUnits is the CLI's cap on the raw prefix of an
+// unparsed tool input, in UTF-16 code units.
+const claudeSubUnparsedRawMaxUnits = 2048
+
+// claudeSubUnparsedRawPrefix reproduces the CLI's truncation of a streamed tool
+// input. It keeps the first claudeSubUnparsedRawMaxUnits UTF-16 code units and
+// drops a trailing high surrogate whose pair was cut. Inputs within the cap are
+// returned unchanged.
+func claudeSubUnparsedRawPrefix(s string) string {
+	units := utf16.Encode([]rune(s))
+	if len(units) <= claudeSubUnparsedRawMaxUnits {
+		return s
+	}
+	prefix := units[:claudeSubUnparsedRawMaxUnits]
+	if last := prefix[len(prefix)-1]; last >= 0xD800 && last <= 0xDBFF {
+		prefix = prefix[:len(prefix)-1]
+	}
+	return string(utf16.Decode(prefix))
+}
+
 // claudeSubValidatedUnparsedToolInput accepts the CLI-certified sentinel only
-// for an assistant echo that confirms a streamed tool use. Its shape and raw
-// bytes must match the accumulated input exactly. The len field must be a
-// non-negative JSON integer. Its unit is not confirmed, so it is not compared
-// with raw; the emitted sentinel recomputes the byte length.
+// for an assistant echo that confirms a streamed tool use. Its raw field must
+// equal the streamed input, or the CLI's truncated prefix of it (see
+// claudeSubUnparsedRawPrefix). The len field must be a non-negative JSON
+// integer. It is the full input length in UTF-16 code units, but it is not
+// compared with raw; the emitted sentinel recomputes the byte length. The
+// returned string is the full accumulated input, not raw.
 func claudeSubValidatedUnparsedToolInput(input json.RawMessage, accumulated string) (string, bool, error) {
 	if len(input) == 0 || string(input) == "null" {
 		return "", false, nil
@@ -1249,13 +1272,13 @@ func claudeSubValidatedUnparsedToolInput(input json.RawMessage, accumulated stri
 	if lenField, ok := sentinel["len"]; !ok || json.Unmarshal(lenField, &length) != nil || length == nil || *length < 0 {
 		return "", false, fmt.Errorf("%w: unparsed tool input sentinel length is invalid", errClaudeSubDecodeStream)
 	}
-	if raw != accumulated {
+	if raw != accumulated && raw != claudeSubUnparsedRawPrefix(accumulated) {
 		return "", false, fmt.Errorf("%w: unparsed tool input sentinel does not match accumulated input", errClaudeSubDecodeStream)
 	}
-	if len([]byte(raw)) > claudeSubDecodeMaxToolInputBytes {
+	if len([]byte(accumulated)) > claudeSubDecodeMaxToolInputBytes {
 		return "", false, claudeSubToolInputBoundError("unparsed")
 	}
-	return raw, true, nil
+	return accumulated, true, nil
 }
 
 // toolName translates a CLI-published tool name through the hook, defaulting to
