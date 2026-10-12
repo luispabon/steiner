@@ -216,21 +216,49 @@ func (l ConversationLineage) latestBackendState() json.RawMessage {
 // withBackendState returns a copy with the backend state of the generation
 // identified by id updated. clearState removes the stored state and takes
 // precedence over state. A nil state leaves the stored state unchanged. An
-// unknown id returns an unchanged copy.
+// unknown id, or an unchanged state, returns l itself rather than a copy.
 func (l ConversationLineage) withBackendState(id int, state json.RawMessage, clearState bool) ConversationLineage {
-	next := l.Clone()
-	for i := range next.Generations {
-		if next.Generations[i].ID != id {
+	if !clearState && len(state) == 0 {
+		return l
+	}
+	for i := range l.Generations {
+		if l.Generations[i].ID != id {
 			continue
 		}
-		switch {
-		case clearState:
+		next := l.Clone()
+		if clearState {
 			next.Generations[i].BackendState = nil
-		case len(state) > 0:
+		} else {
 			next.Generations[i].BackendState = cloneBackendState(state)
 		}
-		break
+		return next
 	}
+	return l
+}
+
+// WithoutLatestBackendState returns l with the latest generation's backend state
+// cleared.
+func (l ConversationLineage) WithoutLatestBackendState() ConversationLineage {
+	return l.withBackendState(l.latestGenerationID(), nil, true)
+}
+
+// WithLatestBackendState returns a copy with the latest generation's backend
+// state set to a deep copy of state. A nil or empty state clears it.
+func (l ConversationLineage) WithLatestBackendState(state json.RawMessage) ConversationLineage {
+	next := l.Clone()
+	if len(next.Generations) == 0 {
+		return next
+	}
+	next.Generations[len(next.Generations)-1].BackendState = cloneBackendState(state)
+	return next
+}
+
+// WithNewGenerationState is WithNewGeneration with the new generation's backend
+// state set to a deep copy of state. A nil or empty state adds it without
+// backend state.
+func (l ConversationLineage) WithNewGenerationState(summaryPrefix, messages []Message, state json.RawMessage) ConversationLineage {
+	next := l.WithNewGeneration(summaryPrefix, messages)
+	next.Generations[len(next.Generations)-1].BackendState = cloneBackendState(state)
 	return next
 }
 

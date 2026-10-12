@@ -18,9 +18,9 @@ func TestRunManualCompactionEmitsLifecycleAndClearsControllerOnSuccess(t *testin
 	var events []output.Event
 	s := mustCompactionSession(t, Dependencies{BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
 	ctrl := s.ActiveRunController()
-	result, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, error) {
+	result, _, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, bool, error) {
 		s.events.Emit(output.NewAssistantChunkEventWithSource(1, "chunk", output.ChunkSourceAssistant))
-		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
+		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, false, nil
 	})
 	if err != nil || len(result) != 1 {
 		t.Fatalf("runManualCompaction() = %#v, %v", result, err)
@@ -51,13 +51,13 @@ func TestRunManualCompactionRetainsSteerQueuedWhileActive(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, error) {
+		_, _, _ = s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, bool, error) {
 			close(started)
 			select {
 			case <-release:
-				return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
+				return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, false, nil
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, false, ctx.Err()
 			}
 		})
 	}()
@@ -81,9 +81,9 @@ func TestRunManualCompactionEmitsRunFinishedAndClearsControllerOnError(t *testin
 	s := mustCompactionSession(t, Dependencies{BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
 	ctrl := s.ActiveRunController()
 	want := agent.SteerMessage{Text: "queued before compaction error"}
-	_, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, error) {
+	_, _, err := s.runManualCompaction(context.Background(), "test-model", func(context.Context) ([]agent.Message, bool, error) {
 		ctrl.SteerQueue().Add(want)
-		return nil, errors.New("boom")
+		return nil, false, errors.New("boom")
 	})
 	if err == nil || err.Error() != "boom" {
 		t.Fatalf("error = %v, want boom", err)
@@ -106,11 +106,11 @@ func TestRunManualCompactionCancelsAndClearsController(t *testing.T) {
 	started := make(chan struct{})
 	want := agent.SteerMessage{Text: "queued before compaction cancellation"}
 	go func() { <-started; ctrl.Interrupt() }()
-	_, err := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, error) {
+	_, _, err := s.runManualCompaction(context.Background(), "test-model", func(ctx context.Context) ([]agent.Message, bool, error) {
 		close(started)
 		ctrl.SteerQueue().Add(want)
 		<-ctx.Done()
-		return nil, ctx.Err()
+		return nil, false, ctx.Err()
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)

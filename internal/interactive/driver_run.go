@@ -2,7 +2,6 @@ package interactive
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -88,11 +87,9 @@ func mergeRunLineage(prior, run agent.ConversationLineage) agent.ConversationLin
 	latest := &merged.Generations[len(merged.Generations)-1]
 	latest.SummaryPrefix = cloneMessages(prefix)
 	latest.Messages = cloneMessages(rest)
-	latest.BackendState = append(json.RawMessage(nil), run.Generations[0].BackendState...)
+	merged = merged.WithLatestBackendState(run.Generations[0].BackendState)
 	for _, generation := range run.Generations[1:] {
-		merged = merged.WithNewGeneration(generation.SummaryPrefix, generation.Messages)
-		// WithNewGeneration drops backend state, so restore the run's own.
-		merged.Generations[len(merged.Generations)-1].BackendState = append(json.RawMessage(nil), generation.BackendState...)
+		merged = merged.WithNewGenerationState(generation.SummaryPrefix, generation.Messages, generation.BackendState)
 	}
 	return merged
 }

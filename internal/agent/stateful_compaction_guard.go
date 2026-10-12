@@ -36,6 +36,35 @@ func (p *turnProgressor) observeStatefulUsage(usage *provider.UsageStats) {
 	}
 }
 
+// compactionDue reports whether the turn compacts before its model call. A
+// native provider uses the estimated fit. A stateful compaction provider uses the
+// last response's CLI usage against the model context window. An armed
+// statefulFloor holds the soft trigger until usage reaches its release point.
+// The hard limit still forces compaction for every provider.
+func (p *turnProgressor) compactionDue(fit prompt.RequestTokenBudget) bool {
+	if !provider.SupportsStatefulCompaction(p.request.Provider) {
+		return fit.ShouldCompact || !fit.Fits
+	}
+	if !fit.Fits || p.statefulCapReached {
+		return true
+	}
+	if p.statefulFloor > 0 {
+		return statefulUsageReaches(p.lastUsage, statefulReleaseTokens(p.statefulFloor, fit.ContextSize))
+	}
+	return statefulUsageAboveThreshold(p.lastUsage, fit.ContextSize)
+}
+
+// statefulUsageAboveThreshold reports whether a response's prompt usage reaches
+// the compaction threshold of contextSize. PromptTokens is the total input of the
+// response: the provider folds CLI input, cache read and cache creation tokens
+// into it, so they must not be added again.
+func statefulUsageAboveThreshold(usage *provider.UsageStats, contextSize int) bool {
+	if usage == nil || contextSize <= 0 {
+		return false
+	}
+	return float64(usage.PromptTokens) >= float64(contextSize)*compactionUsageThreshold
+}
+
 // statefulCapStop ends the run at a compaction decision after the cap was
 // reached. Compacting again cannot bring usage below the cap, so the compactor
 // is not called.

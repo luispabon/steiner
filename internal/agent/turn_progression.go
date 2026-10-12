@@ -370,9 +370,6 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 	if err != nil {
 		return turnOutcome{State: state, Error: err, Stop: true}
 	}
-	if !applied {
-		emitCompactionSkippedEvent(p.request.Events, turn)
-	}
 	if applied {
 		p.lastUsage = nil
 		state.ParentUsage = nil
@@ -380,6 +377,8 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 			p.statefulFloor = 0
 			p.awaitingPostCompaction = true
 		}
+	} else {
+		emitCompactionSkippedEvent(p.request.Events, turn)
 	}
 	if attempted {
 		// Usage is kept on a not-applied attempt, so the retry re-checks the
@@ -396,35 +395,6 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 		Error: fmt.Errorf("request exceeds context window: %s", fit.String()),
 		Stop:  true,
 	}
-}
-
-// compactionDue reports whether the turn compacts before its model call. A
-// native provider uses the estimated fit. A stateful compaction provider uses the
-// last response's CLI usage against the model context window. An armed
-// statefulFloor holds the soft trigger until usage reaches its release point.
-// The hard limit still forces compaction for every provider.
-func (p *turnProgressor) compactionDue(fit prompt.RequestTokenBudget) bool {
-	if !provider.SupportsStatefulCompaction(p.request.Provider) {
-		return fit.ShouldCompact || !fit.Fits
-	}
-	if !fit.Fits || p.statefulCapReached {
-		return true
-	}
-	if p.statefulFloor > 0 {
-		return statefulUsageReaches(p.lastUsage, statefulReleaseTokens(p.statefulFloor, fit.ContextSize))
-	}
-	return statefulUsageAboveThreshold(p.lastUsage, fit.ContextSize)
-}
-
-// statefulUsageAboveThreshold reports whether a response's prompt usage reaches
-// the compaction threshold of contextSize. PromptTokens is the total input of the
-// response: the provider folds CLI input, cache read and cache creation tokens
-// into it, so they must not be added again.
-func statefulUsageAboveThreshold(usage *provider.UsageStats, contextSize int) bool {
-	if usage == nil || contextSize <= 0 {
-		return false
-	}
-	return float64(usage.PromptTokens) >= float64(contextSize)*compactionUsageThreshold
 }
 
 // prepareTurn assembles the prompt, constructs the chat request, and fits it

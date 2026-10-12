@@ -43,8 +43,7 @@ func (s *Session) compactConversation(ctx context.Context, conversation []agent.
 		return nil, false, false
 	}
 
-	var cleared bool
-	compacted, err := s.runManualCompaction(ctx, s.CurrentModelAlias(), s.compactRunner(conversation, lineage, steering, &cleared))
+	compacted, cleared, err := s.runManualCompaction(ctx, s.CurrentModelAlias(), s.compactRunner(conversation, lineage, steering))
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			s.emitCompactError(err)

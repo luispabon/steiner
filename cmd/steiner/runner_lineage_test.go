@@ -6,9 +6,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
-	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
-	"github.com/luispabon/steiner/internal/tool"
 )
 
 // TestRunWithHooksLineageBackendStateSurvivesRunError checks that a run which
@@ -30,17 +28,7 @@ func TestRunWithHooksLineageBackendStateSurvivesRunError(t *testing.T) {
 			BackendState: json.RawMessage(`{"session":"next"}`),
 		}},
 	}
-	runner := cliRunner{
-		runtime: cliRuntime{
-			cfg:      testRuntimeConfig("test-model"),
-			provider: prov,
-			registry: tool.NewRegistry(),
-			workDir:  t.TempDir(),
-			homeDir:  t.TempDir(),
-			events:   output.NoopSink{},
-		},
-		runMode: "interactive",
-	}
+	runner := parentUsageTestRunner(t, prov)
 
 	first, err := runner.RunWithHooks(context.Background(), seed.FullMessages(), nil, runHooks{lineage: seed})
 	if err != nil {
@@ -83,17 +71,7 @@ func TestRunWithHooksLineageBackendStateRoundTrip(t *testing.T) {
 			{Message: provider.Message{Content: "second turn"}, FinishReason: "stop"},
 		},
 	}
-	runner := cliRunner{
-		runtime: cliRuntime{
-			cfg:      testRuntimeConfig("test-model"),
-			provider: prov,
-			registry: tool.NewRegistry(),
-			workDir:  t.TempDir(),
-			homeDir:  t.TempDir(),
-			events:   output.NoopSink{},
-		},
-		runMode: "interactive",
-	}
+	runner := parentUsageTestRunner(t, prov)
 
 	first, err := runner.RunWithHooks(context.Background(), seed.FullMessages(), nil, runHooks{lineage: seed})
 	if err != nil {

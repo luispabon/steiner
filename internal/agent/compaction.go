@@ -332,12 +332,6 @@ func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage
 	return state.Conversation, backendStateCleared(state.Lineage, startID, hadState), nil
 }
 
-// WithoutLatestBackendState returns l with the latest generation's backend state
-// cleared.
-func (l ConversationLineage) WithoutLatestBackendState() ConversationLineage {
-	return l.withBackendState(l.latestGenerationID(), nil, true)
-}
-
 // backendStateCleared reports whether generation id held backend state and the
 // compaction has since cleared it.
 func backendStateCleared(l ConversationLineage, id int, hadState bool) bool {
