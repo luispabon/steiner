@@ -611,9 +611,9 @@ func TestTurnProgressorCompactionDue(t *testing.T) {
 // fires, and that a completed compaction resets the usage trigger.
 func TestHandleCompactionStatefulTransitionCompactsWhileFitting(t *testing.T) {
 	calls := 0
-	p := newTurnProgressor(RunRequest{Provider: newClaudeLikeCompactionProvider(false)}, prompt.AssemblyOptions{}, func(context.Context, RunRequest, *RunState, int, *prompt.RequestTokenBudget, map[string]bool, *int) (bool, error) {
+	p := newTurnProgressor(RunRequest{Provider: newClaudeLikeCompactionProvider(false)}, prompt.AssemblyOptions{}, func(context.Context, RunRequest, *RunState, int, *prompt.RequestTokenBudget, map[string]bool, *int) (bool, bool, error) {
 		calls++
-		return true, nil
+		return true, true, nil
 	})
 	p.lastUsage = &provider.UsageStats{PromptTokens: 800}
 	outcome := p.handleCompaction(context.Background(), RunState{}, prompt.RequestTokenBudget{Fits: true, ContextSize: 1000})

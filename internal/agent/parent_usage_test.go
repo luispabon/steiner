@@ -256,8 +256,8 @@ func TestHandleCompactionClearsParentUsageOnlyWhenCompacted(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := newTurnProgressor(RunRequest{Provider: newClaudeLikeCompactionProvider(false)}, prompt.AssemblyOptions{}, func(context.Context, RunRequest, *RunState, int, *prompt.RequestTokenBudget, map[string]bool, *int) (bool, error) {
-				return tt.compacted, nil
+			p := newTurnProgressor(RunRequest{Provider: newClaudeLikeCompactionProvider(false)}, prompt.AssemblyOptions{}, func(context.Context, RunRequest, *RunState, int, *prompt.RequestTokenBudget, map[string]bool, *int) (bool, bool, error) {
+				return tt.compacted, tt.compacted, nil
 			})
 			p.lastUsage = parentUsageFixture(8000).Usage
 			state := RunState{ParentUsage: parentUsageFixture(8000)}
@@ -269,5 +269,48 @@ func TestHandleCompactionClearsParentUsageOnlyWhenCompacted(t *testing.T) {
 				t.Error("lastUsage kept after a completed compaction")
 			}
 		})
+	}
+}
+
+// TestHandleCompactionNotAppliedDoesNotArmStatefulGuard proves a candidate that
+// is attempted but does not apply leaves the stateful guard unarmed and keeps
+// the usage. The retry moves past the candidate and ends, so the following
+// high-usage response does not stop the run.
+func TestHandleCompactionNotAppliedDoesNotArmStatefulGuard(t *testing.T) {
+	prov := newClaudeLikeCompactionProvider(false)
+	// Two messages are all retained turns, so the stage has no source and does not apply.
+	conv := compactionTestTurns()[:2]
+	req := statefulRunRequest(prov, nil)
+	req.SourceConversation = conv
+	state := RunState{Conversation: conv, Lineage: newConversationLineage(conv)}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, (&Runner{}).compactConversationForBudget)
+	p.lastUsage = &provider.UsageStats{PromptTokens: 9500}
+	fit := prompt.RequestTokenBudget{Fits: true, ContextSize: 10000}
+
+	const maxAttempts = 3
+	retries := 0
+	for range maxAttempts {
+		outcome := p.handleCompaction(context.Background(), state, fit)
+		if outcome.Error != nil || outcome.Stop {
+			t.Fatalf("handleCompaction() = %+v, want no error or stop while the request fits", outcome)
+		}
+		if !outcome.Retry {
+			break
+		}
+		retries++
+	}
+	if retries != 1 {
+		t.Fatalf("retries = %d, want 1 retry for the attempted candidate", retries)
+	}
+	if p.awaitingPostCompaction {
+		t.Error("awaitingPostCompaction armed by a compaction that did not apply")
+	}
+	if p.lastUsage == nil {
+		t.Error("lastUsage cleared by a compaction that did not apply")
+	}
+
+	p.observeStatefulUsage(&provider.UsageStats{PromptTokens: 9500})
+	if outcome := p.handleCompaction(context.Background(), state, fit); outcome.Error != nil || outcome.Stop {
+		t.Errorf("handleCompaction() after a high-usage response = %+v, want no cap stop", outcome)
 	}
 }
