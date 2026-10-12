@@ -236,6 +236,7 @@ func (r *Runner) run(ctx context.Context, req RunRequest) (RunState, error) {
 	p := newTurnProgressor(req, basePrompt, r.compactConversationForBudget)
 	if state.ParentUsage != nil {
 		p.lastUsage = state.ParentUsage.Usage
+		p.statefulFloor = state.ParentUsage.StatefulFloor
 	}
 	runnerRetries := 0
 

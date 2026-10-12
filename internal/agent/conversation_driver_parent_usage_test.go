@@ -74,6 +74,34 @@ func TestConversationDriverParentUsageDroppedOnGenerationAdvance(t *testing.T) {
 	h.closeDriver()
 }
 
+// TestConversationDriverCarriesStatefulFloorAcrossGenerationAdvance proves an
+// armed stateful floor survives the generation advance of the compaction that
+// preceded it, and is carried to the new generation.
+func TestConversationDriverCarriesStatefulFloorAcrossGenerationAdvance(t *testing.T) {
+	t.Parallel()
+	h := newDriverHarness(t, nil, nil)
+	h.start()
+
+	h.d.Submit("one", nil, SubmitMeta{})
+	first := h.nextRun()
+	advanced := newConversationLineage(first.in.Conversation).WithNewGeneration(nil, first.in.Conversation)
+	floored := parentUsageFixture(8000)
+	floored.StatefulFloor = 7500
+	finishRunWith(first, DriverRunOutput{Lineage: advanced, ParentUsage: floored})
+	h.waitQuiescent()
+
+	h.d.Submit("two", nil, SubmitMeta{})
+	second := h.nextRun()
+	want := parentUsageFixture(8000)
+	want.StatefulFloor = 7500
+	if !reflect.DeepEqual(second.in.ParentUsage, want) {
+		t.Fatalf("run after generation advance ParentUsage = %+v, want %+v", second.in.ParentUsage, want)
+	}
+	finishRunWith(second, DriverRunOutput{})
+	h.waitQuiescent()
+	h.closeDriver()
+}
+
 // TestConversationDriverParentUsageDroppedOnManualCompaction proves a manual
 // compaction that changes the generation leaves no usage for the next run.
 func TestConversationDriverParentUsageDroppedOnManualCompaction(t *testing.T) {

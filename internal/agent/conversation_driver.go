@@ -328,9 +328,11 @@ func (d *ConversationDriver) carriedParentUsageLocked() *ParentUsage {
 
 // carryParentUsageLocked replaces the carried usage with a finished run's
 // usage, tagged with the current latest generation. A run that advanced the
-// lineage drops it: the usage describes the pre-compaction context.
+// lineage drops it: the usage describes the pre-compaction context. The one
+// exception is usage with an armed StatefulFloor, which was measured after the
+// advancing compaction and so describes the new generation.
 func (d *ConversationDriver) carryParentUsageLocked(advanced bool, usage *ParentUsage) {
-	if advanced || usage == nil {
+	if usage == nil || (advanced && usage.StatefulFloor <= 0) {
 		d.parentUsage = carriedParentUsage{}
 		return
 	}
