@@ -483,15 +483,6 @@ func (q *claudeSubQueue) close() {
 	q.mu.Unlock()
 }
 
-// drain removes and returns every buffered event.
-func (q *claudeSubQueue) drain() []claudeSubEvent {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	items := q.items
-	q.items = nil
-	return items
-}
-
 // claudeSubRoute pumps events through control.dispatch, forwarding non-control
 // events to q when q is non-nil. It returns when events closes or stop is
 // closed, and then releases any pending control requests and joins the control
