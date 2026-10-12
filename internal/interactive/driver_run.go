@@ -42,8 +42,9 @@ func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope 
 		ParentUsage:  result.ParentUsage,
 	}
 	runLineage := result.Lineage
-	// A failed run returns no lineage. The conversation-only fallback carries no
-	// backend state, so the prior state is cleared and the next run reseeds.
+	// A run that returns no lineage falls back to its conversation. That fallback
+	// carries no backend state, so the prior state is cleared and the next run
+	// reseeds. Failed and cancelled runs return their lineage and keep its state.
 	if runLineage.Empty() && len(result.Conversation) > 0 {
 		runLineage = lineageFromMessages(result.Conversation)
 	}

@@ -125,9 +125,9 @@ A carried floor is `ParentUsage.StatefulFloor`. It follows the same model and co
 | Caller | Path | Persistence |
 |--------|------|-------------|
 | Sub-agent (`ParentTransportSession` set) | Marked in-place summary on its own process. The process is tainted and retired. A process that cannot take the request is replaced and the request reseeded. | Ephemeral |
-| Parent with stored state matching the live checkpoint and fingerprint, source ending at an assistant UUID | Ephemeral helper forks the stored CLI session at that UUID (`--resume-session-at`, `--fork-session`). Returns no backend state. | None, `MaxTurns` 1 |
+| Parent with stored state matching the live checkpoint and the request's prompt/tools fingerprint, source ending at an assistant UUID | Ephemeral helper forks the stored CLI session at that UUID (`--resume-session-at`, `--fork-session`). Returns no backend state. | None, `MaxTurns` 1 |
 | Parent, fork not possible or failed before output, live process present | Marked summary appended to the live transcript. The process is tainted and retired; the final chunk clears the generation's backend state. | In place |
-| Parent, no live process | Marked history reseeded on an ephemeral helper. A reseed does not reuse prompt cache. | None, `MaxTurns` 1 |
+| Parent, no live process | Request messages reseeded unmarked on an ephemeral helper. A reseed does not reuse prompt cache. | None, `MaxTurns` 1 |
 
 ### Retention anchor and pending re-injection
 

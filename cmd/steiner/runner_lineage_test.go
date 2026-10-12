@@ -11,6 +11,55 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// TestRunWithHooksLineageBackendStateSurvivesRunError checks that a run which
+// fails after a turn still returns the lineage that turn produced, so the
+// backend state from that turn is kept for the next run.
+func TestRunWithHooksLineageBackendStateSurvivesRunError(t *testing.T) {
+	seed := agent.ConversationLineage{
+		Generations: []agent.ConversationGeneration{{
+			ID:       1,
+			Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "first prompt"}},
+		}},
+		NextGenerationID: 2,
+	}
+	// The provider has one response, so the second turn fails.
+	prov := &fakeProvider{
+		responses: []provider.ChatResponse{{
+			Message:      provider.Message{Content: "first turn"},
+			FinishReason: "stop",
+			BackendState: json.RawMessage(`{"session":"next"}`),
+		}},
+	}
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      testRuntimeConfig("test-model"),
+			provider: prov,
+			registry: tool.NewRegistry(),
+			workDir:  t.TempDir(),
+			homeDir:  t.TempDir(),
+			events:   output.NoopSink{},
+		},
+		runMode: "interactive",
+	}
+
+	first, err := runner.RunWithHooks(context.Background(), seed.FullMessages(), nil, runHooks{lineage: seed})
+	if err != nil {
+		t.Fatalf("RunWithHooks() turn 1 error = %v", err)
+	}
+	next := first.Lineage.WithAppendedMessages([]agent.Message{{Role: agent.MessageRoleUser, Content: "second prompt"}})
+	failed, err := runner.RunWithHooks(context.Background(), next.FullMessages(), nil, runHooks{lineage: next})
+	if err == nil {
+		t.Fatal("RunWithHooks() turn 2 error = nil, want the provider error")
+	}
+	latest, ok := failed.Lineage.Latest()
+	if !ok {
+		t.Fatal("failed run lineage has no generation")
+	}
+	if got := string(latest.BackendState); got != `{"session":"next"}` {
+		t.Errorf("failed run BackendState = %s, want the state from turn 1", got)
+	}
+}
+
 // TestRunWithHooksLineageBackendStateRoundTrip checks that a loaded lineage's
 // backend state reaches the provider request and that the state the response
 // returns is carried by the lineage the next run is seeded with.
