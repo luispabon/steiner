@@ -305,6 +305,43 @@ func TestClaudeSubSummaryNoPlaceReseedClearsParentState(t *testing.T) {
 	}
 }
 
+// TestClaudeSubSummaryHelperNeverReusesPrimedRecord proves a summary helper that
+// is already primed is retired rather than reused, so the reseed runs on a fresh
+// process whose record starts empty.
+func TestClaudeSubSummaryHelperNeverReusesPrimedRecord(t *testing.T) {
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1), claudeSubTextTurns(t, 1))
+	ctx := context.Background()
+	stale, err := pool.acquire(ctx, "parent"+claudeSubSummarySuffix, claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire stale helper: %v", err)
+	}
+	stale.primed = true
+	pool.release(stale)
+
+	var final ChatChunk
+	err = claudeSubReseedSummary(ctx, pool, ChatRequest{Messages: []Message{claudeSubUserText("summarize")}}, "parent", claudeSubTestSpec(), func(chunk ChatChunk) error {
+		if chunk.Done {
+			final = chunk
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("reseed summary: %v", err)
+	}
+	if !final.Done {
+		t.Fatal("reseed summary emitted no Done chunk")
+	}
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawned %d processes, want 2 (retired stale helper and fresh helper)", got)
+	}
+	if n := len(claudeSubUserLines(spawner.call(t, 0).Conn)); n != 0 {
+		t.Errorf("stale primed helper received %d user lines, want none", n)
+	}
+	if n := len(claudeSubUserLines(spawner.call(t, 1).Conn)); n == 0 {
+		t.Error("fresh helper received no user lines")
+	}
+}
+
 func TestClaudeSubSyncTaintBlocksReuseAndCheckpoint(t *testing.T) {
 	u1 := claudeSubUserText("first")
 	a1 := Message{Role: MessageRoleAssistant, Content: "answer"}

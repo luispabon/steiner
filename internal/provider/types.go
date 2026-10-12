@@ -135,9 +135,9 @@ type ChatRequest struct {
 	// for compaction. Only providers with a compaction transition read it.
 	CompactionSummary bool `json:"-"`
 	// CompactionSourceMessages is the number of leading non-system request
-	// messages that the summary covers. The messages after them are the
-	// retained tail, and the last one is the summary instruction. Set with
-	// CompactionSummary.
+	// messages that the summary covers. The request holds exactly those source
+	// messages followed by one summary instruction; retained messages after the
+	// source are not sent. Set with CompactionSummary.
 	CompactionSourceMessages int `json:"-"`
 }
 

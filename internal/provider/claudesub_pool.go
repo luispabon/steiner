@@ -36,6 +36,9 @@ var (
 var (
 	// errClaudeSubPoolClosed is returned by acquire once Close has begun.
 	errClaudeSubPoolClosed = errors.New("claude_subscription pool is closed")
+	// errClaudeSubSessionRetired reports that a waiter's session was retired while
+	// the pool still runs. acquire retries from the map and never returns it.
+	errClaudeSubSessionRetired = errors.New("claude_subscription session was retired")
 	// errClaudeSubPoolShutdownIncomplete reports that shutdown reached its one
 	// deadline before every startup settled and every session tore down. It is
 	// deliberately returned despite the deadline because an injected locate or
@@ -335,7 +338,11 @@ func (p *ClaudeSubscriptionPool) acquire(ctx context.Context, key string, spec c
 			s.active++
 			p.active++
 			p.mu.Unlock()
-			return p.takeLease(ctx, s)
+			lease, err := p.takeLease(ctx, s)
+			if errors.Is(err, errClaudeSubSessionRetired) {
+				return p.acquire(ctx, key, spec)
+			}
+			return lease, err
 		}
 		// Evict the exited process, then retry so this call starts a fresh one. The
 		// caller's spawn spec decides whether it resumes or reseeds (D3). The
@@ -378,7 +385,11 @@ func (p *ClaudeSubscriptionPool) acquire(ctx context.Context, key string, spec c
 			err = errors.Join(cancelErr, err)
 		}
 	}
-	return p.settleStartup(ctx, st, key, s, err)
+	lease, err := p.settleStartup(ctx, st, key, s, err)
+	if errors.Is(err, errClaudeSubSessionRetired) {
+		return p.acquire(ctx, key, spec)
+	}
+	return lease, err
 }
 
 // acquireLive returns the running session for key with its whole-call lock
@@ -403,7 +414,12 @@ func (p *ClaudeSubscriptionPool) acquireLive(ctx context.Context, key string) (*
 	s.active++
 	p.active++
 	p.mu.Unlock()
-	return p.takeLease(ctx, s)
+	lease, err := p.takeLease(ctx, s)
+	if errors.Is(err, errClaudeSubSessionRetired) {
+		// Retired while this call waited: no live session runs under key now.
+		return nil, nil
+	}
+	return lease, err
 }
 
 // takeLease finishes an acquisition whose reservation (active counters) was
@@ -415,28 +431,40 @@ func (p *ClaudeSubscriptionPool) acquireLive(ctx context.Context, key string) (*
 // waits for active leases, shutdown may revoke the lease by force-closing the
 // session immediately after the recheck, before the caller resumes; the lease
 // therefore never promises transport liveness. On any failure it drops the
-// reservation and returns the closed error.
+// reservation and returns the error from leaseFailure.
 func (p *ClaudeSubscriptionPool) takeLease(ctx context.Context, s *claudeSubSession) (*claudeSubSession, error) {
-	if err := s.lockCall(ctx); err != nil {
-		p.dropReservation(s)
-		return nil, err
-	}
-	p.mu.Lock()
-	// The final admission recheck is the acquisition's linearization point: a
-	// request canceled before it (even after winning the call token) is rejected,
-	// so cancellation exactly before admission never yields a lease. A
-	// cancellation after this point is revocation-after-admission and allowed.
-	if p.state != claudeSubPoolRunning || s.isGone() || ctx.Err() != nil {
+	if err := s.lockCall(ctx); err == nil {
+		p.mu.Lock()
+		// The final admission recheck is the acquisition's linearization point: a
+		// request canceled before it (even after winning the call token) is rejected,
+		// so cancellation exactly before admission never yields a lease. A
+		// cancellation after this point is revocation-after-admission and allowed.
+		if p.state == claudeSubPoolRunning && !s.isGone() && ctx.Err() == nil {
+			p.mu.Unlock()
+			return s, nil
+		}
 		p.mu.Unlock()
 		s.unlockCall()
-		p.dropReservation(s)
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		return nil, errClaudeSubPoolClosed
 	}
+	p.dropReservation(s)
+	return nil, p.leaseFailure(ctx, s)
+}
+
+// leaseFailure returns the error for a lease that did not take. A canceled
+// caller gets its own error. A session retired while the pool still runs yields
+// errClaudeSubSessionRetired, so the caller takes a successor. Any other failure
+// means the pool is closing.
+func (p *ClaudeSubscriptionPool) leaseFailure(ctx context.Context, s *claudeSubSession) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	running := p.state == claudeSubPoolRunning
 	p.mu.Unlock()
-	return s, nil
+	if running && s.isGone() {
+		return errClaudeSubSessionRetired
+	}
+	return errClaudeSubPoolClosed
 }
 
 // settleStartup finishes one in-flight startup. While the pool is still running

@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -49,6 +50,48 @@ func TestFoldClaudeSubChunksTextAndToolSnapshot(t *testing.T) {
 	}
 	if got.Message.Content != "final" || len(got.Message.ToolCalls) != 1 || got.FinishReason != "tool_calls" {
 		t.Fatalf("response = %+v, want final text and one tool call", got)
+	}
+}
+
+// TestFoldClaudeSubChunksBackendStateTransitions proves ChatCompletion's fold
+// carries the backend-state transition of the final chunk, as the streaming
+// path does, so a non-stream caller can persist or clear the generation state.
+func TestFoldClaudeSubChunksBackendStateTransitions(t *testing.T) {
+	state := json.RawMessage(`{"transport_session":"parent"}`)
+	tests := []struct {
+		name      string
+		chunks    []ChatChunk
+		wantState json.RawMessage
+		wantClear bool
+	}{
+		{
+			name:      "state on final chunk",
+			chunks:    []ChatChunk{{Delta: Message{Content: "hi"}}, {Done: true, BackendState: state}},
+			wantState: state,
+		},
+		{
+			name:      "clear on final chunk",
+			chunks:    []ChatChunk{{Delta: Message{Content: "summary"}}, {Done: true, ClearBackendState: true}},
+			wantClear: true,
+		},
+		{
+			name:   "no transition",
+			chunks: []ChatChunk{{Delta: Message{Content: "hi"}, Done: true}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := foldClaudeSubChunks(tt.chunks)
+			if err != nil {
+				t.Fatalf("foldClaudeSubChunks() error = %v", err)
+			}
+			if string(got.BackendState) != string(tt.wantState) {
+				t.Errorf("BackendState = %s, want %s", got.BackendState, tt.wantState)
+			}
+			if got.ClearBackendState != tt.wantClear {
+				t.Errorf("ClearBackendState = %v, want %v", got.ClearBackendState, tt.wantClear)
+			}
+		})
 	}
 }
 

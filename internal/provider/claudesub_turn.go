@@ -250,6 +250,22 @@ func claudeSubForkSourceOf(s *claudeSubSession, req ChatRequest, key, fingerprin
 	}, true, nil
 }
 
+// claudeSubAcquireFreshHelper acquires the summary helper under helperKey as a
+// process with no record. A helper that is already primed or started is retired
+// and acquired again, so the record the caller writes describes a fresh process.
+func claudeSubAcquireFreshHelper(ctx context.Context, pool *ClaudeSubscriptionPool, helperKey string, spec claudeSubStartSpec) (*claudeSubSession, error) {
+	h, err := pool.acquire(ctx, helperKey, spec)
+	if err != nil {
+		return nil, err
+	}
+	if !h.primed && !h.sync.started {
+		return h, nil
+	}
+	pool.retire(helperKey, h)
+	pool.release(h)
+	return pool.acquire(ctx, helperKey, spec)
+}
+
 // claudeSubForkSummary answers a summary request from an ephemeral helper that
 // forks the stored CLI session at the source tail. The helper holds only the
 // source, runs one turn, and is retired. It returns no backend state.
@@ -258,7 +274,7 @@ func claudeSubForkSummary(ctx context.Context, pool *ClaudeSubscriptionPool, req
 	spec.Persist = false
 	spec.MaxTurns = 1
 	spec.Resume = claudeSubResume{SessionID: src.sessionID, AtUUID: src.atUUID, Fork: true}
-	h, err := pool.acquire(ctx, helperKey, spec)
+	h, err := claudeSubAcquireFreshHelper(ctx, pool, helperKey, spec)
 	if err != nil {
 		return err
 	}
@@ -284,7 +300,7 @@ func claudeSubReseedSummary(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	spec.Persist = false
 	spec.MaxTurns = 1
 	spec.Resume = claudeSubResume{}
-	h, err := pool.acquire(ctx, helperKey, spec)
+	h, err := claudeSubAcquireFreshHelper(ctx, pool, helperKey, spec)
 	if err != nil {
 		return err
 	}

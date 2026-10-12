@@ -670,6 +670,28 @@ func TestClaudeSubProcessRecordsRawStdoutLines(t *testing.T) {
 	}
 }
 
+// TestClaudeSubReadStdoutMapsEnvelopeIDs proves readStdout copies the envelope
+// uuid and session_id of a CLI stdout line into the event it emits.
+func TestClaudeSubReadStdoutMapsEnvelopeIDs(t *testing.T) {
+	child := newClaudeSubFakeChild()
+	p, feed := newClaudeSubTestProcess(t, child)
+	line := `{"type":"assistant","uuid":"uuid-1","session_id":"sess-1"}` + "\n"
+	if _, err := feed.Write([]byte(line)); err != nil {
+		t.Fatal(err)
+	}
+	if err := feed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p.readStdout()
+	events := claudeSubReadEvents(t, p, 1, 2*time.Second)
+	if ev := events[0]; ev.Type != "assistant" || ev.UUID != "uuid-1" || ev.SessionID != "sess-1" {
+		t.Errorf("event = type %q uuid %q session %q, want assistant uuid-1 sess-1", ev.Type, ev.UUID, ev.SessionID)
+	}
+	if err := p.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+}
+
 func TestClaudeSubStdoutRecorderFailureStopsProcess(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "recordings")
 	recorder, err := newClaudeSubStdoutRecorder(root, "session")
