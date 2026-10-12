@@ -63,7 +63,7 @@ A compatible live parent process is different. Restore compares the stored finge
 
 A reseed (`claudeSubReseedDelta`) sends the whole non-system history as one user transcript message. In-memory images are included, earlier tool calls are rendered as text, and image data stripped after consumption cannot return. The rendered entries become the new sync record. A reseeded turn does not reuse prompt cache.
 
-The compaction trigger for this provider is `statefulUsageAboveThreshold` in `internal/agent/turn_progression.go`. It compares the last response's `PromptTokens` with 70% of the context window. For `claude_subscription`, `PromptTokens` is the CLI's total input, summed by `claudeSubUsage.toUsageStats` from input, cache creation, and cache read tokens. A request that does not fit also triggers compaction. `errStatefulCompaction` applies only to stateful providers without `SupportsStatefulCompaction`, which this provider implements.
+The compaction trigger for this provider is `statefulUsageAboveThreshold` in `internal/agent/stateful_compaction_guard.go`. It compares the last response's `PromptTokens` with 70% of the context window. For `claude_subscription`, `PromptTokens` is the CLI's total input, summed by `claudeSubUsage.toUsageStats` from input, cache creation, and cache read tokens of the terminal assistant message. The CLI result's usage covers the whole query, including tool round-trips, so it is not used for context occupancy. A request that does not fit also triggers compaction. `errStatefulCompaction` applies only to stateful providers without `SupportsStatefulCompaction`, which this provider implements.
 
 Summary routing in `claudeSubSummaryTurn`:
 
