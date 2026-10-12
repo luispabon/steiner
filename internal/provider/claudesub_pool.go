@@ -935,6 +935,14 @@ func (p *ClaudeSubscriptionPool) retire(key string, s *claudeSubSession) {
 	p.finishEviction(st, s, p.closeSession(s))
 }
 
+// retireAndRelease retires the process under key, then releases the caller's
+// whole-call lock on it. It is retire followed by release for callers that
+// always do both, in that order.
+func (p *ClaudeSubscriptionPool) retireAndRelease(key string, s *claudeSubSession) {
+	p.retire(key, s)
+	p.release(s)
+}
+
 // evictDead retires the process under key when it has exited, so the next
 // acquire under key starts a fresh one. It reports whether a dead process was
 // evicted. The check and the removal happen under one mutex hold.

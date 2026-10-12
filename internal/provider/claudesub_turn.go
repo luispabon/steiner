@@ -60,8 +60,7 @@ func claudeSubAdvisorTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req
 	}
 	delta, err := claudeSubAdvisorPlan(ctx, s, req)
 	if errors.Is(err, errClaudeSubHistoryChanged) {
-		pool.retire(key, s)
-		pool.release(s)
+		pool.retireAndRelease(key, s)
 		if s, err = pool.acquire(ctx, key, spec); err != nil {
 			return err
 		}
@@ -204,8 +203,7 @@ func claudeSubParentInPlace(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	err = claudeSubInPlaceSummary(ctx, live, req, emit)
 	// The in-place summary is part of the live transcript now, so the process is
 	// retired. A no-place result retires it too, before the reseed.
-	pool.retire(key, live)
-	pool.release(live)
+	pool.retireAndRelease(key, live)
 	if errors.Is(err, errClaudeSubSummaryNoPlace) {
 		return claudeSubReseedSummary(ctx, pool, req, key, spec, emit)
 	}
@@ -261,25 +259,31 @@ func claudeSubAcquireFreshHelper(ctx context.Context, pool *ClaudeSubscriptionPo
 	if !h.primed && !h.sync.started {
 		return h, nil
 	}
-	pool.retire(helperKey, h)
-	pool.release(h)
+	pool.retireAndRelease(helperKey, h)
 	return pool.acquire(ctx, helperKey, spec)
+}
+
+// claudeSubAcquireSummaryHelper acquires the ephemeral summary helper for key as
+// a fresh process started with resume. It returns the helper and its key. The
+// caller retires and releases the helper with pool.retireAndRelease.
+func claudeSubAcquireSummaryHelper(ctx context.Context, pool *ClaudeSubscriptionPool, key string, spec claudeSubStartSpec, resume claudeSubResume) (*claudeSubSession, string, error) {
+	helperKey := key + claudeSubSummarySuffix
+	spec.Persist = false
+	spec.MaxTurns = 1
+	spec.Resume = resume
+	h, err := claudeSubAcquireFreshHelper(ctx, pool, helperKey, spec)
+	return h, helperKey, err
 }
 
 // claudeSubForkSummary answers a summary request from an ephemeral helper that
 // forks the stored CLI session at the source tail. The helper holds only the
 // source, runs one turn, and is retired. It returns no backend state.
 func claudeSubForkSummary(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, src claudeSubForkSource, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
-	helperKey := key + claudeSubSummarySuffix
-	spec.Persist = false
-	spec.MaxTurns = 1
-	spec.Resume = claudeSubResume{SessionID: src.sessionID, AtUUID: src.atUUID, Fork: true}
-	h, err := claudeSubAcquireFreshHelper(ctx, pool, helperKey, spec)
+	h, helperKey, err := claudeSubAcquireSummaryHelper(ctx, pool, key, spec, claudeSubResume{SessionID: src.sessionID, AtUUID: src.atUUID, Fork: true})
 	if err != nil {
 		return err
 	}
-	defer pool.release(h)
-	defer pool.retire(helperKey, h)
+	defer pool.retireAndRelease(helperKey, h)
 	h.sync.entries = src.entries
 	h.sync.started = true
 	h.sync.interruptible = -1
@@ -296,16 +300,11 @@ func claudeSubForkSummary(ctx context.Context, pool *ClaudeSubscriptionPool, req
 // is cold-reseeded with the whole request. It runs only when no live parent
 // process exists. The helper is retired afterwards and returns no backend state.
 func claudeSubReseedSummary(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
-	helperKey := key + claudeSubSummarySuffix
-	spec.Persist = false
-	spec.MaxTurns = 1
-	spec.Resume = claudeSubResume{}
-	h, err := claudeSubAcquireFreshHelper(ctx, pool, helperKey, spec)
+	h, helperKey, err := claudeSubAcquireSummaryHelper(ctx, pool, key, spec, claudeSubResume{})
 	if err != nil {
 		return err
 	}
-	defer pool.release(h)
-	defer pool.retire(helperKey, h)
+	defer pool.retireAndRelease(helperKey, h)
 	return claudeSubDeliverNormal(ctx, h, req, true, emit)
 }
 
@@ -320,8 +319,7 @@ func claudeSubSubAgentSummary(ctx context.Context, pool *ClaudeSubscriptionPool,
 	err = claudeSubInPlaceSummary(ctx, s, req, emit)
 	// The summary tainted this process, so it is retired at once rather than
 	// left pooled for lazy retirement.
-	pool.retire(key, s)
-	pool.release(s)
+	pool.retireAndRelease(key, s)
 	if !errors.Is(err, errClaudeSubSummaryNoPlace) {
 		return err
 	}
@@ -329,8 +327,7 @@ func claudeSubSubAgentSummary(ctx context.Context, pool *ClaudeSubscriptionPool,
 	if err != nil {
 		return err
 	}
-	defer pool.release(s)
-	defer pool.retire(key, s)
+	defer pool.retireAndRelease(key, s)
 	return claudeSubDeliverTainted(ctx, s, req, claudeSubMarkedReseedDelta(req), emit)
 }
 
@@ -414,16 +411,14 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 			return s, false, nil
 		}
 		owner := a.hasState && a.stored.TransportSession != a.key
-		pool.retire(a.key, s)
-		pool.release(s)
+		pool.retireAndRelease(a.key, s)
 		return claudeSubAttachSession(ctx, pool, req, a, !owner)
 	}
 	if s.resume != spawn.Resume || (s.sync.fingerprint != "" && s.sync.fingerprint != a.fingerprint) {
 		// An unprimed process left by an earlier attempt was started with a
 		// different resume target or prompt, so it cannot serve this request.
 		// Persist is not compared: a key always maps to one process kind.
-		pool.retire(a.key, s)
-		pool.release(s)
+		pool.retireAndRelease(a.key, s)
 		return claudeSubAttachSession(ctx, pool, req, a, true)
 	}
 	s.sync.fingerprint = a.fingerprint

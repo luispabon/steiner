@@ -397,10 +397,7 @@ func claudeSubResumeEntries(msgs []Message, stored claudeSubBackendState) ([]cla
 	if n <= 0 || n > len(msgs) || stored.FinalUUID == "" {
 		return nil, false
 	}
-	entries := make([]claudeSubEntry, 0, n)
-	for _, m := range msgs[:n] {
-		entries = append(entries, claudeSubEntryFromMessage(m))
-	}
+	entries := claudeSubEntriesFromMessages(msgs[:n])
 	last := &entries[n-1]
 	if last.Role != MessageRoleAssistant || last.Digest != stored.FinalMessageDigest {
 		return nil, false
@@ -466,9 +463,8 @@ func claudeSubHasHistory(msgs []Message) bool {
 // messages.
 func claudeSubReseedDelta(msgs []Message) claudeSubDelta {
 	transcript := Message{Role: MessageRoleUser, Content: claudeSubTranscript(msgs)}
-	entries := make([]claudeSubEntry, 0, len(msgs))
+	entries := claudeSubEntriesFromMessages(msgs)
 	for _, m := range msgs {
-		entries = append(entries, claudeSubEntryFromMessage(m))
 		for _, img := range m.Images {
 			if img.Data != "" {
 				transcript.Images = append(transcript.Images, img)
@@ -595,10 +591,8 @@ func (s *claudeSubSync) sourceTailUUID(msgs []Message, source int) (string, bool
 	if source <= 0 || source > len(msgs) || source > len(s.entries) {
 		return "", false
 	}
-	for i := range source {
-		if !claudeSubEntryMatches(s.entries[i], msgs[i]) {
-			return "", false
-		}
+	if !s.sourcePrefixMatches(msgs, source) {
+		return "", false
 	}
 	last := s.entries[source-1]
 	if last.Role != MessageRoleAssistant || last.UUID == "" {
@@ -616,10 +610,8 @@ func (s *claudeSubSync) planSummary(msgs []Message, source int) (claudeSubDelta,
 	if s.tainted || !s.started || s.interrupted || source <= 0 || len(msgs) != source+1 || len(s.entries) < source || msgs[source].Role != MessageRoleUser {
 		return claudeSubDelta{}, errClaudeSubSummaryNoPlace
 	}
-	for i := range source {
-		if !claudeSubEntryMatches(s.entries[i], msgs[i]) {
-			return claudeSubDelta{}, errClaudeSubSummaryNoPlace
-		}
+	if !s.sourcePrefixMatches(msgs, source) {
+		return claudeSubDelta{}, errClaudeSubSummaryNoPlace
 	}
 	instruction := claudeSubMarkSummary(msgs[source], source, len(s.entries)-source)
 	return claudeSubDelta{
@@ -627,6 +619,17 @@ func (s *claudeSubSync) planSummary(msgs []Message, source int) (claudeSubDelta,
 		keep:              append([]claudeSubEntry(nil), s.entries...),
 		keepInterruptible: s.interruptible,
 	}, nil
+}
+
+// sourcePrefixMatches reports whether the record's first source entries match
+// the first source request messages. The caller bounds source against both.
+func (s *claudeSubSync) sourcePrefixMatches(msgs []Message, source int) bool {
+	for i := range source {
+		if !claudeSubEntryMatches(s.entries[i], msgs[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // claudeSubMarkSummary marks a summary instruction sent in place. It names the
@@ -720,6 +723,15 @@ func claudeSubEntryMatches(entry claudeSubEntry, m Message) bool {
 		return false
 	}
 	return entry.Digest == claudeSubDigest(m) && claudeSubImagesSubset(claudeSubImageFingerprints(m), entry.Images)
+}
+
+// claudeSubEntriesFromMessages returns the sync entry of each message in msgs.
+func claudeSubEntriesFromMessages(msgs []Message) []claudeSubEntry {
+	entries := make([]claudeSubEntry, 0, len(msgs))
+	for _, m := range msgs {
+		entries = append(entries, claudeSubEntryFromMessage(m))
+	}
+	return entries
 }
 
 func claudeSubEntryFromMessage(m Message) claudeSubEntry {
