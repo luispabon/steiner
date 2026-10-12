@@ -783,6 +783,47 @@ func TestClaudeSubTurnFailureThenRetry(t *testing.T) {
 	}
 }
 
+// TestClaudeSubDecodeErrorRetiresProcess proves a decode stream error retires
+// the process in normal and advisor turns. The failed process keeps the tail of
+// its turn queued, so reusing it would feed stale events to the next request.
+func TestClaudeSubDecodeErrorRetiresProcess(t *testing.T) {
+	turn := claudeSubDecodeEvents(t, "turn_text.jsonl")
+	// system init, message_start, a duplicate message_start (decode error),
+	// then the rest of the turn.
+	broken := append([]claudeSubEvent{turn[0], turn[1], turn[1]}, turn[2:]...)
+	advisorMessages := []Message{claudeSubUserText("read notes"), {Role: MessageRoleAssistant, Content: "Hello world"}, claudeSubUserText("is it right?")}
+	tests := []struct {
+		name string
+		req  ChatRequest
+	}{
+		{name: "normal", req: ChatRequest{TransportSession: "decode", Messages: []Message{claudeSubUserText("read notes")}}},
+		{name: "advisor", req: ChatRequest{TransportSession: "decode-advisor", ParentTransportSession: "parent", AdvisorCacheProfile: true, Messages: advisorMessages}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pool, spawner := claudeSubPoolWithScripts(t,
+				&claudeSubScript{batches: [][]claudeSubEvent{broken}},
+				claudeSubTextTurns(t, 1))
+			req := tc.req
+			req.Model = claudeSubTestSpec().Model
+			err := claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil })
+			if !errors.Is(err, errClaudeSubDecodeStream) {
+				t.Fatalf("first turn error = %v, want decode stream error", err)
+			}
+			if !spawner.call(t, 0).Conn.isClosed() {
+				t.Error("failed process was not closed")
+			}
+			final := claudeSubRunTurn(t, pool, req)
+			if final.Delta.Content != "Hello world" {
+				t.Errorf("second turn text = %q, want Hello world", final.Delta.Content)
+			}
+			if n := spawner.callCount(); n != 2 {
+				t.Errorf("spawn count = %d, want 2 (fresh process after decode error)", n)
+			}
+		})
+	}
+}
+
 func TestClaudeSubUsageGateRejectsBeforeUserWrite(t *testing.T) {
 	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	s, err := pool.acquire(context.Background(), "gate", claudeSubTestSpec())

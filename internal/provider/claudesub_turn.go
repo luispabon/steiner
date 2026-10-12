@@ -71,7 +71,11 @@ func claudeSubAdvisorTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req
 		return err
 	}
 	defer pool.release(s)
-	return claudeSubDeliver(ctx, s, req, delta, emit)
+	err = claudeSubDeliver(ctx, s, req, delta, emit)
+	if errors.Is(err, errClaudeSubDecodeStream) {
+		pool.retire(key, s)
+	}
+	return err
 }
 
 // claudeSubAdvisorPlan settles pending calls and plans the advisor delta.
@@ -122,8 +126,11 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 			emitted = true
 			return emit(chunk)
 		})
-		retry := err != nil && !emitted && ctx.Err() == nil && s.resume.SessionID != ""
-		if retry {
+		// A decode error means the process may hold stale events from the failed
+		// turn, so it is retired even after output and is never retried inline.
+		decodeFailure := errors.Is(err, errClaudeSubDecodeStream)
+		retry := err != nil && !decodeFailure && !emitted && ctx.Err() == nil && s.resume.SessionID != ""
+		if decodeFailure || retry {
 			pool.retire(key, s)
 		}
 		pool.release(s)
