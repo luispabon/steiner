@@ -52,6 +52,29 @@ func TestParseModelReference(t *testing.T) {
 	}
 }
 
+func TestParseModelReferenceRawReferenceBypassesSameNameAlias(t *testing.T) {
+	cfg := Config{
+		Providers: map[string]ProviderConfig{"local": {}},
+		Models: ModelsConfig{Definitions: map[string]ModelConfig{
+			"raw": {Provider: "local", ID: "backend-x"},
+		}},
+	}
+	provider, model, err := ParseModelReference(&cfg, "local/raw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider != "local" || model != "raw" {
+		t.Fatalf("ParseModelReference(local/raw) = %q, %q, want raw model id", provider, model)
+	}
+	provider, model, err = ParseModelReference(&cfg, "raw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider != "local" || model != "backend-x" {
+		t.Fatalf("ParseModelReference(raw) = %q, %q, want alias target", provider, model)
+	}
+}
+
 func TestParseModelReferenceAliasWins(t *testing.T) {
 	cfg := Config{
 		Providers: map[string]ProviderConfig{"local": {}},

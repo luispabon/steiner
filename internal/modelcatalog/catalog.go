@@ -165,7 +165,7 @@ func configuredChoices(cfg *config.Config, activeAlias, activeID string, counts 
 			Aliased:          true,
 			SwitchCount:      counts[key],
 			SupportedEfforts: efforts,
-			Current:          definition.Provider == activeAlias && definition.ID == activeID,
+			Current:          definition.Provider == activeAlias && (definition.ID == activeID || alias == activeID),
 		})
 	}
 	return choices, defined

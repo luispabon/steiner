@@ -131,6 +131,26 @@ func TestServiceChoicesAliasNameSuppressesDiscoveredRow(t *testing.T) {
 	if len(choices) != 4 {
 		t.Errorf("choices: got %d, want 4: %+v", len(choices), choices)
 	}
+	for _, tt := range []struct {
+		activeRef   string
+		wantCurrent string
+	}{
+		{activeRef: "local/raw", wantCurrent: "raw"},
+		{activeRef: "local/backend-x", wantCurrent: "raw"},
+		{activeRef: "local/canonical-id", wantCurrent: "canonical"},
+		{activeRef: "other/raw", wantCurrent: "other/raw"},
+		{activeRef: "local/keep", wantCurrent: "local/keep"},
+	} {
+		var current []string
+		for _, choice := range service.Choices(cfg, tt.activeRef) {
+			if choice.Current {
+				current = append(current, choice.Ref)
+			}
+		}
+		if len(current) != 1 || current[0] != tt.wantCurrent {
+			t.Errorf("active %q current rows: got %v, want [%s]", tt.activeRef, current, tt.wantCurrent)
+		}
+	}
 }
 
 func TestServiceChoicesDiscoveryDisabledDoesNotReadCache(t *testing.T) {
