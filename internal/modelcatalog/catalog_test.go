@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -149,6 +150,49 @@ func TestServiceChoicesAliasNameSuppressesDiscoveredRow(t *testing.T) {
 		}
 		if len(current) != 1 || current[0] != tt.wantCurrent {
 			t.Errorf("active %q current rows: got %v, want [%s]", tt.activeRef, current, tt.wantCurrent)
+		}
+	}
+}
+
+func TestServiceChoicesAliasCurrentRequiresExactRawReference(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	if err := cache.SaveAtomic("local", CacheEnvelope{
+		Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://local.example"},
+		Models:      []DiscoveredModel{{ID: "raw"}, {ID: "backend-x"}},
+	}); err != nil {
+		t.Fatalf("save local cache: %v", err)
+	}
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAI, BaseURL: "https://local.example"},
+		},
+		Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
+			// raw shadows discovered local/raw by name but targets backend-x.
+			"raw": {Provider: "local", ID: "backend-x"},
+			// x targets the backend whose ID is raw, so it parses to the same backend as local/raw.
+			"x": {Provider: "local", ID: "raw"},
+			// A definition named local/raw means the reference is an alias, not the raw form.
+			"local/raw": {Provider: "local", ID: "other-backend"},
+		}},
+	}
+
+	service := NewService(nil, cache, nil, nil)
+	for _, tt := range []struct {
+		activeRef   string
+		wantCurrent []string
+	}{
+		{activeRef: "x", wantCurrent: []string{"x"}},
+		{activeRef: "raw", wantCurrent: []string{"raw"}},
+		{activeRef: "local/raw", wantCurrent: []string{"local/raw"}},
+	} {
+		var current []string
+		for _, choice := range service.Choices(cfg, tt.activeRef) {
+			if choice.Current {
+				current = append(current, choice.Ref)
+			}
+		}
+		if strings.Join(current, ",") != strings.Join(tt.wantCurrent, ",") {
+			t.Errorf("active %q current rows: got %v, want %v", tt.activeRef, current, tt.wantCurrent)
 		}
 	}
 }
