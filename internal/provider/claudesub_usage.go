@@ -94,6 +94,9 @@ func claudeSubAwaitUsageGate(ctx context.Context, getUsage func(context.Context)
 		if remaining <= 0 {
 			return err
 		}
+		if len(claudeSubUsageGateBackoff) == 0 {
+			return err
+		}
 		wait := claudeSubUsageGateBackoff[min(poll, len(claudeSubUsageGateBackoff)-1)]
 		timer := time.NewTimer(min(wait, remaining))
 		select {

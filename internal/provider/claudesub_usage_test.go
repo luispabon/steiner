@@ -92,6 +92,7 @@ func TestClaudeSubAwaitUsageGate(t *testing.T) {
 		{name: "ready", responses: []json.RawMessage{ready}, wantCalls: 1},
 		{name: "not ready then ready", responses: []json.RawMessage{notReady, notReady, ready}, wantCalls: 3},
 		{name: "credits enabled refuses at once", responses: []json.RawMessage{claudeSubFixture(t, "get_usage_credits_on.json")}, wantCalls: 1, wantErr: claudeSubCreditsEnabledWant},
+		{name: "not ready then credits enabled refuses at once", responses: []json.RawMessage{notReady, claudeSubFixture(t, "get_usage_credits_on.json")}, wantCalls: 2, wantErr: claudeSubCreditsEnabledWant},
 		{name: "usage error returns at once", usageErr: transport, wantCalls: 1, wantIs: transport},
 	}
 	for _, tc := range tests {
@@ -169,8 +170,49 @@ func TestClaudeSubAwaitUsageGateStopsOnCancel(t *testing.T) {
 	if calls != 1 {
 		t.Errorf("getUsage calls = %d, want 1 (no poll after cancel)", calls)
 	}
-	if elapsed := time.Since(start); elapsed > 10*time.Second {
+	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("returned after %v, want a prompt return on cancel", elapsed)
+	}
+}
+
+// TestClaudeSubAwaitUsageGateRepeatsLastBackoff proves the last backoff entry
+// repeats: with two entries, persistent not-ready still polls more than twice.
+func TestClaudeSubAwaitUsageGateRepeatsLastBackoff(t *testing.T) {
+	claudeSubUsageGateFast(t, 50*time.Millisecond, time.Millisecond, 2*time.Millisecond)
+	calls := 0
+	getUsage := func(context.Context) (json.RawMessage, error) {
+		calls++
+		return json.RawMessage(`{"rate_limits_available":false}`), nil
+	}
+	err := claudeSubAwaitUsageGate(context.Background(), getUsage)
+	want := claudeSubFailClosedWant + " (rate_limits_available=false)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("claudeSubAwaitUsageGate() error = %v, want %q", err, want)
+	}
+	if calls <= 2 {
+		t.Errorf("getUsage calls = %d, want more polls than the 2 backoff entries", calls)
+	}
+}
+
+// TestClaudeSubAwaitUsageGateEmptyBackoffFailsClosed proves an empty backoff
+// schedule refuses after one poll instead of indexing the schedule.
+func TestClaudeSubAwaitUsageGateEmptyBackoffFailsClosed(t *testing.T) {
+	claudeSubUsageGateFast(t, time.Minute)
+	calls := 0
+	getUsage := func(context.Context) (json.RawMessage, error) {
+		calls++
+		return json.RawMessage(`{"rate_limits_available":false}`), nil
+	}
+	err := claudeSubAwaitUsageGate(context.Background(), getUsage)
+	want := claudeSubFailClosedWant + " (rate_limits_available=false)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("claudeSubAwaitUsageGate() error = %v, want %q", err, want)
+	}
+	if !errors.Is(err, errClaudeSubUsageNotReady) {
+		t.Errorf("error %v does not wrap errClaudeSubUsageNotReady", err)
+	}
+	if calls != 1 {
+		t.Errorf("getUsage calls = %d, want 1", calls)
 	}
 }
 
