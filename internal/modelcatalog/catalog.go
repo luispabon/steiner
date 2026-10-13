@@ -63,7 +63,7 @@ func (s *Service) Choices(cfg *config.Config, activeRef string) []ModelChoice {
 	counts := s.popularity.Snapshot()
 	activeAlias, activeID, _ := config.ParseModelReference(cfg, activeRef)
 	discovered := s.discoveredModels(cfg)
-	choices, defined := configuredChoices(cfg, activeAlias, activeID, counts, discovered)
+	choices, defined := configuredChoices(cfg, activeRef, activeAlias, activeID, counts, discovered)
 	choices = append(choices, discoveredChoices(discovered, defined, activeAlias, activeID, counts)...)
 	return rankChoices(choices)
 }
@@ -134,7 +134,7 @@ func (s *Service) setDiscovered(alias string, models []DiscoveredModel) {
 	s.mu.Unlock()
 }
 
-func configuredChoices(cfg *config.Config, activeAlias, activeID string, counts map[Key]int, discovered map[Key]DiscoveredModel) ([]ModelChoice, map[Key]struct{}) {
+func configuredChoices(cfg *config.Config, activeRef, activeAlias, activeID string, counts map[Key]int, discovered map[Key]DiscoveredModel) ([]ModelChoice, map[Key]struct{}) {
 	aliases := make([]string, 0, len(cfg.Models.Definitions))
 	for alias := range cfg.Models.Definitions {
 		aliases = append(aliases, alias)
@@ -142,6 +142,7 @@ func configuredChoices(cfg *config.Config, activeAlias, activeID string, counts 
 	sort.Strings(aliases)
 	choices := make([]ModelChoice, 0, len(cfg.Models.Definitions)+len(discovered))
 	defined := make(map[Key]struct{}, len(cfg.Models.Definitions))
+	_, activeIsDefinition := cfg.Models.Definitions[activeRef]
 	for _, alias := range aliases {
 		definition := cfg.Models.Definitions[alias]
 		if definition.Provider == "" || definition.ID == "" {
@@ -149,8 +150,12 @@ func configuredChoices(cfg *config.Config, activeAlias, activeID string, counts 
 		}
 		key := Key{ProviderAlias: definition.Provider, ModelID: definition.ID}
 		defined[key] = struct{}{}
+		// The alias row shadows discovered provider/alias even when its backend ID differs.
+		defined[Key{ProviderAlias: definition.Provider, ModelID: alias}] = struct{}{}
 		model := discovered[key]
 		display := definition.Provider + "/" + alias
+		// Only the exact raw provider/alias reference selects this row by name; a parse-equal backend ID does not.
+		rawAliasActive := !activeIsDefinition && activeRef == definition.Provider+"/"+alias
 		efforts := model.SupportedEfforts
 		if definition.Advanced.Reasoning.SupportedEfforts != nil {
 			efforts = definition.Advanced.Reasoning.SupportedEfforts
@@ -163,7 +168,7 @@ func configuredChoices(cfg *config.Config, activeAlias, activeID string, counts 
 			Aliased:          true,
 			SwitchCount:      counts[key],
 			SupportedEfforts: efforts,
-			Current:          definition.Provider == activeAlias && definition.ID == activeID,
+			Current:          rawAliasActive || (definition.Provider == activeAlias && definition.ID == activeID),
 		})
 	}
 	return choices, defined

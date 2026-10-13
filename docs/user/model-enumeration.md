@@ -57,7 +57,9 @@ the chooser as each provider finishes.
 ## Model chooser and references
 
 Configured model definitions and discovered models are merged. A configured alias
-suppresses its matching raw provider/model entry. The chooser ranks by switch count
+suppresses its matching raw provider/model entry (same provider and backend model ID)
+and any discovered entry under the same provider whose model ID equals the alias name.
+The chooser ranks by switch count
 descending, then puts aliased definitions before raw entries, then sorts by display
 name alphabetically. Supported reasoning efforts from a configured definition take
 precedence over discovered efforts.

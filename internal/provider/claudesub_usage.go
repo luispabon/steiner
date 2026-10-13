@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,9 +18,23 @@ const (
 	claudeSubGateFailClosedMsg = "could not confirm that usage credits are off for this Claude account, so claude_subscription is refused (fail closed)"
 )
 
+// errClaudeSubUsageNotReady marks an extra-usage state that cannot be confirmed
+// yet. A fresh CLI session can report it before its metadata loads, so the gate
+// polls again before refusing. Its text is the refusal prefix.
+var errClaudeSubUsageNotReady = errors.New(claudeSubGateFailClosedMsg)
+
+// Usage gate polling. A not-ready state is polled again. Poll i waits
+// claudeSubUsageGateBackoff[i] (the last entry repeats) before the next call,
+// until claudeSubUsageGateBudget has elapsed. Tests shorten both.
+var (
+	claudeSubUsageGateBudget  = 15 * time.Second
+	claudeSubUsageGateBackoff = []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second}
+)
+
 // claudeSubUsageGate enforces the strict extra-usage gate (D5): it passes only
 // when rate_limits_available is true and rate_limits.extra_usage.is_enabled is
-// false. Every other outcome (missing, null, undecodable) fails closed.
+// false. Missing, null, and undecodable state wraps errClaudeSubUsageNotReady
+// and names the missing field. Credits enabled is a definite refusal.
 func claudeSubUsageGate(raw json.RawMessage) error {
 	var body struct {
 		RateLimitsAvailable *bool `json:"rate_limits_available"`
@@ -31,18 +46,66 @@ func claudeSubUsageGate(raw json.RawMessage) error {
 		} `json:"rate_limits"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		return errors.New(claudeSubGateFailClosedMsg)
+		return claudeSubUsageNotReady("undecodable usage response")
 	}
-	if body.RateLimitsAvailable == nil || !*body.RateLimitsAvailable {
-		return errors.New(claudeSubGateFailClosedMsg)
+	if body.RateLimitsAvailable == nil {
+		return claudeSubUsageNotReady("rate_limits_available missing")
 	}
-	if body.RateLimits == nil || body.RateLimits.ExtraUsage == nil || body.RateLimits.ExtraUsage.IsEnabled == nil {
-		return errors.New(claudeSubGateFailClosedMsg)
+	if !*body.RateLimitsAvailable {
+		return claudeSubUsageNotReady("rate_limits_available=false")
+	}
+	if body.RateLimits == nil {
+		return claudeSubUsageNotReady("rate_limits missing")
+	}
+	if body.RateLimits.ExtraUsage == nil {
+		return claudeSubUsageNotReady("extra_usage missing")
+	}
+	if body.RateLimits.ExtraUsage.IsEnabled == nil {
+		return claudeSubUsageNotReady("extra_usage.is_enabled missing")
 	}
 	if *body.RateLimits.ExtraUsage.IsEnabled {
 		return errors.New(claudeSubCreditsEnabledMsg)
 	}
 	return nil
+}
+
+// claudeSubUsageNotReady wraps errClaudeSubUsageNotReady with the reason the
+// extra-usage state could not be confirmed.
+func claudeSubUsageNotReady(reason string) error {
+	return fmt.Errorf("%w (%s)", errClaudeSubUsageNotReady, reason)
+}
+
+// claudeSubAwaitUsageGate calls getUsage and applies claudeSubUsageGate. A
+// not-ready state is polled again with backoff until the budget elapses, then
+// the last gate error is returned. Transport errors and credits-enabled refusals
+// return at once. A done ctx ends the wait with ctx.Err().
+func claudeSubAwaitUsageGate(ctx context.Context, getUsage func(context.Context) (json.RawMessage, error)) error {
+	start := time.Now()
+	for poll := 0; ; poll++ {
+		usage, err := getUsage(ctx)
+		if err != nil {
+			return err
+		}
+		err = claudeSubUsageGate(usage)
+		if !errors.Is(err, errClaudeSubUsageNotReady) {
+			return err
+		}
+		remaining := claudeSubUsageGateBudget - time.Since(start)
+		if remaining <= 0 {
+			return err
+		}
+		if len(claudeSubUsageGateBackoff) == 0 {
+			return err
+		}
+		wait := claudeSubUsageGateBackoff[min(poll, len(claudeSubUsageGateBackoff)-1)]
+		timer := time.NewTimer(min(wait, remaining))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 // claudeSubRateLimitInfo is the shape of a rate_limit_event's rate_limit_info.

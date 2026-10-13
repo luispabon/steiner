@@ -570,6 +570,7 @@ func TestClaudeSubTurnFailureThenRetry(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			claudeSubUsageGateFast(t, 30*time.Millisecond, time.Millisecond)
 			pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 			spec := claudeSubTestSpec()
 			spec.Tools = []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
@@ -807,6 +808,7 @@ func TestClaudeSubDecodeErrorOnResumeDoesNotReseed(t *testing.T) {
 }
 
 func TestClaudeSubUsageGateRejectsBeforeUserWrite(t *testing.T) {
+	claudeSubUsageGateFast(t, 30*time.Millisecond, time.Millisecond)
 	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	s, err := pool.acquire(context.Background(), "gate", claudeSubTestSpec())
 	if err != nil {
@@ -851,7 +853,75 @@ func TestClaudeSubUsageGateRejectsBeforeUserWrite(t *testing.T) {
 	}
 }
 
+// TestClaudeSubUsageGateRepollsBeforeUserWrite proves a fresh session whose
+// first get_usage reports the state not ready passes once a later poll confirms
+// it, and the user line is written only after that pass.
+func TestClaudeSubUsageGateRepollsBeforeUserWrite(t *testing.T) {
+	claudeSubUsageGateFast(t, 5*time.Second, time.Millisecond)
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	s, err := pool.acquire(context.Background(), "repoll", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	pool.release(s)
+	conn := spawner.call(t, 0).Conn
+	polls := 0
+	conn.mu.Lock()
+	conn.responder = func(line []byte) []claudeSubEvent {
+		var envelope struct {
+			Type      string `json:"type"`
+			RequestID string `json:"request_id"`
+			Request   struct {
+				Subtype string `json:"subtype"`
+			} `json:"request"`
+		}
+		if json.Unmarshal(line, &envelope) != nil {
+			return nil
+		}
+		switch envelope.Type {
+		case "control_request":
+			if envelope.Request.Subtype != "get_usage" {
+				return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, nil)}
+			}
+			polls++
+			if polls == 1 {
+				return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, json.RawMessage(`{"rate_limits_available":false}`))}
+			}
+			return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":false}}}`))}
+		case "user":
+			for _, ev := range claudeSubDecodeEvents(t, "turn_text.jsonl") {
+				conn.push(ev)
+			}
+		}
+		return nil
+	}
+	conn.mu.Unlock()
+	req := ChatRequest{TransportSession: "repoll", Model: claudeSubTestSpec().Model, Messages: []Message{claudeSubUserText("hello")}}
+	if err := claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil }); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	if polls != 2 {
+		t.Errorf("get_usage polls = %d, want 2", polls)
+	}
+	gets, users := 0, 0
+	for _, line := range conn.sentLines() {
+		switch {
+		case strings.Contains(line, `"type":"user"`):
+			users++
+			if gets != 2 {
+				t.Errorf("get_usage requests before the user write = %d, want 2", gets)
+			}
+		case strings.Contains(line, `"subtype":"get_usage"`):
+			gets++
+		}
+	}
+	if users != 1 {
+		t.Errorf("user writes = %d, want 1", users)
+	}
+}
+
 func TestClaudeSubUsageGateRefusesToolResultsWithUserBeforeResolve(t *testing.T) {
+	claudeSubUsageGateFast(t, 30*time.Millisecond, time.Millisecond)
 	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	spec := claudeSubTestSpec()
 	spec.Tools = []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
@@ -930,7 +1000,7 @@ func TestClaudeSubUsageGateRefusesToolResultsWithUserBeforeResolve(t *testing.T)
 			{Role: MessageRoleUser, Content: "summarize it"},
 		},
 	}
-	if err := claudeSubTurn(ctx, pool, second, func(ChatChunk) error { return nil }); err == nil || err.Error() != claudeSubFailClosedWant {
+	if err := claudeSubTurn(ctx, pool, second, func(ChatChunk) error { return nil }); err == nil || err.Error() != claudeSubFailClosedWant+" (rate_limits_available=false)" {
 		t.Fatalf("second turn error = %v, want fail-closed usage gate", err)
 	}
 

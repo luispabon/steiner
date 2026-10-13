@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,23 +25,35 @@ const (
 	claudeSubFailClosedWant     = "could not confirm that usage credits are off for this Claude account, so claude_subscription is refused (fail closed)"
 )
 
+// claudeSubUsageGateFast sets the usage gate budget and backoff for one test and
+// restores them on cleanup. Tests using it must not run in parallel.
+func claudeSubUsageGateFast(t *testing.T, budget time.Duration, backoff ...time.Duration) {
+	t.Helper()
+	prevBudget, prevBackoff := claudeSubUsageGateBudget, claudeSubUsageGateBackoff
+	claudeSubUsageGateBudget, claudeSubUsageGateBackoff = budget, backoff
+	t.Cleanup(func() {
+		claudeSubUsageGateBudget, claudeSubUsageGateBackoff = prevBudget, prevBackoff
+	})
+}
+
 func TestClaudeSubUsageGate(t *testing.T) {
 	tests := []struct {
-		name    string
-		raw     json.RawMessage
-		wantErr string
+		name     string
+		raw      json.RawMessage
+		wantErr  string
+		notReady bool
 	}{
-		{"ok fixture", claudeSubFixture(t, "get_usage_ok.json"), ""},
-		{"credits on fixture", claudeSubFixture(t, "get_usage_credits_on.json"), claudeSubCreditsEnabledWant},
-		{"rate_limits_available false", json.RawMessage(`{"rate_limits_available":false,"rate_limits":{"extra_usage":{"is_enabled":false}}}`), claudeSubFailClosedWant},
-		{"rate_limits_available absent", json.RawMessage(`{"rate_limits":{"extra_usage":{"is_enabled":false}}}`), claudeSubFailClosedWant},
-		{"rate_limits_available null", json.RawMessage(`{"rate_limits_available":null,"rate_limits":{"extra_usage":{"is_enabled":false}}}`), claudeSubFailClosedWant},
-		{"rate_limits absent", json.RawMessage(`{"rate_limits_available":true}`), claudeSubFailClosedWant},
-		{"extra_usage absent", json.RawMessage(`{"rate_limits_available":true,"rate_limits":{}}`), claudeSubFailClosedWant},
-		{"is_enabled null", json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":null}}}`), claudeSubFailClosedWant},
-		{"is_enabled absent", json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"disabled_reason":"org_level_disabled_until"}}}`), claudeSubFailClosedWant},
-		{"undecodable", json.RawMessage(`not json`), claudeSubFailClosedWant},
-		{"empty", json.RawMessage(``), claudeSubFailClosedWant},
+		{"ok fixture", claudeSubFixture(t, "get_usage_ok.json"), "", false},
+		{"credits on fixture", claudeSubFixture(t, "get_usage_credits_on.json"), claudeSubCreditsEnabledWant, false},
+		{"rate_limits_available false", json.RawMessage(`{"rate_limits_available":false,"rate_limits":{"extra_usage":{"is_enabled":false}}}`), claudeSubFailClosedWant + " (rate_limits_available=false)", true},
+		{"rate_limits_available absent", json.RawMessage(`{"rate_limits":{"extra_usage":{"is_enabled":false}}}`), claudeSubFailClosedWant + " (rate_limits_available missing)", true},
+		{"rate_limits_available null", json.RawMessage(`{"rate_limits_available":null,"rate_limits":{"extra_usage":{"is_enabled":false}}}`), claudeSubFailClosedWant + " (rate_limits_available missing)", true},
+		{"rate_limits absent", json.RawMessage(`{"rate_limits_available":true}`), claudeSubFailClosedWant + " (rate_limits missing)", true},
+		{"extra_usage absent", json.RawMessage(`{"rate_limits_available":true,"rate_limits":{}}`), claudeSubFailClosedWant + " (extra_usage missing)", true},
+		{"is_enabled null", json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":null}}}`), claudeSubFailClosedWant + " (extra_usage.is_enabled missing)", true},
+		{"is_enabled absent", json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"disabled_reason":"org_level_disabled_until"}}}`), claudeSubFailClosedWant + " (extra_usage.is_enabled missing)", true},
+		{"undecodable", json.RawMessage(`not json`), claudeSubFailClosedWant + " (undecodable usage response)", true},
+		{"empty", json.RawMessage(``), claudeSubFailClosedWant + " (undecodable usage response)", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -57,7 +70,149 @@ func TestClaudeSubUsageGate(t *testing.T) {
 			if err.Error() != tc.wantErr {
 				t.Errorf("claudeSubUsageGate() error = %q, want %q", err.Error(), tc.wantErr)
 			}
+			if got := errors.Is(err, errClaudeSubUsageNotReady); got != tc.notReady {
+				t.Errorf("errors.Is(err, errClaudeSubUsageNotReady) = %v, want %v", got, tc.notReady)
+			}
 		})
+	}
+}
+
+func TestClaudeSubAwaitUsageGate(t *testing.T) {
+	transport := errors.New("usage transport failed")
+	ready := json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":false}}}`)
+	notReady := json.RawMessage(`{"rate_limits_available":false}`)
+	tests := []struct {
+		name      string
+		responses []json.RawMessage // the last response repeats
+		usageErr  error
+		wantCalls int
+		wantErr   string // exact message, when the error is not a sentinel
+		wantIs    error  // errors.Is target, when set
+	}{
+		{name: "ready", responses: []json.RawMessage{ready}, wantCalls: 1},
+		{name: "not ready then ready", responses: []json.RawMessage{notReady, notReady, ready}, wantCalls: 3},
+		{name: "credits enabled refuses at once", responses: []json.RawMessage{claudeSubFixture(t, "get_usage_credits_on.json")}, wantCalls: 1, wantErr: claudeSubCreditsEnabledWant},
+		{name: "not ready then credits enabled refuses at once", responses: []json.RawMessage{notReady, claudeSubFixture(t, "get_usage_credits_on.json")}, wantCalls: 2, wantErr: claudeSubCreditsEnabledWant},
+		{name: "usage error returns at once", usageErr: transport, wantCalls: 1, wantIs: transport},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			claudeSubUsageGateFast(t, time.Minute, time.Millisecond)
+			calls := 0
+			getUsage := func(context.Context) (json.RawMessage, error) {
+				calls++
+				if tc.usageErr != nil {
+					return nil, tc.usageErr
+				}
+				return tc.responses[min(calls, len(tc.responses))-1], nil
+			}
+			err := claudeSubAwaitUsageGate(context.Background(), getUsage)
+			switch {
+			case tc.wantIs != nil:
+				if !errors.Is(err, tc.wantIs) {
+					t.Fatalf("claudeSubAwaitUsageGate() error = %v, want %v", err, tc.wantIs)
+				}
+			case tc.wantErr != "":
+				if err == nil || err.Error() != tc.wantErr {
+					t.Fatalf("claudeSubAwaitUsageGate() error = %v, want %q", err, tc.wantErr)
+				}
+			default:
+				if err != nil {
+					t.Fatalf("claudeSubAwaitUsageGate() error = %v, want nil", err)
+				}
+			}
+			if calls != tc.wantCalls {
+				t.Errorf("getUsage calls = %d, want %d", calls, tc.wantCalls)
+			}
+		})
+	}
+}
+
+// TestClaudeSubAwaitUsageGateFailsClosedAfterBudget proves a state that never
+// becomes ready is polled repeatedly, then refused with the reason suffix.
+func TestClaudeSubAwaitUsageGateFailsClosedAfterBudget(t *testing.T) {
+	claudeSubUsageGateFast(t, 30*time.Millisecond, time.Millisecond)
+	calls := 0
+	getUsage := func(context.Context) (json.RawMessage, error) {
+		calls++
+		return json.RawMessage(`{"rate_limits_available":false}`), nil
+	}
+	err := claudeSubAwaitUsageGate(context.Background(), getUsage)
+	want := claudeSubFailClosedWant + " (rate_limits_available=false)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("claudeSubAwaitUsageGate() error = %v, want %q", err, want)
+	}
+	if !errors.Is(err, errClaudeSubUsageNotReady) {
+		t.Errorf("error %v does not wrap errClaudeSubUsageNotReady", err)
+	}
+	if calls < 2 {
+		t.Errorf("getUsage calls = %d, want repeated polls within the budget", calls)
+	}
+}
+
+// TestClaudeSubAwaitUsageGateStopsOnCancel proves a cancelled context ends the
+// backoff wait at once instead of sleeping out the schedule.
+func TestClaudeSubAwaitUsageGateStopsOnCancel(t *testing.T) {
+	claudeSubUsageGateFast(t, time.Minute, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	getUsage := func(context.Context) (json.RawMessage, error) {
+		calls++
+		cancel()
+		return json.RawMessage(`{"rate_limits_available":false}`), nil
+	}
+	start := time.Now()
+	err := claudeSubAwaitUsageGate(ctx, getUsage)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("claudeSubAwaitUsageGate() error = %v, want context.Canceled", err)
+	}
+	if calls != 1 {
+		t.Errorf("getUsage calls = %d, want 1 (no poll after cancel)", calls)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("returned after %v, want a prompt return on cancel", elapsed)
+	}
+}
+
+// TestClaudeSubAwaitUsageGateRepeatsLastBackoff proves the last backoff entry
+// repeats: with two entries, persistent not-ready still polls more than twice.
+func TestClaudeSubAwaitUsageGateRepeatsLastBackoff(t *testing.T) {
+	claudeSubUsageGateFast(t, 50*time.Millisecond, time.Millisecond, 2*time.Millisecond)
+	calls := 0
+	getUsage := func(context.Context) (json.RawMessage, error) {
+		calls++
+		return json.RawMessage(`{"rate_limits_available":false}`), nil
+	}
+	err := claudeSubAwaitUsageGate(context.Background(), getUsage)
+	want := claudeSubFailClosedWant + " (rate_limits_available=false)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("claudeSubAwaitUsageGate() error = %v, want %q", err, want)
+	}
+	if calls <= 2 {
+		t.Errorf("getUsage calls = %d, want more polls than the 2 backoff entries", calls)
+	}
+}
+
+// TestClaudeSubAwaitUsageGateEmptyBackoffFailsClosed proves an empty backoff
+// schedule refuses after one poll instead of indexing the schedule.
+func TestClaudeSubAwaitUsageGateEmptyBackoffFailsClosed(t *testing.T) {
+	claudeSubUsageGateFast(t, time.Minute)
+	calls := 0
+	getUsage := func(context.Context) (json.RawMessage, error) {
+		calls++
+		return json.RawMessage(`{"rate_limits_available":false}`), nil
+	}
+	err := claudeSubAwaitUsageGate(context.Background(), getUsage)
+	want := claudeSubFailClosedWant + " (rate_limits_available=false)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("claudeSubAwaitUsageGate() error = %v, want %q", err, want)
+	}
+	if !errors.Is(err, errClaudeSubUsageNotReady) {
+		t.Errorf("error %v does not wrap errClaudeSubUsageNotReady", err)
+	}
+	if calls != 1 {
+		t.Errorf("getUsage calls = %d, want 1", calls)
 	}
 }
 
