@@ -149,6 +149,8 @@ func configuredChoices(cfg *config.Config, activeAlias, activeID string, counts 
 		}
 		key := Key{ProviderAlias: definition.Provider, ModelID: definition.ID}
 		defined[key] = struct{}{}
+		// The alias row shadows discovered provider/alias even when its backend ID differs.
+		defined[Key{ProviderAlias: definition.Provider, ModelID: alias}] = struct{}{}
 		model := discovered[key]
 		display := definition.Provider + "/" + alias
 		efforts := model.SupportedEfforts

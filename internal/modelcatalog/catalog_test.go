@@ -87,6 +87,52 @@ func TestServiceChoicesMergeRankAndCurrent(t *testing.T) {
 	}
 }
 
+func TestServiceChoicesAliasNameSuppressesDiscoveredRow(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	if err := cache.SaveAtomic("local", CacheEnvelope{
+		Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://local.example"},
+		Models:      []DiscoveredModel{{ID: "raw"}, {ID: "canonical-id"}, {ID: "keep"}},
+	}); err != nil {
+		t.Fatalf("save local cache: %v", err)
+	}
+	if err := cache.SaveAtomic("other", CacheEnvelope{
+		Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://other.example"},
+		Models:      []DiscoveredModel{{ID: "raw"}},
+	}); err != nil {
+		t.Fatalf("save other cache: %v", err)
+	}
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAI, BaseURL: "https://local.example"},
+			"other": {Type: config.ProviderTypeOpenAI, BaseURL: "https://other.example"},
+		},
+		Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
+			"raw":       {Provider: "local", ID: "backend-x"},
+			"canonical": {Provider: "local", ID: "canonical-id"},
+		}},
+	}
+
+	service := NewService(nil, cache, nil, nil)
+	choices := service.Choices(cfg, "")
+	got := make(map[string]bool, len(choices))
+	for _, choice := range choices {
+		got[choice.Ref] = true
+	}
+	for _, ref := range []string{"raw", "canonical", "local/keep", "other/raw"} {
+		if !got[ref] {
+			t.Errorf("missing choice %q in %+v", ref, choices)
+		}
+	}
+	for _, ref := range []string{"local/raw", "local/canonical-id"} {
+		if got[ref] {
+			t.Errorf("discovered choice %q not suppressed in %+v", ref, choices)
+		}
+	}
+	if len(choices) != 4 {
+		t.Errorf("choices: got %d, want 4: %+v", len(choices), choices)
+	}
+}
+
 func TestServiceChoicesDiscoveryDisabledDoesNotReadCache(t *testing.T) {
 	cacheDir := filepath.Join(t.TempDir(), "cache")
 	service := NewService(nil, NewCache(cacheDir), NewStore(filepath.Join(t.TempDir(), "popularity.json")), nil, false)
