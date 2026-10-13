@@ -279,6 +279,7 @@ func TestClaudeSubDiagnosticsResumeReseed(t *testing.T) {
 // TestClaudeSubDiagnosticsUsageGateRefusal proves a usage-gate refusal before
 // any user write writes one exhausted record.
 func TestClaudeSubDiagnosticsUsageGateRefusal(t *testing.T) {
+	claudeSubUsageGateFast(t, 30*time.Millisecond, time.Millisecond)
 	pool, spawner := claudeSubPoolWithScripts(t, &claudeSubScript{usage: json.RawMessage(`{"rate_limits_available":false}`)})
 	streamLog, logPath := claudeSubDiagLogger(t)
 	req := ChatRequest{TransportSession: "diag-gate", Model: claudeSubTestSpec().Model, Messages: []Message{claudeSubUserText("marker-prompt")}}

@@ -491,9 +491,7 @@ func claudeSubDeliverNormal(ctx context.Context, s *claudeSubSession, req ChatRe
 // re-sends user content (D22).
 func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest, delta claudeSubDelta, emit func(ChatChunk) error) error {
 	if len(delta.User) > 0 {
-		if usage, usageErr := s.control.getUsage(ctx); usageErr != nil {
-			return usageErr
-		} else if err := claudeSubUsageGate(usage); err != nil {
+		if err := claudeSubAwaitUsageGate(ctx, s.control.getUsage); err != nil {
 			return err
 		}
 	}

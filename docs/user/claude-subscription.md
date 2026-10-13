@@ -36,7 +36,7 @@ An API-key login, Bedrock, Vertex, or Foundry is not a Claude subscription login
 
 ## Extra usage safety gate
 
-Before sending a user turn, Steiner checks the account's usage state. The check passes only when rate-limit information is available and extra usage, also called usage credits, is explicitly disabled. Missing, null, malformed, or otherwise unconfirmed state fails closed. If extra usage is enabled, Steiner refuses the turn rather than allowing paid usage.
+Before sending a user turn, Steiner checks the account's usage state. The check passes only when rate-limit information is available and extra usage, also called usage credits, is explicitly disabled. Usage state that cannot be confirmed yet, such as missing, null, or malformed fields, is checked again for up to 15 seconds, since a fresh session can report it before its metadata loads. If it still cannot be confirmed, Steiner fails closed and the error names the missing field. If extra usage is enabled, Steiner refuses the turn at once rather than allowing paid usage.
 
 Turn off extra usage in Claude at **Settings -> Usage**, then retry. This gate is strict because Anthropic may change the account response or subscription behavior. It is separate from the ordinary subscription limit: a normal limit can still stop a turn and report its reset time.
 
