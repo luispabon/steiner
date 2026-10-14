@@ -3,23 +3,19 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"sort"
 	"strings"
 
-	"golang.org/x/oauth2"
-
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/modelcatalog"
-	"github.com/luispabon/steiner/internal/oauth"
 	providerpkg "github.com/luispabon/steiner/internal/provider"
 )
 
 // codexChatGPTBackendURL is the model-serving host used by ChatGPT-subscription
 // OAuth sessions (no distinct OpenAI API key). It differs from the OpenAI
 // Platform API host used when the Codex token carries its own API key.
-const codexChatGPTBackendURL = "https://chatgpt.com/backend-api/codex"
+const codexChatGPTBackendURL = providerpkg.CodexChatGPTBackendURL
 
 const claudeSubscriptionCatalogBaseURL = "claude-subscription://local"
 
@@ -124,43 +120,20 @@ func catalogConfigCopy(cfg *config.Config) *config.Config {
 // host on the ChatGPT backend. Token load, refresh, and auth failures abort the
 // refresh rather than listing with stale credentials.
 func prepareCodexCatalogEndpoint(ctx context.Context, endpoint modelcatalog.Endpoint) (modelcatalog.Endpoint, error) {
-	path, err := oauth.DefaultTokenPath()
-	if err != nil {
-		return endpoint, fmt.Errorf("resolve Codex token path: %w", err)
-	}
-	store := oauth.NewTokenStore(path)
-	token, err := store.Load()
-	if err != nil {
-		return endpoint, err
-	}
-	token, err = oauth.NewRefreshableTokenSource(store, &oauth2.Config{ClientID: oauth.CodexClientID, Endpoint: oauth2.Endpoint{TokenURL: oauth.CodexTokenURL}}, token).Token()
-	if err != nil {
+	if _, err := providerpkg.ResolveCodexAuth(ctx, nil); err != nil {
 		return endpoint, err
 	}
 	endpoint.BaseURL = codexChatGPTBackendURL
 	return endpoint, nil
 }
 
-func codexCatalogCredentials(_ context.Context) (string, string, error) {
-	path, err := oauth.DefaultTokenPath()
-	if err != nil {
-		return "", "", errors.New("resolve Codex token path: " + err.Error())
-	}
-	store := oauth.NewTokenStore(path)
-	token, err := store.Load()
+func codexCatalogCredentials(ctx context.Context) (string, string, error) {
+	auth, err := providerpkg.ResolveCodexAuth(ctx, nil)
 	if err != nil {
 		return "", "", err
 	}
-	token, err = oauth.NewRefreshableTokenSource(store, &oauth2.Config{
-		ClientID: oauth.CodexClientID,
-		Endpoint: oauth2.Endpoint{TokenURL: oauth.CodexTokenURL},
-	}, token).Token()
-	if err != nil {
-		return "", "", err
-	}
-	accountID := oauth.TokenChatGPTAccountID(token)
-	if accountID == "" {
+	if auth.AccountID == "" {
 		return "", "", errors.New("Codex token missing ChatGPT account metadata")
 	}
-	return token.AccessToken, accountID, nil
+	return auth.AccessToken, auth.AccountID, nil
 }

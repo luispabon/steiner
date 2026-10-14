@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/luispabon/steiner/internal/quota"
 )
 
 // Client is the Provider Request Execution engine: one shared request flow for
@@ -26,6 +28,11 @@ type Client struct {
 	providerType   string
 	streamErrorLog *StreamErrorLogger
 	wire           Wire
+
+	// quotaObserver and quotaAccountKey enable passive Codex quota capture.
+	// quotaAccountKey is empty when capture is off.
+	quotaObserver   func(quota.Snapshot)
+	quotaAccountKey string
 
 	minInterval time.Duration
 	mu          sync.Mutex
@@ -249,7 +256,12 @@ func (c *Client) executeRequest(ctx context.Context, request ChatRequest, body [
 	if err != nil {
 		return nil, err
 	}
-	return c.executeHTTP(ctx, req)
+	resp, err := c.executeHTTP(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	c.codexQuotaObserveResponse(resp.Header)
+	return resp, nil
 }
 
 // pace enforces the minimum interval between consecutive requests. It is a no-op

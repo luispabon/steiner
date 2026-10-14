@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/luispabon/steiner/internal/quota"
 )
 
 var defaultHTTPClient = &http.Client{}
@@ -23,6 +25,10 @@ type ClientConfig struct {
 	ProviderType       string
 	StreamErrorLog     *StreamErrorLogger
 	MinRequestInterval time.Duration
+	// QuotaObserver receives Codex quota snapshots passively observed on
+	// successful responses. It takes effect only with a ChatGPT-Account-ID
+	// header; nil disables capture.
+	QuotaObserver func(quota.Snapshot)
 }
 
 // RetryConfig controls retry behavior for transient provider failures.
@@ -127,6 +133,10 @@ func newClient(cfg ClientConfig) (*Client, error) {
 		streamErrorLog: cfg.StreamErrorLog,
 		sleep:          defaultRetrySleep,
 		rand:           rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+	if cfg.QuotaObserver != nil {
+		client.quotaObserver = cfg.QuotaObserver
+		client.quotaAccountKey = codexQuotaAccountKeyFromHeaders(cfg.Headers)
 	}
 	client.jitter = client.fullJitter
 	return client, nil

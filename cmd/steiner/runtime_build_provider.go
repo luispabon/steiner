@@ -1,12 +1,11 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"time"
-
-	"golang.org/x/oauth2"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/oauth"
@@ -57,36 +56,23 @@ func newOpencodeProvider(rm provider.ResolvedModel, providerType config.Provider
 }
 
 func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (provider.Provider, error) {
-	path, err := oauth.DefaultTokenPath()
-	if err != nil {
-		return nil, fmt.Errorf("resolve token path: %w", err)
-	}
-	store := oauth.NewTokenStore(path)
-	token, err := store.Load()
+	auth, err := provider.ResolveCodexAuth(context.Background(), httpClient)
 	if errors.Is(err, oauth.ErrNoToken) {
 		return nil, fmt.Errorf("codex provider requires authentication — run 'steiner login codex' first")
 	} else if err != nil {
-		return nil, fmt.Errorf("load codex token: %w", err)
-	}
-	token, err = oauth.NewRefreshableTokenSource(store, &oauth2.Config{
-		ClientID: oauth.CodexClientID,
-		Endpoint: oauth2.Endpoint{TokenURL: oauth.CodexTokenURL},
-	}, token).Token()
-	if err != nil {
-		return nil, fmt.Errorf("refresh codex token: %w", err)
+		return nil, err
 	}
 	cfg := runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog)
-	if apiKey := oauth.TokenOpenAIAPIKey(token); apiKey != "" {
-		cfg.APIKey = apiKey
+	if auth.APIKey != "" {
+		cfg.APIKey = auth.APIKey
 	} else {
-		accountID := oauth.TokenChatGPTAccountID(token)
-		if accountID == "" {
+		if auth.AccountID == "" {
 			return nil, fmt.Errorf("codex token missing ChatGPT account metadata — run 'steiner login codex' again")
 		}
 		cfg.BaseURL = codexChatGPTBackendURL
-		cfg.APIKey = token.AccessToken
+		cfg.APIKey = auth.AccessToken
 		cfg.Headers = cloneStringMap(cfg.Headers)
-		cfg.Headers["ChatGPT-Account-ID"] = accountID
+		cfg.Headers["ChatGPT-Account-ID"] = auth.AccountID
 	}
 	if !isCodexWSDispatch(rm) {
 		return newCodexResponses(cfg)

@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/quota"
 )
 
 type responsesStreamEvent struct {
@@ -58,6 +60,12 @@ type responsesStreamState struct {
 	textEntrySet             bool
 	textBoundaryCommitted    bool
 	pendingTextNewlines      string
+
+	// quotaAccountKey and quotaSink carry codex.rate_limits frames to the
+	// observer. quotaSink is nil outside the WebSocket path or when quota
+	// capture is off.
+	quotaAccountKey string
+	quotaSink       func(quota.Snapshot)
 }
 
 func decodeResponsesStreamWithHandler(_ context.Context, body io.Reader, emit func(ChatChunk) error) error {
@@ -153,6 +161,13 @@ func processResponsesStreamEvent(state *responsesStreamState, event string, emit
 			return false, err
 		}
 		return false, responsesFailedError(payload.Response)
+	case codexQuotaRateLimitsEvent:
+		if state.quotaSink != nil {
+			if snap, ok := parseCodexRateLimitsFrame([]byte(event), state.quotaAccountKey); ok {
+				state.quotaSink(snap)
+			}
+		}
+		return false, nil
 	}
 	return false, nil
 }
