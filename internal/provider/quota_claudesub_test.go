@@ -256,6 +256,9 @@ func TestClaudeSubQuotaProbeSpawnsAndStaysPooled(t *testing.T) {
 	if claudeSubHasArg(call.Args, "--max-turns") {
 		t.Error("probe sets --max-turns, want no turn cap")
 	}
+	if claudeSubHasArg(call.Args, "--model") {
+		t.Error("probe passes --model, want the CLI default model")
+	}
 	if call.Conn.isClosed() {
 		t.Fatal("probe closed after the read, want it kept in the pool")
 	}
@@ -270,6 +273,18 @@ func TestClaudeSubQuotaProbeSpawnsAndStaysPooled(t *testing.T) {
 	}
 	if n := spawner.callCount(); n != 1 {
 		t.Errorf("spawn count after pooled read = %d, want 1", n)
+	}
+}
+
+// TestClaudeSubArgsModelFlag proves an empty model omits --model and a set model
+// passes it through.
+func TestClaudeSubArgsModelFlag(t *testing.T) {
+	if claudeSubHasArg(claudeSubArgs(claudeSubSpawnOptions{}), "--model") {
+		t.Error("empty model passes --model, want the CLI default")
+	}
+	got, ok := claudeSubArgValue(claudeSubArgs(claudeSubSpawnOptions{Model: "claude-haiku-5-5"}), "--model")
+	if !ok || got != "claude-haiku-5-5" {
+		t.Errorf("--model = %q (present %v), want claude-haiku-5-5", got, ok)
 	}
 }
 
