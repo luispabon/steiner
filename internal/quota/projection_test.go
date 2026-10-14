@@ -13,9 +13,9 @@ func windowAt(key string, at time.Time, used float64, reset time.Time) Snapshot 
 	}
 }
 
-func budgetAt(key string, at time.Time, used float64, limit *float64, reset *time.Time) Snapshot {
+func budgetAt(at time.Time, used float64, limit *float64, reset *time.Time) Snapshot {
 	return Snapshot{
-		AccountKey: key,
+		AccountKey: "a",
 		FetchedAt:  at,
 		Budgets:    []Budget{{Label: "extra", Used: used, Limit: limit, ResetsAt: reset}},
 	}
@@ -152,41 +152,41 @@ func TestProjectBudget(t *testing.T) {
 	}{
 		{
 			name:            "projects before reset",
-			history:         []Snapshot{budgetAt("a", testBase, 10, limit, reset)},
-			current:         budgetAt("a", testBase.Add(20*time.Minute), 12, limit, reset),
+			history:         []Snapshot{budgetAt(testBase, 10, limit, reset)},
+			current:         budgetAt(testBase.Add(20*time.Minute), 12, limit, reset),
 			wantOK:          true,
 			wantEmptyAt:     testBase.Add(900 * time.Minute),
 			wantBeforeReset: true,
 		},
 		{
 			name:    "rise under 2 percent of limit is rejected",
-			history: []Snapshot{budgetAt("a", testBase, 10, limit, reset)},
-			current: budgetAt("a", testBase.Add(20*time.Minute), 11.9, limit, reset),
+			history: []Snapshot{budgetAt(testBase, 10, limit, reset)},
+			current: budgetAt(testBase.Add(20*time.Minute), 11.9, limit, reset),
 		},
 		{
 			name:    "span under 15m is rejected",
-			history: []Snapshot{budgetAt("a", testBase, 10, limit, reset)},
-			current: budgetAt("a", testBase.Add(14*time.Minute), 12, limit, reset),
+			history: []Snapshot{budgetAt(testBase, 10, limit, reset)},
+			current: budgetAt(testBase.Add(14*time.Minute), 12, limit, reset),
 		},
 		{
 			name:    "budget without limit is not projected",
-			history: []Snapshot{budgetAt("a", testBase, 10, nil, reset)},
-			current: budgetAt("a", testBase.Add(20*time.Minute), 12, nil, reset),
+			history: []Snapshot{budgetAt(testBase, 10, nil, reset)},
+			current: budgetAt(testBase.Add(20*time.Minute), 12, nil, reset),
 		},
 		{
 			name:    "zero limit is not projected",
-			history: []Snapshot{budgetAt("a", testBase, 10, ptr(0.0), reset)},
-			current: budgetAt("a", testBase.Add(20*time.Minute), 12, ptr(0.0), reset),
+			history: []Snapshot{budgetAt(testBase, 10, ptr(0.0), reset)},
+			current: budgetAt(testBase.Add(20*time.Minute), 12, ptr(0.0), reset),
 		},
 		{
 			name:    "budget without reset is not projected",
-			history: []Snapshot{budgetAt("a", testBase, 10, limit, reset)},
-			current: budgetAt("a", testBase.Add(20*time.Minute), 12, limit, nil),
+			history: []Snapshot{budgetAt(testBase, 10, limit, reset)},
+			current: budgetAt(testBase.Add(20*time.Minute), 12, limit, nil),
 		},
 		{
 			name:    "reset moved by more than a minute is rejected",
-			history: []Snapshot{budgetAt("a", testBase, 10, limit, ptr(reset.Add(time.Hour)))},
-			current: budgetAt("a", testBase.Add(20*time.Minute), 12, limit, reset),
+			history: []Snapshot{budgetAt(testBase, 10, limit, ptr(reset.Add(time.Hour)))},
+			current: budgetAt(testBase.Add(20*time.Minute), 12, limit, reset),
 		},
 		{
 			name: "budget label must match",
@@ -195,26 +195,26 @@ func TestProjectBudget(t *testing.T) {
 				FetchedAt:  testBase,
 				Budgets:    []Budget{{Label: "other", Used: 10, Limit: limit, ResetsAt: reset}},
 			}},
-			current: budgetAt("a", testBase.Add(20*time.Minute), 12, limit, reset),
+			current: budgetAt(testBase.Add(20*time.Minute), 12, limit, reset),
 		},
 		{
 			name:    "budget index out of range",
-			history: []Snapshot{budgetAt("a", testBase, 10, limit, reset)},
-			current: budgetAt("a", testBase.Add(20*time.Minute), 12, limit, reset),
+			history: []Snapshot{budgetAt(testBase, 10, limit, reset)},
+			current: budgetAt(testBase.Add(20*time.Minute), 12, limit, reset),
 			index:   1,
 		},
 		{
 			name:            "empty after reset is not before reset",
-			history:         []Snapshot{budgetAt("a", testBase, 10, limit, ptr(testBase.Add(time.Hour)))},
-			current:         budgetAt("a", testBase.Add(20*time.Minute), 12, limit, ptr(testBase.Add(time.Hour))),
+			history:         []Snapshot{budgetAt(testBase, 10, limit, ptr(testBase.Add(time.Hour)))},
+			current:         budgetAt(testBase.Add(20*time.Minute), 12, limit, ptr(testBase.Add(time.Hour))),
 			wantOK:          true,
 			wantEmptyAt:     testBase.Add(900 * time.Minute),
 			wantBeforeReset: false,
 		},
 		{
 			name:            "usage at limit is empty now",
-			history:         []Snapshot{budgetAt("a", testBase, 90, limit, reset)},
-			current:         budgetAt("a", testBase.Add(20*time.Minute), 100, limit, reset),
+			history:         []Snapshot{budgetAt(testBase, 90, limit, reset)},
+			current:         budgetAt(testBase.Add(20*time.Minute), 100, limit, reset),
 			wantOK:          true,
 			wantEmptyAt:     testBase.Add(20 * time.Minute),
 			wantBeforeReset: true,
