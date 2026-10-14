@@ -256,6 +256,8 @@ func (m *Model) modalOverlayView() func() string {
 		return m.renderDelegateCancelModal
 	case m.contextOverlay.IsOpen():
 		return m.renderContextOverlay
+	case m.usageOverlay.IsOpen():
+		return m.usageOverlay.View
 	}
 	if s := m.openConfirmModalView(); s != nil {
 		return func() string { return s.render(m.styles) }

@@ -136,6 +136,8 @@ func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, te
 	case isCtrl(msg, 't'):
 		m.openContextOverlayImmediate()
 		return true, m, nil
+	case isCtrl(msg, 'o'):
+		return true, m, m.openUsageOverlay()
 	case isCtrl(msg, 'x'):
 		m.content.ToggleLastDelegationOutput()
 		m.syncViewport()

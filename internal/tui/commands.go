@@ -114,6 +114,14 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		ID:   "/usage",
+		Name: "Subscription usage",
+		Desc: "show provider subscription usage",
+		Build: func(_ string) inputAction {
+			return inputAction{showUsage: true}
+		},
+	},
+	{
 		ID:   "/model",
 		Name: "Switch model",
 		Desc: "pick a language model",

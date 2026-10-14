@@ -123,6 +123,12 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case modelReasoningResolvedMsg:
 		return m.handleModelReasoningResolvedMsg(msg)
+	case quotaUpdateMsg:
+		return m.handleQuotaUpdateMsg()
+	case quotaRefreshDoneMsg:
+		return m.handleQuotaRefreshDoneMsg()
+	case usageViewsLoadedMsg:
+		return m.handleUsageViewsLoadedMsg(msg)
 	case updateCheckResultMsg:
 		return m.handleUpdateCheckResultMsg(msg)
 	case syncDebounceFiredMsg:
@@ -352,6 +358,7 @@ func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	m.fileList.styles = m.styles
 	m.mcpOverlay.styles = m.styles
 	m.lspOverlay.styles = m.styles
+	m.usageOverlay.styles = m.styles
 	m.filePicker.styles = m.styles
 	m.sessionPicker.styles = m.styles
 	m.subAgentPicker.styles = m.styles
@@ -443,6 +450,7 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 	m.fileList.OverlayShell = m.fileList.WithDimensions(msg.Width, msg.Height)
 	m.mcpOverlay.OverlayShell = m.mcpOverlay.WithDimensions(msg.Width, msg.Height)
 	m.lspOverlay.OverlayShell = m.lspOverlay.WithDimensions(msg.Width, msg.Height)
+	m.usageOverlay.OverlayShell = m.usageOverlay.WithDimensions(msg.Width, msg.Height)
 
 	if m.contextOverlay.IsOpen() {
 		m.contextOverlay.OverlayShell = m.contextOverlay.WithDimensions(msg.Width, msg.Height)

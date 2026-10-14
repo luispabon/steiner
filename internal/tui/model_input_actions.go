@@ -132,6 +132,15 @@ func (m *Model) executeShowMCPAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) executeShowUsageAction() (tea.Model, tea.Cmd) {
+	m.input.Reset()
+	if m.usageOverlay.quota == nil {
+		m.content.AppendLine("status: subscription usage is not configured")
+		return m, nil
+	}
+	return m, m.openUsageOverlay()
+}
+
 func (m *Model) executeShowLSPAction() (tea.Model, tea.Cmd) {
 	m.lspOverlay = m.lspOverlay.Open(m.lspServers, m.lspEnabled)
 	m.lspOverlay.OverlayShell = m.lspOverlay.WithDimensions(m.width, m.height)

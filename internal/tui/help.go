@@ -57,11 +57,12 @@ func renderHelp(styles *theme.Styles, width int) string {
 				bb = append(bb,
 					binding{"ctrl+b", "toggle sidebar"},
 					binding{"ctrl+t", "inspect context"},
+					binding{"ctrl+o", "usage dashboard"},
 					binding{"ctrl+x", "toggle delegation output"},
 					binding{"alt+. / alt+,", "jump to next / previous running sub-agent"},
 					binding{"alt+/", "expand/collapse jumped-to sub-agent (10s)"},
 					binding{"alt+a", "sub-agent picker"},
-					binding{"ctrl+g", "edit queued messages"},
+					binding{"ctrl+g", "edit queue"},
 				)
 				for _, hb := range projectHelpLines() {
 					bb = append(bb, binding(hb))
