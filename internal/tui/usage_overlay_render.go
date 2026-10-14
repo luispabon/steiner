@@ -110,7 +110,11 @@ func usageAccountLines(f usageFrame, v quota.AccountView) []string {
 	var spend []string
 	for i, b := range snap.Budgets {
 		if b.Limit == nil {
-			spend = append(spend, fmt.Sprintf("%s $%.2f", b.Label, b.Used))
+			text := fmt.Sprintf("$%.2f", b.Used)
+			if b.Label != "spend" {
+				text = b.Label + " " + text
+			}
+			spend = append(spend, text)
 			continue
 		}
 		lines = append(lines, usageBudgetLine(f, b))
@@ -138,8 +142,10 @@ func appendTrend(lines []string, f usageFrame, projs []quota.Projection, i int) 
 }
 
 // usageRow renders a label padded to the label column, followed by value.
+// A label at or past the column still gets one space before value.
 func usageRow(label, value string) string {
-	return fmt.Sprintf("  %-*s%s", usageLabelWidth, label, value)
+	pad := max(usageLabelWidth-lipgloss.Width(label), 1)
+	return "  " + label + strings.Repeat(" ", pad) + value
 }
 
 func usageWindowLine(f usageFrame, w quota.Window) string {

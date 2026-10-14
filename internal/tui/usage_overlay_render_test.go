@@ -266,6 +266,54 @@ func TestUsageSpendAndCreditsRows(t *testing.T) {
 	}
 }
 
+func TestUsageSpendOnlyRowHasNoDuplicateLabel(t *testing.T) {
+	f := usageTestFrame(t, quota.AccountView{
+		DisplayAlias: "litellm",
+		Latest: &quota.Snapshot{
+			Budgets: []quota.Budget{{Label: "spend", Used: 3.25}},
+		},
+	})
+	lines := usageStrippedLines(f)
+	want := "  spend        $3.25"
+	if len(lines) != 2 || lines[1] != want {
+		t.Errorf("got %q, want spend row %q", lines, want)
+	}
+}
+
+func TestUsageRowLabelSeparator(t *testing.T) {
+	tests := []struct {
+		name  string
+		label string
+		want  string
+	}{
+		{"short label aligned to column", "5h", "  5h           X"},
+		{"label filling column keeps separator", "abcdefghijklm", "  abcdefghijklm X"},
+		{"label past column keeps separator", "codex_other 5h", "  codex_other 5h X"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ansi.Strip(usageRow(tt.label, "X")); got != tt.want {
+				t.Errorf("usageRow(%q) = %q, want %q", tt.label, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUsageLongWindowLabelBarSeparator(t *testing.T) {
+	f := usageTestFrame(t, quota.AccountView{
+		ProviderType: "codex",
+		DisplayAlias: "work",
+		Latest: &quota.Snapshot{Windows: []quota.Window{
+			{Label: "codex_other 5h", UsedPercent: 10},
+		}},
+	})
+	line := usageStrippedLines(f)[1]
+	want := "  codex_other 5h " + strings.Repeat("█", 2) + strings.Repeat("░", 22) + "  10%"
+	if line != want {
+		t.Errorf("window row = %q, want %q", line, want)
+	}
+}
+
 func TestUsageStaticUnavailableRow(t *testing.T) {
 	const reason = "API key mode: no subscription usage"
 	f := usageTestFrame(t, quota.AccountView{
