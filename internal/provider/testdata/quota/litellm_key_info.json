@@ -1,0 +1,10 @@
+{
+  "key": "steiner-test-key",
+  "info": {
+    "key_name": "steiner-test",
+    "spend": 3.25,
+    "max_budget": 10,
+    "budget_duration": "1d",
+    "budget_reset_at": "2026-10-15T00:00:00Z"
+  }
+}

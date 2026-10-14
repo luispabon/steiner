@@ -1,0 +1,25 @@
+{
+  "data": {
+    "label": "steiner-test",
+    "usage": 12.5,
+    "limit": null,
+    "limit_reset": null,
+    "usage_daily": 1.25,
+    "usage_weekly": 4.5,
+    "usage_monthly": 12.5,
+    "budgets": [
+      {
+        "spend_usd": 12.5,
+        "limit_usd": 50,
+        "reset_interval": "monthly",
+        "resets_at": "2026-11-01T00:00:00Z"
+      },
+      {
+        "spend_usd": 0.5,
+        "limit_usd": null,
+        "reset_interval": "daily",
+        "resets_at": null
+      }
+    ]
+  }
+}
