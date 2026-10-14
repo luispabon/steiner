@@ -19,9 +19,9 @@ type Account struct {
 // providerType, a colon, and the first 16 hex characters of
 // SHA-256(baseURL + "\x00" + apiKey). The raw API key never appears in the key.
 func APIKeyAccountKey(providerType, baseURL, apiKey string) string {
-	// Deterministic account identifier, not password hashing: the fingerprint must
-	// stay stable across runs, and the raw key is neither stored nor verified.
-	// codeql[go/weak-sensitive-data-hashing]
+	// Deterministic local account identifier, not password hashing or credential
+	// verification: the fingerprint must stay stable across runs so the same
+	// account maps to the same key.
 	sum := sha256.Sum256([]byte(baseURL + "\x00" + apiKey))
 	return providerType + ":" + hex.EncodeToString(sum[:])[:16]
 }
