@@ -26,6 +26,7 @@ Steiner is a local-first Go coding agent with bounded context and sandboxed exec
 - [Advisor](user/advisor.md)
 - [Security audit](user/security-audit.md)
 - [Cache stats](user/cache-stats.md)
+- [Subscription usage dashboard](user/usage-dashboard.md)
 - [Optional features](user/optional-features.md)
 - [Desktop notifications](user/desktop-notifications.md)
 - [Images](user/images.md)

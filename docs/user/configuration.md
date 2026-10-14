@@ -243,6 +243,7 @@ Interactive terminal UI settings. Ignored outside interactive mode.
 | Field | Type | Default | Description                                                                                                                                                                                                                                   |
 | ----- | ---- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `fps` | int  | `60`    | Renderer frame rate. Bubble Tea flushes the terminal on this ticker, so it bounds how long a processed keystroke waits before it becomes visible - the average wait is half a frame (~8.3ms at 60, ~4.2ms at 120). Must be between 1 and 120. |
+| `quota_refresh_interval` | duration | `5m` | Snapshot age after which a finished run refetches the subscription accounts it used. Zero disables only this post-run refresh. Negative values are rejected. See [Subscription usage dashboard](usage-dashboard.md#when-snapshots-refresh). |
 
 Raising `fps` reduces input latency and increases CPU proportionally: renderer
 flush is roughly three quarters of TUI CPU cost, so moving from 60 to 120
@@ -253,7 +254,10 @@ CPU headroom; leave it at 60 on battery or on a constrained machine.
 ```yaml
 tui:
   fps: 60
+  quota_refresh_interval: 5m
 ```
+
+Opening the [usage dashboard](usage-dashboard.md) and pressing `r` still refetch every account when `quota_refresh_interval` is zero. Zero disables only the post-run refresh.
 
 ---
 

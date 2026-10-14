@@ -162,7 +162,7 @@ Compact canonical reference for safe configuration edits.
 | `lsp.servers.<name>.initialization_options`|map[string]any|—|—|
 | `modes.default`|string|`build`|`plan`/`build`; plan edits only `.steiner/plans/`. |
 | `tui.fps`|int|`60`|Interactive renderer rate, 1 through 120. |
-| `tui.quota_refresh_interval`|duration|`5m`|Usage refetch age; zero disables. |
+| `tui.quota_refresh_interval`|duration|`5m`|Post-run refetch age; zero disables. |
 
 `steiner config` validates and prints resolved configuration; `/config` opens the TUI compiled-config modal. Resolved output can contain credentials: obtain consent before a full secret-bearing read, redact by default, and never echo secrets.
 
