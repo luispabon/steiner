@@ -25,11 +25,26 @@ type APIKeyQuotaConfig struct {
 const apiKeyQuotaMaxBody = 1 << 20
 
 // apiKeyQuotaFetcher fetches quota for one API-key account. base is the
-// trimmed base URL used for every request and for the account key.
+// normalized base URL used for every request.
 type apiKeyQuotaFetcher struct {
 	cfg    APIKeyQuotaConfig
 	base   string
 	client *http.Client
+}
+
+// apiKeyQuotaBase trims surrounding whitespace and trailing slashes from
+// baseURL. It is the only normalization applied before a base URL is used for
+// requests or for the account key. LiteLLM's /v1 is kept here and removed only
+// for the /key/info endpoint.
+func apiKeyQuotaBase(baseURL string) string {
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/")
+}
+
+// apiKeyQuotaAccountKey returns the account key for an API-key account. Both
+// NewAPIKeyQuotaFetcher and BuildQuotaAccounts use it, so equivalent base URLs
+// produce the same key.
+func apiKeyQuotaAccountKey(providerType, baseURL, apiKey string) string {
+	return quota.APIKeyAccountKey(providerType, apiKeyQuotaBase(baseURL), apiKey)
 }
 
 // NewAPIKeyQuotaFetcher returns a quota.Fetcher for an opencode_go, openrouter,
@@ -46,7 +61,7 @@ func NewAPIKeyQuotaFetcher(cfg APIKeyQuotaConfig, client *http.Client) (quota.Fe
 	}
 	return &apiKeyQuotaFetcher{
 		cfg:    cfg,
-		base:   strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
+		base:   apiKeyQuotaBase(cfg.BaseURL),
 		client: client,
 	}, nil
 }
@@ -54,7 +69,7 @@ func NewAPIKeyQuotaFetcher(cfg APIKeyQuotaConfig, client *http.Client) (quota.Fe
 // Fetch returns the quota snapshot for the configured provider type.
 func (f *apiKeyQuotaFetcher) Fetch(ctx context.Context, _ quota.FetchOptions) (quota.Snapshot, error) {
 	snap := quota.Snapshot{
-		AccountKey:   quota.APIKeyAccountKey(f.cfg.ProviderType, f.base, f.cfg.APIKey),
+		AccountKey:   apiKeyQuotaAccountKey(f.cfg.ProviderType, f.cfg.BaseURL, f.cfg.APIKey),
 		ProviderType: f.cfg.ProviderType,
 		FetchedAt:    time.Now(),
 		Source:       quota.SourceFetch,

@@ -88,7 +88,7 @@ func apiKeyQuotaAccount(cfg config.ProviderConfig, httpClient *http.Client) quot
 	resolved := ResolveProviderConfig(cfg)
 	providerType := string(resolved.Type)
 	acct := quota.Account{
-		Key:          quota.APIKeyAccountKey(providerType, resolved.BaseURL, resolved.APIKey),
+		Key:          apiKeyQuotaAccountKey(providerType, resolved.BaseURL, resolved.APIKey),
 		ProviderType: providerType,
 	}
 	if resolved.APIKey == "" {
