@@ -82,6 +82,18 @@ func TestParseCodexUsageBodyNullsAndCredits(t *testing.T) {
 			},
 		},
 		{
+			name: "missing reset_at yields zero time",
+			body: `{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":1,"limit_window_seconds":18000}}}`,
+			want: quota.Snapshot{
+				AccountKey:   codexQuotaTestAccountKey,
+				ProviderType: "codex",
+				Plan:         "pro",
+				Windows: []quota.Window{
+					{Label: "5h", Duration: 5 * time.Hour, UsedPercent: 1, ResetsAt: time.Time{}},
+				},
+			},
+		},
+		{
 			name: "empty balance",
 			body: `{"plan_type":"pro","credits":{"has_credits":true,"unlimited":false,"balance":""}}`,
 			want: quota.Snapshot{AccountKey: codexQuotaTestAccountKey, ProviderType: "codex", Plan: "pro"},
@@ -155,7 +167,7 @@ func TestParseCodexQuotaHeaders(t *testing.T) {
 				ProviderType: "codex",
 				Source:       quota.SourcePassive,
 				Windows: []quota.Window{
-					{Label: "weekly", Duration: 7 * 24 * time.Hour, UsedPercent: 12, ResetsAt: codexQuotaTestTime(0)},
+					{Label: "weekly", Duration: 7 * 24 * time.Hour, UsedPercent: 12, ResetsAt: time.Time{}},
 				},
 			},
 		},
@@ -200,6 +212,16 @@ func TestParseCodexRateLimitsFrame(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseCodexRateLimitsFrame() = %+v, want %+v", got, want)
+	}
+}
+
+func TestParseCodexRateLimitsFrameMissingResetAt(t *testing.T) {
+	got, ok := parseCodexRateLimitsFrame([]byte(`{"type":"codex.rate_limits","plan_type":"pro","rate_limits":{"primary":{"used_percent":5,"window_minutes":300}}}`), codexQuotaTestAccountKey)
+	if !ok || len(got.Windows) != 1 {
+		t.Fatalf("parseCodexRateLimitsFrame() = %+v, %v; want one window", got, ok)
+	}
+	if !got.Windows[0].ResetsAt.IsZero() {
+		t.Errorf("ResetsAt = %v, want zero time when reset_at is absent", got.Windows[0].ResetsAt)
 	}
 }
 

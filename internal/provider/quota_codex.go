@@ -295,12 +295,19 @@ func codexQuotaNewSnapshot(accountKey, plan string) quota.Snapshot {
 	}
 }
 
+// codexQuotaWindow builds a window. A reset value that is absent, zero, or
+// negative, including an unparseable header (which decodes as 0), leaves
+// ResetsAt as the zero time rather than the Unix epoch.
 func codexQuotaWindow(label string, d time.Duration, usedPercent float64, resetAt int64) quota.Window {
+	var resetsAt time.Time
+	if resetAt > 0 {
+		resetsAt = time.Unix(resetAt, 0).UTC()
+	}
 	return quota.Window{
 		Label:       label,
 		Duration:    d,
 		UsedPercent: usedPercent,
-		ResetsAt:    time.Unix(resetAt, 0).UTC(),
+		ResetsAt:    resetsAt,
 	}
 }
 
