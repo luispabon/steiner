@@ -192,7 +192,7 @@ func usageHeaderRight(f usageFrame, v quota.AccountView) string {
 func usageFreshness(f usageFrame, v quota.AccountView) string {
 	var parts []string
 	switch {
-	case v.Refreshing || f.refreshing:
+	case v.Refreshing || (f.refreshing && v.Latest == nil && v.Err == ""):
 		parts = append(parts, "refreshing…")
 	case v.Latest != nil:
 		parts = append(parts, "updated "+usageRelative(f.now.Sub(v.Latest.FetchedAt))+" ago")
