@@ -99,21 +99,6 @@ func (s *Store) Append(snap Snapshot, now time.Time) error {
 	return s.write(dir, append(kept, snap))
 }
 
-// History returns the stored snapshots for accountKey, oldest first.
-func (s *Store) History(accountKey string) ([]Snapshot, error) {
-	snaps, err := s.readAll()
-	if err != nil {
-		return nil, err
-	}
-	var out []Snapshot
-	for _, snap := range snaps {
-		if snap.AccountKey == accountKey {
-			out = append(out, snap)
-		}
-	}
-	return out, nil
-}
-
 // Latest returns the newest stored snapshot for each account key.
 func (s *Store) Latest() (map[string]Snapshot, error) {
 	snaps, err := s.readAll()

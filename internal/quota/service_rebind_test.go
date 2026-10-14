@@ -11,8 +11,8 @@ func TestRegisterRebindMovesAliasToNewAccount(t *testing.T) {
 	svc.Register(Account{Key: "k2", Aliases: []string{"c"}})
 	svc.Register(Account{Key: "k2", Aliases: []string{"a"}})
 
-	if key, ok := svc.AccountKeyForAlias("a"); !ok || key != "k2" {
-		t.Errorf("AccountKeyForAlias(a) = %q, %v; want k2, true", key, ok)
+	if key, ok := accountKeyForAlias(svc, "a"); !ok || key != "k2" {
+		t.Errorf("accountKeyForAlias(a) = %q, %v; want k2, true", key, ok)
 	}
 
 	// k1 keeps b, so its DisplayAlias moves from a to b. k2 lists a and c.

@@ -22,6 +22,15 @@ func newTestService(t *testing.T, store *Store) (*Service, *time.Time) {
 	return svc, &clock
 }
 
+// accountKeyForAlias returns the account key bound to alias. It reads the alias
+// table under the service lock.
+func accountKeyForAlias(svc *Service, alias string) (string, bool) {
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	key, ok := svc.aliases[alias]
+	return key, ok
+}
+
 func TestNilServiceIsNoOp(t *testing.T) {
 	var svc *Service
 	calls := map[string]func(){
@@ -55,14 +64,14 @@ func TestRegisterMergesAliasesAndSortsViews(t *testing.T) {
 	svc.Register(Account{Key: "k1", Aliases: []string{"alpha", "zeta"}})
 	svc.Observe(sampleSnapshot("k3", testBase, 1))
 
-	if key, ok := svc.AccountKeyForAlias("alpha"); !ok || key != "k1" {
-		t.Errorf("AccountKeyForAlias(alpha) = %q, %v; want k1, true", key, ok)
+	if key, ok := accountKeyForAlias(svc, "alpha"); !ok || key != "k1" {
+		t.Errorf("accountKeyForAlias(alpha) = %q, %v; want k1, true", key, ok)
 	}
-	if key, ok := svc.AccountKeyForAlias("zeta"); !ok || key != "k1" {
-		t.Errorf("AccountKeyForAlias(zeta) = %q, %v; want k1, true", key, ok)
+	if key, ok := accountKeyForAlias(svc, "zeta"); !ok || key != "k1" {
+		t.Errorf("accountKeyForAlias(zeta) = %q, %v; want k1, true", key, ok)
 	}
-	if _, ok := svc.AccountKeyForAlias("missing"); ok {
-		t.Error("AccountKeyForAlias(missing) resolved, want unresolved")
+	if _, ok := accountKeyForAlias(svc, "missing"); ok {
+		t.Error("accountKeyForAlias(missing) resolved, want unresolved")
 	}
 
 	views := svc.Views("beta")
@@ -132,7 +141,7 @@ func TestObserveDedupesIdenticalStateAndNotifies(t *testing.T) {
 	default:
 		t.Error("identical observation did not notify")
 	}
-	if history, _ := store.History("k1"); len(history) != 1 {
+	if history, _ := historyOf(store, "k1"); len(history) != 1 {
 		t.Errorf("stored %d snapshots after identical observation, want 1", len(history))
 	}
 	if views := svc.Views(""); !views[0].Latest.FetchedAt.Equal(testBase.Add(30 * time.Minute)) {
@@ -141,7 +150,7 @@ func TestObserveDedupesIdenticalStateAndNotifies(t *testing.T) {
 
 	*clock = testBase.Add(45 * time.Minute)
 	svc.Observe(sampleSnapshot("k1", testBase.Add(45*time.Minute), 20))
-	if history, _ := store.History("k1"); len(history) != 2 {
+	if history, _ := historyOf(store, "k1"); len(history) != 2 {
 		t.Errorf("stored %d snapshots after changed observation, want 2", len(history))
 	}
 }
