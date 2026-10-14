@@ -289,6 +289,94 @@ func TestUsageOverlayViewClampsScrollOffset(t *testing.T) {
 	}
 }
 
+// usageTestFullView is one account with two windows, a trend row, a budget
+// with a limit, a spend row and credits.
+func usageTestFullView() quota.AccountView {
+	limit := 10.0
+	return quota.AccountView{
+		ProviderType: "claude_subscription",
+		DisplayAlias: "work",
+		Active:       true,
+		Latest: &quota.Snapshot{
+			Plan:      "Max",
+			FetchedAt: usageTestNow.Add(-time.Minute),
+			Windows: []quota.Window{
+				{Label: "5h", UsedPercent: 80, ResetsAt: usageTestNow.Add(3 * time.Hour)},
+				{Label: "7d", UsedPercent: 20},
+			},
+			Budgets: []quota.Budget{
+				{Label: "spend", Used: 4.5, Limit: &limit, Period: "monthly"},
+				{Label: "extra", Used: 1},
+			},
+			Credits: "$3.00",
+		},
+		WindowProjections: []quota.Projection{{OK: true, BeforeReset: true, EmptyAt: usageTestNow.Add(time.Hour)}},
+	}
+}
+
+func TestUsageBodyCountMatchesRenderedBody(t *testing.T) {
+	tests := []struct {
+		name  string
+		views []quota.AccountView
+		want  int
+	}{
+		{name: "empty", views: nil, want: 1},
+		{name: "unavailable", views: []quota.AccountView{{DisplayAlias: "work", Unavailable: "no credentials"}}, want: 1},
+		{name: "error without snapshot", views: []quota.AccountView{{DisplayAlias: "work", Err: "upstream failed"}}, want: 1},
+		{name: "full account", views: []quota.AccountView{usageTestFullView()}, want: 7},
+		{name: "two accounts", views: []quota.AccountView{usageTestFullView(), {DisplayAlias: "home", Unavailable: "no credentials"}}, want: 9},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newModel(Config{}, nil)
+			o := m.usageOverlay
+			o.now = func() time.Time { return usageTestNow }
+			o = o.withViews(tt.views)
+			if o.bodyCount != tt.want {
+				t.Fatalf("bodyCount = %d, want %d", o.bodyCount, tt.want)
+			}
+			if got := len(o.bodyLines()); got != tt.want {
+				t.Fatalf("rendered body lines = %d, want %d", got, tt.want)
+			}
+			// The count must hold when the clock, refresh state and width change.
+			o.now = func() time.Time { return usageTestNow.Add(72 * time.Hour) }
+			o.inFlight = 1
+			o.OverlayShell = o.WithDimensions(20, 40)
+			if got := len(o.bodyLines()); got != o.bodyCount {
+				t.Errorf("rendered body lines = %d after clock, refresh and width change, want bodyCount %d", got, o.bodyCount)
+			}
+		})
+	}
+}
+
+func TestUsageOverlayScrollUsesCachedBodyCount(t *testing.T) {
+	m := newModel(Config{}, nil)
+	o := m.usageOverlay.Open()
+	o.OverlayShell = o.WithDimensions(120, 12) // 5 visible body rows
+	renders := 0
+	o.now = func() time.Time {
+		renders++
+		return usageTestNow
+	}
+	o = o.withViews([]quota.AccountView{usageTestFullView(), usageTestFullView()})
+	visible := o.visibleHeight()
+
+	renders = 0
+	o, _ = o.Update(tea.KeyPressMsg{Code: tea.KeyEnd})
+	if renders != 0 {
+		t.Errorf("End key rendered the body %d times, want 0", renders)
+	}
+	if want := o.bodyCount - visible; o.scrollOffset != want {
+		t.Errorf("scrollOffset after End = %d, want %d", o.scrollOffset, want)
+	}
+
+	o = o.withViews(nil)
+	o, _ = o.Update(tea.KeyPressMsg{Code: tea.KeyEnd})
+	if o.scrollOffset != 0 {
+		t.Errorf("scrollOffset after views shrink and End = %d, want 0", o.scrollOffset)
+	}
+}
+
 func TestUsageSlashCommandRouting(t *testing.T) {
 	var found bool
 	for _, c := range slashCommands {
