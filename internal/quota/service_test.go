@@ -24,8 +24,20 @@ func newTestService(t *testing.T, store *Store) (*Service, *time.Time) {
 
 func TestNilServiceIsNoOp(t *testing.T) {
 	var svc *Service
-	svc.Observe(sampleSnapshot("a", testBase, 10))
-	svc.MarkUsed("a")
+	calls := map[string]func(){
+		"Observe":  func() { svc.Observe(sampleSnapshot("a", testBase, 10)) },
+		"MarkUsed": func() { svc.MarkUsed("a") },
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("nil Service %s panicked: %v", name, r)
+				}
+			}()
+			call()
+		})
+	}
 }
 
 func TestObserveIgnoresEmptyAccountKey(t *testing.T) {

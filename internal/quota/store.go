@@ -69,6 +69,11 @@ func (s *Store) Append(snap Snapshot, now time.Time) error {
 		return fmt.Errorf("open quota store lock: %w", err)
 	}
 	defer lock.Close() //nolint:errcheck // Close only releases the lock file handle; nothing is written through it.
+	// Tighten a lock file left by an older writer. Failing here stops the append
+	// rather than writing history under a loose lock file.
+	if err := lock.Chmod(0o600); err != nil {
+		return fmt.Errorf("chmod quota store lock: %w", err)
+	}
 	if err := lockFile(lock.Fd()); err != nil {
 		return fmt.Errorf("lock quota store: %w", err)
 	}

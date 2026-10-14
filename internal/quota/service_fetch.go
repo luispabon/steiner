@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 	"time"
 )
 
@@ -12,12 +13,19 @@ import (
 const maxErrLen = 80
 
 // RefreshAll fetches every registered account that has a Fetcher, with
-// AllowSpawn set and regardless of snapshot age. Fetches run one at a time, and
-// RefreshAll returns after they all complete.
+// AllowSpawn set and regardless of snapshot age. Each account is fetched in its
+// own goroutine, and RefreshAll returns after every fetch it started completes.
+// Fetchers must honour ctx so that a cancelled ctx ends them promptly.
 func (s *Service) RefreshAll(ctx context.Context) {
+	var wg sync.WaitGroup
 	for _, acct := range s.fetchableAccounts() {
-		s.refresh(ctx, acct, FetchOptions{AllowSpawn: true})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.refresh(ctx, acct, FetchOptions{AllowSpawn: true})
+		}()
 	}
+	wg.Wait()
 }
 
 // RefreshUsed resolves the aliases marked by MarkUsed and fetches each resolved

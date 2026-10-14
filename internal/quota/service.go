@@ -31,12 +31,13 @@ type Service struct {
 	updates      chan struct{}
 
 	mu          sync.Mutex
-	accounts    map[string]Account  // keyed by Account.Key
-	aliases     map[string]string   // alias to Account.Key
-	latest      map[string]Snapshot // keyed by Snapshot.AccountKey
-	inFlight    map[string]bool     // keyed by account key
-	errs        map[string]string   // last fetch error per account key
-	usedAliases map[string]bool     // aliases marked by MarkUsed, not yet resolved
+	accounts    map[string]Account   // keyed by Account.Key
+	aliases     map[string]string    // alias to Account.Key
+	latest      map[string]Snapshot  // keyed by Snapshot.AccountKey
+	inFlight    map[string]bool      // keyed by account key
+	errs        map[string]string    // last fetch error per account key
+	usedAliases map[string]bool      // aliases marked by MarkUsed, not yet resolved
+	lastAppend  map[string]time.Time // time of the last successful Store.Append per account key
 }
 
 // NewService returns a Service configured by opts.
@@ -53,6 +54,7 @@ func NewService(opts ServiceOptions) *Service {
 		inFlight:     make(map[string]bool),
 		errs:         make(map[string]string),
 		usedAliases:  make(map[string]bool),
+		lastAppend:   make(map[string]time.Time),
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -68,7 +70,7 @@ func NewService(opts ServiceOptions) *Service {
 
 // Register adds acct. If an account with the same Key exists, its aliases are
 // merged, and its Fetcher, ProviderType, and Unavailable are replaced by the
-// non-empty values in acct.
+// non-empty values in acct. Register notifies Updates.
 func (s *Service) Register(acct Account) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -86,8 +88,11 @@ func (s *Service) Register(acct Account) {
 	if acct.Fetcher != nil {
 		cur.Fetcher = acct.Fetcher
 	}
-	cur.Unavailable = acct.Unavailable
+	if acct.Unavailable != "" {
+		cur.Unavailable = acct.Unavailable
+	}
 	s.accounts[acct.Key] = cur
+	s.notify()
 }
 
 // AccountKeyForAlias returns the account key registered for alias.
@@ -110,13 +115,17 @@ func (s *Service) MarkUsed(alias string) {
 }
 
 // Observe merges a passive observation into the latest snapshot for
-// snap.AccountKey and persists the result. A nil Service or an empty
-// AccountKey is a no-op.
+// snap.AccountKey and persists the result. A zero FetchedAt is stamped with the
+// service clock before the merge. A nil Service or an empty AccountKey is a
+// no-op.
 func (s *Service) Observe(snap Snapshot) {
 	if s == nil || snap.AccountKey == "" {
 		return
 	}
 	snap.Source = SourcePassive
+	if snap.FetchedAt.IsZero() {
+		snap.FetchedAt = s.now()
+	}
 	s.commit(snap, false)
 }
 
@@ -127,29 +136,41 @@ func (s *Service) Updates() <-chan struct{} {
 	return s.updates
 }
 
-// commit records snap as the latest state for its account, persists the result,
-// and notifies. When replace is false, snap is merged into the current state.
+// commit records snap as the latest state for its account, persists it unless
+// it repeats the previous state within an hour of the account's last successful
+// append, and notifies. When replace is false, snap is merged into the current
+// state. The in-memory state and the notification always update.
 func (s *Service) commit(snap Snapshot, replace bool) {
 	s.ensureLoaded()
+	now := s.now()
 	s.mu.Lock()
-	if prev, ok := s.latest[snap.AccountKey]; ok && !replace {
+	prev, hadPrev := s.latest[snap.AccountKey]
+	if hadPrev && !replace {
 		snap = mergePassive(prev, snap)
 	}
+	unchanged := hadPrev && sameState(prev, snap) && now.Sub(s.lastAppend[snap.AccountKey]) < time.Hour
 	s.latest[snap.AccountKey] = snap
 	s.mu.Unlock()
-	s.persist(snap)
+	if !unchanged {
+		s.persist(snap, now)
+	}
 	s.notify()
 }
 
-// persist appends snap to the store. Failures are logged and do not stop the
-// in-memory state from updating.
-func (s *Service) persist(snap Snapshot) {
+// persist appends snap to the store and records now as the account's last
+// successful append. Failures are logged; the in-memory state is already
+// updated when persist runs.
+func (s *Service) persist(snap Snapshot, now time.Time) {
 	if s.store == nil {
 		return
 	}
-	if err := s.store.Append(snap, s.now()); err != nil {
+	if err := s.store.Append(snap, now); err != nil {
 		s.logf("quota: persist %s: %v", snap.AccountKey, err)
+		return
 	}
+	s.mu.Lock()
+	s.lastAppend[snap.AccountKey] = now
+	s.mu.Unlock()
 }
 
 // notify sends a coalesced update notification without blocking.
