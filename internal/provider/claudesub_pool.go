@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/luispabon/steiner/internal/quota"
 )
 
 const (
@@ -121,6 +123,9 @@ type ClaudeSubscriptionPoolOptions struct {
 	// IdleTTL is how long an advisor session may sit unused before the reaper
 	// closes it. Zero or negative defaults to 60 minutes (D23).
 	IdleTTL time.Duration
+	// QuotaObserver, when set, receives a passive quota snapshot for each
+	// get_usage reply the usage gate parses. Nil disables passive observation.
+	QuotaObserver func(quota.Snapshot)
 }
 
 // ClaudeSubscriptionPool owns the claude CLI processes for one steiner runtime,
