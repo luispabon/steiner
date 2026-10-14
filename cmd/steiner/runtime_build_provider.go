@@ -18,7 +18,7 @@ import (
 // quota refresh. quotaService may be nil.
 func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, claudePool *provider.ClaudeSubscriptionPool, quotaService *quota.Service) func(provider.ResolvedModel, string) (provider.Provider, error) {
 	return func(rm provider.ResolvedModel, sessionID string) (provider.Provider, error) {
-		quotaService.MarkUsed(rm.Alias)
+		quotaService.MarkUsed(rm.ProviderAlias)
 		if rm.ProviderConfig.Type == config.ProviderTypeOpencodeGo || rm.ProviderConfig.Type == config.ProviderTypeOpencodeZen {
 			return newOpencodeProvider(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog, sessionID)
 		}

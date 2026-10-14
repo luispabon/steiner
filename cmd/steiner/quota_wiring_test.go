@@ -64,9 +64,15 @@ func TestRuntimeProviderFactoryMarksQuotaUsed(t *testing.T) {
 		}
 	})
 	factory := buildRuntimeProviderFactory(nil, nil, pool, svc)
+	// The model alias differs from the provider alias. Quota accounts are keyed by
+	// provider alias, so MarkUsed must receive ProviderAlias.
 	rm := provider.ResolvedModel{
-		Alias:          "claude",
+		Alias:          "claude-sonnet",
+		ProviderAlias:  "claude",
 		ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeClaudeSubscription},
+	}
+	if rm.Alias == rm.ProviderAlias {
+		t.Fatal("test model alias must differ from provider alias")
 	}
 	if _, err := factory(rm, "session"); err != nil {
 		t.Fatalf("factory() error = %v", err)
@@ -93,7 +99,12 @@ func TestRuntimeProviderMarksQuotaUsedOnCachedCodexWS(t *testing.T) {
 		},
 		promptCacheKeyFn: func() string { return "cache-key" },
 	}
-	if _, err := r.runtimeProvider(codexResolvedModel("codex")); err != nil {
+	rm := codexResolvedModel("codex-sonnet")
+	rm.ProviderAlias = "codex"
+	if rm.Alias == rm.ProviderAlias {
+		t.Fatal("test model alias must differ from provider alias")
+	}
+	if _, err := r.runtimeProvider(rm); err != nil {
 		t.Fatalf("runtimeProvider() error = %v", err)
 	}
 	svc.RefreshUsed(context.Background(), 0)
