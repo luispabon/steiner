@@ -6,6 +6,11 @@ import (
 	"time"
 )
 
+// BudgetLabelSpend is the Budget.Label of a spend-only budget: spend is
+// reported with no limit. Providers emit it, and the TUI renders it without a
+// label prefix.
+const BudgetLabelSpend = "spend"
+
 // namedWindows lists standard window durations with their labels. A duration
 // matches an entry when it is within 5% of that entry's duration.
 var namedWindows = []struct {
