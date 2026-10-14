@@ -341,6 +341,27 @@ func TestAPIKeyQuotaFetchErrors(t *testing.T) {
 	}
 }
 
+func TestAPIKeyQuotaAccountKeyNormalizesBaseURL(t *testing.T) {
+	body := apiKeyQuotaFixture(t, "litellm_key_info.json")
+	srv := apiKeyQuotaServer(t, "Bearer sk-test", "/key/info", http.StatusOK, body)
+
+	want := quota.APIKeyAccountKey("litellm", srv.URL+"/v1", "sk-test")
+	for _, base := range []string{
+		srv.URL + "/v1",
+		" " + srv.URL + "/v1 ",
+		srv.URL + "/v1/",
+		" " + srv.URL + "/v1/ ",
+	} {
+		snap := apiKeyQuotaFetch(t, APIKeyQuotaConfig{ProviderType: "litellm", BaseURL: base, APIKey: "sk-test"}, srv.Client())
+		if snap.AccountKey != want {
+			t.Errorf("base %q: AccountKey = %q, want %q", base, snap.AccountKey, want)
+		}
+	}
+	if noV1 := quota.APIKeyAccountKey("litellm", srv.URL, "sk-test"); noV1 == want {
+		t.Errorf("AccountKey without /v1 equals the /v1 key %q; /v1 must stay part of the identity", want)
+	}
+}
+
 func TestAPIKeyQuotaAccountKeyFollowsKeyWithoutRawKey(t *testing.T) {
 	body := apiKeyQuotaFixture(t, "litellm_key_info.json")
 	first := apiKeyQuotaServer(t, "Bearer sk-first-secret", "/key/info", http.StatusOK, body)

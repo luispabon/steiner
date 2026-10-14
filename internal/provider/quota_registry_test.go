@@ -254,6 +254,40 @@ func TestQuotaRegistryMergesCodexAliases(t *testing.T) {
 	}
 }
 
+func TestQuotaRegistryEquivalentBaseURLsMergeInService(t *testing.T) {
+	quotaRegistryTestIsolate(t)
+
+	svc := quota.NewService(quota.ServiceOptions{})
+	for _, acct := range BuildQuotaAccounts(map[string]config.ProviderConfig{
+		"litellm-a": {Type: config.ProviderTypeLiteLLM, BaseURL: "https://litellm.test/v1", APIKey: "sk-litellm"},
+		"litellm-b": {Type: config.ProviderTypeLiteLLM, BaseURL: " https://litellm.test/v1/ ", APIKey: "sk-litellm"},
+		"litellm-c": {Type: config.ProviderTypeLiteLLM, BaseURL: "https://litellm.test", APIKey: "sk-litellm"},
+	}, QuotaRegistryDeps{}) {
+		svc.Register(acct)
+	}
+
+	wantV1 := quota.APIKeyAccountKey("litellm", "https://litellm.test/v1", "sk-litellm")
+	for _, alias := range []string{"litellm-a", "litellm-b"} {
+		if key, ok := svc.AccountKeyForAlias(alias); !ok || key != wantV1 {
+			t.Errorf("AccountKeyForAlias(%q) = %q, %v; want %q, true", alias, key, ok, wantV1)
+		}
+	}
+	if key, ok := svc.AccountKeyForAlias("litellm-c"); !ok || key == wantV1 {
+		t.Errorf("AccountKeyForAlias(\"litellm-c\") = %q, %v; want a key other than %q", key, ok, wantV1)
+	}
+
+	views := svc.Views("")
+	if len(views) != 2 {
+		t.Fatalf("views = %d, want 2 (equivalent aliases merged, /v1-less alias separate)", len(views))
+	}
+	if views[0].Key != wantV1 || views[0].DisplayAlias != "litellm-a" {
+		t.Errorf("view[0] = key %q alias %q, want %q and litellm-a", views[0].Key, views[0].DisplayAlias, wantV1)
+	}
+	if views[1].DisplayAlias != "litellm-c" {
+		t.Errorf("view[1] alias = %q, want litellm-c", views[1].DisplayAlias)
+	}
+}
+
 // quotaAccountWant describes the expected fields of one quota.Account.
 type quotaAccountWant struct {
 	key          string
