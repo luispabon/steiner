@@ -120,7 +120,7 @@ func TestUsageFreshness(t *testing.T) {
 		want       string
 	}{
 		{"updated", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, false, "updated 5m ago"},
-		{"refreshing overlay", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, true, "refreshing…"},
+		{"settled during overlay refresh", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, true, "updated 5m ago"},
 		{"refreshing account", quota.AccountView{Refreshing: true}, false, "refreshing…"},
 		{"error with age", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}, Err: "401"}, false, "updated 5m ago · unavailable: 401"},
 		{"error without snapshot", quota.AccountView{Err: "401"}, false, "unavailable: 401"},
@@ -129,6 +129,30 @@ func TestUsageFreshness(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := usageTestFrame(t)
 			f.refreshing = tt.refreshing
+			if got := ansi.Strip(usageFreshness(f, tt.view)); got != tt.want {
+				t.Errorf("usageFreshness() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUsageFreshnessDuringGlobalRefresh(t *testing.T) {
+	fetched := usageTestNow.Add(-5 * time.Minute)
+	tests := []struct {
+		name string
+		view quota.AccountView
+		want string
+	}{
+		{"in-flight account", quota.AccountView{Refreshing: true, Latest: &quota.Snapshot{FetchedAt: fetched}}, "refreshing…"},
+		{"settled age", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, "updated 5m ago"},
+		{"settled error with age", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}, Err: "401"}, "updated 5m ago · unavailable: 401"},
+		{"settled error without snapshot", quota.AccountView{Err: "401"}, "unavailable: 401"},
+		{"never fetched", quota.AccountView{}, "refreshing…"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := usageTestFrame(t)
+			f.refreshing = true
 			if got := ansi.Strip(usageFreshness(f, tt.view)); got != tt.want {
 				t.Errorf("usageFreshness() = %q, want %q", got, tt.want)
 			}

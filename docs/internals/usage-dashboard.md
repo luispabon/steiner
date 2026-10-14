@@ -15,7 +15,7 @@ User-facing documentation: [Subscription usage dashboard](../user/usage-dashboar
 | `projection.go` | Trend projections for windows and budgets. |
 | `labels.go` | `WindowLabel` for standard window lengths. |
 
-Provider fetchers live in `internal/provider/quota_*.go`: `quota_registry.go` (`BuildQuotaAccounts`), `quota_claudesub.go`, `quota_codex.go`, and `quota_apikey.go`. The overlay is in `internal/tui/usage_overlay*.go`. In `cmd/steiner`, `runtime_build.go` builds the service and store, `primeQuota` in `interactive_session.go` registers accounts at startup, and `runner_run.go` calls `MarkUsed` when a run starts.
+Provider fetchers live in `internal/provider/quota_*.go`: `quota_registry.go` (`BuildQuotaAccounts`), `quota_claudesub.go`, `quota_codex.go`, and `quota_apikey.go`. The overlay is in `internal/tui/usage_overlay*.go`. In `cmd/steiner`, `runtime_build.go` builds the service and store, `primeQuota` in `interactive_session.go` registers accounts at startup. `buildRuntimeProviderFactory` (`runtime_build_provider.go`) returns a closure that calls `MarkUsed` on every provider build. `cliRunner.runtimeProvider` (`runner_run.go`) also calls `MarkUsed` on every call, before cache routing. The second call is needed for cached Codex WebSocket routing: a cache hit in `cachedCodexWSProvider` returns the cached provider without calling the factory.
 
 ## Fetcher, observer, and Service
 
@@ -81,5 +81,5 @@ Passive snapshots have a zero `FetchedAt`, and `Observe` stamps it with the serv
 - `openUsageOverlay` shows the cached views, starts `RefreshAll` under a 30-second context, and loads views in `loadUsageViewsCmd`. `Update` never reads the quota service directly.
 - `quotaUpdateMsg` reloads the views when the overlay is open.
 - `RunFinishedEvent` runs `usageRunFinishedCmd`, which calls `RefreshUsed(context.Background(), interval)`. It returns nil when `interval` is zero or negative.
-- The in-flight count drives the `refreshing…` text.
+- Per-account in-flight flags drive the `refreshing…` text. During a global refresh, a row with no snapshot and no error also shows it. Settled rows keep their age or error.
 - `tui.quota_refresh_interval` is validated by `validateTUIConfig` and passed to the TUI by `quotaTUIConfig`. See [TUI quota refresh interval](configuration.md#tui-quota-refresh-interval).
