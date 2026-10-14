@@ -13,7 +13,7 @@ User-facing documentation: [Subscription usage dashboard](../user/usage-dashboar
 | `service*.go` | `Service`: registration, observations, fetch and refresh, merge, and views. |
 | `store.go`, `lock_unix.go`, `lock_other.go` | `Store`: the locked, atomically replaced JSON history file. |
 | `projection.go` | Trend projections for windows and budgets. |
-| `labels.go` | `WindowLabel` for standard window lengths. |
+| `labels.go` | `WindowLabel` for standard window lengths and `BudgetLabelSpend` for spend-only budgets. |
 
 Provider fetchers live in `internal/provider/quota_*.go`: `quota_registry.go` (`BuildQuotaAccounts`), `quota_claudesub.go`, `quota_codex.go`, and `quota_apikey.go`. The overlay is in `internal/tui/usage_overlay*.go`. In `cmd/steiner`, `runtime_build.go` builds the service and store, `primeQuota` in `interactive_session.go` registers accounts at startup. `buildRuntimeProviderFactory` (`runtime_build_provider.go`) returns a closure that calls `MarkUsed` on every provider build. `cliRunner.runtimeProvider` (`runner_run.go`) also calls `MarkUsed` on every call, before cache routing. The second call is needed for cached Codex WebSocket routing: a cache hit in `cachedCodexWSProvider` returns the cached provider without calling the factory.
 
@@ -63,7 +63,7 @@ Passive snapshots have a zero `FetchedAt`, and `Observe` stamps it with the serv
 
 - The file format is `{"version": 1, "snapshots": [...]}`. The path is described in the [user page](../user/usage-dashboard.md#history-and-privacy).
 - `Append` creates the directory with mode `0o700` and opens `<path>.lock` with mode `0o600`, tightening it on each append. It takes a blocking exclusive `flock`, reads the current file, merges, prunes, and writes. On non-Unix builds, `lockFile` returns an error, so `Append` fails and nothing is written without a lock.
-- `write` writes a temp file in the same directory and renames it over the data file. `History`, `Latest`, and the history read in `Views` take no lock. The rename keeps them consistent.
+- `write` writes a temp file in the same directory and renames it over the data file. `Latest`, and the history read in `Views` take no lock. The rename keeps them consistent.
 - Each `Append` drops snapshots fetched more than 35 days before its clock time.
 - A file that fails to decode makes `Append` fail, so history is never overwritten. The failure is logged, and the in-memory state still updates.
 - `Views` reads the history on every call. A read error counts as no history.
