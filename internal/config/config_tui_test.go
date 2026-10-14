@@ -1,6 +1,12 @@
 package config
 
-import "testing"
+import (
+	"slices"
+	"testing"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
 
 // TestDefaultTUIFPS pins the shipped renderer frame rate. Changing it changes
 // both perceived input latency and TUI CPU cost for every user, so it should
@@ -9,6 +15,69 @@ func TestDefaultTUIFPS(t *testing.T) {
 	t.Parallel()
 	if got := defaultConfig(nil).TUI.FPS; got != 60 {
 		t.Errorf("default tui.fps = %d, want 60", got)
+	}
+}
+
+// TestDefaultTUIQuotaRefreshInterval pins the shipped quota refresh interval.
+func TestDefaultTUIQuotaRefreshInterval(t *testing.T) {
+	t.Parallel()
+	if got := defaultConfig(nil).TUI.QuotaRefreshInterval.Duration(); got != int64(5*time.Minute) {
+		t.Errorf("default tui.quota_refresh_interval = %d, want 5m", got)
+	}
+}
+
+func TestValidateTUIQuotaRefreshInterval(t *testing.T) {
+	t.Parallel()
+
+	const negativeProblem = "tui.quota_refresh_interval must not be negative"
+	tests := []struct {
+		name  string
+		value string
+		want  []string
+	}{
+		{name: "zero accepted", value: "0s"},
+		{name: "five minutes accepted", value: "5m"},
+		{name: "negative rejected", value: "-1m", want: []string{negativeProblem}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var problems []string
+			validateTUIConfig(&problems, TUIConfig{FPS: 60, QuotaRefreshInterval: MustDuration(tc.value)})
+			if !slices.Equal(problems, tc.want) {
+				t.Errorf("validateTUIConfig(quota_refresh_interval=%s) problems = %q, want %q", tc.value, problems, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplyTUIPatchQuotaRefreshInterval(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		doc  string
+		want Duration
+	}{
+		{name: "absent preserves", doc: "fps: 30", want: MustDuration("5m")},
+		{name: "set overrides", doc: "quota_refresh_interval: 2m", want: MustDuration("2m")},
+		{name: "explicit zero overrides", doc: "quota_refresh_interval: 0s", want: MustDuration("0s")},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var patch tuiPatch
+			if err := yaml.Unmarshal([]byte(tc.doc), &patch); err != nil {
+				t.Fatalf("yaml.Unmarshal() error = %v", err)
+			}
+			got := TUIConfig{FPS: 60, QuotaRefreshInterval: MustDuration("5m")}
+			applyTUIPatch(&got, &patch)
+			if got.QuotaRefreshInterval != tc.want {
+				t.Errorf("applyTUIPatch() quota_refresh_interval = %v, want %v", got.QuotaRefreshInterval, tc.want)
+			}
+		})
 	}
 }
 

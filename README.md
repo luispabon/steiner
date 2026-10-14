@@ -23,6 +23,10 @@ A minimal, local-first Go coding agent with bounded context and sandboxed execut
 
 Review configuration before real work. Commands are sandboxed by default on Linux, but sandboxing is not a confidentiality boundary. `--unsafe` disables the sandbox. See [Sandboxing](docs/user/sandboxing.md). The first time steiner runs in a project directory, it asks you to trust that project, showing every way its `.steiner/config.yaml` would change your global config. See [Project trust](docs/user/configuration.md#project-trust).
 
+## Subscription usage dashboard
+
+Press `ctrl+o` or run `/usage` in the interactive TUI to see rate-limit windows and spend budgets for your Codex, Claude subscription, OpenCode Go, OpenRouter, and LiteLLM accounts. Each window with enough history shows a trend toward its limit. The dashboard refreshes on open, from passive provider traffic, and after runs. See [Subscription usage dashboard](docs/user/usage-dashboard.md).
+
 ## Documentation map
 
 - [Documentation home](docs/index.md)

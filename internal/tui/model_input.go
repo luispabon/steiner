@@ -88,6 +88,9 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.showMCP {
 		return m.executeShowMCPAction()
 	}
+	if action.showUsage {
+		return m.executeShowUsageAction()
+	}
 	if action.showLSP {
 		return m.executeShowLSPAction()
 	}

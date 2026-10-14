@@ -101,3 +101,7 @@ Failed `replace` operations with reason `no_match`, `ambiguous_match` or `stale_
 ## MCP test boundary
 
 MCP behavior is covered by hermetic, CI-safe integration tests under `internal/mcp/` for both stdio and HTTP transports through the manager path. Live validation against third-party MCP servers remains manual work tracked in #438. The user-facing MCP behavior and approval rules are in [MCP](../user/mcp.md).
+
+## TUI quota refresh interval
+
+`tui.quota_refresh_interval` is a `Duration` field on `TUIConfig`, defaulting to `5m` in `defaults.go`. `validateTUIConfig` rejects negative values and accepts zero. `quotaTUIConfig` in `cmd/steiner/interactive_session.go` passes the value to the TUI, which uses it only to gate the end-of-run `RefreshUsed` call. Opening the dashboard and pressing `r` do not read it. User-facing behavior is in the [configuration reference](../user/configuration.md#tui-block) and the [usage dashboard](../user/usage-dashboard.md#when-snapshots-refresh).

@@ -124,6 +124,32 @@ func TestPlaceBottomAnchoredAtPosition(t *testing.T) {
 	}
 }
 
+func TestOverlayShellBodyVisibleHeight(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		height      int
+		chromeLines int
+		want        int
+	}{
+		{name: "below minimum", height: 5, chromeLines: 6, want: 3},
+		{name: "at minimum", height: 9, chromeLines: 6, want: 3},
+		{name: "inside range", height: 20, chromeLines: 7, want: 13},
+		{name: "at maximum", height: 36, chromeLines: 6, want: 30},
+		{name: "above maximum", height: 100, chromeLines: 7, want: 30},
+		{name: "zero height", height: 0, chromeLines: 6, want: 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			shell := OverlayShell{height: tt.height}
+			if got := shell.bodyVisibleHeight(tt.chromeLines); got != tt.want {
+				t.Errorf("bodyVisibleHeight(%d) = %d, want %d", tt.chromeLines, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestOverlayShellOverlayWidth(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

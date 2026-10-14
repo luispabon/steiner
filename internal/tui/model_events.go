@@ -258,6 +258,9 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	if shouldRefreshGit(event) {
 		cmds = append(cmds, gitRefreshCmd(m.git))
 	}
+	if _, ok := event.Payload.(output.RunFinishedEvent); ok {
+		cmds = append(cmds, m.usageRunFinishedCmd())
+	}
 	m.syncInputChrome()
 	m.syncSidebar()
 	if event.Type != output.EventTypeAssistantChunk && event.Type != output.EventTypeThinkingChunk {

@@ -196,6 +196,7 @@ type Model struct {
 	orchestrationConfirm         confirmModalState
 	pendingOrchestrationLevel    config.OrchestrationLevel
 	contextOverlay               contextOverlayState
+	usageOverlay                 usageOverlayState
 	exitModal                    confirmModalState
 	workflowHandoff              workflowHandoffModalState
 	delegateCancelModal          delegateCancelModalState

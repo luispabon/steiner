@@ -72,6 +72,19 @@ func (o OverlayShell) closeShell() OverlayShell {
 	return o
 }
 
+// Bounds on the scrollable body rows of framed overlays.
+const (
+	overlayMinBodyLines = 3
+	overlayMaxBodyLines = 30
+)
+
+// bodyVisibleHeight returns the number of body rows that fit the terminal
+// height after reserving chromeLines rows for the header, dividers, footer and
+// padding. The result is clamped to [overlayMinBodyLines, overlayMaxBodyLines].
+func (o OverlayShell) bodyVisibleHeight(chromeLines int) int {
+	return min(max(o.height-chromeLines, overlayMinBodyLines), overlayMaxBodyLines)
+}
+
 // scrollKeyResult describes the outcome of interpreting a key press against
 // the shared scroll/paging/close key bindings used by overlays that render a
 // scrollable, line-based body (e.g. mcpOverlay, lspOverlay).

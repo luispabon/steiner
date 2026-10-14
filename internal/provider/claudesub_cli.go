@@ -233,12 +233,17 @@ func claudeSubArgs(o claudeSubSpawnOptions) []string {
 		"--output-format", "stream-json",
 		"--verbose",
 		"--include-partial-messages",
-		"--model", o.Model,
+	}
+	// An empty model omits --model so the CLI uses its default model.
+	if o.Model != "" {
+		args = append(args, "--model", o.Model)
+	}
+	args = append(args,
 		"--tools", "",
 		"--strict-mcp-config",
 		"--setting-sources=",
 		"--disable-slash-commands",
-	}
+	)
 	if !o.Persist {
 		args = append(args, "--no-session-persistence")
 	}

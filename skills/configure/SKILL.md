@@ -121,14 +121,14 @@ Compact canonical reference for safe configuration edits.
 | `diagnostics.streams.provider`|bool|`false`|Per-call stream; subsumes stream-error log. |
 | `diagnostics.streams.tool`|bool|`false`|Tool/delegation stream; subsumes delegation log. |
 | `diagnostics.streams.tui`|bool|`false`|TUI frame timings. |
-| `diagnostics.capture_bodies`|bool|`false`|Capture full message/tool/block content, mutate failures, and prompts, not scalars. |
-| `context_management.read_annotations`|bool|`true`|Annotate reads only after an identical full read with the same tool-result `file_hash` and range in conversation. |
+| `diagnostics.capture_bodies`|bool|`false`|Capture full message/tool/block content, mutate failures, and prompts. |
+| `context_management.read_annotations`|bool|`true`|Annotate reads only after an identical full read with the same `file_hash` and range. |
 | `search.backend`|string|—|`searxng`, `google`, `kagi`, or `brave`; selects requirements. |
 | `search.searxng_url`|string|—|Required for `searxng`. |
 | `search.google_cx`|string|—|Required for `google`. |
-| `search.google_api_key`|string|—|Required for `google`; prefer environment storage. |
-| `search.kagi_api_key`|string|—|Required for `kagi`; prefer environment storage. |
-| `search.brave_api_key`|string|—|Required for `brave`; prefer environment storage. |
+| `search.google_api_key`|string|—|Required for `google`; prefer env storage. |
+| `search.kagi_api_key`|string|—|Required for `kagi`; prefer env storage. |
+| `search.brave_api_key`|string|—|Required for `brave`; prefer env storage. |
 | `mcp.enabled`|bool|`true`|Enable MCP client. |
 | `mcp.servers.<server>.enabled`|bool|`false`|Start server. |
 | `mcp.servers.<server>.transport`|string|`stdio`|`stdio` or `http`. |
@@ -162,6 +162,7 @@ Compact canonical reference for safe configuration edits.
 | `lsp.servers.<name>.initialization_options`|map[string]any|—|—|
 | `modes.default`|string|`build`|`plan`/`build`; plan edits only `.steiner/plans/`. |
 | `tui.fps`|int|`60`|Interactive renderer rate, 1 through 120. |
+| `tui.quota_refresh_interval`|duration|`5m`|Post-run refetch age; zero disables. |
 
 `steiner config` validates and prints resolved configuration; `/config` opens the TUI compiled-config modal. Resolved output can contain credentials: obtain consent before a full secret-bearing read, redact by default, and never echo secrets.
 

@@ -24,6 +24,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/quota"
 	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tool"
@@ -187,7 +188,28 @@ func startupTUIModelConfig(cfg config.Config) (tui.Config, config.ModelConfig) {
 	return tui.Config{Model: activeModel, CurrentModelAlias: activeModel}, selectedModelConfig(cfg)
 }
 
+// primeQuota registers the configured quota accounts and loads the quota store.
+// Load reads the store here, so store I/O stays out of the TUI's Update and
+// View. quotaService may be nil.
+func primeQuota(rt cliRuntime) {
+	if rt.quotaService == nil {
+		return
+	}
+	deps := provider.QuotaRegistryDeps{HTTPClient: rt.httpClient, ClaudePool: rt.claudeSubPool}
+	for _, acct := range provider.BuildQuotaAccounts(rt.cfg.Providers, deps) {
+		rt.quotaService.Register(acct)
+	}
+	rt.quotaService.Load()
+}
+
+// quotaTUIConfig returns the quota service and refresh interval for the TUI.
+// A zero interval disables the refresh.
+func quotaTUIConfig(rt cliRuntime) (*quota.Service, time.Duration) {
+	return rt.quotaService, time.Duration(rt.cfg.TUI.QuotaRefreshInterval.Duration())
+}
+
 func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, sess *interactive.Session) (*tui.App, error) {
+	primeQuota(rt)
 	startupCfg, selected := startupTUIModelConfig(rt.cfg)
 	entries := []tui.ModelEntry(nil)
 	updates := rt.modelEntriesUpdates
@@ -242,6 +264,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		return lspTUIStates(rt.cfg, rt.lspManager)
 	}
 	tuiCfg.Recorder = rt.usageRecorder
+	tuiCfg.Quota, tuiCfg.QuotaRefreshInterval = quotaTUIConfig(rt)
 	if rt.diagnostics.Enabled(diagnostics.KindTUI) {
 		tuiCfg.FrameStats = rt.diagnostics
 	}

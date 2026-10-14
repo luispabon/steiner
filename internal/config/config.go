@@ -276,6 +276,10 @@ type TUIConfig struct {
 	// and increases CPU proportionally, because renderer flush dominates TUI
 	// CPU cost. Valid range 1-120; Bubble Tea caps above 120.
 	FPS int `yaml:"fps"`
+	// QuotaRefreshInterval is the snapshot age after which a finished run
+	// refetches used subscription accounts in the TUI. Zero disables that
+	// refresh; negative values are rejected.
+	QuotaRefreshInterval Duration `yaml:"quota_refresh_interval"`
 }
 
 // ModelProfile contains model assignments for one execution profile. Named

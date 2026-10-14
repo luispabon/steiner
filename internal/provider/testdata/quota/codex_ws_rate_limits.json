@@ -1,0 +1,1 @@
+{"type":"codex.rate_limits","plan_type":"pro","rate_limits":{"primary":{"used_percent":42.0,"window_minutes":300,"reset_at":1761901200},"secondary":{"used_percent":84,"window_minutes":10080,"reset_at":1764500000}},"credits":{"has_credits":true,"unlimited":false,"balance":"9.99"}}

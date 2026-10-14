@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/luispabon/steiner/internal/quota"
 )
 
 type codexWSProvider struct {
@@ -34,6 +36,14 @@ type codexWSProvider struct {
 	connCancel    context.CancelFunc
 	keepaliveDone chan struct{}
 	dialCacheKey  string
+
+	// quotaObserver and quotaAccountKey enable passive quota capture; the key
+	// is empty when capture is off. quotaPending holds snapshots parsed while
+	// mu is held. They are delivered after mu is released, so the observer
+	// never runs under the lock.
+	quotaObserver   func(quota.Snapshot)
+	quotaAccountKey string
+	quotaPending    []quota.Snapshot
 }
 
 // NewCodexResponsesWS constructs a Codex WebSocket provider. WebSocket failures
@@ -59,6 +69,10 @@ func NewCodexResponsesWS(cfg ClientConfig) (Provider, error) {
 		interFrameTimeout: wsInterFrameTimeout,
 		writeTimeout:      wsWriteTimeout,
 	}
+	if cfg.QuotaObserver != nil {
+		provider.quotaObserver = cfg.QuotaObserver
+		provider.quotaAccountKey = codexQuotaAccountKeyFromHeaders(cfg.Headers)
+	}
 
 	return provider, nil
 }
@@ -74,8 +88,10 @@ func (p *codexWSProvider) ChatCompletion(ctx context.Context, request ChatReques
 	emitter := &wsEmitter{}
 	p.mu.Lock()
 	result, attempts, err := p.executeRequest(ctx, request, emitter)
+	quotas := p.codexQuotaTake()
 	p.mu.Unlock()
 
+	p.codexQuotaNotify(quotas)
 	p.emitProviderCall(ctx, start, emitter, attempts, err)
 
 	if err != nil {
@@ -107,8 +123,10 @@ func (p *codexWSProvider) streamOnce(ctx context.Context, request ChatRequest, o
 
 	p.mu.Lock()
 	result, attempts, err := p.executeRequest(ctx, request, emitter)
+	quotas := p.codexQuotaTake()
 	p.mu.Unlock()
 
+	p.codexQuotaNotify(quotas)
 	p.emitProviderCall(ctx, start, emitter, attempts, err)
 
 	if err == nil {
@@ -157,6 +175,27 @@ func diagnosticWSRequestHeaders(p *codexWSProvider) map[string]string {
 		return nil
 	}
 	return sanitizeHeaderMap(p.headers)
+}
+
+// codexQuotaQueue records a snapshot for delivery after mu is released. Callers
+// hold mu.
+func (p *codexWSProvider) codexQuotaQueue(snap quota.Snapshot) {
+	p.quotaPending = append(p.quotaPending, snap)
+}
+
+// codexQuotaTake returns the queued snapshots and clears the queue. Callers hold
+// mu.
+func (p *codexWSProvider) codexQuotaTake() []quota.Snapshot {
+	pending := p.quotaPending
+	p.quotaPending = nil
+	return pending
+}
+
+// codexQuotaNotify delivers snapshots to the observer. Callers must not hold mu.
+func (p *codexWSProvider) codexQuotaNotify(snaps []quota.Snapshot) {
+	for _, snap := range snaps {
+		p.quotaObserver(snap)
+	}
 }
 
 // sendChunk delivers a terminal chunk, giving up if the consumer has gone away

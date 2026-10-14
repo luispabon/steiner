@@ -234,6 +234,14 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		},
 	},
 	overlayKeyHandlerFunc{
+		match: func(m *Model) bool { return m.usageOverlay.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			var cmd tea.Cmd
+			m.usageOverlay, cmd = m.usageOverlay.Update(msg)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
 		match: func(m *Model) bool { return m.contextOverlay.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			_ = m.handleContextOverlayKey(msg)
@@ -415,6 +423,7 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.fileList = newFileListOverlay(m.styles)
 	m.mcpOverlay = newMCPOverlay(m.styles)
 	m.lspOverlay = newLSPOverlay(m.styles)
+	m.usageOverlay = newUsageOverlay(m.styles, cfg.Quota, cfg.QuotaRefreshInterval)
 	m.filePicker = newFilePickerOverlay(m.styles)
 	m.filePicker.width = m.width
 	m.filePicker.height = m.height
@@ -477,6 +486,9 @@ func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.input.Focus(), tickCmd(), composerBlinkCmd(), gitRefreshCmd(m.git)}
 	if m.external != nil {
 		cmds = append(cmds, waitForExternalMsg(m.external))
+	}
+	if q := m.usageOverlay.quota; q != nil {
+		cmds = append(cmds, waitForQuotaUpdate(q.Updates()), loadUsageViewsCmd(q, m.sidebar.providerName))
 	}
 	if m.resolveReasoningFunc != nil {
 		resolve := m.resolveReasoningFunc

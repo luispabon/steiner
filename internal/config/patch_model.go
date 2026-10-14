@@ -11,6 +11,7 @@ func applyTUIPatch(dst *TUIConfig, patch *tuiPatch) {
 		return
 	}
 	setIfPresent(&dst.FPS, patch.FPS)
+	setIfPresent(&dst.QuotaRefreshInterval, patch.QuotaRefreshInterval)
 }
 
 func modelConfigBaseForConfig(cfg Config) ModelConfig {

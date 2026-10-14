@@ -15,6 +15,7 @@ import (
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/quota"
 	"github.com/luispabon/steiner/internal/tui/prefs"
 	"github.com/luispabon/steiner/internal/tui/theme"
 	"github.com/luispabon/steiner/internal/usagestats"
@@ -160,6 +161,12 @@ type Config struct {
 	// FrameStats receives per-message Update/View cost records; nil disables
 	// frame stats.
 	FrameStats FrameStatsSink
+	// Quota is the subscription usage service behind the /usage overlay; nil
+	// disables the overlay.
+	Quota *quota.Service
+	// QuotaRefreshInterval is the snapshot age after which a finished run
+	// refetches used accounts. Zero or negative disables that refresh.
+	QuotaRefreshInterval time.Duration
 }
 
 // OneshotRunnerFactoryBuilder builds a phase runner factory bound to a specific

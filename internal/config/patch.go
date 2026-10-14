@@ -59,7 +59,8 @@ type contextManagementPatch struct {
 }
 
 type tuiPatch struct {
-	FPS *int `yaml:"fps"`
+	FPS                  *int      `yaml:"fps"`
+	QuotaRefreshInterval *Duration `yaml:"quota_refresh_interval"`
 }
 
 // sandboxPatch holds sandbox config fields that can be patched from YAML.

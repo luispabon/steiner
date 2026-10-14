@@ -129,6 +129,7 @@ func (r cliRunner) selectedAlias() string {
 }
 
 func (r cliRunner) runtimeProvider(rm provider.ResolvedModel) (provider.Provider, error) {
+	r.runtime.quotaService.MarkUsed(rm.ProviderAlias)
 	if r.runtime.providerFactory == nil {
 		if r.runtime.provider == nil {
 			return nil, fmt.Errorf("provider is required")

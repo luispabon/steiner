@@ -72,7 +72,10 @@ func (p *codexWSProvider) sendRequest(ctx context.Context, request ChatRequest, 
 		return ChatResponse{}, fmt.Errorf("write frame: %w", err)
 	}
 
-	state := responsesStreamState{}
+	state := responsesStreamState{quotaAccountKey: p.quotaAccountKey}
+	if p.quotaAccountKey != "" {
+		state.quotaSink = p.codexQuotaQueue
+	}
 
 	for {
 		// The deadline is rearmed per frame, so it measures the gap since the

@@ -67,6 +67,12 @@ func (p *codexWSProvider) ensureConnection(ctx context.Context, request ChatRequ
 	if err != nil {
 		return fmt.Errorf("dial WebSocket: %w", err)
 	}
+	// The handshake headers carry the rate limits once per connection.
+	if p.quotaAccountKey != "" {
+		if snap, ok := parseCodexQuotaHeaders(resp.Header, p.quotaAccountKey); ok {
+			p.codexQuotaQueue(snap)
+		}
+	}
 
 	conn.SetReadLimit(WSReadLimitBytes)
 	recordWSTelemetry(wsTelemetryEventDial, "", p.dialCacheKey)

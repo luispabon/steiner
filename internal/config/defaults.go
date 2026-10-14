@@ -71,7 +71,8 @@ func defaultConfig(env map[string]string) Config {
 	defaultModel.ID = "qwen3-35b-a3b"
 	return Config{
 		TUI: TUIConfig{
-			FPS: 60,
+			FPS:                  60,
+			QuotaRefreshInterval: MustDuration("5m"),
 		},
 		Providers: map[string]ProviderConfig{
 			"local": defaultProvider,
