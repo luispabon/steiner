@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/quota"
 )
 
@@ -63,7 +64,7 @@ func parseClaudeSubUsage(raw json.RawMessage) (quota.Snapshot, error) {
 	}
 	snap := quota.Snapshot{
 		AccountKey:   ClaudeSubQuotaAccountKey,
-		ProviderType: "claude_subscription",
+		ProviderType: string(config.ProviderTypeClaudeSubscription),
 		Plan:         body.SubscriptionType,
 	}
 	for _, w := range claudeSubQuotaWindows {

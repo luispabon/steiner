@@ -111,7 +111,7 @@ func usageAccountLines(f usageFrame, v quota.AccountView) []string {
 	for i, b := range snap.Budgets {
 		if b.Limit == nil {
 			text := fmt.Sprintf("$%.2f", b.Used)
-			if b.Label != "spend" {
+			if b.Label != quota.BudgetLabelSpend {
 				text = b.Label + " " + text
 			}
 			spend = append(spend, text)

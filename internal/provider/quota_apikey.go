@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/quota"
 )
 
@@ -52,7 +53,7 @@ func apiKeyQuotaAccountKey(providerType, baseURL, apiKey string) string {
 // provider types return an error.
 func NewAPIKeyQuotaFetcher(cfg APIKeyQuotaConfig, client *http.Client) (quota.Fetcher, error) {
 	switch cfg.ProviderType {
-	case "opencode_go", "openrouter", "litellm":
+	case string(config.ProviderTypeOpencodeGo), string(config.ProviderTypeOpenRouter), string(config.ProviderTypeLiteLLM):
 	default:
 		return nil, fmt.Errorf("api key quota: unsupported provider type %q", cfg.ProviderType)
 	}
@@ -76,11 +77,11 @@ func (f *apiKeyQuotaFetcher) Fetch(ctx context.Context, _ quota.FetchOptions) (q
 	}
 	var err error
 	switch f.cfg.ProviderType {
-	case "opencode_go":
+	case string(config.ProviderTypeOpencodeGo):
 		snap.Windows, err = f.apiKeyQuotaOpenCode(ctx)
-	case "openrouter":
+	case string(config.ProviderTypeOpenRouter):
 		snap.Budgets, err = f.apiKeyQuotaOpenRouter(ctx)
-	case "litellm":
+	case string(config.ProviderTypeLiteLLM):
 		snap.Budgets, err = f.apiKeyQuotaLiteLLM(ctx)
 	}
 	if err != nil {
@@ -262,7 +263,7 @@ func (f *apiKeyQuotaFetcher) apiKeyQuotaLiteLLM(ctx context.Context) ([]quota.Bu
 	}
 	info := body.Info
 	if info.MaxBudget == nil {
-		return []quota.Budget{{Label: "spend", Used: info.Spend, Currency: "USD"}}, nil
+		return []quota.Budget{{Label: quota.BudgetLabelSpend, Used: info.Spend, Currency: "USD"}}, nil
 	}
 	return []quota.Budget{{
 		Label:    "budget",
