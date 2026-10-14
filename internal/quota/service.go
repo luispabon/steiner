@@ -27,7 +27,8 @@ type Service struct {
 	now          func() time.Time
 	logf         func(string, ...any)
 	fetchTimeout time.Duration
-	loadOnce     sync.Once
+	loadMu       sync.Mutex // serializes ensureLoaded
+	loaded       bool       // a store load has succeeded; guarded by loadMu
 	updates      chan struct{}
 
 	mu          sync.Mutex
@@ -70,13 +71,18 @@ func NewService(opts ServiceOptions) *Service {
 
 // Register adds acct. If an account with the same Key exists, its aliases are
 // merged, and its Fetcher, ProviderType, and Unavailable are replaced by the
-// non-empty values in acct. Register notifies Updates.
+// non-empty values in acct. An alias bound to a different Key moves to acct and
+// is removed from that Key's account, which is dropped once it has no aliases
+// left. Register notifies Updates.
 func (s *Service) Register(acct Account) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cur := s.accounts[acct.Key]
 	cur.Key = acct.Key
 	for _, alias := range acct.Aliases {
+		if old, ok := s.aliases[alias]; ok && old != acct.Key {
+			s.removeAliasLocked(old, alias)
+		}
 		if !slices.Contains(cur.Aliases, alias) {
 			cur.Aliases = append(cur.Aliases, alias)
 		}
@@ -93,6 +99,19 @@ func (s *Service) Register(acct Account) {
 	}
 	s.accounts[acct.Key] = cur
 	s.notify()
+}
+
+// removeAliasLocked unbinds alias from the account old. An account left with no
+// aliases is removed from s.accounts. Its latest snapshot stays in s.latest, so
+// it is listed like an unregistered stored snapshot. The caller must hold s.mu.
+func (s *Service) removeAliasLocked(old, alias string) {
+	acct := s.accounts[old]
+	acct.Aliases = slices.DeleteFunc(acct.Aliases, func(a string) bool { return a == alias })
+	if len(acct.Aliases) == 0 {
+		delete(s.accounts, old)
+		return
+	}
+	s.accounts[old] = acct
 }
 
 // AccountKeyForAlias returns the account key registered for alias.
@@ -181,25 +200,28 @@ func (s *Service) notify() {
 	}
 }
 
-// ensureLoaded fills the in-memory latest map from the store on first use.
-// Entries already observed in memory take precedence over stored ones. Store
-// I/O runs with mu released.
+// ensureLoaded fills the in-memory latest map from the store until one load
+// succeeds. A failed load is retried by the next call. loadMu serializes loads,
+// so concurrent callers wait for the load in flight instead of reading the store
+// again. A stored snapshot replaces the in-memory one only when it is newer, so
+// observed state is kept. Store I/O runs with mu released.
 func (s *Service) ensureLoaded() {
-	s.loadOnce.Do(func() {
-		if s.store == nil {
-			return
+	s.loadMu.Lock()
+	defer s.loadMu.Unlock()
+	if s.loaded || s.store == nil {
+		return
+	}
+	latest, err := s.store.Latest()
+	if err != nil {
+		s.logf("quota: load history: %v", err)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, snap := range latest {
+		if cur, ok := s.latest[key]; !ok || snap.FetchedAt.After(cur.FetchedAt) {
+			s.latest[key] = snap
 		}
-		latest, err := s.store.Latest()
-		if err != nil {
-			s.logf("quota: load history: %v", err)
-			return
-		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		for key, snap := range latest {
-			if _, ok := s.latest[key]; !ok {
-				s.latest[key] = snap
-			}
-		}
-	})
+	}
+	s.loaded = true
 }
