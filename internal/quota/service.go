@@ -114,14 +114,6 @@ func (s *Service) removeAliasLocked(old, alias string) {
 	s.accounts[old] = acct
 }
 
-// AccountKeyForAlias returns the account key registered for alias.
-func (s *Service) AccountKeyForAlias(alias string) (string, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	key, ok := s.aliases[alias]
-	return key, ok
-}
-
 // MarkUsed records that alias was used. The alias is resolved by RefreshUsed,
 // so MarkUsed may be called before Register. A nil Service is a no-op.
 func (s *Service) MarkUsed(alias string) {
@@ -148,6 +140,13 @@ func (s *Service) Observe(snap Snapshot) {
 	s.commit(snap, false)
 }
 
+// Load reads the stored history into memory until one load succeeds. Later calls
+// do nothing, and a failed read is retried by the next call. Load neither builds
+// projections nor notifies Updates.
+func (s *Service) Load() {
+	s.ensureLoaded()
+}
+
 // Updates returns a channel that receives a value after each change to the
 // tracked state. The channel has capacity one, and notifications that arrive
 // while one is pending are coalesced.
@@ -167,7 +166,7 @@ func (s *Service) commit(snap Snapshot, replace bool) {
 	if hadPrev && !replace {
 		snap = mergePassive(prev, snap)
 	}
-	unchanged := hadPrev && sameState(prev, snap) && now.Sub(s.lastAppend[snap.AccountKey]) < time.Hour
+	unchanged := hadPrev && sameState(prev, snap) && now.Sub(s.lastAppend[snap.AccountKey]) < dedupeWindow
 	s.latest[snap.AccountKey] = snap
 	s.mu.Unlock()
 	if !unchanged {

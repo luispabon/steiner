@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -246,6 +247,23 @@ func TestPrimeQuotaRegistersConfiguredAccounts(t *testing.T) {
 	if views[1].DisplayAlias != "router" || views[1].Unavailable != "" {
 		t.Errorf("router view alias = %q, unavailable = %q; want router and empty", views[1].DisplayAlias, views[1].Unavailable)
 	}
+}
+
+// TestPrimeQuotaLoadsStoreWithoutViews pins that primeQuota reads the store
+// itself. Removing the file afterwards leaves the loaded snapshot visible.
+func TestPrimeQuotaLoadsStoreWithoutViews(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "quota-history.json")
+	store := quota.NewStore(path)
+	now := time.Now()
+	if err := store.Append(quota.Snapshot{AccountKey: provider.ClaudeSubQuotaAccountKey, FetchedAt: now}, now); err != nil {
+		t.Fatalf("seed Append: %v", err)
+	}
+	svc := quota.NewService(quota.ServiceOptions{Store: store})
+	primeQuota(cliRuntime{quotaService: svc})
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	assertQuotaObserved(t, svc, provider.ClaudeSubQuotaAccountKey)
 }
 
 // TestQuotaTUIConfigCarriesServiceAndInterval pins the quota service and the

@@ -10,6 +10,21 @@ import (
 	"time"
 )
 
+// historyOf returns the stored snapshots for accountKey, oldest first.
+func historyOf(store *Store, accountKey string) ([]Snapshot, error) {
+	snaps, err := store.readAll()
+	if err != nil {
+		return nil, err
+	}
+	var out []Snapshot
+	for _, snap := range snaps {
+		if snap.AccountKey == accountKey {
+			out = append(out, snap)
+		}
+	}
+	return out, nil
+}
+
 func TestStoreRoundTrip(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "quota-history.json"))
 	a1 := sampleSnapshot("a", testBase, 10)
@@ -21,7 +36,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		}
 	}
 
-	history, err := store.History("a")
+	history, err := historyOf(store, "a")
 	if err != nil {
 		t.Fatalf("History: %v", err)
 	}
@@ -34,7 +49,7 @@ func TestStoreRoundTrip(t *testing.T) {
 			t.Errorf("History(a)[%d] = %+v, want %+v", i, got, want)
 		}
 	}
-	if empty, err := store.History("unknown"); err != nil || len(empty) != 0 {
+	if empty, err := historyOf(store, "unknown"); err != nil || len(empty) != 0 {
 		t.Errorf("History(unknown) = %d snapshots, err %v; want none", len(empty), err)
 	}
 
@@ -86,7 +101,7 @@ func TestStoreAppendDedupe(t *testing.T) {
 			if err := store.Append(next, next.FetchedAt); err != nil {
 				t.Fatalf("second Append: %v", err)
 			}
-			history, err := store.History("a")
+			history, err := historyOf(store, "a")
 			if err != nil {
 				t.Fatalf("History: %v", err)
 			}
@@ -111,10 +126,10 @@ func TestStoreAppendPrunesSnapshotsOlderThanRetention(t *testing.T) {
 		t.Fatalf("Append at base: %v", err)
 	}
 
-	if got, _ := store.History("a"); len(got) != 0 {
+	if got, _ := historyOf(store, "a"); len(got) != 0 {
 		t.Errorf("36-day-old snapshot kept: %d entries", len(got))
 	}
-	if got, _ := store.History("b"); len(got) != 1 {
+	if got, _ := historyOf(store, "b"); len(got) != 1 {
 		t.Errorf("34-day-old snapshot pruned: %d entries, want 1", len(got))
 	}
 }
@@ -167,7 +182,7 @@ func TestStoreConcurrentAppendsThroughTwoStores(t *testing.T) {
 	}
 	wg.Wait()
 
-	history, err := NewStore(path).History("a")
+	history, err := historyOf(NewStore(path), "a")
 	if err != nil {
 		t.Fatalf("History: %v", err)
 	}
@@ -178,7 +193,7 @@ func TestStoreConcurrentAppendsThroughTwoStores(t *testing.T) {
 
 func TestStoreMissingFileIsEmpty(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "absent.json"))
-	if history, err := store.History("a"); err != nil || len(history) != 0 {
+	if history, err := historyOf(store, "a"); err != nil || len(history) != 0 {
 		t.Errorf("History = %d snapshots, err %v; want empty without error", len(history), err)
 	}
 	if latest, err := store.Latest(); err != nil || len(latest) != 0 {
@@ -193,7 +208,7 @@ func TestStoreCorruptFileIsPreserved(t *testing.T) {
 		t.Fatalf("write corrupt fixture: %v", err)
 	}
 	store := NewStore(path)
-	if _, err := store.History("a"); err == nil {
+	if _, err := historyOf(store, "a"); err == nil {
 		t.Error("History on corrupt file: want error")
 	}
 	if _, err := store.Latest(); err == nil {
@@ -212,7 +227,7 @@ func TestStoreRejectsUnsupportedVersion(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"version":2,"snapshots":[]}`), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	if _, err := NewStore(path).History("a"); err == nil {
+	if _, err := historyOf(NewStore(path), "a"); err == nil {
 		t.Error("History with version 2: want error")
 	}
 }

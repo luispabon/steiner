@@ -189,8 +189,8 @@ func startupTUIModelConfig(cfg config.Config) (tui.Config, config.ModelConfig) {
 }
 
 // primeQuota registers the configured quota accounts and loads the quota store.
-// Views loads the store lazily, so calling it here keeps store I/O out of the
-// TUI's Update and View. quotaService may be nil.
+// Load reads the store here, so store I/O stays out of the TUI's Update and
+// View. quotaService may be nil.
 func primeQuota(rt cliRuntime) {
 	if rt.quotaService == nil {
 		return
@@ -199,7 +199,7 @@ func primeQuota(rt cliRuntime) {
 	for _, acct := range provider.BuildQuotaAccounts(rt.cfg.Providers, deps) {
 		rt.quotaService.Register(acct)
 	}
-	rt.quotaService.Views("")
+	rt.quotaService.Load()
 }
 
 // quotaTUIConfig returns the quota service and refresh interval for the TUI.

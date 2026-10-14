@@ -248,8 +248,8 @@ func TestQuotaRegistryMergesCodexAliases(t *testing.T) {
 		t.Errorf("view = key %q alias %q, want codex:acct-1 and codex-a", views[0].Key, views[0].DisplayAlias)
 	}
 	for _, alias := range []string{"codex-a", "codex-b"} {
-		if key, ok := svc.AccountKeyForAlias(alias); !ok || key != "codex:acct-1" {
-			t.Errorf("AccountKeyForAlias(%q) = %q, %v; want codex:acct-1, true", alias, key, ok)
+		if key, ok := quotaViewKeyForAlias(svc, alias); !ok || key != "codex:acct-1" {
+			t.Errorf("active view for %q = %q, %v; want codex:acct-1, true", alias, key, ok)
 		}
 	}
 }
@@ -268,12 +268,12 @@ func TestQuotaRegistryEquivalentBaseURLsMergeInService(t *testing.T) {
 
 	wantV1 := quota.APIKeyAccountKey("litellm", "https://litellm.test/v1", "sk-litellm")
 	for _, alias := range []string{"litellm-a", "litellm-b"} {
-		if key, ok := svc.AccountKeyForAlias(alias); !ok || key != wantV1 {
-			t.Errorf("AccountKeyForAlias(%q) = %q, %v; want %q, true", alias, key, ok, wantV1)
+		if key, ok := quotaViewKeyForAlias(svc, alias); !ok || key != wantV1 {
+			t.Errorf("active view for %q = %q, %v; want %q, true", alias, key, ok, wantV1)
 		}
 	}
-	if key, ok := svc.AccountKeyForAlias("litellm-c"); !ok || key == wantV1 {
-		t.Errorf("AccountKeyForAlias(\"litellm-c\") = %q, %v; want a key other than %q", key, ok, wantV1)
+	if key, ok := quotaViewKeyForAlias(svc, "litellm-c"); !ok || key == wantV1 {
+		t.Errorf("active view for litellm-c = %q, %v; want a key other than %q", key, ok, wantV1)
 	}
 
 	views := svc.Views("")
@@ -286,6 +286,17 @@ func TestQuotaRegistryEquivalentBaseURLsMergeInService(t *testing.T) {
 	if views[1].DisplayAlias != "litellm-c" {
 		t.Errorf("view[1] alias = %q, want litellm-c", views[1].DisplayAlias)
 	}
+}
+
+// quotaViewKeyForAlias returns the key of the view that alias is bound to. Views
+// marks that view Active when alias is among its aliases.
+func quotaViewKeyForAlias(svc *quota.Service, alias string) (string, bool) {
+	for _, v := range svc.Views(alias) {
+		if v.Active {
+			return v.Key, true
+		}
+	}
+	return "", false
 }
 
 // quotaAccountWant describes the expected fields of one quota.Account.
