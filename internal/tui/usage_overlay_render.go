@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/quota"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -69,9 +70,9 @@ func usageBar(pct float64) string {
 	return strings.Repeat("█", filled) + strings.Repeat("░", usageBarCells-filled)
 }
 
-// usageMeter returns the styled bar and percentage for pct.
-func usageMeter(f usageFrame, pct float64) string {
-	return usageLevelStyle(f.styles, pct).Render(usageBar(pct) + fmt.Sprintf(" %3.0f%%", pct))
+// usageMeter returns the bar for pct, styled by pct, followed by text.
+func usageMeter(f usageFrame, pct float64, text string) string {
+	return usageLevelStyle(f.styles, pct).Render(usageBar(pct) + " " + text)
 }
 
 // usageBodyLines renders the overlay body, one entry per terminal row.
@@ -142,7 +143,7 @@ func usageRow(label, value string) string {
 }
 
 func usageWindowLine(f usageFrame, w quota.Window) string {
-	line := usageRow(w.Label, usageMeter(f, w.UsedPercent))
+	line := usageRow(w.Label, usageMeter(f, w.UsedPercent, fmt.Sprintf("%3.0f%%", w.UsedPercent)))
 	if !w.ResetsAt.IsZero() {
 		line += "  " + usageResetText(f, w.ResetsAt)
 	}
@@ -154,7 +155,7 @@ func usageBudgetLine(f usageFrame, b quota.Budget) string {
 	if *b.Limit > 0 {
 		pct = b.Used / *b.Limit * 100
 	}
-	line := usageRow(b.Label, usageMeter(f, pct))
+	line := usageRow(b.Label, usageMeter(f, pct, fmt.Sprintf("$%.2f / $%.2f", b.Used, *b.Limit)))
 	if b.Period != "" {
 		line += "  " + b.Period
 	}
@@ -231,12 +232,34 @@ func usageRelative(d time.Duration) string {
 	}
 }
 
-// usageAlignRight places right at the end of width, keeping one space between
-// left and right when width is too small.
+// usageAlignRight places right at the end of width. When both sides cannot
+// fit, right is truncated first and then left, so the row never exceeds width.
+// A width of zero or less joins the non-empty sides with one space.
 func usageAlignRight(left, right string, width int) string {
+	if width <= 0 {
+		if right == "" {
+			return left
+		}
+		return left + " " + right
+	}
 	if right == "" {
+		return usageFit(left, width)
+	}
+	left = usageFit(left, width-2)
+	room := width - lipgloss.Width(left) - 1
+	if room <= 0 {
 		return left
 	}
-	gap := max(width-lipgloss.Width(left)-lipgloss.Width(right), 1)
+	right = usageFit(right, room)
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	return left + strings.Repeat(" ", gap) + right
+}
+
+// usageFit truncates s to width cells with an ellipsis, closing any open style
+// when it cuts.
+func usageFit(s string, width int) string {
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	return ansi.Truncate(s, max(width, 0), "…") + "\x1b[0m"
 }

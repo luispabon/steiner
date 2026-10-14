@@ -228,15 +228,16 @@ func TestUsageTrendLines(t *testing.T) {
 
 func TestUsageBudgetLine(t *testing.T) {
 	limit := 50.0
+	resets := time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC)
 	f := usageTestFrame(t, quota.AccountView{
 		DisplayAlias: "work",
 		Latest: &quota.Snapshot{Budgets: []quota.Budget{
-			{Label: "month", Used: 25, Limit: &limit, Period: "monthly"},
+			{Label: "month", Used: 40, Limit: &limit, Period: "monthly", ResetsAt: &resets},
 		}},
 	})
 	lines := usageStrippedLines(f)
 	line := lines[1]
-	for _, want := range []string{strings.Repeat("█", 12) + strings.Repeat("░", 12), " 50%", "monthly"} {
+	for _, want := range []string{strings.Repeat("█", 19) + strings.Repeat("░", 5), "$40.00 / $50.00", "monthly", "resets 31 Oct (16d)"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("budget line %q missing %q", line, want)
 		}
@@ -298,6 +299,66 @@ func TestUsageEmptyState(t *testing.T) {
 	lines := usageStrippedLines(f)
 	if len(lines) != 1 || lines[0] != "No configured providers report subscription usage." {
 		t.Errorf("empty state = %q", lines)
+	}
+}
+
+func TestUsageBudgetLineExactRow(t *testing.T) {
+	limit := 50.0
+	resets := time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC)
+	f := usageTestFrame(t, quota.AccountView{
+		DisplayAlias: "work",
+		Latest: &quota.Snapshot{Budgets: []quota.Budget{
+			{Label: "month", Used: 40, Limit: &limit, Period: "monthly", ResetsAt: &resets},
+		}},
+	})
+	got := usageStrippedLines(f)[1]
+	want := "  month        " + strings.Repeat("█", 19) + strings.Repeat("░", 5) + " $40.00 / $50.00  monthly  resets 31 Oct (16d)"
+	if got != want {
+		t.Errorf("budget row = %q, want %q", got, want)
+	}
+}
+
+func TestUsageHeaderTruncatesLongErrorWithinWidth(t *testing.T) {
+	const width = 32
+	f := usageTestFrame(t, quota.AccountView{
+		ProviderType: "claude_subscription",
+		DisplayAlias: "work",
+		Active:       true,
+		Latest:       &quota.Snapshot{Plan: "Max", FetchedAt: usageTestNow.Add(-3 * time.Minute)},
+		Err:          strings.Repeat("upstream returned an unexpected payload ", 8),
+	})
+	f.width = width
+	header := usageStrippedLines(f)[0]
+	if w := lipgloss.Width(header); w != width {
+		t.Errorf("header width = %d, want %d: %q", w, width, header)
+	}
+	if !strings.HasPrefix(header, "● claude_subscription (work)") || !strings.Contains(header, "…") {
+		t.Errorf("header %q lost its label or was not truncated", header)
+	}
+}
+
+func TestUsageOverlayBoxKeepsWidthWithLongError(t *testing.T) {
+	m := newModel(Config{}, nil)
+	m.usageOverlay = m.usageOverlay.Open()
+	m.usageOverlay.OverlayShell = m.usageOverlay.WithDimensions(50, 40)
+	m.usageOverlay.views = []quota.AccountView{{
+		ProviderType: "claude_subscription",
+		DisplayAlias: "work",
+		Active:       true,
+		Err:          strings.Repeat("upstream error ", 20),
+	}}
+	lines := strings.Split(ansi.Strip(m.usageOverlay.View()), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("overlay rendered %d lines", len(lines))
+	}
+	width := lipgloss.Width(lines[0])
+	if width > 50 {
+		t.Errorf("overlay width = %d, exceeds terminal width 50", width)
+	}
+	for i, l := range lines {
+		if w := lipgloss.Width(l); w != width {
+			t.Errorf("overlay line %d width = %d, want %d: %q", i, w, width, l)
+		}
 	}
 }
 
