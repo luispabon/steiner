@@ -100,7 +100,9 @@ func (f *apiKeyQuotaFetcher) apiKeyQuotaGet(ctx context.Context, url, label stri
 }
 
 // apiKeyQuotaOpenCode fetches {base}/usage and maps the rolling, weekly, and
-// monthly windows.
+// monthly windows. A null or missing window is skipped. A window with an absent
+// or null resetsAt keeps a zero ResetsAt, which the quota package treats as
+// unknown. A present resetsAt that is not RFC 3339 is a bad response.
 func (f *apiKeyQuotaFetcher) apiKeyQuotaOpenCode(ctx context.Context) ([]quota.Window, error) {
 	const label = "usage"
 	type window struct {
@@ -110,9 +112,9 @@ func (f *apiKeyQuotaFetcher) apiKeyQuotaOpenCode(ctx context.Context) ([]quota.W
 	}
 	var body struct {
 		Usage *struct {
-			Rolling window `json:"rolling"`
-			Weekly  window `json:"weekly"`
-			Monthly window `json:"monthly"`
+			Rolling *window `json:"rolling"`
+			Weekly  *window `json:"weekly"`
+			Monthly *window `json:"monthly"`
 		} `json:"usage"`
 	}
 	if err := f.apiKeyQuotaGet(ctx, f.base+"/usage", label, &body); err != nil {
@@ -123,7 +125,7 @@ func (f *apiKeyQuotaFetcher) apiKeyQuotaOpenCode(ctx context.Context) ([]quota.W
 	}
 	specs := []struct {
 		duration time.Duration
-		window   window
+		window   *window
 	}{
 		{5 * time.Hour, body.Usage.Rolling},
 		{7 * 24 * time.Hour, body.Usage.Weekly},
@@ -131,9 +133,16 @@ func (f *apiKeyQuotaFetcher) apiKeyQuotaOpenCode(ctx context.Context) ([]quota.W
 	}
 	windows := make([]quota.Window, 0, len(specs))
 	for _, s := range specs {
-		resets, err := time.Parse(time.RFC3339Nano, s.window.ResetsAt)
-		if err != nil {
-			return nil, fmt.Errorf("%s: bad response", label)
+		if s.window == nil {
+			continue
+		}
+		var resets time.Time
+		if s.window.ResetsAt != "" {
+			parsed, err := time.Parse(time.RFC3339Nano, s.window.ResetsAt)
+			if err != nil {
+				return nil, fmt.Errorf("%s: bad response", label)
+			}
+			resets = parsed
 		}
 		windows = append(windows, quota.Window{
 			Label:       quota.WindowLabel(s.duration),
@@ -177,17 +186,13 @@ func (f *apiKeyQuotaFetcher) apiKeyQuotaOpenRouter(ctx context.Context) ([]quota
 	}
 	var budgets []quota.Budget
 	for _, b := range d.Budgets {
-		resets, err := apiKeyQuotaParseTime(b.ResetsAt)
-		if err != nil {
-			return nil, fmt.Errorf("%s: bad response", label)
-		}
 		budgets = append(budgets, quota.Budget{
 			Label:    "budget",
 			Used:     b.SpendUSD,
 			Limit:    b.LimitUSD,
 			Currency: "USD",
 			Period:   b.ResetInterval,
-			ResetsAt: resets,
+			ResetsAt: apiKeyQuotaParseTime(b.ResetsAt),
 		})
 	}
 	if len(budgets) == 0 && d.Limit != nil {
@@ -203,9 +208,9 @@ func (f *apiKeyQuotaFetcher) apiKeyQuotaOpenRouter(ctx context.Context) ([]quota
 		label, period string
 		used          *float64
 	}{
-		{"today", "day", d.UsageDaily},
-		{"week", "week", d.UsageWeekly},
-		{"month", "month", d.UsageMonthly},
+		{"today", "daily", d.UsageDaily},
+		{"week", "weekly", d.UsageWeekly},
+		{"month", "monthly", d.UsageMonthly},
 	}
 	for _, s := range spend {
 		if s.used == nil {
@@ -244,31 +249,28 @@ func (f *apiKeyQuotaFetcher) apiKeyQuotaLiteLLM(ctx context.Context) ([]quota.Bu
 	if info.MaxBudget == nil {
 		return []quota.Budget{{Label: "spend", Used: info.Spend, Currency: "USD"}}, nil
 	}
-	resets, err := apiKeyQuotaParseTime(info.BudgetResetAt)
-	if err != nil {
-		return nil, fmt.Errorf("%s: bad response", label)
-	}
 	return []quota.Budget{{
 		Label:    "budget",
 		Used:     info.Spend,
 		Limit:    info.MaxBudget,
 		Currency: "USD",
 		Period:   info.BudgetDuration,
-		ResetsAt: resets,
+		ResetsAt: apiKeyQuotaParseTime(info.BudgetResetAt),
 	}}, nil
 }
 
 // apiKeyQuotaParseTime parses an optional RFC 3339 timestamp. A nil or empty
-// value returns nil.
-func apiKeyQuotaParseTime(s *string) (*time.Time, error) {
+// value returns nil. A malformed value also returns nil, so the budget keeps its
+// amounts. The reset time is optional, so dropping it is intentional.
+func apiKeyQuotaParseTime(s *string) *time.Time {
 	if s == nil || *s == "" {
-		return nil, nil
+		return nil
 	}
 	t, err := time.Parse(time.RFC3339Nano, *s)
 	if err != nil {
-		return nil, err
+		return nil
 	}
-	return &t, nil
+	return &t
 }
 
 // apiKeyQuotaDeref returns the value of s, or "" when s is nil.

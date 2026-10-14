@@ -34,14 +34,20 @@ func apiKeyQuotaServer(t *testing.T, wantAuth, wantPath string, status int, body
 	return srv
 }
 
-// apiKeyQuotaFetch builds a fetcher for cfg and returns one successful fetch.
-func apiKeyQuotaFetch(t *testing.T, cfg APIKeyQuotaConfig, client *http.Client) quota.Snapshot {
+// apiKeyQuotaTryFetch builds a fetcher for cfg and fetches once.
+func apiKeyQuotaTryFetch(t *testing.T, cfg APIKeyQuotaConfig, client *http.Client) (quota.Snapshot, error) {
 	t.Helper()
 	f, err := NewAPIKeyQuotaFetcher(cfg, client)
 	if err != nil {
 		t.Fatalf("NewAPIKeyQuotaFetcher: %v", err)
 	}
-	snap, err := f.Fetch(context.Background(), quota.FetchOptions{})
+	return f.Fetch(context.Background(), quota.FetchOptions{})
+}
+
+// apiKeyQuotaFetch is apiKeyQuotaTryFetch that fails the test on error.
+func apiKeyQuotaFetch(t *testing.T, cfg APIKeyQuotaConfig, client *http.Client) quota.Snapshot {
+	t.Helper()
+	snap, err := apiKeyQuotaTryFetch(t, cfg, client)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -88,6 +94,11 @@ func apiKeyQuotaPtr[T any](v T) *T {
 	return &v
 }
 
+const (
+	apiKeyQuotaWeeklyJSON  = `{"status":"ok","percent":6,"resetsAt":"2026-10-19T00:00:00.000Z"}`
+	apiKeyQuotaMonthlyJSON = `{"status":"ok","percent":23,"resetsAt":"2026-10-27T19:40:38.000Z"}`
+)
+
 func TestNewAPIKeyQuotaFetcherRejectsUnsupportedProvider(t *testing.T) {
 	for _, providerType := range []string{"", "openai", "anthropic", "claude_subscription", "OpenRouter"} {
 		t.Run(providerType, func(t *testing.T) {
@@ -116,6 +127,60 @@ func TestAPIKeyQuotaFetchOpenCodeGoFixture(t *testing.T) {
 	apiKeyQuotaAssertJSON(t, "Budgets", snap.Budgets, []quota.Budget(nil))
 }
 
+func TestAPIKeyQuotaOpenCodeGoWindowShapes(t *testing.T) {
+	weekly := quota.Window{Label: "weekly", Duration: 7 * 24 * time.Hour, UsedPercent: 6, Status: "ok", ResetsAt: *apiKeyQuotaTime(t, "2026-10-19T00:00:00Z")}
+	monthly := quota.Window{Label: "monthly", Duration: 30 * 24 * time.Hour, UsedPercent: 23, Status: "ok", ResetsAt: *apiKeyQuotaTime(t, "2026-10-27T19:40:38Z")}
+	tests := []struct {
+		name    string
+		body    string
+		want    []quota.Window
+		wantErr string
+	}{
+		{
+			name: "null rolling is skipped",
+			body: `{"usage":{"rolling":null,"weekly":` + apiKeyQuotaWeeklyJSON + `,"monthly":` + apiKeyQuotaMonthlyJSON + `}}`,
+			want: []quota.Window{weekly, monthly},
+		},
+		{
+			name: "missing rolling and weekly are skipped",
+			body: `{"usage":{"monthly":` + apiKeyQuotaMonthlyJSON + `}}`,
+			want: []quota.Window{monthly},
+		},
+		{
+			name: "empty usage object yields no windows",
+			body: `{"usage":{}}`,
+			want: []quota.Window{},
+		},
+		{
+			name: "absent resetsAt keeps the window with a zero reset",
+			body: `{"usage":{"rolling":{"status":"ok","percent":1}}}`,
+			want: []quota.Window{{Label: "5h", Duration: 5 * time.Hour, UsedPercent: 1, Status: "ok"}},
+		},
+		{
+			name:    "malformed resetsAt is a bad response",
+			body:    `{"usage":{"rolling":{"status":"ok","percent":1,"resetsAt":"soon"}}}`,
+			wantErr: "usage: bad response",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := apiKeyQuotaServer(t, "Bearer sk-test", "/zen/go/v1/usage", http.StatusOK, tt.body)
+			cfg := APIKeyQuotaConfig{ProviderType: "opencode_go", BaseURL: srv.URL + "/zen/go/v1", APIKey: "sk-test"}
+			snap, err := apiKeyQuotaTryFetch(t, cfg, srv.Client())
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Errorf("Fetch error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Fetch: %v", err)
+			}
+			apiKeyQuotaAssertJSON(t, "Windows", snap.Windows, tt.want)
+		})
+	}
+}
+
 func TestAPIKeyQuotaFetchOpenRouterFixture(t *testing.T) {
 	srv := apiKeyQuotaServer(t, "Bearer sk-test", "/api/v1/key", http.StatusOK, apiKeyQuotaFixture(t, "openrouter_key.json"))
 	snap := apiKeyQuotaFetch(t, APIKeyQuotaConfig{ProviderType: "openrouter", BaseURL: srv.URL + "/api/v1", APIKey: "sk-test"}, srv.Client())
@@ -123,9 +188,9 @@ func TestAPIKeyQuotaFetchOpenRouterFixture(t *testing.T) {
 	apiKeyQuotaAssertJSON(t, "Budgets", snap.Budgets, []quota.Budget{
 		{Label: "budget", Used: 12.5, Limit: apiKeyQuotaPtr(50.0), Currency: "USD", Period: "monthly", ResetsAt: apiKeyQuotaTime(t, "2026-11-01T00:00:00Z")},
 		{Label: "budget", Used: 0.5, Currency: "USD", Period: "daily"},
-		{Label: "today", Used: 1.25, Currency: "USD", Period: "day"},
-		{Label: "week", Used: 4.5, Currency: "USD", Period: "week"},
-		{Label: "month", Used: 12.5, Currency: "USD", Period: "month"},
+		{Label: "today", Used: 1.25, Currency: "USD", Period: "daily"},
+		{Label: "week", Used: 4.5, Currency: "USD", Period: "weekly"},
+		{Label: "month", Used: 12.5, Currency: "USD", Period: "monthly"},
 	})
 	apiKeyQuotaAssertJSON(t, "Windows", snap.Windows, []quota.Window(nil))
 }
@@ -144,12 +209,22 @@ func TestAPIKeyQuotaOpenRouterBudgetShapes(t *testing.T) {
 		{
 			name: "null limit keeps spend only",
 			body: `{"data":{"usage":3,"limit":null,"limit_reset":null,"usage_daily":1}}`,
-			want: []quota.Budget{{Label: "today", Used: 1, Currency: "USD", Period: "day"}},
+			want: []quota.Budget{{Label: "today", Used: 1, Currency: "USD", Period: "daily"}},
 		},
 		{
 			name: "budgets suppress limit fallback",
 			body: `{"data":{"usage":3,"limit":10,"limit_reset":"monthly","budgets":[{"spend_usd":2,"limit_usd":5,"reset_interval":"weekly","resets_at":null}]}}`,
 			want: []quota.Budget{{Label: "budget", Used: 2, Limit: apiKeyQuotaPtr(5.0), Currency: "USD", Period: "weekly"}},
+		},
+		{
+			name: "malformed budget resets_at keeps the budget with a nil reset",
+			body: `{"data":{"usage":0,"budgets":[{"spend_usd":2,"limit_usd":5,"reset_interval":"monthly","resets_at":"next month"}]}}`,
+			want: []quota.Budget{{Label: "budget", Used: 2, Limit: apiKeyQuotaPtr(5.0), Currency: "USD", Period: "monthly"}},
+		},
+		{
+			name: "absent budget resets_at keeps the budget with a nil reset",
+			body: `{"data":{"usage":0,"budgets":[{"spend_usd":2,"limit_usd":5,"reset_interval":"monthly"}]}}`,
+			want: []quota.Budget{{Label: "budget", Used: 2, Limit: apiKeyQuotaPtr(5.0), Currency: "USD", Period: "monthly"}},
 		},
 	}
 	for _, tt := range tests {
@@ -170,12 +245,61 @@ func TestAPIKeyQuotaFetchLiteLLMFixture(t *testing.T) {
 	})
 }
 
-func TestAPIKeyQuotaLiteLLMSpendOnly(t *testing.T) {
-	body := `{"info":{"spend":2,"max_budget":null,"budget_duration":null,"budget_reset_at":null}}`
-	srv := apiKeyQuotaServer(t, "Bearer sk-test", "/key/info", http.StatusOK, body)
-	snap := apiKeyQuotaFetch(t, APIKeyQuotaConfig{ProviderType: "litellm", BaseURL: srv.URL + "/v1", APIKey: "sk-test"}, srv.Client())
+func TestAPIKeyQuotaLiteLLMBudgetShapes(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want []quota.Budget
+	}{
+		{
+			name: "spend only",
+			body: `{"info":{"spend":2,"max_budget":null,"budget_duration":null,"budget_reset_at":null}}`,
+			want: []quota.Budget{{Label: "spend", Used: 2, Currency: "USD"}},
+		},
+		{
+			name: "malformed budget_reset_at keeps the budget with a nil reset",
+			body: `{"info":{"spend":1,"max_budget":4,"budget_duration":"1d","budget_reset_at":"tomorrow"}}`,
+			want: []quota.Budget{{Label: "budget", Used: 1, Limit: apiKeyQuotaPtr(4.0), Currency: "USD", Period: "1d"}},
+		},
+		{
+			name: "absent budget_reset_at keeps the budget with a nil reset",
+			body: `{"info":{"spend":1,"max_budget":4,"budget_duration":"1d"}}`,
+			want: []quota.Budget{{Label: "budget", Used: 1, Limit: apiKeyQuotaPtr(4.0), Currency: "USD", Period: "1d"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := apiKeyQuotaServer(t, "Bearer sk-test", "/key/info", http.StatusOK, tt.body)
+			snap := apiKeyQuotaFetch(t, APIKeyQuotaConfig{ProviderType: "litellm", BaseURL: srv.URL + "/v1", APIKey: "sk-test"}, srv.Client())
+			apiKeyQuotaAssertJSON(t, "Budgets", snap.Budgets, tt.want)
+		})
+	}
+}
 
-	apiKeyQuotaAssertJSON(t, "Budgets", snap.Budgets, []quota.Budget{{Label: "spend", Used: 2, Currency: "USD"}})
+func TestAPIKeyQuotaMissingTopLevelIsBadResponse(t *testing.T) {
+	cases := []struct {
+		name         string
+		providerType string
+		baseURL      string
+		wantPath     string
+		label        string
+	}{
+		{"opencode_go", "opencode_go", "/zen/go/v1", "/zen/go/v1/usage", "usage"},
+		{"openrouter", "openrouter", "/api/v1", "/api/v1/key", "key"},
+		{"litellm", "litellm", "/v1", "/key/info", "key/info"},
+	}
+	for _, tc := range cases {
+		for _, body := range []string{`{}`, `null`} {
+			t.Run(tc.name+"/"+body, func(t *testing.T) {
+				srv := apiKeyQuotaServer(t, "Bearer sk-test", tc.wantPath, http.StatusOK, body)
+				cfg := APIKeyQuotaConfig{ProviderType: tc.providerType, BaseURL: srv.URL + tc.baseURL, APIKey: "sk-test"}
+				_, err := apiKeyQuotaTryFetch(t, cfg, srv.Client())
+				if want := tc.label + ": bad response"; err == nil || err.Error() != want {
+					t.Errorf("Fetch error = %v, want %q", err, want)
+				}
+			})
+		}
+	}
 }
 
 func TestAPIKeyQuotaFetchErrors(t *testing.T) {
@@ -202,11 +326,7 @@ func TestAPIKeyQuotaFetchErrors(t *testing.T) {
 		} {
 			t.Run(tc.name+"/"+failure.name, func(t *testing.T) {
 				srv := apiKeyQuotaServer(t, "Bearer sk-test", tc.wantPath, failure.status, failure.body)
-				f, err := NewAPIKeyQuotaFetcher(APIKeyQuotaConfig{ProviderType: tc.providerType, BaseURL: srv.URL + tc.baseURL, APIKey: "sk-test"}, srv.Client())
-				if err != nil {
-					t.Fatalf("NewAPIKeyQuotaFetcher: %v", err)
-				}
-				_, err = f.Fetch(context.Background(), quota.FetchOptions{})
+				_, err := apiKeyQuotaTryFetch(t, APIKeyQuotaConfig{ProviderType: tc.providerType, BaseURL: srv.URL + tc.baseURL, APIKey: "sk-test"}, srv.Client())
 				if err == nil {
 					t.Fatalf("Fetch error = nil, want %q", failure.want)
 				}
