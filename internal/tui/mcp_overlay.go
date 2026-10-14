@@ -137,14 +137,7 @@ func stateDisplayLabel(state string) string {
 // visibleHeight returns the number of body lines that fit in the current
 // terminal height.
 func (o mcpOverlay) visibleHeight() int {
-	h := o.height - mcpOverlayChromeLines
-	if h < 3 {
-		h = 3
-	}
-	if h > 30 {
-		h = 30
-	}
-	return h
+	return o.bodyVisibleHeight(mcpOverlayChromeLines)
 }
 
 func (o mcpOverlay) maxScrollOffset() int {

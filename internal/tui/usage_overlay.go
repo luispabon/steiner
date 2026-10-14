@@ -17,8 +17,6 @@ const (
 	// usageOverlayChromeLines counts the header, dividers, footer and padding
 	// rows around the scrollable body.
 	usageOverlayChromeLines    = 7
-	usageOverlayMinBodyLines   = 3
-	usageOverlayMaxBodyLines   = 30
 	usageOverlayPreferredWidth = 100
 	usageFooter                = "● active provider\nr refresh all · ↑/↓ scroll · esc close"
 )
@@ -44,10 +42,12 @@ type usageOverlayState struct {
 	quota           *quota.Service
 	refreshInterval time.Duration
 	views           []quota.AccountView
-	scrollOffset    int
-	inFlight        int
-	styles          *theme.Styles
-	now             func() time.Time
+	// bodyCount is the number of body lines views render to. See withViews.
+	bodyCount    int
+	scrollOffset int
+	inFlight     int
+	styles       *theme.Styles
+	now          func() time.Time
 }
 
 func newUsageOverlay(styles *theme.Styles, q *quota.Service, refreshInterval time.Duration) usageOverlayState {
@@ -57,7 +57,7 @@ func newUsageOverlay(styles *theme.Styles, q *quota.Service, refreshInterval tim
 		refreshInterval: refreshInterval,
 		styles:          styles,
 		now:             time.Now,
-	}
+	}.withViews(nil)
 }
 
 // Open returns a copy of the overlay in the open state, rendering the cached
@@ -74,9 +74,14 @@ func (o usageOverlayState) Close() usageOverlayState {
 	return o
 }
 
-// withViews returns a copy of the overlay caching views.
+// withViews returns a copy of the overlay caching views and bodyCount, the
+// number of lines their body renders. The count comes from a render, so it
+// cannot drift from the body. It stays valid while the overlay is open because
+// the line count does not depend on the clock, refresh state or width: rows are
+// truncated, never wrapped.
 func (o usageOverlayState) withViews(views []quota.AccountView) usageOverlayState {
 	o.views = views
+	o.bodyCount = len(o.bodyLines())
 	return o
 }
 
@@ -111,7 +116,7 @@ func (o usageOverlayState) Update(msg tea.Msg) (usageOverlayState, tea.Cmd) {
 			return o.startRefresh()
 		}
 	}
-	result := o.handleScrollKey(msg, o.scrollOffset, o.visibleHeight(), len(o.bodyLines()))
+	result := o.handleScrollKey(msg, o.scrollOffset, o.visibleHeight(), o.bodyCount)
 	if !result.handled {
 		return o, nil
 	}
@@ -155,7 +160,7 @@ func (o usageOverlayState) bodyLines() []string {
 
 // visibleHeight returns the number of body rows that fit the terminal height.
 func (o usageOverlayState) visibleHeight() int {
-	return min(max(o.height-usageOverlayChromeLines, usageOverlayMinBodyLines), usageOverlayMaxBodyLines)
+	return o.bodyVisibleHeight(usageOverlayChromeLines)
 }
 
 // loadUsageViewsCmd reads the quota views for activeAlias. Quota.Views reads

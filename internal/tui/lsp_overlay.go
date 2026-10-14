@@ -137,14 +137,7 @@ func lspStateDisplayLabel(status string) string {
 // visibleHeight returns the number of body lines that fit in the current
 // terminal height.
 func (o lspOverlay) visibleHeight() int {
-	h := o.height - lspOverlayChromeLines
-	if h < 3 {
-		h = 3
-	}
-	if h > 30 {
-		h = 30
-	}
-	return h
+	return o.bodyVisibleHeight(lspOverlayChromeLines)
 }
 
 func (o lspOverlay) maxScrollOffset() int {
