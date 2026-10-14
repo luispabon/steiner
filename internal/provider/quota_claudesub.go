@@ -22,7 +22,7 @@ const claudeSubQuotaFetchTimeout = 20 * time.Second
 // claudeSubQuotaProbeKey keys the probe session that answers a quota fetch when
 // no live session runs. It has no advisor suffix, so the reaper never closes it;
 // Close does.
-const claudeSubQuotaProbeKey = "quota|probe"
+const claudeSubQuotaProbeKey = "quota-probe"
 
 // claudeSubQuotaWindow maps one get_usage rate_limits key to a quota window.
 type claudeSubQuotaWindow struct {
@@ -35,15 +35,16 @@ type claudeSubQuotaWindow struct {
 // order they appear in a snapshot. Other rate_limits keys are ignored.
 var claudeSubQuotaWindows = []claudeSubQuotaWindow{
 	{key: "five_hour", label: quota.WindowLabel(5 * time.Hour), duration: 5 * time.Hour},
-	{key: "seven_day", label: "weekly", duration: 7 * 24 * time.Hour},
+	{key: "seven_day", label: quota.WindowLabel(7 * 24 * time.Hour), duration: 7 * 24 * time.Hour},
 	{key: "seven_day_opus", label: "weekly opus", duration: 7 * 24 * time.Hour},
 	{key: "seven_day_sonnet", label: "weekly sonnet", duration: 7 * 24 * time.Hour},
 	{key: "seven_day_oauth_apps", label: "weekly apps", duration: 7 * 24 * time.Hour},
 }
 
 // parseClaudeSubUsage converts a get_usage reply into a quota snapshot. It fails
-// when rate_limits_available is not true or rate_limits is missing or null. A
-// window whose entry is missing, null, or has no utilization is skipped. Unknown
+// when rate_limits_available is not true, when rate_limits is missing or null, or
+// when no recognized window is usable. A mapped window that is missing, null,
+// malformed, lacks utilization, or has a malformed resets_at is skipped. Unknown
 // keys are ignored.
 func parseClaudeSubUsage(raw json.RawMessage) (quota.Snapshot, error) {
 	var body struct {
@@ -66,42 +67,39 @@ func parseClaudeSubUsage(raw json.RawMessage) (quota.Snapshot, error) {
 		Plan:         body.SubscriptionType,
 	}
 	for _, w := range claudeSubQuotaWindows {
-		window, ok, err := claudeSubQuotaParseWindow(w, body.RateLimits[w.key])
-		if err != nil {
-			return quota.Snapshot{}, err
-		}
-		if ok {
+		if window, ok := claudeSubQuotaParseWindow(w, body.RateLimits[w.key]); ok {
 			snap.Windows = append(snap.Windows, window)
 		}
+	}
+	if len(snap.Windows) == 0 {
+		return quota.Snapshot{}, errors.New("claude usage has no usable rate-limit windows")
 	}
 	return snap, nil
 }
 
 // claudeSubQuotaParseWindow decodes one rate_limits entry. ok is false when the
-// entry is missing, null, or has no utilization.
-func claudeSubQuotaParseWindow(w claudeSubQuotaWindow, raw json.RawMessage) (quota.Window, bool, error) {
+// entry is missing, null, malformed, lacks utilization, or has a malformed
+// resets_at. Such an entry is skipped rather than failing the whole snapshot.
+func claudeSubQuotaParseWindow(w claudeSubQuotaWindow, raw json.RawMessage) (quota.Window, bool) {
 	if len(raw) == 0 {
-		return quota.Window{}, false, nil
+		return quota.Window{}, false
 	}
 	var limit struct {
 		Utilization *float64 `json:"utilization"`
 		ResetsAt    *string  `json:"resets_at"`
 	}
-	if err := json.Unmarshal(raw, &limit); err != nil {
-		return quota.Window{}, false, fmt.Errorf("decode claude usage %s: %w", w.key, err)
-	}
-	if limit.Utilization == nil {
-		return quota.Window{}, false, nil
+	if json.Unmarshal(raw, &limit) != nil || limit.Utilization == nil {
+		return quota.Window{}, false
 	}
 	window := quota.Window{Label: w.label, Duration: w.duration, UsedPercent: *limit.Utilization}
 	if limit.ResetsAt != nil {
 		resets, err := time.Parse(time.RFC3339, *limit.ResetsAt)
 		if err != nil {
-			return quota.Window{}, false, fmt.Errorf("parse claude usage %s resets_at: %w", w.key, err)
+			return quota.Window{}, false
 		}
 		window.ResetsAt = resets
 	}
-	return window, true, nil
+	return window, true
 }
 
 // QuotaSnapshot returns the claude_subscription quota state. It reads usage

@@ -126,6 +126,9 @@ func TestParseClaudeSubUsageRejects(t *testing.T) {
 		{"rate_limits null", `{"rate_limits_available":true,"rate_limits":null}`},
 		{"invalid resets_at", `{"rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":1,"resets_at":"yesterday"}}}`},
 		{"malformed json", `{"rate_limits_available":`},
+		{"no recognized windows", `{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":false}}}`},
+		{"all recognized windows null", `{"rate_limits_available":true,"rate_limits":{"five_hour":null,"seven_day":null}}`},
+		{"all recognized windows malformed", `{"rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":1,"resets_at":"yesterday"},"seven_day":7}}`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -133,6 +136,42 @@ func TestParseClaudeSubUsageRejects(t *testing.T) {
 				t.Errorf("parseClaudeSubUsage(%s) error = nil, want error", tc.raw)
 			}
 		})
+	}
+}
+
+// TestParseClaudeSubUsageSkipsMalformedWindows proves a mapped window with a
+// malformed entry is skipped and the remaining windows still parse.
+func TestParseClaudeSubUsageSkipsMalformedWindows(t *testing.T) {
+	raw := json.RawMessage(`{
+		"subscription_type": "pro",
+		"rate_limits_available": true,
+		"rate_limits": {
+			"five_hour": {"utilization": 26, "resets_at": "2026-10-08T16:30:00Z"},
+			"seven_day": {"utilization": 4, "resets_at": "not-a-time"},
+			"seven_day_opus": 5,
+			"seven_day_sonnet": [{"utilization": 1}],
+			"seven_day_oauth_apps": {"utilization": "0", "resets_at": null}
+		}
+	}`)
+	snap, err := parseClaudeSubUsage(raw)
+	if err != nil {
+		t.Fatalf("parseClaudeSubUsage: %v", err)
+	}
+	if len(snap.Windows) != 1 || snap.Windows[0].Label != "5h" || snap.Windows[0].UsedPercent != 26 {
+		t.Errorf("windows = %+v, want only the 5h window at 26", snap.Windows)
+	}
+}
+
+// TestParseClaudeSubUsageWeeklyLabel pins the seven_day label to the
+// quota.WindowLabel of a seven-day duration.
+func TestParseClaudeSubUsageWeeklyLabel(t *testing.T) {
+	snap, err := parseClaudeSubUsage(json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"seven_day":{"utilization":4}}}`))
+	if err != nil {
+		t.Fatalf("parseClaudeSubUsage: %v", err)
+	}
+	want := quota.WindowLabel(7 * 24 * time.Hour)
+	if len(snap.Windows) != 1 || snap.Windows[0].Label != want {
+		t.Errorf("windows = %+v, want one window labelled %q", snap.Windows, want)
 	}
 }
 
@@ -261,6 +300,9 @@ func TestClaudeSubQuotaProbeSpawnsAndStaysPooled(t *testing.T) {
 	}
 	if call.Conn.isClosed() {
 		t.Fatal("probe closed after the read, want it kept in the pool")
+	}
+	if claudeSubQuotaProbeKey != "quota-probe" {
+		t.Errorf("probe key = %q, want quota-probe", claudeSubQuotaProbeKey)
 	}
 	pool.mu.Lock()
 	_, pooled := pool.sessions[claudeSubQuotaProbeKey]
