@@ -10,10 +10,15 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/oauth"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/quota"
 )
 
-func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, claudePool *provider.ClaudeSubscriptionPool) func(provider.ResolvedModel, string) (provider.Provider, error) {
+// buildRuntimeProviderFactory returns the provider factory for every model
+// route, including sub-agents and advisors. Each call marks rm.Alias used for
+// quota refresh. quotaService may be nil.
+func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, claudePool *provider.ClaudeSubscriptionPool, quotaService *quota.Service) func(provider.ResolvedModel, string) (provider.Provider, error) {
 	return func(rm provider.ResolvedModel, sessionID string) (provider.Provider, error) {
+		quotaService.MarkUsed(rm.Alias)
 		if rm.ProviderConfig.Type == config.ProviderTypeOpencodeGo || rm.ProviderConfig.Type == config.ProviderTypeOpencodeZen {
 			return newOpencodeProvider(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog, sessionID)
 		}
@@ -35,7 +40,7 @@ func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provid
 		case config.ProviderTypeAnthropic:
 			return newAnthropic(runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog))
 		case config.ProviderTypeCodex:
-			return newCodexProvider(rm, providerType, httpClient, streamErrorLog)
+			return newCodexProvider(rm, providerType, httpClient, streamErrorLog, quotaService)
 		default:
 			return nil, fmt.Errorf("provider type %q is not implemented by the runtime provider factory", providerType)
 		}
@@ -55,7 +60,7 @@ func newOpencodeProvider(rm provider.ResolvedModel, providerType config.Provider
 	return newOpenAICompat(cfg)
 }
 
-func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger) (provider.Provider, error) {
+func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderType, httpClient *http.Client, streamErrorLog *provider.StreamErrorLogger, quotaService *quota.Service) (provider.Provider, error) {
 	auth, err := provider.ResolveCodexAuth(context.Background(), httpClient)
 	if errors.Is(err, oauth.ErrNoToken) {
 		return nil, fmt.Errorf("codex provider requires authentication — run 'steiner login codex' first")
@@ -63,6 +68,7 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 		return nil, err
 	}
 	cfg := runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog)
+	cfg.QuotaObserver = quotaService.Observe
 	if auth.APIKey != "" {
 		cfg.APIKey = auth.APIKey
 	} else {

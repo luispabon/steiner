@@ -95,6 +95,9 @@ func validateTUIConfig(problems *[]string, cfg TUIConfig) {
 	if cfg.FPS < 1 || cfg.FPS > 120 {
 		*problems = append(*problems, "tui.fps must be between 1 and 120")
 	}
+	if cfg.QuotaRefreshInterval.Duration() < 0 {
+		*problems = append(*problems, "tui.quota_refresh_interval must not be negative")
+	}
 }
 
 func validateProvidersConfig(problems *[]string, providers map[string]ProviderConfig) {

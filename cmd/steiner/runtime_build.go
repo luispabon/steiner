@@ -24,6 +24,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/quota"
 	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/skill"
@@ -97,12 +98,14 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	delegationActiveController := delegation.NewActiveController()
 	delegationSupervisor := delegation.NewSupervisor(delegation.SupervisorOptions{MaxParallel: max(cfg.SubAgent.MaxParallel, 1), Controller: delegationActiveController})
 	workDir, registry := buildRuntimeRegistry(cfg, nil, workDir, delegationSupervisor)
-	claudeSubPool := provider.NewClaudeSubscriptionPool(provider.ClaudeSubscriptionPoolOptions{
+	quotaService := buildRuntimeQuotaService()
+	claudeSubPool := newClaudeSubscriptionPool(provider.ClaudeSubscriptionPoolOptions{
 		ToolOutputMaxBytes: cfg.Limits.ToolOutputMaxBytes,
 		WorkDir:            workDir,
+		QuotaObserver:      quotaService.Observe,
 	})
 	rt.claudeSubPool = claudeSubPool
-	providerFactory := buildRuntimeProviderFactory(httpClient, streamErrorLog, claudeSubPool)
+	providerFactory := buildRuntimeProviderFactory(httpClient, streamErrorLog, claudeSubPool, quotaService)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
 	if err != nil {
 		closeRuntime(&rt)
@@ -203,6 +206,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		delegationLogger:             delegationLogger,
 		streamErrorLog:               streamErrorLog,
 		claudeSubPool:                claudeSubPool,
+		quotaService:                 quotaService,
 		diagnostics:                  diagnosticsWriter,
 		delegationSessionStore:       delegation.NewSessionStore(),
 		delegationCacheKeyStore:      delegation.NewCacheKeyStore(),
@@ -221,6 +225,28 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		modelEntriesUpdates:          make(chan []tui.ModelEntry, max(1, len(modelCatalogEndpoints))),
 		codexWSProviderCache:         provider.NewCodexWSCache(),
 	}, nil
+}
+
+// newClaudeSubscriptionPool builds the claude_subscription pool. Tests replace
+// it to inspect the options passed to the pool.
+var newClaudeSubscriptionPool = provider.NewClaudeSubscriptionPool
+
+// buildRuntimeQuotaService returns the process quota service. Snapshots persist
+// to the default store path. When that path cannot be resolved, the failure is
+// logged and the service keeps snapshots in memory only.
+func buildRuntimeQuotaService() *quota.Service {
+	opts := quota.ServiceOptions{
+		Logf: func(format string, args ...any) {
+			slog.Warn(fmt.Sprintf(format, args...))
+		},
+	}
+	path, err := quota.DefaultStorePath()
+	if err != nil {
+		slog.Warn("quota history not persisted", "error", err)
+	} else {
+		opts.Store = quota.NewStore(path)
+	}
+	return quota.NewService(opts)
 }
 
 func runtimeHTTPClient() *http.Client {

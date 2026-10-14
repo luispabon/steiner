@@ -22,6 +22,7 @@ import (
 	"github.com/luispabon/steiner/internal/modelcatalog"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/quota"
 	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
@@ -110,16 +111,19 @@ type cliRuntime struct {
 	delegationLogger             *delegation.TraceLogger
 	streamErrorLog               *provider.StreamErrorLogger
 	claudeSubPool                *provider.ClaudeSubscriptionPool
-	diagnostics                  *diagnostics.Writer
-	compactionLogFile            string
-	usageRecorder                *usagestats.Recorder
-	imageStore                   *agent.ImageStore
-	visionCapabilities           *agent.VisionCapabilities
-	modelCatalog                 *modelcatalog.Service
-	modelCatalogEndpoints        []modelcatalog.Endpoint
-	modelPopularity              *modelcatalog.Store
-	modelEntriesUpdates          chan []tui.ModelEntry
-	worktreeCleanup              *tui.WorktreeCleanupPlan
+	// quotaService is the process-wide subscription usage service. Nil
+	// disables passive quota observation and MarkUsed.
+	quotaService          *quota.Service
+	diagnostics           *diagnostics.Writer
+	compactionLogFile     string
+	usageRecorder         *usagestats.Recorder
+	imageStore            *agent.ImageStore
+	visionCapabilities    *agent.VisionCapabilities
+	modelCatalog          *modelcatalog.Service
+	modelCatalogEndpoints []modelcatalog.Endpoint
+	modelPopularity       *modelcatalog.Store
+	modelEntriesUpdates   chan []tui.ModelEntry
+	worktreeCleanup       *tui.WorktreeCleanupPlan
 	// modelResolver is the session-scoped, memoized, single-flight model
 	// resolver. Set by defaultBuildRuntime; resolveModel falls back to a
 	// throwaway Resolver when nil (e.g. a cliRuntime built directly in tests).
