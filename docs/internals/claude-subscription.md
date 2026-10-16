@@ -112,7 +112,7 @@ When a provider stream-error logger is configured, each model call writes exactl
 
 A decode error from the CLI stream (`errClaudeSubDecodeStream`) is classed `decode_error` in `error_class`, like other decode failures. The classifier is diagnostics only: retry and remediation decisions do not read it.
 
-A `message_start` that follows `message_stop` is still a fail-closed `errClaudeSubDecodeStream` (`decode_error`), but its caller-visible text explains that the Claude CLI started another response within the turn, possibly after its safety safeguards refused the request, and that the affected response was stopped; the process is still retired and the turn is never retried inline.
+A `message_start` that follows `message_stop` is still a fail-closed `errClaudeSubDecodeStream` (`decode_error`), but its caller-visible text explains that the Claude CLI started another response within the turn, possibly after its safety safeguards refused the request, and that the affected response was stopped, not the run. The process is still retired and the turn is never retried inline.
 
 ## Model enumeration
 
