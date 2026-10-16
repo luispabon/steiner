@@ -1499,6 +1499,11 @@ func TestClaudeSubDecodeRejectsMessageStartAfterStop(t *testing.T) {
 	if !errors.Is(err, errClaudeSubDecodeStream) {
 		t.Fatalf("message_start after stop error = %v, want wrapping %v", err, errClaudeSubDecodeStream)
 	}
+	for _, want := range []string{"Claude CLI started another response within the turn", "possibly after a safety interruption", "the run was stopped"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message_start after stop error = %q, want it to contain %q", err, want)
+		}
+	}
 	if len(got) != 0 {
 		t.Fatalf("message_start after stop events = %+v, want none", got)
 	}
@@ -1664,6 +1669,9 @@ func TestClaudeSubDecodeRejectsDuplicateMessageStart(t *testing.T) {
 	got, err := d.decode(stream(`{"type":"message_start","message":{"usage":{"input_tokens":9999}}}`))
 	if !errors.Is(err, errClaudeSubDecodeStream) {
 		t.Fatalf("duplicate message_start error = %v, want wrapping %v", err, errClaudeSubDecodeStream)
+	}
+	if !strings.Contains(err.Error(), "duplicate message_start") || strings.Contains(err.Error(), "Claude CLI") {
+		t.Errorf("duplicate message_start error = %q, want the unchanged duplicate message_start text", err)
 	}
 	if len(got) != 0 {
 		t.Fatalf("duplicate message_start events = %+v, want none", got)
