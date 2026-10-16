@@ -465,8 +465,9 @@ func (d *claudeSubDecoder) rejectStreamEventInPhase(eventType string) error {
 		case "message_start":
 			// The CLI can finish one response and start another within the same
 			// turn, typically after a safety interruption. The second response is
-			// never accepted, so the caller gets an explanation and the run stops.
-			return fmt.Errorf("%w: Claude CLI started another response within the turn after the previous response ended, possibly after a safety interruption; the run was stopped", errClaudeSubDecodeStream)
+			// never accepted, so the caller gets an explanation and the affected
+			// response stops.
+			return fmt.Errorf("%w: Claude CLI started another response within the turn after the previous response ended, possibly after a safety interruption; the response was stopped", errClaudeSubDecodeStream)
 		}
 		return fmt.Errorf("%w: %s after message_stop", errClaudeSubDecodeStream, eventType)
 	default:
