@@ -89,5 +89,5 @@ You can select a discovered model with `/model`, or use a raw reference such as 
 - Support for changing already-sent history is tracked in [#895](https://github.com/luispabon/steiner/issues/895).
 - The CLI owns its process identity and transcript. Its identity or reminders can change as the CLI changes, and switching models can reset model-specific cache state. Do not treat those details as stable Steiner storage. The CLI also adds context that Steiner cannot disable; see [Context the CLI adds](#context-the-cli-adds).
 - The provider is not a replacement for the native `anthropic` API provider. It uses the signed-in CLI and the subscription's account controls.
-- If the Claude CLI ends a response and then starts a second response within the same turn, possibly after a safety interruption, Steiner reports that the CLI began another response and stops the affected response.
+- If the Claude CLI ends a response and then starts a second response within the same turn, possibly after its safeguards refused a response, Steiner reports that the CLI began another response and stops the affected response.
 - Claude CLI and Anthropic can change these behaviors without a corresponding Steiner release. Recheck the compliance links and CLI version when an account or model stops working.

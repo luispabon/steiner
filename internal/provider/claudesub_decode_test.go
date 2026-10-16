@@ -1499,7 +1499,7 @@ func TestClaudeSubDecodeRejectsMessageStartAfterStop(t *testing.T) {
 	if !errors.Is(err, errClaudeSubDecodeStream) {
 		t.Fatalf("message_start after stop error = %v, want wrapping %v", err, errClaudeSubDecodeStream)
 	}
-	for _, want := range []string{"Claude CLI started another response within the turn", "possibly after a safety interruption", "the response was stopped"} {
+	for _, want := range []string{"Claude CLI started another response within the turn", "possibly after its safeguards refused the response", "the response was stopped"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("message_start after stop error = %q, want it to contain %q", err, want)
 		}
