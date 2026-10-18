@@ -11,15 +11,15 @@ The usage dashboard is an overlay in the interactive TUI. It shows the rate-limi
 | `r` | Refresh every account now. |
 | `↑` and `↓` | Scroll when the body is taller than the terminal. |
 
-Opening the dashboard shows the stored values at once and refreshes in the background. The header shows `refreshing…` while a fetch runs. The dashboard exists only in the interactive TUI.
+Opening the dashboard shows the stored values at once and refreshes in the background. Refreshing accounts show an animated spinner and `refreshing…` in their header while a fetch runs. The dashboard exists only in the interactive TUI.
 
 ## What it shows
 
-Each account has its own block:
+Each account has its own block, and a rule of `─` characters separates adjacent blocks:
 
-- **Header.** A `●` marks the provider that the current session uses. The header names the provider type and the account's first alias in alphabetical order. The right side shows the plan, then `updated <age> ago`, `refreshing…`, or `unavailable: <error>` for the last failed fetch. An account with no usable source shows the reason instead, for example `not signed in`, `no API key`, or `API mode: no quota to report`.
-- **Windows.** A bar, the percentage used, and the reset time. The bar uses warning style from 75% and error style from 90%.
-- **Budgets.** A budget with a limit shows `$used / $limit`, its period, and its reset time. A budget without a limit shows only its spend.
+- **Header.** A `●` marks the provider that the current session uses. The header shows the account's display alias in bold accent. The right side shows the plan in bold accent, then `updated <age> ago`, `<spinner> refreshing…`, or `unavailable: <error>` for the last failed fetch. An account with no usable source shows the reason instead, for example `not signed in`, `no API key`, or `API mode: no quota to report`.
+- **Windows.** A bar, the percentage used, and the reset time. Period labels are bold in the normal foreground colour. Reset times use the compact form `<time> (<time left>)`, such as `14:05 (2h05m)`. The bar uses warning style from 75% and error style from 90%.
+- **Budgets.** A budget with a limit shows `$used / $limit`, its period, and its reset time. Spend-only values appear under a bold `spend` label.
 - **Credits.** A text row, when the provider reports credits.
 
 Reset times show the clock time on the same day, a weekday and time within seven days, and a date beyond that. The time left shows as `4d`, `2h05m`, `15m`, or `<1m`.
@@ -36,8 +36,8 @@ A trend row under a window or budget projects when usage reaches its limit. The 
 
 | Row | Meaning |
 | --- | --- |
-| `trend: empty by <time> (⚠ before reset)` | At this rate, usage reaches the limit before the reset. The row uses warning style. |
-| `trend: lasts past reset ✓` | At this rate, usage lasts past the reset. |
+| `└─ trend: empty by <time> (before reset) ✗` | At this rate, usage reaches the limit before the reset. The trend text uses warning (orange) style and the ✗ uses error (red) style. |
+| `└─ trend: lasts past reset ✓` | At this rate, usage lasts past the reset. The ✓ uses success (green) style. |
 
 The projection uses two points, so one large turn can change it noticeably.
 
@@ -50,6 +50,8 @@ The projection uses two points, so one large turn can change it noticeably.
 | End of a run | When a run finishes, each account whose provider alias the run used is refetched if its latest snapshot is older than `tui.quota_refresh_interval` (default `5m`). This refresh never starts a Claude probe. |
 
 A failed fetch keeps the previous snapshot and shows the error in the account header.
+
+While a refresh is in flight, refreshing accounts show the animated spinner, and the overlay keeps ticking until every refresh has returned, so the spinner advances.
 
 ## Supported providers
 

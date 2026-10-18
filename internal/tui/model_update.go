@@ -401,6 +401,9 @@ func (m *Model) handleComposerBlinkMsg(_ composerBlinkMsg) (tea.Model, tea.Cmd) 
 func (m *Model) handleTickMsg(_ tickMsg) (tea.Model, tea.Cmd) {
 	m.content.tickCount++
 	m.sidebar.tickCount = m.content.tickCount
+	if m.usageOverlay.IsOpen() && m.usageOverlay.refreshing() {
+		m.usageOverlay.spinnerFrame++
+	}
 	m.syncRoster()
 	m.refreshSubAgentPicker()
 	if m.pollLSPStatesFunc != nil {

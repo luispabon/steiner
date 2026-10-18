@@ -238,6 +238,9 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			var cmd tea.Cmd
 			m.usageOverlay, cmd = m.usageOverlay.Update(msg)
+			if tickCmd := m.ensureTicking(); tickCmd != nil {
+				return tea.Batch(cmd, tickCmd)
+			}
 			return cmd
 		},
 	},

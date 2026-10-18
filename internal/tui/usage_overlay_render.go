@@ -35,11 +35,12 @@ const (
 // usageFrame holds every input of one body render. The renderer reads nothing
 // else, so equal frames produce equal lines.
 type usageFrame struct {
-	views      []quota.AccountView
-	now        time.Time
-	refreshing bool
-	styles     *theme.Styles
-	width      int
+	views        []quota.AccountView
+	now          time.Time
+	refreshing   bool
+	spinnerFrame int
+	styles       *theme.Styles
+	width        int
 }
 
 func usageLevelFor(pct float64) usageLevel {
@@ -83,7 +84,7 @@ func usageBodyLines(f usageFrame) []string {
 	var lines []string
 	for i, v := range f.views {
 		if i > 0 {
-			lines = append(lines, "")
+			lines = append(lines, f.styles.FgMute.Render(strings.Repeat("─", f.width)))
 		}
 		lines = append(lines, usageAccountLines(f, v)...)
 	}
@@ -97,7 +98,7 @@ func usageAccountLines(f usageFrame, v quota.AccountView) []string {
 	if v.Active {
 		marker = f.styles.SuccessStyle.Render("●") + " "
 	}
-	left := fmt.Sprintf("%s%s (%s)", marker, v.ProviderType, v.DisplayAlias)
+	left := marker + f.styles.CardLabel.Render(v.DisplayAlias)
 	lines := []string{usageAlignRight(left, usageHeaderRight(f, v), f.width)}
 	if v.Latest == nil || v.Unavailable != "" {
 		return lines
@@ -121,7 +122,7 @@ func usageAccountLines(f usageFrame, v quota.AccountView) []string {
 		lines = appendTrend(lines, f, v.BudgetProjections, i)
 	}
 	if len(spend) > 0 {
-		lines = append(lines, usageRow("spend", strings.Join(spend, " · ")))
+		lines = append(lines, usageRow(lipgloss.NewStyle().Bold(true).Render("spend"), strings.Join(spend, " · ")))
 	}
 	if snap.Credits != "" {
 		lines = append(lines, usageRow("credits", snap.Credits))
@@ -135,10 +136,10 @@ func appendTrend(lines []string, f usageFrame, projs []quota.Projection, i int) 
 		return lines
 	}
 	if projs[i].BeforeReset {
-		text := fmt.Sprintf("trend: empty by %s (⚠ before reset)", usageResetTime(projs[i].EmptyAt, f.now))
-		return append(lines, "    "+f.styles.WarningStyle.Render(text))
+		text := fmt.Sprintf("  └─ trend: empty by %s (before reset) ", usageResetTime(projs[i].EmptyAt, f.now))
+		return append(lines, f.styles.WarningStyle.Render(text)+f.styles.ErrorStyle.Render("✗"))
 	}
-	return append(lines, "    trend: lasts past reset ✓")
+	return append(lines, "  └─ trend: lasts past reset "+f.styles.SuccessStyle.Render("✓"))
 }
 
 // usageRow renders a label padded to the label column, followed by value.
@@ -148,8 +149,12 @@ func usageRow(label, value string) string {
 	return "  " + label + strings.Repeat(" ", pad) + value
 }
 
+func usagePeriodRow(label, value string) string {
+	return usageRow(lipgloss.NewStyle().Bold(true).Render(label), value)
+}
+
 func usageWindowLine(f usageFrame, w quota.Window) string {
-	line := usageRow(w.Label, usageMeter(f, w.UsedPercent, fmt.Sprintf("%3.0f%%", w.UsedPercent)))
+	line := usagePeriodRow(w.Label, usageMeter(f, w.UsedPercent, fmt.Sprintf("%3.0f%%", w.UsedPercent)))
 	if !w.ResetsAt.IsZero() {
 		line += "  " + usageResetText(f, w.ResetsAt)
 	}
@@ -161,7 +166,7 @@ func usageBudgetLine(f usageFrame, b quota.Budget) string {
 	if *b.Limit > 0 {
 		pct = b.Used / *b.Limit * 100
 	}
-	line := usageRow(b.Label, usageMeter(f, pct, fmt.Sprintf("$%.2f / $%.2f", b.Used, *b.Limit)))
+	line := usagePeriodRow(b.Label, usageMeter(f, pct, fmt.Sprintf("$%.2f / $%.2f", b.Used, *b.Limit)))
 	if b.Period != "" {
 		line += "  " + b.Period
 	}
@@ -179,7 +184,7 @@ func usageHeaderRight(f usageFrame, v quota.AccountView) string {
 	}
 	var parts []string
 	if v.Latest != nil && v.Latest.Plan != "" {
-		parts = append(parts, v.Latest.Plan)
+		parts = append(parts, f.styles.CardLabel.Render(v.Latest.Plan))
 	}
 	if fresh := usageFreshness(f, v); fresh != "" {
 		parts = append(parts, fresh)
@@ -193,7 +198,8 @@ func usageFreshness(f usageFrame, v quota.AccountView) string {
 	var parts []string
 	switch {
 	case v.Refreshing || (f.refreshing && v.Latest == nil && v.Err == ""):
-		parts = append(parts, "refreshing…")
+		spinner := spinnerFrames[f.spinnerFrame%len(spinnerFrames)]
+		parts = append(parts, f.styles.Accent.Render(spinner)+" refreshing…")
 	case v.Latest != nil:
 		parts = append(parts, "updated "+usageRelative(f.now.Sub(v.Latest.FetchedAt))+" ago")
 	}
@@ -205,7 +211,7 @@ func usageFreshness(f usageFrame, v quota.AccountView) string {
 
 // usageResetText renders a reset time with the time left until it.
 func usageResetText(f usageFrame, t time.Time) string {
-	return "resets " + usageResetTime(t, f.now) + " (" + usageRelative(t.Sub(f.now)) + ")"
+	return usageResetTime(t, f.now) + " (" + usageRelative(t.Sub(f.now)) + ")"
 }
 
 // usageResetTime formats t in now's location: 15:04 on the same day, Mon 15:04

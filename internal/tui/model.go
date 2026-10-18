@@ -707,6 +707,7 @@ func (m *Model) needsTicking() bool {
 		m.content.HasActiveCompactions() ||
 		m.sidebar.mcpConnecting ||
 		m.sidebar.lspStarting ||
+		(m.usageOverlay.IsOpen() && m.usageOverlay.refreshing()) ||
 		m.roster.hasRunning() ||
 		m.contentDirty
 }

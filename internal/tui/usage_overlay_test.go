@@ -268,6 +268,58 @@ func TestUsageOverlayRefreshDoneSchedulesLoadWhenOpen(t *testing.T) {
 	}
 }
 
+// usageLineWith returns the first line of s containing sub, or "" when none does.
+func usageLineWith(s, sub string) string {
+	for _, l := range strings.Split(s, "\n") {
+		if strings.Contains(l, sub) {
+			return l
+		}
+	}
+	return ""
+}
+
+func TestUsageRefreshingSpinnerAdvancesOnTick(t *testing.T) {
+	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
+	m.usageOverlay = m.usageOverlay.Open()
+	m.usageOverlay.views = []quota.AccountView{{ProviderType: "claude_subscription", DisplayAlias: "work", Refreshing: true}}
+	before := usageLineWith(ansi.Strip(m.usageOverlay.View()), "refreshing…")
+	if before == "" {
+		t.Fatal("overlay does not show the refreshing account")
+	}
+	updated, cmd := m.Update(tickMsg{})
+	m = updated.(*Model)
+	if cmd == nil || !m.ticking {
+		t.Fatal("tick during a provider refresh did not schedule another tick")
+	}
+	after := usageLineWith(ansi.Strip(m.usageOverlay.View()), "refreshing…")
+	if after == before {
+		t.Errorf("refreshing row %q did not change after a tick, want the spinner frame to advance", after)
+	}
+}
+
+func TestUsageViewsLoadedStartsTickerForRefreshingProvider(t *testing.T) {
+	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
+	m.usageOverlay = m.usageOverlay.Open()
+	m.ticking = false
+	updated, cmd := m.Update(usageViewsLoadedMsg{views: []quota.AccountView{{
+		ProviderType: "claude_subscription",
+		DisplayAlias: "work",
+		Refreshing:   true,
+	}}})
+	m = updated.(*Model)
+	if cmd == nil || !m.ticking {
+		t.Fatal("loading a refreshing provider did not start ticker")
+	}
+}
+
+func TestUsageOverlayTitleUsesCardLabel(t *testing.T) {
+	m := newUsageTestModel(quota.NewService(quota.ServiceOptions{}), 0)
+	_ = m.openUsageOverlay()
+	if want := usageStyled(t, m.styles.CardLabel, "Subscription usage"); !strings.Contains(m.usageOverlay.View(), want) {
+		t.Error("overlay title is not styled with CardLabel")
+	}
+}
+
 func TestUsageOverlayEmptyStateAndFooter(t *testing.T) {
 	m := newUsageTestModel(quota.NewService(quota.ServiceOptions{}), 0)
 	_ = m.openUsageOverlay()

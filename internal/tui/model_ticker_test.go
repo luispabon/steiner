@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/luispabon/steiner/internal/output"
 
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -331,6 +333,51 @@ func TestNewModelHasTickingTrue(t *testing.T) {
 	m := newModel(Config{Model: "test"}, nil)
 	if !m.ticking {
 		t.Errorf("newModel() ticking = false, want true")
+	}
+}
+
+func TestUsageRefreshTickerLifecycle(t *testing.T) {
+	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
+	_ = m.openUsageOverlay()
+	m.ticking = false
+
+	updated, cmd := m.Update(tickMsg{})
+	m = updated.(*Model)
+	if cmd == nil || !m.ticking {
+		t.Fatal("tick during an open overlay refresh did not schedule another tick")
+	}
+
+	m.usageOverlay.inFlight = 0
+	updated, cmd = m.Update(tickMsg{})
+	m = updated.(*Model)
+	if cmd != nil || m.ticking {
+		t.Fatalf("tick after the overlay refresh settled = (cmd %v, ticking %v), want stopped", cmd != nil, m.ticking)
+	}
+}
+
+func TestUsageOverlayOpenStartsIdleTicker(t *testing.T) {
+	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
+	m.ticking = false
+
+	updated, cmd := m.Update(usageCtrlO())
+	m = updated.(*Model)
+	if !m.usageOverlay.IsOpen() {
+		t.Fatal("ctrl+o did not open the overlay")
+	}
+	if cmd == nil || !m.ticking {
+		t.Fatalf("opening the overlay with a refresh = (cmd %v, ticking %v), want ticker started", cmd != nil, m.ticking)
+	}
+}
+
+func TestUsageOverlayRKeyStartsIdleTicker(t *testing.T) {
+	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
+	_ = m.openUsageOverlay()
+	m.ticking = false
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	m = updated.(*Model)
+	if cmd == nil || !m.ticking {
+		t.Fatalf("r refresh with an idle ticker = (cmd %v, ticking %v), want ticker started", cmd != nil, m.ticking)
 	}
 }
 

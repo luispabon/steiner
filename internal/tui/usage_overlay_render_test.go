@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/luispabon/steiner/internal/quota"
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 // usageTestNow is the fixed clock for render tests (Wednesday 14 Oct 2026, 12:00 UTC).
@@ -39,6 +42,50 @@ func usageContains(lines []string, sub string) bool {
 		}
 	}
 	return false
+}
+
+// usageSGRRe matches one SGR escape and captures its parameters.
+var usageSGRRe = regexp.MustCompile("\x1b\\[([0-9;]*)m")
+
+// usageStyled renders text with style. It fails when no SGR is produced, so a
+// style assertion cannot pass on unstyled text.
+func usageStyled(t *testing.T, style lipgloss.Style, text string) string {
+	t.Helper()
+	out := style.Render(text)
+	if !strings.Contains(out, "\x1b[") {
+		t.Fatalf("style rendered %q without SGR, so style checks cannot observe it", out)
+	}
+	return out
+}
+
+// usageOpenSGR returns the SGR parameters, joined by ";", that are open where
+// text first appears in s. A reset clears them.
+func usageOpenSGR(t *testing.T, s, text string) string {
+	t.Helper()
+	i := strings.Index(s, text)
+	if i < 0 {
+		t.Fatalf("%q missing from %q", text, s)
+	}
+	var open []string
+	for _, m := range usageSGRRe.FindAllStringSubmatch(s[:i], -1) {
+		if m[1] == "" || m[1] == "0" {
+			open = nil
+			continue
+		}
+		open = append(open, m[1])
+	}
+	return strings.Join(open, ";")
+}
+
+// usageTrimSpinner drops the leading spinner frame and its space from a stripped
+// refreshing freshness string. It fails when no one-cell frame leads the text.
+func usageTrimSpinner(t *testing.T, s string) string {
+	t.Helper()
+	frame, rest, ok := strings.Cut(s, " ")
+	if !ok || lipgloss.Width(frame) != 1 {
+		t.Fatalf("freshness %q lacks a one-cell spinner frame", s)
+	}
+	return rest
 }
 
 func TestUsageLevelFor(t *testing.T) {
@@ -86,8 +133,8 @@ func TestUsageHeaderActiveMarkerAndRightAlignment(t *testing.T) {
 		active bool
 		prefix string
 	}{
-		{"active", true, "● claude_subscription (work)"},
-		{"inactive", false, "  claude_subscription (work)"},
+		{"active", true, "● work"},
+		{"inactive", false, "  work"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -100,6 +147,9 @@ func TestUsageHeaderActiveMarkerAndRightAlignment(t *testing.T) {
 			header := usageStrippedLines(f)[0]
 			if !strings.HasPrefix(header, tt.prefix) {
 				t.Errorf("header %q does not start with %q", header, tt.prefix)
+			}
+			if strings.Contains(header, "claude_subscription") {
+				t.Errorf("header %q repeats the provider type, want the alias only", header)
 			}
 			if !strings.HasSuffix(header, "Max · updated 3m ago") {
 				t.Errorf("header %q does not end with plan and freshness", header)
@@ -117,19 +167,24 @@ func TestUsageFreshness(t *testing.T) {
 		name       string
 		view       quota.AccountView
 		refreshing bool
+		spinner    bool
 		want       string
 	}{
-		{"updated", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, false, "updated 5m ago"},
-		{"settled during overlay refresh", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, true, "updated 5m ago"},
-		{"refreshing account", quota.AccountView{Refreshing: true}, false, "refreshing…"},
-		{"error with age", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}, Err: "401"}, false, "updated 5m ago · unavailable: 401"},
-		{"error without snapshot", quota.AccountView{Err: "401"}, false, "unavailable: 401"},
+		{"updated", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, false, false, "updated 5m ago"},
+		{"settled during overlay refresh", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, true, false, "updated 5m ago"},
+		{"refreshing account", quota.AccountView{Refreshing: true}, false, true, "refreshing…"},
+		{"error with age", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}, Err: "401"}, false, false, "updated 5m ago · unavailable: 401"},
+		{"error without snapshot", quota.AccountView{Err: "401"}, false, false, "unavailable: 401"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := usageTestFrame(t)
 			f.refreshing = tt.refreshing
-			if got := ansi.Strip(usageFreshness(f, tt.view)); got != tt.want {
+			got := ansi.Strip(usageFreshness(f, tt.view))
+			if tt.spinner {
+				got = usageTrimSpinner(t, got)
+			}
+			if got != tt.want {
 				t.Errorf("usageFreshness() = %q, want %q", got, tt.want)
 			}
 		})
@@ -139,21 +194,26 @@ func TestUsageFreshness(t *testing.T) {
 func TestUsageFreshnessDuringGlobalRefresh(t *testing.T) {
 	fetched := usageTestNow.Add(-5 * time.Minute)
 	tests := []struct {
-		name string
-		view quota.AccountView
-		want string
+		name    string
+		view    quota.AccountView
+		spinner bool
+		want    string
 	}{
-		{"in-flight account", quota.AccountView{Refreshing: true, Latest: &quota.Snapshot{FetchedAt: fetched}}, "refreshing…"},
-		{"settled age", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, "updated 5m ago"},
-		{"settled error with age", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}, Err: "401"}, "updated 5m ago · unavailable: 401"},
-		{"settled error without snapshot", quota.AccountView{Err: "401"}, "unavailable: 401"},
-		{"never fetched", quota.AccountView{}, "refreshing…"},
+		{"in-flight account", quota.AccountView{Refreshing: true, Latest: &quota.Snapshot{FetchedAt: fetched}}, true, "refreshing…"},
+		{"settled age", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, false, "updated 5m ago"},
+		{"settled error with age", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}, Err: "401"}, false, "updated 5m ago · unavailable: 401"},
+		{"settled error without snapshot", quota.AccountView{Err: "401"}, false, "unavailable: 401"},
+		{"never fetched", quota.AccountView{}, true, "refreshing…"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := usageTestFrame(t)
 			f.refreshing = true
-			if got := ansi.Strip(usageFreshness(f, tt.view)); got != tt.want {
+			got := ansi.Strip(usageFreshness(f, tt.view))
+			if tt.spinner {
+				got = usageTrimSpinner(t, got)
+			}
+			if got != tt.want {
 				t.Errorf("usageFreshness() = %q, want %q", got, tt.want)
 			}
 		})
@@ -211,7 +271,7 @@ func TestUsageWindowLineMeterAndReset(t *testing.T) {
 	if !strings.Contains(line, strings.Repeat("█", 18)+strings.Repeat("░", 6)) {
 		t.Errorf("window bar wrong in %q", line)
 	}
-	for _, want := range []string{"5h", " 74%", "resets 14:05 (2h05m)"} {
+	for _, want := range []string{"5h", " 74%", "14:05 (2h05m)"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("window line %q missing %q", line, want)
 		}
@@ -225,8 +285,8 @@ func TestUsageTrendLines(t *testing.T) {
 		p    quota.Projection
 		want string
 	}{
-		{"empty before reset", quota.Projection{OK: true, BeforeReset: true, EmptyAt: emptyAt}, "    trend: empty by 15:00 (⚠ before reset)"},
-		{"lasts past reset", quota.Projection{OK: true}, "    trend: lasts past reset ✓"},
+		{"empty before reset", quota.Projection{OK: true, BeforeReset: true, EmptyAt: emptyAt}, "  └─ trend: empty by 15:00"},
+		{"lasts past reset", quota.Projection{OK: true}, "  └─ trend: lasts past reset ✓"},
 		{"no projection", quota.Projection{}, ""},
 	}
 	for _, tt := range tests {
@@ -261,7 +321,7 @@ func TestUsageBudgetLine(t *testing.T) {
 	})
 	lines := usageStrippedLines(f)
 	line := lines[1]
-	for _, want := range []string{strings.Repeat("█", 19) + strings.Repeat("░", 5), "$40.00 / $50.00", "monthly", "resets 31 Oct (16d)"} {
+	for _, want := range []string{strings.Repeat("█", 19) + strings.Repeat("░", 5), "$40.00 / $50.00", "monthly", "31 Oct (16d)"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("budget line %q missing %q", line, want)
 		}
@@ -280,6 +340,10 @@ func TestUsageSpendAndCreditsRows(t *testing.T) {
 			Credits: "$9.99",
 		},
 	})
+	rawLines := usageAccountLines(f, f.views[0])
+	if want := usageStyled(t, lipgloss.NewStyle().Bold(true), "spend"); !strings.Contains(rawLines[1], want) {
+		t.Errorf("spend row %q does not render spend in bold", rawLines[1])
+	}
 	lines := usageStrippedLines(f)
 	want := []string{
 		"  spend        today $0.40 · week $3.10 · month $12.50",
@@ -297,6 +361,10 @@ func TestUsageSpendOnlyRowHasNoDuplicateLabel(t *testing.T) {
 			Budgets: []quota.Budget{{Label: "spend", Used: 3.25}},
 		},
 	})
+	rawLines := usageAccountLines(f, f.views[0])
+	if want := usageStyled(t, lipgloss.NewStyle().Bold(true), "spend"); !strings.Contains(rawLines[1], want) {
+		t.Errorf("spend row %q does not render spend in bold", rawLines[1])
+	}
 	lines := usageStrippedLines(f)
 	want := "  spend        $3.25"
 	if len(lines) != 2 || lines[1] != want {
@@ -384,7 +452,7 @@ func TestUsageBudgetLineExactRow(t *testing.T) {
 		}},
 	})
 	got := usageStrippedLines(f)[1]
-	want := "  month        " + strings.Repeat("█", 19) + strings.Repeat("░", 5) + " $40.00 / $50.00  monthly  resets 31 Oct (16d)"
+	want := "  month        " + strings.Repeat("█", 19) + strings.Repeat("░", 5) + " $40.00 / $50.00  monthly  31 Oct (16d)"
 	if got != want {
 		t.Errorf("budget row = %q, want %q", got, want)
 	}
@@ -404,7 +472,7 @@ func TestUsageHeaderTruncatesLongErrorWithinWidth(t *testing.T) {
 	if w := lipgloss.Width(header); w != width {
 		t.Errorf("header width = %d, want %d: %q", w, width, header)
 	}
-	if !strings.HasPrefix(header, "● claude_subscription (work)") || !strings.Contains(header, "…") {
+	if !strings.HasPrefix(header, "● work") || !strings.Contains(header, "…") {
 		t.Errorf("header %q lost its label or was not truncated", header)
 	}
 }
@@ -431,6 +499,112 @@ func TestUsageOverlayBoxKeepsWidthWithLongError(t *testing.T) {
 		if w := lipgloss.Width(l); w != width {
 			t.Errorf("overlay line %d width = %d, want %d: %q", i, w, width, l)
 		}
+	}
+}
+
+func TestUsageHeaderUsesCardLabelForAliasAndPlan(t *testing.T) {
+	f := usageTestFrame(t, quota.AccountView{
+		ProviderType: "claude_subscription",
+		DisplayAlias: "work",
+		Active:       true,
+		Latest:       &quota.Snapshot{Plan: "Max", FetchedAt: usageTestNow.Add(-3 * time.Minute)},
+	})
+	header := usageAccountLines(f, f.views[0])[0]
+	for _, text := range []string{"work", "Max"} {
+		if want := usageStyled(t, f.styles.CardLabel, text); !strings.Contains(header, want) {
+			t.Errorf("header %q lacks the CardLabel style for %q", header, text)
+		}
+	}
+}
+
+func TestUsagePeriodLabelsBoldNotAccented(t *testing.T) {
+	limit := 50.0
+	f := usageTestFrame(t)
+	accent := usageOpenSGR(t, usageStyled(t, f.styles.Accent, "X"), "X")
+	if accent == "" {
+		t.Fatal("accent style has no SGR parameters to compare against")
+	}
+	tests := []struct {
+		name  string
+		label string
+		line  string
+	}{
+		{"window", "5h", usageWindowLine(f, quota.Window{Label: "5h", UsedPercent: 10})},
+		{"budget", "month", usageBudgetLine(f, quota.Budget{Label: "month", Used: 4, Limit: &limit})},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			open := usageOpenSGR(t, tt.line, tt.label)
+			if !slices.Contains(strings.Split(open, ";"), "1") {
+				t.Errorf("%q label SGR %q lacks bold", tt.label, open)
+			}
+			if strings.Contains(open, accent) {
+				t.Errorf("%q label SGR %q carries the accent colour", tt.label, open)
+			}
+		})
+	}
+}
+
+func TestUsageTrendRowGlyphStyle(t *testing.T) {
+	tests := []struct {
+		name       string
+		p          quota.Projection
+		glyph      string
+		glyphStyle func(*theme.Styles) lipgloss.Style
+		textStyle  func(*theme.Styles) lipgloss.Style
+	}{
+		{"lasts past reset", quota.Projection{OK: true}, "✓", func(s *theme.Styles) lipgloss.Style { return s.SuccessStyle }, nil},
+		{"empty before reset", quota.Projection{OK: true, BeforeReset: true, EmptyAt: usageTestNow.Add(time.Hour)}, "✗", func(s *theme.Styles) lipgloss.Style { return s.ErrorStyle }, func(s *theme.Styles) lipgloss.Style { return s.WarningStyle }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := usageTestFrame(t, quota.AccountView{
+				DisplayAlias:      "work",
+				Latest:            &quota.Snapshot{Windows: []quota.Window{{Label: "5h", UsedPercent: 46, ResetsAt: usageTestNow.Add(2 * time.Hour)}}},
+				WindowProjections: []quota.Projection{tt.p},
+			})
+			lines := usageAccountLines(f, f.views[0])
+			if len(lines) != 3 {
+				t.Fatalf("got %d lines, want header, window and trend: %q", len(lines), lines)
+			}
+			if trend := ansi.Strip(lines[2]); !strings.HasPrefix(trend, "  └─ ") || !strings.Contains(trend, tt.glyph) {
+				t.Errorf("trend row %q, want the \"  └─ \" prefix and %s", trend, tt.glyph)
+			}
+			if want := usageStyled(t, tt.glyphStyle(f.styles), tt.glyph); !strings.Contains(lines[2], want) {
+				t.Errorf("trend row %q does not style %s with its state colour", lines[2], tt.glyph)
+			}
+			if tt.textStyle != nil {
+				warningOpen := usageOpenSGR(t, usageStyled(t, tt.textStyle(f.styles), "X"), "X")
+				if got := usageOpenSGR(t, lines[2], "  └─ trend: empty by "); got != warningOpen {
+					t.Errorf("trend row warning text SGR = %q, want %q", got, warningOpen)
+				}
+			}
+		})
+	}
+}
+
+func TestUsageRefreshingFreshnessUsesAccentSpinner(t *testing.T) {
+	f := usageTestFrame(t)
+	raw := usageFreshness(f, quota.AccountView{Refreshing: true})
+	frame, ok := strings.CutSuffix(ansi.Strip(raw), " refreshing…")
+	if !ok || lipgloss.Width(frame) != 1 {
+		t.Fatalf("freshness %q, want a one-cell spinner frame then \" refreshing…\"", ansi.Strip(raw))
+	}
+	if want := usageStyled(t, f.styles.Accent, frame); !strings.Contains(raw, want) {
+		t.Errorf("freshness %q does not style the spinner frame with the accent", raw)
+	}
+}
+
+func TestUsageProviderBlocksSeparatedByRule(t *testing.T) {
+	first := usageTestFullView()
+	f := usageTestFrame(t, first, quota.AccountView{DisplayAlias: "home", Unavailable: "no credentials"})
+	lines := usageStrippedLines(f)
+	rule := len(usageAccountLines(f, first))
+	if rule >= len(lines) {
+		t.Fatalf("got %d lines, want a second block after row %d", len(lines), rule)
+	}
+	if got := lines[rule]; got == "" || strings.Trim(got, "─") != "" {
+		t.Errorf("row %d = %q, want a rule of ─ between the blocks", rule, got)
 	}
 }
 

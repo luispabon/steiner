@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -46,6 +47,7 @@ type usageOverlayState struct {
 	bodyCount    int
 	scrollOffset int
 	inFlight     int
+	spinnerFrame int
 	styles       *theme.Styles
 	now          func() time.Time
 }
@@ -83,6 +85,15 @@ func (o usageOverlayState) withViews(views []quota.AccountView) usageOverlayStat
 	o.views = views
 	o.bodyCount = len(o.bodyLines())
 	return o
+}
+
+func (o usageOverlayState) refreshing() bool {
+	if o.inFlight > 0 {
+		return true
+	}
+	return slices.ContainsFunc(o.views, func(v quota.AccountView) bool {
+		return v.Refreshing
+	})
 }
 
 // startRefresh counts one RefreshAll as in flight and returns the command that
@@ -138,7 +149,7 @@ func (o usageOverlayState) View() string {
 	end := min(len(lines), start+visible)
 	body := lipgloss.JoinVertical(lipgloss.Left, lines[start:end]...)
 	full := lipgloss.JoinVertical(lipgloss.Left,
-		"Subscription usage",
+		o.styles.CardLabel.Render("Subscription usage"),
 		o.Divider(),
 		body,
 		o.Divider(),
@@ -150,11 +161,12 @@ func (o usageOverlayState) View() string {
 // bodyLines renders the body from the cached views and the overlay clock.
 func (o usageOverlayState) bodyLines() []string {
 	return usageBodyLines(usageFrame{
-		views:      o.views,
-		now:        o.now(),
-		refreshing: o.inFlight > 0,
-		styles:     o.styles,
-		width:      o.InnerWidth(),
+		views:        o.views,
+		now:          o.now(),
+		refreshing:   o.inFlight > 0,
+		spinnerFrame: o.spinnerFrame,
+		styles:       o.styles,
+		width:        o.InnerWidth(),
 	})
 }
 
@@ -182,7 +194,7 @@ func (m *Model) openUsageOverlay() tea.Cmd {
 	m.usageOverlay.OverlayShell = m.usageOverlay.WithDimensions(m.width, m.height)
 	var refresh tea.Cmd
 	m.usageOverlay, refresh = m.usageOverlay.startRefresh()
-	return tea.Batch(refresh, loadUsageViewsCmd(q, m.sidebar.providerName))
+	return tea.Batch(refresh, loadUsageViewsCmd(q, m.sidebar.providerName), m.ensureTicking())
 }
 
 // usageRunFinishedCmd returns a command that refetches used accounts older
@@ -245,5 +257,5 @@ func (m *Model) handleQuotaRefreshDoneMsg() (tea.Model, tea.Cmd) {
 // handleUsageViewsLoadedMsg caches the views read by a loadUsageViewsCmd.
 func (m *Model) handleUsageViewsLoadedMsg(msg usageViewsLoadedMsg) (tea.Model, tea.Cmd) {
 	m.usageOverlay = m.usageOverlay.withViews(msg.views)
-	return m, nil
+	return m, m.ensureTicking()
 }
