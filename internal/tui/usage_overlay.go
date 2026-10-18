@@ -257,5 +257,8 @@ func (m *Model) handleQuotaRefreshDoneMsg() (tea.Model, tea.Cmd) {
 // handleUsageViewsLoadedMsg caches the views read by a loadUsageViewsCmd.
 func (m *Model) handleUsageViewsLoadedMsg(msg usageViewsLoadedMsg) (tea.Model, tea.Cmd) {
 	m.usageOverlay = m.usageOverlay.withViews(msg.views)
-	return m, m.ensureTicking()
+	if m.usageOverlay.IsOpen() && m.usageOverlay.refreshing() {
+		return m, m.ensureTicking()
+	}
+	return m, nil
 }

@@ -171,7 +171,7 @@ func TestUsageFreshness(t *testing.T) {
 		want       string
 	}{
 		{"updated", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, false, false, "updated 5m ago"},
-		{"settled during overlay refresh", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, true, false, "updated 5m ago"},
+		{"snapshot during overlay refresh", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, true, true, "refreshing…"},
 		{"refreshing account", quota.AccountView{Refreshing: true}, false, true, "refreshing…"},
 		{"error with age", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}, Err: "401"}, false, false, "updated 5m ago · unavailable: 401"},
 		{"error without snapshot", quota.AccountView{Err: "401"}, false, false, "unavailable: 401"},
@@ -194,25 +194,21 @@ func TestUsageFreshness(t *testing.T) {
 func TestUsageFreshnessDuringGlobalRefresh(t *testing.T) {
 	fetched := usageTestNow.Add(-5 * time.Minute)
 	tests := []struct {
-		name    string
-		view    quota.AccountView
-		spinner bool
-		want    string
+		name string
+		view quota.AccountView
+		want string
 	}{
-		{"in-flight account", quota.AccountView{Refreshing: true, Latest: &quota.Snapshot{FetchedAt: fetched}}, true, "refreshing…"},
-		{"settled age", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, false, "updated 5m ago"},
-		{"settled error with age", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}, Err: "401"}, false, "updated 5m ago · unavailable: 401"},
-		{"settled error without snapshot", quota.AccountView{Err: "401"}, false, "unavailable: 401"},
-		{"never fetched", quota.AccountView{}, true, "refreshing…"},
+		{"in-flight account", quota.AccountView{Refreshing: true, Latest: &quota.Snapshot{FetchedAt: fetched}}, "refreshing…"},
+		{"snapshot during refresh", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}}, "refreshing…"},
+		{"snapshot error during refresh", quota.AccountView{Latest: &quota.Snapshot{FetchedAt: fetched}, Err: "401"}, "refreshing… · unavailable: 401"},
+		{"error without snapshot during refresh", quota.AccountView{Err: "401"}, "refreshing… · unavailable: 401"},
+		{"never fetched", quota.AccountView{}, "refreshing…"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := usageTestFrame(t)
 			f.refreshing = true
-			got := ansi.Strip(usageFreshness(f, tt.view))
-			if tt.spinner {
-				got = usageTrimSpinner(t, got)
-			}
+			got := usageTrimSpinner(t, ansi.Strip(usageFreshness(f, tt.view)))
 			if got != tt.want {
 				t.Errorf("usageFreshness() = %q, want %q", got, tt.want)
 			}
@@ -547,14 +543,17 @@ func TestUsagePeriodLabelsBoldNotAccented(t *testing.T) {
 
 func TestUsageTrendRowGlyphStyle(t *testing.T) {
 	tests := []struct {
-		name       string
-		p          quota.Projection
-		glyph      string
-		glyphStyle func(*theme.Styles) lipgloss.Style
-		textStyle  func(*theme.Styles) lipgloss.Style
+		name   string
+		p      quota.Projection
+		text   string
+		styled func(t *testing.T, s *theme.Styles) string
 	}{
-		{"lasts past reset", quota.Projection{OK: true}, "✓", func(s *theme.Styles) lipgloss.Style { return s.SuccessStyle }, nil},
-		{"empty before reset", quota.Projection{OK: true, BeforeReset: true, EmptyAt: usageTestNow.Add(time.Hour)}, "✗", func(s *theme.Styles) lipgloss.Style { return s.ErrorStyle }, func(s *theme.Styles) lipgloss.Style { return s.WarningStyle }},
+		{"lasts past reset", quota.Projection{OK: true}, "  └─ trend: lasts past reset ✓", func(t *testing.T, s *theme.Styles) string {
+			return "  └─ trend: lasts past reset " + usageStyled(t, s.SuccessStyle, "✓")
+		}},
+		{"empty before reset", quota.Projection{OK: true, BeforeReset: true, EmptyAt: usageTestNow.Add(time.Hour)}, "  └─ trend: empty by 13:00 (before reset) ✗", func(t *testing.T, s *theme.Styles) string {
+			return usageStyled(t, s.WarningStyle, "  └─ trend: empty by 13:00 (before reset) ") + usageStyled(t, s.ErrorStyle, "✗")
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -567,31 +566,38 @@ func TestUsageTrendRowGlyphStyle(t *testing.T) {
 			if len(lines) != 3 {
 				t.Fatalf("got %d lines, want header, window and trend: %q", len(lines), lines)
 			}
-			if trend := ansi.Strip(lines[2]); !strings.HasPrefix(trend, "  └─ ") || !strings.Contains(trend, tt.glyph) {
-				t.Errorf("trend row %q, want the \"  └─ \" prefix and %s", trend, tt.glyph)
+			if got := ansi.Strip(lines[2]); got != tt.text {
+				t.Errorf("trend row = %q, want %q", got, tt.text)
 			}
-			if want := usageStyled(t, tt.glyphStyle(f.styles), tt.glyph); !strings.Contains(lines[2], want) {
-				t.Errorf("trend row %q does not style %s with its state colour", lines[2], tt.glyph)
-			}
-			if tt.textStyle != nil {
-				warningOpen := usageOpenSGR(t, usageStyled(t, tt.textStyle(f.styles), "X"), "X")
-				if got := usageOpenSGR(t, lines[2], "  └─ trend: empty by "); got != warningOpen {
-					t.Errorf("trend row warning text SGR = %q, want %q", got, warningOpen)
-				}
+			if want := tt.styled(t, f.styles); !strings.HasSuffix(lines[2], want) {
+				t.Errorf("trend row %q does not end with the styled suffix %q", lines[2], want)
 			}
 		})
 	}
 }
 
 func TestUsageRefreshingFreshnessUsesAccentSpinner(t *testing.T) {
-	f := usageTestFrame(t)
-	raw := usageFreshness(f, quota.AccountView{Refreshing: true})
-	frame, ok := strings.CutSuffix(ansi.Strip(raw), " refreshing…")
-	if !ok || lipgloss.Width(frame) != 1 {
-		t.Fatalf("freshness %q, want a one-cell spinner frame then \" refreshing…\"", ansi.Strip(raw))
+	tests := []struct {
+		name    string
+		overlay bool
+		view    quota.AccountView
+	}{
+		{"account refreshing", false, quota.AccountView{Refreshing: true}},
+		{"snapshot during overlay refresh", true, quota.AccountView{Latest: &quota.Snapshot{FetchedAt: usageTestNow.Add(-5 * time.Minute)}}},
 	}
-	if want := usageStyled(t, f.styles.Accent, frame); !strings.Contains(raw, want) {
-		t.Errorf("freshness %q does not style the spinner frame with the accent", raw)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := usageTestFrame(t)
+			f.refreshing = tt.overlay
+			raw := usageFreshness(f, tt.view)
+			frame, ok := strings.CutSuffix(ansi.Strip(raw), " refreshing…")
+			if !ok || lipgloss.Width(frame) != 1 {
+				t.Fatalf("freshness %q, want a one-cell spinner frame then \" refreshing…\"", ansi.Strip(raw))
+			}
+			if want := usageStyled(t, f.styles.Accent, frame); !strings.Contains(raw, want) {
+				t.Errorf("freshness %q does not style the spinner frame with the accent", raw)
+			}
+		})
 	}
 }
 
@@ -603,8 +609,12 @@ func TestUsageProviderBlocksSeparatedByRule(t *testing.T) {
 	if rule >= len(lines) {
 		t.Fatalf("got %d lines, want a second block after row %d", len(lines), rule)
 	}
-	if got := lines[rule]; got == "" || strings.Trim(got, "─") != "" {
-		t.Errorf("row %d = %q, want a rule of ─ between the blocks", rule, got)
+	want := strings.Repeat("─", f.width)
+	if got := lines[rule]; got != want {
+		t.Errorf("row %d = %q, want a rule of %d ─ cells", rule, got, f.width)
+	}
+	if raw, styled := usageBodyLines(f)[rule], usageStyled(t, f.styles.FgMute, want); raw != styled {
+		t.Errorf("rule %q is not the FgMute style of the inner width", raw)
 	}
 }
 

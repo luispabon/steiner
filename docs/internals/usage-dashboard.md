@@ -82,5 +82,7 @@ Passive snapshots have a zero `FetchedAt`, and `Observe` stamps it with the serv
 - `openUsageOverlay` shows the cached views, starts `RefreshAll` under a 30-second context, and loads views in `loadUsageViewsCmd`. `Update` never reads the quota service directly.
 - `quotaUpdateMsg` reloads the views when the overlay is open.
 - `RunFinishedEvent` runs `usageRunFinishedCmd`, which calls `RefreshUsed(context.Background(), interval)`. It returns nil when `interval` is zero or negative.
-- Per-account in-flight flags drive the `refreshing…` text. During a global refresh, a row with no snapshot and no error also shows it. Settled rows keep their age or error.
+- A header shows the accent spinner and `refreshing…` when its account is refreshing or the overlay has an in-flight refresh (`inFlight > 0`). This includes rows with a snapshot. Settled rows show their age, then any error.
+- `usageOverlayState.spinnerFrame` is passed to the renderer as `usageFrame.spinnerFrame`. `handleTickMsg` advances it on each tick while the overlay is open and refreshing.
+- Ticker lifecycle: `needsTicking` includes `IsOpen() && refreshing()`. `openUsageOverlay` starts the ticker with its refresh. The overlay key handler and `handleUsageViewsLoadedMsg` call `ensureTicking` only while the overlay is open and refreshing. Closing keys (`ctrl+o`, `esc`) start no ticker.
 - `tui.quota_refresh_interval` is validated by `validateTUIConfig` and passed to the TUI by `quotaTUIConfig`. See [TUI quota refresh interval](configuration.md#tui-quota-refresh-interval).

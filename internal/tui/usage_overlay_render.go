@@ -197,7 +197,7 @@ func usageHeaderRight(f usageFrame, v quota.AccountView) string {
 func usageFreshness(f usageFrame, v quota.AccountView) string {
 	var parts []string
 	switch {
-	case v.Refreshing || (f.refreshing && v.Latest == nil && v.Err == ""):
+	case v.Refreshing || f.refreshing:
 		spinner := spinnerFrames[f.spinnerFrame%len(spinnerFrames)]
 		parts = append(parts, f.styles.Accent.Render(spinner)+" refreshing…")
 	case v.Latest != nil:

@@ -381,6 +381,20 @@ func TestUsageOverlayRKeyStartsIdleTicker(t *testing.T) {
 	}
 }
 
+func TestUsageOverlayCloseDoesNotStartTicker(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{usageCtrlO(), {Code: tea.KeyEsc}} {
+		m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
+		_ = m.openUsageOverlay()
+		m.ticking = false
+
+		updated, _ := m.Update(key)
+		m = updated.(*Model)
+		if m.usageOverlay.IsOpen() || m.ticking {
+			t.Errorf("closing the overlay during a refresh: open %v, ticking %v, want closed and not ticking", m.usageOverlay.IsOpen(), m.ticking)
+		}
+	}
+}
+
 func TestEnsureTickingReturnsNilWhenTickingAlreadyTrue(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)

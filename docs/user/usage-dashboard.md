@@ -11,7 +11,7 @@ The usage dashboard is an overlay in the interactive TUI. It shows the rate-limi
 | `r` | Refresh every account now. |
 | `↑` and `↓` | Scroll when the body is taller than the terminal. |
 
-Opening the dashboard shows the stored values at once and refreshes in the background. Refreshing accounts show an animated spinner and `refreshing…` in their header while a fetch runs. The dashboard exists only in the interactive TUI.
+Opening the dashboard shows the stored values at once and refreshes in the background. The header shows `refreshing…` while a fetch runs. The dashboard exists only in the interactive TUI.
 
 ## What it shows
 
@@ -51,7 +51,7 @@ The projection uses two points, so one large turn can change it noticeably.
 
 A failed fetch keeps the previous snapshot and shows the error in the account header.
 
-While a refresh is in flight, refreshing accounts show the animated spinner, and the overlay keeps ticking until every refresh has returned, so the spinner advances.
+While an overlay refresh is in flight, every account header shows an animated spinner and `refreshing…`, including accounts with a stored snapshot. The overlay keeps ticking until every refresh has returned, so the spinner advances. When the refresh settles, each header shows its age or error again.
 
 ## Supported providers
 

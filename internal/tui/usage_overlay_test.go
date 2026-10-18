@@ -146,13 +146,16 @@ func TestUsageOverlayOpenLoadsViewsOnlyThroughCommands(t *testing.T) {
 	}
 }
 
-func TestUsageViewsLoadedMsgOnlyStores(t *testing.T) {
+func TestUsageViewsLoadedMsgStoresSettledViews(t *testing.T) {
 	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
 	_ = m.openUsageOverlay()
+	m.usageOverlay.inFlight = 0
+	m.ticking = false
 	views := []quota.AccountView{{DisplayAlias: "work", Active: true}}
-	_, cmd := m.Update(usageViewsLoadedMsg{views: views})
-	if cmd != nil {
-		t.Error("views loaded message returned a command")
+	updated, cmd := m.Update(usageViewsLoadedMsg{views: views})
+	m = updated.(*Model)
+	if cmd != nil || m.ticking {
+		t.Error("settled views started the ticker, want no command")
 	}
 	if len(m.usageOverlay.views) != 1 || m.usageOverlay.views[0].DisplayAlias != "work" {
 		t.Errorf("views = %+v, want the message payload", m.usageOverlay.views)
