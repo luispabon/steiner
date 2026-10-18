@@ -65,7 +65,9 @@ Provider types not in this table never appear on the dashboard. These are `opena
 
 A Codex sign-in that uses an OpenAI API key, rather than a ChatGPT sign-in, shows `API mode: no quota to report`, and Steiner does not fetch it.
 
-Two aliases that resolve to the same account show as one row. For example, two Codex aliases for the same ChatGPT account, or two API-key providers with the same base URL and key.
+Two Codex aliases for the same ChatGPT account show as one row.
+
+API-key providers have one row per configured alias. Two aliases with the same base URL and key still show as two rows. Changing an alias's API key, base URL, or provider type keeps its row and its history. Rows from earlier Steiner versions, which were keyed by a hash of the base URL and key, do not appear. Their stored history is not migrated and ages out with the normal 35-day retention. The row for a current alias fills in after its next fetch.
 
 ## Claude subscription
 
@@ -81,7 +83,7 @@ Steiner reads Claude usage through the `claude` CLI. It never reads Claude crede
 - Snapshots fetched more than 35 days ago are removed the next time a snapshot is written.
 - An unchanged snapshot is not stored again within an hour of the last stored snapshot for that account.
 - Stored data is limited to account keys, provider types, plan names, window and budget figures, reset times, credit text, fetch times, and whether each snapshot came from a fetch or a passive observation.
-- Raw API keys are never stored. API-key accounts are identified by the provider type and the first 16 hex characters of a SHA-256 hash of the base URL and the key.
+- Raw API keys are never stored. API-key accounts are identified by their configured provider alias, so the API key and base URL are not part of the identity.
 - Steiner does not read Claude credentials. The `claude` CLI holds the sign-in.
 - An account that is no longer configured still appears with its last stored snapshot.
 

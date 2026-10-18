@@ -15,11 +15,13 @@ import (
 
 // APIKeyQuotaConfig identifies one API-key account whose quota is fetched.
 // Callers resolve ProviderType, BaseURL, and APIKey before calling
-// NewAPIKeyQuotaFetcher.
+// NewAPIKeyQuotaFetcher. AccountKey is copied into every snapshot; callers pass
+// quota.APIKeyAccountKey for the provider alias.
 type APIKeyQuotaConfig struct {
 	ProviderType string
 	BaseURL      string
 	APIKey       string
+	AccountKey   string
 }
 
 // apiKeyQuotaMaxBody bounds the bytes decoded from one quota response.
@@ -34,18 +36,10 @@ type apiKeyQuotaFetcher struct {
 }
 
 // apiKeyQuotaBase trims surrounding whitespace and trailing slashes from
-// baseURL. It is the only normalization applied before a base URL is used for
-// requests or for the account key. LiteLLM's /v1 is kept here and removed only
-// for the /key/info endpoint.
+// baseURL before it is used for requests. LiteLLM's /v1 is kept here and
+// removed only for the /key/info endpoint.
 func apiKeyQuotaBase(baseURL string) string {
 	return strings.TrimRight(strings.TrimSpace(baseURL), "/")
-}
-
-// apiKeyQuotaAccountKey returns the account key for an API-key account. Both
-// NewAPIKeyQuotaFetcher and BuildQuotaAccounts use it, so equivalent base URLs
-// produce the same key.
-func apiKeyQuotaAccountKey(providerType, baseURL, apiKey string) string {
-	return quota.APIKeyAccountKey(providerType, apiKeyQuotaBase(baseURL), apiKey)
 }
 
 // NewAPIKeyQuotaFetcher returns a quota.Fetcher for an opencode_go, openrouter,
@@ -70,7 +64,7 @@ func NewAPIKeyQuotaFetcher(cfg APIKeyQuotaConfig, client *http.Client) (quota.Fe
 // Fetch returns the quota snapshot for the configured provider type.
 func (f *apiKeyQuotaFetcher) Fetch(ctx context.Context, _ quota.FetchOptions) (quota.Snapshot, error) {
 	snap := quota.Snapshot{
-		AccountKey:   apiKeyQuotaAccountKey(f.cfg.ProviderType, f.cfg.BaseURL, f.cfg.APIKey),
+		AccountKey:   f.cfg.AccountKey,
 		ProviderType: f.cfg.ProviderType,
 		FetchedAt:    time.Now(),
 		Source:       quota.SourceFetch,

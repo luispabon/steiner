@@ -36,7 +36,7 @@ func BuildQuotaAccounts(providers map[string]config.ProviderConfig, deps QuotaRe
 		case config.ProviderTypeClaudeSubscription:
 			acct = claudeSubQuotaAccount(deps.ClaudePool)
 		case config.ProviderTypeOpencodeGo, config.ProviderTypeOpenRouter, config.ProviderTypeLiteLLM:
-			acct = apiKeyQuotaAccount(cfg, deps.HTTPClient)
+			acct = apiKeyQuotaAccount(alias, cfg, deps.HTTPClient)
 		default:
 			continue
 		}
@@ -81,14 +81,15 @@ func claudeSubQuotaAccount(pool *ClaudeSubscriptionPool) quota.Account {
 	return acct
 }
 
-// apiKeyQuotaAccount describes an opencode_go, openrouter, or litellm account.
-// The config is resolved first so the profile default base URL and the
-// api_key_env credential apply. The account key never contains the raw key.
-func apiKeyQuotaAccount(cfg config.ProviderConfig, httpClient *http.Client) quota.Account {
+// apiKeyQuotaAccount describes an opencode_go, openrouter, or litellm account
+// for the provider alias. The config is resolved first so the profile default
+// base URL and the api_key_env credential apply. The account key is the alias
+// key, so it does not depend on the API key, base URL, or provider type.
+func apiKeyQuotaAccount(alias string, cfg config.ProviderConfig, httpClient *http.Client) quota.Account {
 	resolved := ResolveProviderConfig(cfg)
 	providerType := string(resolved.Type)
 	acct := quota.Account{
-		Key:          apiKeyQuotaAccountKey(providerType, resolved.BaseURL, resolved.APIKey),
+		Key:          quota.APIKeyAccountKey(alias),
 		ProviderType: providerType,
 	}
 	if resolved.APIKey == "" {
@@ -99,6 +100,7 @@ func apiKeyQuotaAccount(cfg config.ProviderConfig, httpClient *http.Client) quot
 		ProviderType: providerType,
 		BaseURL:      resolved.BaseURL,
 		APIKey:       resolved.APIKey,
+		AccountKey:   acct.Key,
 	}, httpClient)
 	if err != nil {
 		// Unreachable for the three supported types; kept so a future type

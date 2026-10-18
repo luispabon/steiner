@@ -113,10 +113,7 @@ func TestBuildQuotaAccountsClaudeSubscription(t *testing.T) {
 func TestBuildQuotaAccountsAPIKey(t *testing.T) {
 	quotaRegistryTestIsolate(t)
 
-	const (
-		litellmBase = "https://litellm.test"
-		goBase      = "https://opencode.ai/zen/go/v1"
-	)
+	const litellmBase = "https://litellm.test"
 	tests := []struct {
 		name            string
 		cfg             config.ProviderConfig
@@ -129,41 +126,41 @@ func TestBuildQuotaAccountsAPIKey(t *testing.T) {
 			name:     "opencode_go literal key",
 			cfg:      config.ProviderConfig{Type: config.ProviderTypeOpencodeGo, BaseURL: "https://opencode.test", APIKey: "sk-go"},
 			wantType: "opencode_go",
-			wantKey:  quota.APIKeyAccountKey("opencode_go", "https://opencode.test", "sk-go"),
+			wantKey:  "provider:api",
 		},
 		{
 			name:     "opencode_go default base URL",
 			cfg:      config.ProviderConfig{Type: config.ProviderTypeOpencodeGo, APIKey: "sk-go"},
 			wantType: "opencode_go",
-			wantKey:  quota.APIKeyAccountKey("opencode_go", goBase, "sk-go"),
+			wantKey:  "provider:api",
 		},
 		{
 			name:     "openrouter key from api_key_env",
 			cfg:      config.ProviderConfig{Type: config.ProviderTypeOpenRouter, BaseURL: "https://openrouter.test/api/v1", APIKeyEnv: quotaRegistryTestKeyEnv},
 			env:      "sk-env",
 			wantType: "openrouter",
-			wantKey:  quota.APIKeyAccountKey("openrouter", "https://openrouter.test/api/v1", "sk-env"),
+			wantKey:  "provider:api",
 		},
 		{
 			name:            "openrouter empty api_key_env",
 			cfg:             config.ProviderConfig{Type: config.ProviderTypeOpenRouter, BaseURL: "https://openrouter.test/api/v1", APIKeyEnv: quotaRegistryTestKeyEnv},
 			env:             "",
 			wantType:        "openrouter",
-			wantKey:         quota.APIKeyAccountKey("openrouter", "https://openrouter.test/api/v1", ""),
+			wantKey:         "provider:api",
 			wantUnavailable: "no API key",
 		},
 		{
 			name:            "litellm without key",
 			cfg:             config.ProviderConfig{Type: config.ProviderTypeLiteLLM, BaseURL: litellmBase},
 			wantType:        "litellm",
-			wantKey:         quota.APIKeyAccountKey("litellm", litellmBase, ""),
+			wantKey:         "provider:api",
 			wantUnavailable: "no API key",
 		},
 		{
 			name:     "litellm literal key",
 			cfg:      config.ProviderConfig{Type: config.ProviderTypeLiteLLM, BaseURL: litellmBase, APIKey: "sk-litellm"},
 			wantType: "litellm",
-			wantKey:  quota.APIKeyAccountKey("litellm", litellmBase, "sk-litellm"),
+			wantKey:  "provider:api",
 		},
 	}
 	for _, tc := range tests {
@@ -254,37 +251,39 @@ func TestQuotaRegistryMergesCodexAliases(t *testing.T) {
 	}
 }
 
-func TestQuotaRegistryEquivalentBaseURLsMergeInService(t *testing.T) {
+func TestQuotaRegistryAliasKeyIgnoresCredentials(t *testing.T) {
 	quotaRegistryTestIsolate(t)
 
+	// Rotating the key and base URL of one alias keeps its account key.
+	before := BuildQuotaAccounts(map[string]config.ProviderConfig{
+		"litellm": {Type: config.ProviderTypeLiteLLM, BaseURL: "https://litellm.test/v1", APIKey: "sk-old"},
+	}, QuotaRegistryDeps{})
+	after := BuildQuotaAccounts(map[string]config.ProviderConfig{
+		"litellm": {Type: config.ProviderTypeLiteLLM, BaseURL: "https://other.test", APIKey: "sk-new"},
+	}, QuotaRegistryDeps{})
+	if len(before) != 1 || len(after) != 1 {
+		t.Fatalf("accounts = %d and %d, want 1 and 1", len(before), len(after))
+	}
+	if before[0].Key != "provider:litellm" || after[0].Key != "provider:litellm" {
+		t.Errorf("keys = %q and %q, want provider:litellm for both", before[0].Key, after[0].Key)
+	}
+
+	// Two aliases with identical credentials stay two accounts.
 	svc := quota.NewService(quota.ServiceOptions{})
 	for _, acct := range BuildQuotaAccounts(map[string]config.ProviderConfig{
 		"litellm-a": {Type: config.ProviderTypeLiteLLM, BaseURL: "https://litellm.test/v1", APIKey: "sk-litellm"},
-		"litellm-b": {Type: config.ProviderTypeLiteLLM, BaseURL: " https://litellm.test/v1/ ", APIKey: "sk-litellm"},
-		"litellm-c": {Type: config.ProviderTypeLiteLLM, BaseURL: "https://litellm.test", APIKey: "sk-litellm"},
+		"litellm-b": {Type: config.ProviderTypeLiteLLM, BaseURL: "https://litellm.test/v1", APIKey: "sk-litellm"},
 	}, QuotaRegistryDeps{}) {
 		svc.Register(acct)
 	}
-
-	wantV1 := quota.APIKeyAccountKey("litellm", "https://litellm.test/v1", "sk-litellm")
-	for _, alias := range []string{"litellm-a", "litellm-b"} {
-		if key, ok := quotaViewKeyForAlias(svc, alias); !ok || key != wantV1 {
-			t.Errorf("active view for %q = %q, %v; want %q, true", alias, key, ok, wantV1)
-		}
-	}
-	if key, ok := quotaViewKeyForAlias(svc, "litellm-c"); !ok || key == wantV1 {
-		t.Errorf("active view for litellm-c = %q, %v; want a key other than %q", key, ok, wantV1)
-	}
-
 	views := svc.Views("")
 	if len(views) != 2 {
-		t.Fatalf("views = %d, want 2 (equivalent aliases merged, /v1-less alias separate)", len(views))
+		t.Fatalf("views = %d, want 2", len(views))
 	}
-	if views[0].Key != wantV1 || views[0].DisplayAlias != "litellm-a" {
-		t.Errorf("view[0] = key %q alias %q, want %q and litellm-a", views[0].Key, views[0].DisplayAlias, wantV1)
-	}
-	if views[1].DisplayAlias != "litellm-c" {
-		t.Errorf("view[1] alias = %q, want litellm-c", views[1].DisplayAlias)
+	for i, alias := range []string{"litellm-a", "litellm-b"} {
+		if views[i].Key != "provider:"+alias || views[i].DisplayAlias != alias {
+			t.Errorf("view[%d] = key %q alias %q, want provider:%s and %s", i, views[i].Key, views[i].DisplayAlias, alias, alias)
+		}
 	}
 }
 

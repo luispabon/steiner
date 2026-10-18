@@ -111,10 +111,10 @@ func TestNewAPIKeyQuotaFetcherRejectsUnsupportedProvider(t *testing.T) {
 
 func TestAPIKeyQuotaFetchOpenCodeGoFixture(t *testing.T) {
 	srv := apiKeyQuotaServer(t, "Bearer sk-test", "/zen/go/v1/usage", http.StatusOK, apiKeyQuotaFixture(t, "opencode_go_usage.json"))
-	snap := apiKeyQuotaFetch(t, APIKeyQuotaConfig{ProviderType: "opencode_go", BaseURL: " " + srv.URL + "/zen/go/v1/ ", APIKey: "sk-test"}, srv.Client())
+	snap := apiKeyQuotaFetch(t, APIKeyQuotaConfig{ProviderType: "opencode_go", BaseURL: " " + srv.URL + "/zen/go/v1/ ", APIKey: "sk-test", AccountKey: "provider:main"}, srv.Client())
 
-	if want := quota.APIKeyAccountKey("opencode_go", srv.URL+"/zen/go/v1", "sk-test"); snap.AccountKey != want {
-		t.Errorf("AccountKey = %q, want %q", snap.AccountKey, want)
+	if snap.AccountKey != "provider:main" {
+		t.Errorf("AccountKey = %q, want provider:main", snap.AccountKey)
 	}
 	if snap.ProviderType != "opencode_go" || snap.Source != quota.SourceFetch || snap.FetchedAt.IsZero() {
 		t.Errorf("snapshot = {ProviderType:%q Source:%q FetchedAt zero:%t}, want opencode_go, fetch, set", snap.ProviderType, snap.Source, snap.FetchedAt.IsZero())
@@ -341,24 +341,20 @@ func TestAPIKeyQuotaFetchErrors(t *testing.T) {
 	}
 }
 
-func TestAPIKeyQuotaAccountKeyNormalizesBaseURL(t *testing.T) {
+func TestAPIKeyQuotaSnapshotUsesConfiguredAccountKey(t *testing.T) {
 	body := apiKeyQuotaFixture(t, "litellm_key_info.json")
 	srv := apiKeyQuotaServer(t, "Bearer sk-test", "/key/info", http.StatusOK, body)
 
-	want := quota.APIKeyAccountKey("litellm", srv.URL+"/v1", "sk-test")
 	for _, base := range []string{
 		srv.URL + "/v1",
 		" " + srv.URL + "/v1 ",
 		srv.URL + "/v1/",
 		" " + srv.URL + "/v1/ ",
 	} {
-		snap := apiKeyQuotaFetch(t, APIKeyQuotaConfig{ProviderType: "litellm", BaseURL: base, APIKey: "sk-test"}, srv.Client())
-		if snap.AccountKey != want {
-			t.Errorf("base %q: AccountKey = %q, want %q", base, snap.AccountKey, want)
+		snap := apiKeyQuotaFetch(t, APIKeyQuotaConfig{ProviderType: "litellm", BaseURL: base, APIKey: "sk-test", AccountKey: "provider:litellm"}, srv.Client())
+		if snap.AccountKey != "provider:litellm" {
+			t.Errorf("base %q: AccountKey = %q, want provider:litellm", base, snap.AccountKey)
 		}
-	}
-	if noV1 := quota.APIKeyAccountKey("litellm", srv.URL, "sk-test"); noV1 == want {
-		t.Errorf("AccountKey without /v1 equals the /v1 key %q; /v1 must stay part of the identity", want)
 	}
 }
 
@@ -367,16 +363,13 @@ func TestAPIKeyQuotaAccountKeyFollowsKeyWithoutRawKey(t *testing.T) {
 	first := apiKeyQuotaServer(t, "Bearer sk-first-secret", "/key/info", http.StatusOK, body)
 	second := apiKeyQuotaServer(t, "Bearer sk-second-secret", "/key/info", http.StatusOK, body)
 
-	gotFirst := apiKeyQuotaFetch(t, APIKeyQuotaConfig{ProviderType: "litellm", BaseURL: first.URL + "/v1", APIKey: "sk-first-secret"}, first.Client())
-	gotSecond := apiKeyQuotaFetch(t, APIKeyQuotaConfig{ProviderType: "litellm", BaseURL: second.URL + "/v1", APIKey: "sk-second-secret"}, second.Client())
+	gotFirst := apiKeyQuotaFetch(t, APIKeyQuotaConfig{ProviderType: "litellm", BaseURL: first.URL + "/v1", APIKey: "sk-first-secret", AccountKey: "provider:litellm"}, first.Client())
+	gotSecond := apiKeyQuotaFetch(t, APIKeyQuotaConfig{ProviderType: "litellm", BaseURL: second.URL + "/v1", APIKey: "sk-second-secret", AccountKey: "provider:litellm"}, second.Client())
 
-	if gotFirst.AccountKey == gotSecond.AccountKey {
-		t.Errorf("AccountKey is the same for different API keys: %q", gotFirst.AccountKey)
-	}
-	if want := quota.APIKeyAccountKey("litellm", first.URL+"/v1", "sk-first-secret"); gotFirst.AccountKey != want {
-		t.Errorf("AccountKey = %q, want %q", gotFirst.AccountKey, want)
-	}
 	for _, snap := range []quota.Snapshot{gotFirst, gotSecond} {
+		if snap.AccountKey != "provider:litellm" {
+			t.Errorf("AccountKey = %q, want provider:litellm for either API key", snap.AccountKey)
+		}
 		encoded, err := json.Marshal(snap)
 		if err != nil {
 			t.Fatalf("marshal snapshot: %v", err)
