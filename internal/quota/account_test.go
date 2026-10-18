@@ -1,44 +1,48 @@
 package quota
 
-import (
-	"regexp"
-	"testing"
-)
+import "testing"
 
 func TestAPIKeyAccountKey(t *testing.T) {
-	const apiKey = "sk-secret-value"
-	base := APIKeyAccountKey("openai", "https://api.example.com", apiKey)
-
-	shape := regexp.MustCompile(`^openai:[0-9a-f]{16}$`)
-	if !shape.MatchString(base) {
-		t.Errorf("key %q does not match providerType:16 hex characters", base)
-	}
-
 	tests := []struct {
-		name         string
-		providerType string
-		baseURL      string
-		apiKey       string
-		wantSame     bool
+		alias string
+		want  string
 	}{
-		{"same inputs", "openai", "https://api.example.com", apiKey, true},
-		{"different api key", "openai", "https://api.example.com", "sk-other", false},
-		{"different base url", "openai", "https://other.example.com", apiKey, false},
-		{"different provider type", "anthropic", "https://api.example.com", apiKey, false},
+		{"main", "provider:main"},
+		{"litellm-b", "provider:litellm-b"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := APIKeyAccountKey(tt.providerType, tt.baseURL, tt.apiKey)
-			if (got == base) != tt.wantSame {
-				t.Errorf("key = %q, same as base %q: %v, want %v", got, base, got == base, tt.wantSame)
-			}
-		})
+		if got := APIKeyAccountKey(tt.alias); got != tt.want {
+			t.Errorf("APIKeyAccountKey(%q) = %q, want %q", tt.alias, got, tt.want)
+		}
 	}
 }
 
-func TestAPIKeyAccountKeyOmitsRawKey(t *testing.T) {
-	const apiKey = "sk-secret-value"
-	if key := APIKeyAccountKey("openai", "https://api.example.com", apiKey); regexp.MustCompile(`sk-secret`).MatchString(key) {
-		t.Errorf("account key %q leaks the raw API key", key)
+func TestIsLegacyAPIKeyAccountKey(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		want bool
+	}{
+		{"opencode_go fingerprint", "opencode_go:0123456789abcdef", true},
+		{"openrouter fingerprint", "openrouter:0123456789abcdef", true},
+		{"litellm fingerprint", "litellm:fedcba9876543210", true},
+		{"alias key", APIKeyAccountKey("main"), false},
+		{"alias key shaped like a fingerprint", "provider:0123456789abcdef", false},
+		{"codex account", "codex:acct-1", false},
+		{"claude subscription", "claude_subscription", false},
+		{"provider type not in the legacy list", "openai:0123456789abcdef", false},
+		{"fifteen hex characters", "openrouter:0123456789abcde", false},
+		{"seventeen hex characters", "openrouter:0123456789abcdef0", false},
+		{"uppercase hex", "openrouter:0123456789ABCDEF", false},
+		{"non-hex character", "openrouter:0123456789abcdeg", false},
+		{"no separator", "openrouter0123456789abcdef", false},
+		{"empty", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isLegacyAPIKeyAccountKey(tt.key); got != tt.want {
+				t.Errorf("isLegacyAPIKeyAccountKey(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
 	}
 }

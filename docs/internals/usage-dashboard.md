@@ -9,7 +9,7 @@ User-facing documentation: [Subscription usage dashboard](../user/usage-dashboar
 | File | Responsibility |
 | --- | --- |
 | `snapshot.go` | `Snapshot`, `Window`, `Budget`, `Source`, `Fetcher`, `TimeoutFetcher`, and `FetchOptions`. |
-| `account.go` | `Account` and `APIKeyAccountKey`. |
+| `account.go` | `Account`, `APIKeyAccountKey`, and `isLegacyAPIKeyAccountKey`. |
 | `service*.go` | `Service`: registration, observations, fetch and refresh, merge, and views. |
 | `store.go`, `lock_unix.go`, `lock_other.go` | `Store`: the locked, atomically replaced JSON history file. |
 | `projection.go` | Trend projections for windows and budgets. |
@@ -53,10 +53,11 @@ Passive snapshots have a zero `FetchedAt`, and `Observe` stamps it with the serv
 | --- | --- |
 | `codex` | `codex:<ChatGPT account ID>`, or `codex:unknown` when not signed in. |
 | `claude_subscription` | `claude_subscription`, shared by every alias of that type. |
-| `opencode_go`, `openrouter`, `litellm` | `<provider type>:<first 16 hex characters of SHA-256(baseURL + "\x00" + apiKey)>`. The raw key never appears. |
+| `opencode_go`, `openrouter`, `litellm` | `provider:<configured alias>`, from `APIKeyAccountKey`. The key does not depend on the API key, base URL, project, or provider type. The fetcher copies the same key into its snapshots. |
 
-- Several aliases can map to one key. `Views` returns one `AccountView` per key. `DisplayAlias` is the alphabetically first alias, or the key when there is none.
+- Codex aliases of the same ChatGPT account, and `claude_subscription` aliases, share one key. API-key aliases always have their own key, even with identical credentials. `Views` returns one `AccountView` per key. `DisplayAlias` is the alphabetically first alias, or the key when there is none.
 - `Views` also returns keys that have a stored snapshot but no registration, sorted by `DisplayAlias` and then `Key`.
+- Legacy rows: `Views` skips an unregistered key when `isLegacyAPIKeyAccountKey` matches it. That is the old `<provider type>:<16 lowercase hex>` fingerprint of an `opencode_go`, `openrouter`, or `litellm` account. Such snapshots are not migrated or deleted, and age out under the normal 35-day retention. Other unregistered keys, such as `codex:*` and `claude_subscription`, still appear.
 - Persistence dedupe: `commit` skips the store when the new state equals the latest state (ignoring `FetchedAt` and `Source`) and the account's last successful append was less than an hour ago. `Store.Append` makes the same check against the newest stored snapshot, so separate processes also avoid duplicates.
 
 ## Store
