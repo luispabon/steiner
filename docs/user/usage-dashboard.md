@@ -85,6 +85,6 @@ Steiner reads Claude usage through the `claude` CLI. It never reads Claude crede
 - Stored data is limited to account keys, provider types, plan names, window and budget figures, reset times, credit text, fetch times, and whether each snapshot came from a fetch or a passive observation.
 - Raw API keys are never stored. API-key accounts are identified by their configured provider alias, so the API key and base URL are not part of the identity.
 - Steiner does not read Claude credentials. The `claude` CLI holds the sign-in.
-- An account that is no longer configured still appears with its last stored snapshot.
+- An account that is no longer configured still appears with its last stored snapshot. The exception is a legacy API-key row from an earlier version, a fingerprint-keyed `opencode_go`, `openrouter`, or `litellm` account. Those rows stay hidden.
 
 For the internal design, see [Subscription usage dashboard internals](../internals/usage-dashboard.md).

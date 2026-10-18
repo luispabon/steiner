@@ -40,8 +40,8 @@ func TestIsLegacyAPIKeyAccountKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsLegacyAPIKeyAccountKey(tt.key); got != tt.want {
-				t.Errorf("IsLegacyAPIKeyAccountKey(%q) = %v, want %v", tt.key, got, tt.want)
+			if got := isLegacyAPIKeyAccountKey(tt.key); got != tt.want {
+				t.Errorf("isLegacyAPIKeyAccountKey(%q) = %v, want %v", tt.key, got, tt.want)
 			}
 		})
 	}

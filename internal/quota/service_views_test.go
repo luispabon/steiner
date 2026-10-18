@@ -7,8 +7,15 @@ import (
 )
 
 func TestViewsHideUnregisteredLegacyAPIKeyRows(t *testing.T) {
+	legacyKeys := []string{
+		"opencode_go:0123456789abcdef",
+		"openrouter:0123456789abcdef",
+		"litellm:fedcba9876543210",
+	}
+	otherKeys := []string{"codex:acct-1", "provider:retired"}
+
 	store := NewStore(filepath.Join(t.TempDir(), "quota-history.json"))
-	for _, key := range []string{"openrouter:0123456789abcdef", "codex:acct-1", "provider:retired"} {
+	for _, key := range slices.Concat(legacyKeys, otherKeys) {
 		if err := store.Append(sampleSnapshot(key, testBase, 10), testBase); err != nil {
 			t.Fatalf("seed Append(%s): %v", key, err)
 		}
@@ -33,5 +40,20 @@ func TestViewsHideUnregisteredLegacyAPIKeyRows(t *testing.T) {
 	}
 	if main.Latest == nil || len(main.Latest.Windows) != 1 || main.Latest.Windows[0].UsedPercent != 25 {
 		t.Errorf("registered alias Latest = %+v, want current snapshot at 25%%", main.Latest)
+	}
+
+	// Views only filters: the hidden legacy snapshots remain in the store.
+	stored, err := store.readAll()
+	if err != nil {
+		t.Fatalf("readAll: %v", err)
+	}
+	have := make(map[string]bool)
+	for _, snap := range stored {
+		have[snap.AccountKey] = true
+	}
+	for _, key := range slices.Concat(legacyKeys, otherKeys) {
+		if !have[key] {
+			t.Errorf("stored snapshot for %s missing after Views", key)
+		}
 	}
 }

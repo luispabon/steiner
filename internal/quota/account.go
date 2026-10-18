@@ -26,11 +26,11 @@ func APIKeyAccountKey(alias string) string {
 // were keyed by a fingerprint before APIKeyAccountKey.
 var legacyAPIKeyProviderTypes = []string{"opencode_go", "openrouter", "litellm"}
 
-// IsLegacyAPIKeyAccountKey reports whether key is a fingerprint-format API-key
+// isLegacyAPIKeyAccountKey reports whether key is a fingerprint-format API-key
 // account key: a provider type from legacyAPIKeyProviderTypes, a colon, and 16
 // lowercase hex characters. Other keys, including non-API-key accounts, never
 // match.
-func IsLegacyAPIKeyAccountKey(key string) bool {
+func isLegacyAPIKeyAccountKey(key string) bool {
 	providerType, fingerprint, ok := strings.Cut(key, ":")
 	if !ok || len(fingerprint) != 16 || !slices.Contains(legacyAPIKeyProviderTypes, providerType) {
 		return false

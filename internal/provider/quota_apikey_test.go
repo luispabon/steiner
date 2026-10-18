@@ -358,7 +358,7 @@ func TestAPIKeyQuotaSnapshotUsesConfiguredAccountKey(t *testing.T) {
 	}
 }
 
-func TestAPIKeyQuotaAccountKeyFollowsKeyWithoutRawKey(t *testing.T) {
+func TestAPIKeyQuotaSnapshotKeepsAliasKeyWithoutRawKey(t *testing.T) {
 	body := apiKeyQuotaFixture(t, "litellm_key_info.json")
 	first := apiKeyQuotaServer(t, "Bearer sk-first-secret", "/key/info", http.StatusOK, body)
 	second := apiKeyQuotaServer(t, "Bearer sk-second-secret", "/key/info", http.StatusOK, body)

@@ -21,7 +21,7 @@ type AccountView struct {
 
 // Views returns one AccountView per registered account and per unregistered
 // account with a snapshot, sorted by DisplayAlias and then Key. Unregistered
-// legacy API-key accounts (see IsLegacyAPIKeyAccountKey) are omitted. DisplayAlias
+// legacy API-key accounts (see isLegacyAPIKeyAccountKey) are omitted. DisplayAlias
 // is the alphabetically first alias, or the Key when the account has no aliases.
 // Active marks the account whose aliases include activeProviderAlias.
 func (s *Service) Views(activeProviderAlias string) []AccountView {
@@ -33,7 +33,7 @@ func (s *Service) Views(activeProviderAlias string) []AccountView {
 		views = append(views, s.viewLocked(key, acct, activeProviderAlias))
 	}
 	for key := range s.latest {
-		if _, registered := s.accounts[key]; !registered && !IsLegacyAPIKeyAccountKey(key) {
+		if _, registered := s.accounts[key]; !registered && !isLegacyAPIKeyAccountKey(key) {
 			views = append(views, s.viewLocked(key, Account{}, activeProviderAlias))
 		}
 	}
