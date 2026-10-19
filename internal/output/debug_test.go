@@ -10,18 +10,19 @@ import (
 func TestNewContextTokenBudgetEventPreservesFields(t *testing.T) {
 	notes := []string{"first", "second"}
 	event := newContextTokenBudgetEvent(contextTokenBudgetParams{
-		scope:               "conversation",
-		turn:                4,
-		promptTokens:        1682,
-		rawPromptTokens:     1720,
-		contextWindow:       65536,
-		contextUsagePercent: 3.5,
-		compactionThreshold: 70.5,
-		estimatorPadTokens:  16384,
-		totalTokens:         22162,
-		status:              "ok",
-		truncated:           true,
-		notes:               notes,
+		scope:                     "conversation",
+		turn:                      4,
+		promptTokens:              1682,
+		rawPromptTokens:           1720,
+		contextWindow:             65536,
+		contextUsagePercent:       3.5,
+		compactionThreshold:       70.5,
+		compactionThresholdTokens: 42000,
+		estimatorPadTokens:        16384,
+		totalTokens:               22162,
+		status:                    "ok",
+		truncated:                 true,
+		notes:                     notes,
 	})
 
 	payload, ok := event.Payload.(ContextBudgetEvent)
@@ -29,19 +30,20 @@ func TestNewContextTokenBudgetEventPreservesFields(t *testing.T) {
 		t.Fatalf("payload type = %T, want ContextBudgetEvent", event.Payload)
 	}
 	want := ContextBudgetEvent{
-		Scope:               "conversation",
-		Turn:                4,
-		PromptTokens:        1682,
-		RawPromptTokens:     1720,
-		ContextTokens:       65536,
-		TotalTokens:         22162,
-		Truncated:           true,
-		ContextWindow:       65536,
-		ContextUsagePercent: 3.5,
-		CompactionThreshold: 70.5,
-		EstimatorPadTokens:  16384,
-		Status:              "ok",
-		Notes:               []string{"first", "second"},
+		Scope:                     "conversation",
+		Turn:                      4,
+		PromptTokens:              1682,
+		RawPromptTokens:           1720,
+		ContextTokens:             65536,
+		TotalTokens:               22162,
+		Truncated:                 true,
+		ContextWindow:             65536,
+		ContextUsagePercent:       3.5,
+		CompactionThreshold:       70.5,
+		CompactionThresholdTokens: 42000,
+		EstimatorPadTokens:        16384,
+		Status:                    "ok",
+		Notes:                     []string{"first", "second"},
 	}
 	if !reflect.DeepEqual(payload, want) {
 		t.Fatalf("payload = %+v, want %+v", payload, want)
@@ -79,11 +81,12 @@ func TestFormatContextDiagnosticsEvent(t *testing.T) {
 		{
 			name: "budget kind with tokens",
 			payload: ContextDiagnosticsEvent{
-				Kind:                "budget",
-				PromptTokens:        100,
-				ContextWindow:       4096,
-				ContextUsagePercent: 42.5,
-				Status:              "ok",
+				Kind:                      "budget",
+				PromptTokens:              100,
+				ContextWindow:             4096,
+				ContextUsagePercent:       42.5,
+				CompactionThresholdTokens: 3000,
+				Status:                    "ok",
 			},
 			check: func(t *testing.T, result string) {
 				if !strings.Contains(result, "prompt_tokens=100") {
@@ -94,6 +97,9 @@ func TestFormatContextDiagnosticsEvent(t *testing.T) {
 				}
 				if !strings.Contains(result, "42%") {
 					t.Error("missing usage percent")
+				}
+				if !strings.Contains(result, "compaction_threshold_tokens=3000") {
+					t.Error("missing absolute compaction threshold")
 				}
 			},
 		},

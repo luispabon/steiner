@@ -28,9 +28,9 @@ func TestContextDiagnosticEventJSONPreservesLegacyKindAndFields(t *testing.T) {
 		},
 		{
 			name:      "budget",
-			payload:   ContextBudgetEvent{Turn: 9, ContextTokens: 4096, Status: "ok"},
+			payload:   ContextBudgetEvent{Turn: 9, ContextTokens: 4096, CompactionThresholdTokens: 3000, Status: "ok"},
 			kind:      "budget",
-			fieldText: `"context_tokens":4096`,
+			fieldText: `"compaction_threshold_tokens":3000`,
 		},
 		{
 			name:      "session loaded",
