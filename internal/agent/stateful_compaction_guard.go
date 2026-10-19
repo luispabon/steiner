@@ -69,9 +69,16 @@ func statefulUsageAboveThreshold(usage *provider.UsageStats, contextSize int, th
 	return float64(usage.PromptTokens) >= float64(contextSize)*threshold
 }
 
-func statefulUsageReachesSelectedThreshold(usage *provider.UsageStats, contextSize int, budget prompt.ModelTokenBudget) bool {
+func statefulThresholdTokens(budget prompt.ModelTokenBudget, contextSize int) int {
 	if budget.CompactionThresholdTokens > 0 {
-		return statefulUsageReaches(usage, budget.CompactionThresholdTokens)
+		return budget.CompactionThresholdTokens
+	}
+	return 0
+}
+
+func statefulUsageReachesSelectedThreshold(usage *provider.UsageStats, contextSize int, budget prompt.ModelTokenBudget) bool {
+	if thresholdTokens := statefulThresholdTokens(budget, contextSize); thresholdTokens > 0 {
+		return statefulUsageReaches(usage, thresholdTokens)
 	}
 	return statefulUsageAboveThreshold(usage, contextSize, budget.CompactionThreshold)
 }
