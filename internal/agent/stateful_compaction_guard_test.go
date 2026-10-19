@@ -30,7 +30,8 @@ func TestStatefulUsageAboveThresholdPercentFallback(t *testing.T) {
 	}{
 		{name: "zero percent uses default at threshold", percent: 0, promptTokens: 7000, want: true},
 		{name: "zero percent uses default below threshold", percent: 0, promptTokens: 6999},
-		{name: "negative percent uses default", percent: -1, promptTokens: 7000, want: true},
+		{name: "negative percent uses default below threshold", percent: -1, promptTokens: 6999},
+		{name: "negative percent uses default at threshold", percent: -1, promptTokens: 7000, want: true},
 		{name: "NaN percent uses default at threshold", percent: math.NaN(), promptTokens: 7000, want: true},
 		{name: "NaN percent uses default below threshold", percent: math.NaN(), promptTokens: 6999},
 		{name: "positive percent overrides default at threshold", percent: 0.5, promptTokens: 5000, want: true},

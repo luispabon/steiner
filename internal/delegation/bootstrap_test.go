@@ -1113,6 +1113,7 @@ func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 				ContextWindow:             128000,
 				MaxOutputTokens:           8192,
 				CompactionThreshold:       0.70,
+				CompactionThresholdTokens: 9000,
 				EstimatorPadTokens:        1280,
 				NormalSummaryMaxTokens:    8192,
 				EmergencySummaryMaxTokens: 5120,
@@ -1127,6 +1128,12 @@ func TestBuildChildRunIncludesModelBudget(t *testing.T) {
 	}
 	if req.ModelBudget != wantBudget {
 		t.Errorf("ModelBudget=%+v, want %+v", req.ModelBudget, wantBudget)
+	}
+	if req.ModelBudget.ContextSize != 128000 {
+		t.Errorf("ModelBudget.ContextSize=%d, want 128000", req.ModelBudget.ContextSize)
+	}
+	if req.ModelBudget.CompactionThresholdTokens != 9000 {
+		t.Errorf("ModelBudget.CompactionThresholdTokens=%d, want 9000", req.ModelBudget.CompactionThresholdTokens)
 	}
 }
 
