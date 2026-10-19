@@ -53,7 +53,8 @@ func applyFacts(rm *ResolvedModel, facts ModelFacts, useDiscovery bool) {
 		return
 	}
 
-	rm.EffectiveLimits = deriveEffectiveLimits(facts.ContextWindow.Value, facts.MaxOutputTokens.Value)
+	configuredThreshold := rm.EffectiveLimits.CompactionThresholdTokens
+	rm.EffectiveLimits = deriveEffectiveLimits(facts.ContextWindow.Value, facts.MaxOutputTokens.Value, configuredThreshold)
 	rm.MetadataSource, rm.Confidence = deriveMetadataSourceAndConfidence(facts)
 
 	if facts.Vision.Known {

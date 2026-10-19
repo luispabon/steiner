@@ -41,8 +41,15 @@ func appendModelProblems(problems *[]string, prefix string, model ModelConfig, p
 	default:
 		*problems = append(*problems, fmt.Sprintf("%s.advanced.transport %q is not supported", prefix, model.Advanced.Transport))
 	}
+	appendAdvancedLimitsProblems(problems, prefix+".advanced.limits", model.Advanced.Limits)
 	appendReasoningProblems(problems, prefix+".advanced.reasoning", model.Advanced.Reasoning)
 	appendRetryProblems(problems, prefix+".retry", model.Retry)
+}
+
+func appendAdvancedLimitsProblems(problems *[]string, path string, limits AdvancedLimitsConfig) {
+	if limits.CompactionThresholdTokensExplicit() && limits.CompactionThresholdTokens <= 0 {
+		*problems = append(*problems, fmt.Sprintf("%s.compaction_threshold_tokens must be greater than zero", path))
+	}
 }
 
 func appendReasoningProblems(problems *[]string, path string, reasoning ReasoningConfig) {

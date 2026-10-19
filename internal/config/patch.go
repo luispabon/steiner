@@ -103,8 +103,9 @@ type modelCodexPatch struct {
 }
 
 type advancedLimitsPatch struct {
-	ContextWindow   *int `yaml:"context_window"`
-	MaxOutputTokens *int `yaml:"max_output_tokens"`
+	ContextWindow             *int `yaml:"context_window"`
+	MaxOutputTokens           *int `yaml:"max_output_tokens"`
+	CompactionThresholdTokens *int `yaml:"compaction_threshold_tokens"`
 }
 
 type reasoningPatch struct {

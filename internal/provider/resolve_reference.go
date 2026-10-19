@@ -78,6 +78,9 @@ func resolveReferenceWithLoader(ctx context.Context, cfg *config.Config, referen
 	if !useDiscovery {
 		facts, _, _ := resolveFacts(ctx, ref, []factSource{configSource{}, providerFixedSource{}, builtinSource{}})
 		applyFacts(&rm, facts, false)
+		if err := validateCompactionThreshold(rm); err != nil {
+			return ResolvedModel{}, err
+		}
 		return rm, nil
 	}
 
@@ -93,6 +96,17 @@ func resolveReferenceWithLoader(ctx context.Context, cfg *config.Config, referen
 	}
 	facts, notes, sourceErrs := resolveFacts(ctx, ref, sources)
 	applyFacts(&rm, facts, true)
+	if err := validateCompactionThreshold(rm); err != nil {
+		return ResolvedModel{}, err
+	}
 	rm.Warnings = append(rm.Warnings, deriveWarnings(ref, facts, notes, sourceErrs)...)
 	return rm, nil
+}
+
+func validateCompactionThreshold(rm ResolvedModel) error {
+	threshold := rm.EffectiveLimits.CompactionThresholdTokens
+	if threshold > 0 && threshold >= rm.EffectiveLimits.ContextWindow {
+		return fmt.Errorf("model %q compaction_threshold_tokens %d must be less than effective context window %d", rm.Alias, threshold, rm.EffectiveLimits.ContextWindow)
+	}
+	return nil
 }
