@@ -176,6 +176,47 @@ func TestModelTokenBudgetFitCompactionRequestUsesSummaryReserve(t *testing.T) {
 	}
 }
 
+func TestModelTokenBudgetFitRequestUsesAbsoluteCompactionThreshold(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	request := provider.ChatRequest{
+		Model:    "gpt-4o",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "review the request"}},
+	}
+	promptTokens, err := provider.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+
+	for _, tt := range []struct {
+		name        string
+		threshold   int
+		wantCompact bool
+	}{
+		{name: "below", threshold: promptTokens + 1, wantCompact: false},
+		{name: "at", threshold: promptTokens, wantCompact: true},
+		{name: "above", threshold: promptTokens - 1, wantCompact: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			budget := ModelTokenBudget{
+				ContextSize:               promptTokens * 2,
+				CompactionThresholdTokens: tt.threshold,
+			}
+			fit, err := budget.FitRequest(ctx, request)
+			if err != nil {
+				t.Fatalf("FitRequest() error = %v", err)
+			}
+			if fit.ShouldCompact != tt.wantCompact {
+				t.Fatalf("FitRequest().ShouldCompact = %v, want %v (fit=%+v)", fit.ShouldCompact, tt.wantCompact, fit)
+			}
+			if got, want := fit.CompactionThresholdTokens, tt.threshold; got != want {
+				t.Fatalf("CompactionThresholdTokens = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
 func TestModelTokenBudgetFitRequestRequestsCompactionAtSeventyPercentUsage(t *testing.T) {
 	t.Parallel()
 

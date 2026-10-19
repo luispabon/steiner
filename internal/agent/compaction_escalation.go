@@ -21,7 +21,14 @@ func needsEmergencyCompaction(fit prompt.RequestTokenBudget) bool {
 	if fit.ContextSize <= 0 {
 		return false
 	}
-	return fit.PromptUsage >= compactionUsageThreshold
+	if fit.CompactionThresholdTokens > 0 {
+		return fit.EstimatedPromptTokens >= fit.CompactionThresholdTokens
+	}
+	threshold := fit.CompactionThreshold
+	if threshold <= 0 {
+		threshold = compactionUsageThreshold
+	}
+	return fit.PromptUsage >= threshold
 }
 
 func emergencyCompactionError(fit prompt.RequestTokenBudget) error {

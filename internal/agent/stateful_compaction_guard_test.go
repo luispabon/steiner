@@ -10,6 +10,19 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+func TestStatefulThresholdTokensUsesExplicitAbsoluteTarget(t *testing.T) {
+	budget := prompt.ModelTokenBudget{ContextSize: 10000, CompactionThresholdTokens: 4200}
+	if got := statefulThresholdTokens(budget, budget.ContextSize); got != 4200 {
+		t.Fatalf("statefulThresholdTokens() = %d, want 4200", got)
+	}
+	if !statefulUsageReachesSelectedThreshold(&provider.UsageStats{PromptTokens: 4200}, 10000, budget) {
+		t.Fatal("statefulUsageReachesSelectedThreshold() = false at explicit threshold")
+	}
+	if statefulUsageReachesSelectedThreshold(&provider.UsageStats{PromptTokens: 4199}, 10000, budget) {
+		t.Fatal("statefulUsageReachesSelectedThreshold() = true below explicit threshold")
+	}
+}
+
 func TestStatefulReleaseTokens(t *testing.T) {
 	tests := []struct {
 		name        string

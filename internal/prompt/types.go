@@ -67,6 +67,11 @@ type ModelTokenBudget struct {
 	SummaryMaxTokens          int
 	NormalSummaryMaxTokens    int
 	EmergencySummaryMaxTokens int
+	// CompactionThreshold is the percentage soft trigger, retained for compatibility.
+	CompactionThreshold float64
+	// CompactionThresholdTokens is the optional absolute prompt-token soft trigger.
+	// A non-positive value uses the default percentage threshold.
+	CompactionThresholdTokens int
 }
 
 // RequestTokenBudget is the result of fitting a request into a model budget.
@@ -74,14 +79,17 @@ type RequestTokenBudget struct {
 	RawEstimatedPromptTokens int
 	EstimatedPromptTokens    int
 	PromptUsage              float64
-	CompactionThreshold      float64
-	HardLimitTokens          int
-	ShouldCompact            bool
-	ReservedCompletionTokens int
-	SafetyMarginTokens       int
-	TotalTokens              int
-	ContextSize              int
-	Fits                     bool
+	// CompactionThreshold is the selected soft trigger as a fraction of the
+	// context window, retained for compatibility with existing callers.
+	CompactionThreshold       float64
+	CompactionThresholdTokens int
+	HardLimitTokens           int
+	ShouldCompact             bool
+	ReservedCompletionTokens  int
+	SafetyMarginTokens        int
+	TotalTokens               int
+	ContextSize               int
+	Fits                      bool
 }
 
 // AssemblyPolicy configures prompt assembly budgets.

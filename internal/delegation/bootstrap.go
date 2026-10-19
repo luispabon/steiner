@@ -81,6 +81,8 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		SummaryMaxTokens:          override.ResolvedModel.EffectiveLimits.NormalSummaryMaxTokens,
 		NormalSummaryMaxTokens:    override.ResolvedModel.EffectiveLimits.NormalSummaryMaxTokens,
 		EmergencySummaryMaxTokens: override.ResolvedModel.EffectiveLimits.EmergencySummaryMaxTokens,
+		CompactionThreshold:       override.ResolvedModel.EffectiveLimits.CompactionThreshold,
+		CompactionThresholdTokens: override.ResolvedModel.EffectiveLimits.CompactionThresholdTokens,
 	}
 
 	promptOpts := buildChildPrompt(childPromptParams{
