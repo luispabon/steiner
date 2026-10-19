@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -76,9 +77,17 @@ func printModelInspect(out io.Writer, rm provider.ResolvedModel) error {
 	); err != nil {
 		return err
 	}
+	thresholdPolicy := fmt.Sprintf("default percentage policy (%.2f)", rm.EffectiveLimits.CompactionThreshold)
+	thresholdTokens := int(math.Ceil(float64(rm.EffectiveLimits.ContextWindow) * rm.EffectiveLimits.CompactionThreshold))
+	if rm.EffectiveLimits.CompactionThresholdTokens > 0 {
+		thresholdPolicy = fmt.Sprintf("configured token policy (%d tokens)", rm.EffectiveLimits.CompactionThresholdTokens)
+		thresholdTokens = rm.EffectiveLimits.CompactionThresholdTokens
+	}
 	if _, err := fmt.Fprintf(out,
-		"derived_policy:\n  compaction_threshold: %.2f\n  estimator_pad_tokens: %d\n  normal_summary_token_budget: %d\n  emergency_summary_token_budget: %d\n",
+		"derived_policy:\n  compaction_threshold: %.2f\n  compaction_threshold_policy: %s\n  effective_compaction_threshold_tokens: %d\n  estimator_pad_tokens: %d\n  normal_summary_token_budget: %d\n  emergency_summary_token_budget: %d\n",
 		rm.EffectiveLimits.CompactionThreshold,
+		thresholdPolicy,
+		thresholdTokens,
 		rm.EffectiveLimits.EstimatorPadTokens,
 		rm.EffectiveLimits.NormalSummaryMaxTokens,
 		rm.EffectiveLimits.EmergencySummaryMaxTokens,

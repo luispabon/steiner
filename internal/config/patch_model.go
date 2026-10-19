@@ -103,6 +103,10 @@ func applyAdvancedPatch(dst *AdvancedConfig, patch *advancedPatch) {
 func applyAdvancedLimitsPatch(dst *AdvancedLimitsConfig, patch *advancedLimitsPatch) {
 	setIfPresent(&dst.ContextWindow, patch.ContextWindow)
 	setIfPresent(&dst.MaxOutputTokens, patch.MaxOutputTokens)
+	if patch.CompactionThresholdTokens != nil {
+		dst.CompactionThresholdTokens = *patch.CompactionThresholdTokens
+		dst.compactionThresholdSet = true
+	}
 }
 
 func applyReasoningPatch(dst *ReasoningConfig, patch *reasoningPatch) {

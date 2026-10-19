@@ -14,6 +14,7 @@ import (
 type EffectiveLimits struct {
 	ContextWindow             int
 	MaxOutputTokens           int
+	CompactionThresholdTokens int
 	CompactionThreshold       float64
 	EstimatorPadTokens        int
 	NormalSummaryMaxTokens    int
@@ -110,13 +111,14 @@ func resolveEffectiveLimits(adv config.AdvancedLimitsConfig) EffectiveLimits {
 		cw = defaultContextWindow
 		maxOut = defaultMaxOutputTokens
 	}
-	return deriveEffectiveLimits(cw, maxOut)
+	return deriveEffectiveLimits(cw, maxOut, adv.CompactionThresholdTokens)
 }
 
-func deriveEffectiveLimits(contextWindow, maxOutputTokens int) EffectiveLimits {
+func deriveEffectiveLimits(contextWindow, maxOutputTokens, compactionThresholdTokens int) EffectiveLimits {
 	return EffectiveLimits{
 		ContextWindow:             contextWindow,
 		MaxOutputTokens:           maxOutputTokens,
+		CompactionThresholdTokens: compactionThresholdTokens,
 		CompactionThreshold:       0.70,
 		EstimatorPadTokens:        clampInt(contextWindow/100, 256, 2048),
 		NormalSummaryMaxTokens:    deriveSummaryMaxTokens(contextWindow, maxOutputTokens, 8, 6144, 20480),

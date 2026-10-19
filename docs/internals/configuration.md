@@ -64,6 +64,10 @@ Every resolved fact carries its own provenance (`provider.ModelFacts`, exposed a
 
 Warnings are derived once, from the final resolved facts, not from individual lookups that lost precedence to a higher-priority source. Only two situations produce a warning: a source that was actually consulted failed outright (e.g. the models.dev cache could not be loaded at all), or the context window ended up on the conservative fallback default. A models.dev lookup that returns `provider_mismatch`/`not_found` for a fact that another source already answered (e.g. limits fully configured) produces no warning — it remains visible only as a `note` in `model inspect`'s `facts:` block. This reverses the pre-stage-B behavior of warning on every degraded models.dev lookup regardless of whether it mattered.
 
+## Model compaction threshold validation
+
+`models.definitions.<alias>.advanced.limits.compaction_threshold_tokens` is optional. The model patch preserves whether the field was explicitly set so an absent value remains unconfigured; runtime resolution then falls back to 70% of the effective context window. Configuration validation rejects an explicitly configured value of zero or less. After model facts and overrides resolve the final context window, resolution rejects a configured threshold at or above that window. This field controls the soft compaction trigger only; hard request fitting remains separate and accounts for the completion reserve and estimator pad.
+
 ## Logging handler
 
 When file logging is enabled, Steiner installs a process-wide `slog` handler at the configured level. It writes to a sibling `*.slog` file next to the session log, or discards records when no session log is configured. The interactive TUI does not receive `slog` output on stderr. The session log is JSONL, starts each run with a `log_started` record, and is size-capped and rotated. The user page documents the fields and defaults; this section records the handler and file-routing behavior.

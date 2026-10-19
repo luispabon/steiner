@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 
@@ -9,6 +10,42 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
+
+func TestStatefulUsageReachesSelectedThresholdUsesExplicitAbsoluteTarget(t *testing.T) {
+	budget := prompt.ModelTokenBudget{ContextSize: 10000, CompactionThresholdTokens: 4200}
+	if !statefulUsageReachesSelectedThreshold(&provider.UsageStats{PromptTokens: 4200}, 10000, budget) {
+		t.Fatal("statefulUsageReachesSelectedThreshold() = false at explicit threshold")
+	}
+	if statefulUsageReachesSelectedThreshold(&provider.UsageStats{PromptTokens: 4199}, 10000, budget) {
+		t.Fatal("statefulUsageReachesSelectedThreshold() = true below explicit threshold")
+	}
+}
+
+func TestStatefulUsageAboveThresholdPercentFallback(t *testing.T) {
+	tests := []struct {
+		name         string
+		percent      float64
+		promptTokens int
+		want         bool
+	}{
+		{name: "zero percent uses default at threshold", percent: 0, promptTokens: 7000, want: true},
+		{name: "zero percent uses default below threshold", percent: 0, promptTokens: 6999},
+		{name: "negative percent uses default below threshold", percent: -1, promptTokens: 6999},
+		{name: "negative percent uses default at threshold", percent: -1, promptTokens: 7000, want: true},
+		{name: "NaN percent uses default at threshold", percent: math.NaN(), promptTokens: 7000, want: true},
+		{name: "NaN percent uses default below threshold", percent: math.NaN(), promptTokens: 6999},
+		{name: "positive percent overrides default at threshold", percent: 0.5, promptTokens: 5000, want: true},
+		{name: "positive percent overrides default below threshold", percent: 0.5, promptTokens: 4999},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			usage := &provider.UsageStats{PromptTokens: tt.promptTokens}
+			if got := statefulUsageAboveThreshold(usage, 10000, tt.percent); got != tt.want {
+				t.Errorf("statefulUsageAboveThreshold(%d, 10000, %v) = %v, want %v", tt.promptTokens, tt.percent, got, tt.want)
+			}
+		})
+	}
+}
 
 func TestStatefulReleaseTokens(t *testing.T) {
 	tests := []struct {

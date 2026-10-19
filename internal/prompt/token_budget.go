@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -19,6 +20,8 @@ func ModelBudgetFromEffectiveLimits(limits provider.EffectiveLimits) ModelTokenB
 		SummaryMaxTokens:          limits.NormalSummaryMaxTokens,
 		NormalSummaryMaxTokens:    limits.NormalSummaryMaxTokens,
 		EmergencySummaryMaxTokens: limits.EmergencySummaryMaxTokens,
+		CompactionThreshold:       limits.CompactionThreshold,
+		CompactionThresholdTokens: limits.CompactionThresholdTokens,
 	}
 }
 
@@ -73,17 +76,18 @@ func (m ModelTokenBudget) fit(ctx context.Context, request provider.ChatRequest,
 	total := estimatedPromptTokens + completionReserve + m.SafetyMarginTokens
 	fit := m.ContextSize <= 0 || total <= m.ContextSize
 	return RequestTokenBudget{
-		EstimatedPromptTokens:    estimatedPromptTokens,
-		RawEstimatedPromptTokens: estimate.RawTokens,
-		PromptUsage:              promptUsage(estimatedPromptTokens, m.ContextSize),
-		CompactionThreshold:      normalPromptCompactionThreshold,
-		HardLimitTokens:          hardPromptLimit(m.ContextSize, m.SafetyMarginTokens),
-		ShouldCompact:            shouldCompactPrompt(estimatedPromptTokens, m.ContextSize, m.SafetyMarginTokens),
-		ReservedCompletionTokens: completionReserve,
-		SafetyMarginTokens:       m.SafetyMarginTokens,
-		TotalTokens:              total,
-		ContextSize:              m.ContextSize,
-		Fits:                     fit,
+		EstimatedPromptTokens:     estimatedPromptTokens,
+		RawEstimatedPromptTokens:  estimate.RawTokens,
+		PromptUsage:               promptUsage(estimatedPromptTokens, m.ContextSize),
+		CompactionThreshold:       m.compactionThresholdPercent(),
+		CompactionThresholdTokens: m.compactionThresholdTokens(),
+		HardLimitTokens:           hardPromptLimit(m.ContextSize, m.SafetyMarginTokens),
+		ShouldCompact:             shouldCompactPrompt(estimatedPromptTokens, m),
+		ReservedCompletionTokens:  completionReserve,
+		SafetyMarginTokens:        m.SafetyMarginTokens,
+		TotalTokens:               total,
+		ContextSize:               m.ContextSize,
+		Fits:                      fit,
 	}, nil
 }
 
@@ -105,16 +109,35 @@ func hardPromptLimit(contextTokens, estimatorPadTokens int) int {
 	return limit
 }
 
-func shouldCompactPrompt(promptTokens, contextTokens, estimatorPadTokens int) bool {
-	if contextTokens <= 0 {
+func shouldCompactPrompt(promptTokens int, budget ModelTokenBudget) bool {
+	if budget.ContextSize <= 0 {
 		return false
 	}
-	usage := promptUsage(promptTokens, contextTokens)
-	if usage >= normalPromptCompactionThreshold {
+	if budget.CompactionThresholdTokens > 0 {
+		if promptTokens >= budget.CompactionThresholdTokens {
+			return true
+		}
+	} else if promptUsage(promptTokens, budget.ContextSize) >= budget.compactionThresholdPercent() {
 		return true
 	}
-	limit := hardPromptLimit(contextTokens, estimatorPadTokens)
-	return promptTokens > limit
+	return promptTokens > hardPromptLimit(budget.ContextSize, budget.SafetyMarginTokens)
+}
+
+func (m ModelTokenBudget) compactionThresholdPercent() float64 {
+	if m.CompactionThreshold > 0 {
+		return m.CompactionThreshold
+	}
+	return normalPromptCompactionThreshold
+}
+
+func (m ModelTokenBudget) compactionThresholdTokens() int {
+	if m.ContextSize <= 0 {
+		return 0
+	}
+	if m.CompactionThresholdTokens > 0 {
+		return m.CompactionThresholdTokens
+	}
+	return int(math.Ceil(float64(m.ContextSize) * m.compactionThresholdPercent()))
 }
 
 func (m ModelTokenBudget) completionReserveForRequest(request provider.ChatRequest) int {

@@ -56,54 +56,63 @@ func NewContextBudgetEvent(scope string, turn, usedBytes, budgetBytes int, trunc
 }
 
 type contextTokenBudgetParams struct {
-	scope               string
-	turn                int
-	promptTokens        int
-	rawPromptTokens     int
-	contextWindow       int
-	contextUsagePercent float64
-	compactionThreshold float64
-	estimatorPadTokens  int
-	totalTokens         int
-	status              string
-	truncated           bool
-	notes               []string
+	scope                     string
+	turn                      int
+	promptTokens              int
+	rawPromptTokens           int
+	contextWindow             int
+	contextUsagePercent       float64
+	compactionThreshold       float64
+	compactionThresholdTokens int
+	estimatorPadTokens        int
+	totalTokens               int
+	status                    string
+	truncated                 bool
+	notes                     []string
 }
 
 func newContextTokenBudgetEvent(params contextTokenBudgetParams) Event {
 	return contextDiagnosticEvent(ContextBudgetEvent{
-		Scope:               params.scope,
-		Turn:                params.turn,
-		PromptTokens:        params.promptTokens,
-		RawPromptTokens:     params.rawPromptTokens,
-		ContextWindow:       params.contextWindow,
-		ContextUsagePercent: params.contextUsagePercent,
-		CompactionThreshold: params.compactionThreshold,
-		EstimatorPadTokens:  params.estimatorPadTokens,
-		ContextTokens:       params.contextWindow,
-		TotalTokens:         params.totalTokens,
-		Status:              params.status,
-		Truncated:           params.truncated,
-		Notes:               append([]string(nil), params.notes...),
+		Scope:                     params.scope,
+		Turn:                      params.turn,
+		PromptTokens:              params.promptTokens,
+		RawPromptTokens:           params.rawPromptTokens,
+		ContextWindow:             params.contextWindow,
+		ContextUsagePercent:       params.contextUsagePercent,
+		CompactionThreshold:       params.compactionThreshold,
+		CompactionThresholdTokens: params.compactionThresholdTokens,
+		EstimatorPadTokens:        params.estimatorPadTokens,
+		ContextTokens:             params.contextWindow,
+		TotalTokens:               params.totalTokens,
+		Status:                    params.status,
+		Truncated:                 params.truncated,
+		Notes:                     append([]string(nil), params.notes...),
 	})
 }
 
 // NewContextTokenBudgetEvent creates a new context token budget event. The
 // positional form remains as a compatibility shim for internal callers.
 func NewContextTokenBudgetEvent(scope string, turn, promptTokens, rawPromptTokens, contextWindow int, contextUsagePercent, compactionThreshold float64, estimatorPadTokens, totalTokens int, status string, truncated bool, notes ...string) Event {
+	return NewContextTokenBudgetEventWithThreshold(scope, turn, promptTokens, rawPromptTokens, contextWindow, contextUsagePercent, compactionThreshold, 0, estimatorPadTokens, totalTokens, status, truncated, notes...)
+}
+
+// NewContextTokenBudgetEventWithThreshold creates a context token budget event
+// with the effective absolute compaction threshold.
+func NewContextTokenBudgetEventWithThreshold(scope string, turn, promptTokens, rawPromptTokens, contextWindow int, contextUsagePercent, compactionThreshold float64, compactionThresholdTokens, estimatorPadTokens, totalTokens int, status string, truncated bool, notes ...string) Event {
 	return newContextTokenBudgetEvent(contextTokenBudgetParams{
-		scope:               scope,
-		turn:                turn,
-		promptTokens:        promptTokens,
-		rawPromptTokens:     rawPromptTokens,
-		contextWindow:       contextWindow,
-		contextUsagePercent: contextUsagePercent,
-		compactionThreshold: compactionThreshold,
-		estimatorPadTokens:  estimatorPadTokens,
-		totalTokens:         totalTokens,
-		status:              status,
-		truncated:           truncated,
-		notes:               notes,
+		scope:                     scope,
+		turn:                      turn,
+		promptTokens:              promptTokens,
+		rawPromptTokens:           rawPromptTokens,
+		contextWindow:             contextWindow,
+		contextUsagePercent:       contextUsagePercent,
+		compactionThreshold:       compactionThreshold,
+		compactionThresholdTokens: compactionThresholdTokens,
+		estimatorPadTokens:        estimatorPadTokens,
+		totalTokens:               totalTokens,
+		status:                    status,
+		truncated:                 truncated,
+		notes:                     notes,
 	})
 }
 
@@ -156,21 +165,27 @@ func formatContextBudgetSummary(payload ContextDiagnosticsEvent) string {
 	parts := []string{}
 	parts = append(parts, formatDiagnosticEscalation(payload)...)
 	switch {
-	case payload.ContextWindow > 0 || payload.PromptTokens > 0 || payload.ContextUsagePercent > 0 || payload.CompactionThreshold > 0 || payload.EstimatorPadTokens > 0 || payload.Status != "":
+	case payload.ContextWindow > 0 || payload.PromptTokens > 0 || payload.ContextUsagePercent > 0 || payload.CompactionThreshold > 0 || payload.CompactionThresholdTokens > 0 || payload.EstimatorPadTokens > 0 || payload.Status != "":
 		status := strings.TrimSpace(payload.Status)
 		if status == "" {
 			status = "unknown_context"
 		}
-		parts = append(parts, fmt.Sprintf(
-			"budget %s prompt_tokens=%d context_window=%d context_usage_percent=%s compaction_threshold=%s estimator_pad_tokens=%d status=%s",
+		thresholdTokens := ""
+		if payload.CompactionThresholdTokens > 0 {
+			thresholdTokens = fmt.Sprintf(" compaction_threshold_tokens=%d", payload.CompactionThresholdTokens)
+		}
+		budget := fmt.Sprintf(
+			"budget %s prompt_tokens=%d context_window=%d context_usage_percent=%s compaction_threshold=%s%s estimator_pad_tokens=%d status=%s",
 			scope,
 			payload.PromptTokens,
 			payload.ContextWindow,
 			formatPercent(payload.ContextUsagePercent),
 			formatPercent(payload.CompactionThreshold),
+			thresholdTokens,
 			payload.EstimatorPadTokens,
 			status,
-		))
+		)
+		parts = append(parts, budget)
 	default:
 		parts = append(parts, fmt.Sprintf("budget %s used %d/%d bytes", scope, payload.UsedBytes, payload.BudgetBytes))
 	}

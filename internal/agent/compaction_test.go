@@ -13,6 +13,24 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+func TestNeedsEmergencyCompactionUsesSelectedThreshold(t *testing.T) {
+	fit := prompt.RequestTokenBudget{
+		ContextSize:               10000,
+		EstimatedPromptTokens:     4200,
+		PromptUsage:               0.42,
+		CompactionThreshold:       0.70,
+		CompactionThresholdTokens: 4200,
+	}
+	if !needsEmergencyCompaction(fit) {
+		t.Fatal("needsEmergencyCompaction() = false at explicit threshold")
+	}
+	fit.EstimatedPromptTokens = 4199
+	fit.PromptUsage = 0.4199
+	if needsEmergencyCompaction(fit) {
+		t.Fatal("needsEmergencyCompaction() = true below explicit threshold")
+	}
+}
+
 func TestHasCompactionSourceUsesAssistantCycles(t *testing.T) {
 	assistantToolCycle := []Message{
 		{Role: MessageRoleAssistant, ToolCalls: []ToolCall{{ID: "call_1", Name: "read"}}},

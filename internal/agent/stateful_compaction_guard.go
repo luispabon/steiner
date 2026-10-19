@@ -26,7 +26,7 @@ func (p *turnProgressor) observeStatefulUsage(usage *provider.UsageStats) {
 		switch {
 		case statefulUsageReaches(usage, compactionPercentTokens(contextSize, compactionCapUsagePercent)):
 			p.statefulCapReached = true
-		case statefulUsageAboveThreshold(usage, contextSize):
+		case statefulUsageReachesSelectedThreshold(usage, contextSize, p.request.ModelBudget):
 			p.statefulFloor = usage.PromptTokens
 		}
 		return
@@ -51,18 +51,29 @@ func (p *turnProgressor) compactionDue(fit prompt.RequestTokenBudget) bool {
 	if p.statefulFloor > 0 {
 		return statefulUsageReaches(p.lastUsage, statefulReleaseTokens(p.statefulFloor, fit.ContextSize))
 	}
-	return statefulUsageAboveThreshold(p.lastUsage, fit.ContextSize)
+	return statefulUsageReachesSelectedThreshold(p.lastUsage, fit.ContextSize, p.request.ModelBudget)
 }
 
 // statefulUsageAboveThreshold reports whether a response's prompt usage reaches
 // the compaction threshold of contextSize. PromptTokens is the total input of the
 // response: the provider folds CLI input, cache read and cache creation tokens
 // into it, so they must not be added again.
-func statefulUsageAboveThreshold(usage *provider.UsageStats, contextSize int) bool {
+func statefulUsageAboveThreshold(usage *provider.UsageStats, contextSize int, thresholdPercent float64) bool {
 	if usage == nil || contextSize <= 0 {
 		return false
 	}
-	return float64(usage.PromptTokens) >= float64(contextSize)*compactionUsageThreshold
+	threshold := compactionUsageThreshold
+	if thresholdPercent > 0 {
+		threshold = thresholdPercent
+	}
+	return float64(usage.PromptTokens) >= float64(contextSize)*threshold
+}
+
+func statefulUsageReachesSelectedThreshold(usage *provider.UsageStats, contextSize int, budget prompt.ModelTokenBudget) bool {
+	if budget.CompactionThresholdTokens > 0 {
+		return statefulUsageReaches(usage, budget.CompactionThresholdTokens)
+	}
+	return statefulUsageAboveThreshold(usage, contextSize, budget.CompactionThreshold)
 }
 
 // statefulCapStop ends the run at a compaction decision after the cap was

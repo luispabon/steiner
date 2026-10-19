@@ -8,7 +8,13 @@ Context management runs on three lines of defense, in order of preference:
 
 1. **Delegation** — work delegated to a sub-agent never enters the parent context at all. Only a compact result envelope (`output`, `status`, and an optional `reason`) returns to the parent. This is the most effective defense; see [Sub-agent delegation](sub-agent-delegation.md) for the orchestrator role that gives the model this rationale directly.
 2. **Per-source byte budgets** — when context does accumulate, each source (skills, project context) is capped so no single source dominates.
-3. **Compaction** — when the conversation reaches approximately 70% of the context window, older turns are automatically summarised and replaced with a compact handoff.
+3. **Compaction** — when the conversation reaches the soft compaction trigger, older turns are automatically summarised and replaced with a compact handoff. The default trigger is approximately 70% of the effective context window.
+
+### Per-model compaction threshold
+
+Set `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens` to choose an explicit positive prompt-token soft trigger for one model. If it is absent, Steiner uses 70% of that model's effective context window. Zero or negative values are invalid, and a threshold at or above the final resolved context window is rejected. Native providers use estimated prompt tokens for this trigger. `claude_subscription` uses the reported prompt usage with its existing hysteresis and cap safety behavior.
+
+This is a soft compaction trigger, not the hard request-fit limit. Hard fitting still accounts for the completion reserve and estimator pad, so a request can require compaction before or after the soft trigger depending on the space needed for the request.
 
 ## What compaction means in practice
 

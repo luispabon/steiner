@@ -99,9 +99,11 @@ type ProviderConfig struct {
 
 // AdvancedLimitsConfig defines token limits for model inference.
 type AdvancedLimitsConfig struct {
-	ContextWindow    int `yaml:"context_window"`
-	MaxOutputTokens  int `yaml:"max_output_tokens"`
-	contextWindowSet bool
+	ContextWindow             int `yaml:"context_window"`
+	MaxOutputTokens           int `yaml:"max_output_tokens"`
+	CompactionThresholdTokens int `yaml:"compaction_threshold_tokens"`
+	contextWindowSet          bool
+	compactionThresholdSet    bool
 }
 
 // ContextWindowExplicit reports whether context_window should override metadata.
@@ -115,6 +117,12 @@ func (l AdvancedLimitsConfig) ContextWindowProvenance() string {
 		return "explicit"
 	}
 	return "inherited"
+}
+
+// CompactionThresholdTokensExplicit reports whether compaction_threshold_tokens
+// was explicitly configured.
+func (l AdvancedLimitsConfig) CompactionThresholdTokensExplicit() bool {
+	return l.compactionThresholdSet || l.CompactionThresholdTokens != 0
 }
 
 // ModelTransportType controls how Steiner chooses the request transport for a model.

@@ -42,9 +42,10 @@ func TestContextCompactionEventBudgetSnapshot(t *testing.T) {
 
 func TestContextCompactionEventUsageRoundTrip(t *testing.T) {
 	want := ContextCompactionEvent{
-		CacheReadTokens:   11,
-		InputTokens:       22,
-		CacheCreateTokens: 33,
+		CacheReadTokens:           11,
+		InputTokens:               22,
+		CacheCreateTokens:         33,
+		CompactionThresholdTokens: 3200,
 	}
 
 	legacy := want.toLegacyContextDiagnostics()
@@ -57,10 +58,11 @@ func TestContextCompactionEventUsageRoundTrip(t *testing.T) {
 	}
 
 	legacy = ContextDiagnosticsEvent{
-		Kind:              "compaction",
-		CacheReadTokens:   want.CacheReadTokens,
-		InputTokens:       want.InputTokens,
-		CacheCreateTokens: want.CacheCreateTokens,
+		Kind:                      "compaction",
+		CacheReadTokens:           want.CacheReadTokens,
+		InputTokens:               want.InputTokens,
+		CacheCreateTokens:         want.CacheCreateTokens,
+		CompactionThresholdTokens: want.CompactionThresholdTokens,
 	}
 	got, ok = AsContextCompactionEvent(legacy)
 	if !ok {
@@ -123,7 +125,7 @@ func TestContextDiagnosticTypedLegacyRoundTripsPreserveFields(t *testing.T) {
 				SummaryBytes: 7, CacheReadTokens: 8, InputTokens: 9, CacheCreateTokens: 10,
 				PromptTokens: 11, RawPromptTokens: 12, ContextTokens: 13, TotalTokens: 14,
 				Truncated: true, ContextWindow: 15, ContextUsagePercent: 16.5,
-				CompactionThreshold: 17.5, EstimatorPadTokens: 18, Status: "status",
+				CompactionThreshold: 17.5, CompactionThresholdTokens: 18, EstimatorPadTokens: 18, Status: "status",
 				Mode: "mode", BeforePromptTokens: 19, BeforeRawPromptTokens: 20,
 				BeforeUsagePercent: 21.5, AfterPromptTokens: 22, AfterRawPromptTokens: 23,
 				AfterUsagePercent: 24.5, RetainedRawTurns: 25, SummaryTokenBudget: 26,
