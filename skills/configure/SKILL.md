@@ -50,7 +50,7 @@ Compact canonical reference for safe configuration edits.
 | `models.definitions.<alias>.prompts.system_suffix`|string|—|Appends to default system prompt. |
 | `models.definitions.<alias>.prompts.compaction`|string|—|Replaces compaction prompt. |
 | `models.definitions.<alias>.advanced.limits.context_window`|int|`32768`|Context window in tokens; explicit value wins over metadata. |
-| `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens`|int|unset, then 70%|Positive prompt-token soft trigger; must be below the final context window. Native uses estimates; `claude_subscription` uses reported usage with hysteresis/cap safety. Separate from hard fitting. |
+|`models.definitions.<alias>.advanced.limits.compaction_threshold_tokens`|int|—/70%
 | `models.definitions.<alias>.advanced.codex.use_max_context_window`|bool|`false`|Codex: use catalog `max_context_window` if positive, else `context_window`. |
 | `models.definitions.<alias>.advanced.limits.max_output_tokens`|int|`8192`|Output-token ceiling per response. |
 | `models.definitions.<alias>.advanced.reasoning_echo_back`|bool or null|—|Provider reasoning echo control. |
