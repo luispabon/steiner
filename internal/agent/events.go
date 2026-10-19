@@ -194,6 +194,9 @@ func compactionThresholdAchieved(fit prompt.RequestTokenBudget) bool {
 	if fit.ContextSize <= 0 {
 		return false
 	}
+	if fit.CompactionThresholdTokens > 0 {
+		return fit.EstimatedPromptTokens <= fit.CompactionThresholdTokens
+	}
 	return fit.PromptUsage <= fit.CompactionThreshold
 }
 
