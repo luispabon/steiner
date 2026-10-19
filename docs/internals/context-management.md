@@ -6,7 +6,7 @@ Every turn in the main conversation accumulates tokens — model output, tool ca
 
 1. **Delegation** — work never enters the parent context at all.
 2. **Per-source byte budgets** — when context does accumulate, budgets prevent any single source from dominating.
-3. **Compaction** — when the context window approaches 70%, older turns are summarised and replaced.
+3. **Compaction** — when the soft compaction trigger is reached, older turns are summarised and replaced. The default is 70% of the effective context window.
 
 ---
 
@@ -88,7 +88,9 @@ Compaction deliberately includes the session date block in the summary request �
 
 ## Compaction
 
-Compaction is the last line of defense. When the estimated prompt tokens exceed **70%** of the context window, the agent loop pauses to compact.
+Compaction is the last line of defense. The agent loop pauses to compact when the selected soft trigger is reached. `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens` supplies an explicit positive prompt-token trigger; when absent, the trigger is 70% of the effective context window. Zero or negative values are invalid, and a threshold at or above the final resolved context window is rejected.
+
+Native providers compare the threshold with the estimated prompt token count. `claude_subscription` compares it with reported prompt usage and retains its existing hysteresis and cap safety behavior. This soft trigger is separate from hard request fitting. Hard fitting accounts for the completion reserve and estimator pad and can require compaction independently of the soft trigger.
 
 ### Two-stage strategy
 
@@ -196,6 +198,6 @@ Budgets are configurable via `AssemblyPolicy` in the prompt package. Zero values
 - **Delegate transcripts never leak**: child agent conversation is discarded on exit; only structured result and its retention metadata persist.
 - **Children use the same compaction path**: sub-agents have the same context manager and compaction logic as the parent.
 - **Compaction is lossy but bounded**: summaries are capped.
-- **70% threshold**: compaction triggers when estimated prompt tokens reach 70% of the context window, reserving headroom for the model response.
+- **Soft threshold**: compaction uses the configured positive `compaction_threshold_tokens`, or 70% of the effective context window when unset. Hard request fitting remains separate and accounts for the completion reserve and estimator pad.
 - **Skill toggles never rewrite the prefix**: enabling or disabling a skill appends blocks to the next user message and leaves historical messages and the static prefix untouched, preserving prompt-cache reuse (exec and oneshot keep skills in the static skills source).
 - **Active skills survive compaction**: active skill envelopes are stripped from retained turns and re-injected verbatim after summarisation; disabled skills disappear at the next compaction.

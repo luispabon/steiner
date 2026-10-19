@@ -546,8 +546,9 @@ Context limit precedence is explicit numeric `advanced.limits.context_window`, s
 
 | Field               | Type | Default | Description                                                                            |
 | ------------------- | ---- | ------- | -------------------------------------------------------------------------------------- |
-| `context_window`    | int  | `32768` | Maximum context window size in tokens. Used by the prompt assembler to budget context. |
-| `max_output_tokens` | int  | `8192`  | Maximum tokens the model may generate per response.                                    |
+| `context_window`              | int  | `32768` | Maximum context window size in tokens. Used by the prompt assembler to budget context. |
+| `max_output_tokens`           | int  | `8192`  | Maximum tokens the model may generate per response.                                |
+| `compaction_threshold_tokens` | int  | —       | Optional positive soft compaction trigger in prompt tokens. If absent, uses 70% of the effective context window. Native providers use estimated prompt tokens; `claude_subscription` uses reported prompt usage with its existing hysteresis and cap safety behavior. The value must be below the final resolved context window and does not replace hard request fitting. |
 
 ---
 
