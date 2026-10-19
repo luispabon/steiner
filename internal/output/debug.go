@@ -170,19 +170,21 @@ func formatContextBudgetSummary(payload ContextDiagnosticsEvent) string {
 		if status == "" {
 			status = "unknown_context"
 		}
+		thresholdTokens := ""
+		if payload.CompactionThresholdTokens > 0 {
+			thresholdTokens = fmt.Sprintf(" compaction_threshold_tokens=%d", payload.CompactionThresholdTokens)
+		}
 		budget := fmt.Sprintf(
-			"budget %s prompt_tokens=%d context_window=%d context_usage_percent=%s compaction_threshold=%s estimator_pad_tokens=%d status=%s",
+			"budget %s prompt_tokens=%d context_window=%d context_usage_percent=%s compaction_threshold=%s%s estimator_pad_tokens=%d status=%s",
 			scope,
 			payload.PromptTokens,
 			payload.ContextWindow,
 			formatPercent(payload.ContextUsagePercent),
 			formatPercent(payload.CompactionThreshold),
+			thresholdTokens,
 			payload.EstimatorPadTokens,
 			status,
 		)
-		if payload.CompactionThresholdTokens > 0 {
-			budget = strings.Replace(budget, " estimator_pad_tokens=", fmt.Sprintf(" compaction_threshold_tokens=%d estimator_pad_tokens=", payload.CompactionThresholdTokens), 1)
-		}
 		parts = append(parts, budget)
 	default:
 		parts = append(parts, fmt.Sprintf("budget %s used %d/%d bytes", scope, payload.UsedBytes, payload.BudgetBytes))

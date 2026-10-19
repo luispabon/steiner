@@ -58,27 +58,20 @@ func (p *turnProgressor) compactionDue(fit prompt.RequestTokenBudget) bool {
 // the compaction threshold of contextSize. PromptTokens is the total input of the
 // response: the provider folds CLI input, cache read and cache creation tokens
 // into it, so they must not be added again.
-func statefulUsageAboveThreshold(usage *provider.UsageStats, contextSize int, thresholdPercent ...float64) bool {
+func statefulUsageAboveThreshold(usage *provider.UsageStats, contextSize int, thresholdPercent float64) bool {
 	if usage == nil || contextSize <= 0 {
 		return false
 	}
 	threshold := compactionUsageThreshold
-	if len(thresholdPercent) > 0 && thresholdPercent[0] > 0 {
-		threshold = thresholdPercent[0]
+	if thresholdPercent > 0 {
+		threshold = thresholdPercent
 	}
 	return float64(usage.PromptTokens) >= float64(contextSize)*threshold
 }
 
-func statefulThresholdTokens(budget prompt.ModelTokenBudget) int {
-	if budget.CompactionThresholdTokens > 0 {
-		return budget.CompactionThresholdTokens
-	}
-	return 0
-}
-
 func statefulUsageReachesSelectedThreshold(usage *provider.UsageStats, contextSize int, budget prompt.ModelTokenBudget) bool {
-	if thresholdTokens := statefulThresholdTokens(budget); thresholdTokens > 0 {
-		return statefulUsageReaches(usage, thresholdTokens)
+	if budget.CompactionThresholdTokens > 0 {
+		return statefulUsageReaches(usage, budget.CompactionThresholdTokens)
 	}
 	return statefulUsageAboveThreshold(usage, contextSize, budget.CompactionThreshold)
 }
