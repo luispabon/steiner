@@ -177,16 +177,6 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", params.turn, params.compactionCount, escalation.Severity, escalation.SessionState, escalation.RestartGuidance, notes...))
 }
 
-func statefulThresholdTokens(budget prompt.ModelTokenBudget, contextSize int) int {
-	if budget.CompactionThresholdTokens > 0 {
-		return budget.CompactionThresholdTokens
-	}
-	if budget.CompactionThreshold > 0 && contextSize > 0 {
-		return int(float64(contextSize) * budget.CompactionThreshold)
-	}
-	return 0
-}
-
 func requestTokenBudgetStatus(fit prompt.RequestTokenBudget) string {
 	switch {
 	case fit.ContextSize <= 0:
