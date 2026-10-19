@@ -74,16 +74,7 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		TurnTimeout: limits.Timeout,
 	}
 
-	modelBudget := prompt.ModelTokenBudget{
-		ContextSize:               override.ResolvedModel.EffectiveLimits.ContextWindow,
-		MaxCompletionTokens:       override.ResolvedModel.EffectiveLimits.MaxOutputTokens,
-		SafetyMarginTokens:        override.ResolvedModel.EffectiveLimits.EstimatorPadTokens,
-		SummaryMaxTokens:          override.ResolvedModel.EffectiveLimits.NormalSummaryMaxTokens,
-		NormalSummaryMaxTokens:    override.ResolvedModel.EffectiveLimits.NormalSummaryMaxTokens,
-		EmergencySummaryMaxTokens: override.ResolvedModel.EffectiveLimits.EmergencySummaryMaxTokens,
-		CompactionThreshold:       override.ResolvedModel.EffectiveLimits.CompactionThreshold,
-		CompactionThresholdTokens: override.ResolvedModel.EffectiveLimits.CompactionThresholdTokens,
-	}
+	modelBudget := prompt.ModelBudgetFromEffectiveLimits(override.ResolvedModel.EffectiveLimits)
 
 	promptOpts := buildChildPrompt(childPromptParams{
 		spec:               spec,

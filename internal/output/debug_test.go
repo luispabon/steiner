@@ -348,6 +348,42 @@ func TestFormatCompactionUsage(t *testing.T) {
 	}
 }
 
+func TestFormatContextBudgetSummaryExactOrdering(t *testing.T) {
+	base := ContextDiagnosticsEvent{
+		PromptTokens:        100,
+		ContextWindow:       4096,
+		ContextUsagePercent: 42.5,
+		CompactionThreshold: 70,
+		EstimatorPadTokens:  16384,
+		Status:              "ok",
+	}
+	tests := []struct {
+		name   string
+		tokens int
+		want   string
+	}{
+		{
+			name:   "zero threshold tokens omitted",
+			tokens: 0,
+			want:   "budget context prompt_tokens=100 context_window=4096 context_usage_percent=42% compaction_threshold=70% estimator_pad_tokens=16384 status=ok",
+		},
+		{
+			name:   "positive threshold tokens before estimator pad",
+			tokens: 3000,
+			want:   "budget context prompt_tokens=100 context_window=4096 context_usage_percent=42% compaction_threshold=70% compaction_threshold_tokens=3000 estimator_pad_tokens=16384 status=ok",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := base
+			payload.CompactionThresholdTokens = tt.tokens
+			if got := formatContextBudgetSummary(payload); got != tt.want {
+				t.Errorf("formatContextBudgetSummary() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHumanizeDiagnosticScope(t *testing.T) {
 	tests := []struct {
 		input string
