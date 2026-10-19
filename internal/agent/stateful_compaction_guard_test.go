@@ -12,7 +12,7 @@ import (
 
 func TestStatefulThresholdTokensUsesExplicitAbsoluteTarget(t *testing.T) {
 	budget := prompt.ModelTokenBudget{ContextSize: 10000, CompactionThresholdTokens: 4200}
-	if got := statefulThresholdTokens(budget, budget.ContextSize); got != 4200 {
+	if got := statefulThresholdTokens(budget); got != 4200 {
 		t.Fatalf("statefulThresholdTokens() = %d, want 4200", got)
 	}
 	if !statefulUsageReachesSelectedThreshold(&provider.UsageStats{PromptTokens: 4200}, 10000, budget) {
