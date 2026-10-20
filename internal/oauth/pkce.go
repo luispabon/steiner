@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 )
@@ -14,10 +13,4 @@ func GenerateVerifier() (string, error) {
 		return "", fmt.Errorf("generate verifier: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-// ChallengeS256 computes the S256 challenge: SHA256(verifier) encoded as base64url (no padding).
-func ChallengeS256(verifier string) string {
-	h := sha256.Sum256([]byte(verifier))
-	return base64.RawURLEncoding.EncodeToString(h[:])
 }

@@ -257,13 +257,6 @@ func (s *Session) WorkflowHandoffModelSelection(destination string) WorkflowHand
 	return selection
 }
 
-// CurrentModelConfig returns the currently active model config.
-func (s *Session) CurrentModelConfig() config.ModelConfig {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return currentModelConfig(s.deps.Config)
-}
-
 // CurrentReasoningOverride returns the session's runtime reasoning override
 // for the currently active model alias, or the zero value (no override) if
 // none has been set for that alias.

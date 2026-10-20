@@ -41,11 +41,6 @@ type EnumerationResult struct {
 	NotModified bool
 }
 
-// ForType returns an Enumerator for a supported provider type.
-func ForType(t string) (Enumerator, error) {
-	return ForTypeWithClient(config.ProviderType(t), nil)
-}
-
 // ForTypeWithClient returns an Enumerator using client for HTTP requests. A nil
 // client uses a new default http.Client.
 func ForTypeWithClient(t config.ProviderType, client *http.Client) (Enumerator, error) {
