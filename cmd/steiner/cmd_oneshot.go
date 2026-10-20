@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -204,7 +203,7 @@ func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 			return err
 		}
 	}
-	return printOneshotManifest(cmd.OutOrStdout(), manifest)
+	return oneshot.PrintManifest(cmd.OutOrStdout(), manifest)
 }
 
 func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) error {
@@ -261,7 +260,7 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 			return err
 		}
 	}
-	return printOneshotManifest(cmd.OutOrStdout(), updated)
+	return oneshot.PrintManifest(cmd.OutOrStdout(), updated)
 }
 
 func runOneshotList(cmd *cobra.Command) error {
@@ -273,17 +272,7 @@ func runOneshotList(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	renderOneshotRuns(output.NewStream(cmd.OutOrStdout()), runs)
-	return nil
-}
-
-func printOneshotManifest(w interface{ Write([]byte) (int, error) }, manifest oneshot.Manifest) error {
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal oneshot manifest: %w", err)
-	}
-	_, err = fmt.Fprintln(w, string(data))
-	return err
+	return oneshot.RenderRuns(cmd.OutOrStdout(), runs, formatRelativeTime)
 }
 
 type phaseRunnerFactory struct {
@@ -339,23 +328,4 @@ func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, phase oneshot.Ph
 		return nil, err
 	}
 	return newPhaseRunner(ctx, f.cmd, f.flags, params)
-}
-
-func renderOneshotRuns(stream *output.EventStream, runs []oneshot.ResumableRun) {
-	if stream == nil {
-		return
-	}
-	if len(runs) == 0 {
-		stream.Printf("no resumable oneshot runs\n")
-		return
-	}
-
-	stream.Printf("%-4s %-16s %-20s %-18s %-12s %-18s %s\n", "#", "Run ID", "Phase", "Status", "Lock", "Updated", "Task")
-	for i, run := range runs {
-		task := run.Task
-		if len(task) > 48 {
-			task = task[:45] + "..."
-		}
-		stream.Printf("%-4d %-16s %-20s %-18s %-12s %-18s %s\n", i, run.RunID, string(run.ResumePhase), run.Status, run.LockState, formatRelativeTime(run.UpdatedAt), task)
-	}
 }
