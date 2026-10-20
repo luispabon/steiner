@@ -128,18 +128,6 @@ func (p *ClaudeSubscriptionPool) shutdown() {
 	p.mu.Unlock()
 	defer cancel()
 
-	// waitGroup blocks until wg drains or the deadline expires, marking the
-	// shutdown incomplete in the latter case. Every Add happens before Wait.
-	waitGroup := func(wg *sync.WaitGroup) {
-		drained := make(chan struct{})
-		go func() { wg.Wait(); close(drained) }()
-		select {
-		case <-drained:
-		case <-ctx.Done():
-			p.markCleanupIncomplete()
-		}
-	}
-
 	// Stop the reaper so it cannot start new closes. It is joined below, under
 	// the deadline, so a reaper mid-teardown never delays the forced teardown of
 	// the published sessions.
@@ -149,17 +137,7 @@ func (p *ClaudeSubscriptionPool) shutdown() {
 	// registered before this point had its context canceled by p.cancel(), so it
 	// observes pool shutdown. Unresolved ownership is not touched here; it is
 	// collected after the startups below have settled.
-	p.mu.Lock()
-	sessions := make([]*claudeSubSession, 0, len(p.sessions))
-	for _, s := range p.sessions {
-		sessions = append(sessions, s)
-	}
-	p.sessions = map[string]*claudeSubSession{}
-	startups := make([]*claudeSubStartup, 0, len(p.startups))
-	for st := range p.startups {
-		startups = append(startups, st)
-	}
-	p.mu.Unlock()
+	sessions, startups := p.snapshotForShutdown()
 
 	var wg sync.WaitGroup
 	// join waits for done in a tracked goroutine. If the shutdown deadline expires
@@ -206,7 +184,7 @@ func (p *ClaudeSubscriptionPool) shutdown() {
 	if cliStarted {
 		join(cliJob.done)
 	}
-	waitGroup(&wg)
+	p.waitDeadline(ctx, &wg)
 
 	// Only now, after every tracked startup has settled (or the deadline
 	// expired), collect the accumulated cleanup errors and the retained ownership
@@ -249,4 +227,34 @@ func (p *ClaudeSubscriptionPool) shutdown() {
 	p.state = claudeSubPoolClosed
 	close(p.done)
 	p.mu.Unlock()
+}
+
+// snapshotForShutdown takes the published sessions out of the pool and copies
+// the in-flight startups. It holds the pool mutex across both reads, so no
+// startup can be registered or published between them.
+func (p *ClaudeSubscriptionPool) snapshotForShutdown() ([]*claudeSubSession, []*claudeSubStartup) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	sessions := make([]*claudeSubSession, 0, len(p.sessions))
+	for _, s := range p.sessions {
+		sessions = append(sessions, s)
+	}
+	p.sessions = map[string]*claudeSubSession{}
+	startups := make([]*claudeSubStartup, 0, len(p.startups))
+	for st := range p.startups {
+		startups = append(startups, st)
+	}
+	return sessions, startups
+}
+
+// waitDeadline blocks until wg drains or ctx expires, marking the shutdown
+// incomplete in the latter case. Every Add happens before Wait.
+func (p *ClaudeSubscriptionPool) waitDeadline(ctx context.Context, wg *sync.WaitGroup) {
+	drained := make(chan struct{})
+	go func() { wg.Wait(); close(drained) }()
+	select {
+	case <-drained:
+	case <-ctx.Done():
+		p.markCleanupIncomplete()
+	}
 }

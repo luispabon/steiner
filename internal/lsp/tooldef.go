@@ -55,11 +55,9 @@ func definitionsTool(m *Manager) tool.ToolDef {
 				return nil, fmt.Errorf("lsp_definitions: missing or invalid file parameter")
 			}
 
-			line, lineOk := parseLineParameter(input)
-			col, colOk := parseColumnParameter(input)
-			symbol, symbolOk := parseSymbolParameter(input)
+			pos := parsePositionInput(input)
 
-			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_definitions", line, lineOk, col, colOk, symbol, symbolOk, file)
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_definitions", pos, file)
 			if resolveErr != "" {
 				return resolveErr, nil
 			}
@@ -125,11 +123,9 @@ func referencesTool(m *Manager) tool.ToolDef {
 				return nil, fmt.Errorf("lsp_references: missing or invalid file parameter")
 			}
 
-			line, lineOk := parseLineParameter(input)
-			col, colOk := parseColumnParameter(input)
-			symbol, symbolOk := parseSymbolParameter(input)
+			pos := parsePositionInput(input)
 
-			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_references", line, lineOk, col, colOk, symbol, symbolOk, file)
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_references", pos, file)
 			if resolveErr != "" {
 				return resolveErr, nil
 			}
@@ -233,11 +229,9 @@ func hoverTool(m *Manager) tool.ToolDef {
 				return nil, fmt.Errorf("lsp_hover: missing or invalid file parameter")
 			}
 
-			line, lineOk := parseLineParameter(input)
-			col, colOk := parseColumnParameter(input)
-			symbol, symbolOk := parseSymbolParameter(input)
+			pos := parsePositionInput(input)
 
-			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_hover", line, lineOk, col, colOk, symbol, symbolOk, file)
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_hover", pos, file)
 			if resolveErr != "" {
 				return resolveErr, nil
 			}
@@ -331,11 +325,9 @@ func implementationsTool(m *Manager) tool.ToolDef {
 				return nil, fmt.Errorf("lsp_implementations: missing or invalid file parameter")
 			}
 
-			line, lineOk := parseLineParameter(input)
-			col, colOk := parseColumnParameter(input)
-			symbol, symbolOk := parseSymbolParameter(input)
+			pos := parsePositionInput(input)
 
-			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_implementations", line, lineOk, col, colOk, symbol, symbolOk, file)
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_implementations", pos, file)
 			if resolveErr != "" {
 				return resolveErr, nil
 			}
@@ -383,11 +375,9 @@ func typeDefinitionTool(m *Manager) tool.ToolDef {
 				return nil, fmt.Errorf("lsp_type_definitions: missing or invalid file parameter")
 			}
 
-			line, lineOk := parseLineParameter(input)
-			col, colOk := parseColumnParameter(input)
-			symbol, symbolOk := parseSymbolParameter(input)
+			pos := parsePositionInput(input)
 
-			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_type_definitions", line, lineOk, col, colOk, symbol, symbolOk, file)
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_type_definitions", pos, file)
 			if resolveErr != "" {
 				return resolveErr, nil
 			}

@@ -141,26 +141,12 @@ func connectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, release R
 		opt = opts[0]
 	}
 
-	var transport mcpsdk.Transport
-	var cmd *exec.Cmd
-	var releaseCommand func()
-
-	switch spec.Transport {
-	case "http":
-		var err error
-		transport, err = newHTTPTransport(spec)
-		if err != nil {
-			return nil, fmt.Errorf("connect mcp server %q: %w", spec.Name, err)
-		}
-	case "", "stdio":
-		var err error
-		transport, cmd, releaseCommand, err = newStdioTransport(ctx, spec, wrap, release, stderr)
-		if err != nil {
-			return nil, fmt.Errorf("connect mcp server %q: %w", spec.Name, err)
-		}
+	transport, cmd, releaseCommand, err := buildConnectTransport(ctx, spec, wrap, release, stderr)
+	if err != nil {
+		return nil, fmt.Errorf("connect mcp server %q: %w", spec.Name, err)
+	}
+	if releaseCommand != nil {
 		defer releaseCommand()
-	default:
-		return nil, fmt.Errorf("connect mcp server %q: unsupported transport %q", spec.Name, spec.Transport)
 	}
 
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "steiner", Version: clientVersion}, nil)
@@ -223,17 +209,42 @@ func connectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, release R
 		onStatus:        opt.OnStatus,
 	}
 
-	tools, err := session.ListTools(ctx, nil)
+	tools, err := listSessionTools(ctx, spec.Name, session, cmd)
 	if err != nil {
-		// The session is discarded here, so kill the server process first and
-		// make the close instant instead of waiting out the SDK's terminate
-		// grace.
+		return nil, err
+	}
+	s.tools = tools
+	return s, nil
+}
+
+// buildConnectTransport constructs the transport for spec. For HTTP, cmd and
+// releaseCommand are nil. For stdio, releaseCommand is always non-nil on success.
+func buildConnectTransport(ctx context.Context, spec ServerSpec, wrap WrapFn, release ReleaseFn, stderr io.Writer) (mcpsdk.Transport, *exec.Cmd, func(), error) {
+	switch spec.Transport {
+	case "http":
+		transport, err := newHTTPTransport(spec)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return transport, nil, nil, nil
+	case "", "stdio":
+		return newStdioTransport(ctx, spec, wrap, release, stderr)
+	default:
+		return nil, nil, nil, fmt.Errorf("unsupported transport %q", spec.Transport)
+	}
+}
+
+// listSessionTools fetches the tool list for a freshly connected session. On
+// failure the caller discards the session, so it kills cmd first and makes the
+// close instant instead of waiting out the SDK's terminate grace.
+func listSessionTools(ctx context.Context, name string, session *mcpsdk.ClientSession, cmd *exec.Cmd) ([]*mcpsdk.Tool, error) {
+	result, err := session.ListTools(ctx, nil)
+	if err != nil {
 		killDiscardedCommand(cmd)
 		_ = session.Close() // Best-effort cleanup after a failed tool list.
-		return nil, fmt.Errorf("list tools for mcp server %q: %w", spec.Name, err)
+		return nil, fmt.Errorf("list tools for mcp server %q: %w", name, err)
 	}
-	s.tools = tools.Tools
-	return s, nil
+	return result.Tools, nil
 }
 
 // killOnTimeoutTransport wraps a stdio transport so the server process group
