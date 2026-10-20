@@ -207,7 +207,7 @@ func TestEntryForKeyRecordsLastUsedUnderEntryLock(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, root, nil, func(string) {})
+	m := NewManager(cfg, root, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	key := sessionKey{server: "go", root: root}

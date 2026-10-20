@@ -244,7 +244,7 @@ func TestDoReapReadsSessionUnderLock(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	entered := make(chan struct{}, len(roots))
@@ -337,7 +337,7 @@ func TestManagerExtensionRouting(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
@@ -377,7 +377,7 @@ func TestManagerNoServerForExtension(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
@@ -431,7 +431,7 @@ func TestManagerNearestRootWins(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
@@ -488,7 +488,7 @@ func TestManagerSameKeyReusesProcess(t *testing.T) {
 		return cmd, nil
 	}
 
-	m := NewManager(cfg, tmpdir, wrapFn, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, wrapFn, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
@@ -552,7 +552,7 @@ func TestManagerDifferentRootsDistinctProcesses(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
@@ -617,7 +617,7 @@ func TestManagerConcurrentCallsNoDoubleSpawn(t *testing.T) {
 		return cmd, nil
 	}
 
-	m := NewManager(cfg, tmpdir, wrapFn, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, wrapFn, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
@@ -674,7 +674,7 @@ func TestManagerMissingBinaryMarkedFailed(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, warnFn, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: warnFn})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
@@ -746,7 +746,7 @@ func TestManagerIdleReapingTerminatesServer(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
@@ -830,7 +830,7 @@ func TestManagerCloseTerminatesAllChildren(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)
 	defer cancel()
@@ -877,7 +877,7 @@ func TestManagerCloseIsIdempotent(t *testing.T) {
 		Servers:      map[string]config.LSPServerConfig{},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 
 	// Close multiple times should not panic.
 	for i := 0; i < 3; i++ {
@@ -929,7 +929,7 @@ func TestManagerContextCancellationDuringSpawn(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, wrapFn, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, wrapFn, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	file := filepath.Join(tmpdir, "file.go")
@@ -1002,7 +1002,7 @@ func TestManagerCacheDirExistsAndPersists(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), managerTestTimeout)

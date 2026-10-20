@@ -78,7 +78,7 @@ func TestReadinessQueuedProgressTakesPrecedenceAtTimeout(t *testing.T) {
 		ReadyTimeout:     config.MustDuration("0s"),
 		ReadyGracePeriod: config.MustDuration("1h"),
 	}
-	m := NewManager(cfg, t.TempDir(), nil, func(string) {}, nil)
+	m := NewManager(cfg, t.TempDir(), nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness()}
@@ -146,7 +146,7 @@ func TestReadinessBegEndFlipsReady(t *testing.T) {
 	}
 
 	tmpdir := t.TempDir()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness()}
@@ -229,7 +229,7 @@ func TestReadinessNoProgressFlipsReadyAfterGracePeriod(t *testing.T) {
 	}
 
 	tmpdir := t.TempDir()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness()}
@@ -270,7 +270,7 @@ func TestReadinessUnterminatedBeginReturnsIncompleteAfterTimeout(t *testing.T) {
 	}
 
 	tmpdir := t.TempDir()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness()}
@@ -319,7 +319,7 @@ func TestReadinessCancelledCtx(t *testing.T) {
 	}
 
 	tmpdir := t.TempDir()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness()}
@@ -361,7 +361,7 @@ func TestReadinessServerExitWhileBlocked(t *testing.T) {
 	}
 
 	tmpdir := t.TempDir()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness()}
@@ -404,7 +404,7 @@ func TestReadinessConcurrentAwaiters(t *testing.T) {
 	}
 
 	tmpdir := t.TempDir()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness()}
@@ -467,7 +467,7 @@ func TestReadinessMultipleTokens(t *testing.T) {
 	}
 
 	tmpdir := t.TempDir()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness()}
@@ -541,7 +541,7 @@ func TestReadinessIgnoreOrphanEnd(t *testing.T) {
 	}
 
 	tmpdir := t.TempDir()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness()}
@@ -633,7 +633,7 @@ func TestReadinessReadyBeforeTimeoutThenAwaitAfter(t *testing.T) {
 	}
 
 	tmpdir := t.TempDir()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness()}
@@ -708,7 +708,7 @@ func TestReadinessServerExitThenAwaitAfter(t *testing.T) {
 	}
 
 	tmpdir := t.TempDir()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{session: sess, readiness: newReadiness()}

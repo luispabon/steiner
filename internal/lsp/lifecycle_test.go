@@ -17,7 +17,7 @@ const lifecycleTestTimeout = 5 * time.Second
 
 func TestManagerClosePreservesProcessContextForGracefulSession(t *testing.T) {
 	t.Parallel()
-	m := NewManager(config.LSPConfig{}, t.TempDir(), nil, func(string) {}, nil)
+	m := NewManager(config.LSPConfig{}, t.TempDir(), nil, ManagerOptions{WarnFn: func(string) {}})
 
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -97,7 +97,7 @@ func TestManagerSessionSurvivesRequestContextCancellation(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx1, cancel1 := context.WithTimeout(context.Background(), lifecycleTestTimeout)
@@ -179,7 +179,7 @@ func TestManagerIdleReapRespawnsSession(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), lifecycleTestTimeout)
@@ -221,7 +221,7 @@ func TestManagerZeroIdleTimeoutNoReaper(t *testing.T) {
 		Servers:      map[string]config.LSPServerConfig{},
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 
 	// If ticker is nil, no goroutine is running.
 	if m.reapTicker != nil {
@@ -267,7 +267,7 @@ func TestManagerFailedEntryRetryAfterCooldown(t *testing.T) {
 		},
 	}
 
-	m := NewManager(cfg, tmpdir, wrapFn, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, wrapFn, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), lifecycleTestTimeout)

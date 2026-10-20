@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -84,26 +83,23 @@ type entry struct {
 	cycleMu   sync.Mutex // serializes open→request→close cycles for the same session
 }
 
+// ManagerOptions holds the optional settings for NewManager. Its zero value
+// is valid except for WarnFn: a spawn failure calls WarnFn without a nil check.
+type ManagerOptions struct {
+	// Release frees resources owned by a wrapped server command. Optional.
+	Release ReleaseFn
+	// WarnFn receives recoverable errors such as server spawn failures. Set it
+	// unless no spawn can fail.
+	WarnFn func(string)
+	// Stderr becomes each language server process's stderr. Optional.
+	Stderr io.Writer
+}
+
 // NewManager creates a Manager with the given configuration.
 // wrap is optional and transforms the command before launch (e.g. sandbox wrapping).
-// warnFn is called on recoverable errors (e.g. spawn failure).
+// opts.WarnFn is called on recoverable errors (e.g. spawn failure).
 // workspace is the default workspace root when no markers are found.
-func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, args ...any) *Manager {
-	var release ReleaseFn
-	var warnFn func(string)
-	var stderr io.Writer
-	for _, arg := range args {
-		switch v := arg.(type) {
-		case ReleaseFn:
-			release = v
-		case func(*exec.Cmd):
-			release = v
-		case func(string):
-			warnFn = v
-		case io.Writer:
-			stderr = v
-		}
-	}
+func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, opts ManagerOptions) *Manager {
 	mgrCtx, mgrCancel := context.WithCancel(context.Background())
 	spawnCtx, spawnCancel := context.WithCancel(context.Background())
 
@@ -111,9 +107,9 @@ func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, args ...any
 		cfg:         cfg,
 		workspace:   workspace,
 		wrap:        wrap,
-		release:     release,
-		warnFn:      warnFn,
-		stderr:      stderr,
+		release:     opts.Release,
+		warnFn:      opts.WarnFn,
+		stderr:      opts.Stderr,
 		mgrCtx:      mgrCtx,
 		mgrCancel:   mgrCancel,
 		spawnCtx:    spawnCtx,

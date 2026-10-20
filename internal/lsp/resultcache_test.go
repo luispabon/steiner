@@ -156,7 +156,7 @@ func TestResultCache_ProvisionalNotCached_Navigate(t *testing.T) {
 			"go": {Enabled: true, FileExtensions: []string{".go"}},
 		},
 	}
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	t.Cleanup(func() { _ = m.Close() })
 
 	root := resolveRoot(testFile, tmpdir, nil)
@@ -241,7 +241,7 @@ func TestResultCache_ProvisionalNotCached_Diagnostics(t *testing.T) {
 			"go": {Enabled: true, FileExtensions: []string{".go"}},
 		},
 	}
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	t.Cleanup(func() { _ = m.Close() })
 
 	root := resolveRoot(testFile, tmpdir, nil)
