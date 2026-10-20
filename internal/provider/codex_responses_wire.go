@@ -216,7 +216,11 @@ func messageToResponsesItems(msg Message) ([]responsesItem, error) {
 				items = append(items, messageItem("assistant", outputContentParts(msg.Content)))
 			}
 			for _, call := range msg.ToolCalls {
-				items = append(items, responsesFunctionCallItem(call))
+				item, err := responsesFunctionCallItem(call)
+				if err != nil {
+					return nil, err
+				}
+				items = append(items, item)
 			}
 			return dropLoneReasoning(items), nil
 		}
@@ -253,12 +257,20 @@ func messageToResponsesItems(msg Message) ([]responsesItem, error) {
 			}
 			if found >= 0 {
 				usedCalls[found] = true
-				items = append(items, responsesFunctionCallItem(msg.ToolCalls[found]))
+				item, err := responsesFunctionCallItem(msg.ToolCalls[found])
+				if err != nil {
+					return nil, err
+				}
+				items = append(items, item)
 			}
 		}
 		for i, call := range msg.ToolCalls {
 			if !usedCalls[i] {
-				items = append(items, responsesFunctionCallItem(call))
+				item, err := responsesFunctionCallItem(call)
+				if err != nil {
+					return nil, err
+				}
+				items = append(items, item)
 			}
 		}
 		return dropLoneReasoning(items), nil
@@ -286,13 +298,16 @@ func dropLoneReasoning(items []responsesItem) []responsesItem {
 	return items
 }
 
-func responsesFunctionCallItem(call ToolCall) responsesItem {
+func responsesFunctionCallItem(call ToolCall) (responsesItem, error) {
 	args := call.RawArguments
 	if args == "" {
-		data, _ := json.Marshal(call.Arguments)
+		data, err := json.Marshal(call.Arguments)
+		if err != nil {
+			return responsesItem{}, fmt.Errorf("marshal arguments for tool call %q: %w", call.Name, err)
+		}
 		args = string(data)
 	}
-	return responsesItem{Type: "function_call", CallID: call.ID, Name: call.Name, Args: args}
+	return responsesItem{Type: "function_call", CallID: call.ID, Name: call.Name, Args: args}, nil
 }
 
 func messageItem(role string, content []responsesContentPart) responsesItem {
