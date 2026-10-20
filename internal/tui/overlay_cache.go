@@ -103,18 +103,6 @@ func (c *overlayComposeCache) overlayPlanFor(overlay string, width, height int) 
 	return p
 }
 
-// padCells is padOverlayLine for single-line strings, measured with ansi
-// directly to skip lipgloss.Width's line splitting.
-func padCells(line string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if w := ansi.StringWidth(line); w < width {
-		return line + strings.Repeat(" ", width-w)
-	}
-	return line
-}
-
 func (c *overlayComposeCache) build(base, overlay string, width, height int, fullWidth bool) string {
 	p := c.overlayPlanFor(overlay, width, height)
 	covered := !p.empty && p.visibleWidth > 0

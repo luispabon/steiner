@@ -80,30 +80,6 @@ func extractText(lines []string, state selectionState, regionLeft, regionRight i
 	return strings.Join(parts, "\n")
 }
 
-// truncateByWidth extracts the substring between visual columns start and end.
-func truncateByWidth(s string, start, end int) string {
-	if start >= end {
-		return ""
-	}
-	col := 0
-	byteStart := len(s)
-	byteEnd := len(s)
-	for i, r := range s {
-		if col >= end {
-			byteEnd = i
-			break
-		}
-		if col >= start && byteStart == len(s) {
-			byteStart = i
-		}
-		col += runewidth.RuneWidth(r)
-	}
-	if byteStart > byteEnd {
-		byteStart = byteEnd
-	}
-	return s[byteStart:byteEnd]
-}
-
 // isBoxDrawing reports whether r is a box-drawing character from the set
 // │┌┐└┘─├┤╭╮╯╰.
 func isBoxDrawing(r rune) bool {

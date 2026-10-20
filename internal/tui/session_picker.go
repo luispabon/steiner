@@ -96,7 +96,7 @@ func (s sessionPickerOverlay) View() string {
 	}
 
 	if len(s.candidates) > s.scrollOffset+maxDisplay {
-		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render(fmt.Sprintf("… and %d more", len(s.candidates)-(s.scrollOffset+maxDisplay))))
+		lines = append(lines, renderMoreFooter(len(s.candidates)-(s.scrollOffset+maxDisplay)))
 	}
 
 	footerText := FooterChip("↵") + " select   " + FooterChip("f") + " fork   " + FooterChip("↑↓") + " navigate   " + FooterChip("esc") + " close"

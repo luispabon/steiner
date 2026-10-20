@@ -37,7 +37,7 @@ func (s subAgentPickerOverlay) View() string {
 		lines = append(lines, s.renderRow(i, w, now))
 	}
 	if end < len(s.rows) {
-		lines = append(lines, mute.Render(fmt.Sprintf("… and %d more", len(s.rows)-end)))
+		lines = append(lines, renderMoreFooter(len(s.rows)-end))
 	}
 
 	footer := FooterChip("↑↓") + " select   " + FooterChip("↵") + " jump   " + FooterChip("esc") + " close"

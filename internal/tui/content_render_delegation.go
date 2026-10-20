@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 const maxDelegationTranscriptRows = 40
@@ -153,13 +152,6 @@ func (b *contentBuffer) renderAdvisorDenialWarning(dd *delegationDisplayState, w
 		text = fmt.Sprintf("⚠ %d further requests denied — budget exhausted", count)
 	}
 	return b.styles.Warn.Render(truncateRunes(text, max(1, width)))
-}
-
-func truncateRunes(text string, width int) string {
-	if width < 1 {
-		return ""
-	}
-	return ansi.Truncate(text, width, "…")
 }
 
 func (b *contentBuffer) renderDelegationTranscript(dd *delegationDisplayState, width int) []string {
