@@ -83,13 +83,13 @@ type entry struct {
 	cycleMu   sync.Mutex // serializes open→request→close cycles for the same session
 }
 
-// ManagerOptions holds the optional settings for NewManager. Its zero value
-// is valid except for WarnFn: a spawn failure calls WarnFn without a nil check.
+// ManagerOptions holds the optional settings for NewManager. Its zero value is
+// valid.
 type ManagerOptions struct {
 	// Release frees resources owned by a wrapped server command. Optional.
 	Release ReleaseFn
-	// WarnFn receives recoverable errors such as server spawn failures. Set it
-	// unless no spawn can fail.
+	// WarnFn receives recoverable errors such as server spawn failures. Nil
+	// means no warnings.
 	WarnFn func(string)
 	// Stderr becomes each language server process's stderr. Optional.
 	Stderr io.Writer
@@ -102,13 +102,17 @@ type ManagerOptions struct {
 func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, opts ManagerOptions) *Manager {
 	mgrCtx, mgrCancel := context.WithCancel(context.Background())
 	spawnCtx, spawnCancel := context.WithCancel(context.Background())
+	warnFn := opts.WarnFn
+	if warnFn == nil {
+		warnFn = func(string) {}
+	}
 
 	m := &Manager{
 		cfg:         cfg,
 		workspace:   workspace,
 		wrap:        wrap,
 		release:     opts.Release,
-		warnFn:      opts.WarnFn,
+		warnFn:      warnFn,
 		stderr:      opts.Stderr,
 		mgrCtx:      mgrCtx,
 		mgrCancel:   mgrCancel,
