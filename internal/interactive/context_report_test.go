@@ -433,6 +433,35 @@ func TestBuildContextReportIncludesSessionDateMergedWithSkills(t *testing.T) {
 	}
 }
 
+func TestReconstructBlockMessageIndexMergesSameRoleBlocks(t *testing.T) {
+	t.Parallel()
+
+	// Preamble and global AGENTS.md are system and merge into message 0. Project
+	// context, skill, and session date are user and merge into message 1. The
+	// conversation summary is system message 2, and the raw conversation is user
+	// message 3.
+	blocks := []prompt.ContextBlock{
+		{Source: prompt.ContextSourcePreamble},
+		{Source: prompt.ContextSourceGlobalAgentsMD},
+		{Source: prompt.ContextSourceProjectContext},
+		{Source: prompt.ContextSourceSkill},
+		{Source: prompt.ContextSourceSessionDate},
+		{Source: prompt.ContextSourceConversationSummary},
+		{Source: prompt.ContextSourceConversation},
+	}
+	want := []int{0, 0, 1, 1, 1, 2, 3}
+
+	got := reconstructBlockMessageIndex(blocks)
+	if len(got) != len(want) {
+		t.Fatalf("reconstructBlockMessageIndex() length = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("block %d (%s) message index = %d, want %d; all indexes = %v", i, blocks[i].Source, got[i], want[i], got)
+		}
+	}
+}
+
 func TestBuildContextReportOmitsToolDefinitionsWhenNoTools(t *testing.T) {
 	snapshot := RequestContextSnapshot{
 		Model: "gpt-4o",

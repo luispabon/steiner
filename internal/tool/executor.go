@@ -65,20 +65,27 @@ type Executor struct {
 // sandbox must not be nil; callers should pass Unsandboxed{} explicitly when
 // sandboxing is off. If sandbox is nil, NewExecutor defaults to Unsandboxed{}.
 func NewExecutor(registry *Registry, cfg config.Config, approver ApprovalResponder, workDir, sandboxTmpDir string, sandbox SandboxWrapper) *Executor {
+	return NewExecutorWithConfig(registry, ExecutorConfigFromConfig(cfg), approver, workDir, sandboxTmpDir, sandbox)
+}
+
+// NewExecutorWithConfig creates a tool executor from a prepared ExecutorConfig.
+// Arguments and sandbox defaulting match NewExecutor. Parents and children share
+// one ExecutorConfig built by ExecutorConfigFromConfig.
+func NewExecutorWithConfig(registry *Registry, cfg ExecutorConfig, approver ApprovalResponder, workDir, sandboxTmpDir string, sandbox SandboxWrapper) *Executor {
 	if sandbox == nil {
 		sandbox = Unsandboxed{}
 	}
 	root := normalizeExecutionRoot(workDir)
-	outputLimit := cfg.Limits.ToolOutputMaxBytes
+	outputLimit := cfg.outputLimit
 	if outputLimit < 1 {
-		outputLimit = 65536
+		outputLimit = defaultToolOutputMaxBytes
 	}
 	return &Executor{
 		registry:    registry,
 		approver:    approver,
 		sandbox:     sandbox,
 		workDir:     root,
-		pathPolicy:  NewPathPolicyWithSandbox(root, cfg.Paths, sandboxTmpDir),
+		pathPolicy:  NewPathPolicyWithSandbox(root, cfg.paths, sandboxTmpDir),
 		outputLimit: outputLimit,
 	}
 }

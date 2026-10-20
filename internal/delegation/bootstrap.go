@@ -128,8 +128,7 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		Sandbox:            deps.Sandbox,
 		ReadOnlyBash:       readOnlyBash,
 		MaxParallelTools:   deps.MaxParallelTools,
-		Limits:             deps.Limits,
-		Paths:              deps.Paths,
+		ExecutorConfig:     deps.ExecutorConfig,
 		ContextManagement:  deps.ContextManagement,
 	})
 	// Children own a fresh vision capability tracker rather than inheriting the
@@ -266,12 +265,9 @@ type childRunRequestParams struct {
 	Diagnostics      *diagnostics.Writer
 	ReadOnlyBash     bool
 	MaxParallelTools int
-	// Limits and Paths configure the child's tool executor (output byte cap
-	// and path policy) the same way the parent's own executor is configured;
-	// previously the child executor was built from a zero-value config.Config
-	// and silently ignored both.
-	Limits config.LimitsConfig
-	Paths  config.PathsConfig
+	// ExecutorConfig configures the child's tool executor (output byte cap and
+	// path policy) the same way the parent's own executor is configured.
+	ExecutorConfig tool.ExecutorConfig
 	// ContextManagement configures the child's ContextStateManager the same
 	// way the parent's is configured; previously no ContextManager was set on
 	// the child request, so it always ran with library defaults regardless of
@@ -285,7 +281,6 @@ type childRunRequestParams struct {
 // p.ModeGetter, when non-nil, is wired into the child executor so it inherits
 // the parent's execution mode.
 func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
-	childCfg := config.Config{Limits: p.Limits, Paths: p.Paths}
 	scopedEvents := withAgentScope(p.AgentID, p.AgentType, p.Events)
 	traceWriter := newToolCallTraceWriter(p.TraceRoot, p.AgentID, p.SessionID)
 	registerToolCallTraceWriter(p.AgentID, traceWriter)
@@ -295,7 +290,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	// passes an explicit wrapper (tool.Unsandboxed{} when sandboxing is off).
 	// No silent fallback here — an omitted Sandbox is a caller bug, not a
 	// default to paper over.
-	exec := tool.NewExecutor(p.ExecReg, childCfg, nil, p.WorkDir, p.SandboxTmpDir, p.Sandbox)
+	exec := tool.NewExecutorWithConfig(p.ExecReg, p.ExecutorConfig, nil, p.WorkDir, p.SandboxTmpDir, p.Sandbox)
 	exec = exec.WithDiagnostics(p.Diagnostics)
 	exec = exec.WithDiagnosticsScope(diagnostics.SourceSubAgent, p.AgentID, string(p.AgentType))
 	if p.ModeGetter != nil {

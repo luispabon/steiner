@@ -197,6 +197,50 @@ func TestBuildRunRequestLimitsModelCallTimeout(t *testing.T) {
 	}
 }
 
+// TestRunnerExecutorConfigPreparedOnce proves the parent executor and the
+// delegation deps use the ExecutorConfig projected in prepareRun. A runtime
+// config change after preparation must reach neither of them.
+func TestRunnerExecutorConfigPreparedOnce(t *testing.T) {
+	t.Parallel()
+	workDir := t.TempDir()
+	cfg := testRuntimeConfig("test-model")
+	cfg.Paths = config.PathsConfig{BlockedPaths: []string{filepath.Join(workDir, "secrets")}}
+	runner := cliRunner{
+		runtime: cliRuntime{
+			cfg:      cfg,
+			provider: &fakeProvider{},
+			registry: tool.NewRegistry(),
+			workDir:  workDir,
+			homeDir:  t.TempDir(),
+		},
+	}
+	setup, err := runner.prepareRun(nil, nil)
+	if err != nil {
+		t.Fatalf("prepareRun() error = %v", err)
+	}
+	if !reflect.DeepEqual(setup.executorConfig, tool.ExecutorConfigFromConfig(cfg)) {
+		t.Fatal("prepared executorConfig does not match the projection of the runtime config")
+	}
+
+	runner.runtime.cfg.Paths = config.PathsConfig{}
+
+	registry := tool.NewRegistry(tool.ToolDef{
+		Name:    "read",
+		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
+	})
+	req := buildRunRequest(runner, setup, registry, nil, runHooks{})
+	_, err = req.Executor.Execute(context.Background(), "read", "", map[string]any{"path": filepath.Join(workDir, "secrets", "key.txt")})
+	var toolErr *tool.ToolExecutionError
+	if !errors.As(err, &toolErr) || toolErr.Kind != "policy_denied" {
+		t.Fatalf("parent Execute(read blocked path) error = %v, want policy_denied from the prepared paths", err)
+	}
+
+	deps := runner.newDelegateDeps(setup, nil, nil, nil, "")
+	if !reflect.DeepEqual(deps.ExecutorConfig, setup.executorConfig) {
+		t.Fatal("newDelegateDeps did not forward the prepared setup.executorConfig")
+	}
+}
+
 func TestNewDelegateDepsDelegationModelIsBaseResolvedModel(t *testing.T) {
 	setup := runnerSetup{
 		resolvedModel: provider.ResolvedModel{

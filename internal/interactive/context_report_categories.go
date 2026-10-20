@@ -271,20 +271,6 @@ func attributeUserSkillBlocks(message provider.Message, msgIdx int, blocks []pro
 	}
 }
 
-// assemblyRoleForSource returns the message role used by
-// source_render.go::renderBlocks() for merging purposes. This mirrors
-// source_render.go::blockMessage() role logic — changes to one must be
-// reflected in the other.
-func assemblyRoleForSource(source prompt.ContextSource) provider.MessageRole {
-	switch source {
-	case prompt.ContextSourcePreamble, prompt.ContextSourcePhasePrompt, prompt.ContextSourceGlobalAgentsMD, prompt.ContextSourceProjectAgentsMD, prompt.ContextSourceConversationSummary:
-		return provider.MessageRoleSystem
-	default:
-		// ProjectContext, SessionDate, Skill, DurableContext, Conversation
-		return provider.MessageRoleUser
-	}
-}
-
 // reconstructBlockMessageIndex determines which message index each block was merged into.
 // This mirrors the merging logic in source_render.go::renderBlocks() — changes to
 // one must be reflected in the other.
@@ -294,7 +280,7 @@ func reconstructBlockMessageIndex(blocks []prompt.ContextBlock) []int {
 	result := make([]int, len(blocks))
 	msgIdx := 0
 	for i, block := range blocks {
-		if i > 0 && assemblyRoleForSource(block.Source) != assemblyRoleForSource(blocks[i-1].Source) {
+		if i > 0 && block.Source.IsSystemZone() != blocks[i-1].Source.IsSystemZone() {
 			msgIdx++
 		}
 		result[i] = msgIdx

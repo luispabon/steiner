@@ -930,13 +930,13 @@ func TestBuildChildRunThreadsToolOutputMaxBytes(t *testing.T) {
 	parent := tool.NewRegistry(tool.ToolDef{Name: "probe", ExecPath: "/bin/sh", Subcommand: scriptPath})
 
 	deps := SubAgentHandlerDeps{
-		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
-		Events:      output.NoopSink{},
-		WorkDir:     "/tmp/work",
-		Provider:    stubProvider{},
-		Sandbox:     tool.Unsandboxed{},
-		Limits:      config.LimitsConfig{ToolOutputMaxBytes: 48},
+		ParentReg:      parent,
+		SubAgentCfg:    config.SubAgentConfig{MaxFollowUps: 100},
+		Events:         output.NoopSink{},
+		WorkDir:        "/tmp/work",
+		Provider:       stubProvider{},
+		Sandbox:        tool.Unsandboxed{},
+		ExecutorConfig: tool.ExecutorConfigFromConfig(config.Config{Limits: config.LimitsConfig{ToolOutputMaxBytes: 48}}),
 	}
 	spec := Spec{Task: "test", AgentID: "test-output-limit", Limits: Limits{MaxTurns: 5}}
 
@@ -998,12 +998,12 @@ func TestBuildChildRunThreadsPathsBlockedPaths(t *testing.T) {
 	workDir := t.TempDir()
 
 	deps := SubAgentHandlerDeps{
-		ParentReg:   parent,
-		SubAgentCfg: config.SubAgentConfig{MaxFollowUps: 100},
-		Events:      output.NoopSink{},
-		WorkDir:     workDir,
-		Provider:    stubProvider{},
-		Paths:       config.PathsConfig{BlockedPaths: []string{workDir + "/secrets"}},
+		ParentReg:      parent,
+		SubAgentCfg:    config.SubAgentConfig{MaxFollowUps: 100},
+		Events:         output.NoopSink{},
+		WorkDir:        workDir,
+		Provider:       stubProvider{},
+		ExecutorConfig: tool.ExecutorConfigFromConfig(config.Config{Paths: config.PathsConfig{BlockedPaths: []string{workDir + "/secrets"}}}),
 	}
 	spec := Spec{Task: "test", AgentID: "test-blocked-paths", Limits: Limits{MaxTurns: 5}}
 
@@ -1771,13 +1771,13 @@ func TestBuildChildRunSandboxTmpDir(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			deps := SubAgentHandlerDeps{
-				ParentReg:     parent,
-				SubAgentCfg:   config.SubAgentConfig{MaxFollowUps: 100},
-				Events:        output.NoopSink{},
-				WorkDir:       workDir,
-				Provider:      stubProvider{},
-				Paths:         config.PathsConfig{ProjectRootOnly: true},
-				SandboxTmpDir: tt.sandboxTmpDir,
+				ParentReg:      parent,
+				SubAgentCfg:    config.SubAgentConfig{MaxFollowUps: 100},
+				Events:         output.NoopSink{},
+				WorkDir:        workDir,
+				Provider:       stubProvider{},
+				ExecutorConfig: tool.ExecutorConfigFromConfig(config.Config{Paths: config.PathsConfig{ProjectRootOnly: true}}),
+				SandboxTmpDir:  tt.sandboxTmpDir,
 			}
 			req, _, err := BuildChildRun(context.Background(), deps, testChildOverride(deps), spec)
 			if err != nil {

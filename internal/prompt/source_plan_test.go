@@ -617,10 +617,13 @@ func TestSessionDateStabilityAcrossConversationLengths(t *testing.T) {
 
 	sessionDate := NewSessionDate(time.Date(2026, 9, 13, 12, 30, 0, 0, time.UTC))
 
+	cache := &StaticContextCache{}
 	baseOpts := AssemblyOptions{
-		SkillsRoots: []string{skillsRoot},
-		SkillNames:  []string{"test"},
-		SessionDate: sessionDate,
+		SkillsRoots:         []string{skillsRoot},
+		SkillNames:          []string{"test"},
+		SessionDate:         sessionDate,
+		CachedStaticContext: cache,
+		StaticContextScope:  "session-1",
 	}
 
 	opts1 := baseOpts

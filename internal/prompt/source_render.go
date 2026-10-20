@@ -101,14 +101,10 @@ func blockMessage(block ContextBlock) provider.Message {
 		Content: block.Content,
 	}
 
-	switch block.Source {
-	case ContextSourcePreamble, ContextSourcePhasePrompt, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD:
+	if block.Source.IsSystemZone() {
 		message.Role = provider.MessageRoleSystem
-	case ContextSourceConversationSummary:
-		message.Role = provider.MessageRoleSystem
-	default:
-		// Durable context and session date intentionally stay user-scoped here;
-		// the interactive context report uses a different role mapping for block matching.
+	} else {
+		// Durable context and session date intentionally stay user-scoped.
 		message.Role = provider.MessageRoleUser
 	}
 

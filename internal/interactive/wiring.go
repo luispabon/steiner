@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
@@ -37,28 +38,34 @@ func (s *snapshotSink) Emit(event output.Event) {
 
 // approvalResponder bridges tool approval requests through the session's
 // ApprovalCoordinator, enabling the TUI (or other client) to display and
-// respond to approval prompts.
+// respond to approval prompts. Approval lifecycle events go to events.
 type approvalResponder struct {
 	coordinator *ApprovalCoordinator
+	events      output.EventSink
 
 	mu          sync.Mutex
 	alwaysAllow map[string]bool
 }
 
-func newApprovalResponder(coordinator *ApprovalCoordinator) *approvalResponder {
+func newApprovalResponder(coordinator *ApprovalCoordinator, events output.EventSink) *approvalResponder {
 	return &approvalResponder{
 		coordinator: coordinator,
+		events:      events,
 		alwaysAllow: make(map[string]bool),
 	}
 }
 
+// RequestApproval registers a user-input approval with the coordinator before
+// its requested event is emitted, so an event subscriber can respond
+// synchronously. Cached grants and an unavailable coordinator skip registration.
 func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
 	if req.Response == nil {
 		return fmt.Errorf("approval response channel is required")
 	}
 	if h == nil || h.coordinator == nil {
-		req.Response <- tool.ApprovalResponse{Allow: false, Message: "approval UI is unavailable"}
-		return fmt.Errorf("approval UI is unavailable")
+		return h.respond(ctx, req, func(context.Context, tool.ApprovalRequest) error {
+			return fmt.Errorf("approval UI is unavailable")
+		})
 	}
 
 	toolName := req.Tool.Name
@@ -69,30 +76,42 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 	}
 
 	if h.isAlwaysAllowed(grantKey) {
-		req.Response <- tool.ApprovalResponse{Allow: true, Message: "always allowed"}
-		return nil
+		return h.respond(ctx, req, func(_ context.Context, inner tool.ApprovalRequest) error {
+			inner.Response <- tool.ApprovalResponse{Allow: true, Message: "always allowed"}
+			return nil
+		})
 	}
 
 	responseCh := h.coordinator.Begin(req.CallID, toolName, "", string(req.Kind), tool.ApprovalAgentScope(ctx))
-	defer h.coordinator.Finish(responseCh)
+	return h.respond(ctx, req, func(_ context.Context, inner tool.ApprovalRequest) error {
+		// Finish runs before the eventing wrapper emits a denied event for an error return.
+		defer h.coordinator.Finish(responseCh)
 
-	select {
-	case submission, ok := <-responseCh:
-		if !ok {
-			req.Response <- tool.ApprovalResponse{Allow: false, Message: "approval response channel closed"}
-			return fmt.Errorf("approval response channel closed")
+		select {
+		case submission, ok := <-responseCh:
+			if !ok {
+				return fmt.Errorf("approval response channel closed")
+			}
+			if submission.Decision == "always_allow" {
+				h.cacheAlwaysAllow(grantKey)
+			}
+			inner.Response <- approvalResponseForDecision(submission.Decision)
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
 		}
-		response := approvalResponseForDecision(submission.Decision)
-		if submission.Decision == "always_allow" {
-			h.cacheAlwaysAllow(grantKey)
-		}
-		req.Response <- response
-		return nil
-	case <-ctx.Done():
-		response := tool.ApprovalResponse{Allow: false, Message: ctx.Err().Error()}
-		req.Response <- response
-		return ctx.Err()
+	})
+}
+
+// respond runs decide inside the eventing wrapper, which emits the requested
+// event before decide and the decision event after decide returns. The eventing
+// wrapper sends an error return's message to req.Response itself.
+func (h *approvalResponder) respond(ctx context.Context, req tool.ApprovalRequest, decide func(context.Context, tool.ApprovalRequest) error) error {
+	var events output.EventSink
+	if h != nil {
+		events = h.events
 	}
+	return agent.NewEventingApprover(events, tool.ApprovalResponderFunc(decide)).RequestApproval(ctx, req)
 }
 
 func (h *approvalResponder) isAlwaysAllowed(toolName string) bool {

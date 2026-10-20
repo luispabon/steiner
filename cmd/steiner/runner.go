@@ -247,6 +247,7 @@ func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, s
 		Sandbox:                          r.sandboxWrapper(),
 		ModeGetter:                       r.modeGetterFunc,
 		AsyncSubAgents:                   r.asyncSubAgents(),
+		ExecutorConfig:                   setup.executorConfig,
 	}
 }
 
