@@ -54,6 +54,7 @@ func TestApplyEventSubAgentPath(t *testing.T) {
 		wantSeqDelta int
 		wantCmd      bool
 		wantDirty    bool
+		wantStatus   string
 	}{
 		{
 			name:         "worktree disposal returns its own batch",
@@ -61,6 +62,7 @@ func TestApplyEventSubAgentPath(t *testing.T) {
 			wantSeqDelta: 1,
 			wantCmd:      true,
 			wantDirty:    true,
+			wantStatus:   "code worktree discarded for child-1",
 		},
 		{
 			name:         "sub-agent sandbox status shares debounce tail",
@@ -79,6 +81,7 @@ func TestApplyEventSubAgentPath(t *testing.T) {
 			t.Parallel()
 			m := newModel(Config{}, nil)
 			before := m.syncDebounceSeq
+			segmentsBefore := len(m.content.segments)
 			cmd := m.applyEvent(tc.event)
 			if got := m.syncDebounceSeq - before; got != tc.wantSeqDelta {
 				t.Errorf("syncDebounceSeq delta = %d, want %d", got, tc.wantSeqDelta)
@@ -88,6 +91,12 @@ func TestApplyEventSubAgentPath(t *testing.T) {
 			}
 			if m.contentDirty != tc.wantDirty {
 				t.Errorf("contentDirty = %t, want %t", m.contentDirty, tc.wantDirty)
+			}
+			if tc.wantStatus != "" {
+				added := m.content.segments[segmentsBefore:]
+				if len(added) != 1 || added[0].kind != segmentStatus || added[0].text != tc.wantStatus {
+					t.Errorf("transcript added %+v, want only status segment %q", added, tc.wantStatus)
+				}
 			}
 			if m.sidebar.sandboxStatus != "" {
 				t.Errorf("sub-agent event changed main sidebar sandbox status to %q", m.sidebar.sandboxStatus)
