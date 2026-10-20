@@ -416,10 +416,10 @@ func (m *Model) executeInvokeSkillAction(skillName, args string) (tea.Model, tea
 // oneshotSessionStoreOrEmit casts sessionStore to oneshot.SessionStore,
 // emitting the standard "not configured" failure events on the sink when it
 // does not implement the interface.
-func oneshotSessionStoreOrEmit(sessionStore interface{}, sink output.EventSink, runID string) (oneshot.SessionStore, bool) {
+func oneshotSessionStoreOrEmit(sessionStore SessionLister, sink output.EventSink, runID string) (oneshot.SessionStore, bool) {
 	oneshotSessionStore, ok := sessionStore.(oneshot.SessionStore)
 	if !ok {
-		sink.Emit(output.NewOverlayReportEvent("Context Report", "session store does not implement required oneshot interface"))
+		sink.Emit(output.NewOverlayReportEvent("Oneshot Report", "session store does not implement required oneshot interface"))
 		sink.Emit(output.NewOneshotFinishedEvent(runID, nil))
 		return nil, false
 	}
