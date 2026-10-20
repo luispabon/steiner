@@ -13,6 +13,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
+//nolint:gocyclo // pre-routing guards run in a fixed order
 func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	if payload, ok := event.Payload.(output.ConversationStateEvent); ok {
 		m.applyConversationState(payload)
