@@ -21,7 +21,7 @@ func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (an
 		"agent_id": map[string]any{"type": "string", "description": "Required. The delegated agent ID to resume."},
 		"message":  map[string]any{"type": "string", "description": "Required. The follow-up user message to append."},
 	}
-	properties["group"] = map[string]any{"type": "string", "description": "Optional conversation-unique group name. Reuse a fresh sub_agent group name to join that assistant response; otherwise choose a fresh name or omit group. Calls are held for joint completion only in async sessions. Names cannot be reused in later responses."}
+	properties["group"] = map[string]any{"type": "string", "description": "Optional conversation-unique group name. In async sessions, calls sharing a name in one assistant response deliver together after all finish, failures included. Use a name not reserved in earlier responses; omit for independent delivery."}
 	return tool.ToolDef{
 		Name:        FollowUpToolName,
 		Description: "Continue work with an existing sub-agent by sending a follow-up message. Use this to resume a suitable warm agent for the same bounded deliverable in the same live workspace, sequentially, to guide incomplete work, request refinements, make related corrections with the responsible implementation agent, or request a narrow re-check from the original reviewer. Use fresh delegation for unavailable or non-resumable sessions, material lane or scope changes, independent or wider review, or removed worktrees; workflow handoffs are not safe continuation boundaries.",

@@ -114,7 +114,7 @@ func SubAgentToolDef(deps SpecializedToolDeps, excludeTypes []AgentType) tool.To
 	}
 	properties["group"] = map[string]any{
 		"type":        "string",
-		"description": "Optional conversation-unique group name. Calls with the same name in one assistant response are delivered together when async; use a fresh name for later responses. Reusing a name returns an error.",
+		"description": "Optional conversation-unique group name. In async sessions, calls sharing a name in one assistant response deliver together after all finish, failures included. Use a name not reserved in earlier responses; omit for independent delivery.",
 	}
 
 	return tool.ToolDef{
