@@ -2,6 +2,7 @@ package interactive
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -97,7 +98,7 @@ func TestSessionApproverReturnsNonNil(t *testing.T) {
 
 func TestApprovalResponderAllowsAndCachesAlwaysAllow(t *testing.T) {
 	coordinator := &ApprovalCoordinator{}
-	responder := newApprovalResponder(coordinator)
+	responder := newApprovalResponder(coordinator, nil)
 
 	firstResponse := make(chan tool.ApprovalResponse, 1)
 	firstDone := make(chan error, 1)
@@ -154,7 +155,7 @@ func TestApprovalResponderAllowsAndCachesAlwaysAllow(t *testing.T) {
 
 func TestApprovalResponderDeniesDecisions(t *testing.T) {
 	coordinator := &ApprovalCoordinator{}
-	responder := newApprovalResponder(coordinator)
+	responder := newApprovalResponder(coordinator, nil)
 
 	responseCh := make(chan tool.ApprovalResponse, 1)
 	done := make(chan error, 1)
@@ -186,7 +187,7 @@ func TestApprovalResponderDeniesDecisions(t *testing.T) {
 
 func TestApprovalResponderDoesNotDependOnTerminalHandoff(t *testing.T) {
 	coordinator := &ApprovalCoordinator{}
-	responder := newApprovalResponder(coordinator)
+	responder := newApprovalResponder(coordinator, nil)
 
 	responseCh := make(chan tool.ApprovalResponse, 1)
 	done := make(chan error, 1)
@@ -222,7 +223,7 @@ func TestApprovalResponderDoesNotDependOnTerminalHandoff(t *testing.T) {
 // different tool from the same server still prompts.
 func TestApprovalResponderCachesMCPToolsByServerAndTool(t *testing.T) {
 	coordinator := &ApprovalCoordinator{}
-	responder := newApprovalResponder(coordinator)
+	responder := newApprovalResponder(coordinator, nil)
 
 	mcpTool := tool.ToolDef{
 		Name: "mcp__fixture__echo",
@@ -301,6 +302,261 @@ func TestApprovalResponderCachesMCPToolsByServerAndTool(t *testing.T) {
 	}
 	if got, want := <-thirdResponse, (tool.ApprovalResponse{Allow: false, Message: "denied"}); got != want {
 		t.Fatalf("third response = %#v, want %#v", got, want)
+	}
+}
+
+// TestSessionApproverRegistersBeforeRequestedEvent proves a client can answer
+// an approval synchronously from the requested-event sink. Before the fix the
+// response was submitted before registration, so the request blocked forever.
+// Each case covers one user decision for a single request: the requested event
+// sees the pending registration, the decision event is observed only after the
+// registration is gone, and the coordinator is empty afterward.
+func TestSessionApproverRegistersBeforeRequestedEvent(t *testing.T) {
+	type observedEvent struct {
+		eventType string
+		pending   bool
+		head      string
+	}
+	tests := []struct {
+		name         string
+		decision     string
+		wantEvent    string
+		wantResponse tool.ApprovalResponse
+	}{
+		{
+			name:         "allow_once",
+			decision:     "allow_once",
+			wantEvent:    string(output.EventTypeApprovalAccepted),
+			wantResponse: tool.ApprovalResponse{Allow: true, Message: "approved"},
+		},
+		{
+			name:         "deny",
+			decision:     "deny",
+			wantEvent:    string(output.EventTypeApprovalDenied),
+			wantResponse: tool.ApprovalResponse{Allow: false, Message: "denied"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := NewSession(Dependencies{})
+			if err != nil {
+				t.Fatalf("NewSession failed: %v", err)
+			}
+			coordinator := s.ApprovalCoordinator()
+
+			// Buffered for the two events a single request emits. The decision event
+			// is sent from the eventing goroutine, so this channel is the sync point.
+			observed := make(chan observedEvent, 2)
+			responder := s.Approver(output.SinkFunc(func(event output.Event) {
+				switch event.Type {
+				case output.EventTypeApprovalRequested:
+					observed <- observedEvent{
+						eventType: event.Type,
+						pending:   coordinator.HasPending(),
+						head:      coordinator.HeadIdentity(),
+					}
+					coordinator.Submit(SubmitApproval{
+						Identity: coordinator.HeadIdentity(),
+						Tool:     "bash",
+						Mode:     "prompt",
+						Decision: tt.decision,
+					})
+				case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
+					observed <- observedEvent{
+						eventType: event.Type,
+						pending:   coordinator.HasPending(),
+					}
+				}
+			}))
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			responseCh := make(chan tool.ApprovalResponse, 1)
+			done := make(chan error, 1)
+			go func() {
+				done <- responder.RequestApproval(ctx, tool.ApprovalRequest{
+					Tool:     tool.ToolDef{Name: "bash"},
+					CallID:   "call-bash-sync",
+					Reason:   "sandbox_violation",
+					Response: responseCh,
+					Kind:     tool.ApprovalKindPath,
+				})
+			}()
+
+			next := func() observedEvent {
+				select {
+				case ev := <-observed:
+					return ev
+				case <-time.After(2 * time.Second):
+					t.Fatal("timed out waiting for approval event")
+					return observedEvent{}
+				}
+			}
+
+			requested := next()
+			if requested.eventType != string(output.EventTypeApprovalRequested) {
+				t.Fatalf("first event = %q, want %q", requested.eventType, output.EventTypeApprovalRequested)
+			}
+			if !requested.pending || requested.head != "call-bash-sync" {
+				t.Fatalf("at requested event pending = %t, head = %q; want pending call-bash-sync", requested.pending, requested.head)
+			}
+
+			decision := next()
+			if decision.eventType != tt.wantEvent {
+				t.Fatalf("second event = %q, want %q", decision.eventType, tt.wantEvent)
+			}
+			if decision.pending {
+				t.Fatalf("approval still registered when %s was observed", decision.eventType)
+			}
+
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("RequestApproval() error = %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("RequestApproval() blocked; synchronous requested-event response was lost")
+			}
+			if coordinator.HasPending() {
+				t.Fatal("coordinator still has a pending approval after the decision")
+			}
+			if got := <-responseCh; got != tt.wantResponse {
+				t.Fatalf("response = %#v, want %#v", got, tt.wantResponse)
+			}
+		})
+	}
+}
+
+// TestSessionApproverRemovesPendingBeforeDeniedEvent proves a cancelled
+// approval is unregistered before its denied event reaches the sink.
+func TestSessionApproverRemovesPendingBeforeDeniedEvent(t *testing.T) {
+	s, err := NewSession(Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	coordinator := s.ApprovalCoordinator()
+
+	pendingAtDenied := make(chan bool, 1)
+	responder := s.Approver(output.SinkFunc(func(event output.Event) {
+		if event.Type == output.EventTypeApprovalDenied {
+			pendingAtDenied <- coordinator.HasPending()
+		}
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	responseCh := make(chan tool.ApprovalResponse, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- responder.RequestApproval(ctx, tool.ApprovalRequest{
+			Tool:     tool.ToolDef{Name: "bash"},
+			CallID:   "call-bash-cancel",
+			Reason:   "sandbox_violation",
+			Response: responseCh,
+			Kind:     tool.ApprovalKindPath,
+		})
+	}()
+	waitForPendingApproval(t, coordinator)
+
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("RequestApproval() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RequestApproval() did not return after cancellation")
+	}
+	if pending := <-pendingAtDenied; pending {
+		t.Fatal("approval still registered when denied event was emitted")
+	}
+	if got, want := <-responseCh, (tool.ApprovalResponse{Allow: false, Message: context.Canceled.Error()}); got != want {
+		t.Fatalf("response = %#v, want %#v", got, want)
+	}
+}
+
+// TestApprovalResponderNilCoordinatorEmitsRequestedThenDenied keeps the
+// unavailable-coordinator decision and its event pair unchanged.
+func TestApprovalResponderNilCoordinatorEmitsRequestedThenDenied(t *testing.T) {
+	var events []output.Event
+	responder := newApprovalResponder(nil, output.SinkFunc(func(event output.Event) {
+		events = append(events, event)
+	}))
+
+	responseCh := make(chan tool.ApprovalResponse, 1)
+	err := responder.RequestApproval(context.Background(), tool.ApprovalRequest{
+		Tool:     tool.ToolDef{Name: "bash"},
+		CallID:   "call-bash-nil",
+		Reason:   "sandbox_violation",
+		Response: responseCh,
+		Kind:     tool.ApprovalKindPath,
+	})
+	if err == nil || err.Error() != "approval UI is unavailable" {
+		t.Fatalf("RequestApproval() error = %v, want approval UI is unavailable", err)
+	}
+	if got, want := <-responseCh, (tool.ApprovalResponse{Allow: false, Message: "approval UI is unavailable"}); got != want {
+		t.Fatalf("response = %#v, want %#v", got, want)
+	}
+	if len(events) != 2 || events[0].Type != output.EventTypeApprovalRequested || events[1].Type != output.EventTypeApprovalDenied {
+		t.Fatalf("events = %#v, want requested then denied approval events", events)
+	}
+}
+
+// TestApprovalResponderCachedGrantSkipsRegistration proves a cached always_allow
+// emits its requested event without registering a pending approval.
+func TestApprovalResponderCachedGrantSkipsRegistration(t *testing.T) {
+	coordinator := &ApprovalCoordinator{}
+	var pendingAtRequested []bool
+	responder := newApprovalResponder(coordinator, output.SinkFunc(func(event output.Event) {
+		if event.Type == output.EventTypeApprovalRequested {
+			pendingAtRequested = append(pendingAtRequested, coordinator.HasPending())
+		}
+	}))
+
+	firstResponse := make(chan tool.ApprovalResponse, 1)
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
+			Tool:     tool.ToolDef{Name: "write"},
+			CallID:   "call-write-1",
+			Reason:   "sandbox_violation",
+			Response: firstResponse,
+			Kind:     tool.ApprovalKindPath,
+		})
+	}()
+	waitForPendingApproval(t, coordinator)
+	coordinator.Submit(SubmitApproval{
+		Identity: coordinator.HeadIdentity(),
+		Tool:     "write",
+		Mode:     "prompt",
+		Decision: "always_allow",
+	})
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first RequestApproval() error = %v", err)
+	}
+
+	secondResponse := make(chan tool.ApprovalResponse, 1)
+	if err := responder.RequestApproval(context.Background(), tool.ApprovalRequest{
+		Tool:     tool.ToolDef{Name: "write"},
+		CallID:   "call-write-2",
+		Reason:   "sandbox_violation",
+		Response: secondResponse,
+		Kind:     tool.ApprovalKindPath,
+	}); err != nil {
+		t.Fatalf("second RequestApproval() error = %v", err)
+	}
+	if got, want := <-secondResponse, (tool.ApprovalResponse{Allow: true, Message: "always allowed"}); got != want {
+		t.Fatalf("second response = %#v, want %#v", got, want)
+	}
+
+	if len(pendingAtRequested) != 2 {
+		t.Fatalf("requested events = %d, want 2", len(pendingAtRequested))
+	}
+	if !pendingAtRequested[0] {
+		t.Error("first requested event saw no pending approval, want one registered")
+	}
+	if pendingAtRequested[1] {
+		t.Error("cached grant requested event saw a pending approval, want none registered")
 	}
 }
 

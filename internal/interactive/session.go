@@ -211,7 +211,7 @@ func (s *Session) WorkflowHandoffCoordinator() *WorkflowHandoffCoordinator {
 // requests through the session's ApprovalCoordinator and emits approval
 // events to the given sink.
 func (s *Session) Approver(eventSink output.EventSink) tool.ApprovalResponder {
-	return agent.NewEventingApprover(eventSink, newApprovalResponder(s.approvalCoordinator))
+	return newApprovalResponder(s.approvalCoordinator, eventSink)
 }
 
 // WorkflowHandoffResponder returns a responder that routes workflow handoff
