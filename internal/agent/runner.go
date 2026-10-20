@@ -183,22 +183,6 @@ type InboxDrain struct {
 	Images []ImageBlock
 }
 
-// SteerInboxDrain adapts a steer queue drain to DrainInbox. Every non-empty
-// drain is a wake delivery.
-func SteerInboxDrain(drain func() []SteerMessage) func() InboxDrain {
-	if drain == nil {
-		return nil
-	}
-	return func() InboxDrain {
-		steers := drain()
-		if len(steers) == 0 {
-			return InboxDrain{}
-		}
-		merged := MergeSteers(steers)
-		return InboxDrain{Message: &merged, Wake: true, UserText: merged.Content, Images: merged.Images}
-	}
-}
-
 // Runner executes the main turn loop for an agent run.
 type Runner struct{}
 
