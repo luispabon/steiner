@@ -94,7 +94,7 @@ func TestMCPHandlerFailClosed(t *testing.T) {
 
 func TestMCPApprovalRetainsExecutionCallID(t *testing.T) {
 	fixtureBin := buildFixture(t)
-	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, SessionOptions{Stderr: io.Discard})
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestMCPApprovalRetainsExecutionCallID(t *testing.T) {
 // rebuilding the tool definition.
 func TestMCPHandlerPlanModeDynamic(t *testing.T) {
 	fixtureBin := buildFixture(t)
-	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, SessionOptions{Stderr: io.Discard})
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestApproval(t *testing.T) {
 	// A live fixture session lets the auto-allowed paths prove the tool call
 	// actually reaches the server (echo returns OK with the input text).
 	fixtureBin := buildFixture(t)
-	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, SessionOptions{Stderr: io.Discard})
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestApproval(t *testing.T) {
 // unchanged.
 func TestMCPToolDefOutputTruncation(t *testing.T) {
 	fixtureBin := buildFixture(t)
-	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, SessionOptions{Stderr: io.Discard})
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestMCPToolDefOutputTruncation(t *testing.T) {
 // empty string) never sends an empty string as the tool message's content.
 func TestMCPToolDefEmptyContent(t *testing.T) {
 	fixtureBin := buildFixture(t)
-	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, SessionOptions{Stderr: io.Discard})
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
 	}
@@ -445,7 +445,7 @@ func TestMCPToolDefTimeout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
+			sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, SessionOptions{Stderr: io.Discard})
 			if err != nil {
 				t.Fatalf("connect fixture: %v", err)
 			}
@@ -473,7 +473,7 @@ func TestMCPToolDefTimeout(t *testing.T) {
 // transport failure that would trigger reconnect.
 func TestMCPToolDefIsErrorNoReconnect(t *testing.T) {
 	fixtureBin := buildFixture(t)
-	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, io.Discard, 0)
+	sess, err := ConnectSession(context.Background(), ServerSpec{Name: "fixture", Command: fixtureBin}, nil, SessionOptions{Stderr: io.Discard})
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
 	}

@@ -81,7 +81,10 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 	// timeout-bounded one, because the stdio transport binds the server process
 	// to the context it was started with: cancelling it after a successful
 	// connect would kill the session.
-	session, err := connectSession(m.ctx, spec, wrap, release, stderr, timeout, SessionOptions{
+	session, err := connectSession(m.ctx, spec, wrap, SessionOptions{
+		Release:    release,
+		Stderr:     stderr,
+		Timeout:    timeout,
 		ManagerCtx: m.ctx,
 		OnStatus: func(status ServerStatus, reconnectErr error) {
 			// Reconnect lifecycle: connected→reconnecting→connected/unavailable.

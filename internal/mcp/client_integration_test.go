@@ -48,7 +48,7 @@ func TestStdio(t *testing.T) {
 		sess, err := mcp.ConnectSession(context.Background(), mcp.ServerSpec{
 			Name:    "fixture",
 			Command: "/tmp/fixtureserver", // sandboxTmp is bound at /tmp inside the sandbox
-		}, wrap, &stderr, 30*time.Second)
+		}, wrap, mcp.SessionOptions{Stderr: &stderr, Timeout: 30 * time.Second})
 		if err != nil {
 			t.Fatalf("connect: %v\nstderr:\n%s", err, stderr.String())
 		}
@@ -125,7 +125,7 @@ func TestStdio(t *testing.T) {
 		sess, err := mcp.ConnectSession(context.Background(), mcp.ServerSpec{
 			Name:    "fixture",
 			Command: "/tmp/fixtureserver",
-		}, wrap, &stderr, 30*time.Second)
+		}, wrap, mcp.SessionOptions{Stderr: &stderr, Timeout: 30 * time.Second})
 		if err != nil {
 			t.Fatalf("connect: %v\nstderr:\n%s", err, stderr.String())
 		}
@@ -159,7 +159,7 @@ func TestStdio(t *testing.T) {
 				"STEINER_FIXTURE_SPAWN_CHILD":    "1",
 				"STEINER_FIXTURE_CHILD_PID_FILE": childPIDFile,
 			},
-		}, nil, io.Discard, 30*time.Second)
+		}, nil, mcp.SessionOptions{Stderr: io.Discard, Timeout: 30 * time.Second})
 		if err != nil {
 			t.Fatalf("connect: %v", err)
 		}
@@ -201,7 +201,7 @@ func TestStdio(t *testing.T) {
 			Env: map[string]string{
 				"STEINER_FIXTURE_STALL_HANDSHAKE": "1",
 			},
-		}, nil, &stderr, 500*time.Millisecond)
+		}, nil, mcp.SessionOptions{Stderr: &stderr, Timeout: 500 * time.Millisecond})
 		elapsed := time.Since(start)
 		if err == nil {
 			t.Fatal("Connect succeeded, want error from the handshake timeout")

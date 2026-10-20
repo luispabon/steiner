@@ -20,7 +20,7 @@ func TestConnectSessionUnsupportedTransport(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			spec := ServerSpec{Name: "srv", Transport: tt.transport}
-			sess, err := connectSession(context.Background(), spec, nil, nil, nil, 0)
+			sess, err := connectSession(context.Background(), spec, nil, SessionOptions{})
 			if err == nil {
 				t.Fatalf("connectSession() = %v, nil error; want %q", sess, tt.want)
 			}

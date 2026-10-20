@@ -89,8 +89,18 @@ type Session struct {
 	closed              bool          // Close was called; failed calls no longer kick a reconnect
 }
 
-// SessionOptions configures the lifecycle behaviour of a Session.
+// SessionOptions configures a Session at connect time. Its zero value is valid
+// and gives the defaults described on ConnectSession.
 type SessionOptions struct {
+	// Release, when non-nil, releases resources owned by the wrapped server
+	// command. Reconnect attempts reuse it.
+	Release ReleaseFn
+	// Stderr receives the stdio server's stderr. Reconnect attempts reuse it.
+	Stderr io.Writer
+	// Timeout bounds the connect handshake and the initial ListTools together.
+	// A zero or negative value falls back to DefaultConnectTimeout. Reconnect
+	// attempts reuse the defaulted value.
+	Timeout time.Duration
 	// ManagerCtx is the owning manager's context. When nil, standalone sessions
 	// pin reconnect attempts to a background context (the connect context is
 	// timeout-bounded and its expiry would kill a respawned process).
@@ -105,41 +115,21 @@ type SessionOptions struct {
 // For stdio, the server described by spec is launched, optionally wrapped (e.g.
 // with the sandbox); for HTTP, a request is made to the configured endpoint.
 // The negotiated protocol version and the server's tool list are captured;
-// ListTools is called exactly once per session. timeout bounds the connect and
-// the initial ListTools together; a zero or negative timeout falls back to
-// DefaultConnectTimeout. opts configures reconnect lifecycle behaviour; with no
-// options the session is self-contained (reconnects still run, bound to a
+// ListTools is called exactly once per session. opts.Timeout bounds the connect
+// and the initial ListTools together; a zero or negative timeout falls back to
+// DefaultConnectTimeout. opts.Release and opts.Stderr apply to the stdio command.
+// opts.ManagerCtx and opts.OnStatus configure reconnect lifecycle behaviour; with
+// the zero opts the session is self-contained (reconnects still run, bound to a
 // background context, with no status reporting). A stdio server is killed when
 // the bounded connect ctx expires, so a deadline-driven connect failure is
 // bounded by the timeout rather than the timeout plus the transport's shutdown
 // grace.
-func ConnectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, args ...any) (*Session, error) {
-	var release ReleaseFn
-	var stderr io.Writer
-	var timeout time.Duration
-	var opts []SessionOptions
-	for _, arg := range args {
-		switch v := arg.(type) {
-		case ReleaseFn:
-			release = v
-		case func(*exec.Cmd):
-			release = v
-		case io.Writer:
-			stderr = v
-		case time.Duration:
-			timeout = v
-		case SessionOptions:
-			opts = append(opts, v)
-		}
-	}
-	return connectSession(ctx, spec, wrap, release, stderr, timeout, opts...)
+func ConnectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, opts SessionOptions) (*Session, error) {
+	return connectSession(ctx, spec, wrap, opts)
 }
 
-func connectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, release ReleaseFn, stderr io.Writer, timeout time.Duration, opts ...SessionOptions) (*Session, error) {
-	var opt SessionOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
+func connectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, opts SessionOptions) (*Session, error) {
+	release, stderr, timeout := opts.Release, opts.Stderr, opts.Timeout
 
 	transport, cmd, releaseCommand, err := buildConnectTransport(ctx, spec, wrap, release, stderr)
 	if err != nil {
@@ -190,7 +180,7 @@ func connectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, release R
 	// (buildCommand binds the process to the context it was started with). The
 	// manager pins this to its own context; standalone sessions pin it to a
 	// background context.
-	managerCtx := opt.ManagerCtx
+	managerCtx := opts.ManagerCtx
 	if managerCtx == nil {
 		managerCtx = context.Background()
 	}
@@ -206,7 +196,7 @@ func connectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, release R
 		stderr:          stderr,
 		timeout:         timeout,
 		managerCtx:      managerCtx,
-		onStatus:        opt.OnStatus,
+		onStatus:        opts.OnStatus,
 	}
 
 	tools, err := listSessionTools(ctx, spec.Name, session, cmd)
