@@ -449,34 +449,13 @@ func extractTextDelta(value any) string {
 	return sb.String()
 }
 
+// readSSEEvent returns the next data payload, skipping frames that carry no
+// data. See readSSEFrame.
 func readSSEEvent(reader *bufio.Reader) (string, error) {
-	var builder strings.Builder
 	for {
-		line, err := reader.ReadString('\n')
-		if err != nil && err != io.EOF {
-			return "", err
-		}
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
-			if builder.Len() > 0 {
-				return builder.String(), nil
-			}
-			if err == io.EOF {
-				return "", io.EOF
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "data:") {
-			if builder.Len() > 0 {
-				builder.WriteByte('\n')
-			}
-			builder.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
-		}
-		if err == io.EOF {
-			if builder.Len() > 0 {
-				return builder.String(), nil
-			}
-			return "", io.EOF
+		_, data, err := readSSEFrame(reader)
+		if err != nil || data != "" {
+			return data, err
 		}
 	}
 }

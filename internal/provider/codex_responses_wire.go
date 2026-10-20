@@ -307,7 +307,7 @@ func inputContentParts(msg Message) []responsesContentPart {
 	for _, img := range msg.Images {
 		parts = append(parts, responsesContentPart{
 			Type:     "input_image",
-			ImageURL: fmt.Sprintf("data:%s;base64,%s", img.MediaType, img.Data),
+			ImageURL: imageDataURL(img),
 		})
 	}
 	return parts
