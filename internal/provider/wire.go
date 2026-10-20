@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 )
@@ -33,4 +34,10 @@ type Wire interface {
 // refinement; the wire never sees the retry loop itself.
 type retryRefiner interface {
 	RefineRetry(err error, decision retryDecision) retryDecision
+}
+
+// imageDataURL returns img as a base64 data URL for wires that send images
+// inline.
+func imageDataURL(img ImageBlock) string {
+	return fmt.Sprintf("data:%s;base64,%s", img.MediaType, img.Data)
 }
