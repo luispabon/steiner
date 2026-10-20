@@ -193,7 +193,9 @@ func startClaudeSubSession(ctx context.Context, p *ClaudeSubscriptionPool, key s
 			return s, fmt.Errorf("start claude_subscription mcp host: %w", err)
 		}
 		s.host = host
-		host.setTools(spec.Tools)
+		if err := host.setTools(spec.Tools); err != nil {
+			return s, fmt.Errorf("set initial tools: %w", err)
+		}
 		mcpFile, err := host.writeConfig(dir)
 		if err != nil {
 			return s, err

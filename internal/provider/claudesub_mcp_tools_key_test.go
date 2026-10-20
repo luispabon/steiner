@@ -1,7 +1,9 @@
 package provider
 
 import (
+	"context"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +43,21 @@ func TestClaudeSubMCPSetToolsKeepsPublishedSetOnMarshalError(t *testing.T) {
 	defer h.mu.Unlock()
 	if h.toolKey != before {
 		t.Fatalf("toolKey = %q after failed setTools, want unchanged %q", h.toolKey, before)
+	}
+}
+
+// A session whose initial tool set cannot be marshalled must fail to start
+// before spawning the CLI, instead of silently starting without tools.
+func TestClaudeSubAcquireSurfacesInitialToolSyncError(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	spec := claudeSubTestSpec()
+	spec.Tools = []ToolSpec{{Function: ToolFunctionSpec{Name: "read", Parameters: map[string]any{"default": math.NaN()}}}}
+
+	_, err := pool.acquire(context.Background(), "parent", spec)
+	if err == nil || !strings.Contains(err.Error(), "set initial tools") {
+		t.Fatalf("acquire() error = %v, want set initial tools error", err)
+	}
+	if n := spawner.callCount(); n != 0 {
+		t.Errorf("spawned %d CLI processes after failed initial tool sync, want 0", n)
 	}
 }
