@@ -158,7 +158,7 @@ func TestRenderPendingSubAgentsLine(t *testing.T) {
 		t.Run(tc.label, func(t *testing.T) {
 			t.Parallel()
 
-			got := RenderPendingSubAgentsLine(tc.pending)
+			got := renderPendingSubAgentsLine(tc.pending)
 			if got != tc.wantLine {
 				t.Errorf("got %q, want %q", got, tc.wantLine)
 			}

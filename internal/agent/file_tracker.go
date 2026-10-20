@@ -75,8 +75,8 @@ func (t *FileTracker) Summaries(limit int) []string {
 	return out
 }
 
-// BumpGeneration marks a file as mutated and advances its generation counter.
-func (t *FileTracker) BumpGeneration(path string) bool {
+// bumpGeneration marks a file as mutated and advances its generation counter.
+func (t *FileTracker) bumpGeneration(path string) bool {
 	canonicalPath, ok := normalizeTrackedPath(path)
 	if !ok {
 		return false
@@ -108,7 +108,7 @@ func normalizeTrackedPath(path string) (string, bool) {
 // RecordMutation implements MutationRecorder by bumping the in-memory file
 // generation for a successful mutation.
 func (t *FileTracker) RecordMutation(path string) {
-	t.BumpGeneration(path)
+	t.bumpGeneration(path)
 }
 
 // WasObserved reports whether path has a tracked read this session. It is a

@@ -39,9 +39,9 @@ func RenderSubAgentResultEnvelope(c SubAgentCompletion) string {
 	return open + inner + "\n</steiner-sub-agent-result>"
 }
 
-// RenderPendingSubAgentsLine renders the pending line for a slice of pending sub-agents,
+// renderPendingSubAgentsLine renders the pending line for a slice of pending sub-agents,
 // or "" if the slice is empty.
-func RenderPendingSubAgentsLine(p []PendingSubAgent) string {
+func renderPendingSubAgentsLine(p []PendingSubAgent) string {
 	if len(p) == 0 {
 		return ""
 	}
@@ -114,7 +114,7 @@ func BuildDeliveryMessage(in DeliveryParts) (Message, bool) {
 
 	parts = append(parts, in.SkillBlocks...)
 
-	if pending := RenderPendingSubAgentsLine(in.Pending); pending != "" {
+	if pending := renderPendingSubAgentsLine(in.Pending); pending != "" {
 		parts = append(parts, pending)
 	}
 

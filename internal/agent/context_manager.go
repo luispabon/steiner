@@ -62,8 +62,8 @@ func (s *ContextStateManager) PrepareTurnState(_ context.Context, state RunState
 	return next, nil
 }
 
-// ProcessAssistantResponse returns the assistant content unchanged.
-func (s *ContextStateManager) ProcessAssistantResponse(_ int, content string) (string, string) {
+// processAssistantResponse returns the assistant content unchanged.
+func (s *ContextStateManager) processAssistantResponse(_ int, content string) (string, string) {
 	return content, ""
 }
 
@@ -91,5 +91,5 @@ func processAssistantResponseForContextManager(cm *ContextStateManager, turn int
 	if cm == nil {
 		return content, ""
 	}
-	return cm.ProcessAssistantResponse(turn, content)
+	return cm.processAssistantResponse(turn, content)
 }
