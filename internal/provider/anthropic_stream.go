@@ -60,7 +60,7 @@ func decodeAnthropicStreamWithHandler(_ context.Context, body io.Reader, emit fu
 	}
 
 	for {
-		eventType, data, err := readAnthropicSSEEvent(reader)
+		eventType, data, err := readSSEFrame(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -317,42 +317,6 @@ func mergeAnthropicUsage(state *anthropicStreamState, usage *anthropicUsage) {
 		state.usage.CompletionTokens = usage.OutputTokens
 	}
 	state.usage.TotalTokens = state.usage.PromptTokens + state.usage.CompletionTokens
-}
-
-func readAnthropicSSEEvent(reader *bufio.Reader) (string, string, error) {
-	var data strings.Builder
-	var eventType string
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil && err != io.EOF {
-			return "", "", err
-		}
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
-			if data.Len() > 0 || eventType != "" {
-				return eventType, data.String(), nil
-			}
-			if err == io.EOF {
-				return "", "", io.EOF
-			}
-			continue
-		}
-		switch {
-		case strings.HasPrefix(line, "event:"):
-			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
-		case strings.HasPrefix(line, "data:"):
-			if data.Len() > 0 {
-				data.WriteByte('\n')
-			}
-			data.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
-		}
-		if err == io.EOF {
-			if data.Len() > 0 || eventType != "" {
-				return eventType, data.String(), nil
-			}
-			return "", "", io.EOF
-		}
-	}
 }
 
 // anthropicStreamErrorStatus maps an in-band Anthropic error type to the HTTP
