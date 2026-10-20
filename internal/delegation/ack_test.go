@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,6 +162,18 @@ func TestAsyncSubAgentGroupDeliveredTogetherAfterSeal(t *testing.T) {
 	got := map[string]bool{batch[0].AgentID: true, batch[1].AgentID: true}
 	if !got[ids[0]] || !got[ids[1]] {
 		t.Fatalf("batch = %+v, want both agents %v together", batch, ids)
+	}
+}
+
+func TestAckOutputTellsModelToYieldInsteadOfSleeping(t *testing.T) {
+	t.Parallel()
+	for _, queued := range []bool{false, true} {
+		out := AckResult{AgentID: "child-1", Queued: queued}.ProjectToolResult().Output
+		for _, want := range []string{"sleep", "otherwise end your turn", "resumes you"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("queued=%v: ack output %q missing %q", queued, out, want)
+			}
+		}
 	}
 }
 
