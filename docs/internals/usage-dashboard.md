@@ -64,7 +64,7 @@ Passive snapshots have a zero `FetchedAt`, and `Observe` stamps it with the serv
 
 - The file format is `{"version": 1, "snapshots": [...]}`. The path is described in the [user page](../user/usage-dashboard.md#history-and-privacy).
 - `Append` creates the directory with mode `0o700` and opens `<path>.lock` with mode `0o600`, tightening it on each append. It takes a blocking exclusive `flock`, reads the current file, merges, prunes, and writes. On non-Unix builds, `lockFile` returns an error, so `Append` fails and nothing is written without a lock.
-- `write` writes a temp file in the same directory and renames it over the data file. `Latest`, and the history read in `Views` take no lock. The rename keeps them consistent.
+- `write` calls `fsatomic.WriteFile`, which writes a temp file in the same directory, syncs it, and renames it over the data file. `Latest`, and the history read in `Views` take no lock. The rename keeps them consistent.
 - Each `Append` drops snapshots fetched more than 35 days before its clock time.
 - A file that fails to decode makes `Append` fail, so history is never overwritten. The failure is logged, and the in-memory state still updates.
 - `Views` reads the history on every call. A read error counts as no history.
