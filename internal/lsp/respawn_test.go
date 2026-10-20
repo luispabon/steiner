@@ -36,7 +36,7 @@ func TestEntryForRespawnsExitedSession(t *testing.T) {
 			},
 		},
 	}
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	released := make(chan struct{})

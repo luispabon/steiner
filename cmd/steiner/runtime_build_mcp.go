@@ -83,7 +83,7 @@ func connectRuntimeLSP(cfg config.Config, sb *sandbox.Sandbox, workDir string, e
 			Notes:    []string{msg},
 		}))
 	}
-	return lsp.NewManager(cfg.LSP, workDir, wrap, release, warnFn, stderr)
+	return lsp.NewManager(cfg.LSP, workDir, wrap, lsp.ManagerOptions{Release: release, WarnFn: warnFn, Stderr: stderr})
 }
 
 func buildLSPServerLogWriter(path string) (io.WriteCloser, error) {

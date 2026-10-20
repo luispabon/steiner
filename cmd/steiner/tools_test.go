@@ -550,7 +550,7 @@ func lspFixtureManagerWithPID(t *testing.T, cacheDir, workDir string) (*lsp.Mana
 		},
 	}
 
-	mgr := lsp.NewManager(cfg, workDir, nil, func(string) {}, stderrBuf)
+	mgr := lsp.NewManager(cfg, workDir, nil, lsp.ManagerOptions{WarnFn: func(string) {}, Stderr: stderrBuf})
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	// Trigger server startup by attempting a tool operation. This forces the
@@ -636,7 +636,7 @@ func TestLSPToolsRegisteredWhenEnabledWithUnavailableServer(t *testing.T) {
 		},
 	}
 
-	lspMgr := lsp.NewManager(cfg.LSP, t.TempDir(), nil, func(string) {}, io.Discard)
+	lspMgr := lsp.NewManager(cfg.LSP, t.TempDir(), nil, lsp.ManagerOptions{WarnFn: func(string) {}, Stderr: io.Discard})
 	defer lspMgr.Close()
 
 	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, lspMgr)
@@ -700,12 +700,12 @@ func TestLSPRegistryOrderingDeterministic(t *testing.T) {
 	}
 
 	// Build two registries from identical config.
-	lspMgr1 := lsp.NewManager(cfg.LSP, t.TempDir(), nil, func(string) {}, io.Discard)
+	lspMgr1 := lsp.NewManager(cfg.LSP, t.TempDir(), nil, lsp.ManagerOptions{WarnFn: func(string) {}, Stderr: io.Discard})
 	defer lspMgr1.Close()
 	reg1 := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, lspMgr1)
 	names1 := reg1.Names()
 
-	lspMgr2 := lsp.NewManager(cfg.LSP, t.TempDir(), nil, func(string) {}, io.Discard)
+	lspMgr2 := lsp.NewManager(cfg.LSP, t.TempDir(), nil, lsp.ManagerOptions{WarnFn: func(string) {}, Stderr: io.Discard})
 	defer lspMgr2.Close()
 	reg2 := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, lspMgr2)
 	names2 := reg2.Names()
@@ -759,7 +759,7 @@ func TestCoreToolDefinitionsMutateWithLSPManagerWorks(t *testing.T) {
 	cfg := registryTestConfig()
 	cfg.LSP = config.LSPConfig{Enabled: true}
 	workDir := t.TempDir()
-	lspMgr := lsp.NewManager(cfg.LSP, workDir, nil, func(string) {}, io.Discard)
+	lspMgr := lsp.NewManager(cfg.LSP, workDir, nil, lsp.ManagerOptions{WarnFn: func(string) {}, Stderr: io.Discard})
 	defer lspMgr.Close()
 
 	defs := coreToolDefinitions(cfg, workDir, nil, false, nil, nil, lspMgr)

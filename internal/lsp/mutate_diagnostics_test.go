@@ -31,7 +31,7 @@ func mutateDiagnosticsTestConfig() config.LSPConfig {
 func TestReadyForFileNoServerForExtension(t *testing.T) {
 	t.Parallel()
 	tmpdir := t.TempDir()
-	m := NewManager(mutateDiagnosticsTestConfig(), tmpdir, nil, func(string) {}, nil)
+	m := NewManager(mutateDiagnosticsTestConfig(), tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	if m.ReadyForFile(filepath.Join(tmpdir, "main.rs")) {
@@ -42,7 +42,7 @@ func TestReadyForFileNoServerForExtension(t *testing.T) {
 func TestReadyForFileNoServerConfigured(t *testing.T) {
 	t.Parallel()
 	tmpdir := t.TempDir()
-	m := NewManager(config.LSPConfig{Servers: map[string]config.LSPServerConfig{}}, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(config.LSPConfig{Servers: map[string]config.LSPServerConfig{}}, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	if m.ReadyForFile(filepath.Join(tmpdir, "main.go")) {
@@ -53,7 +53,7 @@ func TestReadyForFileNoServerConfigured(t *testing.T) {
 func TestReadyForFileNoSessionYet(t *testing.T) {
 	t.Parallel()
 	tmpdir := t.TempDir()
-	m := NewManager(mutateDiagnosticsTestConfig(), tmpdir, nil, func(string) {}, nil)
+	m := NewManager(mutateDiagnosticsTestConfig(), tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	// The extension is configured, but no session has ever been started.
@@ -75,7 +75,7 @@ func TestReadyForFileReadySession(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	cfg := mutateDiagnosticsTestConfig()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ent := &entry{
@@ -111,7 +111,7 @@ func TestReadyForFileNonReadyStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpdir := t.TempDir()
 			cfg := mutateDiagnosticsTestConfig()
-			m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+			m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 			defer func() { _ = m.Close() }()
 
 			m.sessions[sessionKey{server: "go", root: tmpdir}] = &entry{
@@ -133,7 +133,7 @@ func TestReadyForFileDoesNotSpawn(t *testing.T) {
 	t.Parallel()
 	tmpdir := t.TempDir()
 	cfg := mutateDiagnosticsTestConfig()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	before := m.ServerStates()
@@ -182,7 +182,7 @@ func TestPostMutateDiagnosticsReturnsFormattedDiagnostics(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	cfg := mutateDiagnosticsTestConfig()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	installReadyFakeSession(ctx, t, m, fs, tmpdir)
@@ -226,7 +226,7 @@ func TestPostMutateDiagnosticsNoDiagnosticsReturnsEmpty(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	cfg := mutateDiagnosticsTestConfig()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	installReadyFakeSession(ctx, t, m, fs, tmpdir)
@@ -251,7 +251,7 @@ func TestPostMutateDiagnosticsCapsFileCount(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	cfg := mutateDiagnosticsTestConfig()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	// No RootMarkers configured, so every file under tmpdir resolves to the
@@ -309,7 +309,7 @@ func TestPostMutateDiagnosticsCancelledContext(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	cfg := mutateDiagnosticsTestConfig()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	installReadyFakeSession(spawnCtx, t, m, fs, tmpdir)
@@ -347,7 +347,7 @@ func TestPostMutateDiagnosticsCapsLinesAndReportsOmitted(t *testing.T) {
 	tmpdir := t.TempDir()
 	cfg := mutateDiagnosticsTestConfig()
 	cfg.MaxResults = 100
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	installReadyFakeSession(ctx, t, m, fs, tmpdir)
@@ -404,7 +404,7 @@ func TestPostMutateDiagnosticsSortsAcrossFiles(t *testing.T) {
 
 	tmpdir := t.TempDir()
 	cfg := mutateDiagnosticsTestConfig()
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	// No RootMarkers, so both files share one session/entry.
