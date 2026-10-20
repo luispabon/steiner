@@ -106,16 +106,8 @@ func (m *Model) applyPayloadEvent(event output.Event) (tea.Cmd, bool) {
 	case output.ApprovalEvent:
 		m.applyApprovalEvent(event, payload)
 	case output.WorkflowHandoffEvent:
-		switch event.Type {
-		case output.EventTypeWorkflowHandoffRequested:
-			m.workflowHandoff = openWorkflowHandoffModal(m.width, m.height, payload, m.workflowHandoffModelSelection(payload.Next))
-			m.input.Blur()
-			m.notifyBlocking("workflow handoff requested")
-			m.syncViewport()
+		if m.applyWorkflowHandoffEvent(event, payload) {
 			return nil, true
-		case output.EventTypeWorkflowHandoffAccepted, output.EventTypeWorkflowHandoffDeclined:
-			m.workflowHandoff = m.workflowHandoff.close()
-			m.input.Focus()
 		}
 	case output.ToolCallStartedEvent:
 		m.activity = m.activity.waiting("running tool", toolCallDetail(payload.Tool, payload.Arguments))
