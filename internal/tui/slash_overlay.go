@@ -245,28 +245,6 @@ func (s slashOverlay) View() string {
 	return theme.WithBg(s.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body), theme.BgElev)
 }
 
-func truncateOverlayText(text string, width int) string {
-	text = strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
-	if width <= 0 || text == "" {
-		return ""
-	}
-	if lipgloss.Width(text) <= width {
-		return text
-	}
-	if width == 1 {
-		return "…"
-	}
-	runes := []rune(text)
-	for len(runes) > 0 {
-		candidate := string(runes) + "…"
-		if lipgloss.Width(candidate) <= width {
-			return candidate
-		}
-		runes = runes[:len(runes)-1]
-	}
-	return "…"
-}
-
 func (s slashOverlay) renderSkillRow(prefixRendered, rowRendered, plain string, width int) string {
 	pad := max(0, width-lipgloss.Width(plain))
 	return prefixRendered + rowRendered + strings.Repeat(" ", pad)
