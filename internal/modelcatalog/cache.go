@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
 const (
@@ -216,7 +218,10 @@ func (c *Cache) path(alias string) string {
 }
 
 func (c *Cache) writeAtomic(alias string, data []byte) error {
-	return atomicWriteFile(c.Dir, ".tmp-provider-models-*", c.path(alias), "cache", data)
+	if err := fsatomic.WriteFile(c.path(alias), data, 0o600); err != nil {
+		return fmt.Errorf("write cache envelope: %w", err)
+	}
+	return nil
 }
 
 func (c *Cache) lockPath(alias string) string {

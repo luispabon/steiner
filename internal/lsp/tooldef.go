@@ -3,11 +3,6 @@ package lsp
 import (
 	"context"
 	"errors"
-	"fmt"
-	"path/filepath"
-	"strings"
-
-	"go.lsp.dev/jsonrpc2"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -57,14 +52,12 @@ func definitionsTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("lsp_definitions: missing or invalid file parameter")
+				return nil, errors.New("lsp_definitions: missing or invalid file parameter")
 			}
 
-			line, lineOk := parseLineParameter(input)
-			col, colOk := parseColumnParameter(input)
-			symbol, symbolOk := parseSymbolParameter(input)
+			pos := parsePositionInput(input)
 
-			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_definitions", line, lineOk, col, colOk, symbol, symbolOk, file)
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_definitions", pos, file)
 			if resolveErr != "" {
 				return resolveErr, nil
 			}
@@ -127,14 +120,12 @@ func referencesTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("lsp_references: missing or invalid file parameter")
+				return nil, errors.New("lsp_references: missing or invalid file parameter")
 			}
 
-			line, lineOk := parseLineParameter(input)
-			col, colOk := parseColumnParameter(input)
-			symbol, symbolOk := parseSymbolParameter(input)
+			pos := parsePositionInput(input)
 
-			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_references", line, lineOk, col, colOk, symbol, symbolOk, file)
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_references", pos, file)
 			if resolveErr != "" {
 				return resolveErr, nil
 			}
@@ -187,7 +178,7 @@ func diagnosticsTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("lsp_diagnostics: missing or invalid file parameter")
+				return nil, errors.New("lsp_diagnostics: missing or invalid file parameter")
 			}
 
 			result, err := m.Diagnostics(ctx, file)
@@ -235,14 +226,12 @@ func hoverTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("lsp_hover: missing or invalid file parameter")
+				return nil, errors.New("lsp_hover: missing or invalid file parameter")
 			}
 
-			line, lineOk := parseLineParameter(input)
-			col, colOk := parseColumnParameter(input)
-			symbol, symbolOk := parseSymbolParameter(input)
+			pos := parsePositionInput(input)
 
-			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_hover", line, lineOk, col, colOk, symbol, symbolOk, file)
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_hover", pos, file)
 			if resolveErr != "" {
 				return resolveErr, nil
 			}
@@ -287,7 +276,7 @@ func symbolsTool(m *Manager) tool.ToolDef {
 			query, _ := input["query"].(string)
 			file, _ := input["file"].(string)
 			if query == "" && file == "" {
-				return nil, fmt.Errorf("lsp_symbols: at least one of query or file is required")
+				return nil, errors.New("lsp_symbols: at least one of query or file is required")
 			}
 
 			var result SymbolResult
@@ -333,14 +322,12 @@ func implementationsTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("lsp_implementations: missing or invalid file parameter")
+				return nil, errors.New("lsp_implementations: missing or invalid file parameter")
 			}
 
-			line, lineOk := parseLineParameter(input)
-			col, colOk := parseColumnParameter(input)
-			symbol, symbolOk := parseSymbolParameter(input)
+			pos := parsePositionInput(input)
 
-			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_implementations", line, lineOk, col, colOk, symbol, symbolOk, file)
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_implementations", pos, file)
 			if resolveErr != "" {
 				return resolveErr, nil
 			}
@@ -385,14 +372,12 @@ func typeDefinitionTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("lsp_type_definitions: missing or invalid file parameter")
+				return nil, errors.New("lsp_type_definitions: missing or invalid file parameter")
 			}
 
-			line, lineOk := parseLineParameter(input)
-			col, colOk := parseColumnParameter(input)
-			symbol, symbolOk := parseSymbolParameter(input)
+			pos := parsePositionInput(input)
 
-			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_type_definitions", line, lineOk, col, colOk, symbol, symbolOk, file)
+			lineResolved, colResolved, echoLine, resolveErr := resolvePosition(m, "lsp_type_definitions", pos, file)
 			if resolveErr != "" {
 				return resolveErr, nil
 			}
@@ -415,233 +400,4 @@ func typeDefinitionTool(m *Manager) tool.ToolDef {
 			return output, nil
 		},
 	}
-}
-
-type serverErrorKind uint8
-
-const (
-	serverErrorNone serverErrorKind = iota
-	serverErrorNoServer
-	serverErrorExited
-)
-
-func classifyServerError(err error) serverErrorKind {
-	switch {
-	case errors.Is(err, errNoServer):
-		return serverErrorNoServer
-	case errors.Is(err, errServerExited):
-		return serverErrorExited
-	default:
-		return serverErrorNone
-	}
-}
-
-// handleSymbolsError processes errors from DocumentSymbols or WorkspaceSymbols,
-// converting unavailability cases to readable result strings and returning an
-// error for genuine failures. Unlike handleNavigationError, file may be empty
-// (workspace mode), in which case there is no extension to report and
-// findServerNameForFile/findFailedServer are not consulted.
-func handleSymbolsError(m *Manager, file string, err error) (any, error) {
-	if err == nil {
-		return nil, nil
-	}
-
-	switch classifyServerError(err) {
-	case serverErrorNoServer:
-		if file == "" {
-			return "No language server is enabled. Configure one under `lsp.servers` to enable this tool.", nil
-		}
-		ext := strings.ToLower(filepath.Ext(file))
-		return fmt.Sprintf("No language server is configured for %s. Configure one under `lsp.servers` to enable this tool.", ext), nil
-	case serverErrorExited:
-		if file == "" {
-			return nil, err
-		}
-		serverName := findServerNameForFile(m, file)
-		if serverName == "" {
-			return "Language server exited unexpectedly.", nil
-		}
-		return fmt.Sprintf("Language server %s exited unexpectedly.", serverName), nil
-	}
-
-	if file == "" {
-		return nil, err
-	}
-
-	failedServer := findFailedServer(m, file)
-	if failedServer != nil {
-		return fmt.Sprintf("Language server %s failed to start: %v.", failedServer.Name, failedServer.Err), nil
-	}
-
-	return nil, err
-}
-
-// handleNavigationError processes errors from Definitions or References, converting
-// unavailability cases to readable result strings and returning an error for genuine failures.
-func handleNavigationError(m *Manager, file string, err error) (any, error) {
-	if err == nil {
-		return nil, nil
-	}
-
-	switch classifyServerError(err) {
-	case serverErrorNoServer:
-		ext := strings.ToLower(filepath.Ext(file))
-		return fmt.Sprintf("No language server is configured for %s. Configure one under `lsp.servers` to enable this tool.", ext), nil
-	case serverErrorExited:
-		serverName := findServerNameForFile(m, file)
-		if serverName == "" {
-			return "Language server exited unexpectedly.", nil
-		}
-		return fmt.Sprintf("Language server %s exited unexpectedly.", serverName), nil
-	}
-
-	// Some methods (notably textDocument/implementation and
-	// textDocument/typeDefinition) are optional in LSP; a healthy server may
-	// answer with MethodNotFound rather than results.
-	if errors.Is(err, jsonrpc2.ErrMethodNotFound) {
-		serverName := findServerNameForFile(m, file)
-		if serverName == "" {
-			return "The language server does not support this request.", nil
-		}
-		return fmt.Sprintf("Language server %s does not support this request.", serverName), nil
-	}
-
-	failedServer := findFailedServer(m, file)
-	if failedServer != nil {
-		return fmt.Sprintf("Language server %s failed to start: %v.", failedServer.Name, failedServer.Err), nil
-	}
-
-	return nil, err
-}
-
-// handleDiagnosticsError processes errors from Diagnostics, converting unavailability
-// cases to readable result strings and returning an error for genuine failures.
-func handleDiagnosticsError(m *Manager, file string, err error) (any, error) {
-	if err == nil {
-		return nil, nil
-	}
-
-	switch classifyServerError(err) {
-	case serverErrorNoServer:
-		ext := strings.ToLower(filepath.Ext(file))
-		return fmt.Sprintf("No language server is configured for %s. Configure one under `lsp.servers` to enable this tool.", ext), nil
-	case serverErrorExited:
-		serverName := findServerNameForFile(m, file)
-		if serverName == "" {
-			return "Language server exited unexpectedly.", nil
-		}
-		return fmt.Sprintf("Language server %s exited unexpectedly.", serverName), nil
-	}
-
-	failedServer := findFailedServer(m, file)
-	if failedServer != nil {
-		return fmt.Sprintf("Language server %s failed to start: %v.", failedServer.Name, failedServer.Err), nil
-	}
-
-	return nil, err
-}
-
-// findServerNameForFile returns the server name for the given file's extension,
-// or an empty string if no server is configured.
-func findServerNameForFile(m *Manager, file string) string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.serverForExtension(file)
-}
-
-// findFailedServer scans ServerStates for an entry whose status is Failed and
-// whose server handles the file's extension. Returns nil if none found.
-func findFailedServer(m *Manager, file string) *ServerState {
-	m.mu.Lock()
-	serverName := m.serverForExtension(file)
-	m.mu.Unlock()
-
-	if serverName == "" {
-		return nil
-	}
-
-	states := m.ServerStates()
-	for i := range states {
-		if states[i].Name == serverName && states[i].Status == ServerStatusFailed {
-			return &states[i]
-		}
-	}
-
-	return nil
-}
-
-// parseLineParameter extracts the line parameter from input, returning (value, was_present).
-// Presence is determined by the key existing in the map; returns (0, false) if not present.
-func parseLineParameter(input map[string]any) (int, bool) {
-	v, ok := input["line"]
-	if !ok {
-		return 0, false
-	}
-	f, ok := v.(float64)
-	if !ok {
-		return 0, false
-	}
-	return int(f), true
-}
-
-// parseColumnParameter extracts the column parameter from input, returning (value, was_present).
-func parseColumnParameter(input map[string]any) (int, bool) {
-	v, ok := input["column"]
-	if !ok {
-		return 0, false
-	}
-	f, ok := v.(float64)
-	if !ok {
-		return 0, false
-	}
-	return int(f), true
-}
-
-// parseSymbolParameter extracts the symbol parameter from input, returning (value, was_present).
-func parseSymbolParameter(input map[string]any) (string, bool) {
-	v, ok := input["symbol"]
-	if !ok {
-		return "", false
-	}
-	s, ok := v.(string)
-	if !ok {
-		return "", false
-	}
-	return s, true
-}
-
-// resolvePosition resolves a position from either column or symbol.
-// - If column is provided, requires line; returns (line, column, "", "") if valid.
-// - If symbol is provided, calls resolveSymbolPosition; returns the resolved position and echo line.
-// - If neither, returns ("", "", "", error message).
-// - If line is provided but < 1 on symbol path, returns error message.
-// The returned echo line (3rd return) is empty string if no resolution via symbol, or "resolved FILE:LINE:COL (SYMBOL)" if symbol was used.
-func resolvePosition(m *Manager, toolName string, line int, lineOk bool, col int, colOk bool, symbol string, symbolOk bool, file string) (resolvedLine, resolvedCol int, echoLine string, errMsg string) {
-	if colOk {
-		// Column path: requires line.
-		if !lineOk {
-			return 0, 0, "", fmt.Sprintf("%s: column requires line", toolName)
-		}
-		return line, col, "", ""
-	}
-
-	if symbolOk {
-		// Symbol path.
-		if lineOk && line < 1 {
-			return 0, 0, "", fmt.Sprintf("%s: invalid line %d", toolName, line)
-		}
-
-		resolvedFile, resolvedLine, resolvedCol, err := resolveSymbolPosition(m.workspace, file, symbol, line)
-		if err != nil {
-			return 0, 0, "", err.Error()
-		}
-
-		// Build echo line with relative path.
-		relPath := makeRelative(m.workspace, resolvedFile)
-		echo := fmt.Sprintf("resolved %s:%d:%d (%s)", relPath, resolvedLine, resolvedCol, symbol)
-		return resolvedLine, resolvedCol, echo, ""
-	}
-
-	// Neither column nor symbol provided.
-	return 0, 0, "", fmt.Sprintf("%s: requires either column (with line) or symbol", toolName)
 }

@@ -89,8 +89,18 @@ type Session struct {
 	closed              bool          // Close was called; failed calls no longer kick a reconnect
 }
 
-// SessionOptions configures the lifecycle behaviour of a Session.
+// SessionOptions configures a Session at connect time. Its zero value is valid
+// and gives the defaults described on ConnectSession.
 type SessionOptions struct {
+	// Release, when non-nil, releases resources owned by the wrapped server
+	// command. Reconnect attempts reuse it.
+	Release ReleaseFn
+	// Stderr receives the stdio server's stderr. Reconnect attempts reuse it.
+	Stderr io.Writer
+	// Timeout bounds the connect handshake and the initial ListTools together.
+	// A zero or negative value falls back to DefaultConnectTimeout. Reconnect
+	// attempts reuse the defaulted value.
+	Timeout time.Duration
 	// ManagerCtx is the owning manager's context. When nil, standalone sessions
 	// pin reconnect attempts to a background context (the connect context is
 	// timeout-bounded and its expiry would kill a respawned process).
@@ -105,62 +115,28 @@ type SessionOptions struct {
 // For stdio, the server described by spec is launched, optionally wrapped (e.g.
 // with the sandbox); for HTTP, a request is made to the configured endpoint.
 // The negotiated protocol version and the server's tool list are captured;
-// ListTools is called exactly once per session. timeout bounds the connect and
-// the initial ListTools together; a zero or negative timeout falls back to
-// DefaultConnectTimeout. opts configures reconnect lifecycle behaviour; with no
-// options the session is self-contained (reconnects still run, bound to a
+// ListTools is called exactly once per session. opts.Timeout bounds the connect
+// and the initial ListTools together; a zero or negative timeout falls back to
+// DefaultConnectTimeout. opts.Release and opts.Stderr apply to the stdio command.
+// opts.ManagerCtx and opts.OnStatus configure reconnect lifecycle behaviour; with
+// the zero opts the session is self-contained (reconnects still run, bound to a
 // background context, with no status reporting). A stdio server is killed when
 // the bounded connect ctx expires, so a deadline-driven connect failure is
 // bounded by the timeout rather than the timeout plus the transport's shutdown
 // grace.
-func ConnectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, args ...any) (*Session, error) {
-	var release ReleaseFn
-	var stderr io.Writer
-	var timeout time.Duration
-	var opts []SessionOptions
-	for _, arg := range args {
-		switch v := arg.(type) {
-		case ReleaseFn:
-			release = v
-		case func(*exec.Cmd):
-			release = v
-		case io.Writer:
-			stderr = v
-		case time.Duration:
-			timeout = v
-		case SessionOptions:
-			opts = append(opts, v)
-		}
-	}
-	return connectSession(ctx, spec, wrap, release, stderr, timeout, opts...)
+func ConnectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, opts SessionOptions) (*Session, error) {
+	return connectSession(ctx, spec, wrap, opts)
 }
 
-func connectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, release ReleaseFn, stderr io.Writer, timeout time.Duration, opts ...SessionOptions) (*Session, error) {
-	var opt SessionOptions
-	if len(opts) > 0 {
-		opt = opts[0]
+func connectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, opts SessionOptions) (*Session, error) {
+	release, stderr, timeout := opts.Release, opts.Stderr, opts.Timeout
+
+	transport, cmd, releaseCommand, err := buildConnectTransport(ctx, spec, wrap, release, stderr)
+	if err != nil {
+		return nil, fmt.Errorf("connect mcp server %q: %w", spec.Name, err)
 	}
-
-	var transport mcpsdk.Transport
-	var cmd *exec.Cmd
-	var releaseCommand func()
-
-	switch spec.Transport {
-	case "http":
-		var err error
-		transport, err = newHTTPTransport(spec)
-		if err != nil {
-			return nil, fmt.Errorf("connect mcp server %q: %w", spec.Name, err)
-		}
-	case "", "stdio":
-		var err error
-		transport, cmd, releaseCommand, err = newStdioTransport(ctx, spec, wrap, release, stderr)
-		if err != nil {
-			return nil, fmt.Errorf("connect mcp server %q: %w", spec.Name, err)
-		}
+	if releaseCommand != nil {
 		defer releaseCommand()
-	default:
-		return nil, fmt.Errorf("connect mcp server %q: unsupported transport %q", spec.Name, spec.Transport)
 	}
 
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "steiner", Version: clientVersion}, nil)
@@ -204,7 +180,7 @@ func connectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, release R
 	// (buildCommand binds the process to the context it was started with). The
 	// manager pins this to its own context; standalone sessions pin it to a
 	// background context.
-	managerCtx := opt.ManagerCtx
+	managerCtx := opts.ManagerCtx
 	if managerCtx == nil {
 		managerCtx = context.Background()
 	}
@@ -220,20 +196,45 @@ func connectSession(ctx context.Context, spec ServerSpec, wrap WrapFn, release R
 		stderr:          stderr,
 		timeout:         timeout,
 		managerCtx:      managerCtx,
-		onStatus:        opt.OnStatus,
+		onStatus:        opts.OnStatus,
 	}
 
-	tools, err := session.ListTools(ctx, nil)
+	tools, err := listSessionTools(ctx, spec.Name, session, cmd)
 	if err != nil {
-		// The session is discarded here, so kill the server process first and
-		// make the close instant instead of waiting out the SDK's terminate
-		// grace.
+		return nil, err
+	}
+	s.tools = tools
+	return s, nil
+}
+
+// buildConnectTransport constructs the transport for spec. For HTTP, cmd and
+// releaseCommand are nil. For stdio, releaseCommand is always non-nil on success.
+func buildConnectTransport(ctx context.Context, spec ServerSpec, wrap WrapFn, release ReleaseFn, stderr io.Writer) (mcpsdk.Transport, *exec.Cmd, func(), error) {
+	switch spec.Transport {
+	case "http":
+		transport, err := newHTTPTransport(spec)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return transport, nil, nil, nil
+	case "", "stdio":
+		return newStdioTransport(ctx, spec, wrap, release, stderr)
+	default:
+		return nil, nil, nil, fmt.Errorf("unsupported transport %q", spec.Transport)
+	}
+}
+
+// listSessionTools fetches the tool list for a freshly connected session. On
+// failure the caller discards the session, so it kills cmd first and makes the
+// close instant instead of waiting out the SDK's terminate grace.
+func listSessionTools(ctx context.Context, name string, session *mcpsdk.ClientSession, cmd *exec.Cmd) ([]*mcpsdk.Tool, error) {
+	result, err := session.ListTools(ctx, nil)
+	if err != nil {
 		killDiscardedCommand(cmd)
 		_ = session.Close() // Best-effort cleanup after a failed tool list.
-		return nil, fmt.Errorf("list tools for mcp server %q: %w", spec.Name, err)
+		return nil, fmt.Errorf("list tools for mcp server %q: %w", name, err)
 	}
-	s.tools = tools.Tools
-	return s, nil
+	return result.Tools, nil
 }
 
 // killOnTimeoutTransport wraps a stdio transport so the server process group
@@ -388,99 +389,6 @@ func (s *Session) kickReconnectLocked() {
 	s.reconnectDone = make(chan struct{})
 	s.reconnectOutcome = nil
 	go s.reconnectWorker()
-}
-
-// reconnectWorker runs sequential fresh-connect attempts until one succeeds or
-// the consecutive-failure cap is reached. At most one worker runs per server at
-// a time (kickReconnectLocked guarantees it). The tool set is never re-listed
-// (D14) and the failed call is never replayed (D16).
-func (s *Session) reconnectWorker() {
-	s.reportStatus(ServerStatusReconnecting, nil)
-
-	for {
-		if s.managerCtx.Err() != nil {
-			// The owning manager is closed; abandon the reconnect and release
-			// every caller blocked on the outcome future.
-			s.resolveReconnect(fmt.Errorf("reconnect aborted: manager closed: %w", s.managerCtx.Err()), ServerStatusUnavailable)
-			return
-		}
-
-		newSDK, newCmd, err := s.reconnectOnce()
-		if err == nil {
-			s.mu.Lock()
-			if s.managerCtx.Err() != nil || s.closed {
-				s.mu.Unlock()
-				_ = newSDK.Close()
-				abortErr := errors.New("reconnect aborted: session closed")
-				if ctxErr := s.managerCtx.Err(); ctxErr != nil {
-					abortErr = fmt.Errorf("reconnect aborted: manager closed: %w", ctxErr)
-				}
-				s.resolveReconnect(abortErr, ServerStatusUnavailable)
-				return
-			}
-			old := s.sdk
-			s.sdk = newSDK
-			s.cmd = newCmd
-			s.protocolVersion = newSDK.InitializeResult().ProtocolVersion
-			s.consecutiveFailures = 0 // a successful reconnect resets the cap
-			s.reconnecting = false
-			s.reconnectOutcome = nil
-			close(s.reconnectDone)
-			s.mu.Unlock()
-			if old != nil {
-				closeOldSession(old)
-			}
-			s.reportStatus(ServerStatusConnected, nil)
-			return
-		}
-
-		s.mu.Lock()
-		s.consecutiveFailures++
-		reachedCap := s.consecutiveFailures >= maxReconnectAttempts
-		s.mu.Unlock()
-		if reachedCap {
-			s.resolveReconnect(fmt.Errorf("mcp server %q unavailable after %d consecutive failed reconnect attempts: %w", s.name, maxReconnectAttempts, err), ServerStatusUnavailable)
-			return
-		}
-	}
-}
-
-// reconnectOnce performs one reconnect attempt: a fresh transport built with the
-// original spec and process-group wrapping, then a new ClientSession via
-// client.Connect re-running the handshake. It never calls ListTools (D14).
-func (s *Session) reconnectOnce() (*mcpsdk.ClientSession, *exec.Cmd, error) {
-	// The transport is bound to the manager context (mirroring ConnectSession),
-	// not the attempt's timeout context, so a respawned stdio server process
-	// outlives the handshake deadline.
-	var transport mcpsdk.Transport
-	var cmd *exec.Cmd
-	var releaseCommand func()
-	switch s.spec.Transport {
-	case "http":
-		t, err := newHTTPTransport(s.spec)
-		if err != nil {
-			return nil, nil, fmt.Errorf("reconnect to mcp server %q: %w", s.name, err)
-		}
-		transport = t
-	case "", "stdio":
-		var err error
-		transport, cmd, releaseCommand, err = newStdioTransport(s.managerCtx, s.spec, s.wrap, s.release, s.stderr)
-		if err != nil {
-			return nil, nil, fmt.Errorf("reconnect to mcp server %q: %w", s.name, err)
-		}
-		defer releaseCommand()
-	default:
-		return nil, nil, fmt.Errorf("reconnect to mcp server %q: unsupported transport %q", s.name, s.spec.Transport)
-	}
-
-	connectCtx, cancel := context.WithTimeout(s.managerCtx, s.timeout)
-	defer cancel()
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "steiner", Version: clientVersion}, nil)
-	sdk, err := client.Connect(connectCtx, transport, nil)
-	if err != nil {
-		return nil, cmd, fmt.Errorf("reconnect to mcp server %q: %w", s.name, err)
-	}
-	return sdk, cmd, nil
 }
 
 // resolveReconnect records the reconnect outcome and closes the outcome future,

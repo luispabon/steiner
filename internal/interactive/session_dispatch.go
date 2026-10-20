@@ -2,6 +2,7 @@ package interactive
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -183,8 +184,10 @@ func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOv
 	s.mu.Unlock()
 
 	if s.deps.RecordModelSwitch != nil {
-		// Stats-write failure must never fail the model switch.
-		_ = s.deps.RecordModelSwitch(providerAlias, modelID)
+		// Stats-write failure must never fail the model switch; warn instead.
+		if err := s.deps.RecordModelSwitch(providerAlias, modelID); err != nil {
+			s.events.Emit(output.NewConfigWarningEvent(fmt.Sprintf("could not record model switch to %q for popularity stats: %v", name, err)))
+		}
 	}
 	return nil
 }
@@ -192,7 +195,7 @@ func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOv
 func (s *Session) handleSwitchProfile(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		err := fmt.Errorf("switch profile: profile name is required")
+		err := errors.New("switch profile: profile name is required")
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Profile switch failed: %v", err)))
 		return err
 	}

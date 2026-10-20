@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -223,7 +222,7 @@ func TestMCPTUIStateEnabledMix(t *testing.T) {
 		},
 	}
 
-	mgr := mcp.Connect(context.Background(), cfg.MCP, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	mgr := mcp.Connect(context.Background(), cfg.MCP, config.LimitsConfig{}, nil, mcp.ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	defer mgr.Close() //nolint:errcheck
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -547,7 +546,7 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 			},
 			"good": {Enabled: true, Command: fixtureBin},
 		},
-	}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	}, config.LimitsConfig{}, nil, mcp.ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	defer mgr.Close() //nolint:errcheck
 
 	// The interactive registry is built before all servers resolve. Fast servers
@@ -1032,7 +1031,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 			},
 			"good": {Enabled: true, Command: fixtureBin},
 		},
-	}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	}, config.LimitsConfig{}, nil, mcp.ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	defer mgr.Close() //nolint:errcheck
 
 	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr, nil)
@@ -1108,28 +1107,6 @@ func (r *blockedCleanupTestRunner) Run(context.Context, interactive.RunInput) (i
 
 func (r *blockedCleanupTestRunner) Compact(_ context.Context, conversation []agent.Message, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
 	return conversation, nil
-}
-
-func TestSortedProfileNames(t *testing.T) {
-	profiles := map[string]config.ModelProfile{
-		"fast":     {},
-		"default":  {},
-		"careful":  {},
-		"advanced": {},
-	}
-
-	got := sortedProfileNames(profiles)
-	want := []string{"advanced", "careful", "default", "fast"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("sortedProfileNames = %v, want %v", got, want)
-	}
-}
-
-func TestSortedProfileNamesEmpty(t *testing.T) {
-	got := sortedProfileNames(map[string]config.ModelProfile{})
-	if len(got) != 0 {
-		t.Fatalf("sortedProfileNames(empty) = %v, want empty", got)
-	}
 }
 
 // lastRequestContents joins the message contents of the most recent provider

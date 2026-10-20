@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -161,7 +162,7 @@ func VisionRoutingArgs(imageID, originalContent string) map[string]any {
 // when no parent user request is available.
 func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, img *ImageBlock, originalContent string) error {
 	if img.ID == "" {
-		return fmt.Errorf("image has no ID")
+		return errors.New("image has no ID")
 	}
 
 	args := VisionRoutingArgs(img.ID, originalContent)
@@ -181,7 +182,7 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 		env.Projected = true
 	}
 	if env.Content == "" {
-		return p.failVisionCall(callID, fmt.Errorf("vision tool returned empty result"))
+		return p.failVisionCall(callID, errors.New("vision tool returned empty result"))
 	}
 
 	var result struct {
@@ -196,7 +197,7 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 	}
 
 	if result.Output == "" {
-		return p.failVisionCall(callID, fmt.Errorf("vision tool output is empty"))
+		return p.failVisionCall(callID, errors.New("vision tool output is empty"))
 	}
 
 	description := fmt.Sprintf("[Image %s — you cannot view images directly. A vision assistant examined it and reports:\n%s",

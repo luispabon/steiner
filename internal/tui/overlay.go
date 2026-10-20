@@ -257,17 +257,6 @@ func composeOverlayLine(base, overlay string, totalWidth, startX, overlayWidth i
 	return left + mid + right
 }
 
-func padOverlayLine(line string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	lineWidth := lipgloss.Width(line)
-	if lineWidth >= width {
-		return line
-	}
-	return line + strings.Repeat(" ", width-lineWidth)
-}
-
 // safeSuffix returns the last n characters of s, or all of s if it is shorter than n.
 func safeSuffix(s string, n int) string {
 	if len(s) <= n {

@@ -248,7 +248,7 @@ func newManagerWithFakeSession(ctx context.Context, t *testing.T, fs *fakeServer
 		},
 	}
 
-	m := NewManager(cfg, workspace, nil, func(string) {}, nil)
+	m := NewManager(cfg, workspace, nil, ManagerOptions{WarnFn: func(string) {}})
 	t.Cleanup(func() { _ = m.Close() })
 
 	ent := &entry{

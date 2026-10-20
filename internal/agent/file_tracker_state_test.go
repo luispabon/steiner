@@ -28,7 +28,7 @@ func TestFileTrackerGenerationLifecycleIsFileWide(t *testing.T) {
 		t.Fatalf("latest read state = %+v, want lines 3-4 and no mutation", got)
 	}
 
-	if !tracker.BumpGeneration(path) {
+	if !tracker.bumpGeneration(path) {
 		t.Fatal("generation bump failed")
 	}
 	if got := tracker.ReadState(path, 2); !got.MutatedSinceRead {
@@ -173,7 +173,7 @@ func TestFileTrackerReadStateAndBehavior(t *testing.T) {
 	})
 	t.Run("clone retained state", func(t *testing.T) {
 		tracker := base()
-		tracker.BumpGeneration(path)
+		tracker.bumpGeneration(path)
 		clone := tracker.Clone()
 		if !clone.WasObserved(path) || !clone.ReadState(path, 7).MutatedSinceRead {
 			t.Fatal("clone did not retain read and generation")
@@ -184,7 +184,7 @@ func TestFileTrackerReadStateAndBehavior(t *testing.T) {
 		if !tracker.WasObserved(path) {
 			t.Fatal("read not observed")
 		}
-		if !tracker.BumpGeneration(path) {
+		if !tracker.bumpGeneration(path) {
 			t.Fatal("generation not bumped")
 		}
 		update, _ := tracker.ObserveToolResult(6, "custom", nil, "result")

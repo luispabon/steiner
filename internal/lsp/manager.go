@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -84,36 +83,37 @@ type entry struct {
 	cycleMu   sync.Mutex // serializes open→request→close cycles for the same session
 }
 
+// ManagerOptions holds the optional settings for NewManager. Its zero value is
+// valid.
+type ManagerOptions struct {
+	// Release frees resources owned by a wrapped server command. Optional.
+	Release ReleaseFn
+	// WarnFn receives recoverable errors such as server spawn failures. Nil
+	// means no warnings.
+	WarnFn func(string)
+	// Stderr becomes each language server process's stderr. Optional.
+	Stderr io.Writer
+}
+
 // NewManager creates a Manager with the given configuration.
 // wrap is optional and transforms the command before launch (e.g. sandbox wrapping).
-// warnFn is called on recoverable errors (e.g. spawn failure).
+// opts.WarnFn is called on recoverable errors (e.g. spawn failure).
 // workspace is the default workspace root when no markers are found.
-func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, args ...any) *Manager {
-	var release ReleaseFn
-	var warnFn func(string)
-	var stderr io.Writer
-	for _, arg := range args {
-		switch v := arg.(type) {
-		case ReleaseFn:
-			release = v
-		case func(*exec.Cmd):
-			release = v
-		case func(string):
-			warnFn = v
-		case io.Writer:
-			stderr = v
-		}
-	}
+func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, opts ManagerOptions) *Manager {
 	mgrCtx, mgrCancel := context.WithCancel(context.Background())
 	spawnCtx, spawnCancel := context.WithCancel(context.Background())
+	warnFn := opts.WarnFn
+	if warnFn == nil {
+		warnFn = func(string) {}
+	}
 
 	m := &Manager{
 		cfg:         cfg,
 		workspace:   workspace,
 		wrap:        wrap,
-		release:     release,
+		release:     opts.Release,
 		warnFn:      warnFn,
-		stderr:      stderr,
+		stderr:      opts.Stderr,
 		mgrCtx:      mgrCtx,
 		mgrCancel:   mgrCancel,
 		spawnCtx:    spawnCtx,
@@ -161,6 +161,50 @@ func (m *Manager) entryFor(ctx context.Context, file string) (*entry, session, e
 // entryForKey is entryFor's state machine, keyed directly so workspace-mode
 // symbol search can reuse it without a file to route through.
 func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config.LSPServerConfig, key sessionKey) (*entry, session, error) {
+	ent := m.lookupEntry(serverName, key)
+
+	// Loop until we have a session or a definite error.
+	for {
+		ent.mu.Lock()
+		switch ent.state.Status {
+		case ServerStatusReady:
+			sess, retry := m.readyEntry(ent)
+			if retry {
+				continue
+			}
+			return ent, sess, nil
+		case ServerStatusStarting:
+			ready := ent.ready
+			ent.mu.Unlock()
+			select {
+			case <-ready:
+				continue
+			case <-ctx.Done():
+				return nil, nil, ctx.Err()
+			}
+		case ServerStatusFailed:
+			if time.Since(ent.state.StartedAt) < spawnFailureBackoff {
+				err := ent.state.Err
+				ent.mu.Unlock()
+				return nil, nil, err
+			}
+			ent.state.Status = ServerStatusDeclared
+			ent.state.StartedAt = time.Now()
+			fallthrough
+		case ServerStatusDeclared, ServerStatusStopped:
+			return m.spawnEntry(ctx, ent, serverName, srv, key.root)
+		default:
+			status := ent.state.Status
+			ent.mu.Unlock()
+			return nil, nil, fmt.Errorf("unexpected server status: %s", status)
+		}
+	}
+}
+
+// lookupEntry returns the entry for key, creating a declared one when none
+// exists, and refreshes LastUsed on an existing entry. The caller must not
+// hold m.mu or any entry mutex.
+func (m *Manager) lookupEntry(serverName string, key sessionKey) *entry {
 	m.mu.Lock()
 	ent := m.sessions[key]
 	existing := ent != nil
@@ -186,82 +230,65 @@ func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config
 		ent.state.LastUsed = time.Now()
 		ent.mu.Unlock()
 	}
+	return ent
+}
 
-	// Loop until we have a session or a definite error.
-	for {
-		ent.mu.Lock()
-		switch ent.state.Status {
-		case ServerStatusReady:
-			sess := ent.session
-			if sess != nil {
-				select {
-				case <-sess.Exited():
-					// The server crashed or was killed: nothing else flips
-					// the status, so retire the dead session here and loop
-					// to respawn it (a failed respawn lands in
-					// ServerStatusFailed and honours spawnFailureBackoff).
-					ent.state.Status = ServerStatusStopped
-					ent.session = nil
-					ent.mu.Unlock()
-					m.closeExitedSession(sess)
-					continue
-				default:
-				}
-			}
+// readyEntry returns the live session of a Ready entry. The caller must hold
+// ent.mu, and readyEntry releases it before returning. A session whose process
+// has exited is retired here: the entry moves to Stopped and retry is true so
+// the caller loops to respawn it (a failed respawn lands in ServerStatusFailed
+// and honours spawnFailureBackoff).
+func (m *Manager) readyEntry(ent *entry) (sess session, retry bool) {
+	sess = ent.session
+	if sess != nil {
+		select {
+		case <-sess.Exited():
+			// The server crashed or was killed: nothing else flips the status.
+			ent.state.Status = ServerStatusStopped
+			ent.session = nil
 			ent.mu.Unlock()
-			return ent, sess, nil
-		case ServerStatusStarting:
-			ready := ent.ready
-			ent.mu.Unlock()
-			select {
-			case <-ready:
-				continue
-			case <-ctx.Done():
-				return nil, nil, ctx.Err()
-			}
-		case ServerStatusFailed:
-			if time.Since(ent.state.StartedAt) < spawnFailureBackoff {
-				err := ent.state.Err
-				ent.mu.Unlock()
-				return nil, nil, err
-			}
-			ent.state.Status = ServerStatusDeclared
-			ent.state.StartedAt = time.Now()
-			fallthrough
-		case ServerStatusDeclared, ServerStatusStopped:
-			ent.state.Status = ServerStatusStarting
-			ent.state.StartedAt = time.Now()
-			ent.ready = make(chan struct{})
-			ready := ent.ready
-			ent.mu.Unlock()
-
-			sess, err := m.spawnServer(ctx, serverName, srv, key.root)
-
-			ent.mu.Lock()
-			close(ready)
-			if err != nil {
-				ent.state.Status = ServerStatusFailed
-				ent.state.Err = err
-				ent.mu.Unlock()
-				m.warnFn(fmt.Sprintf("spawn server %s: %v", serverName, err))
-				return nil, nil, err
-			}
-
-			ent.state.Status = ServerStatusReady
-			ent.session = sess
-			r := newReadiness()
-			ent.readiness = r
-			ent.mu.Unlock()
-
-			go m.trackReadiness(ent, sess, r)
-
-			return ent, sess, nil
+			m.closeExitedSession(sess)
+			return nil, true
 		default:
-			status := ent.state.Status
-			ent.mu.Unlock()
-			return nil, nil, fmt.Errorf("unexpected server status: %s", status)
 		}
 	}
+	ent.mu.Unlock()
+	return sess, false
+}
+
+// spawnEntry starts the server for ent. The caller must hold ent.mu with the
+// entry in Declared, Stopped or Failed-after-backoff. spawnEntry marks the entry
+// Starting, releases ent.mu for the spawn, then publishes the session (Ready) or
+// the failure (Failed) and wakes waiters on ent.ready. It returns with ent.mu
+// released.
+func (m *Manager) spawnEntry(ctx context.Context, ent *entry, serverName string, srv config.LSPServerConfig, root string) (*entry, session, error) {
+	ent.state.Status = ServerStatusStarting
+	ent.state.StartedAt = time.Now()
+	ent.ready = make(chan struct{})
+	ready := ent.ready
+	ent.mu.Unlock()
+
+	sess, err := m.spawnServer(ctx, serverName, srv, root)
+
+	ent.mu.Lock()
+	close(ready)
+	if err != nil {
+		ent.state.Status = ServerStatusFailed
+		ent.state.Err = err
+		ent.mu.Unlock()
+		m.warnFn(fmt.Sprintf("spawn server %s: %v", serverName, err))
+		return nil, nil, err
+	}
+
+	ent.state.Status = ServerStatusReady
+	ent.session = sess
+	r := newReadiness()
+	ent.readiness = r
+	ent.mu.Unlock()
+
+	go m.trackReadiness(ent, sess, r)
+
+	return ent, sess, nil
 }
 
 // closeExitedSession releases the resources (connection, pipes, reaped

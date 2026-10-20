@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
 const (
@@ -193,7 +195,7 @@ func (c *Cache) Refresh(ctx context.Context) error {
 		// Network failure: stale cache is acceptable.
 		return nil
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close() //nolint:errcheck // read-only response body; a close error does not affect the cache write
 
 	switch resp.StatusCode {
 	case http.StatusNotModified:
@@ -282,28 +284,8 @@ func atomicWrite(path string, data []byte) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".tmp-models-dev-*")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		os.Remove(tmpName) //nolint:errcheck
-		return fmt.Errorf("write temp file: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		os.Remove(tmpName) //nolint:errcheck
-		return fmt.Errorf("sync temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName) //nolint:errcheck
-		return fmt.Errorf("close temp file: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName) //nolint:errcheck
-		return fmt.Errorf("rename cache file: %w", err)
+	if err := fsatomic.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write cache file: %w", err)
 	}
 	return nil
 }

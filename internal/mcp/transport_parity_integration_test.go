@@ -129,8 +129,7 @@ func TestMCPTransportParity(t *testing.T) {
 
 		t.Run(tt.name+"/initial_connection_failure", func(t *testing.T) {
 			cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{tt.serverName: tt.fail}}
-			m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
-				func(string) {}, func(string) {}, io.Discard, nil)
+			m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 			defer m.Close() //nolint:errcheck
 			waitInit(t, m)
 
@@ -157,8 +156,7 @@ func TestMCPTransportParity(t *testing.T) {
 func connectParity(t *testing.T, name string, srv config.MCPServerConfig) *Manager {
 	t.Helper()
 	cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{name: srv}}
-	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
-		func(string) {}, func(string) {}, io.Discard, nil)
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	waitInit(t, m)
 	m.UpdateApprover(allowApprover())
 	return m

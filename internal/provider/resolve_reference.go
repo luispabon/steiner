@@ -76,6 +76,11 @@ func resolveReferenceWithLoader(ctx context.Context, cfg *config.Config, referen
 	}
 
 	if !useDiscovery {
+		// resolveFacts' sourceErrs and notes are dropped here on purpose. None of
+		// these sources sets sourceErr (only modelsDevSource does, and it is not
+		// in this list), so there are no source errors to surface. Notes only
+		// describe fields a source could not answer, and this path emits no
+		// warnings from them.
 		facts, _, _ := resolveFacts(ctx, ref, []factSource{configSource{}, providerFixedSource{}, builtinSource{}})
 		applyFacts(&rm, facts, false)
 		if err := validateCompactionThreshold(rm); err != nil {

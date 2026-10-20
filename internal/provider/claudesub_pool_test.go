@@ -1543,6 +1543,54 @@ func TestClaudeSubPoolShutdownRetainsGenericTeardownError(t *testing.T) {
 	}
 }
 
+// TestClaudeSubPoolShutdownUnsettledRemovalOfRetainedSession proves a retained
+// session whose teardown reported success while its directory removal job is
+// still running makes shutdown incomplete instead of successful, and that the
+// removal's late result stays with the job. The state is set directly because
+// the real teardown always waits for its removal before returning nil.
+func TestClaudeSubPoolShutdownUnsettledRemovalOfRetainedSession(t *testing.T) {
+	old := claudeSubPoolShutdownTimeout
+	claudeSubPoolShutdownTimeout = 100 * time.Millisecond
+	defer func() { claudeSubPoolShutdownTimeout = old }()
+
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	s, err := pool.acquire(context.Background(), "parent", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	pool.release(s)
+
+	releaseRemoval := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseRemoval) }) }
+	defer release()
+
+	// Teardown finished with no error, but the directory removal it started is
+	// still running, and the session is retained as unresolved.
+	s.teardownStarted.Store(true)
+	s.teardownJob.finish(nil)
+	pool.retainUnresolved(s, errors.New("retained session"))
+	s.removeJob.start(func() error {
+		<-releaseRemoval
+		return nil
+	})
+
+	closeErr := pool.Close()
+	if !errors.Is(closeErr, errClaudeSubPoolShutdownIncomplete) {
+		t.Fatalf("Close = %v, want the incomplete-shutdown error while removal is unsettled", closeErr)
+	}
+
+	release()
+	select {
+	case <-s.removeJob.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("removal job never completed after release")
+	}
+	if s.removeJob.err != nil {
+		t.Fatalf("removal job result = %v, want nil", s.removeJob.err)
+	}
+}
+
 // TestClaudeSubPoolCancellationAdmission pins the precise admission contract: an
 // already-canceled request is rejected inside acquire's pool-mutex admission
 // section (and by lockCall before the token select), so it can neither start,

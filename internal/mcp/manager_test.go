@@ -37,7 +37,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		if got := m.ToolDefs(); len(got) != 0 {
 			t.Fatalf("ToolDefs() has %d tools, want 0", len(got))
 		}
@@ -59,7 +59,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		if got := m.ToolDefs(); len(got) != 0 {
 			t.Fatalf("ToolDefs() has %d tools, want 0", len(got))
 		}
@@ -78,10 +78,11 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
-			func(msg string) { warns = append(warns, msg) },
-			func(msg string) { infos = append(infos, msg) },
-			io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{
+			WarnFn: func(msg string) { warns = append(warns, msg) },
+			InfoFn: func(msg string) { infos = append(infos, msg) },
+			Stderr: io.Discard,
+		})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 
@@ -121,7 +122,7 @@ func TestManagerConnect(t *testing.T) {
 
 		// A failing server with no reporting callbacks must not panic; the
 		// healthy server's tools still arrive.
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, nil, nil, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 
@@ -144,7 +145,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, nil, nil, &shared, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{Stderr: &shared})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 		m.UpdateApprover(allowApprover())
@@ -186,7 +187,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 
@@ -209,7 +210,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("names and provenance", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 
@@ -244,7 +245,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 
@@ -282,7 +283,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("nil approver denies without calling the server", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 
@@ -298,7 +299,7 @@ func TestManagerConnect(t *testing.T) {
 			return nil
 		})
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 		m.UpdateApprover(approver)
@@ -311,7 +312,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("approver allow round-trips echo and surfaces boom as an envelope", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 		m.UpdateApprover(allowApprover())
@@ -354,7 +355,7 @@ func TestManagerConnect(t *testing.T) {
 				"fixture": {Enabled: true, Command: fixtureBin, Approval: "ask", TrustAnnotations: true},
 			},
 		}
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 
@@ -380,7 +381,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("UpdateApprover wires the approver into existing defs", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 
@@ -412,7 +413,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 
@@ -462,7 +463,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		want := []ServerState{{Name: "fixture", Status: ServerStatusDisabled, Transport: "stdio"}}
 		if got := m.ServerStates(); !reflect.DeepEqual(got, want) {
 			t.Errorf("ServerStates() = %+v, want %+v", got, want)
@@ -498,7 +499,7 @@ func TestManagerConnect(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, onStateChange)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard, OnStateChange: onStateChange})
 		defer m.Close() //nolint:errcheck
 
 		// The fast server must reach connected while the stall server is still
@@ -560,7 +561,7 @@ func TestManagerConnect(t *testing.T) {
 				},
 			},
 		}
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -576,7 +577,7 @@ func TestManagerConnect(t *testing.T) {
 			t.Fatalf("WaitInit on nil Manager = %v, want nil", err)
 		}
 
-		m := Connect(context.Background(), config.MCPConfig{Enabled: false}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), config.MCPConfig{Enabled: false}, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		if err := m.WaitInit(ctx); err != nil {
@@ -589,7 +590,7 @@ func TestManagerConnect(t *testing.T) {
 
 	t.Run("ServerStates returns a deep copy", func(t *testing.T) {
 		cfg := config.MCPConfig{Enabled: true, Servers: map[string]config.MCPServerConfig{"fixture": server(nil)}}
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 
@@ -620,7 +621,7 @@ func TestManagerConnect(t *testing.T) {
 				"beta":  server(nil),
 			},
 		}
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		waitInit(t, m)
 		m.UpdateApprover(allowApprover())
 		if err := m.Close(); err != nil {
@@ -654,11 +655,12 @@ func TestManagerInertWithZeroServers(t *testing.T) {
 	checkInert := func(t *testing.T, servers map[string]config.MCPServerConfig) {
 		t.Helper()
 		var warns, infos, changes []string
-		m := Connect(context.Background(), config.MCPConfig{Enabled: true, Servers: servers}, config.LimitsConfig{}, nil, false,
-			func(msg string) { warns = append(warns, msg) },
-			func(msg string) { infos = append(infos, msg) },
-			io.Discard,
-			func() { changes = append(changes, "state change") })
+		m := Connect(context.Background(), config.MCPConfig{Enabled: true, Servers: servers}, config.LimitsConfig{}, nil, ConnectOptions{
+			WarnFn:        func(msg string) { warns = append(warns, msg) },
+			InfoFn:        func(msg string) { infos = append(infos, msg) },
+			Stderr:        io.Discard,
+			OnStateChange: func() { changes = append(changes, "state change") },
+		})
 		defer m.Close() //nolint:errcheck
 
 		if got := m.ServerStates(); len(got) != 0 {
@@ -692,7 +694,7 @@ func TestManagerInertWithZeroServers(t *testing.T) {
 				"fixture": {Enabled: true, Command: "/nonexistent/steiner-no-such-binary"},
 			},
 		}
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		want := []ServerState{{Name: "fixture", Status: ServerStatusDisabled, Transport: "stdio"}}
 		if got := m.ServerStates(); !reflect.DeepEqual(got, want) {
 			t.Errorf("ServerStates() = %+v, want %+v", got, want)
@@ -785,7 +787,7 @@ func TestFilter(t *testing.T) {
 				},
 			}
 
-			m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(msg string) { warns = append(warns, msg) }, func(string) {}, io.Discard, nil)
+			m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(msg string) { warns = append(warns, msg) }, InfoFn: func(string) {}, Stderr: io.Discard})
 			defer m.Close() //nolint:errcheck
 			waitInit(t, m)
 
@@ -834,7 +836,7 @@ func TestFilterDeterministic(t *testing.T) {
 		}
 
 		var warns []string
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(msg string) { warns = append(warns, msg) }, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(msg string) { warns = append(warns, msg) }, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 

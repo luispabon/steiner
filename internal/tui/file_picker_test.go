@@ -529,6 +529,34 @@ func TestFilePickerOverlay_ViewHidesMoreIndicatorAtEnd(t *testing.T) {
 	}
 }
 
+func TestRenderMoreFooterText(t *testing.T) {
+	t.Parallel()
+	got := stripANSI(renderMoreFooter(3))
+	const want = "… and 3 more"
+	if got != want {
+		t.Fatalf("renderMoreFooter(3) = %q, want %q", got, want)
+	}
+}
+
+func TestFilePickerOverlay_ViewShowsMoreFooter(t *testing.T) {
+	t.Parallel()
+	s := testStyles("#ff0000")
+	f := newFilePickerOverlay(s)
+	f.OverlayShell = f.openShell()
+	f.width = 80
+	f.height = 24
+	// 11 candidates with maxDisplay 8 leave 3 hidden below the window.
+	f.candidates = make([]string, 11)
+	for i := range 11 {
+		f.candidates[i] = fmt.Sprintf("zzz_file_%02d", i)
+	}
+
+	view := stripANSI(f.View())
+	if !strings.Contains(view, "… and 3 more") {
+		t.Fatalf("expected picker footer %q in view:\n%s", "… and 3 more", view)
+	}
+}
+
 func TestFilePickerOverlay_EmptyQueryShowsSelectedCandidate(t *testing.T) {
 	t.Parallel()
 	s := testStyles("#ff0000")

@@ -42,7 +42,7 @@ func (s *Session) saveSession() error {
 		return nil
 	}
 
-	modelID := currentModelConfig(s.deps.Config).ID
+	modelID := SelectedModelConfig(s.deps.Config).ID
 	var (
 		sess session.Session
 		err  error
@@ -262,7 +262,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 
 	// Emit a context-diagnostics event so the TUI can populate the sidebar
 	// token bar and the status bar with the model's context budget.
-	currentModel := currentModelConfig(s.deps.Config)
+	currentModel := SelectedModelConfig(s.deps.Config)
 	contextWindow := currentModel.Advanced.Limits.ContextWindow
 	if contextWindow <= 0 {
 		contextWindow = s.resolveFallbackContextWindow()
@@ -376,7 +376,7 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 	currentSession := session.Session{
 		ID:               s.sessionID,
 		Title:            s.sessionTitle,
-		Model:            currentModelConfig(s.deps.Config).ID,
+		Model:            SelectedModelConfig(s.deps.Config).ID,
 		Mode:             string(s.mode),
 		Group:            s.sessionGroup,
 		Lineage:          s.lineage,

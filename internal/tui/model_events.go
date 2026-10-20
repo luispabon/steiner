@@ -8,13 +8,12 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/output"
 )
 
-//nolint:gocyclo // event fan-out stays centralized here
+//nolint:gocyclo // pre-routing guards run in a fixed order
 func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	if payload, ok := event.Payload.(output.ConversationStateEvent); ok {
 		m.applyConversationState(payload)
@@ -45,44 +44,25 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		}
 	}
 
-	// Sub-agent events update delegation transcript segments only.
-	// They must not overwrite the main agent's sidebar, status bar,
-	// or activity state.
+	// Sub-agent events are handled by applySubAgentEvent.
 	if event.Scope.AgentID != "" {
-		if event.Type == output.EventTypeDelegationWorktreeDisposal {
-			if payload, ok := event.Payload.(output.DelegationWorktreeDisposalEvent); ok {
-				line := fmt.Sprintf("code worktree discarded for %s", payload.AgentID)
-				switch {
-				case payload.Error != "":
-					line = fmt.Sprintf("code worktree discard failed for %s: %s", payload.AgentID, payload.Error)
-				case !payload.Removed:
-					line = fmt.Sprintf("no code worktree to discard for %s", payload.AgentID)
-				}
-				m.content.AppendLine("status: " + line)
-				m.contentDirty = true
-				m.syncDebounceSeq++
-				return tea.Batch(gitRefreshCmd(m.git), syncDebounceCmd(m.syncDebounceSeq))
-			}
-		}
-		if event.Type != output.EventTypeHistoryLoaded {
-			m.content.AppendEvent(event)
-		}
-		var cmds []tea.Cmd
-		if shouldRefreshGit(event) {
-			cmds = append(cmds, gitRefreshCmd(m.git))
-		}
-		if event.Type != output.EventTypeAssistantChunk && event.Type != output.EventTypeThinkingChunk {
-			m.contentDirty = true
-			m.syncDebounceSeq++
-			cmds = append(cmds, syncDebounceCmd(m.syncDebounceSeq))
-		}
-		return tea.Batch(cmds...)
+		return m.applySubAgentEvent(event)
 	}
 
 	if event.Type != output.EventTypeHistoryLoaded {
 		m.content.AppendEvent(event)
 	}
+	if cmd, done := m.applyPayloadEvent(event); done {
+		return cmd
+	}
+	return m.finishAppliedEvent(event)
+}
 
+// applyPayloadEvent routes the event payload to its family handler. It
+// reports done when applyEvent must return cmd without the shared tail.
+//
+//nolint:gocyclo // payload fan-out stays centralized here
+func (m *Model) applyPayloadEvent(event output.Event) (tea.Cmd, bool) {
 	switch payload := event.Payload.(type) {
 	case output.HistoryLoadedEvent:
 		// Copy before reversing: the payload slice belongs to the producer and
@@ -98,46 +78,23 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			m.fileHistory = prompts
 			m.fileHistoryIdx = -1
 		}
-		return nil
+		return nil, true
 	case output.RunStartedEvent:
-		m.interruptPending = false
-		m.setCompaction(compactionState{})
-		if payload.MaxTurns > 0 {
-			m.sidebar.maxTurns = payload.MaxTurns
-		}
-		m.status.mode = "running"
-		m.activity = m.activity.waiting("starting run", strings.TrimSpace(payload.Model))
+		m.applyRunStartedEvent(payload)
 	case output.RunFinishedEvent:
-		m.status.mode = strings.TrimSpace(payload.Reason)
-		m.activity = m.activity.static("run finished", strings.TrimSpace(payload.Reason))
-		m.applyConversationLabel()
-		m.resetTopLevelTerminalState(true)
+		m.applyRunFinishedEvent(payload)
 	case output.StopReasonEvent:
-		m.status.mode = strings.TrimSpace(payload.Reason)
-		m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
-		m.applyConversationLabel()
-		m.resetTopLevelTerminalState(true)
+		m.applyStopReasonEvent(payload)
 	case output.ModelCallStartedEvent:
 		m.activity = m.activity.waiting("waiting", "")
 	case output.ModelCallFinishedEvent:
-		detail := strings.TrimSpace(payload.FinishReason)
-		if detail == "" && payload.CompletionTokens > 0 {
-			detail = fmt.Sprintf("%d tokens", payload.CompletionTokens)
-		}
-		m.activity = m.activity.static("model call complete", detail)
-		m.sidebar.perfDurationMs = payload.DurationMs
-		m.sidebar.perfTTFTMs = payload.TTFTMs
-		m.sidebar.perfOutputTPS = payload.OutputTPS
+		m.applyModelCallFinishedEvent(payload)
 	case output.APIRequestEvent:
 		m.activity = m.activity.waiting("waiting", "")
 	case output.APIResponseEvent:
-		detail := strings.TrimSpace(payload.FinishReason)
-		m.activity = m.activity.waiting("receiving response", detail)
+		m.applyAPIResponseEvent(payload)
 	case output.ContextBudgetEvent:
-		if output.ContextDiagnosticKind(payload) == "session_loaded" {
-			m.clearReplayActivity()
-		}
-		m.applyContextBudget(payload)
+		m.applyContextBudgetEvent(payload)
 	case output.ContextCompactionEvent:
 		m.applyCompactionEvent(payload)
 	case output.ContextSessionHealthEvent:
@@ -145,96 +102,29 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	case output.SubAgentResultsUnansweredEvent:
 		m.applyStrandedResults(payload)
 	case output.ContextDiagnosticsEvent:
-		if payload.Kind == "session_loaded" {
-			m.clearReplayActivity()
-		}
-		if budget, ok := output.AsContextBudgetEvent(payload); ok {
-			m.applyContextBudget(budget)
-		}
-		if compaction, ok := output.AsContextCompactionEvent(payload); ok {
-			m.applyCompactionEvent(compaction)
-		}
-		if health, ok := output.AsContextSessionHealthEvent(payload); ok {
-			m.applySessionHealthEvent(health)
-		}
+		m.applyContextDiagnosticsEvent(payload)
 	case output.ApprovalEvent:
-		switch event.Type {
-		case output.EventTypeApprovalRequested:
-			// Content retains every request. The tray only prompts the first.
-			if !m.approval.active {
-				if coordinator, ok := m.controller.(interface{ ApprovalHeadIdentity() string }); ok && coordinator.ApprovalHeadIdentity() != "" && coordinator.ApprovalHeadIdentity() != payload.CallID {
-					break
-				}
-				m.approval = approvalState{
-					active:         true,
-					identity:       payload.CallID,
-					tool:           payload.Tool,
-					mode:           payload.Mode,
-					preview:        payload.Preview,
-					kind:           payload.Kind,
-					server:         payload.Server,
-					mcpToolName:    payload.ToolName,
-					selectedAction: 0,
-				}
-				m.status.mode = "approval"
-				m.activity = m.activity.static("approval required", approvalDetail(payload))
-				m.input.Reset()
-				m.input.Blur()
-				m.notifyBlocking(fmt.Sprintf("Tool approval required: %s", payload.Tool))
-			}
-		case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
-			m.approval = approvalState{}
-			if !m.promoteNextApproval(payload.CallID) {
-				m.status.mode = "running"
-				m.input.Focus()
-			}
-			m.activity = m.activity.static(approvalResultLabel(event.Type), approvalDetail(payload))
-		}
+		m.applyApprovalEvent(event, payload)
 	case output.WorkflowHandoffEvent:
-		switch event.Type {
-		case output.EventTypeWorkflowHandoffRequested:
-			m.workflowHandoff = openWorkflowHandoffModal(m.width, m.height, payload, m.workflowHandoffModelSelection(payload.Next))
-			m.input.Blur()
-			m.notifyBlocking("workflow handoff requested")
-			m.syncViewport()
-			return nil
-		case output.EventTypeWorkflowHandoffAccepted, output.EventTypeWorkflowHandoffDeclined:
-			m.workflowHandoff = m.workflowHandoff.close()
-			m.input.Focus()
+		if m.applyWorkflowHandoffEvent(event, payload) {
+			return nil, true
 		}
 	case output.ToolCallStartedEvent:
 		m.activity = m.activity.waiting("running tool", toolCallDetail(payload.Tool, payload.Arguments))
 	case output.ToolCallFinishedEvent:
 		m.activity = m.activity.static("tool complete", strings.TrimSpace(payload.Tool))
 	case output.SteerReceivedEvent:
-		m.content.AppendUser(payload.Text)
-		if len(payload.Images) > 0 {
-			m.content.AppendImagesAttached(agentImageBlocks(payload.Images), m.sidebar.workingDir, m.sidebar.homeDir)
-		}
-		m.syncInputChrome()
-		m.relayoutInput()
+		m.applySteerReceivedEvent(payload)
 	case output.PhaseTransitionEvent:
-		return m.handlePhaseTransition(payload)
+		return m.handlePhaseTransition(payload), true
 	case output.PhaseIndicatorEvent:
 		m.handlePhaseIndicator(payload)
 	case output.ModeChangedEvent:
-		m.mode = strings.TrimSpace(payload.Mode)
-		m.sidebar.execMode = m.mode
-		m.status.execMode = m.mode
-		m.content.AppendLine(fmt.Sprintf("status: mode → %s", m.mode))
+		m.applyModeChangedEvent(payload)
 	case output.OrchestrationLevelChangedEvent:
-		level := strings.TrimSpace(payload.Level)
-		m.orchestrationLevel = config.OrchestrationLevel(level)
-		if m.subAgentsEnabled {
-			m.sidebar.orchestrationLevel = level
-		}
-		m.content.AppendLine(fmt.Sprintf("status: orchestration → %s", level))
+		m.applyOrchestrationLevelChangedEvent(payload)
 	case output.SandboxStatusEvent:
-		m.sidebar.sandboxStatus = strings.TrimSpace(payload.Status)
-		m.status.sandboxStatus = strings.TrimSpace(payload.Status)
-		if payload.Message != "" {
-			m.content.AppendLine(fmt.Sprintf("status: %s", payload.Message))
-		}
+		m.applySandboxStatusEvent(payload)
 	case output.ConfigWarningEvent:
 		m.content.AppendLine(m.styles.WarningStyle.Render(payload.Message))
 	case output.SkillTruncatedEvent:
@@ -253,7 +143,12 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.syncSidebar()
 		m.syncInputChrome()
 	}
+	return nil, false
+}
 
+// finishAppliedEvent runs the shared post-apply work for events that
+// applyPayloadEvent did not end early.
+func (m *Model) finishAppliedEvent(event output.Event) tea.Cmd {
 	var cmds []tea.Cmd
 	if shouldRefreshGit(event) {
 		cmds = append(cmds, gitRefreshCmd(m.git))
@@ -269,45 +164,6 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		cmds = append(cmds, syncDebounceCmd(m.syncDebounceSeq))
 	}
 	return tea.Batch(cmds...)
-}
-
-//nolint:gocyclo // approval segment variants stay centralized
-func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
-	identity := ""
-	if coordinator, ok := m.controller.(interface{ ApprovalHeadIdentity() string }); ok {
-		identity = coordinator.ApprovalHeadIdentity()
-	}
-	if identity == "" && len(resolvedIdentities) > 0 {
-		identity = resolvedIdentities[0]
-	}
-	for i := range m.content.segments {
-		seg := &m.content.segments[i]
-		if seg.kind == segmentToolCall && seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved && (identity == "" || seg.toolData.approvalIdentity == identity) {
-			tc := seg.toolData
-			m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool}
-			m.status.mode = "approval"
-			m.input.Blur()
-			return true
-		}
-		if seg.kind == segmentToolCallGroup && seg.toolGroupData != nil {
-			for _, tc := range seg.toolGroupData.entries {
-				if tc != nil && tc.approvalPending && !tc.approvalResolved && (identity == "" || tc.approvalIdentity == identity) {
-					m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool}
-					m.status.mode = "approval"
-					m.input.Blur()
-					return true
-				}
-			}
-		}
-		if seg.kind == segmentApprovalPill && seg.approvalData != nil && !seg.approvalData.resolved && (identity == "" || seg.approvalData.identity == identity) {
-			ad := seg.approvalData
-			m.approval = approvalState{active: true, identity: ad.identity, tool: ad.tool, mode: ad.mode, preview: ad.preview, kind: ad.kind, server: ad.server, mcpToolName: ad.mcpToolName}
-			m.status.mode = "approval"
-			m.input.Blur()
-			return true
-		}
-	}
-	return false
 }
 
 // applyMCPStatusEvent replaces the TUI's MCP snapshot with the fresh values
@@ -336,38 +192,6 @@ func (m *Model) applyMCPStatusEvent(payload output.MCPStatusEvent) {
 		m.content.AppendLine(m.styles.WarningStyle.Render(line))
 	}
 	m.syncSidebar()
-}
-
-// applyCompactionEvent updates compaction state, activity, and status context
-// for a context compaction event. Shared by the direct ContextCompactionEvent
-// case and the ContextDiagnosticsEvent envelope.
-func (m *Model) applyCompactionEvent(payload output.ContextCompactionEvent) {
-	cs := newCompactionState(payload)
-	m.setCompaction(cs)
-	switch {
-	case cs.Active():
-		m.activity = m.activity.waiting("compacting context", compactingLabel(payload))
-	case payload.Severity == "skipped":
-		// Nothing was compacted; the run continues in the same waiting state a model call uses.
-		m.activity = m.activity.waiting("waiting", "")
-	default:
-		m.activity = m.activity.static("context compacted", compactedLabel(payload))
-		m.applyContextBudget(payload.BudgetSnapshot())
-	}
-	m.status.context = appendStatusContext(m.status.context, compactionStatusFragment(payload))
-	// Append separator + summary text when compaction finishes with a summary.
-	if !cs.Active() && payload.SummaryText != "" {
-		m.content.AppendCompactionResult("Compaction", payload.SummaryText)
-	}
-}
-
-// applySessionHealthEvent updates status context for a context session health
-// event. Shared by the direct ContextSessionHealthEvent case and the
-// ContextDiagnosticsEvent envelope.
-func (m *Model) applySessionHealthEvent(payload output.ContextSessionHealthEvent) {
-	if !m.compaction.Active() {
-		m.status.context = appendStatusContext(m.status.context, sessionHealthStatusFragment(payload))
-	}
 }
 
 func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {

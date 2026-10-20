@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -236,9 +235,7 @@ func (s slashOverlay) View() string {
 	}
 
 	if len(s.candidates) > s.scrollOffset+slashOverlayMaxDisplay {
-		lines = append(lines, lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.FgMute)).
-			Render(fmt.Sprintf("... and %d more", len(s.candidates)-(s.scrollOffset+slashOverlayMaxDisplay))))
+		lines = append(lines, renderMoreFooter(len(s.candidates)-(s.scrollOffset+slashOverlayMaxDisplay)))
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
@@ -246,28 +243,6 @@ func (s slashOverlay) View() string {
 	// cell backgrounds in transparent terminals; the overlay box style Background()
 	// does not re-apply after resets inside the body.
 	return theme.WithBg(s.styles.PaletteOverlay.Width(innerW+4).Padding(1, 1).Render(body), theme.BgElev)
-}
-
-func truncateOverlayText(text string, width int) string {
-	text = strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
-	if width <= 0 || text == "" {
-		return ""
-	}
-	if lipgloss.Width(text) <= width {
-		return text
-	}
-	if width == 1 {
-		return "…"
-	}
-	runes := []rune(text)
-	for len(runes) > 0 {
-		candidate := string(runes) + "…"
-		if lipgloss.Width(candidate) <= width {
-			return candidate
-		}
-		runes = runes[:len(runes)-1]
-	}
-	return "…"
 }
 
 func (s slashOverlay) renderSkillRow(prefixRendered, rowRendered, plain string, width int) string {

@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
 const (
@@ -139,6 +140,7 @@ func restoreLegacyLineage(session Session, data []byte) Session {
 	// are no longer supported.
 	var legacy legacySessionEnvelope
 	if err := json.Unmarshal(data, &legacy); err != nil {
+		slog.Warn("session store: cannot decode legacy conversation, keeping session without restored lineage", "session_id", session.ID, "error", err)
 		return session
 	}
 
@@ -206,22 +208,9 @@ func (s *Store) writeAtomic(path string, data interface{}) error {
 		return fmt.Errorf("marshal: %w", err)
 	}
 
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data64, fileMode); err != nil {
-		return fmt.Errorf("write tmp file: %w", err)
+	if err := fsatomic.WriteFile(path, data64, fileMode); err != nil {
+		return fmt.Errorf("write file: %w", err)
 	}
-	// WriteFile does not alter the mode of a pre-existing tmp file.
-	if err := os.Chmod(tmpPath, fileMode); err != nil {
-		_ = os.Remove(tmpPath) // best-effort cleanup; the chmod error is returned
-		return fmt.Errorf("secure tmp file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		// Best-effort cleanup; the rename error is the one worth reporting.
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("rename tmp file: %w", err)
-	}
-
 	return nil
 }
 

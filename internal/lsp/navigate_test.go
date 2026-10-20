@@ -164,7 +164,7 @@ func TestResultsCapAtMaxResults(t *testing.T) {
 		CacheDir:          cacheDir,
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	// Create fake locations: 5 of them.
@@ -240,7 +240,7 @@ func TestDefinitionsInvalidPosition(t *testing.T) {
 		CacheDir:          cacheDir,
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -549,7 +549,7 @@ func TestHoverInvalidPosition(t *testing.T) {
 		CacheDir:          cacheDir,
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -850,7 +850,7 @@ func workspaceSymbolTestManager(t *testing.T, workspace string, servers map[stri
 		RequestTimeout: config.MustDuration("2s"),
 		Servers:        cfgServers,
 	}
-	m := NewManager(cfg, workspace, nil, func(string) {}, nil)
+	m := NewManager(cfg, workspace, nil, ManagerOptions{WarnFn: func(string) {}})
 	t.Cleanup(func() { _ = m.Close() })
 
 	m.sessions = make(map[sessionKey]*entry)
@@ -963,7 +963,7 @@ func TestWorkspaceSymbolsReusesExistingSession(t *testing.T) {
 func TestWorkspaceSymbolsNoEnabledServers(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{MaxResults: 100}
-	m := NewManager(cfg, t.TempDir(), nil, func(string) {}, nil)
+	m := NewManager(cfg, t.TempDir(), nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	_, err := m.WorkspaceSymbols(context.Background(), "Foo")
@@ -1077,7 +1077,7 @@ func TestImplementationsInvalidPosition(t *testing.T) {
 		CacheDir:          cacheDir,
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -1331,7 +1331,7 @@ func TestTypeDefinitionsInvalidPosition(t *testing.T) {
 		CacheDir:          cacheDir,
 	}
 
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -1545,7 +1545,7 @@ func TestImplementationsWithRelativePath(t *testing.T) {
 			"go": {Enabled: true, FileExtensions: []string{".go"}},
 		},
 	}
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	t.Cleanup(func() { _ = m.Close() })
 
 	root := resolveRoot(testFile, tmpdir, nil)
@@ -1592,7 +1592,7 @@ func TestTypeDefinitionsWithRelativePath(t *testing.T) {
 			"go": {Enabled: true, FileExtensions: []string{".go"}},
 		},
 	}
-	m := NewManager(cfg, tmpdir, nil, func(string) {}, nil)
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{WarnFn: func(string) {}})
 	t.Cleanup(func() { _ = m.Close() })
 
 	root := resolveRoot(testFile, tmpdir, nil)

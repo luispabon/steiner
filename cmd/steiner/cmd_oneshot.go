@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -30,8 +29,6 @@ type oneshotOrchestrator interface {
 var newOneshotOrchestrator = func(deps oneshot.Dependencies) (oneshotOrchestrator, error) {
 	return oneshot.NewOrchestrator(deps)
 }
-
-var errClaudeSubscriptionOneshot = errors.New("the claude_subscription provider cannot be used for oneshot runs; choose another provider for oneshot")
 
 var listOneshotRuns = oneshot.ListRuns
 
@@ -98,7 +95,7 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 	if providerFactory := runtime.providerFactory; providerFactory != nil {
 		runtime.providerFactory = func(rm provider.ResolvedModel, sessionID string) (provider.Provider, error) {
 			if effectiveProviderType(rm) == config.ProviderTypeClaudeSubscription {
-				return nil, errClaudeSubscriptionOneshot
+				return nil, oneshot.ErrClaudeSubscription
 			}
 			return providerFactory(rm, sessionID)
 		}
@@ -159,57 +156,16 @@ func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (on
 	return runPhaseOnDriver(ctx, in, host)
 }
 
-// requireSubAgentsForOneshot returns an error if sub-agents are disabled in
-// cfg, since oneshot runs depend on sub-agent delegation.
-func requireSubAgentsForOneshot(cfg config.Config) error {
-	if !cfg.SubAgent.Enabled {
-		return fmt.Errorf("oneshot unavailable: sub-agents are disabled in config")
-	}
-	return nil
-}
-
-// requireOneshotProviders refuses a oneshot run when a model alias the run can
-// route to resolves to the claude_subscription provider. It reads configuration
-// only, so it runs before any run identity, lock, manifest or worktree exists.
-// The providerFactory wrapper in newPhaseRunner stays as the backstop.
-func requireOneshotProviders(cfg config.Config) error {
-	for _, alias := range oneshotModelAliases(cfg) {
-		modelCfg, ok := config.ResolveModelConfig(&cfg, strings.TrimSpace(alias))
-		if !ok {
-			continue
-		}
-		if cfg.Providers[modelCfg.Provider].Type == config.ProviderTypeClaudeSubscription {
-			return errClaudeSubscriptionOneshot
-		}
-	}
-	return nil
-}
-
-// oneshotModelAliases lists the configured aliases a oneshot run can use: the
-// advisor, the default model that phases and sub-agents fall back to, each
-// phase model, and each sub-agent model.
-func oneshotModelAliases(cfg config.Config) []string {
-	effective := cfg.Models.Effective
-	aliases := []string{effective.DefaultModel, effective.Advisor}
-	for _, alias := range effective.OneShot {
-		aliases = append(aliases, alias)
-	}
-	for _, alias := range effective.SubAgents {
-		aliases = append(aliases, alias)
-	}
-	return aliases
-}
-
 func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
 		return err
 	}
 	defer closeRuntime(&rt)
-	if err := requireSubAgentsForOneshot(rt.cfg); err != nil {
+	if err := oneshot.RequireSubAgents(rt.cfg); err != nil {
 		return err
 	}
-	if err := requireOneshotProviders(rt.cfg); err != nil {
+	if err := oneshot.RequireProviders(rt.cfg); err != nil {
 		return err
 	}
 
@@ -248,7 +204,7 @@ func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 			return err
 		}
 	}
-	return printOneshotManifest(cmd.OutOrStdout(), manifest)
+	return oneshot.PrintManifest(cmd.OutOrStdout(), manifest)
 }
 
 func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) error {
@@ -257,10 +213,10 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 		return err
 	}
 	defer closeRuntime(&rt)
-	if err := requireSubAgentsForOneshot(rt.cfg); err != nil {
+	if err := oneshot.RequireSubAgents(rt.cfg); err != nil {
 		return err
 	}
-	if err := requireOneshotProviders(rt.cfg); err != nil {
+	if err := oneshot.RequireProviders(rt.cfg); err != nil {
 		return err
 	}
 
@@ -270,7 +226,7 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 		return fmt.Errorf("load oneshot manifest: %w", err)
 	}
 	if strings.TrimSpace(manifest.RunID) == "" {
-		return fmt.Errorf("load oneshot manifest: run id is required")
+		return errors.New("load oneshot manifest: run id is required")
 	}
 
 	identity := oneshot.RunIdentity{ID: manifest.RunID, Slug: manifest.Slug}
@@ -305,7 +261,7 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 			return err
 		}
 	}
-	return printOneshotManifest(cmd.OutOrStdout(), updated)
+	return oneshot.PrintManifest(cmd.OutOrStdout(), updated)
 }
 
 func runOneshotList(cmd *cobra.Command) error {
@@ -317,17 +273,7 @@ func runOneshotList(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	renderOneshotRuns(output.NewStream(cmd.OutOrStdout()), runs)
-	return nil
-}
-
-func printOneshotManifest(w interface{ Write([]byte) (int, error) }, manifest oneshot.Manifest) error {
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal oneshot manifest: %w", err)
-	}
-	_, err = fmt.Fprintln(w, string(data))
-	return err
+	return oneshot.RenderRuns(cmd.OutOrStdout(), runs, formatRelativeTime)
 }
 
 type phaseRunnerFactory struct {
@@ -383,23 +329,4 @@ func (f phaseRunnerFactory) NewPhaseRunner(ctx context.Context, phase oneshot.Ph
 		return nil, err
 	}
 	return newPhaseRunner(ctx, f.cmd, f.flags, params)
-}
-
-func renderOneshotRuns(stream *output.EventStream, runs []oneshot.ResumableRun) {
-	if stream == nil {
-		return
-	}
-	if len(runs) == 0 {
-		stream.Printf("no resumable oneshot runs\n")
-		return
-	}
-
-	stream.Printf("%-4s %-16s %-20s %-18s %-12s %-18s %s\n", "#", "Run ID", "Phase", "Status", "Lock", "Updated", "Task")
-	for i, run := range runs {
-		task := run.Task
-		if len(task) > 48 {
-			task = task[:45] + "..."
-		}
-		stream.Printf("%-4d %-16s %-20s %-18s %-12s %-18s %s\n", i, run.RunID, string(run.ResumePhase), run.Status, run.LockState, formatRelativeTime(run.UpdatedAt), task)
-	}
 }

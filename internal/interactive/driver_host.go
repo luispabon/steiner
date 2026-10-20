@@ -100,6 +100,7 @@ func (s *Session) retireDriver(old *driverHandle) {
 		defer s.runs.Done()
 		// Only its own run matters: the session-wide sub-agents belong to the
 		// live driver.
+		// Background never ends, so WaitIdle cannot return ctx.Err here.
 		_ = old.drv.WaitIdle(context.Background())
 		old.drv.Close(context.Background())
 		s.releaseDriverGroupScope(old)

@@ -39,6 +39,8 @@ func newModelInspectCommand(flags *cliFlags) *cobra.Command {
 				return err
 			}
 			httpClient := runtimeHTTPClient()
+			// Resolve uses only Service.Model for one alias; endpoints feed refresh and the
+			// popularity store feeds model listing, so neither is needed here.
 			modelCatalog, _, _ := buildModelCatalogService(&cfg, httpClient)
 			resolver := provider.NewResolver(provider.ResolverOptions{
 				HTTPClient: httpClient,

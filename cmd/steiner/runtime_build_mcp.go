@@ -46,7 +46,14 @@ func connectRuntimeMCP(ctx context.Context, cfg config.Config, sb *sandbox.Sandb
 		producer = &mcpStateProducer{}
 		onStateChange = producer.stateChanged
 	}
-	mgr := mcp.Connect(ctx, cfg.MCP, cfg.Limits, wrap, release, planMode, diagnose("warning"), diagnose("info"), stderr, onStateChange)
+	mgr := mcp.Connect(ctx, cfg.MCP, cfg.Limits, wrap, mcp.ConnectOptions{
+		Release:       release,
+		PlanMode:      planMode,
+		WarnFn:        diagnose("warning"),
+		InfoFn:        diagnose("info"),
+		Stderr:        stderr,
+		OnStateChange: onStateChange,
+	})
 	if !asyncMCP {
 		// Block until every enabled server resolves (connected or failed) so
 		// the registry below freezes the complete tool list. Connects run in
@@ -76,7 +83,7 @@ func connectRuntimeLSP(cfg config.Config, sb *sandbox.Sandbox, workDir string, e
 			Notes:    []string{msg},
 		}))
 	}
-	return lsp.NewManager(cfg.LSP, workDir, wrap, release, warnFn, stderr)
+	return lsp.NewManager(cfg.LSP, workDir, wrap, lsp.ManagerOptions{Release: release, WarnFn: warnFn, Stderr: stderr})
 }
 
 func buildLSPServerLogWriter(path string) (io.WriteCloser, error) {

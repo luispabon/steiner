@@ -3,6 +3,7 @@ package lsp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"go.lsp.dev/protocol"
@@ -71,7 +72,7 @@ func handshake(ctx context.Context, server protocol.Server, rootPath string, ini
 		return nil, fmt.Errorf("initialize: %w", err)
 	}
 	if initResult == nil {
-		return nil, fmt.Errorf("initialize: nil result")
+		return nil, errors.New("initialize: nil result")
 	}
 
 	if err := server.Initialized(ctx, &protocol.InitializedParams{}); err != nil {

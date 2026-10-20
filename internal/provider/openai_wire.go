@@ -210,7 +210,7 @@ func setOpenAIMessageContent(wire *openAIMessage, msg Message) {
 				parts = append(parts, openAIContentPart{
 					Type: "image_url",
 					ImageURL: &openAIImageURL{
-						URL:    fmt.Sprintf("data:%s;base64,%s", img.MediaType, img.Data),
+						URL:    imageDataURL(img),
 						Detail: "auto",
 					},
 				})
@@ -274,7 +274,7 @@ func toOpenAIMessages(message Message) ([]openAIMessage, error) {
 			parts = append(parts, openAIContentPart{
 				Type: "image_url",
 				ImageURL: &openAIImageURL{
-					URL:    fmt.Sprintf("data:%s;base64,%s", img.MediaType, img.Data),
+					URL:    imageDataURL(img),
 					Detail: "auto",
 				},
 			})

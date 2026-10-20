@@ -231,8 +231,8 @@ func TestNewPhaseRunnerRejectsClaudeSubscriptionEffectiveProvider(t *testing.T) 
 		{ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeClaudeSubscription}},
 		{ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeOpenAICompat}, EffectiveProviderType: config.ProviderTypeClaudeSubscription},
 	} {
-		if _, err := phase.runner.runtime.providerFactory(rm, "session"); !errors.Is(err, errClaudeSubscriptionOneshot) {
-			t.Fatalf("providerFactory(%#v) error = %v, want %v", rm, err, errClaudeSubscriptionOneshot)
+		if _, err := phase.runner.runtime.providerFactory(rm, "session"); !errors.Is(err, oneshot.ErrClaudeSubscription) {
+			t.Fatalf("providerFactory(%#v) error = %v, want %v", rm, err, oneshot.ErrClaudeSubscription)
 		}
 	}
 }
@@ -281,8 +281,8 @@ func TestNewPhaseRunnerRejectsClaudeSubscriptionThroughDelegatedChildFactory(t *
 		t.Fatal("delegated sub_agent tool missing")
 	}
 	_, err = def.Handler(context.Background(), subAgentTask("explore", "inspect", "context", "findings"))
-	if !errors.Is(err, errClaudeSubscriptionOneshot) && !strings.Contains(err.Error(), errClaudeSubscriptionOneshot.Error()) {
-		t.Fatalf("delegated child error = %v, want %v", err, errClaudeSubscriptionOneshot)
+	if !errors.Is(err, oneshot.ErrClaudeSubscription) && !strings.Contains(err.Error(), oneshot.ErrClaudeSubscription.Error()) {
+		t.Fatalf("delegated child error = %v, want %v", err, oneshot.ErrClaudeSubscription)
 	}
 	if underlyingCalls != 1 {
 		t.Fatalf("underlying provider factory calls = %d, want 1 for the advisor only", underlyingCalls)
@@ -301,37 +301,6 @@ func claudeOneshotConfig() config.Config {
 	cfg.Models.Effective.SubAgents = map[string]string{}
 	cfg.SubAgent.Enabled = true
 	return cfg
-}
-
-func TestRequireOneshotProviders(t *testing.T) {
-	tests := []struct {
-		name    string
-		mutate  func(*config.Config)
-		wantErr bool
-	}{
-		{name: "local models only", mutate: func(*config.Config) {}},
-		{name: "default model is claude", mutate: func(c *config.Config) { c.Models.Effective.DefaultModel = "claude" }, wantErr: true},
-		{name: "advisor is claude", mutate: func(c *config.Config) { c.Models.Effective.Advisor = "claude" }, wantErr: true},
-		{name: "phase model is claude", mutate: func(c *config.Config) { c.Models.Effective.OneShot = map[string]string{"review": "claude"} }, wantErr: true},
-		{name: "sub-agent model is claude", mutate: func(c *config.Config) { c.Models.Effective.SubAgents = map[string]string{"explore": " claude "} }, wantErr: true},
-		{name: "unknown alias is not a provider refusal", mutate: func(c *config.Config) { c.Models.Effective.Advisor = "missing" }},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := claudeOneshotConfig()
-			tt.mutate(&cfg)
-			err := requireOneshotProviders(cfg)
-			if tt.wantErr {
-				if !errors.Is(err, errClaudeSubscriptionOneshot) {
-					t.Fatalf("requireOneshotProviders() error = %v, want %v", err, errClaudeSubscriptionOneshot)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("requireOneshotProviders() error = %v, want nil", err)
-			}
-		})
-	}
 }
 
 func TestOneshotEntryPointsRefuseClaudeSubscriptionBeforeRunState(t *testing.T) {
@@ -370,8 +339,8 @@ func TestOneshotEntryPointsRefuseClaudeSubscriptionBeforeRunState(t *testing.T) 
 			cmd.SetContext(context.Background())
 			cmd.SetOut(&bytes.Buffer{})
 			err := tt.run(cmd, &cliFlags{})
-			if !errors.Is(err, errClaudeSubscriptionOneshot) {
-				t.Fatalf("error = %v, want %v", err, errClaudeSubscriptionOneshot)
+			if !errors.Is(err, oneshot.ErrClaudeSubscription) {
+				t.Fatalf("error = %v, want %v", err, oneshot.ErrClaudeSubscription)
 			}
 			entries, err := os.ReadDir(projectRoot)
 			if err != nil {
@@ -457,32 +426,6 @@ func TestPhaseRunnerFactoryCarriesSessionDate(t *testing.T) {
 			}
 			if params.SessionDate != sessionDate {
 				t.Errorf("phaseParams(%s).SessionDate = %v, want %v", phase, params.SessionDate, sessionDate)
-			}
-		})
-	}
-}
-
-func TestRequireSubAgentsForOneshot(t *testing.T) {
-	testCases := []struct {
-		name    string
-		enabled bool
-		wantErr string
-	}{
-		{name: "enabled", enabled: true, wantErr: ""},
-		{name: "disabled", enabled: false, wantErr: "oneshot unavailable: sub-agents are disabled in config"},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := config.Config{SubAgent: config.SubAgentConfig{Enabled: tc.enabled}}
-			err := requireSubAgentsForOneshot(cfg)
-			if tc.wantErr == "" {
-				if err != nil {
-					t.Fatalf("requireSubAgentsForOneshot() error = %v, want nil", err)
-				}
-				return
-			}
-			if err == nil || err.Error() != tc.wantErr {
-				t.Fatalf("requireSubAgentsForOneshot() error = %v, want %q", err, tc.wantErr)
 			}
 		})
 	}

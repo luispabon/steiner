@@ -18,7 +18,7 @@ import (
 func TestToolDefsCount(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -30,7 +30,7 @@ func TestToolDefsCount(t *testing.T) {
 func TestToolDefsNames(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -69,11 +69,11 @@ func TestToolDefsOrdering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m1 := NewManager(tt.cfg, "/workspace", nil, func(string) {}, nil)
+			m1 := NewManager(tt.cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 			defer func() { _ = m1.Close() }()
 			defs1 := ToolDefs(m1)
 
-			m2 := NewManager(tt.cfg, "/workspace", nil, func(string) {}, nil)
+			m2 := NewManager(tt.cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 			defer func() { _ = m2.Close() }()
 			defs2 := ToolDefs(m2)
 
@@ -104,7 +104,7 @@ func TestToolDefsOrdering(t *testing.T) {
 func TestToolDefsParallelSafe(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -118,7 +118,7 @@ func TestToolDefsParallelSafe(t *testing.T) {
 func TestToolDefsSchemas(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -218,7 +218,7 @@ func TestReferencesIncludeDeclarationDefault(t *testing.T) {
 			},
 		},
 	}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -244,7 +244,7 @@ func TestReferencesIncludeDeclarationDefault(t *testing.T) {
 func TestNoServerError(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -284,7 +284,7 @@ func TestServerExitedError(t *testing.T) {
 			},
 		},
 	}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	result, goErr := handleNavigationError(m, "test.go", errServerExited)
@@ -312,7 +312,7 @@ func TestFailedServerError(t *testing.T) {
 			},
 		},
 	}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	err := errors.New("other error")
@@ -329,7 +329,7 @@ func TestFailedServerError(t *testing.T) {
 func TestNoServerErrorHover(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -369,7 +369,7 @@ func TestServerExitedErrorHover(t *testing.T) {
 			},
 		},
 	}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	result, goErr := handleNavigationError(m, "test.go", errServerExited)
@@ -397,7 +397,7 @@ func TestFailedServerErrorHover(t *testing.T) {
 			},
 		},
 	}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	err := errors.New("other error")
@@ -414,7 +414,7 @@ func TestFailedServerErrorHover(t *testing.T) {
 func TestSymbolResolutionError(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, t.TempDir(), nil, func(string) {}, nil)
+	m := NewManager(cfg, t.TempDir(), nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -464,7 +464,7 @@ func symbolTestManager(t *testing.T, sess session, workspace, testFile string) *
 			"go": {Enabled: true, FileExtensions: []string{".go"}},
 		},
 	}
-	m := NewManager(cfg, workspace, nil, func(string) {}, nil)
+	m := NewManager(cfg, workspace, nil, ManagerOptions{WarnFn: func(string) {}})
 	t.Cleanup(func() { _ = m.Close() })
 
 	root := resolveRoot(testFile, workspace, nil)
@@ -639,7 +639,7 @@ func TestSymbolResolutionCacheSharesWithColumnPath(t *testing.T) {
 func TestColumnWithoutLineError(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -669,7 +669,7 @@ func TestColumnWithoutLineError(t *testing.T) {
 func TestNeitherColumnNorSymbolError(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -706,7 +706,7 @@ func TestColumnPathNoEchoLine(t *testing.T) {
 			},
 		},
 	}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -738,7 +738,7 @@ func TestColumnPathNoEchoLine(t *testing.T) {
 func TestColumnAndSymbolSupplied(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -768,7 +768,7 @@ func TestColumnAndSymbolSupplied(t *testing.T) {
 func TestSymbolsToolBothArgsEmpty(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -786,7 +786,7 @@ func TestSymbolsToolBothArgsEmpty(t *testing.T) {
 func TestSymbolsToolNoServerWorkspaceMode(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -808,7 +808,7 @@ func TestSymbolsToolNoServerWorkspaceMode(t *testing.T) {
 func TestSymbolsToolNoServerDocumentMode(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -878,7 +878,7 @@ func TestSymbolsToolDocumentModeSuccess(t *testing.T) {
 func TestImplementationsToolNoServer(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
@@ -1047,7 +1047,7 @@ func TestImplementationsToolSymbolEcho(t *testing.T) {
 func TestTypeDefinitionsToolNoServer(t *testing.T) {
 	t.Parallel()
 	cfg := config.LSPConfig{}
-	m := NewManager(cfg, "/workspace", nil, func(string) {}, nil)
+	m := NewManager(cfg, "/workspace", nil, ManagerOptions{WarnFn: func(string) {}})
 	defer func() { _ = m.Close() }()
 
 	defs := ToolDefs(m)
