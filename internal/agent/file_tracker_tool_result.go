@@ -51,6 +51,8 @@ func (t *FileTracker) observeMutateHeuristics(_ map[string]any, content string) 
 		Moved    []moveResult `json:"moved"`
 		Output   string       `json:"output"`
 	}
+	// Non-JSON content (for example plain error text) has no structured fields, so the
+	// tracker intentionally drops it and records no working file update.
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
 		return workingFileUpdate{}, nil
 	}
@@ -103,6 +105,8 @@ func (t *FileTracker) observeBashHeuristics(input map[string]any, content string
 		Truncated bool   `json:"truncated"`
 		Output    string `json:"output"`
 	}
+	// Non-JSON content (for example plain error text) has no structured fields, so the
+	// tracker intentionally drops it and records no working file update.
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
 		return workingFileUpdate{}, nil
 	}

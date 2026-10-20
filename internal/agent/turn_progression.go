@@ -284,6 +284,8 @@ func newTurnProgressor(req RunRequest, base prompt.AssemblyOptions, compactFn co
 // ReasoningEchoBack was not configured, it enables it on the progressor's
 // request so subsequent turns preserve reasoning.
 func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcome {
+	// The bool is unused: handleImagesForVision rewrites state in place through the
+	// pointer, and the rest of the turn reads that state.
 	_ = p.handleImagesForVision(ctx, &state)
 
 	assembly, chatRequest, fit, err := p.prepareTurn(ctx, state)

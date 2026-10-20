@@ -195,7 +195,7 @@ func (c *Cache) Refresh(ctx context.Context) error {
 		// Network failure: stale cache is acceptable.
 		return nil
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close() //nolint:errcheck // read-only response body; a close error does not affect the cache write
 
 	switch resp.StatusCode {
 	case http.StatusNotModified:

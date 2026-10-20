@@ -41,6 +41,7 @@ func buildRuntimeEventSink(cfg config.Config, cmd *cobra.Command, flags *cliFlag
 		CaptureAPIRequestBodies: cfg.Diagnostics.CaptureBodies,
 	})
 	if err != nil {
+		// Closes the slog file opened above; the NewFileLogSink error is the one returned.
 		_ = slogCloser()
 		return nil, nil, err
 	}
@@ -65,6 +66,7 @@ func runtimeSlogWriter(logFile string) (io.Writer, func() error, error) {
 		return nil, nil, fmt.Errorf("open slog file: %w", err)
 	}
 	if err := f.Chmod(0o600); err != nil {
+		// The Chmod error is returned; a close failure on this path adds nothing.
 		_ = f.Close()
 		return nil, nil, fmt.Errorf("secure slog file: %w", err)
 	}

@@ -326,6 +326,8 @@ func (s *claudeSubSession) observeEvent(ev claudeSubEvent) {
 		s.overageErr = claudeSubOverageError(ev)
 		close(s.overageAbort)
 		s.overageMu.Unlock()
+		// The overage error is already in overageErr; observeEvent has no error return,
+		// so the pool close error has no caller to report to.
 		go func() { _ = s.pool.Close() }()
 	})
 }
