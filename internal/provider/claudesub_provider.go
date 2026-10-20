@@ -27,6 +27,10 @@ func (p *ClaudeSubscriptionProvider) SupportsUsageStats() bool { return true }
 // StatefulTranscript reports that the CLI owns the conversation transcript.
 func (p *ClaudeSubscriptionProvider) StatefulTranscript() bool { return true }
 
+// SupportsStatefulCompaction reports that compaction summaries follow the
+// claude_subscription transition contract (see claudeSubSummaryTurn).
+func (p *ClaudeSubscriptionProvider) SupportsStatefulCompaction() bool { return true }
+
 // ChatCompletion folds the streamed turn into one response.
 func (p *ClaudeSubscriptionProvider) ChatCompletion(ctx context.Context, req ChatRequest) (ChatResponse, error) {
 	stream, err := p.StreamChatCompletion(ctx, req)
