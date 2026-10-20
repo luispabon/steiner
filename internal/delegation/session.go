@@ -96,11 +96,10 @@ type SubAgentHandlerDeps struct {
 	// run concurrently within its own turn. Distinct from SubAgentCfg.MaxParallel,
 	// which bounds concurrent delegation spawns from the parent.
 	MaxParallelTools int
-	// Limits and Paths are forwarded to the child's tool executor so it
-	// respects the same tool_output_max_bytes cap and path policy as the
-	// parent, instead of running with library defaults.
-	Limits config.LimitsConfig
-	Paths  config.PathsConfig
+	// ExecutorConfig configures each child's tool executor (tool_output_max_bytes
+	// cap and path policy) so children respect the parent's settings. It is the
+	// value projected once at the composition root and forwarded unchanged.
+	ExecutorConfig tool.ExecutorConfig
 	// ContextManagement is forwarded to the child's ContextStateManager so it
 	// respects the same context_management settings as the parent.
 	ContextManagement config.ContextManagementConfig

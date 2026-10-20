@@ -33,6 +33,9 @@ type runnerSetup struct {
 	runMode              string
 	conversation         []agent.Message
 	delegationGroupScope string
+	// executorConfig is projected once from the runtime config in prepareRun and
+	// shared by the parent executor and delegation children.
+	executorConfig tool.ExecutorConfig
 }
 
 func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string) (runnerSetup, error) {
@@ -68,6 +71,7 @@ func (r cliRunner) prepareRun(conversation []agent.Message, skillNames []string)
 		assembly:          r.promptAssembly(conversation, skillNames, modelBudget, rm.Prompts),
 		runMode:           r.normalizedRunMode(),
 		conversation:      conversation,
+		executorConfig:    tool.ExecutorConfigFromConfig(r.runtime.cfg),
 	}, nil
 }
 
@@ -300,7 +304,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	if r.sandboxEnabled() {
 		sandboxTmpDir = r.runtime.sandbox.TmpDir()
 	}
-	executor := tool.NewExecutor(activeRegistry, r.runtime.cfg, r.approver, r.runtime.workDir, sandboxTmpDir, r.sandboxWrapper())
+	executor := tool.NewExecutorWithConfig(activeRegistry, setup.executorConfig, r.approver, r.runtime.workDir, sandboxTmpDir, r.sandboxWrapper())
 	executor = executor.WithDiagnostics(r.runtime.diagnostics)
 	executor = executor.WithDiagnosticsScope(diagnostics.SourceParent, "", "")
 	if r.modeGetterFunc != nil {

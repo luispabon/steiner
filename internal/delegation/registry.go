@@ -58,6 +58,10 @@ type DelegateDeps struct {
 	Diagnostics *diagnostics.Writer
 	// Config is the full runtime configuration used for child prompt and model resolution.
 	Config config.Config
+	// ExecutorConfig configures child tool executors (tool output cap and path
+	// policy). Callers project it once with tool.ExecutorConfigFromConfig; the
+	// zero value applies the default output cap and an empty path policy.
+	ExecutorConfig tool.ExecutorConfig
 	// ResolveModel resolves a model alias to its provider and model metadata,
 	// backed by the session's shared Resolver (memoized, single-flight). Required.
 	ResolveModel func(string) (provider.ResolvedModel, error)
@@ -340,8 +344,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		CacheKeyStore:         deps.CacheKeyStore,
 		CacheBaseline:         deps.CacheBaseline,
 		MaxParallelTools:      deps.Config.Limits.MaxParallelTools,
-		Limits:                deps.Config.Limits,
-		Paths:                 deps.Config.Paths,
+		ExecutorConfig:        deps.ExecutorConfig,
 		ContextManagement:     deps.Config.ContextManagement,
 		AdvisorForChild:       advisorForChild,
 		AdvisorSubAgentBudget: deps.AdvisorCfg.MaxUsesPerSubAgent,
