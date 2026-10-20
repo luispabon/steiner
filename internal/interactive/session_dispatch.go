@@ -183,8 +183,10 @@ func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOv
 	s.mu.Unlock()
 
 	if s.deps.RecordModelSwitch != nil {
-		// Stats-write failure must never fail the model switch.
-		_ = s.deps.RecordModelSwitch(providerAlias, modelID)
+		// Stats-write failure must never fail the model switch; warn instead.
+		if err := s.deps.RecordModelSwitch(providerAlias, modelID); err != nil {
+			s.events.Emit(output.NewConfigWarningEvent(fmt.Sprintf("could not record model switch to %q for popularity stats: %v", name, err)))
+		}
 	}
 	return nil
 }
