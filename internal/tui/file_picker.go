@@ -144,7 +144,7 @@ func (f filePickerOverlay) View() string {
 	}
 
 	if len(f.candidates) > f.scrollOffset+maxDisplay {
-		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render(fmt.Sprintf("... and %d more", len(f.candidates)-(f.scrollOffset+maxDisplay))))
+		lines = append(lines, renderMoreFooter(len(f.candidates)-(f.scrollOffset+maxDisplay)))
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)
@@ -209,6 +209,12 @@ func updateSearchPicker[T any](query *string, selection *int, scrollOffset *int,
 		return searchPickerHandled
 	}
 	return searchPickerIgnored
+}
+
+// renderMoreFooter returns the muted "and N more" line shown under a picker
+// whose candidates overflow its visible window.
+func renderMoreFooter(remaining int) string {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render(fmt.Sprintf("… and %d more", remaining))
 }
 
 func scrollSearchPickerIntoView(selection *int, scrollOffset *int) {

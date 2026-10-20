@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -143,9 +142,7 @@ func (m profilePickerOverlay) render(innerW int) string {
 	}
 
 	if len(m.candidates) > m.scrollOffset+maxDisplay {
-		lines = append(lines, lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.FgMute)).
-			Render(fmt.Sprintf("... and %d more", len(m.candidates)-(m.scrollOffset+maxDisplay))))
+		lines = append(lines, renderMoreFooter(len(m.candidates)-(m.scrollOffset+maxDisplay)))
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)

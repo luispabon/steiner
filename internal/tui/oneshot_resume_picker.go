@@ -97,7 +97,7 @@ func (o oneshotResumePickerOverlay) View() string {
 	}
 
 	if len(o.candidates) > o.scrollOffset+maxDisplay {
-		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Render(fmt.Sprintf("… and %d more", len(o.candidates)-(o.scrollOffset+maxDisplay))))
+		lines = append(lines, renderMoreFooter(len(o.candidates)-(o.scrollOffset+maxDisplay)))
 	}
 
 	footerText := FooterChip("↵") + " select   " + FooterChip("↑↓") + " navigate   " + FooterChip("esc") + " close"

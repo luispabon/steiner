@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -236,9 +235,7 @@ func (s slashOverlay) View() string {
 	}
 
 	if len(s.candidates) > s.scrollOffset+slashOverlayMaxDisplay {
-		lines = append(lines, lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.FgMute)).
-			Render(fmt.Sprintf("... and %d more", len(s.candidates)-(s.scrollOffset+slashOverlayMaxDisplay))))
+		lines = append(lines, renderMoreFooter(len(s.candidates)-(s.scrollOffset+slashOverlayMaxDisplay)))
 	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left, lines...)

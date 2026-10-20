@@ -115,9 +115,7 @@ func (f fileListOverlay) View() string {
 			}
 		}
 		if len(f.entries) > maxDisplay {
-			lines = append(lines, lipgloss.NewStyle().
-				Foreground(lipgloss.Color(theme.FgMute)).
-				Render(fmt.Sprintf("... and %d more", len(f.entries)-maxDisplay)))
+			lines = append(lines, renderMoreFooter(len(f.entries)-maxDisplay))
 		}
 	}
 
