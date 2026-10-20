@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
 const (
@@ -160,7 +162,7 @@ func (s *store) decodeBuckets(data []byte) map[bucketKey]*bucket {
 }
 
 // atomicWrite marshals buckets to JSON and writes to disk with temp+rename.
-func (s *store) atomicWrite(dir string, buckets map[bucketKey]*bucket) error {
+func (s *store) atomicWrite(buckets map[bucketKey]*bucket) error {
 	entries := make([]storeEntry, 0, len(buckets))
 	for key, b := range buckets {
 		entries = append(entries, storeEntry{
@@ -185,27 +187,8 @@ func (s *store) atomicWrite(dir string, buckets map[bucketKey]*bucket) error {
 		return fmt.Errorf("marshal store: %w", err)
 	}
 
-	tmp, err := os.CreateTemp(dir, ".tmp-cache-stats-*")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		os.Remove(tmpName) //nolint:errcheck
-		return fmt.Errorf("write temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName) //nolint:errcheck
-		return fmt.Errorf("close temp file: %w", err)
-	}
-	if err := os.Chmod(tmpName, 0o600); err != nil {
-		os.Remove(tmpName) //nolint:errcheck
-		return fmt.Errorf("chmod temp file: %w", err)
-	}
-	if err := os.Rename(tmpName, s.path); err != nil {
-		os.Remove(tmpName) //nolint:errcheck
-		return fmt.Errorf("rename store file: %w", err)
+	if err := fsatomic.WriteFile(s.path, data, 0o600); err != nil {
+		return fmt.Errorf("write store file: %w", err)
 	}
 
 	return nil
@@ -270,5 +253,5 @@ func (s *store) write(delta *bucket, deltaKey bucketKey) error {
 		}
 	}
 
-	return s.atomicWrite(dir, diskBuckets)
+	return s.atomicWrite(diskBuckets)
 }

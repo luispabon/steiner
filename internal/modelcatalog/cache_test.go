@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -329,7 +330,7 @@ func TestCacheConcurrentSaveAtomic(t *testing.T) {
 		if filepath.Ext(entry.Name()) == ".json" {
 			jsonFiles++
 		}
-		if len(entry.Name()) >= len(".tmp-provider-models-") && entry.Name()[:len(".tmp-provider-models-")] == ".tmp-provider-models-" {
+		if strings.HasPrefix(entry.Name(), ".tmp-") {
 			t.Fatalf("temporary file left behind: %s", entry.Name())
 		}
 	}

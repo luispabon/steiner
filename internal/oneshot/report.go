@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
 const (
@@ -238,23 +240,8 @@ func WriteFinalReport(report *FinalReport) (string, error) {
 		return "", fmt.Errorf("marshal final report: %w", err)
 	}
 
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-final-report-*")
-	if err != nil {
-		return "", fmt.Errorf("create final report temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return "", fmt.Errorf("write final report temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return "", fmt.Errorf("close final report temp file: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return "", fmt.Errorf("rename final report temp file: %w", err)
+	if err := fsatomic.WriteFile(path, data, 0o600); err != nil {
+		return "", fmt.Errorf("write final report: %w", err)
 	}
 	return path, nil
 }

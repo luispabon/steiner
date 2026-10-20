@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
 // Phase identifies a top-level oneshot phase.
@@ -136,28 +138,8 @@ func writeManifestAtomic(path string, manifest Manifest) error {
 		return fmt.Errorf("marshal manifest: %w", err)
 	}
 
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-manifest-*")
-	if err != nil {
-		return fmt.Errorf("create manifest temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("write manifest temp file: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("sync manifest temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("close manifest temp file: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("rename manifest temp file: %w", err)
+	if err := fsatomic.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write manifest: %w", err)
 	}
 	return nil
 }
