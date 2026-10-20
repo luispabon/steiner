@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWriteFileAppliesMode(t *testing.T) {
@@ -119,6 +120,141 @@ func TestWriteFileFailureRemovesTempFile(t *testing.T) {
 				t.Errorf("dir entries = %v, want %v", got, tt.wantEntries)
 			}
 		})
+	}
+}
+
+func TestSweepStaleTemps(t *testing.T) {
+	now := time.Now()
+	old := now.Add(-2 * time.Hour)
+	fresh := now.Add(-time.Minute)
+	tests := []struct {
+		name  string
+		files map[string]time.Time
+		dirs  map[string]time.Time
+		want  []string
+	}{
+		{
+			name:  "old orphan is removed",
+			files: map[string]time.Time{".tmp-out.json-123456789": old},
+			want:  []string{},
+		},
+		{
+			name:  "fresh orphan is kept",
+			files: map[string]time.Time{".tmp-out.json-123456789": fresh},
+			want:  []string{".tmp-out.json-123456789"},
+		},
+		{
+			name:  "orphan for other base name is kept",
+			files: map[string]time.Time{".tmp-other.json-123456789": old},
+			want:  []string{".tmp-other.json-123456789"},
+		},
+		{
+			name:  "orphan for longer base name sharing the prefix is kept",
+			files: map[string]time.Time{".tmp-out.json-x-123456789": old},
+			want:  []string{".tmp-out.json-x-123456789"},
+		},
+		{
+			name:  "target file itself is kept",
+			files: map[string]time.Time{"out.json": old},
+			want:  []string{"out.json"},
+		},
+		{
+			name: "old orphan directory is kept",
+			dirs: map[string]time.Time{".tmp-out.json-123456789": old},
+			want: []string{".tmp-out.json-123456789"},
+		},
+		{
+			name: "only stale regular orphans are removed",
+			files: map[string]time.Time{
+				".tmp-out.json-111111111": old,
+				".tmp-out.json-222222222": fresh,
+				"out.json":                old,
+			},
+			want: []string{".tmp-out.json-222222222", "out.json"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, mtime := range tt.files {
+				path := filepath.Join(dir, name)
+				if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				setAge(t, path, mtime)
+			}
+			for name, mtime := range tt.dirs {
+				path := filepath.Join(dir, name)
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				setAge(t, path, mtime)
+			}
+
+			sweepStaleTemps(filepath.Join(dir, "out.json"), now)
+			if got := dirEntryNames(t, dir); !slices.Equal(got, tt.want) {
+				t.Errorf("dir entries = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSweepStaleTempsKeepsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "target")
+	if err := os.WriteFile(target, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, ".tmp-out.json-123456789")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	// Chtimes follows links, so the link's own mtime cannot be aged. Running the
+	// sweep two hours ahead makes the link older than the cutoff, which leaves
+	// the regular-file check as the only thing that can keep it.
+	sweepStaleTemps(filepath.Join(dir, "out.json"), time.Now().Add(2*time.Hour))
+	if _, err := os.Lstat(link); err != nil {
+		t.Errorf("symlink removed: %v", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("symlink target removed: %v", err)
+	}
+}
+
+func TestWriteFileSweepsOncePerPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.json")
+
+	first := filepath.Join(dir, ".tmp-out.json-111111111")
+	if err := os.WriteFile(first, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	setAge(t, first, time.Now().Add(-2*time.Hour))
+	if err := WriteFile(path, []byte("one"), 0o600); err != nil {
+		t.Fatalf("WriteFile #1: %v", err)
+	}
+	if _, err := os.Lstat(first); !os.IsNotExist(err) {
+		t.Errorf("stale orphan survived the first write to path: err = %v", err)
+	}
+
+	second := filepath.Join(dir, ".tmp-out.json-222222222")
+	if err := os.WriteFile(second, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	setAge(t, second, time.Now().Add(-2*time.Hour))
+	if err := WriteFile(path, []byte("two"), 0o600); err != nil {
+		t.Fatalf("WriteFile #2: %v", err)
+	}
+	if _, err := os.Lstat(second); err != nil {
+		t.Errorf("stale orphan removed by a later write to the same path: %v", err)
+	}
+}
+
+// setAge sets the access and modification times of path to mtime.
+func setAge(t *testing.T, path string, mtime time.Time) {
+	t.Helper()
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -744,6 +745,66 @@ func TestConcurrentSaves(t *testing.T) {
 	indexPath := filepath.Join(tmpDir, indexFile)
 	if _, err := os.Stat(indexPath); err != nil {
 		t.Errorf("index file not found: %v", err)
+	}
+}
+
+func TestConcurrentSessionSavesLeaveNoTempFiles(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sessions")
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	const savers = 8
+	const id = "concurrent-shared"
+	now := time.Now().UTC()
+	done := make(chan error, savers)
+	for i := range savers {
+		go func(idx int) {
+			done <- store.Save(Session{
+				ID:        id,
+				CreatedAt: now,
+				UpdatedAt: now.Add(time.Duration(idx) * time.Second),
+				Title:     fmt.Sprintf("save %d", idx),
+				Model:     "test",
+			})
+		}(i)
+	}
+	for range savers {
+		if err := <-done; err != nil {
+			t.Errorf("concurrent save failed: %v", err)
+		}
+	}
+
+	path := filepath.Join(dir, id+sessionExt)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var got Session
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("session file is not valid JSON: %v", err)
+	}
+	if got.ID != id {
+		t.Errorf("ID = %q, want %q", got.ID, id)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %o, want 600", info.Mode().Perm())
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".tmp-") {
+			t.Errorf("temp file left behind: %s", entry.Name())
+		}
 	}
 }
 
