@@ -122,7 +122,7 @@ The stateful guard stops recompaction from a fixed prompt floor. The CLI's syste
 
 A carried floor is `ParentUsage.StatefulFloor`. It follows the same model and context-window match as the usage and is carried across interactive parent runs. A successful compaction clears it. It is never written to backend state or saved session files, so a restart drops it.
 
-`claudeSubSummaryTurn` in `internal/provider/claudesub_turn.go` answers the summary request:
+`claudeSubSummaryTurn` in `internal/provider/claudesub_turn_summary.go` answers the summary request:
 
 | Caller | Path | Persistence |
 |--------|------|-------------|

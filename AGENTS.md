@@ -15,6 +15,7 @@ internal/agent/          Loop orchestration, state, limits
 internal/config/         Config loading, merging, validation, defaults
 internal/delegation/     Delegation contracts and scaffolding
 internal/diagnostics/    Structured diagnostics streams: envelope, writer, rotation, retention
+internal/fsatomic/       Atomic file replacement: temp file, fsync, rename
 internal/history/        Prompt (input) history persistence
 internal/interactive/    Interactive session orchestration: run flow, replay, session/snapshot reports, dispatch (drives internal/agent)
 internal/lsp/            Language server connections (LSP protocol, tool definitions, server lifecycle)
@@ -67,6 +68,8 @@ docs/                    Product/design docs and implementation notes
 * Use snake_case Go filenames; put tests next to source.
 * Aim for production `.go` files under ~300 lines, split around ~500 by domain responsibility. The ~500 line mark is a trigger to review, not a hard cap — a single cohesive concern (e.g. one render pipeline of small functions) may exceed it; note the exception in the PR.
 * In `internal/tui`, keep render, update, sidebar, and event-state concerns split before files drift past the target. Same for render/event/preview-report concerns in `internal/output`.
+* `cmd/steiner` holds no config projection, policy validation, or output rendering. Put these in `internal/interactive`, `internal/oneshot`, or `internal/output`.
+* In `internal/tui`, `applyEvent` and `updateDispatch` stay routers with one named method per event family.
 * Do not create `util`, `helper`, or `common` packages; shared code lives in the package that owns the domain.
 * Branch from `origin/main` unless told otherwise.
 
@@ -116,6 +119,10 @@ Go version: `1.26`.
 * TODO comments must name the follow-up action or owner, not leave open-ended debt markers.
 * Do not commit no-op/stub functions that silently do nothing (e.g. a validator whose body is only `_ = arg`) — implement it, remove it, or comment the concrete follow-up. Same standard applies to tests: every test needs an observable failing path (`t.Error`/`t.Fatal`); a `t.Logf` comparison asserts nothing.
 * When asserting file/directory permissions in tests, compare exactly (`mode.Perm() != 0o600`) or assert absence of unwanted bits (`mode&0o077 != 0`). A subset mask like `mode&0o644 != 0o644` also passes for `0o666`/`0o777` — don't use it.
+* Shared low-level I/O helpers, such as atomic file writes, live in one owning package. Reuse `internal/fsatomic` instead of copying temp-and-rename code.
+* Do not take variadic `...any` parameters for configuration. Use an options struct.
+* Constant error messages use `errors.New`. Use `fmt.Errorf` only to format values or wrap with `%w`.
+* Event and approval constructors with more than four string parameters take a params struct (see `output.ModelCallFinishedParams` and `output.ApprovalEventParams`).
 
 ## Security
 
