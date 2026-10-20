@@ -13,6 +13,18 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
+// freezeDelegationClock pins the delegation clock so live elapsed text, and the
+// header width it drives, stays identical across renders. Without it a render
+// that crosses a millisecond-width boundary (9ms to 10ms) changes the operation
+// preview width and makes back-to-back header comparisons flaky.
+func freezeDelegationClock(t *testing.T) {
+	t.Helper()
+	originalNanoNow := nanoNow
+	now := time.Now().UnixNano()
+	nanoNow = func() int64 { return now }
+	t.Cleanup(func() { nanoNow = originalNanoNow })
+}
+
 func newJumpTestModel(t *testing.T) *Model {
 	t.Helper()
 	m := newModel(Config{Model: "m", ModelContexts: map[string]int{"m": 4096}}, nil)
@@ -204,6 +216,7 @@ func normalizeHeaderForComparison(m *Model, dd *delegationDisplayState) string {
 }
 
 func TestJumpFlashLifecycle(t *testing.T) {
+	freezeDelegationClock(t)
 	m := newJumpTestModel(t)
 	addJumpFiller(m, 5)
 	key := addJumpCard(m, 1, "t", "")
@@ -266,6 +279,7 @@ func TestJumpFlashLifecycle(t *testing.T) {
 }
 
 func TestSecondJumpCancelsFirstFlash(t *testing.T) {
+	freezeDelegationClock(t)
 	m := newJumpTestModel(t)
 	k1 := addJumpCard(m, 1, "one", "")
 	addJumpFiller(m, 30)

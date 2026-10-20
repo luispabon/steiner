@@ -100,6 +100,7 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 	dd.followUpAgentID = childAgentID
 	dd.baselineTurnCount = baselineTurns
 	dd.baselineToolCallCount = baselineToolCalls
+	dd.compactionCount = 0
 	dd.toolLabel = childToolLabel
 	b.markDelegationDirty(loc.seg)
 	b.openDelegation(loc)

@@ -570,6 +570,67 @@ func TestAdvisorStatsNotInFooterWhenActive(t *testing.T) {
 	}
 }
 
+func TestDelegationStatsCompactionsSegmentRules(t *testing.T) {
+	t.Parallel()
+	buffer := newTestBuffer(t)
+
+	tests := []struct {
+		name string
+		dd   *delegationDisplayState
+		want bool
+	}{
+		{name: "sub-agent with compactions", dd: &delegationDisplayState{status: "complete", compactionCount: 2}, want: true},
+		{name: "sub-agent with zero compactions", dd: &delegationDisplayState{status: "complete", compactionCount: 0}, want: false},
+		{name: "advisor with compactions", dd: &delegationDisplayState{isAdvisor: true, status: "complete", compactionCount: 2}, want: false},
+		{name: "active sub-agent with compactions", dd: &delegationDisplayState{status: "active", compactionCount: 2}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			found := false
+			for _, part := range delegationStatsParts(buffer, tt.dd) {
+				if strings.Contains(part, "Compactions:") {
+					found = true
+				}
+			}
+			if found != tt.want {
+				t.Errorf("Compactions segment present = %v, want %v", found, tt.want)
+			}
+		})
+	}
+}
+
+func TestRenderDelegationGroupSegmentShowsCompactionCount(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        testStyles("#5599ff"),
+	}
+
+	dd := &delegationDisplayState{
+		agentID:         "child-1",
+		toolLabel:       "code",
+		taskPreview:     "first task",
+		status:          "complete",
+		resultStatus:    "complete",
+		turnCount:       1,
+		tokenCount:      100,
+		toolCallCount:   3,
+		compactionCount: 2,
+		elapsed:         "1.0s",
+	}
+	seg := contentSegment{
+		kind:           segmentDelegationGroup,
+		delegGroupData: &delegationGroupSegment{entries: []*delegationDisplayState{dd}},
+	}
+
+	rendered := stripANSI(buffer.renderDelegationGroupSegment(seg, 120))
+	if !strings.Contains(rendered, "Compactions: 2") {
+		t.Errorf("uncollapsed group entry missing compaction count:\n%s", rendered)
+	}
+}
+
 func TestNonAdvisorBoxDoesNotRenderQuestionFiles(t *testing.T) {
 	t.Parallel()
 	buffer := newTestBuffer(t)
