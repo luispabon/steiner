@@ -120,8 +120,8 @@ Go version: `1.26`.
 * Do not commit no-op/stub functions that silently do nothing (e.g. a validator whose body is only `_ = arg`) — implement it, remove it, or comment the concrete follow-up. Same standard applies to tests: every test needs an observable failing path (`t.Error`/`t.Fatal`); a `t.Logf` comparison asserts nothing.
 * When asserting file/directory permissions in tests, compare exactly (`mode.Perm() != 0o600`) or assert absence of unwanted bits (`mode&0o077 != 0`). A subset mask like `mode&0o644 != 0o644` also passes for `0o666`/`0o777` — don't use it.
 * Shared low-level I/O helpers, such as atomic file writes, live in one owning package. Reuse `internal/fsatomic` instead of copying temp-and-rename code.
-* Do not take variadic `...any` parameters for configuration. Use an options struct.
-* Constant error messages use `errors.New`. Use `fmt.Errorf` only to format values or wrap with `%w`.
+* New and touched code must not take variadic `...any` parameters for configuration. Use an options struct.
+* Constant error messages in new and touched code use `errors.New`. Use `fmt.Errorf` only to format values or wrap with `%w`.
 * Event and approval constructors with more than four string parameters take a params struct (see `output.ModelCallFinishedParams` and `output.ApprovalEventParams`).
 
 ## Security
