@@ -72,18 +72,18 @@ func newEvent(eventType string, payload any) Event {
 	}
 }
 
-func newApprovalEvent(eventType string, turn int, tool, callID, mode, preview, message, kind, server, toolName string, allowed bool) Event {
+func newApprovalEvent(eventType string, p ApprovalEventParams, message string, allowed bool) Event {
 	return newEvent(eventType, ApprovalEvent{
-		Turn:     turn,
-		Tool:     tool,
-		CallID:   callID,
-		Mode:     mode,
-		Preview:  preview,
+		Turn:     p.Turn,
+		Tool:     p.Tool,
+		CallID:   p.CallID,
+		Mode:     p.Mode,
+		Preview:  p.Preview,
 		Allowed:  allowed,
 		Message:  message,
-		Kind:     kind,
-		Server:   server,
-		ToolName: toolName,
+		Kind:     p.Kind,
+		Server:   p.Server,
+		ToolName: p.ToolName,
 	})
 }
 
@@ -171,31 +171,18 @@ func NewToolCallQueuedEvent(turn int, toolName, callID string, arguments map[str
 
 // NewToolCallFinishedEvent creates a new tool call finished event.
 func NewToolCallFinishedEvent(turn int, toolName, callID string, result string, err error) Event {
-	return NewToolCallFinishedEventWithPreview(turn, toolName, callID, result, err, ToolPreview{})
+	return NewToolCallFinishedEventWithAdmission(turn, toolName, callID, result, err, ToolPreview{}, nil)
 }
 
-// NewToolCallFinishedEventWithAdmission creates a finished event with admission metadata.
+// NewToolCallFinishedEventWithAdmission creates a finished event with preview and optional admission metadata. A nil admission leaves DelegationAdmission unset.
 func NewToolCallFinishedEventWithAdmission(turn int, toolName, callID, result string, err error, preview ToolPreview, admission *DelegationAdmission) Event {
-	event := NewToolCallFinishedEventWithPreview(turn, toolName, callID, result, err, preview)
-	payload := event.Payload.(ToolCallFinishedEvent)
-	payload.DelegationAdmission = admission.Clone()
-	event.Payload = payload
-	return event
-}
-
-// NewDelegationAcceptedEvent creates an event for an accepted delegation.
-func NewDelegationAcceptedEvent(occ DelegationOccurrence, group string) Event {
-	return newEvent(EventTypeDelegationAccepted, DelegationAcceptedEvent{DelegationOccurrence: occ, Group: group})
-}
-
-// NewToolCallFinishedEventWithPreview creates a new tool call finished event with preview.
-func NewToolCallFinishedEventWithPreview(turn int, toolName, callID string, result string, err error, preview ToolPreview) Event {
 	payload := ToolCallFinishedEvent{
-		Turn:    turn,
-		Tool:    toolName,
-		CallID:  callID,
-		Result:  result,
-		Preview: preview,
+		Turn:                turn,
+		Tool:                toolName,
+		CallID:              callID,
+		Result:              result,
+		Preview:             preview,
+		DelegationAdmission: admission.Clone(),
 	}
 	if err != nil {
 		payload.Error = err.Error()
@@ -203,19 +190,46 @@ func NewToolCallFinishedEventWithPreview(turn int, toolName, callID string, resu
 	return newEvent(EventTypeToolCallFinished, payload)
 }
 
-// NewApprovalRequestedEvent creates a new approval requested event.
-func NewApprovalRequestedEvent(turn int, tool, callID, mode, preview, kind, server, toolName string) Event {
-	return newApprovalEvent(EventTypeApprovalRequested, turn, tool, callID, mode, preview, "", kind, server, toolName, false)
+// NewDelegationAcceptedEvent creates an event for an accepted delegation.
+func NewDelegationAcceptedEvent(occ DelegationOccurrence, group string) Event {
+	return newEvent(EventTypeDelegationAccepted, DelegationAcceptedEvent{DelegationOccurrence: occ, Group: group})
+}
+
+// ApprovalEventParams holds the arguments for the approval event constructors.
+type ApprovalEventParams struct {
+	// Turn is the turn the approval belongs to.
+	Turn int
+	// Tool is the tool name the model called.
+	Tool string
+	// CallID is the provider tool call ID the approval applies to.
+	CallID string
+	// Mode is the approval reason shown to the user.
+	Mode string
+	// Preview is the summary of the call awaiting approval.
+	Preview string
+	// Message is the approval response message. Only the accepted and denied constructors use it.
+	Message string
+	// Kind is the approval kind, such as "path" or "mcp".
+	Kind string
+	// Server is the MCP server name for MCP approvals.
+	Server string
+	// ToolName is the MCP tool name for MCP approvals.
+	ToolName string
+}
+
+// NewApprovalRequestedEvent creates a new approval requested event. It ignores p.Message.
+func NewApprovalRequestedEvent(p ApprovalEventParams) Event {
+	return newApprovalEvent(EventTypeApprovalRequested, p, "", false)
 }
 
 // NewApprovalAcceptedEvent creates a new approval accepted event.
-func NewApprovalAcceptedEvent(turn int, tool, callID, mode, preview, message, kind, server, toolName string) Event {
-	return newApprovalEvent(EventTypeApprovalAccepted, turn, tool, callID, mode, preview, message, kind, server, toolName, true)
+func NewApprovalAcceptedEvent(p ApprovalEventParams) Event {
+	return newApprovalEvent(EventTypeApprovalAccepted, p, p.Message, true)
 }
 
 // NewApprovalDeniedEvent creates a new approval denied event.
-func NewApprovalDeniedEvent(turn int, tool, callID, mode, preview, message, kind, server, toolName string) Event {
-	return newApprovalEvent(EventTypeApprovalDenied, turn, tool, callID, mode, preview, message, kind, server, toolName, false)
+func NewApprovalDeniedEvent(p ApprovalEventParams) Event {
+	return newApprovalEvent(EventTypeApprovalDenied, p, p.Message, false)
 }
 
 // NewWorkflowHandoffRequestedEvent creates a new workflow handoff request event.

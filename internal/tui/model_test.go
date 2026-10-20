@@ -1331,7 +1331,7 @@ func TestModelApprovalKeepsReservedRowAndDisablesSpinner(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`, "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", Mode: "prompt", Preview: `{"path":"note.txt"}`, Kind: "path"})})
 
 	row := m.renderActivityRow(m.viewport.Width())
 	if !strings.Contains(strings.ToLower(row), "approval required") {
@@ -2053,15 +2053,15 @@ func TestModelApprovalFIFOIdentityAcrossReorderAndSubmit(t *testing.T) {
 		t.Fatalf("coordinator head = %q, want %q", got, want)
 	}
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "read", "call-A", "prompt", "{}", "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-A", Mode: "prompt", Preview: "{}", Kind: "path"})})
 	if m.approval.active {
 		t.Fatal("approval.active = true after non-head call-A request")
 	}
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "read", "call-C", "prompt", "{}", "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-C", Mode: "prompt", Preview: "{}", Kind: "path"})})
 	if m.approval.active {
 		t.Fatal("approval.active = true after non-head call-C request")
 	}
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "call-B", "prompt", "{}", "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-B", Mode: "prompt", Preview: "{}", Kind: "path"})})
 	if !m.approval.active {
 		t.Fatal("approval.active = false for coordinator head call-B request")
 	}
@@ -2098,7 +2098,7 @@ func TestModelApprovalFIFOIdentityAcrossReorderAndSubmit(t *testing.T) {
 		t.Fatalf("call-B channel received identity %q, want %q", got.Identity, "call-B")
 	}
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(1, "write", "call-B", "prompt", "{}", "ok", "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-B", Mode: "prompt", Preview: "{}", Message: "ok", Kind: "path"})})
 	if !m.approval.active {
 		t.Fatal("approval.active = false after call-B acceptance")
 	}
@@ -2116,7 +2116,7 @@ func TestModelApprovalFIFOIdentityAcrossReorderAndSubmit(t *testing.T) {
 	}
 
 	coord.Submit(interactive.SubmitApproval{Identity: "call-A", Tool: "read", Mode: "prompt", Decision: "allow_once"})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(1, "read", "call-A", "prompt", "{}", "ok", "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-A", Mode: "prompt", Preview: "{}", Message: "ok", Kind: "path"})})
 	if !m.approval.active {
 		t.Fatal("approval.active = false after call-A acceptance")
 	}
@@ -2134,7 +2134,7 @@ func TestModelApprovalFIFOIdentityAcrossReorderAndSubmit(t *testing.T) {
 	}
 
 	coord.Submit(interactive.SubmitApproval{Identity: "call-C", Tool: "read", Mode: "prompt", Decision: "allow_once"})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(1, "read", "call-C", "prompt", "{}", "ok", "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-C", Mode: "prompt", Preview: "{}", Message: "ok", Kind: "path"})})
 	if m.approval.active {
 		t.Fatal("approval.active = true after final call-C acceptance")
 	}
@@ -2159,15 +2159,15 @@ func TestModelApprovalFIFOSkipsCancelledMiddleRequest(t *testing.T) {
 		t.Fatalf("coordinator head = %q, want %q", got, want)
 	}
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "read", "call-A", "prompt", "{}", "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-A", Mode: "prompt", Preview: "{}", Kind: "path"})})
 	if m.approval.active {
 		t.Fatal("approval.active = true after non-head call-A request")
 	}
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "read", "call-C", "prompt", "{}", "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-C", Mode: "prompt", Preview: "{}", Kind: "path"})})
 	if m.approval.active {
 		t.Fatal("approval.active = true after non-head call-C request")
 	}
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "call-B", "prompt", "{}", "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-B", Mode: "prompt", Preview: "{}", Kind: "path"})})
 	if !m.approval.active {
 		t.Fatal("approval.active = false for coordinator head call-B request")
 	}
@@ -2196,7 +2196,7 @@ func TestModelApprovalFIFOSkipsCancelledMiddleRequest(t *testing.T) {
 		t.Fatalf("call-B channel received identity %q, want %q", got.Identity, "call-B")
 	}
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(1, "write", "call-B", "prompt", "{}", "ok", "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-B", Mode: "prompt", Preview: "{}", Message: "ok", Kind: "path"})})
 	if !m.approval.active {
 		t.Fatal("approval.active = false after call-B acceptance")
 	}
@@ -2226,7 +2226,7 @@ func TestModelApprovalModeTransitions(t *testing.T) {
 	m := newModel(Config{
 		Controller: ctrl,
 	}, nil)
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`, "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", Mode: "prompt", Preview: `{"path":"note.txt"}`, Kind: "path"})})
 	if !m.approval.active {
 		t.Fatal("expected approval mode to be active")
 	}
@@ -2255,7 +2255,7 @@ func TestModelApprovalMCPRendersServerToolAndSessionButton(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "mcp__fixture__echo", "", "MCP tool call", `{"message":"hi"}`, "mcp", "fixture", "echo")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "mcp__fixture__echo", Mode: "MCP tool call", Preview: `{"message":"hi"}`, Kind: "mcp", Server: "fixture", ToolName: "echo"})})
 
 	if got, want := m.approval.kind, "mcp"; got != want {
 		t.Fatalf("approval.kind = %q, want %q", got, want)
@@ -2318,7 +2318,7 @@ func TestModelApprovalEnterAllowedWhileStreaming(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "streaming", output.ChunkSourceAssistant)})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`, "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", Mode: "prompt", Preview: `{"path":"note.txt"}`, Kind: "path"})})
 
 	m.input.SetValue("yes")
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -2342,7 +2342,7 @@ func TestModelApprovalSelectionAndConfirmation(t *testing.T) {
 	m := newModel(Config{
 		Controller: ctrl,
 	}, nil)
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`, "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "bash", Mode: "prompt", Preview: `{"command":"pwd"}`, Kind: "path"})})
 
 	if got, want := m.approval.selectedAction, 0; got != want {
 		t.Fatalf("selectedAction = %d, want %d", got, want)
@@ -2377,7 +2377,7 @@ func TestModelApprovalEscDenies(t *testing.T) {
 	m := newModel(Config{
 		Controller: ctrl,
 	}, nil)
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "write", "", "prompt", `{"path":"note.txt"}`, "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", Mode: "prompt", Preview: `{"path":"note.txt"}`, Kind: "path"})})
 	m.input.SetValue("stale text")
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
@@ -2406,7 +2406,7 @@ func TestModelApprovalCtrlCInterrupts(t *testing.T) {
 			m := newModel(Config{Controller: ctrl}, nil)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
 			m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
-			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`, "path", "", "")})
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "bash", Mode: "prompt", Preview: `{"command":"pwd"}`, Kind: "path"})})
 			if !m.approval.active {
 				t.Fatal("approval.active = false, want true")
 			}
@@ -2434,7 +2434,7 @@ func TestModelApprovalStopReasonRestoresComposerFocus(t *testing.T) {
 		t.Fatal("input.Focused() = false, want true at start")
 	}
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`, "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "bash", Mode: "prompt", Preview: `{"command":"pwd"}`, Kind: "path"})})
 	if m.input.Focused() {
 		t.Fatal("input.Focused() = true, want false while approval is open")
 	}
@@ -2459,7 +2459,7 @@ func TestModelApprovalRunFinishedRestoresComposerFocus(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "mutate", "", "prompt", `{"path":"note.txt"}`, "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "mutate", Mode: "prompt", Preview: `{"path":"note.txt"}`, Kind: "path"})})
 	if m.input.Focused() {
 		t.Fatal("input.Focused() = true, want false while approval is open")
 	}
@@ -2763,7 +2763,7 @@ func TestModelInterruptSuppressesStaleRunEventsUntilRunFinished(t *testing.T) {
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "bash", "call_1", map[string]any{"command": "git status"})})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(1, "bash", "", "prompt", `{"command":"git status"}`, "approved", "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "bash", Mode: "prompt", Preview: `{"command":"git status"}`, Message: "approved", Kind: "path"})})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "still streaming", output.ChunkSourceAssistant)})
 
 	if ctrl.countInterruptActiveRun() != 1 {
@@ -3539,7 +3539,7 @@ func TestNotifyApprovalEventFiresNotification(t *testing.T) {
 	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
 	m.sidebar.branch = "main"
 
-	_ = m.applyEvent(output.NewApprovalRequestedEvent(1, "bash", "", "approve", "some preview", "path", "", ""))
+	_ = m.applyEvent(output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "bash", Mode: "approve", Preview: "some preview", Kind: "path"}))
 
 	calls := fn.waitForCall(t)
 	if len(calls) != 1 {
@@ -3577,7 +3577,7 @@ func TestNotifyNilNotifierIsSafe(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{WorkingDir: "/home/user/myproject"}, nil)
 	// must not panic
-	_ = m.applyEvent(output.NewApprovalRequestedEvent(1, "bash", "", "approve", "preview", "path", "", ""))
+	_ = m.applyEvent(output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "bash", Mode: "approve", Preview: "preview", Kind: "path"}))
 }
 
 func TestNotifyUnavailableEmitsStartupWarning(t *testing.T) {
@@ -4688,7 +4688,7 @@ func TestModelScopedTerminalEventDoesNotChangeMainComposerState(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "bash", "", "prompt", `{"command":"pwd"}`, "path", "", "")})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "bash", Mode: "prompt", Preview: `{"command":"pwd"}`, Kind: "path"})})
 	if m.input.Focused() {
 		t.Fatal("input.Focused() = true, want false while approval is open")
 	}
