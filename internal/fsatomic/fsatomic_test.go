@@ -1,10 +1,12 @@
 package fsatomic
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -128,10 +130,11 @@ func TestSweepStaleTemps(t *testing.T) {
 	old := now.Add(-2 * time.Hour)
 	fresh := now.Add(-time.Minute)
 	tests := []struct {
-		name  string
-		files map[string]time.Time
-		dirs  map[string]time.Time
-		want  []string
+		name   string
+		target string
+		files  map[string]time.Time
+		dirs   map[string]time.Time
+		want   []string
 	}{
 		{
 			name:  "old orphan is removed",
@@ -152,6 +155,24 @@ func TestSweepStaleTemps(t *testing.T) {
 			name:  "orphan for longer base name sharing the prefix is kept",
 			files: map[string]time.Time{".tmp-out.json-x-123456789": old},
 			want:  []string{".tmp-out.json-x-123456789"},
+		},
+		{
+			name:   "orphan for target base containing dash is removed",
+			target: "out-2",
+			files:  map[string]time.Time{".tmp-out-2-123456789": old},
+			want:   []string{},
+		},
+		{
+			name:   "orphan for dashed name is kept for shorter target base",
+			target: "out",
+			files:  map[string]time.Time{".tmp-out-2-123456789": old},
+			want:   []string{".tmp-out-2-123456789"},
+		},
+		{
+			name:   "orphan for target base containing star is removed",
+			target: "a*b",
+			files:  map[string]time.Time{".tmp-a*b-123456789": old},
+			want:   []string{},
 		},
 		{
 			name:  "target file itself is kept",
@@ -191,7 +212,13 @@ func TestSweepStaleTemps(t *testing.T) {
 				setAge(t, path, mtime)
 			}
 
-			sweepStaleTemps(filepath.Join(dir, "out.json"), now)
+			target := tt.target
+			if target == "" {
+				target = "out.json"
+			}
+			if err := sweepStaleTemps(filepath.Join(dir, target), now); err != nil {
+				t.Fatal(err)
+			}
 			if got := dirEntryNames(t, dir); !slices.Equal(got, tt.want) {
 				t.Errorf("dir entries = %v, want %v", got, tt.want)
 			}
@@ -212,7 +239,9 @@ func TestSweepStaleTempsKeepsSymlink(t *testing.T) {
 	// Chtimes follows links, so the link's own mtime cannot be aged. Running the
 	// sweep two hours ahead makes the link older than the cutoff, which leaves
 	// the regular-file check as the only thing that can keep it.
-	sweepStaleTemps(filepath.Join(dir, "out.json"), time.Now().Add(2*time.Hour))
+	if err := sweepStaleTemps(filepath.Join(dir, "out.json"), time.Now().Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Lstat(link); err != nil {
 		t.Errorf("symlink removed: %v", err)
 	}
@@ -247,6 +276,96 @@ func TestWriteFileSweepsOncePerPath(t *testing.T) {
 	}
 	if _, err := os.Lstat(second); err != nil {
 		t.Errorf("stale orphan removed by a later write to the same path: %v", err)
+	}
+}
+
+func TestWriteFileRetriesSweepAfterMissingDir(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	path := filepath.Join(sub, "out.json")
+
+	if err := WriteFile(path, []byte("first"), 0o600); err == nil {
+		t.Fatal("WriteFile into missing dir: err = nil, want failure")
+	}
+
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(sub, ".tmp-out.json-123456789")
+	if err := os.WriteFile(orphan, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	setAge(t, orphan, time.Now().Add(-2*time.Hour))
+
+	if err := WriteFile(path, []byte("second"), 0o600); err != nil {
+		t.Fatalf("WriteFile after mkdir: %v", err)
+	}
+	if _, err := os.Lstat(orphan); !os.IsNotExist(err) {
+		t.Errorf("stale orphan survived the retried sweep: err = %v", err)
+	}
+}
+
+func TestWriteFileConcurrentSamePath(t *testing.T) {
+	const writers = 8
+	const mode os.FileMode = 0o640
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.json")
+
+	payloads := make([]string, writers)
+	errs := make([]error, writers)
+	var wg sync.WaitGroup
+	for i := range writers {
+		payloads[i] = fmt.Sprintf("payload from writer %d", i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = WriteFile(path, []byte(payloads[i]), mode)
+		}()
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("WriteFile #%d: %v", i, err)
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(payloads, string(data)) {
+		t.Errorf("content = %q, want one of the written payloads", data)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != mode {
+		t.Errorf("mode = %o, want %o", info.Mode().Perm(), mode)
+	}
+	for _, name := range dirEntryNames(t, dir) {
+		if strings.HasPrefix(name, ".tmp-") {
+			t.Errorf("temp file left behind: %s", name)
+		}
+	}
+}
+
+// TestTempPrefixMatchesCreateTemp checks that names produced by os.CreateTemp
+// with WriteFile's pattern are recognised by the sweep for the same base.
+func TestTempPrefixMatchesCreateTemp(t *testing.T) {
+	dir := t.TempDir()
+	for _, base := range []string{"out.json", "out-2", "a*b", "*"} {
+		tmp, err := os.CreateTemp(dir, tempPrefix(base)+"*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := filepath.Base(tmp.Name())
+		if err := tmp.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if !isTempName(name, base) {
+			t.Errorf("isTempName(%q, %q) = false, want true", name, base)
+		}
 	}
 }
 

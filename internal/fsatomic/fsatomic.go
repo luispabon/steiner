@@ -7,7 +7,11 @@
 // .tmp-<base>-<random>. The first WriteFile to each target path in a process
 // removes orphans for that path that are older than one hour. Only regular
 // files matching that pattern are removed; symlinks, directories, and other
-// names are left alone.
+// names are left alone. If the directory cannot be read, the sweep is retried
+// on the next call. The one-hour cutoff is a heuristic, not a lock: a write
+// stalled for longer than an hour (for example, a laptop suspended mid-write)
+// can lose its temp file to a sweep. Its chmod or rename then fails, WriteFile
+// returns that error, and the target file is left unchanged.
 package fsatomic
 
 import (
@@ -20,8 +24,8 @@ import (
 )
 
 // staleTempAge is the minimum age of an orphan temp file before the sweep
-// removes it. Live writes finish far sooner, so a temp file still being written
-// is never old enough to remove.
+// removes it. It is a heuristic: a write stalled for longer than this can lose
+// its temp file (see the package comment).
 const staleTempAge = time.Hour
 
 // sweptPaths records the absolute target paths already swept in this process.
@@ -34,28 +38,35 @@ func tempPrefix(base string) string {
 }
 
 // sweepStaleTempsOnce sweeps the directory of path the first time path is seen
-// in this process. If the absolute path cannot be resolved, the sweep is skipped.
+// in this process. A path is recorded only after its directory is read, so a
+// missing or unreadable directory is swept on a later call. If the absolute
+// path cannot be resolved, the sweep is skipped.
 func sweepStaleTempsOnce(path string, now time.Time) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		// Best effort: skipping the sweep does not affect the write itself.
 		return
 	}
-	if _, swept := sweptPaths.LoadOrStore(abs, struct{}{}); swept {
+	if _, swept := sweptPaths.Load(abs); swept {
 		return
 	}
-	sweepStaleTemps(abs, now)
+	// Two concurrent first calls may both sweep; a sweep is idempotent. A failed
+	// read is not recorded, so it is retried. The write reports its own error.
+	if err := sweepStaleTemps(abs, now); err != nil {
+		return
+	}
+	sweptPaths.Store(abs, struct{}{})
 }
 
 // sweepStaleTemps removes orphan temp files for path that are older than
-// staleTempAge at now. Errors are ignored: the sweep is cleanup only, and a
+// staleTempAge at now. It returns an error only if the directory cannot be read.
+// Failures on individual entries are ignored: the sweep is cleanup only, and a
 // failure must not fail or delay the write that triggered it.
-func sweepStaleTemps(path string, now time.Time) {
+func sweepStaleTemps(path string, now time.Time) error {
 	dir, base := filepath.Dir(path), filepath.Base(path)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		// Missing or unreadable directory: nothing to sweep. The write reports its own error.
-		return
+		return fmt.Errorf("read temp dir: %w", err)
 	}
 	cutoff := now.Add(-staleTempAge)
 	for _, entry := range entries {
@@ -75,6 +86,7 @@ func sweepStaleTemps(path string, now time.Time) {
 		// A failed remove leaves the orphan for a later sweep.
 		_ = os.Remove(name)
 	}
+	return nil
 }
 
 // isTempName reports whether name is tempPrefix(base) followed by the random
