@@ -228,7 +228,7 @@ func TestIntegrationAnnotationAutoAllow(t *testing.T) {
 		},
 	}
 
-	m := mcp.Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	m := mcp.Connect(context.Background(), cfg, config.LimitsConfig{}, nil, mcp.ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	defer m.Close() //nolint:errcheck
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -291,7 +291,7 @@ func TestIntegrationTrustAnnotationsFalse(t *testing.T) {
 		},
 	}
 
-	m := mcp.Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	m := mcp.Connect(context.Background(), cfg, config.LimitsConfig{}, nil, mcp.ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	defer m.Close() //nolint:errcheck
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

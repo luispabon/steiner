@@ -50,8 +50,7 @@ func TestLifecycleDeathReconnectNoReplay(t *testing.T) {
 	}
 
 	tr := &transitionRecorder{name: "fixture"}
-	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
-		func(string) {}, func(string) {}, io.Discard, tr.onChange)
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard, OnStateChange: tr.onChange})
 	tr.m.Store(m)
 	defer m.Close() //nolint:errcheck
 	waitInit(t, m)
@@ -162,8 +161,7 @@ func TestLifecycleCallsBlockDuringReconnect(t *testing.T) {
 	}
 
 	tr := &transitionRecorder{name: "fixture"}
-	m := Connect(context.Background(), cfg, config.LimitsConfig{}, wrap, false,
-		func(string) {}, func(string) {}, io.Discard, tr.onChange)
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, wrap, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard, OnStateChange: tr.onChange})
 	tr.m.Store(m)
 	defer m.Close() //nolint:errcheck
 	waitInit(t, m)
@@ -256,8 +254,7 @@ func TestLifecycleReconnectCap(t *testing.T) {
 	}
 
 	tr := &transitionRecorder{name: "fixture"}
-	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
-		func(string) {}, func(string) {}, io.Discard, tr.onChange)
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard, OnStateChange: tr.onChange})
 	tr.m.Store(m)
 	defer m.Close() //nolint:errcheck
 	waitInit(t, m)
@@ -339,8 +336,7 @@ func TestLifecycleTimeoutNoReconnect(t *testing.T) {
 	}
 
 	tr := &transitionRecorder{name: "fixture"}
-	m := Connect(context.Background(), cfg, limits, nil, false,
-		func(string) {}, func(string) {}, io.Discard, tr.onChange)
+	m := Connect(context.Background(), cfg, limits, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard, OnStateChange: tr.onChange})
 	tr.m.Store(m)
 	defer m.Close() //nolint:errcheck
 	waitInit(t, m)
@@ -446,8 +442,7 @@ func TestLifecycleHTTPReconnect(t *testing.T) {
 	}
 
 	tr := &transitionRecorder{name: "remote"}
-	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
-		func(string) {}, func(string) {}, io.Discard, tr.onChange)
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard, OnStateChange: tr.onChange})
 	tr.m.Store(m)
 	defer m.Close() //nolint:errcheck
 	waitInit(t, m)
@@ -523,7 +518,7 @@ func TestLifecycleShutdownReapsChildren(t *testing.T) {
 		},
 	}
 
-	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	t.Cleanup(func() { _ = m.Close() })
 	waitInit(t, m)
 
@@ -577,7 +572,7 @@ func TestLifecycleCloseCancelsInFlightConnect(t *testing.T) {
 		},
 	}
 
-	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	defer m.Close() //nolint:errcheck
 
 	// The fast server must reach connected while the stall server is still
@@ -614,7 +609,7 @@ func TestLifecycleCloseIdempotent(t *testing.T) {
 		},
 	}
 
-	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	t.Cleanup(func() { _ = m.Close() })
 	waitInit(t, m)
 
@@ -663,8 +658,7 @@ func TestLifecycleCloseDuringReconnect(t *testing.T) {
 	}
 
 	tr := &transitionRecorder{name: "fixture"}
-	m := Connect(context.Background(), cfg, config.LimitsConfig{}, wrap, false,
-		func(string) {}, func(string) {}, io.Discard, tr.onChange)
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, wrap, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard, OnStateChange: tr.onChange})
 	t.Cleanup(func() { _ = m.Close() })
 	tr.m.Store(m)
 	waitInit(t, m)

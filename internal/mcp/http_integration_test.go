@@ -38,8 +38,7 @@ func TestHTTPIntegration(t *testing.T) {
 		}
 
 		var infos []string
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
-			func(string) {}, func(msg string) { infos = append(infos, msg) }, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(msg string) { infos = append(infos, msg) }, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 		m.UpdateApprover(allowApprover())
@@ -132,8 +131,7 @@ func TestHTTPIntegration(t *testing.T) {
 			return cmd, nil
 		}
 
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, wrap, false,
-			func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, wrap, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 
@@ -170,9 +168,7 @@ func TestHTTPIntegration(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
-			func(msg string) { warns = append(warns, msg) },
-			func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(msg string) { warns = append(warns, msg) }, InfoFn: func(string) {}, Stderr: io.Discard})
 		defer m.Close() //nolint:errcheck
 		waitInit(t, m)
 
@@ -228,8 +224,7 @@ func TestHTTPIntegration(t *testing.T) {
 			},
 		}
 
-		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, false,
-			func(string) {}, func(string) {}, io.Discard, nil)
+		m := Connect(context.Background(), cfg, config.LimitsConfig{}, nil, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 		waitInit(t, m)
 
 		if err := m.Close(); err != nil {

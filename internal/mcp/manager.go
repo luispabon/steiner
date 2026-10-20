@@ -66,6 +66,26 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 	return s.w.Write(p)
 }
 
+// ConnectOptions holds the optional settings for Connect. Its zero value is
+// valid: no release hook, plan mode off, nil callbacks discard their messages,
+// and a nil Stderr stays nil.
+type ConnectOptions struct {
+	// Release frees resources owned by a wrapped server command. Optional.
+	Release ReleaseFn
+	// PlanMode marks the session as running in plan mode.
+	PlanMode bool
+	// WarnFn receives connection failures. Optional.
+	WarnFn func(string)
+	// InfoFn receives successful connects and their negotiated protocol
+	// version. Optional.
+	InfoFn func(string)
+	// Stderr becomes each server process's stderr. Connect serialises writes
+	// to it, so callers may pass an unsynchronised writer. Optional.
+	Stderr io.Writer
+	// OnStateChange is invoked after each recorded state transition. Optional.
+	OnStateChange func()
+}
+
 // Connect starts a connection attempt for every enabled server in cfg and
 // returns a Manager immediately. Each enabled server connects on its own
 // goroutine, bounded by its per-server ConnectTimeout, so startup latency is
@@ -92,14 +112,13 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 //
 // Connect never returns an error for a server failure; a failed server is
 // simply marked failed.
-func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConfig, wrap WrapFn, args ...any) *Manager {
-	parsed := parseConnectArgs(args)
-	release := parsed.release
-	planMode := parsed.planMode
-	warnFn := parsed.warnFn
-	infoFn := parsed.infoFn
-	stderr := parsed.stderr
-	onStateChange := parsed.onStateChange
+func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConfig, wrap WrapFn, opts ConnectOptions) *Manager {
+	release := opts.Release
+	planMode := opts.PlanMode
+	warnFn := opts.WarnFn
+	infoFn := opts.InfoFn
+	stderr := opts.Stderr
+	onStateChange := opts.OnStateChange
 	ctx, cancel := context.WithCancel(ctx)
 	m := &Manager{
 		planMode: planMode,
@@ -176,40 +195,6 @@ func Connect(ctx context.Context, cfg config.MCPConfig, limits config.LimitsConf
 	}
 
 	return m
-}
-
-type connectArgs struct {
-	release       ReleaseFn
-	planMode      bool
-	warnFn        func(string)
-	infoFn        func(string)
-	stderr        io.Writer
-	onStateChange func()
-}
-
-func parseConnectArgs(args []any) connectArgs {
-	var parsed connectArgs
-	if len(args) == 5 {
-		parsed.planMode, _ = args[0].(bool)
-		parsed.warnFn, _ = args[1].(func(string))
-		parsed.infoFn, _ = args[2].(func(string))
-		parsed.stderr, _ = args[3].(io.Writer)
-		parsed.onStateChange, _ = args[4].(func())
-		return parsed
-	}
-
-	if v, ok := args[0].(ReleaseFn); ok {
-		parsed.release = v
-	}
-	if v, ok := args[0].(func(*exec.Cmd)); ok {
-		parsed.release = v
-	}
-	parsed.planMode, _ = args[1].(bool)
-	parsed.warnFn, _ = args[2].(func(string))
-	parsed.infoFn, _ = args[3].(func(string))
-	parsed.stderr, _ = args[4].(io.Writer)
-	parsed.onStateChange, _ = args[5].(func())
-	return parsed
 }
 
 // connectServer runs one server's connection attempt: handshake, tool list,

@@ -82,7 +82,7 @@ func mcpFixtureManager(t *testing.T) *mcp.Manager {
 		Servers: map[string]config.MCPServerConfig{
 			"fixture": {Enabled: true, Command: buildMCPFixture(t)},
 		},
-	}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	}, config.LimitsConfig{}, nil, mcp.ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := mgr.WaitInit(ctx); err != nil {
@@ -172,7 +172,7 @@ func TestRuntimeRegistryWithNilManagerRegistersNoMCPTools(t *testing.T) {
 func TestRuntimeRegistryMCPEnabledWithoutServersIsInert(t *testing.T) {
 	cfg := registryTestConfig()
 	cfg.MCP = config.MCPConfig{Enabled: true}
-	mgr := mcp.Connect(context.Background(), cfg.MCP, cfg.Limits, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	mgr := mcp.Connect(context.Background(), cfg.MCP, cfg.Limits, nil, mcp.ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	t.Cleanup(func() { _ = mgr.Close() })
 	enabled := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, mgr, nil)
 
@@ -408,7 +408,7 @@ func mcpFixtureManagerWithCfg(t *testing.T, srv config.MCPServerConfig) *mcp.Man
 	mgr := mcp.Connect(context.Background(), config.MCPConfig{
 		Enabled: true,
 		Servers: map[string]config.MCPServerConfig{"fixture": srv},
-	}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	}, config.LimitsConfig{}, nil, mcp.ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := mgr.WaitInit(ctx); err != nil {

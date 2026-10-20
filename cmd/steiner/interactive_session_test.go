@@ -223,7 +223,7 @@ func TestMCPTUIStateEnabledMix(t *testing.T) {
 		},
 	}
 
-	mgr := mcp.Connect(context.Background(), cfg.MCP, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	mgr := mcp.Connect(context.Background(), cfg.MCP, config.LimitsConfig{}, nil, mcp.ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	defer mgr.Close() //nolint:errcheck
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -547,7 +547,7 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 			},
 			"good": {Enabled: true, Command: fixtureBin},
 		},
-	}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	}, config.LimitsConfig{}, nil, mcp.ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	defer mgr.Close() //nolint:errcheck
 
 	// The interactive registry is built before all servers resolve. Fast servers
@@ -1032,7 +1032,7 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 			},
 			"good": {Enabled: true, Command: fixtureBin},
 		},
-	}, config.LimitsConfig{}, nil, false, func(string) {}, func(string) {}, io.Discard, nil)
+	}, config.LimitsConfig{}, nil, mcp.ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
 	defer mgr.Close() //nolint:errcheck
 
 	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr, nil)
