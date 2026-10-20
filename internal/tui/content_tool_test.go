@@ -652,7 +652,7 @@ func TestApplyFinishedToolCallResultMutateStatus(t *testing.T) {
 					map[string]any{"type": "replace", "path": "file.go"},
 				},
 			}))
-			buffer.AppendEvent(output.NewToolCallFinishedEventWithPreview(1, "mutate", "call_1", `{"operations_applied":1,"operations_failed":0}`, tt.err, tt.preview))
+			buffer.AppendEvent(output.NewToolCallFinishedEventWithAdmission(1, "mutate", "call_1", `{"operations_applied":1,"operations_failed":0}`, tt.err, tt.preview, nil))
 
 			if got := len(buffer.segments); got != 1 {
 				t.Fatalf("segments = %d, want 1", got)

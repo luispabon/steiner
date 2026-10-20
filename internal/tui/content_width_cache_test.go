@@ -72,7 +72,7 @@ func (s *widthCacheScenario) op() func(m *Model) {
 			return s.op()
 		}
 		call := s.openTools[len(s.openTools)-1]
-		return sendMsg(runtimeEventMsg{Event: output.NewApprovalRequestedEvent(1, "read", call, "ask", "preview "+call, "", "", "")})
+		return sendMsg(runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: call, Mode: "ask", Preview: "preview " + call})})
 	default:
 		return s.bgFormatScenario.op()
 	}

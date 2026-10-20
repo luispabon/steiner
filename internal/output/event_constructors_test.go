@@ -11,6 +11,58 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+func TestApprovalConstructorsMapParams(t *testing.T) {
+	p := ApprovalEventParams{
+		Turn:     7,
+		Tool:     "mcp__srv__tool",
+		CallID:   "call-9",
+		Mode:     "MCP tool call",
+		Preview:  `{"message":"hi"}`,
+		Message:  "approved by user",
+		Kind:     "mcp",
+		Server:   "srv",
+		ToolName: "tool",
+	}
+	tests := []struct {
+		name      string
+		construct func(ApprovalEventParams) Event
+		eventType string
+		allowed   bool
+		message   string
+	}{
+		{name: "requested", construct: NewApprovalRequestedEvent, eventType: EventTypeApprovalRequested, allowed: false, message: ""},
+		{name: "accepted", construct: NewApprovalAcceptedEvent, eventType: EventTypeApprovalAccepted, allowed: true, message: p.Message},
+		{name: "denied", construct: NewApprovalDeniedEvent, eventType: EventTypeApprovalDenied, allowed: false, message: p.Message},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := tt.construct(p)
+			if event.Type != tt.eventType {
+				t.Fatalf("type = %q, want %q", event.Type, tt.eventType)
+			}
+			got, ok := event.Payload.(ApprovalEvent)
+			if !ok {
+				t.Fatalf("payload = %T, want ApprovalEvent", event.Payload)
+			}
+			want := ApprovalEvent{
+				Turn:     7,
+				Tool:     "mcp__srv__tool",
+				CallID:   "call-9",
+				Mode:     "MCP tool call",
+				Preview:  `{"message":"hi"}`,
+				Allowed:  tt.allowed,
+				Message:  tt.message,
+				Kind:     "mcp",
+				Server:   "srv",
+				ToolName: "tool",
+			}
+			if got != want {
+				t.Fatalf("payload = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
 func TestDelegationAdmissionEventsAndFinishedMetadata(t *testing.T) {
 	admission := &DelegationAdmission{Status: "accepted", BatchID: "b", Group: "g", AgentID: "a", PolicyNotice: true}
 	event := NewToolCallFinishedEventWithAdmission(1, "delegate", "c", "result", nil, ToolPreview{}, admission)
