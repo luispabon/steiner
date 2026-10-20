@@ -80,39 +80,19 @@ func (m *Model) applyPayloadEvent(event output.Event) (tea.Cmd, bool) {
 		}
 		return nil, true
 	case output.RunStartedEvent:
-		m.interruptPending = false
-		m.setCompaction(compactionState{})
-		if payload.MaxTurns > 0 {
-			m.sidebar.maxTurns = payload.MaxTurns
-		}
-		m.status.mode = "running"
-		m.activity = m.activity.waiting("starting run", strings.TrimSpace(payload.Model))
+		m.applyRunStartedEvent(payload)
 	case output.RunFinishedEvent:
-		m.status.mode = strings.TrimSpace(payload.Reason)
-		m.activity = m.activity.static("run finished", strings.TrimSpace(payload.Reason))
-		m.applyConversationLabel()
-		m.resetTopLevelTerminalState(true)
+		m.applyRunFinishedEvent(payload)
 	case output.StopReasonEvent:
-		m.status.mode = strings.TrimSpace(payload.Reason)
-		m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
-		m.applyConversationLabel()
-		m.resetTopLevelTerminalState(true)
+		m.applyStopReasonEvent(payload)
 	case output.ModelCallStartedEvent:
 		m.activity = m.activity.waiting("waiting", "")
 	case output.ModelCallFinishedEvent:
-		detail := strings.TrimSpace(payload.FinishReason)
-		if detail == "" && payload.CompletionTokens > 0 {
-			detail = fmt.Sprintf("%d tokens", payload.CompletionTokens)
-		}
-		m.activity = m.activity.static("model call complete", detail)
-		m.sidebar.perfDurationMs = payload.DurationMs
-		m.sidebar.perfTTFTMs = payload.TTFTMs
-		m.sidebar.perfOutputTPS = payload.OutputTPS
+		m.applyModelCallFinishedEvent(payload)
 	case output.APIRequestEvent:
 		m.activity = m.activity.waiting("waiting", "")
 	case output.APIResponseEvent:
-		detail := strings.TrimSpace(payload.FinishReason)
-		m.activity = m.activity.waiting("receiving response", detail)
+		m.applyAPIResponseEvent(payload)
 	case output.ContextBudgetEvent:
 		if output.ContextDiagnosticKind(payload) == "session_loaded" {
 			m.clearReplayActivity()
