@@ -739,10 +739,6 @@ func claudeSubTurnFailure(r *claudeSubResult) error {
 	}
 }
 
-// SupportsStatefulCompaction reports that compaction summaries follow the
-// claude_subscription transition contract (see claudeSubSummaryTurn).
-func (p *ClaudeSubscriptionProvider) SupportsStatefulCompaction() bool { return true }
-
 var _ Provider = (*ClaudeSubscriptionProvider)(nil)
 var _ StatefulTranscript = (*ClaudeSubscriptionProvider)(nil)
 var _ StatefulCompactor = (*ClaudeSubscriptionProvider)(nil)
