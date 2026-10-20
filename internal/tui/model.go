@@ -48,35 +48,6 @@ type approvalState struct {
 	selectedAction int
 }
 
-type compactionState struct {
-	active  bool
-	summary string
-}
-
-func (c compactionState) Active() bool           { return c.active }
-func (c compactionState) SuppressThinking() bool { return c.active }
-func (c compactionState) SidebarLabel() string {
-	if c.active {
-		return "compacting…"
-	}
-	return c.summary
-}
-
-func newCompactionState(payload output.ContextCompactionEvent) compactionState {
-	return compactionState{
-		active:  payload.Severity == "compacting",
-		summary: "",
-	}
-}
-
-// setCompaction fans the compaction state out to every reader (model,
-// content buffer, sidebar) from one place so the copies cannot desync.
-func (m *Model) setCompaction(cs compactionState) {
-	m.compaction = cs
-	m.content.compaction = cs
-	m.sidebar.compaction = cs
-}
-
 type workflowHandoffLaunch struct {
 	next       string
 	target     string
@@ -420,158 +391,6 @@ func (m *Model) activeSkillName() string {
 	return ""
 }
 
-func appendStatusContext(base, fragment string) string {
-	base = strings.TrimSpace(base)
-	fragment = strings.TrimSpace(fragment)
-	if fragment == "" {
-		return base
-	}
-	if base == "" {
-		return fragment
-	}
-	return base + " | " + fragment
-}
-
-func compactionStatusFragment(payload output.ContextCompactionEvent) string {
-	parts := make([]string, 0, 3)
-	if severity := strings.TrimSpace(payload.Severity); severity != "" {
-		parts = append(parts, severity)
-	}
-	if payload.CompactionCount > 0 {
-		parts = append(parts, fmt.Sprintf("compaction #%d", payload.CompactionCount))
-	}
-	if mode := strings.TrimSpace(payload.Mode); mode != "" {
-		parts = append(parts, "mode "+mode)
-	}
-	if payload.Mode != "" || payload.SummaryTokenBudget > 0 || payload.ThresholdAchieved {
-		parts = append(parts, fmt.Sprintf("threshold achieved %t", payload.ThresholdAchieved))
-	}
-	if payload.Severity == "critical" && strings.TrimSpace(payload.RestartGuidance) != "" {
-		parts = append(parts, "restart now")
-	} else if payload.Severity == "warning" && strings.TrimSpace(payload.RestartGuidance) != "" {
-		parts = append(parts, "restart soon")
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, " ")
-}
-
-func sessionHealthStatusFragment(payload output.ContextSessionHealthEvent) string {
-	parts := make([]string, 0, 3)
-	if severity := strings.TrimSpace(payload.Severity); severity != "" {
-		parts = append(parts, severity)
-	}
-	if payload.CompactionCount > 0 {
-		parts = append(parts, fmt.Sprintf("compaction #%d", payload.CompactionCount))
-	}
-	if payload.Severity == "critical" && strings.TrimSpace(payload.RestartGuidance) != "" {
-		parts = append(parts, "restart now")
-	} else if payload.Severity == "warning" && strings.TrimSpace(payload.RestartGuidance) != "" {
-		parts = append(parts, "restart soon")
-	}
-	return strings.Join(parts, " ")
-}
-
-func cloneModelEntries(src []ModelEntry) []ModelEntry {
-	if len(src) == 0 {
-		return nil
-	}
-	entries := make([]ModelEntry, len(src))
-	for i, entry := range src {
-		entries[i] = entry
-		entries[i].SupportedEfforts = append([]string(nil), entry.SupportedEfforts...)
-	}
-	return entries
-}
-
-func (m *Model) modelPickerEntries() []ModelEntry {
-	if len(m.modelEntries) > 0 {
-		return cloneModelEntries(m.modelEntries)
-	}
-	entries := make([]ModelEntry, len(m.modelNames))
-	for i, name := range m.modelNames {
-		entries[i] = ModelEntry{Ref: name, Display: name, Current: name == m.primaryModel}
-	}
-	return entries
-}
-
-func (m *Model) reasoningCapabilitiesForEntry(entry ModelEntry) provider.ReasoningCapabilities {
-	if caps, ok := m.modelReasoningCapabilities[entry.Ref]; ok {
-		return caps
-	}
-	return provider.ReasoningCapabilities{SupportedEfforts: append([]string(nil), entry.SupportedEfforts...)}
-}
-
-func cloneModelReasoningCapabilities(src map[string]provider.ReasoningCapabilities) map[string]provider.ReasoningCapabilities {
-	if len(src) == 0 {
-		return nil
-	}
-	dst := make(map[string]provider.ReasoningCapabilities, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
-}
-
-func cloneModelContexts(src map[string]int) map[string]int {
-	if len(src) == 0 {
-		return nil
-	}
-	dst := make(map[string]int, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
-}
-
-func cloneStringMap(src map[string]string) map[string]string {
-	if len(src) == 0 {
-		return nil
-	}
-	dst := make(map[string]string, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
-}
-
-func resolveModelBadge(backend string, aliases, reasoningLabels map[string]string) (string, string) {
-	alias := backend
-	if a, ok := aliases[backend]; ok {
-		alias = a
-	}
-	return alias, reasoningLabels[alias]
-}
-
-// reasoningSidebarLabel derives the sidebar/picker label for a model's
-// reasoning state: the effective effort when set, "default" when
-// the model is reasoning-capable but uses no explicit effort, or "" when the
-// model has no reasoning capability at all.
-func reasoningSidebarLabel(effort string, caps provider.ReasoningCapabilities) string {
-	if effort != "" {
-		return effort
-	}
-	if len(caps.SupportedEfforts) > 0 {
-		return "default"
-	}
-	return ""
-}
-
-// newReasoningLabels seeds the per-alias sidebar/picker reasoning label from
-// each model's config-declared effective effort and reasoning capabilities,
-// so a configured effort is visible from startup rather than only after a
-// picker selection.
-func newReasoningLabels(efforts map[string]string, caps map[string]provider.ReasoningCapabilities) map[string]string {
-	labels := make(map[string]string, len(caps))
-	for name, c := range caps {
-		if label := reasoningSidebarLabel(efforts[name], c); label != "" {
-			labels[name] = label
-		}
-	}
-	return labels
-}
-
 // resolveReasoningForAliasIfPending synchronously resolves reasoning
 // capabilities for a single model alias when nothing is yet known about that
 // alias — i.e. it is absent from m.modelReasoningCapabilities. This covers
@@ -603,61 +422,11 @@ func (m *Model) resolveReasoningForAliasIfPending(alias string) *Model {
 	return m
 }
 
-func (m *Model) contextBudgetForModel(name string) int {
-	if m == nil || len(m.modelContexts) == 0 {
-		return 0
-	}
-	return m.modelContexts[strings.TrimSpace(name)]
-}
-
 func waitForModelEntries(ch <-chan []ModelEntry) tea.Cmd {
 	return func() tea.Msg {
 		entries, ok := <-ch
 		return modelEntriesUpdatedMsg{entries: entries, ok: ok}
 	}
-}
-
-func (m *Model) applyContextBudget(payload output.ContextBudgetEvent) {
-	if m == nil {
-		return
-	}
-	if payload.PromptTokens == 0 && payload.ContextWindow <= 0 && payload.ContextTokens <= 0 {
-		if payload.Turn > 0 {
-			m.sidebar.currentTurn = payload.Turn
-		}
-		return
-	}
-
-	contextWindow := payload.ContextWindow
-	if contextWindow <= 0 {
-		contextWindow = payload.ContextTokens
-	}
-	if contextWindow <= 0 {
-		return
-	}
-	promptUsed := payload.RawPromptTokens
-	if promptUsed <= 0 {
-		promptUsed = payload.PromptTokens
-	}
-	if promptUsed < 0 {
-		promptUsed = 0
-	}
-	budgetUsed := payload.TotalTokens
-	if budgetUsed < 0 {
-		budgetUsed = 0
-	}
-	if budgetUsed == 0 {
-		budgetUsed = promptUsed
-	}
-	m.sidebar.promptUsed = promptUsed
-	m.sidebar.budgetUsed = budgetUsed
-	m.sidebar.contextBudget = contextWindow
-	m.status.promptUsed = promptUsed
-	m.status.contextBudget = contextWindow
-	if payload.Turn > 0 {
-		m.sidebar.currentTurn = payload.Turn
-	}
-	m.status.context = fmt.Sprintf("ctx %d/%d", promptUsed, contextWindow)
 }
 
 func waitForExternalMsg(ch <-chan tea.Msg) tea.Cmd {
