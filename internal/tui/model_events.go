@@ -14,7 +14,6 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-//nolint:gocyclo // event fan-out stays centralized here
 func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	if payload, ok := event.Payload.(output.ConversationStateEvent); ok {
 		m.applyConversationState(payload)
@@ -53,7 +52,17 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	if event.Type != output.EventTypeHistoryLoaded {
 		m.content.AppendEvent(event)
 	}
+	if cmd, done := m.applyPayloadEvent(event); done {
+		return cmd
+	}
+	return m.finishAppliedEvent(event)
+}
 
+// applyPayloadEvent routes the event payload to its family handler. It
+// reports done when applyEvent must return cmd without the shared tail.
+//
+//nolint:gocyclo // payload fan-out stays centralized here
+func (m *Model) applyPayloadEvent(event output.Event) (tea.Cmd, bool) {
 	switch payload := event.Payload.(type) {
 	case output.HistoryLoadedEvent:
 		// Copy before reversing: the payload slice belongs to the producer and
@@ -69,7 +78,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			m.fileHistory = prompts
 			m.fileHistoryIdx = -1
 		}
-		return nil
+		return nil, true
 	case output.RunStartedEvent:
 		m.interruptPending = false
 		m.setCompaction(compactionState{})
@@ -168,7 +177,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 			m.input.Blur()
 			m.notifyBlocking("workflow handoff requested")
 			m.syncViewport()
-			return nil
+			return nil, true
 		case output.EventTypeWorkflowHandoffAccepted, output.EventTypeWorkflowHandoffDeclined:
 			m.workflowHandoff = m.workflowHandoff.close()
 			m.input.Focus()
@@ -185,7 +194,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.syncInputChrome()
 		m.relayoutInput()
 	case output.PhaseTransitionEvent:
-		return m.handlePhaseTransition(payload)
+		return m.handlePhaseTransition(payload), true
 	case output.PhaseIndicatorEvent:
 		m.handlePhaseIndicator(payload)
 	case output.ModeChangedEvent:
@@ -224,7 +233,12 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		m.syncSidebar()
 		m.syncInputChrome()
 	}
+	return nil, false
+}
 
+// finishAppliedEvent runs the shared post-apply work for events that
+// applyPayloadEvent did not end early.
+func (m *Model) finishAppliedEvent(event output.Event) tea.Cmd {
 	var cmds []tea.Cmd
 	if shouldRefreshGit(event) {
 		cmds = append(cmds, gitRefreshCmd(m.git))
