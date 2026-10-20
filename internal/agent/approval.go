@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -25,7 +25,7 @@ func NewEventingApprover(sink output.EventSink, inner tool.ApprovalResponder) to
 //nolint:gocyclo // kind-guarded preview branches are prescribed by the ApprovalKind tagged union
 func (a eventingApprover) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
 	if req.Response == nil {
-		return fmt.Errorf("approval response channel is required")
+		return errors.New("approval response channel is required")
 	}
 	preview := ""
 	if req.Kind == tool.ApprovalKindMCP && req.MCP != nil {

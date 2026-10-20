@@ -2,7 +2,7 @@ package lsp
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -52,7 +52,7 @@ func definitionsTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("lsp_definitions: missing or invalid file parameter")
+				return nil, errors.New("lsp_definitions: missing or invalid file parameter")
 			}
 
 			pos := parsePositionInput(input)
@@ -120,7 +120,7 @@ func referencesTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("lsp_references: missing or invalid file parameter")
+				return nil, errors.New("lsp_references: missing or invalid file parameter")
 			}
 
 			pos := parsePositionInput(input)
@@ -178,7 +178,7 @@ func diagnosticsTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("lsp_diagnostics: missing or invalid file parameter")
+				return nil, errors.New("lsp_diagnostics: missing or invalid file parameter")
 			}
 
 			result, err := m.Diagnostics(ctx, file)
@@ -226,7 +226,7 @@ func hoverTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("lsp_hover: missing or invalid file parameter")
+				return nil, errors.New("lsp_hover: missing or invalid file parameter")
 			}
 
 			pos := parsePositionInput(input)
@@ -276,7 +276,7 @@ func symbolsTool(m *Manager) tool.ToolDef {
 			query, _ := input["query"].(string)
 			file, _ := input["file"].(string)
 			if query == "" && file == "" {
-				return nil, fmt.Errorf("lsp_symbols: at least one of query or file is required")
+				return nil, errors.New("lsp_symbols: at least one of query or file is required")
 			}
 
 			var result SymbolResult
@@ -322,7 +322,7 @@ func implementationsTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("lsp_implementations: missing or invalid file parameter")
+				return nil, errors.New("lsp_implementations: missing or invalid file parameter")
 			}
 
 			pos := parsePositionInput(input)
@@ -372,7 +372,7 @@ func typeDefinitionTool(m *Manager) tool.ToolDef {
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			file, ok := input["file"].(string)
 			if !ok {
-				return nil, fmt.Errorf("lsp_type_definitions: missing or invalid file parameter")
+				return nil, errors.New("lsp_type_definitions: missing or invalid file parameter")
 			}
 
 			pos := parsePositionInput(input)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -225,7 +226,7 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 		return fmt.Errorf("load oneshot manifest: %w", err)
 	}
 	if strings.TrimSpace(manifest.RunID) == "" {
-		return fmt.Errorf("load oneshot manifest: run id is required")
+		return errors.New("load oneshot manifest: run id is required")
 	}
 
 	identity := oneshot.RunIdentity{ID: manifest.RunID, Slug: manifest.Slug}

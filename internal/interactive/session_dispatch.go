@@ -2,6 +2,7 @@ package interactive
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -192,7 +193,7 @@ func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOv
 func (s *Session) handleSwitchProfile(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		err := fmt.Errorf("switch profile: profile name is required")
+		err := errors.New("switch profile: profile name is required")
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("Profile switch failed: %v", err)))
 		return err
 	}

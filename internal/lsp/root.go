@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,7 +15,7 @@ import (
 // file behave identically.
 func absWorkspacePath(workspace, file string) (string, error) {
 	if strings.TrimSpace(file) == "" {
-		return "", fmt.Errorf("file is required")
+		return "", errors.New("file is required")
 	}
 	if filepath.IsAbs(file) {
 		return filepath.Clean(file), nil

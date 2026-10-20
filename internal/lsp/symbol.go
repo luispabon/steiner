@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf16"
@@ -13,7 +14,7 @@ import (
 // - Returns the resolved absolute file path, the 1-based line and column, or an error if resolution fails.
 func resolveSymbolPosition(workspace, file, symbol string, line int) (resolvedFile string, resolvedLine, resolvedCol int, err error) {
 	if symbol == "" {
-		return "", 0, 0, fmt.Errorf("symbol is required")
+		return "", 0, 0, errors.New("symbol is required")
 	}
 
 	absPath, err := absWorkspacePath(workspace, file)

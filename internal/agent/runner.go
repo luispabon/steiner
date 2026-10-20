@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -168,11 +169,11 @@ func seedRunLineage(seed ConversationLineage, conversation []Message) Conversati
 func validateRunRequest(ctx context.Context, req RunRequest, state RunState) (RunState, bool, error) {
 	if req.Provider == nil {
 		state.StopReason = StopReasonError
-		return state, false, fmt.Errorf("provider is required")
+		return state, false, errors.New("provider is required")
 	}
 	if req.Executor == nil {
 		state.StopReason = StopReasonError
-		return state, false, fmt.Errorf("tool executor is required")
+		return state, false, errors.New("tool executor is required")
 	}
 	if err := ctx.Err(); err != nil {
 		state.StopReason = StopReasonCancelled
