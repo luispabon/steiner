@@ -8,7 +8,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/notify"
 	"github.com/luispabon/steiner/internal/output"
@@ -114,34 +113,17 @@ func (m *Model) applyPayloadEvent(event output.Event) (tea.Cmd, bool) {
 	case output.ToolCallFinishedEvent:
 		m.activity = m.activity.static("tool complete", strings.TrimSpace(payload.Tool))
 	case output.SteerReceivedEvent:
-		m.content.AppendUser(payload.Text)
-		if len(payload.Images) > 0 {
-			m.content.AppendImagesAttached(agentImageBlocks(payload.Images), m.sidebar.workingDir, m.sidebar.homeDir)
-		}
-		m.syncInputChrome()
-		m.relayoutInput()
+		m.applySteerReceivedEvent(payload)
 	case output.PhaseTransitionEvent:
 		return m.handlePhaseTransition(payload), true
 	case output.PhaseIndicatorEvent:
 		m.handlePhaseIndicator(payload)
 	case output.ModeChangedEvent:
-		m.mode = strings.TrimSpace(payload.Mode)
-		m.sidebar.execMode = m.mode
-		m.status.execMode = m.mode
-		m.content.AppendLine(fmt.Sprintf("status: mode → %s", m.mode))
+		m.applyModeChangedEvent(payload)
 	case output.OrchestrationLevelChangedEvent:
-		level := strings.TrimSpace(payload.Level)
-		m.orchestrationLevel = config.OrchestrationLevel(level)
-		if m.subAgentsEnabled {
-			m.sidebar.orchestrationLevel = level
-		}
-		m.content.AppendLine(fmt.Sprintf("status: orchestration → %s", level))
+		m.applyOrchestrationLevelChangedEvent(payload)
 	case output.SandboxStatusEvent:
-		m.sidebar.sandboxStatus = strings.TrimSpace(payload.Status)
-		m.status.sandboxStatus = strings.TrimSpace(payload.Status)
-		if payload.Message != "" {
-			m.content.AppendLine(fmt.Sprintf("status: %s", payload.Message))
-		}
+		m.applySandboxStatusEvent(payload)
 	case output.ConfigWarningEvent:
 		m.content.AppendLine(m.styles.WarningStyle.Render(payload.Message))
 	case output.SkillTruncatedEvent:
