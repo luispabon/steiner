@@ -140,6 +140,7 @@ func restoreLegacyLineage(session Session, data []byte) Session {
 	// are no longer supported.
 	var legacy legacySessionEnvelope
 	if err := json.Unmarshal(data, &legacy); err != nil {
+		slog.Warn("session store: cannot decode legacy conversation, keeping session without restored lineage", "session_id", session.ID, "error", err)
 		return session
 	}
 
