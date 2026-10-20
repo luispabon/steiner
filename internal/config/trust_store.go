@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
 const trustStoreVersion = 1
@@ -70,36 +72,8 @@ func writeTrustStore(path string, store trustStoreFile) error {
 		return fmt.Errorf("write trust store %q: marshal: %w", path, err)
 	}
 
-	tmp, err := os.CreateTemp(dir, ".trusted_projects-*.json")
-	if err != nil {
-		return fmt.Errorf("write trust store %q: create temp file: %w", path, err)
-	}
-	tmpPath := tmp.Name()
-
-	// Cleanup below is best-effort: the rename never happened in these error
-	// paths, so a leftover temp file is the only cost of an ignored error here.
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("write trust store %q: chmod temp file: %w", path, err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("write trust store %q: write temp file: %w", path, err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("write trust store %q: sync temp file: %w", path, err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("write trust store %q: close temp file: %w", path, err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("write trust store %q: rename temp file: %w", path, err)
+	if err := fsatomic.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write trust store %q: %w", path, err)
 	}
 	return nil
 }
