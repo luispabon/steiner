@@ -99,50 +99,6 @@ func TestBuildModelCatalogService(t *testing.T) {
 	}
 }
 
-func TestSelectedModelConfigResolvesDefaultReference(t *testing.T) {
-	tests := []struct {
-		name         string
-		defaultModel string
-		definitions  map[string]config.ModelConfig
-		providers    map[string]config.ProviderConfig
-		wantProvider string
-		wantID       string
-	}{
-		{
-			name:         "configured alias",
-			defaultModel: "alias",
-			definitions:  map[string]config.ModelConfig{"alias": {Provider: "local", ID: "configured-id"}},
-			providers:    map[string]config.ProviderConfig{"local": {}},
-			wantProvider: "local",
-			wantID:       "configured-id",
-		},
-		{
-			name:         "raw reference",
-			defaultModel: "openrouter/openai/gpt-4",
-			providers:    map[string]config.ProviderConfig{"openrouter": {}},
-			wantProvider: "openrouter",
-			wantID:       "openai/gpt-4",
-		},
-		{
-			name:         "unknown reference",
-			defaultModel: "garbage",
-			wantProvider: "",
-			wantID:       "",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := selectedModelConfig(config.Config{Models: config.ModelsConfig{
-				Effective:   config.EffectiveModelAssignments{DefaultModel: tt.defaultModel, ActiveOrchestratorModel: tt.defaultModel},
-				Definitions: tt.definitions,
-			}, Providers: tt.providers})
-			if got.Provider != tt.wantProvider || got.ID != tt.wantID {
-				t.Fatalf("selectedModelConfig() = provider=%q id=%q, want provider=%q id=%q", got.Provider, got.ID, tt.wantProvider, tt.wantID)
-			}
-		})
-	}
-}
-
 type catalogTestEnumerator struct {
 	wait time.Duration
 }

@@ -182,7 +182,7 @@ func startupTUIModelConfig(cfg config.Config) (tui.Config, config.ModelConfig) {
 	if activeModel == "" {
 		activeModel = cfg.Models.Effective.DefaultModel
 	}
-	return tui.Config{Model: activeModel, CurrentModelAlias: activeModel}, selectedModelConfig(cfg)
+	return tui.Config{Model: activeModel, CurrentModelAlias: activeModel}, interactive.SelectedModelConfig(cfg)
 }
 
 // primeQuota registers the configured quota accounts and loads the quota store.
@@ -222,18 +222,19 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		selectedProviderBaseURL = p.BaseURL
 		selectedProviderName = selected.Provider
 	}
+	projection := interactive.BuildModelProjection(rt.cfg)
 	tuiCfg := tui.Config{
 		Model:               startupCfg.Model,
 		Entries:             entries,
 		ModelEntriesUpdates: updates,
-		ModelNames:          modelAliasNames(rt.cfg),
-		ModelBackendAlias:   modelBackendAliases(rt.cfg),
-		ModelContexts:       modelContextSizes(rt.cfg),
-		ModelBaseURLs:       modelBaseURLs(rt.cfg),
-		ModelProviderNames:  modelProviderNames(rt.cfg),
+		ModelNames:          projection.AliasNames,
+		ModelBackendAlias:   projection.BackendAliases,
+		ModelContexts:       projection.ContextSizes,
+		ModelBaseURLs:       projection.BaseURLs,
+		ModelProviderNames:  projection.ProviderNames,
 		CurrentModelAlias:   startupCfg.CurrentModelAlias,
 		ProfileName:         rt.cfg.Models.Effective.ProfileName,
-		ProfileNames:        sortedProfileNames(rt.cfg.Models.Profiles),
+		ProfileNames:        interactive.SortedProfileNames(rt.cfg.Models.Profiles),
 		InitialMode:         string(sess.Mode()),
 		ProviderBaseURL:     selectedProviderBaseURL,
 		ProviderName:        selectedProviderName,
@@ -324,86 +325,6 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		return nil, err
 	}
 	return app, nil
-}
-
-func selectedModelConfig(cfg config.Config) config.ModelConfig {
-	alias := cfg.Models.Effective.ActiveOrchestratorModel
-	if alias == "" {
-		alias = cfg.Models.Effective.DefaultModel
-	}
-	model, _ := config.ResolveModelConfig(&cfg, alias)
-	return model
-}
-
-func modelAliasNames(cfg config.Config) []string {
-	if len(cfg.Models.Definitions) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(cfg.Models.Definitions))
-	for k := range cfg.Models.Definitions {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	return names
-}
-
-func modelBackendAliases(cfg config.Config) map[string]string {
-	if len(cfg.Models.Definitions) == 0 {
-		return nil
-	}
-	aliases := make(map[string]string, len(cfg.Models.Definitions))
-	for alias, model := range cfg.Models.Definitions {
-		aliases[model.ID] = alias
-	}
-	return aliases
-}
-
-func modelContextSizes(cfg config.Config) map[string]int {
-	if len(cfg.Models.Definitions) == 0 {
-		return nil
-	}
-	sizes := make(map[string]int, len(cfg.Models.Definitions))
-	for name, model := range cfg.Models.Definitions {
-		if model.Advanced.Limits.ContextWindow > 0 {
-			sizes[name] = model.Advanced.Limits.ContextWindow
-		}
-	}
-	return sizes
-}
-
-func modelBaseURLs(cfg config.Config) map[string]string {
-	if len(cfg.Models.Definitions) == 0 {
-		return nil
-	}
-	urls := make(map[string]string, len(cfg.Models.Definitions))
-	for name, model := range cfg.Models.Definitions {
-		if p, ok := cfg.Providers[model.Provider]; ok {
-			urls[name] = p.BaseURL
-		}
-	}
-	return urls
-}
-
-func modelProviderNames(cfg config.Config) map[string]string {
-	if len(cfg.Models.Definitions) == 0 {
-		return nil
-	}
-	names := make(map[string]string, len(cfg.Models.Definitions))
-	for name, model := range cfg.Models.Definitions {
-		if _, ok := cfg.Providers[model.Provider]; ok {
-			names[name] = model.Provider
-		}
-	}
-	return names
-}
-
-func sortedProfileNames(profiles map[string]config.ModelProfile) []string {
-	names := make([]string, 0, len(profiles))
-	for name := range profiles {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 // newOneshotRunnerFactoryBuilder returns a builder that binds a oneshot phase

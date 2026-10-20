@@ -71,7 +71,7 @@ func (s *Session) sessionMetaLocked() runSessionMeta {
 		title:    s.sessionTitle,
 		mode:     string(s.mode),
 		skills:   s.skills.Snapshot(),
-		modelID:  currentModelConfig(s.deps.Config).ID,
+		modelID:  SelectedModelConfig(s.deps.Config).ID,
 	}
 }
 
