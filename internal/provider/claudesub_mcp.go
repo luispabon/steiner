@@ -176,7 +176,10 @@ func (h *claudeSubMCPHost) authorize(next http.Handler) http.Handler {
 // checked before the live set changes, so an invalid schema returns an error and
 // leaves the previously published tools in place.
 func (h *claudeSubMCPHost) setTools(specs []ToolSpec) error {
-	key := claudeSubToolsKey(specs)
+	key, err := claudeSubToolsKey(specs)
+	if err != nil {
+		return fmt.Errorf("fingerprint claude_subscription tools: %w", err)
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if key == h.toolKey {
@@ -543,13 +546,18 @@ func claudeSubMCPCancelledResult() *mcp.CallToolResult {
 }
 
 // claudeSubToolsKey fingerprints a spec set so setTools can skip no-op updates.
-// The schema marshal is deterministic (encoding/json sorts map keys).
-func claudeSubToolsKey(specs []ToolSpec) string {
+// The schema marshal is deterministic (encoding/json sorts map keys). A schema
+// that cannot be marshaled is an error: an empty placeholder could make two
+// different schemas fingerprint the same.
+func claudeSubToolsKey(specs []ToolSpec) (string, error) {
 	parts := make([]string, 0, len(specs))
 	for _, spec := range specs {
-		schema, _ := json.Marshal(spec.Function.Parameters)
+		schema, err := json.Marshal(spec.Function.Parameters)
+		if err != nil {
+			return "", fmt.Errorf("marshal schema for tool %q: %w", spec.Function.Name, err)
+		}
 		parts = append(parts, spec.Function.Name+"\x00"+spec.Function.Description+"\x00"+string(schema))
 	}
 	sort.Strings(parts)
-	return "v1:" + strings.Join(parts, "\x01")
+	return "v1:" + strings.Join(parts, "\x01"), nil
 }
