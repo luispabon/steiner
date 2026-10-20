@@ -127,6 +127,9 @@ func (b *contentBuffer) applyDelegationAPIRequest(dd *delegationDisplayState, ev
 func (b *contentBuffer) applyDelegationContextDiagnostics(dd *delegationDisplayState, event output.Event) bool {
 	if compaction, ok := output.AsContextCompactionEvent(event.Payload); ok {
 		dd.currentOperation = previewDelegationText(delegationCompactionOperation(compaction))
+		if !dd.isAdvisor && compaction.CompactionCount > 0 {
+			dd.compactionCount = compaction.CompactionCount
+		}
 		return true
 	}
 	payload, ok := output.AsContextBudgetEvent(event.Payload)

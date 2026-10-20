@@ -35,6 +35,7 @@ func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string
 	if dd.toolCallCount > 0 {
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("Tool Calls: %d", dd.toolCallCount)))
 	}
+	parts = b.appendDelegationStatsCompactions(parts, dd)
 	if dd.tokenCount > 0 {
 		parts = append(parts, b.styles.FgDim.Render("Tokens: "+formatTokenPair(dd.cacheReadTokens+dd.inputTokens+dd.cacheCreateTokens, dd.tokenCount)))
 	}
@@ -56,6 +57,13 @@ func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string
 		parts = append(parts, advStats)
 	}
 	return parts
+}
+
+func (b *contentBuffer) appendDelegationStatsCompactions(parts []string, dd *delegationDisplayState) []string {
+	if dd.isAdvisor || dd.compactionCount <= 0 {
+		return parts
+	}
+	return append(parts, b.styles.FgDim.Render(fmt.Sprintf("Compactions: %d", dd.compactionCount)))
 }
 
 func (b *contentBuffer) renderDelegationStatsAdvisor(dd *delegationDisplayState) string {

@@ -558,6 +558,176 @@ func TestScopedDelegationCompactionStaysInsideDelegationSegment(t *testing.T) {
 	}
 }
 
+func newCompactedChildBuffer(t *testing.T) *contentBuffer {
+	t.Helper()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        testStyles(theme.AccentAmber),
+	}
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "inspect docs", "", ""))
+	buffer.AppendEvent(output.WithAgentScope(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:            "compaction",
+		Severity:        "info",
+		CompactionCount: 2,
+	}), "child-1"))
+	buffer.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		DelegationOccurrence: agentOcc("child-1"),
+		Status:               "complete",
+		TurnCount:            5,
+		TokenCount:           1234,
+		ToolCallCount:        3,
+		Output:               "result",
+	}))
+	return buffer
+}
+
+func TestScopedDelegationCompactionCountTracksFinalEvent(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        testStyles(theme.AccentAmber),
+	}
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "inspect docs", "", ""))
+	appendChildCompaction := func(severity string, count int) {
+		buffer.AppendEvent(output.WithAgentScope(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:            "compaction",
+			Severity:        severity,
+			CompactionCount: count,
+		}), "child-1"))
+	}
+	wantCount := func(want int) {
+		t.Helper()
+		if got := buffer.segments[0].delegData.compactionCount; got != want {
+			t.Fatalf("compactionCount = %d, want %d", got, want)
+		}
+	}
+
+	appendChildCompaction("info", 2)
+	wantCount(2)
+	appendChildCompaction("compacting", 0)
+	wantCount(2)
+	appendChildCompaction("skipped", 0)
+	wantCount(2)
+	appendChildCompaction("info", 3)
+	wantCount(3)
+
+	if len(buffer.segments) != 1 {
+		t.Fatalf("segments = %d, want only delegation segment", len(buffer.segments))
+	}
+	if buffer.segments[0].compactionData != nil {
+		t.Fatal("scoped child compaction created top-level compaction banner")
+	}
+}
+
+func TestDelegationStatsShowCompactionCountAfterToolCalls(t *testing.T) {
+	t.Parallel()
+	buffer := newCompactedChildBuffer(t)
+	buffer.ToggleLastDelegationOutput()
+
+	rendered := stripANSI(buffer.String(100))
+	var statsLine string
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.Contains(line, "Tool Calls:") {
+			statsLine = line
+			break
+		}
+	}
+	if statsLine == "" {
+		t.Fatalf("no rendered line contains Tool Calls:\n%s", rendered)
+	}
+	toolCalls := strings.Index(statsLine, "Tool Calls: 3")
+	compactions := strings.Index(statsLine, "Compactions: 2")
+	tokens := strings.Index(statsLine, "Tokens:")
+	if toolCalls < 0 || compactions <= toolCalls || tokens <= compactions {
+		t.Errorf("want Tool Calls, Compactions, Tokens in order on one line:\n%s", rendered)
+	}
+}
+
+func TestDelegationStatsShowCompactionCountWhileActive(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        testStyles(theme.AccentAmber),
+	}
+	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "inspect docs", "", ""))
+	buffer.AppendEvent(output.WithAgentScope(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:            "compaction",
+		Severity:        "info",
+		CompactionCount: 2,
+	}), "child-1"))
+	buffer.ToggleLastDelegationOutput()
+
+	if got := buffer.segments[0].delegData.status; got != "active" {
+		t.Fatalf("status = %q, want active", got)
+	}
+	rendered := stripANSI(buffer.String(120))
+	if !strings.Contains(rendered, "Compactions: 2") {
+		t.Errorf("active expanded delegation render missing compaction count:\n%s", rendered)
+	}
+}
+
+func TestAdvisorCompactionDoesNotUpdateCount(t *testing.T) {
+	t.Parallel()
+	buffer := newTestBuffer(t)
+	event := output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:            "compaction",
+		Severity:        "info",
+		CompactionCount: 2,
+	})
+
+	// Sanity: the same event updates a sub-agent card, so a zero result below is the guard.
+	subAgent := &delegationDisplayState{}
+	buffer.applyDelegationContextDiagnostics(subAgent, event)
+	if subAgent.compactionCount != 2 {
+		t.Fatalf("sub-agent compactionCount = %d, want 2", subAgent.compactionCount)
+	}
+
+	advisor := &delegationDisplayState{isAdvisor: true}
+	buffer.applyDelegationContextDiagnostics(advisor, event)
+	if advisor.compactionCount != 0 {
+		t.Fatalf("advisor compactionCount = %d, want 0", advisor.compactionCount)
+	}
+}
+
+func TestDelegationStatsOmitCompactionCountWhenCollapsed(t *testing.T) {
+	t.Parallel()
+	buffer := newCompactedChildBuffer(t)
+	if got := buffer.segments[0].delegData.compactionCount; got != 2 {
+		t.Fatalf("compactionCount = %d, want 2", got)
+	}
+
+	rendered := stripANSI(buffer.String(100))
+	if strings.Contains(rendered, "Compactions:") {
+		t.Errorf("collapsed delegation render should not contain compaction count:\n%s", rendered)
+	}
+}
+
+func TestFollowUpStartResetsCompactionCount(t *testing.T) {
+	t.Parallel()
+	buffer := newCompactedChildBuffer(t)
+	original := buffer.segments[0].delegData
+	if original.compactionCount != 2 {
+		t.Fatalf("compactionCount = %d, want 2 before follow-up", original.compactionCount)
+	}
+
+	// Queue the original card so the follow-up start reuses it instead of creating a new card.
+	buffer.queuedDelegations = map[string]delegationLocator{"follow-call": {seg: 0, dd: original}}
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "follow_up", "follow-call", map[string]any{
+		"agent_id": "child-1",
+		"message":  "now also add tests",
+	}))
+
+	if !original.isFollowUp {
+		t.Fatal("original card was not reused by follow-up start")
+	}
+	if original.compactionCount != 0 {
+		t.Fatalf("compactionCount = %d after follow-up start, want 0", original.compactionCount)
+	}
+}
+
 func TestRenderDelegationSegmentKeepsBoxWidthBounded(t *testing.T) {
 	t.Parallel()
 	useTrueColor(t)

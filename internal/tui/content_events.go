@@ -214,6 +214,7 @@ type delegationDisplayState struct {
 	promptTokens       int
 	contextWindow      int
 	contextFillPct     float64 // last known context window occupancy %, 0 if unknown
+	compactionCount    int     // cumulative child compactions this run; sub-agent boxes only
 	outputTPS          float64 // latest per-turn output tokens/sec, 0 if unknown
 	// failure field
 	errMsg        string
