@@ -105,16 +105,11 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case modelEntriesUpdatedMsg:
 		return m.handleModelEntriesUpdatedMsg(msg)
 	case gitRefreshDoneMsg:
-		m.syncSidebar()
-		return m, nil
+		return m.handleGitRefreshDoneMsg()
 	case clipboardFailedMsg:
-		m.appendError(msg.err)
-		m.syncViewport()
-		return m, nil
+		return m.handleClipboardFailedMsg(msg)
 	case controllerHandleFailedMsg:
-		m.appendError(msg.err)
-		m.syncViewport()
-		return m, nil
+		return m.handleControllerHandleFailedMsg(msg)
 	case modelReasoningResolvedMsg:
 		return m.handleModelReasoningResolvedMsg(msg)
 	case quotaUpdateMsg:
@@ -132,11 +127,9 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clipboardImageMsg:
 		return m.handleClipboardImageMsg(msg)
 	case phaseTransitionFailedMsg:
-		m.content.AppendLine(fmt.Sprintf("status: phase transition failed: %v", msg.err))
-		return m, nil
+		return m.handlePhaseTransitionFailedMsg(msg)
 	case sidebarHoverMsg:
-		m.sidebar.rosterHover = msg.agentID
-		return m, nil
+		return m.handleSidebarHoverMsg(msg)
 	case jumpFlashTickMsg:
 		return m.handleJumpFlashTick(msg)
 	case mouseClickMsg, mouseMotionMsg, mouseReleaseMsg, mouseWheelMsg, dragAutoScrollTickMsg:
@@ -153,6 +146,33 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+func (m *Model) handleGitRefreshDoneMsg() (tea.Model, tea.Cmd) {
+	m.syncSidebar()
+	return m, nil
+}
+
+func (m *Model) handleClipboardFailedMsg(msg clipboardFailedMsg) (tea.Model, tea.Cmd) {
+	m.appendError(msg.err)
+	m.syncViewport()
+	return m, nil
+}
+
+func (m *Model) handleControllerHandleFailedMsg(msg controllerHandleFailedMsg) (tea.Model, tea.Cmd) {
+	m.appendError(msg.err)
+	m.syncViewport()
+	return m, nil
+}
+
+func (m *Model) handlePhaseTransitionFailedMsg(msg phaseTransitionFailedMsg) (tea.Model, tea.Cmd) {
+	m.content.AppendLine(fmt.Sprintf("status: phase transition failed: %v", msg.err))
+	return m, nil
+}
+
+func (m *Model) handleSidebarHoverMsg(msg sidebarHoverMsg) (tea.Model, tea.Cmd) {
+	m.sidebar.rosterHover = msg.agentID
+	return m, nil
 }
 
 func (m *Model) handleModelEntriesUpdatedMsg(msg modelEntriesUpdatedMsg) (tea.Model, tea.Cmd) {
