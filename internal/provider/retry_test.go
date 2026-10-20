@@ -246,7 +246,7 @@ func TestWithRetryContextCancellation(t *testing.T) {
 			RetryConfig{Enabled: true, MaxAttempts: 3, InitialBackoff: 10 * time.Millisecond},
 			nil,
 		)
-		classifyLongRetryAfter := func(err error) retryDecision {
+		classifyLongRetryAfter := func(_ error) retryDecision {
 			return retryDecision{retry: true, reason: "transient", retryAfter: time.Hour}
 		}
 
