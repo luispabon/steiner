@@ -8,6 +8,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
 const popularityFilename = "model-popularity.json"
@@ -151,6 +153,8 @@ func writeEntries(path string, entries map[Key]popularityEntry) error {
 		return fmt.Errorf("marshal popularity store: %w", err)
 	}
 
-	dir := filepath.Dir(path)
-	return atomicWriteFile(dir, ".tmp-model-popularity-*", path, "popularity", data)
+	if err := fsatomic.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write popularity store: %w", err)
+	}
+	return nil
 }
