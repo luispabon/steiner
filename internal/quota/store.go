@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 	"time"
+
+	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
 const (
@@ -96,7 +98,7 @@ func (s *Store) Append(snap Snapshot, now time.Time) error {
 			kept = append(kept, old)
 		}
 	}
-	return s.write(dir, append(kept, snap))
+	return s.write(append(kept, snap))
 }
 
 // Latest returns the newest stored snapshot for each account key.
@@ -140,28 +142,13 @@ func (s *Store) readAll() ([]Snapshot, error) {
 }
 
 // write replaces the store file with snaps through a temp file and rename.
-func (s *Store) write(dir string, snaps []Snapshot) error {
+func (s *Store) write(snaps []Snapshot) error {
 	data, err := json.Marshal(storeFile{Version: storeVersion, Snapshots: snaps})
 	if err != nil {
 		return fmt.Errorf("marshal quota store: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".tmp-quota-history-*")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("write temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("close temp file: %w", err)
-	}
-	if err := os.Rename(tmpName, s.path); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("rename quota store: %w", err)
+	if err := fsatomic.WriteFile(s.path, data, 0o600); err != nil {
+		return fmt.Errorf("write quota store: %w", err)
 	}
 	return nil
 }
