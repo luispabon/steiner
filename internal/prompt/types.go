@@ -35,6 +35,9 @@ const (
 )
 
 // IsSystemZone reports whether the source belongs to the system prompt zone.
+// It is the canonical role classification: system-zone sources render as system
+// messages and every other source, including unknown sources, renders as a user
+// message. Update it when a source changes role.
 func (s ContextSource) IsSystemZone() bool {
 	switch s {
 	case ContextSourcePreamble, ContextSourcePhasePrompt, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD, ContextSourceConversationSummary:

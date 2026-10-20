@@ -7,17 +7,37 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func TestBlockMessageDurableContextUsesUserRole(t *testing.T) {
+func TestBlockMessageRoleBySource(t *testing.T) {
 	t.Parallel()
 
-	message := blockMessage(ContextBlock{
-		Source:  ContextSourceDurableContext,
-		Path:    "retained context state",
-		Content: `{"kind":"durable_context","content":"focus"}`,
-	})
+	tests := []struct {
+		name   string
+		source ContextSource
+		want   provider.MessageRole
+	}{
+		{name: "preamble", source: ContextSourcePreamble, want: provider.MessageRoleSystem},
+		{name: "phase prompt", source: ContextSourcePhasePrompt, want: provider.MessageRoleSystem},
+		{name: "global agents", source: ContextSourceGlobalAgentsMD, want: provider.MessageRoleSystem},
+		{name: "project agents", source: ContextSourceProjectAgentsMD, want: provider.MessageRoleSystem},
+		{name: "conversation summary", source: ContextSourceConversationSummary, want: provider.MessageRoleSystem},
+		{name: "project context", source: ContextSourceProjectContext, want: provider.MessageRoleUser},
+		{name: "skill", source: ContextSourceSkill, want: provider.MessageRoleUser},
+		{name: "durable context", source: ContextSourceDurableContext, want: provider.MessageRoleUser},
+		{name: "conversation", source: ContextSourceConversation, want: provider.MessageRoleUser},
+		{name: "session date", source: ContextSourceSessionDate, want: provider.MessageRoleUser},
+		{name: "unknown source", source: ContextSource("unknown"), want: provider.MessageRoleUser},
+	}
 
-	if got, want := message.Role, provider.MessageRoleUser; got != want {
-		t.Fatalf("role = %q, want %q", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			message := blockMessage(ContextBlock{Source: tt.source, Content: "content"})
+
+			if got := message.Role; got != tt.want {
+				t.Fatalf("role = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
