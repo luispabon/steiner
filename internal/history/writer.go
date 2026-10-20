@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
 // maxEntries is the number of most recent prompts retained on disk.
@@ -136,36 +138,9 @@ func (w *Writer) trim() error {
 	}
 	lines = lines[len(lines)-maxEntries:]
 
-	dir := filepath.Dir(w.path)
-	tmp, err := os.CreateTemp(dir, filepath.Base(w.path)+".*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp history file: %w", err)
-	}
-	tmpName := tmp.Name()
-
-	for _, line := range lines {
-		if _, err := tmp.WriteString(line + "\n"); err != nil {
-			_ = tmp.Close()    //nolint:errcheck // best-effort close on write failure
-			os.Remove(tmpName) //nolint:errcheck
-			return fmt.Errorf("write temp history file: %w", err)
-		}
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()    //nolint:errcheck // best-effort close on sync failure
-		os.Remove(tmpName) //nolint:errcheck
-		return fmt.Errorf("sync temp history file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName) //nolint:errcheck
-		return fmt.Errorf("close temp history file: %w", err)
-	}
-	if err := os.Chmod(tmpName, 0o600); err != nil {
-		os.Remove(tmpName) //nolint:errcheck
-		return fmt.Errorf("chmod temp history file: %w", err)
-	}
-	if err := os.Rename(tmpName, w.path); err != nil {
-		os.Remove(tmpName) //nolint:errcheck
-		return fmt.Errorf("rename temp history file: %w", err)
+	out := []byte(strings.Join(lines, "\n") + "\n")
+	if err := fsatomic.WriteFile(w.path, out, 0o600); err != nil {
+		return fmt.Errorf("write history file: %w", err)
 	}
 	return nil
 }
