@@ -58,7 +58,7 @@ Compact canonical reference for safe configuration edits.
 | `models.definitions.<alias>.advanced.reasoning.effort`|string|—|Native effort. |
 | `models.definitions.<alias>.advanced.reasoning.supported_efforts`|[]string|—|Native efforts for validation/selection. |
 | `models.definitions.<alias>.vision`|bool or null|null|Null assumes vision; false removes images. |
-| `models.profiles.<profile>.default_model`|string|default: `default`|Model and role fallback; required for default profile. |
+| `models.profiles.<profile>.default_model`|string|default: `default`|Model and role fallback; required in every profile; profiles do not inherit from `default`. |
 | `models.profiles.<profile>.advisor`|string|—|Advisor model. |
 | `models.profiles.<profile>.sub_agents.<key>`|string|—|Model by `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision`. |
 | `models.profiles.<profile>.oneshot.<key>`|string|—|Model by `plan`, `implement`, or `review`; missing uses profile default. |
