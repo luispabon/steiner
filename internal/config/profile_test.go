@@ -75,107 +75,114 @@ func TestResolveProfileRequiresBaseline(t *testing.T) {
 	profile := cfg.Models.Profiles["default"]
 	profile.DefaultModel = ""
 	cfg.Models.Profiles["default"] = profile
-	if _, err := ResolveProfile(&cfg, "default"); err == nil || !strings.Contains(err.Error(), "default_model") {
+	if _, err := ResolveProfile(&cfg, "default"); err == nil || !strings.Contains(err.Error(), "models.profiles.default.default_model") {
 		t.Fatalf("empty baseline error = %v", err)
 	}
 }
 
-func TestResolveEffectiveAssignmentsNamedProfileOverlay(t *testing.T) {
+func TestResolveProfileRequiresDefaultModelOnNamedProfile(t *testing.T) {
 	tests := []struct {
-		name          string
-		yaml          string
-		wantDefault   string
-		wantAdvisor   string
-		wantSubAgents map[string]string
+		name    string
+		profile ModelProfile
 	}{
-		{
-			name: "omitted advisor inherits baseline",
-			yaml: `models:
-  profiles:
-    overlay:
-      default_model: fast
-      sub_agents:
-        code: fast
-        explore: ""
-`,
-			wantDefault:   "fast",
-			wantAdvisor:   "base",
-			wantSubAgents: map[string]string{"code": "fast", "explore": ""},
-		},
-		{
-			name: "explicit empty advisor clears baseline",
-			yaml: `models:
-  profiles:
-    overlay:
-      default_model: fast
-      advisor: ""
-      sub_agents:
-        code: fast
-        explore: ""
-`,
-			wantDefault:   "fast",
-			wantAdvisor:   "",
-			wantSubAgents: map[string]string{"code": "fast", "explore": ""},
-		},
-		{
-			name: "empty default model inherits baseline",
-			yaml: `models:
-  profiles:
-    overlay:
-      default_model: ""
-      sub_agents:
-        code: fast
-        explore: ""
-`,
-			wantDefault:   "base",
-			wantAdvisor:   "base",
-			wantSubAgents: map[string]string{"code": "fast", "explore": ""},
-		},
+		{name: "omitted", profile: ModelProfile{Advisor: "base", SubAgents: map[string]string{"code": "base"}}},
+		{name: "empty", profile: ModelProfile{DefaultModel: ""}},
+		{name: "whitespace", profile: ModelProfile{DefaultModel: " \t "}},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := testProfileConfig()
-			patch, err := parseConfigPatch(tt.yaml)
-			if err != nil {
-				t.Fatal(err)
+			cfg.Models.Profiles["solo"] = tt.profile
+			if _, err := ResolveProfile(&cfg, "solo"); err == nil || !strings.Contains(err.Error(), "models.profiles.solo.default_model is required") {
+				t.Fatalf("ResolveProfile() error = %v, want default_model required", err)
 			}
-			applyModelsPatch(&cfg, patch.Models)
-
-			got, err := ResolveEffectiveAssignments(&cfg, "overlay")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got.DefaultModel != tt.wantDefault || got.ActiveOrchestratorModel != tt.wantDefault {
-				t.Fatalf("default model = %q, active orchestrator = %q, want %q", got.DefaultModel, got.ActiveOrchestratorModel, tt.wantDefault)
-			}
-			if got.Advisor != tt.wantAdvisor {
-				t.Fatalf("advisor = %q, want %q", got.Advisor, tt.wantAdvisor)
-			}
-			if !reflect.DeepEqual(got.SubAgents, tt.wantSubAgents) {
-				t.Fatalf("sub_agents = %#v, want %#v", got.SubAgents, tt.wantSubAgents)
-			}
-
-			got.SubAgents["code"] = "mutated"
-			baseline, err := ResolveEffectiveAssignments(&cfg, "default")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if baseline.DefaultModel != "base" || baseline.Advisor != "base" || baseline.SubAgents["code"] != "base" || baseline.SubAgents["explore"] != "base" {
-				t.Fatalf("baseline changed after named selection: %#v", baseline)
-			}
-			other, err := ResolveEffectiveAssignments(&cfg, "fast")
-			if err != nil {
-				t.Fatal(err)
-			}
-			selectedProfile := cfg.Models.Profiles["overlay"]
-			if selectedProfile.SubAgents["code"] != "fast" || selectedProfile.SubAgents["explore"] != "" {
-				t.Fatalf("named profile changed after resolution: %#v", selectedProfile.SubAgents)
-			}
-			if other.DefaultModel != "fast" || other.Advisor != "base" || other.SubAgents["code"] != "fast" || other.SubAgents["explore"] != "" {
-				t.Fatalf("prior selection leaked into another profile: %#v", other)
+			if _, err := ResolveEffectiveAssignments(&cfg, "solo"); err == nil || !strings.Contains(err.Error(), "models.profiles.solo.default_model is required") {
+				t.Fatalf("ResolveEffectiveAssignments() error = %v, want default_model required", err)
 			}
 		})
+	}
+}
+
+func TestValidateProfilesRequireDefaultModelOnEveryProfile(t *testing.T) {
+	cfg := testProfileConfig()
+	cfg.Models.Profiles["zeta"] = ModelProfile{SubAgents: map[string]string{"code": "base"}}
+	cfg.Models.Profiles["alpha"] = ModelProfile{DefaultModel: "  "}
+
+	var problems []string
+	validateProfilesConfig(&problems, cfg)
+	var got []string
+	for _, problem := range problems {
+		if strings.Contains(problem, "default_model is required") {
+			got = append(got, problem)
+		}
+	}
+	want := []string{
+		"models.profiles.alpha.default_model is required",
+		"models.profiles.zeta.default_model is required",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("default_model problems = %q, want %q", got, want)
+	}
+}
+
+func TestResolveEffectiveAssignmentsNamedProfileIsIsolated(t *testing.T) {
+	cfg := testProfileConfig()
+	base := cfg.Models.Profiles["default"]
+	base.OneShot = map[string]string{"plan": "base"}
+	base.WorkflowHandoff = map[string]string{"implement": "base"}
+	cfg.Models.Profiles["default"] = base
+	cfg.Models.Profiles["solo"] = ModelProfile{DefaultModel: "fast"}
+
+	got, err := ResolveEffectiveAssignments(&cfg, "solo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DefaultModel != "fast" || got.ActiveOrchestratorModel != "fast" {
+		t.Fatalf("default model = %q, active orchestrator = %q, want fast", got.DefaultModel, got.ActiveOrchestratorModel)
+	}
+	if got.Advisor != "" || len(got.SubAgents) != 0 || len(got.OneShot) != 0 || len(got.WorkflowHandoff) != 0 {
+		t.Fatalf("named profile inherited roles from default: %#v", got)
+	}
+}
+
+func TestResolveProfileReturnsIndependentMaps(t *testing.T) {
+	cfg := testProfileConfig()
+	got, err := ResolveProfile(&cfg, "fast")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got.SubAgents["code"] = "mutated"
+	if cfg.Models.Profiles["fast"].SubAgents["code"] != "fast" {
+		t.Fatalf("resolved sub_agents alias config: %#v", cfg.Models.Profiles["fast"].SubAgents)
+	}
+
+	cfg.Models.Profiles["fast"].SubAgents["explore"] = "changed"
+	if got.SubAgents["explore"] != "" {
+		t.Fatalf("config mutation leaked into resolved sub_agents: %#v", got.SubAgents)
+	}
+}
+
+func TestResolveProfileSwitchingDoesNotLeakRoles(t *testing.T) {
+	cfg := testProfileConfig()
+	steps := []struct {
+		name        string
+		wantProfile string
+		wantModel   string
+		wantCode    string
+	}{
+		{name: "fast", wantProfile: "fast", wantModel: "fast", wantCode: "fast"},
+		{name: "default", wantProfile: "default", wantModel: "base", wantCode: "base"},
+		{name: "fast", wantProfile: "fast", wantModel: "fast", wantCode: "fast"},
+		{name: "", wantProfile: "default", wantModel: "base", wantCode: "base"},
+	}
+	for _, step := range steps {
+		got, err := ResolveEffectiveAssignments(&cfg, step.name)
+		if err != nil {
+			t.Fatalf("ResolveEffectiveAssignments(%q) error = %v", step.name, err)
+		}
+		if got.ProfileName != step.wantProfile || got.DefaultModel != step.wantModel || got.SubAgents["code"] != step.wantCode {
+			t.Fatalf("ResolveEffectiveAssignments(%q) = %#v, want profile %q model %q code %q", step.name, got, step.wantProfile, step.wantModel, step.wantCode)
+		}
 	}
 }
 

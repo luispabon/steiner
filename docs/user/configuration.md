@@ -332,21 +332,24 @@ Codex-specific configuration. Applies only when `type: codex`.
 ## `models` block
 
 Consolidates all model configuration: the shared model definition registry and
-named execution profiles. The `default` profile is required and is the complete
-baseline. Other profiles are partial overlays: omitted fields and map entries
-inherit from `models.profiles.default` when selected.
+named execution profiles. The `default` profile is required. Every profile is
+independent and must define `default_model`; named profiles do not inherit from
+`models.profiles.default`. A named profile without `default_model` fails config
+load. Within a profile, omitted role assignments (`advisor`, `sub_agents` entries,
+`oneshot` phases, and `workflow_handoff` destinations) fall back to that profile's
+`default_model`. Config files still merge by profile name.
 
 | Field               | Type                    | Default   | Description                                                                                                                                                               |
 | ------------------- | ----------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `definitions`       | map[string]ModelConfig  | empty     | Shared named model definitions. Each entry binds a provider to a specific model ID and sets request-level parameters.                                                     |
 | `discovery_enabled` | bool                    | `true`    | When `true`, discover available models from configured providers. When `false`, skip provider enumeration and network refresh; the chooser shows configured entries only. |
-| `profiles`          | map[string]ModelProfile | see below | Named model-assignment profiles. `profiles.default` is required and must define `default_model`; named profiles may override any role partially.                          |
+| `profiles`          | map[string]ModelProfile | see below | Named model-assignment profiles. `profiles.default` is required; every profile must define `default_model`, and named profiles do not inherit from `default`.             |
 
 Each profile supports these fields:
 
 | Field              | Type              | Description                                                                                                                                                              |
 | ------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `default_model`    | string            | Raw `provider/model-id` reference used by default, or an optional configured alias. It is also the fallback for roles without a more specific assignment. Required in `profiles.default`. |
+| `default_model`    | string            | Raw `provider/model-id` reference used by default, or an optional configured alias. It is also the fallback for roles without a more specific assignment in the same profile. Required in every profile. |
 | `advisor`          | string            | Model reference used for advisor calls when `advisor.enabled` is `true`.                                                                                                 |
 | `sub_agents`       | map[string]string | Per-agent-type model references, keyed by agent type.                                                                                                                    |
 | `oneshot`          | map[string]string | Per-phase model references, keyed by `plan`, `implement`, and `review`. Missing phases fall back to the selected profile's `default_model`.                              |

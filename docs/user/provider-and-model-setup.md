@@ -262,7 +262,7 @@ Here `careful` is useful because it persists the reasoning setting. Without that
 
 ## Profiles and selection precedence
 
-The `default` profile must define `default_model`. Named profiles are overlays on that profile. A local-only profile should clear inherited role assignments explicitly when needed:
+Every profile must define `default_model`, including named profiles. Profiles are independent: a named profile does not inherit from `default`, and any role it omits falls back to its own `default_model`. A named profile without `default_model` fails config load. For example:
 
 ```yaml
 models:
@@ -273,9 +273,9 @@ models:
         code: openrouter/openai/gpt-4o
     local-only:
       default_model: ollama/qwen2.5-coder:14b
-      sub_agents:
-        code: ""
 ```
+
+`local-only` has no `sub_agents.code` entry, so its `code` sub-agents use `ollama/qwen2.5-coder:14b`, not the OpenRouter model from `default`.
 
 Select a profile at startup with `--profile local-only`.
 

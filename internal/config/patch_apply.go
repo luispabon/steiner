@@ -67,19 +67,15 @@ func applyProfilePatch(dst *ModelProfile, patch *profilePatch) {
 	}
 	if patch.Advisor != nil {
 		dst.Advisor = *patch.Advisor
-		dst.advisorSet = true
 	}
 	if patch.SubAgents != nil {
 		mergeStringMapPatch(&dst.SubAgents, *patch.SubAgents)
-		dst.subAgentsSet = true
 	}
 	if patch.OneShot != nil {
 		mergeStringMapPatch(&dst.OneShot, *patch.OneShot)
-		dst.oneShotSet = true
 	}
 	if patch.WorkflowHandoff != nil {
 		mergeStringMapPatch(&dst.WorkflowHandoff, *patch.WorkflowHandoff)
-		dst.workflowHandoffSet = true
 	}
 }
 

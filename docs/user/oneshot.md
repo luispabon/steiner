@@ -25,7 +25,7 @@ steiner oneshot --list
 
 ## Configuration
 
-The `oneshot` config block controls PR closeout behavior. Per-phase model assignments live in the selected profile's `oneshot` map. Use raw `provider/model-id` references by default. Use an alias only when it supplies a stable name or persistent `ModelConfig` settings. `models.profiles.default` is required, and named profiles are partial overlays:
+The `oneshot` config block controls PR closeout behavior. Per-phase model assignments live in the selected profile's `oneshot` map. Use raw `provider/model-id` references by default. Use an alias only when it supplies a stable name or persistent `ModelConfig` settings. `models.profiles.default` is required. Every profile must define `default_model`, and named profiles do not inherit from `default`:
 
 ```yaml
 providers:

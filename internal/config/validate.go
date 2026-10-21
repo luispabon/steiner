@@ -38,13 +38,8 @@ func validate(cfg Config, projectRoot string) error {
 }
 
 func validateProfilesConfig(problems *[]string, cfg Config) {
-	baseline, ok := cfg.Models.Profiles["default"]
-	if !ok {
+	if _, ok := cfg.Models.Profiles["default"]; !ok {
 		*problems = append(*problems, "models.profiles.default is required")
-		return
-	}
-	if strings.TrimSpace(baseline.DefaultModel) == "" {
-		*problems = append(*problems, "models.profiles.default.default_model is required")
 		return
 	}
 
@@ -54,13 +49,13 @@ func validateProfilesConfig(problems *[]string, cfg Config) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		effective, err := ResolveEffectiveAssignments(&cfg, name)
-		if err != nil {
-			*problems = append(*problems, err.Error())
+		if strings.TrimSpace(cfg.Models.Profiles[name].DefaultModel) == "" {
+			*problems = append(*problems, fmt.Sprintf("models.profiles.%s.default_model is required", name))
 			continue
 		}
-		prefix := fmt.Sprintf("models.profiles[%q]", name)
-		validateProfileReferences(problems, prefix, effective, cfg)
+		if _, err := ResolveEffectiveAssignments(&cfg, name); err != nil {
+			*problems = append(*problems, err.Error())
+		}
 	}
 
 	_, err := ResolveEffectiveAssignments(&cfg, "default")
@@ -68,18 +63,6 @@ func validateProfilesConfig(problems *[]string, cfg Config) {
 		validateSubAgentConfig(problems, cfg.SubAgent)
 		validateAdvisorConfig(problems, cfg.Advisor)
 	}
-}
-
-func validateProfileReferences(problems *[]string, prefix string, profile EffectiveModelAssignments, cfg Config) {
-	if !IsValidModelReference(&cfg, profile.DefaultModel) {
-		*problems = append(*problems, fmt.Sprintf("%s.default_model %q is not defined in models.definitions or providers", prefix, profile.DefaultModel))
-	}
-	if profile.Advisor != "" && !IsValidModelReference(&cfg, profile.Advisor) {
-		*problems = append(*problems, fmt.Sprintf("%s.advisor %q is not defined in models.definitions or providers", prefix, profile.Advisor))
-	}
-	validateModelReferenceMap(problems, prefix+".sub_agents", "agent type", profile.SubAgents, validAgentTypes, cfg)
-	validateModelReferenceMap(problems, prefix+".oneshot", "phase", profile.OneShot, validOneShotPhases, cfg)
-	validateModelReferenceMap(problems, prefix+".workflow_handoff", "destination", profile.WorkflowHandoff, validWorkflowHandoffDestinations, cfg)
 }
 
 var validWorkflowHandoffDestinations = map[string]bool{
