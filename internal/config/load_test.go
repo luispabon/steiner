@@ -265,22 +265,17 @@ func TestLoadResolvesNamedProfileAndCopiesAssignments(t *testing.T) {
 	if effective.ProfileName != "fast" || effective.DefaultModel != "fast" || effective.ActiveOrchestratorModel != "fast" {
 		t.Fatalf("effective assignments = %#v", effective)
 	}
-	if effective.Advisor != "default" || effective.SubAgents["code"] != "fast" || effective.SubAgents["explore"] != "default" {
-		t.Fatalf("effective role assignments = %#v", effective)
+	if effective.Advisor != "" || len(effective.SubAgents) != 1 || effective.SubAgents["code"] != "fast" {
+		t.Fatalf("named profile inherited role assignments: %#v", effective)
 	}
-	if effective.OneShot["plan"] != "default" || effective.WorkflowHandoff["review"] != "default" {
-		t.Fatalf("effective action assignments = %#v", effective)
+	if len(effective.OneShot) != 0 || len(effective.WorkflowHandoff) != 0 {
+		t.Fatalf("named profile inherited oneshot or workflow_handoff assignments: %#v", effective)
 	}
 
 	effective.SubAgents["code"] = "changed"
-	effective.OneShot["plan"] = "changed"
-	effective.WorkflowHandoff["review"] = "changed"
 	profile := cfg.Models.Profiles["fast"]
 	if profile.DefaultModel != "fast" || profile.SubAgents["code"] != "fast" {
 		t.Fatalf("canonical selected profile changed: %#v", profile)
-	}
-	if profile.OneShot != nil || profile.WorkflowHandoff != nil {
-		t.Fatalf("canonical inherited assignments changed: %#v", profile)
 	}
 	baseline := cfg.Models.Profiles["default"]
 	if baseline.OneShot["plan"] != "default" || baseline.WorkflowHandoff["review"] != "default" {

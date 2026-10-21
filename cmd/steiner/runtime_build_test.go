@@ -1151,8 +1151,8 @@ models:
 			if got := cfg.Models.Effective.DefaultModel; got != "fast" {
 				t.Fatalf("effective default model = %q, want fast", got)
 			}
-			if got := cfg.Models.Effective.SubAgents["code"]; got != "base" {
-				t.Fatalf("effective code model = %q, want inherited base", got)
+			if got, ok := cfg.Models.Effective.SubAgents["code"]; ok {
+				t.Fatalf("effective code model = %q, want no inherited sub_agents entry from default", got)
 			}
 		})
 	}

@@ -38,13 +38,8 @@ func validate(cfg Config, projectRoot string) error {
 }
 
 func validateProfilesConfig(problems *[]string, cfg Config) {
-	baseline, ok := cfg.Models.Profiles["default"]
-	if !ok {
+	if _, ok := cfg.Models.Profiles["default"]; !ok {
 		*problems = append(*problems, "models.profiles.default is required")
-		return
-	}
-	if strings.TrimSpace(baseline.DefaultModel) == "" {
-		*problems = append(*problems, "models.profiles.default.default_model is required")
 		return
 	}
 
@@ -54,6 +49,10 @@ func validateProfilesConfig(problems *[]string, cfg Config) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
+		if strings.TrimSpace(cfg.Models.Profiles[name].DefaultModel) == "" {
+			*problems = append(*problems, fmt.Sprintf("models.profiles.%s.default_model is required", name))
+			continue
+		}
 		effective, err := ResolveEffectiveAssignments(&cfg, name)
 		if err != nil {
 			*problems = append(*problems, err.Error())

@@ -290,20 +290,16 @@ type TUIConfig struct {
 	QuotaRefreshInterval Duration `yaml:"quota_refresh_interval"`
 }
 
-// ModelProfile contains model assignments for one execution profile. Named
-// profiles may provide partial assignments; omitted assignments inherit from the
-// default profile when resolved.
+// ModelProfile contains model assignments for one execution profile. Profiles
+// are independent: each must set default_model, and omitted role assignments
+// fall back to that profile's own default_model. Profiles never inherit from
+// one another.
 type ModelProfile struct {
 	DefaultModel    string            `yaml:"default_model"`
 	Advisor         string            `yaml:"advisor"`
 	SubAgents       map[string]string `yaml:"sub_agents"`
 	OneShot         map[string]string `yaml:"oneshot"`
 	WorkflowHandoff map[string]string `yaml:"workflow_handoff"`
-
-	advisorSet         bool
-	subAgentsSet       bool
-	oneShotSet         bool
-	workflowHandoffSet bool
 }
 
 // EffectiveModelAssignments contains resolved assignments for one profile.

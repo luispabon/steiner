@@ -22,18 +22,16 @@ func copyStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
-// ResolveProfile returns effective assignments for name. Named profiles overlay
-// the immutable default profile only. An empty name selects default.
+// ResolveProfile returns a copy of the selected profile. Profiles are
+// independent: a named profile never inherits assignments from default, so
+// omitted roles fall back to that profile's own default_model when used. An
+// empty name selects default.
 func ResolveProfile(cfg *Config, name string) (ModelProfile, error) {
 	if cfg == nil {
 		return ModelProfile{}, fmt.Errorf("resolve profile: config is nil")
 	}
-	baseline, ok := cfg.Models.Profiles["default"]
-	if !ok {
+	if _, ok := cfg.Models.Profiles["default"]; !ok {
 		return ModelProfile{}, fmt.Errorf("resolve profile %q: models.profiles.default is required", name)
-	}
-	if strings.TrimSpace(baseline.DefaultModel) == "" {
-		return ModelProfile{}, fmt.Errorf("resolve profile %q: models.profiles.default.default_model is required", name)
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -43,15 +41,10 @@ func ResolveProfile(cfg *Config, name string) (ModelProfile, error) {
 	if !ok {
 		return ModelProfile{}, fmt.Errorf("resolve profile %q: profile is not defined", name)
 	}
-	if name == "default" {
-		effective := cloneProfile(baseline)
-		if err := validateResolvedProfile(cfg, name, effective); err != nil {
-			return ModelProfile{}, err
-		}
-		return effective, nil
+	if strings.TrimSpace(selected.DefaultModel) == "" {
+		return ModelProfile{}, fmt.Errorf("resolve profile %q: models.profiles.%s.default_model is required", name, name)
 	}
-
-	effective := overlayProfile(baseline, selected)
+	effective := cloneProfile(selected)
 	if err := validateResolvedProfile(cfg, name, effective); err != nil {
 		return ModelProfile{}, err
 	}
@@ -74,26 +67,6 @@ func validateResolvedProfile(cfg *Config, name string, profile ModelProfile) err
 		return fmt.Errorf("resolve profile %q: %s", name, strings.Join(problems, "; "))
 	}
 	return nil
-}
-
-func overlayProfile(baseline, selected ModelProfile) ModelProfile {
-	effective := cloneProfile(baseline)
-	if selected.DefaultModel != "" {
-		effective.DefaultModel = selected.DefaultModel
-	}
-	if selected.advisorSet || selected.Advisor != "" {
-		effective.Advisor = selected.Advisor
-	}
-	if selected.subAgentsSet || selected.SubAgents != nil {
-		mergeStringMapPatch(&effective.SubAgents, selected.SubAgents)
-	}
-	if selected.oneShotSet || selected.OneShot != nil {
-		mergeStringMapPatch(&effective.OneShot, selected.OneShot)
-	}
-	if selected.workflowHandoffSet || selected.WorkflowHandoff != nil {
-		mergeStringMapPatch(&effective.WorkflowHandoff, selected.WorkflowHandoff)
-	}
-	return effective
 }
 
 // ResolveEffectiveAssignments resolves all assignments for one selected profile.

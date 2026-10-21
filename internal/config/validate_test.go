@@ -969,7 +969,7 @@ func TestValidateAdvisorConfig(t *testing.T) {
 			name: "enabled advisor allows empty assignment in named profile",
 			mutate: func(c *Config) {
 				c.Advisor = AdvisorConfig{Enabled: true, MaxUsesPerRun: 1, MaxUsesPerSubAgent: 1}
-				c.Models.Profiles["named"] = ModelProfile{DefaultModel: "default", advisorSet: true}
+				c.Models.Profiles["named"] = ModelProfile{DefaultModel: "default"}
 			},
 		},
 		{
