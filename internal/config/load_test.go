@@ -362,6 +362,33 @@ func TestLoadRejectsWhitespaceOnlyProfile(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsNamedProfileWithoutDefaultModel(t *testing.T) {
+	tests := []struct {
+		name     string
+		fastBody string
+	}{
+		{name: "missing", fastBody: "      sub_agents:\n        code: default\n"},
+		{name: "whitespace only", fastBody: "      default_model: \"   \"\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loadProfileTestConfigResult(t, `models:
+  definitions:
+    default:
+      provider: local
+      id: base
+  profiles:
+    default:
+      default_model: default
+    fast:
+`+tt.fastBody, CLIOverrides{}, nil)
+			if err == nil || !strings.Contains(err.Error(), "models.profiles.fast.default_model is required") {
+				t.Fatalf("Load() error = %v, want models.profiles.fast.default_model is required", err)
+			}
+		})
+	}
+}
+
 func loadProfileTestConfig(t *testing.T, contents string, args ...any) Config {
 	t.Helper()
 	var cli CLIOverrides

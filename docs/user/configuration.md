@@ -343,7 +343,7 @@ load. Within a profile, omitted role assignments (`advisor`, `sub_agents` entrie
 | ------------------- | ----------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `definitions`       | map[string]ModelConfig  | empty     | Shared named model definitions. Each entry binds a provider to a specific model ID and sets request-level parameters.                                                     |
 | `discovery_enabled` | bool                    | `true`    | When `true`, discover available models from configured providers. When `false`, skip provider enumeration and network refresh; the chooser shows configured entries only. |
-| `profiles`          | map[string]ModelProfile | see below | Named model-assignment profiles. `profiles.default` is required; every profile must define `default_model`, and named profiles do not inherit from `default`.                          |
+| `profiles`          | map[string]ModelProfile | see below | Named model-assignment profiles. `profiles.default` is required; every profile must define `default_model`, and named profiles do not inherit from `default`.             |
 
 Each profile supports these fields:
 
