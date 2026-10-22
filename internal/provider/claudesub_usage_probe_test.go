@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -84,15 +85,17 @@ func claudeSubUsageProbeTurnPool(t *testing.T, key string, live *claudeSubScript
 func TestClaudeSubUsageProbeOutcome(t *testing.T) {
 	liveNotReady := claudeSubUsageNotReady("extra_usage missing")
 	liveTransport := errors.New("claude CLI get_usage: usage unavailable")
+	spawnErr := errors.New("spawn failed")
 	tests := []struct {
 		name     string
 		liveErr  error
 		probeErr error
 		wantPass bool // the outcome authorizes the turn
 		wantIs   error
-		wantLive bool // the live error comes back unchanged
+		wantLive bool // the outcome keeps the live refusal's message and chain
 	}{
 		{name: "fresh confirmation passes", liveErr: liveNotReady, wantPass: true},
+		{name: "no live refusal never authorizes", probeErr: spawnErr, wantIs: spawnErr},
 		{name: "fresh state still unconfirmed keeps the live refusal", liveErr: liveNotReady, probeErr: claudeSubUsageNotReady("rate_limits_available=false"), wantIs: errClaudeSubUsageNotReady, wantLive: true},
 		{name: "fresh transport failure keeps the live refusal", liveErr: liveNotReady, probeErr: errors.New("start claude CLI: boom"), wantIs: errClaudeSubUsageNotReady, wantLive: true},
 		{name: "live transport failure with a fresh refusal stays unchanged", liveErr: liveTransport, probeErr: claudeSubUsageNotReady("extra_usage missing"), wantLive: true},
@@ -116,10 +119,35 @@ func TestClaudeSubUsageProbeOutcome(t *testing.T) {
 			if tc.wantIs != nil && !errors.Is(got, tc.wantIs) {
 				t.Errorf("claudeSubUsageProbeOutcome() = %v, want %v", got, tc.wantIs)
 			}
-			if tc.wantLive && got != tc.liveErr {
-				t.Errorf("claudeSubUsageProbeOutcome() = %v, want the live error unchanged", got)
+			if tc.wantLive {
+				if got.Error() != tc.liveErr.Error() {
+					t.Errorf("claudeSubUsageProbeOutcome() message = %q, want the live refusal %q", got.Error(), tc.liveErr.Error())
+				}
+				if !errors.Is(got, tc.liveErr) {
+					t.Errorf("claudeSubUsageProbeOutcome() chain does not carry the live error %v", tc.liveErr)
+				}
 			}
 		})
+	}
+}
+
+// TestClaudeSubUsageProbeOutcomeCarriesProbeCause proves the fail-closed refusal
+// keeps the live message while its chain carries why the confirmation failed.
+func TestClaudeSubUsageProbeOutcomeCarriesProbeCause(t *testing.T) {
+	liveErr := claudeSubUsageNotReady("extra_usage missing")
+	probeErr := errors.New("start claude CLI: spawn failed")
+	got := claudeSubUsageProbeOutcome(liveErr, probeErr)
+	if got == nil {
+		t.Fatal("claudeSubUsageProbeOutcome() = nil, want a fail-closed refusal")
+	}
+	if got.Error() != liveErr.Error() {
+		t.Errorf("outcome message = %q, want the live refusal %q", got.Error(), liveErr.Error())
+	}
+	if !errors.Is(got, probeErr) {
+		t.Errorf("outcome %v does not carry the probe error", got)
+	}
+	if !errors.Is(got, errClaudeSubUsageNotReady) {
+		t.Errorf("outcome %v does not wrap errClaudeSubUsageNotReady", got)
 	}
 }
 
@@ -136,6 +164,7 @@ func TestClaudeSubConfirmUsageFresh(t *testing.T) {
 		{name: "credits off confirms", usage: claudeSubFixture(t, "get_usage_ok.json"), wantPass: true},
 		{name: "credits on refuses", usage: claudeSubFixture(t, "get_usage_credits_on.json"), wantIs: errClaudeSubUsageCreditsEnabled, wantMsg: claudeSubCreditsEnabledWant},
 		{name: "missing extra usage stays unconfirmed", usage: json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":3}}}`), wantIs: errClaudeSubUsageNotReady, wantMsg: claudeSubFailClosedWant + " (extra_usage missing)"},
+		{name: "undecodable reply stays unconfirmed", usage: json.RawMessage(`"not-json"`), wantIs: errClaudeSubUsageNotReady, wantMsg: claudeSubFailClosedWant + " (undecodable usage response)"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -156,6 +185,13 @@ func TestClaudeSubConfirmUsageFresh(t *testing.T) {
 			}
 			if n := spawner.callCount(); n != 1 {
 				t.Fatalf("spawn count = %d, want exactly one confirmation process", n)
+			}
+			args := spawner.call(t, 0).Args
+			if !claudeSubHasArg(args, "--no-session-persistence") {
+				t.Errorf("probe args = %v, want --no-session-persistence", args)
+			}
+			if claudeSubHasArg(args, "--resume") {
+				t.Errorf("probe args = %v, want no --resume", args)
 			}
 			if keys := claudeSubUsageProbeKeys(pool); len(keys) != 0 {
 				t.Errorf("pool sessions = %v, want none: the probe must be retired", keys)
@@ -225,6 +261,124 @@ func TestClaudeSubConfirmUsageFreshRefusesThroughShutdown(t *testing.T) {
 	}
 	if n := spawner.callCount(); n != 0 {
 		t.Fatalf("spawn count = %d, want none after shutdown", n)
+	}
+}
+
+// claudeSubWaitSpawnCount waits until the spawner has recorded want spawns.
+func claudeSubWaitSpawnCount(t *testing.T, spawner *claudeSubTestSpawner, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for spawner.callCount() < want {
+		if time.Now().After(deadline) {
+			t.Fatalf("spawn count = %d, want %d", spawner.callCount(), want)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestClaudeSubConfirmUsageFreshSpawnFailureReleasesSlot proves a failed probe
+// startup leaves the failure visible, frees the pool slot, and does not poison
+// the next confirmation.
+func TestClaudeSubConfirmUsageFreshSpawnFailureReleasesSlot(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	claudeSubUsageProbeReply(spawner, claudeSubFixture(t, "get_usage_ok.json"))
+	spawner.setErr(errors.New("spawn failed"))
+	if err := pool.confirmUsageFresh(context.Background()); err == nil || !strings.Contains(err.Error(), "spawn failed") {
+		t.Fatalf("confirmUsageFresh() = %v, want the spawn failure", err)
+	}
+	select {
+	case pool.usageProbe.sem <- struct{}{}:
+		<-pool.usageProbe.sem
+	default:
+		t.Fatal("confirmation kept the pool slot after a failed startup")
+	}
+	spawner.setErr(nil)
+	if err := pool.confirmUsageFresh(context.Background()); err != nil {
+		t.Fatalf("confirmation after the spawn recovered: %v", err)
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Errorf("spawn count = %d, want the recovered confirmation's process", n)
+	}
+}
+
+// TestClaudeSubConfirmUsageFreshRefusesThroughShutdownDuringProbe proves a pool
+// shutdown while a confirmation is in flight reports the closed error and leaves
+// no probe process behind.
+func TestClaudeSubConfirmUsageFreshRefusesThroughShutdownDuringProbe(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	// The probe process never answers, so the confirmation is still in flight
+	// when the pool closes.
+	spawner.onSpawn = func(conn *claudeSubFakeConn) {
+		conn.mu.Lock()
+		conn.responder = func([]byte) []claudeSubEvent { return nil }
+		conn.mu.Unlock()
+	}
+	errs := make(chan error, 1)
+	go func() { errs <- pool.confirmUsageFresh(context.Background()) }()
+	claudeSubWaitSpawnCount(t, spawner, 1)
+	conn := spawner.call(t, 0).Conn
+	deadline := time.Now().Add(2 * time.Second)
+	for len(conn.sentLines()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("confirmation sent no get_usage request")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := pool.Close(); err != nil {
+		t.Fatalf("pool close: %v", err)
+	}
+	select {
+	case err := <-errs:
+		if !errors.Is(err, errClaudeSubPoolClosed) {
+			t.Fatalf("confirmUsageFresh() = %v, want %v", err, errClaudeSubPoolClosed)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("confirmation did not return after pool shutdown")
+	}
+	if !conn.isClosed() {
+		t.Error("probe process was not closed")
+	}
+}
+
+// TestClaudeSubConfirmUsageFreshSerializes proves two confirmations never run
+// their probe processes at the same time.
+func TestClaudeSubConfirmUsageFreshSerializes(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	passing := claudeSubFixture(t, "get_usage_ok.json")
+	block := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(block) }) }
+	t.Cleanup(release)
+	spawner.onSpawn = func(conn *claudeSubFakeConn) {
+		conn.mu.Lock()
+		conn.responder = claudeSubQuotaUsageResponder(passing)
+		conn.sendBlock = block
+		conn.mu.Unlock()
+	}
+	errs := make([]chan error, 2)
+	errs[0] = make(chan error, 1)
+	go func() { errs[0] <- pool.confirmUsageFresh(context.Background()) }()
+	claudeSubWaitSpawnCount(t, spawner, 1)
+	errs[1] = make(chan error, 1)
+	go func() { errs[1] <- pool.confirmUsageFresh(context.Background()) }()
+	// The second confirmation must wait for the first to finish its probe.
+	time.Sleep(50 * time.Millisecond)
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d while the first confirmation runs, want 1", n)
+	}
+	release()
+	for i, errc := range errs {
+		select {
+		case err := <-errc:
+			if err != nil {
+				t.Fatalf("confirmation %d: %v", i+1, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("confirmation %d did not finish", i+1)
+		}
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Errorf("spawn count = %d, want one process per confirmation", n)
 	}
 }
 
@@ -311,6 +465,30 @@ func TestClaudeSubUsageGateProbeUnconfirmedRefuses(t *testing.T) {
 	}
 }
 
+// TestClaudeSubUsageGateProbeCreditsEnabledRefuses proves a fresh confirmation
+// that reports credits enabled refuses with the definite credits error and
+// writes no user content.
+func TestClaudeSubUsageGateProbeCreditsEnabledRefuses(t *testing.T) {
+	claudeSubUsageGateFast(t, 30*time.Millisecond, time.Millisecond)
+	claudeSubUsageProbeFast(t, time.Second)
+	notReady := json.RawMessage(`{"rate_limits_available":false}`)
+	pool, spawner, liveConn := claudeSubUsageProbeTurnPool(t, "probe-fresh-credits", &claudeSubScript{usage: notReady}, claudeSubFixture(t, "get_usage_credits_on.json"))
+	req := ChatRequest{TransportSession: "probe-fresh-credits", Model: claudeSubTestSpec().Model, Messages: []Message{claudeSubUserText("hello")}}
+	err := claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil })
+	if err == nil || err.Error() != claudeSubCreditsEnabledWant {
+		t.Fatalf("turn error = %v, want %q", err, claudeSubCreditsEnabledWant)
+	}
+	if !errors.Is(err, errClaudeSubUsageCreditsEnabled) {
+		t.Errorf("turn error %v does not wrap errClaudeSubUsageCreditsEnabled", err)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want the live process plus one confirmation", n)
+	}
+	if got := claudeSubUsageProbeCount(liveConn, `"type":"user"`); got != 0 {
+		t.Errorf("live user writes = %d, want none", got)
+	}
+}
+
 // TestClaudeSubUsageGateCreditsEnabledDoesNotProbe proves a definite
 // credits-enabled refusal never starts a confirmation process.
 func TestClaudeSubUsageGateCreditsEnabledDoesNotProbe(t *testing.T) {
@@ -363,8 +541,9 @@ func TestClaudeSubShouldRetryTurn(t *testing.T) {
 		{name: "no resume target", err: errors.New("model unavailable")},
 		{name: "caller cancelled", err: errors.New("model unavailable"), ctxErr: context.Canceled, resume: "sess-1"},
 		{name: "unconfirmable usage gate", err: &claudeSubUsageGateError{err: claudeSubUsageNotReady("rate_limits_available=false")}, resume: "sess-1"},
-		{name: "credits enabled usage gate", err: &claudeSubUsageGateError{err: errClaudeSubUsageCreditsEnabled}, resume: "sess-1"},
-		{name: "usage gate transport failure", err: &claudeSubUsageGateError{err: errors.New("claude CLI get_usage: usage unavailable")}, resume: "sess-1"},
+		{name: "credits enabled gate error still retries", err: errClaudeSubUsageCreditsEnabled, resume: "sess-1", want: true},
+		{name: "gate transport failure still retries", err: errors.New("claude CLI get_usage: usage unavailable"), resume: "sess-1", want: true},
+		{name: "gate cancellation still retries", err: context.Canceled, resume: "sess-1", want: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

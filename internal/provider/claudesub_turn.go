@@ -140,9 +140,9 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 	}
 }
 
-// claudeSubUsageGateError marks a usage-gate refusal. The gate has already spent
-// its poll budget and at most one fresh-process confirmation, so the generic
-// pre-output retry must not repeat that wait.
+// claudeSubUsageGateError marks the unconfirmable usage-gate refusal that has
+// already spent its poll budget and one fresh-process confirmation. The generic
+// pre-output retry must not repeat that wait; other gate errors keep the retry.
 type claudeSubUsageGateError struct{ err error }
 
 func (e *claudeSubUsageGateError) Error() string { return e.err.Error() }
@@ -151,8 +151,10 @@ func (e *claudeSubUsageGateError) Unwrap() error { return e.err }
 
 // claudeSubShouldRetryTurn reports whether a failed delivery is retried once on
 // a fresh process. Only a failure before any output, on a request with a resume
-// target, and while the caller still waits qualifies. A usage-gate refusal never
-// does: it is a deliberate fail-closed answer, not a dead process.
+// target, and while the caller still waits qualifies. It excludes only the
+// unconfirmable usage refusal that already spent the poll and the fresh
+// confirmation; every other usage-gate error (credits enabled, transport,
+// cancellation, pool closed) keeps the generic retry.
 func claudeSubShouldRetryTurn(err error, emitted bool, ctxErr error, resumeSessionID string) bool {
 	if err == nil || emitted || ctxErr != nil || resumeSessionID == "" {
 		return false
@@ -314,9 +316,15 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 			// The live process may be answering from the CLI's in-process usage
 			// cache, so one fresh process confirms the state before refusing.
 			liveErr = claudeSubUsageProbeOutcome(liveErr, s.pool.confirmUsageFresh(ctx))
+			// Only the refusal that already spent the poll budget and the fresh
+			// confirmation is exempt from the generic pre-output retry. Every other
+			// gate error keeps the retry a resumed process had before.
+			if errors.Is(liveErr, errClaudeSubUsageNotReady) {
+				return &claudeSubUsageGateError{err: liveErr}
+			}
 		}
 		if liveErr != nil {
-			return &claudeSubUsageGateError{err: liveErr}
+			return liveErr
 		}
 	}
 	if s.model != req.Model {

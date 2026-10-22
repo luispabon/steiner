@@ -782,6 +782,42 @@ func TestClaudeSubDecodeErrorRetiresProcess(t *testing.T) {
 	}
 }
 
+// TestClaudeSubUsageGateTransportErrorRetriesResumedProcess proves the generic
+// one-reseed retry still covers a resumed process whose get_usage transport-fails:
+// only the post-confirmation unconfirmable refusal is exempt from the retry.
+func TestClaudeSubUsageGateTransportErrorRetriesResumedProcess(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	pool, spawner := claudeSubPoolWithScripts(t,
+		&claudeSubScript{usageErr: "usage unavailable"},
+		claudeSubTextTurns(t, 1),
+	)
+	req := ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
+	}
+	if err := claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil }); err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (resumed process, then one reseed retry)", n)
+	}
+	if resume, _ := claudeSubArgValue(spawner.call(t, 0).Args, "--resume"); resume != st.CLISessionID {
+		t.Errorf("first spawn --resume = %q, want %q (resumed process)", resume, st.CLISessionID)
+	}
+	if resume, ok := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); ok {
+		t.Errorf("retry spawn --resume = %q, want a fresh reseed process", resume)
+	}
+	retry := spawner.call(t, 1).Conn
+	if got := claudeSubUsageProbeCount(retry, `"subtype":"get_usage"`); got != 1 {
+		t.Errorf("retry get_usage requests = %d, want 1", got)
+	}
+	if got := claudeSubUsageProbeCount(retry, `"type":"user"`); got != 1 {
+		t.Errorf("retry user writes = %d, want 1", got)
+	}
+}
+
 // TestClaudeSubDecodeErrorOnResumeDoesNotReseed proves a decode stream error on
 // a resumed process with no output retires the process without an inline
 // reseed. The next request starts the fresh process instead.
