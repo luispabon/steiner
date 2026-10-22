@@ -1,7 +1,5 @@
 package provider
 
-import "fmt"
-
 // finishMessage records that the current message's stream has stopped. A
 // per-content-block echo may already have been processed while streaming, in
 // which case the assembled message is emitted at message_stop. Otherwise it is
@@ -60,10 +58,7 @@ func (d *claudeSubDecoder) assembleMessage() (*claudeSubDecoded, error) {
 		}
 	}
 	if d.sawToolUse {
-		calls, err := d.finalizeOrderedToolUses()
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", errClaudeSubDecodeStream, err)
-		}
+		calls := d.finalizeOrderedToolUses()
 		for i := range calls {
 			calls[i].Name = d.toolName(calls[i].Name)
 		}
