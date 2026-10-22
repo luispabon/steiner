@@ -155,6 +155,7 @@ func (m *Model) handleGitRefreshDoneMsg() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleClipboardFailedMsg(msg clipboardFailedMsg) (tea.Model, tea.Cmd) {
+	m.recordDevLog(devLogParams{Severity: devLogError, Source: "tui", Message: msg.err.Error()})
 	m.appendError(msg.err)
 	m.syncViewport()
 	return m, nil

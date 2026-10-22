@@ -17,6 +17,7 @@ type activityState struct {
 	detail   string
 	spinning bool
 	warn     bool // label renders in the warning colour
+	retry    string
 	accent   color.Color
 	spinner  spinner.Model
 }
@@ -61,6 +62,9 @@ func (a activityState) view(width int, styles *theme.Styles) string {
 			parts = append(parts, styles.FgMute.Render(label))
 		}
 	}
+	if a.retry != "" {
+		parts = append(parts, styles.Warn.Render(a.retry))
+	}
 	if detail := strings.TrimSpace(a.detail); detail != "" {
 		parts = append(parts, styles.Accent.Render(detail))
 	}
@@ -86,6 +90,7 @@ type activityCacheKey struct {
 	detail       string
 	spinning     bool
 	warn         bool
+	retry        string
 	spinnerFrame string
 	styles       *theme.Styles
 }
@@ -112,6 +117,7 @@ func (m *Model) renderActivityRow(contentWidth int) string {
 		detail:       activity.detail,
 		spinning:     activity.spinning,
 		warn:         activity.warn,
+		retry:        activity.retry,
 		spinnerFrame: frame,
 		styles:       m.styles,
 	}
@@ -153,11 +159,21 @@ func (a activityState) static(label, detail string) activityState {
 }
 
 func (a activityState) clear() activityState {
+	a.retry = ""
 	a.label = ""
 	a.detail = ""
 	a.spinning = false
 	a.warn = false
 	return a
+}
+
+// retryLabel renders the activity row label for a provider retry. Attempt is
+// clamped to 1..maxAttempts so a missing or inconsistent count still reads as a
+// valid N/M.
+func retryLabel(attempt, maxAttempts int) string {
+	maxAttempts = max(maxAttempts, 1)
+	attempt = min(max(attempt, 1), maxAttempts)
+	return fmt.Sprintf("retrying %d/%d", attempt, maxAttempts)
 }
 
 func turnLabel(turn int) string {

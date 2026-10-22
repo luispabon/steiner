@@ -152,8 +152,18 @@ func (b *contentBuffer) appendProviderDiagnosticEvent(event output.Event) {
 	if !ok || (payload.Severity == "info" && payload.Suppressible && payload.Kind == output.ProviderDiagnosticKindTransportOverride) {
 		return
 	}
-	b.finishStreaming()
-	b.appendLine(output.FormatEvent(event))
+	switch {
+	case payload.Kind == output.DiagnosticKindRetry:
+		// Retry attempts show on the activity row, not in the transcript.
+		return
+	case payload.Kind == output.DiagnosticKindToolPanic:
+		b.AppendNotice(noticeError, "internal error: a tool panicked; full stack in the dev log", event.Scope.AgentID)
+	case payload.Severity == "error":
+		b.AppendNotice(noticeError, payload.Message, event.Scope.AgentID)
+	default:
+		b.finishStreaming()
+		b.appendLine(output.FormatEvent(event))
+	}
 }
 
 func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {

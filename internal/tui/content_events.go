@@ -445,6 +445,9 @@ var contentEventHandlers = map[string]contentEventHandler{
 	// their own events.
 	output.EventTypeReplayStarted:  func(*contentBuffer, output.Event) {},
 	output.EventTypeReplayFinished: func(*contentBuffer, output.Event) {},
+	// ConversationWarning notices are appended by model_events.go, which picks
+	// the severity from the warning kind. No transcript line is emitted here.
+	output.EventTypeConversationWarning: func(*contentBuffer, output.Event) {},
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {

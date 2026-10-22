@@ -325,6 +325,7 @@ func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 func (m *Model) executeSubmitAction(submitText string, displayText string) (tea.Model, tea.Cmd) {
+	m.stopErrorShown = false
 	var sessionCmd tea.Cmd
 	newSession := m.sessionStartedAt == nil
 	if newSession {

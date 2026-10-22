@@ -180,6 +180,9 @@ type Model struct {
 	delegateCancelModal          delegateCancelModalState
 	sessionStore                 SessionLister
 	interruptPending             bool
+	// stopErrorShown is set by a stop reason that carries an error. The next
+	// conversation run warning is then suppressed as a duplicate.
+	stopErrorShown               bool
 	convState                    output.ConversationStateEvent
 	convStateSeen                bool
 	convLabelShown               bool
