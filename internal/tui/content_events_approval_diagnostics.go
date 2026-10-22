@@ -160,6 +160,8 @@ func (b *contentBuffer) appendProviderDiagnosticEvent(event output.Event) {
 		b.AppendNotice(noticeError, "internal error: a tool panicked; full stack in the dev log", event.Scope.AgentID)
 	case payload.Severity == "error":
 		b.AppendNotice(noticeError, payload.Message, event.Scope.AgentID)
+	case payload.Severity == "warning":
+		b.AppendNotice(noticeWarn, payload.Message, event.Scope.AgentID)
 	default:
 		b.finishStreaming()
 		b.appendLine(output.FormatEvent(event))

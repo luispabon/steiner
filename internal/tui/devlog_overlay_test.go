@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +105,55 @@ func TestDevLogOverlayCopyReturnsCommand(t *testing.T) {
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	if cmd == nil {
 		t.Error("y returned nil command, want clipboard copy")
+	}
+}
+
+// TestDevLogCopyKeyClipboardFailure runs y through Update and the copy command.
+// It is not parallel: it points os.Stdout at a read-only file so the OSC52
+// fallback write fails, and clears the display variables so no real clipboard
+// tool runs.
+func TestDevLogCopyKeyClipboardFailure(t *testing.T) {
+	t.Setenv("WAYLAND_DISPLAY", "")
+	t.Setenv("DISPLAY", "")
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open %s: %v", os.DevNull, err)
+	}
+	t.Cleanup(func() {
+		if err := devNull.Close(); err != nil {
+			t.Errorf("close %s: %v", os.DevNull, err)
+		}
+	})
+	stdout := os.Stdout
+	os.Stdout = devNull
+	t.Cleanup(func() { os.Stdout = stdout })
+
+	m := devLogTestModel(t)
+	m.openDevLogOverlay()
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	if cmd == nil {
+		t.Fatal("y returned nil command, want clipboard copy")
+	}
+	msg := cmd()
+	failed, ok := msg.(clipboardFailedMsg)
+	if !ok {
+		t.Fatalf("copy command returned %T, want clipboardFailedMsg", msg)
+	}
+	m, ok = next.(*Model)
+	if !ok {
+		t.Fatalf("unexpected model type %T", next)
+	}
+	m = updateModel(t, m, failed)
+
+	notices := errorSurfacingNotices(m)
+	if len(notices) != 1 || notices[0].noticeSeverity != noticeError || !strings.Contains(notices[0].text, "copy to clipboard") {
+		t.Fatalf("notices = %+v, want one error notice for the failed copy", notices)
+	}
+	if len(m.devLog.entries) != 1 {
+		t.Fatalf("dev log entries = %d, want 1", len(m.devLog.entries))
+	}
+	if e := m.devLog.entries[0]; e.Source != "tui" || e.Severity != devLogError {
+		t.Errorf("dev log entry = %+v, want tui error", e.devLogParams)
 	}
 }
 

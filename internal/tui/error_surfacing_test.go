@@ -210,6 +210,39 @@ func TestScopedChildRetryRecordsAgentDevLog(t *testing.T) {
 	}
 }
 
+func TestScopedChildRetryUpdatesDelegationCard(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "explore", "task": "find files"}))
+	m.applyEvent(output.NewDelegationStartedEvent(callOcc("call_1", "child-1"), "find files", "", "explore"))
+	loc, ok := m.content.activeDelegations["child-1"]
+	if !ok || loc.dd == nil {
+		t.Fatal("child-1 delegation card is not active")
+	}
+	m.content.lastDelegationEvent = map[string]int64{"child-1": 1}
+	before := len(m.content.segments)
+
+	ev := output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{Kind: output.DiagnosticKindRetry, Severity: "warning", Message: "retrying", Attempt: 1, MaxAttempts: 3})
+	ev.Scope = output.EventScope{AgentID: "child-1", AgentType: "explore"}
+	m.applyEvent(ev)
+
+	if got := m.content.lastDelegationEvent["child-1"]; got <= 1 {
+		t.Errorf("child-1 last delegation event = %d, want refreshed by the scoped retry", got)
+	}
+	if loc.dd.status != "active" {
+		t.Errorf("card status = %q, want active", loc.dd.status)
+	}
+	if got := len(m.content.segments); got != before {
+		t.Errorf("transcript segments after scoped retry = %d, want %d", got, before)
+	}
+	if len(m.devLog.entries) != 1 {
+		t.Fatalf("dev log entries = %d, want 1", len(m.devLog.entries))
+	}
+	if got := m.devLog.entries[0].AgentID; got != "child-1" {
+		t.Errorf("dev log agent id = %q, want child-1", got)
+	}
+}
+
 func TestReplayDoesNotRecordDevLogOrBadge(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
