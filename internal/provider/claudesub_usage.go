@@ -23,6 +23,11 @@ const (
 // polls again before refusing. Its text is the refusal prefix.
 var errClaudeSubUsageNotReady = errors.New(claudeSubGateFailClosedMsg)
 
+// errClaudeSubUsageCreditsEnabled marks the definite refusal of an account with
+// paid extra usage turned on. Callers distinguish it by identity so a message
+// edit can never reclassify the refusal.
+var errClaudeSubUsageCreditsEnabled = errors.New(claudeSubCreditsEnabledMsg)
+
 // Usage gate polling. A not-ready state is polled again. Poll i waits
 // claudeSubUsageGateBackoff[i] (the last entry repeats) before the next call,
 // until claudeSubUsageGateBudget has elapsed. Tests shorten both.
@@ -64,7 +69,7 @@ func claudeSubUsageGate(raw json.RawMessage) error {
 		return claudeSubUsageNotReady("extra_usage.is_enabled missing")
 	}
 	if *body.RateLimits.ExtraUsage.IsEnabled {
-		return errors.New(claudeSubCreditsEnabledMsg)
+		return errClaudeSubUsageCreditsEnabled
 	}
 	return nil
 }

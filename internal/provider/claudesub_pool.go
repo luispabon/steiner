@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/luispabon/steiner/internal/quota"
@@ -173,6 +174,14 @@ type ClaudeSubscriptionPool struct {
 	startups map[*claudeSubStartup]struct{}
 	opts     ClaudeSubscriptionPoolOptions
 
+	// usageProbe coordinates fresh-process usage confirmations. sem (capacity
+	// 1) serializes them pool-wide, so at most one probe process runs at a
+	// time, and seq names each probe session uniquely.
+	usageProbe struct {
+		sem chan struct{}
+		seq atomic.Uint64
+	}
+
 	// active counts reservations across the pool, taken under mu before the
 	// session's whole-call lock; the reaper uses a session's own active count to
 	// skip in-use sessions.
@@ -283,9 +292,18 @@ func NewClaudeSubscriptionPool(opts ClaudeSubscriptionPoolOptions) *ClaudeSubscr
 		stopReaper: make(chan struct{}),
 		reaperDone: make(chan struct{}),
 	}
+	p.usageProbe.sem = make(chan struct{}, 1)
 	p.cliJob = p.newTrackedJob()
 	go p.reapLoop()
 	return p
+}
+
+// isRunning reports whether the pool still accepts calls. Callers use it to
+// avoid authorizing work through pool shutdown.
+func (p *ClaudeSubscriptionPool) isRunning() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.state == claudeSubPoolRunning
 }
 
 // locateCLI locates and caches the claude CLI once for the pool's life. The
