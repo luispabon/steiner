@@ -19,23 +19,18 @@ type AccountView struct {
 	BudgetProjections               []Projection
 }
 
-// Views returns one AccountView per registered account and per unregistered
-// account with a snapshot, sorted by DisplayAlias and then Key. Unregistered
-// legacy API-key accounts (see isLegacyAPIKeyAccountKey) are omitted. DisplayAlias
-// is the alphabetically first alias, or the Key when the account has no aliases.
+// Views returns one AccountView per registered account, sorted by DisplayAlias
+// and then Key. Registered accounts come from the startup provider config.
+// Stored snapshots without a registration are not returned. DisplayAlias is the
+// alphabetically first alias, or the Key when the account has no aliases.
 // Active marks the account whose aliases include activeProviderAlias.
 func (s *Service) Views(activeProviderAlias string) []AccountView {
 	s.ensureLoaded()
 
 	s.mu.Lock()
-	views := make([]AccountView, 0, len(s.accounts)+len(s.latest))
+	views := make([]AccountView, 0, len(s.accounts))
 	for key, acct := range s.accounts {
 		views = append(views, s.viewLocked(key, acct, activeProviderAlias))
-	}
-	for key := range s.latest {
-		if _, registered := s.accounts[key]; !registered && !isLegacyAPIKeyAccountKey(key) {
-			views = append(views, s.viewLocked(key, Account{}, activeProviderAlias))
-		}
 	}
 	s.mu.Unlock()
 

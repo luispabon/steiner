@@ -1,10 +1,5 @@
 package quota
 
-import (
-	"slices"
-	"strings"
-)
-
 // Account describes one provider account whose quota is tracked. Key identifies
 // the account, and Aliases are the provider names that resolve to it.
 type Account struct {
@@ -20,25 +15,4 @@ type Account struct {
 // key, base URL, project, or provider type changes.
 func APIKeyAccountKey(alias string) string {
 	return "provider:" + alias
-}
-
-// legacyAPIKeyProviderTypes lists the provider types whose API-key accounts
-// were keyed by a fingerprint before APIKeyAccountKey.
-var legacyAPIKeyProviderTypes = []string{"opencode_go", "openrouter", "litellm"}
-
-// isLegacyAPIKeyAccountKey reports whether key is a fingerprint-format API-key
-// account key: a provider type from legacyAPIKeyProviderTypes, a colon, and 16
-// lowercase hex characters. Other keys, including non-API-key accounts, never
-// match.
-func isLegacyAPIKeyAccountKey(key string) bool {
-	providerType, fingerprint, ok := strings.Cut(key, ":")
-	if !ok || len(fingerprint) != 16 || !slices.Contains(legacyAPIKeyProviderTypes, providerType) {
-		return false
-	}
-	for _, c := range fingerprint {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return false
-		}
-	}
-	return true
 }

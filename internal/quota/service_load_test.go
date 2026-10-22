@@ -36,6 +36,10 @@ func TestEnsureLoadedRetriesAfterReadError(t *testing.T) {
 		}
 	}
 
+	svc.Register(Account{Key: "k1", Aliases: []string{"a"}})
+	svc.Register(Account{Key: "k2", Aliases: []string{"b"}})
+	svc.Register(Account{Key: "k3", Aliases: []string{"c"}})
+
 	byKey := make(map[string]AccountView)
 	for _, v := range svc.Views("") {
 		byKey[v.Key] = v
@@ -117,6 +121,7 @@ func TestViewsConcurrentFirstLoad(t *testing.T) {
 		t.Fatalf("seed Append: %v", err)
 	}
 	svc, _ := newTestService(t, store)
+	svc.Register(Account{Key: "k1", Aliases: []string{"a"}})
 
 	var wg sync.WaitGroup
 	for range 8 {

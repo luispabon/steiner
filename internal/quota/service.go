@@ -103,7 +103,7 @@ func (s *Service) Register(acct Account) {
 
 // removeAliasLocked unbinds alias from the account old. An account left with no
 // aliases is removed from s.accounts. Its latest snapshot stays in s.latest, so
-// it is listed like an unregistered stored snapshot. The caller must hold s.mu.
+// it is shown again if the key is registered later. The caller must hold s.mu.
 func (s *Service) removeAliasLocked(old, alias string) {
 	acct := s.accounts[old]
 	acct.Aliases = slices.DeleteFunc(acct.Aliases, func(a string) bool { return a == alias })

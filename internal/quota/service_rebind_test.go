@@ -40,21 +40,31 @@ func TestRegisterRebindDropsEmptyAccountKeepsLatest(t *testing.T) {
 	svc.Register(Account{Key: "k2", Aliases: []string{"x"}})
 
 	// k1 has no aliases left, so its registration is gone. Its snapshot is
-	// listed as an unregistered account and is never fetched.
+	// not returned, and it is never fetched.
 	views := svc.Views("x")
-	if len(views) != 2 {
-		t.Fatalf("Views returned %d accounts, want 2", len(views))
+	if len(views) != 1 {
+		t.Fatalf("Views returned %d accounts, want 1", len(views))
 	}
-	if v := views[0]; v.Key != "k1" || v.DisplayAlias != "k1" || v.Active || v.Latest == nil {
-		t.Errorf("views[0] = %s (%s) Active %v Latest nil %v, want unregistered k1 with its snapshot",
-			v.Key, v.DisplayAlias, v.Active, v.Latest == nil)
-	}
-	if v := views[1]; v.Key != "k2" || v.DisplayAlias != "x" || !v.Active {
-		t.Errorf("views[1] = %s (%s) Active %v, want active k2 aliased x", v.Key, v.DisplayAlias, v.Active)
+	if v := views[0]; v.Key != "k2" || v.DisplayAlias != "x" || !v.Active {
+		t.Errorf("views[0] = %s (%s) Active %v, want active k2 aliased x", v.Key, v.DisplayAlias, v.Active)
 	}
 
 	svc.RefreshAll(context.Background())
 	if got := f.callCount(); got != 0 {
 		t.Errorf("fetch calls for dropped k1 = %d, want 0", got)
+	}
+
+	// The dropped registration keeps its snapshot, so registering the key
+	// again surfaces the same state.
+	svc.Register(Account{Key: "k1", Aliases: []string{"other"}})
+	views = svc.Views("")
+	var k1 *AccountView
+	for i := range views {
+		if views[i].Key == "k1" {
+			k1 = &views[i]
+		}
+	}
+	if k1 == nil || k1.Latest == nil || k1.Latest.Windows[0].UsedPercent != 10 {
+		t.Errorf("re-registered k1 view = %+v, want its retained snapshot at 10%%", k1)
 	}
 }
