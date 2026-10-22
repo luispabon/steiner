@@ -335,7 +335,12 @@ func TestValidateLimitsConfigBashTimeoutWholeSeconds(t *testing.T) {
 		},
 		{
 			name:     "bash default value accepted",
-			timeouts: map[string]Duration{"bash": MustDuration("120s")},
+			timeouts: map[string]Duration{"bash": MustDuration("600s")},
+		},
+		{
+			name:     "bash above 600 second ceiling rejected",
+			timeouts: map[string]Duration{"bash": MustDuration("601s")},
+			wantErr:  `limits.tool_timeouts["bash"] must be at most 600 seconds`,
 		},
 		{
 			name:     "bash zero rejected",

@@ -92,7 +92,7 @@ func defaultConfig(env map[string]string) Config {
 			ModelCallTimeout:   MustDuration("10m"),
 			ToolTimeoutDefault: MustDuration("30s"),
 			ToolTimeouts: map[string]Duration{
-				"bash": MustDuration("120s"),
+				"bash": MustDuration("600s"),
 				"read": MustDuration("5s"),
 				"grep": MustDuration("30s"),
 				"ls":   MustDuration("5s"),

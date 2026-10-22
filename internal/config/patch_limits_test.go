@@ -45,9 +45,9 @@ func TestLoadValidatesBashTimeoutWholeSeconds(t *testing.T) {
 			wantErr: `limits.tool_timeouts["bash"] must be greater than zero`,
 		},
 		{
-			name:     "bash omitted uses 120s default",
+			name:     "bash omitted uses 600s default",
 			omitBash: true,
-			want:     MustDuration("120s"),
+			want:     MustDuration("600s"),
 		},
 		{
 			name:     "sub-second non-bash timeout retained",

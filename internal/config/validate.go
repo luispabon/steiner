@@ -97,6 +97,11 @@ func validateLoggingLevel(level string) error {
 	}
 }
 
+// maxBashTimeoutCapSeconds is the largest accepted limits.tool_timeouts.bash
+// value. It mirrors maxBashTimeoutCapSeconds in internal/tool/builtin, which
+// this package cannot import because internal/tool imports internal/config.
+const maxBashTimeoutCapSeconds = 600
+
 func validateLimitsConfig(problems *[]string, cfg LimitsConfig) {
 	if cfg.MaxTurns < 0 {
 		*problems = append(*problems, "limits.max_turns must be non-negative")
@@ -128,6 +133,9 @@ func validateLimitsConfig(problems *[]string, cfg LimitsConfig) {
 		// sub-second timeouts.
 		if name == "bash" && timeout.Duration()%int64(time.Second) != 0 {
 			*problems = append(*problems, fmt.Sprintf("limits.tool_timeouts[%q] must be a whole number of seconds", name))
+		}
+		if name == "bash" && timeout.Duration() > maxBashTimeoutCapSeconds*int64(time.Second) {
+			*problems = append(*problems, fmt.Sprintf("limits.tool_timeouts[%q] must be at most %d seconds", name, maxBashTimeoutCapSeconds))
 		}
 	}
 }

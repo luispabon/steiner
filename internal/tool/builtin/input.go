@@ -101,7 +101,10 @@ const (
 	maxGrepHeadLimit          = 500
 	defaultDisplayFileLimit   = 120
 	maxDisplayFileLimit       = 1000
-	defaultBashTimeoutSeconds = 30
+	defaultBashTimeoutSeconds = 120
+	// maxBashTimeoutCapSeconds is the absolute bash timeout ceiling. Config
+	// validation mirrors it because internal/config cannot import this package.
+	maxBashTimeoutCapSeconds = 600
 	// defaultBashTimeoutCapSeconds is the finite fallback cap used when a
 	// programmatically constructed Env cap is non-positive or not a whole
 	// number of seconds.
@@ -161,11 +164,15 @@ func normalizeLS(in *LSInput) {
 }
 
 // resolveBashTimeoutCapSeconds converts a configured bash timeout cap into
-// whole seconds. Config validation guarantees a positive whole-second value,
-// but programmatic Env construction bypasses it, so a non-positive cap or one
-// that is not an exact multiple of a second falls back to the 120-second
-// default.
+// whole seconds. Config validation guarantees a positive whole-second value
+// no larger than maxBashTimeoutCapSeconds, but programmatic Env construction
+// bypasses it: a cap above the ceiling clamps to maxBashTimeoutCapSeconds,
+// and a non-positive cap or one that is not an exact multiple of a second
+// falls back to the 120-second default.
 func resolveBashTimeoutCapSeconds(cap time.Duration) int {
+	if cap > time.Duration(maxBashTimeoutCapSeconds)*time.Second {
+		return maxBashTimeoutCapSeconds
+	}
 	if cap <= 0 || cap%time.Second != 0 {
 		return defaultBashTimeoutCapSeconds
 	}
@@ -173,7 +180,7 @@ func resolveBashTimeoutCapSeconds(cap time.Duration) int {
 }
 
 // normalizeBash applies defaults and caps to bash input. maxTimeoutSeconds is
-// the resolved configured cap: non-positive requests default to 30 seconds,
+// the resolved configured cap: non-positive requests default to 120 seconds,
 // then every request is clamped to maxTimeoutSeconds before the handler
 // multiplies by time.Second.
 func normalizeBash(in *BashInput, maxTimeoutSeconds int) {

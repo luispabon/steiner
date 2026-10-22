@@ -100,6 +100,30 @@ func registryTestConfig() config.Config {
 	}
 }
 
+// TestBashToolTimeoutCeilingFromConfig proves a 600-second configured cap
+// reaches the bash schema unchanged, so the model can request the full ceiling.
+func TestBashToolTimeoutCeilingFromConfig(t *testing.T) {
+	cfg := registryTestConfig()
+	cfg.Limits.ToolTimeouts = map[string]config.Duration{"bash": config.MustDuration("600s")}
+
+	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, nil)
+	def, ok := registry.Get("bash")
+	if !ok {
+		t.Fatal("registry missing bash")
+	}
+	props, _ := def.ParameterSchema["properties"].(map[string]any)
+	ts, _ := props["timeout_seconds"].(map[string]any)
+	if ts == nil {
+		t.Fatal("schema missing timeout_seconds")
+	}
+	if got := ts["maximum"]; got != 600 {
+		t.Errorf("timeout_seconds maximum = %v, want 600", got)
+	}
+	if got := ts["default"]; got != 120 {
+		t.Errorf("timeout_seconds default = %v, want 120", got)
+	}
+}
+
 // TestBashToolTimeoutCapWiredFromConfig proves coreToolDefinitions threads
 // limits.tool_timeouts["bash"] into the bash tool schema, and that Registry.Subset
 // (the mechanism that builds sub-agent tool sets) inherits the same schema.
@@ -119,8 +143,8 @@ func TestBashToolTimeoutCapWiredFromConfig(t *testing.T) {
 		if got := ts["maximum"]; got != 300 {
 			t.Errorf("%s timeout_seconds maximum = %v, want 300", label, got)
 		}
-		if got := ts["default"]; got != 30 {
-			t.Errorf("%s timeout_seconds default = %v, want 30", label, got)
+		if got := ts["default"]; got != 120 {
+			t.Errorf("%s timeout_seconds default = %v, want 120", label, got)
 		}
 	}
 
