@@ -29,10 +29,11 @@ func cloneMessage(message Message) Message {
 		cloned.ToolCalls = make([]ToolCall, len(message.ToolCalls))
 		for i := range message.ToolCalls {
 			cloned.ToolCalls[i] = ToolCall{
-				ID:           message.ToolCalls[i].ID,
-				Name:         message.ToolCalls[i].Name,
-				Arguments:    cloneInput(message.ToolCalls[i].Arguments),
-				RawArguments: message.ToolCalls[i].RawArguments,
+				ID:                  message.ToolCalls[i].ID,
+				Name:                message.ToolCalls[i].Name,
+				Arguments:           cloneInput(message.ToolCalls[i].Arguments),
+				RawArguments:        message.ToolCalls[i].RawArguments,
+				ArgumentDecodeError: message.ToolCalls[i].ArgumentDecodeError,
 			}
 		}
 	}

@@ -74,10 +74,11 @@ func toProviderMessage(message Message) provider.Message {
 		out.ToolCalls = make([]provider.ToolCall, 0, len(message.ToolCalls))
 		for _, call := range message.ToolCalls {
 			out.ToolCalls = append(out.ToolCalls, provider.ToolCall{
-				ID:           call.ID,
-				Name:         call.Name,
-				Arguments:    cloneInput(call.Arguments),
-				RawArguments: call.RawArguments,
+				ID:                  call.ID,
+				Name:                call.Name,
+				Arguments:           cloneInput(call.Arguments),
+				RawArguments:        call.RawArguments,
+				ArgumentDecodeError: call.ArgumentDecodeError,
 			})
 		}
 	}
@@ -112,10 +113,11 @@ func fromProviderMessage(message provider.Message) Message {
 		out.ToolCalls = make([]ToolCall, 0, len(message.ToolCalls))
 		for _, call := range message.ToolCalls {
 			out.ToolCalls = append(out.ToolCalls, ToolCall{
-				ID:           call.ID,
-				Name:         call.Name,
-				Arguments:    cloneInput(call.Arguments),
-				RawArguments: call.RawArguments,
+				ID:                  call.ID,
+				Name:                call.Name,
+				Arguments:           cloneInput(call.Arguments),
+				RawArguments:        call.RawArguments,
+				ArgumentDecodeError: call.ArgumentDecodeError,
 			})
 		}
 	}

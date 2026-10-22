@@ -1835,50 +1835,6 @@ func TestClaudeSubDecodeEchoIsTransactional(t *testing.T) {
 	})
 }
 
-func TestClaudeSubDecodeFailedAssemblyPreservesPending(t *testing.T) {
-	// A malformed (incomplete) accumulated tool input makes final assembly fail
-	// at the flush. The flush must not clear the pending flag or advance the
-	// phase, and the terminal result must not be emitted, so the turn's message
-	// is preserved and recoverable rather than silently lost.
-	stream := func(inner string) claudeSubEvent {
-		return claudeSubEvent{Type: "stream_event", Raw: json.RawMessage(`{"event":` + inner + `}`)}
-	}
-	d := newClaudeSubDecoder(claudeSubDecodeHooks{})
-	for _, inner := range []string{
-		`{"type":"message_start","message":{"usage":{}}}`,
-		`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
-		`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"kept"}}`,
-		`{"type":"content_block_stop","index":0}`,
-		`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"mcp__steiner__read"}}`,
-		`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}`,
-		`{"type":"content_block_stop","index":1}`,
-		`{"type":"message_stop"}`,
-	} {
-		if _, err := d.decode(stream(inner)); err != nil {
-			t.Fatalf("decode %s: %v", inner, err)
-		}
-	}
-	if !d.messagePending {
-		t.Fatalf("message_pending false before flush")
-	}
-	got, err := d.decode(claudeSubEvent{Type: "result", Raw: json.RawMessage(`{"subtype":"success","is_error":false}`)})
-	if err == nil {
-		t.Fatalf("decode result over malformed tool input error = nil, want an assembly failure")
-	}
-	if len(got) != 0 {
-		t.Errorf("events after failed flush = %+v, want none", got)
-	}
-	if !d.messagePending {
-		t.Errorf("message_pending cleared by a failed assembly")
-	}
-	if d.phase != claudeSubPhaseStopped {
-		t.Errorf("phase after failed flush = %v, want stopped", d.phase)
-	}
-	if d.content.String() != "kept" {
-		t.Errorf("content after failed flush = %q, want %q", d.content.String(), "kept")
-	}
-}
-
 func TestClaudeSubDecodeOversizedStartLeavesNoState(t *testing.T) {
 	// An oversized initial tool input must be rejected before the stream claims
 	// the block, creates an accumulator, records order, sets sawToolUse or

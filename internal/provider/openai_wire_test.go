@@ -133,10 +133,7 @@ func TestNormalizeMessage_DereferencesReasoningContentPointer(t *testing.T) {
 		Content:          "done",
 		ReasoningContent: &reasoning,
 	}
-	out, err := normalizeMessage(wire)
-	if err != nil {
-		t.Fatalf("normalizeMessage() error = %v", err)
-	}
+	out := normalizeMessage(wire)
 	if out.ReasoningContent != "step by step" {
 		t.Fatalf("ReasoningContent = %q, want %q", out.ReasoningContent, "step by step")
 	}
@@ -147,10 +144,7 @@ func TestNormalizeMessage_ReasoningContentNilProducesEmptyString(t *testing.T) {
 		Role:    "assistant",
 		Content: "done",
 	}
-	out, err := normalizeMessage(wire)
-	if err != nil {
-		t.Fatalf("normalizeMessage() error = %v", err)
-	}
+	out := normalizeMessage(wire)
 	if out.ReasoningContent != "" {
 		t.Fatalf("ReasoningContent = %q, want empty string", out.ReasoningContent)
 	}
@@ -167,10 +161,7 @@ func TestNormalizeMessage_UsesReasoningDetailsText(t *testing.T) {
 		},
 	}
 
-	out, err := normalizeMessage(wire)
-	if err != nil {
-		t.Fatalf("normalizeMessage() error = %v", err)
-	}
+	out := normalizeMessage(wire)
 	if out.ReasoningContent != "first second" {
 		t.Fatalf("ReasoningContent = %q, want %q", out.ReasoningContent, "first second")
 	}
@@ -187,10 +178,7 @@ func TestNormalizeMessage_AppendsReasoningDetailsToReasoningContent(t *testing.T
 		},
 	}
 
-	out, err := normalizeMessage(wire)
-	if err != nil {
-		t.Fatalf("normalizeMessage() error = %v", err)
-	}
+	out := normalizeMessage(wire)
 	if out.ReasoningContent != "prefix suffix" {
 		t.Fatalf("ReasoningContent = %q, want %q", out.ReasoningContent, "prefix suffix")
 	}
@@ -231,10 +219,7 @@ func TestNormalizeMessage_PreservesToolCallsWithEmptyOrWhitespaceContent(t *test
 				}},
 			}
 
-			out, err := normalizeMessage(wire)
-			if err != nil {
-				t.Fatalf("normalizeMessage() error = %v", err)
-			}
+			out := normalizeMessage(wire)
 			if out.Content != tt.wantContent {
 				t.Fatalf("Content = %q, want %q", out.Content, tt.wantContent)
 			}
@@ -257,10 +242,7 @@ func TestNormalizeMessage_ExtractsTextFromStructuredContent(t *testing.T) {
 			map[string]any{"type": "text", "text": "world"},
 		},
 	}
-	out, err := normalizeMessage(wire)
-	if err != nil {
-		t.Fatalf("normalizeMessage() error = %v", err)
-	}
+	out := normalizeMessage(wire)
 	if out.Content != "hello world" {
 		t.Fatalf("Content = %q, want %q", out.Content, "hello world")
 	}
@@ -275,10 +257,7 @@ func TestNormalizeMessage_ExtractsTextSkipsOtherBlockTypes(t *testing.T) {
 			map[string]any{"type": "text", "text": "the answer"},
 		},
 	}
-	out, err := normalizeMessage(wire)
-	if err != nil {
-		t.Fatalf("normalizeMessage() error = %v", err)
-	}
+	out := normalizeMessage(wire)
 	if out.Content != "the answer" {
 		t.Fatalf("Content = %q, want %q", out.Content, "the answer")
 	}
@@ -707,10 +686,7 @@ func TestNormalizeToolCalls_TrailingCommaInArguments(t *testing.T) {
 			},
 		},
 	}
-	got, err := normalizeToolCalls(calls)
-	if err != nil {
-		t.Fatalf("expected trailing comma to be sanitized, got error: %v", err)
-	}
+	got := normalizeToolCalls(calls)
 	if len(got) != 1 {
 		t.Fatalf("got %d calls, want 1", len(got))
 	}
@@ -730,10 +706,7 @@ func TestNormalizeToolCalls_TrailingCommaInNestedObject(t *testing.T) {
 			},
 		},
 	}
-	got, err := normalizeToolCalls(calls)
-	if err != nil {
-		t.Fatalf("expected nested trailing commas to be sanitized, got error: %v", err)
-	}
+	got := normalizeToolCalls(calls)
 	if len(got) != 1 {
 		t.Fatalf("got %d calls, want 1", len(got))
 	}
@@ -1018,10 +991,7 @@ func TestNormalizeToolCalls_SetRawArgumentsFromSanitized(t *testing.T) {
 		},
 	}
 
-	out, err := normalizeToolCalls(toolCalls)
-	if err != nil {
-		t.Fatalf("normalizeToolCalls() error = %v", err)
-	}
+	out := normalizeToolCalls(toolCalls)
 
 	if len(out) != 1 {
 		t.Fatalf("got %d tool calls, want 1", len(out))
@@ -1156,10 +1126,7 @@ func TestNormalizeToolCalls_NoRawArgumentsWhenEmpty(t *testing.T) {
 		},
 	}
 
-	out, err := normalizeToolCalls(toolCalls)
-	if err != nil {
-		t.Fatalf("normalizeToolCalls() error = %v", err)
-	}
+	out := normalizeToolCalls(toolCalls)
 
 	if len(out) != 1 {
 		t.Fatalf("got %d tool calls, want 1", len(out))

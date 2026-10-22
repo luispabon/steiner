@@ -119,11 +119,7 @@ func (d *claudeSubDecoder) finalizeOrderedToolUses() ([]ToolCall, error) {
 			})
 			continue
 		}
-		ordinary, err := finalizeAnthropicToolUses(map[int]*anthropicToolUseAccumulator{0: acc})
-		if err != nil {
-			return nil, err
-		}
-		calls = append(calls, ordinary...)
+		calls = append(calls, finalizeAnthropicToolUses(map[int]*anthropicToolUseAccumulator{0: acc})...)
 	}
 	return calls, nil
 }

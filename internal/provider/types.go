@@ -35,6 +35,9 @@ type ToolCall struct {
 	Name         string         `json:"name,omitempty"`
 	Arguments    map[string]any `json:"arguments,omitempty"`
 	RawArguments string         `json:"raw_arguments,omitempty"`
+	// ArgumentDecodeError is set when the provider could not decode the call's
+	// arguments. Arguments and RawArguments then hold an empty object.
+	ArgumentDecodeError string `json:"argument_decode_error,omitempty"`
 }
 
 // UnparsedToolInputKey is the reserved ToolCall.Arguments key marking input the

@@ -334,9 +334,6 @@ func classifyProviderError(err error, retryAfterMax time.Duration) retryDecision
 	if errors.Is(err, errResponsesStreamFailedTransient) {
 		return retryDecision{retry: true, reason: err.Error()}
 	}
-	if errors.Is(err, errDecodeToolCallArguments) {
-		return retryDecision{retry: true, reason: err.Error()}
-	}
 	if errors.Is(err, errDecodeStreamChunkUnexpected) {
 		return retryDecision{retry: true, reason: err.Error()}
 	}

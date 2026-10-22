@@ -289,10 +289,7 @@ func handleResponsesOutputItemDone(state *responsesStreamState, item responsesIt
 	if callItem.CallID == "" {
 		callItem.CallID = entry.callID
 	}
-	call, err := responsesToolCall(callItem)
-	if err != nil {
-		return false, err
-	}
+	call := responsesToolCall(callItem)
 	mergeResponsesToolCall(entry, call)
 	state.current = nil
 	entry.completed = true
@@ -313,6 +310,9 @@ func mergeResponsesToolCall(entry *responsesLedgerEntry, call ToolCall) {
 	if call.RawArguments != "" {
 		entry.call.RawArguments = call.RawArguments
 		entry.call.Arguments = call.Arguments
+	}
+	if call.ArgumentDecodeError != "" {
+		entry.call.ArgumentDecodeError = call.ArgumentDecodeError
 	}
 	if entry.call.ID != "" {
 		entry.callID = entry.call.ID
@@ -447,10 +447,7 @@ func handleResponsesCompleted(state *responsesStreamState, response responsesRes
 		return false, err
 	}
 	if len(response.Output) > 0 {
-		ledger, err := completedResponsesItems(response.Output, state.ledger)
-		if err != nil {
-			return false, err
-		}
+		ledger := completedResponsesItems(response.Output, state.ledger)
 		_, _, text := (&responsesStreamState{ledger: ledger}).projected()
 		streamed := state.content.String()
 		if strings.HasPrefix(text, streamed) && len(text) > len(streamed) {
