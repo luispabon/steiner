@@ -194,7 +194,7 @@ func TestRequestModelSwitchConfirmGate(t *testing.T) {
 	}{
 		{name: "empty conversation commits", target: "large"},
 		{name: "non-empty conversation confirms", conversation: msgs, target: "large", wantConfirm: true, wantBody: "Invalidates the prompt cache."},
-		{name: "busy turn says applies after turn", conversation: msgs, busy: true, target: "large", wantConfirm: true, wantBody: "Invalidates the prompt cache. Applies after this turn."},
+		{name: "busy run says applies to next run", conversation: msgs, busy: true, target: "large", wantConfirm: true, wantBody: "Invalidates the prompt cache. Applies to the next run."},
 		{name: "same model without reasoning commits", conversation: msgs, target: "small"},
 		{name: "same model with new reasoning confirms", conversation: msgs, target: "small", reasoning: effort, wantConfirm: true, wantBody: "Invalidates the prompt cache."},
 	} {
@@ -266,7 +266,7 @@ func TestModelSwitchConfirmModalResolution(t *testing.T) {
 	}
 }
 
-func TestModelSwitchBusyConfirmReportsAfterTurn(t *testing.T) {
+func TestModelSwitchBusyConfirmReportsNextRun(t *testing.T) {
 	t.Parallel()
 	ctrl := &conversationTestController{conversation: []agent.Message{{Role: "user"}}}
 	m := newSwitchTestModel(t, Config{Controller: ctrl})
@@ -275,8 +275,8 @@ func TestModelSwitchBusyConfirmReportsAfterTurn(t *testing.T) {
 	m.requestModelSwitch("large", nil)
 	m = pressKeys(t, m, keyRight, keyEnter)
 
-	if !strings.Contains(stripANSI(m.View().Content), "model switched to large (applies after this turn)") {
-		t.Fatal("status line does not say the switch applies after the turn")
+	if !strings.Contains(stripANSI(m.View().Content), "model switched to large (applies to the next run)") {
+		t.Fatal("status line does not say the switch applies to the next run")
 	}
 }
 

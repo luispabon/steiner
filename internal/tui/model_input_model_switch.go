@@ -78,7 +78,7 @@ func (m *Model) requestModelSwitch(name string, reasoning *provider.ReasoningOve
 	}
 	body := "Invalidates the prompt cache."
 	if m.switchAppliesAfterTurn() {
-		body += " Applies after this turn."
+		body += " Applies to the next run."
 	}
 	m.pendingModelName = name
 	m.pendingModelReasoning = reasoning
@@ -94,7 +94,7 @@ func (m *Model) requestModelSwitch(name string, reasoning *provider.ReasoningOve
 
 // commitModelSwitch dispatches the switch to the controller and updates the
 // model view. On controller failure the view is left unchanged. The status line
-// notes when the switch only applies after the in-flight turn.
+// notes when the switch only applies to the next run.
 func (m *Model) commitModelSwitch(name string, reasoning *provider.ReasoningOverride) {
 	afterTurn := m.switchAppliesAfterTurn()
 	providerBaseURL := m.sidebar.provider
@@ -113,7 +113,7 @@ func (m *Model) commitModelSwitch(name string, reasoning *provider.ReasoningOver
 	m.applyModelSelection(name, providerBaseURL)
 	status := fmt.Sprintf("status: model switched to %s", name)
 	if afterTurn {
-		status += " (applies after this turn)"
+		status += " (applies to the next run)"
 	}
 	m.content.AppendLine(status)
 }

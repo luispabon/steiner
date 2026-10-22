@@ -70,7 +70,7 @@ models:
       default_model: opencode-go/<model-id>
 ```
 
-Switch the active model inside a session with `/model`, or per request with `--model` or `STEINER_MODEL`, for example `--model codex/<model-id>`. Full setup, including obtaining the OpenCode key, OpenCode Zen, and finding model IDs, is in [Provider and model setup](provider-and-model-setup.md).
+Switch the active model inside a session with `/model` or `alt+m` (model picker), or per request with `--model` or `STEINER_MODEL`, for example `--model codex/<model-id>`. Switching the model in a conversation that already has messages asks for confirmation first, because it invalidates the prompt cache. Full setup, including obtaining the OpenCode key, OpenCode Zen, and finding model IDs, is in [Provider and model setup](provider-and-model-setup.md).
 
 ## Inspect and verify
 

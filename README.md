@@ -17,6 +17,7 @@ A minimal, local-first Go coding agent with bounded context and sandboxed execut
 - Plan/build execution modes and resumable autonomous runs. See [Execution modes](docs/user/execution-modes.md) and [Oneshot](docs/user/oneshot.md).
 - Static, read-only security audits of a diff or repository, with adversarial verification. See [Security audit](docs/user/security-audit.md).
 - Sandboxed commands by default. See [Sandboxing](docs/user/sandboxing.md).
+- Model and profile pickers on `alt+m` and `alt+p`, usable with a draft or during a run. Switching models in a conversation asks for confirmation, since it invalidates the prompt cache. See [Provider and model setup](docs/user/provider-and-model-setup.md).
 - Optional advisor, model discovery, image input, notifications, and cache statistics. See [Optional features](docs/user/optional-features.md).
 
 ## Safety
