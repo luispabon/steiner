@@ -629,6 +629,8 @@ func TestClaudeSubTurnFailureThenRetry(t *testing.T) {
 				t.Fatalf("acquire: %v", err)
 			}
 			conn = spawner.call(t, 0).Conn
+			// The fresh-process confirmation answers the same unconfirmable state.
+			claudeSubUsageProbeReply(spawner, json.RawMessage(`{"rate_limits_available":false}`))
 			conn.mu.Lock()
 			conn.responder = responder
 			conn.mu.Unlock()
@@ -815,6 +817,8 @@ func TestClaudeSubUsageGateRejectsBeforeUserWrite(t *testing.T) {
 		t.Fatalf("acquire: %v", err)
 	}
 	pool.release(s)
+	// The fresh-process confirmation answers the same unconfirmable state.
+	claudeSubUsageProbeReply(spawner, json.RawMessage(`{"rate_limits_available":false}`))
 	conn := spawner.call(t, 0).Conn
 	conn.mu.Lock()
 	conn.responder = func(line []byte) []claudeSubEvent {
@@ -960,6 +964,8 @@ func TestClaudeSubUsageGateRefusesToolResultsWithUserBeforeResolve(t *testing.T)
 		t.Fatalf("acquire: %v", err)
 	}
 	conn = spawner.call(t, 0).Conn
+	// The fresh-process confirmation answers the same unconfirmable state.
+	claudeSubUsageProbeReply(spawner, json.RawMessage(`{"rate_limits_available":false}`))
 	conn.mu.Lock()
 	conn.responder = responder
 	conn.mu.Unlock()

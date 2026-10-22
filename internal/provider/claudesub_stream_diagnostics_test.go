@@ -280,7 +280,10 @@ func TestClaudeSubDiagnosticsResumeReseed(t *testing.T) {
 // any user write writes one exhausted record.
 func TestClaudeSubDiagnosticsUsageGateRefusal(t *testing.T) {
 	claudeSubUsageGateFast(t, 30*time.Millisecond, time.Millisecond)
-	pool, spawner := claudeSubPoolWithScripts(t, &claudeSubScript{usage: json.RawMessage(`{"rate_limits_available":false}`)})
+	notReady := json.RawMessage(`{"rate_limits_available":false}`)
+	// The live process and its fresh-process confirmation both answer the same
+	// unconfirmable state.
+	pool, spawner := claudeSubPoolWithScripts(t, &claudeSubScript{usage: notReady}, &claudeSubScript{usage: notReady})
 	streamLog, logPath := claudeSubDiagLogger(t)
 	req := ChatRequest{TransportSession: "diag-gate", Model: claudeSubTestSpec().Model, Messages: []Message{claudeSubUserText("marker-prompt")}}
 	if _, err := NewClaudeSubscriptionProvider(pool, streamLog).ChatCompletion(context.Background(), req); err == nil {

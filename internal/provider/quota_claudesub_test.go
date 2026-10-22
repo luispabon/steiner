@@ -361,6 +361,7 @@ func TestClaudeSubQuotaObserverGateTee(t *testing.T) {
 				t.Fatalf("acquire: %v", err)
 			}
 			pool.release(s)
+			claudeSubUsageProbeReply(spawner, tc.usage)
 			conn := spawner.call(t, 0).Conn
 			conn.mu.Lock()
 			conn.responder = func(line []byte) []claudeSubEvent {

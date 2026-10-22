@@ -128,7 +128,7 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 		// A decode error means the process may hold stale events from the failed
 		// turn, so it is retired even after output and is never retried inline.
 		decodeFailure := errors.Is(err, errClaudeSubDecodeStream)
-		retry := err != nil && !decodeFailure && !emitted && ctx.Err() == nil && s.resume.SessionID != ""
+		retry := !decodeFailure && claudeSubShouldRetryTurn(err, emitted, ctx.Err(), s.resume.SessionID)
 		if decodeFailure || retry {
 			pool.retire(key, s)
 		}
@@ -138,6 +138,27 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 		}
 		forceReseed = true
 	}
+}
+
+// claudeSubUsageGateError marks a usage-gate refusal. The gate has already spent
+// its poll budget and at most one fresh-process confirmation, so the generic
+// pre-output retry must not repeat that wait.
+type claudeSubUsageGateError struct{ err error }
+
+func (e *claudeSubUsageGateError) Error() string { return e.err.Error() }
+
+func (e *claudeSubUsageGateError) Unwrap() error { return e.err }
+
+// claudeSubShouldRetryTurn reports whether a failed delivery is retried once on
+// a fresh process. Only a failure before any output, on a request with a resume
+// target, and while the caller still waits qualifies. A usage-gate refusal never
+// does: it is a deliberate fail-closed answer, not a dead process.
+func claudeSubShouldRetryTurn(err error, emitted bool, ctxErr error, resumeSessionID string) bool {
+	if err == nil || emitted || ctxErr != nil || resumeSessionID == "" {
+		return false
+	}
+	var gateErr *claudeSubUsageGateError
+	return !errors.As(err, &gateErr)
 }
 
 // claudeSubSummarySuffix keys the ephemeral helper processes that answer a
@@ -288,8 +309,14 @@ func claudeSubDeliverNormal(ctx context.Context, s *claudeSubSession, req ChatRe
 func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest, delta claudeSubDelta, emit func(ChatChunk) error) error {
 	if len(delta.User) > 0 {
 		getUsage := claudeSubQuotaObservedGetUsage(s.pool, s.control.getUsage)
-		if err := claudeSubAwaitUsageGate(ctx, getUsage); err != nil {
-			return err
+		liveErr := claudeSubAwaitUsageGate(ctx, getUsage)
+		if errors.Is(liveErr, errClaudeSubUsageNotReady) {
+			// The live process may be answering from the CLI's in-process usage
+			// cache, so one fresh process confirms the state before refusing.
+			liveErr = claudeSubUsageProbeOutcome(liveErr, s.pool.confirmUsageFresh(ctx))
+		}
+		if liveErr != nil {
+			return &claudeSubUsageGateError{err: liveErr}
 		}
 	}
 	if s.model != req.Model {
