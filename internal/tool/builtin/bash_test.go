@@ -230,7 +230,7 @@ func TestBashToolFailsClosedWithoutSandboxWrapperKey(t *testing.T) {
 
 // TestBashToolConfiguredTimeoutCapInSchema proves NewBashTool threads the Env
 // cap into the parameter schema: the 300-second cap is the schema maximum and
-// the default stays at the 30-second request default.
+// the default stays at the 120-second request default.
 func TestBashToolConfiguredTimeoutCapInSchema(t *testing.T) {
 	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
 	toolDef := NewBashTool(Env{PathPolicy: &policy, BashTimeoutCap: 300 * time.Second})

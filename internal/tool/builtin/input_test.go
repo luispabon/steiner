@@ -171,7 +171,23 @@ func TestNormalizeBash(t *testing.T) {
 		}
 	})
 
-	t.Run("defaults request to cap when cap is below 30", func(t *testing.T) {
+	t.Run("preserves request equal to 600s ceiling", func(t *testing.T) {
+		in := &BashInput{TimeoutSeconds: 600}
+		normalizeBash(in, 600)
+		if in.TimeoutSeconds != 600 {
+			t.Errorf("TimeoutSeconds = %d, want 600", in.TimeoutSeconds)
+		}
+	})
+
+	t.Run("clamps request above 600s ceiling", func(t *testing.T) {
+		in := &BashInput{TimeoutSeconds: 900}
+		normalizeBash(in, 600)
+		if in.TimeoutSeconds != 600 {
+			t.Errorf("TimeoutSeconds = %d, want 600", in.TimeoutSeconds)
+		}
+	})
+
+	t.Run("defaults request to cap when cap is below 120", func(t *testing.T) {
 		in := &BashInput{}
 		normalizeBash(in, 10)
 		if in.TimeoutSeconds != 10 {
@@ -179,7 +195,7 @@ func TestNormalizeBash(t *testing.T) {
 		}
 	})
 
-	t.Run("clamps negative request to cap below the 30s default", func(t *testing.T) {
+	t.Run("clamps negative request to cap below the 120s default", func(t *testing.T) {
 		in := &BashInput{TimeoutSeconds: -5}
 		normalizeBash(in, 10)
 		if in.TimeoutSeconds != 10 {
@@ -242,7 +258,10 @@ func TestResolveBashTimeoutCapSeconds(t *testing.T) {
 		{"sub-second falls back to 120", 1500 * time.Millisecond, defaultBashTimeoutCapSeconds},
 		{"default 120 preserved", 120 * time.Second, 120},
 		{"configured 300 preserved", 300 * time.Second, 300},
-		{"below 30 preserved", 10 * time.Second, 10},
+		{"configured 600 preserved", 600 * time.Second, 600},
+		{"above 600 clamps to 600", 900 * time.Second, 600},
+		{"fractional above 600 clamps to 600", 601*time.Second + 500*time.Millisecond, 600},
+		{"below default preserved", 10 * time.Second, 10},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

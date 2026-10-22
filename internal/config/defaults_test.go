@@ -82,7 +82,7 @@ func TestDefaultLimitsModelCallTimeout(t *testing.T) {
 
 func TestDefaultLimitsBashTimeout(t *testing.T) {
 	cfg := defaultConfig(nil)
-	if got, want := cfg.Limits.ToolTimeouts["bash"], MustDuration("120s"); got != want {
+	if got, want := cfg.Limits.ToolTimeouts["bash"], MustDuration("600s"); got != want {
 		t.Errorf("Limits.ToolTimeouts[bash] = %v, want %v", got, want)
 	}
 }

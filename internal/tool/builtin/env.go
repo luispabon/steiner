@@ -15,8 +15,9 @@ type Env struct {
 	Excluder   *tool.PathExcluder
 	// BashTimeoutCap is the authoritative execution-timeout cap for the bash
 	// tool, normally sourced from limits.tool_timeouts["bash"]. NewBashTool
-	// resolves it to whole seconds, falling back to a 120-second cap when it is
-	// non-positive or not an exact multiple of one second.
+	// resolves it to whole seconds: caps above 600s clamp to 600s, and
+	// non-positive caps or caps that are not an exact multiple of one second
+	// fall back to 120s.
 	BashTimeoutCap time.Duration
 	// httpClient is a test seam. Production callers use the SSRF-safe default.
 	httpClient func() *http.Client

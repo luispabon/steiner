@@ -140,6 +140,7 @@ func TestLSSchema(t *testing.T) {
 	}
 }
 
+// TestBashSchema exercises the schema built from the 120-second fallback cap.
 func TestBashSchema(t *testing.T) {
 	s := BashSchema(defaultBashTimeoutCapSeconds)
 	if got := schemaType(s); got != "object" {
@@ -174,9 +175,10 @@ func TestBashSchemaConfiguredCap(t *testing.T) {
 		capSeconds  int
 		wantDefault int
 	}{
-		{"cap above 30 keeps the 30s default", 300, defaultBashTimeoutSeconds},
-		{"cap equal to 30", 30, 30},
-		{"cap below 30 becomes the default", 10, 10},
+		{"cap above 120 keeps the 120s default", 300, defaultBashTimeoutSeconds},
+		{"cap at 600 ceiling keeps the 120s default", 600, defaultBashTimeoutSeconds},
+		{"cap equal to 120", 120, 120},
+		{"cap below 120 becomes the default", 10, 10},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

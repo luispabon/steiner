@@ -1877,8 +1877,8 @@ func TestChildBashSubsetPreservesTimeoutCap(t *testing.T) {
 	if got := ts["maximum"]; got != 300 {
 		t.Errorf("child bash timeout_seconds maximum = %v, want 300", got)
 	}
-	if got := ts["default"]; got != 30 {
-		t.Errorf("child bash timeout_seconds default = %v, want 30", got)
+	if got := ts["default"]; got != 120 {
+		t.Errorf("child bash timeout_seconds default = %v, want 120", got)
 	}
 
 	ctx := context.WithValue(context.Background(), tool.SandboxWrapperKey{}, tool.ResolvedSandbox{Wrapper: tool.Unsandboxed{}})

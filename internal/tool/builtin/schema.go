@@ -133,7 +133,7 @@ func DisplayFileSchema() map[string]any {
 
 // BashSchema returns the JSON schema for the bash tool. maxTimeoutSeconds is
 // the resolved configured cap: the timeout default is the smaller of the
-// 30-second request default and the cap, and the cap is the maximum.
+// 120-second request default and the cap, and the cap is the maximum.
 func BashSchema(maxTimeoutSeconds int) map[string]any {
 	return map[string]any{
 		"type": "object",
