@@ -19,11 +19,14 @@ const (
 	KindTool Kind = "tool"
 	// KindTUI records per-message TUI Update/View cost aggregated per window.
 	KindTUI Kind = "tui"
+	// KindInternal records TUI developer error log entries. No producer writes
+	// it yet, so the stream is only created when enabled.
+	KindInternal Kind = "internal"
 )
 
 // Kinds lists every stream in a stable order.
 func Kinds() []Kind {
-	return []Kind{KindCache, KindProvider, KindTool, KindTUI}
+	return []Kind{KindCache, KindProvider, KindTool, KindTUI, KindInternal}
 }
 
 // fileName is the stream's file name inside the diagnostics directory.

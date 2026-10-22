@@ -13,7 +13,7 @@ import (
 )
 
 func allStreams() Streams {
-	return Streams{Cache: true, Provider: true, Tool: true, TUI: true}
+	return Streams{Cache: true, Provider: true, Tool: true, TUI: true, Internal: true}
 }
 
 func readRecords(t *testing.T, path string) []Record {
@@ -110,7 +110,8 @@ func TestWriterStreamGating(t *testing.T) {
 		{name: "provider only", streams: Streams{Provider: true}, want: map[Kind]bool{KindProvider: true}},
 		{name: "tool only", streams: Streams{Tool: true}, want: map[Kind]bool{KindTool: true}},
 		{name: "tui only", streams: Streams{TUI: true}, want: map[Kind]bool{KindTUI: true}},
-		{name: "all", streams: allStreams(), want: map[Kind]bool{KindCache: true, KindProvider: true, KindTool: true, KindTUI: true}},
+		{name: "internal only", streams: Streams{Internal: true}, want: map[Kind]bool{KindInternal: true}},
+		{name: "all", streams: allStreams(), want: map[Kind]bool{KindCache: true, KindProvider: true, KindTool: true, KindTUI: true, KindInternal: true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -132,6 +133,43 @@ func TestWriterStreamGating(t *testing.T) {
 				if !tt.want[kind] && err == nil {
 					t.Errorf("%s exists, want no file for a disabled stream", kind.fileName())
 				}
+			}
+		})
+	}
+}
+
+func TestWriterInternalStream(t *testing.T) {
+	tests := []struct {
+		name    string
+		streams Streams
+		want    bool
+	}{
+		{name: "enabled writes the record", streams: Streams{Internal: true}, want: true},
+		{name: "disabled writes nothing", streams: Streams{Cache: true}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			w, err := New(Options{Dir: dir, Streams: tt.streams})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			t.Cleanup(func() { _ = w.Close() })
+			w.Write(Record{Kind: KindInternal, Payload: map[string]any{"msg": "boom"}})
+
+			path := filepath.Join(dir, "internal.jsonl")
+			if !tt.want {
+				if _, err := os.Stat(path); err == nil {
+					t.Fatal("internal.jsonl exists, want no file for a disabled stream")
+				}
+				return
+			}
+			records := readRecords(t, path)
+			if len(records) != 1 {
+				t.Fatalf("internal records = %d, want 1", len(records))
+			}
+			if records[0].Kind != KindInternal {
+				t.Errorf("Kind = %q, want %q", records[0].Kind, KindInternal)
 			}
 		})
 	}

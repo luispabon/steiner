@@ -94,6 +94,12 @@ func TestApplyDiagnosticsPatch(t *testing.T) {
 			patch: &diagnosticsPatch{Streams: &diagnosticsStreamsPatch{TUI: &cacheOn}},
 			want:  DiagnosticsConfig{Streams: DiagnosticsStreamsConfig{Cache: true, TUI: true}},
 		},
+		{
+			name:  "internal stream merges independently",
+			start: DiagnosticsConfig{Streams: DiagnosticsStreamsConfig{Cache: true}},
+			patch: &diagnosticsPatch{Streams: &diagnosticsStreamsPatch{Internal: &cacheOn}},
+			want:  DiagnosticsConfig{Streams: DiagnosticsStreamsConfig{Cache: true, Internal: true}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -101,6 +107,30 @@ func TestApplyDiagnosticsPatch(t *testing.T) {
 			applyDiagnosticsPatch(&got, tt.patch)
 			if got != tt.want {
 				t.Errorf("applyDiagnosticsPatch() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDiagnosticsInternalStreamYAML(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want bool
+	}{
+		{name: "unset defaults to false", yaml: "diagnostics:\n  enabled: true\n", want: false},
+		{name: "true parses", yaml: "diagnostics:\n  streams:\n    internal: true\n", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patch, err := parseConfigPatch(tt.yaml)
+			if err != nil {
+				t.Fatalf("parseConfigPatch() error = %v", err)
+			}
+			cfg := defaultConfig(nil)
+			applyPatch(&cfg, patch)
+			if cfg.Diagnostics.Streams.Internal != tt.want {
+				t.Errorf("Diagnostics.Streams.Internal = %v, want %v", cfg.Diagnostics.Streams.Internal, tt.want)
 			}
 		})
 	}

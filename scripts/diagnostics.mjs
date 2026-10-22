@@ -9,7 +9,8 @@
 // Modes: cache | provider | tools | coldturns | mutate | tui | prefix <logfile>
 //
 // cache/provider/tools read the diagnostics directory (one JSONL file per
-// stream: cache.jsonl, provider.jsonl, tool.jsonl; see
+// stream: cache.jsonl, provider.jsonl, tool.jsonl, internal.jsonl (no mode
+// reads internal.jsonl yet); see
 // internal/diagnostics/envelope.go for the record shape). coldturns reads
 // two of those streams at once and joins them on time, because attributing a
 // cold turn needs both what the cache did (cache.jsonl) and what occupied the
