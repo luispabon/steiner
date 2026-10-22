@@ -183,6 +183,8 @@ func classifyToolError(err error) string {
 		switch toolErr.Kind {
 		case "policy_denied":
 			return "path_policy"
+		case "invalid_tool_input":
+			return "invalid_input"
 		case "sandbox_wrapper_missing", "subprocess_failed", "invalid_json", "nonzero_exit":
 			return "io_error"
 		}

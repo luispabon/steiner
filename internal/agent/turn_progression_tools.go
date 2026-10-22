@@ -215,6 +215,7 @@ func (p *turnProgressor) invokeTool(ctx context.Context, turn int, call provider
 		})
 	}
 	ctx = tool.WithCallDiagnostics(ctx, tool.CallDiagnostics{Turn: turn, Model: p.request.ResolvedModel.BackendModelID})
+	ctx = tool.WithToolInputDecodeError(ctx, call.ArgumentDecodeError)
 	return p.request.Executor.Execute(ctx, call.Name, call.ID, cloneInput(call.Arguments))
 }
 
