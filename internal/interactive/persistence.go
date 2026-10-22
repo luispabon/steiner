@@ -254,8 +254,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		listener(mode)
 	}
 
-	s.replaySessionMessages(msgs, sess.SubAgentLedger)
-	s.emitUnansweredResults(msgs, "")
+	s.replayLoadedTranscript(msgs, sess.SubAgentLedger)
 	// Lost sub-agents settle only after replay so their delivered event lands
 	// after the replayed transcript, not before it.
 	deliverLostSubAgents(drv, sess.SubAgentLedger)

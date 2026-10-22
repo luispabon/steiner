@@ -436,6 +436,10 @@ var contentEventHandlers = map[string]contentEventHandler{
 	// ConversationReset clears the transcript from model_events.go, after this
 	// no-op registration; the event carries no transcript line of its own.
 	output.EventTypeConversationReset: func(*contentBuffer, output.Event) {},
+	// Replay boundaries are display-only; replayed transcript lines come from
+	// their own events.
+	output.EventTypeReplayStarted:  func(*contentBuffer, output.Event) {},
+	output.EventTypeReplayFinished: func(*contentBuffer, output.Event) {},
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {

@@ -1,6 +1,9 @@
 package provider
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // MessageRole identifies the provider-side role for a chat message.
 type MessageRole string
@@ -187,6 +190,11 @@ type ChatChunk struct {
 	Severity        string      `json:"severity,omitempty"`
 	RetryReset      bool        `json:"retry_reset,omitempty"`
 	OriginalError   error       `json:"-"` // preserves the original error type (not serialized)
+	// RetryAttempt, RetryMaxAttempts and RetryDelay describe the retry that a
+	// RetryReset chunk reports.
+	RetryAttempt     int           `json:"retry_attempt,omitempty"`
+	RetryMaxAttempts int           `json:"retry_max_attempts,omitempty"`
+	RetryDelay       time.Duration `json:"retry_delay,omitempty"`
 	// UpstreamEndpoint is the upstream endpoint id reported by compatible gateways.
 	UpstreamEndpoint string `json:"-"`
 	// BackendState, when non-nil, is the opaque state the final chunk hands to

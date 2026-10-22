@@ -301,7 +301,7 @@ func (d *ConversationDriver) finish(ctx context.Context, out DriverRunOutput, er
 	}
 	d.carryParentUsageLocked(advanced, out.ParentUsage)
 	if err != nil && !errors.Is(err, context.Canceled) {
-		d.warnLocked(fmt.Sprintf("run failed: %v", err))
+		d.warnLocked(output.ConversationWarningKindRun, fmt.Sprintf("run failed: %v", err))
 	}
 	d.recordRunLocked(out)
 	if d.closing || d.held || !d.wakeReadyLocked() {
@@ -367,7 +367,7 @@ func (d *ConversationDriver) save(ctx context.Context, snap DriverSnapshot) {
 	}
 	if err := d.opts.Save(ctx, snap); err != nil {
 		d.mu.Lock()
-		d.warnLocked(fmt.Sprintf("save conversation: %v", err))
+		d.warnLocked(output.ConversationWarningKindSave, fmt.Sprintf("save conversation: %v", err))
 		d.unlockEmit()
 	}
 }
@@ -399,7 +399,7 @@ func (d *ConversationDriver) compact(ctx context.Context) bool {
 			}
 		}
 	case !errors.Is(err, context.Canceled):
-		d.warnLocked(fmt.Sprintf("compact conversation: %v", err))
+		d.warnLocked(output.ConversationWarningKindCompact, fmt.Sprintf("compact conversation: %v", err))
 	}
 	return d.saveAndUnlock(ctx, true)
 }

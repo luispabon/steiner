@@ -59,6 +59,7 @@ func (p *turnProgressor) recoverToolPanic(turn int, call provider.ToolCall, r an
 	stack := debug.Stack()
 	slog.Error("tool panicked", "turn", turn, "tool", call.Name, "call_id", call.ID, "panic", fmt.Sprint(r), "stack", string(stack))
 	emitEvent(p.request.Events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+		Kind:     output.DiagnosticKindToolPanic,
 		Turn:     turn,
 		Severity: "error",
 		Message:  fmt.Sprintf("tool %q panicked: %v\n%s", call.Name, r, stack),

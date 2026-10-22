@@ -132,6 +132,14 @@ const (
 	// the replayed transcript. It is display-only: consumers drop transcript
 	// state tied to the previous conversation.
 	EventTypeConversationReset = "conversation_reset"
+	// EventTypeReplayStarted marks the start of a saved session replay, after
+	// EventTypeConversationReset and before the replayed transcript. It is
+	// display-only and renders no text.
+	EventTypeReplayStarted = "replay_started"
+	// EventTypeReplayFinished marks the end of a saved session replay. It is
+	// emitted even when replay exits early or panics. It is display-only and
+	// renders no text.
+	EventTypeReplayFinished = "replay_finished"
 )
 
 // Event is the timestamped envelope emitted by the runtime event stream.

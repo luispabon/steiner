@@ -262,9 +262,13 @@ func handleTransientProviderRetry(ctx context.Context, events output.EventSink, 
 		delay = 5 * time.Second
 	}
 	emitEvent(events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
-		Turn:     turn,
-		Severity: "warning",
-		Message:  fmt.Sprintf("provider returned transient error, retrying turn in %s (attempt %d/%d): %s", delay, *retries, limit, err),
+		Kind:        output.DiagnosticKindRetry,
+		Turn:        turn,
+		Severity:    "warning",
+		Message:     fmt.Sprintf("provider returned transient error, retrying turn in %s (attempt %d/%d): %s", delay, *retries, limit, err),
+		Attempt:     *retries,
+		MaxAttempts: limit,
+		Delay:       delay.String(),
 	}))
 	return true, runnerRetrySleep(ctx, delay)
 }
