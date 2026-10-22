@@ -63,6 +63,7 @@ func renderHelp(styles *theme.Styles, width int) string {
 					binding{"alt+/", "expand/collapse jumped-to sub-agent (10s)"},
 					binding{"alt+a", "sub-agent picker"},
 					binding{"alt+m / alt+p", "model / profile picker"},
+					binding{"alt+e", "internal errors"},
 					binding{"ctrl+g", "edit queue"},
 				)
 				for _, hb := range projectHelpLines() {

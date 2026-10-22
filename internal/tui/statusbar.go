@@ -29,6 +29,10 @@ type statusState struct {
 	subAgentsQueued   int
 	subAgentsFailed   int
 	spinnerFrame      int
+
+	// devLogUnseen and devLogWorst drive the internal error badge.
+	devLogUnseen int
+	devLogWorst  devLogSeverity
 }
 
 //nolint:gocyclo // fan-out by segment is structural, not accidental
@@ -65,6 +69,11 @@ func (s statusState) view(width int) string {
 	// Segments 2-3: stable commands and navigation
 	parts = append(parts, s.styles.KeyChip.Render("^B")+" sidebar")
 	parts = append(parts, s.styles.KeyChip.Render("Ctrl+F1")+" help")
+
+	// Segment 5: internal error badge (unseen developer error log entries)
+	if badge := s.devLogBadge(); badge != "" {
+		parts = append(parts, badge)
+	}
 
 	// Segment 6: ctx (static, infrequently changing)
 	if s.contextBudget > 0 || s.promptUsed > 0 {

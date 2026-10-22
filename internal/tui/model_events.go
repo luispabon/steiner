@@ -15,6 +15,12 @@ import (
 
 //nolint:gocyclo // pre-routing guards run in a fixed order
 func (m *Model) applyEvent(event output.Event) tea.Cmd {
+	switch event.Type {
+	case output.EventTypeReplayStarted:
+		m.devLog.replaying = true
+	case output.EventTypeReplayFinished:
+		m.devLog.replaying = false
+	}
 	if payload, ok := event.Payload.(output.ConversationStateEvent); ok {
 		m.applyConversationState(payload)
 		return nil

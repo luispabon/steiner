@@ -95,6 +95,9 @@ type Model struct {
 	external      <-chan tea.Msg
 	autoScroll    bool
 	contentTopPad int
+	devLog        devLogState
+	devLogOverlay devLogOverlay
+
 	// sub-agent jump state (delegation_jump.go)
 	jumpTarget          occurrenceKey // last jump target; zero value = none
 	jumpAt              time.Time     // when jumpTarget was set; gates the alt+/ expand window
