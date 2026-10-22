@@ -56,12 +56,14 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 		return m.executeSetAccentAction(action.setAccent)
 	}
 	if action.switchModel != "" {
+		m.input.Reset()
 		return m.executeModelAction(action.switchModel, nil)
 	}
 	if action.openProfilePicker {
 		return m.executeOpenProfilePickerAction()
 	}
 	if action.switchProfile != "" {
+		m.input.Reset()
 		return m.executeSwitchProfileAction(action.switchProfile)
 	}
 	if action.toggleMode {

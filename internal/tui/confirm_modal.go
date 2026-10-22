@@ -121,7 +121,7 @@ func renderConfirmModalButton(styles *theme.Styles, label string, selected bool)
 // confirmModals lists every confirm modal on the Model in view priority order.
 // Register new confirm modals here.
 func (m *Model) confirmModals() []*confirmModalState {
-	return []*confirmModalState{&m.worktreeCleanupModal, &m.exitModal, &m.orchestrationConfirm}
+	return []*confirmModalState{&m.worktreeCleanupModal, &m.exitModal, &m.orchestrationConfirm, &m.modelSwitchConfirm}
 }
 
 // openConfirmModalView returns the highest-priority open confirm modal, or nil.

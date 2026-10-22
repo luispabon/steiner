@@ -306,7 +306,7 @@ func TestHelpOverlayFitsSidebarAndNarrowTerminal(t *testing.T) {
 			if tc.sidebar {
 				m.sidebar.SetExpanded(true)
 			}
-			m = updateModelDirect(m, tea.WindowSizeMsg{Width: tc.width, Height: 80})
+			m = updateModelDirect(m, tea.WindowSizeMsg{Width: tc.width, Height: 100})
 			m.helpVisible = true
 			frame := m.View().Content
 			contentWidth := m.contentWidth()

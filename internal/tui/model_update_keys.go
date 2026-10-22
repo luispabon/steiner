@@ -147,6 +147,12 @@ func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, te
 		return true, next, cmd
 	case isCtrl(msg, 'g'):
 		return true, m.executeTakeBackSteersAction(), nil
+	case isAlt(msg, 'm'):
+		m.openModelPickerFromKeybind()
+		return true, m, nil
+	case isAlt(msg, 'p'):
+		m.openProfilePickerFromKeybind()
+		return true, m, nil
 	}
 	if handled, cmd := m.handleSubAgentNavKey(msg); handled {
 		return true, m, cmd

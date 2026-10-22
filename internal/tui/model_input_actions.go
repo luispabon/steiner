@@ -171,25 +171,7 @@ func (m *Model) executeSetAccentAction(preset string) (tea.Model, tea.Cmd) {
 // no reasoning selection, leaving any previously stored override for
 // modelName untouched.
 func (m *Model) executeModelAction(modelName string, reasoning *provider.ReasoningOverride) (tea.Model, tea.Cmd) {
-	providerBaseURL := m.sidebar.provider
-	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.SwitchModel{Name: modelName, Reasoning: reasoning}); err != nil {
-			m.content.AppendLine(fmt.Sprintf("status: model %s is not configured", modelName))
-			m.input.Reset()
-			m.relayoutInput()
-			m.syncViewport()
-			return m, nil
-		}
-	}
-	if baseURL, ok := m.modelBaseURLs[modelName]; ok {
-		providerBaseURL = baseURL
-	}
-	if reasoning != nil {
-		m.reasoningLabels[modelName] = reasoningOverrideLabel(*reasoning)
-	}
-	m.applyModelSelection(modelName, providerBaseURL)
-	m.content.AppendLine(fmt.Sprintf("status: model switched to %s", modelName))
-	m.input.Reset()
+	m.requestModelSwitch(modelName, reasoning)
 	m.relayoutInput()
 	m.syncViewport()
 	return m, nil
@@ -214,7 +196,6 @@ func (m *Model) executeSwitchProfileAction(name string) (tea.Model, tea.Cmd) {
 			m.sidebar.profile = name
 		}
 	}
-	m.input.Reset()
 	m.relayoutInput()
 	m.syncViewport()
 	return m, nil

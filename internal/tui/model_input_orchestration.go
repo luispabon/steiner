@@ -84,6 +84,13 @@ func (m *Model) executeInvalidOrchestrationLevelAction(arg string) (tea.Model, t
 	return m, nil
 }
 
+// switchAppliesAfterTurn reports whether a model or orchestration switch made
+// now only takes effect after the in-flight turn: a turn is running (not just
+// waiting on the conversation) or a oneshot run is in flight.
+func (m *Model) switchAppliesAfterTurn() bool {
+	return (m.activity.busy() && !m.ordinaryConversationWaiting()) || m.oneshotRunning
+}
+
 // requestOrchestrationLevel is the single apply-or-confirm entry point used
 // by both the direct "/orchestration <level>" command and the picker's Enter
 // key: it switches immediately when safe (empty conversation, no oneshot in
@@ -101,7 +108,7 @@ func (m *Model) requestOrchestrationLevel(level config.OrchestrationLevel) tea.C
 		return m.applyOrchestrationLevel(level)
 	}
 	body := "Invalidates the prompt cache."
-	if (m.activity.busy() && !m.ordinaryConversationWaiting()) || m.oneshotRunning {
+	if m.switchAppliesAfterTurn() {
 		body += " Applies after this turn."
 	}
 	m.pendingOrchestrationLevel = level
