@@ -166,6 +166,10 @@ type Model struct {
 	orchestrationPicker          orchestrationPickerOverlay
 	orchestrationConfirm         confirmModalState
 	pendingOrchestrationLevel    config.OrchestrationLevel
+	modelSwitchConfirm           confirmModalState
+	pendingModelName             string
+	pendingModelReasoning        *provider.ReasoningOverride
+	pickerFromKeybind            bool // the open model or profile picker came from alt+m/alt+p; Enter and Esc leave the composer alone
 	contextOverlay               contextOverlayState
 	usageOverlay                 usageOverlayState
 	exitModal                    confirmModalState

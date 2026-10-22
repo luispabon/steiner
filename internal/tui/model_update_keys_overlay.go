@@ -180,11 +180,11 @@ func (m *Model) handleProfilePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	switch msg.Code {
 	case tea.KeyEsc:
 		m.profilePicker = m.profilePicker.Close()
-		m.input.Reset()
+		m.settleComposerAfterPicker()
 	case tea.KeyEnter:
 		if name, ok := m.profilePicker.SelectedName(); ok {
 			m.profilePicker = m.profilePicker.Close()
-			m.input.Reset()
+			m.settleComposerAfterPicker()
 			return m.executeSwitchProfileAction(name)
 		}
 	default:
@@ -245,7 +245,7 @@ func (m *Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		m.modelPicker = m.modelPicker.Close()
 		if !m.modelPicker.IsWorkflowHandoff() {
-			m.input.Reset()
+			m.settleComposerAfterPicker()
 		}
 	case tea.KeyEnter:
 		if entry, ok := m.modelPicker.SelectedEntry(); ok {
@@ -263,7 +263,7 @@ func (m *Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				caps = m.reasoningCapabilitiesForEntry(entry)
 			}
 			if len(caps.SupportedEfforts) == 0 {
-				m.input.Reset()
+				m.settleComposerAfterPicker()
 				return m.executeModelAction(name, nil)
 			}
 			m.reasoningPicker = m.reasoningPicker.Open(name, caps, m.currentReasoningOverrideFor(name), m.modelReasoningEfforts[name])
@@ -291,7 +291,7 @@ func (m *Model) handleReasoningPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cm
 		if opt, ok := m.reasoningPicker.SelectedOption(); ok {
 			modelName := m.reasoningPicker.modelName
 			m.reasoningPicker = m.reasoningPicker.Close()
-			m.input.Reset()
+			m.settleComposerAfterPicker()
 			override := reasoningOverrideFromOption(opt)
 			return m.executeModelAction(modelName, &override)
 		}

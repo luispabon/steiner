@@ -285,7 +285,7 @@ For the active orchestrator at startup, selection precedence is:
 2. `STEINER_MODEL`, when set to a valid raw reference or configured alias.
 3. `--model`, which overrides `STEINER_MODEL`.
 
-The environment and CLI overrides affect the active orchestrator only. Advisor, sub-agent, oneshot, and workflow-handoff assignments still come from the selected profile. In interactive mode, `/model <provider>/<model-id>` changes the active orchestrator for the session. `/profile <name>` changes the profile used for future role assignments and fallback; it does not replace the current active orchestrator selection.
+The environment and CLI overrides affect the active orchestrator only. Advisor, sub-agent, oneshot, and workflow-handoff assignments still come from the selected profile. In interactive mode, `/model <provider>/<model-id>` changes the active orchestrator for the session. `/profile <name>` changes the profile used for future role assignments and fallback; it does not replace the current active orchestrator selection. In the TUI, `alt+m` opens a model picker and `alt+p` a profile picker. A model switch in a conversation that already has messages asks for confirmation first, because it invalidates the prompt cache.
 
 ## Verify a setup
 

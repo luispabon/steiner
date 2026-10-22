@@ -8,6 +8,7 @@ import (
 )
 
 func (m *Model) openModelPickerFromSlashCommand() *Model {
+	m.pickerFromKeybind = false
 	m.modelPicker = m.modelPicker.OpenEntries(m.modelPickerEntries(), m.primaryModel)
 	m.modelPicker.width = m.width
 	m.modelPicker.height = m.height
@@ -22,6 +23,7 @@ func (m *Model) openAccentPickerFromSlashCommand() *Model {
 }
 
 func (m *Model) openProfilePickerFromSlashCommand() *Model {
+	m.pickerFromKeybind = false
 	m.profilePicker = m.profilePicker.Open(m.profileNames, m.sidebar.profile)
 	m.profilePicker.width = m.width
 	m.profilePicker.height = m.height

@@ -203,6 +203,13 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		},
 	},
 	overlayKeyHandlerFunc{
+		match: func(m *Model) bool { return m.modelSwitchConfirm.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			m.handleModelSwitchConfirmModalKey(msg)
+			return nil
+		},
+	},
+	overlayKeyHandlerFunc{
 		match: func(m *Model) bool { return m.slashOverlay.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			_, cmd := m.handleSlashOverlayKey(msg)

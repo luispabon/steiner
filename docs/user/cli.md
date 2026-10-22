@@ -73,7 +73,7 @@ Common flags; `steiner --help` lists all of them.
 
 Type `/` to open the command and skill list, and press Ctrl+F1 to toggle the help overlay with keybindings.
 
-Use `/compact` or `/compact <focus text>` to compact the conversation. Use `/model` to change the active orchestrator model. For example, enter `/model ollama/qwen2.5-coder:14b` to select a raw reference. Use `/profile <name>` to select a profile for future role assignments. Use `/mode [plan|build]` to switch execution mode. See [Execution modes](execution-modes.md).
+Use `/compact` or `/compact <focus text>` to compact the conversation. Use `/model` to change the active orchestrator model, or press `alt+m` to open the model picker. Press `alt+p` to open the profile picker. Both work with a draft in the composer and during a run. Switching the model or its reasoning in a conversation that already has messages asks for confirmation first, because it invalidates the prompt cache. During a run, the switch applies to the next run. For example, enter `/model ollama/qwen2.5-coder:14b` to select a raw reference. Use `/profile <name>` to select a profile for future role assignments. Use `/mode [plan|build]` to switch execution mode. See [Execution modes](execution-modes.md).
 
 A configured alias is an optional alternate for a model with persistent customization, such as `--model careful` when `careful` is defined under `models.definitions` with reasoning or retry settings. Raw references are the normal path when no such customization is needed.
 
