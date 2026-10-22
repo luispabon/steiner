@@ -45,6 +45,9 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 				return p.finishStoppedSerial(ctx, state, outcome, turn, calls[i+1:])
 			}
 			i++
+			if stopped, ok := p.stopOnRepeatedFailure(ctx, state, turn, calls[i:]); ok {
+				return stopped
+			}
 			continue
 		}
 		results := p.invokeParallel(ctx, state, turn, calls[i:i+n])
@@ -59,6 +62,9 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 			}
 		}
 		i += n
+		if stopped, ok := p.stopOnRepeatedFailure(ctx, state, turn, calls[i:]); ok {
+			return stopped
+		}
 	}
 	return p.finalizeToolTurn(ctx, state, turn, response)
 }
@@ -244,6 +250,7 @@ func calibratedToolDelta(delta, previousRaw, calibrated int) int {
 }
 
 func (p *turnProgressor) appendToolOutcome(ctx context.Context, state RunState, turn int, call provider.ToolCall, result any, err error, emitFinished bool) RunState {
+	p.observeToolOutcome(call.Name, err)
 	var toolMessage Message
 	if emitFinished {
 		toolMessage = p.buildToolMessage(turn, call, result, err, state.Lineage.latestMessages())
