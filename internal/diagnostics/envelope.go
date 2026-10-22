@@ -19,8 +19,10 @@ const (
 	KindTool Kind = "tool"
 	// KindTUI records per-message TUI Update/View cost aggregated per window.
 	KindTUI Kind = "tui"
-	// KindInternal records TUI developer error log entries. No producer writes
-	// it yet, so the stream is only created when enabled.
+	// KindInternal records TUI developer error log entries. The TUI devlog
+	// writes it only when diagnostics and this stream are enabled. Its message
+	// text is bounded to 8 KiB and stripped of control characters, regardless
+	// of CaptureBodies.
 	KindInternal Kind = "internal"
 )
 
@@ -50,6 +52,7 @@ const (
 
 // Record is one diagnostics event. Payload holds kind-specific fields and must
 // contain only fixed-size scalars; large content belongs behind CaptureBodies.
+// Exception: KindInternal payloads carry a bounded, sanitized message string.
 type Record struct {
 	Timestamp time.Time `json:"ts"`
 	RunID     string    `json:"run_id,omitempty"`
