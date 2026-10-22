@@ -7,17 +7,17 @@ description: Plan coding work as a compact implementation-step bundle with a con
 
 ## Role
 
-Use this skill to turn a coding request into a traceable planning bundle: intent, constraints, verification strategy, and a flat list of implementation steps, written only under `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`, where `FEATURE_NAME` is a short filesystem-safe slug for the task.
+Turn a coding request into a traceable planning bundle (intent, constraints, verification strategy, flat implementation steps) written only under `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`, where `FEATURE_NAME` is a short filesystem-safe slug.
 
 The planner never implements and never edits implementation files. Its work ends with a mandatory `workflow_handoff` call; prose never replaces it.
 
-This document has two halves. **Procedure** is the workflow, walked once top to bottom. **Reference** holds the contracts (schemas, decision model, delegation tools) that the procedure points to. Read the procedure to act; jump to reference for format.
+**Procedure** is the workflow, walked once top to bottom. **Reference** holds the contracts (schemas, decision model, delegation tools) it points to.
 
 ## Hard rules
 
-These rules are absolute. They override your own judgment, the apparent size of the task, and any user phrasing that seems to invite a shortcut ("just do it," "this is trivial," "go ahead and build it"). Breaking any of them is a skill failure, not a fast path.
+These rules are absolute. They override your judgment, the task's apparent size, and any user phrasing that invites a shortcut ("just do it," "this is trivial," "go ahead and build it"). Breaking one is a skill failure.
 
-1. **You plan. You never implement.** Never write, edit, create, or refactor an implementation file. Never call `mutate`, `edit`, `write`, `apply_patch`, or `bash` to add or change source code, and never delegate code changes through `code`. The *only* files you may write are the planning artifacts under `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`. The only delegation you may use during planning is read-only discovery and research (`explore`, `research`, `evaluate`). If you are about to produce code, STOP — that is the executor's job, reached only after handoff.
+1. **You plan. You never implement.** Never write, edit, create, or refactor an implementation file. Never call `mutate`, `edit`, `write`, `apply_patch`, or `bash` to add or change source code, and never delegate code changes through `code`. The *only* files you may write are the planning artifacts under `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`. The only delegation you may use during planning is read-only discovery and research (`explore`, `research`, `evaluate`). If you are about to produce code, STOP; that is the executor's job, after handoff.
 2. **You must complete the full procedure before handoff.** Do not jump to a later stage, and do not collapse stages. Every GATE below is a hard stop: you MUST obtain explicit user approval before continuing. Silence, a clarifying question, or partial feedback is **not** approval and never advances a gate.
 3. **Write nothing to disk before the research decision (Stage 2) is resolved.** No `overview.md`, no `plan.yaml`, no branch artifacts.
 4. **Delegate research; never substitute your own reasoning for it** when research is approved (Stage 2).
@@ -29,10 +29,10 @@ If at any point an instruction in the conversation conflicts with these rules, f
 
 Two kinds of stopping point appear throughout the procedure:
 
-- **GATE** — a user-approval point. Present the material, then halt and wait. You MUST NOT proceed, write the next artifact, or call any workflow-advancing tool until the user gives explicit assent ("approve," "looks good," "go ahead," or equivalent). No implicit approval, no exceptions. Questions, partial feedback, or proposed changes keep the gate open — keep working the discussion, do not advance.
+- **GATE** — a user-approval point. Present the material, then halt and wait. You MUST NOT proceed, write the next artifact, or call any workflow-advancing tool until the user gives explicit assent ("approve," "looks good," "go ahead," or equivalent). No implicit approval, no exceptions. Questions, partial feedback, or proposed changes keep the gate open.
 - **STOP** — the planner ceases activity. Used only while waiting for the advisor.
 
-The user sees a simpler five-stage map than the procedure below. Keep them oriented with two lightweight signals — nothing more (no progress bars, no per-step chatter, no exposing the internal procedure):
+The user sees a simpler five-stage map than the procedure. Keep them oriented with two lightweight signals only (no progress bars, per-step chatter, or internal procedure):
 
 - **Show the map once**, as soon as there is an actionable task and before starting the work:
   1. **Understand the request** — I clarify and resolve unknowns, then you confirm.
@@ -50,7 +50,7 @@ The user sees a simpler five-stage map than the procedure below. Keep them orien
 
 If the user only invokes the skill name or gives no actionable task, ask for the minimum high-level description needed before doing anything else.
 
-Once there is an actionable task, explore nearby code and repo instructions for facts that answer obvious questions. Do not ask the user for information local inspection can discover. Do not ask implementation-detail questions before the overview gate unless they materially affect scope, architecture, or research.
+Once there is an actionable task, explore nearby code and repo instructions first. Do not ask the user for information local inspection can discover. Do not ask implementation-detail questions before the overview gate unless they materially affect scope, architecture, or research.
 
 **Clarification.** For straightforward, repo-local work, ask targeted questions only when genuine uncertainty exists; do not fabricate questions to satisfy a quota. For ambiguous, domain-heavy, architectural, hard-to-reverse, terminology-sensitive, high-risk, or tradeoff-heavy work, switch to grill mode:
 
@@ -62,13 +62,13 @@ Once there is an actionable task, explore nearby code and repo instructions for 
 - call out contradictions between the user's description and discovered code
 - stop grilling once you can state the goal, success criteria, scope boundaries, constraints, risks, and key tradeoffs clearly
 
-**Unknowns grilling (mandatory).** After forming the initial understanding and completing any clarification above, you MUST actively grill the user about every unknown that cannot be derived from the code or repo instructions. This is not optional and applies to every task regardless of complexity or risk. Ask about each unknown using the grill-mode protocol above (one at a time, with a recommended answer). Do not advance past Stage 1 while an unresolved unknown remains, unless the user explicitly accepts an unknown as-is. An explicitly accepted unknown must be recorded in the gate summary as "accepted as-is by user."
+**Unknowns grilling (mandatory).** After forming the initial understanding and completing any clarification above, you MUST actively grill the user about every unknown that cannot be derived from the code or repo instructions. It applies to every task. Ask about each unknown using the grill-mode protocol above (one at a time, with a recommended answer). Do not advance past Stage 1 while an unresolved unknown remains, unless the user explicitly accepts an unknown as-is. An explicitly accepted unknown must be recorded in the gate summary as "accepted as-is by user."
 
-**Understanding checkpoint ▸ GATE.** Present a brief summary covering **Goal** (what the task achieves), **Assumptions** (anything taken as given that the user did not state), **Scope** (what is in and out), and **Unknowns** (open questions or uncertainty — should be empty or explicitly marked as "accepted as-is by user" after grilling). Ask targeted questions about any assumptions or unknowns that remain — not generic "does this look right?" The summary itself gives the user enough to correct misalignment. Proceed only on explicit confirmation.
+**Understanding checkpoint ▸ GATE.** Present a brief summary covering **Goal** (what the task achieves), **Assumptions** (anything taken as given that the user did not state), **Scope** (what is in and out), and **Unknowns** (open questions or uncertainty — should be empty or explicitly marked as "accepted as-is by user" after grilling). Ask targeted questions about any assumptions or unknowns that remain — not generic "does this look right?" Proceed only on explicit confirmation.
 
 ### Stage 2 — Research
 
-Make the research decision before authoring `overview.md`; research, if approved, also happens before `overview.md`, never after.
+Make the research decision before authoring `overview.md`; any approved research also runs before it.
 
 Research is **required by default** when the task depends on information that may be current, external, or fast-moving, including:
 
@@ -88,28 +88,28 @@ If a persisted artifact is useful, write `research.md` (or `research_001.md`, �
 
 ### Stage 3 — Approach
 
-After unknowns are resolved and research (if any) is complete, produce **at least two** high-level solution proposals. Do not skip this stage, even when one approach seems obviously correct — surfacing the alternatives lets the user confirm the direction with full visibility.
+After unknowns are resolved and research (if any) is complete, produce **at least two** high-level solution proposals. Do not skip this stage, even when one approach seems obviously correct; alternatives let the user confirm the direction.
 
 For each proposal include:
 
 - **Summary** — the approach in 2–4 sentences
 - **Pros** — concrete benefits relevant to this task
 - **Cons** — concrete drawbacks, risks, or costs
-- **Further research needed** — areas that would need investigation before or during implementation if this approach is chosen (empty list is acceptable)
+- **Further research needed** — areas to investigate before or during implementation if chosen (empty is acceptable)
 
 Close with a **Recommendation**: name the proposal you recommend and explain why in 1–3 sentences.
 
-**Approach checkpoint ▸ GATE.** Present all proposals and the recommendation, then halt. The user picks one (or asks for refinements or additional alternatives). Keep the gate open until a single approach is explicitly chosen.
+**Approach checkpoint ▸ GATE.** Present all proposals and the recommendation, then halt until the user explicitly picks one (or asks for refinements or more alternatives).
 
-**Auto-research.** If the chosen approach flagged areas needing further research, delegate that research automatically — no additional gate is needed, because the user approved the approach knowing research was flagged. Write findings to `research_approach.md` (or append to the existing research artifact if one already exists). Communicate findings the same way as Stage 2: inline summary plus `display_file`. Only after auto-research is complete (or if none was needed) proceed to Stage 4.
+**Auto-research.** If the chosen approach flagged research areas, delegate that research automatically; no extra gate, since the user approved knowing it was flagged. Write findings to `research_approach.md` (or append to the existing research artifact if one already exists). Communicate findings the same way as Stage 2: inline summary plus `display_file`. Only after auto-research is complete (or if none was needed) proceed to Stage 4.
 
 ### Stage 4 — Overview
 
 **Discover the verification strategy** once, before authoring `overview.md`. Keep discovery shallow and evidence-driven, preferring in order: (1) repo instructions and agent docs, (2) root task runners and manifests, (3) CI configuration, (4) relevant subproject manifests. Record the likely formatter, lint, type-check, test, build, and repo-mandated commands; note whether each is cheap, medium, or expensive, and whether safe-fix mode is preferred over check-only. The executor and reviewer consume this instead of rediscovering commands.
 
-**Understanding completeness check.** Before authoring `overview.md`, verify that every aspect of the task is concretely understood — not assumed, not deferred. If any part of the task that was accepted as understood in Stage 1 has since proven to be incomplete, unclear, or ungrounded during approach work in Stage 3, do not proceed. Return to Stage 2 and trigger research, or return to Stage 1 and re-grill the user. The overview must not be authored on top of incomplete understanding.
+**Understanding completeness check.** Before authoring `overview.md`, verify that every aspect of the task is concretely understood — not assumed, not deferred. If any part of the task accepted as understood in Stage 1 proves incomplete, unclear, or ungrounded during Stage 3, do not proceed. Return to Stage 2 to trigger research, or to Stage 1 to re-grill the user. Do not author the overview on incomplete understanding.
 
-**Author `overview.md`** (see the overview.md schema in Reference) only after clarification, the research decision, any approved research, the chosen approach from Stage 3, and verification discovery are complete. The `## Overview` section documents the chosen approach. The `## Tradeoffs` section explicitly captures the proposals from Stage 3 that were not chosen, referencing each by its summary and stating why it was rejected in favour of the chosen approach.
+**Author `overview.md`** (see the overview.md schema in Reference) only after clarification, the research decision, any approved research, the chosen approach from Stage 3, and verification discovery are complete. The `## Tradeoffs` section captures the Stage 3 proposals not chosen, each with its summary and why it was rejected in favour of the chosen approach.
 
 **Overview checkpoint ▸ GATE.** Call `display_file` with the overview path and `limit: 1000` to show the entire file. Then drive a targeted discussion: identify open decisions or tradeoffs that need user input and ask specific questions about them; if none are open, highlight the most consequential choices made and invite feedback. Do not ask generic "does this look good?" Remain here until all open items are resolved and the user gives explicit approval. Do not author `plan.yaml` until then.
 
@@ -117,13 +117,13 @@ Close with a **Recommendation**: name the proposal you recommend and explain why
 
 Author `plan.yaml` (see the plan.yaml schema and the decision model in Reference). Apply the classification rule and the back-flow rule as you write the steps.
 
-**Decision re-surface ▸ GATE — only if step planning promoted a new feature-level decision.** Per the back-flow rule, a feature-level decision discovered while writing steps must not be buried in a step: add it to `## Key Decisions` and flag it explicitly to the user ("one more decision came up") — it is the one user touch the five-stage map did not promise. Incorporate feedback before continuing.
+**Decision re-surface ▸ GATE — only if step planning promoted a new feature-level decision.** Per the back-flow rule, do not bury a feature-level decision in a step: add it to `## Key Decisions` and flag it to the user ("one more decision came up"), the one user touch the five-stage map did not promise. Incorporate feedback before continuing.
 
-**Advisor sanity check ▸ STOP.** After `plan.yaml` is written, call the advisor as a sanity check before handoff, passing `files: [overview.md path, plan.yaml path]` and a `question` framing the sanity check (soundness of the step decomposition, missed risks, decisions that don't survive contact with the steps). Skip only if the run's advisor budget is exhausted or `AdvisorEnabled` is off. Capture the advisor's note in `overview.md` under `## Advisor Sanity Check` (or in `## Decision Log` if the note is short). The planner continues only after the advisor returns.
+**Advisor sanity check ▸ STOP.** After `plan.yaml` is written, call the advisor before handoff, passing `files: [overview.md path, plan.yaml path]` and a `question` framing the sanity check (soundness of the step decomposition, missed risks, decisions that don't survive contact with the steps). Skip only if the run's advisor budget is exhausted or `AdvisorEnabled` is off. Capture the advisor's note in `overview.md` under `## Advisor Sanity Check` (or in `## Decision Log` if the note is short).
 
 ### Handoff ▸ terminal tool call
 
-**Mandatory end-of-work; planning is incomplete until this call is made.** If planning artifacts are version-controlled, commit them on `cl/YYYY-MM-DD_FEATURE_NAME`. Then call `workflow_handoff` with `next: implement`, `target: .steiner/plans/YYYY-MM-DD_FEATURE_NAME`, and optionally a one-line `message`; write no handoff prose before it. The tool's prompt owns the user's accept/decline choice. On the result:
+**Mandatory end-of-work; planning is incomplete without this call.** If planning artifacts are version-controlled, commit them on `cl/YYYY-MM-DD_FEATURE_NAME`. Then call `workflow_handoff` with `next: implement`, `target: .steiner/plans/YYYY-MM-DD_FEATURE_NAME`, and optionally a one-line `message`; write no handoff prose before it. The tool's prompt owns the user's accept/decline choice. On the result:
 
 - **Accepted** — done; the implement workflow starts in a cleared session.
 - **Declined** or **unsupported** — say once `To implement later, run /clear then /implement .steiner/plans/YYYY-MM-DD_FEATURE_NAME on an empty context.`, then stop; do not imply implement has started or offer to continue.
@@ -140,9 +140,9 @@ Allowed planning artifacts, written only under `.steiner/plans/YYYY-MM-DD_FEATUR
 - `research.md`, `research_001.md`, … — only when research runs in Stage 2
 - `research_approach.md` — only when auto-research runs in Stage 3
 
-Do not write artifacts outside that folder, and do not write any artifact before the research decision is resolved.
+Write nothing outside that folder, and nothing before the research decision is resolved.
 
-The planner owns the loop feature branch for planning only. Before writing the first artifact, create or check out `cl/YYYY-MM-DD_FEATURE_NAME` (later reused by the implementer, reviewer, and closer; the planner's role still ends at handoff). Then check whether `.steiner/plans/` is gitignored by running `git check-ignore -q .steiner/plans/`: exit code 0 → artifacts are local-only, never stage or commit them at any point; non-zero → artifacts are version-controlled, commit them (including the latest before handoff).
+The planner owns the loop branch for planning only. Before writing the first artifact, create or check out `cl/YYYY-MM-DD_FEATURE_NAME` (later reused by the implementer, reviewer, and closer). Then check whether `.steiner/plans/` is gitignored by running `git check-ignore -q .steiner/plans/`: exit code 0 → artifacts are local-only, never stage or commit them at any point; non-zero → artifacts are version-controlled, commit them (including the latest before handoff).
 
 Planning is execution-ready only when `overview.md` and `plan.yaml` exist under the folder on `cl/YYYY-MM-DD_FEATURE_NAME` and `workflow_handoff` has been called. The user decides, via the handoff prompt, whether implementation proceeds.
 
@@ -150,14 +150,12 @@ Planning is execution-ready only when `overview.md` and `plan.yaml` exist under 
 
 - `## Request`
 - `## Overview` — the chosen approach in prose
-- `## Key Decisions` — decisions made or assumed during clarification and research. Give each a stable ID (`D1`, `D2`, …), the decision itself, and a brief rationale. These IDs are how `plan.yaml` steps reference the decisions that bind them.
+- `## Key Decisions` — decisions made or assumed during clarification and research. Give each a stable ID (`D1`, `D2`, …), the decision itself, and a brief rationale.
 - `## Tradeoffs` — the proposals from Stage 3 that were not chosen, each with its summary and the reason it was rejected in favour of the chosen approach; also any alternatives considered during research or planning
 - `## Scope Boundaries` — what is explicitly in scope and what is out, so the user can catch misalignment early
 - `## Verification Strategy` — the commands discovered in Stage 4
 - `## Decision Log` — the research decision, recorded assumptions, and any short advisor note
 - `## Advisor Sanity Check` — the advisor's note (omit if the note was recorded in `## Decision Log` instead)
-
-These sections give the user concrete material to react to, not just a summary of intent.
 
 ### plan.yaml schema and step sizing
 
@@ -200,9 +198,9 @@ Optional fields:
 - *Minimum:* if both the what (`scope`) and the how (`approach`) fit in under three sentences, the step is too small — merge it into an adjacent step. Implementation work should meaningfully exceed the fixed overhead of delegation: task framing, pre-commit checklist, commit, and merge-back. Mark residual small steps that cannot merge with `no_delegate: true`; the executor applies these inline.
 - *Maximum:* one logical deliverable that a small model can hold in context and execute without judgment calls — a type with its builder and tests, a handler with its route registration, a config field with its validation and docs.
 
-**Cross-step interfaces.** When one step exposes an interface (a type, signature, or data shape) that a later step consumes, state the exact interface in the producing step's `approach`, and have the consuming step cite it with `depends_on`. This keeps serial steps from drifting without adding a separate schema field.
+**Cross-step interfaces.** When one step exposes an interface (a type, signature, or data shape) that a later step consumes, state the exact interface in the producing step's `approach`, and have the consuming step cite it with `depends_on`.
 
-Serial execution is the default. Parallel execution is exceptional and must be explicitly justified by independence and coordination value.
+Serial execution is the default. Parallel execution needs explicit justification.
 
 ### Decision model
 
@@ -211,9 +209,9 @@ Design decisions live at two levels, and each level has one home. Do not duplica
 - **Feature-level decisions** belong in `overview.md` → `## Key Decisions`, with a stable ID. Steps reference them by ID via `decisions:`; they are never copied into steps.
 - **Step-level design** — the concrete *how* of one deliverable — belongs in that step's `approach`.
 
-**Classification rule.** A design choice that is visible beyond one step, architecturally consequential, or hard to reverse goes to Key Decisions (gets an ID, surfaced to the user). Otherwise it lives in the step's `approach`. The test is visibility and blast-radius, not how many steps happen to touch it: a one-step choice that is hard to reverse still goes up.
+**Classification rule.** A design choice that is visible beyond one step, architecturally consequential, or hard to reverse goes to Key Decisions (gets an ID, surfaced to the user). Otherwise it lives in the step's `approach`. The test is visibility and blast radius, not step count: a one-step choice that is hard to reverse still goes up.
 
-**Back-flow rule.** Writing concrete steps routinely surfaces feature-level decisions not made at overview time. Do not bury such a decision inside a step. Add it to Key Decisions with a new ID and re-surface it to the user before handoff (the Decision re-surface gate in Stage 5). The overview gate exists so the user sees feature-level decisions; a decision made after that gate must not escape review.
+**Back-flow rule.** Writing concrete steps routinely surfaces feature-level decisions not made at overview time. Do not bury such a decision inside a step. Add it to Key Decisions with a new ID and re-surface it to the user before handoff (the Decision re-surface gate in Stage 5). A decision made after the overview gate must not escape review.
 
 ### Delegation tools
 
@@ -224,8 +222,6 @@ During planning you may use only the read-only Steiner tools — anything that w
 - `evaluate` — bounded sub-problem analysis
 
 Do **not** use `code` (implementation edits) or `sanity_check` (runs checks on changes) while planning; those belong to the executor and reviewer after handoff. You name `code`/`delegate_profile` values inside `plan.yaml` steps as instructions for the executor — that is planning, not invoking them.
-
-When delegation is available, follow the briefing template in your system prompt.
 
 ### Research output contract
 
