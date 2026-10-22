@@ -818,6 +818,49 @@ func TestClaudeSubUsageGateTransportErrorRetriesResumedProcess(t *testing.T) {
 	}
 }
 
+// TestClaudeSubUsageGateProbeRefusalNotAmplified proves a resumed session whose
+// fresh confirmation refuses is not retried: the poll and the confirmation were
+// already spent, so no third process starts.
+func TestClaudeSubUsageGateProbeRefusalNotAmplified(t *testing.T) {
+	claudeSubUsageGateFast(t, 30*time.Millisecond, time.Millisecond)
+	claudeSubUsageProbeFast(t, time.Second)
+	assistant, st := claudeSubOpeningTurn(t)
+	pool, spawner := claudeSubPoolWithScripts(t,
+		&claudeSubScript{usage: json.RawMessage(`{"rate_limits_available":false}`)},
+		&claudeSubScript{usage: claudeSubFixture(t, "get_usage_credits_on.json")},
+		// A retry would land here and fail fast instead of waiting out a timeout.
+		&claudeSubScript{usageErr: "usage unavailable"},
+	)
+	req := ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
+	}
+	err := claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil })
+	if err == nil || err.Error() != claudeSubCreditsEnabledWant {
+		t.Fatalf("turn error = %v, want %q", err, claudeSubCreditsEnabledWant)
+	}
+	if !errors.Is(err, errClaudeSubUsageCreditsEnabled) {
+		t.Errorf("turn error %v does not wrap errClaudeSubUsageCreditsEnabled", err)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want the resumed process plus one confirmation", n)
+	}
+	if resume, _ := claudeSubArgValue(spawner.call(t, 0).Args, "--resume"); resume != st.CLISessionID {
+		t.Errorf("first spawn --resume = %q, want %q (resumed process)", resume, st.CLISessionID)
+	}
+	if resume, ok := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); ok {
+		t.Errorf("confirmation spawn --resume = %q, want a fresh probe process", resume)
+	}
+	if got := claudeSubUsageProbeCount(spawner.call(t, 0).Conn, `"type":"user"`); got != 0 {
+		t.Errorf("live user writes = %d, want none", got)
+	}
+	if got := claudeSubUsageProbeCount(spawner.call(t, 1).Conn, `"type":"user"`); got != 0 {
+		t.Errorf("confirmation user writes = %d, want none", got)
+	}
+}
+
 // TestClaudeSubDecodeErrorOnResumeDoesNotReseed proves a decode stream error on
 // a resumed process with no output retires the process without an inline
 // reseed. The next request starts the fresh process instead.
