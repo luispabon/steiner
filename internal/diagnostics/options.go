@@ -7,6 +7,7 @@ type Streams struct {
 	Provider bool
 	Tool     bool
 	TUI      bool
+	Internal bool
 }
 
 // enabled reports whether kind's stream is on.
@@ -20,6 +21,8 @@ func (s Streams) enabled(kind Kind) bool {
 		return s.Tool
 	case KindTUI:
 		return s.TUI
+	case KindInternal:
+		return s.Internal
 	default:
 		return false
 	}
@@ -27,7 +30,7 @@ func (s Streams) enabled(kind Kind) bool {
 
 // any reports whether at least one stream is on.
 func (s Streams) any() bool {
-	return s.Cache || s.Provider || s.Tool || s.TUI
+	return s.Cache || s.Provider || s.Tool || s.TUI || s.Internal
 }
 
 // Options configures a Writer. The composition root fills this in from
