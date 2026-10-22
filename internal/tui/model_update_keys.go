@@ -153,6 +153,9 @@ func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, te
 	case isAlt(msg, 'p'):
 		m.openProfilePickerFromKeybind()
 		return true, m, nil
+	case isAlt(msg, 'e'):
+		m.openDevLogOverlay()
+		return true, m, nil
 	}
 	if handled, cmd := m.handleSubAgentNavKey(msg); handled {
 		return true, m, cmd

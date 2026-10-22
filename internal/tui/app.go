@@ -48,6 +48,10 @@ type ApprovalSubmission struct {
 
 // Config holds the runtime configuration for the TUI application.
 type Config struct {
+	// Diagnostics receives developer error log entries for the internal stream.
+	// Nil disables the stream.
+	Diagnostics DiagnosticsSink
+
 	Model      string
 	ModelNames []string
 	// Entries seeds the model picker with display metadata before async updates arrive.

@@ -96,6 +96,9 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.showLSP {
 		return m.executeShowLSPAction()
 	}
+	if action.showErrors {
+		return m.executeShowErrorsAction()
+	}
 	if action.requestSubAgentPicker {
 		return m.executeRequestSubAgentPickerAction()
 	}

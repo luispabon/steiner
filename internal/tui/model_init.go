@@ -241,6 +241,14 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		},
 	},
 	overlayKeyHandlerFunc{
+		match: func(m *Model) bool { return m.devLogOverlay.IsOpen() },
+		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
+			var cmd tea.Cmd
+			m.devLogOverlay, cmd = m.devLogOverlay.Update(msg, m.devLog.entries)
+			return cmd
+		},
+	},
+	overlayKeyHandlerFunc{
 		match: func(m *Model) bool { return m.usageOverlay.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			var cmd tea.Cmd
@@ -435,6 +443,8 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.fileList = newFileListOverlay(m.styles)
 	m.mcpOverlay = newMCPOverlay(m.styles)
 	m.lspOverlay = newLSPOverlay(m.styles)
+	m.devLogOverlay = newDevLogOverlay(m.styles)
+	m.devLog.sink = cfg.Diagnostics
 	m.usageOverlay = newUsageOverlay(m.styles, cfg.Quota, cfg.QuotaRefreshInterval)
 	m.filePicker = newFilePickerOverlay(m.styles)
 	m.filePicker.width = m.width

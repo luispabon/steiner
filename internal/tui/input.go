@@ -22,6 +22,7 @@ type inputAction struct {
 	listFilesPath              string
 	showMCP                    bool
 	showLSP                    bool
+	showErrors                 bool
 	showUsage                  bool
 	submit                     string
 	toggleSkill                string
