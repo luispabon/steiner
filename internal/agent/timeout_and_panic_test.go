@@ -208,6 +208,9 @@ func TestToolPanicIsolated(t *testing.T) {
 				if e.Type == output.EventTypeProviderDiagnostic {
 					if d, ok := e.Payload.(output.ProviderDiagnosticEvent); ok && strings.Contains(d.Message, "goroutine") {
 						sawStack = true
+						if d.Kind != output.DiagnosticKindToolPanic {
+							t.Errorf("panic diagnostic kind = %q, want %q", d.Kind, output.DiagnosticKindToolPanic)
+						}
 					}
 				}
 			}

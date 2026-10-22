@@ -184,6 +184,7 @@ func (s *Session) saveLive() error {
 func (s *Session) emitSaveWarning(err error) {
 	s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 		Kind:     "session_health",
+		Scope:    output.SessionHealthScopeSave,
 		Severity: "warning",
 		Notes:    []string{fmt.Sprintf("save session: %v", err)},
 	}))

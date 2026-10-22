@@ -19,9 +19,22 @@ type ConversationStateEvent struct {
 	BudgetExhausted bool   `json:"budget_exhausted"`
 }
 
+// Kind values for ConversationWarningEvent identify the driver operation that
+// failed.
+const (
+	// ConversationWarningKindSave marks a failed conversation save.
+	ConversationWarningKindSave = "save"
+	// ConversationWarningKindCompact marks a failed conversation compaction.
+	ConversationWarningKindCompact = "compact"
+	// ConversationWarningKindRun marks a failed conversation run.
+	ConversationWarningKindRun = "run"
+)
+
 // ConversationWarningEvent records a non-fatal conversation driver failure.
+// Kind is one of the ConversationWarningKind constants.
 type ConversationWarningEvent struct {
 	Message string `json:"message"`
+	Kind    string `json:"kind,omitempty"`
 }
 
 // DisplayFilePayload is the payload for EventTypeDisplayFile.
@@ -88,6 +101,14 @@ type SkillStateEvent struct {
 // carries no fields: the event itself is the signal.
 type ConversationResetEvent struct{}
 
+// ReplayStartedEvent is the payload for EventTypeReplayStarted. It carries no
+// fields: the event itself marks the start of a saved transcript replay.
+type ReplayStartedEvent struct{}
+
+// ReplayFinishedEvent is the payload for EventTypeReplayFinished. It carries no
+// fields: the event itself marks the end of a saved transcript replay.
+type ReplayFinishedEvent struct{}
+
 // NewHistoryLoadedEvent creates a new history loaded event.
 func NewHistoryLoadedEvent(prompts []string) Event {
 	return newEvent(EventTypeHistoryLoaded, HistoryLoadedEvent{Prompts: prompts})
@@ -105,9 +126,22 @@ func NewConversationStateEvent(state string, held bool, pending int, budgetExhau
 }
 
 // NewConversationWarningEvent creates the event reporting a non-fatal
-// conversation driver failure such as a failed save.
-func NewConversationWarningEvent(message string) Event {
-	return newEvent(EventTypeConversationWarning, ConversationWarningEvent{Message: message})
+// conversation driver failure such as a failed save. kind is one of the
+// ConversationWarningKind constants.
+func NewConversationWarningEvent(kind, message string) Event {
+	return newEvent(EventTypeConversationWarning, ConversationWarningEvent{Kind: kind, Message: message})
+}
+
+// NewReplayStartedEvent creates the replay_started event emitted before a saved
+// transcript is replayed.
+func NewReplayStartedEvent() Event {
+	return newEvent(EventTypeReplayStarted, ReplayStartedEvent{})
+}
+
+// NewReplayFinishedEvent creates the replay_finished event emitted after a saved
+// transcript replay, including when replay exits early or panics.
+func NewReplayFinishedEvent() Event {
+	return newEvent(EventTypeReplayFinished, ReplayFinishedEvent{})
 }
 
 // NewDisplayFileEvent creates a DisplayFile event with an explicit preview

@@ -15,9 +15,12 @@ func TestConsumeModelStreamResetsStateOnRetryReset(t *testing.T) {
 		Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "first"},
 	}
 	chunks <- provider.ChatChunk{
-		RetryReset: true,
-		Diagnostic: "retrying attempt 2/2",
-		Severity:   "warning",
+		RetryReset:       true,
+		Diagnostic:       "retrying attempt 2/2",
+		Severity:         "warning",
+		RetryAttempt:     2,
+		RetryMaxAttempts: 2,
+		RetryDelay:       time.Second,
 	}
 	chunks <- provider.ChatChunk{
 		Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "second"},
@@ -57,6 +60,9 @@ func TestConsumeModelStreamResetsStateOnRetryReset(t *testing.T) {
 		sawDiagnostic = true
 		if payload.Message != "retrying attempt 2/2" {
 			t.Fatalf("diagnostic message = %q, want %q", payload.Message, "retrying attempt 2/2")
+		}
+		if payload.Kind != output.DiagnosticKindRetry || payload.Attempt != 2 || payload.MaxAttempts != 2 || payload.Delay != "1s" {
+			t.Fatalf("retry diagnostic = %+v, want kind retry, attempt 2, max attempts 2, delay 1s", payload)
 		}
 	}
 	if !sawDiagnostic {

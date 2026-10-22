@@ -136,3 +136,63 @@ func TestLoadSessionRefusedLoadEmitsNoConversationReset(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadSessionReplayBoundariesWrapReplay(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	store := newMockSessionStore()
+	store.loadedSessions["old"] = savedUserSession("old", "previous message")
+	s := testNewSession(t, Dependencies{
+		BaseEvents:   output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+		SessionStore: store,
+	})
+	events = nil
+
+	if err := s.Handle(context.Background(), LoadSession{SessionID: "old"}); err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	reset := indexOfType(events, output.EventTypeConversationReset)
+	started := indexOfType(events, output.EventTypeReplayStarted)
+	replayed := indexOfType(events, output.EventTypeUserInput)
+	finished := indexOfType(events, output.EventTypeReplayFinished)
+	if reset < 0 || started < 0 || replayed < 0 || finished < 0 {
+		t.Fatalf("event types = %v, want conversation_reset, replay_started, user_input, replay_finished", eventTypes(events))
+	}
+	if reset >= started || started >= replayed || replayed >= finished {
+		t.Errorf("event order = %v, want conversation_reset, replay_started, user_input, replay_finished", eventTypes(events))
+	}
+}
+
+func TestLoadSessionEmitsReplayFinishedWhenSinkPanics(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	store := newMockSessionStore()
+	store.loadedSessions["old"] = savedUserSession("old", "previous message")
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+			if event.Type == output.EventTypeUserInput {
+				panic("sink failure")
+			}
+		}),
+		SessionStore: store,
+	})
+	events = nil
+
+	func() {
+		defer func() {
+			if recovered := recover(); recovered == nil {
+				t.Error("Handle(LoadSession) did not panic, want sink panic to propagate")
+			}
+		}()
+		_ = s.Handle(context.Background(), LoadSession{SessionID: "old"})
+	}()
+
+	if indexOfType(events, output.EventTypeReplayStarted) < 0 {
+		t.Errorf("event types = %v, want replay_started", eventTypes(events))
+	}
+	if indexOfType(events, output.EventTypeReplayFinished) < 0 {
+		t.Errorf("event types = %v, want replay_finished after panic", eventTypes(events))
+	}
+}

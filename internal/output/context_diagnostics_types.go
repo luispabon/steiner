@@ -2,6 +2,10 @@ package output
 
 import "time"
 
+// SessionHealthScopeSave is the Scope of a session_health diagnostic that
+// reports a failed session save.
+const SessionHealthScopeSave = "session_save"
+
 // ContextDiagnosticsEvent is the legacy kitchen-sink diagnostic payload kept
 // as a compatibility constructor/input shape while typed sub-events replace it
 // as the emitted payloads.

@@ -428,6 +428,9 @@ func TestOpenAICompatStreamChatCompletionRetriesUnexpectedEOFBeforeFinalDone(t *
 	for chunk := range ch {
 		if chunk.RetryReset {
 			sawRetryReset = true
+			if chunk.RetryAttempt != 2 || chunk.RetryMaxAttempts != 2 || chunk.RetryDelay <= 0 {
+				t.Errorf("retry reset attempt = %d, max = %d, delay = %s, want attempt 2, max 2, positive delay", chunk.RetryAttempt, chunk.RetryMaxAttempts, chunk.RetryDelay)
+			}
 		}
 		if chunk.Delta.Content != "" {
 			sawContent++

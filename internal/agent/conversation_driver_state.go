@@ -175,9 +175,9 @@ func (d *ConversationDriver) quiescentLocked() bool {
 		len(d.users) == 0 && d.opts.Steers.Len() == 0 && !d.hasPendingLocked()
 }
 
-// warnLocked queues a conversation warning event.
-func (d *ConversationDriver) warnLocked(msg string) {
-	d.pendingEvents = append(d.pendingEvents, output.NewConversationWarningEvent(msg))
+// warnLocked queues a conversation warning event of the given kind.
+func (d *ConversationDriver) warnLocked(kind, msg string) {
+	d.pendingEvents = append(d.pendingEvents, output.NewConversationWarningEvent(kind, msg))
 }
 
 // unlockEmit releases d.mu, first queuing a state event when state, held or
