@@ -158,6 +158,16 @@ func TestConversationWarningNotices(t *testing.T) {
 			wantLast:   "run failed",
 		},
 		{
+			name: "run failure after a new phase starts is shown",
+			events: []output.Event{
+				output.NewStopReasonEvent(1, "error", errors.New("boom")),
+				output.NewPhaseIndicatorEvent("run-1", "implement", "starting", ""),
+				output.NewConversationWarningEvent(output.ConversationWarningKindRun, "run failed"),
+			},
+			wantNotice: 2,
+			wantLast:   "run failed",
+		},
+		{
 			name: "run failure after stop reason error is suppressed",
 			events: []output.Event{
 				output.NewStopReasonEvent(1, "error", errors.New("boom")),
@@ -258,6 +268,54 @@ func TestReplayDoesNotRecordDevLogOrBadge(t *testing.T) {
 	m.applyEvent(failed)
 	if m.devLog.unseen != 1 {
 		t.Errorf("unseen after live failure = %d, want 1", m.devLog.unseen)
+	}
+}
+
+func TestAppendErrorRecordsOneDevLogEntry(t *testing.T) {
+	t.Parallel()
+	sink := &fakeDevLogSink{enabled: true}
+	m := newModel(Config{Diagnostics: sink}, nil)
+	m.appendError(errors.New("status: " + strings.Repeat("x", 300)))
+
+	if len(errorSurfacingNotices(m)) != 1 {
+		t.Fatalf("notice count = %d, want 1", len(errorSurfacingNotices(m)))
+	}
+	if len(m.devLog.entries) != 1 {
+		t.Fatalf("dev log entries = %d, want 1", len(m.devLog.entries))
+	}
+	e := m.devLog.entries[0]
+	if e.Source != "tui" || e.Severity != devLogError {
+		t.Errorf("dev log entry = %+v, want tui error", e.devLogParams)
+	}
+	if want := "status: " + strings.Repeat("x", 300); e.Message != want {
+		t.Errorf("dev log message = %q, want the full untrimmed error", e.Message)
+	}
+	if len(sink.records) != 1 {
+		t.Errorf("diagnostics writes = %d, want 1", len(sink.records))
+	}
+}
+
+func TestAppendErrorDuringReplayRendersNoticeOnly(t *testing.T) {
+	t.Parallel()
+	sink := &fakeDevLogSink{enabled: true}
+	m := newModel(Config{Diagnostics: sink}, nil)
+
+	m.applyEvent(output.Event{Type: output.EventTypeReplayStarted})
+	m.appendError(errors.New("status: wl-copy: not found"))
+	m.applyEvent(output.Event{Type: output.EventTypeReplayFinished})
+
+	notices := errorSurfacingNotices(m)
+	if len(notices) != 1 || !strings.Contains(notices[0].text, "wl-copy: not found") {
+		t.Fatalf("notices = %+v, want one error notice naming wl-copy", notices)
+	}
+	if len(m.devLog.entries) != 0 || m.devLog.unseen != 0 {
+		t.Errorf("entries = %d, unseen = %d, want 0 and 0", len(m.devLog.entries), m.devLog.unseen)
+	}
+	if m.status.devLogUnseen != 0 {
+		t.Errorf("status badge count = %d, want 0", m.status.devLogUnseen)
+	}
+	if len(sink.records) != 0 {
+		t.Errorf("diagnostics writes = %d, want 0", len(sink.records))
 	}
 }
 

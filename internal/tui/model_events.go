@@ -332,7 +332,7 @@ func (m *Model) handlePhaseIndicator(payload output.PhaseIndicatorEvent) {
 	phaseName := strings.TrimSpace(payload.Phase)
 	state := strings.TrimSpace(payload.State)
 	message := strings.TrimSpace(payload.Message)
-	if state == "started" || state == "running" {
+	if state == "starting" || state == "started" || state == "running" {
 		m.stopErrorShown = false
 	}
 

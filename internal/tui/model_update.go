@@ -155,7 +155,6 @@ func (m *Model) handleGitRefreshDoneMsg() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleClipboardFailedMsg(msg clipboardFailedMsg) (tea.Model, tea.Cmd) {
-	m.recordDevLog(devLogParams{Severity: devLogError, Source: "tui", Message: msg.err.Error()})
 	m.appendError(msg.err)
 	m.syncViewport()
 	return m, nil
@@ -513,8 +512,10 @@ func (m *Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.C
 	return m, nil
 }
 
-// appendError renders err as an error notice in the content view. A leading
-// "status: " prefix is dropped because the notice glyph already marks the line.
+// appendError renders err as an error notice in the content view and records
+// the full, untrimmed message in the dev log. A leading "status: " prefix is
+// dropped from the notice because the notice glyph already marks the line.
 func (m *Model) appendError(err error) {
+	m.recordDevLog(devLogParams{Severity: devLogError, Source: "tui", Message: err.Error()})
 	m.content.AppendNotice(noticeError, strings.TrimPrefix(err.Error(), "status: "), "")
 }
