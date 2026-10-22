@@ -419,7 +419,7 @@ In interactive mode, `/model` changes only the active orchestrator selection.
 `/profile <name>` changes future advisor, sub-agent, oneshot, and workflow-handoff
 assignments and the selected `default_model` fallback, but preserves the current
 active orchestrator model, any current `/model` override, conversation, and
-prompt-cache identity. `/profile` requires a name; it does not open a picker.
+prompt-cache identity. A bare `/profile` opens the profile picker, and `alt+p` does the same; `/profile <name>` selects by name.
 An unknown or invalid profile reports an error and leaves the current selection
 unchanged.
 
