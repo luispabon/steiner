@@ -35,7 +35,7 @@ func TestDelegationRejectionDoesNotHideUnknownAdmissionError(t *testing.T) {
 	const message = "api: legacy rejection-like error"
 	b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: &delegationDisplayState{parentCallID: "call"}}}}
 	b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(message), output.ToolPreview{}, &output.DelegationAdmission{Status: "unknown"}))
-	if len(b.segments) != 2 || b.segments[0].delegData == nil || b.segments[1].text != message {
+	if len(b.segments) != 2 || b.segments[0].delegData == nil || b.segments[1].kind != segmentNotice || b.segments[1].text != "sub_agent rejected: "+message {
 		t.Fatalf("unknown admission card/error not retained: %#v", b.segments)
 	}
 }
@@ -113,7 +113,7 @@ func TestUnknownAdmissionErrorCleansEligibleEmptyAgentCard(t *testing.T) {
 	if _, ok := b.queuedDelegations["call"]; ok {
 		t.Fatalf("queued call remains: %#v", b.queuedDelegations)
 	}
-	if len(b.segments) != 2 || b.segments[1].text != message {
+	if len(b.segments) != 2 || b.segments[1].kind != segmentNotice || b.segments[1].text != "sub_agent rejected: "+message {
 		t.Fatalf("unknown admission evidence = %#v, want exact error once", b.segments)
 	}
 }
@@ -132,7 +132,7 @@ func TestUnknownAdmissionErrorKeepsIdentifiedAcceptedRunningCard(t *testing.T) {
 	if dd.status != "active" || dd.agentID != "child" || findDelegationSegment(b.segments, dd) != 0 {
 		t.Fatalf("identified accepted run changed: card=%#v segments=%#v", dd, b.segments)
 	}
-	if len(b.segments) != 2 || b.segments[1].text != message {
+	if len(b.segments) != 2 || b.segments[1].kind != segmentNotice || b.segments[1].text != "sub_agent rejected: "+message {
 		t.Fatalf("unknown admission evidence = %#v, want exact error", b.segments)
 	}
 }
@@ -143,7 +143,7 @@ func TestDelegationRejectedErrorRetainsExactText(t *testing.T) {
 			b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: &delegationDisplayState{parentCallID: "call"}}}}
 			openParentCard(b, "call")
 			b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(message), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected", PolicyNotice: true}))
-			if len(b.segments) != 2 || b.segments[0].kind != segmentStatus || b.segments[0].text != "Delegation rejected by policy." || b.segments[1].kind != segmentTool || b.segments[1].text != message {
+			if len(b.segments) != 2 || b.segments[0].kind != segmentNotice || b.segments[0].text != "Delegation rejected by policy." || b.segments[1].kind != segmentNotice || b.segments[1].text != "sub_agent rejected: "+message {
 				t.Fatalf("rejection evidence = %#v, want exact error %q", b.segments, message)
 			}
 		})
@@ -178,7 +178,7 @@ func TestModelGuidanceRejectionLeavesNoTranscriptTrace(t *testing.T) {
 			if len(b.segments) != tt.want {
 				t.Fatalf("segments = %#v, want %d", b.segments, tt.want)
 			}
-			if tt.want == 1 && (b.segments[0].kind != segmentTool || b.segments[0].text != guidance) {
+			if tt.want == 1 && (b.segments[0].kind != segmentNotice || b.segments[0].text != tt.tool+" rejected: "+guidance) {
 				t.Fatalf("segment = %#v, want exact error evidence", b.segments[0])
 			}
 			if _, open := b.openDelegations["call"]; open {

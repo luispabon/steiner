@@ -35,6 +35,7 @@ const (
 	segmentImagesAttached
 	segmentSubAgentsFinished
 	segmentStrandedResults
+	segmentNotice
 )
 
 type thinkingBlockData struct {
@@ -281,6 +282,10 @@ type contentSegment struct {
 	imagesAttachedData *imagesAttachedData     // non-nil only for segmentImagesAttached
 	deliveredData      *deliveredRows          // non-nil only for segmentSubAgentsFinished
 	strandedData       *strandedResultsData    // non-nil only for segmentStrandedResults
+	noticeSeverity     noticeSeverity          // segmentNotice only
+	noticeCount        int                     // segmentNotice only: occurrences collapsed into this row
+	noticeScope        string                  // segmentNotice only: notices in different scopes never collapse
+	noticeKey          string                  // segmentNotice only: full untruncated text, compared on collapse
 	// render cache at the active width, plus other recent widths (renderAtWidth)
 	cachedRender      string
 	cachedRenderWidth int

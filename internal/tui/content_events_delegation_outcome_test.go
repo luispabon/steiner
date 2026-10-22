@@ -49,7 +49,7 @@ func TestReplayRejectedFollowUpKeepsPriorRosterEntry(t *testing.T) {
 	if got := countDelegationCards(m.content.segments); got != 1 || card.status != "complete" || findDelegationSegment(m.content.segments, card) < 0 {
 		t.Fatalf("cards = %d, original = %#v", got, card)
 	}
-	if got := countToolText(m.content.segments, "not admitted"); got != 1 {
+	if got := countNoticeText(m.content.segments, "follow_up rejected: not admitted"); got != 1 {
 		t.Fatalf("rejection text count = %d, want 1", got)
 	}
 	if e := m.roster.entries["child"]; len(m.roster.entries) != 1 || e == nil || e.status != rosterDone || e.group != "prior" {
@@ -76,7 +76,7 @@ func TestReplayReusedGroupNameRejectedLeavesAcceptedGroup(t *testing.T) {
 	if len(m.content.segments) != 2 || m.content.segments[0].kind != segmentDelegationGroup || len(m.content.segments[0].delegGroupData.entries) != 2 {
 		t.Fatalf("segments = %v", segmentKinds(m.content.segments))
 	}
-	if got := countToolText(m.content.segments, "group name already used"); got != 1 {
+	if got := countNoticeText(m.content.segments, "sub_agent rejected: group name already used"); got != 1 {
 		t.Fatalf("rejection text count = %d, want 1", got)
 	}
 	if out := sidebarText(&m.roster, 1); strings.Count(out, "┌ review") != 1 || len(m.roster.entries) != 2 {

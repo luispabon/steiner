@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -323,7 +324,7 @@ func (m *Model) handleToggleThinkingMsg(_ toggleThinkingMsg) (tea.Model, tea.Cmd
 	m.showThinking = !m.showThinking
 	m.content.showThinking = m.showThinking
 	if err := prefs.SetShowThinking(m.showThinking); err != nil {
-		m.content.AppendLine(m.styles.WarningStyle.Render(fmt.Sprintf("prefs save failed: %v", err)))
+		m.content.AppendNotice(noticeWarn, fmt.Sprintf("prefs save failed: %v", err), "")
 	}
 	for i := range m.content.segments {
 		if m.content.segments[i].kind == segmentThinkingBlock {
@@ -366,7 +367,7 @@ func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	m.orchestrationPicker.styles = m.styles
 	m.oneshotResumePicker.styles = m.styles
 	if err := prefs.SetAccent(m.accentPreset); err != nil {
-		m.content.AppendLine(m.styles.WarningStyle.Render(fmt.Sprintf("prefs save failed: %v", err)))
+		m.content.AppendNotice(noticeWarn, fmt.Sprintf("prefs save failed: %v", err), "")
 	}
 	for i := range m.content.segments {
 		m.content.segments[i].renderDirty = true
@@ -511,7 +512,8 @@ func (m *Model) handleClipboardImageMsg(msg clipboardImageMsg) (tea.Model, tea.C
 	return m, nil
 }
 
-// appendError renders err as a styled warning status line in the content view.
+// appendError renders err as an error notice in the content view. A leading
+// "status: " prefix is dropped because the notice glyph already marks the line.
 func (m *Model) appendError(err error) {
-	m.content.AppendLine(m.styles.WarningStyle.Render(fmt.Sprintf("status: %v", err)))
+	m.content.AppendNotice(noticeError, strings.TrimPrefix(err.Error(), "status: "), "")
 }

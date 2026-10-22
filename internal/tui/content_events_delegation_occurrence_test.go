@@ -58,7 +58,7 @@ func TestDelegationOccurrenceAdmissionFinishKeepsCardOwnership(t *testing.T) {
 					t.Fatalf("rejected pointer was retained: %p", rejected)
 				}
 			}
-			if got := countToolText(b.segments, "exact admission error"); got != 1 {
+			if got := countNoticeText(b.segments, "sub_agent rejected: exact admission error"); got != 1 {
 				t.Fatalf("exact admission error count = %d, want 1", got)
 			}
 		})
@@ -173,10 +173,10 @@ func TestLostOccurrenceDoesNotConsumeFreshRejectedReuse(t *testing.T) {
 	}
 }
 
-func countToolText(segments []contentSegment, text string) int {
+func countNoticeText(segments []contentSegment, text string) int {
 	count := 0
 	for _, segment := range segments {
-		if segment.kind == segmentTool && segment.text == text {
+		if segment.kind == segmentNotice && segment.text == text {
 			count++
 		}
 	}

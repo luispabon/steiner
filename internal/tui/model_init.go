@@ -392,10 +392,10 @@ func (m *Model) configureModelState(cfg Config, accentHex string) {
 		}
 	}
 	for _, line := range mcpStartupWarnings(m.mcpServers, m.mcpEnabled) {
-		m.content.AppendLine(m.styles.WarningStyle.Render(line))
+		m.content.AppendNotice(noticeWarn, line, "")
 	}
 	for _, warning := range cfg.ConfigWarnings {
-		m.content.AppendLine(m.styles.WarningStyle.Render(warning))
+		m.content.AppendNotice(noticeWarn, warning, "")
 	}
 	// Seed the failure-warning dedupe with servers the startup snapshot already
 	// surfaced, so a later status event carrying the same failure does not warn

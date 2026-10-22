@@ -202,6 +202,10 @@ func (b *contentBuffer) appendStopReasonEvent(event output.Event) {
 		}
 		return
 	}
+	if payload, ok := event.Payload.(output.StopReasonEvent); ok && payload.Error != "" {
+		b.AppendNotice(noticeError, payload.Error, event.Scope.AgentID)
+		return
+	}
 	b.appendLine(formatStopReasonEvent(event))
 }
 
