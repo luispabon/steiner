@@ -21,6 +21,8 @@ func TestObserveSkipsAppendForUnchangedStateWithinHour(t *testing.T) {
 		},
 	})
 
+	svc.Register(Account{Key: "k", Aliases: []string{"a"}})
+
 	// The first observation is appended normally and records the append time.
 	svc.Observe(sampleSnapshot("k", testBase, 10))
 	if len(logs) != 0 {
@@ -74,6 +76,7 @@ func TestObserveSkipsAppendForUnchangedStateWithinHour(t *testing.T) {
 
 func TestObserveStampsZeroFetchedAt(t *testing.T) {
 	svc, clock := newTestService(t, nil)
+	svc.Register(Account{Key: "k", Aliases: []string{"a"}})
 	*clock = testBase.Add(5 * time.Minute)
 	svc.Observe(Snapshot{AccountKey: "k", Windows: []Window{win("5h", 20)}})
 

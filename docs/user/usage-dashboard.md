@@ -65,6 +65,8 @@ While an overlay refresh is in flight, every account header shows an animated sp
 
 Provider types not in this table never appear on the dashboard. These are `openai`, `anthropic`, `gemini`, `openai_compat`, `ollama`, `lmstudio`, and `opencode_zen`. Steiner has no quota source for them, so check the provider's own console for usage.
 
+Only accounts from the providers in the current config appear. Removing a provider hides its row on the next start. Its stored history is not deleted; it ages out under the normal 35-day retention. Re-adding the provider makes that stored history visible again on the next start.
+
 A Codex sign-in that uses an OpenAI API key, rather than a ChatGPT sign-in, shows `API mode: no quota to report`, and Steiner does not fetch it.
 
 Two Codex aliases for the same ChatGPT account show as one row.
@@ -87,6 +89,6 @@ Steiner reads Claude usage through the `claude` CLI. It never reads Claude crede
 - Stored data is limited to account keys, provider types, plan names, window and budget figures, reset times, credit text, fetch times, and whether each snapshot came from a fetch or a passive observation.
 - Raw API keys are never stored. API-key accounts are identified by their configured provider alias, so the API key and base URL are not part of the identity.
 - Steiner does not read Claude credentials. The `claude` CLI holds the sign-in.
-- An account that is no longer configured still appears with its last stored snapshot. The exception is a legacy API-key row from an earlier version, a fingerprint-keyed `opencode_go`, `openrouter`, or `litellm` account. Those rows stay hidden.
+- An account that is no longer configured does not appear. Its stored snapshots stay in `quota-history.json` until they age out after 35 days.
 
 For the internal design, see [Subscription usage dashboard internals](../internals/usage-dashboard.md).

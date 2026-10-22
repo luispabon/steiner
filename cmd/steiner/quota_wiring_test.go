@@ -160,6 +160,7 @@ func TestCodexFactoryWiresQuotaObserver(t *testing.T) {
 			newCodexResponsesWS = capture
 
 			svc := quota.NewService(quota.ServiceOptions{})
+			svc.Register(quota.Account{Key: "codex:acct-123", ProviderType: "codex", Aliases: []string{"codex"}})
 			rm := codexResolvedModel("codex")
 			if !tc.websocket {
 				rm.ProviderConfig.Codex.Transport = ""
@@ -217,6 +218,7 @@ models:
 	if captured.QuotaObserver == nil {
 		t.Fatal("claude pool QuotaObserver = nil, want the quota service observer")
 	}
+	rt.quotaService.Register(quota.Account{Key: provider.ClaudeSubQuotaAccountKey, ProviderType: "claude_subscription", Aliases: []string{"claude"}})
 	captured.QuotaObserver(quota.Snapshot{AccountKey: provider.ClaudeSubQuotaAccountKey, ProviderType: "claude_subscription"})
 	assertQuotaObserved(t, rt.quotaService, provider.ClaudeSubQuotaAccountKey)
 }
@@ -259,7 +261,13 @@ func TestPrimeQuotaLoadsStoreWithoutViews(t *testing.T) {
 		t.Fatalf("seed Append: %v", err)
 	}
 	svc := quota.NewService(quota.ServiceOptions{Store: store})
-	primeQuota(cliRuntime{quotaService: svc})
+	rt := cliRuntime{
+		cfg: config.Config{Providers: map[string]config.ProviderConfig{
+			"claude": {Type: config.ProviderTypeClaudeSubscription},
+		}},
+		quotaService: svc,
+	}
+	primeQuota(rt)
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}

@@ -62,6 +62,7 @@ func TestRegisterMergesAliasesAndSortsViews(t *testing.T) {
 	svc.Register(Account{Key: "k1", ProviderType: "claude", Aliases: []string{"zeta"}})
 	svc.Register(Account{Key: "k2", Aliases: []string{"beta"}})
 	svc.Register(Account{Key: "k1", Aliases: []string{"alpha", "zeta"}})
+	svc.Register(Account{Key: "k3", Aliases: []string{"k3"}})
 	svc.Observe(sampleSnapshot("k3", testBase, 1))
 
 	if key, ok := accountKeyForAlias(svc, "alpha"); !ok || key != "k1" {
@@ -92,7 +93,7 @@ func TestRegisterMergesAliasesAndSortsViews(t *testing.T) {
 		t.Errorf("merged account ProviderType = %q, want claude", views[0].ProviderType)
 	}
 	if views[2].Latest == nil {
-		t.Error("unregistered passive account has no Latest in its view")
+		t.Error("registered passive account has no Latest in its view")
 	}
 }
 
@@ -365,6 +366,7 @@ func TestFetchTimeoutSelection(t *testing.T) {
 func TestViewsIncludeProjections(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "quota-history.json"))
 	svc, clock := newTestService(t, store)
+	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
 	svc.Observe(sampleSnapshot("k", testBase, 10))
 
 	*clock = testBase.Add(30 * time.Minute)
