@@ -410,6 +410,8 @@ func (b *contentBuffer) renderSupplementalSegment(segment contentSegment, width 
 		return b.renderSubAgentsFinishedSegment(segment, width)
 	case segmentStrandedResults:
 		return b.renderStrandedResultsSegment(segment, width)
+	case segmentNotice:
+		return b.renderNoticeSegment(segment)
 	case segmentImagesAttached:
 		return b.renderImagesAttachedSegment(segment, width)
 	default:

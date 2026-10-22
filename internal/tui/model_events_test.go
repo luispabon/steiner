@@ -436,8 +436,10 @@ func TestApplyEventMCPStatusRefreshesSnapshotAndWarnsOnce(t *testing.T) {
 		t.Fatalf("sidebar mcp = %d/%d failed=%t, want 2/2 not failed", m.sidebar.mcpConnected, m.sidebar.mcpTotal, m.sidebar.mcpFailed)
 	}
 	_ = m.applyEvent(failed)
-	if len(m.content.segments) != 2 {
-		t.Fatalf("warning segments = %d after post-recovery failure, want 2", len(m.content.segments))
+	// The post-recovery failure matches the adjacent warning, so it collapses
+	// into that notice (count 2) instead of adding a second segment.
+	if len(m.content.segments) != 1 || m.content.segments[0].noticeCount != 2 {
+		t.Fatalf("warning segments = %#v after post-recovery failure, want one notice with count 2", m.content.segments)
 	}
 }
 

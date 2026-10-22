@@ -132,9 +132,9 @@ func (m *Model) applyPayloadEvent(event output.Event) (tea.Cmd, bool) {
 	case output.SandboxStatusEvent:
 		m.applySandboxStatusEvent(payload)
 	case output.ConfigWarningEvent:
-		m.content.AppendLine(m.styles.WarningStyle.Render(payload.Message))
+		m.content.AppendNotice(noticeWarn, payload.Message, "")
 	case output.SkillTruncatedEvent:
-		m.content.AppendLine(m.styles.WarningStyle.Render(payload.Message()))
+		m.content.AppendNotice(noticeWarn, payload.Message(), "")
 	case output.SkillStateEvent:
 		m.content.AppendLine(fmt.Sprintf("status: skill %s %s", payload.Name, payload.State))
 	case output.MCPStatusEvent:
@@ -195,7 +195,7 @@ func (m *Model) applyMCPStatusEvent(payload output.MCPStatusEvent) {
 	lines, warned := mcpTransitionWarnings(m.mcpServers, m.mcpWarned)
 	m.mcpWarned = warned
 	for _, line := range lines {
-		m.content.AppendLine(m.styles.WarningStyle.Render(line))
+		m.content.AppendNotice(noticeWarn, line, "")
 	}
 	m.syncSidebar()
 }

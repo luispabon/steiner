@@ -211,7 +211,7 @@ func TestStopReasonTimestampFiltering(t *testing.T) {
 		{
 			name:          "error",
 			event:         output.NewStopReasonEvent(1, "error", errors.New("boom")),
-			wantText:      "error: boom",
+			wantText:      "✗ boom",
 			wantTimestamp: false,
 		},
 	}
