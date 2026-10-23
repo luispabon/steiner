@@ -132,7 +132,7 @@ Map final status as:
 
 If blocking or non_blocking findings exist:
 
-1. Produce a consolidated fix plan mapping each fix to its finding ID(s) and stating which verification will be rerun.
+1. Produce a consolidated fix plan mapping each fix to its finding ID(s), its declared write scope, and any dependency on other fixes, and stating which verification will be rerun. Identify which fixes are independent (disjoint write scopes, settled contracts) and can run concurrently, and which must wait. Fixes with overlapping write scopes run sequentially.
 2. Present the fix plan to the user and ask for explicit confirmation.
 3. If the user declines, report findings and stop. No code is modified.
 4. If the user approves, enter the fix/review loop.
@@ -142,9 +142,9 @@ If blocking or non_blocking findings exist:
 Run the approved fix/review loop:
 
 - Delegated fix pass (a `code` sub-agent in its own runtime-provisioned worktree) is preferred over inline fixes. Worktree provisioning failure is a blocker to report, not a cue for inline fixes. Use inline fixes only when delegation tools themselves are unavailable.
-- Fix work is sequential, not parallel
+- Dispatch independent fixes (disjoint write scopes, settled contracts) together as parallel `code` sub-agents sharing a `group`; run dependent fixes after the fixes they depend on.
 - After fixes, run the narrowest scoped checks covering the fixes or `make check`. Before `make check` or `golangci-lint run`, run `golangci-lint cache clean`.
-- Lightweight re-review: check whether fixes introduced new quality issues in the same four categories. Repeat only if new blocking findings emerge. Cap at 2 fix iterations.
+- Lightweight re-review: check whether fixes introduced new quality issues in the same four categories. Repeat only if new blocking findings emerge. Cap at 2 fix iterations; the cap counts fix/review rounds, not individual agents.
 
 ### Warm Follow-Up Policy
 
@@ -168,7 +168,7 @@ The fix delegated agent must:
 - avoid unrelated cleanup or scope expansion
 - not merge, rebase, or clean up reviewer-owned git state
 
-Fix work is sequential. Do not parallelize it.
+Merge parallel fix worktrees one at a time, then verify the combined result and re-review the affected boundaries. If a merge conflicts or the combined result misbehaves, pause integration, assess the cause (disjoint scopes can still conflict or interact), arrange a bounded correction, and verify again. Seek renewed approval only if the scope materially changes.
 
 ### Pre-Commit Checklist
 
