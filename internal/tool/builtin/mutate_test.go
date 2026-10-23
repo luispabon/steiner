@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,34 @@ func runMutate(t *testing.T, toolDef tool.ToolDef, input map[string]any) *Mutate
 		t.Fatalf("mutate Handler() result = %T, want *MutateResult", result)
 	}
 	return got
+}
+
+func TestMutateReplaceLargeObservedFile(t *testing.T) {
+	root := t.TempDir()
+	lines := make([]string, 4000)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%05d %s\n", i+1, strings.Repeat("x", 40))
+	}
+	path := filepath.Join(root, "big.txt")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	toolDef := newMutateTestTool(t, root)
+	got := runMutate(t, toolDef, map[string]any{
+		"operations": []any{
+			map[string]any{"type": "replace", "path": "big.txt", "old_string": "line-03000 ", "new_string": "LINE-03000 "},
+		},
+	})
+	if got.OperationsApplied != 1 || got.OperationsFailed != 0 {
+		t.Fatalf("mutate result = %#v, want the replace applied", got)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "LINE-03000 ") || strings.Contains(string(data), "line-03000 ") {
+		t.Fatal("replace not applied to large file")
+	}
 }
 
 func TestMutatePreservesSpacedFilenameThroughExecutor(t *testing.T) {

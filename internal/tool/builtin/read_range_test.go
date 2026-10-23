@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,7 +58,7 @@ func TestReadRangeRejectsBinaryAndOversizedFiles(t *testing.T) {
 	def := NewReadTool(Env{WorkDir: dir, PathPolicy: &policy})
 	cases := []struct{ name, body, want string }{
 		{"binary", "\x00binary", "binary"},
-		{"oversize", strings.Repeat("x", 100*1024+1), "too large"},
+		{"oversize", strings.Repeat("x", maxReadFileBytes+1), "file too large (max 1mb"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -78,6 +79,64 @@ func TestReadRangeRejectsBinaryAndOversizedFiles(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestReadRangeAcceptsFileAtSizeLimit(t *testing.T) {
+	dir := t.TempDir()
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	def := NewReadTool(Env{WorkDir: dir, PathPolicy: &policy})
+	line := strings.Repeat("x", 1023) + "\n"
+	body := strings.Repeat(line, maxReadFileBytes/len(line))
+	if err := os.WriteFile(filepath.Join(dir, "limit.txt"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range []map[string]any{{"path": "limit.txt"}, {"path": "limit.txt", "offset": 2, "limit": 1}} {
+		got, err := def.Handler(context.Background(), args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, ok := got.(ReadResult)
+		if !ok {
+			t.Fatalf("result type %T, want ReadResult", got)
+		}
+		if result.Path == "" || result.TotalLines != 1024 || strings.Contains(result.Output, "too large") {
+			t.Fatalf("args %v: result = %+v, want a successful read of 1024 lines", args, result)
+		}
+	}
+}
+
+func TestReadRangePagesLargeFileWithWholeFileMetadata(t *testing.T) {
+	dir := t.TempDir()
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	def := NewReadTool(Env{WorkDir: dir, PathPolicy: &policy})
+	lines := make([]string, 4000)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%05d %s\n", i+1, strings.Repeat("x", 40))
+	}
+	data := []byte(strings.Join(lines, ""))
+	if len(data) <= 100*1024 || len(data) >= maxReadFileBytes {
+		t.Fatalf("fixture size = %d, want between 100KB and 1MB", len(data))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := def.Handler(context.Background(), map[string]any{"path": "big.txt", "offset": 2000, "limit": 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok := got.(ReadResult)
+	if !ok {
+		t.Fatalf("result type %T, want ReadResult", got)
+	}
+	if want := strings.Join(lines[1999:2002], ""); result.Output != want {
+		t.Errorf("output = %q, want %q", result.Output, want)
+	}
+	if result.FileHash != FileContentHash(data) {
+		t.Errorf("file_hash = %q, want whole-file hash %q", result.FileHash, FileContentHash(data))
+	}
+	if result.TotalLines != 4000 || result.StartLine != 2000 || result.EndLine != 2002 || result.NextOffset != 2003 {
+		t.Errorf("range = start %d end %d next %d total %d, want 2000 2002 2003 4000", result.StartLine, result.EndLine, result.NextOffset, result.TotalLines)
 	}
 }
 

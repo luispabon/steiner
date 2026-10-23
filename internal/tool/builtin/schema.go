@@ -43,7 +43,7 @@ func MutateSchema() map[string]any {
 				"items":       map[string]any{"type": "string"},
 			},
 			"replace_all": map[string]any{"type": "boolean", "description": "Replace all occurrences for replace", "default": false},
-			"file_hash":   map[string]any{"type": "string", "description": "8-char hex hash from read/grep result. When provided, it is validated against the initial disk snapshot captured when the batch starts, not after earlier in-memory operations. It only applies to existing files; missing targets fail explicitly instead of being silently accepted."},
+			"file_hash":   map[string]any{"type": "string", "description": "8-char hex hash from read result. When provided, it is validated against the initial disk snapshot captured when the batch starts, not after earlier in-memory operations. It only applies to existing files; missing targets fail explicitly instead of being silently accepted."},
 			"from":        map[string]any{"type": "string", "description": "Source path for move"},
 			"to":          map[string]any{"type": "string", "description": "Destination path for move. The destination must not already exist; move never overwrites."},
 		},

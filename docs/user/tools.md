@@ -2,7 +2,7 @@
 
 | Tool | Description |
 |------|-------------|
-| `read` | Read files with offset/limit pagination; line numbers are opt-in with `line_numbers: true`; detects and base64-encodes images |
+| `read` | Read files with offset/limit pagination; line numbers are opt-in with `line_numbers: true`; detects and base64-encodes images. Files over 1MB are rejected, even when paging, because the whole file is scanned for `file_hash` and `total_lines` |
 | `mutate` | Apply structured file mutations atomically: create, write, replace, delete_file, or move |
 | `glob` | Find files by pattern |
 | `grep` | Search file contents with surrounding context |

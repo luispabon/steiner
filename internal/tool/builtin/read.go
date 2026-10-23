@@ -58,7 +58,8 @@ func NewReadTool(env Env) tool.ToolDef {
 				if len(lines) == 0 {
 					return nil, fmt.Errorf("read: %w", err)
 				}
-				return &ReadResult{Path: displayPath, Output: strings.Join(lines, "")}, nil
+				// Failed reads omit Path so the file tracker does not record them as observed.
+				return &ReadResult{Output: strings.Join(lines, "")}, nil
 			}
 			if in.LineNumbers {
 				for i := range lines {

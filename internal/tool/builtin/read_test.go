@@ -295,7 +295,7 @@ func TestReadTool(t *testing.T) {
 	})
 
 	t.Run("oversized paginated read rejected by size limit", func(t *testing.T) {
-		content := strings.Repeat("x", 100*1024+1)
+		content := strings.Repeat("x", maxReadFileBytes+1)
 		path := filepath.Join(tmpDir, "paged-large.txt")
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
@@ -308,6 +308,13 @@ func TestReadTool(t *testing.T) {
 			result := got.(*ReadResult)
 			if !strings.Contains(result.Output, "file too large") {
 				t.Fatalf("output = %q", result.Output)
+			}
+			raw, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(raw), `"path":""`) {
+				t.Fatalf("failed read JSON = %s, want empty path so it is not recorded as observed", raw)
 			}
 		}
 	})

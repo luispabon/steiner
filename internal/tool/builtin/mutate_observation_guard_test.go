@@ -150,7 +150,7 @@ func TestMutateReplaceObservationGuard(t *testing.T) {
 			"no file_hash supplied",
 			"bash output (cat, sed, head, tail) does not count as a read",
 			"use read (a small offset/limit around the edit is enough)",
-			"file_hash from a read/grep result",
+			"file_hash from a read result",
 		}
 		for _, want := range wantSubstrings {
 			if !strings.Contains(got.Output, want) {
