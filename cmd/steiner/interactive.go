@@ -47,6 +47,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	// Oneshot phase runtimes do not inherit this: newPhaseRunner builds them
 	// from a flags copy with asyncMCP=false so they block on MCP readiness.
 	flags.asyncMCP = true
+	flags.modelRequirement = requireOrchestratorModel
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
 		return err

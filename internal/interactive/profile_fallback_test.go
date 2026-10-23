@@ -27,7 +27,7 @@ func loadIsolatedFastProfileConfig(t *testing.T) config.Config {
 	t.Helper()
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
-	contents := "models:\n  definitions:\n    fast:\n      provider: local\n      id: fast\n  profiles:\n    default:\n      default_model: fast\n    fast:\n      default_model: fast\n"
+	contents := "providers:\n  local:\n    type: openai_compat\n    base_url: http://localhost:11434/v1\nmodels:\n  definitions:\n    fast:\n      provider: local\n      id: fast\n  profiles:\n    default:\n      default_model: fast\n    fast:\n      default_model: fast\n"
 	if err := os.WriteFile(configPath, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write config fixture: %v", err)
 	}

@@ -14,6 +14,12 @@ assignments, but an already running oneshot keeps its resolved phase setup.
 
 ## Architecture
 
+### Model Preflight
+
+Before the orchestrator creates any run state, `NewOrchestrator` calls `RequireModels` (`internal/oneshot/preflight.go`). Each phase needs a model reference from its `oneshot` assignment, else the profile's `default_model`. The advisor needs one from its own assignment, else `default_model`. A blank reference returns `config.ErrNoModelConfigured`. An undefined alias returns the model reference error. Nothing falls back to `ActiveOrchestratorModel`.
+
+`cmd/steiner` runs the same check on the loaded config before it builds the runtime for `oneshot` run and resume, so an empty config stops before the worktree, lock, or manifest are created. Interactive and `--exec` runs check only the orchestrator model.
+
 ### Run Identity and Provisioning
 
 Each oneshot run receives a unique **run ID** (short slug derived from the task and a timestamp/nonce). The orchestrator derives a **feature slug** and creates:

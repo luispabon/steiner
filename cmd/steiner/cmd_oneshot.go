@@ -75,6 +75,7 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 	// gains a slice or map field, deep-copy it here or C1 silently regresses.
 	phaseFlags := *flags
 	phaseFlags.asyncMCP = false
+	phaseFlags.modelRequirement = requireOrchestratorModel
 	runtime, err := buildPhaseRuntime(ctx, cmd, &phaseFlags, params.ProjectRoot, params.WorkDir, params.ModelAlias)
 	if err != nil {
 		return nil, err
@@ -157,6 +158,7 @@ func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (on
 }
 
 func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
+	flags.modelRequirement = requireOneshotModels
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
 		return err
@@ -208,6 +210,7 @@ func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 }
 
 func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) error {
+	flags.modelRequirement = requireOneshotModels
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
 		return err

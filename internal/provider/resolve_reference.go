@@ -24,6 +24,9 @@ func resolveReference(cfg *config.Config, reference string, useDiscovery bool, h
 // constructing a fresh, call-scoped one (resolveReference's behavior); a nil
 // catalog leaves catalog-sourced facts unknown.
 func resolveReferenceWithLoader(ctx context.Context, cfg *config.Config, reference string, useDiscovery bool, httpClient *http.Client, loader *modelsDevLoader, catalog ModelCatalog) (ResolvedModel, error) {
+	if strings.TrimSpace(reference) == "" {
+		return ResolvedModel{}, config.ErrNoModelConfigured
+	}
 	modelCfg, isAlias := config.ResolveModelConfig(cfg, reference)
 	if !isAlias && (modelCfg.Provider == "" || modelCfg.ID == "") {
 		return ResolvedModel{}, fmt.Errorf("model alias %q not found", reference)

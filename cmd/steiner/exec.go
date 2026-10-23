@@ -16,6 +16,7 @@ import (
 )
 
 func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
+	flags.modelRequirement = requireOrchestratorModel
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
 		return err
