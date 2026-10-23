@@ -43,7 +43,10 @@ func hashFileContent(path string) (uint64, bool) {
 	return h.Sum64(), true
 }
 
-// RecordRead records a read result without changing its content.
+// RecordRead records a read result without changing its content. Failed reads
+// omit the path, so they are recognised by an empty path and not recorded.
+// Older stored results that carried a path for failed reads may still be
+// recorded when replayed.
 func (t *FileTracker) RecordRead(turn int, content string) {
 	result, ok := parseReadResult(content)
 	if !ok {

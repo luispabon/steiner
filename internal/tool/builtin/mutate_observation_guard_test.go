@@ -149,7 +149,7 @@ func TestMutateReplaceObservationGuard(t *testing.T) {
 			"not read this session",
 			"no file_hash supplied",
 			"bash output (cat, sed, head, tail) does not count as a read",
-			"use read (a small offset/limit around the edit is enough)",
+			"use read (a small offset/limit around the edit is enough for files under 1MB)",
 			"file_hash from a read result",
 		}
 		for _, want := range wantSubstrings {

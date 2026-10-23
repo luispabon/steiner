@@ -2,12 +2,14 @@ package builtin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -137,6 +139,55 @@ func TestReadRangePagesLargeFileWithWholeFileMetadata(t *testing.T) {
 	}
 	if result.TotalLines != 4000 || result.StartLine != 2000 || result.EndLine != 2002 || result.NextOffset != 2003 {
 		t.Errorf("range = start %d end %d next %d total %d, want 2000 2002 2003 4000", result.StartLine, result.EndLine, result.NextOffset, result.TotalLines)
+	}
+}
+
+func TestReadUpToReportsExceededLimit(t *testing.T) {
+	boom := errors.New("boom")
+	for _, tc := range []struct {
+		name         string
+		input        string
+		wantExceeded bool
+		wantLen      int
+	}{
+		{name: "empty", input: "", wantExceeded: false, wantLen: 0},
+		{name: "exactly limit", input: strings.Repeat("x", 10), wantExceeded: false, wantLen: 10},
+		{name: "one byte over limit", input: strings.Repeat("x", 11), wantExceeded: true, wantLen: 11},
+		{name: "far over limit is capped", input: strings.Repeat("x", 100), wantExceeded: true, wantLen: 11},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, exceeded, err := readUpTo(strings.NewReader(tc.input), 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if exceeded != tc.wantExceeded || len(data) != tc.wantLen {
+				t.Errorf("readUpTo = (len %d, exceeded %t), want (len %d, exceeded %t)", len(data), exceeded, tc.wantLen, tc.wantExceeded)
+			}
+		})
+	}
+	if _, _, err := readUpTo(iotest.ErrReader(boom), 10); !errors.Is(err, boom) {
+		t.Errorf("err = %v, want %v", err, boom)
+	}
+}
+
+func TestReadRangeOversizeMessageNamesLimit(t *testing.T) {
+	dir := t.TempDir()
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	def := NewReadTool(Env{WorkDir: dir, PathPolicy: &policy})
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(strings.Repeat("x", maxReadFileBytes+1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := def.Handler(context.Background(), map[string]any{"path": "big.txt", "offset": 2, "limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok := got.(*ReadResult)
+	if !ok {
+		t.Fatalf("result type %T, want *ReadResult", got)
+	}
+	want := "Error: file too large (max 1.0MB, got 1.0MB); offset/limit cannot bypass this limit, use grep or bash to inspect it"
+	if result.Output != want {
+		t.Errorf("output = %q, want %q", result.Output, want)
 	}
 }
 
