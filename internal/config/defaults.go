@@ -57,34 +57,16 @@ func advisorTimeout() *Duration {
 }
 
 func defaultConfig(env map[string]string) Config {
-	defaultProvider := ProviderConfig{
-		Type:    ProviderTypeOpenAICompat,
-		BaseURL: "http://localhost:11434/v1",
-		Timeout: MustDuration("30s"),
-		Codex: CodexConfig{
-			MinRequestInterval: DefaultCodexMinRequestInterval,
-			Transport:          CodexTransportHTTP,
-		},
-	}
-	defaultModel := newModelConfigBase()
-	defaultModel.Provider = "local"
-	defaultModel.ID = "qwen3-35b-a3b"
 	return Config{
 		TUI: TUIConfig{
 			FPS:                  60,
 			QuotaRefreshInterval: MustDuration("5m"),
 		},
-		Providers: map[string]ProviderConfig{
-			"local": defaultProvider,
-		},
+		Providers: map[string]ProviderConfig{},
 		Models: ModelsConfig{
 			DiscoveryEnabled: true,
-			Profiles: map[string]ModelProfile{
-				"default": {DefaultModel: "default"},
-			},
-			Definitions: map[string]ModelConfig{
-				"default": defaultModel,
-			},
+			Profiles:         map[string]ModelProfile{},
+			Definitions:      map[string]ModelConfig{},
 		},
 		Limits: LimitsConfig{
 			MaxTurns:           50,

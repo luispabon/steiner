@@ -144,22 +144,35 @@ func TestValidate(t *testing.T) {
 			wantErr: "models.profiles",
 		},
 		{
-			name: "missing providers",
+			name: "empty providers, definitions and profiles are valid",
 			cfg: func() Config {
 				c := validBase()
-				c.Providers = nil
+				c.Providers = map[string]ProviderConfig{}
+				c.Models = ModelsConfig{
+					Profiles:    map[string]ModelProfile{},
+					Definitions: map[string]ModelConfig{},
+				}
 				return c
 			}(),
-			wantErr: "providers is required",
+			wantErr: "",
 		},
 		{
-			name: "missing models",
+			name: "dangling definition provider fails with empty providers",
 			cfg: func() Config {
 				c := validBase()
-				c.Models.Definitions = nil
+				c.Providers = map[string]ProviderConfig{}
 				return c
 			}(),
-			wantErr: "models is required",
+			wantErr: `provider "local" is not defined in providers`,
+		},
+		{
+			name: "dangling profile reference fails with empty definitions",
+			cfg: func() Config {
+				c := validBase()
+				c.Models.Definitions = map[string]ModelConfig{}
+				return c
+			}(),
+			wantErr: "is not defined in models.definitions or providers",
 		},
 		{
 			name: "invalid model transport override",

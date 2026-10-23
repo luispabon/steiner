@@ -1,9 +1,26 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
+
+// ErrNoModelConfigured reports that no orchestrator model is configured or selected.
+var ErrNoModelConfigured = errors.New("no model configured: configure a provider and models.profiles.<name>.default_model; select a named profile with --profile, or use --model <provider/model-id> for the orchestrator")
+
+// RequireModelReference reports whether ref can be used as the orchestrator
+// model. A blank ref returns ErrNoModelConfigured. A nonblank ref must parse
+// with ParseModelReference. It performs no I/O.
+func RequireModelReference(cfg Config, ref string) error {
+	if strings.TrimSpace(ref) == "" {
+		return ErrNoModelConfigured
+	}
+	if _, _, err := ParseModelReference(&cfg, ref); err != nil {
+		return fmt.Errorf("require model reference: %w", err)
+	}
+	return nil
+}
 
 // ParseModelReference resolves a model alias or provider/model-id reference.
 func ParseModelReference(cfg *Config, ref string) (providerAlias string, modelID string, err error) {

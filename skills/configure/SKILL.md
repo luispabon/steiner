@@ -28,16 +28,16 @@ Compact canonical reference for safe configuration edits.
 |Path|Type|Default|Semantics|
 |-|-|-|-
 | `providers.<name>.type`|string|—|`openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`, `claude_subscription`; `gemini` validates but is unimplemented. `claude_subscription` uses the signed-in Claude CLI and does not use `base_url`, `api_key`, `api_key_env`, `headers`, or `timeout`. |
-| `providers.<name>.base_url`|string|local: `http://localhost:11434/v1`|API endpoint; required for `openai_compat`, `ollama`, `lmstudio`, `litellm`. |
+| `providers.<name>.base_url`|string|none|API endpoint; required for `openai_compat`, `ollama`, `lmstudio`, `litellm`. |
 | `providers.<name>.api_key`|string|—|Credential; prefer `api_key_env`, required if unset. |
 | `providers.<name>.api_key_env`|string|—|Environment variable containing credential. |
 | `providers.<name>.headers.<key>`|string|—|One extra header value. |
-| `providers.<name>.timeout`|duration|local: `30s`|Request timeout. |
+| `providers.<name>.timeout`|duration|none|Request timeout. |
 | `providers.<name>.codex.min_request_interval`|duration|`0s`|Positive values pace Codex requests. |
 | `providers.<name>.codex.transport`|string|`http`|`http` or experimental `websocket`; no HTTP fallback. |
 | `models.discovery_enabled`|bool|`true`|Discover provider models; false uses configured entries only. |
-| `models.definitions.<alias>.provider`|string|`local`|Provider name. |
-| `models.definitions.<alias>.id`|string|`qwen3-35b-a3b`|Model ID. |
+| `models.definitions.<alias>.provider`|string|none|Provider name. |
+| `models.definitions.<alias>.id`|string|none|Model ID. |
 | `models.definitions.<alias>.params`|map[string]any|—|Request params. |
 | `models.definitions.<alias>.extra_params`|map[string]any|—|Provider params. |
 | `models.definitions.<alias>.prompt_suffix`|string|—|Appended to each user message. |
@@ -49,16 +49,16 @@ Compact canonical reference for safe configuration edits.
 | `models.definitions.<alias>.prompts.system`|string|—|Replaces default system prompt. |
 | `models.definitions.<alias>.prompts.system_suffix`|string|—|Appends to default system prompt. |
 | `models.definitions.<alias>.prompts.compaction`|string|—|Replaces compaction prompt. |
-| `models.definitions.<alias>.advanced.limits.context_window`|int|`32768`|Context window in tokens; explicit value wins over metadata. |
+| `models.definitions.<alias>.advanced.limits.context_window`|int|none|Context window in tokens; explicit value wins over metadata. Unset resolves from metadata. |
 |`models.definitions.<alias>.advanced.limits.compaction_threshold_tokens`|int|—70%
 | `models.definitions.<alias>.advanced.codex.use_max_context_window`|bool|`false`|Codex: use catalog `max_context_window` if positive, else `context_window`. |
-| `models.definitions.<alias>.advanced.limits.max_output_tokens`|int|`8192`|Output-token ceiling per response. |
+| `models.definitions.<alias>.advanced.limits.max_output_tokens`|int|none|Output-token ceiling per response. Unset resolves from metadata. |
 | `models.definitions.<alias>.advanced.reasoning_echo_back`|bool or null|—|Provider reasoning echo control. |
 | `models.definitions.<alias>.advanced.transport`|string|`auto`|`auto`, `openai_compat`, `anthropic`; explicit overrides metadata. |
 | `models.definitions.<alias>.advanced.reasoning.effort`|string|—|Native effort. |
 | `models.definitions.<alias>.advanced.reasoning.supported_efforts`|[]string|—|Native efforts for validation/selection. |
 | `models.definitions.<alias>.vision`|bool or null|null|Null assumes vision; false removes images. |
-| `models.profiles.<profile>.default_model`|string|default: `default`|Model and role fallback; required in every profile. |
+| `models.profiles.<profile>.default_model`|string|none|Model and role fallback; required in every declared profile. |
 | `models.profiles.<profile>.advisor`|string|—|Advisor model. |
 | `models.profiles.<profile>.sub_agents.<key>`|string|—|Model by `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision`. |
 | `models.profiles.<profile>.oneshot.<key>`|string|—|Model by `plan`, `implement`, or `review`; missing uses profile default. |

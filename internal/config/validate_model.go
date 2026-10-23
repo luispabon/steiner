@@ -108,9 +108,6 @@ func validateTUIConfig(problems *[]string, cfg TUIConfig) {
 }
 
 func validateProvidersConfig(problems *[]string, providers map[string]ProviderConfig) {
-	if len(providers) == 0 {
-		*problems = append(*problems, "providers is required")
-	}
 	for name, p := range providers {
 		if strings.TrimSpace(name) == "" {
 			*problems = append(*problems, "providers contains an empty alias")
@@ -186,9 +183,6 @@ func appendCodexTransportProblems(problems *[]string, name string, p ProviderCon
 }
 
 func validateModelsConfig(problems *[]string, models map[string]ModelConfig, providers map[string]ProviderConfig) {
-	if len(models) == 0 {
-		*problems = append(*problems, "models is required")
-	}
 	for name, model := range models {
 		if strings.TrimSpace(name) == "" {
 			*problems = append(*problems, "models contains an empty alias")

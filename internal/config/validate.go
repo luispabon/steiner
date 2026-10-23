@@ -38,11 +38,6 @@ func validate(cfg Config, projectRoot string) error {
 }
 
 func validateProfilesConfig(problems *[]string, cfg Config) {
-	if _, ok := cfg.Models.Profiles["default"]; !ok {
-		*problems = append(*problems, "models.profiles.default is required")
-		return
-	}
-
 	names := make([]string, 0, len(cfg.Models.Profiles))
 	for name := range cfg.Models.Profiles {
 		names = append(names, name)
@@ -58,11 +53,8 @@ func validateProfilesConfig(problems *[]string, cfg Config) {
 		}
 	}
 
-	_, err := ResolveEffectiveAssignments(&cfg, "default")
-	if err == nil {
-		validateSubAgentConfig(problems, cfg.SubAgent)
-		validateAdvisorConfig(problems, cfg.Advisor)
-	}
+	validateSubAgentConfig(problems, cfg.SubAgent)
+	validateAdvisorConfig(problems, cfg.Advisor)
 }
 
 var validWorkflowHandoffDestinations = map[string]bool{

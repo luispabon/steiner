@@ -6,6 +6,9 @@ func TestApplyCLIOverrides(t *testing.T) {
 	cfg := defaultConfig(nil)
 	cfg.Logging.Level = "info"
 	cfg.Sandbox.Enabled = true
+	cfg.Models.Definitions = map[string]ModelConfig{
+		"default": {Provider: "local", ID: "qwen3-35b-a3b"},
+	}
 
 	if err := applyCLIOverrides(&cfg, CLIOverrides{
 		Model:   "default",

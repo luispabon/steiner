@@ -30,9 +30,6 @@ func ResolveProfile(cfg *Config, name string) (ModelProfile, error) {
 	if cfg == nil {
 		return ModelProfile{}, fmt.Errorf("resolve profile: config is nil")
 	}
-	if _, ok := cfg.Models.Profiles["default"]; !ok {
-		return ModelProfile{}, fmt.Errorf("resolve profile %q: models.profiles.default is required", name)
-	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = "default"
@@ -70,9 +67,17 @@ func validateResolvedProfile(cfg *Config, name string, profile ModelProfile) err
 }
 
 // ResolveEffectiveAssignments resolves all assignments for one selected profile.
+// A blank name selects default. When no name is given and no default profile
+// is declared, the result is unselected (zero assignments, empty ProfileName)
+// instead of an arbitrary named profile.
 func ResolveEffectiveAssignments(cfg *Config, name string) (EffectiveModelAssignments, error) {
 	selected := strings.TrimSpace(name)
 	if selected == "" {
+		if cfg != nil {
+			if _, ok := cfg.Models.Profiles["default"]; !ok {
+				return EffectiveModelAssignments{}, nil
+			}
+		}
 		selected = "default"
 	}
 	profile, err := ResolveProfile(cfg, selected)

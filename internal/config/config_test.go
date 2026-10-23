@@ -88,8 +88,6 @@ func TestProjectContextMaxBytesConversion(t *testing.T) {
 }
 
 func TestDefaultConfigRetryDefaults(t *testing.T) {
-	cfg := defaultConfig(nil)
-
 	want := RetryConfig{
 		Enabled:        true,
 		MaxAttempts:    5,
@@ -97,8 +95,8 @@ func TestDefaultConfigRetryDefaults(t *testing.T) {
 		MaxBackoff:     MustDuration("5s"),
 		RetryAfterMax:  MustDuration("60s"),
 	}
-	if !reflect.DeepEqual(cfg.Models.Definitions["default"].Retry, want) {
-		t.Fatalf("models[default].retry = %#v, want %#v", cfg.Models.Definitions["default"].Retry, want)
+	if got := NewModelConfigBase().Retry; !reflect.DeepEqual(got, want) {
+		t.Fatalf("NewModelConfigBase().Retry = %#v, want %#v", got, want)
 	}
 }
 
@@ -331,7 +329,7 @@ func TestLoadRejectsRemovedConcurrencyConfig(t *testing.T) {
 	}
 }
 
-func TestLoadCodexOptInPreservesInheritedContextForSourceResolution(t *testing.T) {
+func TestLoadCodexOptInLeavesNewDefinitionContextUnset(t *testing.T) {
 	tempDir := t.TempDir()
 	homeDir := filepath.Join(tempDir, "home")
 	projectDir := filepath.Join(tempDir, "project")
@@ -352,8 +350,8 @@ models:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.Models.Definitions["default"].Advanced.Limits.ContextWindow; got != 32768 {
-		t.Fatalf("inherited ContextWindow = %d, want 32768 retained for source-time handling", got)
+	if got := cfg.Models.Definitions["default"].Advanced.Limits.ContextWindow; got != 0 {
+		t.Fatalf("ContextWindow = %d, want 0 (unset, resolved by discovery for a new definition)", got)
 	}
 }
 
@@ -673,6 +671,8 @@ models:
     default:
       provider: local
       id: qwen3-35b-a3b
+      retry:
+        max_attempts: 9
     custom:
       provider: local
       id: custom-backend
@@ -699,8 +699,11 @@ models:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if got, want := cfg.Models.Definitions["custom"].Retry, cfg.Models.Definitions["default"].Retry; !reflect.DeepEqual(got, want) {
-		t.Fatalf("models[custom].retry = %#v, want %#v", got, want)
+	if got, want := cfg.Models.Definitions["custom"].Retry, NewModelConfigBase().Retry; !reflect.DeepEqual(got, want) {
+		t.Fatalf("models[custom].retry = %#v, want base retry %#v", got, want)
+	}
+	if got := cfg.Models.Definitions["default"].Retry.MaxAttempts; got != 9 {
+		t.Fatalf("models[default].retry.max_attempts = %d, want 9", got)
 	}
 }
 
@@ -714,18 +717,34 @@ func TestLoadNewModelAliasesDoNotInheritDefaultTokenLimits(t *testing.T) {
   local:
     type: openai_compat
     base_url: http://localhost:11434/v1
+  remote:
+    type: openai_compat
+    base_url: https://example.test/v1
 models:
   profiles:
     default:
       default_model: custom
   definitions:
     default:
-      provider: local
+      provider: remote
       id: qwen3-35b-a3b
+      prompt_suffix: default suffix
+      params:
+        temperature: 0.1
+      prompts:
+        system: default system
+      vision: true
+      retry:
+        max_attempts: 9
       advanced:
         limits:
           context_window: 32768
           max_output_tokens: 8192
+        transport: anthropic
+        reasoning_echo_back: true
+        reasoning:
+          effort: high
+          supported_efforts: [low, high]
     custom:
       provider: local
       id: custom-backend
@@ -752,8 +771,21 @@ models:
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if got := cfg.Models.Definitions["custom"].Advanced.Limits; got != (AdvancedLimitsConfig{}) {
+	custom := cfg.Models.Definitions["custom"]
+	if custom.Provider != "local" || custom.ID != "custom-backend" {
+		t.Fatalf("models[custom] identity = %q/%q, want local/custom-backend", custom.Provider, custom.ID)
+	}
+	if got := custom.Advanced.Limits; got != (AdvancedLimitsConfig{}) {
 		t.Fatalf("models[custom].advanced.limits = %#v, want empty for metadata discovery", got)
+	}
+	if !reflect.DeepEqual(custom.Retry, NewModelConfigBase().Retry) {
+		t.Fatalf("models[custom].retry = %#v, want base retry", custom.Retry)
+	}
+	if len(custom.Params) != 0 || custom.Prompts != (ModelPrompts{}) || custom.Vision != nil || custom.PromptSuffix != "" {
+		t.Fatalf("models[custom] inherited params, prompts, vision, or prompt_suffix: %#v", custom)
+	}
+	if custom.Advanced.Transport != "" || custom.Advanced.ReasoningEchoBack != nil || !reflect.DeepEqual(custom.Advanced.Reasoning, ReasoningConfig{}) {
+		t.Fatalf("models[custom].advanced inherited transport, reasoning_echo_back, or reasoning: %#v", custom.Advanced)
 	}
 }
 

@@ -209,7 +209,11 @@ func TestCodexTransportYAMLParsing(t *testing.T) {
 }
 
 func TestLoadResolvesDefaultProfile(t *testing.T) {
-	cfg := loadProfileTestConfig(t, `models:
+	cfg := loadProfileTestConfig(t, `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
   definitions:
     default:
       provider: local
@@ -236,7 +240,11 @@ func TestLoadResolvesDefaultProfile(t *testing.T) {
 }
 
 func TestLoadResolvesNamedProfileAndCopiesAssignments(t *testing.T) {
-	cfg := loadProfileTestConfig(t, `models:
+	cfg := loadProfileTestConfig(t, `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
   definitions:
     default:
       provider: local
@@ -294,7 +302,11 @@ func TestLoadModelOverridesApplyAfterProfileResolution(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := loadProfileTestConfig(t, `models:
+			cfg := loadProfileTestConfig(t, `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
   definitions:
     default:
       provider: local
@@ -333,7 +345,11 @@ func TestLoadModelOverridesApplyAfterProfileResolution(t *testing.T) {
 }
 
 func TestLoadRejectsUnknownProfile(t *testing.T) {
-	_, err := loadProfileTestConfigResult(t, `models:
+	_, err := loadProfileTestConfigResult(t, `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
   definitions:
     default:
       provider: local
@@ -348,7 +364,11 @@ func TestLoadRejectsUnknownProfile(t *testing.T) {
 }
 
 func TestLoadRejectsWhitespaceOnlyProfile(t *testing.T) {
-	_, err := loadProfileTestConfigResult(t, `models:
+	_, err := loadProfileTestConfigResult(t, `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
   definitions:
     default:
       provider: local
@@ -372,7 +392,11 @@ func TestLoadRejectsNamedProfileWithoutDefaultModel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := loadProfileTestConfigResult(t, `models:
+			_, err := loadProfileTestConfigResult(t, `providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
   definitions:
     default:
       provider: local

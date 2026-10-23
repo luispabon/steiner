@@ -50,7 +50,8 @@ func applyModelsPatch(cfg *Config, patch *modelsPatch) {
 		for name, model := range *patch.Definitions {
 			current, ok := cfg.Models.Definitions[name]
 			if !ok {
-				current = modelConfigBaseForConfig(*cfg)
+				current = newModelConfigBase()
+				current.Advanced.Limits = AdvancedLimitsConfig{}
 			}
 			if model.Advanced != nil && model.Advanced.Limits != nil && model.Advanced.Limits.ContextWindow != nil {
 				current.Advanced.Limits.contextWindowSet = true
