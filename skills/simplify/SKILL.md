@@ -142,7 +142,7 @@ If blocking or non_blocking findings exist:
 Run the approved fix/review loop:
 
 - Delegated fix pass (a `code` sub-agent in its own runtime-provisioned worktree) is preferred over inline fixes. Worktree provisioning failure is a blocker to report, not a cue for inline fixes. Use inline fixes only when delegation tools themselves are unavailable.
-- Dispatch independent fixes (disjoint write scopes, settled contracts) together as parallel `code` sub-agents sharing a `group`; run dependent fixes after the fixes they depend on. Runtime concurrency is bounded by configured `sub_agent.max_parallel`.
+- Dispatch independent fixes (disjoint write scopes, settled contracts) together as parallel `code` sub-agents sharing a `group`; run dependent fixes after the fixes they depend on.
 - After fixes, run the narrowest scoped checks covering the fixes or `make check`. Before `make check` or `golangci-lint run`, run `golangci-lint cache clean`.
 - Lightweight re-review: check whether fixes introduced new quality issues in the same four categories. Repeat only if new blocking findings emerge. Cap at 2 fix iterations; the cap counts fix/review rounds, not individual agents.
 
