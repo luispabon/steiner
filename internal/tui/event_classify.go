@@ -15,26 +15,23 @@ type devLogClass struct {
 	callID   string
 }
 
-// devLogEntryFor returns the dev log entry for an error-bearing event. It
+// devLogParamsFor returns the dev log params for an error-bearing event. It
 // reports false for every other event type, and for the error-bearing types
 // whose event carries no error. It reads only event, so it is safe to call on
 // every event.
-func devLogEntryFor(event output.Event) (devLogEntry, bool) {
+func devLogParamsFor(event output.Event) (devLogParams, bool) {
 	class, ok := classifyDevLog(event)
 	if !ok {
-		return devLogEntry{}, false
+		return devLogParams{}, false
 	}
-	return devLogEntry{
-		at: event.Timestamp,
-		devLogParams: devLogParams{
-			Severity:  class.severity,
-			Source:    class.source,
-			AgentID:   event.Scope.AgentID,
-			AgentType: event.Scope.AgentType,
-			CallID:    class.callID,
-			EventType: event.Type,
-			Message:   class.message,
-		},
+	return devLogParams{
+		Severity:  class.severity,
+		Source:    class.source,
+		AgentID:   event.Scope.AgentID,
+		AgentType: event.Scope.AgentType,
+		CallID:    class.callID,
+		EventType: event.Type,
+		Message:   class.message,
 	}, true
 }
 
@@ -59,8 +56,6 @@ func classifyDevLog(event output.Event) (devLogClass, bool) {
 		return devLogClass{severity: devLogWarning, source: "config", message: payload.Message()}, true
 	case output.ConversationWarningEvent:
 		return classifyConversationWarning(payload), true
-	case output.ContextSessionHealthEvent:
-		return classifySessionHealth(payload)
 	}
 	if health, ok := output.AsContextSessionHealthEvent(event.Payload); ok {
 		return classifySessionHealth(health)

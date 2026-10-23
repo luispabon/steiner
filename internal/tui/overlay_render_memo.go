@@ -54,6 +54,8 @@ type overlayRenderMemos struct {
 	lsp       renderMemo[lspRenderKey]
 	context   contextRenderMemo
 	help      renderMemo[helpRenderKey]
+	devLog    renderMemo[devLogRenderKey]
+	logLines  devLogLinesMemo
 }
 
 type slashRenderKey struct {
@@ -194,6 +196,57 @@ func (m *Model) renderHelpMemo(width int) string {
 		return out
 	}
 	return m.overlayMemos.help.store(key, renderHelp(m.styles, width))
+}
+
+// devLogRenderKey covers everything devLogOverlay.View reads: the shell (open
+// state and dimensions), the ring generation, the scroll position, the follow
+// flag and the styles.
+type devLogRenderKey struct {
+	OverlayShell
+	generation   uint64
+	scrollOffset int
+	follow       bool
+	styles       *theme.Styles
+}
+
+func (m *Model) devLogRenderKey() devLogRenderKey {
+	o := &m.devLogOverlay
+	return devLogRenderKey{o.OverlayShell, m.devLog.generation, o.scrollOffset, o.follow, o.styles}
+}
+
+// devLogMemoView renders the error log overlay once per devLogRenderKey.
+func (m *Model) devLogMemoView() string {
+	key := m.devLogRenderKey()
+	if out, ok := m.overlayMemos.devLog.lookup(key); ok {
+		return out
+	}
+	return m.overlayMemos.devLog.store(key, m.devLogOverlay.View(m.devLog.entries))
+}
+
+// devLogLinesKey covers what devLogOverlay.buildLines reads besides the entries.
+type devLogLinesKey struct {
+	width      int
+	styles     *theme.Styles
+	generation uint64
+}
+
+// devLogLinesMemo keeps the last line count of the error log overlay.
+type devLogLinesMemo struct {
+	valid bool
+	key   devLogLinesKey
+	n     int
+}
+
+// devLogLineCount returns len(buildLines) for the current entries. It reuses
+// the count while the width, styles and ring generation are unchanged.
+func (m *Model) devLogLineCount() int {
+	o := &m.devLogOverlay
+	key := devLogLinesKey{o.InnerWidth(), o.styles, m.devLog.generation}
+	memo := &m.overlayMemos.logLines
+	if !memo.valid || memo.key != key {
+		memo.valid, memo.key, memo.n = true, key, len(o.buildLines(m.devLog.entries))
+	}
+	return memo.n
 }
 
 // contextRenderKey covers everything buildContextOverlay reads: the shell with

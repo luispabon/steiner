@@ -179,6 +179,63 @@ func TestDevLogOverlayEmptyState(t *testing.T) {
 	}
 }
 
+func TestDevLogMemoInvalidatesAfterPushAtCapacity(t *testing.T) {
+	t.Parallel()
+	m := devLogTestModel(t)
+	recordTestDevLog(m, devLogCapacity, devLogWarning)
+	m.openDevLogOverlay()
+	if len(m.devLog.entries) != devLogCapacity {
+		t.Fatalf("ring holds %d entries, want %d", len(m.devLog.entries), devLogCapacity)
+	}
+
+	m.devLogMemoView()
+	m.overlayMemos.devLog.out = memoSentinel
+	if m.devLogMemoView() != memoSentinel {
+		t.Fatal("unchanged ring re-rendered instead of reusing the memo")
+	}
+
+	m.recordDevLog(devLogParams{Severity: devLogError, Source: "tool", Message: "newest entry"})
+	if len(m.devLog.entries) != devLogCapacity {
+		t.Fatalf("ring holds %d entries after push, want %d", len(m.devLog.entries), devLogCapacity)
+	}
+	got := m.devLogMemoView()
+	if got == memoSentinel {
+		t.Fatal("stale memo served after a push at full capacity")
+	}
+	if want := m.devLogOverlay.View(m.devLog.entries); got != want {
+		t.Error("memoised render differs from the uncached render after a push")
+	}
+	if !strings.Contains(stripANSI(got), "newest entry") {
+		t.Error("render after a push does not show the new entry")
+	}
+}
+
+func TestDevLogLineCountCache(t *testing.T) {
+	t.Parallel()
+	m := devLogTestModel(t)
+	m.openDevLogOverlay()
+	long := strings.Repeat("wrap me ", 40)
+	m.recordDevLog(devLogParams{Severity: devLogError, Source: "tool", Message: long})
+	check := func(step string) {
+		t.Helper()
+		if got, want := m.devLogLineCount(), len(m.devLogOverlay.buildLines(m.devLog.entries)); got != want {
+			t.Errorf("%s: line count = %d, want %d", step, got, want)
+		}
+	}
+	check("after push")
+
+	m.overlayMemos.logLines.n = -1
+	if m.devLogLineCount() != -1 {
+		t.Error("line count recomputed for unchanged width, styles and ring")
+	}
+
+	m.recordDevLog(devLogParams{Severity: devLogWarning, Source: "tool", Message: long})
+	check("after second push")
+
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 40, Height: 24})
+	check("after resize")
+}
+
 func TestHelpListsAltE(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
