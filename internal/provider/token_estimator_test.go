@@ -3,9 +3,11 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/luispabon/ctok-go"
 	"github.com/tiktoken-go/tokenizer"
 )
 
@@ -97,6 +99,241 @@ func TestEstimateToolSpecTokensRespectsCancelledCtx(t *testing.T) {
 	_, err := EstimateToolSpecTokens(ctx, "gpt-4o", ToolSpec{Type: "function"})
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
+	}
+}
+
+// withCtokActiveModelIDs replaces the package-level ctok table for one test.
+// Tests using it must not call t.Parallel.
+func withCtokActiveModelIDs(t *testing.T, ids ...string) {
+	t.Helper()
+	table := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		table[id] = struct{}{}
+	}
+	previous := ctokActiveModelIDs
+	ctokActiveModelIDs = table
+	t.Cleanup(func() { ctokActiveModelIDs = previous })
+}
+
+// withNewCtokCounter replaces the ctok loader and the shared ctok counter for one
+// test so loads and load failures are observable. Tests using it must not call
+// t.Parallel.
+func withNewCtokCounter(t *testing.T, load func() (*ctok.Counter, error)) {
+	t.Helper()
+	previousLoad, previousCounter := newCtokCounter, claudeCounter
+	newCtokCounter = load
+	claudeCounter = &claudeTextCounter{}
+	t.Cleanup(func() {
+		newCtokCounter, claudeCounter = previousLoad, previousCounter
+	})
+}
+
+// ctokContentCount returns the reference ctok CountContent for text.
+func ctokContentCount(t *testing.T, text string) int {
+	t.Helper()
+	counter, err := ctok.New(ctok.V48)
+	if err != nil {
+		t.Fatalf("ctok.New(V48) error = %v", err)
+	}
+	return counter.CountContent(text)
+}
+
+func TestSelectTextCounterMatchesOnlyExactTrimmedIDs(t *testing.T) {
+	ids := map[string]struct{}{"claude-test-model": {}}
+	tests := []struct {
+		name     string
+		model    string
+		wantCtok bool
+	}{
+		{name: "exact ID", model: "claude-test-model", wantCtok: true},
+		{name: "surrounding whitespace", model: " \tclaude-test-model\n", wantCtok: true},
+		{name: "case differs", model: "Claude-Test-Model"},
+		{name: "alias", model: "claude-test"},
+		{name: "dated ID", model: "claude-test-model-20260101"},
+		{name: "latest alias", model: "claude-test-model-latest"},
+		{name: "future ID", model: "claude-test-model-2"},
+		{name: "empty model", model: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			counter, meta, err := selectTextCounter(tt.model, ids, tokenizerForModel)
+			if err != nil {
+				t.Fatalf("selectTextCounter(%q) error = %v", tt.model, err)
+			}
+			_, isCtok := counter.(*claudeTextCounter)
+			if isCtok != tt.wantCtok {
+				t.Fatalf("selectTextCounter(%q) selected ctok = %v, want %v", tt.model, isCtok, tt.wantCtok)
+			}
+			wantStrategy := TokenizerStrategyTiktoken
+			if tt.wantCtok {
+				wantStrategy = TokenizerStrategyCtok
+			}
+			if meta.strategy != wantStrategy {
+				t.Fatalf("strategy = %q, want %q", meta.strategy, wantStrategy)
+			}
+		})
+	}
+}
+
+func TestSelectTextCounterLoadsCtokOnlyOnFirstCountForSelectedModels(t *testing.T) {
+	loads := 0
+	withNewCtokCounter(t, func() (*ctok.Counter, error) {
+		loads++
+		return ctok.New(ctok.V48)
+	})
+	withCtokActiveModelIDs(t, "claude-test-model")
+
+	for _, model := range []string{"gpt-4o", "claude-test"} {
+		if _, _, err := selectTextCounter(model, ctokActiveModelIDs, tokenizerForModel); err != nil {
+			t.Fatalf("selectTextCounter(%q) error = %v", model, err)
+		}
+	}
+	if loads != 0 {
+		t.Fatalf("unselected models loaded ctok %d times, want 0", loads)
+	}
+
+	counter, _, err := selectTextCounter("claude-test-model", ctokActiveModelIDs, tokenizerForModel)
+	if err != nil {
+		t.Fatalf("selectTextCounter() error = %v", err)
+	}
+	if loads != 0 {
+		t.Fatalf("selection loaded ctok %d times, want 0 before Count", loads)
+	}
+	for range 2 {
+		if _, err := counter.Count("hello"); err != nil {
+			t.Fatalf("Count() error = %v", err)
+		}
+	}
+	if loads != 1 {
+		t.Fatalf("ctok loads = %d after two Count calls, want 1", loads)
+	}
+}
+
+func TestClaudeTextCounterCountsContentWithoutMessageFraming(t *testing.T) {
+	tests := []string{"", "hello", "Read a file"}
+	counter := &claudeTextCounter{}
+	for _, text := range tests {
+		got, err := counter.Count(text)
+		if err != nil {
+			t.Fatalf("Count(%q) error = %v", text, err)
+		}
+		if want := ctokContentCount(t, text); got != want {
+			t.Fatalf("Count(%q) = %d, want CountContent %d", text, got, want)
+		}
+	}
+}
+
+func TestClaudeTextCounterReturnsLoadErrorOnEveryCall(t *testing.T) {
+	boom := errors.New("boom")
+	withNewCtokCounter(t, func() (*ctok.Counter, error) { return nil, boom })
+
+	for call := range 2 {
+		if _, err := claudeCounter.Count("hello"); !errors.Is(err, boom) {
+			t.Fatalf("Count() call %d error = %v, want %v", call+1, err, boom)
+		}
+	}
+}
+
+func TestCtokSelectedEstimatesUseContentCounts(t *testing.T) {
+	withCtokActiveModelIDs(t, "claude-test-model")
+	ctx := context.Background()
+	msg := Message{Role: MessageRoleUser, Content: "hello"}
+	tool := ToolSpec{
+		Type: "function",
+		Function: ToolFunctionSpec{
+			Name:        "read",
+			Description: "Read a file",
+		},
+	}
+	wantMessage := messageOverheadTokens + ctokContentCount(t, "user") + ctokContentCount(t, "hello")
+	wantTool := toolSpecOverheadTokens + ctokContentCount(t, "function") + ctokContentCount(t, "read") + ctokContentCount(t, "Read a file")
+	request := ChatRequest{Model: "claude-test-model", Tools: []ToolSpec{tool}, Messages: []Message{msg}}
+	wantRequest := requestOverheadTokens + wantTool + wantMessage
+
+	gotMessage, err := EstimateMessageTokens(ctx, " claude-test-model ", msg)
+	if err != nil {
+		t.Fatalf("EstimateMessageTokens() error = %v", err)
+	}
+	if gotMessage != wantMessage {
+		t.Fatalf("EstimateMessageTokens() = %d, want %d", gotMessage, wantMessage)
+	}
+
+	gotTool, err := EstimateToolSpecTokens(ctx, "claude-test-model", tool)
+	if err != nil {
+		t.Fatalf("EstimateToolSpecTokens() error = %v", err)
+	}
+	if gotTool != wantTool {
+		t.Fatalf("EstimateToolSpecTokens() = %d, want %d", gotTool, wantTool)
+	}
+
+	estimate, err := NewTokenCounter().EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	if estimate.Strategy != TokenizerStrategyCtok || estimate.Confidence != "low" {
+		t.Fatalf("Strategy, Confidence = %q, %q; want ctok, low", estimate.Strategy, estimate.Confidence)
+	}
+	if estimate.RawTokens != wantRequest || estimate.Tokens != wantRequest {
+		t.Fatalf("RawTokens, Tokens = %d, %d; want %d", estimate.RawTokens, estimate.Tokens, wantRequest)
+	}
+}
+
+func TestCtokSelectedEstimatesReturnErrorsWithoutFallback(t *testing.T) {
+	boom := errors.New("boom")
+	withNewCtokCounter(t, func() (*ctok.Counter, error) { return nil, boom })
+	withCtokActiveModelIDs(t, "claude-test-model")
+	ctx := context.Background()
+	msg := Message{Role: MessageRoleUser, Content: "hello"}
+
+	if _, err := EstimateMessageTokens(ctx, "claude-test-model", msg); !errors.Is(err, boom) {
+		t.Fatalf("EstimateMessageTokens() error = %v, want %v", err, boom)
+	}
+	if _, err := EstimateToolSpecTokens(ctx, "claude-test-model", ToolSpec{Type: "function"}); !errors.Is(err, boom) {
+		t.Fatalf("EstimateToolSpecTokens() error = %v, want %v", err, boom)
+	}
+	request := ChatRequest{Model: "claude-test-model", Messages: []Message{msg}}
+	if _, err := NewTokenCounter().EstimateChatRequestTokens(ctx, request); !errors.Is(err, boom) {
+		t.Fatalf("EstimateChatRequestTokens() error = %v, want %v", err, boom)
+	}
+}
+
+func TestCtokSelectedEstimatesHonourCancelledContext(t *testing.T) {
+	withCtokActiveModelIDs(t, "claude-test-model")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	request := ChatRequest{Model: "claude-test-model", Messages: []Message{{Role: MessageRoleUser, Content: "hello"}}}
+
+	if _, err := NewTokenCounter().EstimateChatRequestTokens(ctx, request); !errors.Is(err, context.Canceled) {
+		t.Fatalf("EstimateChatRequestTokens() error = %v, want context.Canceled", err)
+	}
+	if _, err := countRequestWithCounter(ctx, request, claudeCounter); !errors.Is(err, context.Canceled) {
+		t.Fatalf("countRequestWithCounter() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestProductionCtokTableIsEmptyAndKeepsTiktokenEstimates(t *testing.T) {
+	if len(ctokActiveModelIDs) != 0 {
+		t.Fatalf("production ctok table has %d IDs, want 0", len(ctokActiveModelIDs))
+	}
+	ctx := context.Background()
+	request := ChatRequest{Model: "claude-test-model", Messages: []Message{{Role: MessageRoleUser, Content: "hello"}}}
+	enc, err := tokenizerForModel(request.Model)
+	if err != nil {
+		t.Fatalf("tokenizerForModel() error = %v", err)
+	}
+	want, err := countRequestWithCounter(ctx, request, enc)
+	if err != nil {
+		t.Fatalf("countRequestWithCounter() error = %v", err)
+	}
+	estimate, err := NewTokenCounter().EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	if estimate.Strategy != TokenizerStrategyTiktoken {
+		t.Fatalf("Strategy = %q, want %q", estimate.Strategy, TokenizerStrategyTiktoken)
+	}
+	if estimate.RawTokens != want {
+		t.Fatalf("RawTokens = %d, want tiktoken estimate %d", estimate.RawTokens, want)
 	}
 }
 

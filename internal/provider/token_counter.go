@@ -13,6 +13,8 @@ import (
 const (
 	// TokenizerStrategyTiktoken uses a concrete tiktoken encoding for estimation.
 	TokenizerStrategyTiktoken = "tiktoken"
+	// TokenizerStrategyCtok uses the pinned ctok V48 count-only reconstruction for selected models.
+	TokenizerStrategyCtok = "ctok"
 	// TokenizerStrategyHeuristic uses fallback estimation when tokenizer loading fails.
 	TokenizerStrategyHeuristic = "heuristic"
 	// TokenizerStrategyProviderUsage uses provider-reported usage calibration data.
@@ -58,6 +60,7 @@ type tokenCounter struct {
 
 	mu           sync.RWMutex
 	calibrations map[string]tokenCalibration
+	ctokIDs      map[string]struct{}
 }
 
 // NewTokenCounter creates a token counter with in-memory provider-usage
@@ -70,6 +73,7 @@ func newTokenCounter(loadTokenizer func(string) (tokenizer.Codec, error)) TokenC
 	return &tokenCounter{
 		loadTokenizer: loadTokenizer,
 		calibrations:  make(map[string]tokenCalibration),
+		ctokIDs:       ctokActiveModelIDs,
 	}
 }
 
@@ -134,14 +138,14 @@ func (c *tokenCounter) ObserveUsage(ctx context.Context, request ChatRequest, us
 }
 
 func (c *tokenCounter) estimateBase(ctx context.Context, request ChatRequest) (tokens int, strategy string, confidence string, err error) {
-	strategy, confidence = resolveTokenizerMetadataWithLoader(request.Model, c.loadTokenizer)
-	switch strategy {
-	case TokenizerStrategyHeuristic:
-		tokens = estimateHeuristicChatRequestTokens(request)
-	default:
-		tokens, err = estimateTiktokenChatRequestTokens(ctx, request)
+	counter, meta, err := selectTextCounter(request.Model, c.ctokIDs, c.loadTokenizer)
+	if err != nil {
+		// A tokenizer load failure keeps the heuristic fallback. ctok failures are
+		// returned by countRequestWithCounter and never fall back.
+		return estimateHeuristicChatRequestTokens(request), meta.strategy, meta.confidence, nil
 	}
-	return tokens, strategy, confidence, err
+	tokens, err = countRequestWithCounter(ctx, request, counter)
+	return tokens, meta.strategy, meta.confidence, err
 }
 
 func (c *tokenCounter) calibrationForModel(model string) (tokenCalibration, bool) {

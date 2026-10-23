@@ -31,19 +31,11 @@ func EstimateMessageTokens(ctx context.Context, model string, message Message) (
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	enc, err := tokenizerForModel(model)
+	counter, _, err := selectTextCounter(model, ctokActiveModelIDs, tokenizerForModel)
 	if err != nil {
 		return 0, err
 	}
-	estimator := semanticTokenEstimator{
-		ctx: ctx,
-		enc: enc,
-	}
-	total := estimator.countMessage(message)
-	if estimator.err != nil {
-		return 0, estimator.err
-	}
-	return total, nil
+	return countMessageWithCounter(ctx, message, counter)
 }
 
 // EstimateToolSpecTokens estimates the semantic token cost of a tool schema.
@@ -51,19 +43,11 @@ func EstimateToolSpecTokens(ctx context.Context, model string, tool ToolSpec) (i
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	enc, err := tokenizerForModel(model)
+	counter, _, err := selectTextCounter(model, ctokActiveModelIDs, tokenizerForModel)
 	if err != nil {
 		return 0, err
 	}
-	estimator := semanticTokenEstimator{
-		ctx: ctx,
-		enc: enc,
-	}
-	total := estimator.countToolSpec(tool)
-	if estimator.err != nil {
-		return 0, estimator.err
-	}
-	return total, nil
+	return countToolSpecWithCounter(ctx, tool, counter)
 }
 
 // RequestOverheadTokens returns the fixed token overhead for a request envelope.
@@ -90,23 +74,51 @@ func UsageTokenCount(usage *UsageStats) int {
 	return normalizedTokenCount(usage)
 }
 
+// textCounter counts the tokens of one text fragment. It must not add message framing.
+type textCounter interface {
+	Count(text string) (int, error)
+}
+
 type semanticTokenEstimator struct {
 	ctx context.Context
-	enc tokenizer.Codec
+	enc textCounter
 	err error
 }
 
-func estimateTiktokenChatRequestTokens(ctx context.Context, request ChatRequest) (int, error) {
-	if err := ctx.Err(); err != nil {
-		return 0, err
+// countMessageWithCounter counts one message using counter.
+func countMessageWithCounter(ctx context.Context, message Message, counter textCounter) (int, error) {
+	estimator := semanticTokenEstimator{
+		ctx: ctx,
+		enc: counter,
 	}
-	enc, err := tokenizerForModel(request.Model)
-	if err != nil {
+	total := estimator.countMessage(message)
+	if estimator.err != nil {
+		return 0, estimator.err
+	}
+	return total, nil
+}
+
+// countToolSpecWithCounter counts one tool schema using counter.
+func countToolSpecWithCounter(ctx context.Context, tool ToolSpec, counter textCounter) (int, error) {
+	estimator := semanticTokenEstimator{
+		ctx: ctx,
+		enc: counter,
+	}
+	total := estimator.countToolSpec(tool)
+	if estimator.err != nil {
+		return 0, estimator.err
+	}
+	return total, nil
+}
+
+// countRequestWithCounter counts a full request using counter.
+func countRequestWithCounter(ctx context.Context, request ChatRequest, counter textCounter) (int, error) {
+	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
 	estimator := semanticTokenEstimator{
 		ctx: ctx,
-		enc: enc,
+		enc: counter,
 	}
 	return estimator.countRequest(request)
 }
@@ -264,6 +276,32 @@ func (e *semanticTokenEstimator) countMapValue(value reflect.Value) int {
 
 func tokenizerForModel(model string) (tokenizer.Codec, error) {
 	return tokenizerLoader(model)
+}
+
+// tokenizerMetadata is the strategy and confidence reported for text counting.
+type tokenizerMetadata struct {
+	strategy   string
+	confidence string
+}
+
+// selectTextCounter chooses the text counter for model. Only an exact match of the
+// whitespace-trimmed model ID in ctokIDs selects ctok. Other models load a tiktoken
+// codec. On loader failure it returns a nil counter, heuristic metadata and the
+// loader error.
+func selectTextCounter(model string, ctokIDs map[string]struct{}, loadTokenizer func(string) (tokenizer.Codec, error)) (textCounter, tokenizerMetadata, error) {
+	key := strings.TrimSpace(model)
+	if _, ok := ctokIDs[key]; ok {
+		return claudeCounter, tokenizerMetadata{strategy: TokenizerStrategyCtok, confidence: "low"}, nil
+	}
+	enc, err := loadTokenizer(key)
+	if err != nil {
+		return nil, tokenizerMetadata{strategy: TokenizerStrategyHeuristic, confidence: "low"}, err
+	}
+	confidence := "low"
+	if tokenizerMatchConfidence(key, encodingNameForModel(key)) == "high" {
+		confidence = "high"
+	}
+	return enc, tokenizerMetadata{strategy: TokenizerStrategyTiktoken, confidence: confidence}, nil
 }
 
 func defaultTokenizerForModel(model string) (tokenizer.Codec, error) {

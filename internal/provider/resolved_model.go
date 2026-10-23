@@ -145,19 +145,14 @@ func clampInt(value, minValue, maxValue int) int {
 }
 
 func resolveTokenizerMetadata(modelID string) (strategy string, confidence string) {
-	return resolveTokenizerMetadataWithLoader(modelID, tokenizerForModel)
+	return resolveTokenizerMetadataWithLoader(modelID, ctokActiveModelIDs, tokenizerForModel)
 }
 
-func resolveTokenizerMetadataWithLoader(modelID string, loadTokenizer func(string) (tokenizer.Codec, error)) (strategy string, confidence string) {
-	modelID = strings.TrimSpace(modelID)
-	if _, err := loadTokenizer(modelID); err != nil {
-		return TokenizerStrategyHeuristic, "low"
-	}
-
-	if tokenizerMatchConfidence(modelID, encodingNameForModel(modelID)) == "high" {
-		return TokenizerStrategyTiktoken, "high"
-	}
-	return TokenizerStrategyTiktoken, "low"
+func resolveTokenizerMetadataWithLoader(modelID string, ctokIDs map[string]struct{}, loadTokenizer func(string) (tokenizer.Codec, error)) (strategy string, confidence string) {
+	// The loader error is intentionally dropped: selectTextCounter already
+	// reports the heuristic fallback in its metadata.
+	_, meta, _ := selectTextCounter(modelID, ctokIDs, loadTokenizer)
+	return meta.strategy, meta.confidence
 }
 
 func tokenizerMatchConfidence(modelID string, encoding tokenizer.Encoding) string {

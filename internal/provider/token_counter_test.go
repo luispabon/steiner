@@ -210,6 +210,53 @@ func TestTokenCounterCalibrationStaysStableWithCacheInclusiveUsage(t *testing.T)
 	}
 }
 
+func TestTokenCounterCtokCalibrationKeepsRawCount(t *testing.T) {
+	ctx := context.Background()
+	request := ChatRequest{
+		Model:    "claude-test-model",
+		Messages: []Message{{Role: MessageRoleUser, Content: strings.Repeat("hello ", 32)}},
+	}
+	counter := newTokenCounter(tokenizerForModel).(*tokenCounter)
+	counter.ctokIDs = map[string]struct{}{"claude-test-model": {}}
+
+	raw, err := countRequestWithCounter(ctx, request, claudeCounter)
+	if err != nil {
+		t.Fatalf("countRequestWithCounter() error = %v", err)
+	}
+	before, err := counter.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	if before.Strategy != TokenizerStrategyCtok || before.Confidence != "low" || before.Tokens != raw || before.RawTokens != raw {
+		t.Fatalf("before calibration = %+v, want ctok/low with Tokens and RawTokens %d", before, raw)
+	}
+
+	counter.ObserveUsage(ctx, request, &UsageStats{PromptTokens: raw * 2})
+	after, err := counter.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() after calibration error = %v", err)
+	}
+	if after.RawTokens != raw {
+		t.Fatalf("calibrated RawTokens = %d, want %d", after.RawTokens, raw)
+	}
+	// One sample moves the factor from 1 to 1 + 0.25 * (2 - 1) = 1.25.
+	if want := int(math.Round(float64(raw) * 1.25)); after.Tokens != want {
+		t.Fatalf("calibrated Tokens = %d, want %d", after.Tokens, want)
+	}
+	if after.Strategy != TokenizerStrategyProviderUsage || after.Confidence != "medium" {
+		t.Fatalf("calibrated Strategy, Confidence = %q, %q; want provider_usage, medium", after.Strategy, after.Confidence)
+	}
+
+	plain := newTokenCounter(tokenizerForModel)
+	estimate, err := plain.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() without injected table error = %v", err)
+	}
+	if estimate.Strategy != TokenizerStrategyTiktoken {
+		t.Fatalf("Strategy without injected table = %q, want %q", estimate.Strategy, TokenizerStrategyTiktoken)
+	}
+}
+
 func TestTokenCounterCalibrationGPT5O200kEstimateStaysUnchanged(t *testing.T) {
 	counter := NewTokenCounter()
 	restore := SwapDefaultTokenCounter(counter)

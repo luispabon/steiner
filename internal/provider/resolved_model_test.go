@@ -542,7 +542,7 @@ func TestResolveModelMetadataFallbackWarning(t *testing.T) {
 func TestResolveTokenizerMetadataFallsBackToHeuristicWhenTiktokenUnavailable(t *testing.T) {
 	t.Parallel()
 
-	strategy, confidence := resolveTokenizerMetadataWithLoader("custom-model", func(string) (tokenizer.Codec, error) {
+	strategy, confidence := resolveTokenizerMetadataWithLoader("custom-model", nil, func(string) (tokenizer.Codec, error) {
 		return nil, errors.New("unavailable")
 	})
 	if strategy != TokenizerStrategyHeuristic {
@@ -560,7 +560,7 @@ func TestResolveTokenizerMetadataGPT5AliasHasHighConfidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tokenizer.Get(o200k_base) error = %v", err)
 	}
-	strategy, confidence := resolveTokenizerMetadataWithLoader("gpt-5.6-luna", func(string) (tokenizer.Codec, error) {
+	strategy, confidence := resolveTokenizerMetadataWithLoader("gpt-5.6-luna", nil, func(string) (tokenizer.Codec, error) {
 		return o200k, nil
 	})
 	if strategy != TokenizerStrategyTiktoken {
@@ -568,6 +568,28 @@ func TestResolveTokenizerMetadataGPT5AliasHasHighConfidence(t *testing.T) {
 	}
 	if confidence != "high" {
 		t.Fatalf("confidence = %q, want high", confidence)
+	}
+}
+
+func TestResolveTokenizerMetadataSelectsCtokOnlyForExactActiveID(t *testing.T) {
+	withCtokActiveModelIDs(t, "claude-test-model")
+	tests := []struct {
+		model        string
+		wantStrategy string
+	}{
+		{model: "claude-test-model", wantStrategy: TokenizerStrategyCtok},
+		{model: " claude-test-model ", wantStrategy: TokenizerStrategyCtok},
+		{model: "claude-test", wantStrategy: TokenizerStrategyTiktoken},
+		{model: "claude-test-model-20260101", wantStrategy: TokenizerStrategyTiktoken},
+	}
+	for _, tt := range tests {
+		strategy, confidence := resolveTokenizerMetadata(tt.model)
+		if strategy != tt.wantStrategy {
+			t.Fatalf("resolveTokenizerMetadata(%q) strategy = %q, want %q", tt.model, strategy, tt.wantStrategy)
+		}
+		if strategy == TokenizerStrategyCtok && confidence != "low" {
+			t.Fatalf("resolveTokenizerMetadata(%q) confidence = %q, want low", tt.model, confidence)
+		}
 	}
 }
 
