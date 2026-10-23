@@ -19,7 +19,7 @@ func TestLoadAcceptsCanonicalSubAgentTypes(t *testing.T) {
 	for _, agentType := range delegation.AllAgentTypes() {
 		fmt.Fprintf(&subAgents, "        %s: default\n", agentType)
 	}
-	writeValidationSyncConfig(t, configPath, fmt.Sprintf("models:\n  profiles:\n    default:\n      default_model: default\n      sub_agents:\n%s", subAgents.String()))
+	writeValidationSyncConfig(t, configPath, fmt.Sprintf("providers:\n  local:\n    type: openai_compat\n    base_url: http://localhost:11434/v1\nmodels:\n  definitions:\n    default:\n      provider: local\n      id: base\n  profiles:\n    default:\n      default_model: default\n      sub_agents:\n%s", subAgents.String()))
 
 	if _, err := config.Load(config.LoadOptions{
 		HomeDir:      filepath.Join(tempDir, "home"),

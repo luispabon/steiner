@@ -25,7 +25,7 @@ steiner oneshot --list
 
 ## Configuration
 
-The `oneshot` config block controls PR closeout behavior. Per-phase model assignments live in the selected profile's `oneshot` map. Use raw `provider/model-id` references by default. Use an alias only when it supplies a stable name or persistent `ModelConfig` settings. `models.profiles.default` is required. Every profile must define `default_model`, and named profiles do not inherit from `default`:
+The `oneshot` config block controls PR closeout behavior. Per-phase model assignments live in the selected profile's `oneshot` map. Use raw `provider/model-id` references by default. Use an alias only when it supplies a stable name or persistent `ModelConfig` settings. No profile is built in, so define the profile you use. Every profile must define `default_model`, and named profiles do not inherit from `default`:
 
 ```yaml
 providers:
@@ -48,7 +48,8 @@ models:
       default_model: local/<model-id>
 ```
 
-- Omitted phase assignments fall back to the selected profile's `default_model`.
+- Omitted phase assignments fall back to the selected profile's `default_model`. The advisor uses its own assignment or the same `default_model`.
+- Before any run state is created, steiner checks that every phase and the advisor resolve to a model. If one does not, the run stops with a `no model configured` error. A missing model is never filled from the active orchestrator model.
 - Select a profile at startup with `--profile <name>` for oneshot, interactive, or `--exec` runs.
 - `auto_pr` is optional and defaults to `false`.
 

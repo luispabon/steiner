@@ -38,8 +38,15 @@ func awaitSignal[T any](t *testing.T, ch <-chan T, what string) T {
 	}
 }
 
+// configWithEffectiveModels declares every alias it selects as a model
+// definition, so the model preflight in NewOrchestrator accepts them.
 func configWithEffectiveModels(defaultModel string, oneShot map[string]string) config.Config {
+	definitions := map[string]config.ModelConfig{defaultModel: {Provider: "local", ID: defaultModel}}
+	for _, alias := range oneShot {
+		definitions[alias] = config.ModelConfig{Provider: "local", ID: alias}
+	}
 	return config.Config{Models: config.ModelsConfig{
+		Definitions: definitions,
 		Effective: config.EffectiveModelAssignments{
 			ProfileName:  "selected-profile",
 			DefaultModel: defaultModel,

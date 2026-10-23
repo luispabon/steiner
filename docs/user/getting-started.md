@@ -4,7 +4,7 @@ This guide assumes `steiner` is installed. If it is not, follow [Installation](i
 
 ## Before you start
 
-Steiner reads configuration from a project file at `.steiner/config.yaml` and a user file at `~/.config/steiner/config.yaml`. Neither is created for you; create `.steiner/` and the file yourself. See [Configuration](configuration.md#file-locations-and-loading-order) for the precedence rules.
+Steiner reads configuration from a project file at `.steiner/config.yaml` and a user file at `~/.config/steiner/config.yaml`. Neither is created for you; create `.steiner/` and the file yourself. Until a provider and a profile with a `default_model` are configured, no model is set. Interactive mode, `--exec`, and `oneshot` then stop with a `no model configured` error before they start. Model-free commands such as `steiner tools` and `steiner config` still run. See [Configuration](configuration.md#file-locations-and-loading-order) for the precedence rules.
 
 Pick one of the paths below. Both end at a working `steiner` session.
 

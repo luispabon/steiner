@@ -789,7 +789,7 @@ func loadConfigWithSubAgentAgents(t *testing.T, agents map[string]string) (confi
 	dir := t.TempDir()
 	path := filepath.Join(dir, "steiner.yaml")
 	var b strings.Builder
-	b.WriteString("models:\n  profiles:\n    default:\n      default_model: default\n      sub_agents:\n")
+	b.WriteString("providers:\n  local:\n    type: openai_compat\n    base_url: http://localhost:11434/v1\nmodels:\n  definitions:\n    default:\n      provider: local\n      id: default\n  profiles:\n    default:\n      default_model: default\n      sub_agents:\n")
 	for name, model := range agents {
 		b.WriteString("        ")
 		b.WriteString(name)

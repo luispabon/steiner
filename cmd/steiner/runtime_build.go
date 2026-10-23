@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,6 +22,7 @@ import (
 	"github.com/luispabon/steiner/internal/history"
 	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
+	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -49,6 +51,24 @@ func loadRuntimeConfig(cmd *cobra.Command, flags *cliFlags, modelAlias string) (
 	return loadCLIConfig(cmd, flags, overrides)
 }
 
+// preflightRuntimeModels checks that cfg can satisfy requirement. It runs
+// before the runtime's long-lived resources (providers, servers, sandbox,
+// event writers) are created.
+func preflightRuntimeModels(cfg config.Config, requirement runtimeRequirement) error {
+	switch requirement {
+	case requireOrchestratorModel:
+		ref := cfg.Models.Effective.ActiveOrchestratorModel
+		if strings.TrimSpace(ref) == "" {
+			ref = cfg.Models.Effective.DefaultModel
+		}
+		return config.RequireModelReference(cfg, ref)
+	case requireOneshotModels:
+		return oneshot.RequireModels(cfg)
+	default:
+		return nil
+	}
+}
+
 func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {
 	if err := session.EnsureSteinerProjectDir(projectRoot); err != nil {
 		return cliRuntime{}, err
@@ -58,6 +78,9 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	_, _ = builtin.PruneFetchedDir(projectRoot)
 	cfg, err := loadRuntimeConfig(cmd, flags, modelAlias)
 	if err != nil {
+		return cliRuntime{}, err
+	}
+	if err := preflightRuntimeModels(cfg, flags.modelRequirement); err != nil {
 		return cliRuntime{}, err
 	}
 	httpClient := runtimeHTTPClient()

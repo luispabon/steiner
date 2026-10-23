@@ -345,6 +345,26 @@ func TestServiceModelStaleCache(t *testing.T) {
 	}
 }
 
+func TestServiceModelIgnoresCacheForAbsentProvider(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	if err := cache.SaveAtomic("removed", CacheEnvelope{
+		Fingerprint: CacheFingerprint{ProviderType: "openai", BaseURL: "https://removed.example"},
+		Models:      []DiscoveredModel{{ID: "gpt-4"}},
+	}); err != nil {
+		t.Fatalf("save cache: %v", err)
+	}
+	cfg := &config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAI, BaseURL: "https://local.example"},
+		},
+	}
+	service := NewService(nil, cache, NewStore(filepath.Join(t.TempDir(), "popularity.json")), nil)
+
+	if model, found := service.Model(cfg, "removed", "gpt-4"); found {
+		t.Fatalf("Model() found %+v for a provider absent from config", model)
+	}
+}
+
 func TestServiceModelNotFound(t *testing.T) {
 	cache := NewCache(t.TempDir())
 	if err := cache.SaveAtomic("local", CacheEnvelope{

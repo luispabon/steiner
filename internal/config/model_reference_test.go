@@ -161,6 +161,7 @@ func TestModelReferenceValidationAndOverrides(t *testing.T) {
 	}
 
 	cfg := defaultConfig(nil)
+	cfg.Providers = map[string]ProviderConfig{"local": {Type: ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"}}
 	if err := applyCLIOverrides(&cfg, CLIOverrides{Model: "local/raw-model"}); err != nil {
 		t.Fatalf("applyCLIOverrides() error = %v", err)
 	}

@@ -63,7 +63,25 @@ type cliFlags struct {
 	// trustResolved memoises ensureProjectTrust so trust is resolved exactly
 	// once per process.
 	trustResolved bool
+	// modelRequirement is the model preflight buildRuntime runs once config has
+	// loaded. It is set by each command, not by a CLI flag; the zero value
+	// requires no model.
+	modelRequirement runtimeRequirement
 }
+
+// runtimeRequirement names the model check a command needs before its runtime
+// resources are created.
+type runtimeRequirement int
+
+const (
+	// requireNoModel is the zero value: tools, skills, config and inspection
+	// commands run without a configured model.
+	requireNoModel runtimeRequirement = iota
+	// requireOrchestratorModel needs the active orchestrator model.
+	requireOrchestratorModel
+	// requireOneshotModels needs every oneshot phase model and the advisor.
+	requireOneshotModels
+)
 
 type cliRuntime struct {
 	cfg             config.Config

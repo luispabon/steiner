@@ -262,7 +262,7 @@ Here `careful` is useful because it persists the reasoning setting. Without that
 
 ## Profiles and selection precedence
 
-Every profile must define `default_model`, including named profiles. Profiles are independent: a named profile does not inherit from `default`, and any role it omits falls back to its own `default_model`. A named profile without `default_model` fails config load. For example:
+Every declared profile must define `default_model`, including named profiles. Profiles are optional: without a `default` profile, no role assignments are selected, and the orchestrator model still comes from `--model`, `STEINER_MODEL`, or `/model`. A named profile does not inherit from `default`, and any role it omits falls back to its own `default_model`. A named profile without `default_model` fails config load. Selecting an undeclared profile, including `default`, is an error. For example:
 
 ```yaml
 models:

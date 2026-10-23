@@ -75,6 +75,11 @@ func NewOrchestrator(deps Dependencies) (*Orchestrator, error) {
 	if strings.TrimSpace(deps.Task) == "" {
 		return nil, fmt.Errorf("orchestrator task is required")
 	}
+	// Model preflight runs before stores, lock and worktree defaults so an
+	// unconfigured run is rejected without touching run state.
+	if err := RequireModels(deps.Config); err != nil {
+		return nil, err
+	}
 	if deps.ManifestStore == nil {
 		deps.ManifestStore = NewManifestStore(deps.Identity.ManifestPath(deps.ProjectRoot))
 	}

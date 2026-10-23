@@ -96,6 +96,55 @@ func TestErrClaudeSubscriptionText(t *testing.T) {
 	}
 }
 
+func TestRequireModels(t *testing.T) {
+	setPhases := func(cfg *config.Config, alias string) {
+		for _, phase := range phaseOrder() {
+			cfg.Models.Effective.OneShot[string(phase)] = alias
+		}
+	}
+	tests := []struct {
+		name       string
+		mutate     func(*config.Config)
+		wantErr    error
+		wantAnyErr bool
+	}{
+		{name: "profile default covers phases and advisor", mutate: func(*config.Config) {}},
+		{name: "empty models", mutate: func(c *config.Config) { c.Models.Effective = config.EffectiveModelAssignments{} }, wantErr: config.ErrNoModelConfigured},
+		{name: "advisor missing when phases are set", mutate: func(c *config.Config) {
+			c.Models.Effective.DefaultModel = ""
+			c.Models.Effective.Advisor = ""
+			setPhases(c, "local-model")
+		}, wantErr: config.ErrNoModelConfigured},
+		{name: "active orchestrator model is not a fallback", mutate: func(c *config.Config) {
+			c.Models.Effective.DefaultModel = ""
+			c.Models.Effective.Advisor = ""
+			c.Models.Effective.ActiveOrchestratorModel = "local-model"
+		}, wantErr: config.ErrNoModelConfigured},
+		{name: "undefined advisor alias is not a missing model", mutate: func(c *config.Config) { c.Models.Effective.Advisor = "missing" }, wantAnyErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := preflightConfig()
+			tt.mutate(&cfg)
+			err := RequireModels(cfg)
+			switch {
+			case tt.wantErr != nil:
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("RequireModels() error = %v, want %v", err, tt.wantErr)
+				}
+			case tt.wantAnyErr:
+				if err == nil || errors.Is(err, config.ErrNoModelConfigured) {
+					t.Fatalf("RequireModels() error = %v, want a non-sentinel error", err)
+				}
+			default:
+				if err != nil {
+					t.Fatalf("RequireModels() error = %v, want nil", err)
+				}
+			}
+		})
+	}
+}
+
 func TestModelAliases(t *testing.T) {
 	cfg := preflightConfig()
 	cfg.Models.Effective.DefaultModel = "default"

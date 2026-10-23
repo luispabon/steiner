@@ -21,11 +21,27 @@ after config files and environment variables have been merged.
 
 Neither config file is created for you, and there is no `init` command; create
 `.steiner/config.yaml` yourself. The project file is relative to the project
-root: `<project>/.steiner/config.yaml`. With no config at all, steiner uses a
-built-in default: a `local` provider of type `openai_compat` at
-`http://localhost:11434/v1` serving the model `local/qwen3-35b-a3b`. A model call
-then fails unless something is listening there. See
-[Getting started](getting-started.md) for a worked first run.
+root: `<project>/.steiner/config.yaml`. With no config at all, steiner has no
+providers, model definitions, or profiles, and starting a session fails with
+`no model configured`. Inspection commands such as `steiner config` still work.
+If you relied on the old built-in local setup, declare it explicitly:
+
+```yaml
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:11434/v1
+models:
+  definitions:
+    default:
+      provider: local
+      id: qwen3-35b-a3b
+  profiles:
+    default:
+      default_model: default
+```
+
+See [Getting started](getting-started.md) for a worked first run.
 
 Key environment variables:
 
@@ -279,11 +295,11 @@ providers:
 | Field         | Type                  | Default                                                           | Description                                                                |
 | ------------- | --------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `type`        | string (ProviderType) | —                                                                 | The provider type. See [Provider types](#provider-types) below.            |
-| `base_url`    | string                | `"http://localhost:11434/v1"` (for the built-in `local` provider) | Base URL for the API endpoint.                                             |
+| `base_url`    | string                | none (required unless the provider type has a default)             | Base URL for the API endpoint.                                             |
 | `api_key`     | string                | —                                                                 | API key value. Prefer `api_key_env` to avoid committing secrets.           |
 | `api_key_env` | string                | —                                                                 | Name of an environment variable containing the API key. Loaded at startup. |
 | `headers`     | map[string]string     | —                                                                 | Additional HTTP headers sent with every request to this provider.          |
-| `timeout`     | duration string       | `"30s"`                                                           | Per-request HTTP timeout. Accepts Go duration strings: `30s`, `2m`, etc.   |
+| `timeout`     | duration string       | none (no per-request timeout)                                     | Per-request HTTP timeout. Accepts Go duration strings: `30s`, `2m`, etc.   |
 | `codex`       | block                 | see below                                                         | Codex-specific configuration (provider type `codex` only).                 |
 
 ### Provider types
@@ -332,9 +348,11 @@ Codex-specific configuration. Applies only when `type: codex`.
 ## `models` block
 
 Consolidates all model configuration: the shared model definition registry and
-named execution profiles. The `default` profile is required. Every profile is
-independent and must define `default_model`; named profiles do not inherit from
-`models.profiles.default`. A named profile without `default_model` fails config
+named execution profiles. No profile is required. Every declared profile is
+independent and must define `default_model`; profiles do not inherit from each
+other. With no profile selected and no profile named `default`, role assignments
+are unselected; `--model` or `STEINER_MODEL` still sets the orchestrator model,
+and `--profile` naming a missing profile is an error. A named profile without `default_model` fails config
 load. Within a profile, omitted role assignments (`advisor`, `sub_agents` entries,
 `oneshot` phases, and `workflow_handoff` destinations) fall back to that profile's
 `default_model`. Config files still merge by profile name.
@@ -343,7 +361,7 @@ load. Within a profile, omitted role assignments (`advisor`, `sub_agents` entrie
 | ------------------- | ----------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `definitions`       | map[string]ModelConfig  | empty     | Shared named model definitions. Each entry binds a provider to a specific model ID and sets request-level parameters.                                                     |
 | `discovery_enabled` | bool                    | `true`    | When `true`, discover available models from configured providers. When `false`, skip provider enumeration and network refresh; the chooser shows configured entries only. |
-| `profiles`          | map[string]ModelProfile | see below | Named model-assignment profiles. `profiles.default` is required; every profile must define `default_model`, and named profiles do not inherit from `default`.             |
+| `profiles`          | map[string]ModelProfile | empty     | Named model-assignment profiles. No profile is required; every declared profile must define `default_model`, and profiles do not inherit from each other.        |
 
 Each profile supports these fields:
 
@@ -459,8 +477,8 @@ Unresolved limits use the conservative fallback values.
 
 | Field           | Type           | Default                | Description                                                                                                                                                                                                                         |
 | --------------- | -------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider`      | string         | `"local"`              | Name of the provider (key in `providers`) to use for this model.                                                                                                                                                                    |
-| `id`            | string         | `"qwen3-35b-a3b"`      | The model identifier as expected by the provider API (e.g. `claude-sonnet-4-5`, `gpt-4o`, `llama3:8b`).                                                                                                                             |
+| `provider`      | string         | none (required)        | Name of the provider (key in `providers`) to use for this model.                                                                                                                                                                    |
+| `id`            | string         | none (required)        | The model identifier as expected by the provider API (e.g. `claude-sonnet-4-5`, `gpt-4o`, `llama3:8b`).                                                                                                                             |
 | `params`        | map[string]any | —                      | Standard request parameters sent in the request body. Common keys: `temperature`, `top_p`, `top_k`.                                                                                                                                 |
 | `extra_params`  | map[string]any | —                      | Additional provider-specific parameters merged into the request body. Use for fields not covered by `params`.                                                                                                                       |
 | `prompt_suffix` | string         | —                      | Text appended to every user message before sending to the model. Useful for model-specific control tokens (e.g. `<                                                                                                                  | think_off | >`). |
@@ -549,8 +567,8 @@ Context limit precedence is explicit numeric `advanced.limits.context_window`, s
 
 | Field               | Type | Default | Description                                                                            |
 | ------------------- | ---- | ------- | -------------------------------------------------------------------------------------- |
-| `context_window`              | int  | `32768` | Maximum context window size in tokens. Used by the prompt assembler to budget context. |
-| `max_output_tokens`           | int  | `8192`  | Maximum tokens the model may generate per response.                                |
+| `context_window`              | int  | unset (resolved from discovery/metadata) | Maximum context window size in tokens. Used by the prompt assembler to budget context. |
+| `max_output_tokens`           | int  | unset (resolved from discovery/metadata) | Maximum tokens the model may generate per response.                                |
 | `compaction_threshold_tokens` | int  | —       | Optional positive soft compaction trigger in prompt tokens. If absent, uses 70% of the effective context window. Native providers use estimated prompt tokens; `claude_subscription` uses reported prompt usage with its existing hysteresis and cap safety behavior. The value must be below the final resolved context window and does not replace hard request fitting. |
 
 ---

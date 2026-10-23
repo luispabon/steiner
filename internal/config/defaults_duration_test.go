@@ -21,7 +21,6 @@ func TestDefaultConfigDurationLiterals(t *testing.T) {
 		got  Duration
 	}{
 		{"TUI.QuotaRefreshInterval", cfg.TUI.QuotaRefreshInterval},
-		{"Providers[local].Timeout", cfg.Providers["local"].Timeout},
 		{"Limits.ModelCallTimeout", cfg.Limits.ModelCallTimeout},
 		{"Limits.ToolTimeoutDefault", cfg.Limits.ToolTimeoutDefault},
 		{"Limits.ToolTimeouts[bash]", cfg.Limits.ToolTimeouts["bash"]},

@@ -65,11 +65,14 @@ func TestResolveProfileRejectsUnknownAndInvalidReferences(t *testing.T) {
 	}
 }
 
-func TestResolveProfileRequiresBaseline(t *testing.T) {
+func TestResolveProfileNamedOnlyProfiles(t *testing.T) {
 	cfg := testProfileConfig()
 	delete(cfg.Models.Profiles, "default")
-	if _, err := ResolveProfile(&cfg, "fast"); err == nil || !strings.Contains(err.Error(), "models.profiles.default") {
-		t.Fatalf("missing baseline error = %v", err)
+	if _, err := ResolveProfile(&cfg, "fast"); err != nil {
+		t.Fatalf("ResolveProfile(fast) without a default profile error = %v, want nil", err)
+	}
+	if _, err := ResolveProfile(&cfg, "default"); err == nil || !strings.Contains(err.Error(), "profile is not defined") {
+		t.Fatalf("explicit missing default profile error = %v, want profile is not defined", err)
 	}
 	cfg = testProfileConfig()
 	profile := cfg.Models.Profiles["default"]

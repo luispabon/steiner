@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -112,6 +113,17 @@ func TestResolveReferenceAliasWins(t *testing.T) {
 	}
 	if got, want := rm.BackendModelID, "configured-id"; got != want {
 		t.Fatalf("BackendModelID = %q, want %q", got, want)
+	}
+}
+
+func TestResolveReferenceBlankNeedsModelConfig(t *testing.T) {
+	for _, reference := range []string{"", "   "} {
+		t.Run(reference, func(t *testing.T) {
+			_, err := resolveReference(&config.Config{}, reference, false, nil)
+			if !errors.Is(err, config.ErrNoModelConfigured) {
+				t.Fatalf("resolveReference(%q) error = %v, want %v", reference, err, config.ErrNoModelConfigured)
+			}
+		})
 	}
 }
 

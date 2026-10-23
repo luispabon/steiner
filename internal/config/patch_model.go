@@ -14,26 +14,6 @@ func applyTUIPatch(dst *TUIConfig, patch *tuiPatch) {
 	setIfPresent(&dst.QuotaRefreshInterval, patch.QuotaRefreshInterval)
 }
 
-func modelConfigBaseForConfig(cfg Config) ModelConfig {
-	if base, ok := cfg.Models.Definitions["default"]; ok {
-		cloned := cloneModelConfig(base)
-		cloned.Advanced.Limits = AdvancedLimitsConfig{}
-		return cloned
-	}
-	if len(cfg.Models.Definitions) > 0 {
-		var first string
-		for name := range cfg.Models.Definitions {
-			if first == "" || name < first {
-				first = name
-			}
-		}
-		cloned := cloneModelConfig(cfg.Models.Definitions[first])
-		cloned.Advanced.Limits = AdvancedLimitsConfig{}
-		return cloned
-	}
-	return ModelConfig{}
-}
-
 func cloneModelConfig(src ModelConfig) ModelConfig {
 	dst := src
 	dst.Params = copyStringAnyMap(src.Params)
