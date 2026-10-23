@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/luispabon/steiner/internal/provider"
-	"github.com/luispabon/steiner/internal/tool"
 )
 
 // maxIdenticalToolFailures is the number of consecutive tool failures with the
@@ -24,11 +23,8 @@ type toolFailureSignature struct {
 // mirrors formatToolError: an executor error contributes its kind and message,
 // and any other error is reported as tool_error.
 func toolFailureSignatureOf(name string, err error) toolFailureSignature {
-	var tee *tool.ToolExecutionError
-	if errors.As(err, &tee) {
-		return toolFailureSignature{tool: name, kind: tee.Kind, message: tee.Message}
-	}
-	return toolFailureSignature{tool: name, kind: "tool_error", message: err.Error()}
+	kind, message, _ := toolErrorKindMessage(err)
+	return toolFailureSignature{tool: name, kind: kind, message: message}
 }
 
 // observeToolOutcome records one tool outcome for repeat detection. Calls that
@@ -63,15 +59,6 @@ func (p *turnProgressor) stopOnRepeatedFailure(ctx context.Context, state RunSta
 		return turnOutcome{}, false
 	}
 	state = p.appendNotDispatched(ctx, state, turn, remaining)
-	return p.repeatedFailureStop(state)
-}
-
-// repeatedFailureStop returns the error stop for a tripped failure guard. It
-// reports false when the guard has not tripped.
-func (p *turnProgressor) repeatedFailureStop(state RunState) (turnOutcome, bool) {
-	if p.tripped == nil {
-		return turnOutcome{}, false
-	}
 	state.StopReason = StopReasonError
 	return turnOutcome{
 		State: state,

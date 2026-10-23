@@ -45,23 +45,20 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 				return p.finishStoppedSerial(ctx, state, outcome, turn, calls[i+1:])
 			}
 			i++
-			if stopped, ok := p.stopOnRepeatedFailure(ctx, state, turn, calls[i:]); ok {
-				return stopped
+		} else {
+			results := p.invokeParallel(ctx, state, turn, calls[i:i+n])
+			for k := 0; k < n; k++ {
+				if _, cancelled := contextCancellationState(ctx, state); cancelled || isLimitTimeout(ctx) {
+					return p.finishStoppedParallel(ctx, state, turn, calls[i:], results, k, n)
+				}
+				var outcome turnOutcome
+				state, outcome = p.applyToolResult(ctx, state, turn, calls[i+k], results[k].value, results[k].err)
+				if outcome.Stop {
+					return outcome
+				}
 			}
-			continue
+			i += n
 		}
-		results := p.invokeParallel(ctx, state, turn, calls[i:i+n])
-		for k := 0; k < n; k++ {
-			if _, cancelled := contextCancellationState(ctx, state); cancelled || isLimitTimeout(ctx) {
-				return p.finishStoppedParallel(ctx, state, turn, calls[i:], results, k, n)
-			}
-			var outcome turnOutcome
-			state, outcome = p.applyToolResult(ctx, state, turn, calls[i+k], results[k].value, results[k].err)
-			if outcome.Stop {
-				return outcome
-			}
-		}
-		i += n
 		if stopped, ok := p.stopOnRepeatedFailure(ctx, state, turn, calls[i:]); ok {
 			return stopped
 		}

@@ -28,13 +28,8 @@ func cloneMessage(message Message) Message {
 	if len(message.ToolCalls) > 0 {
 		cloned.ToolCalls = make([]ToolCall, len(message.ToolCalls))
 		for i := range message.ToolCalls {
-			cloned.ToolCalls[i] = ToolCall{
-				ID:                  message.ToolCalls[i].ID,
-				Name:                message.ToolCalls[i].Name,
-				Arguments:           cloneInput(message.ToolCalls[i].Arguments),
-				RawArguments:        message.ToolCalls[i].RawArguments,
-				ArgumentDecodeError: message.ToolCalls[i].ArgumentDecodeError,
-			}
+			cloned.ToolCalls[i] = message.ToolCalls[i]
+			cloned.ToolCalls[i].Arguments = cloneInput(message.ToolCalls[i].Arguments)
 		}
 	}
 	// ImageBlock holds only value fields, so copying the slice is a deep copy.

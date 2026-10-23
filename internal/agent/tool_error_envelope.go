@@ -8,9 +8,18 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
+// toolErrorKindMessage returns the kind and message reported for a failed tool
+// call. tee is the executor error when err carries one, and nil otherwise.
+func toolErrorKindMessage(err error) (kind, message string, tee *tool.ToolExecutionError) {
+	if errors.As(err, &tee) {
+		return tee.Kind, tee.Message, tee
+	}
+	return "tool_error", err.Error(), nil
+}
+
 func formatToolError(err error) string {
-	var tee *tool.ToolExecutionError
-	if ok := errors.As(err, &tee); ok {
+	kind, message, tee := toolErrorKindMessage(err)
+	if tee != nil {
 		details := map[string]any{
 			"exit_code": tee.ExitCode,
 			"stdout":    tee.Output.Stdout.Preview,
@@ -20,9 +29,9 @@ func formatToolError(err error) string {
 			details["stdout"] = tee.Output.Stdout.Summary()
 			details["stderr"] = tee.Output.Stderr.Summary()
 		}
-		return marshalToolErrorEnvelope(tee.Kind, tee.Message, details)
+		return marshalToolErrorEnvelope(kind, message, details)
 	}
-	return marshalToolErrorEnvelope("tool_error", err.Error(), nil)
+	return marshalToolErrorEnvelope(kind, message, nil)
 }
 
 func marshalToolErrorEnvelope(kind, message string, details map[string]any) string {
