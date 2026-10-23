@@ -7,7 +7,7 @@ import (
 )
 
 // ErrNoModelConfigured reports that no orchestrator model is configured or selected.
-var ErrNoModelConfigured = errors.New("no model configured: configure a provider and models.profiles.<name>.default_model; select a named profile with --profile, or use --model <provider/model-id> for the orchestrator")
+var ErrNoModelConfigured = errors.New("no model configured: configure a provider and models.profiles.<name>.default_model; select a named profile with --profile")
 
 // RequireModelReference reports whether ref can be used as the orchestrator
 // model. A blank ref returns ErrNoModelConfigured. A nonblank ref must parse

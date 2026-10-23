@@ -52,8 +52,8 @@ func loadRuntimeConfig(cmd *cobra.Command, flags *cliFlags, modelAlias string) (
 }
 
 // preflightRuntimeModels checks that cfg can satisfy requirement. It runs
-// before any runtime resource is created, so a rejected command leaves no
-// state behind.
+// before the runtime's long-lived resources (providers, servers, sandbox,
+// event writers) are created.
 func preflightRuntimeModels(cfg config.Config, requirement runtimeRequirement) error {
 	switch requirement {
 	case requireOrchestratorModel:

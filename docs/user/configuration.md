@@ -299,7 +299,7 @@ providers:
 | `api_key`     | string                | —                                                                 | API key value. Prefer `api_key_env` to avoid committing secrets.           |
 | `api_key_env` | string                | —                                                                 | Name of an environment variable containing the API key. Loaded at startup. |
 | `headers`     | map[string]string     | —                                                                 | Additional HTTP headers sent with every request to this provider.          |
-| `timeout`     | duration string       | `"30s"`                                                           | Per-request HTTP timeout. Accepts Go duration strings: `30s`, `2m`, etc.   |
+| `timeout`     | duration string       | none (no per-request timeout)                                     | Per-request HTTP timeout. Accepts Go duration strings: `30s`, `2m`, etc.   |
 | `codex`       | block                 | see below                                                         | Codex-specific configuration (provider type `codex` only).                 |
 
 ### Provider types
@@ -477,7 +477,7 @@ Unresolved limits use the conservative fallback values.
 
 | Field           | Type           | Default                | Description                                                                                                                                                                                                                         |
 | --------------- | -------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider`      | string         | `"local"`              | Name of the provider (key in `providers`) to use for this model.                                                                                                                                                                    |
+| `provider`      | string         | none (required)        | Name of the provider (key in `providers`) to use for this model.                                                                                                                                                                    |
 | `id`            | string         | none (required)        | The model identifier as expected by the provider API (e.g. `claude-sonnet-4-5`, `gpt-4o`, `llama3:8b`).                                                                                                                             |
 | `params`        | map[string]any | —                      | Standard request parameters sent in the request body. Common keys: `temperature`, `top_p`, `top_k`.                                                                                                                                 |
 | `extra_params`  | map[string]any | —                      | Additional provider-specific parameters merged into the request body. Use for fields not covered by `params`.                                                                                                                       |
