@@ -132,7 +132,7 @@ Map final status as:
 
 If blocking or non_blocking findings exist:
 
-1. Produce a consolidated fix plan mapping each fix to its finding ID(s), its declared write scope, and any dependency on other fixes, and stating which verification will be rerun. Identify which fixes are independent (disjoint write scopes, settled contracts) and can run concurrently, and which must wait.
+1. Produce a consolidated fix plan mapping each fix to its finding ID(s), its declared write scope, and any dependency on other fixes, and stating which verification will be rerun. Identify which fixes are independent (disjoint write scopes, settled contracts) and can run concurrently, and which must wait. Fixes with overlapping write scopes run sequentially.
 2. Present the fix plan to the user and ask for explicit confirmation.
 3. If the user declines, report findings and stop. No code is modified.
 4. If the user approves, enter the fix/review loop.
