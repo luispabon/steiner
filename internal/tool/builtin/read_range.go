@@ -9,8 +9,9 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-// maxReadFileBytes caps the size of text files the read tool accepts. The
-// whole file is read and hashed even when paging, so this bounds memory.
+// maxReadFileBytes caps the size of text files the read tool accepts. It
+// bounds memory for a read because the size is checked via stat before the
+// file is read.
 const maxReadFileBytes = 1024 * 1024
 
 func readTextRange(path string, offset, limit int) (fileHash string, totalLines int, page []string, err error) {
@@ -20,7 +21,7 @@ func readTextRange(path string, offset, limit int) (fileHash string, totalLines 
 	}
 	if info.Size() > maxReadFileBytes {
 		err = fmt.Errorf("file too large")
-		return "", 0, []string{fmt.Sprintf("Error: file too large (max %dMB, got %s)", maxReadFileBytes/(1024*1024), output.FormatFileSize(int(info.Size())))}, err
+		return "", 0, []string{fmt.Sprintf("Error: file too large (max %s, got %s)", output.FormatFileSize(maxReadFileBytes), output.FormatFileSize(int(info.Size())))}, err
 	}
 	f, err := os.Open(path)
 	if err != nil {

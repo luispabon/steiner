@@ -58,7 +58,7 @@ func TestReadRangeRejectsBinaryAndOversizedFiles(t *testing.T) {
 	def := NewReadTool(Env{WorkDir: dir, PathPolicy: &policy})
 	cases := []struct{ name, body, want string }{
 		{"binary", "\x00binary", "binary"},
-		{"oversize", strings.Repeat("x", maxReadFileBytes+1), "file too large (max 1mb"},
+		{"oversize", strings.Repeat("x", maxReadFileBytes+1), "file too large (max 1.0mb"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
