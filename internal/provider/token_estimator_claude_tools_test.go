@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tool/builtin"
@@ -19,13 +20,33 @@ import (
 const (
 	claudeFixtureToolsPath    = "testdata/claude_token_estimation/tools.json"
 	claudeFixtureManifestPath = "testdata/claude_token_estimation/manifest.json"
-	claudeFixtureToolsScope   = "core builtins from builtin.Builtins(builtin.Env{BashTimeoutCap: 600s}) via tool.Registry.ToProviderSpecs, sorted by name; excludes advisor, lsp_*, mcp__*, config-defined, and sub-agent tools; core defaults only"
 )
 
+// claudeFixtureToolsScope describes the tools.json contract for bashCap.
+func claudeFixtureToolsScope(bashCap time.Duration) string {
+	return fmt.Sprintf("core builtins from builtin.Builtins(builtin.Env{BashTimeoutCap: %ds}) via tool.Registry.ToProviderSpecs, sorted by name; excludes advisor, lsp_*, mcp__*, config-defined, and sub-agent tools; core defaults only", int64(bashCap/time.Second))
+}
+
+// claudeFixtureDefaultBashCap returns limits.tool_timeouts.bash from the default
+// config. Load runs with an empty env and temp dirs so no user or project
+// config changes the defaults.
+func claudeFixtureDefaultBashCap(t *testing.T) time.Duration {
+	t.Helper()
+	cfg, err := config.Load(config.LoadOptions{
+		Env:        map[string]string{},
+		HomeDir:    t.TempDir(),
+		WorkingDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("load default config: %v", err)
+	}
+	return time.Duration(cfg.Limits.ToolTimeouts["bash"].Duration())
+}
+
 // claudeFixtureCoreToolSpecs returns the production core builtin tool specs
-// with the default 600s bash timeout cap.
-func claudeFixtureCoreToolSpecs() []provider.ToolSpec {
-	env := builtin.Env{BashTimeoutCap: 600 * time.Second}
+// for bashCap.
+func claudeFixtureCoreToolSpecs(bashCap time.Duration) []provider.ToolSpec {
+	env := builtin.Env{BashTimeoutCap: bashCap}
 	return tool.NewRegistry(builtin.Builtins(env)...).ToProviderSpecs()
 }
 
@@ -39,7 +60,8 @@ func claudeFixtureCanonicalTools(specs []provider.ToolSpec) ([]byte, error) {
 }
 
 func TestClaudeTokenToolsFixtureMatchesProductionCoreBuiltins(t *testing.T) {
-	specs := claudeFixtureCoreToolSpecs()
+	bashCap := claudeFixtureDefaultBashCap(t)
+	specs := claudeFixtureCoreToolSpecs(bashCap)
 	names := make([]string, 0, len(specs))
 	for _, spec := range specs {
 		names = append(names, spec.Function.Name)
@@ -52,7 +74,7 @@ func TestClaudeTokenToolsFixtureMatchesProductionCoreBuiltins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := claudeFixtureCanonicalTools(claudeFixtureCoreToolSpecs())
+	again, err := claudeFixtureCanonicalTools(claudeFixtureCoreToolSpecs(bashCap))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,10 +97,11 @@ func TestClaudeTokenToolsManifestPinsFixtureHashAndScope(t *testing.T) {
 	}
 	var manifest struct {
 		Tools struct {
-			Path   string `json:"path"`
-			Bytes  int    `json:"bytes"`
-			SHA256 string `json:"sha256"`
-			Scope  string `json:"scope"`
+			Path                  string `json:"path"`
+			Bytes                 int    `json:"bytes"`
+			SHA256                string `json:"sha256"`
+			Scope                 string `json:"scope"`
+			BashTimeoutCapSeconds int    `json:"bash_timeout_cap_seconds"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(raw, &manifest); err != nil {
@@ -98,7 +121,11 @@ func TestClaudeTokenToolsManifestPinsFixtureHashAndScope(t *testing.T) {
 	if got := hex.EncodeToString(sum[:]); manifest.Tools.SHA256 != got {
 		t.Errorf("manifest tools sha256 = %s, fixture is %s", manifest.Tools.SHA256, got)
 	}
-	if manifest.Tools.Scope != claudeFixtureToolsScope {
-		t.Errorf("manifest tools scope = %q, want %q", manifest.Tools.Scope, claudeFixtureToolsScope)
+	bashCap := claudeFixtureDefaultBashCap(t)
+	if want := int(bashCap / time.Second); manifest.Tools.BashTimeoutCapSeconds != want {
+		t.Errorf("manifest bash_timeout_cap_seconds = %d, default config has %d", manifest.Tools.BashTimeoutCapSeconds, want)
+	}
+	if want := claudeFixtureToolsScope(bashCap); manifest.Tools.Scope != want {
+		t.Errorf("manifest tools scope = %q, want %q", manifest.Tools.Scope, want)
 	}
 }

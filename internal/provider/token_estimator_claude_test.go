@@ -32,6 +32,7 @@ type claudeFixtureManifest struct {
 	Model          string                    `json:"model"`
 	System         string                    `json:"system"`
 	User           string                    `json:"user"`
+	DeltaFormula   string                    `json:"delta_formula"`
 	BaselineTokens int                       `json:"baseline_tokens"`
 	Payloads       []claudeFixturePayloadPin `json:"payloads"`
 	Tools          claudeFixtureToolsPin     `json:"tools"`
@@ -99,6 +100,17 @@ func claudeFixtureCounter(model string) (textCounter, error) {
 	return counter, nil
 }
 
+// claudeFixtureDelta returns CountContent(claudeFixtureSystem+payload) minus
+// baseline. The payload is counted verbatim, with no trimming, separator, or
+// line-ending normalization.
+func claudeFixtureDelta(counter textCounter, baseline int, payload string) (int, error) {
+	total, err := counter.Count(claudeFixtureSystem + payload)
+	if err != nil {
+		return 0, fmt.Errorf("count claude fixture payload: %w", err)
+	}
+	return total - baseline, nil
+}
+
 // loadClaudeFixture reads the manifest, verifies every payload and tools.json
 // against their pinned length and SHA-256, and measures each payload's token delta.
 func loadClaudeFixture(dir string) (claudeFixtureSet, error) {
@@ -124,16 +136,16 @@ func loadClaudeFixture(dir string) (claudeFixtureSet, error) {
 		if err != nil {
 			return set, err
 		}
-		total, err := counter.Count(claudeFixtureSystem + string(data))
+		delta, err := claudeFixtureDelta(counter, baseline, string(data))
 		if err != nil {
-			return set, fmt.Errorf("count claude fixture payload %s: %w", pin.Name, err)
+			return set, fmt.Errorf("claude fixture payload %s: %w", pin.Name, err)
 		}
 		set.Payloads = append(set.Payloads, claudeFixturePayload{
 			Name:        pin.Name,
 			Path:        pin.Path,
 			Bytes:       data,
 			SHA256:      pin.SHA256,
-			DeltaTokens: total - baseline,
+			DeltaTokens: delta,
 		})
 	}
 	tools := set.Manifest.Tools
@@ -214,6 +226,10 @@ func TestClaudeTokenFixtureManifestPinsLibraryAndBaseline(t *testing.T) {
 	if m.User != claudeFixtureUser {
 		t.Errorf("manifest user = %q, want %q", m.User, claudeFixtureUser)
 	}
+	const deltaFormula = "CountContent(system + payload) - CountContent(system)"
+	if m.DeltaFormula != deltaFormula {
+		t.Errorf("manifest delta_formula = %q, want %q", m.DeltaFormula, deltaFormula)
+	}
 	if set.BaselineTokens != m.BaselineTokens {
 		t.Errorf("baseline tokens = %d, manifest pins %d", set.BaselineTokens, m.BaselineTokens)
 	}
@@ -230,6 +246,14 @@ func TestClaudeTokenFixturePayloadsAreOrderedAndPinned(t *testing.T) {
 		if p.Name != name || p.Path != "payloads/"+name+".txt" {
 			t.Errorf("payload %d = %q at %q, want %q at payloads/%s.txt", i, p.Name, p.Path, name, name)
 		}
+		pin := set.Manifest.Payloads[i]
+		sum := sha256.Sum256(p.Bytes)
+		if got := hex.EncodeToString(sum[:]); p.SHA256 != pin.SHA256 || got != pin.SHA256 {
+			t.Errorf("%s sha256 = %s (loaded %s), manifest pins %s", p.Name, got, p.SHA256, pin.SHA256)
+		}
+		if len(p.Bytes) != pin.Bytes {
+			t.Errorf("%s has %d bytes, manifest pins %d", p.Name, len(p.Bytes), pin.Bytes)
+		}
 	}
 }
 
@@ -242,6 +266,55 @@ func TestClaudeTokenFixturePayloadDeltasAreInRangeAndPinned(t *testing.T) {
 		if want := set.Manifest.Payloads[i].DeltaTokens; p.DeltaTokens != want {
 			t.Errorf("%s delta = %d tokens, manifest pins %d", p.Name, p.DeltaTokens, want)
 		}
+	}
+}
+
+func TestClaudeTokenFixturePayloadsSurviveTrimSpace(t *testing.T) {
+	set := loadClaudeFixtureForTest(t)
+	for _, p := range set.Payloads {
+		raw := claudeFixtureSystem + string(p.Bytes)
+		if got := strings.TrimSpace(raw); got != raw {
+			t.Errorf("%s: strings.TrimSpace changes system+payload", p.Name)
+		}
+	}
+}
+
+// claudeFixtureRecordingCounter counts text as its byte length and records each input.
+type claudeFixtureRecordingCounter struct {
+	inputs []string
+}
+
+func (c *claudeFixtureRecordingCounter) Count(text string) (int, error) {
+	c.inputs = append(c.inputs, text)
+	return len(text), nil
+}
+
+func TestClaudeTokenFixtureDeltaCountsRawPayload(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+	}{
+		{"leading tab", "\tindented line\n"},
+		{"leading and trailing spaces", "  padded  \n\n"},
+		{"crlf line endings", "first\r\nsecond\r\n"},
+		{"tab and crlf mix", "col\tvalue\r\n\t\r\n"},
+		{"no final newline", "tail without newline"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			counter := &claudeFixtureRecordingCounter{}
+			delta, err := claudeFixtureDelta(counter, len(claudeFixtureSystem), tt.payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := claudeFixtureSystem + tt.payload
+			if len(counter.inputs) != 1 || counter.inputs[0] != want {
+				t.Fatalf("counted %q, want verbatim %q", counter.inputs, want)
+			}
+			if delta != len(tt.payload) {
+				t.Errorf("delta = %d, want %d raw payload bytes", delta, len(tt.payload))
+			}
+		})
 	}
 }
 
