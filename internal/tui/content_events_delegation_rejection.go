@@ -15,7 +15,7 @@ func (b *contentBuffer) handleDelegationAdmissionFinish(payload output.ToolCallF
 		b.admitDelegation(payload.CallID, *admission)
 	case tool.DelegationAdmissionRejected:
 		if admission.PolicyNotice {
-			b.appendStyled("Delegation rejected by policy.", segmentStatus)
+			b.AppendNotice(noticeError, "Delegation rejected by policy.", "")
 		}
 		if loc, found := b.takeOpenDelegation(payload.CallID); found {
 			b.removeRejectedDelegationCard(loc.dd)
@@ -28,14 +28,14 @@ func (b *contentBuffer) handleDelegationAdmissionFinish(payload output.ToolCallF
 	// Model-guidance rejections steer the model's own recovery; the model
 	// still receives the text, so the transcript stays quiet.
 	if !admission.ModelGuidance {
-		b.appendAdmissionError(payload.Error)
+		b.appendAdmissionError(payload.Tool, payload.Error, admission.AgentID)
 	}
 	return true
 }
 
-func (b *contentBuffer) appendAdmissionError(message string) {
+func (b *contentBuffer) appendAdmissionError(tool, message, scope string) {
 	if message != "" {
-		b.segments = append(b.segments, contentSegment{kind: segmentTool, text: message, renderDirty: true})
+		b.AppendNotice(noticeError, tool+" rejected: "+message, scope)
 	}
 }
 

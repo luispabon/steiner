@@ -837,6 +837,9 @@ func TestConversationDriverSaveErrorDoesNotStopLoop(t *testing.T) {
 	for len(h.events) > 0 {
 		if e := <-h.events; e.Type == output.EventTypeConversationWarning {
 			warnings++
+			if p, ok := e.Payload.(output.ConversationWarningEvent); !ok || p.Kind != output.ConversationWarningKindSave {
+				t.Errorf("warning payload = %#v, want kind save", e.Payload)
+			}
 		}
 	}
 	if warnings == 0 {

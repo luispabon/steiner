@@ -295,16 +295,10 @@ func flushStreamState(emit func(ChatChunk) error, state openAIStreamState) error
 		message.ReasoningContent = state.thinking.String()
 	}
 	if state.sawToolCall {
-		toolCalls, err := finalizeToolCalls(state.toolCalls)
-		if err != nil {
-			return err
-		}
-		indexlessToolCalls, err := finalizeToolCallAccumulators(
+		toolCalls := finalizeToolCalls(state.toolCalls)
+		indexlessToolCalls := finalizeToolCallAccumulators(
 			indexlessToolCallAccumulators(state.indexlessToolCalls, indexedAccumulatorSet(state.toolCalls)),
 		)
-		if err != nil {
-			return err
-		}
 		toolCalls = append(toolCalls, indexlessToolCalls...)
 		message.ToolCalls = toolCalls
 	}
@@ -345,9 +339,9 @@ func indexlessToolCallAccumulators(accumulators []*openAIToolCallAccumulator, in
 	return indexless
 }
 
-func finalizeToolCalls(toolCalls map[int][]*openAIToolCallAccumulator) ([]ToolCall, error) {
+func finalizeToolCalls(toolCalls map[int][]*openAIToolCallAccumulator) []ToolCall {
 	if len(toolCalls) == 0 {
-		return nil, nil
+		return nil
 	}
 	indexes := sortedIntKeys(toolCalls)
 
@@ -362,16 +356,12 @@ func finalizeToolCalls(toolCalls map[int][]*openAIToolCallAccumulator) ([]ToolCa
 			seen[acc] = struct{}{}
 			accumulators = append(accumulators, acc)
 		}
-		finalized, err := finalizeToolCallAccumulators(accumulators)
-		if err != nil {
-			return nil, err
-		}
-		calls = append(calls, finalized...)
+		calls = append(calls, finalizeToolCallAccumulators(accumulators)...)
 	}
-	return calls, nil
+	return calls
 }
 
-func finalizeToolCallAccumulators(accumulators []*openAIToolCallAccumulator) ([]ToolCall, error) {
+func finalizeToolCallAccumulators(accumulators []*openAIToolCallAccumulator) []ToolCall {
 	calls := make([]ToolCall, 0, len(accumulators))
 	for _, acc := range accumulators {
 		arguments := make(map[string]any)
@@ -380,7 +370,8 @@ func finalizeToolCallAccumulators(accumulators []*openAIToolCallAccumulator) ([]
 		if rawArgs != "" {
 			sanitizedRawArgs = sanitizeToolCallJSON(rawArgs)
 			if err := json.Unmarshal([]byte(sanitizedRawArgs), &arguments); err != nil {
-				return nil, fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, acc.Name, err)
+				calls = append(calls, markArgumentDecodeError(ToolCall{ID: acc.ID, Name: acc.Name}, err))
+				continue
 			}
 		}
 		call := ToolCall{
@@ -393,7 +384,7 @@ func finalizeToolCallAccumulators(accumulators []*openAIToolCallAccumulator) ([]
 		}
 		calls = append(calls, call)
 	}
-	return calls, nil
+	return calls
 }
 
 // extractThinkingDelta returns thinking text if the content value is a structured

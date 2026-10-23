@@ -22,6 +22,7 @@ func (m *Model) applyRunStartedEvent(payload output.RunStartedEvent) {
 func (m *Model) applyRunFinishedEvent(payload output.RunFinishedEvent) {
 	m.status.mode = strings.TrimSpace(payload.Reason)
 	m.activity = m.activity.static("run finished", strings.TrimSpace(payload.Reason))
+	m.activity.retry = ""
 	m.applyConversationLabel()
 	m.resetTopLevelTerminalState(true)
 }
@@ -30,8 +31,25 @@ func (m *Model) applyRunFinishedEvent(payload output.RunFinishedEvent) {
 func (m *Model) applyStopReasonEvent(payload output.StopReasonEvent) {
 	m.status.mode = strings.TrimSpace(payload.Reason)
 	m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
+	m.activity.retry = ""
+	if payload.Error != "" {
+		m.stopErrorShown = true
+	}
 	m.applyConversationLabel()
 	m.resetTopLevelTerminalState(true)
+}
+
+// applyConversationWarningEvent shows a failed save or compaction as a warning
+// notice. A failed run is an error notice, unless a stop reason error already
+// reported the failure.
+func (m *Model) applyConversationWarningEvent(payload output.ConversationWarningEvent) {
+	if payload.Kind != output.ConversationWarningKindRun {
+		m.content.AppendNotice(noticeWarn, payload.Message, "")
+		return
+	}
+	if !m.stopErrorShown {
+		m.content.AppendNotice(noticeError, payload.Message, "")
+	}
 }
 
 // applyModelCallFinishedEvent records the model call result and its timings.
@@ -41,6 +59,7 @@ func (m *Model) applyModelCallFinishedEvent(payload output.ModelCallFinishedEven
 		detail = fmt.Sprintf("%d tokens", payload.CompletionTokens)
 	}
 	m.activity = m.activity.static("model call complete", detail)
+	m.activity.retry = ""
 	m.sidebar.perfDurationMs = payload.DurationMs
 	m.sidebar.perfTTFTMs = payload.TTFTMs
 	m.sidebar.perfOutputTPS = payload.OutputTPS

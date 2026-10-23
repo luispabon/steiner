@@ -356,10 +356,7 @@ func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error)
 			content.WriteString(block.Text)
 			blocks = append(blocks, block)
 		case "function_call":
-			call, err := responsesToolCall(item)
-			if err != nil {
-				return ChatResponse{}, err
-			}
+			call := responsesToolCall(item)
 			message.ToolCalls = append(message.ToolCalls, call)
 			blocks = append(blocks, CodexMessageBlock{Kind: "function_call", CallID: call.ID})
 		case "reasoning":
@@ -405,19 +402,19 @@ func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error)
 	}, nil
 }
 
-func responsesToolCall(item responsesItem) (ToolCall, error) {
+func responsesToolCall(item responsesItem) ToolCall {
+	id := item.CallID
+	if id == "" {
+		id = item.ID
+	}
 	args := make(map[string]any)
 	rawArgs := strings.TrimSpace(item.Args)
 	sanitizedRawArgs := ""
 	if rawArgs != "" {
 		sanitizedRawArgs = sanitizeToolCallJSON(rawArgs)
 		if err := json.Unmarshal([]byte(sanitizedRawArgs), &args); err != nil {
-			return ToolCall{}, fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, item.Name, err)
+			return markArgumentDecodeError(ToolCall{ID: id, Name: item.Name}, err)
 		}
-	}
-	id := item.CallID
-	if id == "" {
-		id = item.ID
 	}
 	call := ToolCall{
 		ID:        id,
@@ -427,5 +424,5 @@ func responsesToolCall(item responsesItem) (ToolCall, error) {
 	if sanitizedRawArgs != "" {
 		call.RawArguments = sanitizedRawArgs
 	}
-	return call, nil
+	return call
 }

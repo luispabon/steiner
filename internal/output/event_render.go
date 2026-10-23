@@ -60,6 +60,9 @@ var eventRenderers = map[reflect.Type]func(Event) Segment{
 	reflect.TypeOf(ConfigWarningEvent{}):         typedRenderer(renderConfigWarningEvent),
 	reflect.TypeOf(SkillTruncatedEvent{}):        typedRenderer(renderSkillTruncatedEvent),
 	reflect.TypeOf(SkillStateEvent{}):            typedRenderer(renderSkillStateEvent),
+	// Replay boundaries are display-only and render no text.
+	reflect.TypeOf(ReplayStartedEvent{}):  func(Event) Segment { return Segment{} },
+	reflect.TypeOf(ReplayFinishedEvent{}): func(Event) Segment { return Segment{} },
 }
 
 func appendField(parts []string, key, value string) []string {
@@ -135,9 +138,6 @@ func renderProviderDiagnosticEvent(payload ProviderDiagnosticEvent) Segment {
 	if payload.Severity != "" {
 		parts = append(parts, payload.Severity)
 	}
-	parts = appendIntField(parts, "attempt", payload.Attempt)
-	parts = appendIntField(parts, "max", payload.MaxAttempts)
-	parts = appendField(parts, "delay", payload.Delay)
 	if payload.Partial {
 		parts = append(parts, "partial=true")
 	}

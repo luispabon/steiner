@@ -42,7 +42,7 @@ func resolveAliasMatches(state *responsesStreamState, id string, outputIndex *in
 }
 
 // completedResponsesItems creates an authoritative ledger from a nonempty final output.
-func completedResponsesItems(output []responsesItem, streamed []responsesLedgerEntry) ([]responsesLedgerEntry, error) {
+func completedResponsesItems(output []responsesItem, streamed []responsesLedgerEntry) []responsesLedgerEntry {
 	result := make([]responsesLedgerEntry, 0, len(output))
 	used := make([]bool, len(streamed))
 	for outputIndex, item := range output {
@@ -66,10 +66,7 @@ func completedResponsesItems(output []responsesItem, streamed []responsesLedgerE
 					callItem.CallID = existing.callID
 				}
 			}
-			call, err := responsesToolCall(callItem)
-			if err != nil {
-				return nil, err
-			}
+			call := responsesToolCall(callItem)
 			entry = responsesLedgerEntry{kind: "function_call", itemID: item.ID, callID: callItem.CallID, call: &call, completed: true}
 			if entry.callID == "" {
 				entry.callID = call.ID
@@ -83,7 +80,7 @@ func completedResponsesItems(output []responsesItem, streamed []responsesLedgerE
 		entry.outputIndex = &idx
 		result = append(result, entry)
 	}
-	return result, nil
+	return result
 }
 
 func streamedCallByItemID(streamed []responsesLedgerEntry, id string) *responsesLedgerEntry {

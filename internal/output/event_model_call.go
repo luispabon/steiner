@@ -112,6 +112,14 @@ type ProviderDiagnosticEvent struct {
 	DurationMillis int    `json:"duration_millis,omitempty"`
 }
 
+// DiagnosticKindRetry is the ProviderDiagnosticEvent Kind for a transient
+// provider retry. Attempt, MaxAttempts and Delay describe the retry.
+const DiagnosticKindRetry = "retry"
+
+// DiagnosticKindToolPanic is the ProviderDiagnosticEvent Kind for a tool call
+// that panicked and was recovered into a tool error.
+const DiagnosticKindToolPanic = "tool_panic"
+
 // NewModelCallStartedEvent creates a new model call started event.
 func NewModelCallStartedEvent(turn int, model string, messageCount int) Event {
 	return newEvent(EventTypeModelCallStarted, ModelCallStartedEvent{

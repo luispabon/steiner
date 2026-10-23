@@ -35,6 +35,7 @@ const (
 	segmentImagesAttached
 	segmentSubAgentsFinished
 	segmentStrandedResults
+	segmentNotice
 )
 
 type thinkingBlockData struct {
@@ -281,6 +282,10 @@ type contentSegment struct {
 	imagesAttachedData *imagesAttachedData     // non-nil only for segmentImagesAttached
 	deliveredData      *deliveredRows          // non-nil only for segmentSubAgentsFinished
 	strandedData       *strandedResultsData    // non-nil only for segmentStrandedResults
+	noticeSeverity     noticeSeverity          // segmentNotice only
+	noticeCount        int                     // segmentNotice only: occurrences collapsed into this row
+	noticeScope        string                  // segmentNotice only: notices in different scopes never collapse
+	noticeKey          string                  // segmentNotice only: full untruncated text, compared on collapse
 	// render cache at the active width, plus other recent widths (renderAtWidth)
 	cachedRender      string
 	cachedRenderWidth int
@@ -436,6 +441,13 @@ var contentEventHandlers = map[string]contentEventHandler{
 	// ConversationReset clears the transcript from model_events.go, after this
 	// no-op registration; the event carries no transcript line of its own.
 	output.EventTypeConversationReset: func(*contentBuffer, output.Event) {},
+	// Replay boundaries are display-only; replayed transcript lines come from
+	// their own events.
+	output.EventTypeReplayStarted:  func(*contentBuffer, output.Event) {},
+	output.EventTypeReplayFinished: func(*contentBuffer, output.Event) {},
+	// ConversationWarning notices are appended by model_events.go, which picks
+	// the severity from the warning kind. No transcript line is emitted here.
+	output.EventTypeConversationWarning: func(*contentBuffer, output.Event) {},
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {

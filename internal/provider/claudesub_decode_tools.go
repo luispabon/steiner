@@ -101,7 +101,7 @@ func appendBoundedToolInput(acc *anthropicToolUseAccumulator, partial string) er
 // negative synthetic keys an echo-only fallback uses ahead of the streamed
 // calls that preceded them. Every key appears once, so no call is duplicated or
 // dropped.
-func (d *claudeSubDecoder) finalizeOrderedToolUses() ([]ToolCall, error) {
+func (d *claudeSubDecoder) finalizeOrderedToolUses() []ToolCall {
 	calls := make([]ToolCall, 0, len(d.toolOrder))
 	for _, key := range d.toolOrder {
 		acc := d.toolUses[key]
@@ -119,13 +119,9 @@ func (d *claudeSubDecoder) finalizeOrderedToolUses() ([]ToolCall, error) {
 			})
 			continue
 		}
-		ordinary, err := finalizeAnthropicToolUses(map[int]*anthropicToolUseAccumulator{0: acc})
-		if err != nil {
-			return nil, err
-		}
-		calls = append(calls, ordinary...)
+		calls = append(calls, finalizeAnthropicToolUses(map[int]*anthropicToolUseAccumulator{0: acc})...)
 	}
-	return calls, nil
+	return calls
 }
 
 // claudeSubUnparsedRawMaxUnits is the CLI's cap on the raw prefix of an

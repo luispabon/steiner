@@ -23,7 +23,7 @@ func TestDelegationRejectionIdentityKeepsAcceptedCardAndError(t *testing.T) {
 	if len(b.segments) != 2 || b.segments[0].kind != segmentDelegationGroup || accepted.acceptedGroup() != "accepted-group" || accepted.status != "active" {
 		t.Fatalf("accepted card changed: segments=%v card=%#v", segmentKinds(b.segments), accepted)
 	}
-	if got := b.segments[len(b.segments)-1]; got.kind != segmentTool || got.text != rejection {
+	if got := b.segments[len(b.segments)-1]; got.kind != segmentNotice || got.text != "sub_agent rejected: "+rejection {
 		t.Fatalf("rejection evidence = %#v, want exact error %q", got, rejection)
 	}
 }

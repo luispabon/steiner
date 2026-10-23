@@ -17,11 +17,11 @@ func TestConversationEventConstructors(t *testing.T) {
 		t.Fatalf("payload = %#v, want %#v", got, want)
 	}
 
-	warn := NewConversationWarningEvent("save failed")
+	warn := NewConversationWarningEvent(ConversationWarningKindSave, "save failed")
 	if warn.Type != EventTypeConversationWarning {
 		t.Fatalf("Type = %q, want %q", warn.Type, EventTypeConversationWarning)
 	}
-	if p, ok := warn.Payload.(ConversationWarningEvent); !ok || p.Message != "save failed" {
-		t.Fatalf("payload = %#v, want message save failed", warn.Payload)
+	if p, ok := warn.Payload.(ConversationWarningEvent); !ok || p.Kind != ConversationWarningKindSave || p.Message != "save failed" {
+		t.Fatalf("payload = %#v, want kind save and message save failed", warn.Payload)
 	}
 }

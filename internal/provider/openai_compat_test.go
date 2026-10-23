@@ -2,7 +2,6 @@ package provider
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -263,18 +262,13 @@ data: [DONE]
 	}
 }
 
-func TestOpenAICompatClassifyRetryError_ToolCallDecodeIsRetryable(t *testing.T) {
+func TestOpenAICompatClassifyRetryError_DecodeIsNotRetryable(t *testing.T) {
 	p := &Client{}
 	tests := []struct {
 		name      string
 		err       error
 		wantRetry bool
 	}{
-		{
-			name:      "decode tool call error is retryable",
-			err:       fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, "mutate", errors.New("invalid character '}' after array element")),
-			wantRetry: true,
-		},
 		{
 			name:      "decode chat completion response is not retryable",
 			err:       fmt.Errorf("%w: %w", errDecodeChatCompletionResponse, io.ErrUnexpectedEOF),

@@ -71,9 +71,13 @@ func handleRetryResetChunk(sink output.EventSink, turn int, chunk provider.ChatC
 	*sawFinal = false
 	if chunk.Diagnostic != "" {
 		emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
-			Turn:     turn,
-			Severity: chunk.Severity,
-			Message:  chunk.Diagnostic,
+			Kind:        output.DiagnosticKindRetry,
+			Turn:        turn,
+			Severity:    chunk.Severity,
+			Message:     chunk.Diagnostic,
+			Attempt:     chunk.RetryAttempt,
+			MaxAttempts: chunk.RetryMaxAttempts,
+			Delay:       chunk.RetryDelay.String(),
 		}))
 	}
 	return true

@@ -248,6 +248,13 @@ type turnProgressor struct {
 	// decision. It is run-local and never carried.
 	statefulCapReached bool
 
+	// lastFailure and identicalFailures track the current streak of identical
+	// tool failures. tripped latches the signature once the streak reaches
+	// maxIdenticalToolFailures and is never cleared. See observeToolOutcome.
+	lastFailure       toolFailureSignature
+	identicalFailures int
+	tripped           *toolFailureSignature
+
 	// queuedDelegations holds the delegation calls announced via
 	// tool_call_queued for the tool-execution phase currently running. Entries
 	// are marked started as each call is dispatched; any left when the phase

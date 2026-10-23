@@ -481,4 +481,5 @@ type DiagnosticsStreamsConfig struct {
 	Provider bool `yaml:"provider"`
 	Tool     bool `yaml:"tool"`
 	TUI      bool `yaml:"tui"`
+	Internal bool `yaml:"internal"`
 }

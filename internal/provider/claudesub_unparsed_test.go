@@ -35,20 +35,30 @@ func TestClaudeSubDecodeCertifiedUnparsedToolInput(t *testing.T) {
 	}
 }
 
-func TestClaudeSubDecodeUnsignaledInvalidToolInputFails(t *testing.T) {
+func TestClaudeSubDecodeUnsignaledInvalidToolInputIsMarked(t *testing.T) {
 	d := newClaudeSubDecoder(claudeSubDecodeHooks{})
 	for _, ev := range []claudeSubEvent{
 		{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_bad","name":"read"}}}`)},
 		{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}}`)},
+		{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_good","name":"read"}}}`)},
+		{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"x\"}"}}}`)},
 		{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"message_stop"}}`)},
 	} {
 		if _, err := d.decode(ev); err != nil {
 			t.Fatalf("decode %s: %v", ev.Type, err)
 		}
 	}
-	if _, err := d.decode(claudeSubEvent{Type: "result", Raw: json.RawMessage(`{"subtype":"success","is_error":false}`)}); !errors.Is(err, errClaudeSubDecodeStream) {
-		t.Fatalf("unsignaled malformed input error = %v, want %v", err, errClaudeSubDecodeStream)
+	events, err := d.decode(claudeSubEvent{Type: "result", Raw: json.RawMessage(`{"subtype":"success","is_error":false}`)})
+	if err != nil {
+		t.Fatalf("unsignaled malformed input decode error = %v, want nil", err)
 	}
+	messages := claudeSubDecodedOfKind(events, claudeSubDecodeMessage)
+	if len(messages) != 1 || messages[0].Message == nil || len(messages[0].Message.ToolCalls) != 2 {
+		t.Fatalf("messages = %+v, want one message with two tool calls", messages)
+	}
+	calls := messages[0].Message.ToolCalls
+	assertMarkedDecodeCall(t, calls[0], "toolu_bad", "read")
+	assertValidDecodeCall(t, calls[1], "toolu_good")
 }
 
 func TestClaudeSubDecodeMismatchedUnparsedSentinelFails(t *testing.T) {

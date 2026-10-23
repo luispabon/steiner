@@ -229,7 +229,7 @@ func (m *Model) renderOverlayView(base string, contentWidth int) string {
 }
 
 // exclusiveOverlayView returns the renderer of the open centered overlay that
-// replaces the bottom-anchored ones (file list, MCP, LSP), or nil.
+// replaces the bottom-anchored ones (file list, MCP, LSP, error log), or nil.
 func (m *Model) exclusiveOverlayView() func() string {
 	switch {
 	case m.fileList.IsOpen():
@@ -238,6 +238,8 @@ func (m *Model) exclusiveOverlayView() func() string {
 		return func() string { return m.mcpOverlay.memoView(&m.overlayMemos.mcp) }
 	case m.lspOverlay.IsOpen():
 		return func() string { return m.lspOverlay.memoView(&m.overlayMemos.lsp) }
+	case m.devLogOverlay.IsOpen():
+		return func() string { return m.devLogMemoView() }
 	}
 	return nil
 }

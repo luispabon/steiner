@@ -58,12 +58,6 @@ func TestClassifyErrorClass(t *testing.T) {
 			want: errorClassDecodeError,
 		},
 		{
-			name: "decode tool call arguments",
-			ctx:  context.Background(),
-			err:  fmt.Errorf("wrap: %w", errDecodeToolCallArguments),
-			want: errorClassDecodeError,
-		},
-		{
 			name: "decode stream chunk unexpected",
 			ctx:  context.Background(),
 			err:  errDecodeStreamChunkUnexpected,

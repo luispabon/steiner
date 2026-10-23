@@ -105,6 +105,16 @@ func convertImageBlocks(blocks []agent.ImageBlock) []output.ImageBlock {
 	return converted
 }
 
+// replayLoadedTranscript replays a loaded transcript between the replay_started
+// and replay_finished boundary events. replay_finished is deferred so it is
+// emitted however replay exits, including by panic.
+func (s *Session) replayLoadedTranscript(msgs []agent.Message, ledger []agent.SubAgentLedgerEntry) {
+	s.events.Emit(output.NewReplayStartedEvent())
+	defer func() { s.events.Emit(output.NewReplayFinishedEvent()) }()
+	s.replaySessionMessages(msgs, ledger)
+	s.emitUnansweredResults(msgs, "")
+}
+
 // replaySessionMessages replays conversation messages and emits display events
 // so the TUI can reconstruct the session view on resume. Delegate tool calls
 // emit delegation events; regular tool calls emit tool call events. The ledger

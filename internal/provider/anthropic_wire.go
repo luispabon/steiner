@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -508,7 +509,12 @@ func normalizeAnthropicMessage(role string, content []anthropicContentBlock) (Me
 		case "tool_use":
 			input, err := normalizeAnthropicToolInput(block.Name, block.Input)
 			if err != nil {
-				return Message{}, err
+				var decodeErr *argumentDecodeError
+				if !errors.As(err, &decodeErr) {
+					return Message{}, err
+				}
+				out.ToolCalls = append(out.ToolCalls, markArgumentDecodeError(ToolCall{ID: block.ID, Name: block.Name}, decodeErr.err))
+				continue
 			}
 			out.ToolCalls = append(out.ToolCalls, ToolCall{
 				ID:        block.ID,
@@ -530,7 +536,7 @@ func normalizeAnthropicToolInput(name string, input map[string]any) (map[string]
 	}
 	var out map[string]any
 	if err := json.Unmarshal(data, &out); err != nil {
-		return nil, fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, name, err)
+		return nil, &argumentDecodeError{err: err}
 	}
 	return out, nil
 }

@@ -296,10 +296,7 @@ func normalizeChatResponse(payload *openAIResponse) (ChatResponse, error) {
 		return ChatResponse{}, fmt.Errorf("provider response contained no choices")
 	}
 	choice := payload.Choices[0]
-	message, err := normalizeMessage(choice.Message)
-	if err != nil {
-		return ChatResponse{}, err
-	}
+	message := normalizeMessage(choice.Message)
 	return ChatResponse{
 		Message:      message,
 		Usage:        payload.Usage,
@@ -307,7 +304,7 @@ func normalizeChatResponse(payload *openAIResponse) (ChatResponse, error) {
 	}, nil
 }
 
-func normalizeMessage(message openAIMessage) (Message, error) {
+func normalizeMessage(message openAIMessage) Message {
 	out := Message{
 		Role: MessageRole(message.Role),
 	}
@@ -325,13 +322,9 @@ func normalizeMessage(message openAIMessage) (Message, error) {
 		out.ToolCallID = message.ToolCallID
 	}
 	if len(message.ToolCalls) > 0 {
-		toolCalls, err := normalizeToolCalls(message.ToolCalls)
-		if err != nil {
-			return Message{}, err
-		}
-		out.ToolCalls = toolCalls
+		out.ToolCalls = normalizeToolCalls(message.ToolCalls)
 	}
-	return out, nil
+	return out
 }
 
 func extractReasoningDetailsText(value any) string {
@@ -372,7 +365,7 @@ func appendReasoningDetailMapText(builder *strings.Builder, detail map[string]an
 	}
 }
 
-func normalizeToolCalls(toolCalls []openAIToolCall) ([]ToolCall, error) {
+func normalizeToolCalls(toolCalls []openAIToolCall) []ToolCall {
 	out := make([]ToolCall, 0, len(toolCalls))
 	for _, toolCall := range toolCalls {
 		args := make(map[string]any)
@@ -381,7 +374,8 @@ func normalizeToolCalls(toolCalls []openAIToolCall) ([]ToolCall, error) {
 		if rawArgs != "" {
 			sanitizedRawArgs = sanitizeToolCallJSON(rawArgs)
 			if err := json.Unmarshal([]byte(sanitizedRawArgs), &args); err != nil {
-				return nil, fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, toolCall.Function.Name, err)
+				out = append(out, markArgumentDecodeError(ToolCall{ID: toolCall.ID, Name: toolCall.Function.Name}, err))
+				continue
 			}
 		}
 		call := ToolCall{
@@ -394,7 +388,7 @@ func normalizeToolCalls(toolCalls []openAIToolCall) ([]ToolCall, error) {
 		}
 		out = append(out, call)
 	}
-	return out, nil
+	return out
 }
 
 // stringOrEmpty converts a value to a string, returning empty string for nil or non-string types

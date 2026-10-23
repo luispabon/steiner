@@ -229,9 +229,12 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 		}
 		select {
 		case out <- ChatChunk{
-			RetryReset: true,
-			Diagnostic: retryWarningMessage(info),
-			Severity:   "warning",
+			RetryReset:       true,
+			Diagnostic:       retryWarningMessage(info),
+			Severity:         "warning",
+			RetryAttempt:     info.Attempt,
+			RetryMaxAttempts: info.MaxAttempts,
+			RetryDelay:       info.Delay,
 		}:
 		case <-ctx.Done():
 		}
@@ -332,9 +335,6 @@ func classifyProviderError(err error, retryAfterMax time.Duration) retryDecision
 		return retryDecision{}
 	}
 	if errors.Is(err, errResponsesStreamFailedTransient) {
-		return retryDecision{retry: true, reason: err.Error()}
-	}
-	if errors.Is(err, errDecodeToolCallArguments) {
 		return retryDecision{retry: true, reason: err.Error()}
 	}
 	if errors.Is(err, errDecodeStreamChunkUnexpected) {

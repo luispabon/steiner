@@ -15,6 +15,7 @@ import (
 
 //nolint:gocyclo // pre-routing guards run in a fixed order
 func (m *Model) applyEvent(event output.Event) tea.Cmd {
+	m.applyReplayBoundaryEvent(event)
 	if payload, ok := event.Payload.(output.ConversationStateEvent); ok {
 		m.applyConversationState(payload)
 		return nil
@@ -32,6 +33,10 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		if cmd := m.handleSuppressedWorkflowHandoffEvent(event); cmd != nil {
 			return cmd
 		}
+	}
+
+	if params, ok := devLogParamsFor(event); ok {
+		m.recordDevLog(params)
 	}
 
 	// Context report events: display mode is set by the producer; the TUI
@@ -56,6 +61,19 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		return cmd
 	}
 	return m.finishAppliedEvent(event)
+}
+
+// applyReplayBoundaryEvent marks the replay window. Entering replay drops dev
+// log entries until replay finishes, and finishing replay clears the stop error
+// notice latch.
+func (m *Model) applyReplayBoundaryEvent(event output.Event) {
+	switch event.Type {
+	case output.EventTypeReplayStarted:
+		m.devLog.replaying = true
+	case output.EventTypeReplayFinished:
+		m.devLog.replaying = false
+		m.stopErrorShown = false
+	}
 }
 
 // applyPayloadEvent routes the event payload to its family handler. It
@@ -111,6 +129,7 @@ func (m *Model) applyPayloadEvent(event output.Event) (tea.Cmd, bool) {
 		}
 	case output.ToolCallStartedEvent:
 		m.activity = m.activity.waiting("running tool", toolCallDetail(payload.Tool, payload.Arguments))
+		m.activity.retry = ""
 	case output.ToolCallFinishedEvent:
 		m.activity = m.activity.static("tool complete", strings.TrimSpace(payload.Tool))
 	case output.SteerReceivedEvent:
@@ -125,10 +144,18 @@ func (m *Model) applyPayloadEvent(event output.Event) (tea.Cmd, bool) {
 		m.applyOrchestrationLevelChangedEvent(payload)
 	case output.SandboxStatusEvent:
 		m.applySandboxStatusEvent(payload)
+	case output.ProviderDiagnosticEvent:
+		if payload.Kind == output.DiagnosticKindRetry {
+			m.activity.retry = retryLabel(payload.Attempt, payload.MaxAttempts)
+		}
+	case output.ConversationWarningEvent:
+		m.applyConversationWarningEvent(payload)
+	case output.AssistantChunkEvent, output.ThinkingChunkEvent:
+		m.activity.retry = ""
 	case output.ConfigWarningEvent:
-		m.content.AppendLine(m.styles.WarningStyle.Render(payload.Message))
+		m.content.AppendNotice(noticeWarn, payload.Message, "")
 	case output.SkillTruncatedEvent:
-		m.content.AppendLine(m.styles.WarningStyle.Render(payload.Message()))
+		m.content.AppendNotice(noticeWarn, payload.Message(), "")
 	case output.SkillStateEvent:
 		m.content.AppendLine(fmt.Sprintf("status: skill %s %s", payload.Name, payload.State))
 	case output.MCPStatusEvent:
@@ -189,7 +216,8 @@ func (m *Model) applyMCPStatusEvent(payload output.MCPStatusEvent) {
 	lines, warned := mcpTransitionWarnings(m.mcpServers, m.mcpWarned)
 	m.mcpWarned = warned
 	for _, line := range lines {
-		m.content.AppendLine(m.styles.WarningStyle.Render(line))
+		m.content.AppendNotice(noticeWarn, line, "")
+		m.recordDevLog(devLogParams{Severity: devLogWarning, Source: "mcp", Message: line})
 	}
 	m.syncSidebar()
 }
@@ -311,6 +339,9 @@ func (m *Model) handlePhaseIndicator(payload output.PhaseIndicatorEvent) {
 	phaseName := strings.TrimSpace(payload.Phase)
 	state := strings.TrimSpace(payload.State)
 	message := strings.TrimSpace(payload.Message)
+	if state == "starting" || state == "started" || state == "running" {
+		m.stopErrorShown = false
+	}
 
 	// Update status mode to show phase and state
 	modeText := phaseName

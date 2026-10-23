@@ -61,6 +61,14 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		ID:   "/errors",
+		Name: "Internal errors",
+		Desc: "show the developer error log",
+		Build: func(_ string) inputAction {
+			return inputAction{showErrors: true}
+		},
+	},
+	{
 		ID:        "/exit",
 		Name:      "Exit",
 		Desc:      "quit steiner",

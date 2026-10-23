@@ -36,6 +36,9 @@ func TestExecutorRejectsUnparsedInputBeforeHandlerAndApproval(t *testing.T) {
 			if !errors.As(err, &toolErr) || toolErr.Kind != "invalid_tool_input" {
 				t.Fatalf("error = %T %v, want invalid_tool_input", err, err)
 			}
+			if want := "tool input could not be parsed by the Claude CLI; resend the call with valid JSON arguments, reducing argument size if necessary"; toolErr.Message != want {
+				t.Fatalf("Message = %q, want %q", toolErr.Message, want)
+			}
 			if called {
 				t.Fatal("handler was invoked for reserved unparsed input")
 			}

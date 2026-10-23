@@ -491,6 +491,9 @@ func TestRunnerRetriesTransientProviderError(t *testing.T) {
 	for _, ev := range events {
 		if ev.Type == output.EventTypeProviderDiagnostic {
 			diagnosticCount++
+			if d, ok := ev.Payload.(output.ProviderDiagnosticEvent); !ok || d.Kind != output.DiagnosticKindRetry || d.Attempt < 1 || d.MaxAttempts < d.Attempt || d.Delay == "" {
+				t.Errorf("provider diagnostic = %#v, want kind retry with attempt, max attempts and delay", ev.Payload)
+			}
 		}
 	}
 	if diagnosticCount != 2 {

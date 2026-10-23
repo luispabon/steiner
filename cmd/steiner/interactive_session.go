@@ -266,6 +266,9 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 	if rt.diagnostics.Enabled(diagnostics.KindTUI) {
 		tuiCfg.FrameStats = rt.diagnostics
 	}
+	if rt.diagnostics != nil {
+		tuiCfg.Diagnostics = rt.diagnostics
+	}
 	tuiCfg.ImageStore = rt.imageStore
 	tuiCfg.VisionCapabilities = rt.visionCapabilities
 	tuiCfg.OneshotRunnerFactory = newOneshotRunnerFactoryBuilder(cmd, flags, rt.projectRoot, sess.EventSink(), sess.CurrentEffective, sess.OrchestrationLevel, sess.ActiveRunController().SteerQueue())

@@ -33,10 +33,10 @@ func TestRejectedToolFinishFlushesLiveAnswerAndThinkingBeforeExactEvidence(t *te
 	if b.segments[1].kind != segmentAssistantMarkdown || b.segments[1].text != "buffered answer" {
 		t.Fatalf("answer segment = %#v, want buffered answer after thinking and before rejection", b.segments[1])
 	}
-	if b.segments[2].kind != segmentStatus || b.segments[2].text != "Delegation rejected by policy." {
+	if b.segments[2].kind != segmentNotice || b.segments[2].text != "Delegation rejected by policy." {
 		t.Fatalf("policy notice = %#v", b.segments[2])
 	}
-	if len(b.segments) != 4 || b.segments[3].kind != segmentTool || b.segments[3].text != rejection {
+	if len(b.segments) != 4 || b.segments[3].kind != segmentNotice || b.segments[3].text != "sub_agent rejected: "+rejection {
 		t.Fatalf("rejection evidence = %#v, want exact error after stream and notice", b.segments)
 	}
 }
@@ -47,7 +47,7 @@ func TestRejectedErrorPrefixesRemainExactAndPolicyNoticeTyped(t *testing.T) {
 			b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: &delegationDisplayState{parentCallID: "call"}}}}
 			openParentCard(b, "call")
 			b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(message), output.ToolPreview{}, &output.DelegationAdmission{Status: "rejected", PolicyNotice: true}))
-			if len(b.segments) != 2 || b.segments[0].kind != segmentStatus || b.segments[0].text != "Delegation rejected by policy." || b.segments[1].kind != segmentTool || b.segments[1].text != message {
+			if len(b.segments) != 2 || b.segments[0].kind != segmentNotice || b.segments[0].text != "Delegation rejected by policy." || b.segments[1].kind != segmentNotice || b.segments[1].text != "sub_agent rejected: "+message {
 				t.Fatalf("notice/error = %#v, want typed notice and exact %q", b.segments, message)
 			}
 		})

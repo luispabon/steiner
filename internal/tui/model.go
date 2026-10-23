@@ -95,6 +95,9 @@ type Model struct {
 	external      <-chan tea.Msg
 	autoScroll    bool
 	contentTopPad int
+	devLog        devLogState
+	devLogOverlay devLogOverlay
+
 	// sub-agent jump state (delegation_jump.go)
 	jumpTarget          occurrenceKey // last jump target; zero value = none
 	jumpAt              time.Time     // when jumpTarget was set; gates the alt+/ expand window
@@ -177,6 +180,9 @@ type Model struct {
 	delegateCancelModal          delegateCancelModalState
 	sessionStore                 SessionLister
 	interruptPending             bool
+	// stopErrorShown is set by a stop reason that carries an error. The next
+	// conversation run warning is then suppressed as a duplicate.
+	stopErrorShown               bool
 	convState                    output.ConversationStateEvent
 	convStateSeen                bool
 	convLabelShown               bool

@@ -261,11 +261,7 @@ func flushAnthropicStreamState(emit func(ChatChunk) error, state *anthropicStrea
 		}
 	}
 	if state.sawToolUse {
-		toolCalls, err := finalizeAnthropicToolUses(state.toolUses)
-		if err != nil {
-			return err
-		}
-		message.ToolCalls = toolCalls
+		message.ToolCalls = finalizeAnthropicToolUses(state.toolUses)
 	}
 	return emit(ChatChunk{
 		Delta:        message,
@@ -275,9 +271,9 @@ func flushAnthropicStreamState(emit func(ChatChunk) error, state *anthropicStrea
 	})
 }
 
-func finalizeAnthropicToolUses(toolUses map[int]*anthropicToolUseAccumulator) ([]ToolCall, error) {
+func finalizeAnthropicToolUses(toolUses map[int]*anthropicToolUseAccumulator) []ToolCall {
 	if len(toolUses) == 0 {
-		return nil, nil
+		return nil
 	}
 	calls := make([]ToolCall, 0, len(toolUses))
 	indexes := sortedIntKeys(toolUses)
@@ -288,7 +284,8 @@ func finalizeAnthropicToolUses(toolUses map[int]*anthropicToolUseAccumulator) ([
 		if raw != "" {
 			raw = sanitizeToolCallJSON(raw)
 			if err := json.Unmarshal([]byte(raw), &arguments); err != nil {
-				return nil, fmt.Errorf("%w %q arguments: %w", errDecodeToolCallArguments, acc.Name, err)
+				calls = append(calls, markArgumentDecodeError(ToolCall{ID: acc.ID, Name: acc.Name}, err))
+				continue
 			}
 		}
 		calls = append(calls, ToolCall{
@@ -297,7 +294,7 @@ func finalizeAnthropicToolUses(toolUses map[int]*anthropicToolUseAccumulator) ([
 			Arguments: arguments,
 		})
 	}
-	return calls, nil
+	return calls
 }
 
 func mergeAnthropicUsage(state *anthropicStreamState, usage *anthropicUsage) {

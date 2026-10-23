@@ -45,20 +45,23 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 				return p.finishStoppedSerial(ctx, state, outcome, turn, calls[i+1:])
 			}
 			i++
-			continue
-		}
-		results := p.invokeParallel(ctx, state, turn, calls[i:i+n])
-		for k := 0; k < n; k++ {
-			if _, cancelled := contextCancellationState(ctx, state); cancelled || isLimitTimeout(ctx) {
-				return p.finishStoppedParallel(ctx, state, turn, calls[i:], results, k, n)
+		} else {
+			results := p.invokeParallel(ctx, state, turn, calls[i:i+n])
+			for k := 0; k < n; k++ {
+				if _, cancelled := contextCancellationState(ctx, state); cancelled || isLimitTimeout(ctx) {
+					return p.finishStoppedParallel(ctx, state, turn, calls[i:], results, k, n)
+				}
+				var outcome turnOutcome
+				state, outcome = p.applyToolResult(ctx, state, turn, calls[i+k], results[k].value, results[k].err)
+				if outcome.Stop {
+					return outcome
+				}
 			}
-			var outcome turnOutcome
-			state, outcome = p.applyToolResult(ctx, state, turn, calls[i+k], results[k].value, results[k].err)
-			if outcome.Stop {
-				return outcome
-			}
+			i += n
 		}
-		i += n
+		if stopped, ok := p.stopOnRepeatedFailure(ctx, state, turn, calls[i:]); ok {
+			return stopped
+		}
 	}
 	return p.finalizeToolTurn(ctx, state, turn, response)
 }
@@ -215,6 +218,7 @@ func (p *turnProgressor) invokeTool(ctx context.Context, turn int, call provider
 		})
 	}
 	ctx = tool.WithCallDiagnostics(ctx, tool.CallDiagnostics{Turn: turn, Model: p.request.ResolvedModel.BackendModelID})
+	ctx = tool.WithToolInputDecodeError(ctx, call.ArgumentDecodeError)
 	return p.request.Executor.Execute(ctx, call.Name, call.ID, cloneInput(call.Arguments))
 }
 
@@ -243,6 +247,7 @@ func calibratedToolDelta(delta, previousRaw, calibrated int) int {
 }
 
 func (p *turnProgressor) appendToolOutcome(ctx context.Context, state RunState, turn int, call provider.ToolCall, result any, err error, emitFinished bool) RunState {
+	p.observeToolOutcome(call.Name, err)
 	var toolMessage Message
 	if emitFinished {
 		toolMessage = p.buildToolMessage(turn, call, result, err, state.Lineage.latestMessages())

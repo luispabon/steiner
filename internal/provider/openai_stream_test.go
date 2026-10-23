@@ -499,10 +499,7 @@ func TestOpenAIStreamFinalizeToolCalls_ValidJSONArguments(t *testing.T) {
 	toolCalls := map[int][]*openAIToolCallAccumulator{
 		0: {{ID: "call_1", Name: "get_weather", Arguments: args}},
 	}
-	calls, err := finalizeToolCalls(toolCalls)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	calls := finalizeToolCalls(toolCalls)
 	if len(calls) != 1 {
 		t.Fatalf("got %d calls, want 1", len(calls))
 	}
@@ -517,15 +514,24 @@ func TestOpenAIStreamFinalizeToolCalls_ValidJSONArguments(t *testing.T) {
 	}
 }
 
-func TestOpenAIStreamFinalizeToolCalls_MalformedJSON(t *testing.T) {
+func TestOpenAIStreamFinalizeToolCalls_MalformedJSONIsMarked(t *testing.T) {
 	var args strings.Builder
 	args.WriteString(`{invalid}`)
 	toolCalls := map[int][]*openAIToolCallAccumulator{
 		0: {{ID: "call_1", Name: "get_weather", Arguments: args}},
 	}
-	_, err := finalizeToolCalls(toolCalls)
-	if err == nil {
-		t.Fatal("expected error for malformed JSON")
+	calls := finalizeToolCalls(toolCalls)
+	if len(calls) != 1 {
+		t.Fatalf("got %d calls, want 1", len(calls))
+	}
+	if calls[0].ArgumentDecodeError == "" {
+		t.Fatal("ArgumentDecodeError empty, want malformed call marked")
+	}
+	if len(calls[0].Arguments) != 0 {
+		t.Errorf("Arguments = %v, want empty", calls[0].Arguments)
+	}
+	if calls[0].RawArguments != "{}" {
+		t.Errorf("RawArguments = %q, want %q", calls[0].RawArguments, "{}")
 	}
 }
 
@@ -533,10 +539,7 @@ func TestOpenAIStreamFinalizeToolCalls_EmptyArguments(t *testing.T) {
 	toolCalls := map[int][]*openAIToolCallAccumulator{
 		0: {{ID: "call_1", Name: "get_weather"}},
 	}
-	calls, err := finalizeToolCalls(toolCalls)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	calls := finalizeToolCalls(toolCalls)
 	if len(calls) != 1 {
 		t.Fatalf("got %d calls, want 1", len(calls))
 	}
@@ -547,10 +550,7 @@ func TestOpenAIStreamFinalizeToolCalls_EmptyArguments(t *testing.T) {
 
 func TestOpenAIStreamFinalizeToolCalls_EmptyMap(t *testing.T) {
 	toolCalls := map[int][]*openAIToolCallAccumulator{}
-	calls, err := finalizeToolCalls(toolCalls)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	calls := finalizeToolCalls(toolCalls)
 	if calls != nil {
 		t.Fatalf("expected nil, got %v", calls)
 	}
@@ -562,10 +562,7 @@ func TestOpenAIStreamFinalizeToolCalls_TrailingCommaInArguments(t *testing.T) {
 	toolCalls := map[int][]*openAIToolCallAccumulator{
 		0: {{ID: "call_1", Name: "mutate", Arguments: args}},
 	}
-	calls, err := finalizeToolCalls(toolCalls)
-	if err != nil {
-		t.Fatalf("expected trailing comma to be sanitized, got error: %v", err)
-	}
+	calls := finalizeToolCalls(toolCalls)
 	if len(calls) != 1 {
 		t.Fatalf("got %d calls, want 1", len(calls))
 	}
@@ -580,10 +577,7 @@ func TestOpenAIStreamFinalizeToolCalls_TrailingCommaInNestedObject(t *testing.T)
 	toolCalls := map[int][]*openAIToolCallAccumulator{
 		0: {{ID: "call_1", Name: "mutate", Arguments: args}},
 	}
-	calls, err := finalizeToolCalls(toolCalls)
-	if err != nil {
-		t.Fatalf("expected nested trailing commas to be sanitized, got error: %v", err)
-	}
+	calls := finalizeToolCalls(toolCalls)
 	if len(calls) != 1 {
 		t.Fatalf("got %d calls, want 1", len(calls))
 	}

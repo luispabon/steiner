@@ -26,10 +26,10 @@ const contentIterations = "300x"
 // allocs = ceil(measured*1.2).
 func TestBenchmarkAllocationCeilings(t *testing.T) {
 	// The perfguard tag keeps this out of the normal suite; this skip is the
-	// separate foot-gun guard for `go test -tags perfguard -race`, where eight
+	// separate foot-gun guard for `go test -tags perfguard -race`, where the
 	// testing.Benchmark runs under race instrumentation take minutes.
 	if raceEnabled {
-		t.Skip("eleven testing.Benchmark runs under race take minutes")
+		t.Skip("the testing.Benchmark runs under race take minutes")
 	}
 
 	cases := []struct {
@@ -213,6 +213,22 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			maxAllocs:  1364,
 			baseline:   "measured 1136 allocs/op (max of 4 runs, post-WI-2; B/op intentionally unguarded)",
 		},
+		{
+			name:       "DevLogRealisticStationary",
+			fn:         benchDevLogRealisticStationary,
+			checkBytes: true,
+			maxBytes:   182804,
+			maxAllocs:  14,
+			baseline:   "measured 158960 B/op, 11 allocs/op (max of 4 runs; DevLog/realistic/stationary, post-F6; pre-F6 was ~3.6 MiB / 145k allocs)",
+		},
+		{
+			name:       "DevLogRealisticClick",
+			fn:         benchDevLogRealisticClick,
+			checkBytes: true,
+			maxBytes:   308542,
+			maxAllocs:  46,
+			baseline:   "measured 268297 B/op, 38 allocs/op (max of 4 runs; DevLog/realistic/click, post-F6; pre-F6 was ~3.7 MiB / 145k allocs)",
+		},
 	}
 
 	for _, tc := range cases {
@@ -246,6 +262,17 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			}
 		})
 	}
+}
+
+// benchDevLogRealisticStationary and benchDevLogRealisticClick adapt the dev log
+// helpers to the func(*testing.B) shape of the cases table. They live in this
+// tagged file so the default build has no unused functions.
+func benchDevLogRealisticStationary(b *testing.B) {
+	benchDevLogStationary(b, devLogBenchParams(false))
+}
+
+func benchDevLogRealisticClick(b *testing.B) {
+	benchDevLogClick(b, devLogBenchParams(false))
 }
 
 // setBenchtime sets -test.benchtime for the rest of the calling (sub)test and

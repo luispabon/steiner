@@ -122,6 +122,7 @@ Compact canonical reference for safe configuration edits.
 | `diagnostics.streams.provider`|bool|`false`|Per-call stream; subsumes stream-error log. |
 | `diagnostics.streams.tool`|bool|`false`|Tool/delegation stream; subsumes delegation log. |
 | `diagnostics.streams.tui`|bool|`false`|TUI frame timings. |
+| `diagnostics.streams.internal`|bool|`false`|TUI developer error log entries (`internal.jsonl`). Error text may carry prompt or tool content. |
 | `diagnostics.capture_bodies`|bool|`false`|Capture full message/tool/block content, mutate failures, and prompts. |
 | `context_management.read_annotations`|bool|`true`|Annotate reads only after an identical full read with the same `file_hash` and range. |
 | `search.backend`|string|—|`searxng`, `google`, `kagi`, or `brave`; selects requirements. |

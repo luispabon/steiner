@@ -133,8 +133,8 @@ func TestUpdateRoutesInlineFailureMessages(t *testing.T) {
 		msg      tea.Msg
 		wantLine string
 	}{
-		{name: "controller handle failure", msg: controllerHandleFailedMsg{err: boom}, wantLine: "status: boom"},
-		{name: "clipboard failure", msg: clipboardFailedMsg{err: boom}, wantLine: "status: boom"},
+		{name: "controller handle failure", msg: controllerHandleFailedMsg{err: boom}, wantLine: "✗ boom"},
+		{name: "clipboard failure", msg: clipboardFailedMsg{err: boom}, wantLine: "✗ boom"},
 		{name: "phase transition failure", msg: phaseTransitionFailedMsg{err: boom}, wantLine: "phase transition failed: boom"},
 	}
 	for _, tc := range cases {

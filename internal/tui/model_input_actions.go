@@ -131,6 +131,12 @@ func (m *Model) executeShowMCPAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) executeShowErrorsAction() (tea.Model, tea.Cmd) {
+	m.openDevLogOverlay()
+	m.input.Reset()
+	return m, nil
+}
+
 func (m *Model) executeShowUsageAction() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	if m.usageOverlay.quota == nil {
@@ -319,6 +325,7 @@ func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 func (m *Model) executeSubmitAction(submitText string, displayText string) (tea.Model, tea.Cmd) {
+	m.stopErrorShown = false
 	var sessionCmd tea.Cmd
 	newSession := m.sessionStartedAt == nil
 	if newSession {
