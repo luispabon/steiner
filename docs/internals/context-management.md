@@ -174,7 +174,7 @@ Context diagnostics for these states are emitted as typed sub-events: budget, co
 
 `ContextState` is cloned on each turn. Compactions increment `CompactionCount`; the summary itself lives only in the new generation's prefix, so each compaction replaces the previous summary rather than stacking. `RecentToolCalls` is rebuilt each turn from the current lineage generation's messages.
 
-Post-ingestion never shapes or rewrites conversation messages. It restores file-tracker state from historic tool messages named `read` with a positive turn by recording their payloads; it does not use current disk contents to alter those messages. Lineage is then rebuilt from the unchanged conversation. Fresh reads are deduplicated from their `file_hash` values against prior tool results.
+Post-ingestion never shapes or rewrites conversation messages. It restores file-tracker state from historic tool messages named `read` with a positive turn by recording their payloads; it does not use current disk contents to alter those messages. Lineage is then rebuilt from the unchanged conversation. Failed reads (oversize, binary) carry no path, so post-ingestion read tracking does not record them. Fresh reads are deduplicated from their `file_hash` values against prior tool results.
 
 ---
 

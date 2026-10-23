@@ -151,6 +151,7 @@ func TestMutateReplaceObservationGuard(t *testing.T) {
 			"bash output (cat, sed, head, tail) does not count as a read",
 			"use read (a small offset/limit around the edit is enough for files under 1MB)",
 			"file_hash from a read result",
+			"for files over 1MB, compute the file_hash yourself (CRC32-IEEE over lines with trailing tabs, spaces and CR trimmed, 8 uppercase hex digits)",
 		}
 		for _, want := range wantSubstrings {
 			if !strings.Contains(got.Output, want) {

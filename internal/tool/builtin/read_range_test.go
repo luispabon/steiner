@@ -185,9 +185,48 @@ func TestReadRangeOversizeMessageNamesLimit(t *testing.T) {
 	if !ok {
 		t.Fatalf("result type %T, want *ReadResult", got)
 	}
-	want := "Error: file too large (max 1.0MB, got 1.0MB); offset/limit cannot bypass this limit, use grep or bash to inspect it"
+	want := "Error: file too large (max 1.0MB, got 1048577 bytes); offset/limit cannot bypass this limit, use grep or bash to inspect it"
 	if result.Output != want {
 		t.Errorf("output = %q, want %q", result.Output, want)
+	}
+}
+
+func TestReadOpenTextRangeEnforcesSizeLimit(t *testing.T) {
+	limit := maxReadFileBytes
+	for _, tc := range []struct {
+		name     string
+		bodyLen  int
+		statSize int64
+		wantErr  bool
+		wantMsg  string
+	}{
+		{name: "exactly limit passes", bodyLen: limit, statSize: int64(limit)},
+		{name: "one byte over limit", bodyLen: limit + 1, statSize: int64(limit + 1), wantErr: true, wantMsg: "got 1048577 bytes"},
+		{name: "reader longer than stat size", bodyLen: limit + 1, statSize: 10, wantErr: true, wantMsg: "file grew past the limit while reading"},
+		{name: "stat size over limit", bodyLen: 10, statSize: int64(2 * limit), wantErr: true, wantMsg: "got 2.0MB"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := strings.Repeat("x", tc.bodyLen)
+			fileHash, totalLines, page, err := readOpenTextRange(strings.NewReader(body), tc.statSize, 1, 1)
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("err = %v, want nil", err)
+				}
+				if want := FileContentHash([]byte(body)); fileHash != want || totalLines != 1 {
+					t.Errorf("metadata = (%q, %d), want (%q, 1)", fileHash, totalLines, want)
+				}
+				return
+			}
+			if err == nil || err.Error() != "file too large" {
+				t.Errorf("err = %v, want file too large", err)
+			}
+			if fileHash != "" || totalLines != 0 {
+				t.Errorf("metadata = (%q, %d), want empty hash and zero lines", fileHash, totalLines)
+			}
+			if len(page) != 1 || !strings.Contains(page[0], tc.wantMsg) {
+				t.Errorf("page = %q, want one message containing %q", page, tc.wantMsg)
+			}
+		})
 	}
 }
 
