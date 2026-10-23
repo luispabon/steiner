@@ -1,0 +1,50 @@
+Operator note from the nightly sync job, pasted with the config it used.
+
+$ sync-agent --source ./incoming --dest s3://archive-west --dry-run=false --retries 4
+2026-10-02T02:14:09Z INFO batch=118 files=312 bytes=48213907
+2026-10-02T02:14:11Z WARN file=ledger/2026-09.csv retry=1 reason="connection reset"
+2026-10-02T02:14:19Z INFO batch=118 done ok=311 failed=1
+
+retry policy:
+  max_attempts: 4
+  backoff: exponential
+  jitter: true
+  on_error: continue
+
+The sync job never deletes local files. It only uploads, verifies the checksum on the remote side, and writes a manifest line for each object. A failed object stays in the queue until the next run, and the operator reviews the queue each morning.
+
+{"batch":118,"status":"partial","failed":["ledger/2026-09.csv"],"checked_at":"2026-10-02T02:14:21Z"}
+
+def summarize(batch):
+    total = sum(item.size for item in batch.items)
+    return {"count": len(batch.items), "bytes": total}
+
+Team notes in several languages:
+Svenska: inga filer raderas lokalt. 日本語: ローカルのファイルは削除されません。
+Русский: локальные файлы не удаляются. العربية: لا تُحذف الملفات المحلية.
+
+Retry log, batch 119, after the network fix:
+2026-10-03T02:14:02Z INFO batch=119 files=288 bytes=44102876
+2026-10-03T02:14:06Z INFO file=ledger/2026-10.csv sha256=9f2c1e7ab3d045c6 verified=true
+2026-10-03T02:14:07Z INFO file=photos/station-14/0412.jpg sha256=a71b09fe22cd4410 verified=true
+2026-10-03T02:14:09Z WARN file=photos/station-09/0088.jpg retry=2 reason="timeout after 30s"
+2026-10-03T02:14:31Z INFO file=photos/station-09/0088.jpg sha256=c04e6d2a9b7f1182 verified=true
+2026-10-03T02:15:40Z INFO batch=119 done ok=288 failed=0 elapsed=98s
+
+config.yaml (sync section):
+sync:
+  source: ./incoming
+  destination: s3://archive-west/nightly
+  verify_checksum: true
+  delete_local: false
+  parallel_uploads: 4
+  exclude:
+    - "*.tmp"
+    - ".DS_Store"
+    - "scratch/**"
+
+Operator comment: retries worked after the modem reset on the north site. The timeout came from the same carrier outage described in last week's ticket, so no config change is needed. Keep parallel_uploads at 4 until the carrier confirms the new peering.
+
+{"batch":119,"status":"complete","failed":[],"checked_at":"2026-10-03T02:15:41Z"}
+
+Status emoji used in the dashboard: ✅ ok, ⚠️ warning, ❌ failed, 🔄 retrying, 📦 archived.

@@ -1,0 +1,31 @@
+Multilingual sample for token counting. Each line is original text.
+
+English: The quick brown fox jumps over the lazy dog while the rain falls softly.
+Francais: Le café de la gare ouvre à sept heures, et les enfants arrivent en retard.
+Deutsch: Die Straßenbahn fährt heute später, weil der Fluss hochsteht.
+Español: El niño dibujó un mapa del puerto con tinta azul y verde.
+Ελληνικά: Ο ήλιος βγαίνει νωρίς το καλοκαίρι πάνω από τη θάλασσα.
+Русский: Поезд отходит от вокзала ровно в девять, и пассажиры спешат.
+العربية: تفتح المكتبة أبوابها عند الصباح، ويقرأ الطلاب في الحديقة.
+हिन्दी: बाज़ार में सुबह से भीड़ है, और दुकानदार नए फल सजा रहे हैं।
+日本語: 駅前の小さな店では、朝早くから焼きたてのパンが並びます。
+한국어: 강가의 작은 마을에서는 봄마다 축제가 열리고 사람들이 모입니다.
+中文：山间的小路通向一座古老的寺庙，清晨的钟声传遍整个河谷。
+
+Tiếng Việt: Buổi sáng trời trong xanh, gió thổi nhẹ qua cánh đồng lúa.
+ภาษาไทย: ตลาดเปิดตั้งแต่เช้า ผู้คนเดินซื้อของกันอย่างคึกคัก
+עברית: השוק נפתח מוקדם בבוקר, והאנשים קונים פירות וירקות טריים.
+Türkçe: Köprünün altındaki nehir bugün çok hızlı akıyor.
+Polski: Pociąg z Krakowa przyjeżdża na stację punktualnie, a żółte światła migają.
+বাংলা: নদীর ধারে ছোট গ্রামটিতে সকালবেলা মেলা বসে।
+தமிழ்: கோயில் மணி காலை முதல் ஒலிக்கிறது, மக்கள் வரிசையில் நிற்கின்றனர்.
+Українська: Над містом піднімається туман, а на площі співають діти.
+Dense emoji and joiners: 🧑🏽‍🤝‍🧑🏻 👪 🧑‍🧑‍🧒 🏃🏾‍♀️ 🏳️‍⚧️ 🐻‍❄️ 👁️‍🗨️ 🧑🏿‍🚒 🧔🏻‍♂️ 🫱🏼‍🫲🏽
+
+Combining marks on base letters: é is written as a base e followed by U+0301, ä as a followed by U+0308.
+Combining sequences written out: ñ, ö, ç, ệ, ṩ, ǜ.
+
+Emoji with skin tones: 👍 👍🏻 👍🏼 👍🏽 👍🏾 👍🏿
+ZWJ families and profiles: 👨‍👩‍👧‍👦 👩‍💻 🏳️‍🌈 🧑‍🚀 🧑🏽‍🍳
+Flags: 🇬🇧 🇯🇵 🇧🇷 🇳🇴
+Keycaps and symbols: 1️⃣ 2️⃣ #️⃣ ❤️ ☕ ✈️ ⚽

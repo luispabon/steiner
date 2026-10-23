@@ -1,0 +1,392 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "bash",
+      "description": "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "description": "Shell command to execute",
+            "type": "string"
+          },
+          "cwd": {
+            "description": "Working directory",
+            "type": "string"
+          },
+          "max_output_chars": {
+            "default": 30000,
+            "description": "Max output characters",
+            "maximum": 100000,
+            "type": "integer"
+          },
+          "timeout_seconds": {
+            "default": 120,
+            "description": "Max execution time",
+            "maximum": 600,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "display_file",
+      "description": "Ask the TUI to display a file to the user in an overlay without including the file contents in the conversation. Use this instead of read when the goal is to show the file visually rather than analyse its content.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 120,
+            "description": "Max lines to preview",
+            "maximum": 1000,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 1,
+            "description": "Starting line number (1-based)",
+            "type": "integer"
+          },
+          "path": {
+            "description": "Absolute or workspace-relative path to the file to display",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "fetch_url",
+      "description": "Fetch a URL and return its content. Supports HTML (main content extracted and converted to markdown, falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Images are always saved to .steiner/tmp/fetched; use the read tool with the returned file path to inspect them. Large responses are saved to disk in full — use the read tool to paginate; the only ceiling is the max_size download/save limit.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "max_size": {
+            "default": 10485760,
+            "description": "Max bytes to download and save to disk (default 10MB, ceiling 32MB)",
+            "maximum": 33554432,
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL to fetch",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "glob",
+      "description": "Find files by glob pattern. Use limit and offset to page through large result sets.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 200,
+            "description": "Max results (default: 200)",
+            "maximum": 1000,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "description": "Result offset (default: 0)",
+            "type": "integer"
+          },
+          "path": {
+            "description": "Directory to search in",
+            "type": "string"
+          },
+          "pattern": {
+            "description": "Glob pattern to match",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "grep",
+      "description": "Search file contents with paginated logical results. Use output_mode=\"files_with_matches\" to locate relevant files, output_mode=\"count\" for per-file counts, and output_mode=\"content\" with context to inspect matches.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "after_context": {
+            "description": "Lines after each match in content output",
+            "type": "integer"
+          },
+          "before_context": {
+            "description": "Lines before each match in content output",
+            "type": "integer"
+          },
+          "case_insensitive": {
+            "description": "Case insensitive search",
+            "type": "boolean"
+          },
+          "context": {
+            "description": "Symmetric context lines for content output",
+            "type": "integer"
+          },
+          "glob": {
+            "description": "File pattern filter",
+            "type": "string"
+          },
+          "head_limit": {
+            "default": 100,
+            "description": "Max logical results to return per page",
+            "maximum": 500,
+            "type": "integer"
+          },
+          "line_numbers": {
+            "description": "Include line and column numbers in content output. Column is 1-based and rune-counted (matches lsp_definitions/lsp_references), pointing at where the match starts — not necessarily the target identifier's own position. Search for the identifier itself (e.g. word-boundary the pattern) when you intend to feed the result into an LSP tool.",
+            "type": "boolean"
+          },
+          "multiline": {
+            "description": "Enable multiline mode",
+            "type": "boolean"
+          },
+          "offset": {
+            "default": 0,
+            "description": "Logical result offset",
+            "type": "integer"
+          },
+          "output_mode": {
+            "description": "Output mode: content, files_with_matches, or count",
+            "type": "string"
+          },
+          "path": {
+            "description": "Directory or file to search in",
+            "type": "string"
+          },
+          "pattern": {
+            "description": "Regex pattern to search for",
+            "type": "string"
+          },
+          "type": {
+            "description": "Search type (content, files, etc)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ls",
+      "description": "List directory contents. Use recursive sparingly. Use limit and offset for large directories.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 200,
+            "description": "Max results",
+            "maximum": 1000,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "description": "Result offset",
+            "type": "integer"
+          },
+          "path": {
+            "description": "Directory to list",
+            "type": "string"
+          },
+          "recursive": {
+            "description": "List recursively",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mutate",
+      "description": "Apply structured file edits via op types: create, write (create or overwrite), replace, delete_file, move. Supports file_hash for staleness detection on existing targets — pass the hash from read to fail fast if the file changed. replace against an existing file is rejected unless you read it earlier this session or pass file_hash — read the file first, or supply the hash from a read result. move rejects destination collisions instead of overwriting. For create, write, and move: parent directories must exist for workspace paths (steiner auto-creates only within its own sandbox tmpdir); create it first (e.g. with bash mkdir -p), then retry. Use assert_present/assert_absent on any operation whose effect cannot otherwise be verified — assertions abort the full batch if they fail, confirming the edit landed where intended. If a batch has multiple failing operations, every failure is reported together in one result and nothing is applied — fix all of them before resending. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "operations": {
+            "description": "Ordered list of file mutations. Operations are evaluated sequentially against an in-memory snapshot, so later operations see earlier edits in the same batch, but no filesystem writes are committed until the full batch has been planned. On partial failure, operations_skipped reports how many were never attempted.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "assert_absent": {
+                  "description": "Strings that must be absent from the post-operation file content. Use assertions to confirm edits landed where you intended; assertion failures abort the full batch before commit.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "assert_present": {
+                  "description": "Strings that must appear in the post-operation file content. Use assertions to confirm edits landed where you intended (especially for replace operations whose old_string might be ambiguous); assertion failures abort the full batch before commit.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "content": {
+                  "description": "File content for create and write",
+                  "type": "string"
+                },
+                "file_hash": {
+                  "description": "8-char hex hash from read result. When provided, it is validated against the initial disk snapshot captured when the batch starts, not after earlier in-memory operations. It only applies to existing files; missing targets fail explicitly instead of being silently accepted.",
+                  "type": "string"
+                },
+                "from": {
+                  "description": "Source path for move",
+                  "type": "string"
+                },
+                "new_string": {
+                  "description": "Replacement text",
+                  "type": "string"
+                },
+                "old_string": {
+                  "description": "Exact text to replace. Whitespace must match the file exactly, including leading indentation depth (most common mismatch: tab vs space nesting level). Copy directly from read output rather than reconstructing from memory.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "Target path for create, write, replace, and delete_file",
+                  "type": "string"
+                },
+                "replace_all": {
+                  "default": false,
+                  "description": "Replace all occurrences for replace",
+                  "type": "boolean"
+                },
+                "to": {
+                  "description": "Destination path for move. The destination must not already exist; move never overwrites.",
+                  "type": "string"
+                },
+                "type": {
+                  "description": "Operation type. Required fields per type ([optional] in brackets): create: path, content. write: path, content. replace: path, old_string, new_string [replace_all]. delete_file: path. move: from, to. Most types also accept [assert_present, assert_absent, file_hash]; exceptions: create accepts asserts but not file_hash; delete_file accepts file_hash but not asserts.",
+                  "enum": [
+                    "create",
+                    "write",
+                    "replace",
+                    "delete_file",
+                    "move"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "operations"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read",
+      "description": "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Text line numbers are opt-in with `line_numbers`; output is bounded. Continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 200,
+            "description": "Max lines to read",
+            "maximum": 1000,
+            "type": "integer"
+          },
+          "line_numbers": {
+            "default": false,
+            "description": "Include line numbers in read output",
+            "type": "boolean"
+          },
+          "offset": {
+            "default": 1,
+            "description": "Starting line number (1-based)",
+            "type": "integer"
+          },
+          "path": {
+            "description": "File path to read",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "workflow_handoff",
+      "description": "Create a workflow handoff request to transition to a different workflow with approved artifacts. Validates the target directory against configured workflow requirements.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "description": "Optional handoff message. Trimmed and bounded to keep the request concise.",
+            "maxLength": 512,
+            "type": "string"
+          },
+          "next": {
+            "description": "Required. The workflow target to hand off to. implement: structured `/implement` workflow using overview.md and plan.yaml. review: structured `/review` workflow using overview.md and plan.yaml. build: direct execution of standalone plan.md in build mode, without skill discovery.",
+            "enum": [
+              "implement",
+              "review",
+              "build"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "description": "Required. A safe relative directory with workflow artifacts.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "next",
+          "target"
+        ],
+        "type": "object"
+      }
+    }
+  }
+]
