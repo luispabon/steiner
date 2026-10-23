@@ -2,7 +2,7 @@
 
 | Tool | Description |
 |------|-------------|
-| `read` | Read files with offset/limit pagination; line numbers are opt-in with `line_numbers: true`; detects and base64-encodes images |
+| `read` | Read files with offset/limit pagination; line numbers are opt-in with `line_numbers: true`; detects and base64-encodes images. Text files over 1MB are rejected, even when paging, because the whole file is scanned for `file_hash` and `total_lines` (images have a separate 5MB limit). Such files cannot satisfy replace's read-first guard through `read` unless the file was read before it grew past the cap; replace still accepts an explicit `file_hash` if you compute it yourself (CRC32-IEEE over the file with trailing tabs, spaces and CR trimmed from each line, as 8 uppercase hex digits). |
 | `mutate` | Apply structured file mutations atomically: create, write, replace, delete_file, or move |
 | `glob` | Find files by pattern |
 | `grep` | Search file contents with surrounding context |

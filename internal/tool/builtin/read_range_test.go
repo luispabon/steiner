@@ -2,11 +2,14 @@ package builtin
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -57,7 +60,7 @@ func TestReadRangeRejectsBinaryAndOversizedFiles(t *testing.T) {
 	def := NewReadTool(Env{WorkDir: dir, PathPolicy: &policy})
 	cases := []struct{ name, body, want string }{
 		{"binary", "\x00binary", "binary"},
-		{"oversize", strings.Repeat("x", 100*1024+1), "too large"},
+		{"oversize", strings.Repeat("x", maxReadFileBytes+1), "file too large (max 1.0mb"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -76,6 +79,152 @@ func TestReadRangeRejectsBinaryAndOversizedFiles(t *testing.T) {
 				if !strings.Contains(strings.ToLower(result.Output), tc.want) {
 					t.Fatalf("output = %q, want %q", result.Output, tc.want)
 				}
+			}
+		})
+	}
+}
+
+func TestReadRangeAcceptsFileAtSizeLimit(t *testing.T) {
+	dir := t.TempDir()
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	def := NewReadTool(Env{WorkDir: dir, PathPolicy: &policy})
+	line := strings.Repeat("x", 1023) + "\n"
+	body := strings.Repeat(line, maxReadFileBytes/len(line))
+	if err := os.WriteFile(filepath.Join(dir, "limit.txt"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range []map[string]any{{"path": "limit.txt"}, {"path": "limit.txt", "offset": 2, "limit": 1}} {
+		got, err := def.Handler(context.Background(), args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, ok := got.(ReadResult)
+		if !ok {
+			t.Fatalf("result type %T, want ReadResult", got)
+		}
+		if result.Path == "" || result.TotalLines != 1024 || strings.Contains(result.Output, "too large") {
+			t.Fatalf("args %v: result = %+v, want a successful read of 1024 lines", args, result)
+		}
+	}
+}
+
+func TestReadRangePagesLargeFileWithWholeFileMetadata(t *testing.T) {
+	dir := t.TempDir()
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	def := NewReadTool(Env{WorkDir: dir, PathPolicy: &policy})
+	lines := make([]string, 4000)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%05d %s\n", i+1, strings.Repeat("x", 40))
+	}
+	data := []byte(strings.Join(lines, ""))
+	if len(data) <= 100*1024 || len(data) >= maxReadFileBytes {
+		t.Fatalf("fixture size = %d, want between 100KB and 1MB", len(data))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := def.Handler(context.Background(), map[string]any{"path": "big.txt", "offset": 2000, "limit": 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok := got.(ReadResult)
+	if !ok {
+		t.Fatalf("result type %T, want ReadResult", got)
+	}
+	if want := strings.Join(lines[1999:2002], ""); result.Output != want {
+		t.Errorf("output = %q, want %q", result.Output, want)
+	}
+	if result.FileHash != FileContentHash(data) {
+		t.Errorf("file_hash = %q, want whole-file hash %q", result.FileHash, FileContentHash(data))
+	}
+	if result.TotalLines != 4000 || result.StartLine != 2000 || result.EndLine != 2002 || result.NextOffset != 2003 {
+		t.Errorf("range = start %d end %d next %d total %d, want 2000 2002 2003 4000", result.StartLine, result.EndLine, result.NextOffset, result.TotalLines)
+	}
+}
+
+func TestReadUpToReportsExceededLimit(t *testing.T) {
+	boom := errors.New("boom")
+	for _, tc := range []struct {
+		name         string
+		input        string
+		wantExceeded bool
+		wantLen      int
+	}{
+		{name: "empty", input: "", wantExceeded: false, wantLen: 0},
+		{name: "exactly limit", input: strings.Repeat("x", 10), wantExceeded: false, wantLen: 10},
+		{name: "one byte over limit", input: strings.Repeat("x", 11), wantExceeded: true, wantLen: 11},
+		{name: "far over limit is capped", input: strings.Repeat("x", 100), wantExceeded: true, wantLen: 11},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, exceeded, err := readUpTo(strings.NewReader(tc.input), 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if exceeded != tc.wantExceeded || len(data) != tc.wantLen {
+				t.Errorf("readUpTo = (len %d, exceeded %t), want (len %d, exceeded %t)", len(data), exceeded, tc.wantLen, tc.wantExceeded)
+			}
+		})
+	}
+	if _, _, err := readUpTo(iotest.ErrReader(boom), 10); !errors.Is(err, boom) {
+		t.Errorf("err = %v, want %v", err, boom)
+	}
+}
+
+func TestReadRangeOversizeMessageNamesLimit(t *testing.T) {
+	dir := t.TempDir()
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	def := NewReadTool(Env{WorkDir: dir, PathPolicy: &policy})
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(strings.Repeat("x", maxReadFileBytes+1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := def.Handler(context.Background(), map[string]any{"path": "big.txt", "offset": 2, "limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok := got.(*ReadResult)
+	if !ok {
+		t.Fatalf("result type %T, want *ReadResult", got)
+	}
+	want := "Error: file too large (max 1.0MB, got 1048577 bytes); offset/limit cannot bypass this limit, use grep or bash to inspect it"
+	if result.Output != want {
+		t.Errorf("output = %q, want %q", result.Output, want)
+	}
+}
+
+func TestReadOpenTextRangeEnforcesSizeLimit(t *testing.T) {
+	limit := maxReadFileBytes
+	for _, tc := range []struct {
+		name     string
+		bodyLen  int
+		statSize int64
+		wantErr  bool
+		wantMsg  string
+	}{
+		{name: "exactly limit passes", bodyLen: limit, statSize: int64(limit)},
+		{name: "one byte over limit", bodyLen: limit + 1, statSize: int64(limit + 1), wantErr: true, wantMsg: "got 1048577 bytes"},
+		{name: "reader longer than stat size", bodyLen: limit + 1, statSize: 10, wantErr: true, wantMsg: "file grew past the limit while reading"},
+		{name: "stat size over limit", bodyLen: 10, statSize: int64(2 * limit), wantErr: true, wantMsg: "got 2.0MB"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := strings.Repeat("x", tc.bodyLen)
+			fileHash, totalLines, page, err := readOpenTextRange(strings.NewReader(body), tc.statSize, 1, 1)
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("err = %v, want nil", err)
+				}
+				if want := FileContentHash([]byte(body)); fileHash != want || totalLines != 1 {
+					t.Errorf("metadata = (%q, %d), want (%q, 1)", fileHash, totalLines, want)
+				}
+				return
+			}
+			if err == nil || err.Error() != "file too large" {
+				t.Errorf("err = %v, want file too large", err)
+			}
+			if fileHash != "" || totalLines != 0 {
+				t.Errorf("metadata = (%q, %d), want empty hash and zero lines", fileHash, totalLines)
+			}
+			if len(page) != 1 || !strings.Contains(page[0], tc.wantMsg) {
+				t.Errorf("page = %q, want one message containing %q", page, tc.wantMsg)
 			}
 		})
 	}

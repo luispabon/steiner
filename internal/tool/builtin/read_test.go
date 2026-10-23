@@ -295,7 +295,7 @@ func TestReadTool(t *testing.T) {
 	})
 
 	t.Run("oversized paginated read rejected by size limit", func(t *testing.T) {
-		content := strings.Repeat("x", 100*1024+1)
+		content := strings.Repeat("x", maxReadFileBytes+1)
 		path := filepath.Join(tmpDir, "paged-large.txt")
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
@@ -309,6 +309,34 @@ func TestReadTool(t *testing.T) {
 			if !strings.Contains(result.Output, "file too large") {
 				t.Fatalf("output = %q", result.Output)
 			}
+			raw, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(raw), `"path":""`) {
+				t.Fatalf("failed read JSON = %s, want empty path so it is not recorded as observed", raw)
+			}
+		}
+	})
+
+	t.Run("binary read has empty path", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(tmpDir, "blob.bin"), []byte{0x00, 0x01, 0x02, 0x03}, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := toolDef.Handler(ctx, map[string]any{"path": "blob.bin"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := got.(*ReadResult)
+		if !strings.Contains(result.Output, "cannot read binary file") {
+			t.Fatalf("output = %q", result.Output)
+		}
+		raw, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), `"path":""`) {
+			t.Fatalf("failed read JSON = %s, want empty path so it is not recorded as observed", raw)
 		}
 	})
 }
