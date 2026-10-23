@@ -6,8 +6,6 @@ import (
 	"math"
 	"strings"
 	"sync"
-
-	"github.com/tiktoken-go/tokenizer"
 )
 
 const (
@@ -56,24 +54,22 @@ type tokenCalibration struct {
 }
 
 type tokenCounter struct {
-	loadTokenizer func(string) (tokenizer.Codec, error)
+	selectOpts counterSelectOptions
 
 	mu           sync.RWMutex
 	calibrations map[string]tokenCalibration
-	ctokIDs      map[string]struct{}
 }
 
 // NewTokenCounter creates a token counter with in-memory provider-usage
 // calibration.
 func NewTokenCounter() TokenCounter {
-	return newTokenCounter(tokenizerForModel)
+	return newTokenCounter(productionCounterSelectOptions())
 }
 
-func newTokenCounter(loadTokenizer func(string) (tokenizer.Codec, error)) TokenCounter {
+func newTokenCounter(opts counterSelectOptions) TokenCounter {
 	return &tokenCounter{
-		loadTokenizer: loadTokenizer,
-		calibrations:  make(map[string]tokenCalibration),
-		ctokIDs:       ctokActiveModelIDs,
+		selectOpts:   opts,
+		calibrations: make(map[string]tokenCalibration),
 	}
 }
 
@@ -138,7 +134,7 @@ func (c *tokenCounter) ObserveUsage(ctx context.Context, request ChatRequest, us
 }
 
 func (c *tokenCounter) estimateBase(ctx context.Context, request ChatRequest) (tokens int, strategy string, confidence string, err error) {
-	counter, meta, err := selectTextCounter(request.Model, c.ctokIDs, c.loadTokenizer)
+	counter, meta, err := selectTextCounter(request.Model, c.selectOpts)
 	if err != nil {
 		// A tokenizer load failure keeps the heuristic fallback. ctok failures are
 		// returned by countRequestWithCounter and never fall back.

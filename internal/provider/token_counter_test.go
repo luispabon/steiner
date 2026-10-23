@@ -39,9 +39,9 @@ func TestTokenCounterUsesTiktokenStrategyByDefault(t *testing.T) {
 func TestTokenCounterFallsBackToHeuristicStrategy(t *testing.T) {
 	t.Parallel()
 
-	counter := newTokenCounter(func(string) (tokenizer.Codec, error) {
+	counter := newTokenCounter(counterSelectOptions{codecLoader: func(string) (tokenizer.Codec, error) {
 		return nil, errors.New("boom")
-	})
+	}})
 	request := ChatRequest{
 		Model: "custom-model",
 		Messages: []Message{
@@ -67,7 +67,7 @@ func TestTokenCounterFallsBackToHeuristicStrategy(t *testing.T) {
 func TestTokenCounterCalibrationUpdatesCorrectionFactor(t *testing.T) {
 	t.Parallel()
 
-	counter := newTokenCounter(tokenizerForModel).(*tokenCounter)
+	counter := newTokenCounter(counterSelectOptions{codecLoader: tokenizerForModel}).(*tokenCounter)
 	request := ChatRequest{
 		Model: "gpt-4o",
 		Messages: []Message{
@@ -97,7 +97,7 @@ func TestTokenCounterCalibrationUpdatesCorrectionFactor(t *testing.T) {
 func TestTokenCounterCalibrationImprovesEstimate(t *testing.T) {
 	t.Parallel()
 
-	counter := newTokenCounter(tokenizerForModel)
+	counter := newTokenCounter(counterSelectOptions{codecLoader: tokenizerForModel})
 	request := ChatRequest{
 		Model: "gpt-4o",
 		Messages: []Message{
@@ -141,7 +141,7 @@ func TestTokenCounterCalibrationImprovesEstimate(t *testing.T) {
 func TestTokenCounterCalibrationStaysStableWithCacheInclusiveUsage(t *testing.T) {
 	t.Parallel()
 
-	counter := newTokenCounter(tokenizerForModel).(*tokenCounter)
+	counter := newTokenCounter(counterSelectOptions{codecLoader: tokenizerForModel}).(*tokenCounter)
 	request := ChatRequest{
 		Model: "gpt-4o",
 		Messages: []Message{
@@ -216,10 +216,10 @@ func TestTokenCounterCtokCalibrationKeepsRawCount(t *testing.T) {
 		Model:    "claude-test-model",
 		Messages: []Message{{Role: MessageRoleUser, Content: strings.Repeat("hello ", 32)}},
 	}
-	counter := newTokenCounter(tokenizerForModel).(*tokenCounter)
-	counter.ctokIDs = map[string]struct{}{"claude-test-model": {}}
+	candidate := &claudeTextCounter{}
+	counter := newTokenCounter(counterSelectOptions{ids: map[string]struct{}{"claude-test-model": {}}, codecLoader: tokenizerForModel, candidate: candidate}).(*tokenCounter)
 
-	raw, err := countRequestWithCounter(ctx, request, claudeCounter)
+	raw, err := countRequestWithCounter(ctx, request, candidate)
 	if err != nil {
 		t.Fatalf("countRequestWithCounter() error = %v", err)
 	}
@@ -247,7 +247,7 @@ func TestTokenCounterCtokCalibrationKeepsRawCount(t *testing.T) {
 		t.Fatalf("calibrated Strategy, Confidence = %q, %q; want provider_usage, medium", after.Strategy, after.Confidence)
 	}
 
-	plain := newTokenCounter(tokenizerForModel)
+	plain := newTokenCounter(counterSelectOptions{codecLoader: tokenizerForModel})
 	estimate, err := plain.EstimateChatRequestTokens(ctx, request)
 	if err != nil {
 		t.Fatalf("EstimateChatRequestTokens() without injected table error = %v", err)

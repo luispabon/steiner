@@ -542,9 +542,9 @@ func TestResolveModelMetadataFallbackWarning(t *testing.T) {
 func TestResolveTokenizerMetadataFallsBackToHeuristicWhenTiktokenUnavailable(t *testing.T) {
 	t.Parallel()
 
-	strategy, confidence := resolveTokenizerMetadataWithLoader("custom-model", nil, func(string) (tokenizer.Codec, error) {
+	strategy, confidence := resolveTokenizerMetadataWithOptions("custom-model", counterSelectOptions{codecLoader: func(string) (tokenizer.Codec, error) {
 		return nil, errors.New("unavailable")
-	})
+	}})
 	if strategy != TokenizerStrategyHeuristic {
 		t.Fatalf("strategy = %q, want %q", strategy, TokenizerStrategyHeuristic)
 	}
@@ -560,9 +560,9 @@ func TestResolveTokenizerMetadataGPT5AliasHasHighConfidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tokenizer.Get(o200k_base) error = %v", err)
 	}
-	strategy, confidence := resolveTokenizerMetadataWithLoader("gpt-5.6-luna", nil, func(string) (tokenizer.Codec, error) {
+	strategy, confidence := resolveTokenizerMetadataWithOptions("gpt-5.6-luna", counterSelectOptions{codecLoader: func(string) (tokenizer.Codec, error) {
 		return o200k, nil
-	})
+	}})
 	if strategy != TokenizerStrategyTiktoken {
 		t.Fatalf("strategy = %q, want %q", strategy, TokenizerStrategyTiktoken)
 	}
@@ -572,7 +572,11 @@ func TestResolveTokenizerMetadataGPT5AliasHasHighConfidence(t *testing.T) {
 }
 
 func TestResolveTokenizerMetadataSelectsCtokOnlyForExactActiveID(t *testing.T) {
-	withCtokActiveModelIDs(t, "claude-test-model")
+	opts := counterSelectOptions{
+		ids:         map[string]struct{}{"claude-test-model": {}},
+		codecLoader: tokenizerForModel,
+		candidate:   &claudeTextCounter{},
+	}
 	tests := []struct {
 		model        string
 		wantStrategy string
@@ -583,7 +587,7 @@ func TestResolveTokenizerMetadataSelectsCtokOnlyForExactActiveID(t *testing.T) {
 		{model: "claude-test-model-20260101", wantStrategy: TokenizerStrategyTiktoken},
 	}
 	for _, tt := range tests {
-		strategy, confidence := resolveTokenizerMetadata(tt.model)
+		strategy, confidence := resolveTokenizerMetadataWithOptions(tt.model, opts)
 		if strategy != tt.wantStrategy {
 			t.Fatalf("resolveTokenizerMetadata(%q) strategy = %q, want %q", tt.model, strategy, tt.wantStrategy)
 		}

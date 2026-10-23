@@ -145,13 +145,15 @@ func clampInt(value, minValue, maxValue int) int {
 }
 
 func resolveTokenizerMetadata(modelID string) (strategy string, confidence string) {
-	return resolveTokenizerMetadataWithLoader(modelID, ctokActiveModelIDs, tokenizerForModel)
+	return resolveTokenizerMetadataWithOptions(modelID, productionCounterSelectOptions())
 }
 
-func resolveTokenizerMetadataWithLoader(modelID string, ctokIDs map[string]struct{}, loadTokenizer func(string) (tokenizer.Codec, error)) (strategy string, confidence string) {
+// resolveTokenizerMetadataWithOptions reports the strategy and confidence that
+// selectTextCounter applies to modelID under opts.
+func resolveTokenizerMetadataWithOptions(modelID string, opts counterSelectOptions) (strategy string, confidence string) {
 	// The loader error is intentionally dropped: selectTextCounter already
 	// reports the heuristic fallback in its metadata.
-	_, meta, _ := selectTextCounter(modelID, ctokIDs, loadTokenizer)
+	_, meta, _ := selectTextCounter(modelID, opts)
 	return meta.strategy, meta.confidence
 }
 
