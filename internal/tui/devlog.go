@@ -87,6 +87,9 @@ type devLogState struct {
 	// Entries recorded in that window are dropped.
 	replaying bool
 	sink      DiagnosticsSink
+	// generation counts ring mutations in push. Render memos key on it, since a
+	// full ring keeps the same slice header while its contents change.
+	generation uint64
 }
 
 // recordDevLog appends an entry to the ring, updates the unseen badge state and
@@ -115,6 +118,7 @@ func (s *devLogState) push(e devLogEntry) {
 		s.entries = s.entries[:devLogCapacity-1]
 	}
 	s.entries = append(s.entries, e)
+	s.generation++
 }
 
 // worstUnseen returns the highest severity among the unseen entries, or zero

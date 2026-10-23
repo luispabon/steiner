@@ -306,6 +306,20 @@ func memoCases() []memoCase {
 			}, commonMemoMutations(true, false)...),
 		},
 		{
+			name: "devlog",
+			open: func(_ *testing.T, m *Model) {
+				recordTestDevLog(m, 40, devLogError)
+				m.openDevLogOverlay()
+			},
+			frame:  func(m *Model) string { return m.exclusiveOverlayView()() },
+			view:   func(m *Model) string { return m.devLogOverlay.View(m.devLog.entries) },
+			poison: func(m *Model) { m.overlayMemos.devLog.out = memoSentinel },
+			mutations: append([]memoMutation{
+				keyMutation("up", benchKeyUp, true),
+				keyMutation("pgdn", benchKeyPgDn, true),
+			}, commonMemoMutations(true, false)...),
+		},
+		{
 			name: "context",
 			open: func(_ *testing.T, m *Model) {
 				m.contextOverlay = openContextOverlay("Context", benchContextReport(), m.width, m.height, m.styles, m.content.glamourStyleSheet)

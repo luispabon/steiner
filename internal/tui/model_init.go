@@ -244,7 +244,7 @@ var overlayKeyHandlers = []overlayKeyHandler{
 		match: func(m *Model) bool { return m.devLogOverlay.IsOpen() },
 		apply: func(m *Model, msg tea.KeyPressMsg) tea.Cmd {
 			var cmd tea.Cmd
-			m.devLogOverlay, cmd = m.devLogOverlay.Update(msg, m.devLog.entries)
+			m.devLogOverlay, cmd = m.devLogOverlay.Update(msg, m.devLog.entries, m.devLogLineCount())
 			return cmd
 		},
 	},

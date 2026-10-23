@@ -15,13 +15,7 @@ import (
 
 //nolint:gocyclo // pre-routing guards run in a fixed order
 func (m *Model) applyEvent(event output.Event) tea.Cmd {
-	switch event.Type {
-	case output.EventTypeReplayStarted:
-		m.devLog.replaying = true
-	case output.EventTypeReplayFinished:
-		m.devLog.replaying = false
-		m.stopErrorShown = false
-	}
+	m.applyReplayBoundaryEvent(event)
 	if payload, ok := event.Payload.(output.ConversationStateEvent); ok {
 		m.applyConversationState(payload)
 		return nil
@@ -41,8 +35,8 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		}
 	}
 
-	if entry, ok := devLogEntryFor(event); ok {
-		m.recordDevLog(entry.devLogParams)
+	if params, ok := devLogParamsFor(event); ok {
+		m.recordDevLog(params)
 	}
 
 	// Context report events: display mode is set by the producer; the TUI
@@ -67,6 +61,19 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		return cmd
 	}
 	return m.finishAppliedEvent(event)
+}
+
+// applyReplayBoundaryEvent marks the replay window. Entering replay drops dev
+// log entries until replay finishes, and finishing replay clears the stop error
+// notice latch.
+func (m *Model) applyReplayBoundaryEvent(event output.Event) {
+	switch event.Type {
+	case output.EventTypeReplayStarted:
+		m.devLog.replaying = true
+	case output.EventTypeReplayFinished:
+		m.devLog.replaying = false
+		m.stopErrorShown = false
+	}
 }
 
 // applyPayloadEvent routes the event payload to its family handler. It

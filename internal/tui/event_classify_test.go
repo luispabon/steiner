@@ -9,7 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-func TestDevLogEntryFor(t *testing.T) {
+func TestDevLogParamsFor(t *testing.T) {
 	t.Parallel()
 	scoped := output.EventScope{AgentID: "child-1", AgentType: "explore"}
 	tests := []struct {
@@ -151,6 +151,22 @@ func TestDevLogEntryFor(t *testing.T) {
 			message:  "save failed",
 		},
 		{
+			name:     "typed session health critical keeps notes",
+			event:    output.Event{Payload: output.ContextSessionHealthEvent{Severity: "critical", Notes: []string{"compacted often"}, RestartGuidance: "restart"}},
+			want:     true,
+			severity: devLogError,
+			source:   "session",
+			message:  "compacted often",
+		},
+		{
+			name:     "typed session health warning falls back to restart guidance",
+			event:    output.Event{Payload: output.ContextSessionHealthEvent{Severity: "warning", RestartGuidance: "restart the session"}},
+			want:     true,
+			severity: devLogWarning,
+			source:   "session",
+			message:  "restart the session",
+		},
+		{
 			name:  "session health info is silent",
 			event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{Kind: "session_health", Severity: "info", Notes: []string{"ok"}}),
 		},
@@ -178,7 +194,7 @@ func TestDevLogEntryFor(t *testing.T) {
 			t.Parallel()
 			event := tc.event
 			event.Scope = tc.scope
-			got, ok := devLogEntryFor(event)
+			got, ok := devLogParamsFor(event)
 			if ok != tc.want {
 				t.Fatalf("ok = %v, want %v", ok, tc.want)
 			}

@@ -142,7 +142,8 @@ func (o devLogOverlay) View(entries []devLogEntry) string {
 
 // Update handles scroll, close and copy keys. Alt+E closes the overlay, as it
 // opens it. Copy returns a command that writes every entry to the clipboard.
-func (o devLogOverlay) Update(msg tea.Msg, entries []devLogEntry) (devLogOverlay, tea.Cmd) {
+// total is len(buildLines(entries)), passed in so the caller can cache it.
+func (o devLogOverlay) Update(msg tea.Msg, entries []devLogEntry, total int) (devLogOverlay, tea.Cmd) {
 	if !o.IsOpen() {
 		return o, nil
 	}
@@ -155,7 +156,6 @@ func (o devLogOverlay) Update(msg tea.Msg, entries []devLogEntry) (devLogOverlay
 		}
 	}
 
-	total := len(o.buildLines(entries))
 	visible := o.visibleHeight()
 	result := o.handleScrollKey(msg, o.offset(total, visible), visible, total)
 	if !result.handled {

@@ -239,7 +239,7 @@ func (m *Model) exclusiveOverlayView() func() string {
 	case m.lspOverlay.IsOpen():
 		return func() string { return m.lspOverlay.memoView(&m.overlayMemos.lsp) }
 	case m.devLogOverlay.IsOpen():
-		return func() string { return m.devLogOverlay.View(m.devLog.entries) }
+		return func() string { return m.devLogMemoView() }
 	}
 	return nil
 }
