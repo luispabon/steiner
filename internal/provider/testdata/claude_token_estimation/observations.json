@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "cli_version": "",
+  "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+  "payload_sha256": {
+    "code_json": "58335d20625eaa98800564587e94118ca0280c57fc2ba0ef2ae62e01b0de1cca",
+    "markdown_prose": "8d26c7ab79ecb1da78d9e645f8e40fc9b12bece706b773517e9ab8d56a0ae1e8",
+    "unicode": "aa86bc5361f55e4a84079b6d1f4b599a9c80b155b30a9cfce6d3a8d4e7a648ac",
+    "mixed": "2ff3537b972a385ac6a3d7900b98f158668143d6dc0f4f5ce3808749e83499bd"
+  },
+  "tools_sha256": "30d083b816c770ab4ef2b553054ed46a57b3c7934b50589f88660706126d7580",
+  "launch": {
+    "reasoning": "off",
+    "max_output_tokens": 64,
+    "turns": 1,
+    "history": "none",
+    "json_omitted": [
+      "TransportSession",
+      "ParentTransportSession",
+      "Params",
+      "ExtraParams",
+      "PromptCacheKey",
+      "IncludeEmptyReasoning",
+      "Reasoning",
+      "AdvisorCacheProfile",
+      "BackendState",
+      "CompactionSummary",
+      "CompactionSourceMessages"
+    ]
+  },
+  "attempts": []
+}
