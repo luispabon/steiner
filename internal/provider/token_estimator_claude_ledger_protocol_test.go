@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"slices"
 	"time"
 )
@@ -152,7 +153,7 @@ func (in claudeLedgerReserveInput) check() error {
 // be non-negative, at least one component must be present, PromptTotal must be
 // positive, and PromptTotal must equal the sum of the present components. Each
 // component is checked on its own, so a negative value cannot hide behind a
-// positive sum.
+// positive sum. An overflowing sum fails too.
 func claudeLedgerValidateUsage(u claudeLedgerUsage) error {
 	present, sum := false, 0
 	for _, v := range []*int{u.Input, u.CacheCreation, u.CacheRead} {
@@ -161,6 +162,10 @@ func claudeLedgerValidateUsage(u claudeLedgerUsage) error {
 		}
 		if *v < 0 {
 			return fmt.Errorf("usage component is negative: %d", *v)
+		}
+		// Check before adding, so the sum cannot wrap around.
+		if *v > math.MaxInt-sum {
+			return errors.New("usage components overflow int")
 		}
 		present = true
 		sum += *v
@@ -180,9 +185,16 @@ func claudeLedgerValidateUsage(u claudeLedgerUsage) error {
 // must be one ChatRequest object with no unknown fields, name requested as its
 // model, and carry at least one message. A request over the size limit fails.
 func claudeLedgerValidateRequest(raw []byte, requested string) error {
-	if len(raw) > claudeLedgerMaxRequestBytes {
-		return fmt.Errorf("request is %d bytes, limit is %d", len(raw), claudeLedgerMaxRequestBytes)
+	// The limit applies to the compact form, which reserve writes. Compacting
+	// first makes an indented copy of the same request measure the same.
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
+		return fmt.Errorf("request is not JSON: %w", err)
 	}
+	if compact.Len() > claudeLedgerMaxRequestBytes {
+		return fmt.Errorf("request is %d bytes compact, limit is %d", compact.Len(), claudeLedgerMaxRequestBytes)
+	}
+	raw = compact.Bytes()
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return errors.New("request is null")
 	}
@@ -205,7 +217,8 @@ func claudeLedgerValidateRequest(raw []byte, requested string) error {
 }
 
 // claudeLedgerValidateRecord checks one stored record. The status decides which
-// outcome fields may be set, and a succeeded record must pass the usage checks.
+// outcome fields may be set, a succeeded record must pass the usage checks, and
+// the failure code decides which observed model a failed record may name.
 func claudeLedgerValidateRecord(rec claudeLedgerRecord) error {
 	in := claudeLedgerReserveInput{
 		Slot:           rec.Slot,
@@ -243,8 +256,19 @@ func claudeLedgerValidateRecord(rec claudeLedgerRecord) error {
 		if !slices.Contains(claudeLedgerFailures, rec.Failure) || rec.Usage != nil {
 			return errors.New("failed record lacks a known failure code or carries usage")
 		}
-		if rec.ObservedModel != "" && !slices.Contains(claudeLedgerModels, rec.ObservedModel) {
-			return errors.New("failed record names an unknown observed model")
+		switch rec.Failure {
+		case claudeLedgerFailLaunch, claudeLedgerFailNoObservation:
+			if rec.ObservedModel != "" {
+				return errors.New("failed record names an observed model without an observation")
+			}
+		case claudeLedgerFailModel:
+			if !slices.Contains(claudeLedgerModels, rec.ObservedModel) || rec.ObservedModel == rec.RequestedModel {
+				return errors.New("model failure lacks a candidate observed model that differs from requested")
+			}
+		case claudeLedgerFailUsage:
+			if rec.ObservedModel != rec.RequestedModel {
+				return errors.New("usage failure lacks the requested observed model")
+			}
 		}
 	default:
 		return fmt.Errorf("unknown status %q", rec.Status)

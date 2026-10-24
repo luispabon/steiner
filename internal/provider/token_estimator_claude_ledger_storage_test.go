@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -323,24 +324,34 @@ func TestClaudeTokenLedgerPersistsOnlyFailureCodes(t *testing.T) {
 // attempt and persists a failed record, never a success.
 func TestClaudeTokenLedgerInvalidObservationPersistsFailed(t *testing.T) {
 	set := loadClaudeFixtureForTest(t)
-	const haiku = "claude-haiku-5-5"
+	const haiku, opus = "claude-haiku-5-5", "claude-opus-5-5"
 	tests := []struct {
-		name string
-		obs  *claudeLedgerObservation
-		want string
+		name     string
+		obs      *claudeLedgerObservation
+		want     string
+		observed string
 	}{
-		{"empty observation", &claudeLedgerObservation{}, claudeLedgerFailModel},
-		{"model without usage", &claudeLedgerObservation{ObservedModel: haiku}, claudeLedgerFailUsage},
-		{"negative component", &claudeLedgerObservation{ObservedModel: haiku, claudeLedgerUsage: claudeLedgerUsage{Input: claudeLedgerIntPtr(-2), CacheRead: claudeLedgerIntPtr(5), PromptTotal: 3}}, claudeLedgerFailUsage},
+		{"nil observation", nil, claudeLedgerFailNoObservation, ""},
+		{"empty observation", &claudeLedgerObservation{}, claudeLedgerFailNoObservation, ""},
+		{"model outside candidates", claudeLedgerFakeObservation("claude-haiku-4-5"), claudeLedgerFailNoObservation, ""},
+		{"other candidate model", claudeLedgerFakeObservation(opus), claudeLedgerFailModel, opus},
+		{"model without usage", &claudeLedgerObservation{ObservedModel: haiku}, claudeLedgerFailUsage, haiku},
+		{"negative component", &claudeLedgerObservation{ObservedModel: haiku, claudeLedgerUsage: claudeLedgerUsage{Input: claudeLedgerIntPtr(-2), CacheRead: claudeLedgerIntPtr(5), PromptTotal: 3}}, claudeLedgerFailUsage, haiku},
+		// The wrapped sum is MaxInt-2, so only the overflow check rejects this.
+		{"components overflow", &claudeLedgerObservation{ObservedModel: haiku, claudeLedgerUsage: claudeLedgerUsage{Input: claudeLedgerIntPtr(math.MaxInt), CacheCreation: claudeLedgerIntPtr(math.MaxInt), CacheRead: claudeLedgerIntPtr(math.MaxInt), PromptTotal: math.MaxInt - 2}}, claudeLedgerFailUsage, haiku},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, l := claudeLedgerCreateForTest(t)
+			dir, l := claudeLedgerCreateForTest(t)
 			rec, err := l.RunAttempt(claudeLedgerTestInput(set, haiku, claudeLedgerSlotBaseline), func(claudeLedgerRecord) (*claudeLedgerObservation, error) {
 				return tt.obs, nil
 			})
-			if err != nil || rec.Status != claudeLedgerStatusFailed || rec.Failure != tt.want || rec.Usage != nil {
-				t.Errorf("record = %+v, err %v; want failed with %q and no usage", rec, err, tt.want)
+			if err != nil || rec.Status != claudeLedgerStatusFailed || rec.Failure != tt.want || rec.ObservedModel != tt.observed || rec.Usage != nil {
+				t.Errorf("record = %+v, err %v; want failed with %q, observed %q and no usage", rec, err, tt.want, tt.observed)
+			}
+			// The stored record must also pass the production validator on reload.
+			if got := claudeLedgerOnDisk(t, dir); len(got) != 1 || got[0].Failure != tt.want || got[0].ObservedModel != tt.observed {
+				t.Errorf("on disk = %+v, want the failure above", got)
 			}
 		})
 	}
@@ -360,6 +371,10 @@ func TestClaudeTokenLedgerUsageValidation(t *testing.T) {
 		{"negative cache creation, positive sum", claudeLedgerUsage{Input: claudeLedgerIntPtr(200), CacheCreation: claudeLedgerIntPtr(-100), CacheRead: claudeLedgerIntPtr(7), PromptTotal: 107}, false},
 		{"negative cache read, positive sum", claudeLedgerUsage{Input: claudeLedgerIntPtr(200), CacheRead: claudeLedgerIntPtr(-7), PromptTotal: 193}, false},
 		{"prompt differs from sum", claudeLedgerUsage{Input: claudeLedgerIntPtr(3), PromptTotal: 4}, false},
+		{"sum equals MaxInt", claudeLedgerUsage{Input: claudeLedgerIntPtr(math.MaxInt), PromptTotal: math.MaxInt}, true},
+		// The wrapped sum of three MaxInt values is MaxInt-2, so PromptTotal matches it.
+		// Only the overflow check rejects this value.
+		{"three MaxInt components overflow", claudeLedgerUsage{Input: claudeLedgerIntPtr(math.MaxInt), CacheCreation: claudeLedgerIntPtr(math.MaxInt), CacheRead: claudeLedgerIntPtr(math.MaxInt), PromptTotal: math.MaxInt - 2}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -514,6 +529,13 @@ func TestClaudeTokenLedgerResumeRefusesDuplicatesBelowCap(t *testing.T) {
 func TestClaudeTokenLedgerResumeRejectsBadRecords(t *testing.T) {
 	set := loadClaudeFixtureForTest(t)
 	valid := claudeLedgerValidFile(t, set)
+	const haiku, opus = "claude-haiku-5-5", "claude-opus-5-5"
+	// failedWith turns the valid succeeded record into a failed one with code and observed.
+	failedWith := func(code, observed string) func(*claudeLedgerRecord) {
+		return func(r *claudeLedgerRecord) {
+			r.Status, r.Failure, r.Usage, r.ObservedModel = claudeLedgerStatusFailed, code, nil, observed
+		}
+	}
 	sonnetRequest := json.RawMessage(`{"model":"claude-sonnet-5-5","messages":[{"role":"user","content":"x"}]}`)
 	tests := []struct {
 		name string
@@ -531,8 +553,22 @@ func TestClaudeTokenLedgerResumeRejectsBadRecords(t *testing.T) {
 		}},
 		{"succeeded prompt differs from sum", func(r *claudeLedgerRecord) { r.Usage.PromptTotal = 99 }},
 		{"succeeded without usage", func(r *claudeLedgerRecord) { r.Usage = nil }},
+		{"succeeded usage overflows", func(r *claudeLedgerRecord) {
+			r.Usage = &claudeLedgerUsage{Input: claudeLedgerIntPtr(math.MaxInt), CacheCreation: claudeLedgerIntPtr(math.MaxInt), CacheRead: claudeLedgerIntPtr(math.MaxInt), PromptTotal: math.MaxInt - 2}
+		}},
 		{"failed with raw error text", func(r *claudeLedgerRecord) {
 			r.Status, r.Failure, r.Usage, r.ObservedModel = claudeLedgerStatusFailed, "exec /home/luis/key failed", nil, ""
+		}},
+		{"launch failure names observed model", failedWith(claudeLedgerFailLaunch, haiku)},
+		{"no-observation failure names observed model", failedWith(claudeLedgerFailNoObservation, haiku)},
+		{"model failure without observed model", failedWith(claudeLedgerFailModel, "")},
+		{"model failure observed equals requested", failedWith(claudeLedgerFailModel, haiku)},
+		{"model failure observed outside candidates", failedWith(claudeLedgerFailModel, "claude-haiku-4-5")},
+		{"usage failure observed differs", failedWith(claudeLedgerFailUsage, opus)},
+		{"usage failure without observed model", failedWith(claudeLedgerFailUsage, "")},
+		{"failed record carries usage", func(r *claudeLedgerRecord) {
+			r.Status, r.Failure, r.ObservedModel = claudeLedgerStatusFailed, claudeLedgerFailLaunch, ""
+			r.Usage = &claudeLedgerUsage{Input: claudeLedgerIntPtr(3), PromptTotal: 3}
 		}},
 	}
 	for _, tt := range tests {
@@ -541,6 +577,61 @@ func TestClaudeTokenLedgerResumeRejectsBadRecords(t *testing.T) {
 			l, err := claudeLedgerOpen(dir)
 			if !errors.Is(err, errClaudeLedgerCorrupt) || l != nil {
 				t.Errorf("open = %v, err %v; want errClaudeLedgerCorrupt", l, err)
+			}
+		})
+	}
+}
+
+// The size limit applies to the compact form that reserve writes. The same request
+// written indented can exceed the limit on disk, so resume must measure it compactly
+// and agree with reserve.
+func TestClaudeTokenLedgerRequestLimitUsesCompactForm(t *testing.T) {
+	set := loadClaudeFixtureForTest(t)
+	const haiku = "claude-haiku-5-5"
+	valid := claudeLedgerValidFile(t, set)
+	tests := []struct {
+		name     string
+		messages int
+		ok       bool
+	}{
+		// About 600 KB compact. Indented, the same request is over the limit.
+		{"compact under limit, indented over", 20000, true},
+		// About 1.2 MB compact.
+		{"compact over limit", 40000, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := ChatRequest{Model: haiku, Messages: make([]Message, tt.messages)}
+			for i := range req.Messages {
+				req.Messages[i] = Message{Role: MessageRoleUser, Content: "x"}
+			}
+			compact, err := json.Marshal(req)
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+			indented, err := json.MarshalIndent(req, "", "  ")
+			if err != nil {
+				t.Fatalf("indent request: %v", err)
+			}
+			if (len(compact) <= claudeLedgerMaxRequestBytes) != tt.ok {
+				t.Fatalf("compact size %d does not match the case", len(compact))
+			}
+			if tt.ok && len(indented) <= claudeLedgerMaxRequestBytes {
+				t.Fatalf("indented size %d does not exceed the limit, so the case proves nothing", len(indented))
+			}
+			in := claudeLedgerTestInput(set, haiku, claudeLedgerSlotBaseline)
+			in.Request = req
+			_, l := claudeLedgerCreateForTest(t)
+			if _, err := l.Reserve(in); (err == nil) != tt.ok || (!tt.ok && !errors.Is(err, errClaudeLedgerInput)) {
+				t.Errorf("reserve err = %v, want ok %t", err, tt.ok)
+			}
+			data := claudeLedgerEditRecord(t, valid, func(r *claudeLedgerRecord) { r.Request = indented })
+			resumed, err := claudeLedgerOpen(claudeLedgerDirWith(t, data))
+			if (err == nil) != tt.ok || (!tt.ok && !errors.Is(err, errClaudeLedgerCorrupt)) {
+				t.Fatalf("open indented err = %v, want ok %t", err, tt.ok)
+			}
+			if err == nil {
+				t.Cleanup(func() { _ = resumed.Close() })
 			}
 		})
 	}

@@ -181,8 +181,9 @@ func (l *claudeLedger) reserve(in claudeLedgerReserveInput) (claudeLedgerRecord,
 }
 
 // RunAttempt reserves in, persists the reservation, then calls launch with the
-// reserved record. A launch error, a missing observation, an observed model other
-// than the requested one, or invalid usage is recorded as a failed attempt with a
+// reserved record. A launch error, a nil observation or one whose model is not a
+// candidate, an observed model other than the requested one, or invalid usage is
+// recorded as a failed attempt with a
 // fixed failure code, and the attempt still counts. The returned error covers
 // ledger failures only: a refused reservation (launch does not run) or an outcome
 // that could not be persisted.
@@ -210,21 +211,18 @@ func (l *claudeLedger) complete(id int, obs *claudeLedgerObservation, launchErr 
 		return claudeLedgerRecord{}, fmt.Errorf("attempt %d is not reserved", id)
 	}
 	rec := l.attempts[idx]
-	if obs != nil && slices.Contains(claudeLedgerModels, obs.ObservedModel) {
-		rec.ObservedModel = obs.ObservedModel
-	}
 	switch {
 	case launchErr != nil:
 		rec.Status, rec.Failure = claudeLedgerStatusFailed, claudeLedgerFailLaunch
-	case obs == nil:
+	case obs == nil || !slices.Contains(claudeLedgerModels, obs.ObservedModel):
 		rec.Status, rec.Failure = claudeLedgerStatusFailed, claudeLedgerFailNoObservation
 	case obs.ObservedModel != rec.RequestedModel:
-		rec.Status, rec.Failure = claudeLedgerStatusFailed, claudeLedgerFailModel
+		rec.Status, rec.Failure, rec.ObservedModel = claudeLedgerStatusFailed, claudeLedgerFailModel, obs.ObservedModel
 	case claudeLedgerValidateUsage(obs.claudeLedgerUsage) != nil:
-		rec.Status, rec.Failure = claudeLedgerStatusFailed, claudeLedgerFailUsage
+		rec.Status, rec.Failure, rec.ObservedModel = claudeLedgerStatusFailed, claudeLedgerFailUsage, obs.ObservedModel
 	default:
 		usage := obs.claudeLedgerUsage
-		rec.Status, rec.Usage = claudeLedgerStatusSucceeded, &usage
+		rec.Status, rec.ObservedModel, rec.Usage = claudeLedgerStatusSucceeded, obs.ObservedModel, &usage
 	}
 	attempts := slices.Clone(l.attempts)
 	attempts[idx] = rec
