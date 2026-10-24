@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
+	"math/big"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,7 +16,8 @@ import (
 // counter and the candidate ctok counter, then applies the acceptance gates. A
 // model is active only when every gate passes. The gate never launches the CLI.
 // Protocol, evidence loading, and request building are in
-// token_estimator_claude_gate_protocol_test.go.
+// token_estimator_claude_gate_protocol_test.go. Negative and semantic cases are
+// in token_estimator_claude_gate_cases_test.go.
 
 // claudeGateResidual is copied into every report. It states what the gates do
 // not model.
@@ -26,16 +27,17 @@ const claudeGateResidual = "CLI framing (system prompt, tool note, CLI built-in 
 	"Tool and full slots have no underestimation limit."
 
 // claudeGateComparison is one measured delta or full request. Signed errors are
-// predicted minus observed.
+// predicted minus observed. Errors are math/big values, so no pair of int64
+// inputs can overflow them.
 type claudeGateComparison struct {
-	Slot         string `json:"slot"`
-	Observed     int64  `json:"observed"`
-	OldPredicted int64  `json:"old_predicted"`
-	NewPredicted int64  `json:"new_predicted"`
-	OldSigned    int64  `json:"old_signed_error"`
-	NewSigned    int64  `json:"new_signed_error"`
-	OldAbs       int64  `json:"old_abs_error"`
-	NewAbs       int64  `json:"new_abs_error"`
+	Slot         string   `json:"slot"`
+	Observed     int64    `json:"observed"`
+	OldPredicted int64    `json:"old_predicted"`
+	NewPredicted int64    `json:"new_predicted"`
+	OldSigned    *big.Int `json:"old_signed_error"`
+	NewSigned    *big.Int `json:"new_signed_error"`
+	OldAbs       *big.Int `json:"old_abs_error"`
+	NewAbs       *big.Int `json:"new_abs_error"`
 }
 
 // claudeGateReport is the verdict for one candidate model.
@@ -47,8 +49,8 @@ type claudeGateReport struct {
 	Text           []claudeGateComparison `json:"text,omitempty"`
 	Tool           claudeGateComparison   `json:"tool"`
 	Full           claudeGateComparison   `json:"full"`
-	CategoryOldAbs int64                  `json:"category_old_abs_sum"`
-	CategoryNewAbs int64                  `json:"category_new_abs_sum"`
+	CategoryOldAbs *big.Int               `json:"category_old_abs_sum"`
+	CategoryNewAbs *big.Int               `json:"category_new_abs_sum"`
 	Residual       string                 `json:"residual"`
 }
 
@@ -163,38 +165,32 @@ func claudeGateCompare(slot claudeLedgerSlot, observed, oldPred, newPred int64) 
 		Observed:     observed,
 		OldPredicted: oldPred,
 		NewPredicted: newPred,
-		OldSigned:    oldPred - observed,
-		NewSigned:    newPred - observed,
 	}
-	c.OldAbs = claudeGateAbs(c.OldSigned)
-	c.NewAbs = claudeGateAbs(c.NewSigned)
+	c.OldSigned, c.OldAbs = claudeGateError(oldPred, observed)
+	c.NewSigned, c.NewAbs = claudeGateError(newPred, observed)
 	return c
 }
 
-// claudeGateAbs returns the absolute value of v. Callers pass in-bounds values, so
-// it cannot overflow.
-func claudeGateAbs(v int64) int64 {
-	if v < 0 {
-		return -v
-	}
-	return v
-}
-
-// claudeGateInBounds reports whether v is a token count the gate compares. Values
-// outside the bound fail closed, so the integer arithmetic below cannot overflow.
-func claudeGateInBounds(v int64) bool {
-	return v >= -claudeGateMaxTokens && v <= claudeGateMaxTokens
+// claudeGateError returns pred minus obs and its absolute value. The subtraction
+// runs in math/big, so it is exact for every pair of int64 values.
+func claudeGateError(pred, obs int64) (signed, abs *big.Int) {
+	signed = new(big.Int).Sub(big.NewInt(pred), big.NewInt(obs))
+	return signed, new(big.Int).Abs(signed)
 }
 
 // claudeGateTextRatioOK reports whether pred is within 10% of obs in absolute
-// relative error and at most 5% below obs. obs must be positive and both values
-// must be in bounds. The integer forms 10*|pred-obs| <= obs and
-// 20*(obs-pred) <= obs are exact at the boundaries.
+// relative error and at most 5% below obs. obs must be positive. The checks
+// 10*|pred-obs| <= obs and 20*(obs-pred) <= obs are evaluated in math/big, so
+// they are exact at the boundaries for every int64 input.
 func claudeGateTextRatioOK(pred, obs int64) bool {
-	if obs <= 0 || !claudeGateInBounds(pred) || !claudeGateInBounds(obs) {
+	if obs <= 0 {
 		return false
 	}
-	return 10*claudeGateAbs(pred-obs) <= obs && 20*(obs-pred) <= obs
+	signed, abs := claudeGateError(pred, obs)
+	bigObs := big.NewInt(obs)
+	over := new(big.Int).Mul(abs, big.NewInt(10))
+	under := new(big.Int).Mul(new(big.Int).Neg(signed), big.NewInt(20))
+	return over.Cmp(bigObs) <= 0 && under.Cmp(bigObs) <= 0
 }
 
 // claudeGateFail adds code to rep.Failures once.
@@ -205,8 +201,9 @@ func claudeGateFail(rep *claudeGateReport, code string) {
 }
 
 // claudeGateJudge sets rep.Failures from the comparisons in rep. It reads no
-// counter, so the gates can be tested with fixed numbers. A comparison outside the
-// bounds fails closed and no threshold is evaluated.
+// counter, so the gates can be tested with fixed numbers. A negative prediction
+// fails closed and stops the judge, because a token count cannot be negative.
+// No other bound applies: every comparison is exact in math/big.
 //
 // Text: each delta is observed and positive, within 10% of the observation, at
 // most 5% under it, and no further from it than the old prediction. The three
@@ -215,36 +212,38 @@ func claudeGateFail(rep *claudeGateReport, code string) {
 // 60% of it.
 func claudeGateJudge(rep *claudeGateReport) {
 	for _, c := range append([]claudeGateComparison{rep.Tool, rep.Full}, rep.Text...) {
-		if !claudeGateInBounds(c.Observed) || !claudeGateInBounds(c.OldPredicted) || !claudeGateInBounds(c.NewPredicted) {
-			claudeGateFail(rep, claudeGateFailBounds)
+		if c.OldPredicted < 0 || c.NewPredicted < 0 {
+			claudeGateFail(rep, claudeGateFailNegative)
 			return
 		}
 	}
 	if len(rep.Text) != len(claudeGateTextSlots) {
 		claudeGateFail(rep, claudeGateFailText)
 	}
-	var oldSum, newSum int64
+	oldSum, newSum := new(big.Int), new(big.Int)
 	for _, c := range rep.Text {
 		if c.Observed <= 0 {
 			claudeGateFail(rep, claudeGateFailObserved)
 			continue
 		}
-		if !claudeGateTextRatioOK(c.NewPredicted, c.Observed) || c.NewAbs > c.OldAbs {
+		if !claudeGateTextRatioOK(c.NewPredicted, c.Observed) || c.NewAbs.Cmp(c.OldAbs) > 0 {
 			claudeGateFail(rep, claudeGateFailText)
 		}
-		oldSum += c.OldAbs
-		newSum += c.NewAbs
+		oldSum.Add(oldSum, c.OldAbs)
+		newSum.Add(newSum, c.NewAbs)
 	}
 	rep.CategoryOldAbs, rep.CategoryNewAbs = oldSum, newSum
-	if 2*newSum > oldSum {
+	if new(big.Int).Mul(newSum, big.NewInt(2)).Cmp(oldSum) > 0 {
 		claudeGateFail(rep, claudeGateFailCategory)
 	}
 	if rep.Tool.Observed <= 0 {
 		claudeGateFail(rep, claudeGateFailObserved)
-	} else if rep.Tool.NewAbs > rep.Tool.OldAbs {
+	} else if rep.Tool.NewAbs.Cmp(rep.Tool.OldAbs) > 0 {
 		claudeGateFail(rep, claudeGateFailTool)
 	}
-	if rep.Full.NewAbs > rep.Full.OldAbs || 5*rep.Full.NewAbs > 3*rep.Full.OldAbs {
+	fiveNew := new(big.Int).Mul(rep.Full.NewAbs, big.NewInt(5))
+	threeOld := new(big.Int).Mul(rep.Full.OldAbs, big.NewInt(3))
+	if rep.Full.NewAbs.Cmp(rep.Full.OldAbs) > 0 || fiveNew.Cmp(threeOld) > 0 {
 		claudeGateFail(rep, claudeGateFailFull)
 	}
 }
@@ -325,11 +324,11 @@ func TestClaudeTokenReplay(t *testing.T) {
 	}
 }
 
-// TestClaudeGateBuilderRequests checks every model and slot against the authored
+// TestClaudeTokenGateBuilderRequests checks every model and slot against the authored
 // request contract, then renders it through the production CLI helpers that step 5
 // uses. The system text is the fixture system text plus the raw payload with no
 // separator. The CLI adds only the constant tool note.
-func TestClaudeGateBuilderRequests(t *testing.T) {
+func TestClaudeTokenGateBuilderRequests(t *testing.T) {
 	set := loadClaudeFixtureForTest(t)
 	ctx := context.Background()
 	for _, model := range claudeLedgerModels {
@@ -381,53 +380,56 @@ func TestClaudeGateBuilderRequests(t *testing.T) {
 	}
 }
 
-// TestClaudeGateTextRatioBounds checks the text ratio at its exact boundaries and
-// at int64 extremes, where an unguarded product would overflow.
-func TestClaudeGateTextRatioBounds(t *testing.T) {
-	tests := []struct {
-		name string
-		pred int64
-		obs  int64
-		want bool
-	}{
-		{"exactly 10 percent over", 110, 100, true},
-		{"just over 10 percent", 111, 100, false},
-		{"exactly 5 percent under", 95, 100, true},
-		{"just over 5 percent under", 94, 100, false},
-		{"zero observation", 0, 0, false},
-		{"negative observation", 100, -100, false},
-		{"prediction at the bound", claudeGateMaxTokens, claudeGateMaxTokens, true},
-		{"prediction above the bound", claudeGateMaxTokens + 1, claudeGateMaxTokens + 1, false},
-		{"maximum int64 prediction", math.MaxInt64, 100, false},
-		{"minimum int64 prediction", math.MinInt64, 100, false},
-	}
-	for _, tt := range tests {
-		if got := claudeGateTextRatioOK(tt.pred, tt.obs); got != tt.want {
-			t.Errorf("%s: claudeGateTextRatioOK(%d, %d) = %v, want %v", tt.name, tt.pred, tt.obs, got, tt.want)
+// claudeGateForbiddenKeys are object key fragments that evidence and reports must
+// not hold: credential-like names, and raw CLI output that the gate never stores.
+var claudeGateForbiddenKeys = []string{"api_key", "apikey", "authorization", "password", "secret", "credential", "bearer", "stderr", "result_usage"}
+
+// claudeGateViolations walks a decoded JSON value and appends one message to out
+// for each forbidden object key and each absolute-path string value. Authored
+// relative paths, such as .steiner/tmp/fetched in a tool description, pass.
+func claudeGateViolations(path string, v any, out []string) []string {
+	switch x := v.(type) {
+	case map[string]any:
+		for key, child := range x {
+			lower := strings.ToLower(key)
+			for _, bad := range claudeGateForbiddenKeys {
+				if strings.Contains(lower, bad) {
+					out = append(out, fmt.Sprintf("%s has forbidden key %q", path, key))
+					break
+				}
+			}
+			out = claudeGateViolations(path+"."+key, child, out)
+		}
+	case []any:
+		for i, child := range x {
+			out = claudeGateViolations(fmt.Sprintf("%s[%d]", path, i), child, out)
+		}
+	case string:
+		if filepath.IsAbs(x) || strings.HasPrefix(x, "~/") {
+			out = append(out, fmt.Sprintf("%s is an absolute path", path))
 		}
 	}
+	return out
 }
 
-// claudeGateForbiddenMarkers are substrings that evidence and reports must not
-// contain: absolute home or temp paths and credential-like keys.
-var claudeGateForbiddenMarkers = []string{"/home/", "/users/", "api_key", "apikey", "authorization", "password", "secret", "credential", "bearer "}
-
-// claudeGateCheckClean fails t when data contains a forbidden marker.
+// claudeGateCheckClean fails t for every violation in the JSON document data.
 func claudeGateCheckClean(t *testing.T, what string, data []byte) {
 	t.Helper()
-	lower := strings.ToLower(string(data))
-	for _, marker := range claudeGateForbiddenMarkers {
-		if strings.Contains(lower, marker) {
-			t.Errorf("%s contains forbidden marker %q", what, marker)
-		}
+	var doc any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Errorf("%s is not JSON: %v", what, err)
+		return
+	}
+	for _, msg := range claudeGateViolations(what, doc, nil) {
+		t.Error(msg)
 	}
 }
 
-// TestClaudeGateEvidenceSanitized checks the committed evidence, the authored
-// requests, and the reports for absolute paths and credential keys. It also checks
-// that the evidence holds exactly the documented top-level keys, so no CLI result
-// usage can be stored, and that every failure code is a fixed gate code.
-func TestClaudeGateEvidenceSanitized(t *testing.T) {
+// TestClaudeTokenGateEvidenceSanitized checks the committed evidence, the authored
+// requests, and the reports for absolute paths and credential or CLI-output keys.
+// It also checks that the evidence holds exactly the documented top-level keys, so
+// no CLI result usage can be stored, and that every failure code is a fixed gate code.
+func TestClaudeTokenGateEvidenceSanitized(t *testing.T) {
 	set := loadClaudeFixtureForTest(t)
 	path := filepath.Join(claudeFixtureDir, claudeGateEvidenceName)
 	raw, err := os.ReadFile(path)
@@ -471,7 +473,7 @@ func TestClaudeGateEvidenceSanitized(t *testing.T) {
 	}
 	allowed := []string{
 		claudeGateFailRecord, claudeGateFailState, claudeGateFailMissing, claudeGateFailDuplicate,
-		claudeGateFailPins, claudeGateFailRequest, claudeGateFailBudget, claudeGateFailBounds,
+		claudeGateFailPins, claudeGateFailRequest, claudeGateFailBudget, claudeGateFailNegative,
 		claudeGateFailObserved, claudeGateFailText, claudeGateFailCategory, claudeGateFailTool, claudeGateFailFull,
 	}
 	for _, rep := range reports {

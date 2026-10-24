@@ -24,9 +24,6 @@ const (
 	claudeGateSchemaVersion = 1
 	// claudeGateMaxOutputTokens is the output cap of every launch.
 	claudeGateMaxOutputTokens = 64
-	// claudeGateMaxTokens bounds every token count the gate compares, observed or
-	// predicted. With this bound, differences and products of two counts fit int64.
-	claudeGateMaxTokens = 1 << 40
 )
 
 // Failure codes. A report holds only these fixed strings, never launch error text.
@@ -38,7 +35,7 @@ const (
 	claudeGateFailPins      = "pins mismatch"
 	claudeGateFailRequest   = "recorded request mismatch"
 	claudeGateFailBudget    = "attempt budget exceeded"
-	claudeGateFailBounds    = "token count out of gate bounds"
+	claudeGateFailNegative  = "token count is negative"
 	claudeGateFailObserved  = "observed delta not positive"
 	claudeGateFailText      = "text delta gate failed"
 	claudeGateFailCategory  = "text category gate failed"
@@ -243,8 +240,7 @@ func claudeGateEvidenceFailures(set claudeFixtureSet, ev claudeGateEvidence) []s
 	}
 	seen := map[string]bool{}
 	for i, rec := range ev.Attempts {
-		if rec.AttemptID != i+1 || claudeLedgerValidateRecord(rec) != nil ||
-			(rec.Usage != nil && int64(rec.Usage.PromptTotal) > claudeGateMaxTokens) {
+		if rec.AttemptID != i+1 || claudeLedgerValidateRecord(rec) != nil {
 			add(claudeGateFailRecord)
 		}
 		if rec.CLIVersion != ev.CLIVersion {
