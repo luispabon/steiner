@@ -43,17 +43,17 @@ type claudeLedgerStreamLine struct {
 
 // claudeLedgerObserveStream reads one stream-json capture for a launch that
 // requested model. Every message_start must name a model, all must agree, and the
-// one model must equal requested exactly. The terminal message usage comes from
-// the production decoder. The presence-aware fields come from the raw stream, and
-// the two prompt totals must match. The CLI result usage is never read.
+// one model must equal requested exactly. Each emitted message is checked against
+// the raw stream and the production decoder. The capture must end in a successful
+// terminal result. The CLI result usage is never read.
 func claudeLedgerObserveStream(data []byte, requested string) (claudeLedgerObservation, error) {
 	dec := newClaudeSubDecoder(claudeSubDecodeHooks{})
 	var (
 		models     []string
 		current    claudeLedgerUsage // raw usage of the message being streamed
-		terminal   claudeLedgerUsage // raw usage when the last message was emitted
-		decoded    *UsageStats       // decoder usage of the last emitted message
+		terminal   claudeLedgerUsage // checked usage of the last emitted message
 		sawMessage bool
+		sawResult  bool
 	)
 	for i, raw := range bytes.Split(data, []byte("\n")) {
 		line := bytes.TrimSpace(raw)
@@ -64,7 +64,9 @@ func claudeLedgerObserveStream(data []byte, requested string) (claudeLedgerObser
 		if err := json.Unmarshal(line, &env); err != nil {
 			return claudeLedgerObservation{}, fmt.Errorf("%w: line %d: %w", errClaudeLedgerStream, i+1, err)
 		}
-		if env.Event != nil {
+		// Only stream_event envelopes carry the raw Anthropic events read here. Other
+		// envelopes are left to the production decoder, which ignores them.
+		if env.Type == "stream_event" && env.Event != nil {
 			switch env.Event.Type {
 			case "message_start":
 				if env.Event.Message == nil || env.Event.Message.Model == "" {
@@ -90,8 +92,18 @@ func claudeLedgerObserveStream(data []byte, requested string) (claudeLedgerObser
 			return claudeLedgerObservation{}, fmt.Errorf("%w: line %d: decode: %w", errClaudeLedgerStream, i+1, err)
 		}
 		for _, d := range got {
-			if d.Kind == claudeSubDecodeMessage {
-				sawMessage, decoded, terminal = true, d.Usage, current
+			switch d.Kind {
+			case claudeSubDecodeMessage:
+				usage, err := claudeLedgerCheckMessage(current, d.Usage)
+				if err != nil {
+					return claudeLedgerObservation{}, fmt.Errorf("%w: line %d: %w", errClaudeLedgerStream, i+1, err)
+				}
+				sawMessage, terminal = true, usage
+			case claudeSubDecodeResult:
+				if d.Result == nil || d.Result.IsError || d.Result.Subtype != "success" {
+					return claudeLedgerObservation{}, fmt.Errorf("%w: line %d: terminal result is not a success", errClaudeLedgerStream, i+1)
+				}
+				sawResult = true
 			}
 		}
 	}
@@ -102,18 +114,44 @@ func claudeLedgerObserveStream(data []byte, requested string) (claudeLedgerObser
 		return claudeLedgerObservation{}, fmt.Errorf("%w: ambiguous models %q", errClaudeLedgerStream, models)
 	case models[0] != requested:
 		return claudeLedgerObservation{}, fmt.Errorf("%w: observed model %q, requested %q", errClaudeLedgerStream, models[0], requested)
-	case !sawMessage || decoded == nil:
-		return claudeLedgerObservation{}, fmt.Errorf("%w: terminal message has no input usage", errClaudeLedgerStream)
+	case !sawMessage:
+		return claudeLedgerObservation{}, fmt.Errorf("%w: no terminal message", errClaudeLedgerStream)
+	case !sawResult:
+		return claudeLedgerObservation{}, fmt.Errorf("%w: no terminal result", errClaudeLedgerStream)
 	}
-	prompt := terminal.prompt()
-	if prompt != decoded.PromptTokens {
-		return claudeLedgerObservation{}, fmt.Errorf("%w: stream prompt %d, decoder prompt %d", errClaudeLedgerStream, prompt, decoded.PromptTokens)
-	}
-	if prompt <= 0 {
-		return claudeLedgerObservation{}, fmt.Errorf("%w: prompt %d is not positive", errClaudeLedgerStream, prompt)
-	}
-	terminal.PromptTotal = prompt
 	return claudeLedgerObservation{ObservedModel: models[0], claudeLedgerUsage: terminal}, nil
+}
+
+// claudeLedgerCheckMessage checks one emitted message. The raw usage must pass the
+// shared usage checks. The production decoder must agree on the cache components
+// with presence semantics (an absent raw field is an absent decoder value, zero)
+// and on the prompt total. It returns the raw usage with PromptTotal set.
+func claudeLedgerCheckMessage(raw claudeLedgerUsage, decoded *UsageStats) (claudeLedgerUsage, error) {
+	raw.PromptTotal = raw.prompt()
+	if err := claudeLedgerValidateUsage(raw); err != nil {
+		return claudeLedgerUsage{}, fmt.Errorf("message usage: %w", err)
+	}
+	if decoded == nil {
+		return claudeLedgerUsage{}, errors.New("message usage: decoder reported none")
+	}
+	if got, want := decoded.CacheCreationInputTokens, claudeLedgerOrZero(raw.CacheCreation); got != want {
+		return claudeLedgerUsage{}, fmt.Errorf("cache creation: stream %d, decoder %d", want, got)
+	}
+	if got, want := decoded.CacheReadInputTokens, claudeLedgerOrZero(raw.CacheRead); got != want {
+		return claudeLedgerUsage{}, fmt.Errorf("cache read: stream %d, decoder %d", want, got)
+	}
+	if decoded.PromptTokens != raw.PromptTotal {
+		return claudeLedgerUsage{}, fmt.Errorf("stream prompt %d, decoder prompt %d", raw.PromptTotal, decoded.PromptTokens)
+	}
+	return raw, nil
+}
+
+// claudeLedgerOrZero returns the value of an optional usage component, or zero when absent.
+func claudeLedgerOrZero(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // merge applies one usage snapshot the way the production decoder does: a field
@@ -136,13 +174,7 @@ func (u *claudeLedgerUsage) merge(src *claudeLedgerUsage) {
 // prompt returns input plus cache creation plus cache read. Each present field
 // counts once and an absent field counts as zero.
 func (u claudeLedgerUsage) prompt() int {
-	total := 0
-	for _, v := range []*int{u.Input, u.CacheCreation, u.CacheRead} {
-		if v != nil {
-			total += *v
-		}
-	}
-	return total
+	return claudeLedgerOrZero(u.Input) + claudeLedgerOrZero(u.CacheCreation) + claudeLedgerOrZero(u.CacheRead)
 }
 
 // claudeLedgerStreamPath returns the path of a synthetic stream fixture.
@@ -158,6 +190,22 @@ func claudeLedgerReadStream(t *testing.T, path string) []byte {
 		t.Fatalf("read stream %s: %v", path, err)
 	}
 	return data
+}
+
+// claudeLedgerReplaceOnce returns data with the first occurrence of from replaced
+// by to. The fixture must contain from.
+func claudeLedgerReplaceOnce(t *testing.T, data []byte, from, to string) []byte {
+	t.Helper()
+	if !bytes.Contains(data, []byte(from)) {
+		t.Fatalf("fixture lacks %q", from)
+	}
+	return []byte(strings.Replace(string(data), from, to, 1))
+}
+
+// claudeLedgerDropLastLine returns data without its final non-empty line.
+func claudeLedgerDropLastLine(data []byte) []byte {
+	trimmed := bytes.TrimRight(data, "\n")
+	return trimmed[:bytes.LastIndexByte(trimmed, '\n')+1]
 }
 
 func TestClaudeTokenObservationSplitsPresence(t *testing.T) {
@@ -226,6 +274,20 @@ func TestClaudeTokenObservationIgnoresResultUsage(t *testing.T) {
 	}
 }
 
+// Only stream_event envelopes feed the model and usage reads. A foreign envelope
+// that carries a message_start must not change the observed model or usage.
+func TestClaudeTokenObservationIgnoresForeignEvents(t *testing.T) {
+	fixture := claudeLedgerReadStream(t, claudeLedgerStreamPath("usage_split_model.jsonl"))
+	foreign := []byte(`{"type":"system","subtype":"init","event":{"type":"message_start","message":{"model":"claude-opus-5-5","usage":{"input_tokens":1}}}}` + "\n")
+	obs, err := claudeLedgerObserveStream(append(foreign, fixture...), "claude-haiku-5-5")
+	if err != nil {
+		t.Fatalf("observe: %v", err)
+	}
+	if obs.ObservedModel != "claude-haiku-5-5" || obs.PromptTotal != 109 {
+		t.Errorf("observed = %q prompt %d, want claude-haiku-5-5 and 109", obs.ObservedModel, obs.PromptTotal)
+	}
+}
+
 func TestClaudeTokenObservationFailsClosedOnModel(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -261,13 +323,65 @@ func TestClaudeTokenObservationRejectsAmbiguousTurns(t *testing.T) {
 	}
 }
 
+// Usage that the stream cannot prove fails closed. Each case edits the fixture's
+// message_start and message_delta usage, so the decoder's view stays in step.
+func TestClaudeTokenObservationFailsClosedOnComponents(t *testing.T) {
+	fixture := claudeLedgerReadStream(t, claudeLedgerStreamPath("usage_split_model.jsonl"))
+	const (
+		startFrom = `"usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":7}`
+		deltaFrom = `"usage":{"input_tokens":2,"output_tokens":42}`
+	)
+	tests := []struct {
+		name             string
+		startTo, deltaTo string
+	}{
+		// Each sum stays positive, so only the per-component check can reject it.
+		{"negative cache creation", `"usage":{"input_tokens":200,"cache_creation_input_tokens":-100,"cache_read_input_tokens":7}`, `"usage":{"input_tokens":200,"output_tokens":42}`},
+		{"negative cache read", `"usage":{"input_tokens":200,"cache_creation_input_tokens":100,"cache_read_input_tokens":-7}`, `"usage":{"input_tokens":200,"output_tokens":42}`},
+		{"negative input", `"usage":{"input_tokens":-1,"cache_creation_input_tokens":100,"cache_read_input_tokens":7}`, `"usage":{"input_tokens":-1,"output_tokens":42}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := claudeLedgerReplaceOnce(t, fixture, startFrom, tt.startTo)
+			data = claudeLedgerReplaceOnce(t, data, deltaFrom, tt.deltaTo)
+			_, err := claudeLedgerObserveStream(data, "claude-haiku-5-5")
+			if !errors.Is(err, errClaudeLedgerStream) || !strings.Contains(err.Error(), "negative") {
+				t.Errorf("err = %v, want errClaudeLedgerStream containing \"negative\"", err)
+			}
+		})
+	}
+}
+
+// The capture must end in a successful terminal result. A complete valid message
+// followed by an error result, or by no result, fails closed.
+func TestClaudeTokenObservationRequiresSuccessResult(t *testing.T) {
+	fixture := claudeLedgerReadStream(t, claudeLedgerStreamPath("usage_split_model.jsonl"))
+	tests := []struct {
+		name string
+		data []byte
+		want string
+	}{
+		{"error result after a complete message", claudeLedgerReplaceOnce(t, fixture, `"subtype":"success","is_error":false`, `"subtype":"error_during_execution","is_error":true`), "terminal result is not a success"},
+		{"success subtype marked is_error", claudeLedgerReplaceOnce(t, fixture, `"subtype":"success","is_error":false`, `"subtype":"success","is_error":true`), "success subtype marked is_error"},
+		{"no terminal result", claudeLedgerDropLastLine(fixture), "no terminal result"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := claudeLedgerObserveStream(tt.data, "claude-haiku-5-5")
+			if !errors.Is(err, errClaudeLedgerStream) || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("err = %v, want errClaudeLedgerStream containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestClaudeTokenObservationFailsClosedOnUsage(t *testing.T) {
 	tests := []struct {
 		name string
 		file string
 		want string
 	}{
-		{"terminal message without usage", "usage_missing.jsonl", "terminal message has no input usage"},
+		{"terminal message without usage", "usage_missing.jsonl", "usage has no components"},
 		{"non-positive prompt", "prompt_nonpositive.jsonl", "is not positive"},
 	}
 	for _, tt := range tests {
