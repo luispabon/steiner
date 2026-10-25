@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -253,22 +254,58 @@ func claudeBenchSizedRequest(set claudeFixtureSet, target int64) (ChatRequest, i
 	return request, got, nil
 }
 
-// claudeBenchEstimate counts request b.N times with counter. The untimed first
-// pass loads the counter's vocabulary so that load is not measured.
-func claudeBenchEstimate(b *testing.B, counter textCounter, request ChatRequest, semanticBytes int64) {
-	b.Helper()
+// claudeBenchRun counts request b.N times with counter and returns the first
+// count error. The untimed first pass loads the counter's vocabulary so that
+// load is not measured.
+func claudeBenchRun(b *testing.B, counter textCounter, request ChatRequest, semanticBytes int64) error {
 	ctx := context.Background()
 	if _, err := countRequestWithCounter(ctx, request, counter); err != nil {
-		b.Fatal(err)
+		return err
 	}
 	b.SetBytes(semanticBytes)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
 		if _, err := countRequestWithCounter(ctx, request, counter); err != nil {
-			b.Fatal(err)
+			return err
 		}
 	}
+	return nil
+}
+
+// claudeBenchEstimate is claudeBenchRun for benchmark functions: a count error
+// stops the benchmark with b.Fatal.
+func claudeBenchEstimate(b *testing.B, counter textCounter, request ChatRequest, semanticBytes int64) {
+	b.Helper()
+	if err := claudeBenchRun(b, counter, request, semanticBytes); err != nil {
+		b.Fatal(err)
+	}
+}
+
+// claudeBenchMeasure runs testing.Benchmark for request on counter. testing.Benchmark
+// reports a failed run only as a zero result, so a count error is captured inside
+// the benchmark and returned unchanged with a zero measurement.
+func claudeBenchMeasure(request ChatRequest, semanticBytes int64, counter textCounter) (claudeBenchMeasurement, error) {
+	var runErr error
+	res := testing.Benchmark(func(b *testing.B) {
+		if err := claudeBenchRun(b, counter, request, semanticBytes); err != nil {
+			runErr = err
+			b.Fatal(err)
+		}
+	})
+	if runErr != nil {
+		return claudeBenchMeasurement{}, runErr
+	}
+	m := claudeBenchMeasurement{
+		Bytes:       res.Bytes,
+		NsPerOp:     res.NsPerOp(),
+		BytesPerOp:  res.AllocedBytesPerOp(),
+		AllocsPerOp: res.AllocsPerOp(),
+	}
+	if m.Bytes != semanticBytes {
+		return claudeBenchMeasurement{}, fmt.Errorf("SetBytes = %d, want semantic bytes %d", m.Bytes, semanticBytes)
+	}
+	return m, nil
 }
 
 // BenchmarkClaudeRequestEstimate times whole-request estimates with the old
@@ -356,6 +393,8 @@ func TestClaudeBenchCheckScaling(t *testing.T) {
 		{"incremental slope above 24", smallM, largeWith(func(m *claudeBenchMeasurement) { m.BytesPerOp = 28 * large }), "incremental"},
 		{"zero small time", claudeBenchWith(smallM, func(m *claudeBenchMeasurement) { m.NsPerOp = 0 }), largeM, "unmeasured"},
 		{"zero large allocs", smallM, largeWith(func(m *claudeBenchMeasurement) { m.AllocsPerOp = 0 }), "unmeasured"},
+		{"zero large time", smallM, largeWith(func(m *claudeBenchMeasurement) { m.NsPerOp = 0 }), "unmeasured"},
+		{"zero small allocs", claudeBenchWith(smallM, func(m *claudeBenchMeasurement) { m.AllocsPerOp = 0 }), largeM, "unmeasured"},
 		{"zero small bytes", claudeBenchWith(smallM, func(m *claudeBenchMeasurement) { m.Bytes = 0 }), largeM, "semantic bytes"},
 	}
 	for _, tt := range tests {
@@ -413,6 +452,31 @@ func TestClaudeBenchSizedRequestRejectsInvalidTargets(t *testing.T) {
 				t.Errorf("target %d accepted, want error", tt.target)
 			}
 		})
+	}
+}
+
+// claudeBenchFailingCounter fails every count with err.
+type claudeBenchFailingCounter struct {
+	err error
+}
+
+func (c claudeBenchFailingCounter) Count(string) (int, error) {
+	return 0, c.err
+}
+
+func TestClaudeBenchMeasureKeepsCounterError(t *testing.T) {
+	set := loadClaudeFixtureForTest(t)
+	request, semanticBytes, err := claudeBenchSizedRequest(set, claudeBenchSmallTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	errLoad := errors.New("ctok vocabulary load failed")
+	m, err := claudeBenchMeasure(request, semanticBytes, claudeBenchFailingCounter{err: errLoad})
+	if !errors.Is(err, errLoad) {
+		t.Errorf("error = %v, want original counter error %q", err, errLoad)
+	}
+	if m != (claudeBenchMeasurement{}) {
+		t.Errorf("measurement = %+v, want zero on counter failure", m)
 	}
 }
 
