@@ -321,13 +321,16 @@ func TestClaudeTokenReplay(t *testing.T) {
 			}
 		}
 	}
-	// Step 6 must make this set equal the exact passing set. Until then each
-	// production ctok ID must be an active model.
-	active := claudeGateActiveModels(reports)
-	for id := range ctokActiveModelIDs {
-		if !slices.Contains(active, id) {
-			t.Errorf("production ctok model %q is not active in the gate", id)
-		}
+	// The active set, the production ctok table, and the candidate list must hold
+	// the same IDs.
+	active := slices.Sorted(slices.Values(claudeGateActiveModels(reports)))
+	table := sortedCtokTableIDs()
+	candidates := slices.Sorted(slices.Values(claudeLedgerModels))
+	if !slices.Equal(active, table) {
+		t.Errorf("active models %q != production ctok table %q", active, table)
+	}
+	if !slices.Equal(table, candidates) {
+		t.Errorf("production ctok table %q != candidate models %q", table, candidates)
 	}
 }
 

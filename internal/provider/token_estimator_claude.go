@@ -8,8 +8,12 @@ import (
 )
 
 // ctokActiveModelIDs lists the exact, whitespace-trimmed model IDs that count
-// with ctok. It is empty in production, so no model uses ctok yet.
-var ctokActiveModelIDs = map[string]struct{}{}
+// with ctok. Each ID passed the token gate recorded in observations.json.
+var ctokActiveModelIDs = map[string]struct{}{
+	"claude-opus-5-5":   {},
+	"claude-sonnet-5-5": {},
+	"claude-haiku-5-5":  {},
+}
 
 // claudeCounter is the shared ctok text counter. Its zero value loads nothing;
 // the vocabulary loads on the first Count call.

@@ -1,8 +1,10 @@
 {
   "library": {
     "module": "github.com/luispabon/ctok-go",
-    "version": "v0.0.0-20261023222755-7969144b7665",
-    "commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1"
+    "version": "v0.1.0",
+    "commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+    "release_commit": "2aec8ceb7e270bada5dd08d6c414ec306eff6609",
+    "release_identity": "tag v0.1.0 peels to release_commit; its tree equals commit except README and PROVENANCE"
   },
   "model": "claude-token-fixture",
   "system": "Reply only OK.",

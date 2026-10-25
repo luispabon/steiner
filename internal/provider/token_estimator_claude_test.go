@@ -40,9 +40,10 @@ type claudeFixtureManifest struct {
 
 // claudeFixtureLibrary pins the ctok-go module version and commit.
 type claudeFixtureLibrary struct {
-	Module  string `json:"module"`
-	Version string `json:"version"`
-	Commit  string `json:"commit"`
+	Module        string `json:"module"`
+	Version       string `json:"version"`
+	Commit        string `json:"commit"`
+	ReleaseCommit string `json:"release_commit"`
 }
 
 // claudeFixturePayloadPin pins one payload file and its token delta.
@@ -211,8 +212,15 @@ func TestClaudeTokenFixtureManifestPinsLibraryAndBaseline(t *testing.T) {
 	if m.Library.Commit != commit {
 		t.Errorf("library commit = %q, want %q", m.Library.Commit, commit)
 	}
-	if !strings.HasSuffix(m.Library.Version, "-"+commit[:12]) {
-		t.Errorf("library version = %q does not end with commit %s", m.Library.Version, commit[:12])
+	// Tag v0.1.0 peels to releaseCommit. Its tree equals commit except README and
+	// PROVENANCE, so the payload and tools pins still describe the source commit.
+	const releaseVersion = "v0.1.0"
+	const releaseCommit = "2aec8ceb7e270bada5dd08d6c414ec306eff6609"
+	if m.Library.Version != releaseVersion {
+		t.Errorf("library version = %q, want %q", m.Library.Version, releaseVersion)
+	}
+	if m.Library.ReleaseCommit != releaseCommit {
+		t.Errorf("library release commit = %q, want %q", m.Library.ReleaseCommit, releaseCommit)
 	}
 	if got := claudeFixtureGoModVersion(t, m.Library.Module); got != m.Library.Version {
 		t.Errorf("go.mod requires %s, manifest pins %s", got, m.Library.Version)
