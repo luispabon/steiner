@@ -16,6 +16,14 @@ Set `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens` to 
 
 This is a soft compaction trigger, not the hard request-fit limit. Hard fitting still accounts for the completion reserve and estimator pad, so a request can require compaction before or after the soft trigger depending on the space needed for the request.
 
+### Token estimation
+
+Steiner's pre-request estimate uses a local ctok count for three exact Claude model IDs: `claude-opus-5-5`, `claude-sonnet-5-5`, and `claude-haiku-5-5`. Surrounding whitespace is trimmed before matching. Other Claude model IDs, including older, future, prefixed, and dated IDs, keep the existing estimate.
+
+The local count is approximate and low confidence. On recorded live CLI attempts (six per model, Claude CLI 2.1.296), it reduced the measured error by about 40% against the previous estimate. It still undercounts by about 1750 to 1755 tokens on the measured requests, because it does not model CLI and tool framing. It is not an exact provider count, and Steiner does not claim whole-request or billing exactness. Follow-up work on Opus is tracked in [ctok-go issue 1](https://github.com/luispabon/ctok-go/issues/1).
+
+The estimate feeds hard request fitting. For native providers, it also feeds the soft compaction trigger. For `claude_subscription`, the soft trigger still uses the usage the CLI reports.
+
 ## What compaction means in practice
 
 Compaction is transparent. The agent pauses briefly, summarises the older portion of the conversation, and continues with the summary in place of the raw history. You may notice a brief pause; no user action is required.

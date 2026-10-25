@@ -46,6 +46,8 @@ Steiner owns the model request, system prompt, tool definitions, tool approval p
 
 Steiner starts the CLI with a private temporary session directory and a private system-prompt file. Tool calls return through a loopback MCP endpoint owned by Steiner. Steiner keeps tool output within its configured output budget and does not forward API credential environment variables to the child process.
 
+Preflight fitting for `claude_subscription` uses the same token estimate as other providers, so the local ctok count for the three exact Claude IDs applies here too. The count is still approximate and omits CLI and tool framing; see [Token estimation](context-management.md#token-estimation). Usage accounting is unchanged. The 70% compaction trigger and the 90% stop after a compaction still use the total input the CLI reports. The local count does not change them and is not calibrated against subscription usage. Calibration is deferred to [steiner issue 939](https://github.com/luispabon/steiner/issues/939).
+
 ## Context the CLI adds
 
 Steiner turns off these CLI context sources in every `claude_subscription` request: auto-memory, `CLAUDE.md` files (project, local, and user), the skills listing, token-count and todo reminders, "user hasn't heard from you" nudges, and git instructions.
