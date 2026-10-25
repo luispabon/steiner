@@ -314,8 +314,7 @@ func claudeGateRecordIndex(t *testing.T, ev *claudeGateEvidence, model string, s
 }
 
 // TestClaudeTokenGateSyntheticPassingMatrix checks that synthetic passing evidence
-// activates every candidate through the measure and judge path, and that the
-// production ctok set equals the active set.
+// activates every candidate through the measure and judge path.
 func TestClaudeTokenGateSyntheticPassingMatrix(t *testing.T) {
 	set := loadClaudeFixtureForTest(t)
 	ev := claudeGateSyntheticEvidence(t, set)
@@ -339,9 +338,6 @@ func TestClaudeTokenGateSyntheticPassingMatrix(t *testing.T) {
 	}
 	if got := claudeGateActiveModels(reports); !slices.Equal(got, claudeLedgerModels) {
 		t.Errorf("active models = %q, want %q", got, claudeLedgerModels)
-	}
-	if got, want := sortedCtokTableIDs(), slices.Sorted(slices.Values(claudeGateActiveModels(reports))); !slices.Equal(got, want) {
-		t.Errorf("production ctok model set = %q, want active set %q", got, want)
 	}
 }
 

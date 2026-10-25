@@ -186,7 +186,7 @@ func claudeCaptureSanitizeEvent(ev map[string]any) (map[string]any, error) {
 		if btype != "text" {
 			return nil, fmt.Errorf("content block %q is not kept", btype)
 		}
-		text, err := claudeCaptureString(block, "text")
+		text, err := claudeCaptureText(block, "text")
 		if err != nil {
 			return nil, err
 		}
@@ -207,7 +207,7 @@ func claudeCaptureSanitizeEvent(ev map[string]any) (map[string]any, error) {
 		if dtype != "text_delta" {
 			return nil, fmt.Errorf("delta %q is not kept", dtype)
 		}
-		text, err := claudeCaptureString(delta, "text")
+		text, err := claudeCaptureText(delta, "text")
 		if err != nil {
 			return nil, err
 		}
@@ -304,6 +304,24 @@ func claudeCaptureIndex(ev map[string]any) (json.Number, error) {
 	return n, nil
 }
 
+// claudeCaptureTextAllow lists the text fragments a sanitized capture may hold. These
+// are the fragments the committed captures hold. Any other text fails the capture, so
+// text from a future output cannot reach a fixture unnoticed.
+var claudeCaptureTextAllow = []string{"", "O", "K", "OK"}
+
+// claudeCaptureText returns obj[key] when it is a string on claudeCaptureTextAllow. The
+// error does not echo the text, so a secret in it cannot reach a log.
+func claudeCaptureText(obj map[string]any, key string) (string, error) {
+	s, err := claudeCaptureString(obj, key)
+	if err != nil {
+		return "", err
+	}
+	if !slices.Contains(claudeCaptureTextAllow, s) {
+		return "", errors.New("text is not an allowed fragment")
+	}
+	return s, nil
+}
+
 // claudeCaptureString returns obj[key] when it is a string.
 func claudeCaptureString(obj map[string]any, key string) (string, error) {
 	s, ok := obj[key].(string)
@@ -344,7 +362,7 @@ func claudeCaptureSanitizeDir(dir string, attempts []claudeLedgerRecord) ([]clau
 		if err != nil {
 			return nil, fmt.Errorf("read original capture: %w", err)
 		}
-		digest := claudeDigest(raw)
+		digest := claudeGateSHA256(raw)
 		if digest == claudeProvenanceControlSHA256 {
 			continue
 		}
@@ -521,6 +539,8 @@ func TestClaudeTokenCaptureSanitizeRejects(t *testing.T) {
 		{"fractional usage", replace(2, `{"type":"stream_event","event":{"type":"message_start","message":{"model":"claude-opus-5-5","usage":{"input_tokens":2.5}}}}`)},
 		{"stream event without event", replace(2, `{"type":"stream_event"}`)},
 		{"two values on one line", replace(0, `{"type":"system","subtype":"init","model":"claude-opus-5-5"} {}`)},
+		{"unexpected text delta", replace(4, `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"secret"}}}`)},
+		{"unexpected text block", replace(3, `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"secret"}}}`)},
 		{"no kept lines", []byte(`{"type":"rate_limit_event"}` + "\n")},
 	}
 	for _, tc := range tests {

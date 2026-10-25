@@ -95,9 +95,10 @@ func claudeCaptureCheckRecord(obs claudeLedgerObservation, rec claudeLedgerRecor
 	return nil
 }
 
-// claudeCaptureOutputOK reports whether an output count is present and within the output cap.
+// claudeCaptureOutputOK reports whether an output count is present and within 0 to the
+// output cap, inclusive.
 func claudeCaptureOutputOK(n *int) bool {
-	return n != nil && *n <= claudeGateMaxOutputTokens
+	return n != nil && *n >= 0 && *n <= claudeGateMaxOutputTokens
 }
 
 // claudeCaptureMatched is one committed capture replayed and matched to its record.
@@ -227,5 +228,71 @@ func TestClaudeTokenCaptureMapping(t *testing.T) {
 				t.Errorf("matched = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestClaudeTokenCaptureCheckRecord checks each identity, usage, and thinking mismatch
+// between an observation and its recorded attempt. The matching pair must pass. Each
+// mismatch must fail with the mapping error.
+func TestClaudeTokenCaptureCheckRecord(t *testing.T) {
+	intp := func(n int) *int { return &n }
+	base := func() (claudeLedgerObservation, claudeLedgerRecord) {
+		u := claudeLedgerUsage{Input: intp(2), CacheCreation: intp(5), CacheRead: intp(0), OutputTokens: intp(4), PromptTotal: 7}
+		return claudeLedgerObservation{ObservedModel: "m", claudeLedgerUsage: u},
+			claudeLedgerRecord{RequestedModel: "m", ObservedModel: "m", Usage: &u}
+	}
+	tests := []struct {
+		name    string
+		mutate  func(*claudeLedgerObservation, *claudeLedgerRecord)
+		wantErr bool
+	}{
+		{"matching pair", func(*claudeLedgerObservation, *claudeLedgerRecord) {}, false},
+		{"observed model differs from requested", func(o *claudeLedgerObservation, _ *claudeLedgerRecord) { o.ObservedModel = "n" }, true},
+		{"requested model differs", func(_ *claudeLedgerObservation, r *claudeLedgerRecord) { r.RequestedModel = "n" }, true},
+		{"recorded observed model differs", func(_ *claudeLedgerObservation, r *claudeLedgerRecord) { r.ObservedModel = "n" }, true},
+		{"nil recorded usage", func(_ *claudeLedgerObservation, r *claudeLedgerRecord) { r.Usage = nil }, true},
+		{"prompt total differs", func(o *claudeLedgerObservation, _ *claudeLedgerRecord) { o.PromptTotal = 8 }, true},
+		{"output count differs", func(o *claudeLedgerObservation, _ *claudeLedgerRecord) { o.OutputTokens = intp(3) }, true},
+		{"absent input count", func(o *claudeLedgerObservation, _ *claudeLedgerRecord) { o.Input = nil }, true},
+		{"thinking observed but not recorded", func(o *claudeLedgerObservation, _ *claudeLedgerRecord) { o.ThinkingBlocksObserved = true }, true},
+		{"thinking recorded but not observed", func(_ *claudeLedgerObservation, r *claudeLedgerRecord) { r.ThinkingBlocksObserved = true }, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			obs, rec := base()
+			tc.mutate(&obs, &rec)
+			err := claudeCaptureCheckRecord(obs, rec)
+			if tc.wantErr {
+				if !errors.Is(err, errClaudeCaptureMap) {
+					t.Errorf("error = %v, want %v", err, errClaudeCaptureMap)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("matching pair: %v", err)
+			}
+		})
+	}
+}
+
+// TestClaudeTokenCaptureOutputOK checks the output count bound. An absent or negative
+// count fails, zero passes, the cap passes, and a count above the cap fails.
+func TestClaudeTokenCaptureOutputOK(t *testing.T) {
+	intp := func(n int) *int { return &n }
+	tests := []struct {
+		name string
+		n    *int
+		want bool
+	}{
+		{"absent", nil, false},
+		{"negative", intp(-1), false},
+		{"zero", intp(0), true},
+		{"cap", intp(claudeGateMaxOutputTokens), true},
+		{"above cap", intp(claudeGateMaxOutputTokens + 1), false},
+	}
+	for _, tc := range tests {
+		if got := claudeCaptureOutputOK(tc.n); got != tc.want {
+			t.Errorf("%s: claudeCaptureOutputOK = %t, want %t", tc.name, got, tc.want)
+		}
 	}
 }
