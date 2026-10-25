@@ -101,7 +101,7 @@ The counter is ctok-go v0.1.0 (release commit `2aec8ce`). Its source matches com
 The evidence is `internal/provider/testdata/claude_token_estimation/observations.json` (schema version 3). It records 18 live attempts, six per model, on Claude CLI 2.1.296 and ctok-go commit `7969144b`.
 
 - Full error improvement against the previous estimate: 40.395%, 40.326%, and 40.368% across the three models.
-- Narrow-case residual: 9.6 to 11.6 tokens.
+- Full-request gate headroom: 9.6 to 11.6 tokens below the 60% error limit.
 - Remaining underestimates: Opus 1750, Sonnet 1755, and Haiku 1752 tokens, attributed to CLI and tool framing that the local count does not model.
 - The existing gates pass for all three models.
 
