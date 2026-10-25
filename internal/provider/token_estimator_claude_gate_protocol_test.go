@@ -11,6 +11,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"testing"
 )
 
 // The Claude token gate protocol is test-only and offline. It holds the pinned
@@ -21,7 +22,7 @@ import (
 const (
 	claudeGateEvidenceName = "observations.json"
 	// claudeGateSchemaVersion is the only evidence schema this code reads.
-	claudeGateSchemaVersion = 1
+	claudeGateSchemaVersion = 2
 	// claudeGateMaxOutputTokens is the output cap of every launch.
 	claudeGateMaxOutputTokens = 64
 )
@@ -41,6 +42,7 @@ const (
 	claudeGateFailCategory  = "text category gate failed"
 	claudeGateFailTool      = "tool delta gate failed"
 	claudeGateFailFull      = "full request gate failed"
+	claudeGateFailEvaluator = "evaluator commit invalid"
 )
 
 // claudeGateSlotPayload names the fixture payload each slot adds to the system
@@ -85,16 +87,19 @@ func claudeGateLaunchPinned() claudeGateLaunch {
 }
 
 // claudeGateEvidence is the single versioned evidence document. Step 5 writes it
-// and this package reads it. It stores no CLI result usage and no computed
-// results. The gate recomputes every value from the attempts and the fixtures.
+// and this package reads it. It stores no CLI result usage. Report is an audit copy of the
+// computed reports. The gate recomputes every value from the attempts and the
+// fixtures and never reads Report.
 type claudeGateEvidence struct {
-	SchemaVersion int                  `json:"schema_version"`
-	CLIVersion    string               `json:"cli_version"`
-	LibraryCommit string               `json:"library_commit"`
-	PayloadSHA256 map[string]string    `json:"payload_sha256"`
-	ToolsSHA256   string               `json:"tools_sha256"`
-	Launch        claudeGateLaunch     `json:"launch"`
-	Attempts      []claudeLedgerRecord `json:"attempts"`
+	SchemaVersion   int                  `json:"schema_version"`
+	CLIVersion      string               `json:"cli_version"`
+	LibraryCommit   string               `json:"library_commit"`
+	PayloadSHA256   map[string]string    `json:"payload_sha256"`
+	ToolsSHA256     string               `json:"tools_sha256"`
+	Launch          claudeGateLaunch     `json:"launch"`
+	EvaluatorCommit string               `json:"evaluator_commit"`
+	Attempts        []claudeLedgerRecord `json:"attempts"`
+	Report          json.RawMessage      `json:"report"`
 }
 
 // claudeGateRequest returns the normalized request for model and slot. The payload
@@ -222,8 +227,32 @@ func claudeGatePinsMatch(set claudeFixtureSet, ev claudeGateEvidence) bool {
 	return true
 }
 
+// claudeGateEvaluatorCommitOK reports whether ev.EvaluatorCommit is valid. An
+// empty commit is allowed only with no attempts. Any other commit must be 40
+// lowercase hex characters. The executor fills the commit before the first
+// reservation.
+func claudeGateEvaluatorCommitOK(ev claudeGateEvidence) bool {
+	if ev.EvaluatorCommit == "" {
+		return len(ev.Attempts) == 0
+	}
+	return claudeGateIsCommit(ev.EvaluatorCommit)
+}
+
+// claudeGateIsCommit reports whether s is 40 lowercase hex characters.
+func claudeGateIsCommit(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // claudeGateEvidenceFailures returns the faults that apply to every model:
-// pins, the lifetime budget, and records that are invalid, out of sequence, or
+// pins, the evaluator commit, the lifetime budget, and records that are invalid, out of sequence, or
 // duplicated.
 func claudeGateEvidenceFailures(set claudeFixtureSet, ev claudeGateEvidence) []string {
 	var fails []string
@@ -234,6 +263,9 @@ func claudeGateEvidenceFailures(set claudeFixtureSet, ev claudeGateEvidence) []s
 	}
 	if !claudeGatePinsMatch(set, ev) {
 		add(claudeGateFailPins)
+	}
+	if !claudeGateEvaluatorCommitOK(ev) {
+		add(claudeGateFailEvaluator)
 	}
 	if len(ev.Attempts) > claudeLedgerMaxAttempts {
 		add(claudeGateFailBudget)
@@ -300,4 +332,23 @@ func claudeGateSameRequest(recorded json.RawMessage, want []byte) bool {
 		return false
 	}
 	return bytes.Equal(compact.Bytes(), want)
+}
+
+// TestClaudeTokenGateJSONOmittedMatchesChatRequest checks that the recorded
+// JSONOmitted names are exactly the ChatRequest fields tagged json:"-". A field
+// that is added or retagged fails until the pinned launch protocol names it.
+func TestClaudeTokenGateJSONOmittedMatchesChatRequest(t *testing.T) {
+	var omitted []string
+	typ := reflect.TypeFor[ChatRequest]()
+	for i := range typ.NumField() {
+		if f := typ.Field(i); f.Tag.Get("json") == "-" {
+			omitted = append(omitted, f.Name)
+		}
+	}
+	want := slices.Clone(claudeGateLaunchPinned().JSONOmitted)
+	slices.Sort(omitted)
+	slices.Sort(want)
+	if !slices.Equal(omitted, want) {
+		t.Errorf("ChatRequest json:\"-\" fields = %q, pinned JSONOmitted = %q", omitted, want)
+	}
 }
