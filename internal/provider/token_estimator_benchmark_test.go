@@ -24,7 +24,8 @@ const (
 
 // Budget for one whole-request estimate at the large target. The semantic size
 // must be within [95%, 110%] of the target, one op must take at most one
-// second, and allocation may be at most 24 bytes per semantic byte plus 1 MiB.
+// second, and allocation may be at most claudeBenchAllocPerByte bytes per semantic
+// byte plus claudeBenchAllocSlackBytes.
 const (
 	claudeBenchMinSizePercent  = 95
 	claudeBenchMaxSizePercent  = 110
@@ -100,7 +101,7 @@ func claudeBenchCheckBudget(target int64, m claudeBenchMeasurement) error {
 	}
 	limit := claudeBenchAllocPerByte*m.Bytes + claudeBenchAllocSlackBytes
 	if m.BytesPerOp > limit {
-		return fmt.Errorf("benchmark B/op = %d, want <= %d (24 B per semantic byte + 1 MiB)", m.BytesPerOp, limit)
+		return fmt.Errorf("benchmark B/op = %d, want <= %d (%d B per semantic byte + %d slack)", m.BytesPerOp, limit, claudeBenchAllocPerByte, claudeBenchAllocSlackBytes)
 	}
 	return nil
 }
@@ -228,9 +229,24 @@ func claudeBenchCycleBytes(set claudeFixtureSet) (int64, int64, error) {
 	return base, cycle, nil
 }
 
-// claudeBenchSizedRequest returns the request whose whole-cycle count is nearest
-// to target, and its measured semantic bytes. Every repeat adds the same bytes,
-// so the result is within half a cycle of target.
+// claudeBenchFillerText is repeated to build the filler message.
+const claudeBenchFillerText = "benchmark filler text. "
+
+// claudeBenchFiller returns exactly n bytes of claudeBenchFillerText, or "" when
+// n is not positive.
+func claudeBenchFiller(n int64) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.Repeat(claudeBenchFillerText, int(n)/len(claudeBenchFillerText)+1)[:n]
+}
+
+// claudeBenchSizedRequest returns a request whose semantic bytes are approximately
+// target, within the checked tolerance, and its measured semantic bytes. It repeats
+// whole cycles without exceeding target, then, if the request is still short,
+// appends one user message of filler for the remaining bytes. The user role adds
+// semantic bytes of its own, so the bytes are measured again after the append, and
+// the result must pass claudeBenchCheckSemanticBytes.
 func claudeBenchSizedRequest(set claudeFixtureSet, target int64) (ChatRequest, int64, error) {
 	if target <= 0 {
 		return ChatRequest{}, 0, fmt.Errorf("claude bench target = %d, want > 0", target)
@@ -239,7 +255,7 @@ func claudeBenchSizedRequest(set claudeFixtureSet, target int64) (ChatRequest, i
 	if err != nil {
 		return ChatRequest{}, 0, err
 	}
-	repeats := (target - base + cycle/2) / cycle
+	repeats := (target - base) / cycle
 	if repeats < 1 {
 		return ChatRequest{}, 0, fmt.Errorf("claude bench target = %d is below one cycle over %d base bytes", target, base)
 	}
@@ -249,6 +265,15 @@ func claudeBenchSizedRequest(set claudeFixtureSet, target int64) (ChatRequest, i
 	}
 	got, err := claudeBenchSemanticBytes(request)
 	if err != nil {
+		return ChatRequest{}, 0, err
+	}
+	if deficit := target - got; deficit > 0 {
+		request.Messages = append(request.Messages, Message{Role: MessageRoleUser, Content: claudeBenchFiller(deficit)})
+		if got, err = claudeBenchSemanticBytes(request); err != nil {
+			return ChatRequest{}, 0, err
+		}
+	}
+	if err := claudeBenchCheckSemanticBytes(target, got); err != nil {
 		return ChatRequest{}, 0, err
 	}
 	return request, got, nil
@@ -361,8 +386,12 @@ func TestClaudeBenchCheckBudget(t *testing.T) {
 		{"zero bytes per op", target, claudeBenchWith(base, func(m *claudeBenchMeasurement) { m.BytesPerOp = 0 }), "unmeasured"},
 		{"zero allocs per op", target, claudeBenchWith(base, func(m *claudeBenchMeasurement) { m.AllocsPerOp = 0 }), "unmeasured"},
 		{"time over one second", target, claudeBenchWith(base, func(m *claudeBenchMeasurement) { m.NsPerOp = int64(time.Second) + 1 }), "ns/op"},
-		{"allocation at limit passes", target, claudeBenchWith(base, func(m *claudeBenchMeasurement) { m.BytesPerOp = 24*target + claudeBenchMiB }), ""},
-		{"allocation over limit", target, claudeBenchWith(base, func(m *claudeBenchMeasurement) { m.BytesPerOp = 24*target + claudeBenchMiB + 1 }), "B/op"},
+		{"allocation at limit passes", target, claudeBenchWith(base, func(m *claudeBenchMeasurement) {
+			m.BytesPerOp = claudeBenchAllocPerByte*target + claudeBenchAllocSlackBytes
+		}), ""},
+		{"allocation over limit", target, claudeBenchWith(base, func(m *claudeBenchMeasurement) {
+			m.BytesPerOp = claudeBenchAllocPerByte*target + claudeBenchAllocSlackBytes + 1
+		}), "B/op"},
 		{"zero target", 0, base, "target"},
 	}
 	for _, tt := range tests {
@@ -417,20 +446,50 @@ func checkClaudeBenchError(t *testing.T, err error, want string) {
 	}
 }
 
+func TestClaudeBenchFiller(t *testing.T) {
+	tests := []struct {
+		name string
+		n    int64
+	}{
+		{"negative", -1},
+		{"zero", 0},
+		{"one byte", 1},
+		{"one text repeat", int64(len(claudeBenchFillerText))},
+		{"partial repeat", 3*int64(len(claudeBenchFillerText)) + 7},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := claudeBenchFiller(tt.n)
+			want := max(tt.n, 0)
+			if int64(len(got)) != want {
+				t.Fatalf("len(claudeBenchFiller(%d)) = %d, want %d", tt.n, len(got), want)
+			}
+			for i := range len(got) {
+				if got[i] >= 0x80 {
+					t.Fatalf("claudeBenchFiller(%d) byte %d = %#x, want ASCII", tt.n, i, got[i])
+				}
+			}
+			var wantText strings.Builder
+			for i := range want {
+				wantText.WriteByte(claudeBenchFillerText[int(i)%len(claudeBenchFillerText)])
+			}
+			if got != wantText.String() {
+				t.Errorf("claudeBenchFiller(%d) = %q, want %q", tt.n, got, wantText.String())
+			}
+		})
+	}
+}
+
 func TestClaudeBenchSizedRequestHitsTargets(t *testing.T) {
 	set := loadClaudeFixtureForTest(t)
-	_, cycle, err := claudeBenchCycleBytes(set)
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, size := range claudeBenchSizes {
 		t.Run(size.name, func(t *testing.T) {
 			_, got, err := claudeBenchSizedRequest(set, size.bytes)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if d := got - size.bytes; d > cycle/2 || -d > cycle/2 {
-				t.Errorf("semantic bytes = %d, target %d: off by %d, want within half a cycle (%d)", got, size.bytes, d, cycle/2)
+			if err := claudeBenchCheckSemanticBytes(size.bytes, got); err != nil {
+				t.Error(err)
 			}
 		})
 	}
