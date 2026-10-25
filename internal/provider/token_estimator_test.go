@@ -7,7 +7,10 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/luispabon/ctok-go"
 	"github.com/tiktoken-go/tokenizer"
@@ -206,6 +209,69 @@ func TestClaudeTextCounterCountsContentWithoutMessageFraming(t *testing.T) {
 		if want := ctokContentCount(t, text); got != want {
 			t.Fatalf("Count(%q) = %d, want CountContent %d", text, got, want)
 		}
+	}
+}
+
+// TestClaudeTextCounterConcurrentInitialLoad checks that concurrent first Count
+// calls share one ctok load and all receive the same content count.
+func TestClaudeTextCounterConcurrentInitialLoad(t *testing.T) {
+	const (
+		callers = 8
+		text    = "The quick brown fox jumps over the lazy dog."
+		timeout = 10 * time.Second
+	)
+	want := ctokContentCount(t, text)
+
+	var loads atomic.Int32
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseLoad := func() { releaseOnce.Do(func() { close(release) }) }
+	// Unblock the loader on every exit path so no goroutine leaks on failure.
+	t.Cleanup(releaseLoad)
+
+	counter := &claudeTextCounter{loader: func() (*ctok.Counter, error) {
+		if loads.Add(1) == 1 {
+			close(entered)
+		}
+		<-release
+		return ctok.New(ctok.V48)
+	}}
+
+	type result struct {
+		count int
+		err   error
+	}
+	results := make(chan result, callers)
+	for range callers {
+		go func() {
+			count, err := counter.Count(text)
+			results <- result{count: count, err: err}
+		}()
+	}
+
+	select {
+	case <-entered:
+	case <-time.After(timeout):
+		t.Fatal("ctok load did not start")
+	}
+	releaseLoad()
+
+	for i := range callers {
+		select {
+		case got := <-results:
+			if got.err != nil {
+				t.Errorf("Count() call %d error = %v", i, got.err)
+			}
+			if got.count != want {
+				t.Errorf("Count() call %d = %d, want CountContent %d", i, got.count, want)
+			}
+		case <-time.After(timeout):
+			t.Fatalf("Count() call %d did not return", i)
+		}
+	}
+	if n := loads.Load(); n != 1 {
+		t.Fatalf("ctok loads = %d, want 1", n)
 	}
 }
 

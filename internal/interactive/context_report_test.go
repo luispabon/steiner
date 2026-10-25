@@ -95,6 +95,49 @@ func TestBuildContextReportFallsBackToEstimatorForLegacySnapshot(t *testing.T) {
 	}
 }
 
+// TestBuildContextReportCtokActiveID checks that a legacy snapshot reports the
+// public estimator count for the model, which differs between the ctok active ID
+// and its dated variant.
+func TestBuildContextReportCtokActiveID(t *testing.T) {
+	ctx := context.Background()
+	messages := []provider.Message{{
+		Role:    provider.MessageRoleUser,
+		Content: "The quick brown fox jumps over the lazy dog. Please summarize the repository changes in detail.",
+	}}
+	const activeModel = "claude-sonnet-5-5"
+	const datedModel = "claude-sonnet-5-5-20260101"
+
+	estimate := func(model string) int {
+		t.Helper()
+		tokens, err := provider.EstimateChatRequestTokens(ctx, provider.ChatRequest{Model: model, Messages: messages})
+		if err != nil {
+			t.Fatalf("EstimateChatRequestTokens(%q) error = %v", model, err)
+		}
+		return tokens
+	}
+	wantActive := estimate(activeModel)
+	wantDated := estimate(datedModel)
+	if wantActive == wantDated {
+		t.Fatalf("active and dated estimates both = %d, want differing values", wantActive)
+	}
+
+	for _, tc := range []struct {
+		model string
+		want  int
+	}{
+		{model: activeModel, want: wantActive},
+		{model: datedModel, want: wantDated},
+	} {
+		report, err := BuildContextReport(ctx, RequestContextSnapshot{Model: tc.model, Messages: messages})
+		if err != nil {
+			t.Fatalf("BuildContextReport(%q) error = %v", tc.model, err)
+		}
+		if !strings.Contains(report, fmt.Sprintf("Prompt tokens: `%d`", tc.want)) {
+			t.Fatalf("BuildContextReport(%q) report = %q, want prompt tokens %d", tc.model, report, tc.want)
+		}
+	}
+}
+
 func TestBuildContextReportUsesCompactionBudget(t *testing.T) {
 	snapshot := RequestContextSnapshot{
 		Model:     "gpt-4o",

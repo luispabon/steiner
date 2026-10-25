@@ -10,6 +10,12 @@ import (
 	"github.com/tiktoken-go/tokenizer"
 )
 
+func TestTokenizerStrategyCtokLiteral(t *testing.T) {
+	if TokenizerStrategyCtok != "ctok" {
+		t.Fatalf("TokenizerStrategyCtok = %q, want %q", TokenizerStrategyCtok, "ctok")
+	}
+}
+
 func TestTokenCounterUsesTiktokenStrategyByDefault(t *testing.T) {
 	t.Parallel()
 
