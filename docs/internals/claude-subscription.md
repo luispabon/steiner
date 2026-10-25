@@ -97,6 +97,8 @@ A reseed (`claudeSubReseedDelta`) sends the whole non-system history as one user
 
 The compaction trigger for this provider is `statefulUsageAboveThreshold` in `internal/agent/stateful_compaction_guard.go`. It compares the last response's `PromptTokens` with 70% of the context window. For `claude_subscription`, `PromptTokens` is the CLI's total input, summed by `claudeSubUsage.toUsageStats` from input, cache creation, and cache read tokens of the terminal assistant message. The CLI result's usage covers the whole query, including tool round-trips, so it is not used for context occupancy. A request that does not fit also triggers compaction. `errStatefulCompaction` applies only to stateful providers without `SupportsStatefulCompaction`, which this provider implements.
 
+Preflight fitting for a `claude_subscription` request uses the same local token estimate as other providers (see [Token estimation](context-management.md#token-estimation)). For the three exact Claude IDs, that estimate is the ctok count. It improves on the previous estimate but still omits CLI and tool framing. The estimate does not feed the stateful compaction guard. Authoritative CLI-reported prompt usage and the existing stateful compaction policy are unchanged, and stored CLI session state is unchanged. Subscription calibration is not added; it is deferred to [steiner issue 939](https://github.com/luispabon/steiner/issues/939).
+
 Summary routing in `claudeSubSummaryTurn`:
 
 - Sub-agent (`ParentTransportSession` set): marked in-place summary on the sub-agent's own process. The process is tainted and retired. A process that cannot take the request is replaced, and the marked request is reseeded on it.
