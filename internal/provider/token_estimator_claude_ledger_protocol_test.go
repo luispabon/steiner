@@ -89,11 +89,15 @@ var (
 // claudeLedgerUsage is the presence-aware usage of the terminal assistant message.
 // A nil cache field was not reported by the CLI, which differs from an explicit
 // zero. PromptTotal is the production PromptTokens for that message, counted once.
-// The CLI result usage is never added.
+// The CLI result usage is never added. OutputTokens is the message's output count
+// from the same stream usage. Nil means the stream did not report it, which differs
+// from an explicit zero. It is audit only: no gate reads it, and it does not prove
+// the output cap applied.
 type claudeLedgerUsage struct {
 	Input         *int `json:"input_tokens,omitempty"`
 	CacheCreation *int `json:"cache_creation_input_tokens,omitempty"`
 	CacheRead     *int `json:"cache_read_input_tokens,omitempty"`
+	OutputTokens  *int `json:"output_tokens,omitempty"`
 	PromptTotal   int  `json:"prompt_total_tokens"`
 }
 
@@ -113,6 +117,8 @@ type claudeLedgerRecord struct {
 	ToolsSHA256    string             `json:"tools_sha256"`
 	Request        json.RawMessage    `json:"request"`
 	Usage          *claudeLedgerUsage `json:"usage,omitempty"`
+	// ThinkingBlocksObserved is set on succeeded records only. It is audit only.
+	ThinkingBlocksObserved bool `json:"thinking_blocks_observed,omitempty"`
 }
 
 // claudeLedgerFile is the on-disk ledger document.
@@ -153,8 +159,12 @@ func (in claudeLedgerReserveInput) check() error {
 // be non-negative, at least one component must be present, PromptTotal must be
 // positive, and PromptTotal must equal the sum of the present components. Each
 // component is checked on its own, so a negative value cannot hide behind a
-// positive sum. An overflowing sum fails too.
+// positive sum. An overflowing sum fails too. OutputTokens, when present, must be
+// non-negative and is not part of the sum.
 func claudeLedgerValidateUsage(u claudeLedgerUsage) error {
+	if u.OutputTokens != nil && *u.OutputTokens < 0 {
+		return fmt.Errorf("output tokens are negative: %d", *u.OutputTokens)
+	}
 	present, sum := false, 0
 	for _, v := range []*int{u.Input, u.CacheCreation, u.CacheRead} {
 		if v == nil {
@@ -242,7 +252,7 @@ func claudeLedgerValidateRecord(rec claudeLedgerRecord) error {
 	}
 	switch rec.Status {
 	case claudeLedgerStatusReserved:
-		if rec.ObservedModel != "" || rec.Usage != nil || rec.Failure != "" {
+		if rec.ObservedModel != "" || rec.Usage != nil || rec.Failure != "" || rec.ThinkingBlocksObserved {
 			return errors.New("reserved record carries an outcome")
 		}
 	case claudeLedgerStatusSucceeded:
@@ -253,8 +263,8 @@ func claudeLedgerValidateRecord(rec claudeLedgerRecord) error {
 			return fmt.Errorf("succeeded record: %w", err)
 		}
 	case claudeLedgerStatusFailed:
-		if !slices.Contains(claudeLedgerFailures, rec.Failure) || rec.Usage != nil {
-			return errors.New("failed record lacks a known failure code or carries usage")
+		if !slices.Contains(claudeLedgerFailures, rec.Failure) || rec.Usage != nil || rec.ThinkingBlocksObserved {
+			return errors.New("failed record lacks a known failure code or carries usage or thinking audit")
 		}
 		switch rec.Failure {
 		case claudeLedgerFailLaunch, claudeLedgerFailNoObservation:

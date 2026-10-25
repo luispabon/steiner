@@ -500,7 +500,7 @@ func TestClaudeTokenGateEvidenceLoadRejects(t *testing.T) {
 		doc     string
 		wantErr bool
 	}{
-		{"valid minimal document", `{"schema_version":2,` + head + `,"attempts":[]}`, false},
+		{"valid minimal document", `{"schema_version":3,` + head + `,"attempts":[]}`, false},
 		{"duplicate key", `{"schema_version":1,"schema_version":1,` + head + `,"attempts":[]}`, true},
 		{"unknown field", `{"schema_version":1,` + head + `,"attempts":[],"extra":1}`, true},
 		{"trailing data", `{"schema_version":1,` + head + `,"attempts":[]} {}`, true},

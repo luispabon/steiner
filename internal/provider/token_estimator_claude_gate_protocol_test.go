@@ -22,7 +22,7 @@ import (
 const (
 	claudeGateEvidenceName = "observations.json"
 	// claudeGateSchemaVersion is the only evidence schema this code reads.
-	claudeGateSchemaVersion = 2
+	claudeGateSchemaVersion = 3
 	// claudeGateMaxOutputTokens is the output cap of every launch.
 	claudeGateMaxOutputTokens = 64
 )
@@ -61,23 +61,29 @@ var claudeGateTextSlots = []claudeLedgerSlot{claudeLedgerSlotCodeJSON, claudeLed
 
 // claudeGateLaunch holds the launch controls of every attempt. ChatRequest's JSON
 // omits the controls named in JSONOmitted, so they are recorded here. The recorded
-// request does not prove that step 5 applied them at launch.
+// request does not prove that step 5 applied them at launch. Reasoning and the
+// output limit fields name requested controls. Nothing verifies that the effective
+// output cap or thinking state held, so their verification fields say so.
 type claudeGateLaunch struct {
-	Reasoning       string   `json:"reasoning"`
-	MaxOutputTokens int      `json:"max_output_tokens"`
-	Turns           int      `json:"turns"`
-	History         string   `json:"history"`
-	JSONOmitted     []string `json:"json_omitted"`
+	Reasoning               string   `json:"reasoning"`
+	MaxOutputTokens         int      `json:"max_output_tokens"`
+	OutputLimitMechanism    string   `json:"output_limit_mechanism"`
+	OutputLimitVerification string   `json:"output_limit_verification"`
+	Turns                   int      `json:"turns"`
+	History                 string   `json:"history"`
+	JSONOmitted             []string `json:"json_omitted"`
 }
 
 // claudeGateLaunchPinned returns the only launch protocol the gate accepts. The
 // JSONOmitted names are ChatRequest Go field names whose tag is json:"-".
 func claudeGateLaunchPinned() claudeGateLaunch {
 	return claudeGateLaunch{
-		Reasoning:       "off",
-		MaxOutputTokens: claudeGateMaxOutputTokens,
-		Turns:           1,
-		History:         "none",
+		Reasoning:               "disabled_requested_effective_unverified",
+		MaxOutputTokens:         claudeGateMaxOutputTokens,
+		OutputLimitMechanism:    "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+		OutputLimitVerification: "requested_not_verified",
+		Turns:                   1,
+		History:                 "none",
 		JSONOmitted: []string{
 			"TransportSession", "ParentTransportSession", "Params", "ExtraParams",
 			"PromptCacheKey", "IncludeEmptyReasoning", "Reasoning", "AdvisorCacheProfile",

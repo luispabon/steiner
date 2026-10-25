@@ -19,6 +19,9 @@ import (
 type claudeLedgerObservation struct {
 	ObservedModel string
 	claudeLedgerUsage
+	// ThinkingBlocksObserved is true when the stream started a thinking or redacted
+	// thinking block. It is audit only.
+	ThinkingBlocksObserved bool
 }
 
 // errClaudeLedgerStream marks a stream that cannot prove a launch's identity or usage.
@@ -37,7 +40,10 @@ type claudeLedgerStreamLine struct {
 			Model string             `json:"model"`
 			Usage *claudeLedgerUsage `json:"usage"`
 		} `json:"message"`
-		Usage *claudeLedgerUsage `json:"usage"`
+		Usage        *claudeLedgerUsage `json:"usage"`
+		ContentBlock *struct {
+			Type string `json:"type"`
+		} `json:"content_block"`
 	} `json:"event"`
 }
 
@@ -54,6 +60,7 @@ func claudeLedgerObserveStream(data []byte, requested string) (claudeLedgerObser
 		terminal   claudeLedgerUsage // checked usage of the last emitted message
 		sawMessage bool
 		sawResult  bool
+		thinking   bool // a thinking block was streamed
 	)
 	for i, raw := range bytes.Split(data, []byte("\n")) {
 		line := bytes.TrimSpace(raw)
@@ -79,6 +86,10 @@ func claudeLedgerObserveStream(data []byte, requested string) (claudeLedgerObser
 				current.merge(env.Event.Message.Usage)
 			case "message_delta":
 				current.merge(env.Event.Usage)
+			case "content_block_start":
+				if cb := env.Event.ContentBlock; cb != nil && (cb.Type == "thinking" || cb.Type == "redacted_thinking") {
+					thinking = true
+				}
 			}
 		}
 		got, err := dec.decode(claudeSubEvent{
@@ -119,7 +130,7 @@ func claudeLedgerObserveStream(data []byte, requested string) (claudeLedgerObser
 	case !sawResult:
 		return claudeLedgerObservation{}, fmt.Errorf("%w: no terminal result", errClaudeLedgerStream)
 	}
-	return claudeLedgerObservation{ObservedModel: models[0], claudeLedgerUsage: terminal}, nil
+	return claudeLedgerObservation{ObservedModel: models[0], claudeLedgerUsage: terminal, ThinkingBlocksObserved: thinking}, nil
 }
 
 // claudeLedgerCheckMessage checks one emitted message. The raw usage must pass the
@@ -168,6 +179,9 @@ func (u *claudeLedgerUsage) merge(src *claudeLedgerUsage) {
 	}
 	if src.CacheRead != nil {
 		u.CacheRead = src.CacheRead
+	}
+	if src.OutputTokens != nil {
+		u.OutputTokens = src.OutputTokens
 	}
 }
 
@@ -219,19 +233,19 @@ func TestClaudeTokenObservationSplitsPresence(t *testing.T) {
 			// message_delta omits the cache fields, which keep their message_start values.
 			name: "cache fields kept across message_delta",
 			file: "usage_split_model.jsonl",
-			want: claudeLedgerUsage{Input: claudeLedgerIntPtr(2), CacheCreation: claudeLedgerIntPtr(100), CacheRead: claudeLedgerIntPtr(7), PromptTotal: 109},
+			want: claudeLedgerUsage{Input: claudeLedgerIntPtr(2), CacheCreation: claudeLedgerIntPtr(100), CacheRead: claudeLedgerIntPtr(7), OutputTokens: claudeLedgerIntPtr(42), PromptTotal: 109},
 		},
 		{
 			// cache_creation is absent and cache_read is present as zero. The two stay distinct.
 			name: "absent and zero cache fields differ",
 			file: "cache_presence.jsonl",
-			want: claudeLedgerUsage{Input: claudeLedgerIntPtr(5), CacheRead: claudeLedgerIntPtr(0), PromptTotal: 5},
+			want: claudeLedgerUsage{Input: claudeLedgerIntPtr(5), CacheRead: claudeLedgerIntPtr(0), OutputTokens: claudeLedgerIntPtr(9), PromptTotal: 5},
 		},
 		{
 			// input is absent, so it stays nil and the prompt is the cache read alone.
 			name: "cache read only, input absent",
 			file: "usage_no_input.jsonl",
-			want: claudeLedgerUsage{CacheRead: claudeLedgerIntPtr(7), PromptTotal: 7},
+			want: claudeLedgerUsage{CacheRead: claudeLedgerIntPtr(7), OutputTokens: claudeLedgerIntPtr(3), PromptTotal: 7},
 		},
 	}
 	for _, tt := range tests {

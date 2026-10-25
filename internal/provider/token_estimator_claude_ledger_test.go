@@ -223,6 +223,7 @@ func (l *claudeLedger) complete(id int, obs *claudeLedgerObservation, launchErr 
 	default:
 		usage := obs.claudeLedgerUsage
 		rec.Status, rec.ObservedModel, rec.Usage = claudeLedgerStatusSucceeded, obs.ObservedModel, &usage
+		rec.ThinkingBlocksObserved = obs.ThinkingBlocksObserved
 	}
 	attempts := slices.Clone(l.attempts)
 	attempts[idx] = rec
