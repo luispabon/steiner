@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -106,6 +107,9 @@ func TestClaudeTokenGateJudgeOneFailurePerGate(t *testing.T) {
 		{"full 60 percent over", setFull(5000, 6000, 5601), []string{claudeGateFailFull}},
 		{"all old zero, new off by one", combine(setText(0, claudeLedgerSlotCodeJSON, 1000, 1000, 1001), setText(1, claudeLedgerSlotMarkdown, 1000, 1000, 1000), setText(2, claudeLedgerSlotUnicode, 1000, 1000, 1000), setTool(300, 300, 300), setFull(5000, 5000, 5000)), []string{claudeGateFailText, claudeGateFailCategory}},
 		{"negative prediction", setText(2, claudeLedgerSlotUnicode, 1000, 1040, -1), []string{claudeGateFailNegative}},
+		{"old text prediction negative", setText(2, claudeLedgerSlotUnicode, 1000, -1, 1000), []string{claudeGateFailNegative}},
+		{"old tool prediction negative", setTool(300, -1, 300), []string{claudeGateFailNegative}},
+		{"old full prediction negative", setFull(5000, -1, 5000), []string{claudeGateFailNegative}},
 	})
 }
 
@@ -124,6 +128,9 @@ func TestClaudeTokenGateJudgeBoundaries(t *testing.T) {
 		{"full 60 percent, exact", setFull(5000, 6000, 5600), nil},
 		{"full 60 percent, one past", setFull(5000, 6000, 5601), []string{claudeGateFailFull}},
 		{"all old zero, new exact", combine(setAllText(1000, 1000, 1000), setTool(300, 300, 300), setFull(5000, 5000, 5000)), nil},
+		{"old text prediction zero, new exact", setText(0, claudeLedgerSlotCodeJSON, 1000, 0, 1000), nil},
+		{"old tool prediction zero, new exact", setTool(300, 0, 300), nil},
+		{"old full prediction zero, new exact", setFull(5000, 0, 5000), nil},
 	})
 }
 
@@ -204,6 +211,9 @@ func TestClaudeTokenGateCompareSignedErrors(t *testing.T) {
 	}
 }
 
+// claudeGateTestEvaluatorCommit is a valid evaluator commit for synthetic evidence.
+const claudeGateTestEvaluatorCommit = "0123456789abcdef0123456789abcdef01234567"
+
 // claudeGateSyntheticEvidence builds passing evidence for every candidate model in
 // memory. Each observed prompt total is the candidate counter's own prediction, so
 // every new error is zero. The data is synthetic and is never written to disk.
@@ -212,12 +222,13 @@ func claudeGateSyntheticEvidence(t *testing.T, set claudeFixtureSet) claudeGateE
 	ctx := context.Background()
 	const basePrompt = 1000
 	ev := claudeGateEvidence{
-		SchemaVersion: claudeGateSchemaVersion,
-		CLIVersion:    "synthetic-cli",
-		LibraryCommit: set.Manifest.Library.Commit,
-		PayloadSHA256: map[string]string{},
-		ToolsSHA256:   set.Manifest.Tools.SHA256,
-		Launch:        claudeGateLaunchPinned(),
+		SchemaVersion:   claudeGateSchemaVersion,
+		CLIVersion:      "synthetic-cli",
+		LibraryCommit:   set.Manifest.Library.Commit,
+		PayloadSHA256:   map[string]string{},
+		ToolsSHA256:     set.Manifest.Tools.SHA256,
+		EvaluatorCommit: claudeGateTestEvaluatorCommit,
+		Launch:          claudeGateLaunchPinned(),
 	}
 	for _, pin := range set.Manifest.Payloads {
 		ev.PayloadSHA256[pin.Name] = pin.SHA256
@@ -489,11 +500,11 @@ func TestClaudeTokenGateEvidenceLoadRejects(t *testing.T) {
 		doc     string
 		wantErr bool
 	}{
-		{"valid minimal document", `{"schema_version":1,` + head + `,"attempts":[]}`, false},
+		{"valid minimal document", `{"schema_version":2,` + head + `,"attempts":[]}`, false},
 		{"duplicate key", `{"schema_version":1,"schema_version":1,` + head + `,"attempts":[]}`, true},
 		{"unknown field", `{"schema_version":1,` + head + `,"attempts":[],"extra":1}`, true},
 		{"trailing data", `{"schema_version":1,` + head + `,"attempts":[]} {}`, true},
-		{"wrong schema version", `{"schema_version":2,` + head + `,"attempts":[]}`, true},
+		{"wrong schema version", `{"schema_version":1,` + head + `,"attempts":[]}`, true},
 		{"attempts missing", `{"schema_version":1,` + head + `}`, true},
 		{"attempts null", `{"schema_version":1,` + head + `,"attempts":null}`, true},
 	}
@@ -606,5 +617,76 @@ func TestClaudeTokenGateSanitizerViolations(t *testing.T) {
 				t.Errorf("violations = %q, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestClaudeTokenGateSanitizerNormalizedKeys checks the fixed sensitive key set after
+// normalization. Case and the separators '-', '_', and '.' are ignored, and only an
+// exact match is a violation. A key that only contains a sensitive word passes.
+func TestClaudeTokenGateSanitizerNormalizedKeys(t *testing.T) {
+	tests := []struct {
+		key  string
+		want int
+	}{
+		{"API-KEY", 1}, {"api.key", 1}, {"Api_Key", 1}, {"session_key", 1}, {"SessionKey", 1},
+		{"Authorization", 1}, {"cookie", 1}, {"Credential", 1}, {"secret", 1}, {"Password", 1},
+		{"token", 1}, {"TOKEN", 1}, {"bearer", 1}, {"stderr", 1}, {"result_usage", 1},
+		{"cookies", 0}, {"x_token", 0}, {"tokenCount", 0}, {"max_tokens", 0}, {"input_tokens", 0},
+		{"session_id", 0}, {"sessionId", 0}, {"apikeys_note", 0}, {"stderrLog", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			doc := map[string]any{tt.key: "value"}
+			if got := claudeGateViolations("doc", doc, nil); len(got) != tt.want {
+				t.Errorf("violations for key %q = %q, want %d", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestClaudeTokenGateSanitizerPathVariants checks which string values count as paths.
+// A value is a violation only when it begins with a Unix root, a Windows drive, a
+// UNC share, or a home prefix.
+func TestClaudeTokenGateSanitizerPathVariants(t *testing.T) {
+	tests := []struct {
+		name, value string
+		want        int
+	}{
+		{"unix absolute", "/tmp/fetched", 1},
+		{"windows drive slash", "C:/fetched", 1},
+		{"windows drive backslash", `C:\fetched`, 1},
+		{"lowercase drive", `d:\x`, 1},
+		{"unc share", `\\server\share`, 1},
+		{"home slash", "~/fetched", 1},
+		{"home backslash", `~\fetched`, 1},
+		{"relative authored path", ".steiner/tmp/fetched", 0},
+		{"drive letter without separator", "C:fetched", 0},
+		{"digit before colon", "1:/fetched", 0},
+		{"single leading backslash", `\fetched`, 0},
+		{"path later in prose", `write under /tmp or C:\x`, 0},
+		{"empty", "", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := map[string]any{"path": tt.value}
+			if got := claudeGateViolations("doc", doc, nil); len(got) != tt.want {
+				t.Errorf("violations for %q = %q, want %d", tt.value, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestClaudeTokenGateEvaluateCancelled checks that a cancelled context stops the
+// evaluator before any report is built.
+func TestClaudeTokenGateEvaluateCancelled(t *testing.T) {
+	set := loadClaudeFixtureForTest(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	reports, err := claudeGateEvaluate(ctx, set, claudeGateSyntheticEvidence(t, set))
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
+	}
+	if reports != nil {
+		t.Errorf("reports = %d, want none", len(reports))
 	}
 }

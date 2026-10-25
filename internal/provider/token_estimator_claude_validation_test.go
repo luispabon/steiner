@@ -17,7 +17,8 @@ import (
 // model is active only when every gate passes. The gate never launches the CLI.
 // Protocol, evidence loading, and request building are in
 // token_estimator_claude_gate_protocol_test.go. Negative and semantic cases are
-// in token_estimator_claude_gate_cases_test.go.
+// in token_estimator_claude_gate_cases_test.go. Stored report replay is in
+// token_estimator_claude_gate_replay_test.go.
 
 // claudeGateResidual is copied into every report. It states what the gates do
 // not model.
@@ -289,17 +290,16 @@ func claudeGateActiveModels(reports []claudeGateReport) []string {
 	return active
 }
 
-// TestClaudeTokenReplay replays the committed evidence. With no attempts every
-// candidate model must be inactive with a missing-slot failure, and the pins must
-// match the fixtures. Production ctok IDs must be a subset of the active models.
+// TestClaudeTokenReplay replays the committed evidence. The pins must match the
+// fixtures, and the stored report must equal the recomputed report. With no
+// attempts every candidate model must be inactive with a missing-slot failure.
+// Populated evidence is replayed by the synthetic tests in
+// token_estimator_claude_gate_replay_test.go.
 func TestClaudeTokenReplay(t *testing.T) {
 	set := loadClaudeFixtureForTest(t)
 	ev, err := claudeGateLoadEvidence(filepath.Join(claudeFixtureDir, claudeGateEvidenceName))
 	if err != nil {
 		t.Fatalf("load claude gate evidence: %v", err)
-	}
-	if len(ev.Attempts) != 0 {
-		t.Fatalf("committed evidence has %d attempts, want 0 until the live run", len(ev.Attempts))
 	}
 	if !claudeGatePinsMatch(set, ev) {
 		t.Fatal("committed evidence pins do not match the fixtures")
@@ -308,14 +308,21 @@ func TestClaudeTokenReplay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate claude gate: %v", err)
 	}
-	for _, rep := range reports {
-		if rep.Active {
-			t.Errorf("%s is active with empty evidence", rep.Model)
-		}
-		if !slices.Contains(rep.Failures, claudeGateFailMissing) {
-			t.Errorf("%s failures %q lack %q", rep.Model, rep.Failures, claudeGateFailMissing)
+	if err := claudeGateStoredReportMatches(ev, reports); err != nil {
+		t.Fatalf("committed evidence: %v", err)
+	}
+	if len(ev.Attempts) == 0 {
+		for _, rep := range reports {
+			if rep.Active {
+				t.Errorf("%s is active with empty evidence", rep.Model)
+			}
+			if !slices.Contains(rep.Failures, claudeGateFailMissing) {
+				t.Errorf("%s failures %q lack %q", rep.Model, rep.Failures, claudeGateFailMissing)
+			}
 		}
 	}
+	// Step 6 must make this set equal the exact passing set. Until then each
+	// production ctok ID must be an active model.
 	active := claudeGateActiveModels(reports)
 	for id := range ctokActiveModelIDs {
 		if !slices.Contains(active, id) {
@@ -380,23 +387,25 @@ func TestClaudeTokenGateBuilderRequests(t *testing.T) {
 	}
 }
 
-// claudeGateForbiddenKeys are object key fragments that evidence and reports must
-// not hold: credential-like names, and raw CLI output that the gate never stores.
-var claudeGateForbiddenKeys = []string{"api_key", "apikey", "authorization", "password", "secret", "credential", "bearer", "stderr", "result_usage"}
+// claudeGateForbiddenKeys is the fixed set of sensitive keys that evidence and
+// reports must not hold, plus raw CLI output keys that the gate never stores. A
+// key is compared exactly after claudeGateNormalizeKey, so a key that only
+// contains one of these words is not rejected.
+var claudeGateForbiddenKeys = []string{
+	"apikey", "token", "secret", "password", "authorization", "cookie", "credential", "sessionkey",
+	"bearer", "stderr", "resultusage",
+}
 
 // claudeGateViolations walks a decoded JSON value and appends one message to out
-// for each forbidden object key and each absolute-path string value. Authored
+// for each forbidden object key and each path-like string value (see
+// claudeGateIsPathValue). Authored
 // relative paths, such as .steiner/tmp/fetched in a tool description, pass.
 func claudeGateViolations(path string, v any, out []string) []string {
 	switch x := v.(type) {
 	case map[string]any:
 		for key, child := range x {
-			lower := strings.ToLower(key)
-			for _, bad := range claudeGateForbiddenKeys {
-				if strings.Contains(lower, bad) {
-					out = append(out, fmt.Sprintf("%s has forbidden key %q", path, key))
-					break
-				}
+			if slices.Contains(claudeGateForbiddenKeys, claudeGateNormalizeKey(key)) {
+				out = append(out, fmt.Sprintf("%s has forbidden key %q", path, key))
 			}
 			out = claudeGateViolations(path+"."+key, child, out)
 		}
@@ -405,11 +414,27 @@ func claudeGateViolations(path string, v any, out []string) []string {
 			out = claudeGateViolations(fmt.Sprintf("%s[%d]", path, i), child, out)
 		}
 	case string:
-		if filepath.IsAbs(x) || strings.HasPrefix(x, "~/") {
-			out = append(out, fmt.Sprintf("%s is an absolute path", path))
+		if claudeGateIsPathValue(x) {
+			out = append(out, fmt.Sprintf("%s is a path value", path))
 		}
 	}
 	return out
+}
+
+// claudeGateNormalizeKey lowercases key and removes '-', '_', and '.'.
+func claudeGateNormalizeKey(key string) string {
+	return strings.NewReplacer("-", "", "_", "", ".", "").Replace(strings.ToLower(key))
+}
+
+// claudeGateIsPathValue reports whether s begins like a path: a Unix root "/", a
+// Windows drive ("C:/" or "C:\"), a UNC share ("\\"), or a home path ("~/" or
+// "~\"). A path-like sequence later in the text does not count.
+func claudeGateIsPathValue(s string) bool {
+	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, `\\`) || strings.HasPrefix(s, "~/") || strings.HasPrefix(s, `~\`) {
+		return true
+	}
+	letter := len(s) > 0 && ((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z'))
+	return len(s) >= 3 && letter && s[1] == ':' && (s[2] == '/' || s[2] == '\\')
 }
 
 // claudeGateCheckClean fails t for every violation in the JSON document data.
@@ -441,7 +466,7 @@ func TestClaudeTokenGateEvidenceSanitized(t *testing.T) {
 	if err := json.Unmarshal(raw, &top); err != nil {
 		t.Fatalf("parse claude gate evidence keys: %v", err)
 	}
-	wantKeys := []string{"schema_version", "cli_version", "library_commit", "payload_sha256", "tools_sha256", "launch", "attempts"}
+	wantKeys := []string{"schema_version", "cli_version", "library_commit", "payload_sha256", "tools_sha256", "launch", "evaluator_commit", "attempts", "report"}
 	if len(top) != len(wantKeys) {
 		t.Errorf("evidence has %d top-level keys, want %d", len(top), len(wantKeys))
 	}
@@ -475,6 +500,7 @@ func TestClaudeTokenGateEvidenceSanitized(t *testing.T) {
 		claudeGateFailRecord, claudeGateFailState, claudeGateFailMissing, claudeGateFailDuplicate,
 		claudeGateFailPins, claudeGateFailRequest, claudeGateFailBudget, claudeGateFailNegative,
 		claudeGateFailObserved, claudeGateFailText, claudeGateFailCategory, claudeGateFailTool, claudeGateFailFull,
+		claudeGateFailEvaluator,
 	}
 	for _, rep := range reports {
 		data, err := json.Marshal(rep)

@@ -1,12 +1,12 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "cli_version": "",
   "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
   "payload_sha256": {
     "code_json": "58335d20625eaa98800564587e94118ca0280c57fc2ba0ef2ae62e01b0de1cca",
     "markdown_prose": "8d26c7ab79ecb1da78d9e645f8e40fc9b12bece706b773517e9ab8d56a0ae1e8",
-    "unicode": "aa86bc5361f55e4a84079b6d1f4b599a9c80b155b30a9cfce6d3a8d4e7a648ac",
-    "mixed": "2ff3537b972a385ac6a3d7900b98f158668143d6dc0f4f5ce3808749e83499bd"
+    "mixed": "2ff3537b972a385ac6a3d7900b98f158668143d6dc0f4f5ce3808749e83499bd",
+    "unicode": "aa86bc5361f55e4a84079b6d1f4b599a9c80b155b30a9cfce6d3a8d4e7a648ac"
   },
   "tools_sha256": "30d083b816c770ab4ef2b553054ed46a57b3c7934b50589f88660706126d7580",
   "launch": {
@@ -28,5 +28,98 @@
       "CompactionSourceMessages"
     ]
   },
-  "attempts": []
+  "evaluator_commit": "",
+  "attempts": [],
+  "report": [
+    {
+      "model": "claude-opus-5-5",
+      "active": false,
+      "failures": [
+        "required slot missing"
+      ],
+      "tool": {
+        "slot": "",
+        "observed": 0,
+        "old_predicted": 0,
+        "new_predicted": 0,
+        "old_signed_error": null,
+        "new_signed_error": null,
+        "old_abs_error": null,
+        "new_abs_error": null
+      },
+      "full": {
+        "slot": "",
+        "observed": 0,
+        "old_predicted": 0,
+        "new_predicted": 0,
+        "old_signed_error": null,
+        "new_signed_error": null,
+        "old_abs_error": null,
+        "new_abs_error": null
+      },
+      "category_old_abs_sum": null,
+      "category_new_abs_sum": null,
+      "residual": "CLI framing (system prompt, tool note, CLI built-in tools) is not modeled. Text and tool deltas cancel it only if it is the same in every slot. The full slot includes it, so its error is not framing-free. Tool and full slots have no underestimation limit."
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "active": false,
+      "failures": [
+        "required slot missing"
+      ],
+      "tool": {
+        "slot": "",
+        "observed": 0,
+        "old_predicted": 0,
+        "new_predicted": 0,
+        "old_signed_error": null,
+        "new_signed_error": null,
+        "old_abs_error": null,
+        "new_abs_error": null
+      },
+      "full": {
+        "slot": "",
+        "observed": 0,
+        "old_predicted": 0,
+        "new_predicted": 0,
+        "old_signed_error": null,
+        "new_signed_error": null,
+        "old_abs_error": null,
+        "new_abs_error": null
+      },
+      "category_old_abs_sum": null,
+      "category_new_abs_sum": null,
+      "residual": "CLI framing (system prompt, tool note, CLI built-in tools) is not modeled. Text and tool deltas cancel it only if it is the same in every slot. The full slot includes it, so its error is not framing-free. Tool and full slots have no underestimation limit."
+    },
+    {
+      "model": "claude-haiku-5-5",
+      "active": false,
+      "failures": [
+        "required slot missing"
+      ],
+      "tool": {
+        "slot": "",
+        "observed": 0,
+        "old_predicted": 0,
+        "new_predicted": 0,
+        "old_signed_error": null,
+        "new_signed_error": null,
+        "old_abs_error": null,
+        "new_abs_error": null
+      },
+      "full": {
+        "slot": "",
+        "observed": 0,
+        "old_predicted": 0,
+        "new_predicted": 0,
+        "old_signed_error": null,
+        "new_signed_error": null,
+        "old_abs_error": null,
+        "new_abs_error": null
+      },
+      "category_old_abs_sum": null,
+      "category_new_abs_sum": null,
+      "residual": "CLI framing (system prompt, tool note, CLI built-in tools) is not modeled. Text and tool deltas cancel it only if it is the same in every slot. The full slot includes it, so its error is not framing-free. Tool and full slots have no underestimation limit."
+    }
+  ]
 }
