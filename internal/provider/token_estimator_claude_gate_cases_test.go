@@ -315,7 +315,7 @@ func claudeGateRecordIndex(t *testing.T, ev *claudeGateEvidence, model string, s
 
 // TestClaudeTokenGateSyntheticPassingMatrix checks that synthetic passing evidence
 // activates every candidate through the measure and judge path, and that the
-// production ctok set equals the candidate set.
+// production ctok set equals the active set.
 func TestClaudeTokenGateSyntheticPassingMatrix(t *testing.T) {
 	set := loadClaudeFixtureForTest(t)
 	ev := claudeGateSyntheticEvidence(t, set)
@@ -340,8 +340,48 @@ func TestClaudeTokenGateSyntheticPassingMatrix(t *testing.T) {
 	if got := claudeGateActiveModels(reports); !slices.Equal(got, claudeLedgerModels) {
 		t.Errorf("active models = %q, want %q", got, claudeLedgerModels)
 	}
-	if got, want := sortedCtokTableIDs(), slices.Sorted(slices.Values(claudeLedgerModels)); !slices.Equal(got, want) {
-		t.Errorf("production ctok model set = %q, want %q", got, want)
+	if got, want := sortedCtokTableIDs(), slices.Sorted(slices.Values(claudeGateActiveModels(reports))); !slices.Equal(got, want) {
+		t.Errorf("production ctok model set = %q, want active set %q", got, want)
+	}
+}
+
+// TestClaudeTokenGatePartialPass checks that one failing model alone is inactive. Its
+// synthetic records are marked failed, and every other model stays active. This is a
+// separate audit from the all-pass matrix above.
+func TestClaudeTokenGatePartialPass(t *testing.T) {
+	set := loadClaudeFixtureForTest(t)
+	ev := claudeGateSyntheticEvidence(t, set)
+	failed := claudeLedgerModels[0]
+	for i := range ev.Attempts {
+		if ev.Attempts[i].RequestedModel == failed {
+			ev.Attempts[i].Status = claudeLedgerStatusFailed
+			ev.Attempts[i].Failure = claudeLedgerFailLaunch
+			ev.Attempts[i].ObservedModel = ""
+			ev.Attempts[i].Usage = nil
+			ev.Attempts[i].ThinkingBlocksObserved = false
+		}
+	}
+	reports, err := claudeGateEvaluate(context.Background(), set, ev)
+	if err != nil {
+		t.Fatalf("evaluate partial claude gate: %v", err)
+	}
+	want := slices.DeleteFunc(slices.Clone(claudeLedgerModels), func(m string) bool { return m == failed })
+	slices.Sort(want)
+	if got := slices.Sorted(slices.Values(claudeGateActiveModels(reports))); !slices.Equal(got, want) {
+		t.Errorf("active models = %q, want %q", got, want)
+	}
+	for _, rep := range reports {
+		if rep.Model != failed {
+			continue
+		}
+		if rep.Active {
+			t.Errorf("%s active with failed records", rep.Model)
+		}
+		for _, code := range []string{claudeGateFailState, claudeGateFailMissing} {
+			if !slices.Contains(rep.Failures, code) {
+				t.Errorf("%s failures %q lack %q", rep.Model, rep.Failures, code)
+			}
+		}
 	}
 }
 

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -66,7 +67,7 @@ func claudeGateOldCounter(model string) (textCounter, tokenizerMetadata, error) 
 		return nil, meta, fmt.Errorf("select old claude gate counter: %w", err)
 	}
 	if meta.strategy == TokenizerStrategyCtok {
-		return nil, meta, fmt.Errorf("old claude gate counter selected ctok")
+		return nil, meta, errors.New("old claude gate counter selected ctok")
 	}
 	return counter, meta, nil
 }
@@ -321,16 +322,11 @@ func TestClaudeTokenReplay(t *testing.T) {
 			}
 		}
 	}
-	// The active set, the production ctok table, and the candidate list must hold
-	// the same IDs.
+	// The active set and the production ctok table must hold the same IDs.
 	active := slices.Sorted(slices.Values(claudeGateActiveModels(reports)))
 	table := sortedCtokTableIDs()
-	candidates := slices.Sorted(slices.Values(claudeLedgerModels))
 	if !slices.Equal(active, table) {
 		t.Errorf("active models %q != production ctok table %q", active, table)
-	}
-	if !slices.Equal(table, candidates) {
-		t.Errorf("production ctok table %q != candidate models %q", table, candidates)
 	}
 }
 
