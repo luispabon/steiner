@@ -597,6 +597,50 @@ func TestResolveTokenizerMetadataSelectsCtokOnlyForExactActiveID(t *testing.T) {
 	}
 }
 
+// TestResolveReferenceReportsCtokMetadataForActiveID checks that only the exact
+// active claude-sonnet-5-5 ID reports ctok metadata through resolveReference.
+func TestResolveReferenceReportsCtokMetadataForActiveID(t *testing.T) {
+	tests := []struct {
+		name           string
+		modelID        string
+		wantStrategy   string
+		wantConfidence string
+	}{
+		{name: "active ID", modelID: "claude-sonnet-5-5", wantStrategy: TokenizerStrategyCtok, wantConfidence: "low"},
+		{name: "dated variant", modelID: "claude-sonnet-5-5-20260101", wantStrategy: TokenizerStrategyTiktoken, wantConfidence: "low"},
+		{name: "prefixed variant", modelID: "anthropic.claude-sonnet-5-5", wantStrategy: TokenizerStrategyTiktoken, wantConfidence: "low"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := config.NewModelConfigBase()
+			model.Provider = "claude"
+			model.ID = tt.modelID
+			cfg := config.Config{
+				Providers: map[string]config.ProviderConfig{
+					"claude": {Type: config.ProviderTypeClaudeSubscription},
+				},
+				Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
+					"sonnet": model,
+				}},
+			}
+
+			rm, err := resolveReference(&cfg, "sonnet", false, nil)
+			if err != nil {
+				t.Fatalf("resolveReference() error = %v", err)
+			}
+			if rm.BackendModelID != tt.modelID {
+				t.Fatalf("BackendModelID = %q, want %q", rm.BackendModelID, tt.modelID)
+			}
+			if rm.TokenizerStrategy != tt.wantStrategy {
+				t.Fatalf("TokenizerStrategy = %q, want %q", rm.TokenizerStrategy, tt.wantStrategy)
+			}
+			if rm.TokenizerConfidence != tt.wantConfidence {
+				t.Fatalf("TokenizerConfidence = %q, want %q", rm.TokenizerConfidence, tt.wantConfidence)
+			}
+		})
+	}
+}
+
 func TestResolveModelMetadataUsesModelsDevWithoutWarning(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
