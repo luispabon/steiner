@@ -273,7 +273,8 @@ jobs:
             ${{ steps.go-cache.outputs.GOCACHE }}
           key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}
 
-  # Allocation ceilings and the TUI's wall-clock headless harness live behind
+  # Allocation ceilings, the Claude request estimate resource guard in
+  # internal/provider, and the TUI's wall-clock headless harness live behind
   # the perfguard build tag so their benchmark and real-time runs stay out of
   # the normal suite. They run here as their own job rather
   # than a step in another check, so they neither delay nor are delayed by the

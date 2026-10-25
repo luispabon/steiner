@@ -232,16 +232,21 @@ func claudeBenchCycleBytes(set claudeFixtureSet) (int64, int64, error) {
 // claudeBenchFillerText is repeated to build the filler message.
 const claudeBenchFillerText = "benchmark filler text. "
 
-// claudeBenchFiller returns exactly n bytes of claudeBenchFillerText.
+// claudeBenchFiller returns exactly n bytes of claudeBenchFillerText, or "" when
+// n is not positive.
 func claudeBenchFiller(n int64) string {
+	if n <= 0 {
+		return ""
+	}
 	return strings.Repeat(claudeBenchFillerText, int(n)/len(claudeBenchFillerText)+1)[:n]
 }
 
-// claudeBenchSizedRequest returns a request sized to target and its measured
-// semantic bytes. It repeats whole cycles without exceeding target, then, if the
-// request is still short, appends one user message of filler for the remaining
-// bytes. The bytes are measured again after the append, and the result must pass
-// claudeBenchCheckSemanticBytes.
+// claudeBenchSizedRequest returns a request whose semantic bytes are approximately
+// target, within the checked tolerance, and its measured semantic bytes. It repeats
+// whole cycles without exceeding target, then, if the request is still short,
+// appends one user message of filler for the remaining bytes. The user role adds
+// semantic bytes of its own, so the bytes are measured again after the append, and
+// the result must pass claudeBenchCheckSemanticBytes.
 func claudeBenchSizedRequest(set claudeFixtureSet, target int64) (ChatRequest, int64, error) {
 	if target <= 0 {
 		return ChatRequest{}, 0, fmt.Errorf("claude bench target = %d, want > 0", target)
@@ -438,6 +443,40 @@ func checkClaudeBenchError(t *testing.T, err error, want string) {
 		t.Errorf("unexpected error: %v", err)
 	case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
 		t.Errorf("error = %v, want one containing %q", err, want)
+	}
+}
+
+func TestClaudeBenchFiller(t *testing.T) {
+	tests := []struct {
+		name string
+		n    int64
+	}{
+		{"negative", -1},
+		{"zero", 0},
+		{"one byte", 1},
+		{"one text repeat", int64(len(claudeBenchFillerText))},
+		{"partial repeat", 3*int64(len(claudeBenchFillerText)) + 7},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := claudeBenchFiller(tt.n)
+			want := max(tt.n, 0)
+			if int64(len(got)) != want {
+				t.Fatalf("len(claudeBenchFiller(%d)) = %d, want %d", tt.n, len(got), want)
+			}
+			for i := range len(got) {
+				if got[i] >= 0x80 {
+					t.Fatalf("claudeBenchFiller(%d) byte %d = %#x, want ASCII", tt.n, i, got[i])
+				}
+			}
+			var wantText strings.Builder
+			for i := range want {
+				wantText.WriteByte(claudeBenchFillerText[int(i)%len(claudeBenchFillerText)])
+			}
+			if got != wantText.String() {
+				t.Errorf("claudeBenchFiller(%d) = %q, want %q", tt.n, got, wantText.String())
+			}
+		})
 	}
 }
 
