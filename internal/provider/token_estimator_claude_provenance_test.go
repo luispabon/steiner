@@ -416,22 +416,19 @@ func TestClaudeTokenProvenanceOriginals(t *testing.T) {
 
 // TestClaudeTokenCaptureGenerate regenerates the sanitized captures and provenance.json
 // from the originals and writes them under the directory named by
-// STEINER_CLAUDE_CAPTURE_GENERATE. It never writes inside the fixture directory.
+// STEINER_CLAUDE_CAPTURE_GENERATE. It checks every destination before writing any file,
+// and refuses a symbolic link or a path inside the fixture directory.
 func TestClaudeTokenCaptureGenerate(t *testing.T) {
 	out := os.Getenv(claudeCaptureGenerateEnv)
 	if out == "" {
 		t.Skipf("set %s to write regenerated fixtures", claudeCaptureGenerateEnv)
 	}
-	inside, err := claudeDirWithin(out, claudeFixtureDir)
-	if err != nil {
-		t.Fatalf("resolve output directory: %v", err)
-	}
-	if inside {
-		t.Fatalf("output directory %s is inside the fixture directory, refusing to write", out)
-	}
 	files, err := claudeProvenanceBuild(claudeCaptureOriginalsDir(t))
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
+	}
+	if err := claudeGenerateCheckDests(out, claudeFixtureDir, files); err != nil {
+		t.Fatalf("refuse to write: %v", err)
 	}
 	for _, f := range files {
 		dst := filepath.Join(out, filepath.FromSlash(f.Path))

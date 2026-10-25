@@ -309,6 +309,11 @@ func claudeCaptureIndex(ev map[string]any) (json.Number, error) {
 // text from a future output cannot reach a fixture unnoticed.
 var claudeCaptureTextAllow = []string{"", "O", "K", "OK"}
 
+// claudeCaptureTextOK reports whether text is one of claudeCaptureTextAllow.
+func claudeCaptureTextOK(text string) bool {
+	return slices.Contains(claudeCaptureTextAllow, text)
+}
+
 // claudeCaptureText returns obj[key] when it is a string on claudeCaptureTextAllow. The
 // error does not echo the text, so a secret in it cannot reach a log.
 func claudeCaptureText(obj map[string]any, key string) (string, error) {
@@ -316,7 +321,7 @@ func claudeCaptureText(obj map[string]any, key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !slices.Contains(claudeCaptureTextAllow, s) {
+	if !claudeCaptureTextOK(s) {
 		return "", errors.New("text is not an allowed fragment")
 	}
 	return s, nil
@@ -421,8 +426,36 @@ func claudeCaptureCheckKeys(ctx string, v any) error {
 	return nil
 }
 
+// claudeCaptureCheckText returns an error for the first "text" value outside
+// claudeCaptureTextAllow. It walks objects and arrays. The error never includes the
+// value, so a secret in it cannot reach a log.
+func claudeCaptureCheckText(v any) error {
+	switch x := v.(type) {
+	case map[string]any:
+		for key, child := range x {
+			if key != "text" {
+				if err := claudeCaptureCheckText(child); err != nil {
+					return err
+				}
+				continue
+			}
+			if s, ok := child.(string); !ok || !claudeCaptureTextOK(s) {
+				return errors.New("text value is not an allowed fragment")
+			}
+		}
+	case []any:
+		for _, child := range x {
+			if err := claudeCaptureCheckText(child); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // claudeCaptureProblems lists every contract breach in one sanitized line: a key the
-// allowlist does not hold, a forbidden key or path value, or a non-synthetic ID.
+// allowlist does not hold, a forbidden key or path value, a non-synthetic ID, or a text
+// value outside claudeCaptureTextAllow.
 func claudeCaptureProblems(label string, line []byte) []string {
 	doc, err := claudeCaptureDecodeObject(line)
 	if err != nil {
@@ -436,6 +469,9 @@ func claudeCaptureProblems(label string, line []byte) []string {
 		if id, ok := doc[key].(string); !ok || !claudeCaptureIDPattern.MatchString(id) {
 			out = append(out, fmt.Sprintf("%s: %s is not a synthetic ID", label, key))
 		}
+	}
+	if err := claudeCaptureCheckText(doc); err != nil {
+		out = append(out, fmt.Sprintf("%s: %v", label, err))
 	}
 	return claudeGateViolations(label, doc, out)
 }
@@ -513,6 +549,40 @@ func TestClaudeTokenCaptureSanitizeAllowlist(t *testing.T) {
 	for _, tc := range bad {
 		if got := claudeCaptureProblems(tc.name, []byte(tc.line)); len(got) == 0 {
 			t.Errorf("%s: no problem reported", tc.name)
+		}
+	}
+}
+
+// TestClaudeTokenCaptureTextAllowlist checks the text rule on one stored line in each
+// text position. Each allowed fragment passes. Secret-like text fails, and no problem
+// message echoes it.
+func TestClaudeTokenCaptureTextAllowlist(t *testing.T) {
+	const secret = "sk-ant-api03-Zx9Qw2Lm7Rt4Vb8Nc1Hd6Jk"
+	line := func(block bool, text string) []byte {
+		ev := map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "text_delta", "text": text}}
+		if block {
+			ev = map[string]any{"type": "content_block_start", "index": 0, "content_block": map[string]any{"type": "text", "text": text}}
+		}
+		b, err := json.Marshal(map[string]any{"type": "stream_event", "event": ev, "session_id": claudeCaptureSession, "uuid": "00000000-0000-4000-8000-000000000002"})
+		if err != nil {
+			t.Fatalf("encode line: %v", err)
+		}
+		return b
+	}
+	for _, block := range []bool{true, false} {
+		for _, text := range []string{"", "O", "K", "OK"} {
+			if got := claudeCaptureProblems("line", line(block, text)); len(got) != 0 {
+				t.Errorf("allowed text %q (block %t): problems %q", text, block, got)
+			}
+		}
+		got := claudeCaptureProblems("line", line(block, secret))
+		if len(got) == 0 {
+			t.Errorf("secret-like text accepted (block %t)", block)
+		}
+		for _, msg := range got {
+			if strings.Contains(msg, secret) {
+				t.Errorf("problem echoes the text (block %t)", block)
+			}
 		}
 	}
 }
