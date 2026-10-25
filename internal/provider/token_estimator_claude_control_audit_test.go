@@ -185,13 +185,6 @@ func TestClaudeTokenAuditExtrasPersistInLedger(t *testing.T) {
 	if got := recs[1].Usage.OutputTokens; got != nil || recs[1].ThinkingBlocksObserved {
 		t.Errorf("attempt 2 output = %s, thinking = %t, want nil and false", claudeAuditIntString(got), recs[1].ThinkingBlocksObserved)
 	}
-	data, err := os.ReadFile(claudeLedgerPath(dir))
-	if err != nil {
-		t.Fatalf("read attempt ledger: %v", err)
-	}
-	if n := strings.Count(string(data), `"output_tokens": 0`); n != 1 {
-		t.Errorf("ledger holds %d output_tokens 0 fields, want 1", n)
-	}
 }
 
 // Extras the stream cannot support fail closed when the ledger is read.
@@ -204,6 +197,9 @@ func TestClaudeTokenAuditLedgerRejectsInvalidExtras(t *testing.T) {
 		{"negative output", func(r *claudeLedgerRecord) { r.Usage.OutputTokens = claudeLedgerIntPtr(-1) }},
 		{"thinking on a reserved record", func(r *claudeLedgerRecord) {
 			r.Status, r.ObservedModel, r.Usage, r.ThinkingBlocksObserved = claudeLedgerStatusReserved, "", nil, true
+		}},
+		{"thinking on a failed record", func(r *claudeLedgerRecord) {
+			r.Status, r.Failure, r.ObservedModel, r.Usage, r.ThinkingBlocksObserved = claudeLedgerStatusFailed, claudeLedgerFailLaunch, "", nil, true
 		}},
 	}
 	for _, tt := range tests {

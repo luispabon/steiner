@@ -23,7 +23,8 @@ const (
 	claudeGateEvidenceName = "observations.json"
 	// claudeGateSchemaVersion is the only evidence schema this code reads.
 	claudeGateSchemaVersion = 3
-	// claudeGateMaxOutputTokens is the output cap of every launch.
+	// claudeGateMaxOutputTokens is the output cap requested for every launch. The
+	// cap is requested via CLAUDE_CODE_MAX_OUTPUT_TOKENS, not verified as applied.
 	claudeGateMaxOutputTokens = 64
 )
 

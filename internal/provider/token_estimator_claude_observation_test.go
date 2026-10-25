@@ -136,7 +136,8 @@ func claudeLedgerObserveStream(data []byte, requested string) (claudeLedgerObser
 // claudeLedgerCheckMessage checks one emitted message. The raw usage must pass the
 // shared usage checks. The production decoder must agree on the cache components
 // with presence semantics (an absent raw field is an absent decoder value, zero)
-// and on the prompt total. It returns the raw usage with PromptTotal set.
+// and on the output count, with the same presence semantics, and on the prompt
+// total. It returns the raw usage with PromptTotal set.
 func claudeLedgerCheckMessage(raw claudeLedgerUsage, decoded *UsageStats) (claudeLedgerUsage, error) {
 	raw.PromptTotal = raw.prompt()
 	if err := claudeLedgerValidateUsage(raw); err != nil {
@@ -150,6 +151,9 @@ func claudeLedgerCheckMessage(raw claudeLedgerUsage, decoded *UsageStats) (claud
 	}
 	if got, want := decoded.CacheReadInputTokens, claudeLedgerOrZero(raw.CacheRead); got != want {
 		return claudeLedgerUsage{}, fmt.Errorf("cache read: stream %d, decoder %d", want, got)
+	}
+	if got, want := decoded.CompletionTokens, claudeLedgerOrZero(raw.OutputTokens); got != want {
+		return claudeLedgerUsage{}, fmt.Errorf("output: stream %d, decoder %d", want, got)
 	}
 	if decoded.PromptTokens != raw.PromptTotal {
 		return claudeLedgerUsage{}, fmt.Errorf("stream prompt %d, decoder prompt %d", raw.PromptTotal, decoded.PromptTokens)
