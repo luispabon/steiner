@@ -90,11 +90,11 @@ Compaction deliberately includes the session date block in the summary request â
 
 Preflight estimates come from `TokenCounter.EstimateChatRequestTokens` in `internal/provider`. The semantic estimator counts each text field through a text counter. For the exact model IDs in `ctokActiveModelIDs` (`internal/provider/token_estimator_claude.go`), that counter is `claudeTextCounter`, which calls ctok V48 `CountContent`. `CountContent` omits the single-message framing that the library's `Count` adds, and Steiner does not add it back. The existing framing constants are unchanged. The gate matches whitespace-trimmed model IDs exactly. Other models, including old, future, prefixed, and dated Claude IDs, keep the existing selector. Estimates from this path report strategy `ctok` with confidence `low`.
 
-The counter is the ctok-go library pinned in `go.mod` at commit `7969144b`. The v0.1.0 release (`2aec8ce`) has the same source apart from README and PROVENANCE.
+The counter is ctok-go v0.1.0 (release commit `2aec8ce`). Its source matches commit `7969144b`, the commit used for live testing, apart from README and PROVENANCE.
 
 ### Raw and calibrated values
 
-`TokenEstimate.RawTokens` is always the uncalibrated count from the selected estimator. `TokenEstimate.Tokens` equals `RawTokens` unless the existing provider-usage calibration (`ObserveUsage`, strategy `provider_usage`) applies. The ctok path adds no calibration, fitted offset, or multiplier. The strategy labels and the calibration contract are unchanged.
+`TokenEstimate.RawTokens` is the uncalibrated candidate from the selected estimator. `TokenEstimate.Tokens` may apply the existing API-usage calibration (`ObserveUsage`, strategy `provider_usage`). The ctok path adds no calibration, fitted offset, or multiplier, and no subscription calibration is added. The strategy labels and the calibration contract are unchanged.
 
 ### Evidence
 
@@ -102,14 +102,14 @@ The evidence is `internal/provider/testdata/claude_token_estimation/observations
 
 - Full error improvement against the previous estimate: 40.395%, 40.326%, and 40.368% across the three models.
 - Narrow-case residual: 9.6 to 11.6 tokens.
-- Remaining underestimates: 1750, 1755, and 1752 tokens, attributed to CLI and tool framing that the local count does not model.
+- Remaining underestimates: Opus 1750, Sonnet 1755, and Haiku 1752 tokens, attributed to CLI and tool framing that the local count does not model.
 - The existing gates pass for all three models.
 
 The recorded requests asked for thinking disabled and a 64-token output limit. The effective settings were not verified, and the probes allow no extra generation. The evidence contains no fitted offset or multiplier.
 
 ### Parity and limits
 
-The offline exact-parity suite covers 250000 authored cases and the cases from issue 6446. Parity shows that the local counter matches the reference counter on those cases. It does not show that the count matches the provider's tokenizer or the provider's accounting.
+The offline exact-parity suite covers 250000 authored cases and the 6,446-token synthetic probe delta from [issue #931](https://github.com/luispabon/steiner/issues/931). Parity shows that the local counter matches the reference counter on those cases. It does not show that the count matches the provider's tokenizer or the provider's accounting.
 
 All ctok-based estimates remain approximate and low confidence. The Opus-specific follow-up is [ctok-go issue 1](https://github.com/luispabon/ctok-go/issues/1). Subscription calibration is deferred to [steiner issue 939](https://github.com/luispabon/steiner/issues/939).
 
