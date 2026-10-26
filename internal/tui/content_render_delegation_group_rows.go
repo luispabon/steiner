@@ -19,6 +19,15 @@ type settledGroupRows struct {
 	lines map[*delegationDisplayState][]string
 }
 
+// flushSettledGroupRows drops the settled rows of a group segment whose
+// renderDirty is set, so its entries render fresh. processSegment calls it
+// before active delegations force renderDirty, so spinner ticks never flush.
+func (seg *contentSegment) flushSettledGroupRows() {
+	if seg.renderDirty && seg.delegGroupData != nil {
+		seg.delegGroupData.settled = settledGroupRows{}
+	}
+}
+
 // groupEntryLines returns the box lines of one group entry at width. A settled
 // entry comes from group.settled when the render inputs still match. Active
 // entries and the entry under a jump flash are always rendered fresh.

@@ -106,11 +106,12 @@ func (b *contentBuffer) finalizeActiveDelegation(agentID string) {
 	b.markDelegationDirty(loc.seg)
 }
 
-// markDelegationDirty re-renders segment idx and invalidates the settled prefix
-// when it is cached. It is the choke point for real mutations of a delegation
-// entry: every such mutation must reach it or dirtyDelegationCard, because
+// markDelegationDirty sets renderDirty on segment idx and invalidates the
+// settled prefix when it is cached. Spinner ticks must not call it. It is not
+// the only writer of renderDirty: direct writers exist (for example in
+// content_events_delegation_adjacency.go). The invariant is that the owning
+// segment's renderDirty is set before it renders after a real mutation, because
 // processSegment flushes a group's settled rows only when renderDirty is set.
-// Spinner ticks must not call it.
 func (b *contentBuffer) markDelegationDirty(idx int) {
 	if idx < 0 || idx >= len(b.segments) {
 		return

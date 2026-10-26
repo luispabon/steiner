@@ -235,12 +235,10 @@ func lastPartKind(kinds []contentSegmentKind) contentSegmentKind {
 // it). Extracted from String to keep the outer loop readable.
 func (b *contentBuffer) processSegment(i, width int, parts *[]string, kinds *[]contentSegmentKind) bool {
 	seg := &b.segments[i]
-	if seg.renderDirty && seg.delegGroupData != nil {
-		// Dirty before this frame's active-delegation forcing below, so a real
-		// mutation (spinner ticks do not set renderDirty) may have changed a settled
-		// entry. Drop its cached rows.
-		seg.delegGroupData.settled = settledGroupRows{}
-	}
+	// Dirty before this frame's active-delegation forcing below, so a real
+	// mutation (spinner ticks do not set renderDirty) may have changed a settled
+	// entry. Drop its cached rows.
+	seg.flushSettledGroupRows()
 	if seg.kind == segmentCompactionBanner && seg.compactionData != nil && !seg.compactionData.finished {
 		seg.renderDirty = true
 	}
