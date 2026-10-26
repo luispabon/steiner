@@ -87,6 +87,9 @@ type toolCallGroupSegment struct {
 // never reordered, so an entry pointer stays valid for the segment's lifetime.
 type delegationGroupSegment struct {
 	entries []*delegationDisplayState
+	// box and settled are render-mutated caches: renderGroupBox and
+	// groupEntryLines write them during render, and processSegment clears
+	// settled. Event handlers never write them; they only set renderDirty.
 	box     groupBoxCache
 	settled settledGroupRows
 }
@@ -288,12 +291,16 @@ type contentSegment struct {
 	noticeCount        int                     // segmentNotice only: occurrences collapsed into this row
 	noticeScope        string                  // segmentNotice only: notices in different scopes never collapse
 	noticeKey          string                  // segmentNotice only: full untruncated text, compared on collapse
-	// render cache at the active width, plus other recent widths (renderAtWidth)
+	// render cache at the active width, plus other recent widths (renderAtWidth).
+	// Render-mutated: processSegment, renderAtWidth, and content_width_cache.go
+	// write these during render. Event handlers do not.
 	cachedRender      string
 	cachedRenderWidth int
 	cachedStamp       renderStamp
 	altRenders        widthRenders
-	renderDirty       bool
+	// renderDirty is set by event handlers before render and cleared by
+	// processSegment and skipHiddenSegment.
+	renderDirty bool
 	// renderGen increments each time processSegment re-renders this segment.
 	// Anchors record it at capture time so a same-width remap can skip the
 	// matchRow scan while the render is unchanged.
@@ -344,6 +351,8 @@ type contentBuffer struct {
 
 	// Render cache. renderEpoch is bumped when MCP tool origins, a render input
 	// shared by all segments, change, so inactive-width renders are not reused.
+	// blocks writes stringCacheWidth and stringCacheBlocks during render;
+	// structural rewrites and tool-state resets clear them.
 	renderEpoch       int
 	stringCacheWidth  int
 	stringCacheBlocks []string
@@ -357,6 +366,8 @@ type contentBuffer struct {
 	// reused across dirty frames so streaming only re-walks the changing tail
 	// (preview, spinners, live segments). Keyed on gen (retroactive mutation),
 	// width (rendered segments depend on it), and showThinking (visibility).
+	// Render-mutated: rebuildPrefix and foldPrefix write these during render;
+	// structural rewrites and tool-state resets clear them.
 	prefixCacheSet          bool
 	prefixCacheRendered     string
 	prefixCacheLastKind     contentSegmentKind

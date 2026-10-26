@@ -68,9 +68,10 @@ func (b *contentBuffer) delegationTopRow(key occurrenceKey, width int) (seg, row
 	return 0, 0, nil, false
 }
 
-// dirtyDelegationCard re-renders the segment holding dd on the next sync. Like
-// markDelegationDirty, every real mutation of a delegation entry must reach it
-// or markDelegationDirty, so a group's settled rows are flushed.
+// dirtyDelegationCard re-renders the segment holding dd on the next sync and
+// bumps gen, which invalidates the settled-prefix cache. processSegment flushes
+// a group's settled rows only when the owning segment's renderDirty is set, so
+// this and markDelegationDirty are the usual ways to record a real mutation of dd.
 func (b *contentBuffer) dirtyDelegationCard(dd *delegationDisplayState) {
 	if dd == nil {
 		return
