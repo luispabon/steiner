@@ -3,7 +3,6 @@ package tui
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"charm.land/lipgloss/v2"
 )
@@ -96,11 +95,7 @@ func TestRenderGroupBoxCRLFSeedsCache(t *testing.T) {
 }
 
 func TestRenderDelegationGroupCacheMatchesFresh(t *testing.T) {
-	savedNano, savedTime := nanoNow, timeNow
-	now := int64(1_000_000_000_000)
-	nanoNow = func() int64 { return now }
-	timeNow = func() time.Time { return time.Unix(0, now) }
-	t.Cleanup(func() { nanoNow, timeNow = savedNano, savedTime })
+	freezeDelegationClockAt(t, 1_000_000_000_000)
 
 	b := groupTestBuffer()
 	group := groupOf("discovery", "complete", "active", "failed")

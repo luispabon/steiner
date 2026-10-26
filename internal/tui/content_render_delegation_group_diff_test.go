@@ -4,7 +4,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -108,11 +107,7 @@ func groupDiffReplay(steps []groupDiffStep, width int) string {
 // transcript with a fresh replay after every step, at two widths. A stale cache
 // entry shows up as a difference at the step that should have invalidated it.
 func TestGroupRenderCacheMatchesFreshReplay(t *testing.T) {
-	savedNano, savedTime := nanoNow, timeNow
-	now := int64(1_000_000_000_000)
-	nanoNow = func() int64 { return now }
-	timeNow = func() time.Time { return time.Unix(0, now) }
-	t.Cleanup(func() { nanoNow, timeNow = savedNano, savedTime })
+	freezeDelegationClockAt(t, 1_000_000_000_000)
 
 	steps := groupDiffScript()
 	for _, width := range []int{60, 100} {
@@ -146,11 +141,7 @@ func mixedGroupSegment(t *testing.T, m *Model) *delegationGroupSegment {
 // TestSpinnerTickReusesSettledRows checks the tick-vs-mutation split: a spinner
 // tick re-renders the active card's header but keeps the settled rows cache.
 func TestSpinnerTickReusesSettledRows(t *testing.T) {
-	savedNano, savedTime := nanoNow, timeNow
-	now := int64(1_000_000_000_000)
-	nanoNow = func() int64 { return now }
-	timeNow = func() time.Time { return time.Unix(0, now) }
-	t.Cleanup(func() { nanoNow, timeNow = savedNano, savedTime })
+	freezeDelegationClockAt(t, 1_000_000_000_000)
 
 	m := mixedGroupModel(2, true)
 	m.content.String(80)
