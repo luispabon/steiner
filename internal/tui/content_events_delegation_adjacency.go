@@ -20,9 +20,9 @@ func allUnnamedSpecialists(entries []*delegationDisplayState) bool {
 }
 
 // appendAdjacentSpecialist joins dd to the tail segment when both are unnamed
-// specialists. Adjacency is strict: any other tail kind (thinking, plain text,
-// separators, status, advisor) leaves dd standalone. It reports whether dd was
-// joined to the tail.
+// specialists. Adjacency is strict: any other tail segment or card (thinking,
+// plain text, separators, status, an advisor card) leaves dd standalone. It
+// reports whether dd was joined to the tail.
 func (b *contentBuffer) appendAdjacentSpecialist(dd *delegationDisplayState) bool {
 	if !isUnnamedSpecialist(dd) || len(b.segments) == 0 {
 		return false

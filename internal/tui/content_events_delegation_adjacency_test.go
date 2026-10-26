@@ -88,6 +88,18 @@ func TestStrictAdjacencyBreaksUnnamedFrame(t *testing.T) {
 		{"plain", func(b *contentBuffer) {
 			b.appendStyled("plain", segmentPlain)
 		}},
+		{"user", func(b *contentBuffer) {
+			b.AppendUser("question")
+		}},
+		{"tool call", func(b *contentBuffer) {
+			b.AppendEvent(output.NewToolCallStartedEvent(1, "bash", "tool-call", map[string]any{"command": "true"}))
+		}},
+		{"delivery", func(b *contentBuffer) {
+			b.AppendEvent(output.NewSubAgentsDeliveredEvent([]output.DeliveredSubAgent{{AgentID: "delivered", Status: "complete"}}))
+		}},
+		{"separator", func(b *contentBuffer) {
+			b.AppendPhaseDivider("plan")
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -160,5 +172,234 @@ func TestAcceptedTailCardLeavesUnnamedPrefixFrame(t *testing.T) {
 	}
 	if b.segments[1].kind != segmentDelegationGroup || len(b.segments[1].delegGroupData.entries) != 1 || b.segments[1].delegGroupData.entries[0].admission.Group != "g" {
 		t.Fatalf("segment 1 = %v, want one named group entry in group g", segmentKinds(b.segments))
+	}
+}
+
+// TestUnnamedPromotionRerendersCachedSettledCard checks that promoting a card
+// into a frame whose first card is settled and segment-cached re-renders that
+// card on the normal render path. The outer string cache is not reset, so a
+// stale segment cache would show one card and differ from a cold render.
+func TestUnnamedPromotionRerendersCachedSettledCard(t *testing.T) {
+	useTrueColor(t)
+	freezeDelegationClock(t)
+	settled := func(b *contentBuffer) {
+		b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-1", subAgentArgs("")))
+		occ := callOcc("call-1", "child-1")
+		b.AppendEvent(output.NewDelegationStartedEvent(occ, "first work", "", "explore"))
+		b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: occ, Status: "completed"}))
+	}
+	appended := func(status string) func(b *contentBuffer) {
+		return func(b *contentBuffer) {
+			b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-2", subAgentArgs("")))
+			if status == "" {
+				return
+			}
+			occ := callOcc("call-2", "child-2")
+			b.AppendEvent(output.NewDelegationStartedEvent(occ, "second work", "", "explore"))
+			b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: occ, Status: status}))
+		}
+	}
+	cases := []struct {
+		name   string
+		second func(b *contentBuffer)
+	}{
+		{"queued card", appended("")},
+		{"completed card", appended("completed")},
+		{"failed card", appended("failed")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			warm := groupTestBuffer()
+			settled(warm)
+			quietFrame(warm)
+			if len(warm.segments) != 1 || warm.segments[0].cachedRender == "" {
+				t.Fatalf("setup: settled card not cached: segments=%v", segmentKinds(warm.segments))
+			}
+			tc.second(warm)
+			got := warm.String(prefixGenWidth)
+
+			cold := groupTestBuffer()
+			settled(cold)
+			tc.second(cold)
+			if want := cold.String(prefixGenWidth); got != want {
+				t.Fatalf("promoted render differs from cold render:\nwarm:\n%s\ncold:\n%s", stripANSI(got), stripANSI(want))
+			}
+			if len(warm.segments) != 1 || warm.segments[0].kind != segmentDelegationGroup {
+				t.Fatalf("segments = %v, want one unnamed frame", segmentKinds(warm.segments))
+			}
+			if n := strings.Count(stripANSI(got), "explore"); n != 2 {
+				t.Fatalf("explore headers = %d, want 2:\n%s", n, stripANSI(got))
+			}
+		})
+	}
+}
+
+// TestAppendAdjacentSpecialistRerendersCachedTail checks the tail promotion in
+// isolation. The joined card is hand-built and receives no later events, so the
+// only write that can dirty the cached tail is appendAdjacentSpecialist. Its
+// render must match a cold render of the same two cards.
+func TestAppendAdjacentSpecialistRerendersCachedTail(t *testing.T) {
+	useTrueColor(t)
+	freezeDelegationClock(t)
+	for _, status := range []string{"complete", "failed"} {
+		t.Run(status, func(t *testing.T) {
+			card := func(id string) *delegationDisplayState {
+				return &delegationDisplayState{agentID: id, agentType: "explore", toolLabel: "explore", taskPreview: id + " work", status: status}
+			}
+			build := func(b *contentBuffer) {
+				b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: card("child-1"), renderDirty: true})
+			}
+
+			warm := groupTestBuffer()
+			build(warm)
+			quietFrame(warm)
+			if len(warm.segments) != 1 || warm.segments[0].cachedRender == "" {
+				t.Fatalf("setup: tail card not cached: segments=%v", segmentKinds(warm.segments))
+			}
+			if !warm.appendAdjacentSpecialist(card("child-2")) {
+				t.Fatal("appendAdjacentSpecialist did not join the unnamed tail card")
+			}
+			if len(warm.segments) != 1 || warm.segments[0].kind != segmentDelegationGroup {
+				t.Fatalf("segments = %v, want one unnamed frame", segmentKinds(warm.segments))
+			}
+			got := warm.String(prefixGenWidth)
+
+			cold := groupTestBuffer()
+			build(cold)
+			cold.appendAdjacentSpecialist(card("child-2"))
+			if want := cold.String(prefixGenWidth); got != want {
+				t.Fatalf("promoted render differs from cold render:\nwarm:\n%s\ncold:\n%s", stripANSI(got), stripANSI(want))
+			}
+			if n := strings.Count(stripANSI(got), "explore"); n != 2 {
+				t.Fatalf("explore headers = %d, want 2:\n%s", n, stripANSI(got))
+			}
+		})
+	}
+}
+
+// TestAdmittedMiddleMemberSplitsUnnamedFrame checks that admitting the middle
+// card of an unnamed frame into a named group leaves its neighbours standalone,
+// and that later updates land on the card they belong to.
+func TestAdmittedMiddleMemberSplitsUnnamedFrame(t *testing.T) {
+	t.Parallel()
+	b := groupTestBuffer()
+	ids := startRegroupCards(b, "batch", "", 3)
+	tokens := flattenDelegationSegments(b.segments)
+	if len(tokens) != 3 || len(b.segments) != 1 {
+		t.Fatalf("setup: segments = %v, want one unnamed frame of three", segmentKinds(b.segments))
+	}
+	first, middle, last := tokens[0].dd, tokens[1].dd, tokens[2].dd
+	firstStatus := first.status
+
+	acceptRegroupCard(b, "batch", "g", ids[1])
+	if len(b.segments) != 3 ||
+		b.segments[0].kind != segmentDelegation || b.segments[0].delegData != first ||
+		b.segments[1].kind != segmentDelegationGroup || len(b.segments[1].delegGroupData.entries) != 1 || b.segments[1].delegGroupData.entries[0] != middle ||
+		b.segments[2].kind != segmentDelegation || b.segments[2].delegData != last {
+		t.Fatalf("segments = %v, want standalone, named, standalone", segmentKinds(b.segments))
+	}
+	assertLocatorsResolve(t, b)
+
+	occurrence := func(id string) output.DelegationOccurrence {
+		return output.DelegationOccurrence{CallID: id, BatchID: "batch", AgentID: "agent-" + id}
+	}
+	b.AppendEvent(output.NewDelegationStartedEvent(occurrence(ids[1]), "middle task", "", "explore"))
+	b.AppendEvent(output.NewDelegationStartedEvent(occurrence(ids[2]), "last task", "", "explore"))
+	b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: occurrence(ids[2]), Status: "completed"}))
+	if first.status != firstStatus || middle.status != "active" || last.status != "complete" {
+		t.Fatalf("statuses first=%q (was %q) middle=%q last=%q, want first untouched, middle active, last complete", first.status, firstStatus, middle.status, last.status)
+	}
+	if b.segments[0].delegData != first || b.segments[1].delegGroupData.entries[0] != middle || b.segments[2].delegData != last {
+		t.Fatalf("updates landed on the wrong segments: %v", segmentKinds(b.segments))
+	}
+	assertLocatorsResolve(t, b)
+}
+
+// assertLocatorsResolve checks that every delegation locator points at a
+// segment that still holds the card it names.
+func assertLocatorsResolve(t *testing.T, b *contentBuffer) {
+	t.Helper()
+	checkLocatorIndex(t, "delegations", b.segments, b.delegations)
+	checkLocatorIndex(t, "openDelegations", b.segments, b.openDelegations)
+	checkLocatorIndex(t, "activeDelegations", b.segments, b.activeDelegations)
+}
+
+func checkLocatorIndex[K comparable](t *testing.T, name string, segments []contentSegment, index map[K]delegationLocator) {
+	t.Helper()
+	for key, loc := range index {
+		if loc.dd == nil || loc.seg < 0 || loc.seg >= len(segments) || !segmentHoldsDelegation(segments[loc.seg], loc.dd) {
+			t.Errorf("%s[%v] = segment %d, which does not hold its card; segments=%v", name, key, loc.seg, segmentKinds(segments))
+		}
+	}
+}
+
+// TestUnnamedFrameJumpAndPickerRows checks that an unnamed frame has no picker
+// group header and that jumping to its second card lands on the divider above it.
+func TestUnnamedFrameJumpAndPickerRows(t *testing.T) {
+	m := newJumpTestModel(t)
+	addJumpFiller(m, 10)
+	addJumpCard(m, 1, "a", "")
+	second := addJumpCard(m, 2, "b", "")
+	addJumpFiller(m, 80)
+	m.syncViewport()
+
+	frame := -1
+	for i, seg := range m.content.segments {
+		if seg.kind == segmentDelegationGroup {
+			frame = i
+		}
+	}
+	if frame < 0 || len(m.content.segments[frame].delegGroupData.entries) != 2 {
+		t.Fatalf("segments = %v, want one unnamed frame of two", segmentKinds(m.content.segments))
+	}
+
+	cards := 0
+	for _, row := range m.content.subAgentPickerRows("") {
+		if row.groupHdr {
+			t.Errorf("picker has group header %q for an unnamed frame", row.heading)
+		}
+		if row.dd != nil {
+			cards++
+		}
+	}
+	if cards != 2 {
+		t.Errorf("picker card rows = %d, want 2", cards)
+	}
+
+	if m.jumpToDelegation(second) == nil {
+		t.Fatal("jump to second frame card returned nil")
+	}
+	seg, row, dd, ok := m.content.delegationTopRow(second, m.viewport.Width())
+	if !ok || dd != m.content.delegations[second].dd || seg != frame || row == 0 {
+		t.Fatalf("delegationTopRow = %d,%d,%v, want divider row in frame %d", seg, row, ok, frame)
+	}
+	line, _ := m.content.contentLineForSegmentRow(seg, row)
+	if got := m.viewport.YOffset(); got != line+m.contentTopPad {
+		t.Errorf("YOffset = %d, want %d", got, line+m.contentTopPad)
+	}
+}
+
+// TestMixedSpecialistFrameDividesWithoutFooter checks that an unnamed frame of
+// different specialist types draws a divider between cards, falls back to the
+// default border, and renders no named footer.
+func TestMixedSpecialistFrameDividesWithoutFooter(t *testing.T) {
+	t.Parallel()
+	b := groupTestBuffer()
+	startRegroupCards(b, "mixed", "", 2)
+	frame := b.segments[0]
+	if frame.kind != segmentDelegationGroup {
+		t.Fatalf("segments = %v, want one unnamed frame", segmentKinds(b.segments))
+	}
+	frame.delegGroupData.entries[0].toolLabel = "explore"
+	frame.delegGroupData.entries[1].toolLabel = "review"
+	if label := delegationGroupBorderLabel(frame.delegGroupData); label != "" {
+		t.Fatalf("border label = %q, want default border for mixed types", label)
+	}
+	out := stripANSI(b.renderDelegationGroupSegment(frame, 60))
+	if strings.Contains(out, "2 agents") {
+		t.Fatalf("unnamed mixed frame rendered a named footer:\n%s", out)
+	}
+	if divider := stripANSI(b.renderToolCallDivider(60 - 4)); !strings.Contains(out, divider) {
+		t.Fatalf("frame has no divider between cards:\n%s", out)
 	}
 }
