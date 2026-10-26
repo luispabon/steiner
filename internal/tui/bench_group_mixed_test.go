@@ -11,13 +11,18 @@ import (
 // mixedGroupName is the group label shared by every sub-agent of the mixed fixture.
 const mixedGroupName = "discovery"
 
-// appendMixedChild starts sub-agent j of the mixed group and runs its assistant
-// reply and read tool call. A done child also completes with output.
+// appendMixedChild starts sub-agent j of the mixed group. See appendGroupChild.
 func appendMixedChild(m *Model, j int, done bool) *Model {
+	return appendGroupChild(m, mixedGroupName, j, done)
+}
+
+// appendGroupChild starts sub-agent j in group (empty for unnamed) and runs its
+// assistant reply and read tool call. A done child also completes with output.
+func appendGroupChild(m *Model, group string, j int, done bool) *Model {
 	id := fmt.Sprintf("child-%d", j)
 	callID := "call_" + id
-	m = updateModelDirect(m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "sub_agent", callID, subAgentArgs(mixedGroupName))})
-	m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationAcceptedEvent(callOcc(callID, id), mixedGroupName)})
+	m = updateModelDirect(m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "sub_agent", callID, subAgentArgs(group))})
+	m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationAcceptedEvent(callOcc(callID, id), group)})
 	m = updateModelDirect(m, runtimeEventMsg{Event: output.WithAgentScope(output.NewDelegationStartedEvent(callOcc(callID, id), "explore part "+id, "", "explore"), id)})
 	m = appendMixedChildWork(m, id, callID)
 	if done {
@@ -91,6 +96,22 @@ func benchFirstRenderMixed(b *testing.B, settled int, expanded bool) {
 		m.content.dirtyDelegationCard(entry)
 		m.syncViewport()
 	}
+}
+
+// spinnerAdvanceModel returns a 60-message transcript with three active,
+// collapsed, unnamed sub-agents. Each frame of the spinner benchmark advances
+// their spinners, then renders.
+func spinnerAdvanceModel() *Model {
+	m := populateLongTranscript(newContentBenchModel(), 60)
+	for j := range 3 {
+		m = appendGroupChild(m, "", j, false)
+	}
+	for _, dd := range mixedEntries(m) {
+		dd.collapsed = true
+		m.content.dirtyDelegationCard(dd)
+	}
+	m.syncViewport()
+	return m
 }
 
 // BenchmarkGroupMixed covers the mixed group guards: idle frames, a frame with

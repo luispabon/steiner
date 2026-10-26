@@ -181,9 +181,9 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			benchtime:  contentIterations,
 			fn:         func(b *testing.B) { benchIdleFrameInflight(b, 60) },
 			checkBytes: true,
-			maxBytes:   39207,
-			maxAllocs:  416,
-			baseline:   "measured 34093 B/op, 346 allocs/op (max of 4 runs, 300x); origin/main 47251 B/op, 1368 allocs/op",
+			maxBytes:   35523,
+			maxAllocs:  340,
+			baseline:   "measured 30889 B/op, 283 allocs/op (max of 4 runs, 300x); origin/main 47264 B/op, 1368 allocs/op",
 		},
 		{
 			// Group of 1 active + 2 settled expanded children, idle frame.
@@ -214,6 +214,16 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			maxBytes:   217056,
 			maxAllocs:  2225,
 			baseline:   "measured 188744 B/op, 1854 allocs/op (max of 4 runs, 300x); origin/main 775081 B/op, 17320 allocs/op for the same events",
+		},
+		{
+			// Three active collapsed unnamed sub-agents on a 60-message transcript: each frame advances the spinners, then renders.
+			name:       "ContentIdleFrameInflight60SpinnerAdvance",
+			benchtime:  contentIterations,
+			fn:         benchSpinnerAdvanceUnnamed,
+			checkBytes: true,
+			maxBytes:   58983,
+			maxAllocs:  1653,
+			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (origin/main max of 4 runs 51289 B/op, 1377 allocs/op; 51289*1.15 = 58983, 1377*1.2 = 1653); branch measured 50485 B/op, 951 allocs/op (max of 4 runs, 300x), 0.98x main bytes and 0.69x main allocs",
 		},
 		{
 			// Cold render: every group cache is dropped and a settled card is dirtied per op.
@@ -313,6 +323,19 @@ func benchDevLogRealisticStationary(b *testing.B) {
 
 func benchDevLogRealisticClick(b *testing.B) {
 	benchDevLogClick(b, devLogBenchParams(false))
+}
+
+// benchSpinnerAdvanceUnnamed runs one spinner frame per iteration over the
+// spinnerAdvanceModel fixture. It lives in this tagged file so the default build
+// has no unused functions.
+func benchSpinnerAdvanceUnnamed(b *testing.B) {
+	b.ReportAllocs()
+	m := spinnerAdvanceModel()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.content.AdvanceDelegationSpinners()
+		m.syncViewport()
+	}
 }
 
 // setBenchtime sets -test.benchtime for the rest of the calling (sub)test and

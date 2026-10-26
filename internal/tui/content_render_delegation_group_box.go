@@ -46,10 +46,11 @@ func groupBoxSideStyle(border, bg color.Color, width int) lipgloss.Style {
 }
 
 // renderGroupBox returns renderStyledBox(content, border, bg, width). A frame
-// where at least half the content lines have no cached interior is drawn once
-// through renderGroupBoxCold, which may seed the cache. Any other frame draws
-// each missing line on its own and reuses the cached interior of the rest. A
-// per-line result matches renderStyledBox only while lipgloss wraps to a
+// with no line cache (the first render, or after a width, border, or background
+// change) is drawn once through renderGroupBoxCold, which may seed the cache.
+// Any other frame draws each line missing from the cache on its own and reuses
+// the cached interior of the rest, so a spinner frame that changes a few lines
+// pays only for those. A per-line result matches renderStyledBox only while lipgloss wraps to a
 // positive inner width and the first row keeps the box width, so the full box
 // is drawn whenever either check fails.
 func renderGroupBox(cache *groupBoxCache, content string, border, bg color.Color, width int) string {
@@ -68,7 +69,7 @@ func renderGroupBox(cache *groupBoxCache, content string, border, bg color.Color
 		}
 	}
 	src := strings.Split(content, "\n")
-	if 2*groupBoxMisses(cache, src) >= len(src) {
+	if cache.lines == nil {
 		return renderGroupBoxCold(cache, content, src, border, bg, width)
 	}
 	next := make(map[string]string, len(src))
@@ -155,17 +156,6 @@ func groupLineRows(line string, inner int) int {
 		return 1
 	}
 	return strings.Count(ansi.Wrap(line, inner, ""), "\n") + 1
-}
-
-// groupBoxMisses counts the content lines that have no cached interior.
-func groupBoxMisses(cache *groupBoxCache, src []string) int {
-	misses := 0
-	for _, line := range src {
-		if _, ok := cache.lines[line]; !ok {
-			misses++
-		}
-	}
-	return misses
 }
 
 // groupBoxInterior returns the rows the side style draws for one content line,

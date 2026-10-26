@@ -32,6 +32,7 @@ func TestRenderGroupBoxSeedPathSelection(t *testing.T) {
 		{"cold open SGR does not seed", "", "\x1b[31mopen\nnext", false},
 		{"cold tab does not seed", "", "a\tb\nnext", false},
 		{"partial miss keeps line path", "one\ntwo\nthree\nfour", "one\n" + wrapping + "\nthree\nfour", true},
+		{"primed high miss ratio keeps line path", "one\ntwo", "\x1b[31mopen\nthree\nfour", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
