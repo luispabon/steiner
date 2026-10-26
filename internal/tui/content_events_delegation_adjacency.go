@@ -35,9 +35,7 @@ func (b *contentBuffer) appendAdjacentSpecialist(dd *delegationDisplayState) boo
 			return false
 		}
 		b.invalidatePrefixIfCached(idx)
-		last.delegGroupData = &delegationGroupSegment{entries: []*delegationDisplayState{last.delegData, dd}}
-		last.delegData = nil
-		last.kind = segmentDelegationGroup
+		last.setDelegationGroup([]*delegationDisplayState{last.delegData, dd})
 	case segmentDelegationGroup:
 		if last.delegGroupData == nil || !allUnnamedSpecialists(last.delegGroupData.entries) {
 			return false
@@ -72,7 +70,6 @@ func appendUnnamedRun(next []contentSegment, oldToNew map[int]int, run []delegat
 	for _, tok := range run {
 		entries = append(entries, tok.dd)
 	}
-	seg.kind, seg.delegData = segmentDelegationGroup, nil
-	seg.delegGroupData = &delegationGroupSegment{entries: entries}
+	seg.setDelegationGroup(entries)
 	return append(next, seg)
 }

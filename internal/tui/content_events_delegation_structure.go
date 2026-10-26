@@ -137,8 +137,7 @@ func buildRegroupedSegments(tokens []delegationSegmentToken, members map[delegat
 		}
 		seen[key] = true
 		seg := tok.segment
-		seg.kind, seg.delegData = segmentDelegationGroup, nil
-		seg.delegGroupData = &delegationGroupSegment{entries: append([]*delegationDisplayState(nil), members[key]...)}
+		seg.setDelegationGroup(append([]*delegationDisplayState(nil), members[key]...))
 		seg.renderDirty = true
 		oldToNew[tok.old] = base + len(next)
 		next = append(next, seg)
@@ -164,6 +163,13 @@ func sameGroupEntries(a, b *delegationGroupSegment) bool {
 		return a == b
 	}
 	return slices.Equal(a.entries, b.entries)
+}
+
+// setDelegationGroup turns seg into a delegation group holding entries and
+// clears the single-delegation field.
+func (seg *contentSegment) setDelegationGroup(entries []*delegationDisplayState) {
+	seg.kind, seg.delegData = segmentDelegationGroup, nil
+	seg.delegGroupData = &delegationGroupSegment{entries: entries}
 }
 
 func findDelegationSegment(segments []contentSegment, dd *delegationDisplayState) int {
