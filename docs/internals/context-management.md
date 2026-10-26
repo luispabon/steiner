@@ -90,7 +90,7 @@ Compaction deliberately includes the session date block in the summary request â
 
 Preflight estimates come from `TokenCounter.EstimateChatRequestTokens` in `internal/provider`. The semantic estimator counts each text field through a text counter. For the exact model IDs in `ctokActiveModelIDs` (`internal/provider/token_estimator_claude.go`), that counter is `claudeTextCounter`, which calls ctok V48 `CountContent`. `CountContent` omits the single-message framing that the library's `Count` adds, and Steiner does not add it back. The existing framing constants are unchanged. The gate matches whitespace-trimmed model IDs exactly. Other models, including old, future, prefixed, and dated Claude IDs, keep the existing selector. Estimates from this path report strategy `ctok` with confidence `low`.
 
-The counter is ctok-go v0.1.0 (release commit `2aec8ce`). Its source matches commit `7969144b`, the commit used for live testing, apart from README and PROVENANCE.
+The counter is ctok-go v0.2.0 (release commit `3359446f`). Its embedded data and count behavior match commit `7969144b`, the commit used for live testing; the intervening releases changed only error text, marker helper extraction, tests, and documentation.
 
 ### Raw and calibrated values
 

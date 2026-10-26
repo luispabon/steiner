@@ -88,8 +88,8 @@ github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
 github.com/lucasb-eyer/go-colorful v1.4.1 h1:1EO+WB73+EH8EVbzlrG3KLAfEypQWVHIBqlTf+2hNss=
 github.com/lucasb-eyer/go-colorful v1.4.1/go.mod h1:R4dSotOR9KMtayYi1e77YzuveK+i7ruzyGqttikkLy0=
-github.com/luispabon/ctok-go v0.1.0 h1:w3WlanEqTSvSTsQ8Pu6W5uOPui1k+jzpIATUAy/6F7Q=
-github.com/luispabon/ctok-go v0.1.0/go.mod h1:EhD5zBUGYSJw7vz3Sv5sTYtmHjtOd+Zk3wstHpgmPYQ=
+github.com/luispabon/ctok-go v0.2.0 h1:hlH6ZRcZX58RwWIgWdW3JrgTcAKQxy5vdY34KW0TPY0=
+github.com/luispabon/ctok-go v0.2.0/go.mod h1:EhD5zBUGYSJw7vz3Sv5sTYtmHjtOd+Zk3wstHpgmPYQ=
 github.com/mattn/go-runewidth v0.0.30 h1:+KUuiDA4fF0R1p5FeueHefjDm+GIM+kWfFnDjybOPgk=
 github.com/mattn/go-runewidth v0.0.30/go.mod h1:3qAiGCV4Koz/yuveO58qUefmUTRm8r0IGEXZ9jeHp/8=
 github.com/microcosm-cc/bluemonday v1.0.27 h1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwXFM08ygZfk=

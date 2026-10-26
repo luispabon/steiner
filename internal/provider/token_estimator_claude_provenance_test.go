@@ -26,7 +26,7 @@ const (
 	// claudeObservationsFrozenSHA256 freezes observations.json. Its bytes must not change.
 	claudeObservationsFrozenSHA256 = "61ce15a4ce298a017bf1c592d85e80b96c6304b8ac39370e9b0b151fcbb74fe3"
 	// claudeManifestFrozenSHA256 freezes manifest.json. Its bytes must not change.
-	claudeManifestFrozenSHA256 = "960c72c00b456674ee7a02770bc2a6b54d701ac63fae31f94db469bf4b4a27e9"
+	claudeManifestFrozenSHA256 = "05bf4f28c41f72657645bd472fad628175b0e8651ccfc10c2e812decc3542238"
 	// claudeHistoricalEvaluatorCommit is the evaluator commit recorded in the
 	// observations. It is compared as a string and not checked against git history.
 	claudeHistoricalEvaluatorCommit = "643bfe916d84ed8dc5083044d0d154dc346132f1"
