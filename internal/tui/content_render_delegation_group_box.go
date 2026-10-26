@@ -97,8 +97,8 @@ func renderGroupBox(cache *groupBoxCache, content string, border, bg color.Color
 // groupLineClosesSGR reports whether line leaves no SGR style open at its end.
 // lipgloss carries an open style into the next line, which a line drawn alone
 // cannot reproduce, so renderGroupBox falls back to the full box for such lines.
-// A line ending in a carriage return also reports false, because lipgloss drops
-// the CR of a CRLF pair only when another line follows.
+// A line ending in a carriage return also reports false, because line-local
+// rendering cannot reliably reproduce lipgloss's carriage-return handling.
 func groupLineClosesSGR(line string) bool {
 	if strings.HasSuffix(line, "\r") {
 		return false
