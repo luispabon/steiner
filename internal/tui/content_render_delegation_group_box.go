@@ -68,9 +68,7 @@ func renderGroupBox(cache *groupBoxCache, content string, border, bg color.Color
 			side:   groupBoxSideStyle(border, bg, width),
 		}
 	}
-	// lipgloss turns CRLF into LF before it wraps; do the same so a CRLF line
-	// is not mistaken for one that ends in a lone CR.
-	src := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	src := strings.Split(content, "\n")
 	if cache.lines == nil {
 		return renderGroupBoxCold(cache, content, src, border, bg, width)
 	}

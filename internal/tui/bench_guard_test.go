@@ -21,9 +21,11 @@ const contentIterations = "300x"
 
 // TestBenchmarkAllocationCeilings pins per-frame allocation ceilings for the
 // TUI frame benchmarks so a regression that re-introduces per-frame
-// allocations fails the test suite. Ceilings are set from baselines measured
-// on this machine (go1.26.5 linux/amd64, 220x60): bytes = ceil(measured*1.15),
-// allocs = ceil(measured*1.2).
+// allocations fails the test suite. Measurements come from this machine
+// (go1.26.5 linux/amd64, 220x60). Each row's baseline string names its source:
+// branch-measured rows set bytes = measured*1.15 and allocs = measured*1.2 on
+// this branch; origin/main parity rows apply the same factors to origin/main's
+// measured values.
 func TestBenchmarkAllocationCeilings(t *testing.T) {
 	// The perfguard tag keeps this out of the normal suite; this skip is the
 	// separate foot-gun guard for `go test -tags perfguard -race`, where the
@@ -246,7 +248,7 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (1027268*1.15 = 1181359, 20037*1.2 = 24045); branch measured max of 4 runs 1119269 B/op, 20762 allocs/op (300x), 1.09x main bytes and 1.04x main allocs",
 		},
 		{
-			// Two settled expanded children; child-0 is toggled before each frame, so the frame redraws many lines against a warm group line cache.
+			// Two settled children, both collapsed at start; child-0 is toggled before each frame, so the frame redraws against a warm group line cache.
 			name:       "GroupMixedToggleSettled2",
 			benchtime:  contentIterations,
 			fn:         benchGroupToggleSettled,

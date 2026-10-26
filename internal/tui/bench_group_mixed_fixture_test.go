@@ -38,12 +38,22 @@ func TestSpinnerAdvanceFixtureIsUnnamedGroup(t *testing.T) {
 	if len(groups) != 1 {
 		t.Fatalf("groups = %d, want 1", len(groups))
 	}
-	if n := len(groups[0].entries); n != 3 {
+	group := groups[0]
+	if n := len(group.entries); n != 3 {
 		t.Fatalf("group entries = %d, want 3", n)
 	}
-	for _, dd := range groups[0].entries {
+	if name := delegationVisualGroupName(group); name != "" {
+		t.Errorf("group name = %q, want unnamed", name)
+	}
+	for _, dd := range group.entries {
+		if _, named := acceptedMembership(dd); named {
+			t.Errorf("entry %q has named membership, want none", dd.agentID)
+		}
 		if dd.status != "active" {
-			t.Errorf("entry status = %q, want active", dd.status)
+			t.Errorf("entry %q status = %q, want active", dd.agentID, dd.status)
+		}
+		if !dd.collapsed {
+			t.Errorf("entry %q collapsed = false, want true", dd.agentID)
 		}
 	}
 }
