@@ -221,9 +221,9 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			benchtime:  contentIterations,
 			fn:         func(b *testing.B) { benchFirstRenderMixed(b, 2, true) },
 			checkBytes: true,
-			maxBytes:   1284969,
-			maxAllocs:  24914,
-			baseline:   "measured 1117364 B/op, 20761 allocs/op (max of 4 runs, 300x); origin/main 1027268 B/op, 20037 allocs/op for the same events. Cold path is 1.09x main bytes and 1.04x main allocs; this row is not a parity row",
+			maxBytes:   1181359,
+			maxAllocs:  24045,
+			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (1027268*1.15 = 1181359, 20037*1.2 = 24045); branch measured max of 4 runs 1118806 B/op, 20761 allocs/op (300x), 1.09x main bytes and 1.04x main allocs",
 		},
 		{
 			name:       "ContentToggleBlockTail60",
