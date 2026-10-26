@@ -1,0 +1,27 @@
+{
+  "library": {
+    "module": "github.com/luispabon/ctok-go",
+    "version": "v0.1.0",
+    "commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+    "release_commit": "2aec8ceb7e270bada5dd08d6c414ec306eff6609",
+    "release_identity": "tag v0.1.0 peels to release_commit; its tree equals commit except README and PROVENANCE"
+  },
+  "model": "claude-token-fixture",
+  "system": "Reply only OK.",
+  "user": "Reply OK.",
+  "delta_formula": "CountContent(system + payload) - CountContent(system)",
+  "baseline_tokens": 7,
+  "payloads": [
+    {"name": "code_json", "path": "payloads/code_json.txt", "bytes": 3090, "sha256": "58335d20625eaa98800564587e94118ca0280c57fc2ba0ef2ae62e01b0de1cca", "delta_tokens": 1518},
+    {"name": "markdown_prose", "path": "payloads/markdown_prose.txt", "bytes": 4133, "sha256": "8d26c7ab79ecb1da78d9e645f8e40fc9b12bece706b773517e9ab8d56a0ae1e8", "delta_tokens": 1337},
+    {"name": "unicode", "path": "payloads/unicode.txt", "bytes": 2851, "sha256": "aa86bc5361f55e4a84079b6d1f4b599a9c80b155b30a9cfce6d3a8d4e7a648ac", "delta_tokens": 1183},
+    {"name": "mixed", "path": "payloads/mixed.txt", "bytes": 2420, "sha256": "2ff3537b972a385ac6a3d7900b98f158668143d6dc0f4f5ce3808749e83499bd", "delta_tokens": 1054}
+  ],
+  "tools": {
+    "path": "tools.json",
+    "bash_timeout_cap_seconds": 600,
+    "bytes": 15384,
+    "sha256": "30d083b816c770ab4ef2b553054ed46a57b3c7934b50589f88660706126d7580",
+    "scope": "core builtins from builtin.Builtins(builtin.Env{BashTimeoutCap: 600s}) via tool.Registry.ToProviderSpecs, sorted by name; excludes advisor, lsp_*, mcp__*, config-defined, and sub-agent tools; core defaults only"
+  }
+}

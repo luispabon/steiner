@@ -1,0 +1,112 @@
+// ledger.go
+package inventory
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+)
+
+// Item is one stock line in a warehouse bin.
+type Item struct {
+	SKU      string   `json:"sku"`
+	Name     string   `json:"name"`
+	Quantity int      `json:"quantity"`
+	Bins     []string `json:"bins"`
+	Tags     []string `json:"tags,omitempty"`
+}
+
+// Ledger keeps stock lines keyed by SKU.
+type Ledger struct {
+	items map[string]*Item
+}
+
+// NewLedger returns an empty ledger ready for use.
+func NewLedger() *Ledger {
+	return &Ledger{items: make(map[string]*Item)}
+}
+
+// Add inserts an item or merges quantities into an existing SKU.
+func (l *Ledger) Add(item Item) error {
+	if strings.TrimSpace(item.SKU) == "" {
+		return errors.New("sku is required")
+	}
+	if item.Quantity < 0 {
+		return fmt.Errorf("quantity for %s must not be negative: %d", item.SKU, item.Quantity)
+	}
+	existing, ok := l.items[item.SKU]
+	if !ok {
+		copied := item
+		l.items[item.SKU] = &copied
+		return nil
+	}
+	existing.Quantity += item.Quantity
+	existing.Bins = mergeSorted(existing.Bins, item.Bins)
+	return nil
+}
+
+// Remove reduces stock for a SKU and refuses to go below zero.
+func (l *Ledger) Remove(sku string, quantity int) error {
+	item, ok := l.items[sku]
+	if !ok {
+		return fmt.Errorf("unknown sku %q", sku)
+	}
+	if quantity > item.Quantity {
+		return fmt.Errorf("remove %d from %s: only %d in stock", quantity, sku, item.Quantity)
+	}
+	item.Quantity -= quantity
+	return nil
+}
+
+// Snapshot returns a copy of every item, sorted by SKU.
+func (l *Ledger) Snapshot() []Item {
+	skus := make([]string, 0, len(l.items))
+	for sku := range l.items {
+		skus = append(skus, sku)
+	}
+	sort.Strings(skus)
+	out := make([]Item, 0, len(skus))
+	for _, sku := range skus {
+		out = append(out, *l.items[sku])
+	}
+	return out
+}
+
+// MarshalJSON writes the snapshot as a JSON array.
+func (l *Ledger) MarshalJSON() ([]byte, error) {
+	return json.Marshal(l.Snapshot())
+}
+
+func mergeSorted(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	for _, v := range append(append([]string{}, a...), b...) {
+		seen[v] = struct{}{}
+	}
+	merged := make([]string, 0, len(seen))
+	for v := range seen {
+		merged = append(merged, v)
+	}
+	sort.Strings(merged)
+	return merged
+}
+
+// warehouse.json
+{
+  "warehouse": "north-7",
+  "updated_at": "2026-10-01T08:30:00Z",
+  "reorder": {
+    "threshold": 12,
+    "lead_time_days": [3, 5, 8],
+    "notify": ["ops@example.test", "buyer@example.test"]
+  },
+  "items": [
+    {"sku": "BLT-204", "name": "Steel bolt M8", "quantity": 480, "bins": ["A1", "A2"]},
+    {"sku": "WSH-118", "name": "Washer 8mm zinc", "quantity": 96, "bins": ["A3"], "tags": ["zinc", "bulk"]},
+    {"sku": "NUT-330", "name": "Lock nut M8", "quantity": 0, "bins": [], "tags": ["discontinued"]},
+    {"sku": "SPR-072", "name": "Compression spring 20mm", "quantity": 230, "bins": ["B4"], "tags": ["spring"]},
+    {"sku": "PIN-615", "name": "Clevis pin 6mm", "quantity": 58, "bins": ["B5", "C1"], "tags": ["pin", "hardware"]}
+  ],
+  "audit": {"last_count": "2026-09-28", "variance_limit_pct": 1.5, "counted_by": "night-shift-2"}
+}

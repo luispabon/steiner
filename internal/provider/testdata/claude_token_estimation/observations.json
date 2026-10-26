@@ -1,0 +1,3164 @@
+{
+  "schema_version": 3,
+  "cli_version": "2.1.296",
+  "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+  "payload_sha256": {
+    "code_json": "58335d20625eaa98800564587e94118ca0280c57fc2ba0ef2ae62e01b0de1cca",
+    "markdown_prose": "8d26c7ab79ecb1da78d9e645f8e40fc9b12bece706b773517e9ab8d56a0ae1e8",
+    "mixed": "2ff3537b972a385ac6a3d7900b98f158668143d6dc0f4f5ce3808749e83499bd",
+    "unicode": "aa86bc5361f55e4a84079b6d1f4b599a9c80b155b30a9cfce6d3a8d4e7a648ac"
+  },
+  "tools_sha256": "30d083b816c770ab4ef2b553054ed46a57b3c7934b50589f88660706126d7580",
+  "launch": {
+    "reasoning": "disabled_requested_effective_unverified",
+    "max_output_tokens": 64,
+    "output_limit_mechanism": "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+    "output_limit_verification": "requested_not_verified",
+    "turns": 1,
+    "history": "none",
+    "json_omitted": [
+      "TransportSession",
+      "ParentTransportSession",
+      "Params",
+      "ExtraParams",
+      "PromptCacheKey",
+      "IncludeEmptyReasoning",
+      "Reasoning",
+      "AdvisorCacheProfile",
+      "BackendState",
+      "CompactionSummary",
+      "CompactionSourceMessages"
+    ]
+  },
+  "evaluator_commit": "643bfe916d84ed8dc5083044d0d154dc346132f1",
+  "attempts": [
+    {
+      "attempt_id": 1,
+      "timestamp_utc": "2026-10-25T16:54:28.48461205Z",
+      "slot": "baseline",
+      "requested_model": "claude-opus-5-5",
+      "observed_model": "claude-opus-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tools_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request": {
+        "model": "claude-opus-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK."
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 655,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 657
+      }
+    },
+    {
+      "attempt_id": 2,
+      "timestamp_utc": "2026-10-25T16:57:31.890164138Z",
+      "slot": "codeJSON",
+      "requested_model": "claude-opus-5-5",
+      "observed_model": "claude-opus-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "58335d20625eaa98800564587e94118ca0280c57fc2ba0ef2ae62e01b0de1cca",
+      "tools_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request": {
+        "model": "claude-opus-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK.// ledger.go\npackage inventory\n\nimport (\n\t\"encoding/json\"\n\t\"errors\"\n\t\"fmt\"\n\t\"sort\"\n\t\"strings\"\n)\n\n// Item is one stock line in a warehouse bin.\ntype Item struct {\n\tSKU      string   `json:\"sku\"`\n\tName     string   `json:\"name\"`\n\tQuantity int      `json:\"quantity\"`\n\tBins     []string `json:\"bins\"`\n\tTags     []string `json:\"tags,omitempty\"`\n}\n\n// Ledger keeps stock lines keyed by SKU.\ntype Ledger struct {\n\titems map[string]*Item\n}\n\n// NewLedger returns an empty ledger ready for use.\nfunc NewLedger() *Ledger {\n\treturn \u0026Ledger{items: make(map[string]*Item)}\n}\n\n// Add inserts an item or merges quantities into an existing SKU.\nfunc (l *Ledger) Add(item Item) error {\n\tif strings.TrimSpace(item.SKU) == \"\" {\n\t\treturn errors.New(\"sku is required\")\n\t}\n\tif item.Quantity \u003c 0 {\n\t\treturn fmt.Errorf(\"quantity for %s must not be negative: %d\", item.SKU, item.Quantity)\n\t}\n\texisting, ok := l.items[item.SKU]\n\tif !ok {\n\t\tcopied := item\n\t\tl.items[item.SKU] = \u0026copied\n\t\treturn nil\n\t}\n\texisting.Quantity += item.Quantity\n\texisting.Bins = mergeSorted(existing.Bins, item.Bins)\n\treturn nil\n}\n\n// Remove reduces stock for a SKU and refuses to go below zero.\nfunc (l *Ledger) Remove(sku string, quantity int) error {\n\titem, ok := l.items[sku]\n\tif !ok {\n\t\treturn fmt.Errorf(\"unknown sku %q\", sku)\n\t}\n\tif quantity \u003e item.Quantity {\n\t\treturn fmt.Errorf(\"remove %d from %s: only %d in stock\", quantity, sku, item.Quantity)\n\t}\n\titem.Quantity -= quantity\n\treturn nil\n}\n\n// Snapshot returns a copy of every item, sorted by SKU.\nfunc (l *Ledger) Snapshot() []Item {\n\tskus := make([]string, 0, len(l.items))\n\tfor sku := range l.items {\n\t\tskus = append(skus, sku)\n\t}\n\tsort.Strings(skus)\n\tout := make([]Item, 0, len(skus))\n\tfor _, sku := range skus {\n\t\tout = append(out, *l.items[sku])\n\t}\n\treturn out\n}\n\n// MarshalJSON writes the snapshot as a JSON array.\nfunc (l *Ledger) MarshalJSON() ([]byte, error) {\n\treturn json.Marshal(l.Snapshot())\n}\n\nfunc mergeSorted(a, b []string) []string {\n\tseen := make(map[string]struct{}, len(a)+len(b))\n\tfor _, v := range append(append([]string{}, a...), b...) {\n\t\tseen[v] = struct{}{}\n\t}\n\tmerged := make([]string, 0, len(seen))\n\tfor v := range seen {\n\t\tmerged = append(merged, v)\n\t}\n\tsort.Strings(merged)\n\treturn merged\n}\n\n// warehouse.json\n{\n  \"warehouse\": \"north-7\",\n  \"updated_at\": \"2026-10-01T08:30:00Z\",\n  \"reorder\": {\n    \"threshold\": 12,\n    \"lead_time_days\": [3, 5, 8],\n    \"notify\": [\"ops@example.test\", \"buyer@example.test\"]\n  },\n  \"items\": [\n    {\"sku\": \"BLT-204\", \"name\": \"Steel bolt M8\", \"quantity\": 480, \"bins\": [\"A1\", \"A2\"]},\n    {\"sku\": \"WSH-118\", \"name\": \"Washer 8mm zinc\", \"quantity\": 96, \"bins\": [\"A3\"], \"tags\": [\"zinc\", \"bulk\"]},\n    {\"sku\": \"NUT-330\", \"name\": \"Lock nut M8\", \"quantity\": 0, \"bins\": [], \"tags\": [\"discontinued\"]},\n    {\"sku\": \"SPR-072\", \"name\": \"Compression spring 20mm\", \"quantity\": 230, \"bins\": [\"B4\"], \"tags\": [\"spring\"]},\n    {\"sku\": \"PIN-615\", \"name\": \"Clevis pin 6mm\", \"quantity\": 58, \"bins\": [\"B5\", \"C1\"], \"tags\": [\"pin\", \"hardware\"]}\n  ],\n  \"audit\": {\"last_count\": \"2026-09-28\", \"variance_limit_pct\": 1.5, \"counted_by\": \"night-shift-2\"}\n}"
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 2173,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 2175
+      }
+    },
+    {
+      "attempt_id": 3,
+      "timestamp_utc": "2026-10-25T16:57:39.098284533Z",
+      "slot": "markdown",
+      "requested_model": "claude-opus-5-5",
+      "observed_model": "claude-opus-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "8d26c7ab79ecb1da78d9e645f8e40fc9b12bece706b773517e9ab8d56a0ae1e8",
+      "tools_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request": {
+        "model": "claude-opus-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK.# Tide gauge maintenance\n\nThis guide covers routine checks for the coastal tide gauge network. Each station records water level every six minutes and sends the readings to the regional office. Field crews follow the steps below in order, and they write every result in the station logbook before they leave the site.\n\n## Weekly checks\n\n- Confirm the solar panel is clear of salt spray and bird droppings.\n- Read the battery voltage on the control panel and note the value.\n- Compare the displayed water level with the reference staff gauge on the pier.\n- Check that the telemetry modem shows a signal strength above the local threshold.\n- Look for cracks or loose fittings on the stilling well.\n\nIf any check fails, record the station ID, the time, and a short description. Do not reset the logger until the regional office confirms the reset window.\n\n## Calibration\n\nCalibration runs twice a year, in spring and autumn, during the lowest spring tides. The crew lowers a calibrated reference rod into the stilling well and compares the reading with the logger output. A difference of more than two centimetres triggers a full sensor replacement.\n\n| Check | Limit | Action |\n| --- | --- | --- |\n| Level offset | 2 cm | Recalibrate sensor |\n| Battery voltage | 11.8 V | Schedule replacement |\n| Clock drift | 30 s | Resync from GPS |\n| Sample gap | 12 min | Inspect modem |\n\n## Steps for a full calibration\n\n1. Notify the regional office before arriving on site.\n2. Lock the logger in maintenance mode so no alarms fire during the work.\n3. Lower the reference rod and wait for the surface to settle for two minutes.\n4. Record the reference reading and the logger reading side by side.\n5. Export the last 24 hours of raw samples to the field laptop.\n6. Restore normal mode and confirm the next sample arrives within six minutes.\n\nThe export command is kept in the crew handbook:\n\n```sh\ngaugectl export --station \"$STATION_ID\" --hours 24 --format csv --out ./samples.csv\ngaugectl verify ./samples.csv\n```\n\n## Troubleshooting\n\nGaps in the sample stream usually come from the modem rather than the sensor. Power-cycle the modem first and wait ten minutes for the carrier to register. If the gap returns, check the antenna cable for water ingress at the mast connector.\n\nSpikes in the water level often follow a storm surge or a debris strike on the float. Compare the spike with the tide table before changing any setting. A real surge leaves a smooth recovery curve, while a debris strike returns to the baseline within one sample.\n\n## Site access and safety\n\nCrews reach most stations by road, but four of them sit on tidal causeways that flood twice a day. Check the causeway timetable before leaving the depot, and never cross while water covers the marker posts. Carry a radio, a first aid kit, and a torch, even on a short visit.\n\nWear the high visibility vest at all times on the pier. Keep two points of contact on the ladder when climbing to the solar panel, and clip the harness to the fixed rail before leaving the ground. If the wind exceeds the limit printed on the depot board, postpone any work above head height and inform the supervisor.\n\n## Spare parts\n\nEach station kit holds two spare modems, one spare float, a sealed battery, and a set of marine grade connectors. Replace any part that shows corrosion at the terminals, even if it still works. Log every part used, with the serial number and the date, so the stock count at the depot stays accurate.\n\n## Reporting\n\nAt the end of each visit, the crew lead calls the regional office from the site and reads back the key values: water level, battery voltage, sample count, and any alarm codes. The office confirms the values, then closes the visit in the tracking system. Reports that arrive without a confirmed read back are marked incomplete and are reviewed on the next working day.\n\n## Records\n\nEvery visit produces three records: the logbook entry, the signed checklist, and the exported sample file. Store all three in the station folder under the visit date. The regional office audits one random station each month, so keep the folder complete and in date order."
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 1992,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 1994
+      }
+    },
+    {
+      "attempt_id": 4,
+      "timestamp_utc": "2026-10-25T16:57:44.849123861Z",
+      "slot": "Unicode",
+      "requested_model": "claude-opus-5-5",
+      "observed_model": "claude-opus-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "aa86bc5361f55e4a84079b6d1f4b599a9c80b155b30a9cfce6d3a8d4e7a648ac",
+      "tools_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request": {
+        "model": "claude-opus-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK.Multilingual sample for token counting. Each line is original text.\n\nEnglish: The quick brown fox jumps over the lazy dog while the rain falls softly.\nFrancais: Le café de la gare ouvre à sept heures, et les enfants arrivent en retard.\nDeutsch: Die Straßenbahn fährt heute später, weil der Fluss hochsteht.\nEspañol: El niño dibujó un mapa del puerto con tinta azul y verde.\nΕλληνικά: Ο ήλιος βγαίνει νωρίς το καλοκαίρι πάνω από τη θάλασσα.\nРусский: Поезд отходит от вокзала ровно в девять, и пассажиры спешат.\nالعربية: تفتح المكتبة أبوابها عند الصباح، ويقرأ الطلاب في الحديقة.\nहिन्दी: बाज़ार में सुबह से भीड़ है, और दुकानदार नए फल सजा रहे हैं।\n日本語: 駅前の小さな店では、朝早くから焼きたてのパンが並びます。\n한국어: 강가의 작은 마을에서는 봄마다 축제가 열리고 사람들이 모입니다.\n中文：山间的小路通向一座古老的寺庙，清晨的钟声传遍整个河谷。\n\nTiếng Việt: Buổi sáng trời trong xanh, gió thổi nhẹ qua cánh đồng lúa.\nภาษาไทย: ตลาดเปิดตั้งแต่เช้า ผู้คนเดินซื้อของกันอย่างคึกคัก\nעברית: השוק נפתח מוקדם בבוקר, והאנשים קונים פירות וירקות טריים.\nTürkçe: Köprünün altındaki nehir bugün çok hızlı akıyor.\nPolski: Pociąg z Krakowa przyjeżdża na stację punktualnie, a żółte światła migają.\nবাংলা: নদীর ধারে ছোট গ্রামটিতে সকালবেলা মেলা বসে।\nதமிழ்: கோயில் மணி காலை முதல் ஒலிக்கிறது, மக்கள் வரிசையில் நிற்கின்றனர்.\nУкраїнська: Над містом піднімається туман, а на площі співають діти.\nDense emoji and joiners: 🧑🏽‍🤝‍🧑🏻 👪 🧑‍🧑‍🧒 🏃🏾‍♀️ 🏳️‍⚧️ 🐻‍❄️ 👁️‍🗨️ 🧑🏿‍🚒 🧔🏻‍♂️ 🫱🏼‍🫲🏽\n\nCombining marks on base letters: é is written as a base e followed by U+0301, ä as a followed by U+0308.\nCombining sequences written out: ñ, ö, ç, ệ, ṩ, ǜ.\n\nEmoji with skin tones: 👍 👍🏻 👍🏼 👍🏽 👍🏾 👍🏿\nZWJ families and profiles: 👨‍👩‍👧‍👦 👩‍💻 🏳️‍🌈 🧑‍🚀 🧑🏽‍🍳\nFlags: 🇬🇧 🇯🇵 🇧🇷 🇳🇴\nKeycaps and symbols: 1️⃣ 2️⃣ #️⃣ ❤️ ☕ ✈️ ⚽"
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 1837,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 1839
+      }
+    },
+    {
+      "attempt_id": 5,
+      "timestamp_utc": "2026-10-25T16:57:48.699523998Z",
+      "slot": "tools",
+      "requested_model": "claude-opus-5-5",
+      "observed_model": "claude-opus-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tools_sha256": "30d083b816c770ab4ef2b553054ed46a57b3c7934b50589f88660706126d7580",
+      "request": {
+        "model": "claude-opus-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK."
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "bash",
+              "description": "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "description": "Shell command to execute",
+                    "type": "string"
+                  },
+                  "cwd": {
+                    "description": "Working directory",
+                    "type": "string"
+                  },
+                  "max_output_chars": {
+                    "default": 30000,
+                    "description": "Max output characters",
+                    "maximum": 100000,
+                    "type": "integer"
+                  },
+                  "timeout_seconds": {
+                    "default": 120,
+                    "description": "Max execution time",
+                    "maximum": 600,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "display_file",
+              "description": "Ask the TUI to display a file to the user in an overlay without including the file contents in the conversation. Use this instead of read when the goal is to show the file visually rather than analyse its content.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 120,
+                    "description": "Max lines to preview",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 1,
+                    "description": "Starting line number (1-based)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Absolute or workspace-relative path to the file to display",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "fetch_url",
+              "description": "Fetch a URL and return its content. Supports HTML (main content extracted and converted to markdown, falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Images are always saved to .steiner/tmp/fetched; use the read tool with the returned file path to inspect them. Large responses are saved to disk in full — use the read tool to paginate; the only ceiling is the max_size download/save limit.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_size": {
+                    "default": 10485760,
+                    "description": "Max bytes to download and save to disk (default 10MB, ceiling 32MB)",
+                    "maximum": 33554432,
+                    "type": "integer"
+                  },
+                  "url": {
+                    "description": "URL to fetch",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "glob",
+              "description": "Find files by glob pattern. Use limit and offset to page through large result sets.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max results (default: 200)",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Result offset (default: 0)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Directory to search in",
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Glob pattern to match",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "grep",
+              "description": "Search file contents with paginated logical results. Use output_mode=\"files_with_matches\" to locate relevant files, output_mode=\"count\" for per-file counts, and output_mode=\"content\" with context to inspect matches.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "after_context": {
+                    "description": "Lines after each match in content output",
+                    "type": "integer"
+                  },
+                  "before_context": {
+                    "description": "Lines before each match in content output",
+                    "type": "integer"
+                  },
+                  "case_insensitive": {
+                    "description": "Case insensitive search",
+                    "type": "boolean"
+                  },
+                  "context": {
+                    "description": "Symmetric context lines for content output",
+                    "type": "integer"
+                  },
+                  "glob": {
+                    "description": "File pattern filter",
+                    "type": "string"
+                  },
+                  "head_limit": {
+                    "default": 100,
+                    "description": "Max logical results to return per page",
+                    "maximum": 500,
+                    "type": "integer"
+                  },
+                  "line_numbers": {
+                    "description": "Include line and column numbers in content output. Column is 1-based and rune-counted (matches lsp_definitions/lsp_references), pointing at where the match starts — not necessarily the target identifier's own position. Search for the identifier itself (e.g. word-boundary the pattern) when you intend to feed the result into an LSP tool.",
+                    "type": "boolean"
+                  },
+                  "multiline": {
+                    "description": "Enable multiline mode",
+                    "type": "boolean"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Logical result offset",
+                    "type": "integer"
+                  },
+                  "output_mode": {
+                    "description": "Output mode: content, files_with_matches, or count",
+                    "type": "string"
+                  },
+                  "path": {
+                    "description": "Directory or file to search in",
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Regex pattern to search for",
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "Search type (content, files, etc)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "ls",
+              "description": "List directory contents. Use recursive sparingly. Use limit and offset for large directories.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max results",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Result offset",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Directory to list",
+                    "type": "string"
+                  },
+                  "recursive": {
+                    "description": "List recursively",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "mutate",
+              "description": "Apply structured file edits via op types: create, write (create or overwrite), replace, delete_file, move. Supports file_hash for staleness detection on existing targets — pass the hash from read to fail fast if the file changed. replace against an existing file is rejected unless you read it earlier this session or pass file_hash — read the file first, or supply the hash from a read result. move rejects destination collisions instead of overwriting. For create, write, and move: parent directories must exist for workspace paths (steiner auto-creates only within its own sandbox tmpdir); create it first (e.g. with bash mkdir -p), then retry. Use assert_present/assert_absent on any operation whose effect cannot otherwise be verified — assertions abort the full batch if they fail, confirming the edit landed where intended. If a batch has multiple failing operations, every failure is reported together in one result and nothing is applied — fix all of them before resending. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "operations": {
+                    "description": "Ordered list of file mutations. Operations are evaluated sequentially against an in-memory snapshot, so later operations see earlier edits in the same batch, but no filesystem writes are committed until the full batch has been planned. On partial failure, operations_skipped reports how many were never attempted.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "assert_absent": {
+                          "description": "Strings that must be absent from the post-operation file content. Use assertions to confirm edits landed where you intended; assertion failures abort the full batch before commit.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "assert_present": {
+                          "description": "Strings that must appear in the post-operation file content. Use assertions to confirm edits landed where you intended (especially for replace operations whose old_string might be ambiguous); assertion failures abort the full batch before commit.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "content": {
+                          "description": "File content for create and write",
+                          "type": "string"
+                        },
+                        "file_hash": {
+                          "description": "8-char hex hash from read result. When provided, it is validated against the initial disk snapshot captured when the batch starts, not after earlier in-memory operations. It only applies to existing files; missing targets fail explicitly instead of being silently accepted.",
+                          "type": "string"
+                        },
+                        "from": {
+                          "description": "Source path for move",
+                          "type": "string"
+                        },
+                        "new_string": {
+                          "description": "Replacement text",
+                          "type": "string"
+                        },
+                        "old_string": {
+                          "description": "Exact text to replace. Whitespace must match the file exactly, including leading indentation depth (most common mismatch: tab vs space nesting level). Copy directly from read output rather than reconstructing from memory.",
+                          "type": "string"
+                        },
+                        "path": {
+                          "description": "Target path for create, write, replace, and delete_file",
+                          "type": "string"
+                        },
+                        "replace_all": {
+                          "default": false,
+                          "description": "Replace all occurrences for replace",
+                          "type": "boolean"
+                        },
+                        "to": {
+                          "description": "Destination path for move. The destination must not already exist; move never overwrites.",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Operation type. Required fields per type ([optional] in brackets): create: path, content. write: path, content. replace: path, old_string, new_string [replace_all]. delete_file: path. move: from, to. Most types also accept [assert_present, assert_absent, file_hash]; exceptions: create accepts asserts but not file_hash; delete_file accepts file_hash but not asserts.",
+                          "enum": [
+                            "create",
+                            "write",
+                            "replace",
+                            "delete_file",
+                            "move"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "operations"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "read",
+              "description": "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Text line numbers are opt-in with `line_numbers`; output is bounded. Continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max lines to read",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "line_numbers": {
+                    "default": false,
+                    "description": "Include line numbers in read output",
+                    "type": "boolean"
+                  },
+                  "offset": {
+                    "default": 1,
+                    "description": "Starting line number (1-based)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "File path to read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "workflow_handoff",
+              "description": "Create a workflow handoff request to transition to a different workflow with approved artifacts. Validates the target directory against configured workflow requirements.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "message": {
+                    "description": "Optional handoff message. Trimmed and bounded to keep the request concise.",
+                    "maxLength": 512,
+                    "type": "string"
+                  },
+                  "next": {
+                    "description": "Required. The workflow target to hand off to. implement: structured `/implement` workflow using overview.md and plan.yaml. review: structured `/review` workflow using overview.md and plan.yaml. build: direct execution of standalone plan.md in build mode, without skill discovery.",
+                    "enum": [
+                      "implement",
+                      "review",
+                      "build"
+                    ],
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "Required. A safe relative directory with workflow artifacts.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "next",
+                  "target"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        ]
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 4816,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 4818
+      }
+    },
+    {
+      "attempt_id": 6,
+      "timestamp_utc": "2026-10-25T16:57:57.294603982Z",
+      "slot": "mixedtools",
+      "requested_model": "claude-opus-5-5",
+      "observed_model": "claude-opus-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "2ff3537b972a385ac6a3d7900b98f158668143d6dc0f4f5ce3808749e83499bd",
+      "tools_sha256": "30d083b816c770ab4ef2b553054ed46a57b3c7934b50589f88660706126d7580",
+      "request": {
+        "model": "claude-opus-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK.Operator note from the nightly sync job, pasted with the config it used.\n\n$ sync-agent --source ./incoming --dest s3://archive-west --dry-run=false --retries 4\n2026-10-02T02:14:09Z INFO batch=118 files=312 bytes=48213907\n2026-10-02T02:14:11Z WARN file=ledger/2026-09.csv retry=1 reason=\"connection reset\"\n2026-10-02T02:14:19Z INFO batch=118 done ok=311 failed=1\n\nretry policy:\n  max_attempts: 4\n  backoff: exponential\n  jitter: true\n  on_error: continue\n\nThe sync job never deletes local files. It only uploads, verifies the checksum on the remote side, and writes a manifest line for each object. A failed object stays in the queue until the next run, and the operator reviews the queue each morning.\n\n{\"batch\":118,\"status\":\"partial\",\"failed\":[\"ledger/2026-09.csv\"],\"checked_at\":\"2026-10-02T02:14:21Z\"}\n\ndef summarize(batch):\n    total = sum(item.size for item in batch.items)\n    return {\"count\": len(batch.items), \"bytes\": total}\n\nTeam notes in several languages:\nSvenska: inga filer raderas lokalt. 日本語: ローカルのファイルは削除されません。\nРусский: локальные файлы не удаляются. العربية: لا تُحذف الملفات المحلية.\n\nRetry log, batch 119, after the network fix:\n2026-10-03T02:14:02Z INFO batch=119 files=288 bytes=44102876\n2026-10-03T02:14:06Z INFO file=ledger/2026-10.csv sha256=9f2c1e7ab3d045c6 verified=true\n2026-10-03T02:14:07Z INFO file=photos/station-14/0412.jpg sha256=a71b09fe22cd4410 verified=true\n2026-10-03T02:14:09Z WARN file=photos/station-09/0088.jpg retry=2 reason=\"timeout after 30s\"\n2026-10-03T02:14:31Z INFO file=photos/station-09/0088.jpg sha256=c04e6d2a9b7f1182 verified=true\n2026-10-03T02:15:40Z INFO batch=119 done ok=288 failed=0 elapsed=98s\n\nconfig.yaml (sync section):\nsync:\n  source: ./incoming\n  destination: s3://archive-west/nightly\n  verify_checksum: true\n  delete_local: false\n  parallel_uploads: 4\n  exclude:\n    - \"*.tmp\"\n    - \".DS_Store\"\n    - \"scratch/**\"\n\nOperator comment: retries worked after the modem reset on the north site. The timeout came from the same carrier outage described in last week's ticket, so no config change is needed. Keep parallel_uploads at 4 until the carrier confirms the new peering.\n\n{\"batch\":119,\"status\":\"complete\",\"failed\":[],\"checked_at\":\"2026-10-03T02:15:41Z\"}\n\nStatus emoji used in the dashboard: ✅ ok, ⚠️ warning, ❌ failed, 🔄 retrying, 📦 archived."
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "bash",
+              "description": "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "description": "Shell command to execute",
+                    "type": "string"
+                  },
+                  "cwd": {
+                    "description": "Working directory",
+                    "type": "string"
+                  },
+                  "max_output_chars": {
+                    "default": 30000,
+                    "description": "Max output characters",
+                    "maximum": 100000,
+                    "type": "integer"
+                  },
+                  "timeout_seconds": {
+                    "default": 120,
+                    "description": "Max execution time",
+                    "maximum": 600,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "display_file",
+              "description": "Ask the TUI to display a file to the user in an overlay without including the file contents in the conversation. Use this instead of read when the goal is to show the file visually rather than analyse its content.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 120,
+                    "description": "Max lines to preview",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 1,
+                    "description": "Starting line number (1-based)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Absolute or workspace-relative path to the file to display",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "fetch_url",
+              "description": "Fetch a URL and return its content. Supports HTML (main content extracted and converted to markdown, falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Images are always saved to .steiner/tmp/fetched; use the read tool with the returned file path to inspect them. Large responses are saved to disk in full — use the read tool to paginate; the only ceiling is the max_size download/save limit.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_size": {
+                    "default": 10485760,
+                    "description": "Max bytes to download and save to disk (default 10MB, ceiling 32MB)",
+                    "maximum": 33554432,
+                    "type": "integer"
+                  },
+                  "url": {
+                    "description": "URL to fetch",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "glob",
+              "description": "Find files by glob pattern. Use limit and offset to page through large result sets.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max results (default: 200)",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Result offset (default: 0)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Directory to search in",
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Glob pattern to match",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "grep",
+              "description": "Search file contents with paginated logical results. Use output_mode=\"files_with_matches\" to locate relevant files, output_mode=\"count\" for per-file counts, and output_mode=\"content\" with context to inspect matches.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "after_context": {
+                    "description": "Lines after each match in content output",
+                    "type": "integer"
+                  },
+                  "before_context": {
+                    "description": "Lines before each match in content output",
+                    "type": "integer"
+                  },
+                  "case_insensitive": {
+                    "description": "Case insensitive search",
+                    "type": "boolean"
+                  },
+                  "context": {
+                    "description": "Symmetric context lines for content output",
+                    "type": "integer"
+                  },
+                  "glob": {
+                    "description": "File pattern filter",
+                    "type": "string"
+                  },
+                  "head_limit": {
+                    "default": 100,
+                    "description": "Max logical results to return per page",
+                    "maximum": 500,
+                    "type": "integer"
+                  },
+                  "line_numbers": {
+                    "description": "Include line and column numbers in content output. Column is 1-based and rune-counted (matches lsp_definitions/lsp_references), pointing at where the match starts — not necessarily the target identifier's own position. Search for the identifier itself (e.g. word-boundary the pattern) when you intend to feed the result into an LSP tool.",
+                    "type": "boolean"
+                  },
+                  "multiline": {
+                    "description": "Enable multiline mode",
+                    "type": "boolean"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Logical result offset",
+                    "type": "integer"
+                  },
+                  "output_mode": {
+                    "description": "Output mode: content, files_with_matches, or count",
+                    "type": "string"
+                  },
+                  "path": {
+                    "description": "Directory or file to search in",
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Regex pattern to search for",
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "Search type (content, files, etc)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "ls",
+              "description": "List directory contents. Use recursive sparingly. Use limit and offset for large directories.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max results",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Result offset",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Directory to list",
+                    "type": "string"
+                  },
+                  "recursive": {
+                    "description": "List recursively",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "mutate",
+              "description": "Apply structured file edits via op types: create, write (create or overwrite), replace, delete_file, move. Supports file_hash for staleness detection on existing targets — pass the hash from read to fail fast if the file changed. replace against an existing file is rejected unless you read it earlier this session or pass file_hash — read the file first, or supply the hash from a read result. move rejects destination collisions instead of overwriting. For create, write, and move: parent directories must exist for workspace paths (steiner auto-creates only within its own sandbox tmpdir); create it first (e.g. with bash mkdir -p), then retry. Use assert_present/assert_absent on any operation whose effect cannot otherwise be verified — assertions abort the full batch if they fail, confirming the edit landed where intended. If a batch has multiple failing operations, every failure is reported together in one result and nothing is applied — fix all of them before resending. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "operations": {
+                    "description": "Ordered list of file mutations. Operations are evaluated sequentially against an in-memory snapshot, so later operations see earlier edits in the same batch, but no filesystem writes are committed until the full batch has been planned. On partial failure, operations_skipped reports how many were never attempted.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "assert_absent": {
+                          "description": "Strings that must be absent from the post-operation file content. Use assertions to confirm edits landed where you intended; assertion failures abort the full batch before commit.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "assert_present": {
+                          "description": "Strings that must appear in the post-operation file content. Use assertions to confirm edits landed where you intended (especially for replace operations whose old_string might be ambiguous); assertion failures abort the full batch before commit.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "content": {
+                          "description": "File content for create and write",
+                          "type": "string"
+                        },
+                        "file_hash": {
+                          "description": "8-char hex hash from read result. When provided, it is validated against the initial disk snapshot captured when the batch starts, not after earlier in-memory operations. It only applies to existing files; missing targets fail explicitly instead of being silently accepted.",
+                          "type": "string"
+                        },
+                        "from": {
+                          "description": "Source path for move",
+                          "type": "string"
+                        },
+                        "new_string": {
+                          "description": "Replacement text",
+                          "type": "string"
+                        },
+                        "old_string": {
+                          "description": "Exact text to replace. Whitespace must match the file exactly, including leading indentation depth (most common mismatch: tab vs space nesting level). Copy directly from read output rather than reconstructing from memory.",
+                          "type": "string"
+                        },
+                        "path": {
+                          "description": "Target path for create, write, replace, and delete_file",
+                          "type": "string"
+                        },
+                        "replace_all": {
+                          "default": false,
+                          "description": "Replace all occurrences for replace",
+                          "type": "boolean"
+                        },
+                        "to": {
+                          "description": "Destination path for move. The destination must not already exist; move never overwrites.",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Operation type. Required fields per type ([optional] in brackets): create: path, content. write: path, content. replace: path, old_string, new_string [replace_all]. delete_file: path. move: from, to. Most types also accept [assert_present, assert_absent, file_hash]; exceptions: create accepts asserts but not file_hash; delete_file accepts file_hash but not asserts.",
+                          "enum": [
+                            "create",
+                            "write",
+                            "replace",
+                            "delete_file",
+                            "move"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "operations"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "read",
+              "description": "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Text line numbers are opt-in with `line_numbers`; output is bounded. Continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max lines to read",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "line_numbers": {
+                    "default": false,
+                    "description": "Include line numbers in read output",
+                    "type": "boolean"
+                  },
+                  "offset": {
+                    "default": 1,
+                    "description": "Starting line number (1-based)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "File path to read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "workflow_handoff",
+              "description": "Create a workflow handoff request to transition to a different workflow with approved artifacts. Validates the target directory against configured workflow requirements.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "message": {
+                    "description": "Optional handoff message. Trimmed and bounded to keep the request concise.",
+                    "maxLength": 512,
+                    "type": "string"
+                  },
+                  "next": {
+                    "description": "Required. The workflow target to hand off to. implement: structured `/implement` workflow using overview.md and plan.yaml. review: structured `/review` workflow using overview.md and plan.yaml. build: direct execution of standalone plan.md in build mode, without skill discovery.",
+                    "enum": [
+                      "implement",
+                      "review",
+                      "build"
+                    ],
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "Required. A safe relative directory with workflow artifacts.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "next",
+                  "target"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        ]
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 1748,
+        "cache_read_input_tokens": 4121,
+        "output_tokens": 4,
+        "prompt_total_tokens": 5871
+      }
+    },
+    {
+      "attempt_id": 7,
+      "timestamp_utc": "2026-10-25T16:58:05.168263574Z",
+      "slot": "baseline",
+      "requested_model": "claude-sonnet-5-5",
+      "observed_model": "claude-sonnet-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tools_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request": {
+        "model": "claude-sonnet-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK."
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 658,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 660
+      }
+    },
+    {
+      "attempt_id": 8,
+      "timestamp_utc": "2026-10-25T16:58:08.492544093Z",
+      "slot": "codeJSON",
+      "requested_model": "claude-sonnet-5-5",
+      "observed_model": "claude-sonnet-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "58335d20625eaa98800564587e94118ca0280c57fc2ba0ef2ae62e01b0de1cca",
+      "tools_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request": {
+        "model": "claude-sonnet-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK.// ledger.go\npackage inventory\n\nimport (\n\t\"encoding/json\"\n\t\"errors\"\n\t\"fmt\"\n\t\"sort\"\n\t\"strings\"\n)\n\n// Item is one stock line in a warehouse bin.\ntype Item struct {\n\tSKU      string   `json:\"sku\"`\n\tName     string   `json:\"name\"`\n\tQuantity int      `json:\"quantity\"`\n\tBins     []string `json:\"bins\"`\n\tTags     []string `json:\"tags,omitempty\"`\n}\n\n// Ledger keeps stock lines keyed by SKU.\ntype Ledger struct {\n\titems map[string]*Item\n}\n\n// NewLedger returns an empty ledger ready for use.\nfunc NewLedger() *Ledger {\n\treturn \u0026Ledger{items: make(map[string]*Item)}\n}\n\n// Add inserts an item or merges quantities into an existing SKU.\nfunc (l *Ledger) Add(item Item) error {\n\tif strings.TrimSpace(item.SKU) == \"\" {\n\t\treturn errors.New(\"sku is required\")\n\t}\n\tif item.Quantity \u003c 0 {\n\t\treturn fmt.Errorf(\"quantity for %s must not be negative: %d\", item.SKU, item.Quantity)\n\t}\n\texisting, ok := l.items[item.SKU]\n\tif !ok {\n\t\tcopied := item\n\t\tl.items[item.SKU] = \u0026copied\n\t\treturn nil\n\t}\n\texisting.Quantity += item.Quantity\n\texisting.Bins = mergeSorted(existing.Bins, item.Bins)\n\treturn nil\n}\n\n// Remove reduces stock for a SKU and refuses to go below zero.\nfunc (l *Ledger) Remove(sku string, quantity int) error {\n\titem, ok := l.items[sku]\n\tif !ok {\n\t\treturn fmt.Errorf(\"unknown sku %q\", sku)\n\t}\n\tif quantity \u003e item.Quantity {\n\t\treturn fmt.Errorf(\"remove %d from %s: only %d in stock\", quantity, sku, item.Quantity)\n\t}\n\titem.Quantity -= quantity\n\treturn nil\n}\n\n// Snapshot returns a copy of every item, sorted by SKU.\nfunc (l *Ledger) Snapshot() []Item {\n\tskus := make([]string, 0, len(l.items))\n\tfor sku := range l.items {\n\t\tskus = append(skus, sku)\n\t}\n\tsort.Strings(skus)\n\tout := make([]Item, 0, len(skus))\n\tfor _, sku := range skus {\n\t\tout = append(out, *l.items[sku])\n\t}\n\treturn out\n}\n\n// MarshalJSON writes the snapshot as a JSON array.\nfunc (l *Ledger) MarshalJSON() ([]byte, error) {\n\treturn json.Marshal(l.Snapshot())\n}\n\nfunc mergeSorted(a, b []string) []string {\n\tseen := make(map[string]struct{}, len(a)+len(b))\n\tfor _, v := range append(append([]string{}, a...), b...) {\n\t\tseen[v] = struct{}{}\n\t}\n\tmerged := make([]string, 0, len(seen))\n\tfor v := range seen {\n\t\tmerged = append(merged, v)\n\t}\n\tsort.Strings(merged)\n\treturn merged\n}\n\n// warehouse.json\n{\n  \"warehouse\": \"north-7\",\n  \"updated_at\": \"2026-10-01T08:30:00Z\",\n  \"reorder\": {\n    \"threshold\": 12,\n    \"lead_time_days\": [3, 5, 8],\n    \"notify\": [\"ops@example.test\", \"buyer@example.test\"]\n  },\n  \"items\": [\n    {\"sku\": \"BLT-204\", \"name\": \"Steel bolt M8\", \"quantity\": 480, \"bins\": [\"A1\", \"A2\"]},\n    {\"sku\": \"WSH-118\", \"name\": \"Washer 8mm zinc\", \"quantity\": 96, \"bins\": [\"A3\"], \"tags\": [\"zinc\", \"bulk\"]},\n    {\"sku\": \"NUT-330\", \"name\": \"Lock nut M8\", \"quantity\": 0, \"bins\": [], \"tags\": [\"discontinued\"]},\n    {\"sku\": \"SPR-072\", \"name\": \"Compression spring 20mm\", \"quantity\": 230, \"bins\": [\"B4\"], \"tags\": [\"spring\"]},\n    {\"sku\": \"PIN-615\", \"name\": \"Clevis pin 6mm\", \"quantity\": 58, \"bins\": [\"B5\", \"C1\"], \"tags\": [\"pin\", \"hardware\"]}\n  ],\n  \"audit\": {\"last_count\": \"2026-09-28\", \"variance_limit_pct\": 1.5, \"counted_by\": \"night-shift-2\"}\n}"
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 2177,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 2179
+      }
+    },
+    {
+      "attempt_id": 9,
+      "timestamp_utc": "2026-10-25T16:58:13.381721695Z",
+      "slot": "markdown",
+      "requested_model": "claude-sonnet-5-5",
+      "observed_model": "claude-sonnet-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "8d26c7ab79ecb1da78d9e645f8e40fc9b12bece706b773517e9ab8d56a0ae1e8",
+      "tools_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request": {
+        "model": "claude-sonnet-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK.# Tide gauge maintenance\n\nThis guide covers routine checks for the coastal tide gauge network. Each station records water level every six minutes and sends the readings to the regional office. Field crews follow the steps below in order, and they write every result in the station logbook before they leave the site.\n\n## Weekly checks\n\n- Confirm the solar panel is clear of salt spray and bird droppings.\n- Read the battery voltage on the control panel and note the value.\n- Compare the displayed water level with the reference staff gauge on the pier.\n- Check that the telemetry modem shows a signal strength above the local threshold.\n- Look for cracks or loose fittings on the stilling well.\n\nIf any check fails, record the station ID, the time, and a short description. Do not reset the logger until the regional office confirms the reset window.\n\n## Calibration\n\nCalibration runs twice a year, in spring and autumn, during the lowest spring tides. The crew lowers a calibrated reference rod into the stilling well and compares the reading with the logger output. A difference of more than two centimetres triggers a full sensor replacement.\n\n| Check | Limit | Action |\n| --- | --- | --- |\n| Level offset | 2 cm | Recalibrate sensor |\n| Battery voltage | 11.8 V | Schedule replacement |\n| Clock drift | 30 s | Resync from GPS |\n| Sample gap | 12 min | Inspect modem |\n\n## Steps for a full calibration\n\n1. Notify the regional office before arriving on site.\n2. Lock the logger in maintenance mode so no alarms fire during the work.\n3. Lower the reference rod and wait for the surface to settle for two minutes.\n4. Record the reference reading and the logger reading side by side.\n5. Export the last 24 hours of raw samples to the field laptop.\n6. Restore normal mode and confirm the next sample arrives within six minutes.\n\nThe export command is kept in the crew handbook:\n\n```sh\ngaugectl export --station \"$STATION_ID\" --hours 24 --format csv --out ./samples.csv\ngaugectl verify ./samples.csv\n```\n\n## Troubleshooting\n\nGaps in the sample stream usually come from the modem rather than the sensor. Power-cycle the modem first and wait ten minutes for the carrier to register. If the gap returns, check the antenna cable for water ingress at the mast connector.\n\nSpikes in the water level often follow a storm surge or a debris strike on the float. Compare the spike with the tide table before changing any setting. A real surge leaves a smooth recovery curve, while a debris strike returns to the baseline within one sample.\n\n## Site access and safety\n\nCrews reach most stations by road, but four of them sit on tidal causeways that flood twice a day. Check the causeway timetable before leaving the depot, and never cross while water covers the marker posts. Carry a radio, a first aid kit, and a torch, even on a short visit.\n\nWear the high visibility vest at all times on the pier. Keep two points of contact on the ladder when climbing to the solar panel, and clip the harness to the fixed rail before leaving the ground. If the wind exceeds the limit printed on the depot board, postpone any work above head height and inform the supervisor.\n\n## Spare parts\n\nEach station kit holds two spare modems, one spare float, a sealed battery, and a set of marine grade connectors. Replace any part that shows corrosion at the terminals, even if it still works. Log every part used, with the serial number and the date, so the stock count at the depot stays accurate.\n\n## Reporting\n\nAt the end of each visit, the crew lead calls the regional office from the site and reads back the key values: water level, battery voltage, sample count, and any alarm codes. The office confirms the values, then closes the visit in the tracking system. Reports that arrive without a confirmed read back are marked incomplete and are reviewed on the next working day.\n\n## Records\n\nEvery visit produces three records: the logbook entry, the signed checklist, and the exported sample file. Store all three in the station folder under the visit date. The regional office audits one random station each month, so keep the folder complete and in date order."
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 1996,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 1998
+      }
+    },
+    {
+      "attempt_id": 10,
+      "timestamp_utc": "2026-10-25T16:58:16.990887532Z",
+      "slot": "Unicode",
+      "requested_model": "claude-sonnet-5-5",
+      "observed_model": "claude-sonnet-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "aa86bc5361f55e4a84079b6d1f4b599a9c80b155b30a9cfce6d3a8d4e7a648ac",
+      "tools_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request": {
+        "model": "claude-sonnet-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK.Multilingual sample for token counting. Each line is original text.\n\nEnglish: The quick brown fox jumps over the lazy dog while the rain falls softly.\nFrancais: Le café de la gare ouvre à sept heures, et les enfants arrivent en retard.\nDeutsch: Die Straßenbahn fährt heute später, weil der Fluss hochsteht.\nEspañol: El niño dibujó un mapa del puerto con tinta azul y verde.\nΕλληνικά: Ο ήλιος βγαίνει νωρίς το καλοκαίρι πάνω από τη θάλασσα.\nРусский: Поезд отходит от вокзала ровно в девять, и пассажиры спешат.\nالعربية: تفتح المكتبة أبوابها عند الصباح، ويقرأ الطلاب في الحديقة.\nहिन्दी: बाज़ार में सुबह से भीड़ है, और दुकानदार नए फल सजा रहे हैं।\n日本語: 駅前の小さな店では、朝早くから焼きたてのパンが並びます。\n한국어: 강가의 작은 마을에서는 봄마다 축제가 열리고 사람들이 모입니다.\n中文：山间的小路通向一座古老的寺庙，清晨的钟声传遍整个河谷。\n\nTiếng Việt: Buổi sáng trời trong xanh, gió thổi nhẹ qua cánh đồng lúa.\nภาษาไทย: ตลาดเปิดตั้งแต่เช้า ผู้คนเดินซื้อของกันอย่างคึกคัก\nעברית: השוק נפתח מוקדם בבוקר, והאנשים קונים פירות וירקות טריים.\nTürkçe: Köprünün altındaki nehir bugün çok hızlı akıyor.\nPolski: Pociąg z Krakowa przyjeżdża na stację punktualnie, a żółte światła migają.\nবাংলা: নদীর ধারে ছোট গ্রামটিতে সকালবেলা মেলা বসে।\nதமிழ்: கோயில் மணி காலை முதல் ஒலிக்கிறது, மக்கள் வரிசையில் நிற்கின்றனர்.\nУкраїнська: Над містом піднімається туман, а на площі співають діти.\nDense emoji and joiners: 🧑🏽‍🤝‍🧑🏻 👪 🧑‍🧑‍🧒 🏃🏾‍♀️ 🏳️‍⚧️ 🐻‍❄️ 👁️‍🗨️ 🧑🏿‍🚒 🧔🏻‍♂️ 🫱🏼‍🫲🏽\n\nCombining marks on base letters: é is written as a base e followed by U+0301, ä as a followed by U+0308.\nCombining sequences written out: ñ, ö, ç, ệ, ṩ, ǜ.\n\nEmoji with skin tones: 👍 👍🏻 👍🏼 👍🏽 👍🏾 👍🏿\nZWJ families and profiles: 👨‍👩‍👧‍👦 👩‍💻 🏳️‍🌈 🧑‍🚀 🧑🏽‍🍳\nFlags: 🇬🇧 🇯🇵 🇧🇷 🇳🇴\nKeycaps and symbols: 1️⃣ 2️⃣ #️⃣ ❤️ ☕ ✈️ ⚽"
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 1841,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 1843
+      }
+    },
+    {
+      "attempt_id": 11,
+      "timestamp_utc": "2026-10-25T16:58:20.722597707Z",
+      "slot": "tools",
+      "requested_model": "claude-sonnet-5-5",
+      "observed_model": "claude-sonnet-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tools_sha256": "30d083b816c770ab4ef2b553054ed46a57b3c7934b50589f88660706126d7580",
+      "request": {
+        "model": "claude-sonnet-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK."
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "bash",
+              "description": "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "description": "Shell command to execute",
+                    "type": "string"
+                  },
+                  "cwd": {
+                    "description": "Working directory",
+                    "type": "string"
+                  },
+                  "max_output_chars": {
+                    "default": 30000,
+                    "description": "Max output characters",
+                    "maximum": 100000,
+                    "type": "integer"
+                  },
+                  "timeout_seconds": {
+                    "default": 120,
+                    "description": "Max execution time",
+                    "maximum": 600,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "display_file",
+              "description": "Ask the TUI to display a file to the user in an overlay without including the file contents in the conversation. Use this instead of read when the goal is to show the file visually rather than analyse its content.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 120,
+                    "description": "Max lines to preview",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 1,
+                    "description": "Starting line number (1-based)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Absolute or workspace-relative path to the file to display",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "fetch_url",
+              "description": "Fetch a URL and return its content. Supports HTML (main content extracted and converted to markdown, falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Images are always saved to .steiner/tmp/fetched; use the read tool with the returned file path to inspect them. Large responses are saved to disk in full — use the read tool to paginate; the only ceiling is the max_size download/save limit.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_size": {
+                    "default": 10485760,
+                    "description": "Max bytes to download and save to disk (default 10MB, ceiling 32MB)",
+                    "maximum": 33554432,
+                    "type": "integer"
+                  },
+                  "url": {
+                    "description": "URL to fetch",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "glob",
+              "description": "Find files by glob pattern. Use limit and offset to page through large result sets.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max results (default: 200)",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Result offset (default: 0)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Directory to search in",
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Glob pattern to match",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "grep",
+              "description": "Search file contents with paginated logical results. Use output_mode=\"files_with_matches\" to locate relevant files, output_mode=\"count\" for per-file counts, and output_mode=\"content\" with context to inspect matches.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "after_context": {
+                    "description": "Lines after each match in content output",
+                    "type": "integer"
+                  },
+                  "before_context": {
+                    "description": "Lines before each match in content output",
+                    "type": "integer"
+                  },
+                  "case_insensitive": {
+                    "description": "Case insensitive search",
+                    "type": "boolean"
+                  },
+                  "context": {
+                    "description": "Symmetric context lines for content output",
+                    "type": "integer"
+                  },
+                  "glob": {
+                    "description": "File pattern filter",
+                    "type": "string"
+                  },
+                  "head_limit": {
+                    "default": 100,
+                    "description": "Max logical results to return per page",
+                    "maximum": 500,
+                    "type": "integer"
+                  },
+                  "line_numbers": {
+                    "description": "Include line and column numbers in content output. Column is 1-based and rune-counted (matches lsp_definitions/lsp_references), pointing at where the match starts — not necessarily the target identifier's own position. Search for the identifier itself (e.g. word-boundary the pattern) when you intend to feed the result into an LSP tool.",
+                    "type": "boolean"
+                  },
+                  "multiline": {
+                    "description": "Enable multiline mode",
+                    "type": "boolean"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Logical result offset",
+                    "type": "integer"
+                  },
+                  "output_mode": {
+                    "description": "Output mode: content, files_with_matches, or count",
+                    "type": "string"
+                  },
+                  "path": {
+                    "description": "Directory or file to search in",
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Regex pattern to search for",
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "Search type (content, files, etc)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "ls",
+              "description": "List directory contents. Use recursive sparingly. Use limit and offset for large directories.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max results",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Result offset",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Directory to list",
+                    "type": "string"
+                  },
+                  "recursive": {
+                    "description": "List recursively",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "mutate",
+              "description": "Apply structured file edits via op types: create, write (create or overwrite), replace, delete_file, move. Supports file_hash for staleness detection on existing targets — pass the hash from read to fail fast if the file changed. replace against an existing file is rejected unless you read it earlier this session or pass file_hash — read the file first, or supply the hash from a read result. move rejects destination collisions instead of overwriting. For create, write, and move: parent directories must exist for workspace paths (steiner auto-creates only within its own sandbox tmpdir); create it first (e.g. with bash mkdir -p), then retry. Use assert_present/assert_absent on any operation whose effect cannot otherwise be verified — assertions abort the full batch if they fail, confirming the edit landed where intended. If a batch has multiple failing operations, every failure is reported together in one result and nothing is applied — fix all of them before resending. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "operations": {
+                    "description": "Ordered list of file mutations. Operations are evaluated sequentially against an in-memory snapshot, so later operations see earlier edits in the same batch, but no filesystem writes are committed until the full batch has been planned. On partial failure, operations_skipped reports how many were never attempted.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "assert_absent": {
+                          "description": "Strings that must be absent from the post-operation file content. Use assertions to confirm edits landed where you intended; assertion failures abort the full batch before commit.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "assert_present": {
+                          "description": "Strings that must appear in the post-operation file content. Use assertions to confirm edits landed where you intended (especially for replace operations whose old_string might be ambiguous); assertion failures abort the full batch before commit.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "content": {
+                          "description": "File content for create and write",
+                          "type": "string"
+                        },
+                        "file_hash": {
+                          "description": "8-char hex hash from read result. When provided, it is validated against the initial disk snapshot captured when the batch starts, not after earlier in-memory operations. It only applies to existing files; missing targets fail explicitly instead of being silently accepted.",
+                          "type": "string"
+                        },
+                        "from": {
+                          "description": "Source path for move",
+                          "type": "string"
+                        },
+                        "new_string": {
+                          "description": "Replacement text",
+                          "type": "string"
+                        },
+                        "old_string": {
+                          "description": "Exact text to replace. Whitespace must match the file exactly, including leading indentation depth (most common mismatch: tab vs space nesting level). Copy directly from read output rather than reconstructing from memory.",
+                          "type": "string"
+                        },
+                        "path": {
+                          "description": "Target path for create, write, replace, and delete_file",
+                          "type": "string"
+                        },
+                        "replace_all": {
+                          "default": false,
+                          "description": "Replace all occurrences for replace",
+                          "type": "boolean"
+                        },
+                        "to": {
+                          "description": "Destination path for move. The destination must not already exist; move never overwrites.",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Operation type. Required fields per type ([optional] in brackets): create: path, content. write: path, content. replace: path, old_string, new_string [replace_all]. delete_file: path. move: from, to. Most types also accept [assert_present, assert_absent, file_hash]; exceptions: create accepts asserts but not file_hash; delete_file accepts file_hash but not asserts.",
+                          "enum": [
+                            "create",
+                            "write",
+                            "replace",
+                            "delete_file",
+                            "move"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "operations"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "read",
+              "description": "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Text line numbers are opt-in with `line_numbers`; output is bounded. Continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max lines to read",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "line_numbers": {
+                    "default": false,
+                    "description": "Include line numbers in read output",
+                    "type": "boolean"
+                  },
+                  "offset": {
+                    "default": 1,
+                    "description": "Starting line number (1-based)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "File path to read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "workflow_handoff",
+              "description": "Create a workflow handoff request to transition to a different workflow with approved artifacts. Validates the target directory against configured workflow requirements.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "message": {
+                    "description": "Optional handoff message. Trimmed and bounded to keep the request concise.",
+                    "maxLength": 512,
+                    "type": "string"
+                  },
+                  "next": {
+                    "description": "Required. The workflow target to hand off to. implement: structured `/implement` workflow using overview.md and plan.yaml. review: structured `/review` workflow using overview.md and plan.yaml. build: direct execution of standalone plan.md in build mode, without skill discovery.",
+                    "enum": [
+                      "implement",
+                      "review",
+                      "build"
+                    ],
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "Required. A safe relative directory with workflow artifacts.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "next",
+                  "target"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        ]
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 4820,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 4822
+      }
+    },
+    {
+      "attempt_id": 12,
+      "timestamp_utc": "2026-10-25T16:58:25.387901626Z",
+      "slot": "mixedtools",
+      "requested_model": "claude-sonnet-5-5",
+      "observed_model": "claude-sonnet-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "2ff3537b972a385ac6a3d7900b98f158668143d6dc0f4f5ce3808749e83499bd",
+      "tools_sha256": "30d083b816c770ab4ef2b553054ed46a57b3c7934b50589f88660706126d7580",
+      "request": {
+        "model": "claude-sonnet-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK.Operator note from the nightly sync job, pasted with the config it used.\n\n$ sync-agent --source ./incoming --dest s3://archive-west --dry-run=false --retries 4\n2026-10-02T02:14:09Z INFO batch=118 files=312 bytes=48213907\n2026-10-02T02:14:11Z WARN file=ledger/2026-09.csv retry=1 reason=\"connection reset\"\n2026-10-02T02:14:19Z INFO batch=118 done ok=311 failed=1\n\nretry policy:\n  max_attempts: 4\n  backoff: exponential\n  jitter: true\n  on_error: continue\n\nThe sync job never deletes local files. It only uploads, verifies the checksum on the remote side, and writes a manifest line for each object. A failed object stays in the queue until the next run, and the operator reviews the queue each morning.\n\n{\"batch\":118,\"status\":\"partial\",\"failed\":[\"ledger/2026-09.csv\"],\"checked_at\":\"2026-10-02T02:14:21Z\"}\n\ndef summarize(batch):\n    total = sum(item.size for item in batch.items)\n    return {\"count\": len(batch.items), \"bytes\": total}\n\nTeam notes in several languages:\nSvenska: inga filer raderas lokalt. 日本語: ローカルのファイルは削除されません。\nРусский: локальные файлы не удаляются. العربية: لا تُحذف الملفات المحلية.\n\nRetry log, batch 119, after the network fix:\n2026-10-03T02:14:02Z INFO batch=119 files=288 bytes=44102876\n2026-10-03T02:14:06Z INFO file=ledger/2026-10.csv sha256=9f2c1e7ab3d045c6 verified=true\n2026-10-03T02:14:07Z INFO file=photos/station-14/0412.jpg sha256=a71b09fe22cd4410 verified=true\n2026-10-03T02:14:09Z WARN file=photos/station-09/0088.jpg retry=2 reason=\"timeout after 30s\"\n2026-10-03T02:14:31Z INFO file=photos/station-09/0088.jpg sha256=c04e6d2a9b7f1182 verified=true\n2026-10-03T02:15:40Z INFO batch=119 done ok=288 failed=0 elapsed=98s\n\nconfig.yaml (sync section):\nsync:\n  source: ./incoming\n  destination: s3://archive-west/nightly\n  verify_checksum: true\n  delete_local: false\n  parallel_uploads: 4\n  exclude:\n    - \"*.tmp\"\n    - \".DS_Store\"\n    - \"scratch/**\"\n\nOperator comment: retries worked after the modem reset on the north site. The timeout came from the same carrier outage described in last week's ticket, so no config change is needed. Keep parallel_uploads at 4 until the carrier confirms the new peering.\n\n{\"batch\":119,\"status\":\"complete\",\"failed\":[],\"checked_at\":\"2026-10-03T02:15:41Z\"}\n\nStatus emoji used in the dashboard: ✅ ok, ⚠️ warning, ❌ failed, 🔄 retrying, 📦 archived."
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "bash",
+              "description": "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "description": "Shell command to execute",
+                    "type": "string"
+                  },
+                  "cwd": {
+                    "description": "Working directory",
+                    "type": "string"
+                  },
+                  "max_output_chars": {
+                    "default": 30000,
+                    "description": "Max output characters",
+                    "maximum": 100000,
+                    "type": "integer"
+                  },
+                  "timeout_seconds": {
+                    "default": 120,
+                    "description": "Max execution time",
+                    "maximum": 600,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "display_file",
+              "description": "Ask the TUI to display a file to the user in an overlay without including the file contents in the conversation. Use this instead of read when the goal is to show the file visually rather than analyse its content.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 120,
+                    "description": "Max lines to preview",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 1,
+                    "description": "Starting line number (1-based)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Absolute or workspace-relative path to the file to display",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "fetch_url",
+              "description": "Fetch a URL and return its content. Supports HTML (main content extracted and converted to markdown, falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Images are always saved to .steiner/tmp/fetched; use the read tool with the returned file path to inspect them. Large responses are saved to disk in full — use the read tool to paginate; the only ceiling is the max_size download/save limit.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_size": {
+                    "default": 10485760,
+                    "description": "Max bytes to download and save to disk (default 10MB, ceiling 32MB)",
+                    "maximum": 33554432,
+                    "type": "integer"
+                  },
+                  "url": {
+                    "description": "URL to fetch",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "glob",
+              "description": "Find files by glob pattern. Use limit and offset to page through large result sets.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max results (default: 200)",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Result offset (default: 0)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Directory to search in",
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Glob pattern to match",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "grep",
+              "description": "Search file contents with paginated logical results. Use output_mode=\"files_with_matches\" to locate relevant files, output_mode=\"count\" for per-file counts, and output_mode=\"content\" with context to inspect matches.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "after_context": {
+                    "description": "Lines after each match in content output",
+                    "type": "integer"
+                  },
+                  "before_context": {
+                    "description": "Lines before each match in content output",
+                    "type": "integer"
+                  },
+                  "case_insensitive": {
+                    "description": "Case insensitive search",
+                    "type": "boolean"
+                  },
+                  "context": {
+                    "description": "Symmetric context lines for content output",
+                    "type": "integer"
+                  },
+                  "glob": {
+                    "description": "File pattern filter",
+                    "type": "string"
+                  },
+                  "head_limit": {
+                    "default": 100,
+                    "description": "Max logical results to return per page",
+                    "maximum": 500,
+                    "type": "integer"
+                  },
+                  "line_numbers": {
+                    "description": "Include line and column numbers in content output. Column is 1-based and rune-counted (matches lsp_definitions/lsp_references), pointing at where the match starts — not necessarily the target identifier's own position. Search for the identifier itself (e.g. word-boundary the pattern) when you intend to feed the result into an LSP tool.",
+                    "type": "boolean"
+                  },
+                  "multiline": {
+                    "description": "Enable multiline mode",
+                    "type": "boolean"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Logical result offset",
+                    "type": "integer"
+                  },
+                  "output_mode": {
+                    "description": "Output mode: content, files_with_matches, or count",
+                    "type": "string"
+                  },
+                  "path": {
+                    "description": "Directory or file to search in",
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Regex pattern to search for",
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "Search type (content, files, etc)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "ls",
+              "description": "List directory contents. Use recursive sparingly. Use limit and offset for large directories.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max results",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Result offset",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Directory to list",
+                    "type": "string"
+                  },
+                  "recursive": {
+                    "description": "List recursively",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "mutate",
+              "description": "Apply structured file edits via op types: create, write (create or overwrite), replace, delete_file, move. Supports file_hash for staleness detection on existing targets — pass the hash from read to fail fast if the file changed. replace against an existing file is rejected unless you read it earlier this session or pass file_hash — read the file first, or supply the hash from a read result. move rejects destination collisions instead of overwriting. For create, write, and move: parent directories must exist for workspace paths (steiner auto-creates only within its own sandbox tmpdir); create it first (e.g. with bash mkdir -p), then retry. Use assert_present/assert_absent on any operation whose effect cannot otherwise be verified — assertions abort the full batch if they fail, confirming the edit landed where intended. If a batch has multiple failing operations, every failure is reported together in one result and nothing is applied — fix all of them before resending. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "operations": {
+                    "description": "Ordered list of file mutations. Operations are evaluated sequentially against an in-memory snapshot, so later operations see earlier edits in the same batch, but no filesystem writes are committed until the full batch has been planned. On partial failure, operations_skipped reports how many were never attempted.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "assert_absent": {
+                          "description": "Strings that must be absent from the post-operation file content. Use assertions to confirm edits landed where you intended; assertion failures abort the full batch before commit.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "assert_present": {
+                          "description": "Strings that must appear in the post-operation file content. Use assertions to confirm edits landed where you intended (especially for replace operations whose old_string might be ambiguous); assertion failures abort the full batch before commit.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "content": {
+                          "description": "File content for create and write",
+                          "type": "string"
+                        },
+                        "file_hash": {
+                          "description": "8-char hex hash from read result. When provided, it is validated against the initial disk snapshot captured when the batch starts, not after earlier in-memory operations. It only applies to existing files; missing targets fail explicitly instead of being silently accepted.",
+                          "type": "string"
+                        },
+                        "from": {
+                          "description": "Source path for move",
+                          "type": "string"
+                        },
+                        "new_string": {
+                          "description": "Replacement text",
+                          "type": "string"
+                        },
+                        "old_string": {
+                          "description": "Exact text to replace. Whitespace must match the file exactly, including leading indentation depth (most common mismatch: tab vs space nesting level). Copy directly from read output rather than reconstructing from memory.",
+                          "type": "string"
+                        },
+                        "path": {
+                          "description": "Target path for create, write, replace, and delete_file",
+                          "type": "string"
+                        },
+                        "replace_all": {
+                          "default": false,
+                          "description": "Replace all occurrences for replace",
+                          "type": "boolean"
+                        },
+                        "to": {
+                          "description": "Destination path for move. The destination must not already exist; move never overwrites.",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Operation type. Required fields per type ([optional] in brackets): create: path, content. write: path, content. replace: path, old_string, new_string [replace_all]. delete_file: path. move: from, to. Most types also accept [assert_present, assert_absent, file_hash]; exceptions: create accepts asserts but not file_hash; delete_file accepts file_hash but not asserts.",
+                          "enum": [
+                            "create",
+                            "write",
+                            "replace",
+                            "delete_file",
+                            "move"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "operations"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "read",
+              "description": "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Text line numbers are opt-in with `line_numbers`; output is bounded. Continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max lines to read",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "line_numbers": {
+                    "default": false,
+                    "description": "Include line numbers in read output",
+                    "type": "boolean"
+                  },
+                  "offset": {
+                    "default": 1,
+                    "description": "Starting line number (1-based)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "File path to read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "workflow_handoff",
+              "description": "Create a workflow handoff request to transition to a different workflow with approved artifacts. Validates the target directory against configured workflow requirements.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "message": {
+                    "description": "Optional handoff message. Trimmed and bounded to keep the request concise.",
+                    "maxLength": 512,
+                    "type": "string"
+                  },
+                  "next": {
+                    "description": "Required. The workflow target to hand off to. implement: structured `/implement` workflow using overview.md and plan.yaml. review: structured `/review` workflow using overview.md and plan.yaml. build: direct execution of standalone plan.md in build mode, without skill discovery.",
+                    "enum": [
+                      "implement",
+                      "review",
+                      "build"
+                    ],
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "Required. A safe relative directory with workflow artifacts.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "next",
+                  "target"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        ]
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 1753,
+        "cache_read_input_tokens": 4121,
+        "output_tokens": 4,
+        "prompt_total_tokens": 5876
+      }
+    },
+    {
+      "attempt_id": 13,
+      "timestamp_utc": "2026-10-25T16:58:29.15533626Z",
+      "slot": "baseline",
+      "requested_model": "claude-haiku-5-5",
+      "observed_model": "claude-haiku-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tools_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request": {
+        "model": "claude-haiku-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK."
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 656,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 658
+      }
+    },
+    {
+      "attempt_id": 14,
+      "timestamp_utc": "2026-10-25T16:58:32.352744002Z",
+      "slot": "codeJSON",
+      "requested_model": "claude-haiku-5-5",
+      "observed_model": "claude-haiku-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "58335d20625eaa98800564587e94118ca0280c57fc2ba0ef2ae62e01b0de1cca",
+      "tools_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request": {
+        "model": "claude-haiku-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK.// ledger.go\npackage inventory\n\nimport (\n\t\"encoding/json\"\n\t\"errors\"\n\t\"fmt\"\n\t\"sort\"\n\t\"strings\"\n)\n\n// Item is one stock line in a warehouse bin.\ntype Item struct {\n\tSKU      string   `json:\"sku\"`\n\tName     string   `json:\"name\"`\n\tQuantity int      `json:\"quantity\"`\n\tBins     []string `json:\"bins\"`\n\tTags     []string `json:\"tags,omitempty\"`\n}\n\n// Ledger keeps stock lines keyed by SKU.\ntype Ledger struct {\n\titems map[string]*Item\n}\n\n// NewLedger returns an empty ledger ready for use.\nfunc NewLedger() *Ledger {\n\treturn \u0026Ledger{items: make(map[string]*Item)}\n}\n\n// Add inserts an item or merges quantities into an existing SKU.\nfunc (l *Ledger) Add(item Item) error {\n\tif strings.TrimSpace(item.SKU) == \"\" {\n\t\treturn errors.New(\"sku is required\")\n\t}\n\tif item.Quantity \u003c 0 {\n\t\treturn fmt.Errorf(\"quantity for %s must not be negative: %d\", item.SKU, item.Quantity)\n\t}\n\texisting, ok := l.items[item.SKU]\n\tif !ok {\n\t\tcopied := item\n\t\tl.items[item.SKU] = \u0026copied\n\t\treturn nil\n\t}\n\texisting.Quantity += item.Quantity\n\texisting.Bins = mergeSorted(existing.Bins, item.Bins)\n\treturn nil\n}\n\n// Remove reduces stock for a SKU and refuses to go below zero.\nfunc (l *Ledger) Remove(sku string, quantity int) error {\n\titem, ok := l.items[sku]\n\tif !ok {\n\t\treturn fmt.Errorf(\"unknown sku %q\", sku)\n\t}\n\tif quantity \u003e item.Quantity {\n\t\treturn fmt.Errorf(\"remove %d from %s: only %d in stock\", quantity, sku, item.Quantity)\n\t}\n\titem.Quantity -= quantity\n\treturn nil\n}\n\n// Snapshot returns a copy of every item, sorted by SKU.\nfunc (l *Ledger) Snapshot() []Item {\n\tskus := make([]string, 0, len(l.items))\n\tfor sku := range l.items {\n\t\tskus = append(skus, sku)\n\t}\n\tsort.Strings(skus)\n\tout := make([]Item, 0, len(skus))\n\tfor _, sku := range skus {\n\t\tout = append(out, *l.items[sku])\n\t}\n\treturn out\n}\n\n// MarshalJSON writes the snapshot as a JSON array.\nfunc (l *Ledger) MarshalJSON() ([]byte, error) {\n\treturn json.Marshal(l.Snapshot())\n}\n\nfunc mergeSorted(a, b []string) []string {\n\tseen := make(map[string]struct{}, len(a)+len(b))\n\tfor _, v := range append(append([]string{}, a...), b...) {\n\t\tseen[v] = struct{}{}\n\t}\n\tmerged := make([]string, 0, len(seen))\n\tfor v := range seen {\n\t\tmerged = append(merged, v)\n\t}\n\tsort.Strings(merged)\n\treturn merged\n}\n\n// warehouse.json\n{\n  \"warehouse\": \"north-7\",\n  \"updated_at\": \"2026-10-01T08:30:00Z\",\n  \"reorder\": {\n    \"threshold\": 12,\n    \"lead_time_days\": [3, 5, 8],\n    \"notify\": [\"ops@example.test\", \"buyer@example.test\"]\n  },\n  \"items\": [\n    {\"sku\": \"BLT-204\", \"name\": \"Steel bolt M8\", \"quantity\": 480, \"bins\": [\"A1\", \"A2\"]},\n    {\"sku\": \"WSH-118\", \"name\": \"Washer 8mm zinc\", \"quantity\": 96, \"bins\": [\"A3\"], \"tags\": [\"zinc\", \"bulk\"]},\n    {\"sku\": \"NUT-330\", \"name\": \"Lock nut M8\", \"quantity\": 0, \"bins\": [], \"tags\": [\"discontinued\"]},\n    {\"sku\": \"SPR-072\", \"name\": \"Compression spring 20mm\", \"quantity\": 230, \"bins\": [\"B4\"], \"tags\": [\"spring\"]},\n    {\"sku\": \"PIN-615\", \"name\": \"Clevis pin 6mm\", \"quantity\": 58, \"bins\": [\"B5\", \"C1\"], \"tags\": [\"pin\", \"hardware\"]}\n  ],\n  \"audit\": {\"last_count\": \"2026-09-28\", \"variance_limit_pct\": 1.5, \"counted_by\": \"night-shift-2\"}\n}"
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 2175,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 2177
+      }
+    },
+    {
+      "attempt_id": 15,
+      "timestamp_utc": "2026-10-25T16:58:36.216956428Z",
+      "slot": "markdown",
+      "requested_model": "claude-haiku-5-5",
+      "observed_model": "claude-haiku-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "8d26c7ab79ecb1da78d9e645f8e40fc9b12bece706b773517e9ab8d56a0ae1e8",
+      "tools_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request": {
+        "model": "claude-haiku-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK.# Tide gauge maintenance\n\nThis guide covers routine checks for the coastal tide gauge network. Each station records water level every six minutes and sends the readings to the regional office. Field crews follow the steps below in order, and they write every result in the station logbook before they leave the site.\n\n## Weekly checks\n\n- Confirm the solar panel is clear of salt spray and bird droppings.\n- Read the battery voltage on the control panel and note the value.\n- Compare the displayed water level with the reference staff gauge on the pier.\n- Check that the telemetry modem shows a signal strength above the local threshold.\n- Look for cracks or loose fittings on the stilling well.\n\nIf any check fails, record the station ID, the time, and a short description. Do not reset the logger until the regional office confirms the reset window.\n\n## Calibration\n\nCalibration runs twice a year, in spring and autumn, during the lowest spring tides. The crew lowers a calibrated reference rod into the stilling well and compares the reading with the logger output. A difference of more than two centimetres triggers a full sensor replacement.\n\n| Check | Limit | Action |\n| --- | --- | --- |\n| Level offset | 2 cm | Recalibrate sensor |\n| Battery voltage | 11.8 V | Schedule replacement |\n| Clock drift | 30 s | Resync from GPS |\n| Sample gap | 12 min | Inspect modem |\n\n## Steps for a full calibration\n\n1. Notify the regional office before arriving on site.\n2. Lock the logger in maintenance mode so no alarms fire during the work.\n3. Lower the reference rod and wait for the surface to settle for two minutes.\n4. Record the reference reading and the logger reading side by side.\n5. Export the last 24 hours of raw samples to the field laptop.\n6. Restore normal mode and confirm the next sample arrives within six minutes.\n\nThe export command is kept in the crew handbook:\n\n```sh\ngaugectl export --station \"$STATION_ID\" --hours 24 --format csv --out ./samples.csv\ngaugectl verify ./samples.csv\n```\n\n## Troubleshooting\n\nGaps in the sample stream usually come from the modem rather than the sensor. Power-cycle the modem first and wait ten minutes for the carrier to register. If the gap returns, check the antenna cable for water ingress at the mast connector.\n\nSpikes in the water level often follow a storm surge or a debris strike on the float. Compare the spike with the tide table before changing any setting. A real surge leaves a smooth recovery curve, while a debris strike returns to the baseline within one sample.\n\n## Site access and safety\n\nCrews reach most stations by road, but four of them sit on tidal causeways that flood twice a day. Check the causeway timetable before leaving the depot, and never cross while water covers the marker posts. Carry a radio, a first aid kit, and a torch, even on a short visit.\n\nWear the high visibility vest at all times on the pier. Keep two points of contact on the ladder when climbing to the solar panel, and clip the harness to the fixed rail before leaving the ground. If the wind exceeds the limit printed on the depot board, postpone any work above head height and inform the supervisor.\n\n## Spare parts\n\nEach station kit holds two spare modems, one spare float, a sealed battery, and a set of marine grade connectors. Replace any part that shows corrosion at the terminals, even if it still works. Log every part used, with the serial number and the date, so the stock count at the depot stays accurate.\n\n## Reporting\n\nAt the end of each visit, the crew lead calls the regional office from the site and reads back the key values: water level, battery voltage, sample count, and any alarm codes. The office confirms the values, then closes the visit in the tracking system. Reports that arrive without a confirmed read back are marked incomplete and are reviewed on the next working day.\n\n## Records\n\nEvery visit produces three records: the logbook entry, the signed checklist, and the exported sample file. Store all three in the station folder under the visit date. The regional office audits one random station each month, so keep the folder complete and in date order."
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 1994,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 1996
+      }
+    },
+    {
+      "attempt_id": 16,
+      "timestamp_utc": "2026-10-25T16:58:39.673984523Z",
+      "slot": "Unicode",
+      "requested_model": "claude-haiku-5-5",
+      "observed_model": "claude-haiku-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "aa86bc5361f55e4a84079b6d1f4b599a9c80b155b30a9cfce6d3a8d4e7a648ac",
+      "tools_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "request": {
+        "model": "claude-haiku-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK.Multilingual sample for token counting. Each line is original text.\n\nEnglish: The quick brown fox jumps over the lazy dog while the rain falls softly.\nFrancais: Le café de la gare ouvre à sept heures, et les enfants arrivent en retard.\nDeutsch: Die Straßenbahn fährt heute später, weil der Fluss hochsteht.\nEspañol: El niño dibujó un mapa del puerto con tinta azul y verde.\nΕλληνικά: Ο ήλιος βγαίνει νωρίς το καλοκαίρι πάνω από τη θάλασσα.\nРусский: Поезд отходит от вокзала ровно в девять, и пассажиры спешат.\nالعربية: تفتح المكتبة أبوابها عند الصباح، ويقرأ الطلاب في الحديقة.\nहिन्दी: बाज़ार में सुबह से भीड़ है, और दुकानदार नए फल सजा रहे हैं।\n日本語: 駅前の小さな店では、朝早くから焼きたてのパンが並びます。\n한국어: 강가의 작은 마을에서는 봄마다 축제가 열리고 사람들이 모입니다.\n中文：山间的小路通向一座古老的寺庙，清晨的钟声传遍整个河谷。\n\nTiếng Việt: Buổi sáng trời trong xanh, gió thổi nhẹ qua cánh đồng lúa.\nภาษาไทย: ตลาดเปิดตั้งแต่เช้า ผู้คนเดินซื้อของกันอย่างคึกคัก\nעברית: השוק נפתח מוקדם בבוקר, והאנשים קונים פירות וירקות טריים.\nTürkçe: Köprünün altındaki nehir bugün çok hızlı akıyor.\nPolski: Pociąg z Krakowa przyjeżdża na stację punktualnie, a żółte światła migają.\nবাংলা: নদীর ধারে ছোট গ্রামটিতে সকালবেলা মেলা বসে।\nதமிழ்: கோயில் மணி காலை முதல் ஒலிக்கிறது, மக்கள் வரிசையில் நிற்கின்றனர்.\nУкраїнська: Над містом піднімається туман, а на площі співають діти.\nDense emoji and joiners: 🧑🏽‍🤝‍🧑🏻 👪 🧑‍🧑‍🧒 🏃🏾‍♀️ 🏳️‍⚧️ 🐻‍❄️ 👁️‍🗨️ 🧑🏿‍🚒 🧔🏻‍♂️ 🫱🏼‍🫲🏽\n\nCombining marks on base letters: é is written as a base e followed by U+0301, ä as a followed by U+0308.\nCombining sequences written out: ñ, ö, ç, ệ, ṩ, ǜ.\n\nEmoji with skin tones: 👍 👍🏻 👍🏼 👍🏽 👍🏾 👍🏿\nZWJ families and profiles: 👨‍👩‍👧‍👦 👩‍💻 🏳️‍🌈 🧑‍🚀 🧑🏽‍🍳\nFlags: 🇬🇧 🇯🇵 🇧🇷 🇳🇴\nKeycaps and symbols: 1️⃣ 2️⃣ #️⃣ ❤️ ☕ ✈️ ⚽"
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 1840,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 1842
+      }
+    },
+    {
+      "attempt_id": 17,
+      "timestamp_utc": "2026-10-25T16:58:42.962644995Z",
+      "slot": "tools",
+      "requested_model": "claude-haiku-5-5",
+      "observed_model": "claude-haiku-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tools_sha256": "30d083b816c770ab4ef2b553054ed46a57b3c7934b50589f88660706126d7580",
+      "request": {
+        "model": "claude-haiku-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK."
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "bash",
+              "description": "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "description": "Shell command to execute",
+                    "type": "string"
+                  },
+                  "cwd": {
+                    "description": "Working directory",
+                    "type": "string"
+                  },
+                  "max_output_chars": {
+                    "default": 30000,
+                    "description": "Max output characters",
+                    "maximum": 100000,
+                    "type": "integer"
+                  },
+                  "timeout_seconds": {
+                    "default": 120,
+                    "description": "Max execution time",
+                    "maximum": 600,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "display_file",
+              "description": "Ask the TUI to display a file to the user in an overlay without including the file contents in the conversation. Use this instead of read when the goal is to show the file visually rather than analyse its content.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 120,
+                    "description": "Max lines to preview",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 1,
+                    "description": "Starting line number (1-based)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Absolute or workspace-relative path to the file to display",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "fetch_url",
+              "description": "Fetch a URL and return its content. Supports HTML (main content extracted and converted to markdown, falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Images are always saved to .steiner/tmp/fetched; use the read tool with the returned file path to inspect them. Large responses are saved to disk in full — use the read tool to paginate; the only ceiling is the max_size download/save limit.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_size": {
+                    "default": 10485760,
+                    "description": "Max bytes to download and save to disk (default 10MB, ceiling 32MB)",
+                    "maximum": 33554432,
+                    "type": "integer"
+                  },
+                  "url": {
+                    "description": "URL to fetch",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "glob",
+              "description": "Find files by glob pattern. Use limit and offset to page through large result sets.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max results (default: 200)",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Result offset (default: 0)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Directory to search in",
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Glob pattern to match",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "grep",
+              "description": "Search file contents with paginated logical results. Use output_mode=\"files_with_matches\" to locate relevant files, output_mode=\"count\" for per-file counts, and output_mode=\"content\" with context to inspect matches.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "after_context": {
+                    "description": "Lines after each match in content output",
+                    "type": "integer"
+                  },
+                  "before_context": {
+                    "description": "Lines before each match in content output",
+                    "type": "integer"
+                  },
+                  "case_insensitive": {
+                    "description": "Case insensitive search",
+                    "type": "boolean"
+                  },
+                  "context": {
+                    "description": "Symmetric context lines for content output",
+                    "type": "integer"
+                  },
+                  "glob": {
+                    "description": "File pattern filter",
+                    "type": "string"
+                  },
+                  "head_limit": {
+                    "default": 100,
+                    "description": "Max logical results to return per page",
+                    "maximum": 500,
+                    "type": "integer"
+                  },
+                  "line_numbers": {
+                    "description": "Include line and column numbers in content output. Column is 1-based and rune-counted (matches lsp_definitions/lsp_references), pointing at where the match starts — not necessarily the target identifier's own position. Search for the identifier itself (e.g. word-boundary the pattern) when you intend to feed the result into an LSP tool.",
+                    "type": "boolean"
+                  },
+                  "multiline": {
+                    "description": "Enable multiline mode",
+                    "type": "boolean"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Logical result offset",
+                    "type": "integer"
+                  },
+                  "output_mode": {
+                    "description": "Output mode: content, files_with_matches, or count",
+                    "type": "string"
+                  },
+                  "path": {
+                    "description": "Directory or file to search in",
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Regex pattern to search for",
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "Search type (content, files, etc)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "ls",
+              "description": "List directory contents. Use recursive sparingly. Use limit and offset for large directories.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max results",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Result offset",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Directory to list",
+                    "type": "string"
+                  },
+                  "recursive": {
+                    "description": "List recursively",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "mutate",
+              "description": "Apply structured file edits via op types: create, write (create or overwrite), replace, delete_file, move. Supports file_hash for staleness detection on existing targets — pass the hash from read to fail fast if the file changed. replace against an existing file is rejected unless you read it earlier this session or pass file_hash — read the file first, or supply the hash from a read result. move rejects destination collisions instead of overwriting. For create, write, and move: parent directories must exist for workspace paths (steiner auto-creates only within its own sandbox tmpdir); create it first (e.g. with bash mkdir -p), then retry. Use assert_present/assert_absent on any operation whose effect cannot otherwise be verified — assertions abort the full batch if they fail, confirming the edit landed where intended. If a batch has multiple failing operations, every failure is reported together in one result and nothing is applied — fix all of them before resending. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "operations": {
+                    "description": "Ordered list of file mutations. Operations are evaluated sequentially against an in-memory snapshot, so later operations see earlier edits in the same batch, but no filesystem writes are committed until the full batch has been planned. On partial failure, operations_skipped reports how many were never attempted.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "assert_absent": {
+                          "description": "Strings that must be absent from the post-operation file content. Use assertions to confirm edits landed where you intended; assertion failures abort the full batch before commit.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "assert_present": {
+                          "description": "Strings that must appear in the post-operation file content. Use assertions to confirm edits landed where you intended (especially for replace operations whose old_string might be ambiguous); assertion failures abort the full batch before commit.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "content": {
+                          "description": "File content for create and write",
+                          "type": "string"
+                        },
+                        "file_hash": {
+                          "description": "8-char hex hash from read result. When provided, it is validated against the initial disk snapshot captured when the batch starts, not after earlier in-memory operations. It only applies to existing files; missing targets fail explicitly instead of being silently accepted.",
+                          "type": "string"
+                        },
+                        "from": {
+                          "description": "Source path for move",
+                          "type": "string"
+                        },
+                        "new_string": {
+                          "description": "Replacement text",
+                          "type": "string"
+                        },
+                        "old_string": {
+                          "description": "Exact text to replace. Whitespace must match the file exactly, including leading indentation depth (most common mismatch: tab vs space nesting level). Copy directly from read output rather than reconstructing from memory.",
+                          "type": "string"
+                        },
+                        "path": {
+                          "description": "Target path for create, write, replace, and delete_file",
+                          "type": "string"
+                        },
+                        "replace_all": {
+                          "default": false,
+                          "description": "Replace all occurrences for replace",
+                          "type": "boolean"
+                        },
+                        "to": {
+                          "description": "Destination path for move. The destination must not already exist; move never overwrites.",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Operation type. Required fields per type ([optional] in brackets): create: path, content. write: path, content. replace: path, old_string, new_string [replace_all]. delete_file: path. move: from, to. Most types also accept [assert_present, assert_absent, file_hash]; exceptions: create accepts asserts but not file_hash; delete_file accepts file_hash but not asserts.",
+                          "enum": [
+                            "create",
+                            "write",
+                            "replace",
+                            "delete_file",
+                            "move"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "operations"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "read",
+              "description": "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Text line numbers are opt-in with `line_numbers`; output is bounded. Continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max lines to read",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "line_numbers": {
+                    "default": false,
+                    "description": "Include line numbers in read output",
+                    "type": "boolean"
+                  },
+                  "offset": {
+                    "default": 1,
+                    "description": "Starting line number (1-based)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "File path to read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "workflow_handoff",
+              "description": "Create a workflow handoff request to transition to a different workflow with approved artifacts. Validates the target directory against configured workflow requirements.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "message": {
+                    "description": "Optional handoff message. Trimmed and bounded to keep the request concise.",
+                    "maxLength": 512,
+                    "type": "string"
+                  },
+                  "next": {
+                    "description": "Required. The workflow target to hand off to. implement: structured `/implement` workflow using overview.md and plan.yaml. review: structured `/review` workflow using overview.md and plan.yaml. build: direct execution of standalone plan.md in build mode, without skill discovery.",
+                    "enum": [
+                      "implement",
+                      "review",
+                      "build"
+                    ],
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "Required. A safe relative directory with workflow artifacts.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "next",
+                  "target"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        ]
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 4818,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 4,
+        "prompt_total_tokens": 4820
+      }
+    },
+    {
+      "attempt_id": 18,
+      "timestamp_utc": "2026-10-25T16:58:46.731784583Z",
+      "slot": "mixedtools",
+      "requested_model": "claude-haiku-5-5",
+      "observed_model": "claude-haiku-5-5",
+      "status": "succeeded",
+      "cli_version": "2.1.296",
+      "library_commit": "7969144b7665d73ae1e20daee102cf1c5e0947a1",
+      "payload_sha256": "2ff3537b972a385ac6a3d7900b98f158668143d6dc0f4f5ce3808749e83499bd",
+      "tools_sha256": "30d083b816c770ab4ef2b553054ed46a57b3c7934b50589f88660706126d7580",
+      "request": {
+        "model": "claude-haiku-5-5",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Reply only OK.Operator note from the nightly sync job, pasted with the config it used.\n\n$ sync-agent --source ./incoming --dest s3://archive-west --dry-run=false --retries 4\n2026-10-02T02:14:09Z INFO batch=118 files=312 bytes=48213907\n2026-10-02T02:14:11Z WARN file=ledger/2026-09.csv retry=1 reason=\"connection reset\"\n2026-10-02T02:14:19Z INFO batch=118 done ok=311 failed=1\n\nretry policy:\n  max_attempts: 4\n  backoff: exponential\n  jitter: true\n  on_error: continue\n\nThe sync job never deletes local files. It only uploads, verifies the checksum on the remote side, and writes a manifest line for each object. A failed object stays in the queue until the next run, and the operator reviews the queue each morning.\n\n{\"batch\":118,\"status\":\"partial\",\"failed\":[\"ledger/2026-09.csv\"],\"checked_at\":\"2026-10-02T02:14:21Z\"}\n\ndef summarize(batch):\n    total = sum(item.size for item in batch.items)\n    return {\"count\": len(batch.items), \"bytes\": total}\n\nTeam notes in several languages:\nSvenska: inga filer raderas lokalt. 日本語: ローカルのファイルは削除されません。\nРусский: локальные файлы не удаляются. العربية: لا تُحذف الملفات المحلية.\n\nRetry log, batch 119, after the network fix:\n2026-10-03T02:14:02Z INFO batch=119 files=288 bytes=44102876\n2026-10-03T02:14:06Z INFO file=ledger/2026-10.csv sha256=9f2c1e7ab3d045c6 verified=true\n2026-10-03T02:14:07Z INFO file=photos/station-14/0412.jpg sha256=a71b09fe22cd4410 verified=true\n2026-10-03T02:14:09Z WARN file=photos/station-09/0088.jpg retry=2 reason=\"timeout after 30s\"\n2026-10-03T02:14:31Z INFO file=photos/station-09/0088.jpg sha256=c04e6d2a9b7f1182 verified=true\n2026-10-03T02:15:40Z INFO batch=119 done ok=288 failed=0 elapsed=98s\n\nconfig.yaml (sync section):\nsync:\n  source: ./incoming\n  destination: s3://archive-west/nightly\n  verify_checksum: true\n  delete_local: false\n  parallel_uploads: 4\n  exclude:\n    - \"*.tmp\"\n    - \".DS_Store\"\n    - \"scratch/**\"\n\nOperator comment: retries worked after the modem reset on the north site. The timeout came from the same carrier outage described in last week's ticket, so no config change is needed. Keep parallel_uploads at 4 until the carrier confirms the new peering.\n\n{\"batch\":119,\"status\":\"complete\",\"failed\":[],\"checked_at\":\"2026-10-03T02:15:41Z\"}\n\nStatus emoji used in the dashboard: ✅ ok, ⚠️ warning, ❌ failed, 🔄 retrying, 📦 archived."
+          },
+          {
+            "role": "user",
+            "content": "Reply OK."
+          }
+        ],
+        "max_tokens": 64,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "bash",
+              "description": "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "description": "Shell command to execute",
+                    "type": "string"
+                  },
+                  "cwd": {
+                    "description": "Working directory",
+                    "type": "string"
+                  },
+                  "max_output_chars": {
+                    "default": 30000,
+                    "description": "Max output characters",
+                    "maximum": 100000,
+                    "type": "integer"
+                  },
+                  "timeout_seconds": {
+                    "default": 120,
+                    "description": "Max execution time",
+                    "maximum": 600,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "display_file",
+              "description": "Ask the TUI to display a file to the user in an overlay without including the file contents in the conversation. Use this instead of read when the goal is to show the file visually rather than analyse its content.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 120,
+                    "description": "Max lines to preview",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 1,
+                    "description": "Starting line number (1-based)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Absolute or workspace-relative path to the file to display",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "fetch_url",
+              "description": "Fetch a URL and return its content. Supports HTML (main content extracted and converted to markdown, falling back to the full document if extraction finds nothing), text formats (JSON, YAML, plain text, CSV, etc.), and images (png, jpeg, gif, webp). Images are always saved to .steiner/tmp/fetched; use the read tool with the returned file path to inspect them. Large responses are saved to disk in full — use the read tool to paginate; the only ceiling is the max_size download/save limit.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_size": {
+                    "default": 10485760,
+                    "description": "Max bytes to download and save to disk (default 10MB, ceiling 32MB)",
+                    "maximum": 33554432,
+                    "type": "integer"
+                  },
+                  "url": {
+                    "description": "URL to fetch",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "glob",
+              "description": "Find files by glob pattern. Use limit and offset to page through large result sets.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max results (default: 200)",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Result offset (default: 0)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Directory to search in",
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Glob pattern to match",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "grep",
+              "description": "Search file contents with paginated logical results. Use output_mode=\"files_with_matches\" to locate relevant files, output_mode=\"count\" for per-file counts, and output_mode=\"content\" with context to inspect matches.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "after_context": {
+                    "description": "Lines after each match in content output",
+                    "type": "integer"
+                  },
+                  "before_context": {
+                    "description": "Lines before each match in content output",
+                    "type": "integer"
+                  },
+                  "case_insensitive": {
+                    "description": "Case insensitive search",
+                    "type": "boolean"
+                  },
+                  "context": {
+                    "description": "Symmetric context lines for content output",
+                    "type": "integer"
+                  },
+                  "glob": {
+                    "description": "File pattern filter",
+                    "type": "string"
+                  },
+                  "head_limit": {
+                    "default": 100,
+                    "description": "Max logical results to return per page",
+                    "maximum": 500,
+                    "type": "integer"
+                  },
+                  "line_numbers": {
+                    "description": "Include line and column numbers in content output. Column is 1-based and rune-counted (matches lsp_definitions/lsp_references), pointing at where the match starts — not necessarily the target identifier's own position. Search for the identifier itself (e.g. word-boundary the pattern) when you intend to feed the result into an LSP tool.",
+                    "type": "boolean"
+                  },
+                  "multiline": {
+                    "description": "Enable multiline mode",
+                    "type": "boolean"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Logical result offset",
+                    "type": "integer"
+                  },
+                  "output_mode": {
+                    "description": "Output mode: content, files_with_matches, or count",
+                    "type": "string"
+                  },
+                  "path": {
+                    "description": "Directory or file to search in",
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "description": "Regex pattern to search for",
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "Search type (content, files, etc)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "ls",
+              "description": "List directory contents. Use recursive sparingly. Use limit and offset for large directories.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max results",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "description": "Result offset",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "Directory to list",
+                    "type": "string"
+                  },
+                  "recursive": {
+                    "description": "List recursively",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "mutate",
+              "description": "Apply structured file edits via op types: create, write (create or overwrite), replace, delete_file, move. Supports file_hash for staleness detection on existing targets — pass the hash from read to fail fast if the file changed. replace against an existing file is rejected unless you read it earlier this session or pass file_hash — read the file first, or supply the hash from a read result. move rejects destination collisions instead of overwriting. For create, write, and move: parent directories must exist for workspace paths (steiner auto-creates only within its own sandbox tmpdir); create it first (e.g. with bash mkdir -p), then retry. Use assert_present/assert_absent on any operation whose effect cannot otherwise be verified — assertions abort the full batch if they fail, confirming the edit landed where intended. If a batch has multiple failing operations, every failure is reported together in one result and nothing is applied — fix all of them before resending. Use mutate for all file edits; do not use bash, sed, cat, write, edit, or apply_patch for file mutations.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "operations": {
+                    "description": "Ordered list of file mutations. Operations are evaluated sequentially against an in-memory snapshot, so later operations see earlier edits in the same batch, but no filesystem writes are committed until the full batch has been planned. On partial failure, operations_skipped reports how many were never attempted.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "assert_absent": {
+                          "description": "Strings that must be absent from the post-operation file content. Use assertions to confirm edits landed where you intended; assertion failures abort the full batch before commit.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "assert_present": {
+                          "description": "Strings that must appear in the post-operation file content. Use assertions to confirm edits landed where you intended (especially for replace operations whose old_string might be ambiguous); assertion failures abort the full batch before commit.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "content": {
+                          "description": "File content for create and write",
+                          "type": "string"
+                        },
+                        "file_hash": {
+                          "description": "8-char hex hash from read result. When provided, it is validated against the initial disk snapshot captured when the batch starts, not after earlier in-memory operations. It only applies to existing files; missing targets fail explicitly instead of being silently accepted.",
+                          "type": "string"
+                        },
+                        "from": {
+                          "description": "Source path for move",
+                          "type": "string"
+                        },
+                        "new_string": {
+                          "description": "Replacement text",
+                          "type": "string"
+                        },
+                        "old_string": {
+                          "description": "Exact text to replace. Whitespace must match the file exactly, including leading indentation depth (most common mismatch: tab vs space nesting level). Copy directly from read output rather than reconstructing from memory.",
+                          "type": "string"
+                        },
+                        "path": {
+                          "description": "Target path for create, write, replace, and delete_file",
+                          "type": "string"
+                        },
+                        "replace_all": {
+                          "default": false,
+                          "description": "Replace all occurrences for replace",
+                          "type": "boolean"
+                        },
+                        "to": {
+                          "description": "Destination path for move. The destination must not already exist; move never overwrites.",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Operation type. Required fields per type ([optional] in brackets): create: path, content. write: path, content. replace: path, old_string, new_string [replace_all]. delete_file: path. move: from, to. Most types also accept [assert_present, assert_absent, file_hash]; exceptions: create accepts asserts but not file_hash; delete_file accepts file_hash but not asserts.",
+                          "enum": [
+                            "create",
+                            "write",
+                            "replace",
+                            "delete_file",
+                            "move"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "operations"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "read",
+              "description": "Read a file or part of a file. Prefer offset and limit for large files. Use grep or glob first when locating code. Supports image files for visual inspection and returns image data plus dimensions/size metadata. Text line numbers are opt-in with `line_numbers`; output is bounded. Continue from `next_offset` when present. Exceptionally long individual lines may be truncated.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "limit": {
+                    "default": 200,
+                    "description": "Max lines to read",
+                    "maximum": 1000,
+                    "type": "integer"
+                  },
+                  "line_numbers": {
+                    "default": false,
+                    "description": "Include line numbers in read output",
+                    "type": "boolean"
+                  },
+                  "offset": {
+                    "default": 1,
+                    "description": "Starting line number (1-based)",
+                    "type": "integer"
+                  },
+                  "path": {
+                    "description": "File path to read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "workflow_handoff",
+              "description": "Create a workflow handoff request to transition to a different workflow with approved artifacts. Validates the target directory against configured workflow requirements.",
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "message": {
+                    "description": "Optional handoff message. Trimmed and bounded to keep the request concise.",
+                    "maxLength": 512,
+                    "type": "string"
+                  },
+                  "next": {
+                    "description": "Required. The workflow target to hand off to. implement: structured `/implement` workflow using overview.md and plan.yaml. review: structured `/review` workflow using overview.md and plan.yaml. build: direct execution of standalone plan.md in build mode, without skill discovery.",
+                    "enum": [
+                      "implement",
+                      "review",
+                      "build"
+                    ],
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "Required. A safe relative directory with workflow artifacts.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "next",
+                  "target"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        ]
+      },
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 1750,
+        "cache_read_input_tokens": 4121,
+        "output_tokens": 4,
+        "prompt_total_tokens": 5873
+      }
+    }
+  ],
+  "report": [
+    {
+      "model": "claude-opus-5-5",
+      "active": true,
+      "old_strategy": "tiktoken",
+      "text": [
+        {
+          "slot": "codeJSON",
+          "observed": 1518,
+          "old_predicted": 957,
+          "new_predicted": 1518,
+          "old_signed_error": -561,
+          "new_signed_error": 0,
+          "old_abs_error": 561,
+          "new_abs_error": 0
+        },
+        {
+          "slot": "markdown",
+          "observed": 1337,
+          "old_predicted": 871,
+          "new_predicted": 1337,
+          "old_signed_error": -466,
+          "new_signed_error": 0,
+          "old_abs_error": 466,
+          "new_abs_error": 0
+        },
+        {
+          "slot": "Unicode",
+          "observed": 1182,
+          "old_predicted": 1160,
+          "new_predicted": 1183,
+          "old_signed_error": -22,
+          "new_signed_error": 1,
+          "old_abs_error": 22,
+          "new_abs_error": 1
+        }
+      ],
+      "tool": {
+        "slot": "tools",
+        "observed": 4161,
+        "old_predicted": 2157,
+        "new_predicted": 3036,
+        "old_signed_error": -2004,
+        "new_signed_error": -1125,
+        "old_abs_error": 2004,
+        "new_abs_error": 1125
+      },
+      "full": {
+        "slot": "mixedtools",
+        "observed": 5871,
+        "old_predicted": 2935,
+        "new_predicted": 4121,
+        "old_signed_error": -2936,
+        "new_signed_error": -1750,
+        "old_abs_error": 2936,
+        "new_abs_error": 1750
+      },
+      "category_old_abs_sum": 1049,
+      "category_new_abs_sum": 1,
+      "residual": "CLI framing (system prompt, tool note, CLI built-in tools) is not modeled. Text and tool deltas cancel it only if it is the same in every slot. The full slot includes it, so its error is not framing-free. Tool and full slots have no underestimation limit."
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "active": true,
+      "old_strategy": "tiktoken",
+      "text": [
+        {
+          "slot": "codeJSON",
+          "observed": 1519,
+          "old_predicted": 957,
+          "new_predicted": 1518,
+          "old_signed_error": -562,
+          "new_signed_error": -1,
+          "old_abs_error": 562,
+          "new_abs_error": 1
+        },
+        {
+          "slot": "markdown",
+          "observed": 1338,
+          "old_predicted": 871,
+          "new_predicted": 1337,
+          "old_signed_error": -467,
+          "new_signed_error": -1,
+          "old_abs_error": 467,
+          "new_abs_error": 1
+        },
+        {
+          "slot": "Unicode",
+          "observed": 1183,
+          "old_predicted": 1160,
+          "new_predicted": 1183,
+          "old_signed_error": -23,
+          "new_signed_error": 0,
+          "old_abs_error": 23,
+          "new_abs_error": 0
+        }
+      ],
+      "tool": {
+        "slot": "tools",
+        "observed": 4162,
+        "old_predicted": 2157,
+        "new_predicted": 3036,
+        "old_signed_error": -2005,
+        "new_signed_error": -1126,
+        "old_abs_error": 2005,
+        "new_abs_error": 1126
+      },
+      "full": {
+        "slot": "mixedtools",
+        "observed": 5876,
+        "old_predicted": 2935,
+        "new_predicted": 4121,
+        "old_signed_error": -2941,
+        "new_signed_error": -1755,
+        "old_abs_error": 2941,
+        "new_abs_error": 1755
+      },
+      "category_old_abs_sum": 1052,
+      "category_new_abs_sum": 2,
+      "residual": "CLI framing (system prompt, tool note, CLI built-in tools) is not modeled. Text and tool deltas cancel it only if it is the same in every slot. The full slot includes it, so its error is not framing-free. Tool and full slots have no underestimation limit."
+    },
+    {
+      "model": "claude-haiku-5-5",
+      "active": true,
+      "old_strategy": "tiktoken",
+      "text": [
+        {
+          "slot": "codeJSON",
+          "observed": 1519,
+          "old_predicted": 957,
+          "new_predicted": 1518,
+          "old_signed_error": -562,
+          "new_signed_error": -1,
+          "old_abs_error": 562,
+          "new_abs_error": 1
+        },
+        {
+          "slot": "markdown",
+          "observed": 1338,
+          "old_predicted": 871,
+          "new_predicted": 1337,
+          "old_signed_error": -467,
+          "new_signed_error": -1,
+          "old_abs_error": 467,
+          "new_abs_error": 1
+        },
+        {
+          "slot": "Unicode",
+          "observed": 1184,
+          "old_predicted": 1160,
+          "new_predicted": 1183,
+          "old_signed_error": -24,
+          "new_signed_error": -1,
+          "old_abs_error": 24,
+          "new_abs_error": 1
+        }
+      ],
+      "tool": {
+        "slot": "tools",
+        "observed": 4162,
+        "old_predicted": 2157,
+        "new_predicted": 3036,
+        "old_signed_error": -2005,
+        "new_signed_error": -1126,
+        "old_abs_error": 2005,
+        "new_abs_error": 1126
+      },
+      "full": {
+        "slot": "mixedtools",
+        "observed": 5873,
+        "old_predicted": 2935,
+        "new_predicted": 4121,
+        "old_signed_error": -2938,
+        "new_signed_error": -1752,
+        "old_abs_error": 2938,
+        "new_abs_error": 1752
+      },
+      "category_old_abs_sum": 1053,
+      "category_new_abs_sum": 3,
+      "residual": "CLI framing (system prompt, tool note, CLI built-in tools) is not modeled. Text and tool deltas cancel it only if it is the same in every slot. The full slot includes it, so its error is not framing-free. Tool and full slots have no underestimation limit."
+    }
+  ]
+}

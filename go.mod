@@ -19,6 +19,7 @@ require (
 	github.com/esiqveland/notify v0.14.0
 	github.com/gobwas/glob v0.2.3
 	github.com/godbus/dbus/v5 v5.2.2
+	github.com/luispabon/ctok-go v0.1.0
 	github.com/mattn/go-runewidth v0.0.30
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/sahilm/fuzzy v0.1.3

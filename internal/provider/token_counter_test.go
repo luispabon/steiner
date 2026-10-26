@@ -10,6 +10,12 @@ import (
 	"github.com/tiktoken-go/tokenizer"
 )
 
+func TestTokenizerStrategyCtokLiteral(t *testing.T) {
+	if TokenizerStrategyCtok != "ctok" {
+		t.Fatalf("TokenizerStrategyCtok = %q, want %q", TokenizerStrategyCtok, "ctok")
+	}
+}
+
 func TestTokenCounterUsesTiktokenStrategyByDefault(t *testing.T) {
 	t.Parallel()
 
@@ -39,9 +45,9 @@ func TestTokenCounterUsesTiktokenStrategyByDefault(t *testing.T) {
 func TestTokenCounterFallsBackToHeuristicStrategy(t *testing.T) {
 	t.Parallel()
 
-	counter := newTokenCounter(func(string) (tokenizer.Codec, error) {
+	counter := newTokenCounter(counterSelectOptions{codecLoader: func(string) (tokenizer.Codec, error) {
 		return nil, errors.New("boom")
-	})
+	}})
 	request := ChatRequest{
 		Model: "custom-model",
 		Messages: []Message{
@@ -67,7 +73,7 @@ func TestTokenCounterFallsBackToHeuristicStrategy(t *testing.T) {
 func TestTokenCounterCalibrationUpdatesCorrectionFactor(t *testing.T) {
 	t.Parallel()
 
-	counter := newTokenCounter(tokenizerForModel).(*tokenCounter)
+	counter := newTokenCounter(counterSelectOptions{codecLoader: tokenizerForModel}).(*tokenCounter)
 	request := ChatRequest{
 		Model: "gpt-4o",
 		Messages: []Message{
@@ -97,7 +103,7 @@ func TestTokenCounterCalibrationUpdatesCorrectionFactor(t *testing.T) {
 func TestTokenCounterCalibrationImprovesEstimate(t *testing.T) {
 	t.Parallel()
 
-	counter := newTokenCounter(tokenizerForModel)
+	counter := newTokenCounter(counterSelectOptions{codecLoader: tokenizerForModel})
 	request := ChatRequest{
 		Model: "gpt-4o",
 		Messages: []Message{
@@ -141,7 +147,7 @@ func TestTokenCounterCalibrationImprovesEstimate(t *testing.T) {
 func TestTokenCounterCalibrationStaysStableWithCacheInclusiveUsage(t *testing.T) {
 	t.Parallel()
 
-	counter := newTokenCounter(tokenizerForModel).(*tokenCounter)
+	counter := newTokenCounter(counterSelectOptions{codecLoader: tokenizerForModel}).(*tokenCounter)
 	request := ChatRequest{
 		Model: "gpt-4o",
 		Messages: []Message{
@@ -207,6 +213,53 @@ func TestTokenCounterCalibrationStaysStableWithCacheInclusiveUsage(t *testing.T)
 			t.Fatalf("factor swing = %.3f, want <= 0.05", diff)
 		}
 		previous = calibration.factor
+	}
+}
+
+func TestTokenCounterCtokCalibrationKeepsRawCount(t *testing.T) {
+	ctx := context.Background()
+	request := ChatRequest{
+		Model:    "claude-test-model",
+		Messages: []Message{{Role: MessageRoleUser, Content: strings.Repeat("hello ", 32)}},
+	}
+	candidate := &claudeTextCounter{}
+	counter := newTokenCounter(counterSelectOptions{ids: map[string]struct{}{"claude-test-model": {}}, codecLoader: tokenizerForModel, candidate: candidate}).(*tokenCounter)
+
+	raw, err := countRequestWithCounter(ctx, request, candidate)
+	if err != nil {
+		t.Fatalf("countRequestWithCounter() error = %v", err)
+	}
+	before, err := counter.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	if before.Strategy != TokenizerStrategyCtok || before.Confidence != "low" || before.Tokens != raw || before.RawTokens != raw {
+		t.Fatalf("before calibration = %+v, want ctok/low with Tokens and RawTokens %d", before, raw)
+	}
+
+	counter.ObserveUsage(ctx, request, &UsageStats{PromptTokens: raw * 2})
+	after, err := counter.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() after calibration error = %v", err)
+	}
+	if after.RawTokens != raw {
+		t.Fatalf("calibrated RawTokens = %d, want %d", after.RawTokens, raw)
+	}
+	// One sample moves the factor from 1 to 1 + 0.25 * (2 - 1) = 1.25.
+	if want := int(math.Round(float64(raw) * 1.25)); after.Tokens != want {
+		t.Fatalf("calibrated Tokens = %d, want %d", after.Tokens, want)
+	}
+	if after.Strategy != TokenizerStrategyProviderUsage || after.Confidence != "medium" {
+		t.Fatalf("calibrated Strategy, Confidence = %q, %q; want provider_usage, medium", after.Strategy, after.Confidence)
+	}
+
+	plain := newTokenCounter(counterSelectOptions{codecLoader: tokenizerForModel})
+	estimate, err := plain.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() without injected table error = %v", err)
+	}
+	if estimate.Strategy != TokenizerStrategyTiktoken {
+		t.Fatalf("Strategy without injected table = %q, want %q", estimate.Strategy, TokenizerStrategyTiktoken)
 	}
 }
 

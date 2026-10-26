@@ -1,0 +1,64 @@
+# Tide gauge maintenance
+
+This guide covers routine checks for the coastal tide gauge network. Each station records water level every six minutes and sends the readings to the regional office. Field crews follow the steps below in order, and they write every result in the station logbook before they leave the site.
+
+## Weekly checks
+
+- Confirm the solar panel is clear of salt spray and bird droppings.
+- Read the battery voltage on the control panel and note the value.
+- Compare the displayed water level with the reference staff gauge on the pier.
+- Check that the telemetry modem shows a signal strength above the local threshold.
+- Look for cracks or loose fittings on the stilling well.
+
+If any check fails, record the station ID, the time, and a short description. Do not reset the logger until the regional office confirms the reset window.
+
+## Calibration
+
+Calibration runs twice a year, in spring and autumn, during the lowest spring tides. The crew lowers a calibrated reference rod into the stilling well and compares the reading with the logger output. A difference of more than two centimetres triggers a full sensor replacement.
+
+| Check | Limit | Action |
+| --- | --- | --- |
+| Level offset | 2 cm | Recalibrate sensor |
+| Battery voltage | 11.8 V | Schedule replacement |
+| Clock drift | 30 s | Resync from GPS |
+| Sample gap | 12 min | Inspect modem |
+
+## Steps for a full calibration
+
+1. Notify the regional office before arriving on site.
+2. Lock the logger in maintenance mode so no alarms fire during the work.
+3. Lower the reference rod and wait for the surface to settle for two minutes.
+4. Record the reference reading and the logger reading side by side.
+5. Export the last 24 hours of raw samples to the field laptop.
+6. Restore normal mode and confirm the next sample arrives within six minutes.
+
+The export command is kept in the crew handbook:
+
+```sh
+gaugectl export --station "$STATION_ID" --hours 24 --format csv --out ./samples.csv
+gaugectl verify ./samples.csv
+```
+
+## Troubleshooting
+
+Gaps in the sample stream usually come from the modem rather than the sensor. Power-cycle the modem first and wait ten minutes for the carrier to register. If the gap returns, check the antenna cable for water ingress at the mast connector.
+
+Spikes in the water level often follow a storm surge or a debris strike on the float. Compare the spike with the tide table before changing any setting. A real surge leaves a smooth recovery curve, while a debris strike returns to the baseline within one sample.
+
+## Site access and safety
+
+Crews reach most stations by road, but four of them sit on tidal causeways that flood twice a day. Check the causeway timetable before leaving the depot, and never cross while water covers the marker posts. Carry a radio, a first aid kit, and a torch, even on a short visit.
+
+Wear the high visibility vest at all times on the pier. Keep two points of contact on the ladder when climbing to the solar panel, and clip the harness to the fixed rail before leaving the ground. If the wind exceeds the limit printed on the depot board, postpone any work above head height and inform the supervisor.
+
+## Spare parts
+
+Each station kit holds two spare modems, one spare float, a sealed battery, and a set of marine grade connectors. Replace any part that shows corrosion at the terminals, even if it still works. Log every part used, with the serial number and the date, so the stock count at the depot stays accurate.
+
+## Reporting
+
+At the end of each visit, the crew lead calls the regional office from the site and reads back the key values: water level, battery voltage, sample count, and any alarm codes. The office confirms the values, then closes the visit in the tracking system. Reports that arrive without a confirmed read back are marked incomplete and are reviewed on the next working day.
+
+## Records
+
+Every visit produces three records: the logbook entry, the signed checklist, and the exported sample file. Store all three in the station folder under the visit date. The regional office audits one random station each month, so keep the folder complete and in date order.

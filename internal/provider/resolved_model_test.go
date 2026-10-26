@@ -542,9 +542,9 @@ func TestResolveModelMetadataFallbackWarning(t *testing.T) {
 func TestResolveTokenizerMetadataFallsBackToHeuristicWhenTiktokenUnavailable(t *testing.T) {
 	t.Parallel()
 
-	strategy, confidence := resolveTokenizerMetadataWithLoader("custom-model", func(string) (tokenizer.Codec, error) {
+	strategy, confidence := resolveTokenizerMetadataWithOptions("custom-model", counterSelectOptions{codecLoader: func(string) (tokenizer.Codec, error) {
 		return nil, errors.New("unavailable")
-	})
+	}})
 	if strategy != TokenizerStrategyHeuristic {
 		t.Fatalf("strategy = %q, want %q", strategy, TokenizerStrategyHeuristic)
 	}
@@ -560,14 +560,84 @@ func TestResolveTokenizerMetadataGPT5AliasHasHighConfidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tokenizer.Get(o200k_base) error = %v", err)
 	}
-	strategy, confidence := resolveTokenizerMetadataWithLoader("gpt-5.6-luna", func(string) (tokenizer.Codec, error) {
+	strategy, confidence := resolveTokenizerMetadataWithOptions("gpt-5.6-luna", counterSelectOptions{codecLoader: func(string) (tokenizer.Codec, error) {
 		return o200k, nil
-	})
+	}})
 	if strategy != TokenizerStrategyTiktoken {
 		t.Fatalf("strategy = %q, want %q", strategy, TokenizerStrategyTiktoken)
 	}
 	if confidence != "high" {
 		t.Fatalf("confidence = %q, want high", confidence)
+	}
+}
+
+func TestResolveTokenizerMetadataSelectsCtokOnlyForExactActiveID(t *testing.T) {
+	opts := counterSelectOptions{
+		ids:         map[string]struct{}{"claude-test-model": {}},
+		codecLoader: tokenizerForModel,
+		candidate:   &claudeTextCounter{},
+	}
+	tests := []struct {
+		model        string
+		wantStrategy string
+	}{
+		{model: "claude-test-model", wantStrategy: TokenizerStrategyCtok},
+		{model: " claude-test-model ", wantStrategy: TokenizerStrategyCtok},
+		{model: "claude-test", wantStrategy: TokenizerStrategyTiktoken},
+		{model: "claude-test-model-20260101", wantStrategy: TokenizerStrategyTiktoken},
+	}
+	for _, tt := range tests {
+		strategy, confidence := resolveTokenizerMetadataWithOptions(tt.model, opts)
+		if strategy != tt.wantStrategy {
+			t.Fatalf("resolveTokenizerMetadata(%q) strategy = %q, want %q", tt.model, strategy, tt.wantStrategy)
+		}
+		if strategy == TokenizerStrategyCtok && confidence != "low" {
+			t.Fatalf("resolveTokenizerMetadata(%q) confidence = %q, want low", tt.model, confidence)
+		}
+	}
+}
+
+// TestResolveReferenceReportsCtokMetadataForActiveID checks that only the exact
+// active claude-sonnet-5-5 ID reports ctok metadata through resolveReference.
+func TestResolveReferenceReportsCtokMetadataForActiveID(t *testing.T) {
+	tests := []struct {
+		name           string
+		modelID        string
+		wantStrategy   string
+		wantConfidence string
+	}{
+		{name: "active ID", modelID: "claude-sonnet-5-5", wantStrategy: TokenizerStrategyCtok, wantConfidence: "low"},
+		{name: "dated variant", modelID: "claude-sonnet-5-5-20260101", wantStrategy: TokenizerStrategyTiktoken, wantConfidence: "low"},
+		{name: "prefixed variant", modelID: "anthropic.claude-sonnet-5-5", wantStrategy: TokenizerStrategyTiktoken, wantConfidence: "low"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := config.NewModelConfigBase()
+			model.Provider = "claude"
+			model.ID = tt.modelID
+			cfg := config.Config{
+				Providers: map[string]config.ProviderConfig{
+					"claude": {Type: config.ProviderTypeClaudeSubscription},
+				},
+				Models: config.ModelsConfig{Definitions: map[string]config.ModelConfig{
+					"sonnet": model,
+				}},
+			}
+
+			rm, err := resolveReference(&cfg, "sonnet", false, nil)
+			if err != nil {
+				t.Fatalf("resolveReference() error = %v", err)
+			}
+			if rm.BackendModelID != tt.modelID {
+				t.Fatalf("BackendModelID = %q, want %q", rm.BackendModelID, tt.modelID)
+			}
+			if rm.TokenizerStrategy != tt.wantStrategy {
+				t.Fatalf("TokenizerStrategy = %q, want %q", rm.TokenizerStrategy, tt.wantStrategy)
+			}
+			if rm.TokenizerConfidence != tt.wantConfidence {
+				t.Fatalf("TokenizerConfidence = %q, want %q", rm.TokenizerConfidence, tt.wantConfidence)
+			}
+		})
 	}
 }
 
