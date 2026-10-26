@@ -71,6 +71,30 @@ func TestRenderGroupBoxReusesCachedLines(t *testing.T) {
 	}
 }
 
+// TestRenderGroupBoxCRLFSeedsCache feeds raw CRLF content, which the group
+// renderer must normalise to LF before splitting lines. The cold frame must seed
+// the line cache, and the next frame must read a planted sentinel from it.
+func TestRenderGroupBoxCRLFSeedsCache(t *testing.T) {
+	t.Parallel()
+	border := lipgloss.Color("#ff5f00")
+	bg := lipgloss.Color("#101010")
+	const width = 40
+	content := "one\r\ntwo\r\nthree\r\nfour"
+	var cache groupBoxCache
+	want := renderStyledBox(content, border, bg, width)
+	if got := renderGroupBox(&cache, content, border, bg, width); got != want {
+		t.Fatalf("cold CRLF frame differs from renderStyledBox:\n got %q\nwant %q", got, want)
+	}
+	if len(cache.lines) != 4 {
+		t.Fatalf("CRLF content seeded %d cached lines, want 4; a refused seed leaves the cache cold on every frame", len(cache.lines))
+	}
+	const sentinel = "SENTINEL-CRLF-LINE"
+	cache.lines["two"] = sentinel
+	if got := renderGroupBox(&cache, content, border, bg, width); !strings.Contains(got, sentinel) {
+		t.Errorf("warm CRLF frame redrew a cached line instead of reusing it:\n%q", got)
+	}
+}
+
 func TestRenderDelegationGroupCacheMatchesFresh(t *testing.T) {
 	savedNano, savedTime := nanoNow, timeNow
 	now := int64(1_000_000_000_000)

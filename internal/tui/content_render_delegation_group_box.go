@@ -68,7 +68,7 @@ func renderGroupBox(cache *groupBoxCache, content string, border, bg color.Color
 			side:   groupBoxSideStyle(border, bg, width),
 		}
 	}
-	src := strings.Split(content, "\n")
+	src := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	if cache.lines == nil {
 		return renderGroupBoxCold(cache, content, src, border, bg, width)
 	}
