@@ -22,10 +22,10 @@ func TestRenderGroupBoxSeedPathSelection(t *testing.T) {
 	const width = 20
 	wrapping := "a line long enough that it wraps inside the box"
 	tests := []struct {
-		name      string
-		prime     string
-		content   string
-		wantCache bool
+		name       string
+		prime      string
+		content    string
+		wantSeeded bool
 	}{
 		{"cold unwrapped seeds", "", "one\ntwo", true},
 		{"cold wrapped seeds", "", wrapping + "\nshort", true},
@@ -45,8 +45,11 @@ func TestRenderGroupBoxSeedPathSelection(t *testing.T) {
 			if want := renderStyledBox(tc.content, border, bg, width); got != want {
 				t.Errorf("output differs from renderStyledBox:\n got %q\nwant %q", got, want)
 			}
-			if (cache.lines != nil) != tc.wantCache {
-				t.Errorf("cache populated = %v, want %v", cache.lines != nil, tc.wantCache)
+			if cache.lines == nil {
+				t.Error("line cache is nil; a refused seed must leave an empty map")
+			}
+			if seeded := len(cache.lines) > 0; seeded != tc.wantSeeded {
+				t.Errorf("cache seeded = %v, want %v", seeded, tc.wantSeeded)
 			}
 		})
 	}

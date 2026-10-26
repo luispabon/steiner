@@ -226,6 +226,16 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (origin/main max of 4 runs 51289 B/op, 1377 allocs/op; 51289*1.15 = 58983, 1377*1.2 = 1653); branch measured 49597 B/op, 951 allocs/op (max of 4 runs, 300x), 0.97x main bytes and 0.69x main allocs",
 		},
 		{
+			// Mixed group of 1 active + 2 settled expanded children; child-0's settled output holds a CR line.
+			name:       "GroupMixedCRIdleExpanded2",
+			benchtime:  contentIterations,
+			fn:         benchIdleFrameCR,
+			checkBytes: true,
+			maxBytes:   200042,
+			maxAllocs:  2079,
+			baseline:   "ceiling is branch max of 4 runs +15% bytes and +20% allocs (173950*1.15 = 200042, 1733*1.2 = 2079); branch measured 173950 B/op, 1733 allocs/op (max of 4 runs, 300x). Clean case GroupMixedIdleExpanded2 measured 171948 B/op, 1692 allocs/op in the same session. origin/main reference for this fixture 796k B/op, 17597 allocs/op (prototype measurement, not re-run here)",
+		},
+		{
 			// Cold render: every group cache is dropped and a settled card is dirtied per op.
 			name:       "GroupMixedFirstExpanded2",
 			benchtime:  contentIterations,
@@ -363,6 +373,18 @@ func benchGroupToggleSettled(b *testing.B) {
 				m.content.dirtyDelegationCard(dd)
 			}
 		}
+		m.syncViewport()
+	}
+}
+
+// benchIdleFrameCR measures one idle frame of mixedGroupCRModel, whose settled
+// output holds a carriage return. It lives in this tagged file so the default
+// build has no unused functions.
+func benchIdleFrameCR(b *testing.B) {
+	b.ReportAllocs()
+	m := mixedGroupCRModel()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		m.syncViewport()
 	}
 }

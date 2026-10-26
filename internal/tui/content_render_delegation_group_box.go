@@ -68,7 +68,9 @@ func renderGroupBox(cache *groupBoxCache, content string, border, bg color.Color
 			side:   groupBoxSideStyle(border, bg, width),
 		}
 	}
-	src := strings.Split(content, "\n")
+	// lipgloss turns CRLF into LF before it wraps; do the same so a CRLF line
+	// is not mistaken for one that ends in a lone CR.
+	src := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	if cache.lines == nil {
 		return renderGroupBoxCold(cache, content, src, border, bg, width)
 	}
@@ -97,7 +99,12 @@ func renderGroupBox(cache *groupBoxCache, content string, border, bg color.Color
 // groupLineClosesSGR reports whether line leaves no SGR style open at its end.
 // lipgloss carries an open style into the next line, which a line drawn alone
 // cannot reproduce, so renderGroupBox falls back to the full box for such lines.
+// A line ending in a carriage return also reports false, because lipgloss drops
+// the CR of a CRLF pair only when another line follows.
 func groupLineClosesSGR(line string) bool {
+	if strings.HasSuffix(line, "\r") {
+		return false
+	}
 	m := sgrParams.FindAllStringSubmatch(line, -1)
 	if len(m) == 0 {
 		return true
@@ -110,13 +117,15 @@ func groupLineClosesSGR(line string) bool {
 // seeds the cache from that draw only when every content line can be matched to
 // its own rows: no line leaves an SGR open, no line holds a tab or carriage
 // return, the first row fits the box, and the rows counted per line add up to
-// the rows drawn. Otherwise it stores nothing, so the next frame starts cold.
-// This is a conservative cliff: a group holding an open SGR or a tab line never
-// seeds, so each of its frames pays one whole-content side render. Output stays
-// correct either way.
+// the rows drawn. Otherwise it leaves an empty line cache, so the next frame
+// draws line by line. On those frames a line that leaves an SGR open, or that
+// ends in a carriage return, makes the frame fall back to the full box. Output
+// stays correct either way.
 func renderGroupBoxCold(cache *groupBoxCache, content string, src []string, border, bg color.Color, width int) string {
 	body := cache.side.Render(content)
-	cache.lines = nil
+	// Every refusal below keeps an empty map: later frames take the per-line path
+	// instead of paying the cold side render again.
+	cache.lines = map[string]string{}
 	if !groupRowFits(body, width) {
 		return renderStyledBox(content, border, bg, width)
 	}

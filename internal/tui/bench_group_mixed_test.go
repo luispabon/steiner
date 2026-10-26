@@ -114,6 +114,34 @@ func spinnerAdvanceModel() *Model {
 	return m
 }
 
+// mixedGroupCRModel returns the mixed group of two settled expanded children and
+// one active child, as mixedGroupModel(2, true) does, except that child-0's
+// settled output holds a carriage return. That CR line makes the group content
+// refuse the cold line seed.
+func mixedGroupCRModel() *Model {
+	m := populateLongTranscript(newContentBenchModel(), 60)
+	for j := range 3 {
+		m = appendGroupChild(m, mixedGroupName, j, false)
+	}
+	for j := range 2 {
+		id := fmt.Sprintf("child-%d", j)
+		out := strings.Repeat("finding about the module. ", 20)
+		if j == 0 {
+			out = "finding head\nprogress 10%\rprogress 100% done\nfinding tail " + out
+		}
+		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+			DelegationOccurrence: callOcc("call_"+id, id), Status: "complete", TurnCount: 3, TokenCount: 900, ToolCallCount: 4,
+			Output: out,
+		})})
+	}
+	for _, dd := range mixedEntries(m) {
+		dd.collapsed = false
+		m.content.dirtyDelegationCard(dd)
+	}
+	m.syncViewport()
+	return m
+}
+
 // BenchmarkGroupMixed covers the mixed group guards: idle frames, a frame with
 // spinner ticks, and a first render of the group.
 //

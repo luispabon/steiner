@@ -1,6 +1,28 @@
 package tui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// TestMixedGroupCRFixtureSettledRowsHoldCR checks that a settled entry of the CR
+// fixture keeps its carriage return in the rows the group box draws, the shape
+// the CR guard row measures.
+func TestMixedGroupCRFixtureSettledRowsHoldCR(t *testing.T) {
+	m := mixedGroupCRModel()
+	found := false
+	for _, dd := range mixedEntries(m) {
+		if dd.status == "active" {
+			continue
+		}
+		if strings.Contains(strings.Join(m.content.renderDelegationBoxRows(dd, 80), "\n"), "\r") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("no settled entry holds a carriage return; the CR guard would measure the clean path")
+	}
+}
 
 // TestSpinnerAdvanceFixtureIsUnnamedGroup checks that benchSpinnerAdvanceUnnamed
 // builds one unnamed group of three active entries, the shape it is meant to
