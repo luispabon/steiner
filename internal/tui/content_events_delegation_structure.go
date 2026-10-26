@@ -111,7 +111,14 @@ func buildRegroupedSegments(tokens []delegationSegmentToken, members map[delegat
 	next := make([]contentSegment, 0, len(tokens))
 	oldToNew := make(map[int]int, len(tokens))
 	seen := make(map[delegationMembership]bool)
+	var run []delegationSegmentToken
 	for _, tok := range tokens {
+		if isUnnamedSpecialist(tok.dd) {
+			run = append(run, tok)
+			continue
+		}
+		next = appendUnnamedRun(next, oldToNew, run, base)
+		run = run[:0]
 		if tok.dd == nil {
 			oldToNew[tok.old] = base + len(next)
 			next = append(next, tok.segment)
@@ -136,6 +143,7 @@ func buildRegroupedSegments(tokens []delegationSegmentToken, members map[delegat
 		oldToNew[tok.old] = base + len(next)
 		next = append(next, seg)
 	}
+	next = appendUnnamedRun(next, oldToNew, run, base)
 	return next, oldToNew
 }
 

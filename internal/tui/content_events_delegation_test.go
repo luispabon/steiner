@@ -270,10 +270,10 @@ func TestParentCancellationFinalizesAllActiveDelegations(t *testing.T) {
 	if buffer.HasActiveDelegations() {
 		t.Fatal("HasActiveDelegations = true after parent cancellation, want false")
 	}
-	if len(buffer.segments) < 2 || buffer.segments[0].kind != segmentDelegation || buffer.segments[1].kind != segmentDelegation {
-		t.Fatalf("unaccepted cards = %v, want separate delegation cards", segmentKinds(buffer.segments))
+	if len(buffer.segments) < 1 || buffer.segments[0].kind != segmentDelegationGroup || len(buffer.segments[0].delegGroupData.entries) != 2 {
+		t.Fatalf("unaccepted cards = %v, want one unnamed frame of two cards before the cancel notice", segmentKinds(buffer.segments))
 	}
-	entries := []*delegationDisplayState{buffer.segments[0].delegData, buffer.segments[1].delegData}
+	entries := buffer.segments[0].delegGroupData.entries
 	for _, dd := range entries {
 		if dd.status != "failed" {
 			t.Fatalf("delegation %q status = %q, want failed", dd.agentID, dd.status)
@@ -380,10 +380,10 @@ func TestDelegationFailedCallIDBindsPendingParent(t *testing.T) {
 	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-2", map[string]any{"type": "code", "objective": "two"}))
 	buffer.AppendEvent(output.WithAgentTypeScope(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: callOcc("call-2", "child-2"), Error: "setup"}), "code"))
 
-	if len(buffer.segments) != 2 || buffer.segments[0].delegData == nil || buffer.segments[1].delegData == nil {
-		t.Fatalf("segments = %#v, want two separate cards", buffer.segments)
+	if len(buffer.segments) != 1 || buffer.segments[0].delegGroupData == nil || len(buffer.segments[0].delegGroupData.entries) != 2 {
+		t.Fatalf("segments = %v, want one unnamed frame of two cards", segmentKinds(buffer.segments))
 	}
-	entries := []*delegationDisplayState{buffer.segments[0].delegData, buffer.segments[1].delegData}
+	entries := buffer.segments[0].delegGroupData.entries
 	if entries[0].status != "active" || entries[1].agentID != "child-2" || entries[1].status != "failed" {
 		t.Fatalf("entries = %#v, want exact call binding", entries)
 	}
@@ -939,11 +939,11 @@ func TestDelegationStarted_ConcurrentFollowUps_BindByOccurrence(t *testing.T) {
 		t.Fatalf("remaining open box = %#v, want child-3's", remaining)
 	}
 
-	// Unaccepted follow-up boxes stay separate; retain the binding assertions below.
-	if len(buffer.segments) != 2 || buffer.segments[0].delegData == nil || buffer.segments[1].delegData == nil {
-		t.Fatalf("segments = %#v, want two unaccepted delegation cards", buffer.segments)
+	// Unaccepted follow-up boxes form one unnamed frame; per-card state lives on its entries.
+	if len(buffer.segments) != 1 || buffer.segments[0].delegGroupData == nil || len(buffer.segments[0].delegGroupData.entries) != 2 {
+		t.Fatalf("segments = %v, want one unnamed frame of two follow-up cards", segmentKinds(buffer.segments))
 	}
-	child3Box, child5Box := buffer.segments[0].delegData, buffer.segments[1].delegData
+	child3Box, child5Box := buffer.segments[0].delegGroupData.entries[0], buffer.segments[0].delegGroupData.entries[1]
 	if child3Box.agentID != "" {
 		t.Fatalf("child-3 box agentID = %q, want empty (must remain unbound)", child3Box.agentID)
 	}

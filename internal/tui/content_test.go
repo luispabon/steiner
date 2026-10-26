@@ -2361,8 +2361,8 @@ func TestAppendEventScopedChildEventsRouteByAgentID(t *testing.T) {
 
 	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "do work", "", ""))
 	buffer.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-2"), "other work", "", ""))
-	if len(buffer.segments) != 2 || buffer.segments[0].kind != segmentDelegation || buffer.segments[1].kind != segmentDelegation {
-		t.Fatalf("unaccepted lifecycle events should remain separate cards, got kinds %v", segmentKinds(buffer.segments))
+	if len(buffer.segments) != 1 || buffer.segments[0].kind != segmentDelegationGroup || len(buffer.segments[0].delegGroupData.entries) != 2 {
+		t.Fatalf("unaccepted lifecycle events should form one unnamed frame, got kinds %v", segmentKinds(buffer.segments))
 	}
 	buffer.AppendEvent(output.WithAgentScope(
 		output.NewToolCallStartedEvent(1, "read", "call_1", map[string]any{"path": "README.md"}),
@@ -2370,11 +2370,14 @@ func TestAppendEventScopedChildEventsRouteByAgentID(t *testing.T) {
 	))
 	buffer.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, "second child answer", output.ChunkSourceAssistant), "child-2"))
 
-	if len(buffer.segments) != 2 || buffer.segments[0].delegData == nil || buffer.segments[1].delegData == nil {
-		t.Fatalf("segments = %v, want two unaccepted delegation cards", segmentKinds(buffer.segments))
+	if len(buffer.segments) != 1 || buffer.segments[0].delegGroupData == nil || len(buffer.segments[0].delegGroupData.entries) != 2 {
+		t.Fatalf("segments = %v, want one unnamed frame of two unaccepted delegation cards", segmentKinds(buffer.segments))
 	}
-	first := buffer.segments[0].delegData
-	second := buffer.segments[1].delegData
+	first := buffer.segments[0].delegGroupData.entries[0]
+	second := buffer.segments[0].delegGroupData.entries[1]
+	if first.agentID != "child-1" || second.agentID != "child-2" {
+		t.Fatalf("frame entries = %q, %q, want child-1 then child-2", first.agentID, second.agentID)
+	}
 	if got := len(first.entries); got != 1 {
 		t.Fatalf("child-1 entries count = %d, want 1", got)
 	}
