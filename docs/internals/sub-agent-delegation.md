@@ -334,6 +334,17 @@ The block is gated on `delegationEnabled`, not on `workflowMode`:
 
 Oneshot phases run under `DelegatedChildWorkflowMode()` but still orchestrate — they dispatch `code` sub-agents for bounded tasks within plan steps — so they need the role; a gate on `workflowMode` would incorrectly exclude them. Delegated children never set `DelegationEnabled`, so they correctly never receive it. `delegationEnabled` and `advisorEnabled` are both part of the cache key in `CachedSystemPreamble` (`internal/agent/context_manager_base.go`), so gating the delegation canon and its advisor step on them introduces no per-turn non-determinism into the prompt prefix.
 
+### Grouped card render caches
+
+The TUI caches the box lines of grouped delegation cards (`internal/tui/content_render_delegation_group_box.go` and `content_render_delegation_group_rows.go`). Two caches cover a group:
+
+- **Settled rows.** `settledGroupRows` on the group segment holds the box lines of settled entries (status other than `active`), keyed by width, body cap, render epoch, and styles. A key change starts a fresh cache. Active entries and the entry under a jump flash always render fresh.
+- **Group box lines.** `groupBoxCache` holds the box chrome and the interior lines, keyed by content line. When at least half the content lines miss the cache, the frame takes the cold path: the whole content is drawn once through a side style (the box without its top and bottom border), and the line cache is seeded from that draw only if every line maps to its own rows. Otherwise nothing is seeded and the next frame starts cold. A group with an open SGR sequence or a tab or carriage return in a line never seeds, so each of its frames pays one whole-content side render. Output matches the full box in every case.
+
+Invalidation invariant: every real mutation of a group must reach `markDelegationDirty` or `dirtyDelegationCard`, which set `renderDirty` on the owning segment. `processSegment` then drops the settled rows. `AdvanceDelegationSpinners` must not set `renderDirty`, so spinner ticks keep the settled rows. Any new input to a settled entry's box must be added to `settledRowsKey`, or the card must be marked dirty where that input changes.
+
+This is internal only. It changes no user-facing behavior or output.
+
 ### Constraints and invariants
 
 1. **One level only**: children never have access to `follow_up` or `workflow_handoff`.

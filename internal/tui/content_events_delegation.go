@@ -106,6 +106,11 @@ func (b *contentBuffer) finalizeActiveDelegation(agentID string) {
 	b.markDelegationDirty(loc.seg)
 }
 
+// markDelegationDirty re-renders segment idx and invalidates the settled prefix
+// when it is cached. It is the choke point for real mutations of a delegation
+// entry: every such mutation must reach it or dirtyDelegationCard, because
+// processSegment flushes a group's settled rows only when renderDirty is set.
+// Spinner ticks must not call it.
 func (b *contentBuffer) markDelegationDirty(idx int) {
 	if idx < 0 || idx >= len(b.segments) {
 		return
@@ -310,7 +315,8 @@ func (b *contentBuffer) AdvanceDelegationSpinners() {
 			if dd := loc.dd; dd != nil {
 				dd.spinnerFrame = (dd.spinnerFrame + 1) % len(spinnerFrames)
 			}
-			b.segments[loc.seg].renderDirty = true
+			// No renderDirty here: a tick must not flush settled-entry caches. The
+			// segment still re-renders because it holds an active delegation.
 			b.invalidatePrefixIfCached(loc.seg)
 		}
 	}

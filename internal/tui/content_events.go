@@ -87,6 +87,8 @@ type toolCallGroupSegment struct {
 // never reordered, so an entry pointer stays valid for the segment's lifetime.
 type delegationGroupSegment struct {
 	entries []*delegationDisplayState
+	box     groupBoxCache
+	settled settledGroupRows
 }
 
 type approvalPillData struct {

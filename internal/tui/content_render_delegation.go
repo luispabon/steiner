@@ -56,7 +56,7 @@ func (b *contentBuffer) renderDelegationGroupSegment(segment contentSegment, wid
 	}
 
 	for i, dd := range group.entries {
-		lines := b.renderDelegationBoxRows(dd, width)
+		lines := b.groupEntryLines(group, dd, width)
 		parts = append(parts, strings.Join(lines, "\n"))
 		if i < len(group.entries)-1 {
 			parts = append(parts, b.renderToolCallDivider(dividerWidth))
@@ -65,7 +65,7 @@ func (b *contentBuffer) renderDelegationGroupSegment(segment contentSegment, wid
 
 	borderLabel := delegationGroupBorderLabel(group)
 	_, borderStyle := b.delegationStyles(borderLabel)
-	box := renderStyledBox(strings.Join(parts, "\n"), borderStyle.GetForeground(), lipgloss.Color(b.styles.Palette.ContentBG), width)
+	box := renderGroupBox(&group.box, strings.Join(parts, "\n"), borderStyle.GetForeground(), lipgloss.Color(b.styles.Palette.ContentBG), width)
 	boxLines := strings.Split(box, "\n")
 	if delegationVisualGroupName(group) != "" {
 		boxLines[len(boxLines)-1] = b.renderDelegationGroupFooter(group, lipgloss.Width(boxLines[0])-2, borderStyle.GetForeground())

@@ -97,7 +97,7 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			checkBytes: true,
 			maxBytes:   314659,
 			maxAllocs:  11,
-			baseline:   "measured 273616 B/op, 9 allocs/op (max of 4 runs, Overlay/help/stationary, post-PR-943 unnamed-specialist grouping)",
+			baseline:   "branch 273616 B/op, 9 allocs/op vs origin/main 240848 B/op, 9 allocs/op on the same fixture; equal-visible-content branch=main 224464 B/op, 9 allocs/op; top-pinned both 486609 B/op. Delta is four heavier visible thinking rows from a 4-line-shorter transcript, not render work",
 		},
 		{
 			name:       "OverlaySlashStationary",
@@ -181,9 +181,49 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			benchtime:  contentIterations,
 			fn:         func(b *testing.B) { benchIdleFrameInflight(b, 60) },
 			checkBytes: true,
-			maxBytes:   76866,
-			maxAllocs:  1800,
-			baseline:   "measured 66840 B/op, 1500 allocs/op (max of 4 runs, post-PR-943 unnamed-specialist grouping)",
+			maxBytes:   39207,
+			maxAllocs:  416,
+			baseline:   "measured 34093 B/op, 346 allocs/op (max of 4 runs, 300x); origin/main 47251 B/op, 1368 allocs/op",
+		},
+		{
+			// Group of 1 active + 2 settled expanded children, idle frame.
+			name:       "GroupMixedIdleExpanded2",
+			benchtime:  contentIterations,
+			fn:         func(b *testing.B) { benchIdleFrameMixed(b, 2, true, false) },
+			checkBytes: true,
+			maxBytes:   197510,
+			maxAllocs:  2026,
+			baseline:   "measured 171748 B/op, 1688 allocs/op (max of 4 runs, 300x); origin/main 776227 B/op, 17320 allocs/op for the same events",
+		},
+		{
+			// Group of 1 active + 5 settled collapsed children, idle frame.
+			name:       "GroupMixedIdleCollapsed5",
+			benchtime:  contentIterations,
+			fn:         func(b *testing.B) { benchIdleFrameMixed(b, 5, false, false) },
+			checkBytes: true,
+			maxBytes:   49595,
+			maxAllocs:  378,
+			baseline:   "measured 43126 B/op, 315 allocs/op (max of 4 runs, 300x); origin/main 129213 B/op, 3399 allocs/op for the same events",
+		},
+		{
+			// Same group as GroupMixedIdleExpanded2, with spinner ticks before each frame.
+			name:       "GroupMixedSpinnerExpanded2",
+			benchtime:  contentIterations,
+			fn:         func(b *testing.B) { benchIdleFrameMixed(b, 2, true, true) },
+			checkBytes: true,
+			maxBytes:   217056,
+			maxAllocs:  2225,
+			baseline:   "measured 188744 B/op, 1854 allocs/op (max of 4 runs, 300x); origin/main 775081 B/op, 17320 allocs/op for the same events",
+		},
+		{
+			// Cold render: every group cache is dropped and a settled card is dirtied per op.
+			name:       "GroupMixedFirstExpanded2",
+			benchtime:  contentIterations,
+			fn:         func(b *testing.B) { benchFirstRenderMixed(b, 2, true) },
+			checkBytes: true,
+			maxBytes:   1284969,
+			maxAllocs:  24914,
+			baseline:   "measured 1117364 B/op, 20761 allocs/op (max of 4 runs, 300x); origin/main 1027268 B/op, 20037 allocs/op for the same events. Cold path is 1.09x main bytes and 1.04x main allocs; this row is not a parity row",
 		},
 		{
 			name:       "ContentToggleBlockTail60",

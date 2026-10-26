@@ -68,7 +68,9 @@ func (b *contentBuffer) delegationTopRow(key occurrenceKey, width int) (seg, row
 	return 0, 0, nil, false
 }
 
-// dirtyDelegationCard re-renders the segment holding dd on the next sync.
+// dirtyDelegationCard re-renders the segment holding dd on the next sync. Like
+// markDelegationDirty, every real mutation of a delegation entry must reach it
+// or markDelegationDirty, so a group's settled rows are flushed.
 func (b *contentBuffer) dirtyDelegationCard(dd *delegationDisplayState) {
 	if dd == nil {
 		return
