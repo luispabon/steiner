@@ -21,9 +21,11 @@ const contentIterations = "300x"
 
 // TestBenchmarkAllocationCeilings pins per-frame allocation ceilings for the
 // TUI frame benchmarks so a regression that re-introduces per-frame
-// allocations fails the test suite. Ceilings are set from baselines measured
-// on this machine (go1.26.5 linux/amd64, 220x60): bytes = ceil(measured*1.15),
-// allocs = ceil(measured*1.2).
+// allocations fails the test suite. Measurements come from this machine
+// (go1.26.5 linux/amd64, 220x60). Each row's baseline string names its source:
+// branch-measured rows set bytes = measured*1.15 and allocs = measured*1.2 on
+// this branch; origin/main parity rows apply the same factors to origin/main's
+// measured values.
 func TestBenchmarkAllocationCeilings(t *testing.T) {
 	// The perfguard tag keeps this out of the normal suite; this skip is the
 	// separate foot-gun guard for `go test -tags perfguard -race`, where the
@@ -95,9 +97,9 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			name:       "OverlayHelpStationary",
 			fn:         BenchmarkOverlayHelpStationary,
 			checkBytes: true,
-			maxBytes:   258134,
+			maxBytes:   314659,
 			maxAllocs:  11,
-			baseline:   "measured 224464 B/op, 9 allocs/op (Overlay/help/stationary, post-WI-5)",
+			baseline:   "branch 273616 B/op, 9 allocs/op vs origin/main 240848 B/op, 9 allocs/op on the same fixture; equal-visible-content branch=main 224464 B/op, 9 allocs/op; top-pinned both 486609 B/op. Delta is four heavier visible thinking rows from a 4-line-shorter transcript, not render work",
 		},
 		{
 			name:       "OverlaySlashStationary",
@@ -133,9 +135,9 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			name:       "AuditTickUpdateStreaming",
 			fn:         BenchmarkAuditTickUpdateStreaming,
 			checkBytes: true,
-			maxBytes:   6533808,
-			maxAllocs:  2918,
-			baseline:   "measured 5681572 B/op, 2431 allocs/op (max of 4 runs, post-WI-1)",
+			maxBytes:   107686,
+			maxAllocs:  2933,
+			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (origin/main max of 4 runs 93640 B/op, 2444 allocs/op; 93640*1.15 = 107686, 2444*1.2 = 2933); branch measured 76976 B/op, 1405 allocs/op (max of 4 runs)",
 		},
 		{
 			// Content guards use a 60-message transcript to keep the run short.
@@ -181,9 +183,79 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			benchtime:  contentIterations,
 			fn:         func(b *testing.B) { benchIdleFrameInflight(b, 60) },
 			checkBytes: true,
-			maxBytes:   53971,
-			maxAllocs:  1642,
-			baseline:   "measured 46931 B/op, 1368 allocs/op (max of 4 runs, post-WI-8e)",
+			maxBytes:   35523,
+			maxAllocs:  340,
+			baseline:   "measured 30889 B/op, 283 allocs/op (max of 4 runs, 300x); origin/main 47264 B/op, 1368 allocs/op",
+		},
+		{
+			// Group of 1 active + 2 settled expanded children, idle frame.
+			name:       "GroupMixedIdleExpanded2",
+			benchtime:  contentIterations,
+			fn:         func(b *testing.B) { benchIdleFrameMixed(b, 2, true, false) },
+			checkBytes: true,
+			maxBytes:   197510,
+			maxAllocs:  2026,
+			baseline:   "measured 171743 B/op, 1688 allocs/op (max of 4 runs, 300x); origin/main 775549 B/op, 17320 allocs/op for the same events",
+		},
+		{
+			// Group of 1 active + 5 settled collapsed children, idle frame.
+			name:       "GroupMixedIdleCollapsed5",
+			benchtime:  contentIterations,
+			fn:         func(b *testing.B) { benchIdleFrameMixed(b, 5, false, false) },
+			checkBytes: true,
+			maxBytes:   49595,
+			maxAllocs:  378,
+			baseline:   "measured 43021 B/op, 316 allocs/op (max of 4 runs, 300x); origin/main 129582 B/op, 3399 allocs/op for the same events",
+		},
+		{
+			// Same group as GroupMixedIdleExpanded2, with spinner ticks before each frame.
+			name:       "GroupMixedSpinnerExpanded2",
+			benchtime:  contentIterations,
+			fn:         func(b *testing.B) { benchIdleFrameMixed(b, 2, true, true) },
+			checkBytes: true,
+			maxBytes:   217056,
+			maxAllocs:  2225,
+			baseline:   "measured 188447 B/op, 1854 allocs/op (max of 4 runs, 300x); origin/main 775782 B/op, 17320 allocs/op for the same events",
+		},
+		{
+			// Three active collapsed unnamed sub-agents on a 60-message transcript: each frame advances the spinners, then renders.
+			name:       "ContentIdleFrameInflight60SpinnerAdvance",
+			benchtime:  contentIterations,
+			fn:         benchSpinnerAdvanceUnnamed,
+			checkBytes: true,
+			maxBytes:   58983,
+			maxAllocs:  1653,
+			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (origin/main max of 4 runs 51289 B/op, 1377 allocs/op; 51289*1.15 = 58983, 1377*1.2 = 1653); branch measured 49597 B/op, 951 allocs/op (max of 4 runs, 300x), 0.97x main bytes and 0.69x main allocs",
+		},
+		{
+			// Mixed group of 1 active + 2 settled expanded children; child-0's settled output holds a CR line.
+			name:       "GroupMixedCRIdleExpanded2",
+			benchtime:  contentIterations,
+			fn:         benchIdleFrameCR,
+			checkBytes: true,
+			maxBytes:   200042,
+			maxAllocs:  2079,
+			baseline:   "ceiling is branch max of 4 runs +15% bytes and +20% allocs (173950*1.15 = 200042, 1733*1.2 = 2079); branch measured 173950 B/op, 1733 allocs/op (max of 4 runs, 300x). Clean case GroupMixedIdleExpanded2 measured 171948 B/op, 1692 allocs/op in the same session. origin/main reference for this fixture 796k B/op, 17597 allocs/op (prototype measurement, not re-run here)",
+		},
+		{
+			// Cold render: every group cache is dropped and a settled card is dirtied per op.
+			name:       "GroupMixedFirstExpanded2",
+			benchtime:  contentIterations,
+			fn:         func(b *testing.B) { benchFirstRenderMixed(b, 2, true) },
+			checkBytes: true,
+			maxBytes:   1181359,
+			maxAllocs:  24045,
+			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (1027268*1.15 = 1181359, 20037*1.2 = 24045); branch measured max of 4 runs 1119269 B/op, 20762 allocs/op (300x), 1.09x main bytes and 1.04x main allocs",
+		},
+		{
+			// Two settled children, both collapsed at start; child-0 is toggled before each frame, so the frame redraws against a warm group line cache.
+			name:       "GroupMixedToggleSettled2",
+			benchtime:  contentIterations,
+			fn:         benchGroupToggleSettled,
+			checkBytes: true,
+			maxBytes:   2171683,
+			maxAllocs:  5577,
+			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (origin/main max of 4 runs 1888420 B/op, 4647 allocs/op; 1888420*1.15 = 2171683, 4647*1.2 = 5577); branch measured 1850175 B/op, 4431 allocs/op (max of 4 runs, 300x), 0.98x main bytes and 0.95x main allocs; ns/op 954257 vs 913344 on main (1.04x, time not guarded)",
 		},
 		{
 			name:       "ContentToggleBlockTail60",
@@ -273,6 +345,50 @@ func benchDevLogRealisticStationary(b *testing.B) {
 
 func benchDevLogRealisticClick(b *testing.B) {
 	benchDevLogClick(b, devLogBenchParams(false))
+}
+
+// benchSpinnerAdvanceUnnamed runs one spinner frame per iteration over the
+// spinnerAdvanceModel fixture. It lives in this tagged file so the default build
+// has no unused functions.
+func benchSpinnerAdvanceUnnamed(b *testing.B) {
+	b.ReportAllocs()
+	m := spinnerAdvanceModel()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.content.AdvanceDelegationSpinners()
+		m.syncViewport()
+	}
+}
+
+// benchGroupToggleSettled toggles the settled card child-0 before each frame of
+// the mixed group, so every frame redraws many lines against a warm group line
+// cache. It lives in this tagged file so the default build has no unused functions.
+func benchGroupToggleSettled(b *testing.B) {
+	b.ReportAllocs()
+	m := mixedGroupModel(2, false)
+	m.syncViewport()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, dd := range mixedEntries(m) {
+			if dd.agentID == "child-0" {
+				dd.collapsed = !dd.collapsed
+				m.content.dirtyDelegationCard(dd)
+			}
+		}
+		m.syncViewport()
+	}
+}
+
+// benchIdleFrameCR measures one idle frame of mixedGroupCRModel, whose settled
+// output holds a carriage return. It lives in this tagged file so the default
+// build has no unused functions.
+func benchIdleFrameCR(b *testing.B) {
+	b.ReportAllocs()
+	m := mixedGroupCRModel()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.syncViewport()
+	}
 }
 
 // setBenchtime sets -test.benchtime for the rest of the calling (sub)test and

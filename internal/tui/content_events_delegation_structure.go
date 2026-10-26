@@ -111,7 +111,14 @@ func buildRegroupedSegments(tokens []delegationSegmentToken, members map[delegat
 	next := make([]contentSegment, 0, len(tokens))
 	oldToNew := make(map[int]int, len(tokens))
 	seen := make(map[delegationMembership]bool)
+	var run []delegationSegmentToken
 	for _, tok := range tokens {
+		if isUnnamedSpecialist(tok.dd) {
+			run = append(run, tok)
+			continue
+		}
+		next = appendUnnamedRun(next, oldToNew, run, base)
+		run = run[:0]
 		if tok.dd == nil {
 			oldToNew[tok.old] = base + len(next)
 			next = append(next, tok.segment)
@@ -130,12 +137,12 @@ func buildRegroupedSegments(tokens []delegationSegmentToken, members map[delegat
 		}
 		seen[key] = true
 		seg := tok.segment
-		seg.kind, seg.delegData = segmentDelegationGroup, nil
-		seg.delegGroupData = &delegationGroupSegment{entries: append([]*delegationDisplayState(nil), members[key]...)}
+		seg.setDelegationGroup(append([]*delegationDisplayState(nil), members[key]...))
 		seg.renderDirty = true
 		oldToNew[tok.old] = base + len(next)
 		next = append(next, seg)
 	}
+	next = appendUnnamedRun(next, oldToNew, run, base)
 	return next, oldToNew
 }
 
@@ -156,6 +163,13 @@ func sameGroupEntries(a, b *delegationGroupSegment) bool {
 		return a == b
 	}
 	return slices.Equal(a.entries, b.entries)
+}
+
+// setDelegationGroup turns seg into a delegation group holding entries and
+// clears the single-delegation field.
+func (seg *contentSegment) setDelegationGroup(entries []*delegationDisplayState) {
+	seg.kind, seg.delegData = segmentDelegationGroup, nil
+	seg.delegGroupData = &delegationGroupSegment{entries: entries}
 }
 
 func findDelegationSegment(segments []contentSegment, dd *delegationDisplayState) int {

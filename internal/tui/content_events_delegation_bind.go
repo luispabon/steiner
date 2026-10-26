@@ -6,7 +6,12 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
+// appendDelegationSegment appends dd's card, joining it to an adjacent unnamed
+// run when possible. It returns the index of the segment holding dd.
 func (b *contentBuffer) appendDelegationSegment(dd *delegationDisplayState) int {
+	if b.appendAdjacentSpecialist(dd) {
+		return len(b.segments) - 1
+	}
 	b.segments = append(b.segments, contentSegment{kind: segmentDelegation, delegData: dd, renderDirty: true})
 	return len(b.segments) - 1
 }

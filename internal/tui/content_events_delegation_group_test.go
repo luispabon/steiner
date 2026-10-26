@@ -89,8 +89,8 @@ func TestDelegationGrouping(t *testing.T) {
 		{"accepted matching tuple", []groupStep{{"a", "g", "batch", true}, {"b", "g", "batch", true}}, 1},
 		{"different batch", []groupStep{{"a", "g", "batch-1", true}, {"b", "g", "batch-2", true}}, 2},
 		{"different group", []groupStep{{"a", "g1", "batch", true}, {"b", "g2", "batch", true}}, 2},
-		{"unknown membership", []groupStep{{"a", "g", "batch", false}, {"b", "g", "batch", false}}, 2},
-		{"empty group membership", []groupStep{{"a", "", "batch", true}, {"b", "", "batch", true}}, 2},
+		{"unknown membership", []groupStep{{"a", "g", "batch", false}, {"b", "g", "batch", false}}, 1},
+		{"empty group membership", []groupStep{{"a", "", "batch", true}, {"b", "", "batch", true}}, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -114,8 +114,8 @@ func TestDelegationGroupingRequiresAcceptedMembership(t *testing.T) {
 	b := newGroupTestBuffer()
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "a", subAgentArgs("g")))
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "b", subAgentArgs("g")))
-	if segments, boxes := countDelegationSegments(b); segments != 2 || boxes != 2 {
-		t.Fatalf("raw args grouped cards: %d/%d", segments, boxes)
+	if segments, boxes := countDelegationSegments(b); segments != 1 || boxes != 2 {
+		t.Fatalf("raw args unnamed frame: %d/%d segments/boxes, want 1/2", segments, boxes)
 	}
 }
 

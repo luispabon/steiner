@@ -25,6 +25,17 @@ func freezeDelegationClock(t *testing.T) {
 	t.Cleanup(func() { nanoNow = originalNanoNow })
 }
 
+// freezeDelegationClockAt pins both delegation clocks to a fixed time
+// (1_000_000_000_000 Unix nanoseconds) and restores them on cleanup.
+func freezeDelegationClockAt(t *testing.T) {
+	t.Helper()
+	const now = int64(1_000_000_000_000)
+	savedNano, savedTime := nanoNow, timeNow
+	nanoNow = func() int64 { return now }
+	timeNow = func() time.Time { return time.Unix(0, now) }
+	t.Cleanup(func() { nanoNow, timeNow = savedNano, savedTime })
+}
+
 func newJumpTestModel(t *testing.T) *Model {
 	t.Helper()
 	m := newModel(Config{Model: "m", ModelContexts: map[string]int{"m": 4096}}, nil)

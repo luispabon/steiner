@@ -72,7 +72,7 @@ func TestModelRejectedFollowUpPreservesOriginalChildAndRoster(t *testing.T) {
 	}
 
 	m.applyEvent(output.NewToolCallStartedEvent(1, "follow_up", "follow-up", map[string]any{"agent_id": "child", "message": "continue"}))
-	followUp := m.content.segments[len(m.content.segments)-1].delegData
+	followUp := findFollowUpCard(m.content.segments)
 	if followUp == nil || !followUp.isFollowUp {
 		t.Fatalf("follow-up provisional card = %#v", followUp)
 	}
@@ -94,6 +94,17 @@ func TestModelRejectedFollowUpPreservesOriginalChildAndRoster(t *testing.T) {
 	if after != before || after.status != rosterDone || after.group != "prior" || len(m.roster.entries) != 1 {
 		t.Fatalf("late lifecycle event corrupted roster: %#v", m.roster.entries)
 	}
+}
+
+// findFollowUpCard returns the follow-up card by identity. The card may sit as
+// an entry of an unnamed frame, so the segment's delegData is not enough.
+func findFollowUpCard(segments []contentSegment) *delegationDisplayState {
+	for _, tok := range flattenDelegationSegments(segments) {
+		if tok.dd != nil && tok.dd.isFollowUp {
+			return tok.dd
+		}
+	}
+	return nil
 }
 
 func TestUnknownAdmissionErrorCleansEligibleEmptyAgentCard(t *testing.T) {

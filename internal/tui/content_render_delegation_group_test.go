@@ -125,7 +125,7 @@ func TestRenderDelegationGroupFooterRequiresSharedGroup(t *testing.T) {
 		{"same accepted group and batch", [2]card{{"discovery", "batch", true}, {"discovery", "batch", true}}, 1, true},
 		{"different group", [2]card{{"discovery", "batch", true}, {"other", "batch", true}}, 2, false},
 		{"different accepted batches", [2]card{{"discovery", "batch", true}, {"discovery", "other", true}}, 2, false},
-		{"unknown membership", [2]card{{"discovery", "", false}, {"discovery", "", false}}, 2, false},
+		{"unknown membership", [2]card{{"discovery", "", false}, {"discovery", "", false}}, 1, false},
 		{"empty group", [2]card{{"", "batch", true}, {"discovery", "batch", true}}, 2, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

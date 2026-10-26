@@ -87,6 +87,10 @@ type toolCallGroupSegment struct {
 // never reordered, so an entry pointer stays valid for the segment's lifetime.
 type delegationGroupSegment struct {
 	entries []*delegationDisplayState
+	// box and settled are render-mutated caches, written during render rather
+	// than by event handling.
+	box     groupBoxCache
+	settled settledGroupRows
 }
 
 type approvalPillData struct {
@@ -286,12 +290,15 @@ type contentSegment struct {
 	noticeCount        int                     // segmentNotice only: occurrences collapsed into this row
 	noticeScope        string                  // segmentNotice only: notices in different scopes never collapse
 	noticeKey          string                  // segmentNotice only: full untruncated text, compared on collapse
-	// render cache at the active width, plus other recent widths (renderAtWidth)
+	// render cache at the active width, plus other recent widths (renderAtWidth).
+	// Render-mutated: written during render, never by event handling.
 	cachedRender      string
 	cachedRenderWidth int
 	cachedStamp       renderStamp
 	altRenders        widthRenders
-	renderDirty       bool
+	// renderDirty is set by event handling and by processSegment itself (active
+	// delegation and compaction forcing). Rendering or skipping a segment clears it.
+	renderDirty bool
 	// renderGen increments each time processSegment re-renders this segment.
 	// Anchors record it at capture time so a same-width remap can skip the
 	// matchRow scan while the render is unchanged.
@@ -342,6 +349,8 @@ type contentBuffer struct {
 
 	// Render cache. renderEpoch is bumped when MCP tool origins, a render input
 	// shared by all segments, change, so inactive-width renders are not reused.
+	// stringCacheWidth and stringCacheBlocks are written during render. Event
+	// paths may clear them on structural changes.
 	renderEpoch       int
 	stringCacheWidth  int
 	stringCacheBlocks []string
@@ -355,6 +364,8 @@ type contentBuffer struct {
 	// reused across dirty frames so streaming only re-walks the changing tail
 	// (preview, spinners, live segments). Keyed on gen (retroactive mutation),
 	// width (rendered segments depend on it), and showThinking (visibility).
+	// Render-mutated: written during render. Event paths may clear them on
+	// structural changes.
 	prefixCacheSet          bool
 	prefixCacheRendered     string
 	prefixCacheLastKind     contentSegmentKind

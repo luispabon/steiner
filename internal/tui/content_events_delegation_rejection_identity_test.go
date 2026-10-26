@@ -104,6 +104,64 @@ func TestDelegationRejectionIdentityAllowsFreshAcceptedFollowUpAfterCompletion(t
 	}
 }
 
+// TestRejectedFrameMemberRerendersCachedFrame checks that rejecting the
+// provisional card of a frame whose settled card is segment-cached re-renders
+// the kept card alone. The outer string cache is not reset before the warm render.
+func TestRejectedFrameMemberRerendersCachedFrame(t *testing.T) {
+	useTrueColor(t)
+	freezeDelegationClock(t)
+	build := func(b *contentBuffer) *delegationDisplayState {
+		b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "settled-call", subAgentArgs("")))
+		settled := lastDelegationCard(b)
+		occ := callOcc("settled-call", "child-1")
+		b.AppendEvent(output.NewDelegationStartedEvent(occ, "settled work", "", "explore"))
+		b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: occ, Status: "completed"}))
+		b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "provisional-call", subAgentArgs("")))
+		return settled
+	}
+	warm := groupTestBuffer()
+	settled := build(warm)
+	quietFrame(warm)
+	if len(warm.segments) != 1 || warm.segments[0].kind != segmentDelegationGroup || warm.segments[0].cachedRender == "" {
+		t.Fatalf("setup: frame not cached: segments=%v", segmentKinds(warm.segments))
+	}
+	rejectRegroupCard(warm, "provisional-call")
+	got := warm.String(prefixGenWidth)
+	if len(warm.segments) != 1 || warm.segments[0].kind != segmentDelegation || warm.segments[0].delegData != settled {
+		t.Fatalf("segments after rejection = %v, want only the settled card", segmentKinds(warm.segments))
+	}
+
+	cold := groupTestBuffer()
+	build(cold)
+	rejectRegroupCard(cold, "provisional-call")
+	if want := cold.String(prefixGenWidth); got != want {
+		t.Fatalf("rejected render differs from cold render:\nwarm:\n%s\ncold:\n%s", stripANSI(got), stripANSI(want))
+	}
+}
+
+// TestRejectedMiddleFrameMemberKeepsNeighbourOrder checks that rejecting the
+// middle card of an unnamed frame leaves the other two as one frame in order.
+func TestRejectedMiddleFrameMemberKeepsNeighbourOrder(t *testing.T) {
+	b := groupTestBuffer()
+	var cards []*delegationDisplayState
+	for _, id := range []string{"a", "b", "c"} {
+		b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", id, subAgentArgs("")))
+		cards = append(cards, lastDelegationCard(b))
+	}
+	rejectRegroupCard(b, "b")
+	if len(b.segments) != 1 || b.segments[0].kind != segmentDelegationGroup {
+		t.Fatalf("segments = %v, want one unnamed frame", segmentKinds(b.segments))
+	}
+	entries := b.segments[0].delegGroupData.entries
+	if len(entries) != 2 || entries[0] != cards[0] || entries[1] != cards[2] {
+		t.Fatalf("entries after rejecting middle = %v, want a then c", entries)
+	}
+	if findDelegationSegment(b.segments, cards[1]) >= 0 {
+		t.Fatal("rejected middle card is still rendered")
+	}
+	assertLocatorsResolve(t, b)
+}
+
 func countDelegationCards(segments []contentSegment) int {
 	count := 0
 	for _, segment := range segments {
