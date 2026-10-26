@@ -37,12 +37,7 @@ type groupBoxCache struct {
 // any content its output equals the lines renderStyledBox draws between the
 // top and bottom border, at about a third of the allocations per line.
 func groupBoxSideStyle(border, bg color.Color, width int) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Background(bg).
-		Padding(0, 1).
-		Border(lipgloss.NormalBorder(), false, true, false, true).
-		BorderForeground(border).
-		Width(max(1, width))
+	return boxStyle(border, bg, width, false)
 }
 
 // renderGroupBox returns renderStyledBox(content, border, bg, width). A frame

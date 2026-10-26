@@ -80,13 +80,24 @@ func delegationHeaderAgentID(dd *delegationDisplayState) string {
 }
 
 func renderStyledBox(content string, borderColor color.Color, bgColor color.Color, width int) string {
-	return lipgloss.NewStyle().
+	return boxStyle(borderColor, bgColor, width, true).Render(content)
+}
+
+// boxStyle returns the style renderStyledBox draws with. withTopBottom also
+// draws the top and bottom borders; otherwise only the left and right sides are
+// drawn.
+func boxStyle(borderColor, bgColor color.Color, width int, withTopBottom bool) lipgloss.Style {
+	style := lipgloss.NewStyle().
 		Background(bgColor).
-		Padding(0, 1).
-		Border(lipgloss.NormalBorder()).
+		Padding(0, 1)
+	if withTopBottom {
+		style = style.Border(lipgloss.NormalBorder())
+	} else {
+		style = style.Border(lipgloss.NormalBorder(), false, true, false, true)
+	}
+	return style.
 		BorderForeground(borderColor).
-		Width(max(1, width)).
-		Render(content)
+		Width(max(1, width))
 }
 
 // delegationStyles returns both the tag and border lipgloss styles for the given
