@@ -39,7 +39,7 @@ func assertSettledCacheMatchesBypass(t *testing.T, m *Model, width int) {
 // any segment dirty. The settled rows key must still invalidate, so a cache hit
 // matches the cache-bypassed render.
 func TestSettledRowsKeyCoversUndirtiedInputs(t *testing.T) {
-	freezeDelegationClockAt(t, 1_000_000_000_000)
+	freezeDelegationClockAt(t)
 
 	cases := []struct {
 		name  string

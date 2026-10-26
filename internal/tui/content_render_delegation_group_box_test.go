@@ -95,7 +95,7 @@ func TestRenderGroupBoxCRLFSeedsCache(t *testing.T) {
 }
 
 func TestRenderDelegationGroupCacheMatchesFresh(t *testing.T) {
-	freezeDelegationClockAt(t, 1_000_000_000_000)
+	freezeDelegationClockAt(t)
 
 	b := groupTestBuffer()
 	group := groupOf("discovery", "complete", "active", "failed")
