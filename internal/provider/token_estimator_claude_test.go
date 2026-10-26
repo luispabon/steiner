@@ -212,10 +212,11 @@ func TestClaudeTokenFixtureManifestPinsLibraryAndBaseline(t *testing.T) {
 	if m.Library.Commit != commit {
 		t.Errorf("library commit = %q, want %q", m.Library.Commit, commit)
 	}
-	// Tag v0.1.0 peels to releaseCommit. Its tree equals commit except README and
-	// PROVENANCE, so the payload and tools pins still describe the source commit.
-	const releaseVersion = "v0.1.0"
-	const releaseCommit = "2aec8ceb7e270bada5dd08d6c414ec306eff6609"
+	// Tag v0.2.0 is lightweight and points directly at releaseCommit. Its
+	// embedded data and count behavior match commit, the live-test commit, so the
+	// payload and tools pins still describe the released source.
+	const releaseVersion = "v0.2.0"
+	const releaseCommit = "3359446f1c322f3ac6bc8237dd6f47e8ec918b5a"
 	if m.Library.Version != releaseVersion {
 		t.Errorf("library version = %q, want %q", m.Library.Version, releaseVersion)
 	}
