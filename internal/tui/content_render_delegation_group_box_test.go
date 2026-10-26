@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -50,6 +51,26 @@ func TestRenderGroupBoxResetsOnWidthChange(t *testing.T) {
 	}
 }
 
+// TestRenderGroupBoxReusesCachedLines plants a sentinel in the cached interior of
+// an unchanged line. The next render must return it, which proves the per-line
+// path reads the line cache instead of redrawing every line.
+func TestRenderGroupBoxReusesCachedLines(t *testing.T) {
+	t.Parallel()
+	border := lipgloss.Color("#ff5f00")
+	bg := lipgloss.Color("#101010")
+	content := "alpha\nbeta"
+	var cache groupBoxCache
+	renderGroupBox(&cache, content, border, bg, 40)
+	if cache.lines == nil {
+		t.Fatal("cold render did not seed the line cache")
+	}
+	const sentinel = "SENTINEL-CACHED-LINE"
+	cache.lines["beta"] = sentinel
+	if got := renderGroupBox(&cache, content, border, bg, 40); !strings.Contains(got, sentinel) {
+		t.Errorf("unchanged line was redrawn instead of read from the line cache:\n%q", got)
+	}
+}
+
 func TestRenderDelegationGroupCacheMatchesFresh(t *testing.T) {
 	savedNano, savedTime := nanoNow, timeNow
 	now := int64(1_000_000_000_000)
@@ -86,9 +107,4 @@ func TestRenderDelegationGroupCacheMatchesFresh(t *testing.T) {
 	check("jump flash on settled entry", 30)
 	b.jumpFlash = jumpFlashState{}
 	check("jump flash cleared", 30)
-	// The key covers the render epoch, so an epoch bump starts a fresh cache even
-	// without a flush.
-	group.entries[2].elapsed = "10s"
-	b.renderEpoch++
-	check("epoch bump without flush", 30)
 }

@@ -133,9 +133,9 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			name:       "AuditTickUpdateStreaming",
 			fn:         BenchmarkAuditTickUpdateStreaming,
 			checkBytes: true,
-			maxBytes:   6533808,
-			maxAllocs:  2918,
-			baseline:   "measured 5681572 B/op, 2431 allocs/op (max of 4 runs, post-WI-1)",
+			maxBytes:   107686,
+			maxAllocs:  2933,
+			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (origin/main max of 4 runs 93640 B/op, 2444 allocs/op; 93640*1.15 = 107686, 2444*1.2 = 2933); branch measured 76976 B/op, 1405 allocs/op (max of 4 runs)",
 		},
 		{
 			// Content guards use a 60-message transcript to keep the run short.
@@ -193,7 +193,7 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			checkBytes: true,
 			maxBytes:   197510,
 			maxAllocs:  2026,
-			baseline:   "measured 171748 B/op, 1688 allocs/op (max of 4 runs, 300x); origin/main 776227 B/op, 17320 allocs/op for the same events",
+			baseline:   "measured 171743 B/op, 1688 allocs/op (max of 4 runs, 300x); origin/main 775549 B/op, 17320 allocs/op for the same events",
 		},
 		{
 			// Group of 1 active + 5 settled collapsed children, idle frame.
@@ -203,7 +203,7 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			checkBytes: true,
 			maxBytes:   49595,
 			maxAllocs:  378,
-			baseline:   "measured 43126 B/op, 315 allocs/op (max of 4 runs, 300x); origin/main 129213 B/op, 3399 allocs/op for the same events",
+			baseline:   "measured 43021 B/op, 316 allocs/op (max of 4 runs, 300x); origin/main 129582 B/op, 3399 allocs/op for the same events",
 		},
 		{
 			// Same group as GroupMixedIdleExpanded2, with spinner ticks before each frame.
@@ -213,7 +213,7 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			checkBytes: true,
 			maxBytes:   217056,
 			maxAllocs:  2225,
-			baseline:   "measured 188744 B/op, 1854 allocs/op (max of 4 runs, 300x); origin/main 775081 B/op, 17320 allocs/op for the same events",
+			baseline:   "measured 188447 B/op, 1854 allocs/op (max of 4 runs, 300x); origin/main 775782 B/op, 17320 allocs/op for the same events",
 		},
 		{
 			// Three active collapsed unnamed sub-agents on a 60-message transcript: each frame advances the spinners, then renders.
@@ -223,7 +223,7 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			checkBytes: true,
 			maxBytes:   58983,
 			maxAllocs:  1653,
-			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (origin/main max of 4 runs 51289 B/op, 1377 allocs/op; 51289*1.15 = 58983, 1377*1.2 = 1653); branch measured 50485 B/op, 951 allocs/op (max of 4 runs, 300x), 0.98x main bytes and 0.69x main allocs",
+			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (origin/main max of 4 runs 51289 B/op, 1377 allocs/op; 51289*1.15 = 58983, 1377*1.2 = 1653); branch measured 49597 B/op, 951 allocs/op (max of 4 runs, 300x), 0.97x main bytes and 0.69x main allocs",
 		},
 		{
 			// Cold render: every group cache is dropped and a settled card is dirtied per op.
@@ -233,7 +233,17 @@ func TestBenchmarkAllocationCeilings(t *testing.T) {
 			checkBytes: true,
 			maxBytes:   1181359,
 			maxAllocs:  24045,
-			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (1027268*1.15 = 1181359, 20037*1.2 = 24045); branch measured max of 4 runs 1118806 B/op, 20761 allocs/op (300x), 1.09x main bytes and 1.04x main allocs",
+			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (1027268*1.15 = 1181359, 20037*1.2 = 24045); branch measured max of 4 runs 1119269 B/op, 20762 allocs/op (300x), 1.09x main bytes and 1.04x main allocs",
+		},
+		{
+			// Two settled expanded children; child-0 is toggled before each frame, so the frame redraws many lines against a warm group line cache.
+			name:       "GroupMixedToggleSettled2",
+			benchtime:  contentIterations,
+			fn:         benchGroupToggleSettled,
+			checkBytes: true,
+			maxBytes:   2171683,
+			maxAllocs:  5577,
+			baseline:   "ceiling is origin/main parity +15% bytes and +20% allocs (origin/main max of 4 runs 1888420 B/op, 4647 allocs/op; 1888420*1.15 = 2171683, 4647*1.2 = 5577); branch measured 1850175 B/op, 4431 allocs/op (max of 4 runs, 300x), 0.98x main bytes and 0.95x main allocs; ns/op 954257 vs 913344 on main (1.04x, time not guarded)",
 		},
 		{
 			name:       "ContentToggleBlockTail60",
@@ -334,6 +344,25 @@ func benchSpinnerAdvanceUnnamed(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		m.content.AdvanceDelegationSpinners()
+		m.syncViewport()
+	}
+}
+
+// benchGroupToggleSettled toggles the settled card child-0 before each frame of
+// the mixed group, so every frame redraws many lines against a warm group line
+// cache. It lives in this tagged file so the default build has no unused functions.
+func benchGroupToggleSettled(b *testing.B) {
+	b.ReportAllocs()
+	m := mixedGroupModel(2, false)
+	m.syncViewport()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, dd := range mixedEntries(m) {
+			if dd.agentID == "child-0" {
+				dd.collapsed = !dd.collapsed
+				m.content.dirtyDelegationCard(dd)
+			}
+		}
 		m.syncViewport()
 	}
 }

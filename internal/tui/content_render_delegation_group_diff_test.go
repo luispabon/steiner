@@ -27,7 +27,7 @@ func setMixedEntryCollapsed(m *Model, agentID string, collapsed bool) {
 }
 
 // groupDiffScript covers tick, progress, transcript, completion, failure,
-// expand and collapse, width, theme, render epoch, jump flash and a late group
+// expand and collapse, width, theme, jump flash and a late group
 // label. Each step is replayed from scratch to build the reference render.
 func groupDiffScript() []groupDiffStep {
 	complete := func(m *Model, callID, agentID, status string) *Model {
@@ -69,10 +69,6 @@ func groupDiffScript() []groupDiffStep {
 				m.content.segments[i].renderDirty = true
 			}
 			m.content.gen++
-			return m
-		}},
-		{"render epoch", func(m *Model) *Model {
-			m.content.renderEpoch++
 			return m
 		}},
 		{"jump flash", func(m *Model) *Model {

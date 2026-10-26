@@ -8,7 +8,6 @@ import "github.com/luispabon/steiner/internal/tui/theme"
 type settledRowsKey struct {
 	width   int
 	bodyCap int
-	epoch   int
 	styles  *theme.Styles
 }
 
@@ -32,7 +31,7 @@ func (b *contentBuffer) groupEntryLines(group *delegationGroupSegment, dd *deleg
 		return b.renderDelegationBoxRows(dd, width)
 	}
 	cache := &group.settled
-	key := settledRowsKey{width: width, bodyCap: b.maxDelegationBodyLines, epoch: b.renderEpoch, styles: b.styles}
+	key := settledRowsKey{width: width, bodyCap: b.maxDelegationBodyLines, styles: b.styles}
 	if cache.lines == nil || cache.key != key {
 		cache.key = key
 		cache.lines = make(map[*delegationDisplayState][]string, len(group.entries))
