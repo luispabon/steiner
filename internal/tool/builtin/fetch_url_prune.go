@@ -25,26 +25,27 @@ const (
 	fetchedBudgetBytes = 250 * 1024 * 1024
 )
 
-// artifactDirs are the root-relative directory components subject to
-// retention. Each is walked one component at a time with no symlink
-// traversal.
-var artifactDirs = [][]string{
-	{".steiner", "tmp", "fetched"},
-	{".steiner", "tmp", "bash-output"},
-}
+// artifactDirs are the cache directory names under <root>/.steiner/tmp that
+// are subject to retention.
+var artifactDirs = []string{"fetched", "bash-output"}
 
 // PruneToolArtifacts removes stale and excess files under
 // <root>/.steiner/tmp/fetched and <root>/.steiner/tmp/bash-output for each
 // distinct root (for example the project root and a worktree workDir).
-// Files older than fetchedMaxAge are removed first; remaining files, counted
-// against one shared budget of fetchedBudgetBytes, are then removed
-// oldest-first, except that no file younger than fetchedMinBudgetEvictionAge
-// is removed by budget eviction. Missing directories are not an error.
-// Symlinks are never followed (including in intermediate path components and
-// subdirectories) or removed. Every directory is opened as an anchored handle
-// verified to be the directory just inspected, and files are removed relative
-// to that handle, so a later swap of a path component cannot redirect a
-// deletion. Sibling directories such as .steiner/tmp/images and
+// Only the immediate regular files of each cache directory are considered:
+// the fetch and bash artifact writers create flat files, so subdirectories
+// and non-regular entries are ignored and never recursed into. Files older
+// than fetchedMaxAge are removed first; remaining files, counted against one
+// shared budget of fetchedBudgetBytes, are then removed oldest-first, except
+// that no file younger than fetchedMinBudgetEvictionAge is removed by budget
+// eviction. Missing directories are not an error.
+//
+// Path components are inspected with Lstat and non-directories (including
+// symlinks) are skipped. Each directory is then opened as a handle and
+// checked to be the same file Lstat reported, and files are unlinked relative
+// to that handle by bare name. A component swapped after the check cannot
+// redirect a deletion, and a leaf swapped for a symlink is unlinked rather
+// than followed. Sibling directories such as .steiner/tmp/images and
 // .steiner/worktrees are never scanned or modified.
 func PruneToolArtifacts(roots []string) (removed int, err error) {
 	return pruneToolArtifacts(roots, time.Now(), fetchedBudgetBytes)
@@ -67,9 +68,10 @@ func pruneToolArtifacts(roots []string, now time.Time, budgetBytes int64) (remov
 	return removed, errors.Join(append(errs, evictErrs...)...)
 }
 
-// collectToolArtifacts gathers regular files from every root. Errors for one
-// root or directory do not stop the others. The returned func closes every
-// directory handle held by the files.
+// collectToolArtifacts gathers immediate regular files from every root's
+// cache directories. Errors for one root or directory do not stop the others.
+// Only the cache directory handles stay open (at most one per cache per
+// root); the func returned closes them.
 func collectToolArtifacts(roots []string) (files []artifactFile, closeAll func(), errs []error) {
 	var handles []*os.Root
 	closeAll = func() {
@@ -85,45 +87,70 @@ func collectToolArtifacts(roots []string) (files []artifactFile, closeAll func()
 			}
 			continue
 		}
-		handles = append(handles, root)
-		for _, parts := range artifactDirs {
-			cur := root
-			for _, part := range parts {
-				next, ok, stepErr := openChildDir(cur, part)
-				if stepErr != nil {
-					errs = append(errs, stepErr)
-				}
-				if !ok {
-					cur = nil
-					break
-				}
-				handles = append(handles, next)
-				cur = next
+		tmp, tmpErrs := openTmpDir(root)
+		_ = root.Close() // read-only directory handle; nothing to flush
+		errs = append(errs, tmpErrs...)
+		if tmp == nil {
+			continue
+		}
+		for _, name := range artifactDirs {
+			cache, ok, stepErr := openChildDir(tmp, name)
+			if stepErr != nil {
+				errs = append(errs, stepErr)
 			}
-			if cur == nil {
+			if !ok {
 				continue
 			}
-			var walkErrs []error
-			files, walkErrs = walkArtifacts(cur, &handles, files)
-			errs = append(errs, walkErrs...)
+			handles = append(handles, cache)
+			var listErrs []error
+			files, listErrs = listArtifacts(cache, files)
+			errs = append(errs, listErrs...)
 		}
+		_ = tmp.Close() // read-only directory handle; nothing to flush
 	}
 	return files, closeAll, errs
 }
 
+// openTmpDir opens <root>/.steiner/tmp one verified component at a time and
+// returns nil when any component is missing or not a real directory.
+func openTmpDir(root *os.Root) (*os.Root, []error) {
+	steiner, ok, err := openChildDir(root, ".steiner")
+	if !ok {
+		return nil, errsOf(err)
+	}
+	tmp, ok, err := openChildDir(steiner, "tmp")
+	_ = steiner.Close() // read-only directory handle; nothing to flush
+	if !ok {
+		return nil, errsOf(err)
+	}
+	return tmp, nil
+}
+
+func errsOf(err error) []error {
+	if err == nil {
+		return nil
+	}
+	return []error{err}
+}
+
 // evictArtifacts removes files older than fetchedMaxAge, then evicts the
 // oldest remaining files until the total is within budgetBytes, never
-// evicting a file younger than fetchedMinBudgetEvictionAge.
+// evicting a file younger than fetchedMinBudgetEvictionAge. Zero-byte files
+// free no budget and are not evicted by budget pressure. removed counts only
+// files this call actually unlinked.
 func evictArtifacts(files []artifactFile, now time.Time, budgetBytes int64) (removed int, errs []error) {
 	var total int64
 	kept := make([]artifactFile, 0, len(files))
 	for _, f := range files {
 		if now.Sub(f.modTime) >= fetchedMaxAge {
-			if rmErr := removeArtifact(f); rmErr != nil {
+			gone, rmErr := removeArtifact(f)
+			if rmErr != nil {
 				errs = append(errs, rmErr)
 				continue
 			}
-			removed++
+			if gone {
+				removed++
+			}
 			continue
 		}
 		kept = append(kept, f)
@@ -137,14 +164,17 @@ func evictArtifacts(files []artifactFile, now time.Time, budgetBytes int64) (rem
 		if total <= budgetBytes {
 			break
 		}
-		if now.Sub(f.modTime) < fetchedMinBudgetEvictionAge {
+		if f.size == 0 || now.Sub(f.modTime) < fetchedMinBudgetEvictionAge {
 			continue
 		}
-		if rmErr := removeArtifact(f); rmErr != nil {
+		gone, rmErr := removeArtifact(f)
+		if rmErr != nil {
 			errs = append(errs, rmErr)
 			continue
 		}
-		removed++
+		if gone {
+			removed++
+		}
 		total -= f.size
 	}
 	return removed, errs
@@ -206,10 +236,9 @@ func openChildDir(parent *os.Root, name string) (child *os.Root, ok bool, err er
 	return child, true, nil
 }
 
-// walkArtifacts appends regular files directly under dir and, recursively,
-// under its real subdirectories. Symlinks and other non-regular entries are
-// skipped. Opened handles are appended to handles for the caller to close.
-func walkArtifacts(dir *os.Root, handles *[]*os.Root, files []artifactFile) ([]artifactFile, []error) {
+// listArtifacts appends the immediate regular files of dir. Subdirectories,
+// symlinks and other non-regular entries are ignored; there is no recursion.
+func listArtifacts(dir *os.Root, files []artifactFile) ([]artifactFile, []error) {
 	f, err := dir.Open(".")
 	if err != nil {
 		return files, []error{fmt.Errorf("open artifact dir: %w", err)}
@@ -219,40 +248,31 @@ func walkArtifacts(dir *os.Root, handles *[]*os.Root, files []artifactFile) ([]a
 	if err != nil {
 		return files, []error{fmt.Errorf("read artifact dir: %w", err)}
 	}
-	var errs []error
 	for _, entry := range entries {
-		name := entry.Name()
-		switch {
-		case entry.IsDir():
-			sub, ok, subErr := openChildDir(dir, name)
-			if subErr != nil {
-				errs = append(errs, subErr)
-			}
-			if !ok {
-				continue
-			}
-			*handles = append(*handles, sub)
-			var walkErrs []error
-			files, walkErrs = walkArtifacts(sub, handles, files)
-			errs = append(errs, walkErrs...)
-		case entry.Type().IsRegular():
-			fi, statErr := dir.Lstat(name)
-			if statErr != nil || !fi.Mode().IsRegular() {
-				// Vanished or replaced between ReadDir and Lstat.
-				continue
-			}
-			files = append(files, artifactFile{parent: dir, name: name, modTime: fi.ModTime(), size: fi.Size()})
+		if !entry.Type().IsRegular() {
+			continue
 		}
+		name := entry.Name()
+		fi, statErr := dir.Lstat(name)
+		if statErr != nil || !fi.Mode().IsRegular() {
+			// Vanished or replaced between ReadDir and Lstat.
+			continue
+		}
+		files = append(files, artifactFile{parent: dir, name: name, modTime: fi.ModTime(), size: fi.Size()})
 	}
-	return files, errs
+	return files, nil
 }
 
-// removeArtifact unlinks f relative to its anchored parent handle. The leaf
-// is never followed, so a symlink swapped in at the leaf is unlinked, not
+// removeArtifact unlinks f relative to its anchored parent handle and reports
+// whether this call removed it (false when it was already gone). The leaf is
+// never followed, so a symlink swapped in at the leaf is unlinked, not
 // traversed.
-func removeArtifact(f artifactFile) error {
-	if err := f.parent.Remove(f.name); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("remove artifact file %s: %w", f.name, err)
+func removeArtifact(f artifactFile) (bool, error) {
+	if err := f.parent.Remove(f.name); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("remove artifact file %s: %w", f.name, err)
 	}
-	return nil
+	return true, nil
 }

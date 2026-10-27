@@ -140,7 +140,7 @@ func TestPruneToolArtifacts_SharedBudgetAcrossDirsAndRoots(t *testing.T) {
 
 	fetched := filepath.Join(projectRoot, ".steiner", "tmp", "fetched", "f.bin")
 	bashOld := filepath.Join(workDir, ".steiner", "tmp", "bash-output", "o.log")
-	bashMid := filepath.Join(workDir, ".steiner", "tmp", "bash-output", "sub", "m.log")
+	bashMid := filepath.Join(workDir, ".steiner", "tmp", "bash-output", "m.log")
 	young := filepath.Join(projectRoot, ".steiner", "tmp", "bash-output", "young.log")
 	stale := filepath.Join(workDir, ".steiner", "tmp", "bash-output", "stale.log")
 	writePrunableFile(t, bashOld, 100, now.Add(-5*time.Hour))
@@ -311,6 +311,110 @@ func TestPruneToolArtifacts_SymlinkedIntermediateSkippedOtherRootsPruned(t *test
 	}
 	assertExists(t, outsideFile)
 	assertRemoved(t, goodFile)
+}
+
+func TestPruneToolArtifacts_NestedDirsIgnoredFlatFilesPruned(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	old := now.Add(-30 * 24 * time.Hour)
+	cache := filepath.Join(root, ".steiner", "tmp", "bash-output")
+
+	// The deep path may exceed PATH_MAX, so build it incrementally.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cache); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	for i := 0; i < 300; i++ {
+		if err := os.Mkdir("d", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chdir("d"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile("nested.txt", []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes("nested.txt", old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	// RemoveAll recurses with one fd per level and fails under low fd
+	// limits, so unwind the chain bottom-up before TempDir cleanup.
+	t.Cleanup(func() {
+		defer func() { _ = os.Chdir(cwd) }()
+		if os.Chdir(cache) != nil {
+			return
+		}
+		for i := 0; i < 300; i++ {
+			if os.Chdir("d") != nil {
+				return
+			}
+		}
+		_ = os.Remove("nested.txt")
+		for i := 0; i < 300; i++ {
+			if os.Chdir("..") != nil {
+				return
+			}
+			_ = os.Remove("d")
+		}
+	})
+
+	flat := filepath.Join(cache, "flat.log")
+	writePrunableFile(t, flat, 10, old)
+
+	removed, err := PruneToolArtifacts([]string{root})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if removed != 1 {
+		t.Errorf("removed = %d, want 1 (flat file only)", removed)
+	}
+	assertRemoved(t, flat)
+	assertExists(t, filepath.Join(cache, "d"))
+}
+
+func TestPruneToolArtifacts_ZeroByteNotEvictedAndRemovedCountExact(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	dir := filepath.Join(root, ".steiner", "tmp", "fetched")
+	zero := filepath.Join(dir, "zero")
+	big := filepath.Join(dir, "big")
+	writePrunableFile(t, zero, 0, now.Add(-5*time.Hour))
+	writePrunableFile(t, big, 100, now.Add(-2*time.Hour))
+
+	removed, err := pruneToolArtifacts([]string{root}, now, 50)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if removed != 1 {
+		t.Errorf("removed = %d, want 1", removed)
+	}
+	assertExists(t, zero)
+	assertRemoved(t, big)
+
+	// A file already gone by eviction time is not counted.
+	files, closeAll, errs := collectToolArtifacts([]string{root})
+	defer closeAll()
+	if len(errs) != 0 || len(files) != 1 {
+		t.Fatalf("collect = %d files, errs %v", len(files), errs)
+	}
+	if err := os.Remove(zero); err != nil {
+		t.Fatal(err)
+	}
+	removed, evictErrs := evictArtifacts(files, now.Add(30*24*time.Hour), fetchedBudgetBytes)
+	if len(evictErrs) != 0 || removed != 0 {
+		t.Errorf("removed = %d, errs %v; want 0, none", removed, evictErrs)
+	}
 }
 
 func assertExists(t *testing.T, path string) {
