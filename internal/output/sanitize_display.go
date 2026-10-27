@@ -16,6 +16,27 @@ import (
 // displayed text. Use it for display only; model-facing and persisted text keep
 // the original bytes.
 func SanitizeDisplayText(s string) string {
+	if isPrintableASCII(s) {
+		return s
+	}
+	return sanitizeDisplayTextSlow(s)
+}
+
+// isPrintableASCII reports whether every byte of s is in 0x20 to 0x7e. The slow
+// path returns such text unchanged: ansi.Strip writes those bytes through,
+// stripC1CSI finds no U+009B, and the strings.Map callback keeps them.
+func isPrintableASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] < 0x20 || s[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+// sanitizeDisplayTextSlow is the full sanitiser behind SanitizeDisplayText.
+// Tests compare the fast path against it.
+func sanitizeDisplayTextSlow(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
 		case r == '\n' || r == '\t':

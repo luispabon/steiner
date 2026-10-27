@@ -51,11 +51,12 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 func (b *contentBuffer) renderDelegationHeaderIdentity(dd *delegationDisplayState) string {
 	label, labelStyle := b.delegationHeaderLabel(dd)
 	left := labelStyle.Render(label)
+	agentID := delegationHeaderAgentID(dd)
 	switch {
 	case dd.isFollowUp && dd.followUpAgentID != "":
 		left += b.styles.FgDim.Render(" - follow up " + singleLineDisplayText(dd.followUpAgentID))
-	case delegationHeaderAgentID(dd) != "":
-		left += " " + b.styles.FgDim.Render(delegationHeaderAgentID(dd))
+	case agentID != "":
+		left += " " + b.styles.FgDim.Render(agentID)
 	}
 	return left
 }
