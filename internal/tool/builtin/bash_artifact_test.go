@@ -1,3 +1,5 @@
+//go:build unix
+
 package builtin
 
 import (
@@ -5,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -27,10 +28,10 @@ func TestBashArtifactSavesPrivateFile(t *testing.T) {
 	if err != nil || !bytes.Equal(got, body) {
 		t.Fatalf("read back = %q, %v", got, err)
 	}
-	if runtime.GOOS == "windows" {
-		return
+	fi, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
 	}
-	fi, _ := os.Stat(filepath.Join(dir, filepath.FromSlash(rel)))
 	if fi.Mode().Perm() != 0o600 {
 		t.Errorf("file mode = %o, want 600", fi.Mode().Perm())
 	}
@@ -46,9 +47,6 @@ func TestBashArtifactSavesPrivateFile(t *testing.T) {
 }
 
 func TestBashArtifactKeepsExistingDirPermissions(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix permissions")
-	}
 	dir := t.TempDir()
 	steinerDir := filepath.Join(dir, ".steiner")
 	if err := os.Mkdir(steinerDir, 0o755); err != nil {
@@ -60,7 +58,10 @@ func TestBashArtifactKeepsExistingDirPermissions(t *testing.T) {
 	if _, err := saveBashArtifact(dir, []byte("x")); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	fi, _ := os.Stat(steinerDir)
+	fi, err := os.Stat(steinerDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if fi.Mode().Perm() != 0o755 {
 		t.Errorf(".steiner mode = %o, want unchanged 755", fi.Mode().Perm())
 	}
@@ -78,9 +79,6 @@ func TestBashArtifactSizeLimit(t *testing.T) {
 }
 
 func TestBashArtifactRefusesSymlinks(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlinks need privileges")
-	}
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, dir, outside string)
@@ -114,10 +112,10 @@ func TestBashArtifactRefusesSymlinks(t *testing.T) {
 			if rel, err := saveBashArtifact(dir, []byte("x")); err == nil {
 				t.Fatalf("expected error, got %q", rel)
 			}
-			if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+			if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {
 				t.Errorf("outside dir modified: %v", entries)
 			}
-			if entries, _ := os.ReadDir(filepath.Join(dir, "real")); len(entries) != 0 {
+			if entries, err := os.ReadDir(filepath.Join(dir, "real")); err != nil && !os.IsNotExist(err) || len(entries) != 0 {
 				t.Errorf("redirect target modified: %v", entries)
 			}
 		})
@@ -171,5 +169,90 @@ func mustMkdir(t *testing.T, p string) {
 	t.Helper()
 	if err := os.MkdirAll(p, 0o700); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBashArtifactTightensInsecureLeaf(t *testing.T) {
+	dir := t.TempDir()
+	tmpDir := filepath.Join(dir, ".steiner", "tmp")
+	leaf := filepath.Join(tmpDir, "bash-output")
+	mustMkdir(t, leaf)
+	for _, p := range []string{filepath.Join(dir, ".steiner"), tmpDir, leaf} {
+		if err := os.Chmod(p, 0o777); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rel, err := saveBashArtifact(dir, []byte("x"))
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	wantModes := map[string]os.FileMode{tmpDir: 0o777, leaf: 0o700, filepath.Join(dir, filepath.FromSlash(rel)): 0o600}
+	for p, want := range wantModes {
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != want {
+			t.Errorf("%s mode = %o, want %o", p, fi.Mode().Perm(), want)
+		}
+	}
+}
+
+// swapLeaf replaces .steiner/tmp/bash-output with a symlink to a decoy
+// directory inside workDir, simulating a race with the shell.
+func swapLeaf(t *testing.T, dir string) {
+	t.Helper()
+	leaf := filepath.Join(dir, ".steiner", "tmp", "bash-output")
+	if err := os.Rename(leaf, leaf+".orig"); err != nil {
+		t.Fatal(err)
+	}
+	mustSymlink(t, "../../decoy", leaf)
+}
+
+func TestBashArtifactSwapDuringSaveNeverWritesSubstitute(t *testing.T) {
+	for _, stage := range []string{"before-create", "before-verify"} {
+		t.Run(stage, func(t *testing.T) {
+			dir := t.TempDir()
+			mustMkdir(t, filepath.Join(dir, "decoy"))
+			bashArtifactHook = func(s string) {
+				if s == stage {
+					swapLeaf(t, dir)
+				}
+			}
+			t.Cleanup(func() { bashArtifactHook = nil })
+
+			rel, err := saveBashArtifact(dir, []byte("secret"))
+			if err == nil {
+				t.Fatalf("expected error after swap, got success %q", rel)
+			}
+			if entries, rerr := os.ReadDir(filepath.Join(dir, "decoy")); rerr != nil || len(entries) != 0 {
+				t.Fatalf("decoy modified: %v, %v", entries, rerr)
+			}
+			if entries, rerr := os.ReadDir(filepath.Join(dir, ".steiner", "tmp", "bash-output.orig")); rerr != nil || len(entries) != 0 {
+				t.Fatalf("discarded artifact left behind: %v, %v", entries, rerr)
+			}
+		})
+	}
+}
+
+func TestBashArtifactParentSwapDetected(t *testing.T) {
+	dir := t.TempDir()
+	mustMkdir(t, filepath.Join(dir, "decoy", "bash-output"))
+	bashArtifactHook = func(s string) {
+		if s != "before-verify" {
+			return
+		}
+		tmp := filepath.Join(dir, ".steiner", "tmp")
+		if err := os.Rename(tmp, tmp+".orig"); err != nil {
+			t.Fatal(err)
+		}
+		mustSymlink(t, "../decoy", tmp)
+	}
+	t.Cleanup(func() { bashArtifactHook = nil })
+	if rel, err := saveBashArtifact(dir, []byte("x")); err == nil {
+		t.Fatalf("expected error, got %q", rel)
+	}
+	if entries, err := os.ReadDir(filepath.Join(dir, "decoy", "bash-output")); err != nil || len(entries) != 0 {
+		t.Fatalf("decoy modified: %v, %v", entries, err)
 	}
 }
