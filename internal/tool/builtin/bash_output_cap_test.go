@@ -1,7 +1,6 @@
 package builtin
 
 import (
-	"bufio"
 	"context"
 	"strings"
 	"testing"
@@ -47,34 +46,6 @@ func TestBashToolTruncatedFlag(t *testing.T) {
 	}
 }
 
-func TestReadUntilMarkerCapsAndFindsMarker(t *testing.T) {
-	const marker = "__M__"
-	long := strings.Repeat("a", 20000)
-	tests := []struct {
-		name      string
-		input     string
-		max       int
-		want      string
-		truncated bool
-	}{
-		{"under cap", "one\ntwo\n" + marker + "\n", 100, "one\ntwo\n", false},
-		{"cap drops tail", "abcdef\nghij\n" + marker + "\n", 4, "abcd", true},
-		{"very long line then marker", long + "\n" + marker + "\n", 10, strings.Repeat("a", 10), true},
-		{"long line equal to marker prefix is not marker", marker + long + "\n" + marker + "\n", 1 << 20, marker + long + "\n", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, trunc, err := readUntilMarker(newTestReader(tt.input), marker, tt.max)
-			if err != nil {
-				t.Fatalf("err = %v", err)
-			}
-			if got != tt.want || trunc != tt.truncated {
-				t.Errorf("got (%q, %v), want (%q, %v)", got, trunc, tt.want, tt.truncated)
-			}
-		})
-	}
-}
-
 func TestBashSessionLargeOutputKeepsExitCode(t *testing.T) {
 	t.Parallel()
 	s := NewBashSession()
@@ -98,5 +69,3 @@ func TestBashSessionLargeOutputKeepsExitCode(t *testing.T) {
 		t.Errorf("output missing truncation marker")
 	}
 }
-
-func newTestReader(s string) *bufio.Reader { return bufio.NewReader(strings.NewReader(s)) }

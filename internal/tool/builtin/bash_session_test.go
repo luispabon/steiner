@@ -503,3 +503,104 @@ func TestParseBashExitLine(t *testing.T) {
 		})
 	}
 }
+
+func TestBashSessionExecuteTimeoutKeepsPartials(t *testing.T) {
+	s := NewBashSession()
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	// The background sleep inherits the pipes and outlives the shell.
+	so, se, code, timedOut, err := s.execute(ctx, "sleep 60 & echo partial-out; echo partial-err >&2; sleep 60")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !timedOut || code != -1 {
+		t.Errorf("timedOut = %v, code = %d; want true, -1", timedOut, code)
+	}
+	if elapsed := time.Since(start); elapsed > 2*bashSessionCaptureJoinTimeout {
+		t.Errorf("execute took %v, want bounded", elapsed)
+	}
+	if got := string(so.Head); got != "partial-out\n" {
+		t.Errorf("stdout partial = %q, want %q", got, "partial-out\n")
+	}
+	if got := string(se.Head); got != "partial-err\n" {
+		t.Errorf("stderr partial = %q, want %q", got, "partial-err\n")
+	}
+
+	out, _, code, err := s.Execute(context.Background(), "echo recovered")
+	if err != nil || code != 0 || out != "recovered\n" {
+		t.Errorf("after timeout = %q, %d, %v; want recovered, 0, nil", out, code, err)
+	}
+}
+
+func TestBashSessionExecuteMarkerCollision(t *testing.T) {
+	s := NewBashSession()
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	cmd := "echo __STEINER_STDOUT_1__; echo __STEINER_EXIT_1__:9; echo __STEINER_STDERR_1__ >&2; (exit 4)"
+	so, se, code, timedOut, err := s.execute(context.Background(), cmd)
+	if err != nil || timedOut {
+		t.Fatalf("execute: %v (timedOut=%v)", err, timedOut)
+	}
+	if code != 4 {
+		t.Errorf("exit code = %d, want 4", code)
+	}
+	if want := "__STEINER_STDOUT_1__\n__STEINER_EXIT_1__:9\n"; string(so.Head) != want {
+		t.Errorf("stdout = %q, want %q", so.Head, want)
+	}
+	if want := "__STEINER_STDERR_1__\n"; string(se.Head) != want {
+		t.Errorf("stderr = %q, want %q", se.Head, want)
+	}
+}
+
+func TestBashSessionExecuteLargeOutputKeepsTail(t *testing.T) {
+	s := NewBashSession()
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	const n = 3_000_000
+	so, _, code, timedOut, err := s.execute(ctx, "head -c 3000000 /dev/zero | tr '\\0' a; printf END; (exit 6)")
+	if err != nil || timedOut {
+		t.Fatalf("execute: %v (timedOut=%v)", err, timedOut)
+	}
+	if code != 6 {
+		t.Errorf("exit code = %d, want 6", code)
+	}
+	if so.TotalBytes != n+3 || !so.HeadTruncated {
+		t.Errorf("TotalBytes = %d, HeadTruncated = %v; want %d, true", so.TotalBytes, so.HeadTruncated, n+3)
+	}
+	if len(so.Head) != bashSessionCaptureLimit || len(so.Tail) != bashSessionCaptureLimit {
+		t.Errorf("head/tail = %d/%d, want %d each", len(so.Head), len(so.Tail), bashSessionCaptureLimit)
+	}
+	if !strings.HasSuffix(string(so.Tail), "aaaEND") {
+		t.Errorf("tail does not end with the real last bytes: %q", so.Tail[len(so.Tail)-10:])
+	}
+}
+
+func TestBashSessionShellExitReturnsError(t *testing.T) {
+	s := NewBashSession()
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	so, _, _, timedOut, err := s.execute(context.Background(), "echo before; exit 3")
+	if err == nil || timedOut {
+		t.Fatalf("execute err = %v, timedOut = %v; want error from shell exit", err, timedOut)
+	}
+	if string(so.Head) != "before\n" {
+		t.Errorf("partial stdout = %q, want %q", so.Head, "before\n")
+	}
+}

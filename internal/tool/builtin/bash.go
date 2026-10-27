@@ -73,7 +73,10 @@ func NewBashTool(env Env) tool.ToolDef {
 			}
 			defer func() { _ = session.Close() }()
 
-			stdout, stderr, exitCode, truncated, execErr := session.execute(execCtx, command)
+			stdoutCap, stderrCap, exitCode, timedOut, execErr := session.execute(execCtx, command)
+			if execErr == nil && timedOut {
+				execErr = fmt.Errorf("bash session: %w", execCtx.Err())
+			}
 			if execErr != nil {
 				// Timeout or session error — return as a result rather than a Go error
 				// so the model receives the failure information.
@@ -82,6 +85,8 @@ func NewBashTool(env Env) tool.ToolDef {
 					Output:   execErr.Error(),
 				}, nil
 			}
+
+			stdout, stderr, truncated := adaptCaptures(stdoutCap, stderrCap)
 
 			// Combine stdout and stderr into a single output string.
 			var output strings.Builder

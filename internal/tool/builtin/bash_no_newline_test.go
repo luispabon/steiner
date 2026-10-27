@@ -36,10 +36,11 @@ func TestBashSessionOutputWithoutTrailingNewline(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			stdout, stderr, code, trunc, err := s.execute(ctx, tt.command)
-			if err != nil {
-				t.Fatalf("execute: %v", err)
+			so, se, code, timedOut, err := s.execute(ctx, tt.command)
+			if err != nil || timedOut {
+				t.Fatalf("execute: %v (timedOut=%v)", err, timedOut)
 			}
+			stdout, stderr, trunc := adaptCaptures(so, se)
 			if stdout != tt.wantStdout {
 				t.Errorf("stdout = %q, want %q", clip(stdout), clip(tt.wantStdout))
 			}
@@ -53,7 +54,7 @@ func TestBashSessionOutputWithoutTrailingNewline(t *testing.T) {
 				t.Errorf("truncated = %v, want %v", trunc, tt.truncated)
 			}
 
-			stdout, _, code, _, err = s.execute(ctx, "echo next")
+			stdout, _, code, err = s.Execute(ctx, "echo next")
 			if err != nil || code != 0 || stdout != "next\n" {
 				t.Errorf("follow-up = %q, %d, %v; want \"next\\n\", 0, nil", stdout, code, err)
 			}
@@ -68,7 +69,7 @@ func clip(s string) string {
 	return s
 }
 
-func TestReadUntilMarkerSuffixMarker(t *testing.T) {
+func TestCaptureUntilMarkerSuffixMarker(t *testing.T) {
 	const marker = "__M__"
 	tests := []struct {
 		name  string
@@ -85,9 +86,9 @@ func TestReadUntilMarkerSuffixMarker(t *testing.T) {
 		for _, size := range []int{16, 4096} {
 			t.Run(tt.name, func(t *testing.T) {
 				r := bufio.NewReaderSize(strings.NewReader(tt.input), size)
-				got, trunc, err := readUntilMarker(r, marker, 1<<20)
-				if err != nil || trunc || got != tt.want {
-					t.Errorf("got %q, %v, %v; want %q", got, trunc, err, tt.want)
+				got, err := captureUntilMarker(r, marker, 1<<20, 1<<20)
+				if err != nil || got.HeadTruncated || string(got.Head)+string(got.Tail) != tt.want {
+					t.Errorf("got %q, %v, %v; want %q", got.Head, got.HeadTruncated, err, tt.want)
 				}
 			})
 		}
