@@ -501,6 +501,120 @@ func TestFitRequestDoesNotClampExplicitMaxTokens(t *testing.T) {
 	}
 }
 
+func TestFitRequestLowersAdvertisedOutputForExplicitParamMaxTokens(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const contextWindow = 262144
+	const explicit = 8192
+	baseRequest := provider.ChatRequest{
+		Model:    "kimi-k2.7-code",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: strings.Repeat("kimi prompt ", 4000)}},
+	}
+
+	// The advertised output equals the context window, so only lowering the
+	// reserve to the explicit wire value keeps the request fitting.
+	tests := []struct {
+		name      string
+		configure func(*provider.ChatRequest)
+	}{
+		{
+			name:      "params max_tokens",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": explicit} },
+		},
+		{
+			name:      "params max_completion_tokens",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_completion_tokens": explicit} },
+		},
+		{
+			name:      "params max_output_tokens",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_output_tokens": explicit} },
+		},
+		{
+			name:      "extra params max_tokens",
+			configure: func(r *provider.ChatRequest) { r.ExtraParams = map[string]any{"max_tokens": explicit} },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			request := baseRequest
+			tt.configure(&request)
+			budget := ModelTokenBudget{
+				ContextSize:         contextWindow,
+				MaxCompletionTokens: contextWindow,
+				SafetyMarginTokens:  2048,
+			}
+			fit, err := budget.FitRequest(ctx, request)
+			if err != nil {
+				t.Fatalf("FitRequest() error = %v", err)
+			}
+			if !fit.Fits {
+				t.Fatalf("Fits = false, want true: %+v", fit)
+			}
+			if fit.ReservedCompletionTokens != explicit {
+				t.Fatalf("ReservedCompletionTokens = %d, want %d", fit.ReservedCompletionTokens, explicit)
+			}
+		})
+	}
+}
+
+func TestFitRequestKeepsClampForNonPositiveExplicitMaxTokens(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	baseRequest := provider.ChatRequest{
+		Model:    "gpt-4o",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "review the request"}},
+	}
+	promptTokens, err := provider.EstimateChatRequestTokens(ctx, baseRequest)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	contextSize := promptTokens + minCompletionReserveTokens
+
+	tests := []struct {
+		name      string
+		configure func(*provider.ChatRequest)
+	}{
+		{
+			name: "zero request max tokens",
+			configure: func(r *provider.ChatRequest) {
+				value := 0
+				r.MaxTokens = &value
+			},
+		},
+		{
+			name:      "zero params max_tokens",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": 0} },
+		},
+		{
+			name:      "negative params max_tokens",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": -1} },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			request := baseRequest
+			tt.configure(&request)
+			budget := ModelTokenBudget{ContextSize: contextSize, MaxCompletionTokens: contextSize}
+			fit, err := budget.FitRequest(ctx, request)
+			if err != nil {
+				t.Fatalf("FitRequest() error = %v", err)
+			}
+			if fit.ReservedCompletionTokens != minCompletionReserveTokens {
+				t.Fatalf("ReservedCompletionTokens = %d, want clamp floor %d", fit.ReservedCompletionTokens, minCompletionReserveTokens)
+			}
+			if !fit.Fits {
+				t.Fatalf("Fits = false, want true: %+v", fit)
+			}
+		})
+	}
+}
+
 func TestFitRequestFitsAdvertisedOutputEqualToContextWindow(t *testing.T) {
 	t.Parallel()
 
@@ -550,32 +664,95 @@ func TestFitRequestFitsAdvertisedOutputEqualToContextWindow(t *testing.T) {
 	}
 }
 
-func TestIsPositiveTokenValue(t *testing.T) {
+func TestExplicitMaxTokensValue(t *testing.T) {
 	t.Parallel()
 
+	maxTokens := func(value int) *int { return &value }
 	tests := []struct {
-		name  string
-		value any
-		want  bool
+		name      string
+		configure func(*provider.ChatRequest)
+		want      int
+		wantOK    bool
 	}{
-		{name: "positive int", value: 1, want: true},
-		{name: "zero int", value: 0, want: false},
-		{name: "negative int", value: -1, want: false},
-		{name: "positive int64", value: int64(4096), want: true},
-		{name: "positive float64", value: 4096.0, want: true},
-		{name: "zero float64", value: 0.0, want: false},
-		{name: "positive json number", value: json.Number("4096"), want: true},
-		{name: "zero json number", value: json.Number("0"), want: false},
-		{name: "invalid json number", value: json.Number("abc"), want: false},
-		{name: "string", value: "4096", want: false},
-		{name: "nil", value: nil, want: false},
+		{
+			name:      "positive request max tokens",
+			configure: func(r *provider.ChatRequest) { r.MaxTokens = maxTokens(2048) },
+			want:      2048,
+			wantOK:    true,
+		},
+		{
+			name:      "zero request max tokens",
+			configure: func(r *provider.ChatRequest) { r.MaxTokens = maxTokens(0) },
+		},
+		{
+			name:      "positive int param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": 4096} },
+			want:      4096,
+			wantOK:    true,
+		},
+		{
+			name:      "negative int param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": -1} },
+		},
+		{
+			name:      "zero int param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": 0} },
+		},
+		{
+			name:      "positive int64 param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": int64(4096)} },
+			want:      4096,
+			wantOK:    true,
+		},
+		{
+			name:      "positive float64 param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": 4096.0} },
+			want:      4096,
+			wantOK:    true,
+		},
+		{
+			name:      "zero float64 param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": 0.0} },
+		},
+		{
+			name:      "positive json number param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": json.Number("4096")} },
+			want:      4096,
+			wantOK:    true,
+		},
+		{
+			name:      "invalid json number param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": json.Number("abc")} },
+		},
+		{
+			name:      "string param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": "4096"} },
+		},
+		{
+			name:      "max completion tokens param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_completion_tokens": 8192} },
+			want:      8192,
+			wantOK:    true,
+		},
+		{
+			name:      "max output tokens extra param",
+			configure: func(r *provider.ChatRequest) { r.ExtraParams = map[string]any{"max_output_tokens": 8192} },
+			want:      8192,
+			wantOK:    true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := isPositiveTokenValue(tt.value); got != tt.want {
-				t.Fatalf("isPositiveTokenValue(%v) = %v, want %v", tt.value, got, tt.want)
+			request := provider.ChatRequest{}
+			tt.configure(&request)
+			got, ok := explicitMaxTokensValue(request)
+			if ok != tt.wantOK {
+				t.Fatalf("explicitMaxTokensValue() ok = %v, want %v", ok, tt.wantOK)
+			}
+			if got != tt.want {
+				t.Fatalf("explicitMaxTokensValue() = %d, want %d", got, tt.want)
 			}
 		})
 	}

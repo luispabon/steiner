@@ -14,7 +14,7 @@ Context management runs on three lines of defense, in order of preference:
 
 Set `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens` to choose an explicit positive prompt-token soft trigger for one model. If it is absent, Steiner uses 70% of that model's effective context window. Zero or negative values are invalid, and a threshold at or above the final resolved context window is rejected. Native providers use estimated prompt tokens for this trigger. `claude_subscription` uses the reported prompt usage with its existing hysteresis and cap safety behavior.
 
-This is a soft compaction trigger, not the hard request-fit limit. Hard fitting still accounts for the completion reserve and estimator pad, so a request can require compaction before or after the soft trigger depending on the space needed for the request. When a model's advertised max output is at or near its context window, the completion reserve is clamped to the space left after the prompt, with a 4096-token floor, so the fit check does not force compaction that cannot help.
+This is a soft compaction trigger, not the hard request-fit limit. Hard fitting still accounts for the completion reserve and estimator pad, so a request can require compaction before or after the soft trigger depending on the space needed for the request. When a request carries no explicit max-tokens value, hard fitting caps the completion reserve at the space left after the prompt (minus the estimator pad), with a 4096-token floor. That cap chiefly matters when a model's advertised max output is close to or larger than its context window.
 
 ### Token estimation
 

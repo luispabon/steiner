@@ -152,9 +152,9 @@ func (m ModelTokenBudget) compactionThresholdTokens() int {
 
 func (m ModelTokenBudget) completionReserveForRequest(request provider.ChatRequest) int {
 	reserve := m.MaxCompletionTokens
-	if request.MaxTokens != nil && *request.MaxTokens > 0 {
-		if reserve <= 0 || *request.MaxTokens < reserve {
-			reserve = *request.MaxTokens
+	if explicit, ok := explicitMaxTokensValue(request); ok {
+		if reserve <= 0 || explicit < reserve {
+			reserve = explicit
 		}
 	}
 	return reserve
@@ -179,10 +179,13 @@ func (m ModelTokenBudget) completionReserveForCompaction(request provider.ChatRe
 // clampUnsetCompletionReserve limits the reserve to the space left after the
 // prompt, keeping at least minCompletionReserveTokens. It applies only when the
 // request has no explicit max-tokens value, because the advertised max output
-// is an upper bound and is not sent on the wire. Explicit values are never
-// clamped.
+// is an upper bound and is not sent on the wire. An explicit value is already
+// the reserve, so clamping it would under-reserve.
 func (m ModelTokenBudget) clampUnsetCompletionReserve(request provider.ChatRequest, promptTokens, reserve int) int {
-	if m.ContextSize <= 0 || reserve <= 0 || hasExplicitMaxTokens(request) {
+	if m.ContextSize <= 0 || reserve <= 0 {
+		return reserve
+	}
+	if _, ok := explicitMaxTokensValue(request); ok {
 		return reserve
 	}
 	floor := min(reserve, minCompletionReserveTokens)
@@ -190,33 +193,39 @@ func (m ModelTokenBudget) clampUnsetCompletionReserve(request provider.ChatReque
 	return min(reserve, available)
 }
 
-func hasExplicitMaxTokens(request provider.ChatRequest) bool {
+// explicitMaxTokensValue returns the first positive output-token limit carried
+// by the request: MaxTokens, then a max_tokens, max_completion_tokens, or
+// max_output_tokens entry in Params or ExtraParams.
+func explicitMaxTokensValue(request provider.ChatRequest) (int, bool) {
 	if request.MaxTokens != nil && *request.MaxTokens > 0 {
-		return true
+		return *request.MaxTokens, true
 	}
 	for _, params := range []map[string]any{request.Params, request.ExtraParams} {
 		for _, key := range explicitMaxTokenParamKeys {
-			if isPositiveTokenValue(params[key]) {
-				return true
+			if value, ok := positiveTokenValue(params[key]); ok {
+				return value, true
 			}
 		}
 	}
-	return false
+	return 0, false
 }
 
-func isPositiveTokenValue(value any) bool {
+func positiveTokenValue(value any) (int, bool) {
 	switch v := value.(type) {
 	case int:
-		return v > 0
+		return v, v > 0
 	case int64:
-		return v > 0
+		return int(v), v > 0
 	case float64:
-		return v > 0
+		return int(v), v > 0
 	case json.Number:
 		n, err := v.Float64()
-		return err == nil && n > 0
+		if err != nil {
+			return 0, false
+		}
+		return int(n), n > 0
 	}
-	return false
+	return 0, false
 }
 
 // String returns a compact human-readable representation of the fitted budget.
