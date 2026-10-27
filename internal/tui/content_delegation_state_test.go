@@ -23,3 +23,12 @@ func TestFormatCountdown(t *testing.T) {
 		})
 	}
 }
+
+func TestPreviewDelegationTextNormalizesControls(t *testing.T) {
+	t.Parallel()
+
+	const in = "a \x1b[0m b"
+	if got, want := previewDelegationText(in), "a b"; got != want {
+		t.Errorf("previewDelegationText(%q) = %q, want %q", in, got, want)
+	}
+}

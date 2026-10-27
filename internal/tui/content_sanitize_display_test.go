@@ -206,3 +206,50 @@ func TestDelegationHeaderOperationSanitizesChildText(t *testing.T) {
 		})
 	}
 }
+
+// TestDelegationHeaderOperationAdvisorFilesSanitizesBeforeTruncation puts an escape at the
+// truncation point. Sanitizing first gives "check the plan", cut to "check the …" before the
+// suffix. Truncating the raw text first left "check  the…" with a double space.
+func TestDelegationHeaderOperationAdvisorFilesSanitizesBeforeTruncation(t *testing.T) {
+	t.Parallel()
+
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	dd := &delegationDisplayState{
+		isAdvisor:       true,
+		advisorQuestion: "check \x1b[0m the plan",
+		advisorFiles:    []string{"a.go"},
+	}
+	got := b.renderDelegationHeaderOperation(dd, 20)
+	requireOnlySGR(t, "header operation", got)
+	if plain, want := stripANSI(got), "check the … · 1 file"; plain != want {
+		t.Errorf("header operation = %q, want %q", plain, want)
+	}
+}
+
+// TestDelegationHeaderOperationSanitizedEmptyFallsThrough checks that text which sanitizes to
+// empty acts like an empty field: the next fallback applies and no leading separator shows.
+func TestDelegationHeaderOperationSanitizedEmptyFallsThrough(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		dd   *delegationDisplayState
+		want string
+	}{
+		{name: "advisor question with files falls back to steering", dd: &delegationDisplayState{isAdvisor: true, advisorQuestion: "\x1b[0m\x07", advisorFiles: []string{"a.go"}}, want: "stronger-model steering · 1 file"},
+		{name: "advisor question falls back to current operation", dd: &delegationDisplayState{isAdvisor: true, advisorQuestion: "\x1b[0m\x07", currentOperation: "reading files"}, want: "reading files"},
+		{name: "current operation falls back to task preview", dd: &delegationDisplayState{status: "active", currentOperation: "\x1b[0m", taskPreview: "find files"}, want: "find files"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+			got := b.renderDelegationHeaderOperation(tt.dd, 40)
+			requireOnlySGR(t, "header operation", got)
+			if plain := stripANSI(got); plain != tt.want {
+				t.Errorf("header operation = %q, want %q", plain, tt.want)
+			}
+		})
+	}
+}

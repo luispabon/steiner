@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-
-	"github.com/luispabon/steiner/internal/output"
 )
 
 func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width int) string {
@@ -236,9 +234,9 @@ func delegationFailedMeta(dd *delegationDisplayState) []string {
 func (b *contentBuffer) renderDelegationHeaderOperation(dd *delegationDisplayState, width int) string {
 	var operation string
 	if dd.isAdvisor {
-		operation = strings.TrimSpace(dd.advisorQuestion)
+		operation = normalizedDisplayText(dd.advisorQuestion)
 		if operation == "" {
-			operation = strings.TrimSpace(dd.currentOperation)
+			operation = normalizedDisplayText(dd.currentOperation)
 		}
 		if operation == "" {
 			operation = "stronger-model steering"
@@ -251,17 +249,16 @@ func (b *contentBuffer) renderDelegationHeaderOperation(dd *delegationDisplaySta
 			operation = truncateRunes(operation, max(1, width-lipgloss.Width(suffix))) + suffix
 		}
 	} else {
-		operation = strings.TrimSpace(dd.currentOperation)
+		operation = normalizedDisplayText(dd.currentOperation)
 		switch {
 		case operation == "" && dd.queuedForSlot && dd.status == "active":
 			operation = "Waiting for slot"
 		case operation == "" && dd.cacheWaiting:
 			operation = "waiting for cache warm-up…"
 		case operation == "" && dd.status == "active":
-			operation = strings.TrimSpace(dd.taskPreview)
+			operation = normalizedDisplayText(dd.taskPreview)
 		}
 	}
-	operation = output.SanitizeDisplayText(normalizeDelegationText(operation))
 	if operation == "" {
 		return ""
 	}

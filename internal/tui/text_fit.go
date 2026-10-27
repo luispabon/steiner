@@ -32,8 +32,14 @@ func singleLineDisplayText(text string) string {
 	return singleLineReplacer.Replace(sanitized)
 }
 
+// normalizedDisplayText collapses whitespace, strips terminal controls, then collapses again so
+// removed escapes never leave double spaces and control separators never join words.
+func normalizedDisplayText(text string) string {
+	return normalizeDelegationText(output.SanitizeDisplayText(normalizeDelegationText(text)))
+}
+
 func truncateOverlayText(text string, width int) string {
-	text = output.SanitizeDisplayText(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
+	text = normalizedDisplayText(text)
 	if width <= 0 || text == "" {
 		return ""
 	}

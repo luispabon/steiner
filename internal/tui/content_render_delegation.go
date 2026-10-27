@@ -280,7 +280,7 @@ func (b *contentBuffer) renderDelegationOutput(dd *delegationDisplayState, width
 }
 
 func (b *contentBuffer) delegationOutputDuplicatesTranscript(dd *delegationDisplayState, outputText string) bool {
-	normalizedOutput := normalizeDelegationText(output.SanitizeDisplayText(outputText))
+	normalizedOutput := normalizedDisplayText(outputText)
 	if normalizedOutput == "" {
 		return true
 	}
@@ -289,7 +289,7 @@ func (b *contentBuffer) delegationOutputDuplicatesTranscript(dd *delegationDispl
 		if entry.kind != delegationTranscriptEntryAssistant {
 			continue
 		}
-		if normalizeDelegationText(output.SanitizeDisplayText(entry.body)) == normalizedOutput {
+		if normalizedDisplayText(entry.body) == normalizedOutput {
 			return true
 		}
 		break
