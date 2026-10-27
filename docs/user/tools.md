@@ -44,7 +44,7 @@ Set `raw_output: true` to skip this cleaning and pass bytes through without CRLF
 
 ### Artifacts
 
-When output is cut, the full output is saved as a private file at `.steiner/tmp/bash-output/<random>.log` in the working directory. `file_path` gives the path and `artifact_status` gives the outcome:
+When output is cut, the output is saved as a private file at `.steiner/tmp/bash-output/<random>.log` in the working directory. `file_path` gives the path and `artifact_status` gives the outcome:
 
 | Status | Meaning |
 |--------|---------|
