@@ -181,6 +181,26 @@ func TestDevLogParamsFor(t *testing.T) {
 			agentID:  "child-1",
 		},
 		{
+			name:     "bash artifact truncation is a tool warning",
+			event:    output.NewBashArtifactTruncatedEvent(2, "call-5", ".steiner/artifacts/call-5.txt", "warning: bash artifact truncated: partial output saved to .steiner/artifacts/call-5.txt"),
+			want:     true,
+			severity: devLogWarning,
+			source:   "tool",
+			message:  "partial output saved to",
+			callID:   "call-5",
+		},
+		{
+			name:     "scoped bash artifact truncation keeps agent id",
+			event:    output.NewBashArtifactTruncatedEvent(2, "call-6", "", "warning: bash artifact truncated; saved output is partial"),
+			scope:    scoped,
+			want:     true,
+			severity: devLogWarning,
+			source:   "tool",
+			message:  "saved output is partial",
+			agentID:  "child-1",
+			callID:   "call-6",
+		},
+		{
 			name:  "assistant chunk is not error-bearing",
 			event: output.NewAssistantChunkEventWithSource(1, "hello", ""),
 		},
@@ -217,5 +237,18 @@ func TestDevLogParamsFor(t *testing.T) {
 				t.Errorf("call id = %q, want %q", got.CallID, tc.callID)
 			}
 		})
+	}
+}
+
+func TestBashArtifactTruncatedDevLogRecordsAgentType(t *testing.T) {
+	t.Parallel()
+	event := output.NewBashArtifactTruncatedEvent(2, "call-6", "", "warning: bash artifact truncated; saved output is partial")
+	event.Scope = output.EventScope{AgentID: "child-1", AgentType: "explore"}
+	got, ok := devLogParamsFor(event)
+	if !ok {
+		t.Fatal("devLogParamsFor() ok = false, want true")
+	}
+	if got.AgentID != "child-1" || got.AgentType != "explore" {
+		t.Errorf("agent = %q/%q, want child-1/explore", got.AgentID, got.AgentType)
 	}
 }

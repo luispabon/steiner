@@ -35,6 +35,16 @@ type ToolCallFinishedEvent struct {
 	DelegationAdmission *DelegationAdmission `json:"delegation_admission,omitempty"`
 }
 
+// BashArtifactTruncatedEvent warns that a successful bash call's saved full
+// output hit the artifact size cap and dropped bytes. FilePath is empty when no
+// artifact path was recorded.
+type BashArtifactTruncatedEvent struct {
+	Turn     int    `json:"turn"`
+	CallID   string `json:"call_id,omitempty"`
+	FilePath string `json:"file_path,omitempty"`
+	Message  string `json:"message"`
+}
+
 // NewToolCallStartedEvent creates a new tool call started event.
 func NewToolCallStartedEvent(turn int, toolName, callID string, arguments map[string]any) Event {
 	return newEvent(EventTypeToolCallStarted, ToolCallStartedEvent{
@@ -75,4 +85,14 @@ func NewToolCallFinishedEventWithAdmission(turn int, toolName, callID, result st
 		payload.Error = err.Error()
 	}
 	return newEvent(EventTypeToolCallFinished, payload)
+}
+
+// NewBashArtifactTruncatedEvent creates a bash artifact truncation warning.
+func NewBashArtifactTruncatedEvent(turn int, callID, filePath, message string) Event {
+	return newEvent(EventTypeBashArtifactTruncated, BashArtifactTruncatedEvent{
+		Turn:     turn,
+		CallID:   callID,
+		FilePath: filePath,
+		Message:  message,
+	})
 }

@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"fmt"
+
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 func (p *turnProgressor) buildToolMessage(turn int, call provider.ToolCall, result any, err error, prior []Message) Message {
@@ -48,6 +51,11 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		}
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
 		p.emitToolFinished(turn, call, toolContent, nil, preview, normalizedResult.DelegationAdmission, emitFinished)
+		if emitFinished {
+			if event, ok := bashArtifactTruncatedEvent(turn, call, result); ok {
+				emitEvent(p.request.Events, event)
+			}
+		}
 	}
 	toolMessage := Message{
 		Role:       MessageRoleTool,
@@ -77,6 +85,26 @@ func resultValue(result any) any {
 		return execution.Value
 	}
 	return result
+}
+
+// bashArtifactTruncatedEvent builds the warning for a bash result whose
+// artifact size cap dropped bytes. It reports false for any other result.
+func bashArtifactTruncatedEvent(turn int, call provider.ToolCall, result any) (output.Event, bool) {
+	var res *builtin.BashResult
+	switch v := resultValue(result).(type) {
+	case *builtin.BashResult:
+		res = v
+	case builtin.BashResult:
+		res = &v
+	}
+	if res == nil || !res.ArtifactLimitHit {
+		return output.Event{}, false
+	}
+	message := "warning: bash artifact truncated; saved output is partial"
+	if res.FilePath != "" {
+		message = fmt.Sprintf("warning: bash artifact truncated: partial output saved to %s", res.FilePath)
+	}
+	return output.NewBashArtifactTruncatedEvent(turn, call.ID, res.FilePath, message), true
 }
 
 func workflowHandoffTransitionFromResult(result any) (*tool.WorkflowHandoffTransition, bool) {
