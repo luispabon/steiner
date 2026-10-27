@@ -303,8 +303,20 @@ func TestDelegationGroupFooterSingleLineSanitized(t *testing.T) {
 		t.Fatalf("stored group = %q, want the raw name kept", stored)
 	}
 	want, _ := render("a b c")
-	if stripANSI(got) != stripANSI(want) {
-		t.Errorf("group segment = %q, want %q", stripANSI(got), stripANSI(want))
+	// The footer is the last three lines of the segment: the bottom border,
+	// the title row with the group name, and the closing corner. Child rows
+	// carry elapsed time, so only the footer is compared.
+	footer := func(s string) string {
+		lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+		return strings.Join(lines[len(lines)-3:], "\n")
+	}
+	gotFooter := footer(got)
+	requireOnlySGR(t, "group footer", gotFooter)
+	if plain := stripANSI(gotFooter); !strings.Contains(plain, "a b c") {
+		t.Errorf("group footer = %q, want sanitized group name \"a b c\"", plain)
+	}
+	if stripANSI(gotFooter) != stripANSI(footer(want)) {
+		t.Errorf("group footer = %q, want %q", stripANSI(gotFooter), stripANSI(footer(want)))
 	}
 }
 
