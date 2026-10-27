@@ -12,8 +12,8 @@ import (
 const normalPromptCompactionThreshold = 0.70
 
 // minCompletionReserveTokens is the floor for a clamped completion reserve. It
-// matches the Anthropic wire default and provider defaultMaxOutputTokens.
-const minCompletionReserveTokens = 4096
+// is the max_tokens the Anthropic wire sends when a request sets none.
+const minCompletionReserveTokens = provider.DefaultMaxOutputTokens
 
 // explicitMaxTokenParamKeys are the params and extra-params keys that set an
 // explicit output token limit on the wire.
