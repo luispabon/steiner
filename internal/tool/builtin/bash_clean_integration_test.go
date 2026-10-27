@@ -3,8 +3,6 @@ package builtin
 import (
 	"context"
 	"encoding/json"
-	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -15,8 +13,9 @@ import (
 
 func runBashForTest(t *testing.T, input map[string]any) *BashResult {
 	t.Helper()
-	policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
-	toolDef := NewBashTool(Env{PathPolicy: &policy})
+	dir := t.TempDir()
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	toolDef := NewBashTool(Env{WorkDir: dir, PathPolicy: &policy})
 	resI, err := toolDef.Handler(withUnsandboxedWrapper(context.Background()), input)
 	if err != nil {
 		t.Fatalf("handler: %v", err)
@@ -59,7 +58,7 @@ func TestBashToolBudgetKeepsTailAndMarker(t *testing.T) {
 		if len(res.Output) > budget || !res.Truncated || !utf8.ValidString(res.Output) {
 			t.Errorf("raw=%v: len=%d truncated=%v valid=%v", raw, len(res.Output), res.Truncated, utf8.ValidString(res.Output))
 		}
-		if !strings.HasSuffix(res.Output, "LASTLINE\n") || !strings.Contains(res.Output, "<truncated output") {
+		if !strings.HasSuffix(res.Output, "LASTLINE\n") || !strings.Contains(res.Output, "bytes omitted ...]") {
 			t.Errorf("raw=%v: Output missing tail or markers: %q", raw, res.Output)
 		}
 		if res.ExitCode != 0 {
@@ -90,40 +89,6 @@ func TestBashToolTimeoutKeepsPartialOutput(t *testing.T) {
 	for _, want := range []string{"partial", "[stderr]\nperr", "context deadline exceeded"} {
 		if !strings.Contains(res.Output, want) {
 			t.Errorf("Output = %q, want to contain %q", res.Output, want)
-		}
-	}
-}
-
-var completeTruncMarkerRE = regexp.MustCompile(`<truncated output shown=\d+ total=\d+>`)
-
-func TestFitBashOutputBudget(t *testing.T) {
-	t.Parallel()
-	bodies := []string{
-		strings.Repeat("é", 500),
-		"head\n" + strings.Repeat("x", 300) + "\n[123456 bytes omitted]\n" + strings.Repeat("y", 300),
-	}
-	for _, body := range bodies {
-		for budget := 1; budget < 1200; budget += 7 {
-			out, cut := fitBashOutput(body, "\n[end]", budget)
-			if len(out) > budget || !utf8.ValidString(out) {
-				t.Fatalf("budget %d: len=%d valid=%v", budget, len(out), utf8.ValidString(out))
-			}
-			if len(body)+6 > budget && !cut {
-				t.Fatalf("budget %d: cut = false for oversized body", budget)
-			}
-			// A marker is either complete or absent; labels likewise.
-			if strings.Count(out, "<truncated") != len(completeTruncMarkerRE.FindAllString(out, -1)) {
-				t.Fatalf("budget %d: partial truncation marker in %q", budget, out)
-			}
-			if strings.Count(out, "bytes omitted") != len(bashOmittedLabelRE.FindAllString(out, -1)) {
-				t.Fatalf("budget %d: partial omission label in %q", budget, out)
-			}
-			if strings.Contains(out, "<truncated") {
-				m := regexp.MustCompile(`shown=(\d+) total=(\d+)`).FindStringSubmatch(out)
-				if m[2] != strconv.Itoa(len(body)) {
-					t.Fatalf("budget %d: marker total %s, want %d", budget, m[2], len(body))
-				}
-			}
 		}
 	}
 }
@@ -174,41 +139,6 @@ func TestBashToolTinyBudgetTimeoutMetadata(t *testing.T) {
 		})
 		if !res.TimedOut || res.ExitCode == 0 || res.Message == "" || len(res.Output) > budget {
 			t.Errorf("budget %d: timedOut=%v exit=%d truncated=%v len=%d", budget, res.TimedOut, res.ExitCode, res.Truncated, len(res.Output))
-		}
-		if strings.Contains(res.Output, "<truncated") && !completeTruncMarkerRE.MatchString(res.Output) {
-			t.Errorf("budget %d: partial marker %q", budget, res.Output)
-		}
-	}
-}
-
-// TestFitBashOutputExhaustiveSmall covers every small body and budget,
-// including empty bodies and notices that must be dropped.
-func TestFitBashOutputExhaustiveSmall(t *testing.T) {
-	t.Parallel()
-	shownTotal := regexp.MustCompile(`shown=(\d+) total=(\d+)`)
-	bodies := []string{"", "a", "ab", "é", "abc\n[5 bytes omitted]\nxyz", strings.Repeat("世", 12), strings.Repeat("x", 90)}
-	suffixes := []string{"", "\n[n]", "\n[bash session: context deadline exceeded; output above is partial]"}
-	for _, body := range bodies {
-		for _, suffix := range suffixes {
-			for budget := 1; budget <= 160; budget++ {
-				out, _ := fitBashOutput(body, suffix, budget)
-				if len(out) > budget || !utf8.ValidString(out) {
-					t.Fatalf("body %q suffix %q budget %d: len=%d valid=%v", body, suffix, budget, len(out), utf8.ValidString(out))
-				}
-				if suffix != "" && strings.Count(out, suffix) > 1 {
-					t.Fatalf("body %q budget %d: suffix duplicated in %q", body, budget, out)
-				}
-				if strings.Count(out, "<truncated") != len(completeTruncMarkerRE.FindAllString(out, -1)) {
-					t.Fatalf("body %q budget %d: partial marker in %q", body, budget, out)
-				}
-				if m := shownTotal.FindStringSubmatch(out); m != nil {
-					shown, _ := strconv.Atoi(m[1])
-					total, _ := strconv.Atoi(m[2])
-					if shown > total || total != len(body) {
-						t.Fatalf("body %q budget %d: shown=%d total=%d", body, budget, shown, total)
-					}
-				}
-			}
 		}
 	}
 }

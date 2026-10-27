@@ -3,24 +3,31 @@ package builtin
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
 
 // BashResult is the result from a bash tool call.
 type BashResult struct {
-	ExitCode  int  `json:"exit_code,omitempty"`
-	Truncated bool `json:"truncated,omitempty"`
-	TimedOut  bool `json:"timed_out,omitempty"`
-	// Message states why the result is partial (timeout or session error).
-	// It survives output budgets too small to hold the inline notice.
-	Message string `json:"message,omitempty"`
-	Output  string `json:"output"`
+	// FilePath is the workDir-relative path of the saved full-output artifact.
+	FilePath string `json:"file_path,omitempty"`
+	// ArtifactStatus is none, complete, partial or failed.
+	ArtifactStatus string `json:"artifact_status"`
+	// ArtifactLimitHit reports that the artifact size cap dropped bytes the
+	// capture had kept.
+	ArtifactLimitHit bool `json:"artifact_limit_hit,omitempty"`
+	TimedOut         bool `json:"timed_out,omitempty"`
+	// Message states why the result is partial (timeout or session error),
+	// per-stream preview omissions and the artifact outcome. It survives
+	// output budgets too small to hold the inline notice.
+	Message   string `json:"message,omitempty"`
+	ExitCode  int    `json:"exit_code,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Output    string `json:"output"`
 }
 
 // BashExitCode returns the exit code. Implements tool.BashDenialResult.
@@ -69,7 +76,7 @@ func NewBashTool(env Env) tool.ToolDef {
 			resolved, ok := tool.ResolvedSandboxFrom(ctx)
 			if !ok {
 				// Fail closed: bash was invoked outside the execution pipeline.
-				return &BashResult{ExitCode: 255, Output: "sandbox wrapper not resolved; bash invoked outside execution pipeline"}, nil
+				return &BashResult{ArtifactStatus: bashArtifactNone, ExitCode: 255, Output: "sandbox wrapper not resolved; bash invoked outside execution pipeline"}, nil
 			}
 
 			session := NewBashSession()
@@ -81,7 +88,6 @@ func NewBashTool(env Env) tool.ToolDef {
 			defer func() { _ = session.Close() }()
 
 			stdoutCap, stderrCap, exitCode, timedOut, execErr := session.execute(execCtx, command)
-			body, omitted := combineBashStreams(stdoutCap, stderrCap, in.RawOutput)
 
 			// A timeout or session error is a partial result: keep whatever
 			// output was captured and say why it is incomplete.
@@ -94,18 +100,45 @@ func NewBashTool(env Env) tool.ToolDef {
 				notice = fmt.Sprintf("[bash session: %v; output above is partial]", cmp.Or(execCtx.Err(), context.Canceled))
 			}
 			message := notice
-			if notice != "" && body != "" {
-				notice = "\n" + notice
+			// The notice is dropped from the output (never from Message) when it
+			// would take more than half the budget.
+			suffix := ""
+			if notice != "" && len(notice)+1 <= in.MaxOutputBytes/2 {
+				suffix = "\n" + notice
 			}
-			out, cut := fitBashOutput(body, notice, in.MaxOutputBytes)
 
-			return &BashResult{
-				ExitCode:  exitCode,
-				Truncated: omitted > 0 || cut || execErr != nil,
-				TimedOut:  timedOut,
-				Message:   message,
-				Output:    out,
-			}, nil
+			stdout, stdoutGap := bashStreamForFormat(stdoutCap, in.RawOutput)
+			stderr, stderrGap := bashStreamForFormat(stderrCap, in.RawOutput)
+			fmtIn := bashOutInput{
+				Stdout: stdout, Stderr: stderr, ExitCode: exitCode,
+				InlineLimit: in.MaxOutputBytes - len(suffix),
+			}
+			preview := formatBashPreview(fmtIn)
+			out := preview.Text
+			if out == "" {
+				suffix = strings.TrimPrefix(suffix, "\n")
+			}
+			out += suffix
+
+			res := &BashResult{
+				ArtifactStatus: bashArtifactNone,
+				ExitCode:       exitCode,
+				Truncated:      !preview.Complete || execErr != nil,
+				TimedOut:       timedOut,
+				Output:         out,
+			}
+			var parts []string
+			if message != "" {
+				parts = append(parts, message)
+			}
+			if !preview.Complete {
+				parts = append(parts, bashPreviewOmissionNote(preview))
+				parts = append(parts, saveBashResultArtifact(env.WorkDir, fmtIn, bashArtifactCause{
+					captureGap: stdoutGap + stderrGap, timedOut: timedOut, execErr: execErr != nil,
+				}, res))
+			}
+			res.Message = strings.Join(parts, " ")
+			return res, nil
 		},
 	}
 }
@@ -123,104 +156,91 @@ func bashErrorCause(err error) string {
 	return msg
 }
 
-// combineBashStreams renders stdout followed by labelled stderr. omitted counts
-// the bytes capture or cleaning dropped (each drop is also labelled in the
-// text). Stdout and stderr bytes are kept exactly (modulo cleaning).
-func combineBashStreams(stdout, stderr streamCapture, raw bool) (body string, omitted int64) {
-	so, soOmitted := renderBashStream(stdout, raw)
-	se, seOmitted := renderBashStream(stderr, raw)
-	body = so
-	if stderr.TotalBytes > 0 {
-		if body != "" && !strings.HasSuffix(body, "\n") {
-			body += "\n"
-		}
-		body += "[stderr]\n" + se
-	}
-	return body, soOmitted + seOmitted
-}
+const (
+	bashArtifactNone     = "none"
+	bashArtifactComplete = "complete"
+	bashArtifactPartial  = "partial"
+	bashArtifactFailed   = "failed"
+)
 
-func bashOmittedLabel(n int64) string {
-	return fmt.Sprintf("\n[%d bytes omitted]\n", n)
-}
-
-// renderBashStream turns one capture into text. Head and tail are cleaned
-// independently (unless raw) and a label reports the omitted middle plus any
-// bytes cleaning discarded at the cut boundaries.
-func renderBashStream(c streamCapture, raw bool) (text string, omitted int64) {
-	gap := c.TotalBytes - int64(len(c.Head)) - int64(len(c.Tail))
-	if gap <= 0 {
+// bashStreamForFormat turns a capture into formatter input. A contiguous
+// capture (no gap) is cleaned as one text; otherwise head and tail are cleaned
+// independently with cut flags and the bytes the cleaner skipped join the
+// omitted count. Raw output bypasses the cleaner. gap is the capture loss.
+func bashStreamForFormat(c streamCapture, raw bool) (s bashOutStream, gap int64) {
+	gap = max(c.TotalBytes-int64(len(c.Head))-int64(len(c.Tail)), 0)
+	if gap == 0 {
 		joined := append(append([]byte(nil), c.Head...), c.Tail...)
 		if raw {
-			return string(joined), 0
+			return bashOutStream{Head: joined}, 0
 		}
-		text, _ = cleanBashText(joined, false, false)
-		return text, 0
+		text, skipped := cleanBashText(joined, false, false)
+		return bashOutStream{Head: []byte(text), Omitted: int64(skipped)}, 0
 	}
 	if raw {
-		head := trimIncompleteUTF8Suffix(c.Head)
-		tail := c.Tail
-		for len(tail) > 0 && !utf8.RuneStart(tail[0]) {
-			tail = tail[1:]
-		}
-		dropped := gap + int64(len(c.Head)-len(head)) + int64(len(c.Tail)-len(tail))
-		return string(head) + bashOmittedLabel(dropped) + string(tail), dropped
+		return bashOutStream{Head: c.Head, Tail: c.Tail, Omitted: gap}, gap
 	}
 	head, skippedHead := cleanBashText(c.Head, false, true)
 	tail, skippedTail := cleanBashText(c.Tail, true, false)
-	omitted = gap + int64(skippedHead) + int64(skippedTail)
-	return head + bashOmittedLabel(omitted) + tail, omitted
+	return bashOutStream{Head: []byte(head), Tail: []byte(tail), Omitted: gap + int64(skippedHead) + int64(skippedTail)}, gap
 }
 
-var bashOmittedLabelRE = regexp.MustCompile(`\n\[\d+ bytes omitted\]\n`)
-
-// fitBashOutput joins body and suffix within budget bytes, marker included.
-// An oversized body keeps a 30% head and 70% tail (the actual end of the
-// output) around a complete truncation marker whose numbers count rendered
-// body bytes; cuts are UTF-8 safe and never slice an omission label. A
-// suffix larger than half the budget is dropped (callers also report it in
-// metadata). If the marker cannot fit, only the tail is kept, unmarked, and
-// cut is true.
-func fitBashOutput(body, suffix string, budget int) (out string, cut bool) {
-	if budget <= 0 || len(body)+len(suffix) <= budget {
-		return body + suffix, false
+// bashPreviewOmissionNote states per-stream omissions; the inline marker may
+// not fit a small budget.
+func bashPreviewOmissionNote(p bashOutPreview) string {
+	var parts []string
+	if p.StdoutOmitted > 0 {
+		parts = append(parts, fmt.Sprintf("stdout %d bytes", p.StdoutOmitted))
 	}
-	if len(suffix) > budget/2 {
-		suffix = ""
-		if len(body) <= budget {
-			return body, false
-		}
+	if p.StderrOmitted > 0 {
+		parts = append(parts, fmt.Sprintf("stderr %d bytes", p.StderrOmitted))
 	}
-	room := budget - len(suffix)
-	spans := bashOmittedLabelRE.FindAllStringIndex(body, -1)
-	// Digit counts of the final marker never exceed those of this one.
-	maxMarker := "\n" + tool.TruncationMarker(len(body), len(body)) + "\n"
-	avail := room - len(maxMarker)
-	if avail < 0 {
-		return bashTailFrom(body, len(body)-room, spans) + suffix, true
-	}
-	headN := avail * 3 / 10
-	for _, m := range spans {
-		if m[0] < headN && headN < m[1] {
-			headN = m[0]
-		}
-	}
-	head := trimIncompleteUTF8SuffixString(body[:headN])
-	tail := bashTailFrom(body, max(len(body)-(avail-headN), len(head)), spans)
-	marker := "\n" + tool.TruncationMarker(len(head)+len(tail), len(body)) + "\n"
-	return head + marker + tail + suffix, true
+	return "Output preview omits " + strings.Join(parts, ", ") + "."
 }
 
-// bashTailFrom returns body[start:], moved forward to a rune boundary and
-// past any omission label that start would slice.
-func bashTailFrom(body string, start int, spans [][]int) string {
-	start = max(start, 0)
-	for _, m := range spans {
-		if m[0] < start && start < m[1] {
-			start = m[1]
-		}
+type bashArtifactCause struct {
+	captureGap int64
+	timedOut   bool
+	execErr    bool
+}
+
+// saveBashResultArtifact builds the artifact, saves it and records status,
+// path and limit flag on res. It returns the message sentence. A save failure
+// only sets the failed status; the command outcome is unchanged.
+func saveBashResultArtifact(workDir string, in bashOutInput, cause bashArtifactCause, res *BashResult) string {
+	art := formatBashArtifact(in)
+	limitHit := art.StdoutOmitted+art.StderrOmitted > in.Stdout.Omitted+in.Stderr.Omitted
+	var path string
+	var err error
+	if workDir == "" {
+		err = errors.New("work directory is not set")
+	} else {
+		path, err = saveBashArtifact(workDir, []byte(art.Body))
 	}
-	for start < len(body) && !utf8.RuneStart(body[start]) {
-		start++
+	if err != nil {
+		res.ArtifactStatus = bashArtifactFailed
+		return fmt.Sprintf("Full output was not saved (artifact_status failed): %v.", err)
 	}
-	return body[start:]
+	res.FilePath = path
+	res.ArtifactLimitHit = limitHit
+	var reasons []string
+	if cause.captureGap > 0 {
+		reasons = append(reasons, fmt.Sprintf("capture dropped %d bytes", cause.captureGap))
+	}
+	if limitHit {
+		reasons = append(reasons, fmt.Sprintf("artifact size cap of %d bytes cut output", bashArtifactMaxBytes))
+	}
+	if cause.timedOut || cause.execErr {
+		reasons = append(reasons, "command did not finish normally")
+	}
+	clip := fmt.Sprintf("The read tool clips lines longer than %d characters, so very long lines cannot be fully read back.", readMaxLineRunes)
+	if len(reasons) == 0 && art.Complete {
+		res.ArtifactStatus = bashArtifactComplete
+		return fmt.Sprintf("Full output saved to %s (artifact_status complete); page it with read offset/limit. %s", path, clip)
+	}
+	res.ArtifactStatus = bashArtifactPartial
+	if len(reasons) == 0 {
+		reasons = append(reasons, "artifact omits bytes")
+	}
+	return fmt.Sprintf("Partial output saved to %s (artifact_status partial: %s); the full output cannot be recovered. %s", path, strings.Join(reasons, "; "), clip)
 }
