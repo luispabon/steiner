@@ -4,15 +4,12 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/tool"
 )
 
 func (s *ContextStateManager) observeToolResult(turn int, toolName string, input map[string]any, content string) string {
 	s.ensureDefaults()
-	base := &s.baseContextManager
-	shaped := base.observeToolResult(turn, toolName, input, content)
-	s.fileTracker.ObserveToolResult(turn, toolName, input, shaped)
-	return shaped
+	s.fileTracker.ObserveToolResult(turn, toolName, input, content)
+	return content
 }
 
 func (s *ContextStateManager) observeFreshToolResult(turn int, toolName string, input map[string]any, content string, prior []Message) string {
@@ -21,13 +18,12 @@ func (s *ContextStateManager) observeFreshToolResult(turn int, toolName string, 
 		return s.observeToolResult(turn, toolName, input, content)
 	}
 
-	shaped := tool.ShapeIngestedToolResult(toolName, content)
 	if !s.readAnnotations {
-		s.fileTracker.RecordRead(turn, shaped)
-		return shaped
+		s.fileTracker.RecordRead(turn, content)
+		return content
 	}
 
-	finalContent, outcome := dedupReadResult(shaped, prior)
+	finalContent, outcome := dedupReadResult(content, prior)
 	s.fileTracker.RecordRead(turn, finalContent)
 	if outcome.Action == "annotated" {
 		if result, ok := parseReadResult(finalContent); ok {
