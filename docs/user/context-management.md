@@ -12,7 +12,7 @@ Context management runs on three lines of defense, in order of preference:
 
 ### Tool output bounds
 
-Tools bound their own output, and Steiner does not strip or rewrite tool text when results enter the conversation. A `bash` result shows a preview within `max_output_bytes`. When output is cut, the full output is kept in a private artifact file that can be paged with `read`. A `grep` result returns one page at a time with a `next_offset` to continue. See [Bash output](tools.md#bash-output) and [Grep output](tools.md#grep-output). If the artifact cap drops captured output, Steiner shows a nonfatal warning; the command still succeeds.
+Tools bound their own output, and Steiner does not strip or rewrite tool text when results enter the conversation. A `bash` result shows a preview within `max_output_bytes`. When output is cut, it is saved to a private artifact file that can be paged with `read`. The artifact may be partial, and `read` cannot recover every artifact (see [Artifacts](tools.md#artifacts)). A `grep` result returns one page at a time with a `next_offset` to continue. See [Bash output](tools.md#bash-output) and [Grep output](tools.md#grep-output). If the artifact cap drops captured output, Steiner shows a nonfatal warning. The warning does not change the command outcome: a nonzero exit stays nonzero, and the tool call remains successful.
 
 ### Per-model compaction threshold
 
