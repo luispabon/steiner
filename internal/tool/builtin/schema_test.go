@@ -173,6 +173,20 @@ func TestBashSchema(t *testing.T) {
 	if got := ts["maximum"]; got != defaultBashTimeoutCapSeconds {
 		t.Errorf("timeout_seconds maximum = %v, want %d", got, defaultBashTimeoutCapSeconds)
 	}
+	mo, _ := props["max_output_bytes"].(map[string]any)
+	if mo == nil {
+		t.Fatal("missing max_output_bytes property")
+	}
+	if mo["default"] != 12288 || mo["maximum"] != 32768 {
+		t.Errorf("max_output_bytes default/maximum = %v/%v, want 12288/32768", mo["default"], mo["maximum"])
+	}
+	ro, _ := props["raw_output"].(map[string]any)
+	if ro == nil || ro["type"] != "boolean" {
+		t.Errorf("raw_output property = %v, want boolean", ro)
+	}
+	if _, ok := props["max_output_chars"]; ok {
+		t.Error("max_output_chars should not be in schema")
+	}
 }
 
 func TestBashSchemaConfiguredCap(t *testing.T) {

@@ -144,14 +144,17 @@ func TestNormalizeLS(t *testing.T) {
 }
 
 func TestNormalizeBash(t *testing.T) {
-	t.Run("defaults timeout and max_output_chars", func(t *testing.T) {
+	t.Run("defaults timeout and max_output_bytes", func(t *testing.T) {
 		in := &BashInput{}
 		normalizeBash(in, defaultBashTimeoutCapSeconds)
 		if in.TimeoutSeconds != defaultBashTimeoutSeconds {
 			t.Errorf("TimeoutSeconds = %d, want %d", in.TimeoutSeconds, defaultBashTimeoutSeconds)
 		}
-		if in.MaxOutputChars != defaultBashMaxOutputChars {
-			t.Errorf("MaxOutputChars = %d, want %d", in.MaxOutputChars, defaultBashMaxOutputChars)
+		if in.MaxOutputBytes != 12288 {
+			t.Errorf("MaxOutputBytes = %d, want 12288", in.MaxOutputBytes)
+		}
+		if in.RawOutput {
+			t.Error("RawOutput = true, want false")
 		}
 	})
 
@@ -211,27 +214,27 @@ func TestNormalizeBash(t *testing.T) {
 		}
 	})
 
-	t.Run("caps max_output_chars at maxBashMaxOutputChars", func(t *testing.T) {
-		in := &BashInput{MaxOutputChars: 500000}
+	t.Run("caps max_output_bytes at maxBashMaxOutputBytes", func(t *testing.T) {
+		in := &BashInput{MaxOutputBytes: 500000}
 		normalizeBash(in, defaultBashTimeoutCapSeconds)
-		if in.MaxOutputChars != maxBashMaxOutputChars {
-			t.Errorf("MaxOutputChars = %d, want %d", in.MaxOutputChars, maxBashMaxOutputChars)
+		if in.MaxOutputBytes != 32768 {
+			t.Errorf("MaxOutputBytes = %d, want 32768", in.MaxOutputBytes)
 		}
 	})
 
 	t.Run("preserves valid values", func(t *testing.T) {
-		in := &BashInput{TimeoutSeconds: 10, MaxOutputChars: 5000}
+		in := &BashInput{TimeoutSeconds: 10, MaxOutputBytes: 5000, RawOutput: true}
 		normalizeBash(in, defaultBashTimeoutCapSeconds)
 		if in.TimeoutSeconds != 10 {
 			t.Errorf("TimeoutSeconds = %d, want 10", in.TimeoutSeconds)
 		}
-		if in.MaxOutputChars != 5000 {
-			t.Errorf("MaxOutputChars = %d, want 5000", in.MaxOutputChars)
+		if in.MaxOutputBytes != 5000 || !in.RawOutput {
+			t.Errorf("MaxOutputBytes, RawOutput = %d, %v, want 5000, true", in.MaxOutputBytes, in.RawOutput)
 		}
 	})
 
 	t.Run("corrects zero timeout to default", func(t *testing.T) {
-		in := &BashInput{TimeoutSeconds: 0, MaxOutputChars: 100}
+		in := &BashInput{TimeoutSeconds: 0, MaxOutputBytes: 100}
 		normalizeBash(in, defaultBashTimeoutCapSeconds)
 		if in.TimeoutSeconds != defaultBashTimeoutSeconds {
 			t.Errorf("TimeoutSeconds = %d, want %d", in.TimeoutSeconds, defaultBashTimeoutSeconds)

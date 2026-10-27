@@ -75,7 +75,8 @@ type BashInput struct {
 	Command        string `json:"command"`
 	CWD            string `json:"cwd,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
-	MaxOutputChars int    `json:"max_output_chars,omitempty"`
+	MaxOutputBytes int    `json:"max_output_bytes,omitempty"`
+	RawOutput      bool   `json:"raw_output,omitempty"`
 }
 
 // FetchURLInput is the typed input for the fetch_url tool.
@@ -109,8 +110,8 @@ const (
 	// programmatically constructed Env cap is non-positive or not a whole
 	// number of seconds.
 	defaultBashTimeoutCapSeconds = 120
-	defaultBashMaxOutputChars    = 30000
-	maxBashMaxOutputChars        = 100000
+	defaultBashMaxOutputBytes    = 12288
+	maxBashMaxOutputBytes        = 32768
 	defaultFetchURLMaxSize       = 10 << 20
 	// fetchRawText reads up to MaxSize+1 bytes into memory. An opted-in 32 MiB
 	// fetch therefore holds about 32 MiB plus saveFetchedContent's copies.
@@ -188,10 +189,10 @@ func normalizeBash(in *BashInput, maxTimeoutSeconds int) {
 		in.TimeoutSeconds = defaultBashTimeoutSeconds
 	}
 	in.TimeoutSeconds = min(in.TimeoutSeconds, maxTimeoutSeconds)
-	if in.MaxOutputChars <= 0 {
-		in.MaxOutputChars = defaultBashMaxOutputChars
+	if in.MaxOutputBytes <= 0 {
+		in.MaxOutputBytes = defaultBashMaxOutputBytes
 	}
-	in.MaxOutputChars = min(in.MaxOutputChars, maxBashMaxOutputChars)
+	in.MaxOutputBytes = min(in.MaxOutputBytes, maxBashMaxOutputBytes)
 }
 
 // normalizeDisplayFile applies defaults and caps to display_file input.

@@ -98,11 +98,11 @@ func NewBashTool(env Env) tool.ToolDef {
 				output.WriteString(stderr)
 			}
 
-			// Apply the caller-specified max_output_chars cap on the combined output.
+			// Apply the caller-specified max_output_bytes cap on the combined output.
 			combined := output.String()
 			originalLen := len(combined)
-			if in.MaxOutputChars > 0 && len(combined) > in.MaxOutputChars {
-				combined = trimIncompleteUTF8SuffixString(combined[:in.MaxOutputChars])
+			if in.MaxOutputBytes > 0 && len(combined) > in.MaxOutputBytes {
+				combined = trimIncompleteUTF8SuffixString(combined[:in.MaxOutputBytes])
 				truncated = true
 				// Append truncation marker to indicate the cut
 				combined = combined + "\n" + tool.TruncationMarker(len(combined), originalLen)
