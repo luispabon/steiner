@@ -324,3 +324,83 @@ func TestBashArtifactFormatCapAndTiny(t *testing.T) {
 		}
 	}
 }
+
+func TestBashPreviewNoLabelReserveWithoutStderr(t *testing.T) {
+	// Stdout is huge, stderr tiny at the tail: at limit 40 the label reserve
+	// leaves no room for stderr, so the full limit must go to stdout.
+	in := bashOutInput{Stdout: bashOutS(strings.Repeat("Q", 300)), Stderr: bashOutS(strings.Repeat("Z", 300)), InlineLimit: 40}
+	p := formatBashPreview(in)
+	if len(p.Text) > 40 || strings.Contains(p.Text, "[stderr]") && !strings.Contains(p.Text, "Z") {
+		t.Fatalf("orphan label: %q", p.Text)
+	}
+	if p.StdoutOmitted != int64(300-strings.Count(p.Text, "Q")) || p.StderrOmitted != int64(300-strings.Count(p.Text, "Z")) {
+		t.Fatalf("counts %+v for %q", p, p.Text)
+	}
+	// Sweep: whenever no Z is shown, stdout must use the capacity left by the
+	// marker, i.e. the text is within one marker-digit byte of the limit.
+	for limit := 31; limit <= 80; limit++ {
+		in.InlineLimit = limit
+		p := formatBashPreview(in)
+		if strings.Contains(p.Text, "Z") {
+			continue
+		}
+		if strings.Contains(p.Text, "[stderr]") {
+			t.Fatalf("limit %d: orphan label %q", limit, p.Text)
+		}
+		if len(p.Text) < limit-1 {
+			t.Fatalf("limit %d: unused capacity, len %d %q", limit, len(p.Text), p.Text)
+		}
+	}
+}
+
+func TestBashPreviewNonzeroNoOrphanLabel(t *testing.T) {
+	for limit := 0; limit <= 60; limit++ {
+		in := bashOutInput{Stdout: bashOutS(strings.Repeat("Q", 300)), Stderr: bashOutS(strings.Repeat("Z", 300)), ExitCode: 1, InlineLimit: limit}
+		p := formatBashPreview(in)
+		if len(p.Text) > limit {
+			t.Fatalf("limit %d: len %d", limit, len(p.Text))
+		}
+		if strings.Contains(p.Text, "[stderr]\n") && !strings.Contains(p.Text, "Z") && !strings.HasSuffix(p.Text, "bytes omitted ...]\n") {
+			t.Fatalf("limit %d: orphan label %q", limit, p.Text)
+		}
+		if p.StdoutOmitted != int64(300-strings.Count(p.Text, "Q")) || p.StderrOmitted != int64(300-strings.Count(p.Text, "Z")) {
+			t.Fatalf("limit %d: counts %+v for %q", limit, p, p.Text)
+		}
+	}
+	// Label alone (limit 9) must not appear; stdout gets the whole limit.
+	p := formatBashPreview(bashOutInput{Stdout: bashOutS("abc"), Stderr: bashOutS("ERRORS"), ExitCode: 1, InlineLimit: 9})
+	if p.Text != "abc" || p.StdoutOmitted != 0 || p.StderrOmitted != 6 || p.Complete {
+		t.Fatalf("%q %+v", p.Text, p)
+	}
+}
+
+func TestBashArtifactTinyLimitEmptyStreams(t *testing.T) {
+	for limit := 1; limit < 19; limit++ {
+		a := formatBashArtifact(bashOutInput{ArtifactLimit: limit})
+		if a.Body != "" || a.Complete || a.StdoutOmitted != 0 || a.StderrOmitted != 0 {
+			t.Fatalf("limit %d: %+v", limit, a)
+		}
+	}
+	a := formatBashArtifact(bashOutInput{ArtifactLimit: 19})
+	if a.Body != "[stdout]\n\n[stderr]\n" || !a.Complete {
+		t.Fatalf("limit 19: %+v", a)
+	}
+}
+
+func TestBashPreviewFourByteRuneBoundaries(t *testing.T) {
+	const r = "\U0001F600" // f0 9f 98 80
+	s := strings.Repeat("x", 7) + strings.Repeat(r, 20) + strings.Repeat("y", 7)
+	// Contiguous Head/Tail split at every byte, including inside the rune.
+	for split := 0; split <= len(s); split++ {
+		in := bashOutStream{Head: []byte(s[:split]), Tail: []byte(s[split:])}
+		if p := formatBashPreview(bashOutInput{Stdout: in, InlineLimit: 1000}); p.Text != s || !p.Complete {
+			t.Fatalf("split %d: %q", split, p.Text)
+		}
+		for limit := 30; limit < 90; limit++ {
+			p := formatBashPreview(bashOutInput{Stdout: in, InlineLimit: limit})
+			if len(p.Text) > limit || !utf8.ValidString(p.Text) {
+				t.Fatalf("split %d limit %d: len=%d valid=%v", split, limit, len(p.Text), utf8.ValidString(p.Text))
+			}
+		}
+	}
+}

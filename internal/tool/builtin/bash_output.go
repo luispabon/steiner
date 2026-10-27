@@ -64,7 +64,9 @@ type bashOutPreview struct {
 
 // bashOutArtifact is the artifact body with labeled [stdout] and [stderr]
 // sections. Complete is true only when Body holds every byte of both streams.
-// Omission fields have the same meaning as in bashOutPreview.
+// Omission fields have the same meaning as in bashOutPreview. If the limit is
+// below the length of the required labels and separator, Body is empty, the
+// labels are absent and Complete is false even when both streams are empty.
 type bashOutArtifact struct {
 	Body          string
 	Complete      bool
@@ -295,6 +297,13 @@ func formatBashPreview(in bashOutInput) bashOutPreview {
 		// Reserve the label and a possible separator newline.
 		s := bashOutSelect(c.v, limit-len(bashOutStderrLabel)-1)
 		text, keptOut, keptErr := c.render(s)
+		if keptErr == 0 {
+			// No stderr shown, so no label is needed: refit stdout alone with
+			// the full limit (stderr stays fully omitted) if that shows more.
+			if t2, om := bashOutFit(out, limit); len(t2) > len(text) {
+				text, keptOut = t2, out.total()-om
+			}
+		}
 		p.Text = text
 		p.StdoutOmitted, p.StderrOmitted = out.total()-keptOut, errV.total()-keptErr
 	} else {
@@ -306,10 +315,17 @@ func formatBashPreview(in bashOutInput) bashOutPreview {
 
 func bashOutPreviewStderrFirst(out, errV bashOutView, limit int) (string, int64, int64) {
 	label := bashOutStderrLabel
-	if limit <= len(label) {
-		return "", out.total(), errV.total()
+	var errText string
+	errOm := errV.total()
+	if limit > len(label) {
+		errText, errOm = bashOutFit(errV, limit-len(label))
 	}
-	errText, errOm := bashOutFit(errV, limit-len(label))
+	if errText == "" {
+		// Nothing of stderr fits (not even a marker): no orphan label, and
+		// stdout may use the whole limit.
+		outText, outOm := bashOutFit(out, limit)
+		return outText, outOm, errV.total()
+	}
 	rem := limit - len(label) - len(errText)
 	outText, outOm := bashOutFit(out, rem)
 	if outText != "" && !strings.HasSuffix(outText, "\n") {
