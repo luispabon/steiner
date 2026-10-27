@@ -61,19 +61,22 @@ type ToolPreviewGrepFile struct {
 
 // ToolPreview is the normalized preview payload for tool results.
 type ToolPreview struct {
-	Kind             string
-	Path             string
-	Language         string
-	Before           string
-	After            string
-	Contents         string
-	Created          bool
-	Command          string
-	Output           string
-	ExitCode         int
-	Truncated        bool
-	HasMore          bool
-	Returned         int
+	Kind      string
+	Path      string
+	Language  string
+	Before    string
+	After     string
+	Contents  string
+	Created   bool
+	Command   string
+	Output    string
+	ExitCode  int
+	Truncated bool
+	HasMore   bool
+	Returned  int
+	// Matches counts grep matching lines. Content uses the tool's shown count
+	// because context lines are not matches; zero when not reported.
+	Matches          int
 	NextOffset       int
 	OutputMode       string
 	StartLine        int

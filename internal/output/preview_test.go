@@ -273,6 +273,7 @@ func TestBuildToolPreview(t *testing.T) {
 				Kind:       ToolPreviewKindGrep,
 				Path:       ".",
 				Returned:   2,
+				Matches:    3,
 				OutputMode: "count",
 				Output:     "a.txt:2\nb.txt:1\n",
 				GrepFiles: []ToolPreviewGrepFile{

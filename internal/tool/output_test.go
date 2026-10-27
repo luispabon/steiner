@@ -83,34 +83,46 @@ func TestBashShapeTruncatesOverLimitWithTailPriority(t *testing.T) {
 	}
 }
 
-func TestTruncationCountCapGrepShape(t *testing.T) {
+func TestShapeIngestedToolResultGrepPassesThrough(t *testing.T) {
 	lines := make([]string, 0, 240)
 	for i := 0; i < 205; i++ {
 		lines = append(lines, "info: retrying")
 	}
 	for i := 0; i < 35; i++ {
-		lines = append(lines, "match line")
+		lines = append(lines, "\x1b[31mmatch line\x1b[0m")
 	}
-	content := `{"output":"` + strings.Join(lines, `\n`) + `"}`
-
-	got := shapeGrepIngestedResult(content)
-
-	var result struct {
+	lines = append(lines, "\x1b]8;;https://example.com\x07link\x1b]8;;\x07")
+	payload, err := json.Marshal(struct {
 		Matches    int    `json:"matches,omitempty"`
+		Shown      int    `json:"shown,omitempty"`
 		NextOffset int    `json:"next_offset,omitempty"`
 		Output     string `json:"output"`
+	}{Matches: 240, Shown: 199, NextOffset: 199, Output: strings.Join(lines, "\n")})
+	if err != nil {
+		t.Fatalf("marshal grep result: %v", err)
 	}
-	if err := json.Unmarshal([]byte(got), &result); err != nil {
-		t.Fatalf("unmarshal shaped grep result: %v", err)
+
+	if got := ShapeIngestedToolResult("grep", string(payload)); got != string(payload) {
+		t.Fatalf("ShapeIngestedToolResult(grep) changed the payload, want pass-through")
 	}
-	if got := strings.Count(result.Output, "info: retrying"); got != 200 {
-		t.Fatalf("info lines = %d, want 200 preserved by count cap", got)
+
+	var result struct {
+		Matches    int    `json:"matches"`
+		Shown      int    `json:"shown"`
+		NextOffset int    `json:"next_offset"`
+		Output     string `json:"output"`
 	}
-	if !strings.Contains(result.Output, "<truncated output shown=") {
-		t.Fatalf("Output = %q, want truncation marker", result.Output)
+	if err := json.Unmarshal(payload, &result); err != nil {
+		t.Fatalf("unmarshal grep result: %v", err)
 	}
-	if strings.Contains(result.Output, "match line") {
-		t.Fatalf("Output = %q, want tail lines truncated by count cap", result.Output)
+	if result.Matches != 240 || result.Shown != 199 || result.NextOffset != 199 {
+		t.Fatalf("metadata = matches %d shown %d next_offset %d, want 240 199 199", result.Matches, result.Shown, result.NextOffset)
+	}
+	if strings.Count(result.Output, "info: retrying") != 205 {
+		t.Fatalf("info lines = %d, want all 205 preserved", strings.Count(result.Output, "info: retrying"))
+	}
+	if !strings.Contains(result.Output, "\x1b[31mmatch line\x1b[0m") || !strings.Contains(result.Output, "\x1b]8;;https://example.com\x07link") {
+		t.Fatalf("Output = %q, want source ANSI and OSC preserved", result.Output)
 	}
 }
 

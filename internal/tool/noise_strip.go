@@ -8,10 +8,7 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	defaultBashIngestionLimitBytes = 12288
-	defaultGrepIngestionLimitLines = 200
-)
+const defaultBashIngestionLimitBytes = 12288
 
 var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\].*?(?:\x07|\x1b\\)`)
 
@@ -21,12 +18,6 @@ type bashIngestionResult struct {
 	Output    string `json:"output"`
 }
 
-type grepIngestionResult struct {
-	Matches    int    `json:"matches,omitempty"`
-	NextOffset int    `json:"next_offset,omitempty"`
-	Output     string `json:"output"`
-}
-
 // ShapeIngestedToolResult normalizes a tool result payload for prompt ingestion.
 // The transformation is destructive by design and only applies to tool results
 // whose output is known to be log-like rather than source content.
@@ -34,8 +25,6 @@ func ShapeIngestedToolResult(toolName, content string) string {
 	switch toolName {
 	case "bash":
 		return shapeBashIngestedResult(content)
-	case "grep":
-		return shapeGrepIngestedResult(content)
 	default:
 		return content
 	}
@@ -45,7 +34,6 @@ type truncationStrategy string
 
 const (
 	tailPriorityStrategy truncationStrategy = "tail_priority"
-	countCapStrategy     truncationStrategy = "count_cap"
 	headStrategy         truncationStrategy = "head"
 )
 
@@ -68,24 +56,6 @@ func shapeBashIngestedResult(content string) string {
 	return string(data)
 }
 
-func shapeGrepIngestedResult(content string) string {
-	var structured grepIngestionResult
-	if err := json.Unmarshal([]byte(content), &structured); err != nil || structured.Output == "" {
-		return content
-	}
-
-	shaped, truncated, shown, total := shapeToolText(structured.Output, defaultGrepIngestionLimitLines, countCapStrategy)
-	structured.Output = shaped
-	if truncated {
-		structured.Output = addTruncationMarker(structured.Output, shown, total, countCapStrategy)
-	}
-	data, marshalErr := json.Marshal(structured)
-	if marshalErr != nil {
-		return content
-	}
-	return string(data)
-}
-
 func shapeToolText(text string, limit int, strategy truncationStrategy) (string, bool, int, int) {
 	total := len(text)
 	if limit < 0 {
@@ -100,8 +70,6 @@ func shapeToolText(text string, limit int, strategy truncationStrategy) (string,
 	switch strategy {
 	case tailPriorityStrategy:
 		shaped, truncated = tailPriorityText(text, limit)
-	case countCapStrategy:
-		shaped, truncated = countCapText(text, limit)
 	case headStrategy:
 		shaped, truncated = headText(text, limit)
 	default:
@@ -150,27 +118,6 @@ func headText(text string, limit int) (string, bool) {
 		return "", true
 	}
 	return text[:end], true
-}
-
-func countCapText(text string, limit int) (string, bool) {
-	if text == "" {
-		return "", false
-	}
-	lines := splitToolLines(text)
-	if len(lines) <= limit {
-		return text, false
-	}
-	if limit <= 0 {
-		return "", true
-	}
-	return strings.Join(lines[:limit], "\n"), true
-}
-
-func splitToolLines(text string) []string {
-	if text == "" {
-		return nil
-	}
-	return strings.Split(text, "\n")
 }
 
 func addTruncationMarker(text string, shown, total int, strategy truncationStrategy) string {
