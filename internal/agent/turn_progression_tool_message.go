@@ -51,11 +51,7 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		}
 		preview = output.BuildToolPreview(call.Name, cloneInput(call.Arguments), toolContent)
 		p.emitToolFinished(turn, call, toolContent, nil, preview, normalizedResult.DelegationAdmission, emitFinished)
-		if emitFinished {
-			if event, ok := bashArtifactTruncatedEvent(turn, call, result); ok {
-				emitEvent(p.request.Events, event)
-			}
-		}
+		p.emitBashArtifactTruncated(turn, call, result, emitFinished)
 	}
 	toolMessage := Message{
 		Role:       MessageRoleTool,
@@ -78,6 +74,18 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		}
 	}
 	return toolMessage
+}
+
+// emitBashArtifactTruncated emits the nonfatal warning for a bash result whose
+// artifact cap dropped bytes. It does nothing when events are suppressed or
+// the result is not a capped bash result.
+func (p *turnProgressor) emitBashArtifactTruncated(turn int, call provider.ToolCall, result any, emit bool) {
+	if !emit {
+		return
+	}
+	if event, ok := bashArtifactTruncatedEvent(turn, call, result); ok {
+		emitEvent(p.request.Events, event)
+	}
 }
 
 func resultValue(result any) any {
