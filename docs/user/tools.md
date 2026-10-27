@@ -55,7 +55,7 @@ When output is cut, the full output is saved as a private file at `.steiner/tmp/
 
 - The artifact has `[stdout]` and `[stderr]` sections and is capped at 1 MiB (1048576 bytes). Within the cap, the priority stream (stderr on nonzero exit, stdout otherwise) gets 70% of the content space. A stream that is still too large is cut 30% from the head and 70% from the tail.
 - Capture keeps the first and last 1 MiB of each stream. Bytes between them are a capture gap and cannot be recovered from the artifact.
-- `artifact_limit_hit: true` means the artifact cap dropped bytes that the capture had kept.
+- `artifact_limit_hit: true` means the artifact cap dropped bytes that the capture had kept. Steiner then shows a nonfatal `bash artifact truncated` warning with the artifact path, in the transcript and status line, and records it in the Alt+E dev log. This is a warning, not a command failure: `artifact_status` still applies and the command result is returned as successful.
 - Use `read` with `offset` and `limit` to page through an artifact. `read` cannot recover every artifact: it rejects files with a NUL byte in the first 8192 bytes as binary, and it clips lines longer than 2000 characters. For those files, page with `bash`, for example `grep` or `sed -n`.
 
 ### Timeouts
