@@ -2,6 +2,9 @@ package tool
 
 import "context"
 
+// KindInvalidToolInput is the ToolExecutionError kind for a malformed tool call.
+const KindInvalidToolInput = "invalid_tool_input"
+
 // toolInputDecodeErrorKey is the context key carrying the provider's decode
 // error for a malformed tool call into Execute.
 type toolInputDecodeErrorKey struct{}
