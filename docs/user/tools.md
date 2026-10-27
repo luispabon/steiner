@@ -21,3 +21,62 @@
 | `workflow_handoff` | Transition to a workflow with approved artifacts |
 
 MCP tools from connected servers appear with the `mcp__<server>__<tool>` prefix. See [MCP](mcp.md) and [Sub-agent delegation](sub-agent-delegation.md) for availability and approval rules.
+
+## Bash output
+
+`bash` returns the command result in `output`, bounded by `max_output_bytes`. The default is 12288 bytes and the maximum is 32768; larger requests are clamped to the maximum. The limit covers the whole `output` string. A timeout notice that would take more than half the limit is left out of `output` and appears only in `message`.
+
+Cleaned output is the default:
+
+- CRLF becomes LF only where the CR and LF are adjacent. A lone CR is kept.
+- ANSI escape sequences are removed. OSC 8 hyperlinks become `text (uri)`, and other OSC sequences are removed.
+- Malformed escapes become `[malformed escape: \x1b...]`. The label shows at most 8 raw bytes and states how many were omitted.
+- An escape sequence cut off by the capture boundary is dropped.
+
+Set `raw_output: true` to skip this cleaning and pass bytes through without CRLF normalization or escape handling. Raw mode does not guarantee binary fidelity or the interleaving of stdout and stderr.
+
+### Preview shape
+
+- Output that fits is shown whole, with stderr after stdout under a `[stderr]` label.
+- When output does not fit, a successful command shows stdout and stderr as one text, cut 30% from the head and 70% from the tail, with a `[... N bytes omitted ...]` marker between them.
+- On a nonzero exit, stderr has priority: all of it if it fits, otherwise its own 30%/70% cut. Stdout gets the remaining space.
+- `message` states what each stream lost. Omitted rendered bytes and raw source bytes use different units and are never added together.
+
+### Artifacts
+
+When output is cut, the full output is saved as a private file at `.steiner/tmp/bash-output/<random>.log` in the working directory. `file_path` gives the path and `artifact_status` gives the outcome:
+
+| Status | Meaning |
+|--------|---------|
+| `none` | Nothing was cut, so no file was saved. |
+| `complete` | The file holds all of the output. |
+| `partial` | The file holds some of the output. `message` says what is missing. |
+| `failed` | The file could not be saved. The command result is unchanged. |
+
+- The artifact has `[stdout]` and `[stderr]` sections and is capped at 1 MiB (1048576 bytes). Within the cap, the priority stream (stderr on nonzero exit, stdout otherwise) gets 70% of the content space. A stream that is still too large is cut 30% from the head and 70% from the tail.
+- Capture keeps the first and last 1 MiB of each stream. Bytes between them are a capture gap and cannot be recovered from the artifact.
+- `artifact_limit_hit: true` means the artifact cap dropped bytes that the capture had kept.
+- Use `read` with `offset` and `limit` to page through an artifact. `read` cannot recover every artifact: it rejects files with a NUL byte in the first 8192 bytes as binary, and it clips lines longer than 2000 characters. For those files, page with `bash`, for example `grep` or `sed -n`.
+
+### Timeouts
+
+A timed-out command returns the output captured so far, with `timed_out: true` and a notice that the output above is partial. If an artifact is saved, its status is `partial` and it notes that the command did not finish normally. A session error is handled the same way and reports `exit_code: -1`.
+
+### Artifact retention and privacy
+
+- `.steiner/tmp/bash-output/` and `.steiner/tmp/fetched/` (fetched URL files) share one cleanup at startup, for the project root and the working directory. Files older than 7 days are removed. If the combined size is still over 250 MiB, the oldest files are removed until it is within that soft budget. Files younger than 1 hour are never removed for size.
+- Only regular files directly inside those two directories are considered. Subdirectories and symlinks are ignored.
+- An artifact holds the full command output, which may include secrets, tokens, or file contents the command printed. On Unix, the directory is mode 0700 and each file is 0600.
+- On platforms without Unix support, artifacts are not saved, so `artifact_status` is `failed`.
+- Commands run as your user can read and change artifacts after Steiner writes them. A sandboxed command that can write the workspace can also modify this directory. Do not treat artifacts as tamper-evident records.
+- In plan mode, Steiner still writes the artifact cache, but sandboxed commands cannot. See [Execution modes](execution-modes.md#enforcement-matrix) and [Sandboxing](sandboxing.md#bash-output-artifacts).
+
+## Grep output
+
+`grep` pages through logical results. A logical result is a `files_with_matches` path, a `count` row, or a matching line in `content` mode. Context lines do not count.
+
+- `head_limit` sets the page size. It defaults to 100 and is capped at 500.
+- Each `content` page renders at most 200 lines. File headers, context lines, separators, and notices count toward that budget, so a content page can hold fewer results than `head_limit`. `files_with_matches` and `count` pages are capped at 200 rows.
+- `next_offset` is the first logical result not on this page. To continue, pass it as `offset`. It is omitted on the last page.
+- `shown` is the number of results on this page. When the result is paged, `matches` gives the total number of logical results. It is omitted when everything fits on one page.
+- If the context for a single match alone exceeds the 200-line budget, the page holds a bounded excerpt around that match, ending with a truncation marker. Pagination still moves forward.

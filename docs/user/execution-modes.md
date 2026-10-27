@@ -36,6 +36,8 @@ The `mutate` and sub-agent restrictions do not depend on bubblewrap. Without a w
 
 With a working sandbox, the project stays read-only except `.steiner/plans/`, `.steiner/security/`, and `.git`. Plan-mode `bash` can stage, commit, and create branches, so treat it as trusted rather than as protection from malicious prompts.
 
+Plan mode still lets Steiner write its private bash output cache under `.steiner/tmp/bash-output/`. Steiner creates those files itself, outside the sandboxed command. Sandboxed commands cannot write there in plan mode, because the project is mounted read-only and that path is not one of the plan-mode writable paths. See [Bash output](tools.md#bash-output).
+
 ## Configuration
 
 ```yaml

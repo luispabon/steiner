@@ -76,6 +76,14 @@ sandbox:
 
 The host root is read-only. The workspace and sandbox home are writable according to policy, `/dev` is minimal, `/proc` is fresh, and session temporary files are mounted at `/tmp`. Host paths keep their original locations. `sandbox.host_mounts` adds paths at their existing locations. In plan mode, `.steiner/plans/` and `.steiner/security/` are bound writable only when they are real directories under the workspace; symlinked or invalid plan directories are left unbound. Symlinked `.steiner`, sandbox home, or sandbox temporary paths are rejected rather than created, removed, or bound writable.
 
+## Bash output artifacts
+
+When bash output is cut, Steiner saves the full output to `.steiner/tmp/bash-output/` in the project or worktree. Steiner writes these files itself, outside the sandboxed command. They hold the full command output and may contain secrets, tokens, or file contents the command printed. On Unix the directory is 0700 and each file is 0600.
+
+The artifacts sit in the workspace, so commands that can write the workspace can also read or change them. Do not treat them as tamper-evident.
+
+Retention is shared with fetched files in `.steiner/tmp/fetched/`. At startup, files older than 7 days are removed, and the combined size is kept within a 250 MiB soft budget. See [Bash output](tools.md#artifact-retention-and-privacy).
+
 ## Environment variables
 
 Only variables on the built-in allowlist pass from the host. It includes common path, locale, proxy, TLS, Go, Rust, Node, Python, Java, XDG, and terminal variables. Credential-shaped variables are not included. `HOME` is passed through, but the sandbox home is available for tool state.
