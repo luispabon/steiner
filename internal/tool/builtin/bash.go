@@ -14,10 +14,13 @@ import (
 
 // BashResult is the result from a bash tool call.
 type BashResult struct {
-	ExitCode  int    `json:"exit_code,omitempty"`
-	Truncated bool   `json:"truncated,omitempty"`
-	TimedOut  bool   `json:"timed_out,omitempty"`
-	Output    string `json:"output"`
+	ExitCode  int  `json:"exit_code,omitempty"`
+	Truncated bool `json:"truncated,omitempty"`
+	TimedOut  bool `json:"timed_out,omitempty"`
+	// Message states why the result is partial (timeout or session error).
+	// It survives output budgets too small to hold the inline notice.
+	Message string `json:"message,omitempty"`
+	Output  string `json:"output"`
 }
 
 // BashExitCode returns the exit code. Implements tool.BashDenialResult.
@@ -90,6 +93,7 @@ func NewBashTool(env Env) tool.ToolDef {
 			case timedOut:
 				notice = fmt.Sprintf("[bash session: %v; output above is partial]", cmp.Or(execCtx.Err(), context.Canceled))
 			}
+			message := notice
 			if notice != "" && body != "" {
 				notice = "\n" + notice
 			}
@@ -99,6 +103,7 @@ func NewBashTool(env Env) tool.ToolDef {
 				ExitCode:  exitCode,
 				Truncated: omitted > 0 || cut || execErr != nil,
 				TimedOut:  timedOut,
+				Message:   message,
 				Output:    out,
 			}, nil
 		},
@@ -181,6 +186,9 @@ func fitBashOutput(body, suffix string, budget int) (out string, cut bool) {
 	}
 	if len(suffix) > budget/2 {
 		suffix = ""
+		if len(body) <= budget {
+			return body, false
+		}
 	}
 	room := budget - len(suffix)
 	spans := bashOmittedLabelRE.FindAllStringIndex(body, -1)
@@ -197,7 +205,7 @@ func fitBashOutput(body, suffix string, budget int) (out string, cut bool) {
 		}
 	}
 	head := trimIncompleteUTF8SuffixString(body[:headN])
-	tail := bashTailFrom(body, len(body)-(avail-headN), spans)
+	tail := bashTailFrom(body, max(len(body)-(avail-headN), len(head)), spans)
 	marker := "\n" + tool.TruncationMarker(len(head)+len(tail), len(body)) + "\n"
 	return head + marker + tail + suffix, true
 }

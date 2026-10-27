@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -171,11 +172,76 @@ func TestBashToolTinyBudgetTimeoutMetadata(t *testing.T) {
 		res := runBashForTest(t, map[string]any{
 			"command": "echo partial; sleep 30", "timeout_seconds": 1, "max_output_bytes": budget,
 		})
-		if !res.TimedOut || res.ExitCode == 0 || !res.Truncated || len(res.Output) > budget {
+		if !res.TimedOut || res.ExitCode == 0 || res.Message == "" || len(res.Output) > budget {
 			t.Errorf("budget %d: timedOut=%v exit=%d truncated=%v len=%d", budget, res.TimedOut, res.ExitCode, res.Truncated, len(res.Output))
 		}
 		if strings.Contains(res.Output, "<truncated") && !completeTruncMarkerRE.MatchString(res.Output) {
 			t.Errorf("budget %d: partial marker %q", budget, res.Output)
+		}
+	}
+}
+
+// TestFitBashOutputExhaustiveSmall covers every small body and budget,
+// including empty bodies and notices that must be dropped.
+func TestFitBashOutputExhaustiveSmall(t *testing.T) {
+	t.Parallel()
+	shownTotal := regexp.MustCompile(`shown=(\d+) total=(\d+)`)
+	bodies := []string{"", "a", "ab", "é", "abc\n[5 bytes omitted]\nxyz", strings.Repeat("世", 12), strings.Repeat("x", 90)}
+	suffixes := []string{"", "\n[n]", "\n[bash session: context deadline exceeded; output above is partial]"}
+	for _, body := range bodies {
+		for _, suffix := range suffixes {
+			for budget := 1; budget <= 160; budget++ {
+				out, _ := fitBashOutput(body, suffix, budget)
+				if len(out) > budget || !utf8.ValidString(out) {
+					t.Fatalf("body %q suffix %q budget %d: len=%d valid=%v", body, suffix, budget, len(out), utf8.ValidString(out))
+				}
+				if suffix != "" && strings.Count(out, suffix) > 1 {
+					t.Fatalf("body %q budget %d: suffix duplicated in %q", body, budget, out)
+				}
+				if strings.Count(out, "<truncated") != len(completeTruncMarkerRE.FindAllString(out, -1)) {
+					t.Fatalf("body %q budget %d: partial marker in %q", body, budget, out)
+				}
+				if m := shownTotal.FindStringSubmatch(out); m != nil {
+					shown, _ := strconv.Atoi(m[1])
+					total, _ := strconv.Atoi(m[2])
+					if shown > total || total != len(body) {
+						t.Fatalf("body %q budget %d: shown=%d total=%d", body, budget, shown, total)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestBashToolMessageMetadataSurvivesTinyBudget(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		input   map[string]any
+		timeout bool
+		want    string
+	}{
+		{"shell failure", map[string]any{"command": "echo partial; exit 3", "max_output_bytes": 1}, false, "bash session error: "},
+		{"timeout", map[string]any{"command": "sleep 30", "timeout_seconds": 1, "max_output_bytes": 1}, true, "context deadline exceeded"},
+	}
+	for _, tc := range cases {
+		res := runBashForTest(t, tc.input)
+		if len(res.Output) > 1 || !res.Truncated && !tc.timeout || res.TimedOut != tc.timeout || !strings.Contains(res.Message, tc.want) {
+			t.Errorf("%s: output=%q truncated=%v timedOut=%v message=%q", tc.name, res.Output, res.Truncated, res.TimedOut, res.Message)
+		}
+		data, err := json.Marshal(res)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(data, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := fields["message"]; !ok {
+			t.Errorf("%s: JSON %s lacks message", tc.name, data)
+		}
+		if _, ok := fields["timed_out"]; ok != tc.timeout {
+			t.Errorf("%s: JSON %s timed_out presence = %v, want %v", tc.name, data, ok, tc.timeout)
 		}
 	}
 }
