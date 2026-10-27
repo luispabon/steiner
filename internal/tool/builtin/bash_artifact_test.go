@@ -214,14 +214,13 @@ func TestBashArtifactSwapDuringSaveNeverWritesSubstitute(t *testing.T) {
 		t.Run(stage, func(t *testing.T) {
 			dir := t.TempDir()
 			mustMkdir(t, filepath.Join(dir, "decoy"))
-			bashArtifactHook = func(s string) {
+			store := &bashArtifactStore{workDir: dir, hook: func(s, _ string) {
 				if s == stage {
 					swapLeaf(t, dir)
 				}
-			}
-			t.Cleanup(func() { bashArtifactHook = nil })
+			}}
 
-			rel, err := saveBashArtifact(dir, []byte("secret"))
+			rel, err := store.save([]byte("secret"))
 			if err == nil {
 				t.Fatalf("expected error after swap, got success %q", rel)
 			}
@@ -238,7 +237,7 @@ func TestBashArtifactSwapDuringSaveNeverWritesSubstitute(t *testing.T) {
 func TestBashArtifactParentSwapDetected(t *testing.T) {
 	dir := t.TempDir()
 	mustMkdir(t, filepath.Join(dir, "decoy", "bash-output"))
-	bashArtifactHook = func(s string) {
+	store := &bashArtifactStore{workDir: dir, hook: func(s, _ string) {
 		if s != "before-verify" {
 			return
 		}
@@ -247,12 +246,69 @@ func TestBashArtifactParentSwapDetected(t *testing.T) {
 			t.Fatal(err)
 		}
 		mustSymlink(t, "../decoy", tmp)
-	}
-	t.Cleanup(func() { bashArtifactHook = nil })
-	if rel, err := saveBashArtifact(dir, []byte("x")); err == nil {
+	}}
+	if rel, err := store.save([]byte("x")); err == nil {
 		t.Fatalf("expected error, got %q", rel)
 	}
 	if entries, err := os.ReadDir(filepath.Join(dir, "decoy", "bash-output")); err != nil || len(entries) != 0 {
 		t.Fatalf("decoy modified: %v, %v", entries, err)
+	}
+}
+
+func TestBashArtifactFileSwapDetected(t *testing.T) {
+	tests := []struct {
+		name string
+		swap func(t *testing.T, file, decoy string)
+		// wantKept is true when the substituted entry must survive untouched.
+		wantKept bool
+	}{
+		{"symlink to decoy", func(t *testing.T, file, decoy string) {
+			if err := os.Remove(file); err != nil {
+				t.Fatal(err)
+			}
+			mustSymlink(t, decoy, file)
+		}, true},
+		{"unlinked", func(t *testing.T, file, _ string) {
+			if err := os.Remove(file); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"replaced by other regular file", func(t *testing.T, file, _ string) {
+			if err := os.Remove(file); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte("other"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			decoy := filepath.Join(dir, "decoy.txt")
+			if err := os.WriteFile(decoy, []byte("decoy"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var swapped string
+			store := &bashArtifactStore{workDir: dir, hook: func(s, name string) {
+				if s == "before-verify" {
+					swapped = filepath.Join(dir, ".steiner", "tmp", "bash-output", name)
+					tt.swap(t, swapped, decoy)
+				}
+			}}
+			if rel, err := store.save([]byte("secret")); err == nil {
+				t.Fatalf("expected error, got success %q", rel)
+			}
+			if got, err := os.ReadFile(decoy); err != nil || string(got) != "decoy" {
+				t.Fatalf("decoy = %q, %v", got, err)
+			}
+			_, err := os.Lstat(swapped)
+			if tt.wantKept && err != nil {
+				t.Errorf("substituted entry was deleted: %v", err)
+			}
+			if !tt.wantKept && !os.IsNotExist(err) {
+				t.Errorf("entry should be gone: %v", err)
+			}
+		})
 	}
 }

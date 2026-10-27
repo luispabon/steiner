@@ -13,17 +13,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// bashArtifactHook is a test seam called at named stages ("before-create",
-// "before-verify"). It is nil in production.
-var bashArtifactHook func(stage string)
-
-func runBashArtifactHook(stage string) {
-	if bashArtifactHook != nil {
-		bashArtifactHook(stage)
-	}
-}
-
-func saveBashArtifactPlatform(workDir string, body []byte) (string, error) {
+func (s *bashArtifactStore) savePlatform(body []byte) (string, error) {
+	workDir := s.workDir
 	leaf, err := openArtifactLeaf(workDir, true)
 	if err != nil {
 		return "", err
@@ -43,7 +34,7 @@ func saveBashArtifactPlatform(workDir string, body []byte) (string, error) {
 		}
 	}
 
-	runBashArtifactHook("before-create")
+	s.runHook("before-create", "")
 	for range bashArtifactAttempts {
 		var buf [16]byte
 		if _, err := rand.Read(buf[:]); err != nil {
@@ -57,43 +48,70 @@ func saveBashArtifactPlatform(workDir string, body []byte) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("create bash artifact: %w", err)
 		}
-		return finishArtifact(workDir, leaf, &st, fd, name, body)
+		return s.finishArtifact(leaf, &st, fd, name, body)
 	}
 	return "", errors.New("create bash artifact: name collisions exhausted")
 }
 
-// finishArtifact writes body, then verifies the artifact path still resolves
-// (without following symlinks) to the directory the file was created in.
-func finishArtifact(workDir string, leaf int, leafStat *unix.Stat_t, fd int, name string, body []byte) (string, error) {
+// finishArtifact writes body, then verifies that the name still refers to the
+// regular file we wrote and that the directory path still resolves (without
+// following symlinks) to the directory it was created in. The file descriptor
+// stays open until verification so its inode cannot be recycled.
+func (s *bashArtifactStore) finishArtifact(leaf int, leafStat *unix.Stat_t, fd int, name string, body []byte) (string, error) {
 	f := os.NewFile(uintptr(fd), name)
-	remove := func() { _ = unix.Unlinkat(leaf, name, 0) } // best-effort cleanup of our own file
+	defer f.Close() //nolint:errcheck // descriptor released after verification; write errors are checked via Sync/Write
+
+	var fs unix.Stat_t
+	if err := unix.Fstat(fd, &fs); err != nil {
+		_ = unix.Unlinkat(leaf, name, 0) // just created by us, nothing could have replaced it yet in practice
+		return "", fmt.Errorf("stat bash artifact: %w", err)
+	}
+	// removeOwn unlinks name only while it still refers to our inode.
+	removeOwn := func() {
+		if sameRegularFile(leaf, name, &fs) {
+			_ = unix.Unlinkat(leaf, name, 0) // best-effort cleanup of our own file
+		}
+	}
 	if _, err := f.Write(body); err != nil {
-		_ = f.Close() // best-effort cleanup after write failure
-		remove()
+		removeOwn()
 		return "", fmt.Errorf("write bash artifact: %w", err)
 	}
-	if err := f.Close(); err != nil {
-		remove()
-		return "", fmt.Errorf("close bash artifact: %w", err)
-	}
 
-	runBashArtifactHook("before-verify")
-	check, err := openArtifactLeaf(workDir, false)
+	s.runHook("before-verify", name)
+	if !sameRegularFile(leaf, name, &fs) {
+		return "", errors.New("bash artifact was replaced or removed during write; artifact discarded")
+	}
+	check, err := openArtifactLeaf(s.workDir, false)
 	if err != nil {
-		remove()
+		removeOwn()
 		return "", fmt.Errorf("verify bash artifact path: %w", err)
 	}
 	defer unix.Close(check) //nolint:errcheck // read-only descriptor close
 	var cs unix.Stat_t
 	if err := unix.Fstat(check, &cs); err != nil {
-		remove()
+		removeOwn()
 		return "", fmt.Errorf("verify bash artifact path: %w", err)
 	}
 	if cs.Dev != leafStat.Dev || cs.Ino != leafStat.Ino {
-		remove()
+		removeOwn()
 		return "", errors.New("bash artifact directory was replaced during write; artifact discarded")
 	}
+	if err := f.Close(); err != nil {
+		removeOwn()
+		return "", fmt.Errorf("close bash artifact: %w", err)
+	}
 	return path.Join(path.Join(bashArtifactDirs...), name), nil
+}
+
+// sameRegularFile reports whether name in dir (not following symlinks) is a
+// regular file with the same device and inode as want. A small window remains
+// between this check and a following unlinkat; it only matters to cleanup.
+func sameRegularFile(dir int, name string, want *unix.Stat_t) bool {
+	var got unix.Stat_t
+	if err := unix.Fstatat(dir, name, &got, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return false
+	}
+	return got.Mode&unix.S_IFMT == unix.S_IFREG && got.Dev == want.Dev && got.Ino == want.Ino
 }
 
 // openArtifactLeaf opens workDir and walks bashArtifactDirs with
