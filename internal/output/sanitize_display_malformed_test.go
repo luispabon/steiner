@@ -18,7 +18,7 @@ func TestSanitizeDisplayTextMalformedSequences(t *testing.T) {
 		{name: "unterminated OSC hides rest", in: "a\x1b]0;title", want: "a"},
 		{name: "unterminated DCS hides rest", in: "a\x1bP1$r", want: "a"},
 		{name: "ESC before CR consumes next byte as final char", in: "a\x1b\rb", want: "a"},
-		{name: "8-bit CSI introducer dropped, parameters kept as text", in: "a\u009b31mb", want: "a31mb"},
+		{name: "8-bit CSI removed with its parameters", in: "a\u009b31mb", want: "ab"},
 	}
 
 	for _, tt := range tests {

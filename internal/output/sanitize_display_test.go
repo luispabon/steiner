@@ -22,6 +22,14 @@ func TestSanitizeDisplayText(t *testing.T) {
 		{name: "BEL and backspace dropped", in: "a\x07\x08b", want: "ab"},
 		{name: "DEL dropped", in: "a\x7fb", want: "ab"},
 		{name: "C1 control dropped", in: "a\u0085b", want: "ab"},
+		{name: "8-bit CSI removed with parameters", in: "a\u009b31;1mb", want: "ab"},
+		{name: "8-bit CSI with intermediate and final byte", in: "a\u009b qb", want: "ab"},
+		{name: "8-bit CSI at end removed", in: "a\u009b", want: "a"},
+		{name: "8-bit CSI parameters stop at newline", in: "a\u009b31\nb", want: "a\nb"},
+		{name: "bidi embeddings and overrides dropped", in: "a\u202a\u202b\u202c\u202d\u202eb", want: "ab"},
+		{name: "bidi isolates dropped", in: "a\u2066\u2067\u2068\u2069b", want: "ab"},
+		{name: "LRM RLM and ALM dropped", in: "a\u200e\u200f\u061cb", want: "ab"},
+		{name: "line and paragraph separators dropped", in: "a\u2028b\u2029c", want: "abc"},
 	}
 
 	for _, tt := range tests {

@@ -15,7 +15,6 @@ func TestBashSessionOutputWithoutTrailingNewline(t *testing.T) {
 		wantStdout string
 		wantStderr string
 		wantCode   int
-		truncated  bool
 	}{
 		{name: "stdout no newline", command: "printf foo", wantStdout: "foo"},
 		{name: "stderr no newline", command: "printf foo >&2", wantStderr: "foo"},
@@ -24,7 +23,6 @@ func TestBashSessionOutputWithoutTrailingNewline(t *testing.T) {
 		{name: "trailing newline unchanged", command: "echo foo", wantStdout: "foo\n"},
 		{name: "two trailing newlines", command: "printf 'foo\\n\\n'", wantStdout: "foo\n\n"},
 		{name: "empty output", command: "true"},
-		{name: "oversized no newline", command: "head -c 300000 /dev/zero | tr '\\0' a", wantStdout: strings.Repeat("a", bashSessionMaxOutput) + "\n[output truncated]", truncated: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -40,7 +38,7 @@ func TestBashSessionOutputWithoutTrailingNewline(t *testing.T) {
 			if err != nil || timedOut {
 				t.Fatalf("execute: %v (timedOut=%v)", err, timedOut)
 			}
-			stdout, stderr, trunc := adaptCaptures(so, se)
+			stdout, stderr := string(so.Head)+string(so.Tail), string(se.Head)+string(se.Tail)
 			if stdout != tt.wantStdout {
 				t.Errorf("stdout = %q, want %q", clip(stdout), clip(tt.wantStdout))
 			}
@@ -50,11 +48,8 @@ func TestBashSessionOutputWithoutTrailingNewline(t *testing.T) {
 			if code != tt.wantCode {
 				t.Errorf("exit code = %d, want %d", code, tt.wantCode)
 			}
-			if trunc != tt.truncated {
-				t.Errorf("truncated = %v, want %v", trunc, tt.truncated)
-			}
 
-			stdout, _, code, err = s.Execute(ctx, "echo next")
+			stdout, _, code, err = execSession(ctx, s, "echo next")
 			if err != nil || code != 0 || stdout != "next\n" {
 				t.Errorf("follow-up = %q, %d, %v; want \"next\\n\", 0, nil", stdout, code, err)
 			}

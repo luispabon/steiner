@@ -123,7 +123,7 @@ func NewBashTool(env Env) tool.ToolDef {
 			res := &BashResult{
 				ArtifactStatus: bashArtifactNone,
 				ExitCode:       exitCode,
-				Truncated:      !preview.Complete || execErr != nil,
+				Truncated:      bashResultTruncated(preview.Complete, execErr, timedOut),
 				TimedOut:       timedOut,
 				Output:         out,
 			}
@@ -142,6 +142,12 @@ func NewBashTool(env Env) tool.ToolDef {
 			return res, nil
 		},
 	}
+}
+
+// bashResultTruncated reports whether a bash result is incomplete: the preview
+// omitted output, the session failed, or the command timed out.
+func bashResultTruncated(previewComplete bool, execErr error, timedOut bool) bool {
+	return !previewComplete || execErr != nil || timedOut
 }
 
 // bashErrorCause drops the captured stdout and stderr text that

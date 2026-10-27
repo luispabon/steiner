@@ -2,7 +2,6 @@ package builtin
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -46,6 +45,29 @@ func TestBashToolTruncatedFlag(t *testing.T) {
 	}
 }
 
+// TestBashToolTimeoutMarksTruncated covers a timed-out command with no output.
+// The preview is complete (no artifact), so Truncated must come from the
+// timeout alone.
+func TestBashToolTimeoutMarksTruncated(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	toolDef := NewBashTool(Env{WorkDir: dir, PathPolicy: &policy})
+	ctx := withUnsandboxedWrapper(context.Background())
+
+	resI, err := toolDef.Handler(ctx, map[string]any{"command": "sleep 5", "timeout_seconds": 1})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	res := resI.(*BashResult)
+	if res.ArtifactStatus != bashArtifactNone {
+		t.Fatalf("ArtifactStatus = %q, want %q so the preview is complete", res.ArtifactStatus, bashArtifactNone)
+	}
+	if !res.TimedOut || !res.Truncated {
+		t.Errorf("TimedOut = %v, Truncated = %v; want true, true", res.TimedOut, res.Truncated)
+	}
+}
+
 func TestBashSessionLargeOutputKeepsExitCode(t *testing.T) {
 	t.Parallel()
 	s := NewBashSession()
@@ -55,17 +77,14 @@ func TestBashSessionLargeOutputKeepsExitCode(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, _, code, err := s.Execute(ctx, "yes x | head -c 4000000; (exit 7)")
-	if err != nil {
-		t.Fatal(err)
+	so, _, code, timedOut, err := s.execute(ctx, "yes x | head -c 4000000; (exit 7)")
+	if err != nil || timedOut {
+		t.Fatalf("execute: %v (timedOut=%v)", err, timedOut)
 	}
 	if code != 7 {
 		t.Errorf("exit code = %d, want 7", code)
 	}
-	if len(out) > bashSessionMaxOutput+len("\n[output truncated]") {
-		t.Errorf("output length = %d, want bounded", len(out))
-	}
-	if !strings.HasSuffix(out, "[output truncated]") {
-		t.Errorf("output missing truncation marker")
+	if !so.HeadTruncated || so.TotalBytes != 4000000 {
+		t.Errorf("stdout total = %d, headTruncated = %v; want 4000000, true", so.TotalBytes, so.HeadTruncated)
 	}
 }

@@ -1,6 +1,10 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/luispabon/steiner/internal/output"
+)
 
 // noticeSeverity selects the glyph and colour of a transcript notice.
 type noticeSeverity int
@@ -40,10 +44,10 @@ func (b *contentBuffer) AppendNotice(sev noticeSeverity, text, scope string) {
 	})
 }
 
-// noticeDisplayText returns the first line of text, trimmed and capped at
-// noticeDisplayMaxRunes runes.
+// noticeDisplayText sanitizes text for display, then returns its first line,
+// trimmed and capped at noticeDisplayMaxRunes runes.
 func noticeDisplayText(text string) string {
-	first, _, _ := strings.Cut(text, "\n")
+	first, _, _ := strings.Cut(output.SanitizeDisplayText(text), "\n")
 	runes := []rune(strings.TrimSpace(first))
 	if len(runes) <= noticeDisplayMaxRunes {
 		return string(runes)

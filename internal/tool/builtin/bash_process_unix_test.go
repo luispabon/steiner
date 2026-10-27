@@ -25,7 +25,7 @@ func TestBashSessionCloseKillsBackgroundChildren(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, _, _, err := s.Execute(ctx, "sleep 300 >/dev/null 2>&1 &\necho $!")
+	out, _, _, err := execSession(ctx, s, "sleep 300 >/dev/null 2>&1 &\necho $!")
 	if err != nil {
 		t.Fatal(err)
 	}

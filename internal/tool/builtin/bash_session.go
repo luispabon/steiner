@@ -24,7 +24,7 @@ const (
 	// bashSessionCaptureLimit is the raw head and the raw tail kept per stream.
 	bashSessionCaptureLimit = 1 << 20 // 1 MiB
 
-	// bashSessionCaptureJoinTimeout bounds how long a cancelled Execute waits
+	// bashSessionCaptureJoinTimeout bounds how long a cancelled execute waits
 	// for the capture goroutines of the cancelled generation. Killing the shell
 	// closes its pipe write ends, so those reads normally return at once;
 	// descendants that inherited the pipe descriptors can keep them open past
@@ -50,7 +50,7 @@ type BashSession struct {
 	started bool
 }
 
-// NewBashSession creates a new BashSession. Call Start before Execute.
+// NewBashSession creates a new BashSession. Call Start before execute.
 func NewBashSession() *BashSession {
 	return &BashSession{}
 }
@@ -122,37 +122,6 @@ func onceRelease(releaseFn func(*exec.Cmd), cmd *exec.Cmd) func() {
 			}
 		})
 	}
-}
-
-// Execute runs a shell command string and returns stdout, stderr, exitCode, and any session error.
-// The context deadline is respected; if exceeded, the session is restarted.
-func (s *BashSession) Execute(ctx context.Context, command string) (stdout, stderr string, exitCode int, err error) {
-	so, se, exitCode, timedOut, err := s.execute(ctx, command)
-	if err != nil {
-		return "", "", -1, err
-	}
-	if timedOut {
-		return "", "", -1, fmt.Errorf("bash session: %w", ctx.Err())
-	}
-	stdout, stderr, _ = adaptCaptures(so, se)
-	return stdout, stderr, exitCode, nil
-}
-
-// adaptCaptures renders captures as the legacy capped strings: the first
-// bashSessionMaxOutput bytes per stream plus a truncation notice. Final output
-// shaping from head and tail is a later step.
-func adaptCaptures(stdout, stderr streamCapture) (so, se string, truncated bool) {
-	so, st := adaptCapture(stdout)
-	se, et := adaptCapture(stderr)
-	return so, se, st || et
-}
-
-func adaptCapture(c streamCapture) (string, bool) {
-	if c.TotalBytes <= bashSessionMaxOutput {
-		return string(c.Head) + string(c.Tail), false
-	}
-	head := c.Head[:min(len(c.Head), bashSessionMaxOutput)]
-	return trimIncompleteUTF8SuffixString(string(head)) + "\n[output truncated]", true
 }
 
 // newBashMarker returns an unpredictable per-call marker so command output
