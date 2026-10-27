@@ -191,6 +191,8 @@ type delegationDisplayState struct {
 	taskPreview             string // truncated to ~80 chars
 	promptText              string
 	promptCollapsed         bool
+	promptPreviewSrc        string
+	promptPreview           string
 	parentCallID            string
 	parentArgs              string
 	admission               *output.DelegationAdmission // nil until the occurrence is accepted

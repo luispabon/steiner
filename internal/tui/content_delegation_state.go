@@ -190,3 +190,15 @@ func (dd *delegationDisplayState) applyStructuredBrief(b structuredDelegateBrief
 	dd.briefSuccessCriteria = b.successCriteria
 	dd.briefChecks = b.checks
 }
+
+// promptPreviewText returns previewDelegationText(dd.promptText), cached by the
+// prompt it was computed from so expanded cards do not re-sanitize the prompt on
+// every frame. The zero value is consistent: an empty prompt previews to "", so
+// no separate valid flag is needed.
+func (dd *delegationDisplayState) promptPreviewText() string {
+	if dd.promptPreviewSrc != dd.promptText {
+		dd.promptPreview = previewDelegationText(dd.promptText)
+		dd.promptPreviewSrc = dd.promptText
+	}
+	return dd.promptPreview
+}

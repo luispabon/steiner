@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -158,10 +159,17 @@ func (b *contentBuffer) renderAdvisorDenialWarning(dd *delegationDisplayState, w
 }
 
 func (b *contentBuffer) renderDelegationTranscript(dd *delegationDisplayState, width int) []string {
-	rows := make([]string, 0, len(dd.entries))
-	for _, entry := range dd.entries {
-		rows = append(rows, b.renderDelegationEntry(entry, width)...)
+	// Render newest-first and stop once more than maxDelegationTranscriptRows
+	// rows are collected: the cut below keeps only the newest rows, so older
+	// entries are never rendered. Rows are collected in reverse and flipped once.
+	var rows []string
+	for i := len(dd.entries) - 1; i >= 0 && len(rows) <= maxDelegationTranscriptRows; i-- {
+		entryRows := b.renderDelegationEntry(dd.entries[i], width)
+		for j := len(entryRows) - 1; j >= 0; j-- {
+			rows = append(rows, entryRows[j])
+		}
 	}
+	slices.Reverse(rows)
 	if len(rows) == 0 {
 		return nil
 	}
