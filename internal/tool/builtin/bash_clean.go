@@ -63,83 +63,92 @@ func cleanBashText(chunk []byte, cutStart, cutEnd bool) (text string, skipped in
 		chunk = trimmed
 	}
 
-	var (
-		out  strings.Builder
-		cr   bool // a CR is held back in case an LF follows
-		link string
-		open bool
-	)
-	flushCR := func() {
-		if cr {
-			out.WriteByte('\r')
-			cr = false
-		}
-	}
-	closeLink := func() {
-		if !open {
-			return
-		}
-		if link != "" {
-			flushCR()
-			out.WriteString(" (" + link + ")")
-		}
-		open, link = false, ""
-	}
-
+	var cl bashCleaner
 	for i := 0; i < len(chunk); {
-		c := chunk[i]
-		if !isSequenceIntroducer(c) {
-			switch {
-			case c == '\r':
-				flushCR()
-				cr = true
-				i++
-			case c == '\n':
-				cr = false
-				out.WriteByte(c)
-				i++
-			default:
-				flushCR()
-				size := 1
-				if c >= utf8.RuneSelf {
-					// Copy a whole valid rune so continuation bytes such as
-					// 0x9c are never mistaken for C1 controls.
-					if _, sz := utf8.DecodeRune(chunk[i:]); sz > 1 {
-						size = sz
-					}
-				}
-				out.Write(chunk[i : i+size])
-				i += size
-			}
+		if !isSequenceIntroducer(chunk[i]) {
+			i += cl.text(chunk[i:])
 			continue
 		}
 		n, status := scanSequence(chunk[i:])
-		seq := chunk[i : i+n]
+		if status == seqIncomplete && cutEnd {
+			skipped += n
+		} else {
+			cl.sequence(chunk[i:i+n], status)
+		}
 		i += n
-		flushCR()
-		switch status {
-		case seqIncomplete:
-			if cutEnd {
-				skipped += n
-			} else {
-				writeMalformed(&out, seq)
-			}
-		case seqMalformed:
-			writeMalformed(&out, seq)
-		case seqOK:
-			switch classifyEscape(seq) {
-			case escMalformed:
-				writeMalformed(&out, seq)
-			case escOSC8:
-				closeLink()
-				link = osc8URI(seq)
-				open = link != ""
-			}
+	}
+	cl.closeLink()
+	cl.flushCR()
+	return cl.out.String(), skipped
+}
+
+// bashCleaner accumulates cleaned output.
+type bashCleaner struct {
+	out  strings.Builder
+	cr   bool // a CR is held back in case an LF follows
+	link string
+	open bool
+}
+
+func (c *bashCleaner) flushCR() {
+	if c.cr {
+		c.out.WriteByte('\r')
+		c.cr = false
+	}
+}
+
+func (c *bashCleaner) closeLink() {
+	if !c.open {
+		return
+	}
+	if c.link != "" {
+		c.flushCR()
+		c.out.WriteString(" (" + c.link + ")")
+	}
+	c.open, c.link = false, ""
+}
+
+// text writes the text byte or rune at the start of b and returns its size.
+func (c *bashCleaner) text(b []byte) int {
+	switch b[0] {
+	case '\r':
+		c.flushCR()
+		c.cr = true
+		return 1
+	case '\n':
+		c.cr = false
+		c.out.WriteByte('\n')
+		return 1
+	}
+	c.flushCR()
+	size := 1
+	if b[0] >= utf8.RuneSelf {
+		// Copy a whole valid rune so continuation bytes such as 0x9c are
+		// never mistaken for C1 controls.
+		if _, sz := utf8.DecodeRune(b); sz > 1 {
+			size = sz
 		}
 	}
-	closeLink()
-	flushCR()
-	return out.String(), skipped
+	c.out.Write(b[:size])
+	return size
+}
+
+// sequence handles a scanned escape sequence that was not dropped at the cut
+// end.
+func (c *bashCleaner) sequence(seq []byte, status seqStatus) {
+	c.flushCR()
+	if status != seqOK {
+		writeMalformed(&c.out, seq)
+		return
+	}
+	switch classifyEscape(seq) {
+	case escMalformed:
+		writeMalformed(&c.out, seq)
+	case escOSC8:
+		c.closeLink()
+		c.link = osc8URI(seq)
+		c.open = c.link != ""
+	}
 }
 
 // isSequenceIntroducer reports whether c starts an escape sequence when it
@@ -262,9 +271,6 @@ func classifyEscape(seq []byte) escapeKind {
 		return escStrip
 	}
 	payload := oscPayload(seq)
-	if payload == "" {
-		return escMalformed
-	}
 	if payload == "8" || strings.HasPrefix(payload, "8;") {
 		if strings.Count(payload, ";") < 2 {
 			return escMalformed
@@ -293,13 +299,14 @@ func oscPayload(seq []byte) string {
 	return string(body)
 }
 
-// osc8URI extracts the URI from an OSC 8 sequence, dropping control bytes.
+// osc8URI extracts the URI from an OSC 8 sequence, dropping C0, DEL and C1
+// control characters.
 // An empty result means the link is being closed.
 func osc8URI(seq []byte) string {
 	payload := oscPayload(seq)
 	parts := strings.SplitN(payload, ";", 3)
 	return strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
+		if r < 0x20 || (r >= 0x7f && r <= 0x9f) {
 			return -1
 		}
 		return r

@@ -55,6 +55,11 @@ func TestBashCleanText(t *testing.T) {
 		{name: "stray st byte passes", in: "a\x9cb", want: "a\x9cb"},
 		{name: "cr then escape not crlf", in: "a\r\x1b[0m\nb", want: "a\r\nb"},
 		{name: "cut both ends", in: "xx\nok\x1b[31", cutStart: true, cutEnd: true, want: "ok", wantSkipped: 3 + 4},
+		{name: "empty osc bel", in: "a\x1b]\x07b", want: "ab"},
+		{name: "empty osc esc st", in: "a\x1b]\x1b\\b", want: "ab"},
+		{name: "empty osc c1 st", in: "a\x9d\x9cb", want: "ab"},
+		{name: "empty osc c1 bel", in: "a\x9d\x07b", want: "ab"},
+		{name: "osc8 uri c1 controls dropped", in: "\x1b]8;;http://a\u0085b\u009bc\x07x\x1b]8;;\x07", want: "x (http://abc)"},
 		{name: "cut end rune inside incomplete osc", in: "ok\x1b]0;\xe2\x82", cutEnd: true, want: "ok", wantSkipped: 6},
 		{name: "cut end drops incomplete csi", in: "ok\x1b[31", cutEnd: true, want: "ok", wantSkipped: 4},
 		{name: "cut end drops incomplete osc", in: "ok\x1b]0;ti", cutEnd: true, want: "ok", wantSkipped: 6},
@@ -96,7 +101,7 @@ func TestBashCleanTextStartWindow(t *testing.T) {
 	}
 }
 
-func TestBashCleanTextArbitraryInputNoPanic(t *testing.T) {
+func TestBashCleanTextArbitraryInputNoPanic(_ *testing.T) {
 	for _, in := range []string{
 		"\x1b[" + strings.Repeat("1;", 10000) + "m",
 		"\x1b[" + strings.Repeat("1:", 10000),
