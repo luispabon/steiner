@@ -1181,3 +1181,36 @@ models:
 		t.Fatalf("loadRuntimeConfig() error = %v, want unknown profile error", err)
 	}
 }
+
+func TestPruneRuntimeArtifacts_DistinctRoots(t *testing.T) {
+	projectRoot := t.TempDir()
+	workDir := t.TempDir()
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	paths := []string{
+		filepath.Join(projectRoot, ".steiner", "tmp", "fetched", "a.txt"),
+		filepath.Join(workDir, ".steiner", "tmp", "bash-output", "b.log"),
+	}
+	for _, p := range paths {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed, err := pruneRuntimeArtifacts(projectRoot, workDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if removed != 2 {
+		t.Errorf("removed = %d, want 2", removed)
+	}
+	for _, p := range paths {
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			t.Errorf("expected %s removed, lstat err: %v", p, err)
+		}
+	}
+}

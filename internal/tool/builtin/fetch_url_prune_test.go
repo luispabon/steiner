@@ -245,6 +245,74 @@ func TestPruneToolArtifacts_OtherCachesUntouched(t *testing.T) {
 	assertExists(t, wt)
 }
 
+func TestPruneToolArtifacts_SwapAfterCollectDoesNotRedirectDeletion(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	now := time.Now()
+	old := now.Add(-30 * 24 * time.Hour)
+
+	fetchedDir := filepath.Join(root, ".steiner", "tmp", "fetched")
+	inCache := filepath.Join(fetchedDir, "victim.txt")
+	writePrunableFile(t, inCache, 10, old)
+	outsideFile := filepath.Join(outside, "victim.txt")
+	writePrunableFile(t, outsideFile, 10, old)
+
+	files, closeAll, errs := collectToolArtifacts([]string{root})
+	defer closeAll()
+	if len(errs) != 0 || len(files) != 1 {
+		t.Fatalf("collect = %d files, errs %v; want 1 file", len(files), errs)
+	}
+
+	// Swap the cache directory for a symlink to an outside directory.
+	moved := fetchedDir + ".moved"
+	if err := os.Rename(fetchedDir, moved); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if err := os.Symlink(outside, fetchedDir); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	removed, evictErrs := evictArtifacts(files, now, fetchedBudgetBytes)
+	if len(evictErrs) != 0 {
+		t.Fatalf("unexpected errors: %v", evictErrs)
+	}
+	if removed != 1 {
+		t.Errorf("removed = %d, want 1", removed)
+	}
+	assertExists(t, outsideFile)
+	assertRemoved(t, filepath.Join(moved, "victim.txt"))
+}
+
+func TestPruneToolArtifacts_SymlinkedIntermediateSkippedOtherRootsPruned(t *testing.T) {
+	bad := t.TempDir()
+	good := t.TempDir()
+	outside := t.TempDir()
+	now := time.Now()
+	old := now.Add(-30 * 24 * time.Hour)
+
+	// bad/.steiner/tmp is a symlink to an outside tree holding a fetched dir.
+	outsideFile := filepath.Join(outside, "fetched", "victim.txt")
+	writePrunableFile(t, outsideFile, 10, old)
+	if err := os.MkdirAll(filepath.Join(bad, ".steiner"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(bad, ".steiner", "tmp")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	goodFile := filepath.Join(good, ".steiner", "tmp", "fetched", "old.txt")
+	writePrunableFile(t, goodFile, 10, old)
+
+	removed, err := pruneToolArtifacts([]string{bad, good}, now, fetchedBudgetBytes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if removed != 1 {
+		t.Errorf("removed = %d, want 1", removed)
+	}
+	assertExists(t, outsideFile)
+	assertRemoved(t, goodFile)
+}
+
 func assertExists(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); err != nil {
