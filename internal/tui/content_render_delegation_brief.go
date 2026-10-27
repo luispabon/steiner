@@ -30,21 +30,21 @@ func (b *contentBuffer) renderDelegationBriefBody(dd *delegationDisplayState, wi
 	// Objective (always present if we got here)
 	if dd.briefObjective != "" {
 		rows = append(rows, h2.Render("Objective"))
-		objLines := b.wrapStyledDelegationLines(output.SanitizeDisplayText(dd.briefObjective), width, b.styles.FgMute.Italic(true))
+		objLines := b.wrapStyledDelegationLines(dd.briefObjective, width, b.styles.FgMute.Italic(true))
 		rows = append(rows, objLines...)
 	}
 
 	// Context
 	if dd.briefContext != "" {
 		rows = append(rows, h2.Render("Context"))
-		ctxLines := b.wrapStyledDelegationLines(output.SanitizeDisplayText(dd.briefContext), width, b.styles.FgMute.Italic(true))
+		ctxLines := b.wrapStyledDelegationLines(dd.briefContext, width, b.styles.FgMute.Italic(true))
 		rows = append(rows, ctxLines...)
 	}
 
 	// Deliverable
 	if dd.briefDeliverable != "" {
 		rows = append(rows, h2.Render("Deliverable"))
-		delLines := b.wrapStyledDelegationLines(output.SanitizeDisplayText(dd.briefDeliverable), width, b.styles.FgMute.Italic(true))
+		delLines := b.wrapStyledDelegationLines(dd.briefDeliverable, width, b.styles.FgMute.Italic(true))
 		rows = append(rows, delLines...)
 	}
 
