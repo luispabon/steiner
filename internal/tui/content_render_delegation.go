@@ -116,7 +116,7 @@ func (b *contentBuffer) renderDelegationPromptBody(dd *delegationDisplayState, w
 	if dd.briefObjective != "" {
 		return b.renderDelegationBriefBody(dd, width)
 	}
-	lines := b.wrapStyledDelegationLines(output.SanitizeDisplayText(dd.promptText), width, b.styles.FgFaint.Italic(true))
+	lines := b.wrapStyledDelegationLines(dd.promptText, width, b.styles.FgFaint.Italic(true))
 	if len(lines) == 0 {
 		return nil
 	}
@@ -132,7 +132,7 @@ func (b *contentBuffer) renderDelegationSectionHeader(label string) string {
 }
 
 func (b *contentBuffer) renderAdvisorQuestionBody(dd *delegationDisplayState, width int) []string {
-	lines := b.wrapStyledDelegationLines(output.SanitizeDisplayText(dd.advisorQuestion), width, b.styles.FgMute.Italic(true))
+	lines := b.wrapStyledDelegationLines(dd.advisorQuestion, width, b.styles.FgMute.Italic(true))
 	if b.maxDelegationBodyLines > 0 && len(lines) > b.maxDelegationBodyLines {
 		lines = lines[:b.maxDelegationBodyLines]
 	}
@@ -182,7 +182,7 @@ func (b *contentBuffer) renderDelegationTranscript(dd *delegationDisplayState, w
 func (b *contentBuffer) renderDelegationEntry(entry delegationTranscriptEntry, width int) []string {
 	switch entry.kind {
 	case delegationTranscriptEntryAssistant:
-		return b.wrapStyledDelegationLines(output.SanitizeDisplayText(entry.body), width, b.styles.FgDim)
+		return b.wrapStyledDelegationLines(entry.body, width, b.styles.FgDim)
 	case delegationTranscriptEntryThinking:
 		return b.renderDelegationThinkingEntry(entry, width)
 	case delegationTranscriptEntryTool:
@@ -194,7 +194,7 @@ func (b *contentBuffer) renderDelegationEntry(entry delegationTranscriptEntry, w
 
 func (b *contentBuffer) renderDelegationThinkingEntry(entry delegationTranscriptEntry, width int) []string {
 	style := b.styles.FgFaint.Italic(true)
-	lines := b.wrapStyledDelegationLines(output.SanitizeDisplayText(stripThinkingMarkers(entry.body)), max(1, width), style)
+	lines := b.wrapStyledDelegationLines(stripThinkingMarkers(entry.body), max(1, width), style)
 	if len(lines) == 0 {
 		return nil
 	}
@@ -230,7 +230,10 @@ func (b *contentBuffer) renderDelegationToolEntry(entry delegationTranscriptEntr
 	return []string{line}
 }
 
+// wrapStyledDelegationLines sanitizes text with output.SanitizeDisplayText, trims it,
+// and wraps each line to width with style. Callers pass raw text.
 func (b *contentBuffer) wrapStyledDelegationLines(text string, width int, style lipgloss.Style) []string {
+	text = output.SanitizeDisplayText(text)
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
@@ -264,7 +267,7 @@ func (b *contentBuffer) renderDelegationOutput(dd *delegationDisplayState, width
 		return nil
 	}
 	lines := []string{b.styles.FgDim.Render("output")}
-	lines = append(lines, b.wrapStyledDelegationLines(output.SanitizeDisplayText(outputText), width, b.baseTextStyle())...)
+	lines = append(lines, b.wrapStyledDelegationLines(outputText, width, b.baseTextStyle())...)
 	return lines
 }
 

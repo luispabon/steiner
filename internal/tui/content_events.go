@@ -461,13 +461,7 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeConversationWarning: func(*contentBuffer, output.Event) {},
 	// BashArtifactTruncated is live-only. The warning notice carries the saved
 	// artifact path, so notices for two capped calls do not collapse.
-	output.EventTypeBashArtifactTruncated: func(b *contentBuffer, event output.Event) {
-		payload, ok := event.Payload.(output.BashArtifactTruncatedEvent)
-		if !ok || payload.Message == "" {
-			return
-		}
-		b.AppendNotice(noticeWarn, payload.Message, event.Scope.AgentID)
-	},
+	output.EventTypeBashArtifactTruncated: (*contentBuffer).appendBashArtifactTruncatedEvent,
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
