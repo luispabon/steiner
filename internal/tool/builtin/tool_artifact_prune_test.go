@@ -272,7 +272,7 @@ func TestPruneToolArtifacts_SwapAfterCollectDoesNotRedirectDeletion(t *testing.T
 		t.Fatalf("symlink: %v", err)
 	}
 
-	removed, evictErrs := evictArtifacts(files, now, fetchedBudgetBytes)
+	removed, evictErrs := evictArtifacts(files, now, toolArtifactBudgetBytes)
 	if len(evictErrs) != 0 {
 		t.Fatalf("unexpected errors: %v", evictErrs)
 	}
@@ -302,7 +302,7 @@ func TestPruneToolArtifacts_SymlinkedIntermediateSkippedOtherRootsPruned(t *test
 	goodFile := filepath.Join(good, ".steiner", "tmp", "fetched", "old.txt")
 	writePrunableFile(t, goodFile, 10, old)
 
-	removed, err := pruneToolArtifacts([]string{bad, good}, now, fetchedBudgetBytes)
+	removed, err := pruneToolArtifacts([]string{bad, good}, now, toolArtifactBudgetBytes)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestPruneToolArtifacts_ZeroByteNotEvictedAndRemovedCountExact(t *testing.T)
 	if err := os.Remove(zero); err != nil {
 		t.Fatal(err)
 	}
-	removed, evictErrs := evictArtifacts(files, now.Add(30*24*time.Hour), fetchedBudgetBytes)
+	removed, evictErrs := evictArtifacts(files, now.Add(30*24*time.Hour), toolArtifactBudgetBytes)
 	if len(evictErrs) != 0 || removed != 0 {
 		t.Errorf("removed = %d, errs %v; want 0, none", removed, evictErrs)
 	}
