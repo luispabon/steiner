@@ -187,7 +187,7 @@ func stripReadLineNumberPrefixForLine(line string, lineNumber int) string {
 }
 
 func (r *PlainRenderer) renderDisplayFilePreviewLocked(payload DisplayFilePayload) {
-	doc := payload.Preview
+	doc := SanitizePreviewDocument(payload.Preview)
 	if doc.Kind != PreviewFormatKindFile {
 		return
 	}

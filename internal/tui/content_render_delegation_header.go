@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width int) string {
@@ -258,7 +260,7 @@ func (b *contentBuffer) renderDelegationHeaderOperation(dd *delegationDisplaySta
 			operation = strings.TrimSpace(dd.taskPreview)
 		}
 	}
-	operation = normalizeDelegationText(operation)
+	operation = output.SanitizeDisplayText(normalizeDelegationText(operation))
 	if operation == "" {
 		return ""
 	}

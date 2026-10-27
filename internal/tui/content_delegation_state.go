@@ -134,7 +134,7 @@ func previewDelegationOperation(tool, args string) string {
 }
 
 func previewDelegationText(text string) string {
-	normalized := normalizeDelegationText(text)
+	normalized := output.SanitizeDisplayText(normalizeDelegationText(text))
 	runes := []rune(normalized)
 	if len(runes) <= delegationOperationPreviewMaxRunes {
 		return normalized

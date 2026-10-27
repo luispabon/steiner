@@ -160,7 +160,7 @@ func (b *contentBuffer) applyFinishedRegularToolCallSegment(i int, payload outpu
 func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
 	b.finishStreaming()
 	if payload, ok := event.Payload.(output.DisplayFilePayload); ok {
-		preview := payload.Preview
+		preview := output.SanitizePreviewDocument(payload.Preview)
 		idx := len(b.segments)
 		if b.collapseState == nil {
 			b.collapseState = make(map[int]bool)

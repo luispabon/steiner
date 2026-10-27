@@ -243,7 +243,7 @@ func (b *contentBuffer) applyDelegationToolCallStarted(dd *delegationDisplayStat
 	entry := delegationTranscriptEntry{
 		kind:   delegationTranscriptEntryTool,
 		tool:   strings.ToLower(payload.Tool),
-		args:   summarizeArgs(payload.Tool, payload.Arguments),
+		args:   output.SanitizeDisplayText(summarizeArgs(payload.Tool, payload.Arguments)),
 		callID: payload.CallID,
 		status: "running",
 	}
