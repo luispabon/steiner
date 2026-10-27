@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -101,6 +102,32 @@ func TestSidebarSingleLineIdentityNormalized(t *testing.T) {
 	}
 	if want := []string{"", "", hostileID}; !slices.Equal(targets, want) {
 		t.Errorf("targets = %q, want %q", targets, want)
+	}
+}
+
+// TestSidebarSingleLineGroupNormalized covers newline and tab in a sidebar group
+// label. The group heading must stay on one line and match the clean rendering.
+// The row targets must match the clean rendering too.
+func TestSidebarSingleLineGroupNormalized(t *testing.T) {
+	t.Parallel()
+
+	entries := func(group string) []rosterEntry {
+		return []rosterEntry{{agentID: "child-a", agentType: "explore", admitted: true, group: group, status: rosterRunning, startTime: 1}}
+	}
+	hostileLines, hostileTargets := rosterSidebar(entries("gr\noup\tA"), 2).subAgentsRows(80)
+	cleanLines, cleanTargets := rosterSidebar(entries("gr oup A"), 2).subAgentsRows(80)
+	for _, line := range hostileLines {
+		if strings.ContainsAny(line, "\n\t") {
+			t.Errorf("sidebar line %q contains a line break or tab", line)
+		}
+	}
+	rest := requireOSC8Links(t, "sidebar group", strings.Join(hostileLines, "\n"), []string{"child-a"})
+	cleanRest := requireOSC8Links(t, "clean sidebar group", strings.Join(cleanLines, "\n"), []string{"child-a"})
+	if got, want := stripANSI(rest), stripANSI(cleanRest); got != want {
+		t.Errorf("sidebar rows = %q, want %q", got, want)
+	}
+	if !slices.Equal(hostileTargets, cleanTargets) {
+		t.Errorf("targets = %q, want %q", hostileTargets, cleanTargets)
 	}
 }
 
@@ -275,6 +302,44 @@ func TestDelegationGroupFooterSingleLineSanitized(t *testing.T) {
 	want, _ := render("a b c")
 	if stripANSI(got) != stripANSI(want) {
 		t.Errorf("group segment = %q, want %q", stripANSI(got), stripANSI(want))
+	}
+}
+
+// TestDeliveredRowsSingleLineSanitized covers an ESC sequence, newline, and tab
+// in a delivered group label and failure reason. The group header and member
+// reason must stay on one line. The delivered items keep their original bytes.
+func TestDeliveredRowsSingleLineSanitized(t *testing.T) {
+	t.Parallel()
+
+	newItems := func() []output.DeliveredSubAgent {
+		return []output.DeliveredSubAgent{
+			{AgentID: "child-a", AgentType: "explore", Status: "failed"},
+			{AgentID: "child-b", AgentType: "explore", Status: "failed"},
+		}
+	}
+	const hostileGroup = "team\x1b[31m\nA\tx"
+	const hostileReason = "bo\tom\x1b[2J\nsecond line"
+	items := newItems()
+	rows := buildDeliveredRows(items, func(output.DeliveredSubAgent) deliveredLookup {
+		return deliveredLookup{group: hostileGroup, groupSize: 2, reason: hostileReason}
+	})
+	if want := "group team A x (2 of 2)"; rows.header != want {
+		t.Errorf("header = %q, want %q", rows.header, want)
+	}
+	for _, m := range rows.members {
+		if want := "bo om"; m.reason != want {
+			t.Errorf("member %q reason = %q, want %q", m.label, m.reason, want)
+		}
+	}
+	if !slices.Equal(items, newItems()) {
+		t.Errorf("delivered items changed: %+v", items)
+	}
+
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	out := b.renderSubAgentsFinishedSegment(contentSegment{deliveredData: &rows}, 120)
+	requireOnlySGR(t, "delivered rows", out)
+	if plain := stripANSI(out); !strings.Contains(plain, "group team A x (2 of 2)") || !strings.Contains(plain, "bo om") {
+		t.Errorf("delivered rows = %q, want single-line header and reason", plain)
 	}
 }
 

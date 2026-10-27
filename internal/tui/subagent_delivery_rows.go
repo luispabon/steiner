@@ -60,7 +60,7 @@ func buildDeliveredRows(items []output.DeliveredSubAgent, lookup func(output.Del
 	rows.tag = "sub-agents finished"
 	if shared != "" {
 		size := max(sharedSize, len(items))
-		rows.header = fmt.Sprintf("group %s (%d of %d)", shared, len(items), size)
+		rows.header = fmt.Sprintf("group %s (%d of %d)", singleLineDisplayText(shared), len(items), size)
 	} else {
 		rows.header = fmt.Sprintf("%d of %d", len(items), len(items))
 	}
@@ -85,7 +85,7 @@ func newDeliveredMember(item output.DeliveredSubAgent, info deliveredLookup) del
 		m.duration = info.elapsed
 	}
 	if m.bad {
-		m.reason = firstLine(info.reason)
+		m.reason = strings.TrimSpace(singleLineDisplayText(firstLine(info.reason)))
 	}
 	return m
 }
