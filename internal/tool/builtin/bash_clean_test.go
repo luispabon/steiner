@@ -40,11 +40,26 @@ func TestBashCleanText(t *testing.T) {
 		{name: "incomplete csi", in: "ok\x1b[31", want: "ok[malformed escape: \\x1b[31]"},
 		{name: "incomplete osc", in: "ok\x1b]0;ti", want: "ok[malformed escape: \\x1b]0;ti]"},
 		{name: "incomplete lone esc", in: "ok\x1b", want: "ok[malformed escape: \\x1b]"},
-		{name: "incomplete label truncated", in: "\x1b]0;0123456789", want: "[malformed escape: \\x1b]0;0123...]"},
-		{name: "cut end drops incomplete csi", in: "ok\x1b[31", cutEnd: true, want: "ok"},
-		{name: "cut end drops incomplete osc", in: "ok\x1b]0;ti", cutEnd: true, want: "ok"},
-		{name: "cut end drops lone esc", in: "ok\x1b", cutEnd: true, want: "ok"},
-		{name: "cut end drops partial rune", in: "ok\xe2\x82", cutEnd: true, want: "ok"},
+		{name: "incomplete label truncated", in: "\x1b]0;0123456789", want: "[malformed escape: \\x1b]0;0123...(6 bytes omitted)]"},
+		{name: "long csi 100 params", in: "a\x1b[" + strings.Repeat("1;", 100) + "mb", want: "ab"},
+		{name: "long csi 100 params incomplete", in: "\x1b[" + strings.Repeat("1;", 100), want: "[malformed escape: \\x1b[1;1;1;...(194 bytes omitted)]"},
+		{name: "c1 csi", in: "a\x9b31mb", want: "ab"},
+		{name: "c1 osc st", in: "a\x9d0;title\x9cb", want: "ab"},
+		{name: "c1 osc bel", in: "a\x9d0;title\x07b", want: "ab"},
+		{name: "c1 osc8 st", in: "\x9d8;;http://a\x9clink\x9d8;;\x9c!", want: "link (http://a)!"},
+		{name: "c1 dcs esc st", in: "a\x90q#0\x1b\\b", want: "ab"},
+		{name: "c1 apc st", in: "a\x9fpayload\x9cb", want: "ab"},
+		{name: "c1 incomplete", in: "ok\x9b31", want: "ok[malformed escape: \\x9b31]"},
+		{name: "c1 incomplete cut end counted", in: "ok\x9b31", cutEnd: true, want: "ok", wantSkipped: 3},
+		{name: "utf8 continuation 9c in osc payload", in: "\x1b]0;\u601c\x07x", want: "x"},
+		{name: "stray st byte passes", in: "a\x9cb", want: "a\x9cb"},
+		{name: "cr then escape not crlf", in: "a\r\x1b[0m\nb", want: "a\r\nb"},
+		{name: "cut both ends", in: "xx\nok\x1b[31", cutStart: true, cutEnd: true, want: "ok", wantSkipped: 3 + 4},
+		{name: "cut end rune inside incomplete osc", in: "ok\x1b]0;\xe2\x82", cutEnd: true, want: "ok", wantSkipped: 6},
+		{name: "cut end drops incomplete csi", in: "ok\x1b[31", cutEnd: true, want: "ok", wantSkipped: 4},
+		{name: "cut end drops incomplete osc", in: "ok\x1b]0;ti", cutEnd: true, want: "ok", wantSkipped: 6},
+		{name: "cut end drops lone esc", in: "ok\x1b", cutEnd: true, want: "ok", wantSkipped: 1},
+		{name: "cut end drops partial rune", in: "ok\xe2\x82", cutEnd: true, want: "ok", wantSkipped: 2},
 		{name: "cut end keeps full rune", in: "ok\u20ac", cutEnd: true, want: "ok\u20ac"},
 		{name: "cut end still labels mid malformed", in: "\x1b[3\nx", cutEnd: true, want: "[malformed escape: \\x1b[3]\nx"},
 		{name: "no cut end keeps partial rune", in: "ok\xe2\x82", want: "ok\xe2\x82"},
@@ -81,8 +96,25 @@ func TestBashCleanTextStartWindow(t *testing.T) {
 	}
 }
 
+func TestBashCleanTextArbitraryInputNoPanic(t *testing.T) {
+	for _, in := range []string{
+		"\x1b[" + strings.Repeat("1;", 10000) + "m",
+		"\x1b[" + strings.Repeat("1:", 10000),
+		"\x9b" + strings.Repeat("9", 10000) + "\x9b\x9d\x90\x9c",
+		"\x1bP" + strings.Repeat("\xff", 100) + "\x1b",
+	} {
+		for _, cuts := range [][2]bool{{false, false}, {true, false}, {false, true}, {true, true}} {
+			cleanBashText([]byte(in), cuts[0], cuts[1])
+		}
+	}
+}
+
 func TestBashCleanTextExpansionBounded(t *testing.T) {
 	for _, in := range []string{
+		"\x1b[" + strings.Repeat("\x01", 5) + strings.Repeat("1;", 5000),
+		"\x1b]" + strings.Repeat("\xff", 5000),
+		strings.Repeat("\x9b", 1000),
+		strings.Repeat("\x9d\x1b", 1000),
 		strings.Repeat("\x1b", 1000),
 		strings.Repeat("\x1b[\x01", 1000),
 		strings.Repeat("\x1b]8;;u\x07x", 500),
