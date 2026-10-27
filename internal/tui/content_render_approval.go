@@ -5,6 +5,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -38,6 +39,8 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 	if ad.queueDepth > 0 {
 		label += " +" + fmt.Sprint(ad.queueDepth) + " waiting"
 	}
+
+	label = output.SanitizeDisplayText(label)
 
 	if ad.resolved {
 		bar := b.styles.FgMute.Render("│")
