@@ -4,13 +4,15 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 // renderBulletList renders items as a bullet list with the given style.
 func (b *contentBuffer) renderBulletList(items []string, width int, style lipgloss.Style) []string {
 	rows := make([]string, 0, len(items))
 	for _, item := range items {
-		line := "• " + strings.TrimSpace(item)
+		line := "• " + strings.TrimSpace(output.SanitizeDisplayText(item))
 		rows = append(rows, style.Render(truncateRunes(line, max(1, width))))
 	}
 	return rows
@@ -28,21 +30,21 @@ func (b *contentBuffer) renderDelegationBriefBody(dd *delegationDisplayState, wi
 	// Objective (always present if we got here)
 	if dd.briefObjective != "" {
 		rows = append(rows, h2.Render("Objective"))
-		objLines := b.wrapStyledDelegationLines(dd.briefObjective, width, b.styles.FgMute.Italic(true))
+		objLines := b.wrapStyledDelegationLines(output.SanitizeDisplayText(dd.briefObjective), width, b.styles.FgMute.Italic(true))
 		rows = append(rows, objLines...)
 	}
 
 	// Context
 	if dd.briefContext != "" {
 		rows = append(rows, h2.Render("Context"))
-		ctxLines := b.wrapStyledDelegationLines(dd.briefContext, width, b.styles.FgMute.Italic(true))
+		ctxLines := b.wrapStyledDelegationLines(output.SanitizeDisplayText(dd.briefContext), width, b.styles.FgMute.Italic(true))
 		rows = append(rows, ctxLines...)
 	}
 
 	// Deliverable
 	if dd.briefDeliverable != "" {
 		rows = append(rows, h2.Render("Deliverable"))
-		delLines := b.wrapStyledDelegationLines(dd.briefDeliverable, width, b.styles.FgMute.Italic(true))
+		delLines := b.wrapStyledDelegationLines(output.SanitizeDisplayText(dd.briefDeliverable), width, b.styles.FgMute.Italic(true))
 		rows = append(rows, delLines...)
 	}
 

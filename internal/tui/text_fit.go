@@ -6,6 +6,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func truncateRunes(text string, width int) string {
@@ -16,7 +18,7 @@ func truncateRunes(text string, width int) string {
 }
 
 func truncateOverlayText(text string, width int) string {
-	text = strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
+	text = output.SanitizeDisplayText(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
 	if width <= 0 || text == "" {
 		return ""
 	}

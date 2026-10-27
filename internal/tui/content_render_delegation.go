@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 const maxDelegationTranscriptRows = 40
@@ -114,7 +116,7 @@ func (b *contentBuffer) renderDelegationPromptBody(dd *delegationDisplayState, w
 	if dd.briefObjective != "" {
 		return b.renderDelegationBriefBody(dd, width)
 	}
-	lines := b.wrapStyledDelegationLines(dd.promptText, width, b.styles.FgFaint.Italic(true))
+	lines := b.wrapStyledDelegationLines(output.SanitizeDisplayText(dd.promptText), width, b.styles.FgFaint.Italic(true))
 	if len(lines) == 0 {
 		return nil
 	}
@@ -130,7 +132,7 @@ func (b *contentBuffer) renderDelegationSectionHeader(label string) string {
 }
 
 func (b *contentBuffer) renderAdvisorQuestionBody(dd *delegationDisplayState, width int) []string {
-	lines := b.wrapStyledDelegationLines(dd.advisorQuestion, width, b.styles.FgMute.Italic(true))
+	lines := b.wrapStyledDelegationLines(output.SanitizeDisplayText(dd.advisorQuestion), width, b.styles.FgMute.Italic(true))
 	if b.maxDelegationBodyLines > 0 && len(lines) > b.maxDelegationBodyLines {
 		lines = lines[:b.maxDelegationBodyLines]
 	}
