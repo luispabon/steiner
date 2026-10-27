@@ -38,6 +38,7 @@ type ReadResult struct {
 // GrepResult is the result from a grep tool call.
 type GrepResult struct {
 	Matches    int    `json:"matches,omitempty"`
+	Shown      int    `json:"shown"`
 	NextOffset int    `json:"next_offset,omitempty"`
 	Output     string `json:"output"`
 }

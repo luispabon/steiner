@@ -90,7 +90,7 @@ func TestBashTool(t *testing.T) {
 	t.Run("truncates output", func(t *testing.T) {
 		resultI, err := toolDef.Handler(ctx, map[string]any{
 			"command":          "python3 -c \"print('x'*50000)\"",
-			"max_output_chars": 100,
+			"max_output_bytes": 100,
 		})
 		if err != nil {
 			t.Skipf("python3 not available or error: %v", err)

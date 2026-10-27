@@ -186,8 +186,8 @@ func (b *contentBuffer) buildGrepCountLines(tc *toolCallSegment) []string {
 	if preview.Path != "" {
 		summary = preview.Path + " · " + summary
 	}
-	if preview.Returned > 0 {
-		summary += fmt.Sprintf(" · %d matches", preview.Returned)
+	if preview.Matches > 0 {
+		summary += fmt.Sprintf(" · %d matches", preview.Matches)
 	}
 	renderTarget := *tc
 	renderTarget.preview = preview
@@ -201,12 +201,8 @@ func (b *contentBuffer) buildGrepContentLines(tc *toolCallSegment) []string {
 	if tc.preview.Path != "" {
 		summary = tc.preview.Path + " · " + summary
 	}
-	total := 0
-	for _, file := range tc.preview.GrepFiles {
-		total += len(file.Matches)
-	}
-	if total > 0 {
-		summary += fmt.Sprintf(" · %d matches", total)
+	if tc.preview.Matches > 0 {
+		summary += fmt.Sprintf(" · %d matches", tc.preview.Matches)
 	}
 	return b.buildGrepResultLines(tc, summary, func(file output.ToolPreviewGrepFile) []string {
 		lines := []string{b.toolTagStyle("grep").Render("## " + file.Path)}

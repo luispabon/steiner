@@ -10,6 +10,10 @@ Context management runs on three lines of defense, in order of preference:
 2. **Per-source byte budgets** — when context does accumulate, each source (skills, project context) is capped so no single source dominates.
 3. **Compaction** — when the conversation reaches the soft compaction trigger, older turns are automatically summarised and replaced with a compact handoff. The default trigger is approximately 70% of the effective context window.
 
+### Tool output bounds
+
+Tools bound their own output, and Steiner does not strip or rewrite tool text when results enter the conversation. A `bash` result shows a preview within `max_output_bytes`. When output is cut, it is saved to a private artifact file that can be paged with `read`. The artifact may be partial, and `read` cannot recover every artifact (see [Artifacts](tools.md#artifacts)). A `grep` result returns one page at a time with a `next_offset` to continue. See [Bash output](tools.md#bash-output) and [Grep output](tools.md#grep-output). If the artifact cap drops captured output, Steiner shows a nonfatal warning. The warning does not change the command outcome: a nonzero exit stays nonzero, and the tool call remains successful.
+
 ### Per-model compaction threshold
 
 Set `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens` to choose an explicit positive prompt-token soft trigger for one model. If it is absent, Steiner uses 70% of that model's effective context window. Zero or negative values are invalid, and a threshold at or above the final resolved context window is rejected. Native providers use estimated prompt tokens for this trigger. `claude_subscription` uses the reported prompt usage with its existing hysteresis and cap safety behavior.

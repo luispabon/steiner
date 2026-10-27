@@ -92,7 +92,3 @@ func (b *baseContextManager) FileReadState(path string, turn int) tool.FileReadS
 func (b *baseContextManager) SetEventSink(sink output.EventSink) {
 	b.events = sink
 }
-
-func (b *baseContextManager) observeToolResult(_ int, toolName string, _ map[string]any, content string) string {
-	return tool.ShapeIngestedToolResult(toolName, content)
-}

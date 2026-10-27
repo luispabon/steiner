@@ -18,6 +18,20 @@ import (
 	"github.com/luispabon/steiner/internal/sandbox"
 )
 
+// execSession runs command through the live execute path and returns the raw
+// captured stdout and stderr. A timeout is returned as an error, as a session
+// failure would be.
+func execSession(ctx context.Context, s *BashSession, command string) (stdout, stderr string, exitCode int, err error) {
+	so, se, exitCode, timedOut, err := s.execute(ctx, command)
+	if err != nil {
+		return "", "", -1, err
+	}
+	if timedOut {
+		return "", "", -1, fmt.Errorf("bash session: %w", ctx.Err())
+	}
+	return string(so.Head) + string(so.Tail), string(se.Head) + string(se.Tail), exitCode, nil
+}
+
 func TestBashSession(t *testing.T) {
 	t.Run("persistent env vars across calls", func(t *testing.T) {
 		s := NewBashSession()
@@ -29,7 +43,7 @@ func TestBashSession(t *testing.T) {
 		ctx := context.Background()
 
 		// Set a variable in the first call.
-		_, _, code, err := s.Execute(ctx, "export STEINER_TEST_VAR=hello123")
+		_, _, code, err := execSession(ctx, s, "export STEINER_TEST_VAR=hello123")
 		if err != nil {
 			t.Fatalf("Execute set var: %v", err)
 		}
@@ -38,7 +52,7 @@ func TestBashSession(t *testing.T) {
 		}
 
 		// Read it back in a second call.
-		stdout, _, code, err := s.Execute(ctx, "echo $STEINER_TEST_VAR")
+		stdout, _, code, err := execSession(ctx, s, "echo $STEINER_TEST_VAR")
 		if err != nil {
 			t.Fatalf("Execute get var: %v", err)
 		}
@@ -58,7 +72,7 @@ func TestBashSession(t *testing.T) {
 		defer func() { _ = s.Close() }()
 
 		ctx := context.Background()
-		stdout, stderr, code, err := s.Execute(ctx, "echo toout ; echo toerr >&2")
+		stdout, stderr, code, err := execSession(ctx, s, "echo toout ; echo toerr >&2")
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
@@ -83,7 +97,7 @@ func TestBashSession(t *testing.T) {
 		ctx := context.Background()
 
 		// Set a variable before restart.
-		_, _, _, err := s.Execute(ctx, "export STEINER_RESTART_VAR=should_vanish")
+		_, _, _, err := execSession(ctx, s, "export STEINER_RESTART_VAR=should_vanish")
 		if err != nil {
 			t.Fatalf("Execute set: %v", err)
 		}
@@ -93,7 +107,7 @@ func TestBashSession(t *testing.T) {
 		}
 
 		// After restart the variable should be gone.
-		stdout, _, code, err := s.Execute(ctx, "echo \"[$STEINER_RESTART_VAR]\"")
+		stdout, _, code, err := execSession(ctx, s, "echo \"[$STEINER_RESTART_VAR]\"")
 		if err != nil {
 			t.Fatalf("Execute after restart: %v", err)
 		}
@@ -121,7 +135,7 @@ func TestBashSession(t *testing.T) {
 			"echo five",
 		}
 		for _, cmd := range commands {
-			_, _, code, err := s.Execute(ctx, cmd)
+			_, _, code, err := execSession(ctx, s, cmd)
 			if err != nil {
 				t.Fatalf("Execute(%q): %v", cmd, err)
 			}
@@ -139,7 +153,7 @@ func TestBashSession(t *testing.T) {
 		defer func() { _ = s.Close() }()
 
 		ctx := context.Background()
-		_, _, code, err := s.Execute(ctx, "false")
+		_, _, code, err := execSession(ctx, s, "false")
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
@@ -159,7 +173,7 @@ func TestBashSession(t *testing.T) {
 		outFile := filepath.Join(t.TempDir(), "heredoc.txt")
 		cmd := fmt.Sprintf("cat > %s << 'EOF'\nline one\nline two\nEOF", outFile)
 
-		stdout, stderr, code, err := s.Execute(ctx, cmd)
+		stdout, stderr, code, err := execSession(ctx, s, cmd)
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
@@ -184,7 +198,7 @@ func TestBashSession(t *testing.T) {
 		defer func() { _ = s.Close() }()
 
 		ctx := context.Background()
-		stdout, _, code, err := s.Execute(ctx, "echo hi # trailing comment")
+		stdout, _, code, err := execSession(ctx, s, "echo hi # trailing comment")
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
@@ -221,7 +235,7 @@ func TestBashSession(t *testing.T) {
 
 		// Verify the session is functional after wrapping.
 		ctx := context.Background()
-		stdout, _, code, err := s.Execute(ctx, "echo wrapped")
+		stdout, _, code, err := execSession(ctx, s, "echo wrapped")
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
@@ -259,7 +273,7 @@ func TestBashSession_CommandWrapperFiltersEnv(t *testing.T) {
 	defer func() { _ = s.Close() }()
 
 	ctx := context.Background()
-	stdout, _, code, err := s.Execute(ctx, `echo "[$STEINER_TEST_FAKE_TOKEN]"`)
+	stdout, _, code, err := execSession(ctx, s, `echo "[$STEINER_TEST_FAKE_TOKEN]"`)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -299,7 +313,7 @@ func TestBashSession_RealSandboxWrapperFiltersEnv(t *testing.T) {
 	defer func() { _ = s.Close() }()
 
 	ctx := context.Background()
-	stdout, stderr, code, err := s.Execute(ctx, `echo "[$STEINER_TEST_FAKE_TOKEN]"`)
+	stdout, stderr, code, err := execSession(ctx, s, `echo "[$STEINER_TEST_FAKE_TOKEN]"`)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -344,7 +358,7 @@ func TestJoinCaptureGoroutines(t *testing.T) {
 	})
 }
 
-// TestBashSession_CancellationJoinsCaptures verifies that a cancelled Execute
+// TestBashSession_CancellationJoinsCaptures verifies that a cancelled execute
 // returns, does not block indefinitely on the capture goroutines of the
 // cancelled generation, and leaves the session usable.
 func TestBashSession_CancellationJoinsCaptures(t *testing.T) {
@@ -359,7 +373,7 @@ func TestBashSession_CancellationJoinsCaptures(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, _, _, err := s.Execute(ctx, "sleep 30")
+		_, _, _, err := execSession(ctx, s, "sleep 30")
 		done <- err
 	}()
 
@@ -386,7 +400,7 @@ func TestBashSession_CancellationJoinsCaptures(t *testing.T) {
 
 	// The restarted session must read a fresh command's output without stale
 	// capture goroutines from the cancelled generation interfering.
-	stdout, _, code, err := s.Execute(context.Background(), "echo after-cancel")
+	stdout, _, code, err := execSession(context.Background(), s, "echo after-cancel")
 	if err != nil {
 		t.Fatalf("Execute after cancellation: %v", err)
 	}
@@ -501,5 +515,191 @@ func TestParseBashExitLine(t *testing.T) {
 				t.Errorf("parseBashExitLine returned code %d, want %d", code, tt.wantCode)
 			}
 		})
+	}
+}
+
+func TestBashSessionExecuteTimeoutKeepsPartials(t *testing.T) {
+	s := NewBashSession()
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	// The background sleep inherits the pipes and outlives the shell.
+	so, se, code, timedOut, err := s.execute(ctx, "sleep 60 & echo partial-out; echo partial-err >&2; sleep 60")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !timedOut || code != -1 {
+		t.Errorf("timedOut = %v, code = %d; want true, -1", timedOut, code)
+	}
+	if elapsed := time.Since(start); elapsed > 2*bashSessionCaptureJoinTimeout {
+		t.Errorf("execute took %v, want bounded", elapsed)
+	}
+	if got := string(so.Head); got != "partial-out\n" {
+		t.Errorf("stdout partial = %q, want %q", got, "partial-out\n")
+	}
+	if got := string(se.Head); got != "partial-err\n" {
+		t.Errorf("stderr partial = %q, want %q", got, "partial-err\n")
+	}
+
+	out, _, code, err := execSession(context.Background(), s, "echo recovered")
+	if err != nil || code != 0 || out != "recovered\n" {
+		t.Errorf("after timeout = %q, %d, %v; want recovered, 0, nil", out, code, err)
+	}
+}
+
+func TestBashSessionExecuteMarkerCollision(t *testing.T) {
+	s := NewBashSession()
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	cmd := "echo __STEINER_STDOUT_1__; echo __STEINER_EXIT_1__:9; echo __STEINER_STDERR_1__ >&2; (exit 4)"
+	so, se, code, timedOut, err := s.execute(context.Background(), cmd)
+	if err != nil || timedOut {
+		t.Fatalf("execute: %v (timedOut=%v)", err, timedOut)
+	}
+	if code != 4 {
+		t.Errorf("exit code = %d, want 4", code)
+	}
+	if want := "__STEINER_STDOUT_1__\n__STEINER_EXIT_1__:9\n"; string(so.Head) != want {
+		t.Errorf("stdout = %q, want %q", so.Head, want)
+	}
+	if want := "__STEINER_STDERR_1__\n"; string(se.Head) != want {
+		t.Errorf("stderr = %q, want %q", se.Head, want)
+	}
+}
+
+func TestBashSessionExecuteLargeOutputKeepsTail(t *testing.T) {
+	s := NewBashSession()
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	const n = 3_000_000
+	so, _, code, timedOut, err := s.execute(ctx, "head -c 3000000 /dev/zero | tr '\\0' a; printf END; (exit 6)")
+	if err != nil || timedOut {
+		t.Fatalf("execute: %v (timedOut=%v)", err, timedOut)
+	}
+	if code != 6 {
+		t.Errorf("exit code = %d, want 6", code)
+	}
+	if so.TotalBytes != n+3 || !so.HeadTruncated {
+		t.Errorf("TotalBytes = %d, HeadTruncated = %v; want %d, true", so.TotalBytes, so.HeadTruncated, n+3)
+	}
+	if len(so.Head) != bashSessionCaptureLimit || len(so.Tail) != bashSessionCaptureLimit {
+		t.Errorf("head/tail = %d/%d, want %d each", len(so.Head), len(so.Tail), bashSessionCaptureLimit)
+	}
+	if !strings.HasSuffix(string(so.Tail), "aaaEND") {
+		t.Errorf("tail does not end with the real last bytes: %q", so.Tail[max(0, len(so.Tail)-10):])
+	}
+}
+
+func TestBashSessionShellExitReturnsError(t *testing.T) {
+	s := NewBashSession()
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	so, _, _, timedOut, err := s.execute(context.Background(), "echo before; exit 3")
+	if err == nil || timedOut {
+		t.Fatalf("execute err = %v, timedOut = %v; want error from shell exit", err, timedOut)
+	}
+	if string(so.Head) != "before\n" {
+		t.Errorf("partial stdout = %q, want %q", so.Head, "before\n")
+	}
+}
+
+// TestBashSessionExecuteEscapedDescendant covers a descendant that left the
+// shell's process group (own session) and keeps the pipes open after the shell
+// is killed. Cancellation must still return within the bounded joins and keep
+// what was emitted before the cancel.
+func TestBashSessionExecuteEscapedDescendant(t *testing.T) {
+	if _, err := exec.LookPath("setsid"); err != nil {
+		t.Skip("setsid not available")
+	}
+	pidFile := filepath.Join(t.TempDir(), "pid")
+
+	s := NewBashSession()
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	// Always reap the escaped descendant, even if an assertion fails first.
+	t.Cleanup(func() {
+		raw, err := os.ReadFile(pidFile)
+		if err != nil {
+			return
+		}
+		var pid int
+		if _, err := fmt.Sscanf(strings.TrimSpace(string(raw)), "%d", &pid); err != nil || pid <= 0 {
+			return
+		}
+		if p, err := os.FindProcess(pid); err == nil {
+			_ = p.Kill() // may already be gone
+		}
+	})
+
+	cmd := fmt.Sprintf("echo out-before; echo err-before >&2; setsid sh -c 'echo $$ > %[1]s.tmp && mv %[1]s.tmp %[1]s && exec sleep 60' & wait", pidFile)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	type result struct {
+		so, se   streamCapture
+		timedOut bool
+		err      error
+	}
+	done := make(chan result, 1)
+	go func() {
+		so, se, _, timedOut, err := s.execute(ctx, cmd)
+		done <- result{so, se, timedOut, err}
+	}()
+
+	// Readiness: the descendant has escaped once it published its pid.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(pidFile); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatal("escaped descendant never became ready")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	start := time.Now()
+	cancel()
+	select {
+	case r := <-done:
+		if r.err != nil || !r.timedOut {
+			t.Fatalf("execute err = %v, timedOut = %v; want nil, true", r.err, r.timedOut)
+		}
+		if elapsed := time.Since(start); elapsed > 2*bashSessionCaptureJoinTimeout+time.Second {
+			t.Errorf("cancellation took %v, want bounded joins", elapsed)
+		}
+		if got := string(r.so.Head); got != "out-before\n" {
+			t.Errorf("stdout partial = %q, want %q", got, "out-before\n")
+		}
+		if got := string(r.se.Head); got != "err-before\n" {
+			t.Errorf("stderr partial = %q, want %q", got, "err-before\n")
+		}
+	case <-time.After(3*bashSessionCaptureJoinTimeout + 5*time.Second):
+		t.Fatal("execute did not return after cancellation")
+	}
+
+	out, _, code, err := execSession(context.Background(), s, "echo recovered")
+	if err != nil || code != 0 || out != "recovered\n" {
+		t.Errorf("after cancel = %q, %d, %v; want recovered, 0, nil", out, code, err)
 	}
 }

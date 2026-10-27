@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -52,7 +53,7 @@ func (s subAgentPickerOverlay) renderRow(i, w int, now int64) string {
 	case row.section:
 		return lipgloss.NewStyle().MaxWidth(w).Render(s.styles.FgFaint.Render(row.heading))
 	case row.groupHdr:
-		return lipgloss.NewStyle().MaxWidth(w).Render(s.styles.FgMute.Render("┌ " + row.heading))
+		return lipgloss.NewStyle().MaxWidth(w).Render(s.styles.FgMute.Render("┌ " + singleLineDisplayText(row.heading)))
 	}
 	if i == s.selection {
 		return s.styles.AccentBg.Width(w).MaxWidth(w).Render(plainCardRow(row, w, now))
@@ -67,7 +68,7 @@ type cardParts struct {
 
 func cardRowParts(row subAgentPickerRow, w int, now int64) cardParts {
 	dd := row.dd
-	p := cardParts{prefix: "  ", id: fitText(dd.agentID, 8)}
+	p := cardParts{prefix: "  ", id: fitText(singleLineDisplayText(dd.agentID), 8)}
 	if row.inGroup {
 		p.prefix = "│ "
 	}
@@ -82,10 +83,10 @@ func cardRowParts(row subAgentPickerRow, w int, now int64) cardParts {
 	default:
 		p.icon, p.elapsed = "✓", dd.elapsed
 	}
-	p.typ = fitText(dd.effectiveTypeLabel(), 10)
+	p.typ = fitText(singleLineDisplayText(dd.effectiveTypeLabel()), 10)
 	p.typ += strings.Repeat(" ", max(0, 10-lipgloss.Width(p.typ)))
 	used := lipgloss.Width(p.prefix) + 2 + 11 + lipgloss.Width(p.id) + 1 + lipgloss.Width(p.elapsed) + 2
-	p.task = fitText(strings.Join(strings.Fields(dd.taskPreview), " "), max(0, w-used))
+	p.task = fitText(output.SanitizeDisplayText(strings.Join(strings.Fields(dd.taskPreview), " ")), max(0, w-used))
 	return p
 }
 

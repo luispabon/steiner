@@ -61,19 +61,22 @@ type ToolPreviewGrepFile struct {
 
 // ToolPreview is the normalized preview payload for tool results.
 type ToolPreview struct {
-	Kind             string
-	Path             string
-	Language         string
-	Before           string
-	After            string
-	Contents         string
-	Created          bool
-	Command          string
-	Output           string
-	ExitCode         int
-	Truncated        bool
-	HasMore          bool
-	Returned         int
+	Kind      string
+	Path      string
+	Language  string
+	Before    string
+	After     string
+	Contents  string
+	Created   bool
+	Command   string
+	Output    string
+	ExitCode  int
+	Truncated bool
+	HasMore   bool
+	Returned  int
+	// Matches counts grep matching lines. Content uses the tool's shown count
+	// because context lines are not matches; zero when not reported.
+	Matches          int
 	NextOffset       int
 	OutputMode       string
 	StartLine        int
@@ -93,7 +96,13 @@ type ToolPreview struct {
 }
 
 // BuildToolPreview builds a structured preview for a tool result when supported.
+// Display strings are sanitized with SanitizeDisplayText; the preview is for
+// rendering only and must not replace the model-facing result.
 func BuildToolPreview(tool string, arguments map[string]any, result string) ToolPreview {
+	return sanitizeToolPreview(buildToolPreview(tool, arguments, result))
+}
+
+func buildToolPreview(tool string, arguments map[string]any, result string) ToolPreview {
 	switch strings.ToLower(strings.TrimSpace(tool)) {
 	case "read", "read_file":
 		return buildReadPreview(arguments, result)

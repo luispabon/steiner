@@ -19,12 +19,12 @@ func TestBashSessionStdinIsDevNull(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		start := time.Now()
-		out, _, code, err := s.Execute(ctx, cmd)
+		out, _, code, err := execSession(ctx, s, cmd)
 		if err != nil {
-			t.Fatalf("Execute(%q): %v", cmd, err)
+			t.Fatalf("run(%q): %v", cmd, err)
 		}
 		if time.Since(start) > 2*time.Second {
-			t.Fatalf("Execute(%q) was not prompt", cmd)
+			t.Fatalf("run(%q) was not prompt", cmd)
 		}
 		return out, code
 	}

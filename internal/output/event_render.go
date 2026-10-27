@@ -37,6 +37,7 @@ var eventRenderers = map[reflect.Type]func(Event) Segment{
 	reflect.TypeOf(ToolCallStartedEvent{}):        typedRenderer(renderToolCallStartedEvent),
 	reflect.TypeOf(ToolCallQueuedEvent{}):         typedRenderer(renderToolCallQueuedEvent),
 	reflect.TypeOf(ToolCallFinishedEvent{}):       typedRenderer(renderToolCallFinishedEvent),
+	reflect.TypeOf(BashArtifactTruncatedEvent{}):  typedRenderer(renderBashArtifactTruncatedEvent),
 	reflect.TypeOf(DelegationAcceptedEvent{}):     typedRenderer(renderDelegationAcceptedEvent),
 	reflect.TypeOf(DelegationCompleteEvent{}):     typedRenderer(renderDelegationCompleteEvent),
 	reflect.TypeOf(AdvisorStartedEvent{}):         typedRenderer(renderAdvisorStartedEvent),
@@ -262,6 +263,10 @@ func renderToolCallFinishedEvent(payload ToolCallFinishedEvent) Segment {
 		parts = append(parts, fmt.Sprintf("error=%s", payload.Error))
 	}
 	return Segment{Channel: channel, Label: label, Text: strings.Join(parts, " ")}
+}
+
+func renderBashArtifactTruncatedEvent(payload BashArtifactTruncatedEvent) Segment {
+	return Segment{Channel: ChannelStatus, Label: "bash artifact", Text: payload.Message}
 }
 
 func renderDelegationAcceptedEvent(payload DelegationAcceptedEvent) Segment {

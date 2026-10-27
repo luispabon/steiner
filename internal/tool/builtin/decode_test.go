@@ -115,7 +115,8 @@ func TestDecodeInputParity(t *testing.T) {
 					"command":          "echo hello",
 					"cwd":              "/tmp",
 					"timeout_seconds":  60,
-					"max_output_chars": 50000,
+					"max_output_bytes": 20000,
+					"raw_output":       true,
 				})
 			},
 		},
@@ -603,7 +604,8 @@ func TestDecodeInput(t *testing.T) {
 			"command":          "echo hello",
 			"cwd":              "/tmp",
 			"timeout_seconds":  60,
-			"max_output_chars": 50000,
+			"max_output_bytes": 20000,
+			"raw_output":       true,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -613,6 +615,19 @@ func TestDecodeInput(t *testing.T) {
 		}
 		if result.CWD != "/tmp" {
 			t.Errorf("CWD = %q, want %q", result.CWD, "/tmp")
+		}
+		if result.MaxOutputBytes != 20000 || !result.RawOutput {
+			t.Errorf("MaxOutputBytes, RawOutput = %d, %v, want 20000, true", result.MaxOutputBytes, result.RawOutput)
+		}
+	})
+
+	t.Run("BashInput rejects old max_output_chars", func(t *testing.T) {
+		_, err := decodeInput[BashInput](map[string]any{
+			"command":          "echo hello",
+			"max_output_chars": 50000,
+		})
+		if err == nil {
+			t.Fatal("expected error for max_output_chars, got nil")
 		}
 	})
 

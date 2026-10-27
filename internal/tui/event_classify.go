@@ -50,6 +50,8 @@ func classifyDevLog(event output.Event) (devLogClass, bool) {
 		return devLogClass{severity: devLogError, source: "delegation", message: payload.Error}, true
 	case output.AdvisorCompleteEvent:
 		return errorClassFor(payload.Error, "delegation")
+	case output.BashArtifactTruncatedEvent:
+		return devLogClass{severity: devLogWarning, source: "tool", message: payload.Message, callID: payload.CallID}, true
 	case output.ConfigWarningEvent:
 		return devLogClass{severity: devLogWarning, source: "config", message: payload.Message}, true
 	case output.SkillTruncatedEvent:

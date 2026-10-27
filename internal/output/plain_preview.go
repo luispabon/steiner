@@ -187,12 +187,12 @@ func stripReadLineNumberPrefixForLine(line string, lineNumber int) string {
 }
 
 func (r *PlainRenderer) renderDisplayFilePreviewLocked(payload DisplayFilePayload) {
-	doc := payload.Preview
+	doc := SanitizePreviewDocument(payload.Preview)
 	if doc.Kind != PreviewFormatKindFile {
 		return
 	}
 
-	if caption := renderDisplayFileCaption(payload); caption != "" {
+	if caption := SanitizeDisplayText(renderDisplayFileCaption(payload)); caption != "" {
 		r.writeStringLocked(r.decorate(ChannelTool, "  "+caption) + "\n")
 	}
 	for _, line := range doc.Lines {

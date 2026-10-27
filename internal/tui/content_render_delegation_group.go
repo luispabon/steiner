@@ -101,7 +101,7 @@ func (b *contentBuffer) groupNameStyle(group *delegationGroupSegment) lipgloss.S
 func (b *contentBuffer) renderDelegationGroupFooter(group *delegationGroupSegment, innerWidth int, borderColor color.Color) string {
 	bg := lipgloss.Color(b.styles.Palette.ContentBG)
 	border := lipgloss.NewStyle().Foreground(borderColor).Background(bg)
-	name := delegationVisualGroupName(group)
+	name := singleLineDisplayText(delegationVisualGroupName(group))
 	agg := aggregateDelegationGroup(group)
 	glyph, stateText := b.groupTitleStats(agg)
 	noun := "agents"

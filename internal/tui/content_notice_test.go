@@ -72,6 +72,30 @@ func TestNoticeDisplayTextCapsFirstLine(t *testing.T) {
 	}
 }
 
+func TestNoticeDisplayTextSanitizesControls(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "plain text", text: "boom", want: "boom"},
+		{name: "SGR removed", text: "\x1b[31mboom\x1b[0m", want: "boom"},
+		{name: "OSC title removed", text: "\x1b]0;pwned\x07boom", want: "boom"},
+		{name: "bare CR dropped", text: "old\rboom", want: "oldboom"},
+		{name: "leading ESC starts a sequence", text: "\x1b\x07boom", want: "oom"},
+		{name: "trimmed after sanitizing", text: "\x1b[31m  boom  \x1b[0m\nmore", want: "boom"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := noticeDisplayText(tt.text); got != tt.want {
+				t.Fatalf("noticeDisplayText(%q) = %q, want %q", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAppendNoticeKeepsFullTextForCollapse(t *testing.T) {
 	t.Parallel()
 	b := newTestBuffer(t)

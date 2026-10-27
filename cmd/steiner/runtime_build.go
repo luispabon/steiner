@@ -69,13 +69,19 @@ func preflightRuntimeModels(cfg config.Config, requirement runtimeRequirement) e
 	}
 }
 
+// pruneRuntimeArtifacts applies shared fetch/bash artifact retention to the
+// project root and the (possibly worktree) work directory.
+func pruneRuntimeArtifacts(projectRoot, workDir string) (int, error) {
+	return builtin.PruneToolArtifacts([]string{projectRoot, workDir})
+}
+
 func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {
 	if err := session.EnsureSteinerProjectDir(projectRoot); err != nil {
 		return cliRuntime{}, err
 	}
 	// Best-effort: a failed prune must not block startup, and there is no
 	// event sink yet at this point in composition to report it through.
-	_, _ = builtin.PruneFetchedDir(projectRoot)
+	_, _ = pruneRuntimeArtifacts(projectRoot, workDir)
 	cfg, err := loadRuntimeConfig(cmd, flags, modelAlias)
 	if err != nil {
 		return cliRuntime{}, err

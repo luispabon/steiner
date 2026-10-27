@@ -139,7 +139,7 @@ func TestRunnerExecutesToolThenFinalAnswer(t *testing.T) {
 }
 
 //nolint:gocyclo
-func TestRunnerContextStateManagerShapesFreshToolResultsOnAppend(t *testing.T) {
+func TestRunnerContextStateManagerPreservesBashResultsOnAppend(t *testing.T) {
 	providerStub := &fakeProvider{
 		responses: []provider.ChatResponse{
 			{
@@ -169,6 +169,7 @@ func TestRunnerContextStateManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 		},
 	}
 
+	bashOutput := "HEAD-SENTINEL\n" + strings.Repeat("filler line\n", 1200) + "\x1b[31mwarning: retry\x1b[0m\r\n  warning: retry\t\nfinal tail\n"
 	executor := &fakeExecutor{
 		execute: func(_ context.Context, toolName string, _ map[string]any) (any, error) {
 			if toolName != "bash" {
@@ -177,7 +178,9 @@ func TestRunnerContextStateManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 			return tool.ExecutionResult{
 				Value: map[string]any{
 					"exit_code": 1,
-					"output":    "HEAD-SENTINEL\n" + strings.Repeat("filler line\n", 1200) + "\x1b[31mwarning: retry\x1b[0m\nwarning: retry\nwarning: retry\nfinal tail\n",
+					"timed_out": true,
+					"message":   "command timed out",
+					"output":    bashOutput,
 				},
 				Metadata: tool.ExecutionMetadata{
 					ExitCode: 1,
@@ -219,26 +222,19 @@ func TestRunnerContextStateManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 		t.Fatalf("tool call id = %q, want call_1", toolResultMsg.ToolCallID)
 	}
 	var toolResult struct {
-		Output    string `json:"output"`
-		Truncated bool   `json:"truncated"`
+		ExitCode int    `json:"exit_code"`
+		TimedOut bool   `json:"timed_out"`
+		Message  string `json:"message"`
+		Output   string `json:"output"`
 	}
 	if err := json.Unmarshal([]byte(toolResultMsg.Content), &toolResult); err != nil {
 		t.Fatalf("unmarshal tool result: %v", err)
 	}
-	if strings.Contains(toolResult.Output, "HEAD-SENTINEL") {
-		t.Fatalf("tool result output = %q, want head truncated at append time", toolResult.Output)
+	if toolResult.Output != bashOutput {
+		t.Fatalf("tool result output changed: got %q, want exact bash output", toolResult.Output)
 	}
-	if strings.Contains(toolResult.Output, "\x1b[") {
-		t.Fatalf("tool result output = %q, want ANSI stripped", toolResult.Output)
-	}
-	if !strings.Contains(toolResult.Output, "warning: retry (repeated 3x)") {
-		t.Fatalf("tool result output = %q, want repeated warning collapse", toolResult.Output)
-	}
-	if !toolResult.Truncated {
-		t.Fatal("tool result truncated = false, want true")
-	}
-	if !strings.Contains(toolResult.Output, "<truncated output shown=") {
-		t.Fatalf("tool result output = %q, want truncation marker", toolResult.Output)
+	if toolResult.ExitCode != 1 || !toolResult.TimedOut || toolResult.Message != "command timed out" {
+		t.Fatalf("tool result metadata = %+v, want exit_code 1, timed_out true, message preserved", toolResult)
 	}
 }
 

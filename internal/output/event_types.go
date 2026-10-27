@@ -19,6 +19,10 @@ const (
 	// acquires a parallelism slot. It carries the same payload shape as
 	// EventTypeToolCallStarted and is emitted only for delegation-class calls.
 	EventTypeToolCallQueued = "tool_call_queued"
+	// EventTypeBashArtifactTruncated marks a successful bash call whose saved
+	// full output hit the artifact size cap and dropped bytes. It is live-only:
+	// replay does not synthesize it. It renders as a status line.
+	EventTypeBashArtifactTruncated = "bash_artifact_truncated"
 	// EventTypeApprovalRequested marks a pending approval request.
 	EventTypeApprovalRequested = "approval_requested"
 	// EventTypeApprovalAccepted marks an accepted approval request.

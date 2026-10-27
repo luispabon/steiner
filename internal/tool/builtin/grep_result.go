@@ -21,26 +21,34 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/tool"
 )
 
+// grepRenderedLineBudget caps the rendered lines of one grep page. File
+// headers, context lines, separators and notices all count toward it.
+const grepRenderedLineBudget = 200
+
 func buildGrepResult(files []grepFileResult, mode string, showLines bool, beforeContext, afterContext, offset, headLimit int) GrepResult {
+	// files_with_matches and count render one line per logical result.
+	lineLimit := min(headLimit, grepRenderedLineBudget)
 	switch mode {
 	case "files_with_matches":
 		rows := grepFilesWithMatches(files)
-		page := paginateGrepRows(rows, offset, headLimit)
+		page := paginateGrepRows(rows, offset, lineLimit)
 		output := renderGrepFilesWithMatches(page)
 		return buildGrepResultFromPage(len(rows), len(page), offset, output)
 	case "count":
 		rows := grepCountRows(files)
-		page := paginateGrepRows(rows, offset, headLimit)
+		page := paginateGrepRows(rows, offset, lineLimit)
 		output := renderGrepCountRows(page)
 		return buildGrepResultFromPage(len(rows), len(page), offset, output)
 	case "content":
 		fallthrough
 	default:
 		rows := grepContentSelections(files)
-		page := paginateGrepRows(rows, offset, headLimit)
-		output := renderGrepContent(files, page, showLines, beforeContext, afterContext)
+		candidates := paginateGrepRows(rows, offset, headLimit)
+		page, output := fitGrepContentPage(files, candidates, showLines, beforeContext, afterContext)
 		result := buildGrepResultFromPage(len(rows), len(page), offset, output)
 		// Apply line bounding for content mode only; never truncate
 		// file paths in files_with_matches or path:count rows.
@@ -65,6 +73,7 @@ func buildGrepResultFromPage(total, returned, offset int, output string) GrepRes
 	}
 
 	result := GrepResult{
+		Shown:      returned,
 		NextOffset: nextOffset,
 		Output:     output,
 	}
@@ -173,7 +182,7 @@ func renderGrepContent(files []grepFileResult, selected []grepContentSelection, 
 		}
 
 		_, _ = fmt.Fprintf(&b, "## %s\n", file.file)
-		renderGrepFileWindows(&b, file, windows, showLines)
+		renderGrepFileWindows(&b, file, windows, selectedByFile[fileName], showLines)
 		if fileIndex < len(fileOrder)-1 {
 			b.WriteString("\n")
 		}
@@ -182,15 +191,89 @@ func renderGrepContent(files []grepFileResult, selected []grepContentSelection, 
 	return strings.TrimSpace(b.String())
 }
 
-func renderGrepFileWindows(b *strings.Builder, file grepFileResult, windows []grepWindow, showLines bool) {
+// fitGrepContentPage returns the longest prefix of candidates whose rendered
+// output fits grepRenderedLineBudget, with that output. Rendered line count is
+// non-decreasing in prefix length, so a binary search finds the boundary. When
+// the first candidate alone exceeds the budget, it is returned as a bounded
+// excerpt so that pagination still advances past it.
+func fitGrepContentPage(files []grepFileResult, candidates []grepContentSelection, showLines bool, beforeContext, afterContext int) ([]grepContentSelection, string) {
+	if len(candidates) == 0 {
+		return nil, ""
+	}
+	fit := 0
+	output := ""
+	lo, hi := 1, len(candidates)
+	for lo <= hi {
+		mid := lo + (hi-lo)/2
+		rendered := renderGrepContent(files, candidates[:mid], showLines, beforeContext, afterContext)
+		if grepLineCount(rendered) <= grepRenderedLineBudget {
+			fit, output = mid, rendered
+			lo = mid + 1
+		} else {
+			hi = mid - 1
+		}
+	}
+	if fit == 0 {
+		return candidates[:1], renderGrepExcerpt(files, candidates[0], showLines, beforeContext, afterContext)
+	}
+	return candidates[:fit], output
+}
+
+// renderGrepExcerpt renders one logical result whose window alone exceeds the
+// rendered-line budget. The excerpt keeps the match line and ends with a
+// truncation marker. Callers must only pass results that exceed the budget.
+func renderGrepExcerpt(files []grepFileResult, sel grepContentSelection, showLines bool, beforeContext, afterContext int) string {
+	var file grepFileResult
+	for _, candidate := range files {
+		if candidate.file == sel.file {
+			file = candidate
+			break
+		}
+	}
+	windows := mergeGrepWindows([]int{sel.lineNumber}, len(file.lines), beforeContext, afterContext)
+	if len(windows) == 0 {
+		return ""
+	}
+	window := windows[0]
+	total := window.end - window.start + 1
+	// Reserve one line for the file header and one for the marker.
+	maxLines := grepRenderedLineBudget - 2
+	if total > maxLines {
+		start := max(window.start, sel.lineNumber-maxLines/2)
+		window = grepWindow{start: start, end: min(window.end, start+maxLines-1)}
+	}
+
+	var b strings.Builder
+	_, _ = fmt.Fprintf(&b, "## %s\n", file.file)
+	renderGrepFileWindows(&b, file, []grepWindow{window}, []int{sel.lineNumber}, showLines)
+	b.WriteString(tool.TruncationMarker(window.end-window.start+1, total))
+	return b.String()
+}
+
+// grepLineCount returns the number of lines in rendered grep output.
+func grepLineCount(rendered string) int {
+	if rendered == "" {
+		return 0
+	}
+	return strings.Count(rendered, "\n") + 1
+}
+
+// renderGrepFileWindows renders the lines of each window. Only selected lines
+// get match columns. Other matches inside a window render as context, so a
+// result that belongs to a later page is not reported as emitted here.
+func renderGrepFileWindows(b *strings.Builder, file grepFileResult, windows []grepWindow, selected []int, showLines bool) {
 	lineColumns := grepLineColumns(file.matches)
+	isSelected := make(map[int]bool, len(selected))
+	for _, lineNumber := range selected {
+		isSelected[lineNumber] = true
+	}
 	for windowIndex, window := range windows {
 		for lineNumber := window.start; lineNumber <= window.end; lineNumber++ {
 			line := ""
 			if lineNumber-1 >= 0 && lineNumber-1 < len(file.lines) {
 				line = strings.TrimRight(file.lines[lineNumber-1], "\r")
 			}
-			renderGrepLine(b, lineNumber, line, lineColumns[lineNumber], showLines)
+			renderGrepLine(b, lineNumber, line, lineColumns[lineNumber], isSelected[lineNumber], showLines)
 		}
 		if windowIndex < len(windows)-1 {
 			b.WriteString("\n")
@@ -208,11 +291,14 @@ func grepLineColumns(matches []grepMatch) map[int]int {
 	return lineColumns
 }
 
-func renderGrepLine(b *strings.Builder, lineNumber int, line string, column int, showLines bool) {
+// renderGrepLine renders one line. Selected lines always carry their column,
+// so a continuation line of a multiline match renders "N:0: " and stays
+// distinct from context rows ("N: ").
+func renderGrepLine(b *strings.Builder, lineNumber int, line string, column int, selected, showLines bool) {
 	switch {
 	case !showLines:
 		_, _ = fmt.Fprintf(b, "%s\n", line)
-	case column > 0:
+	case selected:
 		_, _ = fmt.Fprintf(b, "%d:%d: %s\n", lineNumber, column, line)
 	default:
 		_, _ = fmt.Fprintf(b, "%d: %s\n", lineNumber, line)

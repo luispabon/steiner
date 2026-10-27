@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width int) string {
@@ -49,11 +51,12 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 func (b *contentBuffer) renderDelegationHeaderIdentity(dd *delegationDisplayState) string {
 	label, labelStyle := b.delegationHeaderLabel(dd)
 	left := labelStyle.Render(label)
+	agentID := delegationHeaderAgentID(dd)
 	switch {
 	case dd.isFollowUp && dd.followUpAgentID != "":
-		left += b.styles.FgDim.Render(" - follow up " + dd.followUpAgentID)
-	case delegationHeaderAgentID(dd) != "":
-		left += " " + b.styles.FgDim.Render(delegationHeaderAgentID(dd))
+		left += b.styles.FgDim.Render(" - follow up " + singleLineDisplayText(dd.followUpAgentID))
+	case agentID != "":
+		left += " " + b.styles.FgDim.Render(agentID)
 	}
 	return left
 }
@@ -63,7 +66,7 @@ func (b *contentBuffer) delegationHeaderLabel(dd *delegationDisplayState) (strin
 		tagStyle, _ := b.delegationStyles("advisor")
 		return "advisor", tagStyle
 	}
-	label := dd.effectiveTypeLabel()
+	label := singleLineDisplayText(dd.effectiveTypeLabel())
 	tagStyle, _ := b.delegationStyles(label)
 	return label, tagStyle
 }
@@ -72,7 +75,7 @@ func delegationHeaderAgentID(dd *delegationDisplayState) string {
 	if dd == nil || dd.isAdvisor {
 		return ""
 	}
-	agentID := strings.TrimSpace(dd.agentID)
+	agentID := strings.TrimSpace(singleLineDisplayText(dd.agentID))
 	if agentID == "" {
 		return "pending"
 	}
@@ -258,7 +261,7 @@ func (b *contentBuffer) renderDelegationHeaderOperation(dd *delegationDisplaySta
 			operation = strings.TrimSpace(dd.taskPreview)
 		}
 	}
-	operation = normalizeDelegationText(operation)
+	operation = output.SanitizeDisplayText(normalizeDelegationText(operation))
 	if operation == "" {
 		return ""
 	}

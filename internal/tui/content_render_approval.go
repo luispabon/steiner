@@ -39,6 +39,8 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 		label += " +" + fmt.Sprint(ad.queueDepth) + " waiting"
 	}
 
+	label = singleLineDisplayText(label)
+
 	if ad.resolved {
 		bar := b.styles.FgMute.Render("│")
 		var statusStr string

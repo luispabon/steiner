@@ -6,6 +6,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func truncateRunes(text string, width int) string {
@@ -15,8 +17,23 @@ func truncateRunes(text string, width int) string {
 	return ansi.Truncate(text, width, "…")
 }
 
+// singleLineReplacer turns newlines and tabs into spaces. It is built once
+// because strings.NewReplacer allocates on every call.
+var singleLineReplacer = strings.NewReplacer("\n", " ", "\t", " ")
+
+// singleLineDisplayText sanitizes model-supplied text for a display cell that
+// must stay on one line. Newlines and tabs become spaces so they cannot start a
+// new row or shift the row-to-target mapping. Stored text is not changed.
+func singleLineDisplayText(text string) string {
+	sanitized := output.SanitizeDisplayText(text)
+	if !strings.ContainsAny(sanitized, "\n\t") {
+		return sanitized
+	}
+	return singleLineReplacer.Replace(sanitized)
+}
+
 func truncateOverlayText(text string, width int) string {
-	text = strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
+	text = output.SanitizeDisplayText(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
 	if width <= 0 || text == "" {
 		return ""
 	}

@@ -358,7 +358,7 @@ func (b *contentBuffer) renderToolApprovalBlock(tc *toolCallSegment, width int) 
 // If the preview is JSON, each key is rendered bold followed by its value.
 // Otherwise, the raw text is shown muted with 1-line padding above and below.
 func (b *contentBuffer) renderApprovalPreview(raw string, width int) string {
-	raw = strings.TrimSpace(raw)
+	raw = strings.TrimSpace(output.SanitizeDisplayText(raw))
 	if raw == "" {
 		return b.styles.FgMute.Render("no preview available")
 	}

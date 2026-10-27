@@ -78,6 +78,25 @@ func TestDelegationStartedEventIncludesAgentType(t *testing.T) {
 	}
 }
 
+func TestBashArtifactTruncatedEventJSONAndRender(t *testing.T) {
+	const message = "warning: bash artifact truncated: partial output saved to .steiner/artifacts/call-1.txt"
+	event := NewBashArtifactTruncatedEvent(3, "call-1", ".steiner/artifacts/call-1.txt", message)
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	for _, want := range []string{`"type":"bash_artifact_truncated"`, `"turn":3`, `"call_id":"call-1"`, `"file_path":".steiner/artifacts/call-1.txt"`, `"message":"warning: bash artifact truncated: partial output saved to .steiner/artifacts/call-1.txt"`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("event JSON = %s, missing %s", data, want)
+		}
+	}
+
+	seg := renderEvent(event)
+	if seg.Channel != ChannelStatus || seg.Label != "bash artifact" || seg.Text != message {
+		t.Errorf("segment = %+v, want status channel, bash artifact label and message", seg)
+	}
+}
+
 func TestDelegationLifecycleEventsFlattenOccurrenceJSON(t *testing.T) {
 	occ := DelegationOccurrence{CallID: "call-1", BatchID: "batch-1", AgentID: "agent-1"}
 	tests := []struct {
