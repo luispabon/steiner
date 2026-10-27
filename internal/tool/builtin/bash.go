@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -15,6 +16,7 @@ import (
 type BashResult struct {
 	ExitCode  int    `json:"exit_code,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
+	TimedOut  bool   `json:"timed_out,omitempty"`
 	Output    string `json:"output"`
 }
 
@@ -76,43 +78,55 @@ func NewBashTool(env Env) tool.ToolDef {
 			defer func() { _ = session.Close() }()
 
 			stdoutCap, stderrCap, exitCode, timedOut, execErr := session.execute(execCtx, command)
-			if execErr != nil {
-				// Session error: return as a result rather than a Go error so
-				// the model receives the failure information.
-				msg, _ := fitBashOutput("", execErr.Error(), in.MaxOutputBytes, 0)
-				return &BashResult{ExitCode: -1, Output: msg}, nil
-			}
-
 			body, omitted := combineBashStreams(stdoutCap, stderrCap, in.RawOutput)
+
+			// A timeout or session error is a partial result: keep whatever
+			// output was captured and say why it is incomplete.
 			var notice string
-			if timedOut {
-				// Timeout is a partial result: keep whatever output was captured.
+			switch {
+			case execErr != nil:
+				exitCode = -1
+				notice = fmt.Sprintf("[bash session error: %s; output above is partial]", bashErrorCause(execErr))
+			case timedOut:
 				notice = fmt.Sprintf("[bash session: %v; output above is partial]", cmp.Or(execCtx.Err(), context.Canceled))
-				if body != "" {
-					notice = "\n" + notice
-				}
 			}
-			out, cut := fitBashOutput(body, notice, in.MaxOutputBytes, omitted)
+			if notice != "" && body != "" {
+				notice = "\n" + notice
+			}
+			out, cut := fitBashOutput(body, notice, in.MaxOutputBytes)
 
 			return &BashResult{
 				ExitCode:  exitCode,
-				Truncated: omitted > 0 || cut,
+				Truncated: omitted > 0 || cut || execErr != nil,
+				TimedOut:  timedOut,
 				Output:    out,
 			}, nil
 		},
 	}
 }
 
+// bashErrorCause drops the captured stdout and stderr text that
+// bashStreamReadError embeds in its message; the captures are rendered
+// separately.
+func bashErrorCause(err error) string {
+	msg := err.Error()
+	for _, sep := range []string{"; stderr: ", "; stdout: "} {
+		if i := strings.Index(msg, sep); i >= 0 {
+			msg = msg[:i]
+		}
+	}
+	return msg
+}
+
 // combineBashStreams renders stdout followed by labelled stderr. omitted counts
 // the bytes capture or cleaning dropped (each drop is also labelled in the
-// text). Stderr whitespace is preserved; one trailing newline of stdout is
-// trimmed.
+// text). Stdout and stderr bytes are kept exactly (modulo cleaning).
 func combineBashStreams(stdout, stderr streamCapture, raw bool) (body string, omitted int64) {
 	so, soOmitted := renderBashStream(stdout, raw)
 	se, seOmitted := renderBashStream(stderr, raw)
-	body = strings.TrimSuffix(so, "\n")
+	body = so
 	if stderr.TotalBytes > 0 {
-		if body != "" {
+		if body != "" && !strings.HasSuffix(body, "\n") {
 			body += "\n"
 		}
 		body += "[stderr]\n" + se
@@ -152,32 +166,53 @@ func renderBashStream(c streamCapture, raw bool) (text string, omitted int64) {
 	return head + bashOmittedLabel(omitted) + tail, omitted
 }
 
+var bashOmittedLabelRE = regexp.MustCompile(`\n\[\d+ bytes omitted\]\n`)
+
 // fitBashOutput joins body and suffix within budget bytes, marker included.
 // An oversized body keeps a 30% head and 70% tail (the actual end of the
-// output) around a truncation marker; cuts are UTF-8 safe. The suffix is kept
-// whole unless it alone exceeds half the budget. omitted is the number of
-// bytes already dropped before body, counted in the marker's total.
-func fitBashOutput(body, suffix string, budget int, omitted int64) (out string, cut bool) {
+// output) around a complete truncation marker whose numbers count rendered
+// body bytes; cuts are UTF-8 safe and never slice an omission label. A
+// suffix larger than half the budget is dropped (callers also report it in
+// metadata). If the marker cannot fit, only the tail is kept, unmarked, and
+// cut is true.
+func fitBashOutput(body, suffix string, budget int) (out string, cut bool) {
 	if budget <= 0 || len(body)+len(suffix) <= budget {
 		return body + suffix, false
 	}
 	if len(suffix) > budget/2 {
-		suffix = trimIncompleteUTF8SuffixString(suffix[:budget/2])
+		suffix = ""
 	}
 	room := budget - len(suffix)
+	spans := bashOmittedLabelRE.FindAllStringIndex(body, -1)
 	// Digit counts of the final marker never exceed those of this one.
-	maxMarker := "\n" + tool.TruncationMarker(len(body), len(body)+int(omitted)) + "\n"
+	maxMarker := "\n" + tool.TruncationMarker(len(body), len(body)) + "\n"
 	avail := room - len(maxMarker)
 	if avail < 0 {
-		return trimIncompleteUTF8SuffixString(maxMarker[:room]) + suffix, true
+		return bashTailFrom(body, len(body)-room, spans) + suffix, true
 	}
 	headN := avail * 3 / 10
-	tailStart := len(body) - (avail - headN)
-	for tailStart < len(body) && !utf8.RuneStart(body[tailStart]) {
-		tailStart++
+	for _, m := range spans {
+		if m[0] < headN && headN < m[1] {
+			headN = m[0]
+		}
 	}
 	head := trimIncompleteUTF8SuffixString(body[:headN])
-	tail := body[tailStart:]
-	marker := "\n" + tool.TruncationMarker(len(head)+len(tail), len(body)+int(omitted)) + "\n"
+	tail := bashTailFrom(body, len(body)-(avail-headN), spans)
+	marker := "\n" + tool.TruncationMarker(len(head)+len(tail), len(body)) + "\n"
 	return head + marker + tail + suffix, true
+}
+
+// bashTailFrom returns body[start:], moved forward to a rune boundary and
+// past any omission label that start would slice.
+func bashTailFrom(body string, start int, spans [][]int) string {
+	start = max(start, 0)
+	for _, m := range spans {
+		if m[0] < start && start < m[1] {
+			start = m[1]
+		}
+	}
+	for start < len(body) && !utf8.RuneStart(body[start]) {
+		start++
+	}
+	return body[start:]
 }
