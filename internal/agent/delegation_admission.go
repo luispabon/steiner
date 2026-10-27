@@ -119,9 +119,15 @@ func (p *turnProgressor) defaultRejectedAdmission(toolName string, err error) *t
 }
 
 // markModelGuidance flags a rejected admission whose error is recovery
-// guidance for the model (tool.WithModelGuidance), so UIs can omit its text.
+// guidance for the model (tool.WithModelGuidance), or a malformed tool input
+// the model must resend, so UIs can omit its text. Malformed input still
+// reaches the dev log.
 func markModelGuidance(admission *tool.DelegationAdmission, err error) {
-	if admission != nil && admission.Status == tool.DelegationAdmissionRejected && tool.IsModelGuidance(err) {
+	if admission == nil || admission.Status != tool.DelegationAdmissionRejected {
+		return
+	}
+	var toolErr *tool.ToolExecutionError
+	if tool.IsModelGuidance(err) || (errors.As(err, &toolErr) && toolErr.Kind == "invalid_tool_input") {
 		admission.ModelGuidance = true
 	}
 }

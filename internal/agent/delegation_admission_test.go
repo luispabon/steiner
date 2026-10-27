@@ -91,3 +91,29 @@ func assertAdmission(t *testing.T, label string, got, want *tool.DelegationAdmis
 		t.Fatalf("%s admission = %#v, want %#v", label, got, want)
 	}
 }
+
+func TestMarkModelGuidance(t *testing.T) {
+	tests := []struct {
+		name      string
+		admission *tool.DelegationAdmission
+		err       error
+		want      bool
+	}{
+		{"nil admission", nil, tool.WithModelGuidance(errors.New("x")), false},
+		{"accepted admission", &tool.DelegationAdmission{Status: tool.DelegationAdmissionAccepted}, tool.WithModelGuidance(errors.New("x")), false},
+		{"model guidance", &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected}, tool.WithModelGuidance(errors.New("x")), true},
+		{"invalid tool input", &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected}, &tool.ToolExecutionError{Tool: "sub_agent", Kind: "invalid_tool_input", Message: "bad"}, true},
+		{"wrapped invalid tool input", &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected}, fmt.Errorf("wrap: %w", &tool.ToolExecutionError{Kind: "invalid_tool_input"}), true},
+		{"other tool error", &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected}, &tool.ToolExecutionError{Kind: "policy_denied"}, false},
+		{"plain error", &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected}, errors.New("x"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			markModelGuidance(tt.admission, tt.err)
+			got := tt.admission != nil && tt.admission.ModelGuidance
+			if got != tt.want {
+				t.Fatalf("ModelGuidance = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
