@@ -68,7 +68,7 @@ type cardParts struct {
 
 func cardRowParts(row subAgentPickerRow, w int, now int64) cardParts {
 	dd := row.dd
-	p := cardParts{prefix: "  ", id: fitText(output.SanitizeDisplayText(dd.agentID), 8)}
+	p := cardParts{prefix: "  ", id: fitText(singleLineDisplayText(dd.agentID), 8)}
 	if row.inGroup {
 		p.prefix = "│ "
 	}
@@ -83,7 +83,7 @@ func cardRowParts(row subAgentPickerRow, w int, now int64) cardParts {
 	default:
 		p.icon, p.elapsed = "✓", dd.elapsed
 	}
-	p.typ = fitText(output.SanitizeDisplayText(dd.effectiveTypeLabel()), 10)
+	p.typ = fitText(singleLineDisplayText(dd.effectiveTypeLabel()), 10)
 	p.typ += strings.Repeat(" ", max(0, 10-lipgloss.Width(p.typ)))
 	used := lipgloss.Width(p.prefix) + 2 + 11 + lipgloss.Width(p.id) + 1 + lipgloss.Width(p.elapsed) + 2
 	p.task = fitText(output.SanitizeDisplayText(strings.Join(strings.Fields(dd.taskPreview), " ")), max(0, w-used))

@@ -167,13 +167,13 @@ func (m *Model) renderDelegateCancelSelectorLine(line string, selected bool, con
 }
 
 func (m *Model) renderDelegateCancelRow(row delegateActiveRow, contentWidth int) string {
-	typeLabel := strings.TrimSpace(output.SanitizeDisplayText(row.agentType))
+	typeLabel := strings.TrimSpace(singleLineDisplayText(row.agentType))
 	if typeLabel == "" {
 		typeLabel = "delegate"
 	}
 	typeStyle := styleByKey(m.styles.DelegateTagStyles, strings.ToLower(typeLabel), m.styles.ToolTagDefault).Bold(true)
 	styledType := typeStyle.Render(typeLabel)
-	agentID := output.SanitizeDisplayText(row.agentID)
+	agentID := singleLineDisplayText(row.agentID)
 	prefixWidth := lipgloss.Width(styledType) + 3 + lipgloss.Width(agentID) + 3
 	preview := truncateOverlayText(row.taskPreview, max(1, contentWidth-prefixWidth))
 	line := styledType + " · " + agentID + " · " + preview

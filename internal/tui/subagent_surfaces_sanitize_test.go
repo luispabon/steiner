@@ -168,6 +168,116 @@ func TestApprovalPillLabelSanitized(t *testing.T) {
 	}
 }
 
+// TestSubAgentPickerCardIDTypeSingleLine covers newline and tab in a picker
+// card's agent ID and type. The card must stay on one line and match the clean
+// rendering. The stored fields keep their original bytes.
+func TestSubAgentPickerCardIDTypeSingleLine(t *testing.T) {
+	t.Parallel()
+
+	hostile := &delegationDisplayState{agentID: "a\nb\tc", agentType: "ex\tp", status: "complete", taskPreview: "task"}
+	clean := &delegationDisplayState{agentID: "a b c", agentType: "ex p", status: "complete", taskPreview: "task"}
+
+	got := cardRowParts(subAgentPickerRow{dd: hostile}, 120, 0).join()
+	want := cardRowParts(subAgentPickerRow{dd: clean}, 120, 0).join()
+	if strings.ContainsAny(got, "\n\t") || got != want {
+		t.Errorf("picker card = %q, want %q", got, want)
+	}
+	if hostile.agentID != "a\nb\tc" || hostile.agentType != "ex\tp" {
+		t.Errorf("stored identity changed: agentID %q, agentType %q", hostile.agentID, hostile.agentType)
+	}
+}
+
+// TestDelegationHeaderIdentitySingleLineSanitized covers newline and tab in a
+// delegation header's type, agent ID, and follow-up ID. The header must stay on
+// one line and match the clean rendering. The stored fields keep their bytes.
+func TestDelegationHeaderIdentitySingleLineSanitized(t *testing.T) {
+	t.Parallel()
+
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	tests := []struct {
+		name           string
+		hostile, clean delegationDisplayState
+	}{
+		{
+			name:    "agent id and type",
+			hostile: delegationDisplayState{agentID: "a\nb\tc", agentType: "ex\tp"},
+			clean:   delegationDisplayState{agentID: "a b c", agentType: "ex p"},
+		},
+		{
+			name:    "follow up id",
+			hostile: delegationDisplayState{agentID: "a b c", agentType: "ex p", isFollowUp: true, followUpAgentID: "f\n1\t2"},
+			clean:   delegationDisplayState{agentID: "a b c", agentType: "ex p", isFollowUp: true, followUpAgentID: "f 1 2"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			hostile := tt.hostile
+			got := b.renderDelegationHeaderIdentity(&hostile)
+			clean := tt.clean
+			want := b.renderDelegationHeaderIdentity(&clean)
+			if strings.ContainsAny(got, "\n\t") || stripANSI(got) != stripANSI(want) {
+				t.Errorf("header = %q, want %q", stripANSI(got), stripANSI(want))
+			}
+			if hostile.agentID != tt.hostile.agentID || hostile.agentType != tt.hostile.agentType || hostile.followUpAgentID != tt.hostile.followUpAgentID {
+				t.Errorf("stored identity changed: %+v", hostile)
+			}
+		})
+	}
+}
+
+// TestDelegateCancelRowSingleLineSanitized covers newline and tab in a cancel
+// selector row's type and agent ID. The row must stay on one line and match the
+// clean rendering. The stored row keeps its bytes.
+func TestDelegateCancelRowSingleLineSanitized(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{styles: testStyles(theme.AccentAmber)}
+	hostile := delegateActiveRow{agentID: "a\nb\tc", agentType: "ex\tp", taskPreview: "task"}
+	clean := delegateActiveRow{agentID: "a b c", agentType: "ex p", taskPreview: "task"}
+
+	got := m.renderDelegateCancelRow(hostile, 120)
+	if want := m.renderDelegateCancelRow(clean, 120); strings.ContainsAny(got, "\n\t") || got != want {
+		t.Errorf("cancel row = %q, want %q", got, want)
+	}
+	if hostile.agentID != "a\nb\tc" || hostile.agentType != "ex\tp" {
+		t.Errorf("stored row changed: %+v", hostile)
+	}
+}
+
+// TestDelegationGroupFooterSingleLineSanitized covers a newline and tab in a
+// delegation group name. The footer must match the clean group rendering. The
+// stored group name keeps its bytes.
+func TestDelegationGroupFooterSingleLineSanitized(t *testing.T) {
+	t.Parallel()
+
+	render := func(name string) (string, string) {
+		m := newContentBenchModel()
+		for j := range 2 {
+			m = appendGroupChild(m, name, j, false)
+		}
+		var group *delegationGroupSegment
+		for i := range m.content.segments {
+			if g := m.content.segments[i].delegGroupData; g != nil {
+				group = g
+			}
+		}
+		if group == nil {
+			t.Fatalf("no group segment built for %q", name)
+		}
+		b := &m.content
+		return b.renderDelegationGroupSegment(contentSegment{delegGroupData: group}, 80), group.entries[0].admission.Group
+	}
+	got, stored := render("a\nb\tc")
+	if stored != "a\nb\tc" {
+		t.Fatalf("stored group = %q, want the raw name kept", stored)
+	}
+	want, _ := render("a b c")
+	if stripANSI(got) != stripANSI(want) {
+		t.Errorf("group segment = %q, want %q", stripANSI(got), stripANSI(want))
+	}
+}
+
 // TestApprovalMCPLabelSingleLineSanitized covers an MCP approval label whose
 // server, tool, and agent ID carry an OSC payload, newline, and tab. The label
 // must render exactly as the clean label, and the stored data keeps the original
