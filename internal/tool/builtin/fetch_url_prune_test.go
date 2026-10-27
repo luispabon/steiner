@@ -20,9 +20,9 @@ func writePrunableFile(t *testing.T, path string, size int, modTime time.Time) {
 	}
 }
 
-func TestPruneFetchedDir_MissingDir(t *testing.T) {
+func TestPruneToolArtifacts_MissingDir(t *testing.T) {
 	workDir := t.TempDir()
-	removed, err := PruneFetchedDir(workDir)
+	removed, err := PruneToolArtifacts([]string{workDir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestPruneFetchedDir_MissingDir(t *testing.T) {
 	}
 }
 
-func TestPruneFetchedDir_AgeOnly(t *testing.T) {
+func TestPruneToolArtifacts_AgeOnly(t *testing.T) {
 	workDir := t.TempDir()
 	fetchedDir := filepath.Join(workDir, ".steiner", "tmp", "fetched")
 	now := time.Now()
@@ -41,7 +41,7 @@ func TestPruneFetchedDir_AgeOnly(t *testing.T) {
 	freshFile := filepath.Join(fetchedDir, "fresh.txt")
 	writePrunableFile(t, freshFile, 100, now.Add(-time.Hour))
 
-	removed, err := PruneFetchedDir(workDir)
+	removed, err := PruneToolArtifacts([]string{workDir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestPruneFetchedDir_AgeOnly(t *testing.T) {
 	assertExists(t, freshFile)
 }
 
-func TestPruneFetchedDir_AgeAndBudget(t *testing.T) {
+func TestPruneToolArtifacts_AgeAndBudget(t *testing.T) {
 	workDir := t.TempDir()
 	fetchedDir := filepath.Join(workDir, ".steiner", "tmp", "fetched")
 	now := time.Now()
@@ -70,7 +70,7 @@ func TestPruneFetchedDir_AgeAndBudget(t *testing.T) {
 	newestBudget := filepath.Join(fetchedDir, "budget-newest.bin")
 	writePrunableFile(t, newestBudget, 100, now.Add(-90*time.Minute))
 
-	removed, err := pruneFetchedDir(workDir, now, 250)
+	removed, err := pruneToolArtifacts([]string{workDir}, now, 250)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestPruneFetchedDir_AgeAndBudget(t *testing.T) {
 	assertExists(t, newestBudget)
 }
 
-func TestPruneFetchedDir_MinAgeFloorSurvivesBudgetEviction(t *testing.T) {
+func TestPruneToolArtifacts_MinAgeFloorSurvivesBudgetEviction(t *testing.T) {
 	workDir := t.TempDir()
 	fetchedDir := filepath.Join(workDir, ".steiner", "tmp", "fetched")
 	now := time.Now()
@@ -97,7 +97,7 @@ func TestPruneFetchedDir_MinAgeFloorSurvivesBudgetEviction(t *testing.T) {
 	fileB := filepath.Join(fetchedDir, "b.bin")
 	writePrunableFile(t, fileB, 100, now.Add(-5*time.Minute))
 
-	removed, err := pruneFetchedDir(workDir, now, 100)
+	removed, err := pruneToolArtifacts([]string{workDir}, now, 100)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestPruneFetchedDir_MinAgeFloorSurvivesBudgetEviction(t *testing.T) {
 	assertExists(t, fileB)
 }
 
-func TestPruneFetchedDir_SiblingDirsUntouched(t *testing.T) {
+func TestPruneToolArtifacts_SiblingDirsUntouched(t *testing.T) {
 	workDir := t.TempDir()
 	now := time.Now()
 
@@ -121,7 +121,7 @@ func TestPruneFetchedDir_SiblingDirsUntouched(t *testing.T) {
 	fetchedOld := filepath.Join(workDir, ".steiner", "tmp", "fetched", "old.txt")
 	writePrunableFile(t, fetchedOld, 100, now.Add(-30*24*time.Hour))
 
-	removed, err := PruneFetchedDir(workDir)
+	removed, err := PruneToolArtifacts([]string{workDir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,6 +131,118 @@ func TestPruneFetchedDir_SiblingDirsUntouched(t *testing.T) {
 	assertExists(t, imagesFile)
 	assertExists(t, worktreeFile)
 	assertRemoved(t, fetchedOld)
+}
+
+func TestPruneToolArtifacts_SharedBudgetAcrossDirsAndRoots(t *testing.T) {
+	projectRoot := t.TempDir()
+	workDir := t.TempDir()
+	now := time.Now()
+
+	fetched := filepath.Join(projectRoot, ".steiner", "tmp", "fetched", "f.bin")
+	bashOld := filepath.Join(workDir, ".steiner", "tmp", "bash-output", "o.log")
+	bashMid := filepath.Join(workDir, ".steiner", "tmp", "bash-output", "sub", "m.log")
+	young := filepath.Join(projectRoot, ".steiner", "tmp", "bash-output", "young.log")
+	stale := filepath.Join(workDir, ".steiner", "tmp", "bash-output", "stale.log")
+	writePrunableFile(t, bashOld, 100, now.Add(-5*time.Hour))
+	writePrunableFile(t, bashMid, 100, now.Add(-4*time.Hour))
+	writePrunableFile(t, fetched, 100, now.Add(-3*time.Hour))
+	writePrunableFile(t, young, 100, now.Add(-time.Minute))
+	writePrunableFile(t, stale, 1, now.Add(-8*24*time.Hour))
+
+	removed, err := pruneToolArtifacts([]string{projectRoot, workDir, projectRoot}, now, 250)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if removed != 3 {
+		t.Errorf("removed = %d, want 3 (stale + 2 oldest)", removed)
+	}
+	assertRemoved(t, stale)
+	assertRemoved(t, bashOld)
+	assertRemoved(t, bashMid)
+	assertExists(t, fetched)
+	assertExists(t, young)
+}
+
+func TestPruneToolArtifacts_DuplicateRootsCountOnce(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	a := filepath.Join(root, ".steiner", "tmp", "fetched", "a.bin")
+	b := filepath.Join(root, ".steiner", "tmp", "fetched", "b.bin")
+	writePrunableFile(t, a, 100, now.Add(-3*time.Hour))
+	writePrunableFile(t, b, 100, now.Add(-2*time.Hour))
+
+	// Counted twice (400 > 250) would evict; once (200) must not.
+	removed, err := pruneToolArtifacts([]string{root, root + string(filepath.Separator), ""}, now, 250)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if removed != 0 {
+		t.Errorf("removed = %d, want 0", removed)
+	}
+	assertExists(t, a)
+	assertExists(t, b)
+}
+
+func TestPruneToolArtifacts_SymlinksNotFollowed(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	now := time.Now()
+	old := now.Add(-30 * 24 * time.Hour)
+
+	outsideFile := filepath.Join(outside, "victim.txt")
+	writePrunableFile(t, outsideFile, 100, old)
+
+	// File symlink inside fetched pointing outside.
+	fetchedDir := filepath.Join(root, ".steiner", "tmp", "fetched")
+	writePrunableFile(t, filepath.Join(fetchedDir, "keep.txt"), 1, now)
+	link := filepath.Join(fetchedDir, "link.txt")
+	if err := os.Symlink(outsideFile, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	// Directory symlink inside fetched pointing outside.
+	if err := os.Symlink(outside, filepath.Join(fetchedDir, "dirlink")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	// bash-output itself a symlink to an outside dir.
+	bashDir := filepath.Join(root, ".steiner", "tmp", "bash-output")
+	if err := os.Symlink(outside, bashDir); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	removed, err := pruneToolArtifacts([]string{root}, now, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if removed != 0 {
+		t.Errorf("removed = %d, want 0", removed)
+	}
+	assertExists(t, outsideFile)
+	if _, err := os.Lstat(link); err != nil {
+		t.Errorf("symlink should remain: %v", err)
+	}
+}
+
+func TestPruneToolArtifacts_OtherCachesUntouched(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	old := now.Add(-30 * 24 * time.Hour)
+	images := filepath.Join(root, ".steiner", "tmp", "images", "a.png")
+	wt := filepath.Join(root, ".steiner", "worktrees", "w", "a.txt")
+	bash := filepath.Join(root, ".steiner", "tmp", "bash-output", "a.log")
+	writePrunableFile(t, images, 10, old)
+	writePrunableFile(t, wt, 10, old)
+	writePrunableFile(t, bash, 10, old)
+
+	removed, err := PruneToolArtifacts([]string{root})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if removed != 1 {
+		t.Errorf("removed = %d, want 1", removed)
+	}
+	assertRemoved(t, bash)
+	assertExists(t, images)
+	assertExists(t, wt)
 }
 
 func assertExists(t *testing.T, path string) {

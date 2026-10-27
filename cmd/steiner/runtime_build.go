@@ -75,7 +75,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}
 	// Best-effort: a failed prune must not block startup, and there is no
 	// event sink yet at this point in composition to report it through.
-	_, _ = builtin.PruneFetchedDir(projectRoot)
+	_, _ = builtin.PruneToolArtifacts([]string{projectRoot, workDir})
 	cfg, err := loadRuntimeConfig(cmd, flags, modelAlias)
 	if err != nil {
 		return cliRuntime{}, err

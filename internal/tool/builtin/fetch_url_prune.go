@@ -1,7 +1,9 @@
 package builtin
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,8 +11,8 @@ import (
 )
 
 const (
-	// fetchedMaxAge is the maximum age a file in .steiner/tmp/fetched may
-	// reach before it is eligible for removal regardless of disk budget.
+	// fetchedMaxAge is the maximum age a retained tool artifact may reach
+	// before it is eligible for removal regardless of disk budget.
 	fetchedMaxAge = 7 * 24 * time.Hour
 	// fetchedMinBudgetEvictionAge is the minimum age a file must reach
 	// before budget eviction may remove it. Two steiner processes sharing
@@ -18,97 +20,166 @@ const (
 	// this floor a starting session's budget sweep could delete a file
 	// another session's in-flight turn was just told to read.
 	fetchedMinBudgetEvictionAge = 1 * time.Hour
-	// fetchedBudgetBytes is the target total size for .steiner/tmp/fetched
-	// after budget eviction.
+	// fetchedBudgetBytes is the shared soft size target for all retained
+	// artifact directories across all roots after budget eviction.
 	fetchedBudgetBytes = 250 * 1024 * 1024
 )
 
-// PruneFetchedDir removes stale and excess files under
-// <workDir>/.steiner/tmp/fetched. Files older than fetchedMaxAge are removed
-// first; remaining files are then removed oldest-first until the directory
-// is under fetchedBudgetBytes, except that no file younger than
-// fetchedMinBudgetEvictionAge is ever removed by budget eviction. A missing
-// fetched directory is not an error. Only .steiner/tmp/fetched is touched;
-// sibling directories such as .steiner/tmp/images and .steiner/worktrees are
-// never scanned or modified.
-func PruneFetchedDir(workDir string) (removed int, err error) {
-	return pruneFetchedDir(workDir, time.Now(), fetchedBudgetBytes)
+// artifactDirs are the root-relative directories subject to retention.
+var artifactDirs = []string{
+	filepath.Join(".steiner", "tmp", "fetched"),
+	filepath.Join(".steiner", "tmp", "bash-output"),
 }
 
-// pruneFetchedDir implements PruneFetchedDir with an injectable clock and
-// budget so tests can exercise budget eviction without allocating
-// fetchedBudgetBytes worth of files on disk.
-func removeFetchedFile(path string) error {
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove fetched file %s: %w", path, err)
-	}
-	return nil
+type artifactFile struct {
+	root    *os.Root
+	rel     string
+	modTime time.Time
+	size    int64
 }
 
-func pruneFetchedDir(workDir string, now time.Time, budgetBytes int64) (removed int, err error) {
-	fetchedDir := filepath.Join(workDir, ".steiner", "tmp", "fetched")
+// PruneToolArtifacts removes stale and excess files under
+// <root>/.steiner/tmp/fetched and <root>/.steiner/tmp/bash-output for each
+// distinct root (for example the project root and a worktree workDir).
+// Files older than fetchedMaxAge are removed first; remaining files, counted
+// against one shared budget of fetchedBudgetBytes, are then removed
+// oldest-first, except that no file younger than fetchedMinBudgetEvictionAge
+// is removed by budget eviction. Missing directories are not an error.
+// Symlinks are never followed or removed, and all access is confined to each
+// root. Sibling directories such as .steiner/tmp/images and
+// .steiner/worktrees are never scanned or modified.
+func PruneToolArtifacts(roots []string) (removed int, err error) {
+	return pruneToolArtifacts(roots, time.Now(), fetchedBudgetBytes)
+}
 
-	entries, err := os.ReadDir(fetchedDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("read fetched dir: %w", err)
-	}
-
-	type fileInfo struct {
-		path    string
-		modTime time.Time
-		size    int64
-	}
-
-	var files []fileInfo
-	for _, entry := range entries {
-		if entry.IsDir() {
+// pruneToolArtifacts implements PruneToolArtifacts with an injectable clock
+// and budget so tests can exercise budget eviction with small files.
+func pruneToolArtifacts(roots []string, now time.Time, budgetBytes int64) (removed int, err error) {
+	var errs []error
+	var files []artifactFile
+	for _, dir := range dedupeRoots(roots) {
+		root, openErr := os.OpenRoot(dir)
+		if openErr != nil {
+			if !os.IsNotExist(openErr) {
+				errs = append(errs, fmt.Errorf("open artifact root %s: %w", dir, openErr))
+			}
 			continue
 		}
-		info, err := entry.Info()
-		if err != nil {
-			// Entry vanished between ReadDir and Info (e.g. another
-			// steiner process already removed it); nothing to prune.
-			continue
+		defer root.Close()
+		for _, rel := range artifactDirs {
+			var walkErr error
+			files, walkErr = collectArtifacts(root, rel, files)
+			if walkErr != nil {
+				errs = append(errs, walkErr)
+			}
 		}
-		path := filepath.Join(fetchedDir, entry.Name())
-		if now.Sub(info.ModTime()) >= fetchedMaxAge {
-			if err := removeFetchedFile(path); err != nil {
-				return removed, fmt.Errorf("remove stale fetched file: %w", err)
+	}
+
+	var total int64
+	kept := files[:0]
+	for _, f := range files {
+		if now.Sub(f.modTime) >= fetchedMaxAge {
+			if rmErr := removeArtifact(f); rmErr != nil {
+				errs = append(errs, rmErr)
+				continue
 			}
 			removed++
 			continue
 		}
-		files = append(files, fileInfo{path: path, modTime: info.ModTime(), size: info.Size()})
-	}
-
-	var total int64
-	for _, f := range files {
+		kept = append(kept, f)
 		total += f.size
 	}
-	if total <= budgetBytes {
-		return removed, nil
-	}
 
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].modTime.Before(files[j].modTime)
-	})
-
-	for _, f := range files {
-		if total <= budgetBytes {
-			break
+	if total > budgetBytes {
+		sort.Slice(kept, func(i, j int) bool { return kept[i].modTime.Before(kept[j].modTime) })
+		for _, f := range kept {
+			if total <= budgetBytes {
+				break
+			}
+			if now.Sub(f.modTime) < fetchedMinBudgetEvictionAge {
+				continue
+			}
+			if rmErr := removeArtifact(f); rmErr != nil {
+				errs = append(errs, rmErr)
+				continue
+			}
+			removed++
+			total -= f.size
 		}
-		if now.Sub(f.modTime) < fetchedMinBudgetEvictionAge {
+	}
+	return removed, errors.Join(errs...)
+}
+
+// dedupeRoots cleans roots, resolves symlinks when possible, and drops
+// empty and duplicate entries while preserving order.
+func dedupeRoots(roots []string) []string {
+	seen := make(map[string]bool, len(roots))
+	var out []string
+	for _, r := range roots {
+		if r == "" {
 			continue
 		}
-		if err := removeFetchedFile(f.path); err != nil {
-			return removed, err
+		r = filepath.Clean(r)
+		if resolved, err := filepath.EvalSymlinks(r); err == nil {
+			r = resolved
 		}
-		removed++
-		total -= f.size
+		if seen[r] {
+			continue
+		}
+		seen[r] = true
+		out = append(out, r)
 	}
+	return out
+}
 
-	return removed, nil
+// collectArtifacts appends regular files below rel to files. Symlinks and
+// other non-regular entries are skipped; a symlinked or missing rel yields
+// nothing.
+func collectArtifacts(root *os.Root, rel string, files []artifactFile) ([]artifactFile, error) {
+	info, err := root.Lstat(rel)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrInvalid) {
+			return files, nil
+		}
+		return files, fmt.Errorf("stat artifact dir %s: %w", rel, err)
+	}
+	if !info.IsDir() {
+		return files, nil
+	}
+	dir, err := root.Open(rel)
+	if err != nil {
+		return files, fmt.Errorf("open artifact dir %s: %w", rel, err)
+	}
+	entries, err := dir.ReadDir(-1)
+	_ = dir.Close() // read-only handle; close error carries no data loss
+	if err != nil {
+		return files, fmt.Errorf("read artifact dir %s: %w", rel, err)
+	}
+	var errs []error
+	for _, entry := range entries {
+		child := filepath.Join(rel, entry.Name())
+		switch {
+		case entry.IsDir():
+			var subErr error
+			files, subErr = collectArtifacts(root, child, files)
+			if subErr != nil {
+				errs = append(errs, subErr)
+			}
+		case entry.Type().IsRegular():
+			fi, statErr := root.Lstat(child)
+			if statErr != nil || !fi.Mode().IsRegular() {
+				// Vanished or replaced between ReadDir and Lstat.
+				continue
+			}
+			files = append(files, artifactFile{root: root, rel: child, modTime: fi.ModTime(), size: fi.Size()})
+		}
+	}
+	return files, errors.Join(errs...)
+}
+
+func removeArtifact(f artifactFile) error {
+	if err := f.root.Remove(f.rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove artifact file %s: %w", f.rel, err)
+	}
+	return nil
 }
