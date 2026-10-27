@@ -32,8 +32,16 @@ func singleLineDisplayText(text string) string {
 	return singleLineReplacer.Replace(sanitized)
 }
 
+// normalizedDisplayText collapses whitespace, removes terminal controls and escape sequences, then
+// collapses whitespace again. Removed sequences never leave double spaces, and whitespace-like
+// controls (CR, VT, U+2028) still separate words. Text directly adjacent to a removed sequence is
+// joined: "ab\x1b[0mcd" becomes "abcd".
+func normalizedDisplayText(text string) string {
+	return normalizeDelegationText(output.SanitizeDisplayText(normalizeDelegationText(text)))
+}
+
 func truncateOverlayText(text string, width int) string {
-	text = output.SanitizeDisplayText(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
+	text = normalizedDisplayText(text)
 	if width <= 0 || text == "" {
 		return ""
 	}

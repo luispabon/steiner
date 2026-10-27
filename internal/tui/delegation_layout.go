@@ -85,7 +85,7 @@ func (b *contentBuffer) delegationSectionRows(dd *delegationDisplayState, width 
 	if strings.TrimSpace(dd.promptText) != "" {
 		rows = append(rows, delegationRow{kind: delegationRowPromptHeader, text: b.renderDelegationPromptHeader(dd)})
 		if dd.promptCollapsed {
-			if preview := previewDelegationText(dd.promptText); preview != "" {
+			if preview := dd.promptPreviewText(); preview != "" {
 				rows = append(rows, delegationRow{
 					kind: delegationRowPromptBody,
 					text: b.styles.FgMute.Render(truncateRunes(preview, max(1, width-2))),

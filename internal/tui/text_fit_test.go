@@ -85,3 +85,34 @@ func FuzzSingleLineDisplayTextFastPath(f *testing.F) {
 		}
 	})
 }
+
+func TestNormalizedDisplayText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "escape between spaces collapses", in: "a \x1b[0m b", want: "a b"},
+		{name: "carriage return becomes space", in: "a\rb", want: "a b"},
+		{name: "line separator becomes space", in: "a\u2028b", want: "a b"},
+		{name: "vertical tab becomes space", in: "a\x0bb", want: "a b"},
+		{name: "carriage return between percents", in: "50%\r100%", want: "50% 100%"},
+		{name: "tab becomes space", in: "a\tb", want: "a b"},
+		{name: "newline becomes space", in: "a\nb", want: "a b"},
+		{name: "escape inside word removed without space", in: "ab\x1b[0mcd", want: "abcd"},
+		{name: "whitespace only is empty", in: "  ", want: ""},
+		{name: "OSC title between spaces collapses", in: "a \x1b]0;title\x07 b", want: "a b"},
+		{name: "bidi override between spaces collapses", in: "a \u202e b", want: "a b"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := normalizedDisplayText(tt.in); got != tt.want {
+				t.Errorf("normalizedDisplayText(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}

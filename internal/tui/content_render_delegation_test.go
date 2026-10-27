@@ -100,6 +100,16 @@ func TestDelegationHeaderOperationNormalizesWhitespace(t *testing.T) {
 			width: 80,
 			want:  `keep literal\ntext`,
 		},
+		{
+			name: "advisor question with files keeps suffix",
+			delegation: delegationDisplayState{
+				isAdvisor:       true,
+				advisorQuestion: "50%\r100% x\ny",
+				advisorFiles:    []string{"a.go", "b.go"},
+			},
+			width: 14,
+			want:  "50%… · 2 files",
+		},
 	}
 
 	for _, tt := range tests {
