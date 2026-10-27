@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -104,6 +105,11 @@ func TestGrepSchema(t *testing.T) {
 	}
 	if _, ok := props["head_limit"]; !ok {
 		t.Error("missing head_limit property")
+	}
+	lineNumbers, _ := props["line_numbers"].(map[string]any)
+	desc, _ := lineNumbers["description"].(string)
+	if !strings.Contains(desc, "Continuation lines of multiline matches have column 0.") {
+		t.Errorf("line_numbers description = %q, want continuation column 0 note", desc)
 	}
 	if _, ok := props["offset"]; !ok {
 		t.Error("missing offset property")
