@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 
@@ -9,6 +10,14 @@ import (
 )
 
 const normalPromptCompactionThreshold = 0.70
+
+// minCompletionReserveTokens is the floor for a clamped completion reserve. It
+// is the max_tokens the Anthropic wire sends when a request sets none.
+const minCompletionReserveTokens = provider.DefaultMaxOutputTokens
+
+// explicitMaxTokenParamKeys are the params and extra-params keys that set an
+// explicit output token limit on the wire.
+var explicitMaxTokenParamKeys = []string{"max_tokens", "max_completion_tokens", "max_output_tokens"}
 
 // ModelBudgetFromEffectiveLimits derives a ModelTokenBudget from resolved EffectiveLimits.
 // Used to adapt provider.ResolvedModel limits to prompt budgeting.
@@ -73,6 +82,7 @@ func (m ModelTokenBudget) fit(ctx context.Context, request provider.ChatRequest,
 	}
 
 	estimatedPromptTokens := estimate.Tokens
+	completionReserve = m.clampUnsetCompletionReserve(request, estimatedPromptTokens, completionReserve)
 	total := estimatedPromptTokens + completionReserve + m.SafetyMarginTokens
 	fit := m.ContextSize <= 0 || total <= m.ContextSize
 	return RequestTokenBudget{
@@ -141,10 +151,15 @@ func (m ModelTokenBudget) compactionThresholdTokens() int {
 }
 
 func (m ModelTokenBudget) completionReserveForRequest(request provider.ChatRequest) int {
-	reserve := m.MaxCompletionTokens
-	if request.MaxTokens != nil && *request.MaxTokens > 0 {
-		if reserve <= 0 || *request.MaxTokens < reserve {
-			reserve = *request.MaxTokens
+	return lowerToExplicitMaxTokens(request, m.MaxCompletionTokens)
+}
+
+// lowerToExplicitMaxTokens lowers reserve to the request's explicit max-tokens
+// value when reserve is unset or larger than that value.
+func lowerToExplicitMaxTokens(request provider.ChatRequest, reserve int) int {
+	if explicit, ok := explicitMaxTokensValue(request); ok {
+		if reserve <= 0 || explicit < reserve {
+			reserve = explicit
 		}
 	}
 	return reserve
@@ -158,12 +173,97 @@ func (m ModelTokenBudget) completionReserveForCompaction(request provider.ChatRe
 	if reserve <= 0 {
 		reserve = m.MaxCompletionTokens
 	}
+	return lowerToExplicitMaxTokens(request, reserve)
+}
+
+// clampUnsetCompletionReserve limits the reserve to the space left after the
+// prompt, keeping at least minCompletionReserveTokens. It applies only when the
+// request has no explicit max-tokens value, because the advertised max output
+// is an upper bound and is not sent on the wire. An explicit value is already
+// the reserve, so clamping it would under-reserve.
+func (m ModelTokenBudget) clampUnsetCompletionReserve(request provider.ChatRequest, promptTokens, reserve int) int {
+	if m.ContextSize <= 0 || reserve <= 0 {
+		return reserve
+	}
+	if _, ok := explicitMaxTokensValue(request); ok {
+		return reserve
+	}
+	floor := min(reserve, minCompletionReserveTokens)
+	available := max(m.ContextSize-promptTokens-m.SafetyMarginTokens, floor)
+	return min(reserve, available)
+}
+
+// explicitMaxTokensValue returns the first positive output-token limit carried
+// by the request, in precedence order: MaxTokens, then a max_tokens,
+// max_completion_tokens, or max_output_tokens entry in ExtraParams, then the
+// same keys in Params. This matches the provider merge, where later sources
+// override earlier ones.
+func explicitMaxTokensValue(request provider.ChatRequest) (int, bool) {
 	if request.MaxTokens != nil && *request.MaxTokens > 0 {
-		if reserve <= 0 || *request.MaxTokens < reserve {
-			reserve = *request.MaxTokens
+		return *request.MaxTokens, true
+	}
+	for _, params := range []map[string]any{request.ExtraParams, request.Params} {
+		for _, key := range explicitMaxTokenParamKeys {
+			if value, ok := positiveTokenValue(params[key]); ok {
+				return value, true
+			}
 		}
 	}
-	return reserve
+	return 0, false
+}
+
+// positiveTokenValue converts a numeric params value to a token count. It
+// returns false for non-numeric values and for values that are below 1 after
+// truncation or outside the int range.
+func positiveTokenValue(value any) (int, bool) {
+	switch v := value.(type) {
+	case int:
+		return positiveTokenInt(int64(v))
+	case int32:
+		return positiveTokenInt(int64(v))
+	case int64:
+		return positiveTokenInt(v)
+	case uint:
+		return positiveTokenUint(uint64(v))
+	case uint32:
+		return positiveTokenUint(uint64(v))
+	case uint64:
+		return positiveTokenUint(v)
+	case float64:
+		return positiveTokenFloat(v)
+	case json.Number:
+		n, err := v.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return positiveTokenFloat(n)
+	}
+	return 0, false
+}
+
+// positiveTokenInt returns n when it is in [1, math.MaxInt].
+func positiveTokenInt(n int64) (int, bool) {
+	if n <= 0 || n > math.MaxInt {
+		return 0, false
+	}
+	return int(n), true
+}
+
+// positiveTokenUint returns n when it is in [1, math.MaxInt].
+func positiveTokenUint(n uint64) (int, bool) {
+	if n > math.MaxInt {
+		return 0, false
+	}
+	return positiveTokenInt(int64(n))
+}
+
+// positiveTokenFloat truncates f toward zero. NaN, values at or below zero,
+// and values at or above 2^63 are rejected.
+func positiveTokenFloat(f float64) (int, bool) {
+	if math.IsNaN(f) || f <= 0 || f >= float64(math.MaxInt) {
+		return 0, false
+	}
+	return positiveTokenInt(int64(f))
 }
 
 // String returns a compact human-readable representation of the fitted budget.

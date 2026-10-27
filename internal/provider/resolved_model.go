@@ -96,10 +96,11 @@ func ResolveProviderConfig(cfg config.ProviderConfig) config.ProviderConfig {
 	return resolved
 }
 
-const (
-	defaultContextWindow   = 32768
-	defaultMaxOutputTokens = 4096
-)
+const defaultContextWindow = 32768
+
+// DefaultMaxOutputTokens is the fallback output token limit. It is also the
+// max_tokens the Anthropic wire sends when a request sets none.
+const DefaultMaxOutputTokens = 4096
 
 // resolveEffectiveLimits derives runtime effective limits from the user-configured
 // advanced limits, filling in missing values with sensible defaults based on
@@ -109,7 +110,7 @@ func resolveEffectiveLimits(adv config.AdvancedLimitsConfig) EffectiveLimits {
 	maxOut := adv.MaxOutputTokens
 	if cw == 0 && maxOut == 0 {
 		cw = defaultContextWindow
-		maxOut = defaultMaxOutputTokens
+		maxOut = DefaultMaxOutputTokens
 	}
 	return deriveEffectiveLimits(cw, maxOut, adv.CompactionThresholdTokens)
 }

@@ -152,7 +152,7 @@ func applyFactDefaults(facts *ModelFacts, pending fieldSet, ref modelRef) {
 	}
 	if pending&fieldSet(fieldMaxOutput) != 0 && contextWasPending {
 		facts.MaxOutputTokens = Fact[int]{
-			Value: defaultMaxOutputTokens, Known: true, Source: FactSourceFallback, Confidence: "low",
+			Value: DefaultMaxOutputTokens, Known: true, Source: FactSourceFallback, Confidence: "low",
 			Note: "conservative default",
 		}
 	}

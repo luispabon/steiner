@@ -104,7 +104,7 @@ func TestResolveFactsPrecedenceChains(t *testing.T) {
 			field: fieldMaxOutput,
 			want: ModelFacts{
 				ContextWindow:   Fact[int]{Value: defaultContextWindow, Known: true, Source: FactSourceFallback, Confidence: "low", Note: "conservative default"},
-				MaxOutputTokens: Fact[int]{Value: defaultMaxOutputTokens, Known: true, Source: FactSourceFallback, Confidence: "low", Note: "conservative default"},
+				MaxOutputTokens: Fact[int]{Value: DefaultMaxOutputTokens, Known: true, Source: FactSourceFallback, Confidence: "low", Note: "conservative default"},
 			},
 		},
 		{

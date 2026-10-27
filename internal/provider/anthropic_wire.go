@@ -163,7 +163,7 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 	if request.MaxTokens != nil {
 		wire.MaxTokens = request.MaxTokens
 	} else {
-		defaultMax := 4096
+		defaultMax := DefaultMaxOutputTokens
 		wire.MaxTokens = &defaultMax
 	}
 	if strings.TrimSpace(request.Model) != "" {
