@@ -319,7 +319,6 @@ func TestPruneToolArtifacts_NestedDirsIgnoredFlatFilesPruned(t *testing.T) {
 	old := now.Add(-30 * 24 * time.Hour)
 	cache := filepath.Join(root, ".steiner", "tmp", "bash-output")
 
-	// The deep path may exceed PATH_MAX, so build it incrementally.
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -327,6 +326,11 @@ func TestPruneToolArtifacts_NestedDirsIgnoredFlatFilesPruned(t *testing.T) {
 	if err := os.MkdirAll(cache, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Register unwinding before building anything so a partial build still
+	// unwinds. RemoveAll recurses with one fd per level and fails under low
+	// fd limits.
+	t.Cleanup(func() { unwindNestedDirs(cwd, cache) })
+	// The deep path may exceed PATH_MAX, so build it incrementally.
 	if err := os.Chdir(cache); err != nil {
 		t.Fatal(err)
 	}
@@ -348,26 +352,6 @@ func TestPruneToolArtifacts_NestedDirsIgnoredFlatFilesPruned(t *testing.T) {
 	if err := os.Chdir(cwd); err != nil {
 		t.Fatal(err)
 	}
-	// RemoveAll recurses with one fd per level and fails under low fd
-	// limits, so unwind the chain bottom-up before TempDir cleanup.
-	t.Cleanup(func() {
-		defer func() { _ = os.Chdir(cwd) }()
-		if os.Chdir(cache) != nil {
-			return
-		}
-		for i := 0; i < 300; i++ {
-			if os.Chdir("d") != nil {
-				return
-			}
-		}
-		_ = os.Remove("nested.txt")
-		for i := 0; i < 300; i++ {
-			if os.Chdir("..") != nil {
-				return
-			}
-			_ = os.Remove("d")
-		}
-	})
 
 	flat := filepath.Join(cache, "flat.log")
 	writePrunableFile(t, flat, 10, old)
@@ -381,6 +365,55 @@ func TestPruneToolArtifacts_NestedDirsIgnoredFlatFilesPruned(t *testing.T) {
 	}
 	assertRemoved(t, flat)
 	assertExists(t, filepath.Join(cache, "d"))
+}
+
+// unwindNestedDirs removes a chain of single-child "d" directories under
+// cache, however deep it got, one level at a time, then restores cwd.
+func unwindNestedDirs(cwd, cache string) {
+	defer func() { _ = os.Chdir(cwd) }()
+	if os.Chdir(cache) != nil {
+		return
+	}
+	depth := 0
+	for os.Chdir("d") == nil {
+		depth++
+	}
+	_ = os.Remove("nested.txt")
+	for ; depth > 0; depth-- {
+		if os.Chdir("..") != nil {
+			return
+		}
+		_ = os.Remove("d")
+	}
+}
+
+func TestUnwindNestedDirs_PartialChain(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := t.TempDir()
+	if err := os.Chdir(cache); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		if err := os.Mkdir("d", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chdir("d"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	unwindNestedDirs(cwd, cache)
+	if _, err := os.Lstat(filepath.Join(cache, "d")); !os.IsNotExist(err) {
+		t.Errorf("expected chain removed, lstat err: %v", err)
+	}
+	if got, _ := os.Getwd(); got != cwd {
+		t.Errorf("cwd = %q, want %q", got, cwd)
+	}
 }
 
 func TestPruneToolArtifacts_ZeroByteNotEvictedAndRemovedCountExact(t *testing.T) {
