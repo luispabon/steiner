@@ -60,7 +60,7 @@ func TestBashPreviewHeadTailSplit(t *testing.T) {
 	if len(p.Text) > 200 || p.Complete {
 		t.Fatalf("len=%d complete=%v", len(p.Text), p.Complete)
 	}
-	marker := bashOutMarker(p.StdoutOmitted)
+	marker := bashOutMarker(p.StdoutOmitted, 0)
 	i := strings.Index(p.Text, marker)
 	if i < 0 {
 		t.Fatalf("marker %q missing in %q", marker, p.Text)
@@ -82,16 +82,16 @@ func TestBashPreviewCaptureOmission(t *testing.T) {
 	in := bashOutInput{Stdout: bashOutStream{Head: []byte("HEAD"), Tail: []byte("TAIL"), Omitted: 12345}, InlineLimit: 1000}
 	p := formatBashPreview(in)
 	want := "HEAD\n[... 12345 bytes omitted ...]\nTAIL"
-	if p.Complete || p.Text != want || p.StdoutOmitted != 12345 || p.SourceOmitted != 12345 {
+	if p.Complete || p.Text != want || p.StdoutOmitted != 12345 || p.SourceOmitted != 0 {
 		t.Fatalf("%+v", p)
 	}
 }
 
 func TestBashPreviewSourceVsRenderedOmission(t *testing.T) {
-	// 10 source bytes missing plus a rendered cut: total exceeds source.
+	// 10 representation bytes missing plus a rendered cut: total exceeds them.
 	s := bashOutStream{Head: []byte(strings.Repeat("A", 100)), Tail: []byte(strings.Repeat("B", 100)), Omitted: 10}
 	p := formatBashPreview(bashOutInput{Stdout: s, InlineLimit: 100})
-	if p.SourceOmitted != 10 || p.StdoutOmitted <= 10 || p.Complete {
+	if p.SourceOmitted != 0 || p.StdoutOmitted <= 10 || p.Complete {
 		t.Fatalf("%+v", p)
 	}
 	kept := strings.Count(p.Text, "A") + strings.Count(p.Text, "B")
@@ -153,7 +153,7 @@ func TestBashPreviewBothGapsKeepsStderrLabel(t *testing.T) {
 		t.Fatalf("text %q want %q", p.Text, want)
 	}
 	// stdout kept OH of 104; stderr kept ET of 204; source gaps 300.
-	if p.StdoutOmitted != 102 || p.StderrOmitted != 202 || p.SourceOmitted != 300 || p.Complete {
+	if p.StdoutOmitted != 102 || p.StderrOmitted != 202 || p.SourceOmitted != 0 || p.Complete {
 		t.Fatalf("%+v", p)
 	}
 }
@@ -197,7 +197,7 @@ func TestBashPreviewUTF8Boundaries(t *testing.T) {
 		if len(p.Text) > limit || !utf8.ValidString(p.Text) {
 			t.Fatalf("limit %d: len=%d valid=%v", limit, len(p.Text), utf8.ValidString(p.Text))
 		}
-		if p.StdoutOmitted != int64(len(s)-(len(p.Text)-len(bashOutMarker(p.StdoutOmitted)))) {
+		if p.StdoutOmitted != int64(len(s)-(len(p.Text)-len(bashOutMarker(p.StdoutOmitted, 0)))) {
 			t.Fatalf("limit %d: count %d", limit, p.StdoutOmitted)
 		}
 	}
@@ -256,7 +256,7 @@ func TestBashArtifactFormatComplete(t *testing.T) {
 func TestBashArtifactFormatCaptureOmissionIncomplete(t *testing.T) {
 	a := formatBashArtifact(bashOutInput{Stdout: bashOutStream{Head: []byte("h"), Tail: []byte("t"), Omitted: 99}, Stderr: bashOutS("e")})
 	want := "[stdout]\nh\n[... 99 bytes omitted ...]\nt\n[stderr]\ne"
-	if a.Complete || a.Body != want || a.StdoutOmitted != 99 || a.StderrOmitted != 0 || a.SourceOmitted != 99 {
+	if a.Complete || a.Body != want || a.StdoutOmitted != 99 || a.StderrOmitted != 0 || a.SourceOmitted != 0 {
 		t.Fatalf("%+v", a)
 	}
 }

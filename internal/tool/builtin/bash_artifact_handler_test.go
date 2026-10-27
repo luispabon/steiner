@@ -101,7 +101,7 @@ func TestBashHandlerCaptureLossIsPartial(t *testing.T) {
 	if err != nil || fi.Size() > bashArtifactMaxBytes {
 		t.Errorf("artifact stat: %v size=%v", err, fi)
 	}
-	if !strings.HasSuffix(res.Output, "LAST\n") || !strings.Contains(res.Message, "capture dropped") || strings.Contains(res.Message, "Full output saved") {
+	if !strings.HasSuffix(res.Output, "LAST\n") || !strings.Contains(res.Message, "capture gap") || !strings.Contains(res.Message, "raw source bytes") || strings.Contains(res.Message, "Full output saved") {
 		t.Errorf("output tail %q message %q", res.Output[max(0, len(res.Output)-20):], res.Message)
 	}
 }
@@ -114,7 +114,7 @@ func TestBashHandlerArtifactCapHit(t *testing.T) {
 	if res.ArtifactStatus != "partial" || !res.ArtifactLimitHit {
 		t.Errorf("status=%q limitHit=%v message=%q", res.ArtifactStatus, res.ArtifactLimitHit, res.Message)
 	}
-	if !strings.Contains(res.Message, "artifact size cap") || strings.Contains(res.Message, "capture dropped") {
+	if !strings.Contains(res.Message, "artifact size cap") || strings.Contains(res.Message, "capture gap") {
 		t.Errorf("message %q", res.Message)
 	}
 }

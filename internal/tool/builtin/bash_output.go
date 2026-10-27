@@ -16,10 +16,12 @@ import (
 // Head and Tail of a stream with Omitted == 0 are joined first, so a rune
 // split across them is intact.
 //
-// Counting: all omission counts are stream bytes absent from the rendered
-// text. They never include markers, labels or separators. Markers state the
-// stream bytes dropped at that position. Source (capture) omissions are
-// reported separately from the total.
+// Counting: Omitted counts are bytes of the stream representation (the
+// input head/tail units) absent from the rendered text. They never include
+// markers, labels or separators. SourceOmitted counts raw source bytes that
+// never reached the representation (e.g. captured away before cleaning); their
+// size in representation units is unknown, so they are reported in their own
+// unit and are never added to representation counts.
 
 const (
 	bashOutStdoutLabel = "[stdout]\n"
@@ -33,11 +35,14 @@ const (
 )
 
 // bashOutStream is one independent stream as captured: the first bytes (Head),
-// the last bytes (Tail), and the count of source bytes dropped between them.
-// With Omitted == 0 the stream is Head+Tail, fully captured.
+// the last bytes (Tail), and what was dropped between them. Omitted counts
+// dropped bytes in the units of Head and Tail. SourceOmitted counts dropped raw
+// source bytes whose size in those units is unknown. With both zero the stream
+// is Head+Tail, complete.
 type bashOutStream struct {
-	Head, Tail []byte
-	Omitted    int64
+	Head, Tail    []byte
+	Omitted       int64
+	SourceOmitted int64
 }
 
 // bashOutInput is the formatter input. InlineLimit bounds the preview in
@@ -51,14 +56,17 @@ type bashOutInput struct {
 }
 
 // bashOutPreview is the inline preview. Complete is true only when Text holds
-// every byte of both streams. StdoutOmitted and StderrOmitted count stream
-// bytes absent from Text (capture gaps plus rendered cuts); SourceOmitted is
-// the capture-gap part of that, copied from the input.
+// every byte of both streams. StdoutOmitted and StderrOmitted count
+// representation bytes absent from Text (input omissions plus rendered cuts).
+// StdoutSource and StderrSource are the raw source bytes the input never held,
+// copied from the input in their own unit; SourceOmitted is their sum.
 type bashOutPreview struct {
 	Text          string
 	Complete      bool
 	StdoutOmitted int64
 	StderrOmitted int64
+	StdoutSource  int64
+	StderrSource  int64
 	SourceOmitted int64
 }
 
@@ -72,6 +80,8 @@ type bashOutArtifact struct {
 	Complete      bool
 	StdoutOmitted int64
 	StderrOmitted int64
+	StdoutSource  int64
+	StderrSource  int64
 	SourceOmitted int64
 }
 
@@ -79,18 +89,30 @@ type bashOutArtifact struct {
 type bashOutView struct {
 	head, tail string
 	omitted    int64
+	// source is raw source bytes lost before the view; it has no size in the
+	// view's units and is not part of total.
+	source int64
 }
 
+// total is the view's size in its own units, including omitted bytes.
 func (v bashOutView) total() int64 { return int64(len(v.head)+len(v.tail)) + v.omitted }
+
+// gapped reports that something lies between head and tail.
+func (v bashOutView) gapped() bool { return v.omitted > 0 || v.source > 0 }
 
 // all returns the whole text when nothing was omitted.
 func (v bashOutView) all() string { return v.head + v.tail }
 
 func newBashOutView(s bashOutStream) bashOutView {
-	return bashOutView{head: string(s.Head), tail: string(s.Tail), omitted: max(s.Omitted, 0)}
+	return bashOutView{head: string(s.Head), tail: string(s.Tail), omitted: max(s.Omitted, 0), source: max(s.SourceOmitted, 0)}
 }
 
-func bashOutMarker(n int64) string {
+// bashOutMarker states n omitted bytes and, when source > 0, the raw source
+// bytes lost, in a separate unit.
+func bashOutMarker(n, source int64) string {
+	if source > 0 {
+		return fmt.Sprintf("\n[... %d bytes and %d raw source bytes omitted ...]\n", n, source)
+	}
 	return fmt.Sprintf("\n[... %d bytes omitted ...]\n", n)
 }
 
@@ -101,14 +123,14 @@ type bashOutSel struct {
 	hsrc, tsrc string
 	hq, ti     int
 	marker     bool
-	n          int64
+	n, source  int64
 }
 
 func (s bashOutSel) render() string {
 	if !s.marker {
 		return s.hsrc[:s.hq]
 	}
-	return s.hsrc[:s.hq] + bashOutMarker(s.n) + s.tsrc[s.ti:]
+	return s.hsrc[:s.hq] + bashOutMarker(s.n, s.source) + s.tsrc[s.ti:]
 }
 
 // bashOutSelect cuts v to fit budget bytes, marker included. Fully captured
@@ -118,17 +140,17 @@ func (s bashOutSel) render() string {
 func bashOutSelect(v bashOutView, budget int) bashOutSel {
 	total := v.total()
 	hsrc, tsrc := v.head, v.tail
-	if v.omitted == 0 {
+	if !v.gapped() {
 		hsrc = v.all() // join first so a rune split across head/tail stays intact
 		tsrc = hsrc
 	}
-	if total == 0 {
+	if total == 0 && v.source == 0 {
 		return bashOutSel{hsrc: hsrc, tsrc: tsrc, ti: len(tsrc)}
 	}
-	if v.omitted == 0 && total <= int64(budget) {
+	if !v.gapped() && total <= int64(budget) {
 		return bashOutSel{hsrc: hsrc, tsrc: tsrc, hq: len(hsrc), ti: len(tsrc)}
 	}
-	markerMax := len(bashOutMarker(total)) // digit count only shrinks below total
+	markerMax := len(bashOutMarker(total, v.source)) // digit count only shrinks below total
 	if budget < markerMax {
 		return bashOutSel{hsrc: hsrc, tsrc: tsrc, ti: len(tsrc), n: total}
 	}
@@ -145,7 +167,7 @@ func bashOutSelect(v bashOutView, budget int) bashOutSel {
 	hq = bashOutHeadCut(hsrc, hq)
 	ti := bashOutTailCut(tsrc, len(tsrc)-tq)
 	kept := int64(hq + len(tsrc) - ti)
-	return bashOutSel{hsrc: hsrc, tsrc: tsrc, hq: hq, ti: ti, marker: true, n: total - kept}
+	return bashOutSel{hsrc: hsrc, tsrc: tsrc, hq: hq, ti: ti, marker: true, n: total - kept, source: v.source}
 }
 
 // bashOutRuneAt returns the start of the valid multi-byte rune that strictly
@@ -200,10 +222,10 @@ func bashOutFit(v bashOutView, budget int) (string, int64) {
 // bashOutNeed is the budget at which v is rendered with only its capture
 // omission (if any) elided.
 func bashOutNeed(v bashOutView) int {
-	if v.omitted == 0 {
+	if !v.gapped() {
 		return len(v.all())
 	}
-	return len(v.head) + len(v.tail) + len(bashOutMarker(v.total()))
+	return len(v.head) + len(v.tail) + len(bashOutMarker(v.total(), v.source))
 }
 
 // bashOutSep returns the newline needed between pre and a following label.
@@ -226,16 +248,16 @@ type bashOutCombo struct {
 
 func bashOutCombine(a, b bashOutView) bashOutCombo {
 	switch {
-	case a.omitted == 0 && b.omitted == 0:
+	case !a.gapped() && !b.gapped():
 		all := a.all() + b.all()
 		return bashOutCombo{v: bashOutView{head: all}, hb: len(a.all()), tb: len(a.all())}
-	case b.omitted == 0:
-		return bashOutCombo{v: bashOutView{head: a.head, tail: a.tail + b.all(), omitted: a.omitted}, hb: len(a.head), tb: len(a.tail)}
-	case a.omitted == 0:
-		return bashOutCombo{v: bashOutView{head: a.all() + b.head, tail: b.tail, omitted: b.omitted}, hb: len(a.all())}
+	case !b.gapped():
+		return bashOutCombo{v: bashOutView{head: a.head, tail: a.tail + b.all(), omitted: a.omitted, source: a.source}, hb: len(a.head), tb: len(a.tail)}
+	case !a.gapped():
+		return bashOutCombo{v: bashOutView{head: a.all() + b.head, tail: b.tail, omitted: b.omitted, source: b.source}, hb: len(a.all())}
 	}
 	mid := int64(len(a.tail) + len(b.head))
-	return bashOutCombo{v: bashOutView{head: a.head, tail: b.tail, omitted: a.omitted + mid + b.omitted}, hb: len(a.head)}
+	return bashOutCombo{v: bashOutView{head: a.head, tail: b.tail, omitted: a.omitted + mid + b.omitted, source: a.source + b.source}, hb: len(a.head)}
 }
 
 // render lays out sel with the stderr label before the first kept stderr
@@ -250,7 +272,7 @@ func (c bashOutCombo) render(s bashOutSel) (text string, keptOut, keptErr int64)
 	head, tail := s.hsrc[:s.hq], s.tsrc[s.ti:]
 	marker := ""
 	if s.marker {
-		marker = bashOutMarker(s.n)
+		marker = bashOutMarker(s.n, s.source)
 	} else {
 		tail = ""
 	}
@@ -277,14 +299,14 @@ func (c bashOutCombo) render(s bashOutSel) (text string, keptOut, keptErr int64)
 func formatBashPreview(in bashOutInput) bashOutPreview {
 	limit := max(in.InlineLimit, 0)
 	out, errV := newBashOutView(in.Stdout), newBashOutView(in.Stderr)
-	p := bashOutPreview{SourceOmitted: out.omitted + errV.omitted}
-	if errV.total() == 0 {
+	p := bashOutPreview{StdoutSource: out.source, StderrSource: errV.source, SourceOmitted: out.source + errV.source}
+	if errV.total() == 0 && errV.source == 0 {
 		text, om := bashOutFit(out, limit)
 		p.Text, p.StdoutOmitted = text, om
-		p.Complete = om == 0
+		p.Complete = om == 0 && p.SourceOmitted == 0
 		return p
 	}
-	if out.omitted == 0 && errV.omitted == 0 {
+	if !out.gapped() && !errV.gapped() {
 		pre := out.all()
 		whole := pre + bashOutSep(pre) + bashOutStderrLabel + errV.all()
 		if len(whole) <= limit {
@@ -309,7 +331,7 @@ func formatBashPreview(in bashOutInput) bashOutPreview {
 	} else {
 		p.Text, p.StdoutOmitted, p.StderrOmitted = bashOutPreviewStderrFirst(out, errV, limit)
 	}
-	p.Complete = p.StdoutOmitted == 0 && p.StderrOmitted == 0
+	p.Complete = p.StdoutOmitted == 0 && p.StderrOmitted == 0 && p.SourceOmitted == 0
 	return p
 }
 
@@ -353,7 +375,7 @@ func formatBashArtifact(in bashOutInput) bashOutArtifact {
 		limit = bashArtifactMaxBytes
 	}
 	out, errV := newBashOutView(in.Stdout), newBashOutView(in.Stderr)
-	a := bashOutArtifact{SourceOmitted: out.omitted + errV.omitted}
+	a := bashOutArtifact{StdoutSource: out.source, StderrSource: errV.source, SourceOmitted: out.source + errV.source}
 	overhead := len(bashOutStdoutLabel) + len(bashOutArtifactSep) + len(bashOutStderrLabel)
 	content := limit - overhead
 	if content < 0 {
@@ -380,6 +402,6 @@ func formatBashArtifact(in bashOutInput) bashOutArtifact {
 	errText, errOm := bashOutFit(errV, bErr)
 	a.Body = bashOutStdoutLabel + outText + bashOutArtifactSep + bashOutStderrLabel + errText
 	a.StdoutOmitted, a.StderrOmitted = outOm, errOm
-	a.Complete = outOm == 0 && errOm == 0
+	a.Complete = outOm == 0 && errOm == 0 && a.SourceOmitted == 0
 	return a
 }
