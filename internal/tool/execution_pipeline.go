@@ -118,14 +118,14 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 	if msg, ok := toolInputDecodeError(ctx); ok {
 		return nil, &ToolExecutionError{
 			Tool:    in.ToolName,
-			Kind:    "invalid_tool_input",
+			Kind:    KindInvalidToolInput,
 			Message: fmt.Sprintf("tool call arguments could not be parsed as JSON: %s; resend the call with valid JSON arguments", msg),
 		}
 	}
 	if isUnparsedToolInput(in.Input) {
 		return nil, &ToolExecutionError{
 			Tool:    in.ToolName,
-			Kind:    "invalid_tool_input",
+			Kind:    KindInvalidToolInput,
 			Message: "tool input could not be parsed by the Claude CLI; resend the call with valid JSON arguments, reducing argument size if necessary",
 		}
 	}

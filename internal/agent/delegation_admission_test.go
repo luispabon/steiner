@@ -44,6 +44,8 @@ func TestBuildToolMessageDelegationAdmission(t *testing.T) {
 		{name: "model guidance on supervisor rejection", tool: "delegate", err: tool.WithDelegationAdmission(tool.WithModelGuidance(errors.New("fresh group")), rejected), want: &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, BatchID: "batch", ModelGuidance: true}},
 		{name: "model guidance never marks accepted", tool: "delegate", result: tool.ExecutionResult{DelegationAdmission: authoritative}, err: tool.WithModelGuidance(errors.New("after admission")), want: authoritative},
 		{name: "model guidance on non-delegation tool", tool: "read", err: tool.WithModelGuidance(errors.New("retry"))},
+		{name: "invalid tool input", tool: "delegate", err: &tool.ToolExecutionError{Tool: "delegate", Kind: tool.KindInvalidToolInput, Message: "bad"}, want: &tool.DelegationAdmission{Status: tool.DelegationAdmissionRejected, ModelGuidance: true}},
+		{name: "invalid tool input on non-delegation tool", tool: "read", err: &tool.ToolExecutionError{Tool: "read", Kind: tool.KindInvalidToolInput, Message: "bad"}},
 		{name: "non-delegation success", tool: "read", result: "ok"},
 		{name: "non-delegation error", tool: "read", err: &tool.ToolExecutionError{Kind: "policy_denied"}},
 	} {

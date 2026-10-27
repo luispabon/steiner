@@ -127,7 +127,7 @@ func markModelGuidance(admission *tool.DelegationAdmission, err error) {
 		return
 	}
 	var toolErr *tool.ToolExecutionError
-	if tool.IsModelGuidance(err) || (errors.As(err, &toolErr) && toolErr.Kind == "invalid_tool_input") {
+	if tool.IsModelGuidance(err) || (errors.As(err, &toolErr) && toolErr.Kind == tool.KindInvalidToolInput) {
 		admission.ModelGuidance = true
 	}
 }
