@@ -211,6 +211,7 @@ func (r *PlainRenderer) onEventLocked(event Event) {
 	}
 
 	segment := renderEvent(event)
+	segment.Text = SanitizeDisplayText(segment.Text)
 	if segment.Channel != "" || segment.Label != "" || strings.TrimSpace(segment.Text) != "" {
 		r.renderLocked(segment)
 	}

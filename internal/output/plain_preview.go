@@ -192,7 +192,7 @@ func (r *PlainRenderer) renderDisplayFilePreviewLocked(payload DisplayFilePayloa
 		return
 	}
 
-	if caption := renderDisplayFileCaption(payload); caption != "" {
+	if caption := SanitizeDisplayText(renderDisplayFileCaption(payload)); caption != "" {
 		r.writeStringLocked(r.decorate(ChannelTool, "  "+caption) + "\n")
 	}
 	for _, line := range doc.Lines {

@@ -24,6 +24,7 @@ func FormatFilePreviewWithLanguage(path, language, contents string) PreviewDocum
 }
 
 func formatFilePreviewWithLimitAndLanguage(path, language, contents string, lineLimit int) PreviewDocument {
+	path = SanitizeDisplayText(path)
 	var lexer chroma.Lexer
 	if language != "" && language != "plain" {
 		if l := lexers.Get(language); l != nil {
@@ -60,6 +61,7 @@ func FormatEditDiffPreviewWithLimit(path, before, after string, lineLimit int) P
 }
 
 func formatFilePreviewWithLimit(path, contents string, lineLimit int) PreviewDocument {
+	path = SanitizeDisplayText(path)
 	syntax := DetectPreviewSyntax(path, contents)
 	lines, truncated := formatHighlightedText(contents, syntax.Lexer, PreviewLineKindText, lineLimit)
 	if truncated {
@@ -76,6 +78,7 @@ func formatFilePreviewWithLimit(path, contents string, lineLimit int) PreviewDoc
 }
 
 func formatEditDiffPreviewWithLimit(path, before, after string, lineLimit int) PreviewDocument {
+	path = SanitizeDisplayText(path)
 	syntax := DetectPreviewSyntax(path, firstNonEmpty(after, before))
 	lines := make([]PreviewLine, 0, 8)
 	appendLine := func(line PreviewLine) bool { return appendPreviewLine(&lines, line, lineLimit) }
@@ -239,7 +242,7 @@ func normalizePreviewText(text string) string {
 	if text == "" {
 		return ""
 	}
-	return strings.ReplaceAll(text, "\r\n", "\n")
+	return SanitizeDisplayText(strings.ReplaceAll(text, "\r\n", "\n"))
 }
 
 func isBinaryLike(text string) bool {

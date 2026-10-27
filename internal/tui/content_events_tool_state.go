@@ -49,7 +49,7 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 		toolName := normalizeToolName(payload.Tool)
 		tc := &toolCallSegment{
 			tool:      toolName,
-			args:      summarizeArgs(payload.Tool, payload.Arguments),
+			args:      output.SanitizeDisplayText(summarizeArgs(payload.Tool, payload.Arguments)),
 			callID:    payload.CallID,
 			collapsed: true,
 			active:    payload.CallID != "",
@@ -169,7 +169,7 @@ func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
 			kind: segmentToolCall,
 			toolData: &toolCallSegment{
 				tool:           "display_file",
-				args:           payload.Path,
+				args:           output.SanitizeDisplayText(payload.Path),
 				bodyKind:       "file",
 				collapsed:      false,
 				displayPreview: &preview,
@@ -407,7 +407,7 @@ func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {
 func (b *contentBuffer) applyFinishedToolCallResult(idx int, td *toolCallSegment, payload output.ToolCallFinishedEvent) {
 	td.active = false
 	td.elapsed = formatElapsed(td.startTime, nanoNow())
-	td.body = payload.Result
+	td.body = output.SanitizeDisplayText(payload.Result)
 	td.hasError = payload.Error != ""
 	td.meta = "✓"
 	if td.hasError {

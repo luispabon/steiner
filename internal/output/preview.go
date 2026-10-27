@@ -93,7 +93,13 @@ type ToolPreview struct {
 }
 
 // BuildToolPreview builds a structured preview for a tool result when supported.
+// Display strings are sanitized with SanitizeDisplayText; the preview is for
+// rendering only and must not replace the model-facing result.
 func BuildToolPreview(tool string, arguments map[string]any, result string) ToolPreview {
+	return sanitizeToolPreview(buildToolPreview(tool, arguments, result))
+}
+
+func buildToolPreview(tool string, arguments map[string]any, result string) ToolPreview {
 	switch strings.ToLower(strings.TrimSpace(tool)) {
 	case "read", "read_file":
 		return buildReadPreview(arguments, result)
