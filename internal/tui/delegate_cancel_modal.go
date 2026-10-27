@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/interactive"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -166,15 +167,16 @@ func (m *Model) renderDelegateCancelSelectorLine(line string, selected bool, con
 }
 
 func (m *Model) renderDelegateCancelRow(row delegateActiveRow, contentWidth int) string {
-	typeLabel := strings.TrimSpace(row.agentType)
+	typeLabel := strings.TrimSpace(output.SanitizeDisplayText(row.agentType))
 	if typeLabel == "" {
 		typeLabel = "delegate"
 	}
 	typeStyle := styleByKey(m.styles.DelegateTagStyles, strings.ToLower(typeLabel), m.styles.ToolTagDefault).Bold(true)
 	styledType := typeStyle.Render(typeLabel)
-	prefixWidth := lipgloss.Width(styledType) + 3 + lipgloss.Width(row.agentID) + 3
+	agentID := output.SanitizeDisplayText(row.agentID)
+	prefixWidth := lipgloss.Width(styledType) + 3 + lipgloss.Width(agentID) + 3
 	preview := truncateOverlayText(row.taskPreview, max(1, contentWidth-prefixWidth))
-	line := styledType + " · " + row.agentID + " · " + preview
+	line := styledType + " · " + agentID + " · " + preview
 	switch {
 	case row.stalledMin > 0:
 		line += " · " + m.styles.Warn.Render(fmt.Sprintf("stalled %dm", row.stalledMin))
@@ -189,7 +191,7 @@ func (m *Model) delegateCancelTargetBody(contentWidth int) string {
 		return ""
 	}
 	row := m.delegateCancelModal.rows[m.delegateCancelModal.target]
-	text := "Stop delegate " + row.agentID + "?"
+	text := "Stop delegate " + output.SanitizeDisplayText(row.agentID) + "?"
 	if m.delegateCancelModal.screen == delegateCancelScreenConfirmTargetCode {
 		text += " Choose whether to keep or discard its worktree."
 	}
@@ -354,7 +356,7 @@ func (m *Model) confirmDelegateCancelAction() {
 				m.delegateCancelModal = s
 				m = m.executeDelegateCancelAction(interactive.CancelDelegate{AgentID: s.rows[s.target].agentID, Discard: false})
 			} else {
-				m.content.AppendLine(fmt.Sprintf("status: delegate %s already finished; worktree retained", s.rows[s.target].agentID))
+				m.content.AppendLine(fmt.Sprintf("status: delegate %s already finished; worktree retained", output.SanitizeDisplayText(s.rows[s.target].agentID)))
 				m.delegateCancelModal = s.close()
 			}
 			m.syncViewport()
@@ -367,7 +369,7 @@ func (m *Model) confirmDelegateCancelAction() {
 				m.delegateCancelModal = s
 				m = m.executeDelegateCancelAction(interactive.CancelDelegate{AgentID: s.rows[s.target].agentID, Discard: s.selected == 1})
 			} else {
-				m.content.AppendLine(fmt.Sprintf("status: delegate %s already finished; worktree retained", s.rows[s.target].agentID))
+				m.content.AppendLine(fmt.Sprintf("status: delegate %s already finished; worktree retained", output.SanitizeDisplayText(s.rows[s.target].agentID)))
 				m.delegateCancelModal = s.close()
 			}
 			m.syncViewport()

@@ -142,6 +142,106 @@ func TestDelegationTranscriptBodiesSanitized(t *testing.T) {
 	}
 }
 
+// identityMalicious hides an OSC payload and a CSI clear inside the identity
+// "visible", with a trailing bare CR.
+const identityMalicious = "vis\x1b]0;pwned\x07ible\x1b[2J\r"
+
+// requireIdentitySanitized checks identity text renders as "visible" with no
+// payload and no raw controls.
+func requireIdentitySanitized(t *testing.T, label, rendered string) {
+	t.Helper()
+	requireOnlySGR(t, label, rendered)
+	plain := stripANSI(rendered)
+	if strings.Contains(plain, "pwned") {
+		t.Errorf("%s = %q, OSC payload leaked", label, plain)
+	}
+	if !strings.Contains(plain, "visible") {
+		t.Errorf("%s = %q, want identity text kept", label, plain)
+	}
+}
+
+func TestDelegationHeaderIdentitySanitized(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		dd   delegationDisplayState
+	}{
+		{name: "agent id", dd: delegationDisplayState{agentID: identityMalicious, agentType: "explore"}},
+		{name: "type label", dd: delegationDisplayState{agentID: "child-x", agentType: identityMalicious}},
+		{name: "follow up id", dd: delegationDisplayState{agentID: "child-x", agentType: "explore", isFollowUp: true, followUpAgentID: identityMalicious}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+			dd := tt.dd
+			requireIdentitySanitized(t, "header", b.renderDelegationHeaderIdentity(&dd))
+			if dd.agentID != tt.dd.agentID || dd.agentType != tt.dd.agentType || dd.followUpAgentID != tt.dd.followUpAgentID {
+				t.Errorf("identity fields changed: %+v", dd)
+			}
+		})
+	}
+}
+
+func TestDelegationGroupNameSanitized(t *testing.T) {
+	t.Parallel()
+
+	m := newContentBenchModel()
+	for j := range 2 {
+		m = appendGroupChild(m, identityMalicious, j, false)
+	}
+	var group *delegationGroupSegment
+	for i := range m.content.segments {
+		if g := m.content.segments[i].delegGroupData; g != nil {
+			group = g
+		}
+	}
+	if group == nil {
+		t.Fatal("no group segment built")
+	}
+	// Ingestion trims the trailing CR, so the stored group is compared with
+	// its value before rendering rather than with identityMalicious.
+	stored := make([]string, 0, len(group.entries))
+	for _, dd := range group.entries {
+		if dd.admission == nil || !strings.Contains(dd.admission.Group, "\x1b]0;pwned") {
+			t.Fatalf("stored group for %q lacks the malicious payload", dd.agentID)
+		}
+		stored = append(stored, dd.admission.Group)
+	}
+	b := &m.content
+	requireIdentitySanitized(t, "group footer", b.renderDelegationGroupSegment(contentSegment{delegGroupData: group}, 80))
+	for i, dd := range group.entries {
+		if dd.admission.Group != stored[i] {
+			t.Errorf("stored group changed for %q: %q", dd.agentID, dd.admission.Group)
+		}
+	}
+}
+
+func TestDelegateCancelIdentitySanitized(t *testing.T) {
+	t.Parallel()
+
+	row := delegateActiveRow{agentID: identityMalicious, agentType: identityMalicious, taskPreview: "task"}
+	m := &Model{styles: testStyles(theme.AccentAmber)}
+	requireIdentitySanitized(t, "cancel row", m.renderDelegateCancelRow(row, 120))
+	m.delegateCancelModal.rows = []delegateActiveRow{row}
+	m.delegateCancelModal.target = 0
+	requireIdentitySanitized(t, "cancel target", m.delegateCancelTargetBody(120))
+	if row.agentID != identityMalicious || row.agentType != identityMalicious {
+		t.Errorf("row identity changed: %+v", row)
+	}
+}
+
+func TestSubAgentPickerIdentitySanitized(t *testing.T) {
+	t.Parallel()
+
+	dd := &delegationDisplayState{agentID: identityMalicious, agentType: identityMalicious, status: "active"}
+	requireIdentitySanitized(t, "picker card", cardRowParts(subAgentPickerRow{dd: dd}, 120, 0).join())
+	if dd.agentID != identityMalicious || dd.agentType != identityMalicious {
+		t.Errorf("identity fields changed: agentID %q, agentType %q", dd.agentID, dd.agentType)
+	}
+}
+
 func TestDelegateCancelRowTaskPreviewSanitized(t *testing.T) {
 	t.Parallel()
 

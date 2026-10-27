@@ -53,7 +53,7 @@ func (b *contentBuffer) renderDelegationHeaderIdentity(dd *delegationDisplayStat
 	left := labelStyle.Render(label)
 	switch {
 	case dd.isFollowUp && dd.followUpAgentID != "":
-		left += b.styles.FgDim.Render(" - follow up " + dd.followUpAgentID)
+		left += b.styles.FgDim.Render(" - follow up " + output.SanitizeDisplayText(dd.followUpAgentID))
 	case delegationHeaderAgentID(dd) != "":
 		left += " " + b.styles.FgDim.Render(delegationHeaderAgentID(dd))
 	}
@@ -65,7 +65,7 @@ func (b *contentBuffer) delegationHeaderLabel(dd *delegationDisplayState) (strin
 		tagStyle, _ := b.delegationStyles("advisor")
 		return "advisor", tagStyle
 	}
-	label := dd.effectiveTypeLabel()
+	label := output.SanitizeDisplayText(dd.effectiveTypeLabel())
 	tagStyle, _ := b.delegationStyles(label)
 	return label, tagStyle
 }
@@ -74,7 +74,7 @@ func delegationHeaderAgentID(dd *delegationDisplayState) string {
 	if dd == nil || dd.isAdvisor {
 		return ""
 	}
-	agentID := strings.TrimSpace(dd.agentID)
+	agentID := strings.TrimSpace(output.SanitizeDisplayText(dd.agentID))
 	if agentID == "" {
 		return "pending"
 	}

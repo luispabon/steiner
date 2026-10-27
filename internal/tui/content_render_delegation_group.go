@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 // groupAggregate summarises the children of a delegation group for its footer tab.
@@ -101,7 +103,7 @@ func (b *contentBuffer) groupNameStyle(group *delegationGroupSegment) lipgloss.S
 func (b *contentBuffer) renderDelegationGroupFooter(group *delegationGroupSegment, innerWidth int, borderColor color.Color) string {
 	bg := lipgloss.Color(b.styles.Palette.ContentBG)
 	border := lipgloss.NewStyle().Foreground(borderColor).Background(bg)
-	name := delegationVisualGroupName(group)
+	name := output.SanitizeDisplayText(delegationVisualGroupName(group))
 	agg := aggregateDelegationGroup(group)
 	glyph, stateText := b.groupTitleStats(agg)
 	noun := "agents"
