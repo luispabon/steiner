@@ -11,7 +11,7 @@ const (
 	bashArtifactAttempts = 4
 )
 
-var bashArtifactDirs = []string{".steiner", "tmp", "bash-output"}
+var bashArtifactDirs = []string{toolArtifactSteinerDir, toolArtifactTmpDir, bashArtifactDir}
 
 // saveBashArtifact writes body to a new private file under
 // .steiner/tmp/bash-output/ inside workDir and returns its workDir-relative

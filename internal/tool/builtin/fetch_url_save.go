@@ -17,7 +17,7 @@ func saveFetchedContent(workDir, content, contentType string, truncated bool, ma
 	hash12 := hash[:12]
 	ext := extensionFromContentType(contentType)
 
-	relPath := filepath.Join(".steiner", "tmp", "fetched", hash12+ext)
+	relPath := filepath.Join(toolArtifactSteinerDir, toolArtifactTmpDir, fetchedArtifactDir, hash12+ext)
 	absPath := filepath.Join(workDir, relPath)
 	absDir := filepath.Dir(absPath)
 
@@ -62,7 +62,7 @@ func saveFetchedContent(workDir, content, contentType string, truncated bool, ma
 // result so the caller can request them with the read tool.
 func saveFetchedImage(workDir string, image *fetchedImage) (*FetchURLResult, error) {
 	hash := fmt.Sprintf("%x", sha256.Sum256(image.data))
-	relPath := filepath.Join(".steiner", "tmp", "fetched", hash[:12]+image.extension)
+	relPath := filepath.Join(toolArtifactSteinerDir, toolArtifactTmpDir, fetchedArtifactDir, hash[:12]+image.extension)
 	absPath := filepath.Join(workDir, relPath)
 	absDir := filepath.Dir(absPath)
 
