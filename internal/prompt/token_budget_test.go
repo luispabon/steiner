@@ -381,6 +381,61 @@ func TestFitRequestAndFitCompactionRequestUseSameFormula(t *testing.T) {
 	}
 }
 
+func TestFitRequestAndFitCompactionAgreeOnParamMaxTokens(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const explicit = 2048
+	const summaryReserve = 8192
+	baseRequest := provider.ChatRequest{
+		Model:    "gpt-4o",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "review the request"}},
+	}
+
+	tests := []struct {
+		name      string
+		configure func(*provider.ChatRequest)
+	}{
+		{
+			name:      "params max_tokens",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": explicit} },
+		},
+		{
+			name:      "extra params max_tokens",
+			configure: func(r *provider.ChatRequest) { r.ExtraParams = map[string]any{"max_tokens": explicit} },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			request := baseRequest
+			tt.configure(&request)
+			// The context size is far above the explicit value and the summary
+			// reserve, so only the explicit value can set the reserve.
+			budget := ModelTokenBudget{
+				ContextSize:            1 << 20,
+				MaxCompletionTokens:    1 << 20,
+				NormalSummaryMaxTokens: summaryReserve,
+			}
+			normal, err := budget.FitRequest(ctx, request)
+			if err != nil {
+				t.Fatalf("FitRequest() error = %v", err)
+			}
+			compaction, err := budget.FitCompactionRequest(ctx, request)
+			if err != nil {
+				t.Fatalf("FitCompactionRequest() error = %v", err)
+			}
+			if normal.ReservedCompletionTokens != explicit {
+				t.Fatalf("FitRequest reserve = %d, want explicit %d", normal.ReservedCompletionTokens, explicit)
+			}
+			if compaction.ReservedCompletionTokens != normal.ReservedCompletionTokens {
+				t.Fatalf("FitCompactionRequest reserve = %d, want same as FitRequest %d", compaction.ReservedCompletionTokens, normal.ReservedCompletionTokens)
+			}
+		})
+	}
+}
+
 func TestFitRequestClampsUnsetCompletionReserve(t *testing.T) {
 	t.Parallel()
 
@@ -727,6 +782,51 @@ func TestExplicitMaxTokensValue(t *testing.T) {
 		{
 			name:      "string param",
 			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": "4096"} },
+		},
+		{
+			name:      "fractional float64 param below one",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": 0.5} },
+		},
+		{
+			name:      "fractional json number param below one",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": json.Number("0.5")} },
+		},
+		{
+			name:      "negative float64 param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": -4096.0} },
+		},
+		{
+			name:      "huge float64 param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": 1e300} },
+		},
+		{
+			name:      "huge json number param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": json.Number("1e300")} },
+		},
+		{
+			name:      "huge uint64 param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": uint64(math.MaxUint64)} },
+		},
+		{
+			name:      "positive int32 param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": int32(4096)} },
+			want:      4096,
+			wantOK:    true,
+		},
+		{
+			name:      "positive uint param",
+			configure: func(r *provider.ChatRequest) { r.Params = map[string]any{"max_tokens": uint(4096)} },
+			want:      4096,
+			wantOK:    true,
+		},
+		{
+			name: "extra params win over params",
+			configure: func(r *provider.ChatRequest) {
+				r.Params = map[string]any{"max_tokens": 4096}
+				r.ExtraParams = map[string]any{"max_tokens": 2048}
+			},
+			want:   2048,
+			wantOK: true,
 		},
 		{
 			name:      "max completion tokens param",
