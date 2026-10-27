@@ -46,9 +46,17 @@ func emergencyCompactionError(fit prompt.RequestTokenBudget) error {
 }
 
 func compactionCannotSolveError(fit prompt.RequestTokenBudget) error {
+	reason := "retained conversation plus the completion reserve exceeds the context window"
+	if fit.EstimatedPromptTokens > fit.HardLimitTokens {
+		reason = "retained conversation already exceeds the hard context limit"
+	}
 	return fmt.Errorf(
-		"compaction cannot solve this request: retained conversation already exceeds the hard context limit: prompt=%d context_window=%d usage=%.0f%% hard_limit=%d",
+		"compaction cannot solve this request: %s: prompt=%d reserve=%d safety_margin=%d total=%d context_window=%d usage=%.0f%% hard_limit=%d",
+		reason,
 		fit.EstimatedPromptTokens,
+		fit.ReservedCompletionTokens,
+		fit.SafetyMarginTokens,
+		fit.TotalTokens,
 		fit.ContextSize,
 		fit.PromptUsage*100,
 		fit.HardLimitTokens,

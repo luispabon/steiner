@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"strings"
 	"testing"
@@ -377,6 +378,206 @@ func TestFitRequestAndFitCompactionRequestUseSameFormula(t *testing.T) {
 	}
 	if normalFit.Fits {
 		t.Fatalf("Both FitRequest and FitCompactionRequest should report not fit when completion reserve + safety margin exceed context size")
+	}
+}
+
+func TestFitRequestClampsUnsetCompletionReserve(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	request := provider.ChatRequest{
+		Model:    "gpt-4o",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "review the request"}},
+	}
+	promptTokens, err := provider.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		pad      int
+		wantFits bool
+	}{
+		{name: "minimum reserve fits", pad: minCompletionReserveTokens, wantFits: true},
+		{name: "one token short does not fit", pad: minCompletionReserveTokens - 1, wantFits: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			contextSize := promptTokens + tt.pad
+			budget := ModelTokenBudget{ContextSize: contextSize, MaxCompletionTokens: contextSize}
+			fit, err := budget.FitRequest(ctx, request)
+			if err != nil {
+				t.Fatalf("FitRequest() error = %v", err)
+			}
+			if fit.Fits != tt.wantFits {
+				t.Fatalf("Fits = %v, want %v: %+v", fit.Fits, tt.wantFits, fit)
+			}
+			if fit.ReservedCompletionTokens != minCompletionReserveTokens {
+				t.Fatalf("ReservedCompletionTokens = %d, want %d", fit.ReservedCompletionTokens, minCompletionReserveTokens)
+			}
+			if tt.wantFits && fit.ShouldCompact {
+				t.Fatalf("ShouldCompact = true, want false: %+v", fit)
+			}
+		})
+	}
+}
+
+func TestFitRequestDoesNotClampExplicitMaxTokens(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	baseRequest := provider.ChatRequest{
+		Model:    "gpt-4o",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "review the request"}},
+	}
+	promptTokens, err := provider.EstimateChatRequestTokens(ctx, baseRequest)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+
+	// explicit is above the floor, so an unwanted clamp would report minCompletionReserveTokens.
+	const explicit = minCompletionReserveTokens + 1
+	contextSize := promptTokens + minCompletionReserveTokens
+	tests := []struct {
+		name          string
+		compaction    bool
+		configure     func(*provider.ChatRequest)
+		maxCompletion int
+	}{
+		{
+			name: "request max tokens",
+			configure: func(r *provider.ChatRequest) {
+				value := explicit
+				r.MaxTokens = &value
+			},
+			maxCompletion: contextSize,
+		},
+		{
+			name: "extra params max_tokens",
+			configure: func(r *provider.ChatRequest) {
+				r.ExtraParams = map[string]any{"max_tokens": explicit}
+			},
+			maxCompletion: explicit,
+		},
+		{
+			name:       "compaction request max tokens",
+			compaction: true,
+			configure: func(r *provider.ChatRequest) {
+				value := explicit
+				r.MaxTokens = &value
+			},
+			maxCompletion: contextSize,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			request := baseRequest
+			tt.configure(&request)
+			budget := ModelTokenBudget{
+				ContextSize:            contextSize,
+				MaxCompletionTokens:    tt.maxCompletion,
+				NormalSummaryMaxTokens: contextSize,
+			}
+			fitFn := budget.FitRequest
+			if tt.compaction {
+				fitFn = budget.FitCompactionRequest
+			}
+			fit, err := fitFn(ctx, request)
+			if err != nil {
+				t.Fatalf("fit error = %v", err)
+			}
+			if fit.Fits {
+				t.Fatalf("Fits = true, want false: %+v", fit)
+			}
+			if fit.ReservedCompletionTokens != explicit {
+				t.Fatalf("ReservedCompletionTokens = %d, want explicit %d", fit.ReservedCompletionTokens, explicit)
+			}
+		})
+	}
+}
+
+func TestFitRequestFitsAdvertisedOutputEqualToContextWindow(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const contextWindow = 262144
+	const unit = "kimi prompt "
+	sample := provider.ChatRequest{
+		Model:    "kimi-k2.7-code",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: strings.Repeat(unit, 1000)}},
+	}
+	sampleTokens, err := provider.EstimateChatRequestTokens(ctx, sample)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+
+	// Scale the content to roughly 12k estimated prompt tokens.
+	repeats := 12000 * 1000 / sampleTokens
+	request := provider.ChatRequest{
+		Model:    "kimi-k2.7-code",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: strings.Repeat(unit, repeats)}},
+	}
+	promptTokens, err := provider.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	if promptTokens < 11000 || promptTokens > 13000 {
+		t.Fatalf("prompt tokens = %d, want roughly 12000", promptTokens)
+	}
+
+	budget := ModelTokenBudget{
+		ContextSize:         contextWindow,
+		MaxCompletionTokens: contextWindow,
+		SafetyMarginTokens:  2048,
+	}
+	fit, err := budget.FitRequest(ctx, request)
+	if err != nil {
+		t.Fatalf("FitRequest() error = %v", err)
+	}
+	if !fit.Fits {
+		t.Fatalf("Fits = false, want true: %+v", fit)
+	}
+	if fit.ShouldCompact {
+		t.Fatalf("ShouldCompact = true, want false: %+v", fit)
+	}
+	if fit.TotalTokens > contextWindow {
+		t.Fatalf("TotalTokens = %d, want at most %d", fit.TotalTokens, contextWindow)
+	}
+}
+
+func TestIsPositiveTokenValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		value any
+		want  bool
+	}{
+		{name: "positive int", value: 1, want: true},
+		{name: "zero int", value: 0, want: false},
+		{name: "negative int", value: -1, want: false},
+		{name: "positive int64", value: int64(4096), want: true},
+		{name: "positive float64", value: 4096.0, want: true},
+		{name: "zero float64", value: 0.0, want: false},
+		{name: "positive json number", value: json.Number("4096"), want: true},
+		{name: "zero json number", value: json.Number("0"), want: false},
+		{name: "invalid json number", value: json.Number("abc"), want: false},
+		{name: "string", value: "4096", want: false},
+		{name: "nil", value: nil, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := isPositiveTokenValue(tt.value); got != tt.want {
+				t.Fatalf("isPositiveTokenValue(%v) = %v, want %v", tt.value, got, tt.want)
+			}
+		})
 	}
 }
 

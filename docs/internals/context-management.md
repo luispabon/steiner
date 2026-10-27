@@ -119,7 +119,7 @@ All ctok-based estimates remain approximate and low confidence. The Opus-specifi
 
 Compaction is the last line of defense. The agent loop pauses to compact when the selected soft trigger is reached. `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens` supplies an explicit positive prompt-token trigger; when absent, the trigger is 70% of the effective context window. Zero or negative values are invalid, and a threshold at or above the final resolved context window is rejected.
 
-Native providers compare the threshold with the estimated prompt token count. `claude_subscription` compares it with reported prompt usage and retains its existing hysteresis and cap safety behavior. This soft trigger is separate from hard request fitting. Hard fitting accounts for the completion reserve and estimator pad and can require compaction independently of the soft trigger.
+Native providers compare the threshold with the estimated prompt token count. `claude_subscription` compares it with reported prompt usage and retains its existing hysteresis and cap safety behavior. This soft trigger is separate from hard request fitting. Hard fitting accounts for the completion reserve and estimator pad and can require compaction independently of the soft trigger. When a request sets no explicit max-tokens value and the model's advertised max output is at or near its context window, the completion reserve is clamped to the space left after the prompt, with a 4096-token floor, so the fit check does not force compaction that cannot help.
 
 ### Two-stage strategy
 
@@ -227,6 +227,6 @@ Budgets are configurable via `AssemblyPolicy` in the prompt package. Zero values
 - **Delegate transcripts never leak**: child agent conversation is discarded on exit; only structured result and its retention metadata persist.
 - **Children use the same compaction path**: sub-agents have the same context manager and compaction logic as the parent.
 - **Compaction is lossy but bounded**: summaries are capped.
-- **Soft threshold**: compaction uses the configured positive `compaction_threshold_tokens`, or 70% of the effective context window when unset. Hard request fitting remains separate and accounts for the completion reserve and estimator pad.
+- **Soft threshold**: compaction uses the configured positive `compaction_threshold_tokens`, or 70% of the effective context window when unset. Hard request fitting remains separate and accounts for the completion reserve and estimator pad. When a model's advertised max output is at or near its context window, the completion reserve is clamped to the space left after the prompt, with a 4096-token floor, so the fit check does not force compaction that cannot help.
 - **Skill toggles never rewrite the prefix**: enabling or disabling a skill appends blocks to the next user message and leaves historical messages and the static prefix untouched, preserving prompt-cache reuse (exec and oneshot keep skills in the static skills source).
 - **Active skills survive compaction**: active skill envelopes are stripped from retained turns and re-injected verbatim after summarisation; disabled skills disappear at the next compaction.

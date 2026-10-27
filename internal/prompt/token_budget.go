@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 
@@ -9,6 +10,14 @@ import (
 )
 
 const normalPromptCompactionThreshold = 0.70
+
+// minCompletionReserveTokens is the floor for a clamped completion reserve. It
+// matches the Anthropic wire default and provider defaultMaxOutputTokens.
+const minCompletionReserveTokens = 4096
+
+// explicitMaxTokenParamKeys are the params and extra-params keys that set an
+// explicit output token limit on the wire.
+var explicitMaxTokenParamKeys = []string{"max_tokens", "max_completion_tokens", "max_output_tokens"}
 
 // ModelBudgetFromEffectiveLimits derives a ModelTokenBudget from resolved EffectiveLimits.
 // Used to adapt provider.ResolvedModel limits to prompt budgeting.
@@ -73,6 +82,7 @@ func (m ModelTokenBudget) fit(ctx context.Context, request provider.ChatRequest,
 	}
 
 	estimatedPromptTokens := estimate.Tokens
+	completionReserve = m.clampUnsetCompletionReserve(request, estimatedPromptTokens, completionReserve)
 	total := estimatedPromptTokens + completionReserve + m.SafetyMarginTokens
 	fit := m.ContextSize <= 0 || total <= m.ContextSize
 	return RequestTokenBudget{
@@ -164,6 +174,49 @@ func (m ModelTokenBudget) completionReserveForCompaction(request provider.ChatRe
 		}
 	}
 	return reserve
+}
+
+// clampUnsetCompletionReserve limits the reserve to the space left after the
+// prompt, keeping at least minCompletionReserveTokens. It applies only when the
+// request has no explicit max-tokens value, because the advertised max output
+// is an upper bound and is not sent on the wire. Explicit values are never
+// clamped.
+func (m ModelTokenBudget) clampUnsetCompletionReserve(request provider.ChatRequest, promptTokens, reserve int) int {
+	if m.ContextSize <= 0 || reserve <= 0 || hasExplicitMaxTokens(request) {
+		return reserve
+	}
+	floor := min(reserve, minCompletionReserveTokens)
+	available := max(m.ContextSize-promptTokens-m.SafetyMarginTokens, floor)
+	return min(reserve, available)
+}
+
+func hasExplicitMaxTokens(request provider.ChatRequest) bool {
+	if request.MaxTokens != nil && *request.MaxTokens > 0 {
+		return true
+	}
+	for _, params := range []map[string]any{request.Params, request.ExtraParams} {
+		for _, key := range explicitMaxTokenParamKeys {
+			if isPositiveTokenValue(params[key]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isPositiveTokenValue(value any) bool {
+	switch v := value.(type) {
+	case int:
+		return v > 0
+	case int64:
+		return v > 0
+	case float64:
+		return v > 0
+	case json.Number:
+		n, err := v.Float64()
+		return err == nil && n > 0
+	}
+	return false
 }
 
 // String returns a compact human-readable representation of the fitted budget.
