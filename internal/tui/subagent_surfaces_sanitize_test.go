@@ -343,6 +343,30 @@ func TestDeliveredRowsSingleLineSanitized(t *testing.T) {
 	}
 }
 
+// TestDeliveredMemberLabelSingleLineSanitized covers an ESC sequence, newline,
+// and tab in a delivered member's agent type and ID. The member label must stay
+// on one line and match the clean label. The delivered items keep their bytes.
+func TestDeliveredMemberLabelSingleLineSanitized(t *testing.T) {
+	t.Parallel()
+
+	newItems := func() []output.DeliveredSubAgent {
+		return []output.DeliveredSubAgent{
+			{AgentID: "a\nb\tc\x1b[0m", AgentType: "ex\x1b[1m\tp", Status: "complete"},
+		}
+	}
+	items := newItems()
+	rows := buildDeliveredRows(items, nil)
+	if len(rows.members) != 1 {
+		t.Fatalf("members = %d, want 1", len(rows.members))
+	}
+	if want := "ex p a b c"; rows.members[0].label != want {
+		t.Errorf("label = %q, want %q", rows.members[0].label, want)
+	}
+	if !slices.Equal(items, newItems()) {
+		t.Errorf("delivered items changed: %+v", items)
+	}
+}
+
 // TestApprovalMCPLabelSingleLineSanitized covers an MCP approval label whose
 // server, tool, and agent ID carry an OSC payload, newline, and tab. The label
 // must render exactly as the clean label, and the stored data keeps the original

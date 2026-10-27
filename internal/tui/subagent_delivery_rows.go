@@ -68,7 +68,7 @@ func buildDeliveredRows(items []output.DeliveredSubAgent, lookup func(output.Del
 }
 
 func newDeliveredMember(item output.DeliveredSubAgent, info deliveredLookup) deliveredMember {
-	m := deliveredMember{label: strings.TrimSpace(item.AgentType + " " + item.AgentID)}
+	m := deliveredMember{label: strings.TrimSpace(singleLineDisplayText(item.AgentType) + " " + singleLineDisplayText(item.AgentID))}
 	switch strings.TrimSpace(item.Status) {
 	case "", "complete":
 		m.outcome = "✓ complete"
