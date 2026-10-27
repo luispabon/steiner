@@ -103,13 +103,64 @@ func TestCaptureUntilMarkerReaderErrorKeepsPartial(t *testing.T) {
 	}
 }
 
+func TestCaptureUntilMarkerMarkerLongerThanBuffer(t *testing.T) {
+	marker := strings.Repeat("M", 40) + "END"
+	input := "data MMM" + marker + "tail"
+	r := bufio.NewReaderSize(strings.NewReader(input), 16)
+	got, err := captureUntilMarker(r, marker, 100, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Head) != "data MMM" || got.TotalBytes != 8 {
+		t.Fatalf("head=%q total=%d", got.Head, got.TotalBytes)
+	}
+	rest, _ := io.ReadAll(r)
+	if string(rest) != "tail" {
+		t.Fatalf("rest = %q", rest)
+	}
+}
+
+func TestCaptureUntilMarkerEmptyMarker(t *testing.T) {
+	got, err := captureUntilMarker(bufio.NewReader(strings.NewReader("abc")), "", 4, 4)
+	if err == nil {
+		t.Fatal("expected error for empty marker")
+	}
+	if got.TotalBytes != 0 || len(got.Head) != 0 || len(got.Tail) != 0 {
+		t.Fatalf("got %+v, want empty capture", got)
+	}
+}
+
+func TestCaptureUntilMarkerZeroLimits(t *testing.T) {
+	r := bufio.NewReader(strings.NewReader("abcdef" + capMarker + "z"))
+	got, err := captureUntilMarker(r, capMarker, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Head) != 0 || len(got.Tail) != 0 || got.TotalBytes != 6 || !got.HeadTruncated {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestCaptureUntilMarkerEarlyError(t *testing.T) {
+	boom := errors.New("boom")
+	got, err := captureUntilMarker(bufio.NewReader(iotest.ErrReader(boom)), capMarker, 4, 4)
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want %v", err, boom)
+	}
+	if got.TotalBytes != 0 || len(got.Head) != 0 || len(got.Tail) != 0 || got.HeadTruncated {
+		t.Fatalf("got %+v, want empty capture", got)
+	}
+}
+
 func TestCaptureUntilMarkerHighVolumeDrains(t *testing.T) {
 	const n = 5 << 20
 	data := make([]byte, n)
 	for i := range data {
 		data[i] = byte('a' + i%26)
 	}
-	input := append(data, []byte(capMarker)...)
+	input := make([]byte, 0, n+len(capMarker))
+	input = append(input, data...)
+	input = append(input, capMarker...)
 	r := bufio.NewReader(bytes.NewReader(input))
 	got, err := captureUntilMarker(r, capMarker, 1<<20, 1<<20)
 	if err != nil {
