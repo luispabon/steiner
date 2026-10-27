@@ -115,6 +115,33 @@ func TestExpandedDelegationCardReplaySanitized(t *testing.T) {
 	}
 }
 
+func TestDelegationOutputSanitized(t *testing.T) {
+	t.Parallel()
+
+	dd := &delegationDisplayState{status: "complete", output: delegationMaliciousText}
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	requireSanitizedRender(t, "child output", strings.Join(b.renderDelegationOutput(dd, 80), "\n"))
+	if dd.output != delegationMaliciousText {
+		t.Errorf("output = %q, want unchanged", dd.output)
+	}
+}
+
+func TestDelegationTranscriptBodiesSanitized(t *testing.T) {
+	t.Parallel()
+
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	entries := []delegationTranscriptEntry{
+		{kind: delegationTranscriptEntryAssistant, body: delegationMaliciousText},
+		{kind: delegationTranscriptEntryThinking, body: delegationMaliciousText},
+	}
+	for _, entry := range entries {
+		requireSanitizedRender(t, "transcript body", strings.Join(b.renderDelegationEntry(entry, 80), "\n"))
+		if entry.body != delegationMaliciousText {
+			t.Errorf("body = %q, want unchanged", entry.body)
+		}
+	}
+}
+
 func TestDelegateCancelRowTaskPreviewSanitized(t *testing.T) {
 	t.Parallel()
 

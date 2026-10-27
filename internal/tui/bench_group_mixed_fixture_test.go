@@ -5,22 +5,27 @@ import (
 	"testing"
 )
 
-// TestMixedGroupCRFixtureSettledRowsHoldCR checks that a settled entry of the CR
-// fixture keeps its carriage return in the rows the group box draws, the shape
-// the CR guard row measures.
-func TestMixedGroupCRFixtureSettledRowsHoldCR(t *testing.T) {
+// TestMixedGroupCRFixtureSettledRowsSanitized checks that a settled entry of the
+// CR fixture stores its carriage return, while the rows the group box draws hold
+// no raw CR and keep the visible output text.
+func TestMixedGroupCRFixtureSettledRowsSanitized(t *testing.T) {
 	m := mixedGroupCRModel()
 	found := false
 	for _, dd := range mixedEntries(m) {
-		if dd.status == "active" {
+		if dd.status == "active" || !strings.Contains(dd.output, "\r") {
 			continue
 		}
-		if strings.Contains(strings.Join(m.content.renderDelegationBoxRows(dd, 80), "\n"), "\r") {
-			found = true
+		found = true
+		rows := strings.Join(m.content.renderDelegationBoxRows(dd, 80), "\n")
+		if strings.Contains(rows, "\r") {
+			t.Errorf("rows for %q hold a raw carriage return", dd.agentID)
+		}
+		if !strings.Contains(stripANSI(rows), "progress 100% done") {
+			t.Errorf("rows for %q lost visible output text", dd.agentID)
 		}
 	}
 	if !found {
-		t.Error("no settled entry holds a carriage return; the CR guard would measure the clean path")
+		t.Error("no settled entry stores a carriage return; the fixture would not test CR sanitizing")
 	}
 }
 

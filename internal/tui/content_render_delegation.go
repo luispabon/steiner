@@ -182,7 +182,7 @@ func (b *contentBuffer) renderDelegationTranscript(dd *delegationDisplayState, w
 func (b *contentBuffer) renderDelegationEntry(entry delegationTranscriptEntry, width int) []string {
 	switch entry.kind {
 	case delegationTranscriptEntryAssistant:
-		return b.wrapStyledDelegationLines(entry.body, width, b.styles.FgDim)
+		return b.wrapStyledDelegationLines(output.SanitizeDisplayText(entry.body), width, b.styles.FgDim)
 	case delegationTranscriptEntryThinking:
 		return b.renderDelegationThinkingEntry(entry, width)
 	case delegationTranscriptEntryTool:
@@ -194,7 +194,7 @@ func (b *contentBuffer) renderDelegationEntry(entry delegationTranscriptEntry, w
 
 func (b *contentBuffer) renderDelegationThinkingEntry(entry delegationTranscriptEntry, width int) []string {
 	style := b.styles.FgFaint.Italic(true)
-	lines := b.wrapStyledDelegationLines(stripThinkingMarkers(entry.body), max(1, width), style)
+	lines := b.wrapStyledDelegationLines(output.SanitizeDisplayText(stripThinkingMarkers(entry.body)), max(1, width), style)
 	if len(lines) == 0 {
 		return nil
 	}
@@ -264,12 +264,12 @@ func (b *contentBuffer) renderDelegationOutput(dd *delegationDisplayState, width
 		return nil
 	}
 	lines := []string{b.styles.FgDim.Render("output")}
-	lines = append(lines, b.wrapStyledDelegationLines(outputText, width, b.baseTextStyle())...)
+	lines = append(lines, b.wrapStyledDelegationLines(output.SanitizeDisplayText(outputText), width, b.baseTextStyle())...)
 	return lines
 }
 
 func (b *contentBuffer) delegationOutputDuplicatesTranscript(dd *delegationDisplayState, outputText string) bool {
-	normalizedOutput := normalizeDelegationText(outputText)
+	normalizedOutput := normalizeDelegationText(output.SanitizeDisplayText(outputText))
 	if normalizedOutput == "" {
 		return true
 	}
@@ -278,7 +278,7 @@ func (b *contentBuffer) delegationOutputDuplicatesTranscript(dd *delegationDispl
 		if entry.kind != delegationTranscriptEntryAssistant {
 			continue
 		}
-		if normalizeDelegationText(entry.body) == normalizedOutput {
+		if normalizeDelegationText(output.SanitizeDisplayText(entry.body)) == normalizedOutput {
 			return true
 		}
 		break
