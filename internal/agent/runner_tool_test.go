@@ -231,8 +231,8 @@ func TestRunnerContextStateManagerShapesFreshToolResultsOnAppend(t *testing.T) {
 	if strings.Contains(toolResult.Output, "\x1b[") {
 		t.Fatalf("tool result output = %q, want ANSI stripped", toolResult.Output)
 	}
-	if !strings.Contains(toolResult.Output, "warning: retry (repeated 3x)") {
-		t.Fatalf("tool result output = %q, want repeated warning collapse", toolResult.Output)
+	if got := strings.Count(toolResult.Output, "warning: retry\n"); got != 3 {
+		t.Fatalf("tool result warning lines = %d, want 3 preserved in %q", got, toolResult.Output)
 	}
 	if !toolResult.Truncated {
 		t.Fatal("tool result truncated = false, want true")

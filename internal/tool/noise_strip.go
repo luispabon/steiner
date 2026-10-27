@@ -194,9 +194,7 @@ func stripToolNoise(text string) string {
 		return ""
 	}
 	text = ansiEscapePattern.ReplaceAllString(text, "")
-	text = stripCarriageReturnOverwrites(text)
-	text = stripProgressLines(text)
-	return collapseToolLines(text)
+	return stripCarriageReturnOverwrites(text)
 }
 
 func stripCarriageReturnOverwrites(text string) string {
@@ -220,102 +218,4 @@ func stripCarriageReturnOverwrites(text string) string {
 	}
 	out.WriteString(line.String())
 	return out.String()
-}
-
-func collapseToolLines(text string) string {
-	lines := strings.Split(text, "\n")
-	if len(lines) == 0 {
-		return ""
-	}
-
-	var out []string
-	for i := 0; i < len(lines); {
-		line := lines[i]
-		count := 1
-		for i+count < len(lines) && lines[i+count] == line {
-			count++
-		}
-
-		if isBlankToolLine(line) {
-			if len(out) == 0 || out[len(out)-1] != "" {
-				out = append(out, "")
-			}
-			i += count
-			continue
-		}
-
-		if count > 1 && isWarningOrInfoLine(line) {
-			out = append(out, fmt.Sprintf("%s (repeated %dx)", line, count))
-		} else {
-			out = append(out, repeatToolLine(line, count)...)
-		}
-		i += count
-	}
-
-	return strings.Join(out, "\n")
-}
-
-func repeatToolLine(line string, count int) []string {
-	if count <= 1 {
-		return []string{line}
-	}
-	out := make([]string, 0, count)
-	for i := 0; i < count; i++ {
-		out = append(out, line)
-	}
-	return out
-}
-
-func isBlankToolLine(line string) bool {
-	return strings.TrimSpace(line) == ""
-}
-
-func isWarningOrInfoLine(line string) bool {
-	trimmed := strings.TrimSpace(strings.ToLower(line))
-	return strings.HasPrefix(trimmed, "warning:") ||
-		strings.HasPrefix(trimmed, "warning ") ||
-		strings.HasPrefix(trimmed, "warn:") ||
-		strings.HasPrefix(trimmed, "warn ") ||
-		strings.HasPrefix(trimmed, "info:") ||
-		strings.HasPrefix(trimmed, "info ")
-}
-
-var (
-	// progressBarLine matches lines that are purely progress bar visualisation:
-	//   [########>       ]  or  [====>      ] 45%
-	progressBarLine = regexp.MustCompile(`^\s*\[[= \.\#>\-]+\](?:\s*\d+\.?\d*%)?\s*$`)
-
-	// purePercentageLine matches lines that are just a percentage value:
-	//   45%  or  45.5%
-	purePercentageLine = regexp.MustCompile(`^\s*\d+\.?\d*\s*%\s*$`)
-
-	// progressKeywordLine matches lines with common progress/download/install
-	// keywords followed by a percentage:
-	//   Downloading 45%  |  Receiving objects: 67%  |  Extracting package (32%)
-	progressKeywordLine = regexp.MustCompile(`(?i)^\s*(?:download|upload|install|extract|fetch|receiv|transfer|progress|checking|resolving).*\d+\.?\d*\s*%`)
-
-	// spinnerLine matches Unicode braille spinners, or ASCII spinners with a label:
-	//   ⠋  |  ⠋ compiling  |  - compiling
-	spinnerLine = regexp.MustCompile(`^\s*(?:[⠁-⣿](?:\s+\S+)?|[-\|/\\\\]\s+\S+)\s*$`)
-)
-
-// stripProgressLines removes lines that represent transient progress output:
-// progress bars, percentage-only lines, download progress lines, and spinner
-// characters. These are never useful to preserve in ingested tool output.
-func stripProgressLines(text string) string {
-	if text == "" {
-		return ""
-	}
-	lines := strings.Split(text, "\n")
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if progressBarLine.MatchString(line) ||
-			purePercentageLine.MatchString(line) ||
-			progressKeywordLine.MatchString(line) ||
-			spinnerLine.MatchString(line) {
-			continue
-		}
-		out = append(out, line)
-	}
-	return strings.Join(out, "\n")
 }

@@ -69,8 +69,8 @@ func TestBashShapeTruncatesOverLimitWithTailPriority(t *testing.T) {
 	if strings.Contains(result.Output, "\x1b[") {
 		t.Fatalf("Output = %q, want ANSI stripped", result.Output)
 	}
-	if !strings.Contains(result.Output, "warning: retry (repeated 3x)") {
-		t.Fatalf("Output = %q, want warning collapse", result.Output)
+	if got := strings.Count(result.Output, "warning: retry\n"); got != 3 {
+		t.Fatalf("warning: retry lines = %d, want 3 preserved in %q", got, result.Output)
 	}
 
 	_, _, shown, total := shapeToolText(raw.Output, defaultBashIngestionLimitBytes, tailPriorityStrategy)
@@ -103,8 +103,8 @@ func TestTruncationCountCapGrepShape(t *testing.T) {
 	if err := json.Unmarshal([]byte(got), &result); err != nil {
 		t.Fatalf("unmarshal shaped grep result: %v", err)
 	}
-	if !strings.Contains(result.Output, "info: retrying (repeated 200x)") {
-		t.Fatalf("Output = %q, want collapsed info summary", result.Output)
+	if got := strings.Count(result.Output, "info: retrying"); got != 200 {
+		t.Fatalf("info lines = %d, want 200 preserved by count cap", got)
 	}
 	if !strings.Contains(result.Output, "<truncated output shown=") {
 		t.Fatalf("Output = %q, want truncation marker", result.Output)
@@ -135,21 +135,33 @@ func TestNoiseStripRemovesANSIAndCarriageReturns(t *testing.T) {
 	if !strings.Contains(got, "final") {
 		t.Fatalf("stripToolNoise() = %q, want final overwrite line", got)
 	}
-	if strings.Contains(got, "progress 2%") {
-		t.Fatalf("stripToolNoise() = %q, want progress line stripped", got)
+	if !strings.Contains(got, "progress 2%") {
+		t.Fatalf("stripToolNoise() = %q, want progress line preserved", got)
 	}
 }
 
-func TestNoiseStripCollapsesDuplicateBlankAndInfoLines(t *testing.T) {
-	got := stripToolNoise("alpha\n\n\nwarning: wait\nwarning: wait\nwarning: wait\ninfo: done\ninfo: done\nomega\n")
-	if strings.Contains(got, "\n\n\n") {
-		t.Fatalf("stripToolNoise() = %q, want blank collapse", got)
+func TestNoiseStripPreservesSemanticToolText(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"progress bar", "header\n[########>       ]\n[========>] 45%\nfooter\n"},
+		{"percentage only lines", "start\n45%\n100%\nend\n"},
+		{"download keyword lines", "before\nDownloading package 45%\nReceiving objects: 67%\nExtracting archive (32%)\nafter\n"},
+		{"braille spinner", "line1\n⠋\nline2\n"},
+		{"labeled ascii spinners", "before\n- compiling\n| compiling\n/ compiling\n\\ compiling\nafter\n"},
+		{"bare dash items", "- first\n-\n- second\n"},
+		{"blank lines", "alpha\n\n\nomega\n"},
+		{"repeated warnings and info", "warning: wait\nwarning: wait\nwarning: wait\ninfo: done\ninfo: done\n"},
+		{"diagnostics", "main.go:12:5: warning: unused variable x\nmain.go:12:5: warning: unused variable x\n  --> main.go:12:5\n"},
+		{"diff whitespace", "@@ -1,3 +1,3 @@\n \n-\told\n+\tnew\n \n"},
 	}
-	if !strings.Contains(got, "warning: wait (repeated 3x)") {
-		t.Fatalf("stripToolNoise() = %q, want warning collapse", got)
-	}
-	if !strings.Contains(got, "info: done (repeated 2x)") {
-		t.Fatalf("stripToolNoise() = %q, want info collapse", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stripToolNoise(tt.input); got != tt.input {
+				t.Fatalf("stripToolNoise() = %q, want input preserved %q", got, tt.input)
+			}
+		})
 	}
 }
 
@@ -173,86 +185,6 @@ func TestTruncationMarkerUsesShownAndTotal(t *testing.T) {
 	}
 	if strings.Contains(got, "bytes=") {
 		t.Fatalf("Summary() = %q, want no bytes= marker", got)
-	}
-}
-
-func TestNoiseStripRemovesProgressBarLines(t *testing.T) {
-	input := "header\n[########>       ]\n[========>] 45%\nfooter\n"
-	got := stripToolNoise(input)
-	if strings.Contains(got, "[########>") {
-		t.Fatalf("stripToolNoise() = %q, want progress bar removed", got)
-	}
-	if strings.Contains(got, "[========>] 45%") {
-		t.Fatalf("stripToolNoise() = %q, want progress bar with pct removed", got)
-	}
-	if !strings.Contains(got, "header") {
-		t.Fatalf("stripToolNoise() = %q, want header preserved", got)
-	}
-	if !strings.Contains(got, "footer") {
-		t.Fatalf("stripToolNoise() = %q, want footer preserved", got)
-	}
-}
-
-func TestNoiseStripRemovesPercentageOnlyLines(t *testing.T) {
-	input := "start\n45%\n100%\nend\n"
-	got := stripToolNoise(input)
-	if strings.Contains(got, "45%") {
-		t.Fatalf("stripToolNoise() = %q, want percentage line removed", got)
-	}
-	if strings.Contains(got, "100%") {
-		t.Fatalf("stripToolNoise() = %q, want percentage line removed", got)
-	}
-	if !strings.Contains(got, "start") {
-		t.Fatalf("stripToolNoise() = %q, want start preserved", got)
-	}
-	if !strings.Contains(got, "end") {
-		t.Fatalf("stripToolNoise() = %q, want end preserved", got)
-	}
-}
-
-func TestNoiseStripRemovesDownloadKeywordLines(t *testing.T) {
-	input := "before\nDownloading package 45%\nReceiving objects: 67%\nExtracting archive (32%)\nafter\n"
-	got := stripToolNoise(input)
-	if strings.Contains(got, "Downloading") {
-		t.Fatalf("stripToolNoise() = %q, want download line removed", got)
-	}
-	if strings.Contains(got, "Receiving objects") {
-		t.Fatalf("stripToolNoise() = %q, want receiving line removed", got)
-	}
-	if strings.Contains(got, "Extracting") {
-		t.Fatalf("stripToolNoise() = %q, want extracting line removed", got)
-	}
-	if !strings.Contains(got, "before") || !strings.Contains(got, "after") {
-		t.Fatalf("stripToolNoise() = %q, want non-progress lines preserved", got)
-	}
-}
-
-func TestNoiseStripPreservesBareASCIIPunctuationAndRemovesUnicodeSpinner(t *testing.T) {
-	input := "line1\n-\n|\n/\n\\\n⠋\nline2\n"
-	got := stripToolNoise(input)
-	for _, punctuation := range []string{"-", "|", "/", "\\"} {
-		if !strings.Contains(got, "\n"+punctuation+"\n") {
-			t.Fatalf("stripToolNoise() = %q, want bare %q preserved", got, punctuation)
-		}
-	}
-	if strings.Contains(got, "⠋") {
-		t.Fatalf("stripToolNoise() = %q, want braille spinner removed", got)
-	}
-	if !strings.Contains(got, "line1") || !strings.Contains(got, "line2") {
-		t.Fatalf("stripToolNoise() = %q, want non-spinner lines preserved", got)
-	}
-}
-
-func TestNoiseStripRemovesLabeledASCIISpinners(t *testing.T) {
-	input := "before\n- compiling\n| compiling\n/ compiling\n\\ compiling\nafter\n"
-	got := stripToolNoise(input)
-	for _, spinner := range []string{"- compiling", "| compiling", "/ compiling", "\\ compiling"} {
-		if strings.Contains(got, spinner) {
-			t.Fatalf("stripToolNoise() = %q, want labeled ASCII spinner %q removed", got, spinner)
-		}
-	}
-	if !strings.Contains(got, "before") || !strings.Contains(got, "after") {
-		t.Fatalf("stripToolNoise() = %q, want non-spinner lines preserved", got)
 	}
 }
 
