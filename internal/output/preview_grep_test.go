@@ -38,6 +38,15 @@ func TestBuildGrepPreviewMatchCounts(t *testing.T) {
 			result: `{"shown":0,"output":"## a.go\n3:1: stale row\n"}`,
 			want:   0,
 		},
+		// Legacy limitation: multiline continuation matches were rendered as
+		// "N: " rows, the same as context. The fallback cannot tell them apart,
+		// so it counts 1 here where 3 results were shown.
+		{
+			name:   "legacy multiline continuation rows are not counted",
+			args:   content,
+			result: `{"output":"## a.txt\n1:1: A\n2: B\n3: C\n"}`,
+			want:   1,
+		},
 		{
 			name:   "content excerpt marker is not a match",
 			args:   content,

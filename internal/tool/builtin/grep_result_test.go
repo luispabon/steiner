@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -371,6 +372,50 @@ func TestGrepTool_MultiFilePagesEmitEachResultOnce(t *testing.T) {
 	want := []string{"a.txt:1", "a.txt:2", "a.txt:3", "b.txt:1", "b.txt:2", "b.txt:3"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("emitted %v, want %v", got, want)
+	}
+}
+
+func TestGrepTool_MultilineContinuationLinesPaginateAsSelected(t *testing.T) {
+	toolDef := newGrepBudgetTool(t, map[string]string{"multi.txt": "A\nB\nC\nfiller\n"})
+	input := func(offset int) map[string]any {
+		return map[string]any{
+			"pattern":     "A\\nB\\nC",
+			"multiline":   true,
+			"output_mode": "content",
+			"context":     1,
+			"head_limit":  1,
+			"offset":      offset,
+		}
+	}
+	wants := []struct {
+		offset int
+		output string
+		next   int
+	}{
+		{0, "## multi.txt\n1:1: A\n2: B", 1},
+		{1, "## multi.txt\n1: A\n2:0: B\n3: C", 2},
+		{2, "## multi.txt\n2: B\n3:0: C\n4: filler", 0},
+	}
+	for _, want := range wants {
+		result := runGrepForTest(t, toolDef, input(want.offset))
+		if result.Output != want.output {
+			t.Fatalf("offset %d output = %q, want %q", want.offset, result.Output, want.output)
+		}
+		if result.Shown != 1 || result.Matches != 3 || result.NextOffset != want.next {
+			t.Fatalf("offset %d Shown, Matches, NextOffset = %d, %d, %d; want 1, 3, %d", want.offset, result.Shown, result.Matches, result.NextOffset, want.next)
+		}
+	}
+}
+
+func TestGrepResultJSONEmitsZeroShown(t *testing.T) {
+	toolDef := newGrepBudgetTool(t, map[string]string{"a.txt": "alpha\n"})
+	result := runGrepForTest(t, toolDef, map[string]any{"pattern": "needle"})
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal grep result: %v", err)
+	}
+	if !strings.Contains(string(data), `"shown":0`) {
+		t.Fatalf("no-match JSON = %s, want shown:0 emitted", data)
 	}
 }
 

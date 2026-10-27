@@ -273,11 +273,7 @@ func renderGrepFileWindows(b *strings.Builder, file grepFileResult, windows []gr
 			if lineNumber-1 >= 0 && lineNumber-1 < len(file.lines) {
 				line = strings.TrimRight(file.lines[lineNumber-1], "\r")
 			}
-			column := 0
-			if isSelected[lineNumber] {
-				column = lineColumns[lineNumber]
-			}
-			renderGrepLine(b, lineNumber, line, column, showLines)
+			renderGrepLine(b, lineNumber, line, lineColumns[lineNumber], isSelected[lineNumber], showLines)
 		}
 		if windowIndex < len(windows)-1 {
 			b.WriteString("\n")
@@ -295,11 +291,14 @@ func grepLineColumns(matches []grepMatch) map[int]int {
 	return lineColumns
 }
 
-func renderGrepLine(b *strings.Builder, lineNumber int, line string, column int, showLines bool) {
+// renderGrepLine renders one line. Selected lines always carry their column,
+// so a continuation line of a multiline match renders "N:0: " and stays
+// distinct from context rows ("N: ").
+func renderGrepLine(b *strings.Builder, lineNumber int, line string, column int, selected, showLines bool) {
 	switch {
 	case !showLines:
 		_, _ = fmt.Fprintf(b, "%s\n", line)
-	case column > 0:
+	case selected:
 		_, _ = fmt.Fprintf(b, "%d:%d: %s\n", lineNumber, column, line)
 	default:
 		_, _ = fmt.Fprintf(b, "%d: %s\n", lineNumber, line)
