@@ -585,7 +585,7 @@ func TestBashSessionExecuteLargeOutputKeepsTail(t *testing.T) {
 		t.Errorf("head/tail = %d/%d, want %d each", len(so.Head), len(so.Tail), bashSessionCaptureLimit)
 	}
 	if !strings.HasSuffix(string(so.Tail), "aaaEND") {
-		t.Errorf("tail does not end with the real last bytes: %q", so.Tail[len(so.Tail)-10:])
+		t.Errorf("tail does not end with the real last bytes: %q", so.Tail[max(0, len(so.Tail)-10):])
 	}
 }
 
@@ -602,5 +602,90 @@ func TestBashSessionShellExitReturnsError(t *testing.T) {
 	}
 	if string(so.Head) != "before\n" {
 		t.Errorf("partial stdout = %q, want %q", so.Head, "before\n")
+	}
+}
+
+// TestBashSessionExecuteEscapedDescendant covers a descendant that left the
+// shell's process group (own session) and keeps the pipes open after the shell
+// is killed. Cancellation must still return within the bounded joins and keep
+// what was emitted before the cancel.
+func TestBashSessionExecuteEscapedDescendant(t *testing.T) {
+	if _, err := exec.LookPath("setsid"); err != nil {
+		t.Skip("setsid not available")
+	}
+	pidFile := filepath.Join(t.TempDir(), "pid")
+
+	s := NewBashSession()
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	// Always reap the escaped descendant, even if an assertion fails first.
+	t.Cleanup(func() {
+		raw, err := os.ReadFile(pidFile)
+		if err != nil {
+			return
+		}
+		var pid int
+		if _, err := fmt.Sscanf(strings.TrimSpace(string(raw)), "%d", &pid); err != nil || pid <= 0 {
+			return
+		}
+		if p, err := os.FindProcess(pid); err == nil {
+			_ = p.Kill() // may already be gone
+		}
+	})
+
+	cmd := fmt.Sprintf("echo out-before; echo err-before >&2; setsid sh -c 'echo $$ > %[1]s.tmp && mv %[1]s.tmp %[1]s && exec sleep 60' & wait", pidFile)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	type result struct {
+		so, se   streamCapture
+		timedOut bool
+		err      error
+	}
+	done := make(chan result, 1)
+	go func() {
+		so, se, _, timedOut, err := s.execute(ctx, cmd)
+		done <- result{so, se, timedOut, err}
+	}()
+
+	// Readiness: the descendant has escaped once it published its pid.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(pidFile); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatal("escaped descendant never became ready")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	start := time.Now()
+	cancel()
+	select {
+	case r := <-done:
+		if r.err != nil || !r.timedOut {
+			t.Fatalf("execute err = %v, timedOut = %v; want nil, true", r.err, r.timedOut)
+		}
+		if elapsed := time.Since(start); elapsed > 2*bashSessionCaptureJoinTimeout+time.Second {
+			t.Errorf("cancellation took %v, want bounded joins", elapsed)
+		}
+		if got := string(r.so.Head); got != "out-before\n" {
+			t.Errorf("stdout partial = %q, want %q", got, "out-before\n")
+		}
+		if got := string(r.se.Head); got != "err-before\n" {
+			t.Errorf("stderr partial = %q, want %q", got, "err-before\n")
+		}
+	case <-time.After(3*bashSessionCaptureJoinTimeout + 5*time.Second):
+		t.Fatal("execute did not return after cancellation")
+	}
+
+	out, _, code, err := s.Execute(context.Background(), "echo recovered")
+	if err != nil || code != 0 || out != "recovered\n" {
+		t.Errorf("after cancel = %q, %d, %v; want recovered, 0, nil", out, code, err)
 	}
 }

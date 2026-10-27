@@ -172,61 +172,41 @@ type bashCaptureResult struct {
 	err      error
 }
 
-// execute runs command and returns bounded captures of both streams. When ctx
-// ends first, the shell is killed and restarted, the partial captures are
-// returned with timedOut set and a nil error.
-func (s *BashSession) execute(ctx context.Context, command string) (stdout, stderr streamCapture, exitCode int, timedOut bool, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// bashMarkers are the per-call protocol markers.
+type bashMarkers struct{ stdout, stderr, exit string }
 
-	if !s.started {
-		return stdout, stderr, -1, false, errors.New("bash session: not started")
-	}
-
-	var stdoutMarker, stderrMarker, exitMarker string
-	for _, m := range []struct {
+func newBashMarkers() (bashMarkers, error) {
+	var m bashMarkers
+	for _, e := range []struct {
 		dst  *string
 		kind string
-	}{{&stdoutMarker, "STDOUT"}, {&stderrMarker, "STDERR"}, {&exitMarker, "EXIT"}} {
-		if *m.dst, err = newBashMarker(m.kind); err != nil {
-			return stdout, stderr, -1, false, fmt.Errorf("bash session: %w", err)
+	}{{&m.stdout, "STDOUT"}, {&m.stderr, "STDERR"}, {&m.exit, "EXIT"}} {
+		marker, err := newBashMarker(e.kind)
+		if err != nil {
+			return m, err
 		}
+		*e.dst = marker
 	}
+	return m, nil
+}
 
-	// Inject markers: run the user command, then echo markers + exit code on both streams.
-	// The closing brace and marker suffix must be on their own line: appending them via
-	// ";" on the same line as the user's command would corrupt heredocs, here-strings, and
-	// trailing comments, whose terminators must appear alone on their line.
-	script := fmt.Sprintf(
-		"{\n%s\n} </dev/null ; __exit__=$? ; echo %s ; echo %s >&2 ; echo %s:$__exit__ ; unset __exit__\n",
-		command,
-		stdoutMarker,
-		stderrMarker,
-		exitMarker,
-	)
+// startCaptures starts one capture goroutine per stream on the readers of this
+// generation: a cancellation restarts the session and replaces
+// s.stdoutR/s.stderrR, so the goroutines must keep reading the pipes they were
+// started for. The capture leaves the newline that ends each marker line
+// unread; the goroutines consume it, and on stdout the exit line that follows,
+// so the next call starts clean.
+func (s *BashSession) startCaptures(m bashMarkers) (stdoutCh, stderrCh chan bashCaptureResult, wg *sync.WaitGroup) {
+	stdoutCh = make(chan bashCaptureResult, 1)
+	stderrCh = make(chan bashCaptureResult, 1)
+	stdoutR, stderrR := s.stdoutR, s.stderrR
+	wg = &sync.WaitGroup{}
+	wg.Add(2)
 
-	if _, err := io.WriteString(s.stdin, script); err != nil {
-		return stdout, stderr, -1, false, fmt.Errorf("bash session: write command: %w", err)
-	}
-
-	stdoutCh := make(chan bashCaptureResult, 1)
-	stderrCh := make(chan bashCaptureResult, 1)
-
-	// Capture the readers of this generation: a cancellation restarts the
-	// session and replaces s.stdoutR/s.stderrR, so the goroutines must keep
-	// reading (and reporting on) the pipes they were started for.
-	stdoutR := s.stdoutR
-	stderrR := s.stderrR
-
-	var captures sync.WaitGroup
-	captures.Add(2)
-
-	// The capture leaves the newline that ends each marker line unread; consume
-	// it, and on stdout the exit line that follows, so the next call starts clean.
 	go func() {
-		defer captures.Done()
+		defer wg.Done()
 		res := bashCaptureResult{}
-		res.capture, res.err = captureUntilMarker(stdoutR, stdoutMarker, bashSessionCaptureLimit, bashSessionCaptureLimit)
+		res.capture, res.err = captureUntilMarker(stdoutR, m.stdout, bashSessionCaptureLimit, bashSessionCaptureLimit)
 		if res.err == nil {
 			if _, res.err = stdoutR.ReadString('\n'); res.err == nil {
 				res.exitLine, res.err = stdoutR.ReadString('\n')
@@ -239,15 +219,45 @@ func (s *BashSession) execute(ctx context.Context, command string) (stdout, stde
 	}()
 
 	go func() {
-		defer captures.Done()
+		defer wg.Done()
 		res := bashCaptureResult{}
-		res.capture, res.err = captureUntilMarker(stderrR, stderrMarker, bashSessionCaptureLimit, bashSessionCaptureLimit)
+		res.capture, res.err = captureUntilMarker(stderrR, m.stderr, bashSessionCaptureLimit, bashSessionCaptureLimit)
 		if res.err == nil {
 			_, res.err = stderrR.ReadString('\n')
 		}
 		stderrCh <- res
 	}()
+	return stdoutCh, stderrCh, wg
+}
 
+// execute runs command and returns bounded captures of both streams. When ctx
+// ends first, the shell is killed and restarted, the partial captures are
+// returned with timedOut set and a nil error.
+func (s *BashSession) execute(ctx context.Context, command string) (stdout, stderr streamCapture, exitCode int, timedOut bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.started {
+		return stdout, stderr, -1, false, errors.New("bash session: not started")
+	}
+	m, err := newBashMarkers()
+	if err != nil {
+		return stdout, stderr, -1, false, fmt.Errorf("bash session: %w", err)
+	}
+
+	// Inject markers: run the user command, then echo markers + exit code on both streams.
+	// The closing brace and marker suffix must be on their own line: appending them via
+	// ";" on the same line as the user's command would corrupt heredocs, here-strings, and
+	// trailing comments, whose terminators must appear alone on their line.
+	script := fmt.Sprintf(
+		"{\n%s\n} </dev/null ; __exit__=$? ; echo %s ; echo %s >&2 ; echo %s:$__exit__ ; unset __exit__\n",
+		command, m.stdout, m.stderr, m.exit,
+	)
+	if _, err := io.WriteString(s.stdin, script); err != nil {
+		return stdout, stderr, -1, false, fmt.Errorf("bash session: write command: %w", err)
+	}
+
+	stdoutCh, stderrCh, captures := s.startCaptures(m)
 	var stdoutRes, stderrRes bashCaptureResult
 	var stdoutDone, stderrDone bool
 
@@ -255,20 +265,14 @@ func (s *BashSession) execute(ctx context.Context, command string) (stdout, stde
 	for !stdoutDone || !stderrDone {
 		select {
 		case <-ctx.Done():
-			s.cancelInFlight(&captures)
+			s.cancelInFlight(captures)
 			// Collect partials from goroutines that finished; ones still
 			// stuck past the join bound leave an empty capture.
 			if !stdoutDone {
-				select {
-				case stdoutRes = <-stdoutCh:
-				default:
-				}
+				stdoutRes = takeCaptureResult(stdoutCh)
 			}
 			if !stderrDone {
-				select {
-				case stderrRes = <-stderrCh:
-				default:
-				}
+				stderrRes = takeCaptureResult(stderrCh)
 			}
 			return stdoutRes.capture, stderrRes.capture, -1, true, nil
 		case stdoutRes = <-stdoutCh:
@@ -284,11 +288,22 @@ func (s *BashSession) execute(ctx context.Context, command string) (stdout, stde
 			string(stderrRes.capture.Head)+string(stderrRes.capture.Tail), stderrRes.err)
 	}
 
-	code, parseErr := parseBashExitLine(strings.TrimSpace(stdoutRes.exitLine), exitMarker)
+	code, parseErr := parseBashExitLine(strings.TrimSpace(stdoutRes.exitLine), m.exit)
 	if parseErr != nil {
 		return stdoutRes.capture, stderrRes.capture, -1, false, fmt.Errorf("bash session: %w", parseErr)
 	}
 	return stdoutRes.capture, stderrRes.capture, code, false, nil
+}
+
+// takeCaptureResult returns a finished goroutine's result, or the zero value
+// if it has not reported.
+func takeCaptureResult(ch chan bashCaptureResult) bashCaptureResult {
+	select {
+	case r := <-ch:
+		return r
+	default:
+		return bashCaptureResult{}
+	}
 }
 
 // cancelInFlight kills the shell after ctx cancelled an in-flight command and
