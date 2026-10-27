@@ -40,7 +40,7 @@ func readOpenTextRange(r io.Reader, statSize int64, offset, limit int) (fileHash
 	if err != nil {
 		return "", 0, nil, err
 	}
-	if isBinary(data[:min(len(data), 8192)]) {
+	if isBinary(data[:min(len(data), binaryProbeBytes)]) {
 		err = fmt.Errorf("binary file")
 		return "", 0, []string{"Error: cannot read binary file"}, err
 	}
