@@ -11,6 +11,8 @@ import (
 
 func TestBashToolTruncatedFlag(t *testing.T) {
 	t.Parallel()
+	// outputCapBytes is the 100 KB output bound that Output must stay within (2x).
+	const outputCapBytes = 100 * 1024
 	dir := t.TempDir()
 	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
 	toolDef := NewBashTool(Env{WorkDir: dir, PathPolicy: &policy})
@@ -38,7 +40,7 @@ func TestBashToolTruncatedFlag(t *testing.T) {
 			if res.Truncated != tt.truncated {
 				t.Errorf("Truncated = %v, want %v", res.Truncated, tt.truncated)
 			}
-			if len(res.Output) > 2*bashSessionMaxOutput {
+			if len(res.Output) > 2*outputCapBytes {
 				t.Errorf("Output length = %d, want bounded", len(res.Output))
 			}
 		})

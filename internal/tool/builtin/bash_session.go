@@ -18,9 +18,6 @@ import (
 )
 
 const (
-	// bashSessionMaxOutput is the maximum combined output size before truncation.
-	bashSessionMaxOutput = 100 * 1024 // 100 KB
-
 	// bashSessionCaptureLimit is the raw head and the raw tail kept per stream.
 	bashSessionCaptureLimit = 1 << 20 // 1 MiB
 
@@ -313,6 +310,15 @@ func joinCaptureGoroutines(wg *sync.WaitGroup, timeout time.Duration) bool {
 	}
 }
 
+// bashStreamError is the error for a failed stream read. Error includes the
+// captured stdout and stderr text; cause is the message without that text.
+type bashStreamError struct {
+	cause, message string
+}
+
+// Error returns the full message, including the captured text.
+func (e *bashStreamError) Error() string { return e.message }
+
 func bashStreamReadError(stdoutText string, stdoutErr error, stderrText string, stderrErr error) error {
 	var parts []string
 	if stdoutErr != nil {
@@ -321,13 +327,14 @@ func bashStreamReadError(stdoutText string, stdoutErr error, stderrText string, 
 	if stderrErr != nil {
 		parts = append(parts, fmt.Sprintf("read stderr: %v", stderrErr))
 	}
+	cause := "bash session: " + strings.Join(parts, "; ")
 	if stderrText = strings.TrimSpace(stderrText); stderrText != "" {
 		parts = append(parts, "stderr: "+stderrText)
 	}
 	if stdoutText = strings.TrimSpace(stdoutText); stdoutText != "" {
 		parts = append(parts, "stdout: "+stdoutText)
 	}
-	return fmt.Errorf("bash session: %s", strings.Join(parts, "; "))
+	return &bashStreamError{cause: cause, message: "bash session: " + strings.Join(parts, "; ")}
 }
 
 // Restart kills and restarts the bash process, clearing all session state.
