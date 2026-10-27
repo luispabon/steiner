@@ -29,8 +29,8 @@ require (
 	go.lsp.dev/protocol v1.0.1
 	go.lsp.dev/uri v1.0.1
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/sync v0.23.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/sync v0.24.0
+	golang.org/x/sys v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -62,7 +62,7 @@ require (
 	github.com/yuin/goldmark v1.8.5 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	golang.org/x/image v0.45.0 // indirect
-	golang.org/x/net v0.60.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 )

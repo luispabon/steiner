@@ -16,18 +16,21 @@ import (
 // displayed text. Use it for display only; model-facing and persisted text keep
 // the original bytes.
 func SanitizeDisplayText(s string) string {
-	if isPrintableASCII(s) {
+	if isSafeDisplayASCII(s) {
 		return s
 	}
 	return sanitizeDisplayTextSlow(s)
 }
 
-// isPrintableASCII reports whether every byte of s is in 0x20 to 0x7e. The slow
-// path returns such text unchanged: ansi.Strip writes those bytes through,
-// stripC1CSI finds no U+009B, and the strings.Map callback keeps them.
-func isPrintableASCII(s string) bool {
+// isSafeDisplayASCII reports whether every byte of s is tab, newline, or in
+// 0x20 to 0x7e. The slow path returns such text unchanged: ansi.Strip writes
+// those bytes through (no ESC is present, so the parser stays in ground state),
+// stripC1CSI finds no U+009B, and the strings.Map callback keeps them. Other
+// C0 controls, including carriage return, are rejected because the slow path
+// drops them.
+func isSafeDisplayASCII(s string) bool {
 	for i := range len(s) {
-		if s[i] < 0x20 || s[i] > 0x7e {
+		if (s[i] < 0x20 && s[i] != '\t' && s[i] != '\n') || s[i] > 0x7e {
 			return false
 		}
 	}

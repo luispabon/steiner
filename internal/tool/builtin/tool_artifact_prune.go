@@ -10,24 +10,33 @@ import (
 	"time"
 )
 
+// Cache layout under <root>/.steiner/tmp, shared by the fetch and bash
+// artifact writers.
 const (
-	// fetchedMaxAge is the maximum age a retained tool artifact may reach
+	toolArtifactSteinerDir = ".steiner"
+	toolArtifactTmpDir     = "tmp"
+	fetchedArtifactDir     = "fetched"
+	bashArtifactDir        = "bash-output"
+)
+
+const (
+	// toolArtifactMaxAge is the maximum age a retained tool artifact may reach
 	// before it is eligible for removal regardless of disk budget.
-	fetchedMaxAge = 7 * 24 * time.Hour
-	// fetchedMinBudgetEvictionAge is the minimum age a file must reach
+	toolArtifactMaxAge = 7 * 24 * time.Hour
+	// toolArtifactMinBudgetEvictionAge is the minimum age a file must reach
 	// before budget eviction may remove it. Two steiner processes sharing
 	// a project root is normal (sub-agents, a second terminal); without
 	// this floor a starting session's budget sweep could delete a file
 	// another session's in-flight turn was just told to read.
-	fetchedMinBudgetEvictionAge = 1 * time.Hour
-	// fetchedBudgetBytes is the shared soft size target for all retained
+	toolArtifactMinBudgetEvictionAge = 1 * time.Hour
+	// toolArtifactBudgetBytes is the shared soft size target for all retained
 	// artifact directories across all roots after budget eviction.
-	fetchedBudgetBytes = 250 * 1024 * 1024
+	toolArtifactBudgetBytes = 250 * 1024 * 1024
 )
 
 // artifactDirs are the cache directory names under <root>/.steiner/tmp that
 // are subject to retention.
-var artifactDirs = []string{"fetched", "bash-output"}
+var artifactDirs = []string{fetchedArtifactDir, bashArtifactDir}
 
 // PruneToolArtifacts removes stale and excess files under
 // <root>/.steiner/tmp/fetched and <root>/.steiner/tmp/bash-output for each
@@ -35,9 +44,9 @@ var artifactDirs = []string{"fetched", "bash-output"}
 // Only the immediate regular files of each cache directory are considered:
 // the fetch and bash artifact writers create flat files, so subdirectories
 // and non-regular entries are ignored and never recursed into. Files older
-// than fetchedMaxAge are removed first; remaining files, counted against one
-// shared budget of fetchedBudgetBytes, are then removed oldest-first, except
-// that no file younger than fetchedMinBudgetEvictionAge is removed by budget
+// than toolArtifactMaxAge are removed first; remaining files, counted against one
+// shared budget of toolArtifactBudgetBytes, are then removed oldest-first, except
+// that no file younger than toolArtifactMinBudgetEvictionAge is removed by budget
 // eviction. Missing directories are not an error.
 //
 // Path components are inspected with Lstat and non-directories (including
@@ -48,7 +57,7 @@ var artifactDirs = []string{"fetched", "bash-output"}
 // than followed. Sibling directories such as .steiner/tmp/images and
 // .steiner/worktrees are never scanned or modified.
 func PruneToolArtifacts(roots []string) (removed int, err error) {
-	return pruneToolArtifacts(roots, time.Now(), fetchedBudgetBytes)
+	return pruneToolArtifacts(roots, time.Now(), toolArtifactBudgetBytes)
 }
 
 // artifactFile is a regular file anchored to its verified parent directory.
@@ -114,11 +123,11 @@ func collectToolArtifacts(roots []string) (files []artifactFile, closeAll func()
 // openTmpDir opens <root>/.steiner/tmp one verified component at a time and
 // returns nil when any component is missing or not a real directory.
 func openTmpDir(root *os.Root) (*os.Root, []error) {
-	steiner, ok, err := openChildDir(root, ".steiner")
+	steiner, ok, err := openChildDir(root, toolArtifactSteinerDir)
 	if !ok {
 		return nil, errsOf(err)
 	}
-	tmp, ok, err := openChildDir(steiner, "tmp")
+	tmp, ok, err := openChildDir(steiner, toolArtifactTmpDir)
 	_ = steiner.Close() // read-only directory handle; nothing to flush
 	if !ok {
 		return nil, errsOf(err)
@@ -133,16 +142,16 @@ func errsOf(err error) []error {
 	return []error{err}
 }
 
-// evictArtifacts removes files older than fetchedMaxAge, then evicts the
+// evictArtifacts removes files older than toolArtifactMaxAge, then evicts the
 // oldest remaining files until the total is within budgetBytes, never
-// evicting a file younger than fetchedMinBudgetEvictionAge. Zero-byte files
+// evicting a file younger than toolArtifactMinBudgetEvictionAge. Zero-byte files
 // free no budget and are not evicted by budget pressure. removed counts only
 // files this call actually unlinked.
 func evictArtifacts(files []artifactFile, now time.Time, budgetBytes int64) (removed int, errs []error) {
 	var total int64
 	kept := make([]artifactFile, 0, len(files))
 	for _, f := range files {
-		if now.Sub(f.modTime) >= fetchedMaxAge {
+		if now.Sub(f.modTime) >= toolArtifactMaxAge {
 			gone, rmErr := removeArtifact(f)
 			if rmErr != nil {
 				errs = append(errs, rmErr)
@@ -164,7 +173,7 @@ func evictArtifacts(files []artifactFile, now time.Time, budgetBytes int64) (rem
 		if total <= budgetBytes {
 			break
 		}
-		if f.size == 0 || now.Sub(f.modTime) < fetchedMinBudgetEvictionAge {
+		if f.size == 0 || now.Sub(f.modTime) < toolArtifactMinBudgetEvictionAge {
 			continue
 		}
 		gone, rmErr := removeArtifact(f)

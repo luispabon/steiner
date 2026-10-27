@@ -152,8 +152,13 @@ func bashResultTruncated(previewComplete bool, execErr error, timedOut bool) boo
 
 // bashErrorCause drops the captured stdout and stderr text that
 // bashStreamReadError embeds in its message; the captures are rendered
-// separately.
+// separately. Errors other than bashStreamError fall back to cutting the
+// message at the capture markers.
 func bashErrorCause(err error) string {
+	var streamErr *bashStreamError
+	if errors.As(err, &streamErr) {
+		return streamErr.cause
+	}
 	msg := err.Error()
 	for _, sep := range []string{"; stderr: ", "; stdout: "} {
 		if i := strings.Index(msg, sep); i >= 0 {
@@ -162,9 +167,6 @@ func bashErrorCause(err error) string {
 	}
 	return msg
 }
-
-// bashReadBinaryProbe mirrors the prefix length isBinary checks for NUL bytes.
-const bashReadBinaryProbe = 8192
 
 const (
 	bashArtifactNone     = "none"
@@ -310,14 +312,14 @@ func saveBashResultArtifact(workDir string, in bashOutInput, cause bashArtifactC
 	}
 	if err != nil {
 		res.ArtifactStatus = bashArtifactFailed
-		return fmt.Sprintf("Full output was not saved (artifact_status failed): %v.", err)
+		return fmt.Sprintf("Full output was not saved (artifact_status %s): %v.", bashArtifactFailed, err)
 	}
 	res.FilePath = path
 	res.ArtifactLimitHit = limitHit
-	clip := fmt.Sprintf("The read tool rejects files with a NUL byte in the first %d bytes as binary and clips lines longer than %d characters, so such content cannot be read back.", bashReadBinaryProbe, readMaxLineRunes)
+	clip := fmt.Sprintf("The read tool rejects files with a NUL byte in the first %d bytes as binary and clips lines longer than %d characters, so such content cannot be read back.", binaryProbeBytes, readMaxLineRunes)
 	if art.Complete && !cause.timedOut && !cause.execErr {
 		res.ArtifactStatus = bashArtifactComplete
-		return fmt.Sprintf("Full output saved to %s (artifact_status complete); page it with read offset/limit. %s", path, clip)
+		return fmt.Sprintf("Full output saved to %s (artifact_status %s); page it with read offset/limit. %s", path, bashArtifactComplete, clip)
 	}
 	res.ArtifactStatus = bashArtifactPartial
 	var parts []string
@@ -335,5 +337,5 @@ func saveBashResultArtifact(workDir string, in bashOutInput, cause bashArtifactC
 	if limitHit {
 		parts = append(parts, fmt.Sprintf("artifact size cap is %d bytes", bashArtifactMaxBytes))
 	}
-	return fmt.Sprintf("Partial output saved to %s (artifact_status partial; %s); the full output cannot be recovered. %s", path, strings.Join(parts, "; "), clip)
+	return fmt.Sprintf("Partial output saved to %s (artifact_status %s; %s); the full output cannot be recovered. %s", path, bashArtifactPartial, strings.Join(parts, "; "), clip)
 }
