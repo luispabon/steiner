@@ -17,6 +17,13 @@ func truncateRunes(text string, width int) string {
 	return ansi.Truncate(text, width, "…")
 }
 
+// singleLineDisplayText sanitizes model-supplied text for a display cell that
+// must stay on one line. Newlines and tabs become spaces so they cannot start a
+// new row or shift the row-to-target mapping. Stored text is not changed.
+func singleLineDisplayText(text string) string {
+	return strings.NewReplacer("\n", " ", "\t", " ").Replace(output.SanitizeDisplayText(text))
+}
+
 func truncateOverlayText(text string, width int) string {
 	text = output.SanitizeDisplayText(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
 	if width <= 0 || text == "" {

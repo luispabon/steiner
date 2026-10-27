@@ -53,7 +53,7 @@ func (s subAgentPickerOverlay) renderRow(i, w int, now int64) string {
 	case row.section:
 		return lipgloss.NewStyle().MaxWidth(w).Render(s.styles.FgFaint.Render(row.heading))
 	case row.groupHdr:
-		return lipgloss.NewStyle().MaxWidth(w).Render(s.styles.FgMute.Render("┌ " + output.SanitizeDisplayText(row.heading)))
+		return lipgloss.NewStyle().MaxWidth(w).Render(s.styles.FgMute.Render("┌ " + singleLineDisplayText(row.heading)))
 	}
 	if i == s.selection {
 		return s.styles.AccentBg.Width(w).MaxWidth(w).Render(plainCardRow(row, w, now))

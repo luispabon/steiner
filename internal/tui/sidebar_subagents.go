@@ -7,7 +7,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -45,7 +44,7 @@ func (s sidebarState) subAgentsRows(width int) (lines []string, targets []string
 
 	typeW := 0
 	for _, e := range visible {
-		typeW = max(typeW, min(lipgloss.Width(output.SanitizeDisplayText(e.agentType)), 14))
+		typeW = max(typeW, min(lipgloss.Width(singleLineDisplayText(e.agentType)), 14))
 	}
 	type groupKey struct{ batchID, group string }
 	emitted := map[groupKey]bool{}
@@ -59,7 +58,7 @@ func (s sidebarState) subAgentsRows(width int) (lines []string, targets []string
 			continue
 		}
 		emitted[key] = true
-		add(s.styledWithBg(s.styles.FgMute, fitText("┌ "+output.SanitizeDisplayText(e.group), width)), "")
+		add(s.styledWithBg(s.styles.FgMute, fitText("┌ "+singleLineDisplayText(e.group), width)), "")
 		for _, m := range visible {
 			if m.admitted && m.occurrence.BatchID == e.occurrence.BatchID && m.group == e.group {
 				add(s.rosterRow(m, s.styledWithBg(s.styles.FgMute, "│ "), typeW, width), m.agentID)
@@ -129,10 +128,10 @@ func (s sidebarState) rosterRow(e rosterEntry, prefix string, typeW, width int) 
 	default:
 		elapsed = formatRosterElapsed(e.startTime, s.subAgentsNow)
 	}
-	id := fitText(output.SanitizeDisplayText(e.agentID), 10)
+	id := fitText(singleLineDisplayText(e.agentID), 10)
 	avail := width - lipgloss.Width(prefix) - 2 - lipgloss.Width(id) - 1 - len(elapsed) - 1
 	tw := min(typeW, max(4, avail))
-	typ := fitText(output.SanitizeDisplayText(e.agentType), tw)
+	typ := fitText(singleLineDisplayText(e.agentType), tw)
 	typPad := strings.Repeat(" ", max(0, tw-lipgloss.Width(typ)))
 	typeStyle := s.styles.DelegateTagStyles[strings.ToLower(e.agentType)]
 	if _, ok := s.styles.DelegateTagStyles[strings.ToLower(e.agentType)]; !ok {
