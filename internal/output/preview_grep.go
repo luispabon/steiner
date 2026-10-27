@@ -8,7 +8,7 @@ import (
 
 func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 	var payload struct {
-		Shown      int    `json:"shown,omitempty"`
+		Shown      *int   `json:"shown"`
 		NextOffset int    `json:"next_offset,omitempty"`
 		Output     string `json:"output"`
 	}
@@ -37,9 +37,14 @@ func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 		}
 	default:
 		grepFiles = previewGrepContent(payload.Output)
-		// Content lines include context, so the shown logical result count
-		// from the tool result is the only exact match count.
-		matches = payload.Shown
+		// Content lines include context, so the shown logical result count is
+		// the exact match count. Results saved before shown existed have none,
+		// so they fall back to counting match rows.
+		if payload.Shown != nil {
+			matches = *payload.Shown
+		} else {
+			matches = countLegacyGrepMatchRows(payload.Output)
+		}
 	}
 
 	preview := ToolPreview{
@@ -80,6 +85,31 @@ func previewGrepCounts(output string) []ToolPreviewGrepFile {
 		files = append(files, ToolPreviewGrepFile{Path: path, Count: count})
 	}
 	return files
+}
+
+// countLegacyGrepMatchRows counts match rows in content output saved before
+// the shown field existed. Match rows are "N:C: text" and context rows are
+// "N: text", so a row counts when its prefix has a line and a column.
+func countLegacyGrepMatchRows(output string) int {
+	count := 0
+	for _, line := range splitToolPreviewLines(output) {
+		idx := strings.Index(line, ": ")
+		if idx <= 0 {
+			continue
+		}
+		parts := strings.Split(line[:idx], ":")
+		if len(parts) != 2 {
+			continue
+		}
+		if _, err := strconv.Atoi(parts[0]); err != nil {
+			continue
+		}
+		if _, err := strconv.Atoi(parts[1]); err != nil {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func previewGrepContent(output string) []ToolPreviewGrepFile {

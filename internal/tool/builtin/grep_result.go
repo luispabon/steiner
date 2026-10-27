@@ -182,7 +182,7 @@ func renderGrepContent(files []grepFileResult, selected []grepContentSelection, 
 		}
 
 		_, _ = fmt.Fprintf(&b, "## %s\n", file.file)
-		renderGrepFileWindows(&b, file, windows, showLines)
+		renderGrepFileWindows(&b, file, windows, selectedByFile[fileName], showLines)
 		if fileIndex < len(fileOrder)-1 {
 			b.WriteString("\n")
 		}
@@ -245,7 +245,7 @@ func renderGrepExcerpt(files []grepFileResult, sel grepContentSelection, showLin
 
 	var b strings.Builder
 	_, _ = fmt.Fprintf(&b, "## %s\n", file.file)
-	renderGrepFileWindows(&b, file, []grepWindow{window}, showLines)
+	renderGrepFileWindows(&b, file, []grepWindow{window}, []int{sel.lineNumber}, showLines)
 	b.WriteString(tool.TruncationMarker(window.end-window.start+1, total))
 	return b.String()
 }
@@ -258,15 +258,26 @@ func grepLineCount(rendered string) int {
 	return strings.Count(rendered, "\n") + 1
 }
 
-func renderGrepFileWindows(b *strings.Builder, file grepFileResult, windows []grepWindow, showLines bool) {
+// renderGrepFileWindows renders the lines of each window. Only selected lines
+// get match columns. Other matches inside a window render as context, so a
+// result that belongs to a later page is not reported as emitted here.
+func renderGrepFileWindows(b *strings.Builder, file grepFileResult, windows []grepWindow, selected []int, showLines bool) {
 	lineColumns := grepLineColumns(file.matches)
+	isSelected := make(map[int]bool, len(selected))
+	for _, lineNumber := range selected {
+		isSelected[lineNumber] = true
+	}
 	for windowIndex, window := range windows {
 		for lineNumber := window.start; lineNumber <= window.end; lineNumber++ {
 			line := ""
 			if lineNumber-1 >= 0 && lineNumber-1 < len(file.lines) {
 				line = strings.TrimRight(file.lines[lineNumber-1], "\r")
 			}
-			renderGrepLine(b, lineNumber, line, lineColumns[lineNumber], showLines)
+			column := 0
+			if isSelected[lineNumber] {
+				column = lineColumns[lineNumber]
+			}
+			renderGrepLine(b, lineNumber, line, column, showLines)
 		}
 		if windowIndex < len(windows)-1 {
 			b.WriteString("\n")

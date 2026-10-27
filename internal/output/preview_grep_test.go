@@ -21,9 +21,21 @@ func TestBuildGrepPreviewMatchCounts(t *testing.T) {
 			want:   2,
 		},
 		{
-			name:   "content without shown reports no count",
+			name:   "content without shown and no match rows reports zero",
 			args:   content,
 			result: `{"output":"## a.go\n3: context\n"}`,
+			want:   0,
+		},
+		{
+			name:   "content without shown counts legacy match rows",
+			args:   content,
+			result: `{"output":"## a.go\n3:1: match one\n4: context\n5:1: match two\n"}`,
+			want:   2,
+		},
+		{
+			name:   "explicit zero shown ignores legacy rows",
+			args:   content,
+			result: `{"shown":0,"output":"## a.go\n3:1: stale row\n"}`,
 			want:   0,
 		},
 		{

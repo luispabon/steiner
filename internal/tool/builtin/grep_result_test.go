@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -233,6 +234,143 @@ func TestGrepTool_FilesAndCountModesHonorLineBudget(t *testing.T) {
 				t.Fatalf("Matches = %d, want 250", result.Matches)
 			}
 		})
+	}
+}
+
+var grepEmittedRow = regexp.MustCompile(`^(\d+):\d+: `)
+
+// grepEmittedResults returns "file:line" for each content row rendered with a
+// match column. Context rows have no column, so they are not results.
+func grepEmittedResults(output string) []string {
+	var got []string
+	file := ""
+	for _, line := range strings.Split(output, "\n") {
+		if name, ok := strings.CutPrefix(line, "## "); ok {
+			file = name
+			continue
+		}
+		if m := grepEmittedRow.FindStringSubmatch(line); m != nil {
+			got = append(got, file+":"+m[1])
+		}
+	}
+	return got
+}
+
+func TestGrepTool_OverlappingOversizedWindowsOnlyEmitSelectedMatches(t *testing.T) {
+	var b strings.Builder
+	for i := 1; i <= 400; i++ {
+		if i == 100 || i == 180 {
+			b.WriteString("needle\n")
+		} else {
+			fmt.Fprintf(&b, "filler %d\n", i)
+		}
+	}
+	toolDef := newGrepBudgetTool(t, map[string]string{"big.txt": b.String()})
+	input := func(offset int) map[string]any {
+		return map[string]any{
+			"pattern":     "needle",
+			"output_mode": "content",
+			"context":     100,
+			"offset":      offset,
+		}
+	}
+
+	first := runGrepForTest(t, toolDef, input(0))
+	if n := renderedLineCount(first.Output); n > grepRenderedLineBudget {
+		t.Fatalf("first page rendered %d lines, want <= %d", n, grepRenderedLineBudget)
+	}
+	if got := grepEmittedResults(first.Output); !slices.Equal(got, []string{"big.txt:100"}) {
+		t.Fatalf("first page emitted %v, want [big.txt:100]", got)
+	}
+	if !strings.Contains(first.Output, "\n180: needle\n") {
+		t.Fatal("first page should keep line 180 as plain context")
+	}
+	if first.Shown != 1 || first.NextOffset != 1 || first.Matches != 2 {
+		t.Fatalf("first page Shown, NextOffset, Matches = %d, %d, %d; want 1, 1, 2", first.Shown, first.NextOffset, first.Matches)
+	}
+
+	second := runGrepForTest(t, toolDef, input(first.NextOffset))
+	if n := renderedLineCount(second.Output); n > grepRenderedLineBudget {
+		t.Fatalf("second page rendered %d lines, want <= %d", n, grepRenderedLineBudget)
+	}
+	if got := grepEmittedResults(second.Output); !slices.Equal(got, []string{"big.txt:180"}) {
+		t.Fatalf("second page emitted %v, want [big.txt:180]", got)
+	}
+	if !strings.Contains(second.Output, "\n100: needle\n") {
+		t.Fatal("second page should keep line 100 as plain context")
+	}
+	if second.Shown != 1 || second.NextOffset != 0 {
+		t.Fatalf("second page Shown, NextOffset = %d, %d; want 1, 0", second.Shown, second.NextOffset)
+	}
+}
+
+func TestGrepTool_LineNumbersFalseExcerptKeepsMatchAndMarker(t *testing.T) {
+	var b strings.Builder
+	for i := 1; i <= 600; i++ {
+		if i == 300 {
+			b.WriteString("needle target\n")
+		} else {
+			fmt.Fprintf(&b, "filler %d\n", i)
+		}
+	}
+	toolDef := newGrepBudgetTool(t, map[string]string{"big.txt": b.String()})
+
+	result := runGrepForTest(t, toolDef, map[string]any{
+		"pattern":      "needle",
+		"output_mode":  "content",
+		"context":      250,
+		"line_numbers": false,
+	})
+	if n := renderedLineCount(result.Output); n > grepRenderedLineBudget {
+		t.Fatalf("page rendered %d lines, want <= %d", n, grepRenderedLineBudget)
+	}
+	if !strings.Contains(result.Output, "\nneedle target\n") {
+		t.Fatal("excerpt should keep the plain match line")
+	}
+	if !strings.Contains(result.Output, "<truncated output shown=198 total=501>") {
+		t.Fatal("excerpt should end with the truncation marker")
+	}
+	if got := grepEmittedResults(result.Output); len(got) != 0 {
+		t.Fatalf("line_numbers false emitted rows %v, want none", got)
+	}
+	if result.Shown != 1 || result.NextOffset != 0 {
+		t.Fatalf("Shown, NextOffset = %d, %d; want 1, 0", result.Shown, result.NextOffset)
+	}
+}
+
+func TestGrepTool_MultiFilePagesEmitEachResultOnce(t *testing.T) {
+	toolDef := newGrepBudgetTool(t, map[string]string{
+		"a.txt": "needle a1\nneedle a2\nneedle a3\n",
+		"b.txt": "needle b1\nneedle b2\nneedle b3\n",
+	})
+
+	var got []string
+	offset := 0
+	for page := 0; ; page++ {
+		if page > 5 {
+			t.Fatal("pagination did not finish within 5 pages")
+		}
+		result := runGrepForTest(t, toolDef, map[string]any{
+			"pattern":     "needle",
+			"output_mode": "content",
+			"head_limit":  4,
+			"offset":      offset,
+		})
+		if offset == 4 && !strings.HasPrefix(result.Output, "## b.txt\n") {
+			t.Fatalf("page at offset 4 should start with its file header, got %q", result.Output)
+		}
+		got = append(got, grepEmittedResults(result.Output)...)
+		if result.NextOffset == 0 {
+			break
+		}
+		if result.NextOffset != offset+result.Shown {
+			t.Fatalf("NextOffset = %d, want %d", result.NextOffset, offset+result.Shown)
+		}
+		offset = result.NextOffset
+	}
+	want := []string{"a.txt:1", "a.txt:2", "a.txt:3", "b.txt:1", "b.txt:2", "b.txt:3"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("emitted %v, want %v", got, want)
 	}
 }
 
