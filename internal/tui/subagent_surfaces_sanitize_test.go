@@ -112,7 +112,7 @@ func TestSidebarSingleLineGroupNormalized(t *testing.T) {
 	t.Parallel()
 
 	entries := func(group string) []rosterEntry {
-		return []rosterEntry{{agentID: "child-a", agentType: "explore", admitted: true, group: group, status: rosterRunning, startTime: 1}}
+		return []rosterEntry{{agentID: "child-a", agentType: "explore", admitted: true, occurrence: occurrenceKey{BatchID: "batch"}, group: group, status: rosterRunning, startTime: 1}}
 	}
 	hostileLines, hostileTargets := rosterSidebar(entries("gr\noup\tA"), 2).subAgentsRows(80)
 	cleanLines, cleanTargets := rosterSidebar(entries("gr oup A"), 2).subAgentsRows(80)
@@ -125,6 +125,9 @@ func TestSidebarSingleLineGroupNormalized(t *testing.T) {
 	cleanRest := requireOSC8Links(t, "clean sidebar group", strings.Join(cleanLines, "\n"), []string{"child-a"})
 	if got, want := stripANSI(rest), stripANSI(cleanRest); got != want {
 		t.Errorf("sidebar rows = %q, want %q", got, want)
+	}
+	if plain := stripANSI(rest); !strings.Contains(plain, "┌ gr oup A") {
+		t.Errorf("sidebar rows = %q, want group heading \"┌ gr oup A\"", plain)
 	}
 	if !slices.Equal(hostileTargets, cleanTargets) {
 		t.Errorf("targets = %q, want %q", hostileTargets, cleanTargets)
