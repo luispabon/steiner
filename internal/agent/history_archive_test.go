@@ -166,6 +166,30 @@ func TestHistoryArchiveSuccessAppendsSourceOnAdoption(t *testing.T) {
 	}
 }
 
+// TestHistoryArchiveAppendsImageBearingSource proves the archive receives the
+// original source message, including image data, rather than the image marker
+// sent to the summarizer.
+func TestHistoryArchiveAppendsImageBearingSource(t *testing.T) {
+	archive := &fakeHistoryArchive{note: testHistoryNote}
+	conv := compactionTestTurns()
+	conv[0].Images = []ImageBlock{{MediaType: "image/png", Data: "AAAA"}}
+	state := historyArchiveState(conv)
+	req := historyArchiveRequest(archive, compactionTestBudget().ModelBudget, []provider.ChatResponse{summaryResponse("summary handoff text")})
+	if !compactIntoState(t, req, &state) {
+		t.Fatal("applied = false, want true")
+	}
+	if len(archive.notes) != 1 || len(archive.appends) != 1 {
+		t.Fatalf("Note calls = %d, Append calls = %d, want 1 and 1", len(archive.notes), len(archive.appends))
+	}
+	for name, source := range map[string][]Message{"Note": archive.notes[0], "Append": archive.appends[0]} {
+		t.Run(name, func(t *testing.T) {
+			if got := source[0].Images; len(got) != 1 || got[0].Data != "AAAA" {
+				t.Errorf("archived source images = %+v, want the original image data", got)
+			}
+		})
+	}
+}
+
 // TestHistoryArchiveNoteErrorAppliesWithoutNoteOrAppend proves a Note error
 // still applies the compaction, leaves the summary without a note, appends
 // nothing, and warns.

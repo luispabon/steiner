@@ -856,6 +856,19 @@ func TestClaudeSubSyncSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestClaudeSubSyncSummaryTransportPreservesHistoryLocator(t *testing.T) {
+	const note = "[steiner:history] archived at /data/history.md"
+	request := []Message{{
+		Role:    MessageRoleSystem,
+		Content: "adopted summary\n\n" + note,
+	}, claudeSubSyncUserMsg("continue")}
+
+	got := claudeSubSystemPrompt(request)
+	if !strings.Contains(got, "adopted summary\n\n"+note) {
+		t.Fatalf("system prompt = %q, want adopted summary and history locator", got)
+	}
+}
+
 func TestClaudeSubTranscript(t *testing.T) {
 	tests := []struct {
 		name     string
