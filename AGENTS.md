@@ -60,7 +60,7 @@ docs/                    Product/design docs and implementation notes
   * Keep static sources (preamble, agents, project context, and, for exec and oneshot runs, skills) before dynamic sources (conversation, tool summaries); don't reorder `internal/prompt/source_plan.go`. Interactive sessions exclude skills from static assembly and append length-delimited skill blocks to the conversation instead.
   * No per-turn non-determinism in the prefix (preamble, tool definitions, skills, project context) — the preamble is memoized per session by `CachedSystemPreamble`.
   * Tool definition ordering stays deterministic (`internal/tool/registry.go` sorts by name; filtered subsets must not depend on map iteration order).
-  * Don't remove or rename cache hints: Codex `session-id`/`thread-id` headers (`internal/provider/codex_responses.go`), Anthropic `cache_control` breakpoints (`internal/provider/anthropic_wire.go`), or `PromptCacheKey` assignment rules.
+  * Don't remove or rename cache hints: Codex `session-id`/`thread-id` headers (`internal/provider/wire_responses.go` and `internal/provider/codex_ws_conn.go`), Anthropic `cache_control` breakpoints (`internal/provider/anthropic_wire.go`), or `PromptCacheKey` assignment rules.
   * Compaction intentionally invalidates the summarized portion of the prefix — that's expected, not a bug.
 
 ## File organisation
@@ -156,6 +156,8 @@ A code change must update its matching docs in the same commit:
 | 19 | `internal/quota` or provider `quota_*` fetchers | docs/user/usage-dashboard.md; docs/internals/usage-dashboard.md; README feature section if high-level behaviour changed |
 | 20 | Package boundaries, entry points, turn lifecycle, provider/tool/session/TUI architecture | docs/internals/architecture.md |
 | 21 | `internal/provider`: cache hints, `PromptCacheKey` assignment, or cache identity (Codex `session-id`/`thread-id` headers, Anthropic `cache_control` breakpoints) | docs/internals/prompt-caching.md; docs/user/cache-stats.md if user-visible cache behaviour changed |
+| 22 | `internal/sandbox`: mounts, env, or wrapper resolution | docs/user/sandboxing.md; docs/internals/sandboxing.md |
+| 23 | `internal/advisor`: request flow, budgets, or cache profile | docs/user/advisor.md; docs/internals/advisor.md |
 
 **16.** `delegationInstructions`/consumer-file changes (`internal/prompt/system.go`'s `delegationInstructions`, `internal/prompt/specialists.go`'s `specialists` slice, or any of `skills/{implement,review,simplify,plan,pull-request}/SKILL.md`, `internal/oneshot/prompts/*.md`):
 

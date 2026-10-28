@@ -1,6 +1,6 @@
 # Internals
 
-These pages are the current implementation reference: internal mechanics and design details. User-facing behavior belongs in the [user documentation](../index.md).
+These pages are the current implementation reference: internal mechanics and design details. User-facing behavior belongs in the [documentation home](../index.md).
 
 - [Architecture](architecture.md)
 - [Configuration](configuration.md)
