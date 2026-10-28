@@ -29,13 +29,21 @@
 
 **Internals**
 - [Internals index](internals-index)
+- [Architecture](internals-architecture)
+- [Configuration](internals-configuration)
 - [Claude subscription internals](internals-claude-subscription)
 - [Context management](internals-context-management)
+- [Execution modes](internals-execution-modes)
 - [Sub-agent delegation](internals-sub-agent-delegation)
 - [Oneshot](internals-oneshot)
+- [Prompt caching](internals-prompt-caching)
+- [Diagnostics](internals-diagnostics)
+- [Usage dashboard](internals-usage-dashboard)
 - [Desktop notifications](internals-desktop-notifications)
+- [Advisor](internals-advisor)
+- [LSP](internals-lsp)
+- [MCP](internals-mcp)
+- [Sandboxing](internals-sandboxing)
 
-**Maintenance and research**
+**Maintenance**
 - [Canon drift checks](maintenance-canon-drift-checks)
-- [Gap report and research milestones](research-gap-report-research-milestones)
-- [Image handling research](research-image-handling)
