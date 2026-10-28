@@ -1,17 +1,12 @@
-# Context Management: Internals
+# Context management internals
 
-User-facing overview: [Context management](../user/context-management.md). Cache keys and provider cache mechanics: [Prompt caching](prompt-caching.md).
+User guide: [Context management](../user/context-management.md).
 
 Parent context is bounded by delegation (child transcripts stay out of the conversation), per-source byte budgets, and compaction into new conversation generations.
 
 ## Delegation
 
-- Children run their own `agent.Runner` (`internal/delegation/registry.go`) with their own `prompt.StaticContextCache` (`internal/delegation/bootstrap.go`). Their turns do not enter the parent transcript.
-- The parent receives the structured result and a `tool.ToolRetention` (kind `delegate_summary`, with agent ID, status, turn count, and token count). The tool result tags it `json:"-"`, so it is not part of serialized tool output.
-- Failed and cancelled results carry a `Reason` built locally by the helpers in `internal/delegation/task.go`. No provider call is made.
-- When the result becomes a message, `messageRetentionFromToolRetention` (`internal/agent/clone.go`) copies the retention to `Message.Retention` (`internal/agent/types.go`). `cloneMessageRetention` carries it through clones.
-
-See [Sub-agent delegation](sub-agent-delegation.md).
+Child turns stay out of the parent transcript, and the parent receives a bounded result. See [Sub-agent delegation](sub-agent-delegation.md).
 
 ## Prompt assembly
 
@@ -73,10 +68,10 @@ Interactive sessions keep skills out of the static prefix, so toggling a skill n
 
 Compaction runs when the context is too large. Two limits apply:
 
-- **Soft trigger**: `compaction_threshold_tokens` when set (it must be below the effective context window), otherwise 70% of the window. Native providers compare it with the estimated prompt (`shouldCompactPrompt`, `internal/prompt/token_budget.go`). Stateful providers compare it with reported usage (see below). Field rules are in the [configuration reference](configuration.md).
+- **Soft trigger**: `compaction_threshold_tokens` when set (it must be below the effective context window), otherwise 70% of the window. Native providers compare it with the estimated prompt (`shouldCompactPrompt`, `internal/prompt/token_budget.go`). Stateful providers compare it with reported usage (see below). Field rules are in the [configuration reference](../user/configuration.md).
 - **Hard fit**: `ModelTokenBudget.FitRequest` computes the calibrated prompt plus the completion reserve plus `SafetyMarginTokens`, and the total must fit `ContextSize`. Compaction requests are checked with `FitCompactionRequest`, which uses its own reserve.
 
-An explicit `max_tokens`, `max_completion_tokens`, or `max_output_tokens` value (in params or extra params) sets the completion reserve. Otherwise the reserve is clamped to the space left after the prompt, with a floor at `provider.DefaultMaxOutputTokens` (`clampUnsetCompletionReserve`).
+`explicitMaxTokensValue` takes the first positive limit in this order: `MaxTokens`, then the `max_tokens`, `max_completion_tokens`, or `max_output_tokens` keys in `ExtraParams`, then the same keys in `Params`. `lowerToExplicitMaxTokens` lowers the reserve to that value when it is smaller, or sets the reserve when it is unset. With no explicit value, `clampUnsetCompletionReserve` clamps the reserve to the space left after the prompt and safety margin. The clamp floor is `min(reserve, provider.DefaultMaxOutputTokens)`.
 
 ### Stages
 
@@ -99,17 +94,17 @@ An explicit `max_tokens`, `max_completion_tokens`, or `max_output_tokens` value 
 
 ### Stateful transcript providers
 
-For `claude_subscription`, the CLI owns the transcript. The trigger is `PromptTokens` from the last response, which sums input, cache creation, and cache read tokens (`claudeSubUsage.toUsageStats`).
+For `claude_subscription`, the CLI owns the transcript.
 
 - `ParentUsage` (`internal/agent/parent_usage.go`) holds the last parent response's usage in memory. Interactive runs carry it into the next run (`internal/interactive/driver_run.go`). It is dropped when the model or context window differs, and it is never saved.
-- After a stateful compaction, the first parent response arms `StatefulFloor` from its `PromptTokens` when that value sits between the soft threshold and the cap. The soft trigger then waits until usage reaches `min(floor + 10% of window, 90% of window)`.
+- After a stateful compaction, the first parent response arms `StatefulFloor` from its `PromptTokens` when that value reaches the selected soft threshold but not the cap. The selected threshold (`statefulUsageReachesSelectedThreshold`) is `compaction_threshold_tokens` when set, otherwise the percent threshold. The soft trigger then waits until usage reaches `min(floor + 10% of window, 90% of window)`.
 - At or above 90% (`compactionCapUsagePercent`), the run is marked cap-reached. Its next compaction decision stops the run with `request exceeds context window` without calling the compactor, and emits a critical `likely_lossy` session health event (`statefulCapStop`).
-- `claudeSubSummaryTurn` (`internal/provider/claudesub_turn_summary.go`) answers the summary request on a live CLI process when one can take it, then retires that process. With no live process, the request is reseeded on an ephemeral helper.
+- Summary requests for `claude_subscription` use `claudeSubSummaryTurn`; routing is in [Claude subscription](claude-subscription.md#session-recovery-and-compaction).
 
 ### Escalation and replacement
 
-- `turnProgressor.compactionCount` (`internal/agent/turn_progression.go`) counts successful compactions in one run. It starts at zero in `newTurnProgressor`. Manual `/compact` starts from zero too.
-- `compactionEscalationForFit` (`internal/agent/compaction_escalation.go`) maps the count and post-compaction fit to a health event. Under two compactions: `info`/`stable`, or `warning`/`fragile` when fragile. Two: `warning`/`fragile`, or `critical`/`likely_lossy` when fragile. Three or more: `critical`/`likely_lossy`. A budget is fragile when the estimated prompt exceeds the hard limit by at least 20% (`compactionBudgetIsFragile`).
+- `turnProgressor.compactionCount` (`internal/agent/turn_progression.go`) counts applied compaction stages in one run. Each applied outcome adds `outcome.StageCount` (1 or 2) in `compactConversationForBudgetWithSteering`, so one two-stage compaction adds 2. It starts at zero in `newTurnProgressor`. Manual `/compact` starts from zero too.
+- `compactionEscalationForFit` (`internal/agent/compaction_escalation.go`) maps the stage count and post-compaction fit to a health event. Below `compactionWarningThreshold` (2): `info`/`stable`, or `warning`/`fragile` when fragile. At 2: `warning`/`fragile`, or `critical`/`likely_lossy` when fragile. From `compactionCriticalThreshold` (3): `critical`/`likely_lossy`. A budget is fragile when the estimated prompt exceeds the hard limit by at least 20% (`compactionBudgetIsFragile`).
 - `replacementGuardLocked` (`internal/interactive/driver_host.go`) refuses conversation replacement while driver admissions exist, the driver is busy, or sub-agents are still running (`pendingRefusalLocked`). A refused replacement returns before any swap.
 
 ## Durable context state
