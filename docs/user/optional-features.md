@@ -45,7 +45,7 @@ Paste images in the interactive TUI. See [Images](images.md) for usage and handl
 
 ## Conversation forking
 
-Fork the current conversation or any saved session into a new independent session. The new session starts from the source's latest conversation generation, allowing you to explore alternative directions without modifying the original. The parent's compaction archive is retained with the parent and is not copied to the fork.
+Fork the current conversation or any saved session into a new independent session. The new session starts from the source's latest conversation generation, allowing you to explore alternative directions without modifying the original. The parent's compaction archive is retained with the parent and is not copied to the fork. Any retained summary note still points to the parent's archive, so the model can grep and read that archive while the parent session exists. Deleting or evicting the parent removes its archive. `/recall` displays only the fork's own archive.
 
 **In interactive mode**, use `/fork` to fork the current live session:
 
