@@ -629,6 +629,38 @@ func TestOpenAICompatChatCompletionRetriesClosedNetworkConnection(t *testing.T) 
 	}
 }
 
+func TestOpenAICompatChatCompletionDoesNotRetryDecodeWrappedClosedConnection(t *testing.T) {
+	closedErr := &net.OpError{Op: "read", Net: "tcp", Err: net.ErrClosed}
+	transport := &scriptedTransport{script: func(int32, *http.Request) (*http.Response, error) {
+		return testResponse("application/json", failingReader{err: closedErr}), nil
+	}}
+	provider := mustRetryTestOpenAICompat(t, "http://provider.test", RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    3,
+		InitialBackoff: time.Millisecond,
+		MaxBackoff:     time.Millisecond,
+	})
+	provider.httpClient = &http.Client{Transport: transport}
+	var sleeps int
+	provider.sleep = func(context.Context, time.Duration) error {
+		sleeps++
+		return nil
+	}
+
+	_, err := provider.ChatCompletion(context.Background(), ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+	})
+	if !errors.Is(err, errDecodeChatCompletionResponse) || !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("ChatCompletion() error = %v, want decode error wrapping closed connection", err)
+	}
+	if got := atomic.LoadInt32(&transport.attempts); got != 1 {
+		t.Fatalf("attempts = %d, want 1", got)
+	}
+	if sleeps != 0 {
+		t.Fatalf("retry sleeps = %d, want 0", sleeps)
+	}
+}
+
 func TestOpenAICompatChatCompletionDoesNotRetryClosedNetworkConnectionOnCallerCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
