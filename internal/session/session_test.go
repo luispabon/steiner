@@ -642,6 +642,12 @@ func TestForkKeepsLatestGenerationOnly(t *testing.T) {
 			wantIDs:     []int{3},
 			nextID:      4,
 		},
+		{
+			name:        "next ID stays ahead of latest",
+			generations: []agent.ConversationGeneration{gen(1), gen(2)},
+			wantIDs:     []int{2},
+			nextID:      9,
+		},
 	}
 
 	for _, tt := range tests {

@@ -315,8 +315,8 @@ func TestRenderHistory(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := RenderHistory(tt.source); got != tt.want {
-				t.Errorf("RenderHistory() = %q, want %q", got, tt.want)
+			if got := renderHistory(tt.source); got != tt.want {
+				t.Errorf("renderHistory() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -430,8 +430,8 @@ func TestRenderHistoryDelegationStatus(t *testing.T) {
 				{Role: agent.MessageRoleTool, Turn: 1, ToolCallID: "c1", Name: tt.tool, Content: tt.content},
 			}
 			want := "### assistant · turn 1\n\n" + tt.line
-			if got := RenderHistory(source); got != want {
-				t.Errorf("RenderHistory() = %q, want %q", got, want)
+			if got := renderHistory(source); got != want {
+				t.Errorf("renderHistory() = %q, want %q", got, want)
 			}
 		})
 	}
@@ -471,7 +471,7 @@ func mixedHistorySource(t *testing.T) []agent.Message {
 
 // TestRenderHistoryGolden renders the mixed conversation twice and compares
 // both results with testdata/history_expected.md. The golden file ends with a
-// newline that RenderHistory does not emit.
+// newline that renderHistory does not emit.
 func TestRenderHistoryGolden(t *testing.T) {
 	raw, err := os.ReadFile("testdata/history_expected.md")
 	if err != nil {
@@ -480,7 +480,7 @@ func TestRenderHistoryGolden(t *testing.T) {
 	want := strings.TrimSuffix(string(raw), "\n")
 	source := mixedHistorySource(t)
 	for i := range 2 {
-		if got := RenderHistory(source); got != want {
+		if got := renderHistory(source); got != want {
 			t.Errorf("render %d mismatch\n got:\n%s\nwant:\n%s", i, got, want)
 		}
 	}

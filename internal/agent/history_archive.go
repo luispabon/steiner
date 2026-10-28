@@ -22,9 +22,9 @@ type HistoryArchive interface {
 	Append(ctx context.Context, source []Message) error
 }
 
-// stripHistoryNotes removes every history note line from summary, so the note
+// StripHistoryNotes removes every history note line from summary, so the note
 // appended for the current compaction is the only one the summary carries.
-func stripHistoryNotes(summary string) string {
+func StripHistoryNotes(summary string) string {
 	var kept []string
 	for _, line := range strings.Split(summary, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), HistoryNoteMarker) {
@@ -39,7 +39,7 @@ func stripHistoryNotes(summary string) string {
 // note for source. It returns the sources to append once the outcome is
 // adopted. A Note error emits a warning and leaves the summary without a note.
 func withHistoryNote(req RunRequest, summaryText string, source []Message) (string, [][]Message) {
-	summaryText = stripHistoryNotes(summaryText)
+	summaryText = StripHistoryNotes(summaryText)
 	note, err := req.HistoryArchive.Note(source)
 	if err != nil {
 		emitEvent(req.Events, historyArchiveWarning(err))

@@ -117,10 +117,7 @@ func Fork(s Session) (Session, error) {
 	}
 	now := time.Now().UTC()
 	forkTitle := TitleFromPrompt("Fork of: " + s.Title)
-	lineage := s.Lineage.Clone()
-	if n := len(lineage.Generations); n > 1 {
-		lineage.Generations = []agent.ConversationGeneration{lineage.Generations[n-1]}
-	}
+	lineage := s.Lineage.OnlyLatest()
 	return Session{
 		ID:               id,
 		CreatedAt:        now,

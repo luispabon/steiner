@@ -95,7 +95,7 @@ func TestHistoryArchiveAppendWritesHeaderOnceInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadHistory failed: %v", err)
 	}
-	want := archiveTestHeader + RenderHistory(first) + "\n\n" + RenderHistory(second) + "\n\n"
+	want := archiveTestHeader + renderHistory(first) + "\n\n" + renderHistory(second) + "\n\n"
 	if got != want {
 		t.Errorf("archive = %q, want %q", got, want)
 	}
@@ -138,10 +138,10 @@ func TestHistoryArchiveRejectsEmptySessionID(t *testing.T) {
 }
 
 func TestHistoryArchiveNonEmptySourceRenderingBlank(t *testing.T) {
-	// A tool result is non-empty but RenderHistory omits its body, so the
+	// A tool result is non-empty but renderHistory omits its body, so the
 	// source renders blank.
 	source := []agent.Message{{Role: agent.MessageRoleTool, Content: "large tool output"}}
-	if got := RenderHistory(source); got != "" {
+	if got := renderHistory(source); got != "" {
 		t.Fatalf("test source renders %q, want blank", got)
 	}
 
@@ -197,14 +197,14 @@ func TestHistoryArchiveFollowsCurrentSessionID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadHistory(first) failed: %v", err)
 	}
-	if want := archiveTestHeader + RenderHistory(firstSource) + "\n\n"; firstGot != want {
+	if want := archiveTestHeader + renderHistory(firstSource) + "\n\n"; firstGot != want {
 		t.Errorf("first archive = %q, want %q", firstGot, want)
 	}
 	secondGot, err := store.ReadHistory("second")
 	if err != nil {
 		t.Fatalf("ReadHistory(second) failed: %v", err)
 	}
-	if want := archiveTestHeader + RenderHistory(secondSource) + "\n\n"; secondGot != want {
+	if want := archiveTestHeader + renderHistory(secondSource) + "\n\n"; secondGot != want {
 		t.Errorf("second archive = %q, want %q", secondGot, want)
 	}
 }

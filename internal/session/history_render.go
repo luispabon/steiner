@@ -20,12 +20,12 @@ const (
 	historyDisplayFile   = "display_file"
 )
 
-// RenderHistory renders the source messages of one compaction as archive
+// renderHistory renders the source messages of one compaction as archive
 // markdown, oldest first. Each rendered message is a block, and blocks are
 // separated by one blank line. Tool result bodies, sub-agent result bodies,
 // reasoning, and display_file calls are omitted. It returns "" when nothing
 // renders. The output is deterministic for identical input.
-func RenderHistory(source []agent.Message) string {
+func renderHistory(source []agent.Message) string {
 	statuses := toolCallStatuses(source)
 	var blocks []string
 	for messageIndex, msg := range source {
@@ -88,23 +88,10 @@ func historyHeading(msg agent.Message) string {
 // with archive note lines removed.
 func summaryParts(content string) []string {
 	parts := []string{historyDivider}
-	if text := stripHistoryNotes(content); text != "" {
+	if text := agent.StripHistoryNotes(content); text != "" {
 		parts = append(parts, text)
 	}
 	return parts
-}
-
-// stripHistoryNotes removes every line whose trimmed form starts with
-// agent.HistoryNoteMarker and trims the remaining text.
-func stripHistoryNotes(content string) string {
-	var kept []string
-	for _, line := range strings.Split(content, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), agent.HistoryNoteMarker) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
 // userParts renders a user message. Active skill envelopes become one

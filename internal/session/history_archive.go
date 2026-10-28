@@ -30,6 +30,12 @@ func NewHistoryArchive(store *Store, sessionID func() string) *HistoryArchive {
 	return &HistoryArchive{store: store, sessionID: sessionID}
 }
 
+// blankHistory reports whether rendered history has no text, so the archive
+// neither notes nor appends it.
+func blankHistory(rendered string) bool {
+	return strings.TrimSpace(rendered) == ""
+}
+
 // Note returns the summary note that names the session's archive file, or ""
 // when source renders nothing. It writes nothing.
 func (a *HistoryArchive) Note(source []agent.Message) (string, error) {
@@ -37,7 +43,7 @@ func (a *HistoryArchive) Note(source []agent.Message) (string, error) {
 	if id == "" {
 		return "", errNoSessionID
 	}
-	if strings.TrimSpace(RenderHistory(source)) == "" {
+	if blankHistory(renderHistory(source)) {
 		return "", nil
 	}
 	path, err := a.store.HistoryPath(id)
@@ -54,8 +60,8 @@ func (a *HistoryArchive) Append(_ context.Context, source []agent.Message) error
 	if id == "" {
 		return errNoSessionID
 	}
-	rendered := RenderHistory(source)
-	if strings.TrimSpace(rendered) == "" {
+	rendered := renderHistory(source)
+	if blankHistory(rendered) {
 		return nil
 	}
 	_, err := a.store.AppendHistory(id, historyHeader, rendered+"\n\n")
