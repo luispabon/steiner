@@ -24,6 +24,7 @@ type inputAction struct {
 	showLSP                    bool
 	showErrors                 bool
 	showUsage                  bool
+	recall                     bool
 	submit                     string
 	toggleSkill                string
 	toggleEnable               bool

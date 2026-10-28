@@ -11,7 +11,7 @@ A minimal, local-first Go coding agent with bounded context and sandboxed execut
 ## Features
 
 - Local and cloud providers with one configuration shape, including the unofficial Claude subscription provider. See [Configuration](docs/user/configuration.md) and [Claude subscription](docs/user/claude-subscription.md).
-- Bounded context through delegation, budgets, and compaction. See [Context management](docs/user/context-management.md).
+- Bounded context through delegation, budgets, and compaction, with archived pre-compaction history for interactive and oneshot phase runs. See [Context management](docs/user/context-management.md).
 - Async sub-agents: in interactive sessions `sub_agent` and `follow_up` return an ack immediately and each result arrives later as a separate message, so you can keep talking to the orchestrator while the conversation shows a Waiting state. In async sessions, calls sharing a `group` label deliver their results together; blocking calls return per-call. See [Sub-agent delegation](docs/user/sub-agent-delegation.md).
 - Structured tools, optional language-server and MCP integrations. Read output omits line numbers by default; set `line_numbers: true` to include them. Bash output is previewed within `max_output_bytes`, with the output saved to a private artifact when cut (the artifact may be partial), and grep pages results with `next_offset`. See [Tools](docs/user/tools.md), [LSP](docs/user/lsp.md), and [MCP](docs/user/mcp.md).
 - Plan/build execution modes and resumable autonomous runs. See [Execution modes](docs/user/execution-modes.md) and [Oneshot](docs/user/oneshot.md).

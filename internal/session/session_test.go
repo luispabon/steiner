@@ -2,6 +2,8 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -149,16 +151,16 @@ func TestForkLineageIndependence(t *testing.T) {
 		t.Fatalf("Fork failed: %v", err)
 	}
 
-	// Verify structure matches
-	if len(forked.Lineage.Generations) != 2 {
-		t.Errorf("forked lineage should have 2 generations, got %d", len(forked.Lineage.Generations))
+	// Verify only the latest generation is kept
+	if len(forked.Lineage.Generations) != 1 {
+		t.Fatalf("forked lineage should have 1 generation, got %d", len(forked.Lineage.Generations))
 	}
 
-	// Mutate original's generation at index 0
-	original.Lineage.Generations[0].Messages[0].Content = "MUTATED"
+	// Mutate original's latest generation
+	original.Lineage.Generations[1].Messages[0].Content = "MUTATED"
 
 	// Verify fork is unaffected
-	if forked.Lineage.Generations[0].Messages[0].Content != "First message" {
+	if forked.Lineage.Generations[0].Messages[0].Content != "Second message" {
 		t.Errorf("forked lineage was affected by original mutation, got %q",
 			forked.Lineage.Generations[0].Messages[0].Content)
 	}
@@ -598,5 +600,184 @@ func TestForkPreservesMode(t *testing.T) {
 				t.Errorf("forked Mode = %q, want %q", forked.Mode, mode)
 			}
 		})
+	}
+}
+
+func TestForkKeepsLatestGenerationOnly(t *testing.T) {
+	t.Parallel()
+
+	gen := func(id int) agent.ConversationGeneration {
+		return agent.ConversationGeneration{
+			ID: id,
+			SummaryPrefix: []agent.Message{
+				{Role: "system", Content: fmt.Sprintf("summary %d", id)},
+				{Role: "system", Content: fmt.Sprintf("summary %d tail", id)},
+			},
+			Messages: []agent.Message{
+				{Role: "user", Content: fmt.Sprintf("message %d", id)},
+				{Role: "assistant", Content: fmt.Sprintf("reply %d", id)},
+			},
+		}
+	}
+
+	tests := []struct {
+		name        string
+		generations []agent.ConversationGeneration
+		wantIDs     []int
+		nextID      int
+	}{
+		{
+			name:   "zero generations",
+			nextID: 1,
+		},
+		{
+			name:        "single generation",
+			generations: []agent.ConversationGeneration{gen(1)},
+			wantIDs:     []int{1},
+			nextID:      2,
+		},
+		{
+			name:        "three generations keep latest",
+			generations: []agent.ConversationGeneration{gen(1), gen(2), gen(3)},
+			wantIDs:     []int{3},
+			nextID:      4,
+		},
+		{
+			name:        "next ID stays ahead of latest",
+			generations: []agent.ConversationGeneration{gen(1), gen(2)},
+			wantIDs:     []int{2},
+			nextID:      9,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			forked, err := Fork(Session{
+				ID:      "parent",
+				Lineage: agent.ConversationLineage{Generations: tt.generations, NextGenerationID: tt.nextID},
+			})
+			if err != nil {
+				t.Fatalf("Fork failed: %v", err)
+			}
+
+			if got, want := len(forked.Lineage.Generations), len(tt.wantIDs); got != want {
+				t.Fatalf("forked generations = %d, want %d", got, want)
+			}
+			for i, id := range tt.wantIDs {
+				kept := forked.Lineage.Generations[i]
+				want := gen(id)
+				if kept.ID != id {
+					t.Errorf("forked generation %d ID = %d, want %d", i, kept.ID, id)
+				}
+				if !reflect.DeepEqual(kept.SummaryPrefix, want.SummaryPrefix) {
+					t.Errorf("forked generation %d SummaryPrefix = %#v, want %#v", i, kept.SummaryPrefix, want.SummaryPrefix)
+				}
+				if !reflect.DeepEqual(kept.Messages, want.Messages) {
+					t.Errorf("forked generation %d Messages = %#v, want %#v", i, kept.Messages, want.Messages)
+				}
+			}
+
+			if got, want := forked.Lineage.NextGenerationID, tt.nextID; got != want {
+				t.Errorf("forked NextGenerationID = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
+func TestForkLatestGenerationIsDeepCopied(t *testing.T) {
+	t.Parallel()
+
+	latestGen := func() agent.ConversationGeneration {
+		return agent.ConversationGeneration{
+			ID: 2,
+			SummaryPrefix: []agent.Message{
+				{Role: "system", Content: "summary"},
+				{Role: "system", Content: "summary tail"},
+			},
+			Messages: []agent.Message{
+				{Role: "user", Content: "latest"},
+				{Role: "assistant", Content: "reply"},
+			},
+			BackendState: json.RawMessage(`{"session":"a"}`),
+		}
+	}
+
+	parent := Session{
+		ID: "parent",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{ID: 1, Messages: []agent.Message{{Role: "user", Content: "old"}}},
+				latestGen(),
+			},
+			NextGenerationID: 3,
+		},
+	}
+
+	fork, err := Fork(parent)
+	if err != nil {
+		t.Fatalf("Fork failed: %v", err)
+	}
+	if len(fork.Lineage.Generations) != 1 {
+		t.Fatalf("forked generations = %d, want 1", len(fork.Lineage.Generations))
+	}
+
+	for i := range parent.Lineage.Generations[1].SummaryPrefix {
+		parent.Lineage.Generations[1].SummaryPrefix[i].Content = "MUTATED"
+	}
+	for i := range parent.Lineage.Generations[1].Messages {
+		parent.Lineage.Generations[1].Messages[i].Content = "MUTATED"
+	}
+	parent.Lineage.Generations[1].BackendState[12] = 'b'
+
+	kept := fork.Lineage.Generations[0]
+	expected := latestGen()
+	if !reflect.DeepEqual(kept.SummaryPrefix, expected.SummaryPrefix) {
+		t.Errorf("fork SummaryPrefix = %#v after parent mutation, want %#v", kept.SummaryPrefix, expected.SummaryPrefix)
+	}
+	if !reflect.DeepEqual(kept.Messages, expected.Messages) {
+		t.Errorf("fork Messages = %#v after parent mutation, want %#v", kept.Messages, expected.Messages)
+	}
+	if got, want := string(kept.BackendState), `{"session":"a"}`; got != want {
+		t.Errorf("fork BackendState = %q after parent mutation, want %q", got, want)
+	}
+}
+
+func TestForkKeepsParentHistoryNoteUnchanged(t *testing.T) {
+	t.Parallel()
+
+	// Note line compaction appends when the parent's history was archived.
+	const note = "[steiner:history] Conversation before this summary is archived at " +
+		"/home/user/.config/steiner/sessions/parent/history.md (markdown, oldest first, tool results omitted). " +
+		"If a detail you need is missing from this summary, grep that file and read the matching lines."
+	summary := "Earlier work summarized.\n\n" + note
+
+	parent := Session{
+		ID: "parent",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{ID: 1, Messages: []agent.Message{{Role: "user", Content: "old"}}},
+				{
+					ID:            2,
+					SummaryPrefix: []agent.Message{{Role: "system", Content: summary}},
+					Messages:      []agent.Message{{Role: "user", Content: "latest"}},
+				},
+			},
+			NextGenerationID: 3,
+		},
+	}
+
+	forked, err := Fork(parent)
+	if err != nil {
+		t.Fatalf("Fork failed: %v", err)
+	}
+	if len(forked.Lineage.Generations) != 1 {
+		t.Fatalf("forked generations = %d, want 1", len(forked.Lineage.Generations))
+	}
+
+	want := []agent.Message{{Role: "system", Content: summary}}
+	if got := forked.Lineage.Generations[0].SummaryPrefix; !reflect.DeepEqual(got, want) {
+		t.Errorf("forked SummaryPrefix = %#v, want %#v (parent history note must survive unchanged)", got, want)
 	}
 }

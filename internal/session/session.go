@@ -108,7 +108,8 @@ func (s Session) WithLineage(lineage agent.ConversationLineage) Session {
 }
 
 // Fork creates a new session as a fork of the given session.
-// The fork has a new ID, cloned lineage, same model, and title prefixed with "Fork of: ".
+// The fork has a new ID, same model, and title prefixed with "Fork of: ".
+// Its lineage is a deep copy that keeps only the latest generation.
 func Fork(s Session) (Session, error) {
 	id, err := generateID()
 	if err != nil {
@@ -116,6 +117,7 @@ func Fork(s Session) (Session, error) {
 	}
 	now := time.Now().UTC()
 	forkTitle := TitleFromPrompt("Fork of: " + s.Title)
+	lineage := s.Lineage.OnlyLatest()
 	return Session{
 		ID:               id,
 		CreatedAt:        now,
@@ -125,7 +127,7 @@ func Fork(s Session) (Session, error) {
 		Mode:             s.Mode,
 		Group:            strings.TrimSpace(s.Group),
 		Skills:           s.Skills,
-		Lineage:          s.Lineage.Clone(),
+		Lineage:          lineage,
 		DelegationGroups: agent.CloneDelegationGroupLedger(s.DelegationGroups),
 		// The fork deliberately shares the parent's prompt cache key so the
 		// warm prefix carries over; CacheKey() heals pre-change records that

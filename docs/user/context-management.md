@@ -34,6 +34,14 @@ Compaction is transparent. The agent pauses briefly, summarises the older portio
 
 After multiple compactions the session can become progressively lossy. If Steiner warns that a session is "likely lossy", starting a fresh session is the safest option — prior work is already committed to disk or git.
 
+### Compaction history archive
+
+Interactive sessions and oneshot phase runs archive the source messages removed by each successful compaction in `history.md` under `~/.config/steiner/sessions/<sessionID>/`. The archive is Markdown, oldest first. It contains user and assistant text, compact tool-call summaries, and image and active-skill markers. It does not contain tool result bodies or model reasoning.
+
+The compaction summary includes a note naming the archive and telling the model to `grep` and `read` it when a detail is missing. The archive is written only for new compactions. There is no backfill for earlier compactions, and `--exec` runs and sub-agents do not create archives. If preparing the note fails, Steiner applies the compaction without a note and shows a compaction warning. If an archive append fails after adoption, Steiner keeps the compacted state and its note, shows a compaction warning, and stops further appends. Session deletion and eviction remove the archive with the session.
+
+Use `/recall` to view the current interactive session's archive. A non-empty archive opens at its end; a missing or empty archive shows an inline notice. See [CLI reference](cli.md#interactive-commands) for the command.
+
 ### Manual compaction steering
 
 Use `/compact` to compact the current conversation manually. Add optional focus text after the command, for example `/compact focus on the auth refactor`. Bare `/compact` behaves as before. Steering is added to the compaction summarisation prompt and composes with, rather than replaces, the `models.<name>.prompts.compaction` override.

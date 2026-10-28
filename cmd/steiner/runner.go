@@ -51,6 +51,11 @@ type cliRunner struct {
 	// model identity, so parent, per-agent-type child, and oneshot phase runs stay
 	// isolated without extra bookkeeping.
 	cacheBaseline *agent.CacheBaselineStore
+	// historyArchive receives the messages each compaction removes. The
+	// interactive runner archives under the session ID it is running; a oneshot
+	// phase runner archives under that phase's session ID, set per RunPhase call.
+	// The exec runner leaves it nil, which disables archiving.
+	historyArchive agent.HistoryArchive
 }
 
 type runResult = oneshot.RunResult

@@ -310,6 +310,59 @@ func TestConversationLineageClonePreservesRetentionMetadata(t *testing.T) {
 	}
 }
 
+func TestConversationLineageOnlyLatest(t *testing.T) {
+	tests := []struct {
+		name        string
+		generations []int
+		nextID      int
+		wantIDs     []int
+	}{
+		{name: "zero generations", nextID: 1},
+		{name: "one generation", generations: []int{1}, nextID: 2, wantIDs: []int{1}},
+		{name: "three generations keep latest", generations: []int{1, 2, 3}, nextID: 4, wantIDs: []int{3}},
+		{name: "next ID stays ahead of latest", generations: []int{1, 2}, nextID: 9, wantIDs: []int{2}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := ConversationLineage{NextGenerationID: tt.nextID}
+			for _, id := range tt.generations {
+				original.Generations = append(original.Generations,
+					newConversationGeneration(id, nil, []Message{{Role: MessageRoleUser, Content: "message"}}))
+			}
+
+			got := original.OnlyLatest()
+			if len(got.Generations) != len(tt.wantIDs) {
+				t.Fatalf("generations = %d, want %d", len(got.Generations), len(tt.wantIDs))
+			}
+			for i, id := range tt.wantIDs {
+				if gotID := got.Generations[i].ID; gotID != id {
+					t.Errorf("generation %d ID = %d, want %d", i, gotID, id)
+				}
+			}
+			if got.NextGenerationID != tt.nextID {
+				t.Errorf("NextGenerationID = %d, want %d", got.NextGenerationID, tt.nextID)
+			}
+		})
+	}
+}
+
+func TestConversationLineageOnlyLatestIsDeepCopy(t *testing.T) {
+	original := ConversationLineage{
+		Generations: []ConversationGeneration{
+			newConversationGeneration(1, nil, []Message{{Role: MessageRoleUser, Content: "old"}}),
+			newConversationGeneration(2, nil, []Message{{Role: MessageRoleUser, Content: "latest"}}),
+		},
+		NextGenerationID: 3,
+	}
+
+	got := original.OnlyLatest()
+	original.Generations[1].Messages[0].Content = "MUTATED"
+	if content := got.Generations[0].Messages[0].Content; content != "latest" {
+		t.Errorf("OnlyLatest message = %q after source mutation, want latest", content)
+	}
+}
+
 func TestConversationLineageJSONRoundTripPreservesRetentionMetadata(t *testing.T) {
 	lineage := ConversationLineage{
 		Generations: []ConversationGeneration{

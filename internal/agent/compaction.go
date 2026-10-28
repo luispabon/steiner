@@ -50,6 +50,9 @@ type CompactionOutcome struct {
 	Usage *provider.UsageStats
 	// StageCount is the number of compaction stages (1 or 2) executed in this outcome.
 	StageCount int
+	// pendingArchive holds the sources to append to the history archive once
+	// this outcome's state is adopted.
+	pendingArchive [][]Message
 }
 
 type summarizeCompactor struct{}
@@ -163,6 +166,7 @@ func (s summarizeCompactionStages) run(
 	})
 	if err == nil {
 		outcome.StageCount = 2
+		outcome.pendingArchive = append(normalOutcome.pendingArchive, outcome.pendingArchive...)
 	}
 	return outcome, err
 }
@@ -240,6 +244,11 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens), nil
 	}
 
+	var pendingArchive [][]Message
+	if req.HistoryArchive != nil {
+		summaryText, pendingArchive = withHistoryNote(req, summaryText, params.sourceMessages)
+	}
+
 	retained := cloneMessages(plan.retainedMessages)
 	// buildSummarizedCompactionState strips skill blocks and drops skill-only
 	// retained messages before persisting them. Apply the same transformation here
@@ -264,6 +273,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		SummaryText:        summaryText,
 		PromptText:         plan.promptText,
 		Usage:              response.Usage,
+		pendingArchive:     pendingArchive,
 	}, nil
 }
 
@@ -372,6 +382,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 	}
 
 	*state = outcome.State
+	commitHistoryArchive(ctx, req, outcome.pendingArchive)
 	appendPendingSubAgentsLine(req, state)
 	if compactionCount != nil {
 		*compactionCount += outcome.StageCount

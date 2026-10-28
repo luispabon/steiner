@@ -45,7 +45,7 @@ Paste images in the interactive TUI. See [Images](images.md) for usage and handl
 
 ## Conversation forking
 
-Fork the current conversation or any saved session into a new independent session. The new session carries the full conversation history from the source, allowing you to explore alternative directions without modifying the original.
+Fork the current conversation or any saved session into a new independent session. The new session starts from the source's latest conversation generation, allowing you to explore alternative directions without modifying the original. The parent's compaction archive is retained with the parent and is not copied to the fork. The inherited summary note points to the parent's archive, so the model can grep and read that archive while the note and parent session exist. On the fork's first compaction, Steiner replaces that note with the fork archive note and strips the parent note from the archived summary, so the parent archive locator does not survive in the fork. Deleting or evicting the parent removes its archive. `/recall` displays only the fork's own archive.
 
 **In interactive mode**, use `/fork` to fork the current live session:
 

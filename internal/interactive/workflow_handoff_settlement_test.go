@@ -44,6 +44,10 @@ func (s *handoffSaveBarrierStore) List() ([]session.IndexEntry, error) {
 	return s.inner.List()
 }
 
+func (s *handoffSaveBarrierStore) ReadHistory(id string) (string, error) {
+	return s.inner.ReadHistory(id)
+}
+
 func TestAcceptedWorkflowHandoffWaitRunsIncludesSettlementSave(t *testing.T) {
 	store := newHandoffSaveBarrierStore()
 	requested := make(chan struct{}, 1)

@@ -24,10 +24,10 @@ How Steiner's packages fit together and how one turn moves through them. Topic d
 | Context | `prompt` | `config`, `provider`, `skill` |
 | Transport | `provider` | `config`, `diagnostics`, `metadata`, `oauth`, `quota`, `usagestats` |
 | Tools | `tool` (with `tool/builtin`), `mcp`, `lsp`, `sandbox` | `tool`: `config`, `diagnostics`, `provider`; `sandbox`: `config`; `mcp`, `lsp`: `config`, `tool` |
-| Persistence | `session` | `agent`, `fsatomic` |
+| Persistence | `session` | `agent`, `delegation`, `fsatomic`, `prompt`, `tool` |
 | Presentation | `output`, `tui` | `output`: `prompt`, `provider`, `tool`, `usagestats`; `tui`: `agent`, `interactive`, `output` |
 
-`tool` and `provider` never import `agent`. `prompt` never imports `delegation`.
+`tool` and `provider` never import `agent`. `prompt` never imports `delegation`. `session` imports `delegation` only in `history_render.go`, for tool-argument summaries and delegation failure classification when archived history is rendered.
 
 ## Turn lifecycle
 
@@ -69,11 +69,13 @@ A non-streaming 400 whose body mentions `stream` and `must` or `required` is mat
 | Store | Location | Code | Holds |
 |---|---|---|---|
 | Sessions | `~/.config/steiner/sessions` | `session.Store` (`store.go`) | `session.Session`: model, mode, skills, `Lineage`, cache key, sub-agent ledger |
+| Compaction history | `~/.config/steiner/sessions/<sessionID>/history.md` | `session.HistoryArchive` (`history_archive.go`) | Markdown source removed by compaction |
 | Prompt history | `~/.config/steiner/history.log` | `history.Writer` | Input history |
 | Project directory | `.steiner/` in the project | `session.EnsureSteinerProjectDir` | Project state, with a `.gitignore` |
 
-- `Store` writes one file per session and an index, using atomic writes (`writeAtomic`). It evicts the oldest entries.
-- Resume: `Session.LoadSessionByID` (`persistence.go`) → `loadSession`. `replayLoadedTranscript` (`interactive/replay.go`) re-emits events so the TUI shows the transcript. `session.Fork` copies a session.
+- `Store` writes one file per session and an index, using atomic writes (`writeAtomic`). It evicts the oldest entries and removes each evicted session's history directory.
+- `HistoryPath`, `AppendHistory`, and `ReadHistory` (`session/store.go`) manage the per-session compaction archive. Deletion removes the archive directory with the session.
+- Resume: `Session.LoadSessionByID` (`persistence.go`) → `loadSession`. `replayLoadedTranscript` (`interactive/replay.go`) re-emits events so the TUI shows the transcript. `session.Fork` copies only the latest lineage generation; the parent's compaction archive remains with the parent.
 - Compaction adds a generation with `ConversationLineage.WithNewGeneration` (`compaction_escalation.go`, `interactive/compaction.go`).
 - Other stores: diagnostics ([diagnostics.md](diagnostics.md)), usage stats ([prompt-caching.md](prompt-caching.md)), quota snapshots ([usage-dashboard.md](usage-dashboard.md)), oneshot manifests ([oneshot.md](oneshot.md)).
 

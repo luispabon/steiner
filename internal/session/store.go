@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -18,6 +19,7 @@ const (
 	indexFile   = "index.json"
 	maxSessions = 25
 	sessionExt  = ".json"
+	historyFile = "history.md"
 
 	// Transcripts may contain sensitive prompts and tool output.
 	dirMode  os.FileMode = 0o700
@@ -26,6 +28,12 @@ const (
 
 // chmod is os.Chmod, swappable so tests can simulate ownership failures.
 var chmod = os.Chmod
+
+// fchmod is (*os.File).Chmod, swappable so tests can simulate ownership failures on open archives.
+var fchmod = (*os.File).Chmod
+
+// removeAll is os.RemoveAll, swappable so tests can simulate history removal failures.
+var removeAll = os.RemoveAll
 
 // secureExistingFiles tightens permissions on session and index files
 // created by older versions with world-readable modes. It is best-effort:
@@ -76,6 +84,15 @@ func safeSessionPath(dir, id string) (string, error) {
 		return "", fmt.Errorf("invalid session id %q", id)
 	}
 	return filepath.Join(dir, id+sessionExt), nil
+}
+
+// safeSessionDir returns the per-session directory that holds the session's
+// history archive. It applies the same id validation as safeSessionPath.
+func safeSessionDir(dir, id string) (string, error) {
+	if _, err := safeSessionPath(dir, id); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, id), nil
 }
 
 // Save writes a session to disk atomically and updates the index.
@@ -183,22 +200,103 @@ func (s *Store) Delete(id string) error {
 	if err != nil {
 		return fmt.Errorf("validate session id: %w", err)
 	}
+	sessionDir, err := safeSessionDir(s.dir, id)
+	if err != nil {
+		return fmt.Errorf("validate session id: %w", err)
+	}
 	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete session file: %w", err)
 	}
 
-	for i, entry := range s.index {
-		if entry.ID == id {
-			s.index = append(s.index[:i], s.index[i+1:]...)
-			break
+	return s.finishRemovalLocked(id, sessionDir)
+}
+
+// HistoryPath returns the absolute path of the history archive for session id.
+// The file is created by AppendHistory and may not exist yet.
+func (s *Store) HistoryPath(id string) (string, error) {
+	sessionDir, err := safeSessionDir(s.dir, id)
+	if err != nil {
+		return "", fmt.Errorf("validate session id: %w", err)
+	}
+	path, err := filepath.Abs(filepath.Join(sessionDir, historyFile))
+	if err != nil {
+		return "", fmt.Errorf("resolve history path: %w", err)
+	}
+	return path, nil
+}
+
+// AppendHistory appends chunk to the history archive for session id, creating
+// the session directory and file as needed. header is written before chunk only
+// when the file is new or empty. Existing directory and file modes are tightened
+// to dirMode and fileMode on a best-effort basis: chmod failures are logged and
+// do not fail the append. It returns the archive's absolute path.
+func (s *Store) AppendHistory(id, header, chunk string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path, err := s.HistoryPath(id)
+	if err != nil {
+		return "", fmt.Errorf("append history: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), dirMode); err != nil {
+		return "", fmt.Errorf("append history: create session directory: %w", err)
+	}
+	if err := chmod(filepath.Dir(path), dirMode); err != nil {
+		slog.Warn("session store: cannot tighten session directory permissions", "dir", filepath.Dir(path), "error", err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, fileMode)
+	if err != nil {
+		return "", fmt.Errorf("append history: open file: %w", err)
+	}
+	if err := fchmod(f, fileMode); err != nil {
+		slog.Warn("session store: cannot tighten history file permissions", "file", path, "error", err)
+	}
+	err = writeHistoryChunk(f, header, chunk)
+	if closeErr := f.Close(); err == nil && closeErr != nil {
+		err = closeErr
+	}
+	if err != nil {
+		return "", fmt.Errorf("append history: %w", err)
+	}
+	return path, nil
+}
+
+// writeHistoryChunk writes header then chunk to f and syncs f to disk before
+// returning. The header is skipped when f already has content.
+func writeHistoryChunk(f *os.File, header, chunk string) error {
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat history file: %w", err)
+	}
+	if info.Size() == 0 {
+		if _, err := f.WriteString(header); err != nil {
+			return fmt.Errorf("write history header: %w", err)
 		}
 	}
-
-	if err := s.saveIndexLocked(); err != nil {
-		return fmt.Errorf("save index: %w", err)
+	if _, err := f.WriteString(chunk); err != nil {
+		return fmt.Errorf("write history chunk: %w", err)
 	}
-
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("sync history file: %w", err)
+	}
 	return nil
+}
+
+// ReadHistory returns the contents of the history archive for session id. A
+// missing archive returns an error that matches os.ErrNotExist.
+func (s *Store) ReadHistory(id string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path, err := s.HistoryPath(id)
+	if err != nil {
+		return "", fmt.Errorf("read history: %w", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read history: %w", err)
+	}
+	return string(data), nil
 }
 
 // writeAtomic writes data to a temporary file then renames it.
@@ -278,9 +376,12 @@ func (s *Store) evictOldestLocked() error {
 	}
 
 	toRemove := s.index[len(s.index)-1]
-	s.index = s.index[:len(s.index)-1]
 
 	sessionPath, err := safeSessionPath(s.dir, toRemove.ID)
+	if err != nil {
+		return fmt.Errorf("validate evicted session id: %w", err)
+	}
+	sessionDir, err := safeSessionDir(s.dir, toRemove.ID)
 	if err != nil {
 		return fmt.Errorf("validate evicted session id: %w", err)
 	}
@@ -288,7 +389,30 @@ func (s *Store) evictOldestLocked() error {
 		return fmt.Errorf("delete evicted session: %w", err)
 	}
 
-	return s.saveIndexLocked()
+	return s.finishRemovalLocked(toRemove.ID, sessionDir)
+}
+
+// finishRemovalLocked completes the removal of a session whose JSON file is
+// already gone. It drops the session from the index, removes its history
+// directory, and persists the index. The index is persisted even when history
+// removal fails, so it never lists a session without a JSON file. When both
+// removal and the index save fail, both errors are returned.
+func (s *Store) finishRemovalLocked(id, sessionDir string) error {
+	for i, entry := range s.index {
+		if entry.ID == id {
+			s.index = append(s.index[:i], s.index[i+1:]...)
+			break
+		}
+	}
+
+	var historyErr, saveErr error
+	if err := removeAll(sessionDir); err != nil {
+		historyErr = fmt.Errorf("delete session history: %w", err)
+	}
+	if err := s.saveIndexLocked(); err != nil {
+		saveErr = fmt.Errorf("save index: %w", err)
+	}
+	return errors.Join(historyErr, saveErr)
 }
 
 // saveIndexLocked writes the index file atomically.

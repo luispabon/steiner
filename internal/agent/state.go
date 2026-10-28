@@ -142,6 +142,16 @@ func (l ConversationLineage) Latest() (ConversationGeneration, bool) {
 	return l.Generations[len(l.Generations)-1].Clone(), true
 }
 
+// OnlyLatest returns a deep copy of the lineage that keeps only the newest
+// generation. NextGenerationID is preserved.
+func (l ConversationLineage) OnlyLatest() ConversationLineage {
+	out := ConversationLineage{NextGenerationID: l.NextGenerationID}
+	if latest, ok := l.Latest(); ok {
+		out.Generations = []ConversationGeneration{latest}
+	}
+	return out
+}
+
 // FullMessages returns the full message view for the latest generation.
 func (l ConversationLineage) FullMessages() []Message {
 	if len(l.Generations) == 0 {

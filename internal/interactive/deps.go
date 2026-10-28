@@ -90,6 +90,9 @@ type sessionStore interface {
 	Load(id string) (session.Session, error)
 	// List returns all sessions sorted newest-first.
 	List() ([]session.IndexEntry, error)
+	// ReadHistory returns the history archive contents for session id. A
+	// missing archive returns an error that matches os.ErrNotExist.
+	ReadHistory(id string) (string, error)
 }
 
 // imageSessionStore scopes the image store to the active conversation.

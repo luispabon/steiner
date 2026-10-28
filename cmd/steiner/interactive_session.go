@@ -351,6 +351,8 @@ func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, project
 }
 
 func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
+	// The archive resolves the session ID on every call, so a fork or resume
+	// that changes the session is reflected in later compactions.
 	runner := cliRunner{
 		runtime:                  rt,
 		runMode:                  "interactive",
@@ -365,6 +367,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		orchestrationLevelFn:     sess.OrchestrationLevel,
 		staticContext:            &prompt.StaticContextCache{},
 		cacheBaseline:            agent.NewCacheBaselineStore(),
+		historyArchive:           newHistoryArchive(rt.sessionStore, sess.SessionID),
 	}
 	runner.approver = sess.Approver(rt.events)
 	if rt.mcpState != nil {

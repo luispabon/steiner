@@ -10,7 +10,9 @@ import (
 )
 
 const (
-	contextOverlayMaxLines = 30
+	// contextOverlayChromeLines counts the header, the two dividers, the footer,
+	// the rounded border and the vertical padding rows around the scrollable body.
+	contextOverlayChromeLines = 8
 )
 
 // contextOverlayState holds the state for the /context report overlay modal.
@@ -41,6 +43,23 @@ func openContextOverlay(title, content string, width, height int, styles *theme.
 	}.reflow()
 }
 
+// visibleHeight returns the number of body rows that fit the terminal height.
+func (s contextOverlayState) visibleHeight() int {
+	return s.bodyVisibleHeight(contextOverlayChromeLines)
+}
+
+// maxScrollOffset returns the scroll offset of the last page.
+func (s contextOverlayState) maxScrollOffset() int {
+	return max(0, s.lineCount-s.visibleHeight())
+}
+
+// atEnd reports whether the view shows the last page of a report that
+// overflows the body. A report that fits on one page is never at its end.
+func (s contextOverlayState) atEnd() bool {
+	maxOffset := s.maxScrollOffset()
+	return maxOffset > 0 && s.scrollOffset >= maxOffset
+}
+
 func (s contextOverlayState) reflow() contextOverlayState {
 	rendered, _ := renderMarkdownBlock(markdownBlockParams{
 		block:       s.content,
@@ -56,10 +75,7 @@ func (s contextOverlayState) reflow() contextOverlayState {
 	}
 	s.renderedLines = lines
 	s.lineCount = len(lines)
-	maxOffset := s.lineCount - contextOverlayMaxLines
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
+	maxOffset := s.maxScrollOffset()
 	if s.scrollOffset > maxOffset {
 		s.scrollOffset = maxOffset
 	}
@@ -86,14 +102,17 @@ func (s contextOverlayState) scrollUp(n int) contextOverlayState {
 
 // scrollDown moves the scroll position down by n lines.
 func (s contextOverlayState) scrollDown(n int) contextOverlayState {
-	maxOffset := s.lineCount - contextOverlayMaxLines
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
+	maxOffset := s.maxScrollOffset()
 	s.scrollOffset += n
 	if s.scrollOffset > maxOffset {
 		s.scrollOffset = maxOffset
 	}
+	return s
+}
+
+// scrollToEnd moves the scroll position to the last page of the report.
+func (s contextOverlayState) scrollToEnd() contextOverlayState {
+	s.scrollOffset = s.maxScrollOffset()
 	return s
 }
 
@@ -150,7 +169,7 @@ func (m *Model) buildContextOverlay(styled *contextStyledLines) string {
 	// Slice rendered markdown lines for the scroll window.
 	lines := s.renderedLines
 	start := s.scrollOffset
-	end := start + contextOverlayMaxLines
+	end := start + s.visibleHeight()
 	if end > len(lines) {
 		end = len(lines)
 	}

@@ -451,7 +451,7 @@ func TestContextOverlayBoundsMatchUncachedMeasurement(t *testing.T) {
 			m := newMemoTestModel(t)
 			m = updateModel(t, m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 			m.contextOverlay = openContextOverlay("Context", contextOverlayMouseReport(items), m.width, m.height, m.styles, m.content.glamourStyleSheet)
-			maxOffset := max(0, m.contextOverlay.lineCount-contextOverlayMaxLines)
+			maxOffset := m.contextOverlay.maxScrollOffset()
 			for _, offset := range []int{0, maxOffset / 2, maxOffset} {
 				m.contextOverlay.scrollOffset = offset
 				wx, wy, ww, wh := oracle(m)

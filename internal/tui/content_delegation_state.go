@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -158,37 +159,16 @@ func extractFollowUpAgentID(args map[string]any) string {
 	return strings.TrimSpace(agentID)
 }
 
-// extractFollowUpMessage extracts the message from follow_up tool arguments.
-func extractFollowUpMessage(args map[string]any) string {
-	if args == nil {
-		return ""
-	}
-	msg, ok := args["message"].(string)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(msg)
-}
-
-// summarizeFollowUpArgs returns a human-readable summary of follow_up arguments.
-func summarizeFollowUpArgs(args map[string]any) string {
-	msg := extractFollowUpMessage(args)
-	if msg != "" {
-		return msg
-	}
-	return "follow up"
-}
-
 // applyStructuredBrief applies a structured brief to a delegationDisplayState,
 // populating its prompt and brief fields.
-func (dd *delegationDisplayState) applyStructuredBrief(b structuredDelegateBrief) {
-	dd.promptText = b.objective
-	dd.briefObjective = b.objective
-	dd.briefContext = b.context
-	dd.briefDeliverable = b.deliverable
-	dd.briefConstraints = b.constraints
-	dd.briefSuccessCriteria = b.successCriteria
-	dd.briefChecks = b.checks
+func (dd *delegationDisplayState) applyStructuredBrief(b delegation.StructuredDelegateBrief) {
+	dd.promptText = b.Objective
+	dd.briefObjective = b.Objective
+	dd.briefContext = b.Context
+	dd.briefDeliverable = b.Deliverable
+	dd.briefConstraints = b.Constraints
+	dd.briefSuccessCriteria = b.SuccessCriteria
+	dd.briefChecks = b.Checks
 }
 
 // promptPreviewText returns previewDelegationText(dd.promptText), cached by the

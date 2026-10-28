@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
@@ -243,7 +244,7 @@ func (b *contentBuffer) applyDelegationToolCallStarted(dd *delegationDisplayStat
 	entry := delegationTranscriptEntry{
 		kind:   delegationTranscriptEntryTool,
 		tool:   strings.ToLower(payload.Tool),
-		args:   output.SanitizeDisplayText(summarizeArgs(payload.Tool, payload.Arguments)),
+		args:   output.SanitizeDisplayText(delegation.SummarizeToolArgs(payload.Tool, payload.Arguments)),
 		callID: payload.CallID,
 		status: "running",
 	}

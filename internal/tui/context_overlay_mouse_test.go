@@ -20,8 +20,8 @@ func TestContextOverlayMouseWheelInsideScrollsOverlay(t *testing.T) {
 	if !m.contextOverlay.IsOpen() {
 		t.Fatal("context overlay = closed, want open")
 	}
-	if m.contextOverlay.lineCount <= contextOverlayMaxLines {
-		t.Fatalf("context overlay lineCount = %d, want more than %d", m.contextOverlay.lineCount, contextOverlayMaxLines)
+	if m.contextOverlay.lineCount <= m.contextOverlay.visibleHeight() {
+		t.Fatalf("context overlay lineCount = %d, want more than %d", m.contextOverlay.lineCount, m.contextOverlay.visibleHeight())
 	}
 	boundsX, boundsY, boundsW, boundsH := m.contextOverlayBounds()
 	if boundsW == 0 || boundsH == 0 {

@@ -58,6 +58,11 @@ type RunRequest struct {
 	// When non-empty, compaction calls write their full API request and final response to this file.
 	CompactionLogPath string
 
+	// HistoryArchive receives the messages each compaction removes from the
+	// conversation, once the compaction is adopted. Nil disables archiving
+	// (exec runs and sub-agents).
+	HistoryArchive HistoryArchive
+
 	// DrainInbox returns the next boundary delivery. Nil for sub-agents.
 	DrainInbox func() InboxDrain
 

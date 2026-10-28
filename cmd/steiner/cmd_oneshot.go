@@ -18,6 +18,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -127,7 +128,26 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 	return phaseRunner{runner: runner, steers: params.Steers}, nil
 }
 
+// phaseHistoryArchive returns the archive that a phase's compaction writes to,
+// keyed on the phase session ID. It is nil without a session store, so a
+// runtime without one does not wrap a nil store in a non-nil interface.
+func phaseHistoryArchive(rt *cliRuntime, phaseSessionID string) agent.HistoryArchive {
+	return newHistoryArchive(rt.sessionStore, func() string { return phaseSessionID })
+}
+
+// newHistoryArchive returns the archive for the session that sessionID
+// resolves, or nil when store is nil.
+func newHistoryArchive(store *session.Store, sessionID func() string) agent.HistoryArchive {
+	if store == nil {
+		return nil
+	}
+	return session.NewHistoryArchive(store, sessionID)
+}
+
 func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (oneshot.RunResult, error) {
+	// The archive is keyed on the phase session, not the run ID. r is a value
+	// copy, so this override is local to this call.
+	r.runner.historyArchive = phaseHistoryArchive(&r.runner.runtime, in.Session.ID)
 	// closeRuntime runs after runPhaseOnDriver has already shut the sub-agents
 	// down and settled the driver, so its own shutdown is a no-op on failure.
 	defer closeRuntime(&r.runner.runtime)

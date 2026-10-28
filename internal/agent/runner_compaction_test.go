@@ -508,6 +508,51 @@ func TestRunnerCompactStatefulSummaryUsesTransitionContract(t *testing.T) {
 	}
 }
 
+// TestRunnerStatefulSummaryReadsAdoptedHistoryNote proves a later Claude
+// subscription summary request receives the adopted summary, including its
+// archive locator, as part of the source transcript.
+func TestRunnerStatefulSummaryReadsAdoptedHistoryNote(t *testing.T) {
+	archive := &fakeHistoryArchive{note: testHistoryNote}
+	prov := newClaudeLikeCompactionProvider(false)
+	req := compactionTestBudget()
+	req.Provider = prov
+	req.HistoryArchive = archive
+	state := historyArchiveState(compactionTestTurns())
+	if !compactIntoState(t, req, &state) {
+		t.Fatal("first compaction applied = false, want true")
+	}
+	more := []Message{
+		{Role: MessageRoleUser, Content: "turn 5 user"},
+		{Role: MessageRoleAssistant, Content: "turn 5 answer"},
+		{Role: MessageRoleUser, Content: "turn 6 user"},
+		{Role: MessageRoleAssistant, Content: "turn 6 answer"},
+		{Role: MessageRoleUser, Content: "turn 7 user"},
+		{Role: MessageRoleAssistant, Content: "turn 7 answer"},
+	}
+	state.Conversation = append(state.Conversation, more...)
+	state.Lineage = state.Lineage.WithAppendedMessages(more)
+	if !compactIntoState(t, req, &state) {
+		t.Fatal("second compaction applied = false, want true")
+	}
+	if len(prov.requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2", len(prov.requests))
+	}
+	second := prov.requests[1]
+	if !second.CompactionSummary {
+		t.Fatal("second summary request lacks CompactionSummary")
+	}
+	found := false
+	for _, msg := range second.Messages {
+		if strings.Contains(msg.Content, "summary\n\n"+testHistoryNote) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("second summary request did not receive the adopted history note: %+v", second.Messages)
+	}
+}
+
 // TestSummarizeCompactorClearsOldGenerationBackendStateWhenSummaryClears proves
 // a summary whose response clears backend state drops the old generation's
 // stored state, and that the summary does not change the state of the

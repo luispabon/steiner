@@ -17,7 +17,8 @@ import (
 // ClearConversation, RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
 // SwitchMode, SwitchOrchestrationLevel, SwitchModel, SwitchProfile,
-// SubmitApproval, SubmitWorkflowHandoff, LoadSession, and requestSessionPicker.
+// SubmitApproval, SubmitWorkflowHandoff, LoadSession, RequestHistoryRecall,
+// and requestSessionPicker.
 func (s *Session) Handle(ctx context.Context, action Action) error {
 	if handled, err := s.handleImmediateAction(ctx, action); handled {
 		return err
@@ -134,6 +135,9 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		return true, s.handleForkSession(ctx)
 	case ForkSavedSession:
 		return true, s.handleForkSavedSession(ctx, a.SessionID)
+	case RequestHistoryRecall:
+		s.emitHistoryRecall()
+		return true, nil
 	}
 	return false, nil
 }

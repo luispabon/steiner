@@ -107,6 +107,30 @@ func TestRunPhaseCreatesSessionBeforeRunning(t *testing.T) {
 	}
 }
 
+// TestRunPhaseInputSessionIsPhaseSessionNotRunID proves RunPhase receives the
+// phase session ID, which the oneshot history archive is keyed on, not the run ID.
+func TestRunPhaseInputSessionIsPhaseSessionNotRunID(t *testing.T) {
+	var gotID string
+	runner := inputRunner(func(_ context.Context, in PhaseRunInput) (RunResult, error) {
+		gotID = in.Session.ID
+		return RunResult{}, errors.New("stop after capture")
+	})
+	o, sessions, _, params := newPhaseSessionFixture(t, runner)
+
+	if err := o.runPhase(params); err == nil {
+		t.Fatal("runPhase succeeded, want the runner error")
+	}
+	if len(sessions.sessions) != 1 {
+		t.Fatalf("distinct sessions = %d, want 1", len(sessions.sessions))
+	}
+	if want := sessions.sessions[0].ID; gotID != want {
+		t.Fatalf("RunPhase session id = %q, want phase session %q", gotID, want)
+	}
+	if gotID == params.Manifest.RunID {
+		t.Fatalf("RunPhase session id = run id %q, want the phase session id", gotID)
+	}
+}
+
 func TestRunPhaseFinalSaveUpdatesSameSession(t *testing.T) {
 	runner := inputRunner(func(_ context.Context, _ PhaseRunInput) (RunResult, error) {
 		return RunResult{Conversation: userMessages("seed", "done")}, nil

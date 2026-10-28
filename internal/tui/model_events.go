@@ -44,6 +44,9 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	if event.Type == output.EventTypeContextReport {
 		if payload, ok := event.Payload.(output.ContextReportEvent); ok && payload.Display == output.ContextReportDisplayOverlay {
 			m.contextOverlay = openContextOverlay(payload.Title, payload.Content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
+			if payload.ScrollToEnd {
+				m.contextOverlay = m.contextOverlay.scrollToEnd()
+			}
 			m.syncViewport()
 			return nil
 		}

@@ -2,7 +2,9 @@ package interactive
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -31,6 +33,32 @@ func (s *Session) emitConfigReport() {
 		return
 	}
 	s.events.Emit(output.NewOverlayReportEvent("Config", report))
+}
+
+const (
+	historyReportTitle  = "Conversation history"
+	noHistoryReportText = "No archived conversation history for this session yet."
+)
+
+// emitHistoryRecall reports the current session's archived conversation
+// history. A non-blank archive opens in the overlay scrolled to its end. A nil
+// store, a missing, or a blank archive is an inline notice, and so is a read
+// error.
+func (s *Session) emitHistoryRecall() {
+	if s.deps.SessionStore == nil {
+		s.events.Emit(output.NewInlineReportEvent(historyReportTitle, noHistoryReportText))
+		return
+	}
+	content, err := s.deps.SessionStore.ReadHistory(s.SessionID())
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		s.events.Emit(output.NewInlineReportEvent(historyReportTitle, fmt.Sprintf("Could not read conversation history: %v", err)))
+		return
+	}
+	if errors.Is(err, os.ErrNotExist) || strings.TrimSpace(content) == "" {
+		s.events.Emit(output.NewInlineReportEvent(historyReportTitle, noHistoryReportText))
+		return
+	}
+	s.events.Emit(output.NewOverlayReportEventAtEnd(historyReportTitle, content))
 }
 
 func buildConfigReport(cfg config.Config) (string, error) {

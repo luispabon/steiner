@@ -214,6 +214,14 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		ID:   "/recall",
+		Name: "Recall history",
+		Desc: "show conversation history archived by compaction",
+		Build: func(_ string) inputAction {
+			return inputAction{recall: true}
+		},
+	},
+	{
 		ID:   "/resume",
 		Name: "Resume session",
 		Desc: "load a previous session",
@@ -410,6 +418,7 @@ func projectOverlayItems(oneshotMode bool, skillNames []string, skillDescription
 var helpOrder = []string{
 	"/clear",
 	"/compact",
+	"/recall",
 	"/fork",
 	"/resume",
 	"/agents",
