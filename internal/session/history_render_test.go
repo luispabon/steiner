@@ -147,6 +147,24 @@ func TestRenderHistory(t *testing.T) {
 			want: "### assistant · turn 1\n\n- **bash** go test ./... error",
 		},
 		{
+			name: "reused IDs pair preceding calls FIFO and ignore preceding result",
+			source: []agent.Message{
+				{Role: agent.MessageRoleTool, Turn: 1, ToolCallID: "c1", Name: "bash", Content: `{"ok":false,"error":{"kind":"tool","message":"stale result"}}`},
+				{Role: agent.MessageRoleAssistant, Turn: 1, ToolCalls: []agent.ToolCall{
+					{ID: "c1", Name: "bash", Arguments: map[string]any{"command": "first"}},
+				}},
+				{Role: agent.MessageRoleTool, Turn: 1, ToolCallID: "c1", Name: "bash", Content: `{"ok":true}`},
+				{Role: agent.MessageRoleAssistant, Turn: 2, ToolCalls: []agent.ToolCall{
+					{ID: "c1", Name: "bash", Arguments: map[string]any{"command": "second"}},
+				}},
+				{Role: agent.MessageRoleTool, Turn: 2, ToolCallID: "c1", Name: "bash", Content: `{"ok":false,"error":{"kind":"tool","message":"exit status 1"}}`},
+				{Role: agent.MessageRoleAssistant, Turn: 3, ToolCalls: []agent.ToolCall{
+					{ID: "c1", Name: "bash", Arguments: map[string]any{"command": "third"}},
+				}},
+			},
+			want: "### assistant · turn 1\n\n- **bash** first ✓\n\n### assistant · turn 2\n\n- **bash** second error\n\n### assistant · turn 3\n\n- **bash** third",
+		},
+		{
 			name: "unpaired tool call has no status",
 			source: []agent.Message{
 				{Role: agent.MessageRoleAssistant, Turn: 1, ToolCalls: []agent.ToolCall{

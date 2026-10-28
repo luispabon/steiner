@@ -28,17 +28,22 @@ const (
 func RenderHistory(source []agent.Message) string {
 	statuses := toolCallStatuses(source)
 	var blocks []string
-	for _, msg := range source {
-		if block := renderHistoryMessage(msg, statuses); block != "" {
+	for messageIndex, msg := range source {
+		if block := renderHistoryMessage(msg, statuses, messageIndex); block != "" {
 			blocks = append(blocks, block)
 		}
 	}
 	return strings.Join(blocks, "\n\n")
 }
 
+type toolCallPosition struct {
+	messageIndex int
+	callIndex    int
+}
+
 // renderHistoryMessage renders one message as a markdown block. It returns ""
 // when the message contributes no body text, so a bare heading is never emitted.
-func renderHistoryMessage(msg agent.Message, statuses map[string]string) string {
+func renderHistoryMessage(msg agent.Message, statuses map[toolCallPosition]string, messageIndex int) string {
 	var heading string
 	var body []string
 	switch msg.Role {
@@ -49,7 +54,7 @@ func renderHistoryMessage(msg agent.Message, statuses map[string]string) string 
 		body = userParts(msg)
 	case agent.MessageRoleAssistant:
 		heading = historyHeading(msg)
-		body = assistantParts(msg, statuses)
+		body = assistantParts(msg, statuses, messageIndex)
 	case agent.MessageRoleTool:
 		// Tool results are not rendered. Only their images are kept.
 	default:
@@ -130,17 +135,17 @@ func userParts(msg agent.Message) []string {
 
 // assistantParts renders assistant text followed by one list line per tool
 // call, skipping display_file calls.
-func assistantParts(msg agent.Message, statuses map[string]string) []string {
+func assistantParts(msg agent.Message, statuses map[toolCallPosition]string, messageIndex int) []string {
 	var parts []string
 	if text := strings.TrimSpace(msg.Content); text != "" {
 		parts = append(parts, text)
 	}
 	var lines []string
-	for _, call := range msg.ToolCalls {
+	for callIndex, call := range msg.ToolCalls {
 		if strings.EqualFold(call.Name, historyDisplayFile) {
 			continue
 		}
-		lines = append(lines, toolCallLine(call, statuses))
+		lines = append(lines, toolCallLine(call, statuses, toolCallPosition{messageIndex: messageIndex, callIndex: callIndex}))
 	}
 	if len(lines) > 0 {
 		parts = append(parts, strings.Join(lines, "\n"))
@@ -151,12 +156,12 @@ func assistantParts(msg agent.Message, statuses map[string]string) []string {
 // toolCallLine renders a tool call as "- **<tool>** <summary> <status>". The
 // summary comes from delegation.SummarizeToolArgs and is omitted when empty,
 // as is the status when the call has no paired result.
-func toolCallLine(call agent.ToolCall, statuses map[string]string) string {
+func toolCallLine(call agent.ToolCall, statuses map[toolCallPosition]string, position toolCallPosition) string {
 	fields := []string{"- **" + oneLine(call.Name) + "**"}
 	if summary := oneLine(delegation.SummarizeToolArgs(call.Name, call.Arguments)); summary != "" {
 		fields = append(fields, summary)
 	}
-	if status := statuses[call.ID]; status != "" {
+	if status := statuses[position]; status != "" {
 		fields = append(fields, status)
 	}
 	return strings.Join(fields, " ")
@@ -174,20 +179,38 @@ func oneLine(s string) string {
 	return strings.Join(strings.Fields(clean), " ")
 }
 
-// toolCallStatuses maps each tool call ID with a result in source to its status
-// mark. The first result seen for an ID wins.
-func toolCallStatuses(source []agent.Message) map[string]string {
-	statuses := make(map[string]string)
-	for _, msg := range source {
+// toolCallStatuses pairs each tool result with the oldest preceding unanswered
+// call with the same ID. Results without a preceding call are ignored.
+func toolCallStatuses(source []agent.Message) map[toolCallPosition]string {
+	statuses := make(map[toolCallPosition]string)
+	pending := make(map[string][]toolCallPosition)
+	for messageIndex, msg := range source {
+		if msg.Role == agent.MessageRoleAssistant {
+			for callIndex, call := range msg.ToolCalls {
+				if call.ID == "" {
+					continue
+				}
+				position := toolCallPosition{messageIndex: messageIndex, callIndex: callIndex}
+				pending[call.ID] = append(pending[call.ID], position)
+			}
+			continue
+		}
 		if msg.Role != agent.MessageRoleTool || msg.ToolCallID == "" {
 			continue
 		}
-		if _, seen := statuses[msg.ToolCallID]; seen {
+		positions := pending[msg.ToolCallID]
+		if len(positions) == 0 {
 			continue
 		}
-		statuses[msg.ToolCallID] = historyStatusOK
+		position := positions[0]
+		if len(positions) == 1 {
+			delete(pending, msg.ToolCallID)
+		} else {
+			pending[msg.ToolCallID] = positions[1:]
+		}
+		statuses[position] = historyStatusOK
 		if toolResultFailed(msg.Name, msg.Content) {
-			statuses[msg.ToolCallID] = historyStatusError
+			statuses[position] = historyStatusError
 		}
 	}
 	return statuses
