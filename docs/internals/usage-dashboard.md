@@ -1,87 +1,45 @@
 # Subscription usage dashboard internals
 
-User-facing documentation: [Subscription usage dashboard](../user/usage-dashboard.md).
+User reference: [Subscription usage dashboard](../user/usage-dashboard.md).
 
-## Package layout
+## Package and wiring
 
-`internal/quota` is a leaf domain package. It imports only the standard library and `golang.org/x/sys/unix`, and it does not import the provider, agent, TUI, or config packages. Callers supply fetchers and observations.
+`internal/quota` imports only the standard library, `internal/fsatomic` (store writes), and `golang.org/x/sys/unix` (file locking). Callers pass in fetchers and observations. Provider fetchers are in `internal/provider/quota_*.go`, with `BuildQuotaAccounts` in `quota_registry.go`. The overlay is in `internal/tui/usage_overlay*.go`.
 
-| File | Responsibility |
-| --- | --- |
-| `snapshot.go` | `Snapshot`, `Window`, `Budget`, `Source`, `Fetcher`, `TimeoutFetcher`, and `FetchOptions`. |
-| `account.go` | `Account` and `APIKeyAccountKey`. |
-| `service*.go` | `Service`: registration, observations, fetch and refresh, merge, and views. |
-| `store.go`, `lock_unix.go`, `lock_other.go` | `Store`: the locked, atomically replaced JSON history file. |
-| `projection.go` | Trend projections for windows and budgets. |
-| `labels.go` | `WindowLabel` for standard window lengths and `BudgetLabelSpend` for spend-only budgets. |
+In `cmd/steiner`, `runtime_build.go` builds the service and store, and `primeQuota` registers configured accounts at startup. `MarkUsed` is called from the provider factory closure (`runtime_build_provider.go`) and from `cliRunner` (`runner_run.go`) before cache routing, so cached Codex WebSocket providers are marked too.
 
-Provider fetchers live in `internal/provider/quota_*.go`: `quota_registry.go` (`BuildQuotaAccounts`), `quota_claudesub.go`, `quota_codex.go`, and `quota_apikey.go`. The overlay is in `internal/tui/usage_overlay*.go`. In `cmd/steiner`, `runtime_build.go` builds the service and store, `primeQuota` in `interactive_session.go` registers accounts at startup. `buildRuntimeProviderFactory` (`runtime_build_provider.go`) returns a closure that calls `MarkUsed` on every provider build. `cliRunner.runtimeProvider` (`runner_run.go`) also calls `MarkUsed` on every call, before cache routing. The second call is needed for cached Codex WebSocket routing: a cache hit in `cachedCodexWSProvider` returns the cached provider without calling the factory.
+## Service
 
-## Fetcher, observer, and Service
+- `Fetcher.Fetch` returns a `Snapshot`. A `TimeoutFetcher` overrides the 10-second default timeout. `FetchOptions.AllowSpawn` is true for `RefreshAll` and false for `RefreshUsed`; only the Claude fetcher reads it.
+- `Views` returns one row per registered account, sorted by display alias, which is the alphabetically first alias. Stored snapshots without a registration are never shown, but stay in the store.
+- `commit` releases the service lock before persisting. Persist failures are logged, and the in-memory state still updates.
 
-- `Fetcher.Fetch(ctx, FetchOptions)` returns a full `Snapshot` marked `SourceFetch`. A fetcher can also implement `TimeoutFetcher`. A positive value overrides `ServiceOptions.FetchTimeout`, which defaults to 10 seconds.
-- `FetchOptions.AllowSpawn` is true for `RefreshAll` and false for `RefreshUsed`. Only the Claude fetcher reads it.
-- The sink is a plain `func(quota.Snapshot)` callback. The provider layer receives `Service.Observe` through its config and calls it with `SourcePassive` snapshots.
-- `Service` holds the registered accounts by key, an alias to key map, the latest snapshot per key, in-flight flags, the last fetch error per key, the aliases marked as used, and the last successful append time per key. Its methods are safe for concurrent use, and it never holds its mutex during store I/O.
-- `MarkUsed` may run before `Register`. The alias is resolved in `RefreshUsed`.
-- `Updates()` returns a channel with capacity one. Notifications coalesce, and the TUI re-arms one waiter after each update.
+## Passive observations
 
-## Passive sources
-
-| Source | Where | Notes |
-| --- | --- | --- |
-| Claude `get_usage` | `claudeSubQuotaObservedGetUsage` wraps the usage-gate call in the pool | Observed only when the pool has a `QuotaObserver` and the reply parses. The gate receives the raw reply unchanged. |
-| Codex WebSocket | `parseCodexRateLimitsFrame` on `codex.rate_limits` frames in `codex_responses_stream.go` | Other frame types are ignored. The account key comes from the `ChatGPT-Account-ID` header. |
-| Codex HTTP | `codexQuotaObserveResponse` reads `x-codex*` headers | A family is found by its `-primary-used-percent` header. The main family is `x-codex`. Other families are labelled with the family name, for example `codex_other 5h`. |
-
-Passive snapshots have a zero `FetchedAt`, and `Observe` stamps it with the service clock.
-
-## Passive merge and fetch replace
-
-- A fetch calls `commit(snap, replace=true)`. The latest snapshot is replaced as a whole, and a successful fetch clears the account's error.
-- A failed fetch keeps the previous snapshot and stores the error, truncated to 80 runes. Passive observations do not clear that error, so an older error can show beside newer passive data until the next successful fetch.
-- A passive observation calls `commit(snap, replace=false)`, which runs `mergePassive(prev, obs)`:
-  - windows with the same `Label` are overwritten, and other windows are kept;
-  - empty `ProviderType`, `Plan`, and `Credits` keep the previous values;
-  - a non-empty `Budgets` list replaces the previous budgets rather than merging by label;
-  - the result takes the observation's `FetchedAt` and `Source`.
-- With no previous latest snapshot, a passive observation is stored as it is.
-
-## Account keys and dedupe
-
-| Provider | Account key |
-| --- | --- |
-| `codex` | `codex:<ChatGPT account ID>`, or `codex:unknown` when not signed in. |
-| `claude_subscription` | `claude_subscription`, shared by every alias of that type. |
-| `opencode_go`, `openrouter`, `litellm` | `provider:<configured alias>`, from `APIKeyAccountKey`. The key does not depend on the API key, base URL, project, or provider type. The fetcher copies the same key into its snapshots. |
-
-- Codex aliases of the same ChatGPT account, and `claude_subscription` aliases, share one key. API-key aliases always have their own key, even with identical credentials. `DisplayAlias` is the alphabetically first alias, or the key when there is none.
-- `Views` returns one `AccountView` per registered account. Registration comes from the startup config through `BuildQuotaAccounts`, which `primeQuota` calls. A stored snapshot whose key has no registration is never shown. It stays in the store, and it becomes visible if that key is registered later. Snapshots age out through the normal 35-day retention.
-- Persistence dedupe: `commit` skips the store when the new state equals the latest state (ignoring `FetchedAt` and `Source`) and the account's last successful append was less than an hour ago. `Store.Append` makes the same check against the newest stored snapshot, so separate processes also avoid duplicates.
+- `claudeSubQuotaObservedGetUsage` wraps the Claude usage call. `parseCodexRateLimitsFrame` parses Codex rate-limit frames.
+- `Observe` stamps a zero `FetchedAt` with the service clock. `mergePassive` overwrites windows with the same label and keeps the others. It keeps the existing provider type, plan, and credits when the observation has none, and replaces budgets when it has any. It takes the observation's time and source.
+- A successful fetch replaces the latest snapshot and clears the error. A failed fetch keeps the snapshot and stores the error, truncated to 80 runes. Passive observations do not clear that error, so it can show beside newer data until the next successful fetch.
 
 ## Store
 
-- The file format is `{"version": 1, "snapshots": [...]}`. The path is described in the [user page](../user/usage-dashboard.md#history-and-privacy).
-- `Append` creates the directory with mode `0o700` and opens `<path>.lock` with mode `0o600`, tightening it on each append. It takes a blocking exclusive `flock`, reads the current file, merges, prunes, and writes. On non-Unix builds, `lockFile` returns an error, so `Append` fails and nothing is written without a lock.
-- `write` calls `fsatomic.WriteFile`, which writes a temp file in the same directory, syncs it, and renames it over the data file. `Latest`, and the history read in `Views` take no lock. The rename keeps them consistent.
-- Each `Append` drops snapshots fetched more than 35 days before its clock time.
-- A file that fails to decode makes `Append` fail, so history is never overwritten. The failure is logged, and the in-memory state still updates.
-- `Views` reads the history on every call. A read error counts as no history.
+- `Append` creates the directory with mode `0o700`, opens `<path>.lock` (mode `0o600`, tightened on each append), and takes a blocking exclusive `flock`.
+- Under the lock it reads the file, merges, prunes old snapshots, and writes through `fsatomic.WriteFile`: a synced temp file renamed over the data file.
+- `Latest` and the history read in `Views` take no lock. Each sees the old or the new file, never a partial one.
+- Locking is unix-only. Elsewhere `lockFile` returns an error, so `Append` writes nothing.
+- A file that fails to decode makes `Append` fail, so history is never overwritten. `Views` treats an unreadable history as empty and logs the error.
 
 ## Projection
 
-`ProjectWindow` and `ProjectBudget` use the oldest history point for the same account, label, and reset period, where reset times are within one minute. `estimateEmpty` extrapolates linearly to capacity: 100 for windows, or the limit for budgets. It returns no projection when the span is under 15 minutes or the rise is under 2 percentage points for windows, or 2% of the limit for budgets. Times come from `current.FetchedAt`, not the wall clock. `BeforeReset` is true when `EmptyAt` is before the current reset time.
+`ProjectWindow` and `ProjectBudget` extrapolate linearly to capacity from the oldest history point for the same account, label, and reset period (reset times within one minute). Times come from the current snapshot's `FetchedAt`, not the wall clock.
 
-## In-memory state and other processes
+## In-memory state
 
-`Service` loads `latest` from the store once, on first use (`ensureLoaded`). After that, the displayed snapshot changes only through this process's fetches and observations. Snapshots that another steiner process writes reach the overlay only through the history read used for projections. A displayed value can therefore stay stale until this process fetches or observes that account. A restart reloads the latest state.
+`Service` loads the latest snapshot per account from the store once, on first use. Afterwards the displayed value changes only through this process's fetches and observations. Other processes' writes reach the overlay only through projection history, so a value can stay stale until this process fetches that account.
 
 ## TUI wiring
 
-- `openUsageOverlay` shows the cached views, starts `RefreshAll` under a 30-second context, and loads views in `loadUsageViewsCmd`. `Update` never reads the quota service directly.
-- `quotaUpdateMsg` reloads the views when the overlay is open.
-- `RunFinishedEvent` runs `usageRunFinishedCmd`, which calls `RefreshUsed(context.Background(), interval)`. It returns nil when `interval` is zero or negative.
-- A header shows the accent spinner and `refreshing…` when its account is refreshing or the overlay has an in-flight refresh (`inFlight > 0`). This includes rows with a snapshot. Settled rows show their age, then any error.
-- `usageOverlayState.spinnerFrame` is passed to the renderer as `usageFrame.spinnerFrame`. `handleTickMsg` advances it on each tick while the overlay is open and refreshing.
-- Ticker lifecycle: `needsTicking` includes `IsOpen() && refreshing()`. `openUsageOverlay` starts the ticker with its refresh. The overlay key handler and `handleUsageViewsLoadedMsg` call `ensureTicking` only while the overlay is open and refreshing. Closing keys (`ctrl+o`, `esc`) start no ticker.
-- `tui.quota_refresh_interval` is validated by `validateTUIConfig` and passed to the TUI by `quotaTUIConfig`. See [TUI quota refresh interval](configuration.md#tui-quota-refresh-interval).
+- `openUsageOverlay` shows cached views and starts `RefreshAll` under a 30-second context. Views are read only in commands (`loadUsageViewsCmd`, `usageRunFinishedCmd`). `handleQuotaUpdateMsg` calls `Updates()`, a capacity-one channel whose notifications coalesce, and checks overlay state.
+- A row shows a spinner and `refreshing…` while its account or the overlay is refreshing. That takes precedence over age. Settled rows show `updated <age> ago`, then any `unavailable: <err>`.
+- `needsTicking` includes `IsOpen() && refreshing()`. `handleTickMsg` advances the spinner only while open and refreshing. Closing keys start no ticker.
+- `usageRunFinishedCmd` runs on run-finished events. It returns nil when there is no service or the interval is not positive. Otherwise it calls `RefreshUsed` with that interval as the minimum snapshot age.
+- `tui.quota_refresh_interval` (default `5m`) is validated by `validateTUIConfig`, which rejects negative values and accepts zero. `quotaTUIConfig` passes it to the TUI. Opening the dashboard and pressing `r` do not read it.
