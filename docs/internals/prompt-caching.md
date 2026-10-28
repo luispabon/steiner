@@ -1,6 +1,6 @@
 # Prompt caching internals
 
-User-facing documentation: [Cache Hit Rate Tracking](../user/cache-stats.md). Config fields: [configuration](../user/configuration.md).
+User guide: [Cache Hit Rate Tracking](../user/cache-stats.md).
 
 ## Cache identity
 
@@ -12,9 +12,9 @@ Per provider:
 
 - Codex Responses sends `prompt_cache_key` in the body and the affinity headers below.
 - The OpenAI chat wire sends `prompt_cache_key` only for provider type `openai`, and `prompt_cache_retention: "24h"` only for models that support extended retention.
-- Anthropic does not read `PromptCacheKey`. Its caching comes from `cache_control` breakpoints in `anthropic_wire.go`, at most four per request.
+- Anthropic does not read `PromptCacheKey`. `assignCacheBreakpoints` (`internal/provider/anthropic_wire.go`) places at most four `cache_control` breakpoints: the last system block (or the last tool when there is no system block), the final non-volatile message block, and the last block of the second-to-last user message. Blocks at or after the first volatile block, which holds image data stripped after one request, are never marked. Advisor-shaped requests use a different placement ([advisor internals](advisor.md#transport-and-cache)).
 
-OpenCode-compatible routing applies only when the wire configures an `X-Opencode-Session` header. A non-empty `TransportSession` is sent in that header, and `ParentTransportSession` is sent as `X-Parent-Session-Id`. Child agents use `<session>-<agentID>`, and advisor calls use `<session>-advisor` with the session as parent (`internal/delegation/registry.go`). Other wires ignore these fields.
+OpenCode-compatible routing applies only when the wire configures an `X-Opencode-Session` header. `prepareTransportSessionHeaders` (`internal/provider/openai_compat.go`) sends a non-empty `TransportSession` in that header and `ParentTransportSession` as `X-Parent-Session-Id`. The OpenAI chat and Anthropic wires call it. Codex Responses does not. Child agents use `<session>-<agentID>`, and advisor calls use `<session>-advisor` with the session as parent (`internal/delegation/registry.go`).
 
 ## Codex affinity headers
 
@@ -28,11 +28,7 @@ Codex rejects `prompt_cache_retention`, so `responsesWire` never sends it. A Cod
 
 ## Codex transport
 
-The Codex transport setting selects `http` (default) or `websocket`. The WebSocket endpoint and beta header are marked unconfirmed in `codex_ws_protocol.go`, so WebSocket stays opt-in. WebSocket errors return to the caller and do not fall back to HTTP. Validation rejects `auto` and other unknown values.
-
-## Stream-required retry
-
-A non-streaming request that fails with a 400 mentioning `stream` and `must` or `required` is matched by `agent.IsStreamRequiredError`. The turn streams, the run latches so later turns stream directly, and a `stream_required` provider diagnostic (warning) is emitted. Other 400 responses are unaffected. Advisor calls retry as a stream on the same error ([advisor internals](advisor.md#request-flow)).
+Transport selection and fallback are in [Codex transport and pacing](../user/cache-stats.md#codex-transport-and-pacing). The WebSocket endpoint and beta header are marked unconfirmed in `codex_ws_protocol.go`, so WebSocket stays opt-in. Validation rejects `auto` and other unknown values.
 
 ## Codex conversation replay
 
@@ -59,7 +55,7 @@ Writes take an exclusive `flock` on the sibling `cache-stats.json.lock` (mode `0
 Each usage-bearing model response writes one `cache` record (`internal/agent/cache_diagnostics.go`) with model identity and token counts, plus:
 
 - `cold_start`: true on the first usage-bearing record a process writes. A process has one run ID, so this is once per run.
-- `prefix_comparison_enabled` and `prefix_predecessor_known`: whether prefix comparison ran and whether an in-process predecessor existed.
+- `prefix_comparison_enabled` and `prefix_predecessor_known`: whether prefix comparison ran and whether a predecessor existed. The predecessor is the last accepted request under the same `CacheBaselineKey` (`internal/agent/cache_baseline.go`), which holds the cache key, agent ID, configured and effective provider type, effective transport, provider alias, and backend model ID. An empty cache key disables baselines.
 - `shared_prefix_messages`: leading messages shared with the last accepted request. It separates a pure append from a prefix rewrite.
 - `prefix_hash`: a cumulative 8-hex digest folded over one 8-hex hash per message. Each message input is `provider.MessageHashInput`: role, content, reasoning content, tool-call names and arguments, and image media types and data. It hashes logical messages, not wire JSON.
 - `cache_key_hash`: an 8-hex hash of the cache key.
@@ -68,7 +64,7 @@ No record contains message bodies, tool arguments, images, or the key itself. Th
 
 ## Cold-turn analysis
 
-`node scripts/diagnostics.mjs coldturns` joins cache and tool records. A cold turn has `cache_read_tokens == 0`, which is different from `cold_start`. Models that never report a nonzero `cache_read_tokens` are listed as excluded, not counted as cold. Records are ordered by `seq`, not `ts`, because wall clocks can step backwards.
+`node scripts/diagnostics.mjs coldturns` reports cold turns. A cold turn has `cache_read_tokens == 0`, which is different from `cold_start`. Models that never report a nonzero `cache_read_tokens` are listed as excluded, not counted as cold. Records are ordered by `seq`, not `ts`, because wall clocks can step backwards.
 
 Each parent-turn gap is attributed to `no_prior_baseline`, `prefix_rewrite`, `delegation`, `idle`, or `unexplained`. `no_prior_baseline` is tested first and needs `prefix_comparison_enabled: true` with `prefix_predecessor_known: false`. The delegation threshold is four minutes (`LONG_DELEGATION_MS`).
 
