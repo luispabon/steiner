@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -151,7 +152,7 @@ func assistantParts(msg agent.Message, statuses map[string]string) []string {
 // summary comes from delegation.SummarizeToolArgs and is omitted when empty,
 // as is the status when the call has no paired result.
 func toolCallLine(call agent.ToolCall, statuses map[string]string) string {
-	fields := []string{"- **" + call.Name + "**"}
+	fields := []string{"- **" + oneLine(call.Name) + "**"}
 	if summary := oneLine(delegation.SummarizeToolArgs(call.Name, call.Arguments)); summary != "" {
 		fields = append(fields, summary)
 	}
@@ -162,8 +163,15 @@ func toolCallLine(call agent.ToolCall, statuses map[string]string) string {
 }
 
 // oneLine collapses s to single-spaced words so a summary never spans lines.
+// Control characters, including terminal escape bytes, count as separators.
 func oneLine(s string) string {
-	return strings.Join(strings.Fields(s), " ")
+	clean := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(clean), " ")
 }
 
 // toolCallStatuses maps each tool call ID with a result in source to its status
@@ -178,19 +186,38 @@ func toolCallStatuses(source []agent.Message) map[string]string {
 			continue
 		}
 		statuses[msg.ToolCallID] = historyStatusOK
-		if toolResultFailed(msg.Content) {
+		if toolResultFailed(msg.Name, msg.Content) {
 			statuses[msg.ToolCallID] = historyStatusError
 		}
 	}
 	return statuses
 }
 
-// toolResultFailed reports whether a persisted tool result is a failure
-// envelope. Results that are not envelopes, such as plain result JSON, count
-// as successful, matching the replay decoder in internal/interactive.
-func toolResultFailed(content string) bool {
+// toolResultFailed reports whether a persisted tool result is a failure. A
+// failure envelope (tool.JSONEnvelope with ok false and an error) fails any
+// tool. Results of delegation tools also fail when they carry a failed
+// projection, matching replayToolFinished in internal/interactive.
+func toolResultFailed(name, content string) bool {
 	var envelope tool.JSONEnvelope
-	return json.Unmarshal([]byte(content), &envelope) == nil && !envelope.OK && envelope.Error != nil
+	if json.Unmarshal([]byte(content), &envelope) == nil && !envelope.OK && envelope.Error != nil {
+		return true
+	}
+	return delegation.IsDelegationTool(strings.ToLower(name)) && delegationResultFailed(content)
+}
+
+// delegationResultFailed reports whether a delegation result is a projected
+// agent.DelegationResultEnvelope with a failed, cancelled, or lost status and a
+// reason. Partial and acknowledgement results are not failures, matching replay.
+func delegationResultFailed(content string) bool {
+	var projection agent.DelegationResultEnvelope
+	if json.Unmarshal([]byte(content), &projection) != nil || projection.Reason == "" {
+		return false
+	}
+	switch projection.Status {
+	case "failed", "cancelled", "lost":
+		return true
+	}
+	return false
 }
 
 // imagePlaceholders renders one "[image: <id>]" line per image, or "" when
