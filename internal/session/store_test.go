@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1301,18 +1302,41 @@ func TestEvictionRemovesSessionHistoryDirectory(t *testing.T) {
 	}
 }
 
-// failHistoryRemoval makes removeAll fail until the returned restore function
-// runs. restore also runs on test cleanup, so it is safe to call twice.
-func failHistoryRemoval(t *testing.T) (restore func()) {
+// failHistoryRemoval makes removeAll return err until the returned restore
+// function runs. restore also runs on test cleanup, so calling it twice is safe.
+func failHistoryRemoval(t *testing.T, err error) (restore func()) {
 	t.Helper()
 	orig := removeAll
 	restore = func() { removeAll = orig }
 	t.Cleanup(restore)
-	removeAll = func(string) error { return errors.New("simulated removal failure") }
+	removeAll = func(string) error { return err }
 	return restore
 }
 
-func TestDeleteHistoryRemovalFailureKeepsSessionAndIndex(t *testing.T) {
+// checkIndexIDs checks that the live store and a reload from dir both list
+// exactly want, in order.
+func checkIndexIDs(t *testing.T, dir string, store *Store, want []string) {
+	t.Helper()
+	reloaded, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("reload NewStore failed: %v", err)
+	}
+	for _, s := range []*Store{store, reloaded} {
+		entries, err := s.List()
+		if err != nil {
+			t.Fatalf("List failed: %v", err)
+		}
+		got := make([]string, 0, len(entries))
+		for _, e := range entries {
+			got = append(got, e.ID)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("index IDs = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestDeleteHistoryRemovalFailureRemovesJSONAndKeepsArchive(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewStore(dir)
 	if err != nil {
@@ -1322,38 +1346,71 @@ func TestDeleteHistoryRemovalFailureKeepsSessionAndIndex(t *testing.T) {
 	if err := store.Save(Session{ID: "keep-history", CreatedAt: now, UpdatedAt: now}); err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
-	if _, err := store.AppendHistory("keep-history", "h\n", "c\n"); err != nil {
+	archivePath, err := store.AppendHistory("keep-history", "h\n", "c\n")
+	if err != nil {
 		t.Fatalf("AppendHistory failed: %v", err)
 	}
 
-	restore := failHistoryRemoval(t)
-	if err := store.Delete("keep-history"); err == nil {
-		t.Fatal("Delete succeeded despite history removal failure")
+	errRemove := errors.New("simulated removal failure")
+	restore := failHistoryRemoval(t, errRemove)
+	if err := store.Delete("keep-history"); !errors.Is(err, errRemove) {
+		t.Fatalf("Delete error = %v, want history removal failure", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "keep-history"+sessionExt)); err != nil {
-		t.Errorf("session file removed after history removal failed: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "keep-history"+sessionExt)); !os.IsNotExist(err) {
+		t.Errorf("session file still exists after failed Delete: %v", err)
 	}
-	if entries, err := store.List(); err != nil || len(entries) != 1 {
-		t.Errorf("List after failed Delete = %d entries, err %v, want 1", len(entries), err)
+	if _, err := os.Stat(filepath.Dir(archivePath)); err != nil {
+		t.Errorf("archive removed though history removal failed: %v", err)
 	}
-	reloaded, err := NewStore(dir)
-	if err != nil {
-		t.Fatalf("reload NewStore failed: %v", err)
-	}
-	if entries, err := reloaded.List(); err != nil || len(entries) != 1 {
-		t.Errorf("reloaded index after failed Delete = %d entries, err %v, want 1", len(entries), err)
-	}
+	checkIndexIDs(t, dir, store, nil)
 
 	restore()
 	if err := store.Delete("keep-history"); err != nil {
 		t.Fatalf("retry Delete failed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "keep-history"+sessionExt)); !os.IsNotExist(err) {
-		t.Errorf("session file still exists after retry: %v", err)
+	if _, err := os.Stat(filepath.Dir(archivePath)); !os.IsNotExist(err) {
+		t.Errorf("archive still exists after retry: %v", err)
 	}
 }
 
-func TestEvictionHistoryRemovalFailureKeepsIndexAndRecovers(t *testing.T) {
+func TestDeleteJoinsHistoryAndIndexSaveErrors(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := store.Save(Session{ID: "both-fail", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	if _, err := store.AppendHistory("both-fail", "h\n", "c\n"); err != nil {
+		t.Fatalf("AppendHistory failed: %v", err)
+	}
+
+	// Replacing index.json with a directory makes the index save fail.
+	indexPath := filepath.Join(dir, indexFile)
+	if err := os.Remove(indexPath); err != nil {
+		t.Fatalf("remove index: %v", err)
+	}
+	if err := os.Mkdir(indexPath, 0o700); err != nil {
+		t.Fatalf("create index directory: %v", err)
+	}
+
+	errRemove := errors.New("simulated removal failure")
+	failHistoryRemoval(t, errRemove)
+	err = store.Delete("both-fail")
+	if !errors.Is(err, errRemove) {
+		t.Errorf("Delete error = %v, want history removal failure", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "save index") {
+		t.Errorf("Delete error = %v, want index save failure", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "both-fail"+sessionExt)); !os.IsNotExist(err) {
+		t.Errorf("session file still exists after failed Delete: %v", err)
+	}
+}
+
+func TestEvictionHistoryRemovalFailureRemovesJSONAndKeepsArchive(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewStore(dir)
 	if err != nil {
@@ -1366,31 +1423,42 @@ func TestEvictionHistoryRemovalFailureKeepsIndexAndRecovers(t *testing.T) {
 			t.Fatalf("Save(%s) failed: %v", id, err)
 		}
 	}
+	archivePath, err := store.AppendHistory("session-0", "h\n", "c\n")
+	if err != nil {
+		t.Fatalf("AppendHistory failed: %v", err)
+	}
 
-	restore := failHistoryRemoval(t)
+	// Newest first: the overflow session, then session-24 down to session-1.
+	want := []string{"session-overflow"}
+	for i := maxSessions - 1; i >= 1; i-- {
+		want = append(want, fmt.Sprintf("session-%d", i))
+	}
+
+	errRemove := errors.New("simulated removal failure")
+	restore := failHistoryRemoval(t, errRemove)
 	overflow := Session{ID: "session-overflow", CreatedAt: base, UpdatedAt: base.Add(time.Hour)}
-	if err := store.Save(overflow); err == nil {
-		t.Fatal("Save succeeded despite eviction history removal failure")
+	if err := store.Save(overflow); !errors.Is(err, errRemove) {
+		t.Fatalf("Save error = %v, want history removal failure", err)
 	}
-	if entries, err := store.List(); err != nil || len(entries) != maxSessions+1 {
-		t.Errorf("List after failed eviction = %d entries, err %v, want %d", len(entries), err, maxSessions+1)
+	if _, err := os.Stat(filepath.Join(dir, "session-0"+sessionExt)); !os.IsNotExist(err) {
+		t.Errorf("evicted session file still exists: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "session-0"+sessionExt)); err != nil {
-		t.Errorf("oldest session file removed after history removal failed: %v", err)
+	if _, err := os.Stat(filepath.Dir(archivePath)); err != nil {
+		t.Errorf("evicted session archive removed though history removal failed: %v", err)
 	}
+	checkIndexIDs(t, dir, store, want)
 
+	// The next save evicts one more session, so session-1 becomes the oldest.
 	restore()
-	if err := store.Save(Session{ID: "session-next", CreatedAt: base, UpdatedAt: base.Add(2 * time.Hour)}); err != nil {
+	next := Session{ID: "session-next", CreatedAt: base, UpdatedAt: base.Add(2 * time.Hour)}
+	if err := store.Save(next); err != nil {
 		t.Fatalf("Save after recovery failed: %v", err)
 	}
-	if entries, err := store.List(); err != nil || len(entries) != maxSessions {
-		t.Errorf("List after recovery = %d entries, err %v, want %d", len(entries), err, maxSessions)
+	if _, err := os.Stat(filepath.Join(dir, "session-1"+sessionExt)); !os.IsNotExist(err) {
+		t.Errorf("session-1 file still exists after recovery eviction: %v", err)
 	}
-	for _, id := range []string{"session-0", "session-1"} {
-		if _, err := os.Stat(filepath.Join(dir, id+sessionExt)); !os.IsNotExist(err) {
-			t.Errorf("%s file still exists after recovery eviction: %v", id, err)
-		}
-	}
+	wantAfter := append([]string{"session-next"}, want[:len(want)-1]...)
+	checkIndexIDs(t, dir, store, wantAfter)
 }
 
 func TestNewStoreSurvivesChmodFailure(t *testing.T) {

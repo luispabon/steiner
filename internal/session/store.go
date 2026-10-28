@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -200,25 +201,11 @@ func (s *Store) Delete(id string) error {
 	if err != nil {
 		return fmt.Errorf("validate session id: %w", err)
 	}
-	if err := removeAll(sessionDir); err != nil {
-		return fmt.Errorf("delete session history: %w", err)
-	}
 	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete session file: %w", err)
 	}
 
-	for i, entry := range s.index {
-		if entry.ID == id {
-			s.index = append(s.index[:i], s.index[i+1:]...)
-			break
-		}
-	}
-
-	if err := s.saveIndexLocked(); err != nil {
-		return fmt.Errorf("save index: %w", err)
-	}
-
-	return nil
+	return s.finishRemovalLocked(id, sessionDir)
 }
 
 // HistoryPath returns the absolute path of the history archive for session id.
@@ -371,36 +358,50 @@ func (s *Store) updateIndexLocked(session Session) error {
 	return s.saveIndexLocked()
 }
 
-// evictOldestLocked removes the oldest sessions while more than maxSessions
-// exist. Each eviction removes the history directory, then the JSON, then
-// persists the index, so a failed removal leaves the index matching the files
-// still on disk.
+// evictOldestLocked removes the oldest session if more than maxSessions exist.
 func (s *Store) evictOldestLocked() error {
-	for len(s.index) > maxSessions {
-		toRemove := s.index[len(s.index)-1]
+	if len(s.index) <= maxSessions {
+		return nil
+	}
 
-		sessionPath, err := safeSessionPath(s.dir, toRemove.ID)
-		if err != nil {
-			return fmt.Errorf("validate evicted session id: %w", err)
-		}
-		sessionDir, err := safeSessionDir(s.dir, toRemove.ID)
-		if err != nil {
-			return fmt.Errorf("validate evicted session id: %w", err)
-		}
-		if err := removeAll(sessionDir); err != nil {
-			return fmt.Errorf("delete evicted session history: %w", err)
-		}
-		if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("delete evicted session: %w", err)
-		}
+	toRemove := s.index[len(s.index)-1]
 
-		s.index = s.index[:len(s.index)-1]
-		if err := s.saveIndexLocked(); err != nil {
-			return fmt.Errorf("save index after eviction: %w", err)
+	sessionPath, err := safeSessionPath(s.dir, toRemove.ID)
+	if err != nil {
+		return fmt.Errorf("validate evicted session id: %w", err)
+	}
+	sessionDir, err := safeSessionDir(s.dir, toRemove.ID)
+	if err != nil {
+		return fmt.Errorf("validate evicted session id: %w", err)
+	}
+	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete evicted session: %w", err)
+	}
+
+	return s.finishRemovalLocked(toRemove.ID, sessionDir)
+}
+
+// finishRemovalLocked completes the removal of a session whose JSON file is
+// already gone. It drops the session from the index, removes its history
+// directory, and persists the index. The index is persisted even when history
+// removal fails, so it never lists a session without a JSON file. When both
+// removal and the index save fail, both errors are returned.
+func (s *Store) finishRemovalLocked(id, sessionDir string) error {
+	for i, entry := range s.index {
+		if entry.ID == id {
+			s.index = append(s.index[:i], s.index[i+1:]...)
+			break
 		}
 	}
 
-	return nil
+	var historyErr, saveErr error
+	if err := removeAll(sessionDir); err != nil {
+		historyErr = fmt.Errorf("delete session history: %w", err)
+	}
+	if err := s.saveIndexLocked(); err != nil {
+		saveErr = fmt.Errorf("save index: %w", err)
+	}
+	return errors.Join(historyErr, saveErr)
 }
 
 // saveIndexLocked writes the index file atomically.
