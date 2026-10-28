@@ -17,7 +17,8 @@ import (
 // ClearConversation, RequestContextReport,
 // RequestConfigReport, TriggerManualCompaction, RequestExit, SetSkillEnabled,
 // SwitchMode, SwitchOrchestrationLevel, SwitchModel, SwitchProfile,
-// SubmitApproval, SubmitWorkflowHandoff, LoadSession, and requestSessionPicker.
+// SubmitApproval, SubmitWorkflowHandoff, LoadSession, RequestHistoryRecall,
+// and requestSessionPicker.
 func (s *Session) Handle(ctx context.Context, action Action) error {
 	if handled, err := s.handleImmediateAction(ctx, action); handled {
 		return err
