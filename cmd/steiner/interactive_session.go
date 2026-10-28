@@ -24,6 +24,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/quota"
 	"github.com/luispabon/steiner/internal/sandbox"
+	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/skill"
 	"github.com/luispabon/steiner/internal/tui"
 	"github.com/luispabon/steiner/internal/update"
@@ -351,6 +352,12 @@ func newOneshotRunnerFactoryBuilder(cmd *cobra.Command, flags *cliFlags, project
 }
 
 func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
+	// The archive resolves the session ID on every call, so a fork or resume
+	// that changes the session is reflected in later compactions.
+	var historyArchive agent.HistoryArchive
+	if rt.sessionStore != nil {
+		historyArchive = session.NewHistoryArchive(rt.sessionStore, sess.SessionID)
+	}
 	runner := cliRunner{
 		runtime:                  rt,
 		runMode:                  "interactive",
@@ -365,6 +372,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		orchestrationLevelFn:     sess.OrchestrationLevel,
 		staticContext:            &prompt.StaticContextCache{},
 		cacheBaseline:            agent.NewCacheBaselineStore(),
+		historyArchive:           historyArchive,
 	}
 	runner.approver = sess.Approver(rt.events)
 	if rt.mcpState != nil {
