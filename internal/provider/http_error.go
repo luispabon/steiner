@@ -68,6 +68,9 @@ func isCallerContextError(ctx context.Context, err error) bool {
 // connection. It matches net.ErrClosed by identity and falls back to the
 // message for errors that lost the sentinel through formatting.
 func isClosedConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
 	if errors.Is(err, net.ErrClosed) {
 		return true
 	}

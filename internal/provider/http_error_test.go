@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -86,6 +87,46 @@ func TestIsRetryableHTTPStatus(t *testing.T) {
 		if got := isRetryableHTTPStatus(tt.status); got != tt.want {
 			t.Fatalf("isRetryableHTTPStatus(%d) = %v, want %v", tt.status, got, tt.want)
 		}
+	}
+}
+
+func TestIsClosedConnectionError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "sentinel", err: net.ErrClosed, want: true},
+		{name: "text", err: errors.New("write tcp: use of closed network connection"), want: true},
+		{name: "ordinary error", err: errors.New("permanent"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isClosedConnectionError(tt.err); got != tt.want {
+				t.Fatalf("isClosedConnectionError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClassifyProviderErrorDecodeWrappedClosedConnection(t *testing.T) {
+	closedErr := &net.OpError{Op: "read", Net: "tcp", Err: net.ErrClosed}
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "closed connection", err: closedErr, want: true},
+		{name: "decode chunk wrapping closed connection", err: fmt.Errorf("%w: %w", errDecodeStreamChunk, closedErr), want: false},
+		{name: "unexpected end decode wrapping closed connection", err: fmt.Errorf("%w: %w", errDecodeStreamChunkUnexpected, closedErr), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyProviderError(context.Background(), tt.err, 0).retry; got != tt.want {
+				t.Fatalf("classifyProviderError().retry = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

@@ -339,6 +339,10 @@ func classifyProviderError(ctx context.Context, err error, retryAfterMax time.Du
 	if errors.Is(err, errDecodeChatCompletionResponse) || errors.Is(err, errResponsesStreamFailed) {
 		return retryDecision{}
 	}
+	// Decode failures stay non-retryable even when they wrap a closed connection.
+	if isDecodeError(err) && isClosedConnectionError(err) {
+		return retryDecision{}
+	}
 	if errors.Is(err, errResponsesStreamFailedTransient) {
 		return retryDecision{retry: true, reason: err.Error()}
 	}

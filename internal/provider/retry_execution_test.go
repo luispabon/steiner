@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -662,22 +663,16 @@ func TestOpenAICompatChatCompletionDoesNotRetryClosedNetworkConnectionOnCallerCa
 	}
 }
 
-func TestOpenAICompatStreamChatCompletionRetriesClosedConnectionAfterVisibleOutput(t *testing.T) {
+func TestOpenAICompatStreamChatCompletionDoesNotRetryClosedConnectionAfterVisibleOutput(t *testing.T) {
 	const firstChunk = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"
 	closedErr := &net.OpError{Op: "read", Net: "tcp", Err: net.ErrClosed}
-	transport := &scriptedTransport{script: func(attempt int32, _ *http.Request) (*http.Response, error) {
-		if attempt == 1 {
-			body := io.MultiReader(strings.NewReader(firstChunk), failingReader{err: closedErr})
-			return testResponse("text/event-stream", body), nil
-		}
-		return testResponse("text/event-stream", strings.NewReader(
-			"data: {\"choices\":[{\"delta\":{\"content\":\"world\"}}]}\n\n"+
-				"data: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\n"+
-				"data: [DONE]\n\n")), nil
+	transport := &scriptedTransport{script: func(int32, *http.Request) (*http.Response, error) {
+		body := io.MultiReader(strings.NewReader(firstChunk), failingReader{err: closedErr})
+		return testResponse("text/event-stream", body), nil
 	}}
 	provider := mustRetryTestOpenAICompat(t, "http://provider.test", RetryConfig{
 		Enabled:        true,
-		MaxAttempts:    2,
+		MaxAttempts:    3,
 		InitialBackoff: time.Millisecond,
 		MaxBackoff:     time.Millisecond,
 	})
@@ -691,12 +686,12 @@ func TestOpenAICompatStreamChatCompletionRetriesClosedConnectionAfterVisibleOutp
 		t.Fatalf("StreamChatCompletion() error = %v", err)
 	}
 
-	var retryResets []ChatChunk
+	var retryResets int
 	var content strings.Builder
 	var final ChatChunk
 	for chunk := range ch {
 		if chunk.RetryReset {
-			retryResets = append(retryResets, chunk)
+			retryResets++
 		}
 		// The Done chunk repeats the final attempt's accumulated content, so only
 		// streamed deltas are counted.
@@ -705,20 +700,17 @@ func TestOpenAICompatStreamChatCompletionRetriesClosedConnectionAfterVisibleOutp
 		}
 		final = chunk
 	}
-	if got := atomic.LoadInt32(&transport.attempts); got != 2 {
-		t.Fatalf("attempts = %d, want 2", got)
+	if got := atomic.LoadInt32(&transport.attempts); got != 1 {
+		t.Fatalf("attempts = %d, want 1", got)
 	}
-	if len(retryResets) != 1 {
-		t.Fatalf("retry reset chunks = %d, want 1", len(retryResets))
+	if retryResets != 0 {
+		t.Fatalf("retry reset chunks = %d, want 0", retryResets)
 	}
-	if got := retryResets[0].RetryAttempt; got != 2 {
-		t.Fatalf("retry reset attempt = %d, want 2", got)
-	}
-	if got, want := content.String(), "helloworld"; got != want {
+	if got, want := content.String(), "hello"; got != want {
 		t.Fatalf("content = %q, want %q", got, want)
 	}
-	if !final.Done || final.Error != "" {
-		t.Fatalf("final chunk = %+v, want successful done", final)
+	if !final.Done || !errors.Is(final.OriginalError, net.ErrClosed) {
+		t.Fatalf("final chunk = %+v, want done with closed connection error", final)
 	}
 }
 
@@ -745,6 +737,7 @@ func TestOpenAICompatStreamChatCompletionDoesNotRetryClosedConnectionOnCallerCan
 		sleeps++
 		return nil
 	}
+	logPath := attachStreamErrorLog(t, provider)
 
 	ch, err := provider.StreamChatCompletion(ctx, ChatRequest{
 		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
@@ -769,6 +762,156 @@ func TestOpenAICompatStreamChatCompletionDoesNotRetryClosedConnectionOnCallerCan
 	if sleeps != 0 {
 		t.Fatalf("retry sleeps = %d, want 0", sleeps)
 	}
+
+	// The terminal error is recorded even though no chunk may reach a
+	// cancelled caller, so the diagnostics record is the deterministic check.
+	records := readStreamErrorRecords(t, logPath)
+	if len(records) != 1 {
+		t.Fatalf("stream error log records = %d, want 1", len(records))
+	}
+	if got, want := records[0].Outcome, "cancelled"; got != want {
+		t.Errorf("outcome = %q, want %q", got, want)
+	}
+	if !strings.Contains(records[0].Error, "use of closed network connection") {
+		t.Errorf("error = %q, want closed network connection error", records[0].Error)
+	}
+}
+
+func TestOpenAICompatStreamChatCompletionRetriesClosedConnectionBeforeContent(t *testing.T) {
+	closedErr := &net.OpError{Op: "read", Net: "tcp", Err: net.ErrClosed}
+	transport := &scriptedTransport{script: func(attempt int32, _ *http.Request) (*http.Response, error) {
+		if attempt == 1 {
+			return testResponse("text/event-stream", failingReader{err: closedErr}), nil
+		}
+		return testResponse("text/event-stream", strings.NewReader(
+			"data: {\"choices\":[{\"delta\":{\"content\":\"world\"}}]}\n\n"+
+				"data: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\n"+
+				"data: [DONE]\n\n")), nil
+	}}
+	provider := mustRetryTestOpenAICompat(t, "http://provider.test", RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    2,
+		InitialBackoff: time.Millisecond,
+		MaxBackoff:     time.Millisecond,
+	})
+	provider.httpClient = &http.Client{Transport: transport}
+	logPath := attachStreamErrorLog(t, provider)
+
+	ch, err := provider.StreamChatCompletion(context.Background(), ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("StreamChatCompletion() error = %v", err)
+	}
+
+	var retryResets int
+	var content strings.Builder
+	var final ChatChunk
+	for chunk := range ch {
+		if chunk.RetryReset {
+			retryResets++
+		}
+		if !chunk.Done {
+			content.WriteString(chunk.Delta.Content)
+		}
+		final = chunk
+	}
+	if got := atomic.LoadInt32(&transport.attempts); got != 2 {
+		t.Fatalf("attempts = %d, want 2", got)
+	}
+	if retryResets != 0 {
+		t.Fatalf("retry reset chunks = %d, want 0 before visible output", retryResets)
+	}
+	if got, want := content.String(), "world"; got != want {
+		t.Fatalf("content = %q, want %q", got, want)
+	}
+	if !final.Done || final.Error != "" {
+		t.Fatalf("final chunk = %+v, want successful done", final)
+	}
+
+	records := readStreamErrorRecords(t, logPath)
+	if len(records) != 1 {
+		t.Fatalf("stream error log records = %d, want 1", len(records))
+	}
+	if got, want := records[0].Outcome, "retried"; got != want {
+		t.Errorf("outcome = %q, want %q", got, want)
+	}
+	if got, want := records[0].Attempts, 2; got != want {
+		t.Errorf("attempts = %d, want %d", got, want)
+	}
+	if records[0].ErrorClass != "" {
+		t.Errorf("error_class = %q, want empty on success", records[0].ErrorClass)
+	}
+}
+
+func TestOpenAICompatStreamChatCompletionExhaustsClosedConnectionBeforeContent(t *testing.T) {
+	closedErr := &net.OpError{Op: "read", Net: "tcp", Err: net.ErrClosed}
+	transport := &scriptedTransport{script: func(int32, *http.Request) (*http.Response, error) {
+		return testResponse("text/event-stream", failingReader{err: closedErr}), nil
+	}}
+	provider := mustRetryTestOpenAICompat(t, "http://provider.test", RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    2,
+		InitialBackoff: time.Millisecond,
+		MaxBackoff:     time.Millisecond,
+	})
+	provider.httpClient = &http.Client{Transport: transport}
+	logPath := attachStreamErrorLog(t, provider)
+
+	ch, err := provider.StreamChatCompletion(context.Background(), ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("StreamChatCompletion() error = %v", err)
+	}
+
+	var retryResets int
+	var final ChatChunk
+	for chunk := range ch {
+		if chunk.RetryReset {
+			retryResets++
+		}
+		final = chunk
+	}
+	if got := atomic.LoadInt32(&transport.attempts); got != 2 {
+		t.Fatalf("attempts = %d, want 2", got)
+	}
+	if retryResets != 0 {
+		t.Fatalf("retry reset chunks = %d, want 0 before visible output", retryResets)
+	}
+	if !final.Done || !errors.Is(final.OriginalError, net.ErrClosed) {
+		t.Fatalf("final chunk = %+v, want done with closed connection error", final)
+	}
+
+	records := readStreamErrorRecords(t, logPath)
+	if len(records) != 1 {
+		t.Fatalf("stream error log records = %d, want 1", len(records))
+	}
+	if got, want := records[0].Outcome, "exhausted"; got != want {
+		t.Errorf("outcome = %q, want %q", got, want)
+	}
+	if got, want := records[0].Attempts, 2; got != want {
+		t.Errorf("attempts = %d, want %d", got, want)
+	}
+	if got, want := records[0].ErrorClass, "connection_reset"; got != want {
+		t.Errorf("error_class = %q, want %q", got, want)
+	}
+}
+
+// attachStreamErrorLog points provider at a diagnostics log in a temp dir and
+// returns the log path.
+func attachStreamErrorLog(t *testing.T, provider *Client) string {
+	t.Helper()
+	logPath := filepath.Join(t.TempDir(), "stream-errors.log")
+	streamErrorLog, err := NewStreamErrorLogger(logPath)
+	if err != nil {
+		t.Fatalf("NewStreamErrorLogger() error = %v", err)
+	}
+	t.Cleanup(func() { _ = streamErrorLog.Close() })
+	provider.streamErrorLog = streamErrorLog
+	return logPath
 }
 
 func mustRetryTestOpenAICompat(t *testing.T, baseURL string, retry RetryConfig) *Client {
