@@ -20,8 +20,11 @@ func specializedToolNameSet() map[string]bool {
 	return tools
 }
 
-// SummarizeToolArgs returns a one-line human-readable summary of a tool call's
+// SummarizeToolArgs returns a human-readable summary of a tool call's
 // arguments, as shown in sub-agent boxes and the compacted history archive.
+// The summary is not guaranteed to be one line: argument values such as a
+// multi-line delegate objective can contain embedded newlines. Callers that
+// need a single line normalize it themselves (the history archive does).
 // It returns "" when args is empty.
 func SummarizeToolArgs(tool string, args map[string]any) string {
 	tool = strings.ToLower(strings.TrimSpace(tool))
