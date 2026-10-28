@@ -1,6 +1,6 @@
 # LSP-backed code intelligence internals
 
-User-facing documentation: [LSP-backed code intelligence](../user/lsp.md).
+User guide: [LSP-backed code intelligence](../user/lsp.md).
 
 ## Sessions and readiness
 
@@ -16,10 +16,12 @@ Diagnostics come from `publishDiagnostics` pushes after `didOpen`, not pull diag
 
 `ToolDefs` (`internal/lsp/tooldef.go`) returns seven definitions in deterministic order. `lsp_symbols` with `file` calls `textDocument/documentSymbol` and filters by `query`. With only `query`, `WorkspaceSymbols` queries enabled servers concurrently and merges results best-effort. An existing session for a server is reused (`existingSessionKeyForServer`) rather than spawning another root.
 
-## Environment, storage, and calibration
+## Environment and storage
 
-Stderr goes to `<session log>-lsp<ext>` (`ServerLogPath`) when logging is configured. Otherwise `selectServerStderr` (`cmd/steiner/runtime_build_mcp.go`) discards it when `asyncMCP` is set and sends it to `os.Stderr` in other runs.
+Stderr goes to `<session log minus extension>-lsp<ext>` when logging is configured (`ServerLogPath`, `internal/lsp/server_log.go`); `.log` is used when the session log has no extension. Otherwise `selectServerStderr` (`cmd/steiner/runtime_build_mcp.go`) discards it when `asyncMCP` is set and sends it to `os.Stderr` in other runs.
 
-`buildServerEnv` inherits the steiner environment, applies `srv.Env`, and points `HOME`, `XDG_CACHE_HOME`, and `GOCACHE` at the cache directory unless `srv.Env` sets them. `cacheDirFor` (`internal/lsp/cache.go`) uses `<cache_dir or os.UserCacheDir()>/steiner/lsp/<16 hex of sha256(root)>`, mode 0o700. Non-test code never removes it.
+`buildServerEnv` (`internal/lsp/manager.go`) inherits the steiner environment and applies `srv.Env`. Unless `srv.Env` sets them, `HOME` and `XDG_CACHE_HOME` point at the cache directory and `GOCACHE` at its `go` subdirectory. `cacheDirFor` (`internal/lsp/cache.go`) uses `<cache_dir or os.UserCacheDir()>/steiner/lsp/<16 hex of sha256(root)>`, mode 0o700. Non-test code never removes it.
 
-`idle_timeout` is policy. The defaults for `request_timeout`, `ready_timeout`, `ready_grace_period`, and `diagnostics_window` are calibrated by the harness `internal/lsp/calibrate_manual_test.go`, which sits behind the `lspcalib` build tag. Run it with `go test -tags lspcalib ./internal/lsp/ -run TestCalibrate -v -timeout 30m`. It needs gopls: `resolveGopls` checks `STEINER_LSP_CALIB_GOPLS`, then `PATH`, `$GOBIN`, and `$GOPATH/bin`.
+## Calibration
+
+The four timeout defaults in `internal/config/defaults.go` (`request_timeout`, `ready_timeout`, `ready_grace_period`, `diagnostics_window`) come from the harness `internal/lsp/calibrate_manual_test.go`. It sits behind the `lspcalib` build tag, so `go test ./...` skips it. Run it with `go test -tags lspcalib ./internal/lsp/ -run TestCalibrate -v -timeout 30m`. It needs gopls: `resolveGopls` checks `STEINER_LSP_CALIB_GOPLS`, then `PATH`, `$GOBIN`, and `$GOPATH/bin`. `idle_timeout` is policy, not calibrated.

@@ -1,16 +1,16 @@
 # Desktop notifications internals
 
-User-facing documentation: [Desktop notifications](../user/desktop-notifications.md).
+User guide: [Desktop Notifications](../user/desktop-notifications.md).
 
 ## Service
 
-`notify.New` calls `newDriver(opts)` directly; there is no driver registry. A disabled config uses `stubDriver`. `Notify` returns the driver's error. The TUI calls `notifyBlocking` (`internal/tui/model_events_approval.go`, `internal/tui/model_events_workflow.go`), which runs `Notify` in a goroutine and discards the error with `_ =`, so delivery failures are not logged.
+`notify.New` calls `newDriver(opts)` directly; there is no driver registry. A disabled config uses `stubDriver`. `Notify` returns the driver's error. `notifyBlocking` (`internal/tui/model_events.go`) runs `Notify` in a goroutine and discards the error with `_ =`, so delivery failures are not logged. It is called from `internal/tui/model_events_approval.go` and `internal/tui/model_events_workflow.go`.
 
 `Availability()` is read by the TUI at init (`internal/tui/model_init.go`), not by the service. The notifier is always built (`cmd/steiner/interactive_session.go`), so a disabled config still shows a `desktop notifications: <reason>` line.
 
-## Configuration and triggers
+## Notification content
 
-`desktop_notifications.enabled` and `desktop_notifications.duration` (seconds, non-negative) configure the service, which is built with `AppName: "steiner"`. `expireTimeout` maps a duration of zero or less to `ExpireTimeoutNever`. Triggers are tool approval (`Tool approval required: <tool>`) and workflow handoff (`workflow handoff requested`). `Project` is the base name of the working directory; `Branch` is the sidebar branch.
+The service is built with `AppName: "steiner"` (`cmd/steiner/interactive_session.go`). `expireTimeout` maps a duration of zero or less to `ExpireTimeoutNever`. Trigger strings are `Tool approval required: <tool>` and `workflow handoff requested`. `Project` is the base name of the working directory; `Branch` is the sidebar branch.
 
 ## Driver interface
 
