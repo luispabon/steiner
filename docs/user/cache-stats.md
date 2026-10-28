@@ -84,4 +84,4 @@ A missing file starts empty. A corrupt or unknown-version file starts empty with
 
 Only token counts, provider/model identity, and an hourly timestamp are stored. Prompt text, completion text, user input, file contents, and other session data are never stored by cache statistics.
 
-For provider transports, storage schema, diagnostics machinery, and measurement history, see [Cache statistics internals](../internals/cache-stats.md).
+For provider transports, cache identity, and storage schema, see [Prompt caching internals](../internals/prompt-caching.md).
