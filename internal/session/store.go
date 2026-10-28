@@ -28,6 +28,9 @@ const (
 // chmod is os.Chmod, swappable so tests can simulate ownership failures.
 var chmod = os.Chmod
 
+// removeAll is os.RemoveAll, swappable so tests can simulate history removal failures.
+var removeAll = os.RemoveAll
+
 // secureExistingFiles tightens permissions on session and index files
 // created by older versions with world-readable modes. It is best-effort:
 // files we cannot chmod (root-owned after a sudo run, root-squash mounts) are
@@ -197,11 +200,11 @@ func (s *Store) Delete(id string) error {
 	if err != nil {
 		return fmt.Errorf("validate session id: %w", err)
 	}
+	if err := removeAll(sessionDir); err != nil {
+		return fmt.Errorf("delete session history: %w", err)
+	}
 	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete session file: %w", err)
-	}
-	if err := os.RemoveAll(sessionDir); err != nil {
-		return fmt.Errorf("delete session history: %w", err)
 	}
 
 	for i, entry := range s.index {
@@ -260,8 +263,8 @@ func (s *Store) AppendHistory(id, header, chunk string) (string, error) {
 	return path, nil
 }
 
-// writeHistoryChunk writes header then chunk to f. The header is skipped when f
-// already has content.
+// writeHistoryChunk writes header then chunk to f and syncs f to disk before
+// returning. The header is skipped when f already has content.
 func writeHistoryChunk(f *os.File, header, chunk string) error {
 	info, err := f.Stat()
 	if err != nil {
@@ -274,6 +277,9 @@ func writeHistoryChunk(f *os.File, header, chunk string) error {
 	}
 	if _, err := f.WriteString(chunk); err != nil {
 		return fmt.Errorf("write history chunk: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("sync history file: %w", err)
 	}
 	return nil
 }
@@ -365,31 +371,36 @@ func (s *Store) updateIndexLocked(session Session) error {
 	return s.saveIndexLocked()
 }
 
-// evictOldestLocked removes the oldest session if more than maxSessions exist.
+// evictOldestLocked removes the oldest sessions while more than maxSessions
+// exist. Each eviction removes the history directory, then the JSON, then
+// persists the index, so a failed removal leaves the index matching the files
+// still on disk.
 func (s *Store) evictOldestLocked() error {
-	if len(s.index) <= maxSessions {
-		return nil
+	for len(s.index) > maxSessions {
+		toRemove := s.index[len(s.index)-1]
+
+		sessionPath, err := safeSessionPath(s.dir, toRemove.ID)
+		if err != nil {
+			return fmt.Errorf("validate evicted session id: %w", err)
+		}
+		sessionDir, err := safeSessionDir(s.dir, toRemove.ID)
+		if err != nil {
+			return fmt.Errorf("validate evicted session id: %w", err)
+		}
+		if err := removeAll(sessionDir); err != nil {
+			return fmt.Errorf("delete evicted session history: %w", err)
+		}
+		if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("delete evicted session: %w", err)
+		}
+
+		s.index = s.index[:len(s.index)-1]
+		if err := s.saveIndexLocked(); err != nil {
+			return fmt.Errorf("save index after eviction: %w", err)
+		}
 	}
 
-	toRemove := s.index[len(s.index)-1]
-	s.index = s.index[:len(s.index)-1]
-
-	sessionPath, err := safeSessionPath(s.dir, toRemove.ID)
-	if err != nil {
-		return fmt.Errorf("validate evicted session id: %w", err)
-	}
-	sessionDir, err := safeSessionDir(s.dir, toRemove.ID)
-	if err != nil {
-		return fmt.Errorf("validate evicted session id: %w", err)
-	}
-	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("delete evicted session: %w", err)
-	}
-	if err := os.RemoveAll(sessionDir); err != nil {
-		return fmt.Errorf("delete evicted session history: %w", err)
-	}
-
-	return s.saveIndexLocked()
+	return nil
 }
 
 // saveIndexLocked writes the index file atomically.

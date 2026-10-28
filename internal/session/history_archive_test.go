@@ -137,6 +137,35 @@ func TestHistoryArchiveRejectsEmptySessionID(t *testing.T) {
 	}
 }
 
+func TestHistoryArchiveNonEmptySourceRenderingBlank(t *testing.T) {
+	// A tool result is non-empty but RenderHistory omits its body, so the
+	// source renders blank.
+	source := []agent.Message{{Role: agent.MessageRoleTool, Content: "large tool output"}}
+	if got := RenderHistory(source); got != "" {
+		t.Fatalf("test source renders %q, want blank", got)
+	}
+
+	store := newArchiveTestStore(t)
+	archive := NewHistoryArchive(store, func() string { return "sess" })
+	note, err := archive.Note(source)
+	if err != nil {
+		t.Fatalf("Note failed: %v", err)
+	}
+	if note != "" {
+		t.Errorf("Note() = %q, want empty", note)
+	}
+	if err := archive.Append(context.Background(), source); err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+	path, err := store.HistoryPath("sess")
+	if err != nil {
+		t.Fatalf("HistoryPath failed: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("Append wrote the archive file for blank rendering: stat err = %v", err)
+	}
+}
+
 func TestHistoryArchiveFollowsCurrentSessionID(t *testing.T) {
 	store := newArchiveTestStore(t)
 	current := "first"
