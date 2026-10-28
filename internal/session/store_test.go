@@ -1253,10 +1253,10 @@ func TestAppendHistoryTightensExistingModes(t *testing.T) {
 }
 
 // AppendHistory must still append when chmod fails on the directory or the
-// open archive, and must log a warning for each failure. The descriptor chmod
-// must run before any write, so the archive still holds its old content when
-// fchmod is called. Not parallel: the test swaps the chmod and fchmod seams and
-// the process-wide default slog logger.
+// open archive, and must log a warning for each failure. Both chmod calls must
+// run before the write, so the archive still holds its old content when either
+// is called. Not parallel: the test swaps the chmod and fchmod seams and the
+// process-wide default slog logger.
 func TestAppendHistoryChmodFailureStillAppends(t *testing.T) {
 	store, err := NewStore(t.TempDir())
 	if err != nil {
@@ -1268,38 +1268,43 @@ func TestAppendHistoryChmodFailureStillAppends(t *testing.T) {
 
 	var logs bytes.Buffer
 	prevLogger := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(prevLogger) })
 
 	origChmod, origFchmod := chmod, fchmod
 	t.Cleanup(func() { chmod, fchmod = origChmod, origFchmod })
-	var dirCalls, fileCalls int
+	var calls []string
+	// assertOldContent checks that the archive is unmodified when call runs.
+	assertOldContent := func(call string) {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("read history before %s: %v", call, err)
+		} else if string(got) != existing {
+			t.Errorf("history before %s = %q, want old content %q", call, got, existing)
+		}
+	}
 	chmod = func(name string, mode os.FileMode) error {
-		dirCalls++
+		calls = append(calls, "chmod")
 		if name != sessionDir || mode != dirMode {
 			t.Errorf("chmod(%q, %o), want chmod(%q, %o)", name, mode, sessionDir, dirMode)
 		}
+		assertOldContent("chmod")
 		return os.ErrPermission
 	}
 	fchmod = func(f *os.File, mode os.FileMode) error {
-		fileCalls++
+		calls = append(calls, "fchmod")
 		if f.Name() != path || mode != fileMode {
 			t.Errorf("fchmod(%q, %o), want fchmod(%q, %o)", f.Name(), mode, path, fileMode)
 		}
-		before, err := os.ReadFile(path)
-		if err != nil {
-			t.Errorf("read history before fchmod: %v", err)
-		} else if string(before) != existing {
-			t.Errorf("history before fchmod = %q, want old content %q", before, existing)
-		}
+		assertOldContent("fchmod")
 		return os.ErrPermission
 	}
 
 	if _, err := store.AppendHistory("chmod-fail", "HEADER\n", "second\n"); err != nil {
 		t.Fatalf("AppendHistory with failing chmod = %v, want append to succeed", err)
 	}
-	if dirCalls != 1 || fileCalls != 1 {
-		t.Errorf("chmod seams called dir=%d file=%d times, want 1 each", dirCalls, fileCalls)
+	if want := []string{"chmod", "fchmod"}; !slices.Equal(calls, want) {
+		t.Errorf("chmod calls = %v, want %v", calls, want)
 	}
 
 	got, err := os.ReadFile(path)
@@ -1310,12 +1315,30 @@ func TestAppendHistoryChmodFailureStillAppends(t *testing.T) {
 		t.Errorf("history file = %q, want %q", got, want)
 	}
 
-	for _, want := range []string{
-		`level=WARN msg="session store: cannot tighten session directory permissions" dir=` + sessionDir + ` error="permission denied"`,
-		`level=WARN msg="session store: cannot tighten history file permissions" file=` + path + ` error="permission denied"`,
+	// Decode the JSON records rather than matching text, so the check does not
+	// depend on how a handler quotes paths that contain spaces.
+	warnings := map[string]map[string]any{}
+	dec := json.NewDecoder(bytes.NewReader(logs.Bytes()))
+	for dec.More() {
+		var rec map[string]any
+		if err := dec.Decode(&rec); err != nil {
+			t.Fatalf("decode log record: %v; logs = %q", err, logs.String())
+		}
+		if msg, ok := rec["msg"].(string); ok {
+			warnings[msg] = rec
+		}
+	}
+	for _, w := range []struct{ msg, attr, value string }{
+		{"session store: cannot tighten session directory permissions", "dir", sessionDir},
+		{"session store: cannot tighten history file permissions", "file", path},
 	} {
-		if !strings.Contains(logs.String(), want) {
-			t.Errorf("logs = %q, want record containing %q", logs.String(), want)
+		rec, ok := warnings[w.msg]
+		if !ok {
+			t.Errorf("no log record with msg %q; logs = %q", w.msg, logs.String())
+			continue
+		}
+		if rec["level"] != "WARN" || rec[w.attr] != w.value || rec["error"] != os.ErrPermission.Error() {
+			t.Errorf("record %q = %v, want level WARN, %s %q, error %q", w.msg, rec, w.attr, w.value, os.ErrPermission.Error())
 		}
 	}
 }
