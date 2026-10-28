@@ -139,11 +139,11 @@ A code change must update its matching docs in the same commit:
 | 1 | `internal/tool`: add/remove/rename a built-in tool | README "Built-in tools"; this file's "Built-in tools" list; sub-agent allowlist tables in docs/user/sub-agent-delegation.md if the tool appears there |
 | 2 | `internal/config`: add/change/remove a field | docs/user/configuration.md detailed field entry; compact reference in `skills/configure/SKILL.md`; defaults section if defaults changed; README config examples if a commonly-used field; if a prompt-injection toggle — also docs/user/optional-features.md and the README "Other features" one-liner |
 | 3 | `internal/delegation`: add/remove a sub-agent type or change a tool allowlist | docs/user/sub-agent-delegation.md types table; docs/internals/sub-agent-delegation.md if architecture/bootstrapping/tool construction changed; README sub-agent delegation tool table |
-| 4 | `internal/prompt`: change compaction, budgets, or context-management behaviour | docs/user/context-management.md if user-facing; docs/internals/context-management.md for internal behaviour; README "Context management" section if the high-level description changed |
+| 4 | `internal/prompt` or `internal/agent`: change prompt assembly, compaction, budgets, token estimation, or context-management behaviour | docs/user/context-management.md if user-facing; docs/internals/context-management.md for internal behaviour; README "Context management" section if the high-level description changed |
 | 5 | New top-level feature, or a new package under `internal/` | README feature section; a docs/ page if it warrants detail; a new package gets an entry in the Repo map above; a new row in this table |
 | 6 | `internal/oneshot`: engine, phases, manifest fields, lock/resume, closeout, or reports | docs/user/oneshot.md if user-facing; docs/internals/oneshot.md for internal behaviour; if a config field changed — also docs/user/configuration.md and the `oneshot` example in README |
 | 7 | `internal/usagestats`: recorder, bucketing, persistence, retention, windows, or surfacing | docs/user/cache-stats.md; docs/internals/prompt-caching.md; README "Cache hit rate tracking" if the high-level behaviour changed |
-| 8 | `internal/notify`: platform driver or Service behaviour | docs/user/desktop-notifications.md if user-facing; docs/internals/desktop-notifications.md if the driver interface/extension points changed; README "Desktop notifications" section if the high-level description changed |
+| 8 | `internal/notify`: platform driver or Service behaviour | docs/user/desktop-notifications.md if user-facing; docs/internals/desktop-notifications.md if the driver interface, extension points, lifecycle, or error handling changed; README "Desktop notifications" section if the high-level description changed |
 | 9 | `internal/oauth`: flow, token store, refresh, or PKCE | docs/user/optional-features.md "Codex OAuth" section if setup steps/token storage changed; docs/user/configuration.md provider types table if auth behaviour changed |
 | 10 | Optional feature change (accent colour, web search, image paste, conversation forking, code simplification, Codex OAuth) | docs/user/optional-features.md's section; README "Other features" one-liner if the summary changed |
 | 11 | Execution mode change (plan/build enforcement, mode-switching UX, `modes.default`) | docs/user/execution-modes.md; docs/internals/execution-modes.md; README "Execution modes" section if the high-level description changed; docs/user/sub-agent-delegation.md Safety section if the `code`/`follow_up` denial scope changed |
@@ -158,6 +158,16 @@ A code change must update its matching docs in the same commit:
 | 21 | `internal/provider`: cache hints, `PromptCacheKey` assignment, or cache identity (Codex `session-id`/`thread-id` headers, Anthropic `cache_control` breakpoints) | docs/internals/prompt-caching.md; docs/user/cache-stats.md if user-visible cache behaviour changed |
 | 22 | `internal/sandbox`: mounts, env, or wrapper resolution | docs/user/sandboxing.md; docs/internals/sandboxing.md |
 | 23 | `internal/advisor`: request flow, budgets, or cache profile | docs/user/advisor.md; docs/internals/advisor.md |
+| 24 | `internal/config` load, merge, or validation pipeline; model metadata resolution (`internal/metadata`, `internal/modelcatalog`, provider fact sources) | docs/internals/configuration.md; docs/user/configuration.md if user-visible precedence or behaviour changed |
+
+Rules for `docs/internals/` pages:
+
+* Describe current behaviour only. No history, change narratives ("previously", "now", "legacy"), dates, issue numbers, measurement logs, or planned work; git and the issue tracker hold those.
+* Verify every claim against code before writing it. Drop what you cannot verify.
+* Cite symbols and file paths, never `file:line`.
+* Each concept has one owning page; link to it instead of restating it. Link `docs/user/` pages instead of repeating user-facing behaviour.
+* Keep pages compact: responsibilities, data flow, invariants, and non-obvious behaviour. No tutorials or essays.
+* When renaming or removing a page or heading, update inbound links and anchors in docs, README, AGENTS.md, and Go comments.
 
 **16.** `delegationInstructions`/consumer-file changes (`internal/prompt/system.go`'s `delegationInstructions`, `internal/prompt/specialists.go`'s `specialists` slice, or any of `skills/{implement,review,simplify,plan,pull-request}/SKILL.md`, `internal/oneshot/prompts/*.md`):
 
