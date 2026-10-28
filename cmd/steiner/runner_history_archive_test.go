@@ -75,6 +75,14 @@ func TestWireInteractiveRunnerArchiveFollowsSessionID(t *testing.T) {
 	parentID := sess.SessionID()
 	assertArchiveNoteNamesSession(t, archive, source, store, parentID)
 
+	parentSource := []agent.Message{{Role: agent.MessageRoleUser, Content: "parent archived request"}}
+	if err := archive.Append(context.Background(), parentSource); err != nil {
+		t.Fatalf("Append() before fork error = %v", err)
+	}
+	if got := readArchivedHistory(t, store, parentID); !strings.Contains(got, "parent archived request") {
+		t.Fatalf("parent history = %q, want the pre-fork append", got)
+	}
+
 	submit(t, sess, "first question")
 	waitRuns(t, sess)
 	if err := sess.Handle(context.Background(), interactive.ForkSession{}); err != nil {
@@ -85,6 +93,31 @@ func TestWireInteractiveRunnerArchiveFollowsSessionID(t *testing.T) {
 		t.Fatal("fork kept the parent session ID")
 	}
 	assertArchiveNoteNamesSession(t, archive, source, store, forkID)
+
+	forkSource := []agent.Message{{Role: agent.MessageRoleUser, Content: "fork archived request"}}
+	if err := archive.Append(context.Background(), forkSource); err != nil {
+		t.Fatalf("Append() after fork error = %v", err)
+	}
+	if got := readArchivedHistory(t, store, forkID); !strings.Contains(got, "fork archived request") {
+		t.Fatalf("fork history = %q, want the post-fork append", got)
+	}
+	if got := readArchivedHistory(t, store, parentID); strings.Contains(got, "fork archived request") {
+		t.Fatalf("parent history = %q, want no post-fork append", got)
+	}
+}
+
+// readArchivedHistory returns the contents of the history file for id.
+func readArchivedHistory(t *testing.T, store *session.Store, id string) string {
+	t.Helper()
+	path, err := store.HistoryPath(id)
+	if err != nil {
+		t.Fatalf("HistoryPath(%q) error = %v", id, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(history) error = %v", err)
+	}
+	return string(data)
 }
 
 // assertArchiveNoteNamesSession checks that the archive's note for source names

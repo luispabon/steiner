@@ -485,6 +485,45 @@ func eventTypes(events []output.Event) []string {
 	return types
 }
 
+// TestManualCompactionSummaryNoteSurvivesIntoSummaryPrefix proves the history
+// note a compaction appends to its summary reaches the new generation's
+// SummaryPrefix unchanged, so later turns keep the pointer to the archive.
+func TestManualCompactionSummaryNoteSurvivesIntoSummaryPrefix(t *testing.T) {
+	t.Parallel()
+
+	const archivePath = "/home/user/.config/steiner/sessions/sess-1/history.md"
+	note := agent.HistoryNoteMarker + " Conversation before this summary is archived at " + archivePath + " (markdown, oldest first, tool results omitted). If a detail you need is missing from this summary, grep that file and read the matching lines."
+	summary := "Summary of the earlier work.\n\n" + note
+	compacted := []agent.Message{
+		{Role: agent.MessageRoleSummary, Content: summary},
+		{Role: agent.MessageRoleUser, Content: "new"},
+	}
+	runner := &runExecutorFunc{compact: func(context.Context, []agent.Message, []provider.ToolSpec) ([]agent.Message, error) {
+		return cloneMessages(compacted), nil
+	}}
+	s := mustCompactionSession(t, Dependencies{Runner: runner, Config: config.Config{Models: config.ModelsConfig{Effective: config.EffectiveModelAssignments{DefaultModel: "test"}, Definitions: map[string]config.ModelConfig{"test": {ID: "test"}}}}})
+	conversation := twoTurnConversation()
+	seedConversation(s, conversation, agent.ConversationLineage{
+		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: cloneMessages(conversation)}},
+		NextGenerationID: 2,
+	})
+
+	compactAndWait(t, s, "")
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.lineage.Generations) != 2 {
+		t.Fatalf("generations = %d, want 2 (old + new)", len(s.lineage.Generations))
+	}
+	gen2 := s.lineage.Generations[1]
+	if len(gen2.SummaryPrefix) != 1 {
+		t.Fatalf("generation 2 SummaryPrefix = %+v, want the summary only", gen2.SummaryPrefix)
+	}
+	if got := gen2.SummaryPrefix[0].Content; got != summary {
+		t.Fatalf("SummaryPrefix content = %q, want the full note-bearing summary %q", got, summary)
+	}
+}
+
 func TestManualCompactionPreservesLineageAndAddsNewGeneration(t *testing.T) {
 	t.Parallel()
 
