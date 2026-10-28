@@ -1,6 +1,6 @@
-# Subscription usage dashboard internals
+# Usage dashboard internals
 
-User reference: [Subscription usage dashboard](../user/usage-dashboard.md).
+User guide: [Subscription usage dashboard](../user/usage-dashboard.md).
 
 ## Package and wiring
 
@@ -39,7 +39,6 @@ In `cmd/steiner`, `runtime_build.go` builds the service and store, and `primeQuo
 ## TUI wiring
 
 - `openUsageOverlay` shows cached views and starts `RefreshAll` under a 30-second context. Views are read only in commands (`loadUsageViewsCmd`, `usageRunFinishedCmd`). `handleQuotaUpdateMsg` calls `Updates()`, a capacity-one channel whose notifications coalesce, and checks overlay state.
-- A row shows a spinner and `refreshing…` while its account or the overlay is refreshing. That takes precedence over age. Settled rows show `updated <age> ago`, then any `unavailable: <err>`.
 - `needsTicking` includes `IsOpen() && refreshing()`. `handleTickMsg` advances the spinner only while open and refreshing. Closing keys start no ticker.
-- `usageRunFinishedCmd` runs on run-finished events. It returns nil when there is no service or the interval is not positive. Otherwise it calls `RefreshUsed` with that interval as the minimum snapshot age.
+- `usageRunFinishedCmd` runs on run-finished events. It returns nil when there is no service or the interval is not positive. Otherwise it calls `RefreshUsed` with that interval as the minimum snapshot age. `RefreshUsed` fetches only accounts whose alias the run marked through `MarkUsed`, and skips those whose latest snapshot is newer than the interval (`internal/quota/service_fetch.go`).
 - `tui.quota_refresh_interval` (default `5m`) is validated by `validateTUIConfig`, which rejects negative values and accepts zero. `quotaTUIConfig` passes it to the TUI. Opening the dashboard and pressing `r` do not read it.

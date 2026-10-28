@@ -1,6 +1,6 @@
 # Configuration internals
 
-User reference: [Configuration](../user/configuration.md). This page covers loading, trust gating, and model fact resolution.
+User guide: [Configuration](../user/configuration.md).
 
 ## Load pipeline
 
@@ -38,13 +38,14 @@ The trust store is `~/.config/steiner/trusted_projects.json`, keyed by absolute,
 
 | Fact | Precedence |
 | --- | --- |
-| Context window, max output tokens | config, provider model catalog, discovery (Ollama live probe), models.dev, fallback |
+| Context window | config, provider model catalog, discovery (Ollama live probe), models.dev, fallback |
+| Max output tokens | config, provider model catalog, discovery (Ollama live probe), models.dev, fallback only when the context window also fell back, otherwise unknown |
 | Vision | config, models.dev, unknown |
-| Reasoning efforts | config, provider model catalog, models.dev, unknown |
+| Reasoning efforts | config, provider model catalog, models.dev, built-in OpenAI reasoning family table (`builtinSource`), unknown |
 | Reasoning echo-back | config, models.dev, unknown (false) |
 | Transport | config (including the Codex fixed override), models.dev npm-based override, configured provider type |
 
-The limits fallback is `defaultContextWindow` and `DefaultMaxOutputTokens` at confidence `low`, with the note `conservative default`. The catalog source reads through the `provider.ModelCatalog` interface (`CatalogModel`).
+The context-window fallback is `defaultContextWindow` at confidence `low`, with the note `conservative default`. `DefaultMaxOutputTokens` gets the same fallback only when the context window also fell back (`applyFactDefaults`). Otherwise an unresolved max output stays unknown. The catalog source reads through the `provider.ModelCatalog` interface (`CatalogModel`).
 
 Generic profiles (`openai_compat`, `ollama`, `litellm`) have no fixed models.dev ID. Their lookup first tries the alias as a strict provider key. Only `not_found` or `provider_mismatch` falls back to `Index.LookupMerged`, which merges all providers' entries: minimum positive context window and max output, AND of vision and echo-back, and the intersection of reasoning efforts. A merged result has confidence `low`, a provider-count note, and no transport override. A malformed strict result is never replaced by a merge. Named providers use their fixed `ModelsDevID`.
 
