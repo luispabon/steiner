@@ -1,6 +1,6 @@
 # Diagnostics internals
 
-User reference: [diagnostics block](../user/configuration.md#diagnostics-block) and [logging block](../user/configuration.md#logging-block). This page covers routing, file layout, and the analysis tooling.
+User guide: [Configuration](../user/configuration.md#diagnostics-block).
 
 ## Logging handler
 
@@ -34,7 +34,7 @@ Retention runs once when a `Writer` opens and `retention_days` is positive. For 
 
 ## TUI frame stats
 
-`internal/tui/frame_stats.go` times each `Update` and the `View` after it. Messages are classified by bounded names: `key`, `tick`, `sync_debounce`, `resize_reflow`, `runtime_event:<type>`, `window_size`, `composer_blink`, `session_tick`, `drag_autoscroll`, `jump_flash`, `paste`, `mouse_wheel`, `mouse_raw`, and `other:<Go type>`.
+`internal/tui/frame_stats.go` times each `Update` and the `View` after it. Messages are classified by bounded names: `key`, `tick`, `sync_debounce`, `resize_reflow`, `runtime_event:<type>`, `window_size`, `composer_blink`, `session_tick`, `drag_autoscroll`, `jump_flash`, `paste`, `mouse_wheel`, `mouse_click`, `mouse_release`, `mouse_motion`, `mouse_raw`, and `other:<Go type>`.
 
 Each 10-second window keeps count, sum, max, and a 15-bucket histogram per name. Bucket bounds run from 50 µs to 512 ms, and the last bucket is open. Finished windows go to a writer goroutine through a queue of 8. A full queue drops the window and counts it in `dropped_windows`. The sink is `tui.FrameStatsSink`, implemented by `*diagnostics.Writer`.
 
@@ -43,11 +43,11 @@ Each 10-second window keeps count, sum, max, and a 15-bucket histogram per name.
 `scripts/diagnostics.mjs <mode> [flags]` is stdlib-only Node with no build step. Its header lists every flag. Modes:
 
 - `cache`, `provider`, `tools`: hit rates, retries, latency percentiles, and failure reasons.
-- `coldturns`: joins `cache` and `tool` records to classify turns that read nothing from cache. A group is adequate with at least `--min-n` long-delegation turns (default 10). Interpretation is in [prompt caching](prompt-caching.md).
+- `coldturns`: joins `cache` and `tool` records to classify turns that read nothing from cache. A joined pair counts as a long-delegation turn when its delegated call lasts at least `LONG_DELEGATION_MS` (240 s). A group is adequate with at least `--min-n` such turns (default 10). Interpretation is in [prompt caching](prompt-caching.md).
 - `prefix <logfile>`: per turn, `APPEND-ONLY`, or `BREAK-AT-N` when the common prefix with the preceding turn is N messages.
 - `mutate` (`diagnostics_mutate.mjs`): groups `tool` records into assistant messages. A new message starts when `turn` changes, and a repeated turn after `/clear` starts a new message. Runs without `turn` use the pre-attribution rule and are labelled approximate.
 - `tui` (`diagnostics_tui.mjs`): per-name p50 and p95 from bucket upper bounds, max, CPU time, and share of wall time. `TUI_BUCKET_BOUNDS_MS` mirrors the Go bounds, so change both together.
 
-`--compare <shaA> <shaB>` uses `build_sha` and is rejected with `prefix` and `coldturns`.
+`--compare <shaA> <shaB>` uses `build_sha` and is rejected with `prefix`, `coldturns`, and `mutate`.
 
-Shared fixtures live in `testdata/diagnostics/`: a flat set covering every stream, plus `coldturns/`, `coldturns_seq/` (where `ts` order differs from `seq` order), and `mutate/`. `TestSharedFixturesDecode` checks each record's kind and non-nil payload. `scripts/diagnostics_test.mjs` checks row counts and hand-computed aggregates. `make test-scripts` runs the Node tests.
+Shared fixtures live in `testdata/diagnostics/`: a flat set covering the `cache`, `provider`, `tool`, and `tui` streams, plus `coldturns/`, `coldturns_seq/` (where `ts` order differs from `seq` order), and `mutate/`. No fixture covers the `internal` stream. `TestSharedFixturesDecode` checks each record's kind and non-nil payload. `scripts/diagnostics_test.mjs` checks row counts and hand-computed aggregates. `make test-scripts` runs the Node tests.
