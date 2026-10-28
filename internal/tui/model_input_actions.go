@@ -69,9 +69,11 @@ func (m *Model) executeCompactAction(action inputAction) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
+// executeReportAction sends a report request to the controller and resets the
+// input. Controller errors are appended to the conversation.
+func (m *Model) executeReportAction(action interactive.Action) (tea.Model, tea.Cmd) {
 	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.RequestConfigReport{}); err != nil {
+		if err := m.controller.Handle(context.Background(), action); err != nil {
 			m.appendError(err)
 		}
 	}
@@ -81,16 +83,12 @@ func (m *Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
+	return m.executeReportAction(interactive.RequestConfigReport{})
+}
+
 func (m *Model) executeRecallAction() (tea.Model, tea.Cmd) {
-	if m.controller != nil {
-		if err := m.controller.Handle(context.Background(), interactive.RequestHistoryRecall{}); err != nil {
-			m.appendError(err)
-		}
-	}
-	m.input.Reset()
-	m.relayoutInput()
-	m.syncViewport()
-	return m, nil
+	return m.executeReportAction(interactive.RequestHistoryRecall{})
 }
 
 func (m *Model) executeListSkillsAction() (tea.Model, tea.Cmd) {
