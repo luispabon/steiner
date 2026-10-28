@@ -24,6 +24,7 @@ type HistoryArchive interface {
 
 // StripHistoryNotes removes every history note line from summary, so the note
 // appended for the current compaction is the only one the summary carries.
+// The remaining text is trimmed of surrounding whitespace.
 func StripHistoryNotes(summary string) string {
 	var kept []string
 	for _, line := range strings.Split(summary, "\n") {

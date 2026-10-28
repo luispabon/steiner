@@ -27,7 +27,7 @@ How Steiner's packages fit together and how one turn moves through them. Topic d
 | Persistence | `session` | `agent`, `delegation`, `fsatomic`, `prompt`, `tool` |
 | Presentation | `output`, `tui` | `output`: `prompt`, `provider`, `tool`, `usagestats`; `tui`: `agent`, `interactive`, `output` |
 
-`tool` and `provider` never import `agent`. `prompt` never imports `delegation`. `session` imports `delegation` only in `history_render.go`, for tool-argument summaries when archived history is rendered.
+`tool` and `provider` never import `agent`. `prompt` never imports `delegation`. `session` imports `delegation` only in `history_render.go`, for tool-argument summaries and delegation failure classification when archived history is rendered.
 
 ## Turn lifecycle
 
