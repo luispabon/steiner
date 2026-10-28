@@ -45,7 +45,7 @@ Fields:
 | `enabled` | `false` | Enables the advisor tool and advisor prompt steering. |
 | `max_uses_per_run` | `3` | Per-session call cap, enforced across every turn in the process. Required to be at least `1` when enabled. |
 | `max_tokens` | `nil` | Optional output-token limit forwarded to the advisor provider request. |
-| `timeout` | `180s` | Optional HTTP timeout override applied only to advisor calls. |
+| `timeout` | `180s` | Optional HTTP timeout override applied only to advisor calls. It applies to each attempt; retries can repeat it up to the advisor model's `retry.max_attempts`, plus the backoff waits between attempts. |
 
 The advisor model is assigned in the selected profile's `models.profiles.<name>.advisor` field. When omitted or empty, it falls back to that profile's `default_model`. Model references use the same model configuration and provider discovery path as other runtime models.
 
