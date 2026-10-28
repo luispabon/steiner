@@ -303,3 +303,132 @@ func TestTimeoutRetryRespectsCallerDeadline(t *testing.T) {
 		})
 	}
 }
+
+// headerResponseHeaderTimeout exercises Transport.ResponseHeaderTimeout
+// directly. A provider Timeout config cannot be used here: NewOpenAICompat
+// clones the client and clears ResponseHeaderTimeout when Timeout is set.
+const headerResponseHeaderTimeout = 100 * time.Millisecond
+
+func TestResponseHeaderTimeoutRetries(t *testing.T) {
+	tests := []struct {
+		name         string
+		stream       bool
+		maxAttempts  int
+		stallAll     bool
+		wantAttempts int32
+		wantSleeps   int
+		wantErr      bool
+	}{
+		{name: "chat completion recovers", maxAttempts: 2, wantAttempts: 2, wantSleeps: 1},
+		{name: "chat completion exhausts", maxAttempts: 3, stallAll: true, wantAttempts: 3, wantSleeps: 2, wantErr: true},
+		{name: "streaming recovers", stream: true, maxAttempts: 2, wantAttempts: 2, wantSleeps: 1},
+		{name: "streaming exhausts", stream: true, maxAttempts: 3, stallAll: true, wantAttempts: 3, wantSleeps: 2, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			release := make(chan struct{})
+			var requests int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				attempt := atomic.AddInt32(&requests, 1)
+				if tt.stallAll || attempt == 1 {
+					<-release
+					return
+				}
+				if tt.stream {
+					writeTestChatStream(w)
+					return
+				}
+				writeTestChatCompletion(w)
+			}))
+			defer server.Close()
+			defer close(release)
+
+			provider := mustRetryTestOpenAICompat(t, server.URL, RetryConfig{
+				Enabled:        true,
+				MaxAttempts:    tt.maxAttempts,
+				InitialBackoff: time.Millisecond,
+				MaxBackoff:     time.Millisecond,
+			})
+			client := &http.Client{Transport: &http.Transport{
+				ResponseHeaderTimeout: headerResponseHeaderTimeout,
+			}}
+			provider.httpClient = client
+			defer client.CloseIdleConnections()
+
+			var sleeps int
+			provider.sleep = func(context.Context, time.Duration) error {
+				sleeps++
+				return nil
+			}
+
+			if tt.stream {
+				ch, err := provider.StreamChatCompletion(context.Background(), ChatRequest{
+					Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+					Stream:   true,
+				})
+				if err != nil {
+					t.Fatalf("StreamChatCompletion() error = %v", err)
+				}
+
+				var final *ChatChunk
+				var sawContent bool
+				var sawDone bool
+				var retryResets int
+				for chunk := range ch {
+					if chunk.RetryReset {
+						retryResets++
+					}
+					if chunk.Delta.Content != "" {
+						sawContent = true
+					}
+					if chunk.Done {
+						sawDone = true
+					}
+					c := chunk
+					final = &c
+				}
+				if retryResets != 0 {
+					t.Fatalf("retry reset chunks = %d, want 0 before any content", retryResets)
+				}
+				if tt.wantErr {
+					if !sawDone || final == nil || final.Error == "" || !errors.Is(final.OriginalError, context.DeadlineExceeded) {
+						t.Fatalf("final chunk = %+v, want done with response header timeout", final)
+					}
+				} else {
+					if !sawContent || !sawDone {
+						t.Fatalf("stream content = %v, done = %v, want both", sawContent, sawDone)
+					}
+					if final != nil && final.Error != "" {
+						t.Fatalf("unexpected stream error = %v", final.Error)
+					}
+				}
+			} else {
+				resp, err := provider.ChatCompletion(context.Background(), ChatRequest{
+					Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+				})
+				if tt.wantErr {
+					if err == nil {
+						t.Fatal("ChatCompletion() error = nil, want response header timeout")
+					}
+					if !errors.Is(err, context.DeadlineExceeded) {
+						t.Fatalf("error = %v, want context.DeadlineExceeded", err)
+					}
+				} else {
+					if err != nil {
+						t.Fatalf("ChatCompletion() error = %v", err)
+					}
+					if got, want := resp.Message.Content, "ok"; got != want {
+						t.Fatalf("content = %q, want %q", got, want)
+					}
+				}
+			}
+
+			if got := atomic.LoadInt32(&requests); got != tt.wantAttempts {
+				t.Fatalf("requests = %d, want %d", got, tt.wantAttempts)
+			}
+			if sleeps != tt.wantSleeps {
+				t.Fatalf("retry sleeps = %d, want %d", sleeps, tt.wantSleeps)
+			}
+		})
+	}
+}
