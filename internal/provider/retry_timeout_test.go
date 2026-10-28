@@ -501,3 +501,156 @@ func TestStreamChatCompletionDoesNotRetryClientTimeoutAfterContent(t *testing.T)
 		t.Fatalf("retry sleeps = %d, want 0", sleeps)
 	}
 }
+
+func TestStreamChatCompletionResetsPartialStateBetweenAttempts(t *testing.T) {
+	release := make(chan struct{})
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		switch atomic.AddInt32(&requests, 1) {
+		case 1:
+			// Visible content, then EOF without a final chunk: a retryable
+			// non-deadline error that leaves the attempt partial.
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"first\"}}]}\n\n")
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		case 2:
+			// Pre-content response header timeout. A stale partial flag from
+			// attempt 1 would wrongly suppress this retry.
+			<-release
+		default:
+			writeTestChatStream(w)
+		}
+	}))
+	defer server.Close()
+	defer close(release)
+
+	provider := mustRetryTestOpenAICompat(t, server.URL, RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    3,
+		InitialBackoff: time.Millisecond,
+		MaxBackoff:     time.Millisecond,
+	})
+	client := &http.Client{Transport: &http.Transport{
+		ResponseHeaderTimeout: headerResponseHeaderTimeout,
+	}}
+	provider.httpClient = client
+	defer client.CloseIdleConnections()
+	var sleeps int
+	provider.sleep = func(context.Context, time.Duration) error {
+		sleeps++
+		return nil
+	}
+
+	ch, err := provider.StreamChatCompletion(context.Background(), ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("StreamChatCompletion() error = %v", err)
+	}
+
+	var final *ChatChunk
+	var retryResets []ChatChunk
+	var sawFirst, sawStream bool
+	for chunk := range ch {
+		if chunk.RetryReset {
+			retryResets = append(retryResets, chunk)
+		}
+		switch chunk.Delta.Content {
+		case "first":
+			sawFirst = true
+		case "hello":
+			sawStream = true
+		}
+		c := chunk
+		final = &c
+	}
+	if got := atomic.LoadInt32(&requests); got != 3 {
+		t.Fatalf("requests = %d, want 3", got)
+	}
+	if sleeps != 2 {
+		t.Fatalf("retry sleeps = %d, want 2", sleeps)
+	}
+	if len(retryResets) != 1 {
+		t.Fatalf("retry reset chunks = %d, want 1 (only the partial attempt)", len(retryResets))
+	}
+	if got := retryResets[0]; got.RetryAttempt != 2 || got.RetryMaxAttempts != 3 {
+		t.Fatalf("retry reset attempt = %d, max = %d, want attempt 2, max 3", got.RetryAttempt, got.RetryMaxAttempts)
+	}
+	if !sawFirst || !sawStream {
+		t.Fatalf("content = first:%v stream:%v, want both", sawFirst, sawStream)
+	}
+	if final == nil || !final.Done || final.Error != "" {
+		t.Fatalf("final chunk = %+v, want successful done", final)
+	}
+}
+
+func TestStreamWithRetryCallerDeadlineAfterContentIsTerminal(t *testing.T) {
+	release := make(chan struct{})
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+
+	provider := mustRetryTestOpenAICompat(t, server.URL, RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    3,
+		InitialBackoff: time.Millisecond,
+		MaxBackoff:     time.Millisecond,
+	})
+	// The per-request timeout is far larger than the caller deadline, so the
+	// failing error comes from the caller context.
+	provider.httpClient = &http.Client{Timeout: 5 * time.Second}
+	var sleeps int
+	provider.sleep = func(context.Context, time.Duration) error {
+		sleeps++
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	out := make(chan ChatChunk, 16)
+	err := provider.streamWithRetry(ctx, ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+		Stream:   true,
+	}, out, &providerCallInput{start: time.Now()})
+	close(out)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("streamWithRetry() error = %v, want context.DeadlineExceeded", err)
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Fatalf("requests = %d, want 1", got)
+	}
+	if sleeps != 0 {
+		t.Fatalf("retry sleeps = %d, want 0", sleeps)
+	}
+
+	var sawContent bool
+	var retryResets int
+	for chunk := range out {
+		if chunk.RetryReset {
+			retryResets++
+		}
+		if chunk.Delta.Content != "" {
+			sawContent = true
+		}
+	}
+	if !sawContent {
+		t.Fatal("expected content chunk before the caller deadline")
+	}
+	if retryResets != 0 {
+		t.Fatalf("retry reset chunks = %d, want 0 after visible content", retryResets)
+	}
+}
