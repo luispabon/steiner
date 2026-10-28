@@ -132,10 +132,16 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 // keyed on the phase session ID. It is nil without a session store, so a
 // runtime without one does not wrap a nil store in a non-nil interface.
 func phaseHistoryArchive(rt *cliRuntime, phaseSessionID string) agent.HistoryArchive {
-	if rt.sessionStore == nil {
+	return newHistoryArchive(rt.sessionStore, func() string { return phaseSessionID })
+}
+
+// newHistoryArchive returns the archive for the session that sessionID
+// resolves, or nil when store is nil.
+func newHistoryArchive(store *session.Store, sessionID func() string) agent.HistoryArchive {
+	if store == nil {
 		return nil
 	}
-	return session.NewHistoryArchive(rt.sessionStore, func() string { return phaseSessionID })
+	return session.NewHistoryArchive(store, sessionID)
 }
 
 func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (oneshot.RunResult, error) {

@@ -54,7 +54,7 @@ func (s *Session) emitHistoryRecall() {
 		s.events.Emit(output.NewInlineReportEvent(historyReportTitle, fmt.Sprintf("Could not read conversation history: %v", err)))
 		return
 	}
-	if err != nil || strings.TrimSpace(content) == "" {
+	if errors.Is(err, os.ErrNotExist) || strings.TrimSpace(content) == "" {
 		s.events.Emit(output.NewInlineReportEvent(historyReportTitle, noHistoryReportText))
 		return
 	}
