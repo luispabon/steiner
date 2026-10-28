@@ -123,7 +123,7 @@ Uncommitted paths: %s`, cfg.WorktreePath, cfg.ExpectedBranch, preHEAD, strings.J
 	remedState, remErr := runner.Run(ctx, remedReq)
 	runUsage = runUsage.Add(tokenUsageOf(remedState))
 	state = remedState
-	tc.add("remediation", "remediation run complete", runStateFields(ctx, remedState, remErr))
+	tc.add("remediation", "remediation run complete", runStateFields(ctx.Err(), remedState, remErr))
 
 	stillDirty, dirtyErr := cfg.IsDirty(ctx)
 	committed, committedErr := cfg.Committed(ctx, preHEAD, dirty)
