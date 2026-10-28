@@ -127,10 +127,10 @@ func defaultConfig(env map[string]string) Config {
 		MCP: MCPConfig{
 			Enabled: true,
 		},
-		// The four timeouts below are calibrated against gopls v0.23.0; see
-		// docs/user/lsp.md "Timeout calibration" for the measurements and
-		// internal/lsp/calibrate_manual_test.go for the harness that produced
-		// them. IdleTimeout is a policy choice, not a measurement.
+		// The four timeouts below come from the calibration harness in
+		// internal/lsp/calibrate_manual_test.go; see
+		// docs/internals/lsp.md "Calibration". IdleTimeout is a policy
+		// choice, not a measurement.
 		LSP: LSPConfig{
 			Enabled:           false,
 			IdleTimeout:       MustDuration("5m"),

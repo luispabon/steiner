@@ -340,8 +340,8 @@ Codex-specific configuration. Applies only when `type: codex`.
 
 | Field                  | Type            | Default  | Description                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ---------------------- | --------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `min_request_interval` | duration string | `"0"`    | Minimum interval enforced between consecutive Codex requests. Defaults to `0` (disabled). When set to a positive duration (e.g., `4s`), enforces a minimum gap between requests and serialises them. Affects only bursts; has no effect on interactive use where think-time already far exceeds any sensible interval. Has no effect on cache hit rate (see [cache statistics internals](../internals/cache-stats.md#request-pacing)). |
-| `transport`            | string          | `"http"` | Transport used for Codex requests. Valid values: `http` (default), `websocket`. `http`: use HTTP-only transport. `websocket`: use the WebSocket transport, with no HTTP fallback — failures return an error rather than silently degrading. Opt-in and experimental; see [cache statistics internals](../internals/cache-stats.md#request-pacing) for why it is not the default.                                                       |
+| `min_request_interval` | duration string | `"0"`    | Minimum interval enforced between consecutive Codex requests. Defaults to `0` (disabled). When set to a positive duration (e.g., `4s`), enforces a minimum gap between requests and serialises them. Affects only bursts; has no effect on interactive use where think-time already far exceeds any sensible interval. Has no effect on cache hit rate (see [prompt caching internals](../internals/prompt-caching.md#request-pacing)). |
+| `transport`            | string          | `"http"` | Transport used for Codex requests. Valid values: `http` (default), `websocket`. `http`: use HTTP-only transport. `websocket`: use the WebSocket transport, with no HTTP fallback — failures return an error rather than silently degrading. Opt-in and experimental; see [prompt caching internals](../internals/prompt-caching.md#request-pacing) for why it is not the default.                                                       |
 
 ---
 
@@ -1079,7 +1079,7 @@ Provider records (`provider.jsonl`) carry `call_kind` for `claude_subscription` 
 
 Usage-bearing responses produce `cache.jsonl` records when `streams.cache` is enabled. Cache payloads include `upstream_endpoint` when reported by the gateway, `message_count` for the exact outbound request, and `call_kind` (`compaction` for compaction escalation; omitted for normal calls). Compaction diagnostics report usage but do not advance the prefix-comparison baseline. These records never contain prompt content or the prompt cache key.
 
-See [Configuration internals](../internals/configuration.md#analyzing-diagnostics)
+See [Diagnostics internals](../internals/diagnostics.md#analyzing-diagnostics)
 for analysis modes and script checks.
 
 ---

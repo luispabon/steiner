@@ -1,68 +1,25 @@
-# Desktop Notifications — Internals
+# Desktop notifications internals
 
-User-facing documentation: [Desktop Notifications](../user/desktop-notifications.md).
+User guide: [Desktop Notifications](../user/desktop-notifications.md).
 
-## Adding a new platform driver
+## Service
 
-Desktop notification delivery is pluggable via build-tag drivers. Each platform implements a driver that registers with the notification service at startup.
+`notify.New` calls `newDriver(opts)` directly; there is no driver registry. A disabled config uses `stubDriver`. `Notify` returns the driver's error. `notifyBlocking` (`internal/tui/model_events.go`) runs `Notify` in a goroutine and discards the error with `_ =`, so delivery failures are not logged. It is called from `internal/tui/model_events_approval.go` and `internal/tui/model_events_workflow.go`.
 
-### File structure
+`Availability()` is read by the TUI at init (`internal/tui/model_init.go`), not by the service. The notifier is always built (`cmd/steiner/interactive_session.go`), so a disabled config still shows a `desktop notifications: <reason>` line.
 
-Create a new file `internal/notify/notify_<platform>.go` with the `//go:build <platform>` directive:
+## Notification content
 
-```go
-//go:build linux
+The service is built with `AppName: "steiner"` (`cmd/steiner/interactive_session.go`). `expireTimeout` maps a duration of zero or less to `ExpireTimeoutNever`. Trigger strings are `Tool approval required: <tool>` and `workflow handoff requested`. `Project` is the base name of the working directory; `Branch` is the sidebar branch.
 
-package notify
+## Driver interface
 
-import "context"
+`driver` (`internal/notify/notify.go`) has `notify(ctx, Notification, time.Duration) error` and `available() (bool, string)`. `Notification` carries `Project`, `Branch`, and `Reason`.
 
-func newDriver(opts Options) driver {
-    // Return a driver implementation
-    return &linuxDriver{...}
-}
-```
+Linux (`notify_linux.go`, `//go:build linux`): `newDriver` checks `DBUS_SESSION_BUS_ADDRESS`, connects to the session bus, and checks `GetNameOwner` for `org.freedesktop.Notifications`. Each failure returns `stubDriver` with a reason. The notification's `Focus` default action calls `focusTerminal`: it is skipped on Wayland (`WAYLAND_DISPLAY`); otherwise it runs `xdotool windowactivate` using `WINDOWID` if found, else `wmctrl -a steiner`. Failures are ignored, and `focusTimeout` bounds the command.
 
-### Driver interface
+Non-Linux (`notify_unsupported.go`, `//go:build !linux`): `newDriver` returns `stubDriver`.
 
-Each driver must implement the unexported `driver` interface:
+## Adding a platform driver
 
-```go
-import (
-    "context"
-    "time"
-)
-
-type driver interface {
-    // notify sends a notification with the given timeout duration.
-    // ctx is the service context and should be respected for cancellation.
-    // d is the display duration (0 = permanent/sticky).
-    // Errors are logged but never fatal.
-    notify(ctx context.Context, n Notification, d time.Duration) error
-
-    // available reports whether this driver's platform supports notifications.
-    // Returns (available, reason) where reason is a human-readable string
-    // explaining why notifications are unavailable (e.g. "no D-Bus session",
-    // "SSH session detected"). Used in startup checks and logging.
-    available() (bool, string)
-}
-```
-
-### Notification type
-
-Drivers receive a `Notification` struct:
-
-```go
-type Notification struct {
-    Project string // working directory basename, e.g. "myapp"
-    Branch  string // current git branch, e.g. "main"
-    Reason  string // human-readable trigger, e.g. "Tool approval required: bash"
-}
-```
-
-### Integration
-
-1. Implement `notify` and `available` on your driver.
-2. Return the driver from `newDriver(opts Options) driver`.
-3. The service automatically registers the driver at startup and calls `available()` to determine if notifications can be delivered.
-4. If `available()` returns `false`, a single non-fatal warning is emitted and all future notify calls no-op gracefully.
+Add `internal/notify/notify_<platform>.go` with a `//go:build <platform>` constraint, and exclude that platform from the `notify_unsupported.go` constraint. Implement `newDriver(opts Options) driver` and both methods. No registration is needed.

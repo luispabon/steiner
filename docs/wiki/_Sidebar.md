@@ -3,6 +3,7 @@
 - [Documentation](docs-index)
 - [Installation](user-installation)
 - [Getting started](user-getting-started)
+- [Provider and model setup](user-provider-and-model-setup)
 - [Updates](user-updates)
 - [CLI reference](user-cli)
 - [Configuration](user-configuration)
@@ -26,16 +27,26 @@
 - [Desktop notifications](user-desktop-notifications)
 - [Images](user-images)
 - [Optional features](user-optional-features)
+- [Subscription usage dashboard](user-usage-dashboard)
+- [TUI background](user-tui-background)
 
 **Internals**
 - [Internals index](internals-index)
-- [Claude subscription internals](internals-claude-subscription)
+- [Architecture](internals-architecture)
 - [Context management](internals-context-management)
+- [Prompt caching](internals-prompt-caching)
 - [Sub-agent delegation](internals-sub-agent-delegation)
+- [Execution modes](internals-execution-modes)
+- [Sandboxing](internals-sandboxing)
+- [Configuration](internals-configuration)
+- [Diagnostics](internals-diagnostics)
 - [Oneshot](internals-oneshot)
+- [Advisor](internals-advisor)
+- [MCP](internals-mcp)
+- [LSP](internals-lsp)
+- [Claude subscription](internals-claude-subscription)
+- [Usage dashboard](internals-usage-dashboard)
 - [Desktop notifications](internals-desktop-notifications)
 
-**Maintenance and research**
+**Maintenance**
 - [Canon drift checks](maintenance-canon-drift-checks)
-- [Gap report and research milestones](research-gap-report-research-milestones)
-- [Image handling research](research-image-handling)

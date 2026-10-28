@@ -1,48 +1,32 @@
 # MCP servers internals
 
-User-facing documentation: [MCP servers](../user/mcp.md).
+User guide: [MCP servers](../user/mcp.md).
 
-## Package map and naming
+## Naming, filtering, and approval
 
-`internal/mcp` owns client connections, transport selection, naming, filtering, approval, output bounds, and state. `cmd/steiner` wires the manager, runtime initialization, interactive approver, and child-agent exposure. `internal/sandbox` wraps local stdio processes. `internal/tui` renders status, overlay, and warnings. `internal/config` loads defaults and validation.
+`ToolName` (`internal/mcp/naming.go`) replaces each rune outside `[A-Za-z0-9_-]` with `_`. If a segment changed or the name exceeds 64 characters, each segment is truncated within a 47-character budget and an 8-hex SHA-256 suffix over the original `server\x00tool` is appended. A name depends only on its own server and tool.
 
-`internal/mcp/naming.go` sanitizes every rune outside `[A-Za-z0-9_-]` to `_`. If the composed `mcp__server__tool` exceeds 64 characters or either segment changes, it truncates to the budget and appends an 8-hex SHA-256 suffix over the original `server\x00tool` inputs. The hash is a pure function of those inputs, so a failed server cannot change another server's names. This prevents collisions from lossy sanitization and truncation.
+`filterTools` (`internal/mcp/connect.go`) applies `allowed_tools`, then `blocked_tools`; user rules are in [sandboxing and tool filtering](../user/mcp.md#sandboxing-and-tool-filtering). It warns once per configured name the server did not advertise. Tools whose input schema exceeds `maxInputSchemaBytes` (64 KiB) or cannot be marshalled are skipped with a warning (`internal/mcp/manager.go`).
 
-## Approval and filtering wiring
+`mcpHandler` (`internal/mcp/tooldef.go`) checks, in order: `deny` (fails closed), `allow` outside plan mode, `trust_annotations`, a nil approver (`approval_denied`), then the prompt. The plan-mode check reads a live closure, so a mode switch applies without rebuilding the registry; `allow` falls through to the prompt while plan mode is active. With `trust_annotations`, a call skips the prompt when `ReadOnlyHint` is true, or when `DestructiveHint` and `OpenWorldHint` are both explicitly false; nil hints count as true. Previews sort top-level keys, truncate strings to 60 runes, and collapse nested values to `{...}`. `always_allow` grants are keyed `server\x00tool` and held in memory by the interactive wiring (`internal/interactive/wiring.go`). Approval rules are in [approval model](../user/mcp.md#approval-model).
 
-Approval is selected per server. `allow` is downgraded to `ask` when the live plan-mode closure reports plan mode; `deny` prevents registration and the handler also fails closed if a stale definition remains. Approval previews sort top-level keys, truncate strings to 60 runes, and collapse nested values. Session grants use the original `server\x00tool` pair, not the registry name, and are held by the interactive wiring only. A nil approver returns `approval_denied`. Annotation trust is opt-in: `readOnlyHint` can bypass approval only when enabled, while omitted `destructiveHint` and `openWorldHint` default to true.
+Each call is bounded by the per-tool timeout keyed `mcp__server__tool` in `ToolTimeouts`, else `ToolTimeoutDefault` (`callMCPTool`). Text content is flattened; image, audio, and resource content become placeholders. Output over `ToolOutputMaxBytes` ends with a `<truncated ...>` marker. An `IsError` result returns `mcp_tool_error`. Timeouts are not transport errors and never trigger reconnect.
 
-`allowed_tools` is applied before `blocked_tools`. Nil and explicit-empty allowlists differ, while missing and explicit-empty `sub_agents` both expose no tools to children. Filter warnings are emitted once per unknown advertised name in sorted order.
+## Lifecycle
 
-## Lifecycle wiring
+The manager connects enabled servers concurrently, bounding each attempt (connection, initial tool list, and definition creation) by `connect_timeout`, or `DefaultConnectTimeout` when unset (`internal/mcp/client.go`). Non-interactive runtime construction waits on `WaitInit` before freezing the registry. Interactive sessions connect asynchronously; `mcpInitOnce` (`cmd/steiner/interactive_session.go`) waits and registers connected definitions on the first turn. Until then, `mcpStateProducer` (`cmd/steiner/interactive_mcp_state.go`) publishes states-only snapshots.
 
-The manager connects enabled servers concurrently. Each attempt covers initialization and the initial tool list under `connect_timeout`. Non-interactive runtime construction waits for `WaitInit` before freezing the registry. Interactive construction starts asynchronous connections; the first turn runs `mcpInitOnce`, waits, registers connected definitions, and arms the state producer before the model call. During the earlier states-only window, the sidebar can show `connected` before definitions are registered; the overlay reads advertised tools from the snapshot rather than the registry. Oneshot phase runtimes launched from the TUI do not inherit this: `newPhaseRunner` builds them from a copy of the flags with async MCP disabled, so they wait for `WaitInit` like a standalone `steiner oneshot`.
+A classified transport error starts one sequential fresh-connect worker per server. It does not re-list tools, and the failed call is not replayed; the error tells the caller to verify state. Calls wait for the worker outcome under their own context. After three consecutive failures (`maxReconnectAttempts`, `internal/mcp/reconnect.go`), status becomes unavailable. The tool set is not rebuilt, so the prompt prefix stays stable. `Session.Call` holds its mutex only to read the SDK session, not across the RPC, so calls run in parallel and `Close` never waits behind a hung call.
 
-A classified transport error starts a sequential fresh-connect worker. It does not re-list tools, and the failed call is not replayed. A new session swaps under the existing handle; after three consecutive failures the worker stops and status becomes unavailable. Calls during reconnect wait for the worker outcome under their own timeout. `Session.Call` holds the session mutex only to snapshot the current SDK session, not across the RPC, so calls to one server run in parallel and `Close` never blocks behind a hung call; a transport error only kicks a reconnect when the SDK session it used is still current and the handle is open. The tool set remains frozen through reconnect to preserve prompt-cache prefixes. Startup warning generations are deduplicated by the TUI.
+Statuses: connecting, connected, failed, reconnecting, unavailable, disabled. Tool outcomes: registered, filtered, denied.
 
-Stdio stderr is derived from the session log with a `-mcp` suffix and mode `0o600`; without a log it is discarded for interactive sessions and sent to `os.Stderr` for exec and oneshot. HTTP servers have no subprocess stderr.
+Stdio stderr goes to the session log with a `-mcp` suffix at mode `0o600` (`internal/mcp/server_log.go`). Without a log it is discarded for interactive runs and sent to `os.Stderr` otherwise. Stdio processes are wrapped with `sb.WrapCommandMode(c, true)` (`cmd/steiner/runtime_build_mcp.go`). `BuildMCPExposure` (`cmd/steiner/mcp_exposure.go`) maps `sub_agents` to MCP tool names; the default is closed.
 
-## Deferred features
+## Tests
 
-| Feature | Decision |
-|---|---|
-| OAuth for HTTP | Deferred: no test peer was available; static headers support bearer tokens. |
-| Resources, prompts, sampling, elicitation, roots, completions | Not implemented; only tool discovery and calls are wired. |
-| Persistent approval grants | Deferred; grants remain in memory. Follow-up issues #438 and #439. |
-| Per-tool approval overrides | Deferred; approval is per-server. |
-| `steiner mcp debug` and `steiner mcp add` | Not built. |
-| Live config reload and live enable/disable | Deferred; server set and overlay actions are not dynamic. |
-| Retry when provably safe | Deferred; even `idempotentHint` does not permit replay. |
-| Per-file `mcp/.yaml` | Not implemented; configuration is in one block. |
-| Legacy HTTP+SSE | Not implemented; only Streamable HTTP is supported. |
+MCP tests are hermetic and CI-safe: loopback HTTP and local subprocesses only, with no live services, credentials, or outbound network. Third-party servers and remote endpoints are not exercised.
 
-## Verification fixtures
-
-MCP tests are hermetic and CI-safe. They use loopback HTTP and local subprocesses, with no live services, credentials, or outbound network.
-
-- `TestMCPTransportParity` exercises both transports through Manager and tool calls: initialization, discovery, success, MCP `isError`, and initial connection failure (`internal/mcp/transport_parity_integration_test.go`).
-- `newTestMCPServer` in `internal/mcp/http_test_support_test.go` backs HTTP parity, integration, and lifecycle tests.
-- `TestStdio` uses the independent SDK-free fixture `internal/mcp/testdata/fixtureserver/main.go`; it is the JSON-RPC peer for stdio tests, unlike the SDK-backed HTTP server.
-- Lifecycle tests cover stdio reaping/reconnect and HTTP dropped-session/reconnect. HTTP integration tests cover headers, close, and failure states.
-
-These fixtures do not validate third-party `npx` packages or remote endpoints. Manual e2e work is tracked in #438 and #439.
+- `TestMCPTransportParity` (`transport_parity_integration_test.go`) runs the same contract through the manager for each transport, including an initial connection failure.
+- `newTestMCPServer` (`http_test_support_test.go`) is the loopback HTTP server for HTTP tests.
+- `TestStdio` (`client_integration_test.go`) runs against `testdata/fixtureserver/main.go`, an SDK-free JSON-RPC peer.
+- `TestLifecycle*` (`lifecycle_test.go`) cover stdio child reaping, reconnect and its cap, timeouts without reconnect, and close during reconnect.

@@ -34,7 +34,6 @@ Press `ctrl+o` or run `/usage` in the interactive TUI to see rate-limit windows 
 - [Documentation home](docs/index.md)
 - [User documentation](docs/index.md#user-documentation)
 - [Internals](docs/internals/index.md)
-- [Research](docs/index.md#research)
 
 ## Contributing
 

@@ -1,245 +1,160 @@
-# Oneshot Mode — Internals
+# Oneshot internals
 
-User-facing documentation: [Oneshot Mode](../user/oneshot.md).
+User guide: [Oneshot](../user/oneshot.md).
 
-## Model selection
+Phase behaviour comes from the prompts [`plan.md`](../../internal/oneshot/prompts/plan.md), [`implement.md`](../../internal/oneshot/prompts/implement.md), and [`review.md`](../../internal/oneshot/prompts/review.md). This page covers only what the engine enforces.
 
-A oneshot startup may select a named model profile with `--profile <name>`.
-The selected profile is resolved from the merged configuration before the three
-phases start. Each phase uses its profile `oneshot` assignment, falling back to
-the profile's `default_model` when that phase is omitted. `STEINER_MODEL` and
-`--model` override only the active orchestrator selection and do not replace
-these phase assignments. Interactive `/profile <name>` changes future oneshot
-assignments, but an already running oneshot keeps its resolved phase setup.
+Code: `internal/oneshot` (orchestration), `cmd/steiner` (`cmd_oneshot.go`, `phase_driver.go`, `runtime_build.go`), and `internal/interactive` (`phase_control.go`). Model configuration is in [configuration](../user/configuration.md).
 
-## Architecture
+## Preflight
 
-### Model Preflight
+- `NewOrchestrator` calls `RequireModels` (`preflight.go`) before any run state exists. Each phase needs a model reference from its `oneshot` assignment, falling back to `default_model`. The advisor uses its own assignment, falling back to `default_model`. A blank reference returns `config.ErrNoModelConfigured`. Nothing falls back to the active orchestrator model.
+- `buildRuntimeWithRoots` runs the same check through `preflightRuntimeModels`, so an empty config fails before the worktree, lock, or manifest exists. Errors wrap as `oneshot <phase> phase model: %w` or `oneshot advisor model: %w`.
+- `runOneshotTask` and `runOneshotResume` then call `RequireSubAgents` (fails when sub-agents are disabled) and `RequireProviders` (rejects `claude_subscription` in the default, advisor, oneshot, and sub-agent aliases). `newPhaseRunner` also rejects `claude_subscription` in its provider factory with `ErrClaudeSubscription`.
 
-Before the orchestrator creates any run state, `NewOrchestrator` calls `RequireModels` (`internal/oneshot/preflight.go`). Each phase needs a model reference from its `oneshot` assignment, else the profile's `default_model`. The advisor needs one from its own assignment, else `default_model`. A blank reference returns `config.ErrNoModelConfigured`. An undefined alias returns the model reference error. Nothing falls back to `ActiveOrchestratorModel`.
+## Run identity and provisioning
 
-`cmd/steiner` runs the same check on the loaded config before it builds the runtime for `oneshot` run and resume, so an empty config stops before the worktree, lock, or manifest are created. Interactive and `--exec` runs check only the orchestrator model.
+The run ID is 8 random bytes, hex-encoded (`generateRunID`). The slug comes from `SlugFromTask`: lowercased, runs of non-alphanumerics become `-`, capped at 48 bytes, and `run` when empty.
 
-### Run Identity and Provisioning
+| Item | Value |
+|---|---|
+| Branch | `oneshot/<slug>-<id>` |
+| Worktree | `<project>/.steiner/worktrees/oneshot-<id>` |
+| State dir | `<project>/.steiner/oneshot/<id>` (holds `run.json` and `run.lock`) |
+| Planning dir | `<worktree>/.steiner/plans/oneshot-<id>` |
 
-Each oneshot run receives a unique **run ID** (short slug derived from the task and a timestamp/nonce). The orchestrator derives a **feature slug** and creates:
-
-- **Branch**: `oneshot/<slug>-<id>` (based on the resolved worktree base, preferring `origin/main` and falling back to the local project `HEAD`)
-- **Worktree**: `.steiner/worktrees/oneshot-<id>` (git worktree from the shared `.git`)
-
-The worktree and branch are immutable for the life of the run; concurrent runs never share a branch or worktree.
-
-Per-run locking is atomic and short-lived — acquired during provisioning, held through run setup, and released after the manifest is written. Stale locks are detected and reclaimed via compare-and-swap during resume. While a phase runs, a background heartbeat refreshes the lock every 5 minutes (one third of the 15-minute staleness window); `Heartbeat` and `Release` verify the lock file still carries this run's owner and acquisition time, and a mismatch (`errLockLost`) aborts the phase without touching the foreign lock.
-
-### Sandbox and Worktree
-
-Two distinct concepts work together:
-
-- **Sandbox writable-root**: remains the project root (`.`). This ensures `git status`, `git commit`, and `.steiner/config.yaml` work correctly.
-- **Agent operational directory** (`workDir`): the worktree path (`.steiner/worktrees/oneshot-<id>`). All model interactions, tool invocations, and file mutations happen here.
-
-The agent's prompt contexts reference the worktree path; tool schemas and results are scoped to the worktree. Phase agents resolve the project `AGENTS.md` from the oneshot worktree via `AssemblyOptions.ProjectAgentsPath` (`.steiner/worktrees/oneshot-<id>/AGENTS.md`); `ProjectRoot` remains the main checkout, so manifest paths, the sandbox writable-root, and skill discovery are unchanged. Between-phase state is carried by committed work in git and shared disk artifacts.
-
-### Phase Loop: Plan → Implement → Review
-
-Each phase is a fresh agent run with empty model context and a clean scrollback. Every phase receives its **phase orchestration prompt** as a system-level context source — embedded prompts (`internal/oneshot/prompts/{plan,implement,review}.md`) are loaded and delivered directly to the model as part of the static system context, bypassing byte budgets to ensure full delivery. All phases run in **delegated-child workflow mode** (no approval gating for mutations; the delegated task is pre-authorized). Cross-phase state is carried by:
-
-1. **Disk artifacts**: `overview.md`, `plan.yaml`, `execution.md`, `review.md` (committed at phase boundaries)
-2. **Git history**: each phase leaves a commit milestone
-3. **Run manifest**: `.steiner/oneshot/<id>/run.json` (updated after each phase)
-
-**Plan phase**:
-- Task: analyze the request, explore the codebase, and produce a structured plan.
-- Research: decided autonomously (no approval gate) using the same required-by-default criteria as the interactive plan skill — current/external/fast-moving, security-sensitive, or low-confidence areas trigger it. When required, it is delegated to the `research` tool; if no search backend is configured the tool is absent and the phase records a bounded assumption and continues. Findings persist to `research.md` when worth keeping.
-- Output: `overview.md` (with `## Request`, `## Overview`, `## Key Decisions` — each with a stable ID, `## Tradeoffs`, `## Scope Boundaries`, `## Verification Strategy`, `## Decision Log`), `plan.yaml` (flat implementation steps; each step carries `decisions` referencing Key Decision IDs and an `approach` describing the concrete *how*), optional `research.md`, and a commit to the feature branch.
-- Advisor findings: for each finding or concern raised during advisor consultation, the model must explicitly either apply the finding (modifying the plan) or reject it with a stated reason. Advancing without addressing every material finding is not permitted.
-- Refinement: full advisor loops enabled if configured. A final `advisor` sanity check on the completed plan is mandatory before the commit (skipped only if the per-run advisor budget is exhausted); its note is recorded in `overview.md`.
+`ProvisionWorktree` (`worktree.go`):
 
-**Implement phase**:
-- Task: execute the plan's steps, make code changes, and validate with the plan's verification strategy.
-- Input: reads `overview.md` (intent, binding decisions, and verification strategy) and `plan.yaml` (flat step contract).
-- Delegation: mandatory. Plan-step order, `depends_on`, and `parallel_group` semantics remain unchanged. Within a ready step, the phase may split work into bounded tasks with concrete deliverables, declared write scopes, and settled contracts. Within-step parallel work requires disjoint writes, no unmet dependencies or unresolved contracts, low coordination and merge risk, and real time savings; otherwise tasks run serially. Implementation-scoped edits and verification-failure fixes flow through delegated sub-agents. Each task id is tied to its parent step, with task state and assigned agent recorded in `execution.md`. A parent is `implemented` only after all required tasks are implemented and merged, and `complete` only after required parent verification passes; dependents do not unlock earlier. The system owns delegated worktree integration. Direct file mutation of implementation files is a violation, not a fallback; there is no inline execution tier. Steps marked `no_delegate: true` are the only inline exception, and the reason is recorded in `execution.md`.
-- Adaptation: `approach` is the starting point, not an immutable implementation recipe. Inspection and check evidence may justify implementation-detail adaptations that preserve behaviour, constraints, and acceptance; record meaningful deviations and reasons. Changes to scope, acceptance, shared contracts, or binding decisions are blockers in the unattended run: do not ask for approval or replan. Children report evidence requiring such design changes rather than silently redesigning the task.
-- Briefings: resolve decisions from `overview.md` and pass them with the current approach, adaptations, parent step id and goal, task id and deliverable, files and constraints, acceptance criteria, and checks. Apply delegation, review, merge, verification, and worktree lifecycle rules to each task.
-- Output: `execution.md` (compact step, task, verification, and handoff state), commits to the feature branch.
-- Refinement: use `advisor` as a point consult before settling task decomposition and implementation risk; it may also guide evidence-backed adaptations or unresolved verification failures. Guidance does not authorize scope or binding-decision changes. The engine enforces the advisor budget; the phase prompt does not set a numeric cap.
+- The start point is the `origin/main` commit when it resolves, otherwise `HEAD`. Its SHA is stored as `worktree_base`.
+- An existing `refs/heads/<branch>` is checked out. Otherwise the branch is created with `-b`.
+- A stale worktree path is pruned and removed first.
+- `ensureSteinerProjectDir` writes `.steiner/.gitignore` containing `*`.
 
-**Review phase**:
-- Task: validate the implementation against the plan, drive findings to a verdict, and record the result.
-- Input: reads `overview.md`, `plan.yaml`, `execution.md`, and all committed work.
-- Findings: classified `blocking` / `non_blocking` / `informational`, mapping to a `fail` / `pass_with_notes` / `pass` status.
-- Status reporting: every interim and final review status response shown in the transcript reports all currently known blocking and non-blocking findings and relevant informational notes, including on `fail`; later fix or verification passes may add, resolve, withdraw, or reclassify findings but must not silently omit previously reported ones. Verification gaps (checks that could not run because of the environment) and closeout notes (branch push state, PR/MR readiness; a local-only branch is a closeout note) are recorded separately from code findings.
-- Delegation: mandatory, mirroring the implement phase — review-fix edits flow through delegated `code` sub-agents; direct file mutation of implementation files is a violation, not a fallback.
-- Refinement: full advisor loops enabled. A final `advisor` sanity check on residual risk is mandatory before the verdict is marked (skipped only if the per-run advisor budget is exhausted); its note is recorded in `review.md`.
-- Output: `review.md` (scope, status, findings, reruns, residual risk, advisor note), final commit. The engine then writes the structured `final-report.json` and runs closeout (PR push if `auto_pr` is enabled).
+`Orchestrator.Run` order: provision the worktree, acquire the run lock (`Release` runs on return, via `defer`), derive the interrupt context, create the planning dir, write the manifest with every phase `pending`, run each phase, then `finalizeRun`. Concurrent runs never share a branch, worktree, manifest, or lock because run IDs are unique.
 
-### Phase Driver and Persistence-First Sessions
+## Run lock
 
-Before a phase runs, the orchestrator creates the phase session, records its id in `phase_session_ids` and writes the manifest. It then calls `PhaseRunner.RunPhase(ctx, PhaseRunInput)`; `PhaseRunInput.Session` carries the id and a `Save` that updates that one record. The final `persistPhaseSession` step is only a last save to the same session, skipped when the run produced no conversation, so a failed or interrupted phase keeps its partial session for inspection and no second session is ever created. Every driver snapshot also writes the outstanding sub-agent ledger into the session's `sub_agent_ledger`, so a crash mid-phase leaves it on disk; the last snapshot governs (empty once every sub-agent is delivered) and the final `persistPhaseSession` save keeps it. Resume restarts the interrupted phase and gives it a new session; the old one stays on disk. Before restarting, resume loads the interrupted phase's session (when the `SessionStore` also implements `Load`) and emits one `orphaned` phase indicator per ledger entry with a worktree path. Lost envelopes are never delivered.
+`acquireRunLock` (`lock.go`) creates `run.lock` exclusively. It holds a `LockRecord` with `owner`, `acquired_at`, `updated_at`, and `generation`.
 
-`phaseRunner.RunPhase` (`cmd/steiner/phase_driver.go`) hosts the phase on an `agent.ConversationDriver`:
+- If the file exists and its mtime is older than `defaultLockStaleAfter` (15 minutes), the caller re-reads it and checks that owner, `updated_at`, and mtime still match. If they match, the stale file is removed and recreated. Three attempts are made, then `errLockHeld` is returned.
+- `startPhaseHeartbeat` refreshes the lock every `defaultLockStaleAfter/3` (5 minutes). It also refreshes at phase start and after a phase succeeds.
+- `Heartbeat` and `Release` check that owner and `acquired_at` still match. A mismatch returns `errLockLost`. A failed heartbeat cancels the running phase. A lost lock makes `Release` a no-op, and `finalizePhaseFailure` skips its manifest write, so a foreign lock is never modified.
 
-1. The runtime's `Supervisor` is the driver's `Background` and, via `SetCompletionSink`, the source of its completions.
-2. The phase prompt is submitted and `WaitQuiescent` blocks until the driver is idle with no sub-agent pending. `CheckBoundary` runs only after that.
-3. `MaxTokensPerEpisode` is `limits.max_tokens`. `ErrEpisodeBudgetExhausted` (budget spent, children still pending) fails the phase.
-4. On budget exhaustion, a failed run, phase cancellation or heartbeat loss, the supervisor is shut down first (`CancelCauseSystem`), then the driver is closed: it settles the cancelled results into the conversation without calling the model and saves. Only then does the deferred `closeRuntime` run, whose own shutdown is a no-op. The driver's loop is always joined before `RunPhase` returns.
+## Sandbox and worktree
 
-When the run is launched from the TUI, `phaseRunner` builds its driver with `Steers` set to the session's `SteerQueue`, and `PhaseRunInput.RegisterControl` (from `oneshot.Dependencies.RegisterControl`) exposes the phase: once the driver is live, `runPhaseOnDriver` registers a `PhaseControl` (`Submit`, `NotifySteer`, `StopTurn`, `CancelAgent`, `CancelAll`) backed by the driver and the phase `Supervisor`, and releases it when the function returns, after the driver has closed. Cancellation uses `CancelCauseUser`. Headless runs pass no queue and no callback.
+Each phase runtime is built by `newPhaseRunner` through `buildRuntimeWithRoots`, with the main checkout as `projectRoot` and the run worktree as `workDir` (`phaseParams`, `cmd_oneshot.go`). `buildRuntimeSandbox` (`runtime_build_sandbox.go`) passes `projectRoot` to `sandbox.New` as the writable root and `workDir` as the `--chdir` target. Sandboxed commands therefore start in the worktree, and the main checkout is the sandbox root.
 
-Driver conversation-state events are not forwarded to the launching session's sink; they describe the phase's private conversation.
+## Phase execution
 
-### Run Manifest
+Phases run in order: plan, implement, review. `runPhase` builds a fresh runner for each phase:
 
-The manifest is a durable JSON record at `.steiner/oneshot/<id>/run.json`:
+- A new `PhaseRunner` and `prompt.StaticContextCache`, in workflow mode `prompt.DelegatedChildWorkflowMode()`.
+- `WorkDir` is the worktree. `ProjectRoot` stays the main checkout, which holds the manifest. `ProjectAgentsPath` is `<worktree>/AGENTS.md`.
+- Approvals: `worktreeAutoApprover` approves only `mutate` path requests inside the worktree (`tool.PathWithinRoot`). Every other approval is denied.
+- Advisor: enabled, with `MaxUsesPerRun` per phase: plan 4, implement 3, review 4.
+- Cache identity: `SessionID` and `PromptCacheKey` are the run ID. One `agent.NewCacheBaselineStore()` per `Run` or `Resume` call is shared by all phases.
+- Seed: one user message from `phaseSeedConversation` with the task, phase, run ID, branch, worktree, and the paths `overview.md` and `plan.yaml` in the planning dir.
+- Phase prompt: a core static source (`ContextSourcePhasePrompt`) that bypasses byte budgets. Source order (`source_plan.go`): preamble, agents, project context, skills, phase prompt, session date, conversation.
 
-```json
-{
-  "run_id": "abc123",
-  "slug": "refactor-auth",
-  "task": "refactor the auth package to reduce complexity",
-  "branch": "oneshot/refactor-auth-abc123",
-  "worktree": ".steiner/worktrees/oneshot-abc123",
-  "worktree_base": "0123456789abcdef0123456789abcdef01234567",
-  "config_snapshot": {
-    "plan_model": "default",
-    "implement_model": "default",
-    "review_model": "default",
-    "auto_pr": false
-  },
-  "phases": [
-    {
-      "name": "plan",
-      "status": "completed",
-      "session_id": "sess_111",
-      "commit": "abc1234...",
-      "started_at": "2026-06-18T10:00:00Z",
-      "completed_at": "2026-06-18T10:05:00Z"
-    },
-    {
-      "name": "implement",
-      "status": "completed",
-      "session_id": "sess_222",
-      "commit": "def5678...",
-      "started_at": "2026-06-18T10:05:30Z",
-      "completed_at": "2026-06-18T10:25:00Z"
-    },
-    {
-      "name": "review",
-      "status": "in_progress",
-      "session_id": "sess_333",
-      "started_at": "2026-06-18T10:25:30Z"
-    }
-  ],
-  "created_at": "2026-06-18T10:00:00Z"
-}
-```
-
-The manifest is used for resume logic, status reporting, and cross-phase bookkeeping. `worktree_base` stores the selected base commit SHA, and final report file comparison uses that commit rather than the worktree's current `HEAD`.
-
-### Resume Behavior
-
-`steiner oneshot --resume <id>` validates and reclaims a run:
-
-1. **Validation**: ensures the worktree and branch still exist. If the worktree is missing, it is re-provisioned from the manifest's immutable `worktree_base` commit; legacy manifests infer and persist that commit once before provisioning.
-2. **Lock reclamation**: acquires a fresh lock via CAS, releasing the stale one.
-3. **State recovery**: reads the manifest and determines the first incomplete phase.
-4. **Replay**: re-runs that phase from its start using on-disk artifacts and committed work. Completed phases are never re-run.
-
-**Mid-implement resume**: If the implement phase fails before writing `execution.md` (e.g., the model hits an error or timeout before reaching the final execution artifact step), resuming the run re-enters the implement phase without requiring `execution.md` to exist. Resume only relaxes requirements before the phase starts: the boundary check runs after the phase returns, so the resumed implement run must still write `execution.md` before the phase completes, exactly as a fresh run does. The model loads git history and committed work to identify what steps have already been implemented, then continues from the first incomplete step.
-
-Worktrees are left in place after a run (including after interrupt) to allow inspection and resume. Cleanup is manual.
-
-### Signal Handling
-
-The orchestrator owns one interrupt context for the entire oneshot run. SIGINT (`Ctrl+C`):
-
-1. Aborts the current phase without committing uncommitted changes.
-2. Persists the run manifest (marking the current phase as incomplete).
-3. Releases the per-run lock.
-4. Leaves the worktree in place for inspection or resume.
-
-### Closeout and PR Push
-
-After the review phase completes with a passing verdict:
-
-1. **If `auto_pr` is false**: the run ends and the branch remains local. The user can inspect and push manually.
-2. **If `auto_pr` is true**: the orchestrator pushes the branch and opens a PR/MR automatically:
-   - **GitHub**: uses `gh pr create`. If the PR already exists for the branch (a re-run of closeout), it falls back to `gh pr view` and reports the existing PR instead of failing.
-   - **GitLab**: uses git push with merge request creation options.
-   - **Azure Repos**: uses `az repos pr create`.
-
-The PR/MR title comes from the first H1 (`# `) heading in `overview.md`, falling back to the task string if no H1 is present. The body is `overview.md` (with the H1 line removed) followed by a `---` separator and the full `review.md` content, verbatim — there is no commit list, since every forge already lists a PR's commits natively. The body is capped at 60,000 characters; an oversized body is truncated at a line boundary with a notice naming the planning folder. When closeout succeeds, the manifest records `closeout_url`, `closeout_provider`, `closeout_state`, and `closeout_note` for visibility in the final run record.
-
-If closeout errors (for example an expired `gh` login or a failed push), the manifest is still persisted with `report_path`, `closeout_state: failed`, and the error in `closeout_note`. A run whose phases are all done but whose closeout state is `failed` stays resumable: the resumable-run listing shows it as `retry closeout` and resuming it skips every phase and re-runs only report generation and closeout.
-
-### TUI Visibility and Interactive Behaviour
-
-In interactive mode, oneshot runs are first-class and visible in real time:
-
-1. **Phase dividers** in the scrollback, marked with phase name and timestamp.
-2. **Status bar phase indicator** — a leading `phase · <name>` segment
-   appears in the footer while a run is active (e.g. `phase · plan`).
-3. **Sidebar section** — a small `Oneshot - <phase>` section appears in the
-   sidebar while a run is active and is removed on completion.
-4. **Live phase-agent output** — the phase agent's RunStarted, model
-   chunks, tool calls, and RunFinished events are routed into the TUI
-   transcript exactly like a normal run (the phase runtime's event sink
-   is multiplexed onto the session sink).
-5. **Full output retention** from all three phases in the scrollback
-   history (no deletion or truncation between phases).
-6. **Phase-scoped tool output** — tool results are annotated with their
-   phase context.
-
-After the run completes, all three phases remain visible in the
-conversation history, allowing the user to review and fork or resume
-from any point.
-
-#### Steering-only composer
-
-While a oneshot run is active, the composer is in **steering-only** mode.
-The full slash-command surface is hidden; only a small allowlist of safe
-view-toggle commands is honored, and every other input is sent to the
-run as a steering message:
-
-- Allowlist: `/exit`, `/thinking`, `/accent`.
-- All other input (including `/oneshot <task>`, which would otherwise
-  launch a second concurrent run) is added to the session's steering
-  queue, which the running phase's driver drains at each turn boundary.
-
-The composer returns to the normal command surface on completion. The TUI
-emits an `OneshotFinishedEvent` from the run goroutine when the run ends
-(both success and error paths) and the `applyEvent` handler clears
-`oneshotRunning`, `oneshotPhase`, and the chrome fields.
-
-#### Control routing
-
-`Session.SetActivePhaseControl(pc)` routes `SubmitPrompt`, `NotifySteer`, `InterruptActiveRun` (stop current turn), `CancelDelegate` and `CancelAllDelegates` to `pc` until the returned release runs. Setting and releasing are atomic under the session mutex, a second set replaces the first, and releasing a replaced handle does nothing. The session's own driver receives none of these.
-
-The session driver and the phase driver read the same `SteerQueue`. While a control is set the session driver is detached (`ConversationDriver.DetachSteers`) and any driver built meanwhile (clear, rotate, load) starts without the queue; release re-attaches the live driver (`AttachSteers`).
-
-A TUI launch registers one `interactive.PhaseRouter` for the whole run and gives the orchestrator `router.Register` as its per-phase callback. The router swaps its target atomically when a phase registers or releases, so between phases the session stays detached: steers wait in the queue for the next phase, and cancel requests report that no phase is active. The router is released when the orchestrator goroutine ends.
-
-The orchestrator goroutine runs under `Session.RunBackground`, which tracks it in the session run group with a context that `Session.CancelBackground` cancels. Quit (`runQuitSequence`) cancels it first, which takes the cancellation path above (phase supervisor shutdown, then driver close and save); `awaitRuns` joins it before the worktree prune.
-
-### Concurrent Runs
-
-Unique run IDs ensure that concurrent `oneshot` invocations never share:
-- A branch name
-- A worktree path
-- A run manifest
-- A lock
-
-Concurrent runs can proceed in parallel without contention.
-
-## Testing
-
-Integration tests for oneshot behavior:
-
-- **Run provisioning**: branch and worktree creation, manifest initialization.
-- **Phase progression**: advancing through plan, implement, and review.
-- **Resume logic**: recovering from partial runs, skipping completed phases.
-- **Lock contention**: stale lock detection and reclamation.
-- **Interrupt handling**: SIGINT persistence, graceful abort.
-- **Concurrent runs**: parallel execution without contention.
-
-Tests use git worktrees (real or mocked) and a temporary manifest directory.
+`CheckBoundary` (`boundary.go`) runs after `RunPhase` returns. It fails when a required artifact is missing or when `git status --porcelain=v1 --untracked-files=all` lists any entry outside `.steiner/`. Required artifacts: plan needs `overview.md` and `plan.yaml`; implement adds `execution.md`; review adds `review.md` and still requires `execution.md`. Commits are not checked.
+
+## Phase driver
+
+`runPhaseOnDriver` (`cmd/steiner/phase_driver.go`) hosts each phase on an `agent.ConversationDriver`:
+
+1. The runtime's `Supervisor` is the driver's `Background` and completion source.
+2. The phase prompt is submitted. `WaitQuiescent` waits until the driver is idle with no sub-agent pending. Then the boundary check runs.
+3. `MaxTokensPerEpisode` is `limits.max_tokens`. `ErrEpisodeBudgetExhausted` fails the phase.
+4. On any failure (budget, run error, cancellation, heartbeat loss, wait error), the supervisor shuts down with `CancelCauseSystem` and then the driver closes. The driver loop is joined before `RunPhase` returns.
+
+`phaseDriverEvents` forwards conversation-state events to the session sink when `RegisterControl` is set (interactive runs). Headless runs drop them.
+
+## Sessions
+
+`newPhaseSession` creates a session titled `<phase> phase: <task>` before the phase runs, records its ID in `phase_session_ids`, and writes the manifest. `PhaseRunInput.Session` carries the ID and a `Save` callback for that session.
+
+Each driver snapshot saves the session with its outstanding sub-agent ledger (`sub_agent_ledger`, `internal/session/session.go`), so a crash mid-phase leaves the ledger on disk. After the phase, `saveResult` saves once more with the last stored ledger. It does nothing when the phase recorded no conversation lineage.
+
+Each phase attempt has one session. Resume starts the interrupted phase with a new session and leaves the old one on disk.
+
+## Run manifest
+
+`run.json` is written with `fsatomic.WriteFile` at mode 0600. `created_at` is set once and `updated_at` on every write. The `Manifest` struct (`manifest.go`) defines these keys:
+
+| Key | Notes |
+|---|---|
+| `run_id`, `slug`, `task`, `branch`, `worktree_path` | Set when the run is created. |
+| `worktree_base` | Start commit SHA. Resume fills it when blank. `GenerateFinalReport` requires it. |
+| `model_snapshot` | `default_model` and `phase_models` (phase to model reference). |
+| `current_phase` | Current phase name. |
+| `phase_statuses` | Phase to status (below). |
+| `phase_session_ids` | Phase to session ID. |
+| `commit_milestones` | `{phase, commit, message, recorded_at}` entries. No code path writes them. |
+| `report_path` | Location of `final-report.json`. |
+| `closeout_url`, `closeout_provider`, `closeout_state`, `closeout_note` | Closeout result (see Closeout). |
+| `created_at`, `updated_at` | Timestamps. |
+
+Phase status values: `pending`, `running`, `done`, `failed`, `skipped`. Resume treats `done` and `skipped` as complete. No code path writes `skipped`.
+
+## Resume
+
+`Orchestrator.Resume` (`resume.go`) serves `steiner oneshot --resume <id>`:
+
+1. Reads `run.json`. Blank `branch` or `worktree_path` is filled from the run identity.
+2. Acquires the run lock before checking the worktree. Stale locks are reclaimed as under Run lock.
+3. If `worktree_base` is blank, it is set to the current start point and saved to the manifest.
+4. `ensureResumeWorktree`: an existing worktree is checked for the expected branch (`verifyWorktree`). A missing worktree is re-provisioned at `worktree_base`.
+5. `resumeFromManifest` restarts the first phase that is neither `done` nor `skipped`, with a new session. When no phase is incomplete and `closeout_state` is `failed`, only `finalizeRun` runs.
+
+Before restarting, `reportOrphanedWorktrees` loads the interrupted phase's session (when the session store implements `Load`), reads its `SubAgentLedger`, and emits an `orphaned` phase indicator for each sub-agent entry with a `WorktreePath`.
+
+`ListResumableRuns` labels a run whose resume phase is `closeout` as `retry closeout`, or `retry closeout (stale lock)` when the lock is stale.
+
+The engine never removes worktrees. `CleanupWorktree` (`worktree.go`) has no non-test caller.
+
+### Mid-implement resume
+
+Resume runs no artifact check before the restarted phase. `CheckBoundary` runs only after the phase returns, so a resumed implement phase must still write `execution.md` before it finishes.
+
+## Interrupts and failures
+
+- The run context comes from `InterruptFactory`. The default is `signal.NotifyContext(os.Interrupt)`. The TUI uses `context.WithCancel`.
+- `finalizePhaseFailure` marks the phase `failed` and writes the manifest, skipped when the lock was lost. It emits the indicator `cancelled` for lock loss, heartbeat failure, and `RunPhase` errors. It emits `boundary` for runner construction, session creation or save, and `CheckBoundary` failures.
+- The run lock is released on return, and the worktree stays in place for inspection or resume.
+- A failure report (`tryFailureReport`) is written when `Run` returns an error and the manifest has a run ID (`reportFailureIfNeeded`). `Resume` applies the same condition in a `defer` block.
+
+## Final report
+
+`finalizeRun` writes `final-report.json` to the planning dir (mode 0600) through `WriteFinalReport` (`report.go`), then runs closeout. Fields: `run_id`, `slug`, `task_summary`, `branch`, `worktree_path`, `planning_path`, `report_path`, `current_phase`, `status` (`success` or `failure`), `completion`, `phase_sessions`, `git` (`branch`, `commit`, `short_commit`, `dirty`, `files_changed`), `changes_made`, `files_changed`, `validation`, `review_outcome`, `review_fix_iterations`, `assumptions`, `risks`, `unresolved_issues`, `failure` (only when the run did not pass: `attempted`, `blocked`, `changes_left_behind`, `left_behind_summary`), and `generated_at`. List fields hold at most 8 items. Text fields hold at most 240 runes.
+
+## Closeout
+
+Closeout (`closeout.go`) runs on the host, not in the sandbox.
+
+- Skipped unless `oneshot.auto_pr` is true and the report's `completion` is passing. The state is `skipped` with a note.
+- Remote: `branch.<name>.remote` when set, else `origin`. The provider comes from the remote host: `github.com` or `github.*` is GitHub, `gitlab.com` or `gitlab.*` is GitLab, `dev.azure.com` or `visualstudio.com` is Azure DevOps. Any other host sets state `unsupported`.
+- Target branch: the branch's upstream (`@{u}`), else `refs/remotes/<remote>/main`, else `master`. If none resolve, closeout fails.
+- Title: the first non-blank line of `overview.md` when it is an H1, else `task_summary`, else `slug`, else `oneshot closeout`.
+- Body (`assembleCloseoutBody`): `overview.md` minus its leading H1 and the blank lines after it, then a `---` separator and `review.md`. The separator and review are added only when the trimmed review is non-empty. Without a leading H1, the whole trimmed overview is used. Bodies over 60,000 runes are cut at a line boundary with a note naming the planning dir. The user-facing title and body rule is in [Oneshot](../user/oneshot.md).
+- GitHub: pushes the branch, then runs `gh pr create` (requires `gh` on `PATH`).
+- GitLab: pushes with `merge_request` push options. It returns no URL, so `closeout_url` stays empty and the note says the merge request was created through push options.
+- Azure DevOps: pushes, then runs `az repos pr create` (requires `az` on `PATH`).
+- States: `created` (with `closeout_url` and `closeout_provider`), `unsupported`, `skipped`, or `failed`. On error the manifest records `closeout_state: failed` and the error in `closeout_note`. The run stays resumable (see Resume).
+
+## TUI integration
+
+Interactive runs use `routeControlToOneshot`:
+
+- Phase events are multiplexed onto the session sink (`output.NewMultiSink`).
+- Phase divider: `Phase: <name>` in the scrollback, with no timestamp.
+- Status bar: `phase · <name>` while the run is active.
+- Sidebar: `Oneshot - <phase>` while the run is active.
+- Indicator states emitted by the engine (`events.go`): `starting`, `boundary`, `completed`, `cancelled`, `orphaned`. `phaseIndicatorRunning` is defined but nothing emits it.
+- Control routing: one `interactive.PhaseRouter` per run is set with `Session.SetActivePhaseControl` and passed to the orchestrator as `RegisterControl` (`router.Register`). While it is set, the session driver is detached from the steer queue (`DetachSteers`). Release reattaches it (`AttachSteers`). Between phases the router has no target: steers wait in the queue, and cancel requests report that no phase is active.
+- The orchestrator runs under `Session.RunBackground`, and `CancelBackground` cancels it. On quit, `runQuitSequence` cancels background runs first, which takes the cancellation path above. `awaitRuns` then joins them.
+- Steering-only composer: while a run is active, only `/exit`, `/thinking`, and `/accent` (with or without arguments) run as commands. Other input is sent as a steering message.
+- `OneshotFinishedEvent` is emitted from the run goroutine on success and on error. Its handler clears `oneshotRunning` and the phase chrome fields.
+
+## Tests
+
+Integration and resume tests use real git worktrees (`integration_test.go`, `resume_test.go`, `worktree_test.go`).

@@ -35,9 +35,8 @@ const (
 	calibDiagCeiling = 10 * time.Second
 )
 
-// TestCalibrate records the measurements behind the LSP timeout defaults.
-// Every subtest logs raw per-run numbers; the transcript is transcribed into
-// docs/user/lsp.md under "Timeout calibration".
+// TestCalibrate measures the LSP timeout defaults. Every subtest logs raw per-run
+// numbers; docs/internals/lsp.md "Calibration" describes the harness.
 func TestCalibrate(t *testing.T) {
 	gopls := resolveGopls(t)
 	root := repoRoot(t)

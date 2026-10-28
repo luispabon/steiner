@@ -1,62 +1,41 @@
-# Context Management: Internals
+# Context management internals
 
-User-facing documentation: [Context Management](../user/context-management.md).
+User guide: [Context management](../user/context-management.md).
 
-Every turn in the main conversation accumulates tokens — model output, tool calls, tool results. Long contexts cost more, degrade reasoning quality, and eventually hit provider limits. Steiner counters this in three lines of defense, ordered by effectiveness:
+Parent context is bounded by delegation (child transcripts stay out of the conversation), per-source byte budgets, and compaction into new conversation generations.
 
-1. **Delegation** — work never enters the parent context at all.
-2. **Per-source byte budgets** — when context does accumulate, budgets prevent any single source from dominating.
-3. **Compaction** — when the soft compaction trigger is reached, older turns are summarised and replaced. The default is 70% of the effective context window.
+## Delegation
 
----
-
-## Delegation as context management
-
-Sub-agents are the primary mechanism for keeping the parent context lean. When the model delegates exploration, code changes, or research to a child agent, the full turn-by-turn transcript of that work never enters the parent conversation. Only a structured result and its retention metadata return.
-
-Contrast this with doing the same work inline: every `read`, `grep`, `bash`, and model response accumulates as permanent conversation history, rapidly filling the window and triggering compaction. Delegation avoids the problem entirely — it's context management by isolation.
-
-### How locally derived delegate summaries persist
-
-1. After a child agent completes, the handler records the failure or cancellation explanation locally on the result's `reason`; complete results carry no reason. No extra provider call is made.
-2. The result metadata is stored as `ToolRetention` (`kind: delegate_summary`) on the tool result message.
-3. This retention is attached to the parent's `Message.Retention` field when the tool result is ingested.
-4. The retention is not re-budgeted during prompt assembly. It reaches the parent as a plain conversation message and is not currently gated by any `internal/prompt` byte budget.
-5. When compaction occurs, delegate summary messages in the retained recent turns survive implicitly — the compacting model sees them as part of the conversation it summarises.
-
-Child agents use the same prompt assembly and compaction path as the parent for their own (ephemeral) contexts, but those child transcripts are discarded when the child exits. Nothing leaks back to the parent beyond the final structured result.
-
----
+Child turns stay out of the parent transcript, and the parent receives a bounded result. See [Sub-agent delegation](sub-agent-delegation.md).
 
 ## Prompt assembly
 
-Codex conversation replay preserves assistant message boundaries and per-message `phase` (`commentary` or `final_answer`), along with message/function-call order, in provider-native metadata stored with session messages. Distinct non-empty message items are separated by at least one blank line in flattened content; item text and replay metadata remain unchanged. The adapter reconciles streamed text with completed output to recover missing text without duplication. Legacy messages without this metadata retain their existing replay behavior. Phase preservation does not guarantee narration before tool calls.
+The source order is fixed in `internal/prompt/source_plan.go`. Static sources come first so the prefix stays stable for cache reuse.
 
-Each turn, steiner assembles the full context through a 7-step ordered plan. The order is intentional — static sources come first to maximize KV-cache reuse in local inference servers:
+| Step | Source (`ContextSource`) | Budget | Notes |
+|------|--------------------------|--------|-------|
+| 1 | `preamble` | none | Memoized per session |
+| 2 | `global_agents_md`, `project_agents_md` | none | Never truncated |
+| 3 | `project_context` | 8000 bytes (`fallbackProjectContextBudgetBytes`) | Truncated when over |
+| 4 | `skill` | 98304 bytes (`defaultSkillBudgetBytes`) | Exec and oneshot only |
+| 5 | `phase_prompt` | none | Oneshot phases |
+| 6 | `session_date` | none | See [Session date assembly](#session-date-assembly) |
+| 7 | `conversation` | none | Pass-through |
 
-| Step | Source | Budget | Bypasses budget? |
-|------|--------|--------|-------------------|
-| 1 | System preamble | — | Yes |
-| 2 | Agent definitions (global + project `AGENTS.md`) | — | Yes |
-| 3 | Project context files | 8000 bytes | No |
-| 4 | Skills | 98304 bytes | No |
-| 5 | Oneshot phase prompt (if applicable) | — | Yes |
-| 6 | Session date | — | Yes |
-| 7 | Conversation history | — | No (pass-through) |
+- `applyBudget` (`internal/prompt/source_render.go`) marks over-budget project context and skill blocks as `Truncated`. `AssemblyPolicy.Budgets` overrides the defaults; negative values are rejected (`internal/prompt/budget.go`).
+- `IsSystemZone` covers the preamble, phase prompt, both AGENTS.md sources, and `conversation_summary`. Other sources are user role (`blockMessage`). `renderBlocks` merges consecutive blocks of the same role.
+- Interactive sessions pass no skill names to static assembly. The enabled set is held by `interactive.Skills` (seeded from `Dependencies.SkillNames`) and reaches the model through the envelopes below.
 
-The static skills source (step 4) is populated only for exec and oneshot runs. Interactive sessions assemble with an empty enabled-skill set, so step 4 contributes nothing, and deliver skills as conversation blocks instead (see [Interactive skill delivery](#interactive-skill-delivery)).
+### Preamble and static cache
 
-Each step with a budget is tracked by a `budgetTracker`. When a source exceeds its allocation, content is truncated and a `Truncated` flag is set on the resulting `ContextBlock`. The system preamble, phase prompt, AGENTS.md, and session date are never truncated.
-
-The three file-backed static sources (steps 2 to 4: AGENTS.md, project context files, skills) are read from disk once and reused. `internal/prompt` memoizes them in a `StaticContextCache` that the interactive, oneshot, and exec runners inject via `AssemblyOptions.CachedStaticContext` (the interactive runner keeps one for the session, oneshot uses a fresh cache per phase, and exec a fresh cache per run). Editing one of those files mid-session therefore does not change the assembled prefix. Each partition reloads on its own: the AGENTS.md and project-context partitions when their file-selecting inputs change, the skills partition when the enabled skill set changes (this partition is unused interactively, which always assembles with an empty enabled-skill set), and every partition when `AssemblyOptions.StaticContextScope` (the session identity) changes. The system preamble (step 1) is memoized separately by `CachedSystemPreamble` and is not part of this cache. Its output voice is unconditional for parent and child runs, including custom system-prompt overrides. The voice follows the override and precedes any model-specific system suffix.
-
-The tool/delegation summary budget machinery was removed from `internal/prompt`. Each tool owns its output policy. `bash` and `grep` return structured results, and ingestion does not strip or rewrite their text: `observeToolResult` returns content unchanged, and each result is serialized once to JSON by `toolResultContent`. `bash` bounds its inline preview to `max_output_bytes` and saves the full output as a private artifact when it is cut (`internal/tool/builtin/bash_output.go`, `bash_artifact.go`). When the artifact cap drops captured bytes (`artifact_limit_hit`), a live-only `bash_artifact_truncated` event is emitted from the agent result path after the tool-finished event; it does not set a tool error. On timeout or session error, the captured output is kept, with `timed_out` set and a partial notice in `message`. Display sanitization (`output.SanitizeDisplayText`) is display-only and does not change model-facing or persisted tool content. Delegate reasons carry no cap, and compaction summaries are bounded by `internal/provider`'s `deriveSummaryMaxTokens`.
-
-`ContextSource` constants distinguish where each block originated: `preamble`, `phase_prompt`, `global_agents_md`, `project_agents_md`, `project_context`, `skill`, `session_date`, `durable_context`, and `conversation_summary`.
+- `CachedSystemPreamble` (`internal/agent/context_manager_base.go`) rebuilds the preamble only when an input changes: override, delegation enabled, async sub-agents, orchestration level, advisor, LSP, workflow mode, system suffix, sandbox enabled, or sandbox writable mounts.
+- File-backed sources live in `prompt.StaticContextCache` (`AssemblyOptions.CachedStaticContext`). Each partition reloads only when its key changes: AGENTS.md paths; project root, budget, extra and ignore files; skill roots and enabled skill names. The skill key excludes `SkillsBundledFS`, so a cache must always pair with one bundled FS.
+- A change to `AssemblyOptions.StaticContextScope` drops every partition (`beginScope`, `internal/prompt/assembler.go`).
+- Caches are created per interactive session, per oneshot phase, per exec run, and per delegated child.
 
 ### Interactive skill delivery
 
-Interactive sessions keep skills out of the static prefix, so enabling or disabling a skill never changes the cacheable portion of the request. Instead, `internal/interactive` prepends skill blocks to the next submitted user message, after any execution-mode notice and before the user's text:
+Interactive sessions keep skills out of the static prefix, so toggling a skill never changes the cacheable part of a request. `internal/interactive/skill_injection.go` puts envelopes ahead of the user's text in the next submitted message:
 
 ```
 <steiner-skill name="..." state="active|inactive" bytes="N">
@@ -64,169 +43,90 @@ Interactive sessions keep skills out of the static prefix, so enabling or disabl
 </steiner-skill>
 ```
 
-Each block is one length-delimited envelope. The open tag carries the quoted skill name, the state (`active` on enable, `inactive` on disable), and the byte length of the body between the open tag and the `</steiner-skill>` close tag. An activation body embeds the shared skill framing text and a `## Active Skill: <name>` heading; a deactivation body states the skill is no longer active. `SplitSkillBlocks` parses an optional leading execution-mode notice, then the leading envelopes, stopping at the first malformed one so the remaining content is preserved byte-for-byte. `EffectiveSkills` folds envelopes across user messages in order: a later activation replaces the earlier block and moves it to the end, and a deactivation removes it.
+- `bytes` is the body length, so envelopes are length-delimited.
+- On submit, `skillDeltaBlocks` diffs the enabled set against `EffectiveSkills`. Deactivations come first, then activations for newly enabled skills. Existing messages are never rewritten.
+- `EffectiveSkills` folds envelopes across user messages in order. An activation replaces that skill's block and moves it to the end. A deactivation removes it.
+- `SplitSkillBlocks` (`internal/prompt/skill_blocks.go`) reads an optional leading mode notice and then envelopes. It stops at the first malformed envelope and keeps the rest of the text as is.
+- A body over `prompt.SkillContentCapBytes` is cut on a UTF-8 rune boundary and ends with `[truncated: skill exceeded the 98304-byte cap]`. Loading such a skill emits `skill_truncated` with the original size and the cap.
+- On resume, replayed envelopes emit `skill_state` events (`internal/interactive/replay.go`).
 
-On submit, `skillDeltaBlocks` computes the net diff against the skills already effective in the conversation: deactivations for skills no longer enabled first, then activations for enabled skills not yet effective. Existing conversation messages are never rewritten, so historical envelopes stay in place; the diff describes only the change for the current turn.
+## Session date assembly
 
-When a skill body exceeds `prompt.SkillContentCapBytes` (98304 bytes, the same value as the skills assembly budget), the activation truncates it on a UTF-8 rune boundary and appends a `[truncated: skill exceeded the 98304-byte cap]` marker. Enabling such a skill emits a `skill_truncated` warning event carrying the original size and the cap.
-
-Resuming a session replays envelopes as `skill_state` status lines (`enabled`/`disabled`) instead of re-emitting the envelope text. The `/context` report attributes each envelope's tokens to the `enabled skills` category and labels envelopes no longer effective as `(inactive, removed at next compaction)`.
-
-### Session date assembly
-
-The session date block is captured once when a session or standalone run begins, and is reused identically across every turn and phase within that identity. A new session (interactive rotation), load/resume, or fork causes a fresh capture; each oneshot run independently captures a fresh date once, then reuses it across all phases.
-
-The assembly step appends the date as a user-role block after static sources and before the conversation. When a phase prompt precedes it (a system-role block), the date becomes its own separate user-role message following the phase prompt. When no phase prompt precedes but static user-role blocks (skills, project context) exist, the date is appended to the same message via the role-based merge logic in `renderBlocks`. It is never budgeted — `applyBudget` in `source_render.go` exempts it, so the full block is always delivered even under context pressure.
-
-The block is user-role rather than system-role to avoid being hoisted into provider-specific system/instructions fields by Anthropic and Codex-compatible wire builders. This preserves prompt-cache reuse: the system preamble and tools remain cacheable even as the date line changes.
-
-Sub-agents inherit the parent's already-captured session date without re-measuring. The date flows through `SubAgentHandlerDeps.SessionDate` → `BuildChildRun` → `childPromptParams.sessionDate`, and the child uses the same `sessionDateStep` assembly logic as the parent, so the inherited value appears in the child's requests with the same position and role.
-
-Compaction deliberately includes the session date block in the summary request — the compaction step assembles the context through the normal `prompt.Assemble` path so the cached prefix (system preamble + tools) stays cached, and the date block appears positioned identically, before the conversation being summarized.
-
----
+- `prompt.NewSessionDate` (`internal/prompt/session_date.go`) builds the date. Sub-agents receive the parent's value through the `SessionDate` field of the delegation dependencies (`internal/delegation/registry.go`).
+- The date block sits after the static sources and before the conversation, and is never budgeted. It is user role, so it stays out of the system-zone prefix. It merges into an adjacent user block, or starts one after a system-zone phase prompt.
 
 ## Token estimation
 
-Preflight estimates come from `TokenCounter.EstimateChatRequestTokens` in `internal/provider`. The semantic estimator counts each text field through a text counter. For the exact model IDs in `ctokActiveModelIDs` (`internal/provider/token_estimator_claude.go`), that counter is `claudeTextCounter`, which calls ctok V48 `CountContent`. `CountContent` omits the single-message framing that the library's `Count` adds, and Steiner does not add it back. The existing framing constants are unchanged. The gate matches whitespace-trimmed model IDs exactly. Other models, including old, future, prefixed, and dated Claude IDs, keep the existing selector. Estimates from this path report strategy `ctok` with confidence `low`.
+`EstimateChatRequestTokenEstimate` (`internal/provider`) returns a `TokenEstimate` with `Tokens`, `RawTokens`, `Strategy`, and `Confidence`.
 
-The counter is ctok-go v0.2.0 (release commit `3359446f`). Its embedded data and count behavior match commit `7969144b`, the commit used for live testing; the intervening releases changed only error text, marker helper extraction, tests, and documentation.
-
-### Raw and calibrated values
-
-`TokenEstimate.RawTokens` is the uncalibrated candidate from the selected estimator. `TokenEstimate.Tokens` may apply the existing API-usage calibration (`ObserveUsage`, strategy `provider_usage`). The ctok path adds no calibration, fitted offset, or multiplier, and no subscription calibration is added. The strategy labels and the calibration contract are unchanged.
-
-### Evidence
-
-The evidence is `internal/provider/testdata/claude_token_estimation/observations.json` (schema version 3). It records 18 live attempts, six per model, on Claude CLI 2.1.296 and ctok-go commit `7969144b`.
-
-- Full error improvement against the previous estimate: 40.395%, 40.326%, and 40.368% across the three models.
-- Full-request gate headroom: 9.6 to 11.6 tokens below the 60% error limit.
-- Remaining underestimates: Opus 1750, Sonnet 1755, and Haiku 1752 tokens, attributed to CLI and tool framing that the local count does not model.
-- The existing gates pass for all three models.
-
-The recorded requests asked for thinking disabled and a 64-token output limit. The effective settings were not verified, and the probes allow no extra generation. The evidence contains no fitted offset or multiplier.
-
-### Parity and limits
-
-The offline exact-parity suite covers 250000 authored cases and the 6,446-token synthetic probe delta from [issue #931](https://github.com/luispabon/steiner/issues/931). Parity shows that the local counter matches the reference counter on those cases. It does not show that the count matches the provider's tokenizer or the provider's accounting.
-
-All ctok-based estimates remain approximate and low confidence. The Opus-specific follow-up is [ctok-go issue 1](https://github.com/luispabon/ctok-go/issues/1). Subscription calibration is deferred to [steiner issue 939](https://github.com/luispabon/steiner/issues/939).
-
----
+- Model IDs in `ctokActiveModelIDs` (`internal/provider/token_estimator_claude.go`, exact match after whitespace trimming) use `claudeTextCounter`. It calls ctok `CountContent`, which omits the single-message framing that ctok `Count` adds. Steiner does not add that framing back. Strategy `ctok`, confidence `low`.
+- The ctok counter loads once. A failed load is returned on every call. The counter never falls back to another tokenizer.
+- Calibration: `ObserveUsage` records a per-model ratio from provider usage, and the strategy becomes `provider_usage`. Once samples exist, `calibrationForModel` scales whichever base estimate is selected, including ctok estimates. `Tokens` is calibrated and `RawTokens` is not.
+- Fit checks use `Tokens`. `RawEstimatedPromptTokens` keeps the raw value for events and diagnostics.
 
 ## Compaction
 
-Compaction is the last line of defense. The agent loop pauses to compact when the selected soft trigger is reached. `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens` supplies an explicit positive prompt-token trigger; when absent, the trigger is 70% of the effective context window. Zero or negative values are invalid, and a threshold at or above the final resolved context window is rejected.
+Compaction runs when the context is too large. Two limits apply:
 
-Native providers compare the threshold with the estimated prompt token count. `claude_subscription` compares it with reported prompt usage and retains its existing hysteresis and cap safety behavior. This soft trigger is separate from hard request fitting. Hard fitting accounts for the completion reserve and estimator pad and can require compaction independently of the soft trigger. When a request carries no explicit max-tokens value, hard fitting caps the completion reserve at the space left after the prompt (minus the estimator pad), with a 4096-token floor. That cap chiefly matters when a model's advertised max output is close to or larger than its context window. An explicit max-tokens value (the request's max tokens, or `max_tokens`, `max_completion_tokens`, or `max_output_tokens` in params or extra params) lowers the completion reserve to that value, and compaction fitting uses the same lowered reserve.
+- **Soft trigger**: `compaction_threshold_tokens` when set (it must be below the effective context window), otherwise 70% of the window. Native providers compare it with the estimated prompt (`shouldCompactPrompt`, `internal/prompt/token_budget.go`). Stateful providers compare it with reported usage (see below). Field rules are in the [configuration reference](../user/configuration.md).
+- **Hard fit**: `ModelTokenBudget.FitRequest` computes the calibrated prompt plus the completion reserve plus `SafetyMarginTokens`, and the total must fit `ContextSize`. Compaction requests are checked with `FitCompactionRequest`, which uses its own reserve.
 
-### Two-stage strategy
+`explicitMaxTokensValue` takes the first positive limit in this order: `MaxTokens`, then the `max_tokens`, `max_completion_tokens`, or `max_output_tokens` keys in `ExtraParams`, then the same keys in `Params`. `lowerToExplicitMaxTokens` lowers the reserve to that value when it is smaller, or sets the reserve when it is unset. With no explicit value, `clampUnsetCompletionReserve` clamps the reserve to the space left after the prompt and safety margin. The clamp floor is `min(reserve, provider.DefaultMaxOutputTokens)`.
 
-| Stage | Turns retained | When used |
-|-------|---------------|-----------|
-| Normal | 3 most recent turns | First attempt |
-| Emergency | 1 most recent turn | Normal didn't fit or still over budget |
+### Stages
 
-Both stages work the same way:
+| Stage | Turns retained | Used when |
+|-------|----------------|-----------|
+| Normal | 3 most recent | First attempt |
+| Emergency | 1 most recent | Normal did not apply, or the result still needs compaction |
 
-1. Older turns are split from the retained recent turns.
-2. The older turns are assembled through the normal prompt assembly path, then a final `user` message is appended asking the model to summarise them. The compaction request carries the same tool definitions and generation params as a normal turn, so the call replays the identical cached prefix (system + tools + conversation) and hits the prompt cache. This holds for manual `/compact` too: the interactive session reuses the runner's `PromptAssembly` options rather than building its own, so both paths assemble from the same skills, project context, and preamble settings. Normal mode uses a compact 8-section handoff (task, repo state, work completed, decisions, problems, remaining work, verification, preferences). Its encoding directives drop articles where meaning survives, use compact clauses and `key=value` facts, and omit empty sections. Semicolons are optional; full sentences remain available to avoid ambiguity. Paths and identifiers stay exact, with repeated mentions removed rather than abbreviated. Sections use `label:` prefixes instead of Markdown headings. Emergency mode appends extra guidance to be shorter and more lossy. Manual `/compact` reuses the last *parent* request's tool definitions: the session stores the most recent unscoped parent request separately from the most recent request of any scope, so context reporting still attributes the latest request (including a child sub-agent request) while `snapshotTools` reads only the parent snapshot. Delegated child requests carry restricted tool sets, so without this split a manual compaction run right after child activity would assemble a different tool prefix and miss the provider's prompt cache. With no parent request recorded, compaction passes the existing empty tool list.
-3. The model's summary becomes a `MessageRoleSummary` prefix on a new `ConversationGeneration`.
-4. A new `ConversationGeneration` is created containing just the summary prefix + retained turns. The old generation is preserved in `ConversationLineage`.
+- Older turns are assembled through normal prompt assembly, followed by a final user message that asks for a summary. The request carries the same tool definitions as a normal turn (`provider.CloneTools`).
+- Normal mode uses `internal/prompt/templates/compaction_default_body.md.tmpl`, which asks for eight numbered sections: task and goal, repository state, work completed, key findings and decisions, problems, remaining work, verification, and user preferences. Emergency mode uses `compaction_emergency.md.tmpl` and asks for a shorter, lossier summary.
+- `deriveSummaryMaxTokens` (`internal/provider/resolved_model.go`) caps summary output as a share of the context window, bounded by a minimum and maximum, and never above the model's max output.
+- The summary becomes the `SummaryPrefix` of a new `ConversationGeneration`, followed by the retained turns. `ConversationLineage` keeps every generation. The latest one is active.
+- Manual `/compact` uses the runner's prompt assembly options, so skills, project context, and preamble match a normal turn. Its tools come from `snapshotTools` (`internal/interactive/compaction_helpers.go`), which reads the last recorded parent request. With no parent request recorded, the tool list is empty.
 
-`ConversationLineage` keeps all generations — nothing is ever pruned. This means the full conversation history is theoretically recoverable, but subsequent turns only see the latest generation.
+### Retention anchor, sub-agents, and skills
 
-### Stateful transcript providers (`claude_subscription`)
+- After the normal stage picks its tail, `anchorRealUserRetention` (`internal/agent/compaction_candidate.go`) moves the tail back to the latest real user message (`IsRealUserMessage`: user role, not a sub-agent result) if the cut left it in the summarized part. The extension is kept only if the extended tail still fits and something remains to summarize. The emergency stage does not anchor.
+- `appendPendingSubAgentsLine` (`internal/agent/compaction.go`) appends one `sub_agent_result` user message listing pending sub-agents at the tail.
+- Compaction strips skill envelopes from retained messages (`stripRetainedSkillBlocks`), then re-injects the active envelopes as one user message ahead of the retained turns (`replayedSkillMessage`, `internal/agent/compaction_skills.go`). `activeSkillBlocks` scans the whole generation, so an activation in the summarized part still counts. A disabled skill drops out at the next compaction.
 
-Steiner cannot rewrite history the CLI already holds, so compaction for a stateful transcript runs through the CLI. `statefulUsageAboveThreshold` in `internal/agent/stateful_compaction_guard.go` triggers compaction when the last response's `PromptTokens` reaches 70% of the context window. For `claude_subscription`, `PromptTokens` is the CLI's total input: input, cache creation, and cache read tokens, summed by `claudeSubUsage.toUsageStats` in `internal/provider/claudesub_decode.go` from the terminal assistant message. The CLI result's usage covers the whole query, so it is not used for context occupancy. A request that does not fit also triggers compaction. `errStatefulCompaction` in `internal/agent/compaction.go` applies only to stateful providers without `SupportsStatefulCompaction`.
+### Stateful transcript providers
 
-In interactive sessions, the last successful parent response's usage is carried into the next run in memory (`agent.ParentUsage`, held by `ConversationDriver`). It is used only while the lineage generation is unchanged and the model backend ID and context window still match. A generation change drops it. The exception is automatic in-run compaction completion, which carries usage with an armed prompt floor (see the guard below) to the new generation. Explicit manual compaction always clears it, including an armed floor. Sub-agent, advisor, and compaction-summary calls never set it. It is not written to backend state or saved session files, so after a restart the first run of a session has no carried usage and the trigger waits for the first response of the new process.
+For `claude_subscription`, the CLI owns the transcript.
 
-The stateful guard stops recompaction from a fixed prompt floor. The CLI's system prompt and tools keep `PromptTokens` above a small window's 70% line even after compaction, so without a guard every parent turn would compact again. After a successful stateful compaction, the first parent response decides the guard, in memory only:
+- `ParentUsage` (`internal/agent/parent_usage.go`) holds the last parent response's usage in memory. Interactive runs carry it into the next run (`internal/interactive/driver_run.go`). It is dropped when the model or context window differs, and it is never saved.
+- After a stateful compaction, the first parent response arms `StatefulFloor` from its `PromptTokens` when that value reaches the selected soft threshold but not the cap. The selected threshold (`statefulUsageReachesSelectedThreshold`) is `compaction_threshold_tokens` when set, otherwise the percent threshold. The soft trigger then waits until usage reaches `min(floor + 10% of window, 90% of window)`.
+- At or above 90% (`compactionCapUsagePercent`), the run is marked cap-reached. Its next compaction decision stops the run with `request exceeds context window` without calling the compactor, and emits a critical `likely_lossy` session health event (`statefulCapStop`).
+- Summary requests for `claude_subscription` use `claudeSubSummaryTurn`; routing is in [Claude subscription](claude-subscription.md#compaction).
 
-- Below 70%: nothing is armed, and the 70% trigger applies as before.
-- From 70% up to 90% of the window: the response's `PromptTokens` is armed as `StatefulFloor` on `agent.ParentUsage`. The soft trigger then waits until usage reaches `min(floor + ceil(10% of window), ceil(90% of window))`, inclusive. Below that point the floor stays armed. Reaching it releases the floor and compaction is due.
-- At or above 90%: the run is marked cap-reached and its next compaction decision stops it with `request exceeds context window`, without calling the compactor. That decision is made even when the request still fits the hard limit. The stop emits a critical `likely_lossy` session health event with critical restart guidance. The cap is run-local and never carried.
+### Escalation and replacement
 
-A carried floor is `ParentUsage.StatefulFloor`. It follows the same model and context-window match as the usage and is carried across interactive parent runs. A successful compaction clears it. It is never written to backend state or saved session files, so a restart drops it.
-
-`claudeSubSummaryTurn` in `internal/provider/claudesub_turn_summary.go` answers the summary request:
-
-| Caller | Path | Persistence |
-|--------|------|-------------|
-| Sub-agent (`ParentTransportSession` set) | Marked in-place summary on its own process. The process is tainted and retired. A process that cannot take the request is replaced and the request reseeded. | Ephemeral |
-| Parent with stored state matching the live checkpoint and the request's prompt/tools fingerprint, source ending at an assistant UUID | Ephemeral helper forks the stored CLI session at that UUID (`--resume-session-at`, `--fork-session`). Returns no backend state. | None, `MaxTurns` 1 |
-| Parent, fork not possible or failed before output, live process present | Marked summary appended to the live transcript. The process is tainted and retired; the final chunk clears the generation's backend state. | In place |
-| Parent, no live process | Request messages reseeded unmarked on an ephemeral helper. A reseed does not reuse prompt cache. | None, `MaxTurns` 1 |
-
-### Retention anchor and pending re-injection
-
-After the last-N-chunks rule picks the normal-stage retained tail, `anchorRealUserRetention` extends it back to the latest real user message (`IsRealUserMessage`: user role, `Source` not `sub_agent_result`) when the chunk rule left that message in the source. Assistant-led wake sequences would otherwise evict the prompt. The extension reuses `fitRunner`, the same fit check the stage applies to retained messages, and is discarded if the extended tail does not fit or would leave nothing to summarise (the anchor is the first message). The emergency stages keep their plain chunk retention.
-
-After a compaction applies inside a run, `appendPendingSubAgentsLine` appends one `sub_agent_result` user message built by `BuildDeliveryMessage` with only the pending list, when `RunRequest.PendingSubAgents` is set and returns a non-empty list. It is appended at the tail; retained messages are never rewritten.
-
-### Skills through compaction
-
-Both normal and emergency stages strip skill envelopes from the retained messages, then re-inject the currently active envelopes verbatim as a single leading user message ahead of the retained turns; stale activations and deactivations are dropped. `activeSkillBlocks` scans the full generation, so it sees early activations alongside any late switch retained in the tail. An enabled skill thus survives compaction, while a disabled skill disappears at the next compaction.
-
-### Escalation policy
-
-Manual compaction admission is serialized with conversation replacement under the session lock. The admission count is released after the driver queues the request, so replacement cannot swap away the selected driver in that gap. Replacement checks driver admissions and `ConversationDriver.Busy()` (generating, queued prompts, compaction, ungrouped busy work, and the final transition snapshot/save), then pending sub-agents, while holding the same lock through the driver swap. Refused replacement leaves identity, history, and driver untouched. Finish or cancel the busy work, then wait for pending result settlement before replacing or reopening the session.
-
-Compaction is tracked per-session. After multiple compactions the session becomes increasingly fragile:
-
-| Compactions | Budget health | Severity | Session state | Guidance |
-|-------------|---------------|----------|---------------|----------|
-| 0–1 | Stable | info | stable | Continue |
-| 1 | Fragile (20%+ over threshold) | warning | fragile | Restart soon |
-| 2 | Stable | warning | fragile | Restart soon |
-| 2 | Fragile | critical | likely_lossy | Restart now |
-| 3+ | Any | critical | likely_lossy | Restart now |
-
-A restart resets the compaction counter and the context window — it's the ultimate escape hatch when compactions can't keep up.
-
-Context diagnostics for these states are emitted as typed sub-events: budget, compaction, session-health, and file-annotation payloads all share the same top-level event type while keeping their serialized fields specific to the diagnostic being reported.
-
----
+- `turnProgressor.compactionCount` (`internal/agent/turn_progression.go`) counts applied compaction stages in one run. Each applied outcome adds `outcome.StageCount` (1 or 2) in `compactConversationForBudgetWithSteering`, so one two-stage compaction adds 2. It starts at zero in `newTurnProgressor`. Manual `/compact` starts from zero too.
+- `compactionEscalationForFit` (`internal/agent/compaction_escalation.go`) maps the stage count and post-compaction fit to a health event. Below `compactionWarningThreshold` (2): `info`/`stable`, or `warning`/`fragile` when fragile. At 2: `warning`/`fragile`, or `critical`/`likely_lossy` when fragile. From `compactionCriticalThreshold` (3): `critical`/`likely_lossy`. A budget is fragile when the estimated prompt exceeds the hard limit by at least 20% (`compactionBudgetIsFragile`).
+- `replacementGuardLocked` (`internal/interactive/driver_host.go`) refuses conversation replacement while driver admissions exist, the driver is busy, or sub-agents are still running (`pendingRefusalLocked`). A refused replacement returns before any swap.
 
 ## Durable context state
 
-`ContextState` carries information that survives compaction across the session:
+`ContextState` (`internal/agent/context_state.go`) has three fields:
 
-| Field | Purpose |
-|-------|---------|
-| `FileTrackerSummary` | Names of files the agent has read or modified |
-| `RecentToolCalls` | Tool names used in recent turns; refreshed each turn from lineage |
-| `TurnCount` | Total turns in the session |
-| `CompactionCount` | How many times compaction has run |
+| Field | Contents |
+|-------|----------|
+| `RecentToolCalls` | Up to three `summarizeRecentToolCalls` entries from the latest lineage generation, oldest first. Each is a tool name plus summarized arguments. Rebuilt every turn by `enrichContextState`. |
+| `TurnCount` | Turn count of the run. |
+| `CompactionCount` | Copied through state but never incremented in non-test code. The live per-run count is `turnProgressor.compactionCount`. |
 
-`ContextState` is cloned on each turn. Compactions increment `CompactionCount`; the summary itself lives only in the new generation's prefix, so each compaction replaces the previous summary rather than stacking. `RecentToolCalls` is rebuilt each turn from the current lineage generation's messages.
-
-Post-ingestion never shapes or rewrites conversation messages. It restores file-tracker state from historic tool messages named `read` with a positive turn by recording their payloads; it does not use current disk contents to alter those messages. Lineage is then rebuilt from the unchanged conversation. Failed reads (oversize, binary) carry no path, so post-ingestion read tracking does not record them. Fresh reads are deduplicated from their `file_hash` values against prior tool results.
-
----
-
-## Byte budget reference
-
-| Budget | Default |
-|--------|---------|
-| Project context | 8000 |
-| Skills | 98304 |
-
-`prompt.SkillContentCapBytes` (98304, the same value as the skills assembly budget) caps the body of an interactive skill block. A larger body is truncated on a UTF-8 rune boundary with a `[truncated: skill exceeded the 98304-byte cap]` marker, and enabling that skill emits a `skill_truncated` warning event carrying the original size and the cap.
-
-Budgets are configurable via `AssemblyPolicy` in the prompt package. Zero values fall back to these defaults.
-
----
+- `Clone` deep-copies `RecentToolCalls`.
+- Argument summaries cut values at 40 characters, and bash commands at 80. `cwd`, `path`, and bash commands are redacted against the absolute cwd root.
+- The summary is not in `ContextState`. It lives in the active generation's `SummaryPrefix`.
+- File tracking lives on `baseContextManager.fileTracker`, not in `ContextState`. `PostIngestion` rebuilds it from `read` results with a positive turn and never changes messages.
+- `dedupReadResult` (`internal/agent/read_dedup.go`) replaces a fresh `read` result with a short note pointing at the turn of that read. The match requires the same path, line range, total lines, and `file_hash` as the most recent matching read. Line-capped reads and reads without `file_hash` are not deduplicated.
+- `observeToolResult` (`internal/agent/context_manager_tool_result.go`) returns output from other tools as given.
 
 ## Invariants
 
-- **Lineage never pruned**: all `ConversationGeneration`s are preserved; the active generation is the latest.
-- **Preamble never truncated**: the system prompt is always delivered in full and bypasses the budget tracker.
-- **Delegate transcripts never leak**: child agent conversation is discarded on exit; only structured result and its retention metadata persist.
-- **Children use the same compaction path**: sub-agents have the same context manager and compaction logic as the parent.
-- **Compaction is lossy but bounded**: summaries are capped.
-- **Soft threshold**: compaction uses the configured positive `compaction_threshold_tokens`, or 70% of the effective context window when unset. Hard request fitting remains separate and accounts for the completion reserve and estimator pad.
-- **Skill toggles never rewrite the prefix**: enabling or disabling a skill appends blocks to the next user message and leaves historical messages and the static prefix untouched, preserving prompt-cache reuse (exec and oneshot keep skills in the static skills source).
-- **Active skills survive compaction**: active skill envelopes are stripped from retained turns and re-injected verbatim after summarisation; disabled skills disappear at the next compaction.
+- Lineage keeps every generation. The latest one is active.
+- The cached prefix is byte-stable within a session: the memoized preamble, the static cache partitions, and the sorted tool definitions. Skill toggles change only the next user message.
+- Child runs use `agent.Runner` and the same compaction path.
+- Summaries are capped. Compaction is lossy, but its output size is bounded.
