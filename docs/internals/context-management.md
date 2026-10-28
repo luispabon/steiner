@@ -99,7 +99,7 @@ For `claude_subscription`, the CLI owns the transcript.
 - `ParentUsage` (`internal/agent/parent_usage.go`) holds the last parent response's usage in memory. Interactive runs carry it into the next run (`internal/interactive/driver_run.go`). It is dropped when the model or context window differs, and it is never saved.
 - After a stateful compaction, the first parent response arms `StatefulFloor` from its `PromptTokens` when that value reaches the selected soft threshold but not the cap. The selected threshold (`statefulUsageReachesSelectedThreshold`) is `compaction_threshold_tokens` when set, otherwise the percent threshold. The soft trigger then waits until usage reaches `min(floor + 10% of window, 90% of window)`.
 - At or above 90% (`compactionCapUsagePercent`), the run is marked cap-reached. Its next compaction decision stops the run with `request exceeds context window` without calling the compactor, and emits a critical `likely_lossy` session health event (`statefulCapStop`).
-- Summary requests for `claude_subscription` use `claudeSubSummaryTurn`; routing is in [Claude subscription](claude-subscription.md#session-recovery-and-compaction).
+- Summary requests for `claude_subscription` use `claudeSubSummaryTurn`; routing is in [Claude subscription](claude-subscription.md#compaction).
 
 ### Escalation and replacement
 

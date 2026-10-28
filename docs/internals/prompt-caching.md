@@ -64,7 +64,7 @@ No record contains message bodies, tool arguments, images, or the key itself. Th
 
 ## Cold-turn analysis
 
-`node scripts/diagnostics.mjs coldturns` reports cold turns. A cold turn has `cache_read_tokens == 0`, which is different from `cold_start`. Models that never report a nonzero `cache_read_tokens` are listed as excluded, not counted as cold. Records are ordered by `seq`, not `ts`, because wall clocks can step backwards.
+`node scripts/diagnostics.mjs coldturns` reports cold turns (script mechanics in [Diagnostics](diagnostics.md#analyzing-diagnostics)). A cold turn has `cache_read_tokens == 0`, which is different from `cold_start`. Models that never report a nonzero `cache_read_tokens` are listed as excluded, not counted as cold. Records are ordered by `seq`, not `ts`, because wall clocks can step backwards.
 
 Each parent-turn gap is attributed to `no_prior_baseline`, `prefix_rewrite`, `delegation`, `idle`, or `unexplained`. `no_prior_baseline` is tested first and needs `prefix_comparison_enabled: true` with `prefix_predecessor_known: false`. The delegation threshold is four minutes (`LONG_DELEGATION_MS`).
 
