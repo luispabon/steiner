@@ -1,9 +1,11 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1251,39 +1253,70 @@ func TestAppendHistoryTightensExistingModes(t *testing.T) {
 }
 
 // AppendHistory must still append when chmod fails on the directory or the
-// open archive. The seams are not parallel-safe, so this test must not call t.Parallel.
+// open archive, and must log a warning for each failure. The descriptor chmod
+// must run before any write, so the archive still holds its old content when
+// fchmod is called. Not parallel: the test swaps the chmod and fchmod seams and
+// the process-wide default slog logger.
 func TestAppendHistoryChmodFailureStillAppends(t *testing.T) {
 	store, err := NewStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewStore failed: %v", err)
 	}
-	path := writeLooseHistory(t, store, "chmod-fail", "HEADER\nfirst\n")
+	const existing = "HEADER\nfirst\n"
+	path := writeLooseHistory(t, store, "chmod-fail", existing)
+	sessionDir := filepath.Dir(path)
+
+	var logs bytes.Buffer
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prevLogger) })
 
 	origChmod, origFchmod := chmod, fchmod
 	t.Cleanup(func() { chmod, fchmod = origChmod, origFchmod })
 	var dirCalls, fileCalls int
-	chmod = func(string, os.FileMode) error {
+	chmod = func(name string, mode os.FileMode) error {
 		dirCalls++
+		if name != sessionDir || mode != dirMode {
+			t.Errorf("chmod(%q, %o), want chmod(%q, %o)", name, mode, sessionDir, dirMode)
+		}
 		return os.ErrPermission
 	}
-	fchmod = func(*os.File, os.FileMode) error {
+	fchmod = func(f *os.File, mode os.FileMode) error {
 		fileCalls++
+		if f.Name() != path || mode != fileMode {
+			t.Errorf("fchmod(%q, %o), want fchmod(%q, %o)", f.Name(), mode, path, fileMode)
+		}
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("read history before fchmod: %v", err)
+		} else if string(before) != existing {
+			t.Errorf("history before fchmod = %q, want old content %q", before, existing)
+		}
 		return os.ErrPermission
 	}
 
 	if _, err := store.AppendHistory("chmod-fail", "HEADER\n", "second\n"); err != nil {
 		t.Fatalf("AppendHistory with failing chmod = %v, want append to succeed", err)
 	}
-	if dirCalls == 0 || fileCalls == 0 {
-		t.Errorf("chmod seams called dir=%d file=%d times, want both called", dirCalls, fileCalls)
+	if dirCalls != 1 || fileCalls != 1 {
+		t.Errorf("chmod seams called dir=%d file=%d times, want 1 each", dirCalls, fileCalls)
 	}
 
 	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read history file: %v", err)
 	}
-	if want := "HEADER\nfirst\nsecond\n"; string(got) != want {
+	if want := existing + "second\n"; string(got) != want {
 		t.Errorf("history file = %q, want %q", got, want)
+	}
+
+	for _, want := range []string{
+		`level=WARN msg="session store: cannot tighten session directory permissions" dir=` + sessionDir + ` error="permission denied"`,
+		`level=WARN msg="session store: cannot tighten history file permissions" file=` + path + ` error="permission denied"`,
+	} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("logs = %q, want record containing %q", logs.String(), want)
+		}
 	}
 }
 
