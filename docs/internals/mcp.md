@@ -1,14 +1,14 @@
 # MCP servers internals
 
-User-facing documentation: [MCP servers](../user/mcp.md).
+User guide: [MCP servers](../user/mcp.md).
 
 ## Naming, filtering, and approval
 
 `ToolName` (`internal/mcp/naming.go`) replaces each rune outside `[A-Za-z0-9_-]` with `_`. If a segment changed or the name exceeds 64 characters, each segment is truncated within a 47-character budget and an 8-hex SHA-256 suffix over the original `server\x00tool` is appended. A name depends only on its own server and tool.
 
-`filterTools` (`internal/mcp/connect.go`) applies `allowed_tools` (nil means no restriction; an empty list filters everything), then `blocked_tools`. It warns once per configured name the server did not advertise. Tools whose input schema exceeds `maxInputSchemaBytes` (64 KiB) or cannot be marshalled are skipped with a warning (`internal/mcp/manager.go`).
+`filterTools` (`internal/mcp/connect.go`) applies `allowed_tools`, then `blocked_tools`; user rules are in [sandboxing and tool filtering](../user/mcp.md#sandboxing-and-tool-filtering). It warns once per configured name the server did not advertise. Tools whose input schema exceeds `maxInputSchemaBytes` (64 KiB) or cannot be marshalled are skipped with a warning (`internal/mcp/manager.go`).
 
-`approval` is `ask` (default), `allow`, or `deny`. `deny` registers no tools, and `mcpHandler` (`internal/mcp/tooldef.go`) fails closed too. `allow` becomes `ask` while the live plan-mode closure reports plan mode. Handler order: deny, allow outside plan mode, `trust_annotations`, nil approver (`approval_denied`), prompt. With `trust_annotations`, `ReadOnlyHint` skips the prompt, as does `DestructiveHint` and `OpenWorldHint` both explicitly false; nil hints count as true. Previews sort top-level keys, truncate strings to 60 runes, and collapse nested values to `{...}`. `always_allow` grants are keyed `server\x00tool` and held in memory by the interactive wiring (`internal/interactive/wiring.go`).
+`mcpHandler` (`internal/mcp/tooldef.go`) checks, in order: `deny` (fails closed), `allow` outside plan mode, `trust_annotations`, a nil approver (`approval_denied`), then the prompt. The plan-mode check reads a live closure, so a mode switch applies without rebuilding the registry; `allow` falls through to the prompt while plan mode is active. With `trust_annotations`, a call skips the prompt when `ReadOnlyHint` is true, or when `DestructiveHint` and `OpenWorldHint` are both explicitly false; nil hints count as true. Previews sort top-level keys, truncate strings to 60 runes, and collapse nested values to `{...}`. `always_allow` grants are keyed `server\x00tool` and held in memory by the interactive wiring (`internal/interactive/wiring.go`). Approval rules are in [approval model](../user/mcp.md#approval-model).
 
 Each call is bounded by the per-tool timeout keyed `mcp__server__tool` in `ToolTimeouts`, else `ToolTimeoutDefault` (`callMCPTool`). Text content is flattened; image, audio, and resource content become placeholders. Output over `ToolOutputMaxBytes` ends with a `<truncated ...>` marker. An `IsError` result returns `mcp_tool_error`. Timeouts are not transport errors and never trigger reconnect.
 
