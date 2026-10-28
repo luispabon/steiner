@@ -118,6 +118,30 @@ func TestClassifyErrorClass(t *testing.T) {
 			want: errorClassConnectionReset,
 		},
 		{
+			name: "closed network connection sentinel",
+			ctx:  context.Background(),
+			err:  net.ErrClosed,
+			want: errorClassConnectionReset,
+		},
+		{
+			name: "wrapped closed network connection",
+			ctx:  context.Background(),
+			err:  fmt.Errorf("write request: %w", net.ErrClosed),
+			want: errorClassConnectionReset,
+		},
+		{
+			name: "closed network connection text",
+			ctx:  context.Background(),
+			err:  errors.New("write tcp: use of closed network connection"),
+			want: errorClassConnectionReset,
+		},
+		{
+			name: "closed network connection with cancelled call context",
+			ctx:  cancelledCtx,
+			err:  net.ErrClosed,
+			want: errorClassContextCancelled,
+		},
+		{
 			name: "uncategorized error",
 			ctx:  context.Background(),
 			err:  errors.New("something odd happened"),

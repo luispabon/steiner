@@ -89,6 +89,26 @@ func TestIsRetryableHTTPStatus(t *testing.T) {
 	}
 }
 
+func TestIsClosedConnectionError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "sentinel", err: net.ErrClosed, want: true},
+		{name: "text", err: errors.New("write tcp: use of closed network connection"), want: true},
+		{name: "ordinary error", err: errors.New("permanent"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isClosedConnectionError(tt.err); got != tt.want {
+				t.Fatalf("isClosedConnectionError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsRetryableTransportError(t *testing.T) {
 	cancelledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -102,6 +122,10 @@ func TestIsRetryableTransportError(t *testing.T) {
 		{name: "unexpected eof", err: io.ErrUnexpectedEOF, want: true},
 		{name: "broken pipe text", err: errors.New("write tcp: broken pipe"), want: true},
 		{name: "connection reset text", err: errors.New("read tcp: connection reset by peer"), want: true},
+		{name: "closed network connection", err: net.ErrClosed, want: true},
+		{name: "closed network connection in op error", err: &net.OpError{Op: "write", Net: "tcp", Err: net.ErrClosed}, want: true},
+		{name: "closed network connection text", err: errors.New("write tcp: use of closed network connection"), want: true},
+		{name: "closed network connection with done call context", ctx: cancelledCtx, err: net.ErrClosed, want: false},
 		{name: "http2 stream reset text", err: errors.New("http2: stream error: stream ID 1; INTERNAL_ERROR"), want: true},
 		{name: "temporary net error", err: temporaryTestError{msg: "temporary"}, want: true},
 		{name: "context canceled", err: context.Canceled, want: false},

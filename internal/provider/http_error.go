@@ -64,12 +64,34 @@ func isCallerContextError(ctx context.Context, err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) && (ctx == nil || ctx.Err() != nil)
 }
 
+// isClosedConnectionError reports whether err says the local end closed the
+// connection. It matches net.ErrClosed by identity and falls back to the
+// message for errors that lost the sentinel through formatting.
+func isClosedConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "use of closed network connection")
+}
+
+// isRetryableClosedConnection reports whether a closed connection should be
+// retried. A done call context means the caller ended the call, so it is not.
+func isRetryableClosedConnection(ctx context.Context, err error) bool {
+	return isClosedConnectionError(err) && (ctx == nil || ctx.Err() == nil)
+}
+
 func isRetryableTransportError(ctx context.Context, err error) bool {
 	if err == nil {
 		return false
 	}
 	if isCallerContextError(ctx, err) {
 		return false
+	}
+	if isRetryableClosedConnection(ctx, err) {
+		return true
 	}
 	if errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
