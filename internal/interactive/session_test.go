@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -2172,12 +2173,17 @@ type mockSessionStore struct {
 	mu             sync.Mutex
 	savedSessions  map[string]session.Session
 	loadedSessions map[string]session.Session
+	// history maps session IDs to archived history text.
+	history map[string]string
+	// historyErr, when set, is returned by every ReadHistory call.
+	historyErr error
 }
 
 func newMockSessionStore() *mockSessionStore {
 	return &mockSessionStore{
 		savedSessions:  make(map[string]session.Session),
 		loadedSessions: make(map[string]session.Session),
+		history:        make(map[string]string),
 	}
 }
 
@@ -2200,6 +2206,19 @@ func (m *mockSessionStore) Load(id string) (session.Session, error) {
 
 func (m *mockSessionStore) List() ([]session.IndexEntry, error) {
 	return nil, nil
+}
+
+func (m *mockSessionStore) ReadHistory(id string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.historyErr != nil {
+		return "", m.historyErr
+	}
+	content, ok := m.history[id]
+	if !ok {
+		return "", fmt.Errorf("read history: %w", os.ErrNotExist)
+	}
+	return content, nil
 }
 
 func TestLoadSessionReplacesConversation(t *testing.T) {

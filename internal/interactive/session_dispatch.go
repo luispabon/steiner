@@ -134,6 +134,9 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 		return true, s.handleForkSession(ctx)
 	case ForkSavedSession:
 		return true, s.handleForkSavedSession(ctx, a.SessionID)
+	case RequestHistoryRecall:
+		s.emitHistoryRecall()
+		return true, nil
 	}
 	return false, nil
 }

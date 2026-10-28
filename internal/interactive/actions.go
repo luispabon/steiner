@@ -55,6 +55,12 @@ type RequestConfigReport struct{}
 
 func (RequestConfigReport) isInteractiveAction() {}
 
+// RequestHistoryRecall represents a user request to view the archived
+// conversation history of the current session.
+type RequestHistoryRecall struct{}
+
+func (RequestHistoryRecall) isInteractiveAction() {}
+
 // SubmitApproval represents a user decision on an outstanding approval
 // request during an interactive session.
 type SubmitApproval struct {

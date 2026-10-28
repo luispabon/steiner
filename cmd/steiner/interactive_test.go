@@ -372,3 +372,7 @@ func (s resumeFailureSessionStore) Load(string) (session.Session, error) {
 func (s resumeFailureSessionStore) List() ([]session.IndexEntry, error) {
 	return nil, nil
 }
+
+func (s resumeFailureSessionStore) ReadHistory(string) (string, error) {
+	return "", s.err
+}

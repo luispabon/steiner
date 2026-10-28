@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -161,4 +162,8 @@ func (tuiTestSessionStore) Load(string) (session.Session, error) {
 
 func (tuiTestSessionStore) List() ([]session.IndexEntry, error) {
 	return nil, nil
+}
+
+func (tuiTestSessionStore) ReadHistory(string) (string, error) {
+	return "", os.ErrNotExist
 }
