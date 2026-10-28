@@ -1,10 +1,12 @@
 package provider
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -858,14 +860,39 @@ func TestClaudeSubSyncSystemPrompt(t *testing.T) {
 
 func TestClaudeSubSyncSummaryTransportPreservesHistoryLocator(t *testing.T) {
 	const note = "[steiner:history] archived at /data/history.md"
-	request := []Message{{
-		Role:    MessageRoleSystem,
-		Content: "adopted summary\n\n" + note,
-	}, claudeSubSyncUserMsg("continue")}
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+	request := ChatRequest{
+		TransportSession: "summary-transport",
+		Model:            claudeSubTestSpec().Model,
+		Messages: []Message{
+			{Role: MessageRoleSystem, Content: "adopted summary\n\n" + note},
+			claudeSubSyncUserMsg("continue"),
+		},
+		CompactionSummary:        true,
+		CompactionSourceMessages: 1,
+	}
 
-	got := claudeSubSystemPrompt(request)
-	if !strings.Contains(got, "adopted summary\n\n"+note) {
-		t.Fatalf("system prompt = %q, want adopted summary and history locator", got)
+	var systemPrompt string
+	err := claudeSubTurn(context.Background(), pool, request, func(chunk ChatChunk) error {
+		if !chunk.Done || systemPrompt != "" {
+			return nil
+		}
+		path, ok := claudeSubArgValue(spawner.call(t, 0).Args, "--system-prompt-file")
+		if !ok {
+			return errors.New("summary transport omitted --system-prompt-file")
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		systemPrompt = string(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("claudeSubTurn: %v", err)
+	}
+	if !strings.Contains(systemPrompt, "adopted summary\n\n"+note) {
+		t.Fatalf("transport system prompt = %q, want adopted summary and history locator", systemPrompt)
 	}
 }
 
