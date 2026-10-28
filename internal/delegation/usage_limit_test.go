@@ -35,7 +35,7 @@ func TestFailedDelegateReason_UsageLimitNotice(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			reason := failedDelegateReason(nil, tt.err, agent.RunState{})
+			reason := failedDelegateReason(tt.err, nil, agent.RunState{})
 			if !strings.HasPrefix(reason, "delegation failed: ") {
 				t.Errorf("reason = %q, want delegation failed prefix", reason)
 			}

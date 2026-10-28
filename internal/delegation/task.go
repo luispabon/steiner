@@ -139,7 +139,7 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 	childCtxErr := childCtx.Err()
 
 	runUsage := tokenUsageOf(state)
-	tc.add("child_run_complete", "child run finished", runStateFields(childCtxErr, state, err))
+	tc.add("child_run_complete", "child run finished", runStateFields(err, childCtxErr, state))
 
 	if err != nil {
 		failedResult := finalizeDelegateFailure(spec, state, runUsage, err, childCtxErr, events, tc, logger)
@@ -302,7 +302,7 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 		result.Output = msg.Content
 	}
 
-	result.Reason = failedDelegateReason(childCtxErr, err, state)
+	result.Reason = failedDelegateReason(err, childCtxErr, state)
 
 	if fields := toolCallTraceFields(spec.AgentID); fields != nil {
 		tc.add("tool_calls", "per-tool-call trace recorded", fields)
@@ -334,7 +334,7 @@ func delegateHasUsefulActivity(state agent.RunState) bool {
 // preserved-session resume notice for child-context cancellation. childCtxErr is
 // the child context snapshot, so a provider timeout does not claim the session
 // is resumable.
-func failedDelegateReason(childCtxErr, err error, state agent.RunState) string {
+func failedDelegateReason(err, childCtxErr error, state agent.RunState) string {
 	parts := []string{fmt.Sprintf("delegation failed: %s", err.Error())}
 	if toolCount := countToolCalls(state.Conversation); toolCount > 0 {
 		parts = append(parts, fmt.Sprintf("activity before failure: %d tool call(s)", toolCount))
@@ -373,7 +373,7 @@ func cancelledDelegateReason(state agent.RunState) string {
 // runStateFields builds trace fields from a child run's outcome. childCtxErr is
 // the child context snapshot taken when the run returned, so the context flags
 // describe the context rather than a provider error that wraps one.
-func runStateFields(childCtxErr error, state agent.RunState, err error) map[string]any {
+func runStateFields(err, childCtxErr error, state agent.RunState) map[string]any {
 	fields := map[string]any{
 		"stop_reason": string(state.StopReason),
 		"turns":       state.TurnCount,

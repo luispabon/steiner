@@ -14,7 +14,7 @@ import (
 func TestFailedDelegateReason_IncludesError(t *testing.T) {
 	t.Parallel()
 	err := errors.New("deadline exceeded")
-	reason := failedDelegateReason(nil, err, agent.RunState{})
+	reason := failedDelegateReason(err, nil, agent.RunState{})
 	if !strings.Contains(reason, "delegation failed: deadline exceeded") {
 		t.Fatalf("expected failure reason, got: %s", reason)
 	}
@@ -24,7 +24,7 @@ func TestFailedDelegateReason_CountsToolActivity(t *testing.T) {
 	t.Parallel()
 	err := errors.New("deadline exceeded")
 	state := agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "read"}}}}}
-	reason := failedDelegateReason(nil, err, state)
+	reason := failedDelegateReason(err, nil, state)
 	if !strings.Contains(reason, "activity before failure: 1 tool call(s)") {
 		t.Errorf("expected tool activity count in reason, got: %s", reason)
 	}
