@@ -1,8 +1,10 @@
-# Oneshot Engine Internals
+# Oneshot internals
 
-User guide: [Oneshot Mode](../user/oneshot.md). Phase behaviour comes from the prompts [`plan.md`](../../internal/oneshot/prompts/plan.md), [`implement.md`](../../internal/oneshot/prompts/implement.md), and [`review.md`](../../internal/oneshot/prompts/review.md). This page covers only what the engine enforces.
+User guide: [Oneshot](../user/oneshot.md).
 
-Code: `internal/oneshot` (orchestration), `cmd/steiner` (`cmd_oneshot.go`, `phase_driver.go`, `runtime_build.go`), and `internal/interactive` (`phase_control.go`). Model configuration is in [configuration](configuration.md).
+Phase behaviour comes from the prompts [`plan.md`](../../internal/oneshot/prompts/plan.md), [`implement.md`](../../internal/oneshot/prompts/implement.md), and [`review.md`](../../internal/oneshot/prompts/review.md). This page covers only what the engine enforces.
+
+Code: `internal/oneshot` (orchestration), `cmd/steiner` (`cmd_oneshot.go`, `phase_driver.go`, `runtime_build.go`), and `internal/interactive` (`phase_control.go`). Model configuration is in [configuration](../user/configuration.md).
 
 ## Preflight
 
@@ -104,6 +106,8 @@ Phase status values: `pending`, `running`, `done`, `failed`, `skipped`. Resume t
 4. `ensureResumeWorktree`: an existing worktree is checked for the expected branch (`verifyWorktree`). A missing worktree is re-provisioned at `worktree_base`.
 5. `resumeFromManifest` restarts the first phase that is neither `done` nor `skipped`, with a new session. When no phase is incomplete and `closeout_state` is `failed`, only `finalizeRun` runs.
 
+Before restarting, `reportOrphanedWorktrees` loads the interrupted phase's session (when the session store implements `Load`), reads its `SubAgentLedger`, and emits an `orphaned` phase indicator for each sub-agent entry with a `WorktreePath`.
+
 `ListResumableRuns` labels a run whose resume phase is `closeout` as `retry closeout`, or `retry closeout (stale lock)` when the lock is stale.
 
 The engine never removes worktrees. `CleanupWorktree` (`worktree.go`) has no non-test caller.
@@ -115,9 +119,9 @@ Resume runs no artifact check before the restarted phase. `CheckBoundary` runs o
 ## Interrupts and failures
 
 - The run context comes from `InterruptFactory`. The default is `signal.NotifyContext(os.Interrupt)`. The TUI uses `context.WithCancel`.
-- A cancelled or failed phase is marked `failed`, the manifest is written, and a `cancelled` phase indicator is emitted (`finalizePhaseFailure`).
+- `finalizePhaseFailure` marks the phase `failed` and writes the manifest, skipped when the lock was lost. It emits the indicator `cancelled` for lock loss, heartbeat failure, and `RunPhase` errors. It emits `boundary` for runner construction, session creation or save, and `CheckBoundary` failures.
 - The run lock is released on return, and the worktree stays in place for inspection or resume.
-- Any `Run` error also writes a failure report (`tryFailureReport`).
+- A failure report (`tryFailureReport`) is written when `Run` returns an error and the manifest has a run ID (`reportFailureIfNeeded`). `Resume` applies the same condition in a `defer` block.
 
 ## Final report
 
@@ -130,8 +134,8 @@ Closeout (`closeout.go`) runs on the host, not in the sandbox.
 - Skipped unless `oneshot.auto_pr` is true and the report's `completion` is passing. The state is `skipped` with a note.
 - Remote: `branch.<name>.remote` when set, else `origin`. The provider comes from the remote host: `github.com` or `github.*` is GitHub, `gitlab.com` or `gitlab.*` is GitLab, `dev.azure.com` or `visualstudio.com` is Azure DevOps. Any other host sets state `unsupported`.
 - Target branch: the branch's upstream (`@{u}`), else `refs/remotes/<remote>/main`, else `master`. If none resolve, closeout fails.
-- Title: the first line of `overview.md` when it is an H1 (first non-blank line), else `task_summary`, else `slug`, else `oneshot closeout`.
-- Body: `overview.md` with its H1 and following blank lines removed, a `---` line, then `review.md`. Bodies over 60,000 runes are cut at a line boundary with a note naming the planning dir.
+- Title: the first non-blank line of `overview.md` when it is an H1, else `task_summary`, else `slug`, else `oneshot closeout`.
+- Body (`assembleCloseoutBody`): `overview.md` minus its leading H1 and the blank lines after it, then a `---` separator and `review.md`. The separator and review are added only when the trimmed review is non-empty. Without a leading H1, the whole trimmed overview is used. Bodies over 60,000 runes are cut at a line boundary with a note naming the planning dir. The user-facing title and body rule is in [Oneshot](../user/oneshot.md).
 - GitHub: pushes the branch, then runs `gh pr create` (requires `gh` on `PATH`).
 - GitLab: pushes with `merge_request` push options. It returns no URL, so `closeout_url` stays empty and the note says the merge request was created through push options.
 - Azure DevOps: pushes, then runs `az repos pr create` (requires `az` on `PATH`).
