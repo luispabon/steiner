@@ -165,6 +165,20 @@ func TestRenderHistory(t *testing.T) {
 			want: "### assistant · turn 1\n\n- **bash** first ✓\n\n### assistant · turn 2\n\n- **bash** second error\n\n### assistant · turn 3\n\n- **bash** third",
 		},
 		{
+			name: "multiple pending reused IDs pair delegation results FIFO",
+			source: []agent.Message{
+				{Role: agent.MessageRoleAssistant, Turn: 1, ToolCalls: []agent.ToolCall{
+					{ID: "s1", Name: delegation.SubAgentToolName, Arguments: map[string]any{"type": "explore", "objective": "first objective"}},
+				}},
+				{Role: agent.MessageRoleAssistant, Turn: 2, ToolCalls: []agent.ToolCall{
+					{ID: "s1", Name: delegation.SubAgentToolName, Arguments: map[string]any{"type": "explore", "objective": "second objective"}},
+				}},
+				{Role: agent.MessageRoleTool, Turn: 2, ToolCallID: "s1", Name: delegation.SubAgentToolName, Content: projectedResult(t, delegation.Result{AgentID: "a1", Status: delegation.StatusFailed, Reason: "first failed"})},
+				{Role: agent.MessageRoleTool, Turn: 2, ToolCallID: "s1", Name: delegation.SubAgentToolName, Content: projectedResult(t, delegation.Result{AgentID: "a2", Status: delegation.StatusComplete, Output: "second completed"})},
+			},
+			want: "### assistant · turn 1\n\n- **sub_agent** first objective error\n\n### assistant · turn 2\n\n- **sub_agent** second objective ✓",
+		},
+		{
 			name: "unpaired tool call has no status",
 			source: []agent.Message{
 				{Role: agent.MessageRoleAssistant, Turn: 1, ToolCalls: []agent.ToolCall{
