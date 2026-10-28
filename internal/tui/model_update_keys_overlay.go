@@ -19,9 +19,13 @@ func (m *Model) handleContextOverlayKey(msg tea.KeyPressMsg) tea.Model {
 	case tea.KeyDown:
 		m.contextOverlay = m.contextOverlay.scrollDown(1)
 	case tea.KeyPgUp:
-		m.contextOverlay = m.contextOverlay.scrollUp(contextOverlayMaxLines)
+		m.contextOverlay = m.contextOverlay.scrollUp(m.contextOverlay.visibleHeight())
 	case tea.KeyPgDown:
-		m.contextOverlay = m.contextOverlay.scrollDown(contextOverlayMaxLines)
+		m.contextOverlay = m.contextOverlay.scrollDown(m.contextOverlay.visibleHeight())
+	case tea.KeyHome:
+		m.contextOverlay.scrollOffset = 0
+	case tea.KeyEnd:
+		m.contextOverlay = m.contextOverlay.scrollToEnd()
 	}
 	return m
 }

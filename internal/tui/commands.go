@@ -418,6 +418,7 @@ func projectOverlayItems(oneshotMode bool, skillNames []string, skillDescription
 var helpOrder = []string{
 	"/clear",
 	"/compact",
+	"/recall",
 	"/fork",
 	"/resume",
 	"/agents",

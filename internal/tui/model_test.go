@@ -1128,10 +1128,10 @@ func TestModelHandlesRecallCommandLocally(t *testing.T) {
 	if !m.contextOverlay.IsOpen() {
 		t.Fatal("contextOverlay.IsOpen() = false, want overlay open after history report event")
 	}
-	if m.contextOverlay.lineCount <= contextOverlayMaxLines {
-		t.Fatalf("lineCount = %d, want more than %d", m.contextOverlay.lineCount, contextOverlayMaxLines)
+	if m.contextOverlay.lineCount <= m.contextOverlay.visibleHeight() {
+		t.Fatalf("lineCount = %d, want more than %d", m.contextOverlay.lineCount, m.contextOverlay.visibleHeight())
 	}
-	if got, want := m.contextOverlay.scrollOffset, m.contextOverlay.lineCount-contextOverlayMaxLines; got != want {
+	if got, want := m.contextOverlay.scrollOffset, m.contextOverlay.maxScrollOffset(); got != want {
 		t.Fatalf("scrollOffset = %d, want last page %d", got, want)
 	}
 }

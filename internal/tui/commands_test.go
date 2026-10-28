@@ -405,6 +405,7 @@ func TestProjectHelpLines(t *testing.T) {
 	want := []helpBinding{
 		{key: "/clear", desc: "reset the current session"},
 		{key: "/compact", desc: "trigger compaction with optional focus text"},
+		{key: "/recall", desc: "show conversation history archived by compaction"},
 		{key: "/fork", desc: "fork current conversation into a new session"},
 		{key: "/resume", desc: "load a previous session"},
 		{key: "/agents", desc: "find and jump to a sub-agent"},

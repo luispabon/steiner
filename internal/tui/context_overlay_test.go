@@ -157,8 +157,8 @@ func TestContextOverlayScrollsLongRenderedMarkdown(t *testing.T) {
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", report)})
 
-	if got := m.contextOverlay.lineCount; got <= contextOverlayMaxLines {
-		t.Fatalf("lineCount = %d, want more than %d", got, contextOverlayMaxLines)
+	if got := m.contextOverlay.lineCount; got <= m.contextOverlay.visibleHeight() {
+		t.Fatalf("lineCount = %d, want more than %d", got, m.contextOverlay.visibleHeight())
 	}
 	if got := m.contextOverlay.scrollOffset; got != 0 {
 		t.Fatalf("scrollOffset = %d, want 0 at open", got)
@@ -170,10 +170,11 @@ func TestContextOverlayScrollsLongRenderedMarkdown(t *testing.T) {
 	}
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyPgDown})
-	if got := m.contextOverlay.scrollOffset; got != 31 {
-		t.Fatalf("scrollOffset after page down = %d, want 31", got)
+	wantOffset := 1 + m.contextOverlay.visibleHeight()
+	if got := m.contextOverlay.scrollOffset; got != wantOffset {
+		t.Fatalf("scrollOffset after page down = %d, want %d", got, wantOffset)
 	}
-	if maxOffset := m.contextOverlay.lineCount - contextOverlayMaxLines; maxOffset >= 0 && m.contextOverlay.scrollOffset > maxOffset {
+	if maxOffset := m.contextOverlay.maxScrollOffset(); m.contextOverlay.scrollOffset > maxOffset {
 		t.Fatalf("scrollOffset after page down = %d, want at most %d", m.contextOverlay.scrollOffset, maxOffset)
 	}
 }
@@ -186,14 +187,14 @@ func TestContextOverlayScrollToEndSetsLastPage(t *testing.T) {
 		want      int
 	}{
 		{name: "empty", lineCount: 0, want: 0},
-		{name: "fits in one page", lineCount: contextOverlayMaxLines, want: 0},
-		{name: "one line over a page", lineCount: contextOverlayMaxLines + 1, want: 1},
-		{name: "long report", lineCount: 80, want: 80 - contextOverlayMaxLines},
+		{name: "fits in one page", lineCount: 16, want: 0},
+		{name: "one line over a page", lineCount: 17, want: 1},
+		{name: "long report", lineCount: 80, want: 64},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			s := contextOverlayState{lineCount: tt.lineCount}.scrollToEnd()
+			s := contextOverlayState{OverlayShell: OverlayShell{height: 24}, lineCount: tt.lineCount}.scrollToEnd()
 			if s.scrollOffset != tt.want {
 				t.Fatalf("scrollOffset = %d, want %d", s.scrollOffset, tt.want)
 			}
@@ -231,22 +232,121 @@ func TestContextOverlayReportOpenPosition(t *testing.T) {
 			if !m.contextOverlay.IsOpen() {
 				t.Fatal("context overlay = closed, want open after report event")
 			}
-			if m.contextOverlay.lineCount <= contextOverlayMaxLines {
-				t.Fatalf("lineCount = %d, want more than %d", m.contextOverlay.lineCount, contextOverlayMaxLines)
+			if m.contextOverlay.lineCount <= m.contextOverlay.visibleHeight() {
+				t.Fatalf("lineCount = %d, want more than %d", m.contextOverlay.lineCount, m.contextOverlay.visibleHeight())
 			}
 			wantOffset := 0
 			if tt.wantLastPage {
-				wantOffset = m.contextOverlay.lineCount - contextOverlayMaxLines
+				wantOffset = m.contextOverlay.maxScrollOffset()
 			}
 			if got := m.contextOverlay.scrollOffset; got != wantOffset {
 				t.Fatalf("scrollOffset = %d, want %d", got, wantOffset)
 			}
-			plain := stripANSI(m.renderContextOverlay())
+			plain := stripANSI(m.View().Content)
 			if got := strings.Contains(plain, "line 80"); got != tt.wantLastPage {
 				t.Fatalf("last line visible = %v, want %v; overlay = %q", got, tt.wantLastPage, plain)
 			}
 			if got := strings.Contains(plain, "Top marker"); got == tt.wantLastPage {
 				t.Fatalf("top line visible = %v, want %v; overlay = %q", got, !tt.wantLastPage, plain)
+			}
+		})
+	}
+}
+
+// composedContextView returns the stripped frame at the model's current size.
+func composedContextView(m *Model) string {
+	return stripANSI(m.View().Content)
+}
+
+func TestContextOverlayFitsShortTerminal(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{Model: "gpt-test"}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", longContextReport())})
+
+	if _, h := measureOverlay(m.renderContextOverlay()); h != m.height {
+		t.Fatalf("overlay height = %d, want %d (16 body rows plus frame)", h, m.height)
+	}
+	view := composedContextView(m)
+	for _, want := range []string{"╭", "╰", "esc"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("composed view = %q, want %q so the whole frame is visible", view, want)
+		}
+	}
+}
+
+func TestContextOverlayVisibleHeightFollowsTerminal(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		height int
+		want   int
+	}{
+		{height: 8, want: 3},
+		{height: 24, want: 16},
+		{height: 60, want: 30},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("height %d", tt.height), func(t *testing.T) {
+			t.Parallel()
+			s := contextOverlayState{OverlayShell: OverlayShell{height: tt.height}}
+			if got := s.visibleHeight(); got != tt.want {
+				t.Fatalf("visibleHeight() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestContextOverlayKeysReachEnds(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", longContextReport())})
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnd})
+	if view := composedContextView(m); !strings.Contains(view, "line 80") || strings.Contains(view, "Top marker") {
+		t.Fatalf("after End, composed view = %q, want last line visible and top line hidden", view)
+	}
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyHome})
+	if view := composedContextView(m); !strings.Contains(view, "Top marker") || strings.Contains(view, "line 80") {
+		t.Fatalf("after Home, composed view = %q, want top line visible and last line hidden", view)
+	}
+}
+
+func TestContextOverlayResizeKeepsPosition(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		event  output.Event
+		height int
+		atEnd  bool
+	}{
+		{name: "end stays at end when growing", event: output.NewOverlayReportEventAtEnd("History", longContextReport()), height: 40, atEnd: true},
+		{name: "end stays at end when shrinking", event: output.NewOverlayReportEventAtEnd("History", longContextReport()), height: 16, atEnd: true},
+		{name: "top stays at top when growing", event: output.NewOverlayReportEvent("History", longContextReport()), height: 40, atEnd: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := newModel(Config{}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+			m = updateModel(t, m, runtimeEventMsg{Event: tt.event})
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: tt.height})
+
+			view := composedContextView(m)
+			if tt.atEnd {
+				if got, want := m.contextOverlay.scrollOffset, m.contextOverlay.maxScrollOffset(); got != want {
+					t.Fatalf("scrollOffset = %d, want last page %d", got, want)
+				}
+				if !strings.Contains(view, "line 80") {
+					t.Fatalf("composed view = %q, want last line visible", view)
+				}
+				return
+			}
+			if got := m.contextOverlay.scrollOffset; got != 0 {
+				t.Fatalf("scrollOffset = %d, want 0", got)
+			}
+			if !strings.Contains(view, "Top marker") {
+				t.Fatalf("composed view = %q, want top line visible", view)
 			}
 		})
 	}

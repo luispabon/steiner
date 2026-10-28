@@ -23,7 +23,7 @@ func TestWheelRoutingPin(t *testing.T) {
 	)
 	openContext := func(m *Model) {
 		m.contextOverlay = openContextOverlay("Context", benchContextReport(), m.width, m.height, m.styles, m.content.glamourStyleSheet)
-		m.contextOverlay.scrollOffset = (m.contextOverlay.lineCount - contextOverlayMaxLines) / 2
+		m.contextOverlay.scrollOffset = m.contextOverlay.maxScrollOffset() / 2
 	}
 	tests := []struct {
 		name    string
@@ -74,7 +74,7 @@ func TestWheelRoutingPin(t *testing.T) {
 					t.Fatalf("transcript must be scrollable both ways, yOffset=%d", m.viewport.YOffset())
 				}
 				if m.contextOverlay.IsOpen() && (m.contextOverlay.scrollOffset <= 0 ||
-					m.contextOverlay.scrollOffset >= m.contextOverlay.lineCount-contextOverlayMaxLines) {
+					m.contextOverlay.scrollOffset >= m.contextOverlay.maxScrollOffset()) {
 					t.Fatalf("context overlay must be scrollable both ways, offset=%d lines=%d", m.contextOverlay.scrollOffset, m.contextOverlay.lineCount)
 				}
 				vpBefore, ovBefore := m.viewport.YOffset(), m.contextOverlay.scrollOffset
