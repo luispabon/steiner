@@ -1,6 +1,6 @@
 # Claude subscription internals
 
-User-facing documentation: [Claude subscription](../user/claude-subscription.md).
+User guide: [Claude subscription](../user/claude-subscription.md).
 
 The `claude_subscription` provider drives the signed-in `claude` CLI as a stateful adapter. The CLI is not a stable protocol contract, so this page describes the implementation the tests cover.
 
@@ -31,7 +31,7 @@ Additional flags:
 - Calls that do not persist add `--no-session-persistence`.
 - Restoring stored state adds `--resume <session-id>` and, when a target UUID is set, `--resume-session-at <uuid>`. Forks add `--fork-session`.
 - Summary helpers set `--max-turns 1`.
-- Reasoning `none` maps to `--thinking disabled`. Other effort values enable adaptive thinking and pass `--effort`.
+- Effort `none` maps to `--thinking disabled`. A recognized effort (`low`, `medium`, `high`, `xhigh`, `max`) enables adaptive thinking and passes `--effort`. Empty or unknown effort is adaptive without `--effort` (`claudeSubEffort`).
 
 The child environment strips `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, and `CLAUDE_CODE_ENTRYPOINT`. These values override inherited ones: `CLAUDE_CODE_DISABLE_FAST_MODE=1`, `CLAUDE_CODE_RETRY_WATCHDOG=1`, `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`, `CLAUDE_CODE_SILENT_TURN_REMINDER=0`, `CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off`, `CLAUDE_CODE_TODO_REMINDER_MODE=off`, and `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1`. `MAX_MCP_OUTPUT_TOKENS` is set to a bounded value.
 
@@ -55,26 +55,26 @@ The sync record is append-only. User and tool messages are compared by content d
 
 ## Session recovery
 
-A new parent process restores stored state only when the stored CLI session ID, prompt/tools fingerprint, and final message UUID match the request history (`claudeSubRestoreFor`). Restores resume at the stored UUID with `--resume-session-at`, and forks use `--fork-session`. Any failed check reseeds. A live process that accepts the history is reused as is, even if the prompt or tool set has changed.
+A new parent process restores stored state only when the stored CLI session ID, prompt/tools fingerprint, and final message UUID match the request history (`claudeSubRestoreFor`). A restore resumes at the stored UUID with `--resume-session-at` when one is set. State owned by another transport session forks instead: `claudeSubRestoreFor` returns Fork when `stored.TransportSession` differs from the key, and the CLI gets `--fork-session`. Any failed check reseeds. A live process that accepts the history is reused as is, even if the prompt or tool set has changed. When a live process rejects the request, the retry reseeds unless the stored state belongs to another transport session (`claudeSubAttachSession`).
 
 A reseed sends the whole non-system history as one user transcript message. Images still in memory are included, and stripped image data does not return. Tool calls in the history are rendered as text.
 
 ## Compaction
 
-`statefulUsageAboveThreshold` in `stateful_compaction_guard.go` compares the last response's `PromptTokens` with the compaction threshold: the token threshold when set, otherwise the percent setting, otherwise 70%. For this provider, `PromptTokens` is the CLI's total input from the terminal assistant message (`claudeSubUsage.toUsageStats` sums input, cache creation, and cache read tokens). The CLI's result usage covers the whole query, including tool round-trips, so it is not used. A request that does not fit also triggers compaction, as it does for every provider.
+`statefulUsageReachesSelectedThreshold` in `stateful_compaction_guard.go` compares the last response's `PromptTokens` with `ModelTokenBudget.CompactionThresholdTokens` when it is set. Otherwise `statefulUsageAboveThreshold` compares against `CompactionThreshold`, a fraction that `deriveEffectiveLimits` sets to 0.70. `compactionUsageThreshold` (also 0.70) is the fallback when that is zero. For this provider, `PromptTokens` is the CLI's total input from the terminal assistant message (`claudeSubUsage.toUsageStats` sums input, cache creation, and cache read tokens). The CLI's result usage covers the whole query, including tool round-trips, so it is not used. A request that does not fit also triggers compaction, as it does for every provider.
 
-Summaries route through `claudeSubSummaryTurn`:
+Summary routing is owned by `claudeSubSummaryTurn` (`claudesub_turn_summary.go`), tried in this order:
 
 - Sub-agent (`ParentTransportSession` set): the summary is marked in place on the sub-agent's own process, which is then retired.
-- Parent with stored state matching the live checkpoint and a matching fingerprint: an ephemeral helper forks the stored CLI session at the source tail UUID with `--max-turns 1`. The live parent is untouched.
-- Parent with a live process, when forking is not possible or fails before output: the summary is appended in place to the live transcript, and the process is retired.
-- Parent with no live process: the request is reseeded on an ephemeral helper with no persistence.
+- Parent, tried first (`claudeSubTryParentFork`): when the stored state matches the live checkpoint and fingerprint, an ephemeral helper forks the stored CLI session at the source tail UUID (`--fork-session`, `--max-turns 1`) under `key + claudeSubSummarySuffix`. The live parent is untouched.
+- Parent, when forking is not possible or fails before output (`claudeSubParentInPlace`): the summary is appended in place to the live transcript, and the process is retired.
+- Parent with no live process, or whose record cannot take the summary: the request is reseeded on an ephemeral helper with no persistence.
 
 ## Usage gate
 
-Before a new user message is written, `get_usage` must report `rate_limits_available` true and `rate_limits.extra_usage.is_enabled` false. Unconfirmed states, including missing fields, are retried with 500ms, 1s, then 2s backoff for up to 15 seconds (`claudeSubUsageGateBudget`). Each `get_usage` is bounded by the 30 second control timeout.
+Before a new user message is written, `get_usage` is polled. The refusal rules are in the [extra usage safety gate](../user/claude-subscription.md#extra-usage-safety-gate). Unconfirmed states, including missing fields, are retried with 500ms, 1s, then 2s backoff for up to 15 seconds (`claudeSubUsageGateBudget`). Each `get_usage` is bounded by the 30 second control timeout.
 
-If the live process still cannot confirm, `confirmUsageFresh` asks a new CLI process once, because the CLI caches an incomplete usage read in the running process. Confirmation is serialized pool-wide and bounded to 8 seconds (`claudeSubUsageProbeTimeout`). Enabled credits refuse at once. Later rate-limit events fail closed when they show overage or cannot be classified.
+If the live process still cannot confirm, `confirmUsageFresh` asks a new CLI process once, because the CLI caches an incomplete usage read in the running process. Confirmation is serialized pool-wide and bounded to 8 seconds (`claudeSubUsageProbeTimeout`).
 
 ## Provider diagnostics
 
