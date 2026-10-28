@@ -87,6 +87,8 @@ Stop reasons (`result.go`):
 - `error` and `usage_limit` map to `failed`. A `usage_limit` failure carries `usageLimitDelegateNotice` (`task.go`), which tells the parent to delegate a fresh sub-agent.
 - Any other reason maps to `failed` with `unknown stop reason: <reason>`.
 
+Failure classification reads the child context snapshot `childCtx.Err()` that `SpawnDelegate` (`task.go`) captures when `runner.Run` returns, before the deferred limit cancel. `failedDelegateExecution` and `runStateFields` use that snapshot, while the runner error supplies the failure message and usage-limit notice. A provider transport timeout that wraps `context.DeadlineExceeded` on a live child context is therefore `failed`; only a done child context maps to `partial` or `cancelled` and marks the session resumable. The provider retries that timeout inside the child only before visible stream output; once visible chunks have been emitted, it returns the timeout so the child run fails.
+
 Token counters accumulate across follow-ups, seeded from `Spec.PriorTokenUsage`.
 
 `internal/agent` appends turn-budget notices at 50, 75, and 90 percent of the budget (`turnBudgetNoticeFractions`, `internal/agent/turn_budget_notice.go`). A follow-up counts from its own start turn (`RunState.BudgetStartTurn`). The notices do not change the limit.

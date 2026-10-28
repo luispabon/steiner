@@ -14,7 +14,7 @@ import (
 func TestFailedDelegateReason_IncludesError(t *testing.T) {
 	t.Parallel()
 	err := errors.New("deadline exceeded")
-	reason := failedDelegateReason(err, agent.RunState{})
+	reason := failedDelegateReason(err, nil, agent.RunState{})
 	if !strings.Contains(reason, "delegation failed: deadline exceeded") {
 		t.Fatalf("expected failure reason, got: %s", reason)
 	}
@@ -24,7 +24,7 @@ func TestFailedDelegateReason_CountsToolActivity(t *testing.T) {
 	t.Parallel()
 	err := errors.New("deadline exceeded")
 	state := agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c0", Name: "read"}}}}}
-	reason := failedDelegateReason(err, state)
+	reason := failedDelegateReason(err, nil, state)
 	if !strings.Contains(reason, "activity before failure: 1 tool call(s)") {
 		t.Errorf("expected tool activity count in reason, got: %s", reason)
 	}
@@ -32,7 +32,7 @@ func TestFailedDelegateReason_CountsToolActivity(t *testing.T) {
 
 func TestFailedDelegateReason_CancellationSaysSessionPreserved(t *testing.T) {
 	t.Parallel()
-	reason := failedDelegateReason(context.Canceled, agent.RunState{})
+	reason := failedDelegateReason(context.Canceled, context.Canceled, agent.RunState{})
 	if !strings.Contains(reason, "session is preserved") || !strings.Contains(reason, "follow_up") {
 		t.Fatalf("expected preserved-session follow_up note, got: %s", reason)
 	}

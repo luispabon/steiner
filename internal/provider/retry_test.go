@@ -217,6 +217,7 @@ func TestWithRetryContextCancellation(t *testing.T) {
 		)
 
 		calls := 0
+		var infos []retryAttemptInfo
 		err := client.withRetry(
 			ctx,
 			func(int) (bool, error) {
@@ -225,7 +226,7 @@ func TestWithRetryContextCancellation(t *testing.T) {
 				return false, errRetryTransient
 			},
 			classifyRetryTransient,
-			nil,
+			func(info retryAttemptInfo) { infos = append(infos, info) },
 		)
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("withRetry() error = %v, want context.Canceled", err)
@@ -235,6 +236,9 @@ func TestWithRetryContextCancellation(t *testing.T) {
 		}
 		if len(sleeps) != 0 {
 			t.Errorf("sleeps = %v, want none after cancellation", sleeps)
+		}
+		if len(infos) != 0 {
+			t.Errorf("retry infos = %+v, want none after cancellation", infos)
 		}
 	})
 

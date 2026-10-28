@@ -132,12 +132,17 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 
 	req.TurnBudgetNotice = turnBudgetNoticeFunc()
 	state, err := runner.Run(childCtx, req)
+	// Snapshot the child context as the run returns, before the deferred
+	// timeout cancel fires. A provider transport timeout (for example an HTTP
+	// header timeout) wraps context.DeadlineExceeded while the child context is
+	// still live, so classification must read the context, not the error.
+	childCtxErr := childCtx.Err()
 
 	runUsage := tokenUsageOf(state)
-	tc.add("child_run_complete", "child run finished", runStateFields(childCtx, state, err))
+	tc.add("child_run_complete", "child run finished", runStateFields(err, childCtxErr, state))
 
 	if err != nil {
-		failedResult := finalizeDelegateFailure(spec, state, runUsage, err, events, tc, logger)
+		failedResult := finalizeDelegateFailure(spec, state, runUsage, err, childCtxErr, events, tc, logger)
 
 		return failedResult, state, runUsage, nil
 	}
@@ -223,8 +228,8 @@ func applyRemediationResult(
 	return state, runUsage, result
 }
 
-func finalizeDelegateFailure(spec Spec, state agent.RunState, runUsage TokenUsage, err error, events output.EventSink, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
-	result := failedDelegateExecution(spec, state, runUsage, err, tc, logger)
+func finalizeDelegateFailure(spec Spec, state agent.RunState, runUsage TokenUsage, err, childCtxErr error, events output.EventSink, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
+	result := failedDelegateExecution(spec, state, runUsage, err, childCtxErr, tc, logger)
 	if events != nil {
 		budget, uses, denied := advisorFieldsOf(result)
 		events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
@@ -239,11 +244,15 @@ func finalizeDelegateFailure(spec Spec, state agent.RunState, runUsage TokenUsag
 	return result
 }
 
-func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsage, err error, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
+// failedDelegateExecution classifies a failed child run. childCtxErr is the
+// child context's snapshot taken when the run returned; it decides cancellation
+// and deadline outcomes so provider errors that wrap a context error (such as a
+// transport header timeout on a live context) stay StatusFailed.
+func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsage, err, childCtxErr error, tc *traceCollector, logger *TraceLogger) tool.ExecutionResult {
 	status := StatusFailed
 	stopReason := ""
-	ctxCancelled := errors.Is(err, context.Canceled)
-	ctxDeadline := errors.Is(err, context.DeadlineExceeded)
+	ctxCancelled := errors.Is(childCtxErr, context.Canceled)
+	ctxDeadline := errors.Is(childCtxErr, context.DeadlineExceeded)
 	usefulActivity := delegateHasUsefulActivity(state)
 	if ctxCancelled || ctxDeadline {
 		if usefulActivity {
@@ -293,7 +302,7 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 		result.Output = msg.Content
 	}
 
-	result.Reason = failedDelegateReason(err, state)
+	result.Reason = failedDelegateReason(err, childCtxErr, state)
 
 	if fields := toolCallTraceFields(spec.AgentID); fields != nil {
 		tc.add("tool_calls", "per-tool-call trace recorded", fields)
@@ -322,15 +331,17 @@ func delegateHasUsefulActivity(state agent.RunState) bool {
 
 // failedDelegateReason builds the failure explanation surfaced to the parent
 // model, including the tool activity recorded before the failure and the
-// preserved-session resume notice for context cancellation.
-func failedDelegateReason(err error, state agent.RunState) string {
+// preserved-session resume notice for child-context cancellation. childCtxErr is
+// the child context snapshot, so a provider timeout does not claim the session
+// is resumable.
+func failedDelegateReason(err, childCtxErr error, state agent.RunState) string {
 	parts := []string{fmt.Sprintf("delegation failed: %s", err.Error())}
 	if toolCount := countToolCalls(state.Conversation); toolCount > 0 {
 		parts = append(parts, fmt.Sprintf("activity before failure: %d tool call(s)", toolCount))
 	}
 	// Cancellation preserves the child session; surface that to the parent so it
 	// does not conclude the session is gone and start a new delegation.
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(childCtxErr, context.Canceled) || errors.Is(childCtxErr, context.DeadlineExceeded) {
 		parts = append(parts, "the child session is preserved and can be resumed with follow_up using the same agent_id")
 	}
 	if _, ok := provider.AsUsageLimit(err); ok {
@@ -359,8 +370,10 @@ func cancelledDelegateReason(state agent.RunState) string {
 		state.TurnCount, toolCount, last.Name)
 }
 
-// runStateFields builds trace fields from a child run's outcome.
-func runStateFields(ctx context.Context, state agent.RunState, err error) map[string]any {
+// runStateFields builds trace fields from a child run's outcome. childCtxErr is
+// the child context snapshot taken when the run returned, so the context flags
+// describe the context rather than a provider error that wraps one.
+func runStateFields(err, childCtxErr error, state agent.RunState) map[string]any {
 	fields := map[string]any{
 		"stop_reason": string(state.StopReason),
 		"turns":       state.TurnCount,
@@ -368,11 +381,11 @@ func runStateFields(ctx context.Context, state agent.RunState, err error) map[st
 	}
 	if err != nil {
 		fields["error"] = err.Error()
-		fields["is_context_cancelled"] = errors.Is(err, context.Canceled)
-		fields["is_context_deadline"] = errors.Is(err, context.DeadlineExceeded)
+		fields["is_context_cancelled"] = errors.Is(childCtxErr, context.Canceled)
+		fields["is_context_deadline"] = errors.Is(childCtxErr, context.DeadlineExceeded)
 	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		fields["ctx_err"] = ctxErr.Error()
+	if childCtxErr != nil {
+		fields["ctx_err"] = childCtxErr.Error()
 	}
 	fields["last_msg_has_tools"] = lastMessageHasTools(state)
 	return fields

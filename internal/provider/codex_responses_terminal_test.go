@@ -60,7 +60,7 @@ func TestResponsesStreamTerminalEvents(t *testing.T) {
 				if !errors.Is(err, errResponsesStreamFailed) && !errors.Is(err, errResponsesStreamFailedTransient) {
 					t.Fatalf("error %v does not wrap a responses-failed sentinel", err)
 				}
-				if decision := classifyProviderError(err, time.Second); decision.retry != tt.wantRetry {
+				if decision := classifyProviderError(context.Background(), err, time.Second); decision.retry != tt.wantRetry {
 					t.Fatalf("classifyProviderError retry = %v, want %v: %v", decision.retry, tt.wantRetry, err)
 				}
 				return
@@ -88,7 +88,7 @@ func TestClassifyProviderErrorFailedResponseIgnoresRetryableText(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	err := responsesFailedError(resp)
-	if decision := classifyProviderError(err, time.Second); decision.retry {
+	if decision := classifyProviderError(context.Background(), err, time.Second); decision.retry {
 		t.Fatalf("retry = true, want false for %v", err)
 	}
 }

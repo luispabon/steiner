@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -89,8 +90,12 @@ func TestIsRetryableHTTPStatus(t *testing.T) {
 }
 
 func TestIsRetryableTransportError(t *testing.T) {
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
 	tests := []struct {
 		name string
+		ctx  context.Context
 		err  error
 		want bool
 	}{
@@ -100,12 +105,18 @@ func TestIsRetryableTransportError(t *testing.T) {
 		{name: "http2 stream reset text", err: errors.New("http2: stream error: stream ID 1; INTERNAL_ERROR"), want: true},
 		{name: "temporary net error", err: temporaryTestError{msg: "temporary"}, want: true},
 		{name: "context canceled", err: context.Canceled, want: false},
-		{name: "deadline exceeded", err: context.DeadlineExceeded, want: false},
+		{name: "deadline exceeded with live call context", err: context.DeadlineExceeded, want: true},
+		{name: "wrapped client timeout with live call context", err: &url.Error{Op: "Post", URL: "http://example", Err: context.DeadlineExceeded}, want: true},
+		{name: "deadline exceeded with done call context", ctx: cancelledCtx, err: context.DeadlineExceeded, want: false},
 		{name: "ordinary error", err: errors.New("permanent"), want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isRetryableTransportError(tt.err); got != tt.want {
+			ctx := tt.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			if got := isRetryableTransportError(ctx, tt.err); got != tt.want {
 				t.Fatalf("isRetryableTransportError() = %v, want %v", got, tt.want)
 			}
 		})
@@ -235,7 +246,7 @@ func TestIsRetryableTransportErrorWrappedOpError(t *testing.T) {
 		Net: "tcp",
 		Err: io.ErrUnexpectedEOF,
 	}
-	if !isRetryableTransportError(err) {
+	if !isRetryableTransportError(context.Background(), err) {
 		t.Fatal("expected wrapped op error to be retryable")
 	}
 }

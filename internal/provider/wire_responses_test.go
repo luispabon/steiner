@@ -2,6 +2,7 @@ package provider
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -189,7 +190,7 @@ func TestResponsesWireDecodeResponse_MalformedBodyIsNotRetryable(t *testing.T) {
 
 	if _, err := w.DecodeResponse(resp); err == nil {
 		t.Fatal("DecodeResponse() error = nil, want decode error")
-	} else if decision := classifyProviderError(err, 0); decision.retry {
+	} else if decision := classifyProviderError(context.Background(), err, 0); decision.retry {
 		t.Fatalf("decode error classified as retryable: %v", err)
 	}
 }

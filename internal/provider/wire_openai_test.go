@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -413,7 +414,7 @@ func TestClientClassifyRetryError_LiteLLMRefinementCapsRetryAfter(t *testing.T) 
 		wire:  &openaiWire{providerType: "litellm"},
 	}
 
-	decision := c.classifyRetryError(&HTTPError{
+	decision := c.classifyRetryError(context.Background(), &HTTPError{
 		StatusCode: http.StatusTooManyRequests,
 		Status:     "429 Too Many Requests",
 		Body:       "Try again in 120 seconds",
@@ -589,7 +590,7 @@ func TestOpenAIWireDecodeResponse_Malformed(t *testing.T) {
 	if !errors.Is(err, errDecodeChatCompletionResponse) {
 		t.Fatalf("error = %q, want sentinel match", err.Error())
 	}
-	if decision := classifyProviderError(err, 0); decision.retry {
+	if decision := classifyProviderError(context.Background(), err, 0); decision.retry {
 		t.Fatalf("decode error classified as retryable: %v", err)
 	}
 }

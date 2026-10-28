@@ -53,11 +53,22 @@ func isRetryableHTTPStatus(status int) bool {
 	}
 }
 
-func isRetryableTransportError(err error) bool {
+// isCallerContextError reports whether err reflects the provider call context
+// ending rather than a transport-owned timeout. http.Client.Timeout and
+// Transport.ResponseHeaderTimeout wrap their own request deadline, so errors.Is
+// reports context.DeadlineExceeded even while the call context is still live.
+func isCallerContextError(ctx context.Context, err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	return errors.Is(err, context.DeadlineExceeded) && (ctx == nil || ctx.Err() != nil)
+}
+
+func isRetryableTransportError(ctx context.Context, err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if isCallerContextError(ctx, err) {
 		return false
 	}
 	if errors.Is(err, io.ErrUnexpectedEOF) {
@@ -77,11 +88,11 @@ func isRetryableTransportError(err error) bool {
 	}
 	var opErr *net.OpError
 	if errors.As(err, &opErr) && opErr.Err != nil {
-		return isRetryableTransportError(opErr.Err)
+		return isRetryableTransportError(ctx, opErr.Err)
 	}
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) && urlErr.Err != nil {
-		return isRetryableTransportError(urlErr.Err)
+		return isRetryableTransportError(ctx, urlErr.Err)
 	}
 	return false
 }
