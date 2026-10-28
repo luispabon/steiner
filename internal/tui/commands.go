@@ -214,6 +214,14 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		ID:   "/recall",
+		Name: "Recall history",
+		Desc: "show conversation history archived by compaction",
+		Build: func(_ string) inputAction {
+			return inputAction{recall: true}
+		},
+	},
+	{
 		ID:   "/resume",
 		Name: "Resume session",
 		Desc: "load a previous session",

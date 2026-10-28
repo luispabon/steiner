@@ -111,6 +111,9 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if action.forkSession {
 		return m.executeForkSessionAction()
 	}
+	if action.recall {
+		return m.executeRecallAction()
+	}
 	if action.invokeSkill != "" {
 		return m.executeInvokeSkillAction(action.invokeSkill, action.invokeSkillArgs)
 	}

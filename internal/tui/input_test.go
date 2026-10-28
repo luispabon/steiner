@@ -229,6 +229,17 @@ func TestParseInputHandlesCacheStatsCommand(t *testing.T) {
 	}
 }
 
+func TestParseInputHandlesRecallCommand(t *testing.T) {
+	t.Parallel()
+	action := parseInput("/recall")
+	if !action.recall {
+		t.Fatal("recall = false, want true")
+	}
+	if action.submit != "" {
+		t.Fatalf("submit = %q, want empty", action.submit)
+	}
+}
+
 func TestBuildCompletionCandidatesIncludesOneshotResume(t *testing.T) {
 	t.Parallel()
 	got := buildCompletionCandidates("/oneshot", nil, false)

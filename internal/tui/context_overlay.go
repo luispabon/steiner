@@ -97,6 +97,12 @@ func (s contextOverlayState) scrollDown(n int) contextOverlayState {
 	return s
 }
 
+// scrollToEnd moves the scroll position to the last page of the report.
+func (s contextOverlayState) scrollToEnd() contextOverlayState {
+	s.scrollOffset = max(0, s.lineCount-contextOverlayMaxLines)
+	return s
+}
+
 // renderContextOverlay returns the rendered overlay string, reusing the
 // previous render while nothing it reads has changed.
 func (m *Model) renderContextOverlay() string {

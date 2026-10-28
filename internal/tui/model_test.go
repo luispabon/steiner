@@ -100,6 +100,10 @@ func (c *testController) countRequestConfigReport() int {
 	return c.countByType(interactive.RequestConfigReport{})
 }
 
+func (c *testController) countRequestHistoryRecall() int {
+	return c.countByType(interactive.RequestHistoryRecall{})
+}
+
 func (c *testController) countInterruptActiveRun() int {
 	return c.countByType(interactive.InterruptActiveRun{})
 }
@@ -188,6 +192,10 @@ func (c *testController) countByType(target interactive.Action) int {
 			}
 		case interactive.RequestConfigReport:
 			if _, ok := a.(interactive.RequestConfigReport); ok {
+				count++
+			}
+		case interactive.RequestHistoryRecall:
+			if _, ok := a.(interactive.RequestHistoryRecall); ok {
 				count++
 			}
 		case interactive.InterruptActiveRun:
@@ -1090,6 +1098,41 @@ func TestModelHandlesContextKeybindLocally(t *testing.T) {
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.contextOverlay.IsOpen() {
 		t.Fatal("contextOverlay.IsOpen() = true, want overlay closed after Esc")
+	}
+}
+
+func TestModelHandlesRecallCommandLocally(t *testing.T) {
+	t.Parallel()
+	ctrl := &testController{}
+
+	m := newModel(Config{
+		Controller: ctrl,
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+
+	m.input.SetValue("/recall")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if ctrl.countSubmitPrompt() != 0 {
+		t.Fatalf("submit count = %d, want 0", ctrl.countSubmitPrompt())
+	}
+	if ctrl.countRequestHistoryRecall() != 1 {
+		t.Fatalf("history recall count = %d, want 1", ctrl.countRequestHistoryRecall())
+	}
+	if got := strings.TrimSpace(stripANSI(m.content.String(m.viewport.Width()))); got != "" {
+		t.Fatalf("content = %q, want no local echo", got)
+	}
+
+	// The archived history arrives as an overlay report that opens at its end.
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEventAtEnd("History", longContextReport())})
+	if !m.contextOverlay.IsOpen() {
+		t.Fatal("contextOverlay.IsOpen() = false, want overlay open after history report event")
+	}
+	if m.contextOverlay.lineCount <= contextOverlayMaxLines {
+		t.Fatalf("lineCount = %d, want more than %d", m.contextOverlay.lineCount, contextOverlayMaxLines)
+	}
+	if got, want := m.contextOverlay.scrollOffset, m.contextOverlay.lineCount-contextOverlayMaxLines; got != want {
+		t.Fatalf("scrollOffset = %d, want last page %d", got, want)
 	}
 }
 

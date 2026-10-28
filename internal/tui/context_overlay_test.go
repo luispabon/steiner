@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -174,6 +175,80 @@ func TestContextOverlayScrollsLongRenderedMarkdown(t *testing.T) {
 	}
 	if maxOffset := m.contextOverlay.lineCount - contextOverlayMaxLines; maxOffset >= 0 && m.contextOverlay.scrollOffset > maxOffset {
 		t.Fatalf("scrollOffset after page down = %d, want at most %d", m.contextOverlay.scrollOffset, maxOffset)
+	}
+}
+
+func TestContextOverlayScrollToEndSetsLastPage(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		lineCount int
+		want      int
+	}{
+		{name: "empty", lineCount: 0, want: 0},
+		{name: "fits in one page", lineCount: contextOverlayMaxLines, want: 0},
+		{name: "one line over a page", lineCount: contextOverlayMaxLines + 1, want: 1},
+		{name: "long report", lineCount: 80, want: 80 - contextOverlayMaxLines},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := contextOverlayState{lineCount: tt.lineCount}.scrollToEnd()
+			if s.scrollOffset != tt.want {
+				t.Fatalf("scrollOffset = %d, want %d", s.scrollOffset, tt.want)
+			}
+		})
+	}
+}
+
+// longContextReport returns a report with more lines than fit in one overlay
+// page. "Top marker" is the first line and "line 80" is the last.
+func longContextReport() string {
+	lines := []string{"Top marker", ""}
+	for i := 1; i <= 80; i++ {
+		lines = append(lines, fmt.Sprintf("- line %02d", i))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func TestContextOverlayReportOpenPosition(t *testing.T) {
+	t.Parallel()
+	report := longContextReport()
+	tests := []struct {
+		name         string
+		event        output.Event
+		wantLastPage bool
+	}{
+		{name: "scroll to end opens last page", event: output.NewOverlayReportEventAtEnd("History", report), wantLastPage: true},
+		{name: "default opens top", event: output.NewOverlayReportEvent("History", report), wantLastPage: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := newModel(Config{}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+			m = updateModel(t, m, runtimeEventMsg{Event: tt.event})
+			if !m.contextOverlay.IsOpen() {
+				t.Fatal("context overlay = closed, want open after report event")
+			}
+			if m.contextOverlay.lineCount <= contextOverlayMaxLines {
+				t.Fatalf("lineCount = %d, want more than %d", m.contextOverlay.lineCount, contextOverlayMaxLines)
+			}
+			wantOffset := 0
+			if tt.wantLastPage {
+				wantOffset = m.contextOverlay.lineCount - contextOverlayMaxLines
+			}
+			if got := m.contextOverlay.scrollOffset; got != wantOffset {
+				t.Fatalf("scrollOffset = %d, want %d", got, wantOffset)
+			}
+			plain := stripANSI(m.renderContextOverlay())
+			if got := strings.Contains(plain, "line 80"); got != tt.wantLastPage {
+				t.Fatalf("last line visible = %v, want %v; overlay = %q", got, tt.wantLastPage, plain)
+			}
+			if got := strings.Contains(plain, "Top marker"); got == tt.wantLastPage {
+				t.Fatalf("top line visible = %v, want %v; overlay = %q", got, !tt.wantLastPage, plain)
+			}
+		})
 	}
 }
 

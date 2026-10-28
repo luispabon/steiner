@@ -81,6 +81,18 @@ func (m *Model) executeInspectConfigAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) executeRecallAction() (tea.Model, tea.Cmd) {
+	if m.controller != nil {
+		if err := m.controller.Handle(context.Background(), interactive.RequestHistoryRecall{}); err != nil {
+			m.appendError(err)
+		}
+	}
+	m.input.Reset()
+	m.relayoutInput()
+	m.syncViewport()
+	return m, nil
+}
+
 func (m *Model) executeListSkillsAction() (tea.Model, tea.Cmd) {
 	names := append([]string(nil), m.skillNames...)
 	slices.Sort(names)
