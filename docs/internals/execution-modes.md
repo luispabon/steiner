@@ -1,6 +1,6 @@
-# Execution modes: Internals
+# Execution modes internals
 
-User-facing documentation: [Execution modes](../user/execution-modes.md).
+User guide: [Execution modes](../user/execution-modes.md).
 
 ## Prompt and cache mechanics
 
@@ -10,7 +10,7 @@ Delegated child workflow modes omit the execution-modes section. `sectionExecuti
 
 ## Enforcement
 
-- `Executor.runPipeline` (`internal/tool/execution_pipeline.go`) resolves `readOnlyProject` once per call with `readOnlyProjectFor`. It is true for `BashReadOnlyProjectKey` or plan mode, and it travels in `ResolvedSandbox`. `bash` reads it through `ResolvedSandboxFrom`.
+- Sandbox resolution is documented in [Tool sandboxing internals](sandboxing.md#resolution).
 - With no mode getter set, the mode defaults to build.
 - Plan-mode path checks use a lexical allowlist and a symlink-resolved check (`internal/tool/policy_paths.go`).
 - Plan-mode writable directories come from `config.PlanModeWritableDirs()`: `.steiner/plans` and `.steiner/security`.
