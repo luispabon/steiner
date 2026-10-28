@@ -14,7 +14,7 @@ Subprocess tools are rebuilt with `exec.CommandContext` after wrapping, since wr
 
 `planModeWritableBinds` binds the `config.PlanModeWritableDirs()` entries only when each is a non-symlink directory whose resolved path stays under the root. `gitWritableBinds` binds `.git` writable; for linked worktrees it also binds gitdir and commondir, and a symlinked `.git` is rejected.
 
-`appendSandboxCacheArgs` (`internal/sandbox/mounts.go`) binds `privateCacheDir` (`<root>/.steiner/home/cache`) at `~/.cache` inside the sandbox by default. With `bind_host_cache`, the host `~/.cache` is bound there instead, and that host bind is skipped when `~/.cache` is missing or not a real directory. The sandbox home `<root>/.steiner/home` is bound writable when it is safe.
+`appendSandboxCacheArgs` (`internal/sandbox/mounts.go`) binds `privateCacheDir` (`<root>/.steiner/home/cache`) at the host cache path (`~/.cache`, symlinks resolved) by default. With `bind_host_cache`, the host directory is bound there instead. Either bind is emitted only when `cacheMountPath` finds an existing cache directory. The sandbox home `<root>/.steiner/home` is bound writable when it is safe.
 
 `sandbox.host_mounts` paths pass through verbatim on both sides; only `~` is expanded at config load.
 

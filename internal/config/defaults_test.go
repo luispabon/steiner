@@ -160,8 +160,8 @@ func TestDefaultConfigLSPIdleTimeout(t *testing.T) {
 }
 
 // TestDefaultConfigLSPCalibratedTimeouts pins the LSP timeout defaults. Changing
-// one of these values means re-running internal/lsp/calibrate_manual_test.go.
-// and updating that section.
+// one of these values means re-running internal/lsp/calibrate_manual_test.go
+// and updating docs/internals/lsp.md "Calibration".
 func TestDefaultConfigLSPCalibratedTimeouts(t *testing.T) {
 	cfg := defaultConfig(nil)
 
