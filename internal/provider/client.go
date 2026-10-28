@@ -107,7 +107,7 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (respo
 			observePromptTokenUsage(ctx, request, response.Usage)
 		}
 		return false, err
-	}, c.classifyRetryErrorAndDropCacheAffinity(&dropCacheAffinity), nil)
+	}, c.classifyRetryErrorAndDropCacheAffinity(ctx, &dropCacheAffinity), nil)
 
 	call.ttft = ttft
 	call.attempts = attempts
@@ -223,7 +223,7 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 			}
 		})
 		return partialStream, err
-	}, c.classifyRetryErrorAndDropCacheAffinity(&dropCacheAffinity), func(info retryAttemptInfo) {
+	}, c.classifyRetryErrorAndDropCacheAffinity(ctx, &dropCacheAffinity), func(info retryAttemptInfo) {
 		if !info.PartialStream {
 			return
 		}
@@ -298,9 +298,9 @@ func (c *Client) pace(ctx context.Context) error {
 // prompt_cache_retention quirk (see isCodexPromptCacheRetentionRejection), so the
 // caller can drop cache-affinity pinning on the next attempt to avoid landing back
 // on the same bad backend replica.
-func (c *Client) classifyRetryErrorAndDropCacheAffinity(dropCacheAffinity *bool) func(error) retryDecision {
+func (c *Client) classifyRetryErrorAndDropCacheAffinity(ctx context.Context, dropCacheAffinity *bool) func(error) retryDecision {
 	return func(err error) retryDecision {
-		decision := c.classifyRetryError(err)
+		decision := c.classifyRetryError(ctx, err)
 		if decision.retry && isCodexPromptCacheRetentionRejection(err) {
 			*dropCacheAffinity = true
 		}
@@ -311,8 +311,8 @@ func (c *Client) classifyRetryErrorAndDropCacheAffinity(dropCacheAffinity *bool)
 // classifyRetryError decides whether err is worth another attempt. It applies the
 // generic transport/HTTP/decode classification, then offers the decision to the
 // wire when the wire can interpret errors the engine cannot.
-func (c *Client) classifyRetryError(err error) retryDecision {
-	decision := classifyProviderError(err, c.retry.RetryAfterMax)
+func (c *Client) classifyRetryError(ctx context.Context, err error) retryDecision {
+	decision := classifyProviderError(ctx, err, c.retry.RetryAfterMax)
 	refiner, ok := c.wire.(retryRefiner)
 	if !ok {
 		return decision
@@ -324,7 +324,7 @@ func (c *Client) classifyRetryError(err error) retryDecision {
 	return decision
 }
 
-func classifyProviderError(err error, retryAfterMax time.Duration) retryDecision {
+func classifyProviderError(ctx context.Context, err error, retryAfterMax time.Duration) retryDecision {
 	if err == nil {
 		return retryDecision{}
 	}
@@ -354,7 +354,7 @@ func classifyProviderError(err error, retryAfterMax time.Duration) retryDecision
 			retryAfter: delay,
 		}
 	}
-	if !isRetryableTransportError(err) {
+	if !isRetryableTransportError(ctx, err) {
 		return retryDecision{}
 	}
 	return retryDecision{

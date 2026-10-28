@@ -2,6 +2,7 @@ package provider
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -282,7 +283,7 @@ func TestOpenAICompatClassifyRetryError_DecodeIsNotRetryable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := p.classifyRetryError(tt.err)
+			d := p.classifyRetryError(context.Background(), tt.err)
 			if d.retry != tt.wantRetry {
 				t.Fatalf("retry = %v, want %v", d.retry, tt.wantRetry)
 			}

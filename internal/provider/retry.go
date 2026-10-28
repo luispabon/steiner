@@ -47,6 +47,12 @@ func (c *Client) withRetry(
 			return err
 		}
 
+		// A cancelled or expired call context must not produce retry side
+		// effects (diagnostic events, stream resets, or a new attempt).
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		info := retryAttemptInfo{
 			Attempt:       attempt + 1,
 			MaxAttempts:   maxAttempts,
@@ -61,10 +67,6 @@ func (c *Client) withRetry(
 
 		if onRetry != nil {
 			onRetry(info)
-		}
-
-		if err := ctx.Err(); err != nil {
-			return err
 		}
 		if err := c.sleepForRetry(ctx, info.Delay); err != nil {
 			return err
