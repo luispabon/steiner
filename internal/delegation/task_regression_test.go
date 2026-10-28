@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 )
@@ -199,5 +200,57 @@ func TestSpawnDelegate_ChildCancellationStaysResumablePartial(t *testing.T) {
 	}
 	if failed["context_cancelled"] != true {
 		t.Errorf("failed context_cancelled = %#v, want true", failed["context_cancelled"])
+	}
+}
+
+func TestSpawnDelegate_TimeoutSnapshotsDeadlineBeforeCleanup(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "delegation.log")
+	logger, err := NewTraceLogger(path)
+	if err != nil {
+		t.Fatalf("NewTraceLogger: %v", err)
+	}
+	state := usefulActivityState(agent.StopReasonCancelled)
+	deadlineErr := context.DeadlineExceeded
+	runner := &mockRunner{runFunc: func(ctx context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		<-ctx.Done()
+		deadlineErr = ctx.Err()
+		return state, ctx.Err()
+	}}
+	spec := Spec{AgentID: "deadline-child", Limits: Limits{Timeout: 10 * time.Millisecond}}
+	res, _, _, err := SpawnDelegate(context.Background(), spec, agent.RunRequest{}, runner, nil, logger)
+	if err != nil {
+		t.Fatalf("SpawnDelegate error: %v", err)
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	if deadlineErr != context.DeadlineExceeded {
+		t.Fatalf("runner saw child context err = %v, want deadline exceeded", deadlineErr)
+	}
+	result := res.Value.(Result)
+	if result.Status != StatusPartial || result.StopReason != "limit reached" || !result.SessionResumable {
+		t.Fatalf("result = %#v, want partial/limit reached and resumable", result)
+	}
+	if !strings.Contains(result.Reason, "session is preserved") {
+		t.Errorf("reason = %q, want preserved-session notice", result.Reason)
+	}
+	envelope := result.ProjectToolResult()
+	if envelope.Status != "partial" || envelope.Reason != "limit reached" {
+		t.Errorf("envelope = %#v, want partial/limit reached", envelope)
+	}
+
+	record := readTraceRecord(t, path)
+	complete := traceEntry(t, record, "child_run_complete")
+	failed := traceEntry(t, record, "failed")
+	if complete["is_context_deadline"] != true || complete["is_context_cancelled"] != false {
+		t.Errorf("child_run_complete fields = %#v, want deadline child context", complete)
+	}
+	if complete["ctx_err"] != context.DeadlineExceeded.Error() {
+		t.Errorf("child_run_complete ctx_err = %#v, want %q", complete["ctx_err"], context.DeadlineExceeded.Error())
+	}
+	if failed["context_deadline"] != true || failed["status"] != string(StatusPartial) {
+		t.Errorf("failed fields = %#v, want deadline partial outcome", failed)
 	}
 }
