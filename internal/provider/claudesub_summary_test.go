@@ -560,7 +560,7 @@ func TestClaudeSubSummaryForkLocatorReachesNextTurn(t *testing.T) {
 	summary := claudeSubRunTurn(t, pool, ChatRequest{
 		TransportSession:         "parent",
 		Model:                    model,
-		Messages:                 []Message{promptA, u1, a1, u2, claudeSubUserText("summarize the older part")},
+		Messages:                 []Message{promptA, u1, a1, claudeSubUserText("summarize the older part")},
 		BackendState:             second.BackendState,
 		CompactionSummary:        true,
 		CompactionSourceMessages: 2,
@@ -579,6 +579,9 @@ func TestClaudeSubSummaryForkLocatorReachesNextTurn(t *testing.T) {
 	if !claudeSubHasArg(helper, "--fork-session") {
 		t.Errorf("fork helper args lack --fork-session: %v", helper)
 	}
+	if lines := strings.Join(spawner.call(t, 1).Conn.sentLines(), "\n"); !strings.Contains(lines, "summarize the older part") || strings.Contains(lines, "second question") {
+		t.Errorf("fork helper received %q, want the instruction and no retained suffix", lines)
+	}
 	if summary.BackendState != nil || summary.ClearBackendState || summary.Delta.Content == "" {
 		t.Errorf("fork summary chunk = state %s clear %v text %q, want text and no state change", summary.BackendState, summary.ClearBackendState, summary.Delta.Content)
 	}
@@ -587,10 +590,11 @@ func TestClaudeSubSummaryForkLocatorReachesNextTurn(t *testing.T) {
 	// The adopted summary and the history locator form prompt B. The retained
 	// suffix is u2 and its answer, followed by the next user message.
 	adopted := Message{Role: MessageRoleSystem, Content: summary.Delta.Content + "\n\n" + claudeSubHistoryLocator}
+	nextMsgs := []Message{promptA, adopted, u2, second.Delta, claudeSubUserText("third question")}
 	next, prompt := claudeSubRunTurnPrompt(t, pool, spawner, 2, ChatRequest{
 		TransportSession: "parent",
 		Model:            model,
-		Messages:         []Message{promptA, adopted, u2, second.Delta, claudeSubUserText("third question")},
+		Messages:         nextMsgs,
 	})
 
 	if got := spawner.callCount(); got != 3 {
@@ -608,6 +612,16 @@ func TestClaudeSubSummaryForkLocatorReachesNextTurn(t *testing.T) {
 	if next.BackendState == nil {
 		t.Error("next turn returned no backend state for the new generation")
 	}
+	wantFP, err := claudeSubFingerprint(claudeSubSystemPrompt(nextMsgs), nil)
+	if err != nil {
+		t.Fatalf("fingerprint adopted prompt: %v", err)
+	}
+	if got := claudeSubDecodeState(t, next.BackendState).PromptToolsFingerprint; got != wantFP {
+		t.Errorf("new generation fingerprint = %q, want the adopted prompt's %q", got, wantFP)
+	}
+	if !spawner.call(t, 0).Conn.isClosed() {
+		t.Error("old parent process was not closed by the next turn")
+	}
 	reseed := strings.Join(claudeSubUserLines(spawner.call(t, 2).Conn), "\n")
 	if !strings.Contains(reseed, "Conversation so far") || !strings.Contains(reseed, "second question") || !strings.Contains(reseed, "third question") || strings.Contains(reseed, "first question") {
 		t.Errorf("fresh process transcript = %q, want the retained suffix without the summarized source", reseed)
@@ -622,20 +636,27 @@ func TestClaudeSubSummaryForkLocatorReachesNextTurn(t *testing.T) {
 // with the history locator, reseeds a fresh process whose transport prompt
 // carries the locator once. The old parent receives no new line.
 func TestClaudeSubSummaryInPlaceLocatorReachesNextTurn(t *testing.T) {
-	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 3), claudeSubTextTurns(t, 1))
+	// An empty uuid models an assistant entry the CLI did not stamp, so a source
+	// ending on it cannot fork.
+	parent := &claudeSubScript{batches: [][]claudeSubEvent{
+		claudeSubTextTurnWithUUID(t, ""),
+		claudeSubTextTurnWithUUID(t, ""),
+		claudeSubTextTurnWithUUID(t, ""),
+	}}
+	pool, spawner := claudeSubPoolWithScripts(t, parent, claudeSubTextTurns(t, 1))
 	model := claudeSubTestSpec().Model
 	promptA := Message{Role: MessageRoleSystem, Content: claudeSubTestSpec().SystemPrompt}
 	u1, a1, u2, _, second := claudeSubTwoTurnsUnderPrompt(t, pool, promptA)
 	summary := claudeSubRunTurn(t, pool, ChatRequest{
 		TransportSession:         "parent",
 		Model:                    model,
-		Messages:                 []Message{promptA, u1, claudeSubUserText("summarize the older part")},
+		Messages:                 []Message{promptA, u1, a1, claudeSubUserText("summarize the older part")},
 		BackendState:             second.BackendState,
 		CompactionSummary:        true,
-		CompactionSourceMessages: 1,
+		CompactionSourceMessages: 2,
 	})
 
-	// Route: in place. The source tail u1 has no uuid, so nothing forks. The
+	// Route: in place. The source ends on a1, whose entry has no uuid, so nothing forks. The
 	// marked instruction goes to the live parent, which is then retired.
 	if got := spawner.callCount(); got != 1 {
 		t.Fatalf("spawned %d processes, want 1 (no fork helper without a source tail uuid)", got)
@@ -654,13 +675,14 @@ func TestClaudeSubSummaryInPlaceLocatorReachesNextTurn(t *testing.T) {
 	}
 	parentLines := len(claudeSubUserLines(spawner.call(t, 0).Conn))
 
-	// The retained suffix is the record after u1: a1, u2 and its answer, then
+	// The retained suffix starts at u2: u2 and its answer, then
 	// the next user message.
 	adopted := Message{Role: MessageRoleSystem, Content: summary.Delta.Content + "\n\n" + claudeSubHistoryLocator}
+	nextMsgs := []Message{promptA, adopted, u2, second.Delta, claudeSubUserText("third question")}
 	next, prompt := claudeSubRunTurnPrompt(t, pool, spawner, 1, ChatRequest{
 		TransportSession: "parent",
 		Model:            model,
-		Messages:         []Message{promptA, adopted, a1, u2, second.Delta, claudeSubUserText("third question")},
+		Messages:         nextMsgs,
 	})
 
 	if got := spawner.callCount(); got != 2 {
@@ -677,6 +699,16 @@ func TestClaudeSubSummaryInPlaceLocatorReachesNextTurn(t *testing.T) {
 	}
 	if next.BackendState == nil {
 		t.Error("next turn returned no backend state for the new generation")
+	}
+	wantFP, err := claudeSubFingerprint(claudeSubSystemPrompt(nextMsgs), nil)
+	if err != nil {
+		t.Fatalf("fingerprint adopted prompt: %v", err)
+	}
+	if got := claudeSubDecodeState(t, next.BackendState).PromptToolsFingerprint; got != wantFP {
+		t.Errorf("new generation fingerprint = %q, want the adopted prompt's %q", got, wantFP)
+	}
+	if !spawner.call(t, 0).Conn.isClosed() {
+		t.Error("old parent process was not closed by the next turn")
 	}
 	reseed := strings.Join(claudeSubUserLines(spawner.call(t, 1).Conn), "\n")
 	if !strings.Contains(reseed, "Conversation so far") || !strings.Contains(reseed, "second question") || !strings.Contains(reseed, "third question") || strings.Contains(reseed, "first question") {
