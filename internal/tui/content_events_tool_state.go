@@ -182,14 +182,6 @@ func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
 	b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 }
 
-func (b *contentBuffer) appendBashArtifactTruncatedEvent(event output.Event) {
-	payload, ok := event.Payload.(output.BashArtifactTruncatedEvent)
-	if !ok || payload.Message == "" {
-		return
-	}
-	b.AppendNotice(noticeWarn, payload.Message, event.Scope.AgentID)
-}
-
 func (b *contentBuffer) appendStopReasonEvent(event output.Event) {
 	b.finishStreaming()
 	payload, ok := event.Payload.(output.StopReasonEvent)
