@@ -180,9 +180,13 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 		lastRespHeaders   http.Header
 		dropCacheAffinity bool
 	)
+	classify := c.classifyRetryErrorAndDropCacheAffinity(ctx, &dropCacheAffinity)
 
 	err = c.withRetry(ctx, func(attempt int) (bool, error) {
 		attempts = attempt
+		// Reset per attempt so a request error cannot reuse the previous
+		// attempt's partial-stream state.
+		partialStream = false
 		attemptRequest := request
 		if dropCacheAffinity {
 			attemptRequest.PromptCacheKey = ""
@@ -196,7 +200,6 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 		}()
 
 		chunksReceived = 0
-		partialStream = false
 		firstChunkAt = time.Time{}
 		lastRespHeaders = resp.Header
 
@@ -223,7 +226,9 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 			}
 		})
 		return partialStream, err
-	}, c.classifyRetryErrorAndDropCacheAffinity(ctx, &dropCacheAffinity), func(info retryAttemptInfo) {
+	}, func(err error) retryDecision {
+		return classifyStreamRetryError(ctx, partialStream, err, classify)
+	}, func(info retryAttemptInfo) {
 		if !info.PartialStream {
 			return
 		}

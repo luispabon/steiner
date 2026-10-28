@@ -21,6 +21,18 @@ type retryAttemptInfo struct {
 	PartialStream bool
 }
 
+// classifyStreamRetryError suppresses retries for a deadline-shaped provider
+// timeout that arrived after the current attempt delivered visible output.
+// Retrying would make the TUI show abandoned text before the reset. This
+// preserves the pre-fix behavior for these errors; every other error is handed
+// to classify unchanged.
+func classifyStreamRetryError(ctx context.Context, partial bool, err error, classify func(error) retryDecision) retryDecision {
+	if partial && ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+		return retryDecision{}
+	}
+	return classify(err)
+}
+
 func (c *Client) withRetry(
 	ctx context.Context,
 	operation func(attempt int) (bool, error),

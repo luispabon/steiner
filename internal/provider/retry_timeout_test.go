@@ -432,3 +432,72 @@ func TestResponseHeaderTimeoutRetries(t *testing.T) {
 		})
 	}
 }
+
+func TestStreamChatCompletionDoesNotRetryClientTimeoutAfterContent(t *testing.T) {
+	release := make(chan struct{})
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+
+	provider := mustRetryTestOpenAICompat(t, server.URL, RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    3,
+		InitialBackoff: time.Millisecond,
+		MaxBackoff:     time.Millisecond,
+	})
+	provider.httpClient = &http.Client{Timeout: headerTimeoutClientTimeout}
+	var sleeps int
+	provider.sleep = func(context.Context, time.Duration) error {
+		sleeps++
+		return nil
+	}
+
+	ch, err := provider.StreamChatCompletion(context.Background(), ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("StreamChatCompletion() error = %v", err)
+	}
+
+	var final *ChatChunk
+	var sawContent bool
+	var retryResets int
+	for chunk := range ch {
+		if chunk.RetryReset {
+			retryResets++
+		}
+		if chunk.Delta.Content != "" {
+			sawContent = true
+		}
+		c := chunk
+		final = &c
+	}
+	if !sawContent {
+		t.Fatal("expected content chunk before the timeout")
+	}
+	if retryResets != 0 {
+		t.Fatalf("retry reset chunks = %d, want 0 after visible content", retryResets)
+	}
+	if final == nil || !final.Done || final.Error == "" {
+		t.Fatalf("final chunk = %+v, want done with timeout error", final)
+	}
+	if !errors.Is(final.OriginalError, context.DeadlineExceeded) {
+		t.Fatalf("final error = %v, want context.DeadlineExceeded", final.OriginalError)
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Fatalf("requests = %d, want 1", got)
+	}
+	if sleeps != 0 {
+		t.Fatalf("retry sleeps = %d, want 0", sleeps)
+	}
+}
