@@ -38,6 +38,10 @@ The run ID is 8 random bytes, hex-encoded (`generateRunID`). The slug comes from
 - `startPhaseHeartbeat` refreshes the lock every `defaultLockStaleAfter/3` (5 minutes). It also refreshes at phase start and after a phase succeeds.
 - `Heartbeat` and `Release` check that owner and `acquired_at` still match. A mismatch returns `errLockLost`. A failed heartbeat cancels the running phase. A lost lock makes `Release` a no-op, and `finalizePhaseFailure` skips its manifest write, so a foreign lock is never modified.
 
+## Sandbox and worktree
+
+Each phase runtime is built by `newPhaseRunner` through `buildRuntimeWithRoots`, with the main checkout as `projectRoot` and the run worktree as `workDir` (`phaseParams`, `cmd_oneshot.go`). `buildRuntimeSandbox` (`runtime_build_sandbox.go`) passes `projectRoot` to `sandbox.New` as the writable root and `workDir` as the `--chdir` target. Sandboxed commands therefore start in the worktree, and the main checkout is the sandbox root.
+
 ## Phase execution
 
 Phases run in order: plan, implement, review. `runPhase` builds a fresh runner for each phase:
@@ -102,9 +106,11 @@ Phase status values: `pending`, `running`, `done`, `failed`, `skipped`. Resume t
 
 `ListResumableRuns` labels a run whose resume phase is `closeout` as `retry closeout`, or `retry closeout (stale lock)` when the lock is stale.
 
-**Mid-implement resume**: resume runs no artifact check before the restarted phase. `CheckBoundary` runs only after the phase returns, so a resumed implement phase must still write `execution.md` before it finishes.
-
 The engine never removes worktrees. `CleanupWorktree` (`worktree.go`) has no non-test caller.
+
+### Mid-implement resume
+
+Resume runs no artifact check before the restarted phase. `CheckBoundary` runs only after the phase returns, so a resumed implement phase must still write `execution.md` before it finishes.
 
 ## Interrupts and failures
 
