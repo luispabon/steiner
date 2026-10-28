@@ -27,19 +27,21 @@ var denseHistoryBudget = prompt.ModelTokenBudget{
 	EmergencySummaryMaxTokens: 16,
 }
 
-// fakeHistoryArchive records Note and Append calls. noteErr and appendErr inject
-// failures.
+// fakeHistoryArchive records Note and Append calls. noteErr fails Note calls,
+// limited to the noteErrCall-th call (1-based) when set. appendErr fails every
+// Append call.
 type fakeHistoryArchive struct {
-	note      string
-	noteErr   error
-	appendErr error
-	notes     [][]Message
-	appends   [][]Message
+	note        string
+	noteErr     error
+	noteErrCall int
+	appendErr   error
+	notes       [][]Message
+	appends     [][]Message
 }
 
 func (a *fakeHistoryArchive) Note(source []Message) (string, error) {
 	a.notes = append(a.notes, source)
-	if a.noteErr != nil {
+	if a.noteErr != nil && (a.noteErrCall == 0 || a.noteErrCall == len(a.notes)) {
 		return "", a.noteErr
 	}
 	return a.note, nil
@@ -255,6 +257,9 @@ func TestHistoryArchiveDiscardedOutcomeAppendsNothing(t *testing.T) {
 	if _, _, err := (&Runner{}).compactConversationForBudget(context.Background(), req, &state, 0, nil, map[string]bool{}, &compactionCount); err == nil {
 		t.Fatal("compactConversationForBudget() error = nil, want emergency failure")
 	}
+	if len(archive.notes) != 1 {
+		t.Errorf("Note calls = %d, want 1: the normal stage must reach Note before the emergency failure", len(archive.notes))
+	}
 	if len(archive.appends) != 0 {
 		t.Errorf("Append calls = %d, want 0", len(archive.appends))
 	}
@@ -315,6 +320,146 @@ func TestHistoryArchiveSecondCompactionSourceStartsWithSummary(t *testing.T) {
 	if got, want := second[0].Content, "first summary\n\n"+testHistoryNote; got != want {
 		t.Errorf("second source first content = %q, want %q", got, want)
 	}
+}
+
+// denseTwoStageResponses answers the normal stage with an overflowing summary
+// and the emergency stage with a short one.
+func denseTwoStageResponses() []provider.ChatResponse {
+	return []provider.ChatResponse{
+		summaryResponse(strings.Repeat("normal summary detail ", 1200)),
+		summaryResponse("emergency handoff summary"),
+	}
+}
+
+// runTwoStageWithFit runs the two-stage summarizer over state with fit as the
+// fit check after each applied stage, and returns the run error.
+func runTwoStageWithFit(t *testing.T, req RunRequest, state RunState, fit compactionFitRunner) error {
+	t.Helper()
+	candidate, ok := selectCompactionCandidate(state.Lineage, map[string]bool{})
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+	stages := summarizeCompactionStages{stageRunner: summarizeCompactionStage, fitRunner: fit}
+	_, err := stages.run(context.Background(), req, state, 0, candidate)
+	return err
+}
+
+// failingFitAt returns a fit runner that fails on its call-th invocation
+// (1-based) and delegates to fitConversationState otherwise.
+func failingFitAt(call int) compactionFitRunner {
+	var calls int
+	return func(ctx context.Context, req RunRequest, state RunState) (prompt.RequestTokenBudget, error) {
+		calls++
+		if calls == call {
+			return prompt.RequestTokenBudget{}, errors.New("fit failed")
+		}
+		return fitConversationState(ctx, req, state)
+	}
+}
+
+// TestHistoryArchiveFitErrorAfterAppliedStageAppendsNothing proves a fit error
+// after an applied stage discards the run's outcome. Each stage reached before
+// the failure called Note, and nothing was appended.
+func TestHistoryArchiveFitErrorAfterAppliedStageAppendsNothing(t *testing.T) {
+	tests := []struct {
+		name      string
+		failCall  int
+		wantNotes int
+	}{
+		{name: "normal stage fit", failCall: 1, wantNotes: 1},
+		{name: "emergency stage fit", failCall: 2, wantNotes: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			archive := &fakeHistoryArchive{note: testHistoryNote}
+			req := historyArchiveRequest(archive, denseHistoryBudget, denseTwoStageResponses())
+			state := historyArchiveState(denseHistoryConversation())
+			if err := runTwoStageWithFit(t, req, state, failingFitAt(tt.failCall)); err == nil {
+				t.Fatal("run error = nil, want fit failure")
+			}
+			if len(archive.notes) != tt.wantNotes {
+				t.Errorf("Note calls = %d, want %d", len(archive.notes), tt.wantNotes)
+			}
+			if len(archive.appends) != 0 {
+				t.Errorf("Append calls = %d, want 0", len(archive.appends))
+			}
+		})
+	}
+}
+
+// TestHistoryArchiveEmptyNoteAppliesWithoutNoteOrAppend proves an empty note
+// leaves the summary unchanged, appends nothing, and emits no warning.
+func TestHistoryArchiveEmptyNoteAppliesWithoutNoteOrAppend(t *testing.T) {
+	var rec eventRecorder
+	archive := &fakeHistoryArchive{note: ""}
+	state := historyArchiveState(compactionTestTurns())
+	req := historyArchiveRequest(archive, compactionTestBudget().ModelBudget, []provider.ChatResponse{summaryResponse("summary handoff text")})
+	req.Events = rec.sink()
+	if !compactIntoState(t, req, &state) {
+		t.Fatal("applied = false, want true")
+	}
+	if len(archive.notes) != 1 {
+		t.Errorf("Note calls = %d, want 1", len(archive.notes))
+	}
+	if got, want := state.Conversation[0].Content, "summary handoff text"; got != want {
+		t.Errorf("summary content = %q, want %q", got, want)
+	}
+	if len(archive.appends) != 0 {
+		t.Errorf("Append calls = %d, want 0", len(archive.appends))
+	}
+	for _, event := range rec.snapshot() {
+		if event.Type == output.EventTypeConversationWarning {
+			t.Errorf("unexpected warning event: %+v", event.Payload)
+		}
+	}
+}
+
+// TestHistoryArchiveTwoStageEmergencyNoteErrorKeepsNormalAppend proves a Note
+// error in the emergency stage warns and drops only that stage's source. The
+// normal stage's source is still appended, and the adopted summary carries no
+// note.
+func TestHistoryArchiveTwoStageEmergencyNoteErrorKeepsNormalAppend(t *testing.T) {
+	var rec eventRecorder
+	archive := &fakeHistoryArchive{note: testHistoryNote, noteErr: errors.New("disk full"), noteErrCall: 2}
+	req := historyArchiveRequest(archive, denseHistoryBudget, denseTwoStageResponses())
+	req.Events = rec.sink()
+	state := historyArchiveState(denseHistoryConversation())
+	if !compactIntoState(t, req, &state) {
+		t.Fatal("applied = false, want true")
+	}
+	if len(archive.appends) != 1 {
+		t.Fatalf("Append calls = %d, want 1", len(archive.appends))
+	}
+	for _, msg := range archive.appends[0] {
+		if msg.Role == MessageRoleSummary {
+			t.Errorf("appended source contains a summary, want only the normal stage's raw turns")
+		}
+	}
+	if got, want := state.Conversation[0].Content, "emergency handoff summary"; got != want {
+		t.Errorf("summary content = %q, want %q", got, want)
+	}
+	assertSingleCompactWarning(t, &rec, "archive compacted history: disk full")
+}
+
+// TestHistoryArchiveTwoStageAppendErrorStopsAfterFirstSource proves that when
+// the first pending Append fails, the second source is not attempted. The
+// adopted summary keeps the emergency note, and one warning is emitted.
+func TestHistoryArchiveTwoStageAppendErrorStopsAfterFirstSource(t *testing.T) {
+	var rec eventRecorder
+	archive := &fakeHistoryArchive{note: testHistoryNote, appendErr: errors.New("write failed")}
+	req := historyArchiveRequest(archive, denseHistoryBudget, denseTwoStageResponses())
+	req.Events = rec.sink()
+	state := historyArchiveState(denseHistoryConversation())
+	if !compactIntoState(t, req, &state) {
+		t.Fatal("applied = false, want true")
+	}
+	if len(archive.appends) != 1 {
+		t.Fatalf("Append calls = %d, want 1 (stop after first error)", len(archive.appends))
+	}
+	if got, want := state.Conversation[0].Content, "emergency handoff summary\n\n"+testHistoryNote; got != want {
+		t.Errorf("summary content = %q, want %q", got, want)
+	}
+	assertSingleCompactWarning(t, &rec, "archive compacted history: write failed")
 }
 
 // TestHistoryArchiveManualPathAppendsOnceWithNote proves the manual compaction
