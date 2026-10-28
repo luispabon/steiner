@@ -1,13 +1,13 @@
 # Sub-agent delegation internals
 
-User-facing documentation: [Sub-agent delegation](../user/sub-agent-delegation.md).
+User guide: [Sub-agent delegation](../user/sub-agent-delegation.md).
 
 ## Call sequence
 
 1. `cliRunner.run` (`cmd/steiner/runner.go`) calls `delegation.BuildDelegateRegistry` (`internal/delegation/registry.go`), which registers `sub_agent`, `follow_up`, and the advisor tool.
 2. A `sub_agent` call with `type: vision` goes to `newVisionHandler` (`vision_tool.go`). Other types go to `newSpecializedHandler` (`specialized_tools.go`). `follow_up` goes to `runFollowUp` (`follow_up.go`).
-3. `code` provisions a worktree first. Each handler then calls `BuildChildRun` (`bootstrap.go`) to build the child `agent.RunRequest`.
-4. The handler registers the child with `ActiveController`. Specialized, vision, and `follow_up` calls all reach `superviseDelegate` (`specialized_execute.go`), which calls `Supervisor.Spawn` in async mode or `Supervisor.SpawnAndWait` otherwise.
+3. `newSpecializedHandler` (`specialized_tools.go`) and `newVisionHandler` (`vision_tool.go`) install a `Prepare` hook. For `code`, the hook provisions the worktree (`provisionCodePlan`, `specialized_worktree.go`). Every hook then builds the child `agent.RunRequest` through `BuildChildRun` (`bootstrap.go`). `follow_up` has no `Prepare` hook.
+4. `superviseDelegate` (`specialized_execute.go`) hands the job to the `Supervisor`, which calls `Spawn` in async mode or `SpawnAndWait` otherwise. Specialized, vision, and `follow_up` calls all reach it. In `Supervisor.execute` (`supervisor.go`), the supervisor runs `Prepare` and then registers the child with `ActiveController`. Jobs without `Prepare` (`follow_up`) register in `startQueuedLocked` (`supervisor_queue.go`) when they start.
 5. The supervised job runs `SpawnDelegate` (`task.go`), which returns a `tool.ExecutionResult` with retention metadata.
 6. Session persistence, unregistration, and cleanup follow.
 
@@ -15,7 +15,7 @@ User-facing documentation: [Sub-agent delegation](../user/sub-agent-delegation.m
 
 ## Tool registration
 
-- The `sub_agent` schema in `specialized_tools.go` has a `type` enum and six required fields: `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, and `checks`.
+- The `sub_agent` schema in `specialized_tools.go` requires `type` and six brief fields: `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, and `checks`.
 - `research` is omitted when `deps.Searcher` is nil (`registry.go`). `vision` is omitted when `Models.Effective.SubAgents["vision"]` is empty or `ImageStore` is nil, and it requires `image_id`.
 - Per-type allowlists are in `agent_type.go` (`agentAllowlists`). `mergedAllowedTools` (`specialized_tools.go`) sorts and dedupes the allowed tool names.
 
@@ -25,10 +25,10 @@ User-facing documentation: [Sub-agent delegation](../user/sub-agent-delegation.m
 
 - **Caps.** At most `MaxParallel` children run at once. Others wait in the queue. Running plus queued children are capped at `2 * MaxParallel`. Beyond that, `Spawn` and `SpawnAndWait` return `ErrOutstandingCap` (`supervisor_queue.go`).
 - **Context.** Children run on `context.WithoutCancel(handlerCtx)` (`supervisor_queue.go`). Cancellation reaches them only through the supervisor's cancel methods.
-- **Cancellation.** `CancelAgent` and `CancelAll` (`supervisor.go`) cancel with `CancelCauseUser` (`cancel_cause.go`). A queued job cancelled before it starts gets its result from `OnCancelledBeforeStart`.
+- **Cancellation.** `CancelAgent` and `CancelAll` (`supervisor.go`) take a `CancelCause` (`cancel_cause.go`). The interactive canceller passes `CancelCauseUser` (`cmd/steiner/interactive_session.go`). Phase shutdown passes `CancelCauseSystem` (`cmd/steiner/phase_driver.go`). A queued job cancelled before it starts gets its result from `OnCancelledBeforeStart`.
 - **Shutdown.** `Shutdown` (`supervisor_shutdown.go`) rejects new spawns with `ErrSupervisorClosed`, cancels children, and waits up to the shorter of the caller's context and `JoinTimeout` (10 seconds by default, `supervisor.go`). Jobs still unresolved get `ErrSupervisorClosed` results.
 
-`ActiveController` (`internal/delegation/active.go`) tracks live children by agent ID, with agent type and code worktree metadata. `RegisterWithCancel` gives each child a cancellable context and returns `ErrAgentAlreadyActive` for a duplicate ID. `CancelAgentWithDiscard` cancels one child. `CancelAll` only cancels: it does not unregister children or dispose their worktrees. The child cleanup path handles unregistration and disposal (see Cancellation).
+`ActiveController` (`internal/delegation/active.go`) tracks live children by agent ID. `RegisterWithCancel` stores each child's cancel function, agent type, and worktree, and returns `ErrAgentAlreadyActive` for a duplicate ID. The child's context is created in `Supervisor.enqueue` (`context.WithCancel(context.WithoutCancel(handlerCtx))`). `CancelAgentWithDiscard` cancels one child.
 
 ## Async path
 
@@ -38,16 +38,18 @@ In async mode, `superviseDelegate` returns an `AckResult` (`ack.go`) with status
 
 The conversation driver (`internal/agent/conversation_driver.go`) calls `Supervisor.MarkDelivered` (`supervisor_async.go`) on delivery and coalesces completions within `completionCoalesceWindow` (five seconds, `internal/agent/conversation_driver_policy.go`). Deliveries emit `output.SubAgentsDeliveredEvent`. `output.SubAgentResultsUnansweredEvent` is emitted from `internal/interactive/unanswered_results.go`.
 
-- **Ledger.** `Supervisor.Ledger()` lists outstanding children, and `IsPending` reports whether one is still outstanding (`supervisor_async.go`). Interactive sessions persist the ledger as `SubAgentLedger` and group state as `DelegationGroups` (`internal/agent/sub_agent_types.go`, `internal/agent/conversation_driver_state.go`).
+- **Ledger.** `Supervisor.Ledger()` lists outstanding children, and `IsPending` reports whether one is still outstanding (`supervisor_async.go`). Sessions persist the ledger as `SubAgentLedger` (`internal/agent/sub_agent_types.go`, `internal/session/session.go`) and group state as `DelegationGroups` (`internal/agent/delegation_groups.go`, `internal/session/session.go`).
+- **Groups.** `jobGroup` (`supervisor_groups.go`) holds one label's members within a tool batch. `sealBatch` seals the batch's groups. `releaseGroupLocked` holds completions until a group is sealed and every member has a final result, then posts them together, ordered by `Seq`.
+- **follow_up admission.** `follow_up` is rejected at `FollowUpCount >= SubAgent.MaxFollowUps`. In async sessions it is also rejected while the agent is still pending (`Supervisor.IsPending`) (`follow_up.go`).
 
 ## Code worktree provisioning
 
-For `code`, `newSpecializedHandler` (`specialized_tools.go`) runs these steps before `BuildChildRun`:
+For `code`, the `Prepare` hook (`provisionCodePlan`, `specialized_worktree.go`) runs these steps at dequeue, before `BuildChildRun`:
 
 1. `DirtyPaths` (`worktree.go`) reports uncommitted and untracked parent changes, best effort. Found paths add a warning, because the worktree starts from parent HEAD and omits them.
 2. `ProvisionCodeWorktree` (`worktree.go`) creates a git worktree on a `delegate/` branch from parent HEAD, at `.steiner/worktrees/<processHash>/<sanitizedBranch>/<agentID>`. A failure fails the call.
 3. `codeRemediationConfig` (`specialized_worktree.go`) sets post-run remediation for the worktree.
-4. `WorktreePath`, `WorktreeBranch`, and `Warnings` are host-only result fields (see Result and retention).
+4. `WorktreePath`, `WorktreeBranch`, and `Warnings` are host-only result fields. The model receives only the project-relative `worktree_path`, for `code` results and `code` follow-ups (see Result and retention).
 
 Other types skip provisioning. `denyFollowUpOnDeadCodeWorktree` (`follow_up.go`) runs before the child is registered and rejects a `code` follow-up whose worktree is missing or invalid.
 
@@ -67,11 +69,13 @@ Other types skip provisioning. `denyFollowUpOnDeadCodeWorktree` (`follow_up.go`)
 8. **Workflow mode.** `childWorkflowMode` (`bootstrap.go`) maps `code` to `DelegatedCodeSubAgentWorkflowMode`. `explore`, `research`, `evaluate`, `sanity_check`, `review`, and `vision` map to `DelegatedNonCodeChildWorkflowMode`. Other types use `DelegatedChildWorkflowMode`.
 9. **Cache key.** `CacheKeyStore.KeyFor` (`cache_keys.go`) assigns `PromptCacheKey`. Cache rules are in [Prompt caching](prompt-caching.md).
 
+Child model resolution is in `resolveModel` (`specialized_tools.go`). It uses the per-type alias from `Models.Effective.SubAgents`, else the profile's `DefaultModel`, else the parent model. Assignments are read through `CurrentEffectiveModelAssignments` on each spawn, so a profile switch reaches later spawns. A `vision` child with no alias reuses the parent model.
+
 ## Execution
 
 `SpawnDelegate` (`task.go`):
 
-1. Applies `Limits.Timeout` when set and emits `delegation_started`.
+1. Applies `Limits.Timeout` when set and records the start trace. Callers emit `delegation_started` before calling it (`emitDelegateStarted` in `specialized_execute.go` and `executeFollowUp` in `follow_up.go`).
 2. Runs the child, then maps its final state to a status.
 3. Emits `delegation_complete` or `delegation_failed` and returns the result.
 
@@ -95,13 +99,15 @@ Token counters accumulate across follow-ups, seeded from `Spec.PriorTokenUsage`.
 
 ## Result and retention
 
-`Result` (`internal/delegation/contract.go`) carries the terminal status (`complete`, `partial`, `failed`, or `cancelled`), output, turn and token counts, stop reason, and worktree fields. The provider receives only the projection from `DelegationResultEnvelope` (`result.go`):
+`Result` (`internal/delegation/contract.go`) carries the terminal status (`complete`, `partial`, `failed`, or `cancelled`), output, turn and token counts, stop reason, and worktree fields. The provider receives only the projection `DelegationResultEnvelope` (`internal/agent/delegation_projection.go`), built by `Result.ProjectToolResult` (`result.go`):
 
 | Field | Content |
 |-------|---------|
 | `output` | Exact child output |
 | `status` | Omitted on success. Otherwise `partial`, `cancelled`, or `failed` |
 | `reason` | The error for failures (`unknown failure` when empty), or a fallback such as `limit reached` |
+| `continuation` | `agent_id` of a persisted child session that can be resumed. Set only when the child is persisted. |
+| `worktree_path` | Project-relative path of the `code` worktree. |
 
 Delegation results also set `ToolRetention` with kind `delegate_summary` (`RetentionKindDelegateSummary`, `task.go`).
 
@@ -109,9 +115,9 @@ Delegation results also set `ToolRetention` with kind `delegate_summary` (`Reten
 
 Host-only diagnostics stay out of the provider payload described above.
 
-- The trace log (`trace_log.go`) writes to `<log file>-delegation` with the log file's extension. Treat it as sensitive, like `--log-file`.
+- `NewTraceLoggerWithDiagnostics` (`trace_log.go`) writes through the diagnostics writer as `KindTool` records from `SourceSubAgent` when one is set. Otherwise it writes to the file path it is given, and writes nothing when that path is empty. `LogPath` derives that path from the log file as `<base>-delegation<ext>`, using `.log` when the log file has no extension. Treat the file as sensitive, like `--log-file`.
 - `SpawnDelegate` and `failedDelegateExecution` (`task.go`) add a `tool_calls` entry with the trace file and tool-call counts.
-- Per-tool traces are JSONL files at `.steiner/traces/<session-id>/<agent-id>.jsonl` (`tool_call_trace.go`). Traces are pruned after `toolCallTraceRetention` (seven days). The session ID is fixed per process (`processTraceSession`).
+- Per-tool traces are JSONL files at `.steiner/traces/<session-id>/<agent-id>.jsonl` (`tool_call_trace.go`). Traces are pruned after `toolCallTraceRetention` (seven days). The session ID is the threaded `SessionID`: the interactive session ID (`cmd/steiner/runner.go`) or the oneshot run ID (`cmd/steiner/cmd_oneshot.go`). `traceSessionID` falls back to `processTraceSession`, a random per-process ID, when it is empty.
 - Failure classes in trace records follow `mutateFailClasses`, which mirrors `classify` in `scripts/mutate-session-stats.mjs`. Keep the two in sync.
 
 ## Cancellation
@@ -130,7 +136,9 @@ Host-only diagnostics stay out of the provider payload described above.
 
 ## Event lifecycle
 
-Delegation events (`internal/output/event_types.go`): `delegation_started`, `delegation_cache_waiting`, `delegation_complete`, `delegation_failed`, and `delegation_worktree_disposal`.
+Delegation events (`internal/output/event_types.go`): `delegation_accepted`, `delegation_queued`, `delegation_started`, `delegation_cache_waiting`, `delegation_complete`, `delegation_failed`, and `delegation_worktree_disposal`.
+
+`Supervisor.enqueue` (`supervisor_queue.go`) emits `delegation_accepted` for each accepted job and `delegation_queued` only when the job waits for a running slot.
 
 ## Grouped card render invariant
 
