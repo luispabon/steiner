@@ -29,6 +29,9 @@ const (
 // chmod is os.Chmod, swappable so tests can simulate ownership failures.
 var chmod = os.Chmod
 
+// fchmod is (*os.File).Chmod, swappable so tests can simulate ownership failures on open archives.
+var fchmod = (*os.File).Chmod
+
 // removeAll is os.RemoveAll, swappable so tests can simulate history removal failures.
 var removeAll = os.RemoveAll
 
@@ -224,7 +227,9 @@ func (s *Store) HistoryPath(id string) (string, error) {
 
 // AppendHistory appends chunk to the history archive for session id, creating
 // the session directory and file as needed. header is written before chunk only
-// when the file is new or empty. It returns the archive's absolute path.
+// when the file is new or empty. Existing directory and file modes are tightened
+// to dirMode and fileMode on a best-effort basis: chmod failures are logged and
+// do not fail the append. It returns the archive's absolute path.
 func (s *Store) AppendHistory(id, header, chunk string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -236,9 +241,15 @@ func (s *Store) AppendHistory(id, header, chunk string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), dirMode); err != nil {
 		return "", fmt.Errorf("append history: create session directory: %w", err)
 	}
+	if err := chmod(filepath.Dir(path), dirMode); err != nil {
+		slog.Warn("session store: cannot tighten session directory permissions", "dir", filepath.Dir(path), "error", err)
+	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, fileMode)
 	if err != nil {
 		return "", fmt.Errorf("append history: open file: %w", err)
+	}
+	if err := fchmod(f, fileMode); err != nil {
+		slog.Warn("session store: cannot tighten history file permissions", "file", path, "error", err)
 	}
 	err = writeHistoryChunk(f, header, chunk)
 	if closeErr := f.Close(); err == nil && closeErr != nil {

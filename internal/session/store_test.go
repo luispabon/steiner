@@ -1191,6 +1191,102 @@ func TestAppendHistoryPermissions(t *testing.T) {
 	}
 }
 
+// writeLooseHistory creates the archive for id with the 0755 directory and 0644
+// file modes that older versions produced, then returns its path.
+func writeLooseHistory(t *testing.T, store *Store, id, content string) string {
+	t.Helper()
+	path, err := store.HistoryPath(id)
+	if err != nil {
+		t.Fatalf("HistoryPath failed: %v", err)
+	}
+	dir := filepath.Dir(path)
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("mkdir session dir: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod session dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write history file: %v", err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("chmod history file: %v", err)
+	}
+	return path
+}
+
+func TestAppendHistoryTightensExistingModes(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	path := writeLooseHistory(t, store, "history-loose", "HEADER\nold\n")
+
+	if _, err := store.AppendHistory("history-loose", "HEADER\n", "new\n"); err != nil {
+		t.Fatalf("AppendHistory failed: %v", err)
+	}
+
+	dirInfo, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("stat session dir: %v", err)
+	}
+	if dirInfo.Mode().Perm() != 0o700 {
+		t.Errorf("session dir mode = %o, want 700", dirInfo.Mode().Perm())
+	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat history file: %v", err)
+	}
+	if fileInfo.Mode().Perm() != 0o600 {
+		t.Errorf("history file mode = %o, want 600", fileInfo.Mode().Perm())
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read history file: %v", err)
+	}
+	if want := "HEADER\nold\nnew\n"; string(got) != want {
+		t.Errorf("history file = %q, want %q", got, want)
+	}
+}
+
+// AppendHistory must still append when chmod fails on the directory or the
+// open archive. The seams are not parallel-safe, so this test must not call t.Parallel.
+func TestAppendHistoryChmodFailureStillAppends(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	path := writeLooseHistory(t, store, "chmod-fail", "HEADER\nfirst\n")
+
+	origChmod, origFchmod := chmod, fchmod
+	t.Cleanup(func() { chmod, fchmod = origChmod, origFchmod })
+	var dirCalls, fileCalls int
+	chmod = func(string, os.FileMode) error {
+		dirCalls++
+		return os.ErrPermission
+	}
+	fchmod = func(*os.File, os.FileMode) error {
+		fileCalls++
+		return os.ErrPermission
+	}
+
+	if _, err := store.AppendHistory("chmod-fail", "HEADER\n", "second\n"); err != nil {
+		t.Fatalf("AppendHistory with failing chmod = %v, want append to succeed", err)
+	}
+	if dirCalls == 0 || fileCalls == 0 {
+		t.Errorf("chmod seams called dir=%d file=%d times, want both called", dirCalls, fileCalls)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read history file: %v", err)
+	}
+	if want := "HEADER\nfirst\nsecond\n"; string(got) != want {
+		t.Errorf("history file = %q, want %q", got, want)
+	}
+}
+
 func TestReadHistoryMissingPreservesErrNotExist(t *testing.T) {
 	store, err := NewStore(t.TempDir())
 	if err != nil {
