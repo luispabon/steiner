@@ -78,3 +78,17 @@ Use `/compact` or `/compact <focus text>` to compact the conversation. Use `/mod
 A configured alias is an optional alternate for a model with persistent customization, such as `--model careful` when `careful` is defined under `models.definitions` with reasoning or retry settings. Raw references are the normal path when no such customization is needed.
 
 For the full configuration and flag reference, see [Configuration](configuration.md). For provider setup, see [Provider and model setup](provider-and-model-setup.md).
+
+### Copying text
+
+Selecting text in the transcript with the mouse copies it to the clipboard when you release the button. Double-click copies a word and triple-click copies a line. In the dev log overlay, press `y` to copy the log.
+
+Steiner tries `wl-copy` (when `WAYLAND_DISPLAY` is set), then `xclip` or `xsel` (when `DISPLAY` is set). If none of them succeeds, it sends an OSC 52 escape sequence, which asks your terminal emulator to set the clipboard.
+
+Over SSH, the clipboard tools usually aren't available or would copy on the remote host, so copying relies on OSC 52:
+
+- Terminals with OSC 52 support, such as kitty, WezTerm, Alacritty, foot, Ghostty, and recent Konsole, work without extra setup.
+- VTE-based terminals, such as Terminator, GNOME Terminal, Ptyxis, and Tilix, ignore OSC 52. Use X11 forwarding instead: connect with `ssh -X` (or set `ForwardX11 yes` in `~/.ssh/config`), allow `X11Forwarding yes` on the server, and install `xclip` or `xsel` on the remote host. Steiner then copies through the forwarded `DISPLAY` to your local clipboard.
+- Inside tmux, OSC 52 from applications is ignored by default. Add `set -s set-clipboard on` to your tmux config.
+
+If copied text lands in the remote host's clipboard, `WAYLAND_DISPLAY` or `DISPLAY` is set in the remote shell and points at a remote desktop session. Unset it before starting steiner.
