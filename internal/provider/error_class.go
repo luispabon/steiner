@@ -97,6 +97,9 @@ func isTimeoutError(err error) bool {
 }
 
 func isConnectionResetError(err error) bool {
+	if isClosedConnectionError(err) {
+		return true
+	}
 	text := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(text, "connection reset by peer"):

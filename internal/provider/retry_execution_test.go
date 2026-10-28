@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -551,6 +554,220 @@ func TestOpenAICompatStreamChatCompletionAfterExhaustionSendsFinalErrorChunk(t *
 	}
 	if got := atomic.LoadInt32(&attempts); got != 2 {
 		t.Fatalf("attempts = %d, want 2", got)
+	}
+}
+
+// scriptedTransport answers each request with script, called with the 1-based
+// attempt number, so retry tests run without a network listener.
+type scriptedTransport struct {
+	attempts int32
+	script   func(attempt int32, req *http.Request) (*http.Response, error)
+}
+
+func (s *scriptedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return s.script(atomic.AddInt32(&s.attempts, 1), req)
+}
+
+// failingReader returns err from Read. onRead, when set, runs first to simulate
+// the caller cancelling while the body is read.
+type failingReader struct {
+	onRead func()
+	err    error
+}
+
+func (r failingReader) Read([]byte) (int, error) {
+	if r.onRead != nil {
+		r.onRead()
+	}
+	return 0, r.err
+}
+
+// testResponse builds a 200 response with the given content type and body.
+func testResponse(contentType string, body io.Reader) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{contentType}},
+		Body:       io.NopCloser(body),
+	}
+}
+
+func TestOpenAICompatChatCompletionRetriesClosedNetworkConnection(t *testing.T) {
+	transport := &scriptedTransport{script: func(attempt int32, _ *http.Request) (*http.Response, error) {
+		if attempt == 1 {
+			return nil, &net.OpError{Op: "write", Net: "tcp", Err: net.ErrClosed}
+		}
+		return testResponse("application/json", strings.NewReader(`{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)), nil
+	}}
+	provider := mustRetryTestOpenAICompat(t, "http://provider.test", RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    2,
+		InitialBackoff: time.Millisecond,
+		MaxBackoff:     time.Millisecond,
+	})
+	provider.httpClient = &http.Client{Transport: transport}
+	var sleeps int
+	provider.sleep = func(context.Context, time.Duration) error {
+		sleeps++
+		return nil
+	}
+
+	resp, err := provider.ChatCompletion(context.Background(), ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletion() error = %v", err)
+	}
+	if got, want := resp.Message.Content, "ok"; got != want {
+		t.Fatalf("content = %q, want %q", got, want)
+	}
+	if got := atomic.LoadInt32(&transport.attempts); got != 2 {
+		t.Fatalf("attempts = %d, want 2", got)
+	}
+	if sleeps != 1 {
+		t.Fatalf("retry sleeps = %d, want 1", sleeps)
+	}
+}
+
+func TestOpenAICompatChatCompletionDoesNotRetryClosedNetworkConnectionOnCallerCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	transport := &scriptedTransport{script: func(int32, *http.Request) (*http.Response, error) {
+		cancel()
+		return nil, &net.OpError{Op: "write", Net: "tcp", Err: net.ErrClosed}
+	}}
+	provider := mustRetryTestOpenAICompat(t, "http://provider.test", RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    3,
+		InitialBackoff: time.Millisecond,
+		MaxBackoff:     time.Millisecond,
+	})
+	provider.httpClient = &http.Client{Transport: transport}
+	var sleeps int
+	provider.sleep = func(context.Context, time.Duration) error {
+		sleeps++
+		return nil
+	}
+
+	_, err := provider.ChatCompletion(ctx, ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+	})
+	if err == nil {
+		t.Fatal("ChatCompletion() error = nil, want closed connection error")
+	}
+	if got := atomic.LoadInt32(&transport.attempts); got != 1 {
+		t.Fatalf("attempts = %d, want 1", got)
+	}
+	if sleeps != 0 {
+		t.Fatalf("retry sleeps = %d, want 0", sleeps)
+	}
+}
+
+func TestOpenAICompatStreamChatCompletionRetriesClosedConnectionAfterVisibleOutput(t *testing.T) {
+	const firstChunk = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"
+	closedErr := &net.OpError{Op: "read", Net: "tcp", Err: net.ErrClosed}
+	transport := &scriptedTransport{script: func(attempt int32, _ *http.Request) (*http.Response, error) {
+		if attempt == 1 {
+			body := io.MultiReader(strings.NewReader(firstChunk), failingReader{err: closedErr})
+			return testResponse("text/event-stream", body), nil
+		}
+		return testResponse("text/event-stream", strings.NewReader(
+			"data: {\"choices\":[{\"delta\":{\"content\":\"world\"}}]}\n\n"+
+				"data: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\n"+
+				"data: [DONE]\n\n")), nil
+	}}
+	provider := mustRetryTestOpenAICompat(t, "http://provider.test", RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    2,
+		InitialBackoff: time.Millisecond,
+		MaxBackoff:     time.Millisecond,
+	})
+	provider.httpClient = &http.Client{Transport: transport}
+
+	ch, err := provider.StreamChatCompletion(context.Background(), ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("StreamChatCompletion() error = %v", err)
+	}
+
+	var retryResets []ChatChunk
+	var content strings.Builder
+	var final ChatChunk
+	for chunk := range ch {
+		if chunk.RetryReset {
+			retryResets = append(retryResets, chunk)
+		}
+		// The Done chunk repeats the final attempt's accumulated content, so only
+		// streamed deltas are counted.
+		if !chunk.Done {
+			content.WriteString(chunk.Delta.Content)
+		}
+		final = chunk
+	}
+	if got := atomic.LoadInt32(&transport.attempts); got != 2 {
+		t.Fatalf("attempts = %d, want 2", got)
+	}
+	if len(retryResets) != 1 {
+		t.Fatalf("retry reset chunks = %d, want 1", len(retryResets))
+	}
+	if got := retryResets[0].RetryAttempt; got != 2 {
+		t.Fatalf("retry reset attempt = %d, want 2", got)
+	}
+	if got, want := content.String(), "helloworld"; got != want {
+		t.Fatalf("content = %q, want %q", got, want)
+	}
+	if !final.Done || final.Error != "" {
+		t.Fatalf("final chunk = %+v, want successful done", final)
+	}
+}
+
+func TestOpenAICompatStreamChatCompletionDoesNotRetryClosedConnectionOnCallerCancel(t *testing.T) {
+	const firstChunk = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	transport := &scriptedTransport{script: func(int32, *http.Request) (*http.Response, error) {
+		body := io.MultiReader(strings.NewReader(firstChunk), failingReader{
+			onRead: cancel,
+			err:    &net.OpError{Op: "read", Net: "tcp", Err: net.ErrClosed},
+		})
+		return testResponse("text/event-stream", body), nil
+	}}
+	provider := mustRetryTestOpenAICompat(t, "http://provider.test", RetryConfig{
+		Enabled:        true,
+		MaxAttempts:    3,
+		InitialBackoff: time.Millisecond,
+		MaxBackoff:     time.Millisecond,
+	})
+	provider.httpClient = &http.Client{Transport: transport}
+	var sleeps int
+	provider.sleep = func(context.Context, time.Duration) error {
+		sleeps++
+		return nil
+	}
+
+	ch, err := provider.StreamChatCompletion(ctx, ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("StreamChatCompletion() error = %v", err)
+	}
+
+	var retryResets int
+	for chunk := range ch {
+		if chunk.RetryReset {
+			retryResets++
+		}
+	}
+	if got := atomic.LoadInt32(&transport.attempts); got != 1 {
+		t.Fatalf("attempts = %d, want 1", got)
+	}
+	if retryResets != 0 {
+		t.Fatalf("retry reset chunks = %d, want 0", retryResets)
+	}
+	if sleeps != 0 {
+		t.Fatalf("retry sleeps = %d, want 0", sleeps)
 	}
 }
 
