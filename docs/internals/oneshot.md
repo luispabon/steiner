@@ -75,7 +75,7 @@ Phases run in order: plan, implement, review. `runPhase` builds a fresh runner f
 
 Each driver snapshot saves the session with its outstanding sub-agent ledger (`sub_agent_ledger`, `internal/session/session.go`), so a crash mid-phase leaves the ledger on disk. After the phase, `saveResult` saves once more with the last stored ledger. It does nothing when the phase recorded no conversation lineage.
 
-Each phase attempt has one session. Resume starts the interrupted phase with a new session and leaves the old one on disk. Compaction history for the phase is archived in that session's `history.md` under `~/.config/steiner/sessions/<sessionID>/`; `phaseHistoryArchive` (`cmd/steiner/cmd_oneshot.go`) keys the archive by the phase session ID. The phase session archive is not a run-level archive.
+Each phase attempt has one session. Resume starts the interrupted phase with a new session and leaves the old one on disk. Compaction history is archived per phase session. `phaseHistoryArchive` (`cmd/steiner/cmd_oneshot.go`) keys each archive by the phase session ID. Archive storage and write rules are in [Compaction history archive](context-management.md#compaction-history-archive). The phase session archive is not a run-level archive.
 
 ## Run manifest
 

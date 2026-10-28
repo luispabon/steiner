@@ -24,10 +24,10 @@ How Steiner's packages fit together and how one turn moves through them. Topic d
 | Context | `prompt` | `config`, `provider`, `skill` |
 | Transport | `provider` | `config`, `diagnostics`, `metadata`, `oauth`, `quota`, `usagestats` |
 | Tools | `tool` (with `tool/builtin`), `mcp`, `lsp`, `sandbox` | `tool`: `config`, `diagnostics`, `provider`; `sandbox`: `config`; `mcp`, `lsp`: `config`, `tool` |
-| Persistence | `session` | `agent`, `fsatomic` |
+| Persistence | `session` | `agent`, `delegation`, `fsatomic`, `prompt`, `tool` |
 | Presentation | `output`, `tui` | `output`: `prompt`, `provider`, `tool`, `usagestats`; `tui`: `agent`, `interactive`, `output` |
 
-`tool` and `provider` never import `agent`. `prompt` never imports `delegation`.
+`tool` and `provider` never import `agent`. `prompt` never imports `delegation`. `session` imports `delegation` only in `history_render.go`, for tool-argument summaries when archived history is rendered.
 
 ## Turn lifecycle
 
