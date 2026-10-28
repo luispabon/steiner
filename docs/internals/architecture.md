@@ -10,22 +10,22 @@ How Steiner's packages fit together and how one turn moves through them. Topic d
 |---|---|---|
 | exec | `runExecMode` (`exec.go`) | `cliRunner.RunWithHooks` → `cliRunner.run` → `Runner.Run` |
 | interactive | `runInteractiveMode` (`interactive.go`) | `interactive.Session.driverRun` (`driver_run.go`) → `sessionRunner.Run` (`interactive_session.go`) → `cliRunner.RunWithHooks` → `cliRunner.run` → `Runner.Run` |
-| oneshot | `runOneshotTask`, `runOneshotResume` (`cmd_oneshot.go`) | `oneshot` orchestrator → `phaseRunner.RunPhase` → `agent.NewConversationDriver` (`phase_driver.go`) → `cliRunner.driverRun` (`runner_driver.go`) |
+| oneshot | `runOneshotTask`, `runOneshotResume` (`cmd_oneshot.go`) | `oneshot` orchestrator → `phaseRunner.RunPhase` → `agent.NewConversationDriver` (`internal/agent/conversation_driver.go`, called from `phase_driver.go`) → `cliRunner.driverRun` (`runner_driver.go`) → `cliRunner.run` → `Runner.Run` |
 
 `defaultBuildRuntime` (`runtime.go`) calls `buildRuntimeWithRoots` (`runtime_build.go`). It builds the config, sandbox (`buildRuntimeSandbox`), diagnostics, event sink, delegation supervisor, MCP and LSP managers (`connectRuntimeMCP`, `connectRuntimeLSP`), provider factory (`buildRuntimeProviderFactory`), tool registry (`buildRuntimeRegistry`), and history and session stores. The result is the `cliRuntime` struct.
 
 ## Package layers
 
-| Layer | Packages | Internal imports (verified with `go list`) |
+| Layer | Packages | Key internal imports |
 |---|---|---|
-| Composition | `cmd/steiner` | all of the below |
+| Composition | `cmd/steiner` | `agent`, `interactive`, `oneshot`, `provider`, `session`, `tool`, `tui` |
 | Orchestration | `interactive`, `oneshot`, `delegation` | interactive: `agent`, `delegation`, `session`, `prompt`, `tool`. oneshot: `agent`, `session`, `fsatomic`, `tool`. delegation: `agent`, `advisor`, `prompt`, `provider`, `tool` |
 | Turn loop | `agent` | `config`, `diagnostics`, `output`, `prompt`, `provider`, `tool`, `tool/builtin`, `usagestats` |
 | Context | `prompt` | `config`, `provider`, `skill` |
 | Transport | `provider` | `config`, `diagnostics`, `metadata`, `oauth`, `quota`, `usagestats` |
 | Tools | `tool` (with `tool/builtin`), `mcp`, `lsp`, `sandbox` | `tool`: `config`, `diagnostics`, `provider`; `sandbox`: `config`; `mcp`, `lsp`: `config`, `tool` |
 | Persistence | `session` | `agent`, `fsatomic` |
-| Presentation | `output`, `tui` | `output`: `prompt`, `provider`, `tool`, `usagestats`; `tui`: `agent`, `interactive`, `output`, and others |
+| Presentation | `output`, `tui` | `output`: `prompt`, `provider`, `tool`, `usagestats`; `tui`: `agent`, `interactive`, `output` |
 
 `tool` and `provider` never import `agent`. `prompt` never imports `delegation`.
 
@@ -36,15 +36,19 @@ How Steiner's packages fit together and how one turn moves through them. Topic d
 3. `executeChatRequest` (`model_call.go`) calls `ChatCompletion` first unless `RunRequest.StreamingPreferred` is set, then falls back to `StreamChatCompletion`. Streamed chunks become output events.
 4. `executeToolCalls` (`turn_progression_tools.go`) walks the tool calls in order. Consecutive calls with the same `ParallelClassOf` class form a batch if that class limit is above 1 (`parallelRunLength`). `invokeParallel` runs the batch behind a `semaphore.Weighted` sized by `MaxParallelTools` or `MaxParallelDelegations`. Other calls run one at a time (`executeSingleToolCall`).
 5. Each call runs through `tool.Executor.Execute`. `appendToolOutcome` records the result as a tool message in the conversation.
-6. `RunRequest.DrainInbox` supplies queued input for the run (nil for sub-agents). A run ends with `emitStop` and a `StopReason`: `complete`, `max_turns`, `max_tokens`, `cancelled`, `error`, `usage_limit`, or `workflow_handoff`.
+6. `RunRequest.DrainInbox` supplies queued input for the run (nil for sub-agents). Runs end with a `StopReason`: `complete`, `max_turns`, `max_tokens`, `cancelled`, `error`, `usage_limit`, or `workflow_handoff`. Normal, limit, and in-loop error endings call `emitStop`. Run-validation and post-ingestion failures set `StopReasonError` and return without it.
 7. A transient provider error that survives provider-level retries gets a bounded per-turn retry (`handleTransientProviderRetry`).
 
 ## Provider
 
 - `provider.Provider` (`interface.go`) has `ChatCompletion`, `StreamChatCompletion`, and `SupportsUsageStats`. `StatefulTranscript` marks backends that own the transcript, so callers must not rewrite it.
 - `provider.Client` (`client.go`) implements `Provider` for HTTP backends. It handles pacing (`pace`), retries, and diagnostics. It delegates format work to a `Wire` (`wire.go`: `Payload`, `HTTPRequest`, `DecodeResponse`, `DecodeStream`). Wires are `openaiWire`, `responsesWire`, and `anthropicWire`.
-- Retry: `Client.withRetry` (`retry.go`) loops over attempts, waiting for `retryBackoffDelay` or the server `Retry-After`. `classifyRetryError` calls `classifyProviderError` (`client.go`), which uses `isRetryableHTTPStatus` and `isRetryableTransportError` (`http_error.go`). The wire may refine the decision through `RefineRetry`. Usage-limit and decode errors are never retried.
+- Retry: `Client.withRetry` (`retry.go`) loops over attempts, waiting for `retryBackoffDelay` or the server `Retry-After`. `classifyRetryError` calls `classifyProviderError` (`client.go`), which uses `isRetryableHTTPStatus` and `isRetryableTransportError` (`http_error.go`). The wire may refine the decision through `RefineRetry`. Usage-limit errors and non-transient decode errors (`errDecodeChatCompletionResponse`, `errResponsesStreamFailed`) are not retried. Transient decode failures (`errDecodeStreamChunkUnexpected`, `errResponsesStreamFailedTransient`) are retried (`classifyProviderError`).
 - Provider types are `config.ProviderType` values. `claude_subscription` runs Claude CLI processes (`claudesub_*.go`) instead of `Client`. See [claude-subscription.md](claude-subscription.md).
+
+### Stream-required retry
+
+A non-streaming 400 whose body mentions `stream` and `must` or `required` is matched by `agent.IsStreamRequiredError` (`model_call.go`). The turn falls back to streaming, the run latches `skipNonStream` so later turns stream directly, and a `stream_required` warning diagnostic is emitted. Stateful transcripts return the error instead of falling back.
 
 ## Tools
 
@@ -56,7 +60,7 @@ How Steiner's packages fit together and how one turn moves through them. Topic d
   2. Apply the execution mode. Plan mode narrows writes to the plan directories (`RestrictWritesTo`).
   3. `normalizeExecutionInput` runs `PathPolicy.ValidateToolInput`. A promptable out-of-project path raises an `ApprovalRequest` (`ApprovalKindPath`) through `ApprovalResponder`.
   4. Store the sandbox decision in context (`SandboxWrapperKey`).
-  5. `executeTool` runs the handler or subprocess under the tool timeout. Sandbox denials can re-enter approval (`execution_denial.go`).
+  5. `executeTool` runs the handler directly, or the subprocess under the tool timeout. Sandbox denials can re-enter approval (`execution_denial.go`).
 - Output bounding: captures use `boundedCapture` (`output.go`). Bash keeps a head and tail (`captureUntilMarker`) and saves full output as an artifact (`bashArtifactStore`).
 - Modes and sandboxing: [execution-modes.md](execution-modes.md), [sandboxing.md](sandboxing.md).
 
@@ -71,7 +75,7 @@ How Steiner's packages fit together and how one turn moves through them. Topic d
 - `Store` writes one file per session and an index, using atomic writes (`writeAtomic`). It evicts the oldest entries.
 - Resume: `Session.LoadSessionByID` (`persistence.go`) → `loadSession`. `replayLoadedTranscript` (`interactive/replay.go`) re-emits events so the TUI shows the transcript. `session.Fork` copies a session.
 - Compaction adds a generation with `ConversationLineage.WithNewGeneration` (`compaction_escalation.go`, `interactive/compaction.go`).
-- Other stores: diagnostics ([diagnostics.md](diagnostics.md)), usage stats ([cache-stats.md](cache-stats.md)), quota snapshots ([usage-dashboard.md](usage-dashboard.md)), oneshot manifests ([oneshot.md](oneshot.md)).
+- Other stores: diagnostics ([diagnostics.md](diagnostics.md)), usage stats ([prompt-caching.md](prompt-caching.md)), quota snapshots ([usage-dashboard.md](usage-dashboard.md)), oneshot manifests ([oneshot.md](oneshot.md)).
 
 ## Events, approvals, and the TUI
 
@@ -83,11 +87,11 @@ How Steiner's packages fit together and how one turn moves through them. Topic d
 
 ## Invariants
 
-- Static prompt sources come before dynamic ones, and tool definitions sort by name: [context-management.md](context-management.md), [prompt-caching.md](prompt-caching.md).
-- Cache hints in the wires (`cache_control` breakpoints, Codex session headers, `PromptCacheKey`) must not be removed: [prompt-caching.md](prompt-caching.md).
-- Tool output is bounded and summarized (`boundedCapture`).
-- Out-of-project paths raise path approval requests (`ApprovalKindPath`). MCP calls use the MCP approval kind: [execution-modes.md](execution-modes.md), [mcp.md](mcp.md).
-- Concurrency is bounded by `MaxParallelTools` and `MaxParallelDelegations`. Sub-agents cannot nest: [sub-agent-delegation.md](sub-agent-delegation.md).
-- Retries live in `provider` (per request) and `agent` (per turn). Wires only refine retry classification through `RefineRetry`.
+- Prompt source order and tool ordering: [context-management.md](context-management.md), [prompt-caching.md](prompt-caching.md)
+- Cache hint preservation: [prompt-caching.md](prompt-caching.md)
+- Tool output bounds: [Tools](#tools)
+- Approval gating for paths and MCP calls: [execution-modes.md](execution-modes.md), [mcp.md](mcp.md)
+- Concurrency limits and sub-agent nesting: [sub-agent-delegation.md](sub-agent-delegation.md)
+- Retry layers: [Provider](#provider)
 
 Other topic pages: [configuration.md](configuration.md), [desktop-notifications.md](desktop-notifications.md).
