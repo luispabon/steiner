@@ -12,6 +12,7 @@ import (
 	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/colorprofile"
 
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -3062,9 +3063,9 @@ func TestSummarizeArgsLegacyDelegateNamesUseGenericFallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.tool, func(t *testing.T) {
 			t.Parallel()
-			got := summarizeArgs(tt.tool, tt.args)
+			got := delegation.SummarizeToolArgs(tt.tool, tt.args)
 			if got != tt.want {
-				t.Errorf("summarizeArgs(%q, ...) = %q, want %q", tt.tool, got, tt.want)
+				t.Errorf("SummarizeToolArgs(%q, ...) = %q, want %q", tt.tool, got, tt.want)
 			}
 		})
 	}
@@ -3077,8 +3078,8 @@ func TestSummarizeArgsSubAgentUsesObjective(t *testing.T) {
 		"task":      "fallback task",
 	}
 
-	if got := summarizeArgs("sub_agent", args); got != "primary objective" {
-		t.Errorf("summarizeArgs(%q, ...) = %q, want objective %q", "sub_agent", got, "primary objective")
+	if got := delegation.SummarizeToolArgs("sub_agent", args); got != "primary objective" {
+		t.Errorf("SummarizeToolArgs(%q, ...) = %q, want objective %q", "sub_agent", got, "primary objective")
 	}
 }
 

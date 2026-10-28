@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -49,7 +50,7 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 		toolName := normalizeToolName(payload.Tool)
 		tc := &toolCallSegment{
 			tool:      toolName,
-			args:      output.SanitizeDisplayText(summarizeArgs(payload.Tool, payload.Arguments)),
+			args:      output.SanitizeDisplayText(delegation.SummarizeToolArgs(payload.Tool, payload.Arguments)),
 			callID:    payload.CallID,
 			collapsed: true,
 			active:    payload.CallID != "",

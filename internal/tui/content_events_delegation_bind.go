@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -28,19 +29,19 @@ func (b *contentBuffer) takePendingDelegationStart(callID string) (delegationLoc
 	return delegationLocator{}, false
 }
 
-func delegateCallDetails(tool string, args map[string]any) (label, prompt string, brief *structuredDelegateBrief) {
+func delegateCallDetails(tool string, args map[string]any) (label, prompt string, brief *delegation.StructuredDelegateBrief) {
 	if !isSpecializedDelegateTool(tool) {
-		return "", delegateArgText(args), nil
+		return "", delegation.DelegateArgText(args), nil
 	}
 
 	if typeArg, ok := args["type"].(string); ok {
 		label = strings.ToLower(strings.TrimSpace(typeArg))
 	}
-	if parsed, ok := parseStructuredDelegateBrief(args); ok {
+	if parsed, ok := delegation.ParseStructuredDelegateBrief(args); ok {
 		brief = &parsed
-		return label, parsed.objective, brief
+		return label, parsed.Objective, brief
 	}
-	return label, delegateArgText(args), nil
+	return label, delegation.DelegateArgText(args), nil
 }
 
 func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload output.ToolCallStartedEvent) {
@@ -49,7 +50,7 @@ func (b *contentBuffer) bindParentDelegateCall(loc delegationLocator, payload ou
 	}
 	dd := loc.dd
 	dd.parentCallID = payload.CallID
-	dd.parentArgs = summarizeArgs(payload.Tool, payload.Arguments)
+	dd.parentArgs = delegation.SummarizeToolArgs(payload.Tool, payload.Arguments)
 	toolLabel, promptText, brief := delegateCallDetails(payload.Tool, payload.Arguments)
 	if brief != nil {
 		dd.applyStructuredBrief(*brief)
@@ -74,8 +75,8 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 		baselineTurns, baselineToolCalls = b.captureChildBaselineStats(childAgentID)
 	}
 
-	summary := summarizeFollowUpArgs(payload.Arguments)
-	promptText := extractFollowUpMessage(payload.Arguments)
+	summary := delegation.SummarizeFollowUpArgs(payload.Arguments)
+	promptText := delegation.ExtractFollowUpMessage(payload.Arguments)
 
 	loc, queued := b.takeQueuedDelegation(payload.CallID)
 	if !queued {
@@ -126,7 +127,7 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		return
 	}
 
-	summary := summarizeArgs(payload.Tool, payload.Arguments)
+	summary := delegation.SummarizeToolArgs(payload.Tool, payload.Arguments)
 	toolLabel, promptText, brief := delegateCallDetails(payload.Tool, payload.Arguments)
 	dd := &delegationDisplayState{
 		toolLabel:       toolLabel,
@@ -176,7 +177,7 @@ func (b *contentBuffer) appendToolCallQueuedEvent(event output.Event) {
 	if b.queuedDelegations == nil {
 		b.queuedDelegations = make(map[string]delegationLocator)
 	}
-	summary := summarizeArgs(payload.Tool, payload.Arguments)
+	summary := delegation.SummarizeToolArgs(payload.Tool, payload.Arguments)
 	toolLabel, promptText, brief := delegateCallDetails(payload.Tool, payload.Arguments)
 	dd := &delegationDisplayState{
 		toolLabel:       toolLabel,
