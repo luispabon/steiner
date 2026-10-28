@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -607,9 +608,15 @@ func TestForkKeepsLatestGenerationOnly(t *testing.T) {
 
 	gen := func(id int) agent.ConversationGeneration {
 		return agent.ConversationGeneration{
-			ID:            id,
-			SummaryPrefix: []agent.Message{{Role: "system", Content: fmt.Sprintf("summary %d", id)}},
-			Messages:      []agent.Message{{Role: "user", Content: fmt.Sprintf("message %d", id)}},
+			ID: id,
+			SummaryPrefix: []agent.Message{
+				{Role: "system", Content: fmt.Sprintf("summary %d", id)},
+				{Role: "system", Content: fmt.Sprintf("summary %d tail", id)},
+			},
+			Messages: []agent.Message{
+				{Role: "user", Content: fmt.Sprintf("message %d", id)},
+				{Role: "assistant", Content: fmt.Sprintf("reply %d", id)},
+			},
 		}
 	}
 
@@ -654,14 +661,15 @@ func TestForkKeepsLatestGenerationOnly(t *testing.T) {
 			}
 			for i, id := range tt.wantIDs {
 				kept := forked.Lineage.Generations[i]
+				want := gen(id)
 				if kept.ID != id {
 					t.Errorf("forked generation %d ID = %d, want %d", i, kept.ID, id)
 				}
-				if got, want := kept.SummaryPrefix[0].Content, fmt.Sprintf("summary %d", id); got != want {
-					t.Errorf("forked generation %d summary = %q, want %q", i, got, want)
+				if !reflect.DeepEqual(kept.SummaryPrefix, want.SummaryPrefix) {
+					t.Errorf("forked generation %d SummaryPrefix = %#v, want %#v", i, kept.SummaryPrefix, want.SummaryPrefix)
 				}
-				if got, want := kept.Messages[0].Content, fmt.Sprintf("message %d", id); got != want {
-					t.Errorf("forked generation %d message = %q, want %q", i, got, want)
+				if !reflect.DeepEqual(kept.Messages, want.Messages) {
+					t.Errorf("forked generation %d Messages = %#v, want %#v", i, kept.Messages, want.Messages)
 				}
 			}
 
@@ -675,17 +683,27 @@ func TestForkKeepsLatestGenerationOnly(t *testing.T) {
 func TestForkLatestGenerationIsDeepCopied(t *testing.T) {
 	t.Parallel()
 
+	latestGen := func() agent.ConversationGeneration {
+		return agent.ConversationGeneration{
+			ID: 2,
+			SummaryPrefix: []agent.Message{
+				{Role: "system", Content: "summary"},
+				{Role: "system", Content: "summary tail"},
+			},
+			Messages: []agent.Message{
+				{Role: "user", Content: "latest"},
+				{Role: "assistant", Content: "reply"},
+			},
+			BackendState: json.RawMessage(`{"session":"a"}`),
+		}
+	}
+
 	parent := Session{
 		ID: "parent",
 		Lineage: agent.ConversationLineage{
 			Generations: []agent.ConversationGeneration{
 				{ID: 1, Messages: []agent.Message{{Role: "user", Content: "old"}}},
-				{
-					ID:            2,
-					SummaryPrefix: []agent.Message{{Role: "system", Content: "summary"}},
-					Messages:      []agent.Message{{Role: "user", Content: "latest"}},
-					BackendState:  json.RawMessage(`{"session":"a"}`),
-				},
+				latestGen(),
 			},
 			NextGenerationID: 3,
 		},
@@ -699,18 +717,61 @@ func TestForkLatestGenerationIsDeepCopied(t *testing.T) {
 		t.Fatalf("forked generations = %d, want 1", len(fork.Lineage.Generations))
 	}
 
-	parent.Lineage.Generations[1].SummaryPrefix[0].Content = "MUTATED"
-	parent.Lineage.Generations[1].Messages[0].Content = "MUTATED"
+	for i := range parent.Lineage.Generations[1].SummaryPrefix {
+		parent.Lineage.Generations[1].SummaryPrefix[i].Content = "MUTATED"
+	}
+	for i := range parent.Lineage.Generations[1].Messages {
+		parent.Lineage.Generations[1].Messages[i].Content = "MUTATED"
+	}
 	parent.Lineage.Generations[1].BackendState[12] = 'b'
 
 	kept := fork.Lineage.Generations[0]
-	if got, want := kept.SummaryPrefix[0].Content, "summary"; got != want {
-		t.Errorf("fork SummaryPrefix = %q after parent mutation, want %q", got, want)
+	expected := latestGen()
+	if !reflect.DeepEqual(kept.SummaryPrefix, expected.SummaryPrefix) {
+		t.Errorf("fork SummaryPrefix = %#v after parent mutation, want %#v", kept.SummaryPrefix, expected.SummaryPrefix)
 	}
-	if got, want := kept.Messages[0].Content, "latest"; got != want {
-		t.Errorf("fork Messages = %q after parent mutation, want %q", got, want)
+	if !reflect.DeepEqual(kept.Messages, expected.Messages) {
+		t.Errorf("fork Messages = %#v after parent mutation, want %#v", kept.Messages, expected.Messages)
 	}
 	if got, want := string(kept.BackendState), `{"session":"a"}`; got != want {
 		t.Errorf("fork BackendState = %q after parent mutation, want %q", got, want)
+	}
+}
+
+func TestForkKeepsParentHistoryNoteUnchanged(t *testing.T) {
+	t.Parallel()
+
+	// Note line compaction appends when the parent's history was archived.
+	const note = "[steiner:history] Conversation before this summary is archived at " +
+		"/home/user/.config/steiner/sessions/parent/history.md (markdown, oldest first, tool results omitted). " +
+		"If a detail you need is missing from this summary, grep that file and read the matching lines."
+	summary := "Earlier work summarized.\n\n" + note
+
+	parent := Session{
+		ID: "parent",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{ID: 1, Messages: []agent.Message{{Role: "user", Content: "old"}}},
+				{
+					ID:            2,
+					SummaryPrefix: []agent.Message{{Role: "system", Content: summary}},
+					Messages:      []agent.Message{{Role: "user", Content: "latest"}},
+				},
+			},
+			NextGenerationID: 3,
+		},
+	}
+
+	forked, err := Fork(parent)
+	if err != nil {
+		t.Fatalf("Fork failed: %v", err)
+	}
+	if len(forked.Lineage.Generations) != 1 {
+		t.Fatalf("forked generations = %d, want 1", len(forked.Lineage.Generations))
+	}
+
+	want := []agent.Message{{Role: "system", Content: summary}}
+	if got := forked.Lineage.Generations[0].SummaryPrefix; !reflect.DeepEqual(got, want) {
+		t.Errorf("forked SummaryPrefix = %#v, want %#v (parent history note must survive unchanged)", got, want)
 	}
 }
