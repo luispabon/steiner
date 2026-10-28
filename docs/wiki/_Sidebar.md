@@ -3,6 +3,7 @@
 - [Documentation](docs-index)
 - [Installation](user-installation)
 - [Getting started](user-getting-started)
+- [Provider and model setup](user-provider-and-model-setup)
 - [Updates](user-updates)
 - [CLI reference](user-cli)
 - [Configuration](user-configuration)
@@ -26,6 +27,8 @@
 - [Desktop notifications](user-desktop-notifications)
 - [Images](user-images)
 - [Optional features](user-optional-features)
+- [Subscription usage dashboard](user-usage-dashboard)
+- [TUI background](user-tui-background)
 
 **Internals**
 - [Internals index](internals-index)

@@ -23,7 +23,7 @@ def page_name(source):
     relative = source.relative_to(docs).with_suffix("").as_posix()
     if relative == "index":
         return "docs-index"
-    if relative.startswith(("user/", "internals/", "maintenance/", "research/")):
+    if relative.startswith(("user/", "internals/", "maintenance/")):
         return relative.replace("/", "-")
     return "docs-" + relative.replace("/", "-")
 
