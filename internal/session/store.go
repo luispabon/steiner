@@ -18,6 +18,7 @@ const (
 	indexFile   = "index.json"
 	maxSessions = 25
 	sessionExt  = ".json"
+	historyFile = "history.md"
 
 	// Transcripts may contain sensitive prompts and tool output.
 	dirMode  os.FileMode = 0o700
@@ -76,6 +77,15 @@ func safeSessionPath(dir, id string) (string, error) {
 		return "", fmt.Errorf("invalid session id %q", id)
 	}
 	return filepath.Join(dir, id+sessionExt), nil
+}
+
+// safeSessionDir returns the per-session directory that holds the session's
+// history archive. It applies the same id validation as safeSessionPath.
+func safeSessionDir(dir, id string) (string, error) {
+	if _, err := safeSessionPath(dir, id); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, id), nil
 }
 
 // Save writes a session to disk atomically and updates the index.
@@ -183,8 +193,15 @@ func (s *Store) Delete(id string) error {
 	if err != nil {
 		return fmt.Errorf("validate session id: %w", err)
 	}
+	sessionDir, err := safeSessionDir(s.dir, id)
+	if err != nil {
+		return fmt.Errorf("validate session id: %w", err)
+	}
 	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete session file: %w", err)
+	}
+	if err := os.RemoveAll(sessionDir); err != nil {
+		return fmt.Errorf("delete session history: %w", err)
 	}
 
 	for i, entry := range s.index {
@@ -199,6 +216,83 @@ func (s *Store) Delete(id string) error {
 	}
 
 	return nil
+}
+
+// HistoryPath returns the absolute path of the history archive for session id.
+// The file is created by AppendHistory and may not exist yet.
+func (s *Store) HistoryPath(id string) (string, error) {
+	sessionDir, err := safeSessionDir(s.dir, id)
+	if err != nil {
+		return "", fmt.Errorf("validate session id: %w", err)
+	}
+	path, err := filepath.Abs(filepath.Join(sessionDir, historyFile))
+	if err != nil {
+		return "", fmt.Errorf("resolve history path: %w", err)
+	}
+	return path, nil
+}
+
+// AppendHistory appends chunk to the history archive for session id, creating
+// the session directory and file as needed. header is written before chunk only
+// when the file is new or empty. It returns the archive's absolute path.
+func (s *Store) AppendHistory(id, header, chunk string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path, err := s.HistoryPath(id)
+	if err != nil {
+		return "", fmt.Errorf("append history: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), dirMode); err != nil {
+		return "", fmt.Errorf("append history: create session directory: %w", err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, fileMode)
+	if err != nil {
+		return "", fmt.Errorf("append history: open file: %w", err)
+	}
+	err = writeHistoryChunk(f, header, chunk)
+	if closeErr := f.Close(); err == nil && closeErr != nil {
+		err = closeErr
+	}
+	if err != nil {
+		return "", fmt.Errorf("append history: %w", err)
+	}
+	return path, nil
+}
+
+// writeHistoryChunk writes header then chunk to f. The header is skipped when f
+// already has content.
+func writeHistoryChunk(f *os.File, header, chunk string) error {
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat history file: %w", err)
+	}
+	if info.Size() == 0 {
+		if _, err := f.WriteString(header); err != nil {
+			return fmt.Errorf("write history header: %w", err)
+		}
+	}
+	if _, err := f.WriteString(chunk); err != nil {
+		return fmt.Errorf("write history chunk: %w", err)
+	}
+	return nil
+}
+
+// ReadHistory returns the contents of the history archive for session id. A
+// missing archive returns an error that matches os.ErrNotExist.
+func (s *Store) ReadHistory(id string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path, err := s.HistoryPath(id)
+	if err != nil {
+		return "", fmt.Errorf("read history: %w", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read history: %w", err)
+	}
+	return string(data), nil
 }
 
 // writeAtomic writes data to a temporary file then renames it.
@@ -284,8 +378,15 @@ func (s *Store) evictOldestLocked() error {
 	if err != nil {
 		return fmt.Errorf("validate evicted session id: %w", err)
 	}
+	sessionDir, err := safeSessionDir(s.dir, toRemove.ID)
+	if err != nil {
+		return fmt.Errorf("validate evicted session id: %w", err)
+	}
 	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete evicted session: %w", err)
+	}
+	if err := os.RemoveAll(sessionDir); err != nil {
+		return fmt.Errorf("delete evicted session history: %w", err)
 	}
 
 	return s.saveIndexLocked()

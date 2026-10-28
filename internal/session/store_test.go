@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1070,6 +1071,233 @@ func TestEvictionNeverDeletesOutsideStoreDir(t *testing.T) {
 	}
 	if _, statErr := os.Stat(outside); statErr != nil {
 		t.Errorf("outside file was removed: %v", statErr)
+	}
+}
+
+func TestHistoryPathIsAbsoluteAndValidated(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		id      string
+		wantErr bool
+	}{
+		{name: "valid", id: "abc123"},
+		{name: "empty", id: "", wantErr: true},
+		{name: "dot", id: ".", wantErr: true},
+		{name: "dot dot", id: "..", wantErr: true},
+		{name: "parent escape", id: "../victim", wantErr: true},
+		{name: "nested", id: "a/b", wantErr: true},
+		{name: "absolute", id: filepath.Join(dir, "victim"), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := store.HistoryPath(tt.id)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("HistoryPath(%q) = %q, want error", tt.id, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("HistoryPath(%q) failed: %v", tt.id, err)
+			}
+			if want := filepath.Join(dir, tt.id, historyFile); got != want {
+				t.Errorf("HistoryPath(%q) = %q, want %q", tt.id, got, want)
+			}
+		})
+	}
+}
+
+func TestHistoryPathIsAbsoluteForRelativeStoreDir(t *testing.T) {
+	t.Chdir(t.TempDir())
+	store, err := NewStore("store")
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd failed: %v", err)
+	}
+	got, err := store.HistoryPath("abc123")
+	if err != nil {
+		t.Fatalf("HistoryPath failed: %v", err)
+	}
+	if want := filepath.Join(wd, "store", "abc123", historyFile); got != want {
+		t.Errorf("HistoryPath() = %q, want %q", got, want)
+	}
+}
+
+func TestAppendHistoryWritesHeaderOnceInOrder(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	const header = "HEADER\n"
+	first, err := store.AppendHistory("history-order", header, "first\n")
+	if err != nil {
+		t.Fatalf("AppendHistory failed: %v", err)
+	}
+	second, err := store.AppendHistory("history-order", header, "second\n")
+	if err != nil {
+		t.Fatalf("AppendHistory failed: %v", err)
+	}
+	want, err := store.HistoryPath("history-order")
+	if err != nil {
+		t.Fatalf("HistoryPath failed: %v", err)
+	}
+	if first != want || second != want {
+		t.Errorf("AppendHistory paths = %q, %q, want %q", first, second, want)
+	}
+
+	got, err := store.ReadHistory("history-order")
+	if err != nil {
+		t.Fatalf("ReadHistory failed: %v", err)
+	}
+	if wantText := header + "first\nsecond\n"; got != wantText {
+		t.Errorf("ReadHistory() = %q, want %q", got, wantText)
+	}
+}
+
+func TestAppendHistoryPermissions(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	path, err := store.AppendHistory("history-perms", "h\n", "c\n")
+	if err != nil {
+		t.Fatalf("AppendHistory failed: %v", err)
+	}
+
+	dirInfo, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("stat session dir: %v", err)
+	}
+	if dirInfo.Mode().Perm() != 0o700 {
+		t.Errorf("session dir mode = %o, want 700", dirInfo.Mode().Perm())
+	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat history file: %v", err)
+	}
+	if fileInfo.Mode().Perm() != 0o600 {
+		t.Errorf("history file mode = %o, want 600", fileInfo.Mode().Perm())
+	}
+}
+
+func TestReadHistoryMissingPreservesErrNotExist(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	if _, err := store.ReadHistory("never-archived"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("ReadHistory error = %v, want os.ErrNotExist", err)
+	}
+}
+
+func TestHistoryRejectsEscapingSessionIDs(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewStore(filepath.Join(root, "sessions"))
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	outside := filepath.Join(root, "victim")
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	victimFile := filepath.Join(outside, historyFile)
+	if err := os.WriteFile(victimFile, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []string{"", ".", "..", "../victim", outside} {
+		if _, err := store.HistoryPath(id); err == nil {
+			t.Errorf("HistoryPath(%q) accepted invalid id", id)
+		}
+		if _, err := store.AppendHistory(id, "h\n", "c\n"); err == nil {
+			t.Errorf("AppendHistory(%q) accepted invalid id", id)
+		}
+		if _, err := store.ReadHistory(id); err == nil {
+			t.Errorf("ReadHistory(%q) accepted invalid id", id)
+		}
+		if err := store.Delete(id); err == nil {
+			t.Errorf("Delete(%q) accepted invalid id", id)
+		}
+	}
+
+	got, err := os.ReadFile(victimFile)
+	if err != nil || string(got) != "keep" {
+		t.Errorf("victim history changed: contents %q, err %v", got, err)
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Errorf("victim directory removed: %v", err)
+	}
+}
+
+func TestDeleteRemovesSessionHistoryDirectory(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := store.Save(Session{ID: "delete-history", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	path, err := store.AppendHistory("delete-history", "h\n", "c\n")
+	if err != nil {
+		t.Fatalf("AppendHistory failed: %v", err)
+	}
+
+	if err := store.Delete("delete-history"); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Errorf("session history directory still exists: %v", err)
+	}
+}
+
+func TestEvictionRemovesSessionHistoryDirectory(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	base := time.Now().UTC().Add(-time.Hour)
+	for i := range maxSessions + 1 {
+		id := fmt.Sprintf("session-%d", i)
+		if err := store.Save(Session{ID: id, CreatedAt: base, UpdatedAt: base.Add(time.Duration(i) * time.Minute)}); err != nil {
+			t.Fatalf("Save(%s) failed: %v", id, err)
+		}
+		if _, err := store.AppendHistory(id, "h\n", "c\n"); err != nil {
+			t.Fatalf("AppendHistory(%s) failed: %v", id, err)
+		}
+	}
+
+	entries, err := store.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(entries) != maxSessions {
+		t.Fatalf("expected %d sessions after eviction, got %d", maxSessions, len(entries))
+	}
+
+	oldestPath, err := store.HistoryPath("session-0")
+	if err != nil {
+		t.Fatalf("HistoryPath failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(oldestPath)); !os.IsNotExist(err) {
+		t.Errorf("evicted session history directory still exists: %v", err)
+	}
+	keptPath, err := store.HistoryPath("session-1")
+	if err != nil {
+		t.Fatalf("HistoryPath failed: %v", err)
+	}
+	if _, err := os.Stat(keptPath); err != nil {
+		t.Errorf("retained session history missing: %v", err)
 	}
 }
 
