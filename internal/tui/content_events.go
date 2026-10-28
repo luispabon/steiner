@@ -461,9 +461,9 @@ var contentEventHandlers = map[string]contentEventHandler{
 	// ConversationWarning notices are appended by model_events.go, which picks
 	// the severity from the warning kind. No transcript line is emitted here.
 	output.EventTypeConversationWarning: func(*contentBuffer, output.Event) {},
-	// BashArtifactTruncated is live-only. The warning notice carries the saved
-	// artifact path, so notices for two capped calls do not collapse.
-	output.EventTypeBashArtifactTruncated: (*contentBuffer).appendBashArtifactTruncatedEvent,
+	// BashArtifactTruncated only reaches the Alt+E dev log. The artifact
+	// status already tells the model that the saved output is partial.
+	output.EventTypeBashArtifactTruncated: func(*contentBuffer, output.Event) {},
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
