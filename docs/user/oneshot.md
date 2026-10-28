@@ -71,6 +71,8 @@ A run is resumable if its manifest exists and is readable, its branch exists, at
 
 Sub-agents launched during a phase run in the background. The phase model keeps working, and each sub-agent's result is delivered to it as soon as it finishes. A phase completes only after every sub-agent it started has finished and its result has been recorded, so nothing is left running when the next phase begins.
 
+Each phase attempt also has a session archive for compaction history. Its `history.md` is stored under the phase session ID in `~/.config/steiner/sessions/<sessionID>/`, not under the oneshot run ID. A resumed phase gets a new session and leaves the earlier attempt, including its archive, on disk.
+
 Each phase has the same completion-token budget as a normal run (`limits.max_tokens`), counted across every turn the phase takes, including turns woken by sub-agent results. If the budget runs out while sub-agents are still running, the phase fails: the remaining sub-agents are cancelled and the failure is recorded in the manifest. The model is not told. Resume with `--resume <id>` to re-run the phase.
 
 If a phase is interrupted while sub-agents are running, resume restarts the phase and does not deliver their lost results. It reports the worktree of each `code` sub-agent that was still running, so you can inspect or salvage its uncommitted work. Sub-agents without a worktree are not listed.

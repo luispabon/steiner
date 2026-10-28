@@ -86,6 +86,18 @@ Compaction runs when the context is too large. Two limits apply:
 - The summary becomes the `SummaryPrefix` of a new `ConversationGeneration`, followed by the retained turns. `ConversationLineage` keeps every generation. The latest one is active.
 - Manual `/compact` uses the runner's prompt assembly options, so skills, project context, and preamble match a normal turn. Its tools come from `snapshotTools` (`internal/interactive/compaction_helpers.go`), which reads the last recorded parent request. With no parent request recorded, the tool list is empty.
 
+### Compaction history archive
+
+`agent.HistoryArchive` (`internal/agent/history_archive.go`) is optional on `RunRequest`. `summarizeCompactionStage` calls `withHistoryNote` after a summary is returned and before it builds the next state. `withHistoryNote` removes old lines beginning with `HistoryNoteMarker`, calls `Note`, and adds the current archive note to the summary. A `Note` error emits a compact conversation warning and applies the summary without a note. A successful note keeps the source messages in `CompactionOutcome.pendingArchive`.
+
+`compactConversationForBudgetWithSteering` adopts `outcome.State` before calling `commitHistoryArchive`. Appends happen in source order only after adoption. An append error emits the same `archive compacted history: ...` warning and stops further appends; the adopted state and its archive note remain in the conversation.
+
+`session.HistoryArchive` (`internal/session/history_archive.go`) implements the interface for the session returned by its `sessionID` callback. `RenderHistory` (`internal/session/history_render.go`) writes Markdown oldest first. It preserves user and assistant text, tool-call summaries and status marks, image placeholders, and active skill markers. It omits tool result bodies, reasoning, `display_file` calls, and sub-agent result bodies. Summary rendering removes history note lines, and skill envelopes are stripped from retained messages by `stripRetainedSkillBlocks` before active skills are re-injected into the new conversation generation.
+
+The session store creates `history.md` in the per-session directory under `~/.config/steiner/sessions/<sessionID>/` when the first non-empty archive append succeeds. `HistoryPath`, `AppendHistory`, and `ReadHistory` are in `internal/session/store.go`. `finishRemovalLocked` removes that directory during session deletion and eviction. Existing compactions are not backfilled.
+
+`wireInteractiveRunner` (`cmd/steiner/interactive_session.go`) supplies an archive keyed by the current interactive session. `phaseHistoryArchive` and `phaseRunner.RunPhase` (`cmd/steiner/cmd_oneshot.go`) key oneshot archives by the phase session. The exec runner leaves `historyArchive` nil, and delegated child runners do not receive one, so archiving is limited to interactive and oneshot phase runs.
+
 ### Retention anchor, sub-agents, and skills
 
 - After the normal stage picks its tail, `anchorRealUserRetention` (`internal/agent/compaction_candidate.go`) moves the tail back to the latest real user message (`IsRealUserMessage`: user role, not a sub-agent result) if the cut left it in the summarized part. The extension is kept only if the extended tail still fits and something remains to summarize. The emergency stage does not anchor.
