@@ -391,6 +391,62 @@ func TestSummarizeMutateArgs(t *testing.T) {
 	}
 }
 
+func TestSummarizeArgsLegacyDelegateNamesUseGenericFallback(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		tool string
+		args map[string]any
+		want string
+	}{
+		{
+			tool: "explore",
+			args: map[string]any{"task": "look into the auth module", "path": "auth"},
+			want: "auth",
+		},
+		{
+			tool: "research",
+			args: map[string]any{"task": "find all usages of X", "path": "usages"},
+			want: "usages",
+		},
+		{
+			tool: "code",
+			args: map[string]any{"task": "implement the retry logic", "path": "retry"},
+			want: "retry",
+		},
+		{
+			tool: "evaluate",
+			args: map[string]any{"task": "plan the migration", "path": "migration"},
+			want: "migration",
+		},
+		{
+			tool: "sanity_check",
+			args: map[string]any{"task": "run all tests and confirm green", "path": "tests"},
+			want: "tests",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tool, func(t *testing.T) {
+			t.Parallel()
+			got := SummarizeToolArgs(tt.tool, tt.args)
+			if got != tt.want {
+				t.Errorf("SummarizeToolArgs(%q, ...) = %q, want %q", tt.tool, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSummarizeArgsSubAgentUsesObjective(t *testing.T) {
+	t.Parallel()
+	args := map[string]any{
+		"objective": "primary objective",
+		"task":      "fallback task",
+	}
+
+	if got := SummarizeToolArgs("sub_agent", args); got != "primary objective" {
+		t.Errorf("SummarizeToolArgs(%q, ...) = %q, want objective %q", "sub_agent", got, "primary objective")
+	}
+}
+
 func TestSummarizeToolArgs(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

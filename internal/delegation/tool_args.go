@@ -20,6 +20,12 @@ func specializedToolNameSet() map[string]bool {
 	return tools
 }
 
+// IsSpecializedDelegateTool reports whether tool is a specialized delegate tool.
+// Matching ignores case and surrounding whitespace.
+func IsSpecializedDelegateTool(tool string) bool {
+	return specializedToolSet[strings.ToLower(strings.TrimSpace(tool))]
+}
+
 // SummarizeToolArgs returns a human-readable summary of a tool call's
 // arguments, as shown in sub-agent boxes and the compacted history archive.
 // The summary is not guaranteed to be one line: argument values such as a
@@ -75,11 +81,8 @@ func DelegateArgText(args map[string]any) string {
 			return fmt.Sprintf("%v", v)
 		}
 	}
-	if len(args) > 0 {
-		keys := sortedKeys(args)
-		return fmt.Sprintf("%v", args[keys[0]])
-	}
-	return ""
+	keys := sortedKeys(args)
+	return fmt.Sprintf("%v", args[keys[0]])
 }
 
 // StructuredDelegateBrief holds the fields a specialized delegate tool call
