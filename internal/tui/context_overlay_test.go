@@ -296,19 +296,24 @@ func TestContextOverlayVisibleHeightFollowsTerminal(t *testing.T) {
 	}
 }
 
-func TestContextOverlayKeysReachEnds(t *testing.T) {
+func TestContextOverlayPageKeysReachEnds(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", longContextReport())})
 
-	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnd})
-	if view := composedContextView(m); !strings.Contains(view, "line 80") || strings.Contains(view, "Top marker") {
-		t.Fatalf("after End, composed view = %q, want last line visible and top line hidden", view)
+	// Sixteen-row pages over the 82-line report: five PgDown presses reach the last page.
+	for range 5 {
+		m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyPgDown})
 	}
-	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyHome})
+	if view := composedContextView(m); !strings.Contains(view, "line 80") || strings.Contains(view, "Top marker") {
+		t.Fatalf("after PgDown, composed view = %q, want last line visible and top line hidden", view)
+	}
+	for range 5 {
+		m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyPgUp})
+	}
 	if view := composedContextView(m); !strings.Contains(view, "Top marker") || strings.Contains(view, "line 80") {
-		t.Fatalf("after Home, composed view = %q, want top line visible and last line hidden", view)
+		t.Fatalf("after PgUp, composed view = %q, want top line visible and last line hidden", view)
 	}
 }
 
@@ -349,6 +354,38 @@ func TestContextOverlayResizeKeepsPosition(t *testing.T) {
 				t.Fatalf("composed view = %q, want top line visible", view)
 			}
 		})
+	}
+}
+
+// shortContextReport returns a report that fits on one page at 24 rows.
+func shortContextReport() string {
+	lines := []string{"Top marker", ""}
+	for i := 1; i <= 9; i++ {
+		lines = append(lines, fmt.Sprintf("- item %02d", i))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// TestContextOverlayFitThenShrinkStaysTop guards against a report that fit on
+// one page being treated as end-anchored: shrinking the terminal so it
+// overflows must keep the top of the report visible.
+func TestContextOverlayFitThenShrinkStaysTop(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", shortContextReport())})
+	if got := m.contextOverlay.scrollOffset; got != 0 {
+		t.Fatalf("scrollOffset before shrink = %d, want 0", got)
+	}
+
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 12})
+
+	if got := m.contextOverlay.scrollOffset; got != 0 {
+		t.Fatalf("scrollOffset after shrink = %d, want 0", got)
+	}
+	view := composedContextView(m)
+	if !strings.Contains(view, "Top marker") || strings.Contains(view, "item 09") {
+		t.Fatalf("composed view = %q, want top of report visible after shrink", view)
 	}
 }
 

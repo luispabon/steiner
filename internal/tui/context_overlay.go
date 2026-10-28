@@ -53,6 +53,13 @@ func (s contextOverlayState) maxScrollOffset() int {
 	return max(0, s.lineCount-s.visibleHeight())
 }
 
+// atEnd reports whether the view shows the last page of a report that
+// overflows the body. A report that fits on one page is never at its end.
+func (s contextOverlayState) atEnd() bool {
+	maxOffset := s.maxScrollOffset()
+	return maxOffset > 0 && s.scrollOffset >= maxOffset
+}
+
 func (s contextOverlayState) reflow() contextOverlayState {
 	rendered, _ := renderMarkdownBlock(markdownBlockParams{
 		block:       s.content,

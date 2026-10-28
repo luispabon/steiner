@@ -22,10 +22,6 @@ func (m *Model) handleContextOverlayKey(msg tea.KeyPressMsg) tea.Model {
 		m.contextOverlay = m.contextOverlay.scrollUp(m.contextOverlay.visibleHeight())
 	case tea.KeyPgDown:
 		m.contextOverlay = m.contextOverlay.scrollDown(m.contextOverlay.visibleHeight())
-	case tea.KeyHome:
-		m.contextOverlay.scrollOffset = 0
-	case tea.KeyEnd:
-		m.contextOverlay = m.contextOverlay.scrollToEnd()
 	}
 	return m
 }

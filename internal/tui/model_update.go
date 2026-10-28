@@ -454,11 +454,11 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 	m.usageOverlay.OverlayShell = m.usageOverlay.WithDimensions(msg.Width, msg.Height)
 
 	if m.contextOverlay.IsOpen() {
-		// A view that was showing the end stays at the end after the resize.
-		atEnd := m.contextOverlay.scrollOffset >= m.contextOverlay.maxScrollOffset()
+		// An overflowing report that was showing its end stays at the end after the resize.
+		wasAtEnd := m.contextOverlay.atEnd()
 		m.contextOverlay.OverlayShell = m.contextOverlay.WithDimensions(msg.Width, msg.Height)
 		m.contextOverlay = m.contextOverlay.reflow()
-		if atEnd {
+		if wasAtEnd {
 			m.contextOverlay = m.contextOverlay.scrollToEnd()
 		}
 	}
