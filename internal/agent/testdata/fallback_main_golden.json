@@ -1,0 +1,84 @@
+[
+  {
+    "TransportSession": "",
+    "ParentTransportSession": "",
+    "Model": "gpt-main",
+    "Messages": [
+      {
+        "Role": "system",
+        "SHA256": "a3ef4ea7f036126a1c29999b85510f408bf9dbf5998cf2a8e7060a77f17f950a"
+      },
+      {
+        "Role": "user",
+        "SHA256": "13da86f5874682f8d1ad4e6e3d857752d27ae0c60d4c9f707575598ed1113a2a"
+      },
+      {
+        "Role": "assistant",
+        "SHA256": "23e2e9e42aa39e2d69d89a7d2d2b935bdad28bc116bd5610c3dc3942a9fed8ed"
+      },
+      {
+        "Role": "user",
+        "SHA256": "318da702a09bafa543c312a9f8fbe190f7405b4104d380bb616e10b173ef6def"
+      }
+    ],
+    "MaxTokens": 64,
+    "Stream": false,
+    "Tools": null,
+    "PromptCacheKey": "",
+    "Params": null,
+    "ExtraParams": null,
+    "IncludeEmptyReasoning": false,
+    "Reasoning": null,
+    "AdvisorCacheProfile": false,
+    "BackendState": "",
+    "CompactionSummary": true,
+    "CompactionSourceMessages": 2
+  },
+  {
+    "TransportSession": "",
+    "ParentTransportSession": "",
+    "Model": "gpt-main",
+    "Messages": [
+      {
+        "Role": "system",
+        "SHA256": "a3ef4ea7f036126a1c29999b85510f408bf9dbf5998cf2a8e7060a77f17f950a"
+      },
+      {
+        "Role": "system",
+        "SHA256": "a3ef4ea7f036126a1c29999b85510f408bf9dbf5998cf2a8e7060a77f17f950a"
+      },
+      {
+        "Role": "user",
+        "SHA256": "9b17dfca52b5fa43d9178dfe0b1e4d3b459ad407fdba65bfa3b7a18e0e72002b"
+      },
+      {
+        "Role": "assistant",
+        "SHA256": "31638bc5c6b1286e1c370f1eef7939b488abbb104e428bb3a8ebabcc4777024f"
+      },
+      {
+        "Role": "user",
+        "SHA256": "3779880954410b5194d319a3a9eb23dcc29d32e6835342a5a25df06a9e1e8ec3"
+      },
+      {
+        "Role": "assistant",
+        "SHA256": "4bf7426e3ce42a5b78fc9398211c7f2a2ce576dd3c4d04fb484d0a062a5de4a0"
+      },
+      {
+        "Role": "user",
+        "SHA256": "d4384e4f04e375a8fb77fa7356e5b22552d154cb667e248a822bc26d5282a299"
+      }
+    ],
+    "MaxTokens": 16,
+    "Stream": false,
+    "Tools": null,
+    "PromptCacheKey": "",
+    "Params": null,
+    "ExtraParams": null,
+    "IncludeEmptyReasoning": false,
+    "Reasoning": null,
+    "AdvisorCacheProfile": false,
+    "BackendState": "",
+    "CompactionSummary": true,
+    "CompactionSourceMessages": 4
+  }
+]

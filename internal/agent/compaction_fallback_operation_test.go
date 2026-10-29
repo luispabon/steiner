@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -102,6 +104,7 @@ func newFallbackOperationRun(now time.Time) *fallbackOperationRun {
 			},
 		},
 	}
+	r.req.Prompt.PromptOverrides.System = "fallback operation system prompt"
 	return r
 }
 
@@ -131,9 +134,16 @@ func TestCompactionFallbackOperation(t *testing.T) {
 	if _, err := disabled.compact(context.Background()); err != nil {
 		t.Fatalf("disabled compact() error = %v", err)
 	}
-	golden := disabled.main.requests
-	if len(golden) != 2 {
-		t.Fatalf("golden main requests = %d, want 2 (normal, emergency)", len(golden))
+	golden, err := os.ReadFile(fallbackGoldenPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile() error = %v", err)
+	}
+	disabledJSON, err := fallbackGoldenBytes(disabled.main.requests)
+	if err != nil {
+		t.Fatalf("fallbackGoldenBytes() error = %v", err)
+	}
+	if !bytes.Equal(disabledJSON, golden) {
+		t.Fatalf("fallback-disabled main requests differ from %s", fallbackGoldenPath)
 	}
 
 	tests := []struct {
@@ -279,8 +289,14 @@ func TestCompactionFallbackOperation(t *testing.T) {
 			if got := len(r.target.requests); got != tt.wantTarget {
 				t.Errorf("target requests = %d, want %d", got, tt.wantTarget)
 			}
-			if tt.wantMain > 0 && !reflect.DeepEqual(r.main.requests, golden) {
-				t.Error("main requests differ from the fallback-disabled run, want identical main requests")
+			if tt.wantMain > 0 {
+				gotJSON, err := fallbackGoldenBytes(r.main.requests)
+				if err != nil {
+					t.Fatalf("fallbackGoldenBytes() error = %v", err)
+				}
+				if !bytes.Equal(gotJSON, golden) {
+					t.Errorf("main requests differ from %s, want identical main requests", fallbackGoldenPath)
+				}
 			}
 			if outcome.CompactionModel != tt.wantModel {
 				t.Errorf("CompactionModel = %q, want %q", outcome.CompactionModel, tt.wantModel)
