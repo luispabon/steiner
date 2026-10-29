@@ -325,6 +325,9 @@ type RunState struct {
 	// ParentUsage is the last successful parent model response's usage. It is
 	// in-memory only and is not part of the persisted lineage.
 	ParentUsage *ParentUsage
+	// LastMainRequest is the run's last successful main model request. It is
+	// in-memory only and is not part of the persisted lineage.
+	LastMainRequest LastMainRequest
 }
 
 // Clone returns a deep copy of the run state.
@@ -343,6 +346,7 @@ func (s RunState) Clone() RunState {
 		BudgetNoticesIssued: s.BudgetNoticesIssued,
 		BudgetStartTurn:     s.BudgetStartTurn,
 		ParentUsage:         s.ParentUsage.Clone(),
+		LastMainRequest:     s.LastMainRequest,
 	}
 }
 

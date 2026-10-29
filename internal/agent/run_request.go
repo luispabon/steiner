@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"time"
 
 	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
@@ -140,6 +141,15 @@ type RunRequest struct {
 	// (see seedParentUsage). Nil starts without one.
 	SeedParentUsage *ParentUsage
 
+	// SeedLastMainRequest is the last main request the run resumes from. It is
+	// used only when its provider alias, backend model ID and prompt cache key
+	// all match this run's request (see seedLastMainRequest).
+	SeedLastMainRequest LastMainRequest
+
+	// Clock supplies the request start time recorded in LastMainRequest. Nil
+	// uses the real clock.
+	Clock Clock
+
 	// Diagnostics receives cache-stream records for this run; emission is added
 	// by stage 2 of the unified-diagnostics plan (issue #707). A nil writer is
 	// a no-op, so unwired paths and tests need no special handling.
@@ -160,6 +170,16 @@ type RunRequest struct {
 	// conversation at each crossed turn-budget threshold. Nil disables notices.
 	// The parent interactive run never sets this; only delegated children do.
 	TurnBudgetNotice func(turnsUsed, maxTurns int) string
+}
+
+// LastMainRequest identifies the most recent successful main model request of
+// a run: when it started and the provider alias, backend model ID and prompt
+// cache key it was sent with. Compaction calls and failed calls never set it.
+type LastMainRequest struct {
+	At             time.Time
+	ProviderAlias  string
+	BackendModelID string
+	PromptCacheKey string
 }
 
 // InboxDrain is one boundary delivery to the run.

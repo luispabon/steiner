@@ -42,7 +42,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	issuedGenerationID := state.Lineage.latestGenerationID()
 	chatRequest.BackendState = state.Lineage.latestBackendState()
 
-	startTime := time.Now()
+	startTime := p.now()
 	response, firstChunkTime, err := completeModelCall(ctx, p.request, turn, chatRequest, assembly.Blocks, p.request.ModelBudget, &p.skipNonStream)
 	if err != nil {
 		// Check for vision capability discovery error; translate to turn-level retry.
@@ -52,8 +52,15 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		return p.handleModelCallError(ctx, state, turn, err), nil
 	}
 
-	endTime := time.Now()
+	endTime := p.now()
 	durationMs := endTime.Sub(startTime).Milliseconds()
+
+	state.LastMainRequest = LastMainRequest{
+		At:             startTime,
+		ProviderAlias:  p.request.ResolvedModel.ProviderAlias,
+		BackendModelID: p.request.ResolvedModel.BackendModelID,
+		PromptCacheKey: p.request.PromptCacheKey,
+	}
 
 	response = p.normalizeModelResponse(state, turn, response)
 	p.lastUsage = response.Usage
@@ -282,6 +289,14 @@ func newTurnProgressor(req RunRequest, base prompt.AssemblyOptions, compactFn co
 		compactFn:         compactFn,
 		compactionHistory: map[string]bool{},
 	}
+}
+
+// now returns the request clock's time, or the real time when no clock is set.
+func (p *turnProgressor) now() time.Time {
+	if p.request.Clock == nil {
+		return time.Now()
+	}
+	return p.request.Clock.Now()
 }
 
 // advance runs one complete turn: prepare, compaction if needed, model call,
