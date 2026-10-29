@@ -234,6 +234,57 @@ func TestBuildRunRequestCompactionFallbackMemoScope(t *testing.T) {
 	}
 }
 
+// advancingValue returns an accessor that yields values in order, then keeps
+// returning the last one.
+func advancingValue(values ...string) func() string {
+	i := 0
+	return func() string {
+		v := values[min(i, len(values)-1)]
+		i++
+		return v
+	}
+}
+
+// TestBuildRunRequestCompactionFallbackUsesCapturedSessionAndCacheScope pins the
+// fallback to the transport session and cache key captured on the request. The
+// accessors return a new value on each read, so a second read inside
+// buildRunRequest would give the fallback different values from the request.
+func TestBuildRunRequestCompactionFallbackUsesCapturedSessionAndCacheScope(t *testing.T) {
+	rec := &fallbackBuildRecorder{}
+	r := compactionFallbackRunner(compactionFallbackRuntimeConfig("fallback-model"), rec.factory, nil)
+	r.sessionIDFn = advancingValue("session-1", "session-2")
+	r.promptCacheKeyFn = advancingValue("cache-key-1", "cache-key-2")
+	req := buildRunRequest(r, compactionFallbackSetup(t, r), tool.NewRegistry(), nil, runHooks{})
+	if req.TransportSession != "session-1" || req.PromptCacheKey != "cache-key-1" {
+		t.Fatalf("request session, cache key = %q, %q; want session-1, cache-key-1", req.TransportSession, req.PromptCacheKey)
+	}
+
+	first, err := req.CompactionFallback.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if len(rec.sessionIDs) != 1 || rec.sessionIDs[0] != "session-1" {
+		t.Fatalf("factory session IDs = %v, want [session-1] from the captured request", rec.sessionIDs)
+	}
+
+	// The session accessor now returns a new value and the cache key accessor
+	// returns the first request's cache key. The new request must reuse the
+	// memoized provider because its cache scope matches.
+	r.sessionIDFn = func() string { return "session-3" }
+	r.promptCacheKeyFn = func() string { return "cache-key-1" }
+	next := buildRunRequest(r, compactionFallbackSetup(t, r), tool.NewRegistry(), nil, runHooks{})
+	again, err := next.CompactionFallback.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("second Resolve() error = %v", err)
+	}
+	if again.Provider != first.Provider {
+		t.Fatal("same cache scope built a new provider, want the memoized provider")
+	}
+	if len(rec.sessionIDs) != 1 {
+		t.Fatalf("provider builds = %d, want 1", len(rec.sessionIDs))
+	}
+}
+
 func TestWireInteractiveRunnerInstallsCompactionFallbackMemo(t *testing.T) {
 	newRunner := func(t *testing.T) cliRunner {
 		t.Helper()
@@ -260,25 +311,23 @@ func TestWireInteractiveRunnerInstallsCompactionFallbackMemo(t *testing.T) {
 }
 
 // stubPhaseRuntime makes newPhaseRunner build its runtime from cfg. The base
-// provider factory counts its builds in builds.
-func stubPhaseRuntime(t *testing.T, cfg config.Config, builds *int) {
+// provider factory records its builds in the returned recorder.
+func stubPhaseRuntime(t *testing.T, cfg config.Config) *fallbackBuildRecorder {
 	t.Helper()
+	rec := &fallbackBuildRecorder{}
 	oldBuildPhaseRuntime := buildPhaseRuntime
 	t.Cleanup(func() { buildPhaseRuntime = oldBuildPhaseRuntime })
 	buildPhaseRuntime = func(context.Context, *cobra.Command, *cliFlags, string, string, string) (cliRuntime, error) {
 		return cliRuntime{
-			cfg: cfg,
-			providerFactory: func(provider.ResolvedModel, string) (provider.Provider, error) {
-				*builds++
-				return &fakeProvider{}, nil
-			},
+			cfg:             cfg,
+			providerFactory: rec.factory,
 		}, nil
 	}
+	return rec
 }
 
 func TestNewPhaseRunnerInstallsCompactionFallbackMemo(t *testing.T) {
-	builds := 0
-	stubPhaseRuntime(t, compactionFallbackRuntimeConfig("fallback-model"), &builds)
+	stubPhaseRuntime(t, compactionFallbackRuntimeConfig("fallback-model"))
 
 	runner, err := newPhaseRunner(context.Background(), nil, &cliFlags{}, phaseRunnerParams{})
 	if err != nil {
@@ -290,8 +339,7 @@ func TestNewPhaseRunnerInstallsCompactionFallbackMemo(t *testing.T) {
 }
 
 func TestCompactionFallbackOneshotRejectsClaudeSubscription(t *testing.T) {
-	builds := 0
-	stubPhaseRuntime(t, compactionFallbackRuntimeConfig("claude-model"), &builds)
+	rec := stubPhaseRuntime(t, compactionFallbackRuntimeConfig("claude-model"))
 
 	runner, err := newPhaseRunner(context.Background(), nil, &cliFlags{}, phaseRunnerParams{})
 	if err != nil {
@@ -307,7 +355,7 @@ func TestCompactionFallbackOneshotRejectsClaudeSubscription(t *testing.T) {
 	if !errors.Is(err, oneshot.ErrClaudeSubscription) {
 		t.Fatalf("Resolve() error = %v, want %v", err, oneshot.ErrClaudeSubscription)
 	}
-	if builds != 0 {
-		t.Fatalf("base provider factory builds = %d, want 0 for rejected claude_subscription fallback", builds)
+	if len(rec.models) != 0 {
+		t.Fatalf("base provider factory builds = %d, want 0 for rejected claude_subscription fallback", len(rec.models))
 	}
 }

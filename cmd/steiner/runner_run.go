@@ -379,16 +379,18 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	req.MaxParallelDelegations = r.runtime.cfg.SubAgent.MaxParallel
 	// The fallback is lazy: nothing resolves or builds until a compaction needs
 	// it. ProviderFactory is the runtime factory, so the oneshot claude_subscription
-	// wrapper applies to fallback builds too.
+	// wrapper applies to fallback builds too. SessionID and CacheScope reuse the
+	// values captured in req above, so later accessor changes cannot split the
+	// fallback from the main request.
 	cfg := r.liveConfig()
 	req.CompactionFallback = delegation.NewCompactionFallback(delegation.CompactionFallbackParams{
 		Config:          &cfg,
 		Main:            setup.resolvedModel,
 		ResolveModel:    r.resolveModelFor(cfg),
 		ProviderFactory: r.runtime.providerFactory,
-		SessionID:       r.sessionID(),
+		SessionID:       req.TransportSession,
 		Targets:         r.compactionTargets,
-		CacheScope:      r.promptCacheKey(),
+		CacheScope:      req.PromptCacheKey,
 	})
 	if r.runtime.usageRecorder != nil {
 		req.UsageRecorder = r.runtime.usageRecorder
