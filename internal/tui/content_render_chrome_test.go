@@ -244,6 +244,36 @@ func TestCompactionInProgressHeaderOmitsCacheRate(t *testing.T) {
 	}
 }
 
+func TestCompactionBoxRendersFallbackNoteRow(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	base := &compactionBannerData{
+		finished:        true,
+		elapsed:         "3s",
+		compactionCount: 2,
+	}
+	withNote := *base
+	withNote.fallbackNote = "via claude-haiku-5-5 (primary over budget)"
+
+	baseOut := stripANSI(b.renderCompactionBanner(base, 80))
+	noteOut := stripANSI(b.renderCompactionBanner(&withNote, 80))
+
+	if strings.Contains(baseOut, "via ") {
+		t.Errorf("banner without fallbackNote should not show a note: %q", baseOut)
+	}
+	if got, want := strings.Count(noteOut, "\n"), strings.Count(baseOut, "\n")+1; got != want {
+		t.Fatalf("note banner has %d lines, want %d (one extra row): %q", got, want, noteOut)
+	}
+	headerIndex := strings.Index(noteOut, "compaction")
+	noteIndex := strings.Index(noteOut, withNote.fallbackNote)
+	if noteIndex < 0 {
+		t.Fatalf("output missing fallback note: %q", noteOut)
+	}
+	if noteIndex <= headerIndex {
+		t.Errorf("fallback note index = %d, want below header at %d: %q", noteIndex, headerIndex, noteOut)
+	}
+}
+
 func TestCompactionBoxUsesNilGuard(t *testing.T) {
 	t.Parallel()
 	b := newTestBuffer(t)

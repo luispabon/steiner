@@ -139,6 +139,9 @@ type compactionBannerData struct {
 	cacheReadTokens   int
 	inputTokens       int
 	cacheCreateTokens int
+
+	// fallbackNote is the muted row under the header; empty when the compaction reported no fallback status.
+	fallbackNote string
 }
 
 type separatorData struct {

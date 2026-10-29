@@ -331,6 +331,110 @@ func TestCompactionBannerElapsedMeasuresFromFirstEventEvenWithInterleaved(t *tes
 	}
 }
 
+func TestCompactionBannerFallbackNote(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		payload output.ContextCompactionEvent
+		want    string
+	}{
+		{
+			name: "used",
+			payload: output.ContextCompactionEvent{
+				Severity:        "ok",
+				SummaryTitle:    "ctx",
+				CompactionCount: 1,
+				CompactionModel: "claude-haiku-5-5",
+				FallbackStatus:  output.CompactionFallbackUsed,
+				FallbackReason:  "primary over budget",
+			},
+			want: "via claude-haiku-5-5 (primary over budget)",
+		},
+		{
+			name: "skipped",
+			payload: output.ContextCompactionEvent{
+				Severity:        "ok",
+				SummaryTitle:    "ctx",
+				CompactionCount: 1,
+				CompactionModel: "claude-haiku-5-5",
+				FallbackStatus:  output.CompactionFallbackSkipped,
+				FallbackReason:  "no fallback configured",
+			},
+			want: "fallback skipped: no fallback configured",
+		},
+		{
+			name: "absent",
+			payload: output.ContextCompactionEvent{
+				Severity:        "ok",
+				SummaryTitle:    "ctx",
+				CompactionCount: 1,
+			},
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newTestBuffer(t)
+			b.handleCompactionDiagnostics(tt.payload)
+			if len(b.segments) != 1 {
+				t.Fatalf("segments = %d, want 1", len(b.segments))
+			}
+			seg := b.segments[0]
+			if seg.kind != segmentCompactionBanner || seg.compactionData == nil {
+				t.Fatalf("segment = %#v, want compaction banner with data", seg)
+			}
+			if seg.compactionData.fallbackNote != tt.want {
+				t.Errorf("fallbackNote = %q, want %q", seg.compactionData.fallbackNote, tt.want)
+			}
+		})
+	}
+}
+
+// TestScopedSubAgentCompactionDoesNotAlterOrchestratorFallbackNote checks that a
+// compaction event scoped to a bound sub-agent updates only that delegation and
+// leaves the orchestrator banner's fallback note untouched.
+func TestScopedSubAgentCompactionDoesNotAlterOrchestratorFallbackNote(t *testing.T) {
+	t.Parallel()
+	b := &contentBuffer{
+		segments:      make([]contentSegment, 0),
+		collapseState: make(map[int]bool),
+		styles:        testStyles(theme.AccentAmber),
+	}
+	b.handleCompactionDiagnostics(output.ContextCompactionEvent{
+		Severity:        "ok",
+		SummaryTitle:    "ctx",
+		CompactionCount: 1,
+		CompactionModel: "claude-haiku-5-5",
+		FallbackStatus:  output.CompactionFallbackUsed,
+		FallbackReason:  "primary over budget",
+	})
+	b.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "inspect docs", "", ""))
+	b.AppendEvent(output.WithAgentScope(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:            "compaction",
+		Severity:        "info",
+		CompactionCount: 1,
+		SummaryTitle:    "child summary",
+		CompactionModel: "child-model",
+		FallbackStatus:  output.CompactionFallbackSkipped,
+		FallbackReason:  "child reason",
+	}), "child-1"))
+
+	banners := 0
+	var note string
+	for _, seg := range b.segments {
+		if seg.kind == segmentCompactionBanner && seg.compactionData != nil {
+			banners++
+			note = seg.compactionData.fallbackNote
+		}
+	}
+	if banners != 1 {
+		t.Fatalf("compaction banners = %d, want 1", banners)
+	}
+	if want := "via claude-haiku-5-5 (primary over budget)"; note != want {
+		t.Errorf("orchestrator fallbackNote = %q, want %q", note, want)
+	}
+}
+
 func TestClearApprovalStateMarksSegmentsRenderDirty(t *testing.T) {
 	t.Parallel()
 	b := &contentBuffer{
