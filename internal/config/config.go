@@ -88,13 +88,14 @@ type CodexConfig struct {
 
 // ProviderConfig configures a model provider.
 type ProviderConfig struct {
-	Type      ProviderType      `yaml:"type"`
-	BaseURL   string            `yaml:"base_url"`
-	APIKey    string            `yaml:"api_key"`
-	APIKeyEnv string            `yaml:"api_key_env"`
-	Headers   map[string]string `yaml:"headers"`
-	Timeout   Duration          `yaml:"timeout"`
-	Codex     CodexConfig       `yaml:"codex"`
+	Type                    ProviderType      `yaml:"type"`
+	BaseURL                 string            `yaml:"base_url"`
+	APIKey                  string            `yaml:"api_key"`
+	APIKeyEnv               string            `yaml:"api_key_env"`
+	Headers                 map[string]string `yaml:"headers"`
+	Timeout                 Duration          `yaml:"timeout"`
+	CompactionFallbackAfter Duration          `yaml:"compaction_fallback_after"`
+	Codex                   CodexConfig       `yaml:"codex"`
 }
 
 // AdvancedLimitsConfig defines token limits for model inference.
@@ -295,11 +296,12 @@ type TUIConfig struct {
 // fall back to that profile's own default_model. Profiles never inherit from
 // one another.
 type ModelProfile struct {
-	DefaultModel    string            `yaml:"default_model"`
-	Advisor         string            `yaml:"advisor"`
-	SubAgents       map[string]string `yaml:"sub_agents"`
-	OneShot         map[string]string `yaml:"oneshot"`
-	WorkflowHandoff map[string]string `yaml:"workflow_handoff"`
+	DefaultModel       string            `yaml:"default_model"`
+	Advisor            string            `yaml:"advisor"`
+	CompactionFallback string            `yaml:"compaction_fallback"`
+	SubAgents          map[string]string `yaml:"sub_agents"`
+	OneShot            map[string]string `yaml:"oneshot"`
+	WorkflowHandoff    map[string]string `yaml:"workflow_handoff"`
 }
 
 // EffectiveModelAssignments contains resolved assignments for one profile.
