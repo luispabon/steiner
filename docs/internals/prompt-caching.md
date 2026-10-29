@@ -6,7 +6,7 @@ User guide: [Cache Hit Rate Tracking](../user/cache-stats.md).
 
 `provider.NewPromptCacheKey` returns 16 random bytes, hex encoded. If generation fails, the key stays empty and no key or affinity header is sent.
 
-Parent runs take their key from the runner (`cliRunner.promptCacheKey` in `cmd/steiner`), and interactive sessions persist theirs. Delegated children get a key from `cacheKeyOrMint` in `internal/delegation`, keyed by agent type. A nil store or a failed mint gives a fresh key on each call. The advisor uses the same store under the slot `advisor`, which is not an agent type, so it stays out of `AllAgentTypes()`. Compaction escalation and turn progression reuse the run's `PromptCacheKey` and transport session fields.
+Parent runs take their key from the runner (`cliRunner.promptCacheKey` in `cmd/steiner`), and interactive sessions persist theirs. Delegated children get a key from `cacheKeyOrMint` in `internal/delegation`, keyed by agent type. A nil store or a failed mint gives a fresh key on each call. The advisor uses the same store under the slot `advisor`, which is not an agent type, so it stays out of `AllAgentTypes()`. Compaction escalation and turn progression reuse the run's `PromptCacheKey` and transport session fields. A compaction fallback target uses derived values instead ([compaction fallback identities](#compaction-fallback-identities)).
 
 Per provider:
 
@@ -15,6 +15,12 @@ Per provider:
 - Anthropic does not read `PromptCacheKey`. `assignCacheBreakpoints` (`internal/provider/anthropic_wire.go`) places at most four `cache_control` breakpoints: the last system block (or the last tool when there is no system block), the final non-volatile message block, and the last block of the second-to-last user message. Blocks at or after the first volatile block, which holds image data stripped after one request, are never marked. Advisor-shaped requests use a different placement ([advisor internals](advisor.md#transport-and-cache)).
 
 OpenCode-compatible routing applies only when the wire configures an `X-Opencode-Session` header. `prepareTransportSessionHeaders` (`internal/provider/openai_compat.go`) sends a non-empty `TransportSession` in that header and `ParentTransportSession` as `X-Parent-Session-Id`. The OpenAI chat and Anthropic wires call it. Codex Responses does not. Child agents use `<session>-<agentID>`, and advisor calls use `<session>-advisor` with the session as parent (`internal/delegation/registry.go`).
+
+### Compaction fallback identities
+
+`compactionFallbackRequest` (`internal/agent/compaction_fallback.go`) gives a fallback summary identities derived from the run's values. `compactionFallbackIdentity` hashes the main value with SHA-256, a fixed `compaction-fallback` separator, and the target's `ProviderAlias/BackendModelID`, and keeps the first 16 bytes as 32 hex characters. The result becomes the request's `PromptCacheKey`. It becomes the request's `TransportSession` when the main transport session is set. An empty main `PromptCacheKey` stays empty. An empty main transport session gets a new `provider.NewPromptCacheKey` value on each call. Each target therefore has cache keys separate from the main run's and from other targets'.
+
+The fallback request sets `CacheBaseline` to nil. Its call neither compares against nor advances the main prefix baseline (`computeRequestCacheStats`, `promoteRequestCacheStats`).
 
 ## Codex affinity headers
 
@@ -54,7 +60,7 @@ Writes take an exclusive `flock` on the sibling `cache-stats.json.lock` (mode `0
 
 Each usage-bearing model response writes one `cache` record (`internal/agent/cache_diagnostics.go`) with model identity and token counts, plus:
 
-- `cold_start`: true on the first usage-bearing record a process writes. A process has one run ID, so this is once per run.
+- `cold_start`: true on the first usage-bearing record a process writes. A process has one run ID, so this is once per run. Fallback compaction calls write `false` and leave the latch unchanged.
 - `prefix_comparison_enabled` and `prefix_predecessor_known`: whether prefix comparison ran and whether a predecessor existed. The predecessor is the last accepted request under the same `CacheBaselineKey` (`internal/agent/cache_baseline.go`), which holds the cache key, agent ID, configured and effective provider type, effective transport, provider alias, and backend model ID. An empty cache key disables baselines.
 - `shared_prefix_messages`: leading messages shared with the last accepted request. It separates a pure append from a prefix rewrite.
 - `prefix_hash`: a cumulative 8-hex digest folded over one 8-hex hash per message. Each message input is `provider.MessageHashInput`: role, content, reasoning content, tool-call names and arguments, and image media types and data. It hashes logical messages, not wire JSON.

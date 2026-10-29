@@ -86,6 +86,51 @@ Compaction runs when the context is too large. Two limits apply:
 - The summary becomes the `SummaryPrefix` of a new `ConversationGeneration`, followed by the retained turns. `ConversationLineage` keeps every generation. The latest one is active.
 - Manual `/compact` uses the runner's prompt assembly options, so skills, project context, and preamble match a normal turn. Its tools come from `snapshotTools` (`internal/interactive/compaction_helpers.go`), which reads the last recorded parent request. With no parent request recorded, the tool list is empty.
 
+### Compaction fallback
+
+`RunRequest.CompactionFallback` names a second model for compaction summary calls. The zero value disables it. The CLI runner sets it per run request (`cliRunner.compactionFallback`, `cmd/steiner/runner_run.go`), and delegated children set it through `delegation.NewCompactionFallback` (`internal/delegation/compaction_fallback.go`). Config fields are in the [configuration internals](configuration.md#compaction-fallback).
+
+Selection (`compactWithFallback`, `internal/agent/compaction_fallback.go`):
+
+- Selection runs once per compaction operation. The whole two-stage operation (normal, then emergency when needed) runs on the same target, and both stages share one summary request.
+- Nothing is read or resolved when `CompactionFallback.After` is not positive or `Resolve` is nil.
+- The clock is `RunRequest.Clock` when set, otherwise `time.Now`. `compactionCacheCold` treats the cache as cold when no main request is recorded (zero `LastMainRequest.At`), or when the idle time is greater than `After`. A warm cache runs on main.
+- For a cold cache, `selectCompactionFallback` resolves the target. A resolve error, or a target with no provider, fails the attempt (see rerun below). A target with the same provider alias and backend model ID as main is not selected, and the operation runs on main.
+- On success the outcome records `CompactionModel` (`ProviderAlias/BackendModelID`), `FallbackStatus` `used`, and `FallbackReason`: `no recent request`, or `idle <m>m > <n>m`.
+
+Summary target and main (`summarizeCompactionStages.run`, `summarizeCompactionStage`):
+
+- Retention split, the anchor move, and fit checks on the retained tail and resulting state use the main request.
+- The summary output cap (`compactionSummaryMaxTokensForMode`) and the plan fit (`newCompactionExecutionPlanWithMode`, `FitCompactionRequest`) use the summary request's `ModelBudget`. On fallback that is the target's budget.
+- A plan that does not fit the target returns `errCompactionFallbackNotFit`. On main, the same failure is a not-applied outcome, and the emergency stage runs.
+
+Rerun (`compactionOnMainAfterFallback`):
+
+- A failed attempt (fit failure, provider error, resolve or build error) is discarded. The whole operation reruns on main from the original `RunState`. The outcome then records `FallbackStatus` `skipped` and `FallbackReason` `context too large for <ref>` for a fit failure, or `fallback failed: <error>` otherwise.
+- No rerun happens when `ctx.Err()` is set, the error is `context.Canceled`, or `isLimitTimeout` reports a run limit timeout. The error is returned as is.
+- An error from the main rerun is returned.
+
+Backend isolation (`compactionFallbackRequest`):
+
+- The fallback request is a copy of the run request, used for summary calls only. It takes the target's provider, resolved model, budget, and compaction prompt override. Tools, conversations, and string lists are cloned. It clears `ParentTransportSession`, sets `CacheBaseline` to nil, and clears `CompactionFallback`. It is marked `compactionFallbackTarget`, and it is never passed to `Runner.Run`.
+- Provider, executor, context manager, event sink, and `DrainInbox` are shared with the main run.
+- `buildCompactionRequestWithMode` sets `BackendState` to nil for fallback targets, so a fallback summary does not send the main generation's backend state. `ClearBackendState` is applied only to main summaries.
+- Fallback calls write `cold_start` false and leave the process-wide cold-start latch alone (`emitCacheDiagnostic`).
+- Cache and transport identities for the fallback request are in [prompt caching internals](prompt-caching.md#compaction-fallback-identities).
+
+`LastMainRequest` (`internal/agent/conversation_driver.go`, `internal/agent/runner.go`):
+
+- `turnProgressor.executeModelCall` sets `LastMainRequest` after each successful main model call, with `At` from the injected clock. Compaction calls, fallback calls, and failed calls do not set it.
+- `ConversationDriver` carries the value across episodes. `finish` replaces it when an episode succeeds or its output is non-zero. Compaction and lineage advancement leave it unchanged. `LastMainRequest()` returns it.
+- `seedLastMainRequest` keeps `RunRequest.SeedLastMainRequest` only when its provider alias, backend model ID, and `PromptCacheKey` all match the request. Otherwise the seed is zero. `Runner.Run` and `Runner.CompactWithLineage` apply it.
+- Seeds come from the previous owner. Interactive `driverRun` (`internal/interactive/driver_run.go`) keeps its seed when a failed run returns zero. Manual `/compact` (`manualCompaction`, `internal/interactive/compaction.go`) passes the driver's `LastMainRequest()`. The non-driver `Compact` in `cmd/steiner` passes zero. Delegated children keep `ChildSession.LastMainRequest` (`internal/delegation/session.go`) and pass it to continuation requests (`buildContinuationRequest`, `internal/delegation/follow_up.go`). A oneshot phase starts at zero (see [oneshot internals](oneshot.md#phase-driver)).
+
+Memoization (`CompactionFallbackTargets`, `internal/delegation/compaction_fallback.go`):
+
+- Built providers are memoized by provider alias, backend model ID, and cache scope (`compactionTargetKey`). Failed builds are not memoized. Targets are not closed.
+- The session ID is not part of the key. The provider is built with the session ID of the first call for its key, and later calls with a different session ID reuse it.
+- `Resolve` calls `ResolveModel` on every compaction that reaches it. Only the built target is memoized.
+
 ### Compaction history archive
 
 `agent.HistoryArchive` (`internal/agent/history_archive.go`) is optional on `RunRequest`. `summarizeCompactionStage` calls `withHistoryNote` after a summary is returned and before it builds the next state. `withHistoryNote` removes old lines beginning with `HistoryNoteMarker`, calls `Note`, and adds the current archive note to the summary. A `Note` error emits a compact conversation warning and applies the summary without a note. A successful note keeps the source messages in `CompactionOutcome.pendingArchive`.
