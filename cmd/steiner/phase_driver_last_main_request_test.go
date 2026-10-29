@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 
 // TestRunPhaseOnDriverLastMainRequestAcrossEpisodes proves a phase carries its
 // last main request from the first episode into the second. The second episode
-// returns its own request on success, and the carried request on failure.
+// is seeded with the first's output and, on success, returns its own later call.
 func TestRunPhaseOnDriverLastMainRequestAcrossEpisodes(t *testing.T) {
 	reply := provider.ChatResponse{Message: provider.Message{Content: "reply"}, FinishReason: "stop"}
 	tests := []struct {
@@ -30,13 +31,20 @@ func TestRunPhaseOnDriverLastMainRequestAcrossEpisodes(t *testing.T) {
 			runner := parentUsageTestRunner(t, prov)
 			h := &phaseHarness{bg: &phaseBackground{}}
 			episode := runner.driverRun(nil, "", nil)
-			episodes := 0
-			var first agent.LastMainRequest
+			var seeds, outputs []agent.LastMainRequest
 			host := h.host(func(ctx context.Context, in agent.DriverRunInput) (agent.DriverRunOutput, error) {
+				if len(outputs) == 1 {
+					// Wait until the clock is past the first call, so the second call's
+					// request time is strictly later. Polling the monotonic clock avoids
+					// depending on the timestamp resolution.
+					for !time.Now().After(outputs[0].At) {
+						runtime.Gosched()
+					}
+				}
+				seeds = append(seeds, in.LastMainRequest)
 				out, err := episode(ctx, in)
-				episodes++
-				if episodes == 1 {
-					first = out.LastMainRequest
+				outputs = append(outputs, out.LastMainRequest)
+				if len(outputs) == 1 {
 					// A completion delivered while the episode is in flight starts the second
 					// episode at once. One that arrives while the driver waits would sit in
 					// its coalescing window.
@@ -52,25 +60,36 @@ func TestRunPhaseOnDriverLastMainRequestAcrossEpisodes(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("runPhaseOnDriver() error = %v, want error = %v", err, tt.wantErr)
 			}
-			if episodes != 2 {
-				t.Fatalf("episodes = %d, want 2", episodes)
+			if len(seeds) != 2 || len(outputs) != 2 {
+				t.Fatalf("episodes: %d seeds and %d outputs, want 2 of each", len(seeds), len(outputs))
 			}
+			if seeds[0] != (agent.LastMainRequest{}) {
+				t.Errorf("first episode seed = %+v, want none in a cold phase", seeds[0])
+			}
+			first := outputs[0]
 			if first.At.IsZero() {
 				t.Fatal("first episode returned no main request")
 			}
+			if seeds[1] != first {
+				t.Errorf("second episode seed = %+v, want the first episode's output %+v", seeds[1], first)
+			}
 
-			final := result.LastMainRequest
+			second := outputs[1]
 			if tt.wantErr {
-				if final != first {
-					t.Errorf("RunResult.LastMainRequest = %+v, want the first episode's %+v", final, first)
+				// The failed episode made no main call, so it hands back its seed.
+				if second != first {
+					t.Errorf("failed second episode output = %+v, want its seed %+v", second, first)
+				}
+				if result.LastMainRequest != first {
+					t.Errorf("RunResult.LastMainRequest = %+v, want the first episode's %+v", result.LastMainRequest, first)
 				}
 				return
 			}
-			if final.At.IsZero() || final.At.Before(first.At) {
-				t.Errorf("RunResult.LastMainRequest.At = %v, want the second episode's main call at or after %v", final.At, first.At)
+			if !second.At.After(first.At) {
+				t.Errorf("second episode At = %v, want strictly after the first call at %v", second.At, first.At)
 			}
-			if final.ProviderAlias != first.ProviderAlias || final.BackendModelID != first.BackendModelID || final.PromptCacheKey != first.PromptCacheKey {
-				t.Errorf("RunResult.LastMainRequest = %+v, want the model identity of %+v", final, first)
+			if result.LastMainRequest != second {
+				t.Errorf("RunResult.LastMainRequest = %+v, want the second episode's output %+v", result.LastMainRequest, second)
 			}
 		})
 	}
