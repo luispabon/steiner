@@ -186,13 +186,15 @@ func compactionFallbackTestRequest(prov provider.Provider) RunRequest {
 		Tools:         []provider.ToolSpec{compactionFallbackTestTool()},
 		Prompt: prompt.AssemblyOptions{
 			ModelBudget:               prompt.ModelTokenBudget{ContextSize: 8000},
-			PromptOverrides:           config.ModelPrompts{System: "main system", Compaction: "main compaction"},
+			PromptOverrides:           config.ModelPrompts{System: "main system", SystemSuffix: "main suffix", Compaction: "main compaction"},
 			Tools:                     []provider.ToolSpec{compactionFallbackTestTool()},
 			SkillsRoots:               []string{"skills"},
 			SkillNames:                []string{"skill"},
 			ProjectContextExtraFiles:  []string{"extra.md"},
 			ProjectContextIgnoreFiles: []string{"ignore.md"},
 			SandboxWritableMounts:     []string{"/mnt/work"},
+			CachedPreamble:            "main preamble",
+			Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "main user"}},
 		},
 		PromptCacheKey:         "main-cache",
 		TransportSession:       "main-transport",
@@ -204,6 +206,7 @@ func compactionFallbackTestRequest(prov provider.Provider) RunRequest {
 			Ref:     "anthropic/claude-small",
 			Resolve: func(context.Context) (CompactionTarget, error) { return CompactionTarget{}, nil },
 		},
+		SourceConversation: []Message{{Role: MessageRoleUser, Content: "main source"}},
 	}
 }
 
@@ -317,6 +320,52 @@ func TestCompactionFallbackRequestFreshTransport(t *testing.T) {
 	}
 }
 
+func TestCompactionFallbackRequestStableIdentities(t *testing.T) {
+	t.Parallel()
+	req := compactionFallbackTestRequest(&fakeProvider{})
+	target := compactionFallbackTestTarget()
+
+	first, err := compactionFallbackRequest(req, target)
+	if err != nil {
+		t.Fatalf("compactionFallbackRequest() error = %v", err)
+	}
+	second, err := compactionFallbackRequest(req, target)
+	if err != nil {
+		t.Fatalf("compactionFallbackRequest() error = %v", err)
+	}
+	if first.PromptCacheKey != second.PromptCacheKey {
+		t.Errorf("PromptCacheKey = %q then %q, want stable", first.PromptCacheKey, second.PromptCacheKey)
+	}
+	if first.TransportSession != second.TransportSession {
+		t.Errorf("TransportSession = %q then %q, want stable", first.TransportSession, second.TransportSession)
+	}
+	if want := compactionFallbackIdentity("main-cache", target.ResolvedModel); first.PromptCacheKey != want {
+		t.Errorf("PromptCacheKey = %q, want %q", first.PromptCacheKey, want)
+	}
+	if want := compactionFallbackIdentity("main-transport", target.ResolvedModel); first.TransportSession != want {
+		t.Errorf("TransportSession = %q, want %q", first.TransportSession, want)
+	}
+}
+
+func TestCompactionFallbackRequestKeepsSystemPrefix(t *testing.T) {
+	t.Parallel()
+	req := compactionFallbackTestRequest(&fakeProvider{})
+
+	got, err := compactionFallbackRequest(req, compactionFallbackTestTarget())
+	if err != nil {
+		t.Fatalf("compactionFallbackRequest() error = %v", err)
+	}
+	if got.Prompt.CachedPreamble != "main preamble" {
+		t.Errorf("CachedPreamble = %q, want main preamble", got.Prompt.CachedPreamble)
+	}
+	if got.Prompt.PromptOverrides.System != "main system" {
+		t.Errorf("system override = %q, want main system", got.Prompt.PromptOverrides.System)
+	}
+	if got.Prompt.PromptOverrides.SystemSuffix != "main suffix" {
+		t.Errorf("system suffix = %q, want main suffix", got.Prompt.PromptOverrides.SystemSuffix)
+	}
+}
+
 func TestCompactionFallbackRequestIsolation(t *testing.T) {
 	t.Parallel()
 	req := compactionFallbackTestRequest(&fakeProvider{})
@@ -345,6 +394,8 @@ func TestCompactionFallbackRequestIsolation(t *testing.T) {
 	got.Prompt.SandboxWritableMounts[0] = "changed"
 	got.ResolvedModel.Params["temperature"] = 9.9
 	got.ResolvedModel.ExtraParams["top_k"] = "changed"
+	got.Prompt.Conversation[0].Content = "changed"
+	got.SourceConversation[0].Content = "changed"
 
 	if req.Tools[0].Function.Name != "read" || req.Tools[0].Function.Parameters["type"] != "object" {
 		t.Errorf("main Tools = %+v, want unchanged", req.Tools)
@@ -360,6 +411,9 @@ func TestCompactionFallbackRequestIsolation(t *testing.T) {
 	}
 	if req.ResolvedModel.Params["temperature"] != 0.7 || req.ResolvedModel.ExtraParams["top_k"] != "main" {
 		t.Errorf("main params = %v and %v, want unchanged", req.ResolvedModel.Params, req.ResolvedModel.ExtraParams)
+	}
+	if req.Prompt.Conversation[0].Content != "main user" || req.SourceConversation[0].Content != "main source" {
+		t.Errorf("main conversations = %q and %q, want unchanged", req.Prompt.Conversation[0].Content, req.SourceConversation[0].Content)
 	}
 }
 

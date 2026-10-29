@@ -97,12 +97,15 @@ func compactionFallbackIdentity(mainValue string, target provider.ResolvedModel)
 // compactionFallbackRequest returns a copy of req that runs a compaction call on
 // target. The copy takes the target's provider, model, token budget and
 // compaction prompt override, and keeps req's system prefix and usage source.
-// Tools, prompt tools, prompt string lists, and the target's params and extra
-// params are cloned, so the copy shares no mutable state with req or target.
+// Tools, prompt tools, prompt string lists, prompt and source conversations,
+// and the target's params and extra params are cloned, so changing them on the
+// copy does not change req or target. The provider, executor, context
+// manager, event sink and DrainInbox handles are shared by design.
 // The prompt cache key and transport session are derived from their own main
 // values. An empty main transport session gets a fresh random key on each call.
 // The copy clears the parent transport session, the cache baseline and its own
-// fallback, and is marked as a fallback target.
+// fallback, and is marked as a fallback target. It is for one compaction call
+// and is not passed to Runner.Run.
 func compactionFallbackRequest(req RunRequest, target CompactionTarget) (RunRequest, error) {
 	fallback := req
 	fallback.Provider = target.Provider
@@ -111,8 +114,10 @@ func compactionFallbackRequest(req RunRequest, target CompactionTarget) (RunRequ
 	fallback.ResolvedModel.ExtraParams = provider.CloneToolArguments(target.ResolvedModel.ExtraParams)
 	fallback.ModelBudget = target.ModelBudget
 	fallback.Tools = provider.CloneTools(req.Tools)
+	fallback.SourceConversation = cloneMessages(req.SourceConversation)
 	fallback.Prompt.ModelBudget = target.ModelBudget
 	fallback.Prompt.Tools = provider.CloneTools(req.Prompt.Tools)
+	fallback.Prompt.Conversation = provider.CloneMessages(req.Prompt.Conversation)
 	fallback.Prompt.SkillsRoots = cloneStrings(req.Prompt.SkillsRoots)
 	fallback.Prompt.SkillNames = cloneStrings(req.Prompt.SkillNames)
 	fallback.Prompt.ProjectContextExtraFiles = cloneStrings(req.Prompt.ProjectContextExtraFiles)
