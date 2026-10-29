@@ -377,6 +377,19 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	}
 	req.MaxParallelTools = r.runtime.cfg.Limits.MaxParallelTools
 	req.MaxParallelDelegations = r.runtime.cfg.SubAgent.MaxParallel
+	// The fallback is lazy: nothing resolves or builds until a compaction needs
+	// it. ProviderFactory is the runtime factory, so the oneshot claude_subscription
+	// wrapper applies to fallback builds too.
+	cfg := r.liveConfig()
+	req.CompactionFallback = delegation.NewCompactionFallback(delegation.CompactionFallbackParams{
+		Config:          &cfg,
+		Main:            setup.resolvedModel,
+		ResolveModel:    r.resolveModelFor(cfg),
+		ProviderFactory: r.runtime.providerFactory,
+		SessionID:       r.sessionID(),
+		Targets:         r.compactionTargets,
+		CacheScope:      r.promptCacheKey(),
+	})
 	if r.runtime.usageRecorder != nil {
 		req.UsageRecorder = r.runtime.usageRecorder
 	}

@@ -119,6 +119,7 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 		orchestrationLevelFn: params.OrchestrationLevel,
 		staticContext:        &prompt.StaticContextCache{},
 		cacheBaseline:        params.CacheBaseline,
+		compactionTargets:    delegation.NewCompactionFallbackTargets(),
 	}
 	if alias := strings.TrimSpace(params.ModelAlias); alias != "" {
 		runner.currentAlias = func() string {

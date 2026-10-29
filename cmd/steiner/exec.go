@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -62,6 +63,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		promptCacheKeyFn:   func() string { return promptCacheKey },
 		sessionIDFn:        func() string { return promptCacheKey },
 		sessionDateFn:      func() prompt.SessionDate { return sessionDate },
+		compactionTargets:  delegation.NewCompactionFallbackTargets(),
 		staticContext:      &prompt.StaticContextCache{},
 		// Exec is a single-run scope: allocate a fresh store per invocation
 		// rather than sharing one across process-lifetime invocations.

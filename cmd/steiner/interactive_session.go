@@ -367,6 +367,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		orchestrationLevelFn:     sess.OrchestrationLevel,
 		staticContext:            &prompt.StaticContextCache{},
 		cacheBaseline:            agent.NewCacheBaselineStore(),
+		compactionTargets:        delegation.NewCompactionFallbackTargets(),
 		historyArchive:           newHistoryArchive(rt.sessionStore, sess.SessionID),
 	}
 	runner.approver = sess.Approver(rt.events)
