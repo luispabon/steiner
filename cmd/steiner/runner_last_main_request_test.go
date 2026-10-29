@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -23,6 +25,50 @@ func lastMainRequestSeedFor(t *testing.T, r cliRunner, at time.Time) agent.LastM
 		ProviderAlias:  setup.resolvedModel.ProviderAlias,
 		BackendModelID: setup.resolvedModel.BackendModelID,
 		PromptCacheKey: r.promptCacheKey(),
+	}
+}
+
+// TestSessionRunnerLastMainRequestRoundTrip proves the interactive seam carries
+// the last main request in and out: RunInput.LastMainRequest seeds the run, and
+// RunResult.LastMainRequest returns the run's request, on error as well.
+func TestSessionRunnerLastMainRequestRoundTrip(t *testing.T) {
+	seedAt := time.Unix(100, 0)
+	reply := provider.ChatResponse{Message: provider.Message{Content: "reply"}, FinishReason: "stop"}
+	tests := []struct {
+		name string
+		prov parentUsageProvider
+		// wantSeed reports the run ends with the seed, because no main call succeeded.
+		wantSeed bool
+	}{
+		{name: "success returns the main call", prov: parentUsageProvider{fakeProvider: &fakeProvider{}, resp: reply}},
+		{name: "error keeps the seed", prov: parentUsageProvider{fakeProvider: &fakeProvider{}, err: errors.New("boom")}, wantSeed: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := parentUsageTestRunner(t, tt.prov)
+			seed := lastMainRequestSeedFor(t, runner, seedAt)
+
+			result, err := sessionRunner{runner: runner}.Run(context.Background(), interactive.RunInput{
+				Conversation:    []agent.Message{{Role: agent.MessageRoleUser, Content: "hi"}},
+				LastMainRequest: seed,
+			})
+			if (err != nil) != (tt.prov.err != nil) {
+				t.Fatalf("Run() error = %v, want error = %v", err, tt.prov.err != nil)
+			}
+			got := result.LastMainRequest
+			if tt.wantSeed {
+				if got != seed {
+					t.Errorf("RunResult.LastMainRequest = %+v, want the seed %+v", got, seed)
+				}
+				return
+			}
+			if got.At.IsZero() || got.At.Equal(seedAt) {
+				t.Errorf("RunResult.LastMainRequest.At = %v, want the time of the main call", got.At)
+			}
+			if got.ProviderAlias != seed.ProviderAlias || got.BackendModelID != seed.BackendModelID || got.PromptCacheKey != seed.PromptCacheKey {
+				t.Errorf("RunResult.LastMainRequest = %+v, want the model identity of %+v", got, seed)
+			}
+		})
 	}
 }
 

@@ -452,6 +452,7 @@ func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (intera
 		lineage:              in.Lineage,
 		maxTokens:            in.MaxTokens,
 		parentUsage:          in.ParentUsage,
+		lastMainRequest:      in.LastMainRequest,
 	})
 	return interactive.RunResult{
 		Conversation:    result.Conversation,
@@ -460,5 +461,6 @@ func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (intera
 		TokenCount:      result.TokenCount,
 		StopReason:      result.StopReason,
 		ParentUsage:     result.ParentUsage,
+		LastMainRequest: result.LastMainRequest,
 	}, err
 }
