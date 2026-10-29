@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"testing"
 	"time"
@@ -38,6 +39,9 @@ func TestRunPhaseOnDriverLastMainRequestAcrossEpisodes(t *testing.T) {
 					// request time is strictly later. Polling the monotonic clock avoids
 					// depending on the timestamp resolution.
 					for !time.Now().After(outputs[0].At) {
+						if err := ctx.Err(); err != nil {
+							return agent.DriverRunOutput{}, fmt.Errorf("wait for clock past first call: %w", err)
+						}
 						runtime.Gosched()
 					}
 				}
