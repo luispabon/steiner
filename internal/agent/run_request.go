@@ -150,6 +150,15 @@ type RunRequest struct {
 	// uses the real clock.
 	Clock Clock
 
+	// CompactionFallback names an alternate compaction target that applies once
+	// the main prompt cache is presumed cold (see selectCompactionFallback). Its
+	// zero value disables the fallback.
+	CompactionFallback CompactionFallback
+
+	// compactionFallbackTarget marks a request cloned for a fallback compaction
+	// target by compactionFallbackRequest.
+	compactionFallbackTarget bool
+
 	// Diagnostics receives cache-stream records for this run; emission is added
 	// by stage 2 of the unified-diagnostics plan (issue #707). A nil writer is
 	// a no-op, so unwired paths and tests need no special handling.
