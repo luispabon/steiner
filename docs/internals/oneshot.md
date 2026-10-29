@@ -69,7 +69,7 @@ Phases run in order: plan, implement, review. `runPhase` builds a fresh runner f
 
 `phaseDriverEvents` forwards conversation-state events to the session sink when `RegisterControl` is set (interactive runs). Headless runs drop them.
 
-Each phase creates its own driver from the prior messages, with an empty `ConversationLineage`. `PhaseRunInput` has no `LastMainRequest` field, so the driver starts at zero. Within the phase, the driver carries the last successful main request across episodes (`ConversationDriver.LastMainRequest`). A compaction that runs before the phase's first successful main call sees a zero value and treats the cache as cold. `RunResult.LastMainRequest` is returned for every phase, but no code in `internal/oneshot` reads it, so the value does not reach the next phase.
+Each phase creates its own driver. The driver's input is the phase's fresh seed message (`phaseConversation`, `internal/oneshot/orchestrator.go`), which is the only message in `PhaseRunInput.Conversation`. The driver starts with no history and an empty `ConversationLineage`. `PhaseRunInput` has no `LastMainRequest` field, so `ConversationDriver.LastMainRequest()` starts at zero. Within the phase, the driver carries the last successful main request across episodes (`ConversationDriver.LastMainRequest()`). A compaction that runs before the phase's first successful main call sees a zero value and treats the cache as cold. `RunResult.LastMainRequest` is returned for every phase, but no code in `internal/oneshot` reads it, so the value does not reach the next phase.
 
 `runPhaseOnDriver` returns the phase result as follows:
 

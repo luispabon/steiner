@@ -88,7 +88,7 @@ Compaction runs when the context is too large. Two limits apply:
 
 ### Compaction fallback
 
-`RunRequest.CompactionFallback` names a second model for compaction summary calls. The zero value disables it. The CLI runner sets it per run request (`cliRunner.compactionFallback`, `cmd/steiner/runner_run.go`), and delegated children set it through `delegation.NewCompactionFallback` (`internal/delegation/compaction_fallback.go`). Config fields are in the [configuration internals](configuration.md#compaction-fallback).
+`RunRequest.CompactionFallback` names a second model for compaction summary calls. The zero value disables it. The CLI runner sets it per run request (`cliRunner.compactionFallback`, `cmd/steiner/runner_run.go`), and delegated children set it through `delegation.NewCompactionFallback` (`internal/delegation/compaction_fallback.go`, called from `internal/delegation/bootstrap.go`). Config fields are in the [configuration internals](configuration.md#compaction-fallback).
 
 Selection (`compactWithFallback`, `internal/agent/compaction_fallback.go`):
 
@@ -96,7 +96,7 @@ Selection (`compactWithFallback`, `internal/agent/compaction_fallback.go`):
 - Nothing is read or resolved when `CompactionFallback.After` is not positive or `Resolve` is nil.
 - The clock is `RunRequest.Clock` when set, otherwise `time.Now`. `compactionCacheCold` treats the cache as cold when no main request is recorded (zero `LastMainRequest.At`), or when the idle time is greater than `After`. A warm cache runs on main.
 - For a cold cache, `selectCompactionFallback` resolves the target. A resolve error, or a target with no provider, fails the attempt (see rerun below). A target with the same provider alias and backend model ID as main is not selected, and the operation runs on main.
-- On success the outcome records `CompactionModel` (`ProviderAlias/BackendModelID`), `FallbackStatus` `used`, and `FallbackReason`: `no recent request`, or `idle <m>m > <n>m`.
+- On success the outcome records `CompactionModel` (`ProviderAlias/BackendModelID`), `FallbackStatus` `used`, and `FallbackReason`. The reason is `no recent request` when no main request is recorded. Otherwise it is `idle <m>m > <n>m` in whole minutes. When rounding makes the two minute values equal, it uses exact durations (`idle <duration> > <duration>`) so the reason still shows idle greater than the threshold.
 
 Summary target and main (`summarizeCompactionStages.run`, `summarizeCompactionStage`):
 
@@ -106,7 +106,7 @@ Summary target and main (`summarizeCompactionStages.run`, `summarizeCompactionSt
 
 Rerun (`compactionOnMainAfterFallback`):
 
-- A failed attempt (fit failure, provider error, resolve or build error) is discarded. The whole operation reruns on main from the original `RunState`. The outcome then records `FallbackStatus` `skipped` and `FallbackReason` `context too large for <ref>` for a fit failure, or `fallback failed: <error>` otherwise.
+- A failed attempt (fit failure, provider error, resolve or build error) is discarded. The whole operation reruns on main from the original `RunState`. The outcome then records `FallbackStatus` `skipped`. `FallbackReason` is `context too large for <ref>` only when the error is `errCompactionFallbackNotFit`. Any other error gives `fallback failed: <error>`.
 - No rerun happens when `ctx.Err()` is set, the error is `context.Canceled`, or `isLimitTimeout` reports a run limit timeout. The error is returned as is.
 - An error from the main rerun is returned.
 
@@ -118,7 +118,7 @@ Backend isolation (`compactionFallbackRequest`):
 - Fallback calls write `cold_start` false and leave the process-wide cold-start latch alone (`emitCacheDiagnostic`).
 - Cache and transport identities for the fallback request are in [prompt caching internals](prompt-caching.md#compaction-fallback-identities).
 
-`LastMainRequest` (`internal/agent/conversation_driver.go`, `internal/agent/runner.go`):
+`LastMainRequest` (type in `internal/agent/run_request.go`, recorded in `internal/agent/turn_progression.go`, carried by `internal/agent/conversation_driver.go`, seeded in `internal/agent/runner.go`):
 
 - `turnProgressor.executeModelCall` sets `LastMainRequest` after each successful main model call, with `At` from the injected clock. Compaction calls, fallback calls, and failed calls do not set it.
 - `ConversationDriver` carries the value across episodes. `finish` replaces it when an episode succeeds or its output is non-zero. Compaction and lineage advancement leave it unchanged. `LastMainRequest()` returns it.
@@ -127,7 +127,7 @@ Backend isolation (`compactionFallbackRequest`):
 
 Memoization (`CompactionFallbackTargets`, `internal/delegation/compaction_fallback.go`):
 
-- Built providers are memoized by provider alias, backend model ID, and cache scope (`compactionTargetKey`). Failed builds are not memoized. Targets are not closed.
+- Built providers are memoized by provider alias, backend model ID, and cache scope (`compactionTargetKey`). The cache scope is the main run's `PromptCacheKey`. For a delegated child, that is the child's cache key (`childCacheKey`, `internal/delegation/bootstrap.go`). Failed builds are not memoized. Targets are not closed.
 - The session ID is not part of the key. The provider is built with the session ID of the first call for its key, and later calls with a different session ID reuse it.
 - `Resolve` calls `ResolveModel` on every compaction that reaches it. Only the built target is memoized.
 
