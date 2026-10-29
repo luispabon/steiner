@@ -38,9 +38,9 @@ Sub-agent boxes update their session cache rate as each model request finishes. 
 
 ### Compaction banners
 
-Finished compaction banners show the one summarizer request's cache rate, for example `✓ cache NN.N% <elapsed> #count`. The field is omitted when that response has no usage.
+Finished compaction banners show the one summarizer request's cache rate, for example `✓ cache NN.N% <elapsed> #count`. The field is omitted when that response has no usage. The rate comes from whichever model ran the summary request: the fallback model when a [compaction fallback](context-management.md#compaction-fallback) ran, or the main model otherwise.
 
-Manual `/compact` reuses your last top-level request's tool definitions and cache prefix even after sub-agent activity, so the summariser call keeps hitting the prompt cache. Compaction summariser calls are recorded in the usage statistics like normal and advisor calls.
+Manual `/compact` reuses your last top-level request's tool definitions and cache prefix even after sub-agent activity, so the summariser call keeps hitting the prompt cache. Compaction summariser calls are recorded in the usage statistics like normal and advisor calls. A fallback summary call is recorded under the fallback model's provider and model ID.
 
 ### `/cache-stats` overlay
 

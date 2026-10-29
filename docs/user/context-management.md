@@ -50,6 +50,19 @@ Manual compaction reuses the tool definitions and cache prefix of your last top-
 
 Auto-compaction is never steered; it always uses an empty steering value. Manual compaction is refused while a run is generating. Session replacement is refused while a driver run, queued prompt, compaction, ungrouped busy work, or pending sub-agent result is unsettled. Finish or cancel busy work, then wait for result settlement before replacing or reopening the session.
 
+### Compaction fallback
+
+Compaction can run its summary calls on a second model when the main model's prompt cache has probably expired. The fallback is off unless `models.profiles.<profile>.compaction_fallback` is set for the selected profile. Field details are in the [`models` block](configuration.md#models-block) and the [`providers` block](configuration.md#providers-block).
+
+- **Cold check.** The cache is presumed cold once more than `compaction_fallback_after` has passed since the start of the last successful main request in the run. The delay is read from the main model's provider. A run with no recorded main request counts as cold, so a compaction with no prior request uses the fallback when one is set. Compaction calls and failed requests do not update the timestamp.
+- **Default delays.** `anthropic` is 5 minutes, `claude_subscription` is 60 minutes, and `openai` and `codex` are 30 minutes. Other provider types default to `0`, which disables the fallback. These are typical observed or documented cache lifetimes, not guarantees. Set `compaction_fallback_after` on the provider when your setup differs.
+- **Scope.** The rule applies to automatic compaction and `/compact`. Sub-agent runs apply it with their own main model's provider.
+- **Target.** The fallback is resolved, and its provider built, only when a compaction selects it. The fallback's token budget and `prompts.compaction` override replace the main model's for that compaction only. If the fallback resolves to the same provider alias and backend model ID as the main model, no fallback applies and no banner note is shown.
+- **Failure.** If the fallback cannot be resolved or built, its summary request does not fit its token budget, or the fallback attempt otherwise fails, the whole compaction reruns once on the main model from the original state. Cancellation and run-limit timeouts return the error without a rerun.
+- **Banner.** The finished compaction banner adds a note under its header: `via <provider>/<model> (<reason>)` when the fallback ran, or `fallback skipped: <reason>` when it was discarded. Reasons are `no recent request`, `idle <N>m > <M>m`, `context too large for <ref>`, or `fallback failed: <error>`.
+- **Oneshot.** Oneshot runs reject a `claude_subscription` fallback when it is built. Config load does not reject it. The compaction reruns on main and the banner reports the skip.
+- **Usage.** Fallback summary calls are recorded under the fallback model's provider and model ID. See [Compaction banners](cache-stats.md#compaction-banners).
+
 ## What survives compaction
 
 - The system prompt and tool definitions (always in full)
