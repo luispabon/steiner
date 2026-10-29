@@ -47,7 +47,7 @@ Interactive sessions keep skills out of the static prefix, so toggling a skill n
 - On submit, `skillDeltaBlocks` diffs the enabled set against `EffectiveSkills`. Deactivations come first, then activations for newly enabled skills. Existing messages are never rewritten.
 - `EffectiveSkills` folds envelopes across user messages in order. An activation replaces that skill's block and moves it to the end. A deactivation removes it.
 - `SplitSkillBlocks` (`internal/prompt/skill_blocks.go`) reads an optional leading mode notice and then envelopes. It stops at the first malformed envelope and keeps the rest of the text as is.
-- A body over `prompt.SkillContentCapBytes` is cut on a UTF-8 rune boundary and ends with `[truncated: skill exceeded the 98304-byte cap]`. Loading such a skill emits `skill_truncated` with the original size and the cap.
+- A body over `prompt.SkillContentCapBytes` is cut on a UTF-8 rune boundary and ends with `[truncated: skill exceeded the 106496-byte cap]`. Loading such a skill emits `skill_truncated` with the original size and the cap.
 - On resume, replayed envelopes emit `skill_state` events (`internal/interactive/replay.go`).
 
 ## Session date assembly

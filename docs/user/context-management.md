@@ -64,7 +64,7 @@ If the first response after a `claude_subscription` compaction reports prompt us
 
 ### Skills in interactive sessions
 
-Enabling or disabling a skill in an interactive session does not rewrite anything already sent, so the session's cached prefix is preserved; the change is delivered with your next message. An active skill survives compaction (it is re-applied after the summary), while a disabled skill disappears the next time compaction runs. A skill longer than 98304 bytes is truncated with a marker, and Steiner warns with the original size and the cap. The `/context` report shows leftover blocks for skills you have turned off as inactive until compaction removes them.
+Enabling or disabling a skill in an interactive session does not rewrite anything already sent, so the session's cached prefix is preserved; the change is delivered with your next message. An active skill survives compaction (it is re-applied after the summary), while a disabled skill disappears the next time compaction runs. A skill longer than 106496 bytes is truncated with a marker, and Steiner warns with the original size and the cap. The `/context` report shows leftover blocks for skills you have turned off as inactive until compaction removes them.
 
 ## Session date
 
