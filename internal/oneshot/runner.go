@@ -53,4 +53,7 @@ type RunResult struct {
 	StopReason      agent.StopReason
 	// ParentUsage is set only by interactive runs; oneshot phases leave it nil.
 	ParentUsage *agent.ParentUsage
+	// LastMainRequest is the run's last successful main request. It is returned
+	// on success and on a failure that follows a main call.
+	LastMainRequest agent.LastMainRequest
 }

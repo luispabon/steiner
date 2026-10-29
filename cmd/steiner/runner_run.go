@@ -297,6 +297,8 @@ type runHooks struct {
 	maxTokens int
 	// parentUsage seeds the run's stateful compaction trigger; nil starts without one.
 	parentUsage *agent.ParentUsage
+	// lastMainRequest seeds the run's last main request; the zero value starts without one.
+	lastMainRequest agent.LastMainRequest
 }
 
 func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, hooks runHooks) agent.RunRequest {
@@ -333,24 +335,25 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 			MaxTokens:        r.runtime.cfg.Limits.MaxTokens,
 			ModelCallTimeout: time.Duration(r.runtime.cfg.Limits.ModelCallTimeout.Duration()),
 		},
-		Diagnostics:        r.runtime.diagnostics,
-		Events:             events,
-		ContextManager:     agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
-		StreamingPreferred: r.streamingPreferred,
-		CompactionLogPath:  r.runtime.compactionLogFile,
-		HistoryArchive:     r.historyArchive,
-		DrainInbox:         hooks.drainInbox,
-		Sealer:             sealer,
-		GroupScope:         setup.delegationGroupScope,
-		PendingSubAgents:   hooks.pendingSubAgents,
-		PromptCacheKey:     r.promptCacheKey(),
-		TransportSession:   r.sessionID(),
-		CacheBaseline:      r.cacheBaseline,
-		VisionCapabilities: visionCapabilities,
-		ImageStore:         r.runtime.imageStore,
-		SourceConversation: setup.conversation,
-		SeedLineage:        hooks.lineage,
-		SeedParentUsage:    hooks.parentUsage,
+		Diagnostics:         r.runtime.diagnostics,
+		Events:              events,
+		ContextManager:      agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
+		StreamingPreferred:  r.streamingPreferred,
+		CompactionLogPath:   r.runtime.compactionLogFile,
+		HistoryArchive:      r.historyArchive,
+		DrainInbox:          hooks.drainInbox,
+		Sealer:              sealer,
+		GroupScope:          setup.delegationGroupScope,
+		PendingSubAgents:    hooks.pendingSubAgents,
+		PromptCacheKey:      r.promptCacheKey(),
+		TransportSession:    r.sessionID(),
+		CacheBaseline:       r.cacheBaseline,
+		VisionCapabilities:  visionCapabilities,
+		ImageStore:          r.runtime.imageStore,
+		SourceConversation:  setup.conversation,
+		SeedLineage:         hooks.lineage,
+		SeedParentUsage:     hooks.parentUsage,
+		SeedLastMainRequest: hooks.lastMainRequest,
 		// Reserve child agent IDs in parent call-emission order so concurrent
 		// specialized and vision handlers bind to their own call's ID instead of
 		// racing the ID generator.
