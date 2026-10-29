@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"slices"
 	"sync"
@@ -101,6 +102,48 @@ func TestConversationDriverKeepsLastMainRequestAcrossCompactionAndLineageAdvance
 	finishRunWith(third, DriverRunOutput{LastMainRequest: req})
 	h.waitQuiescent()
 	h.closeDriver()
+}
+
+// TestConversationDriverFinishLastMainRequestRules proves how a finished run's
+// LastMainRequest updates the carried value: a non-zero output always replaces
+// it, a zero output on error keeps it, and a zero output on success resets it.
+func TestConversationDriverFinishLastMainRequestRules(t *testing.T) {
+	t.Parallel()
+	carried := lastMainRequestFixture(time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC))
+	returned := lastMainRequestFixture(time.Date(2026, 10, 29, 9, 5, 0, 0, time.UTC))
+	tests := []struct {
+		name string
+		out  LastMainRequest
+		err  error
+		want LastMainRequest
+	}{
+		{name: "success with zero output resets", want: LastMainRequest{}},
+		{name: "success with nonzero output replaces", out: returned, want: returned},
+		{name: "error with zero output keeps carried", err: errors.New("provider failed"), want: carried},
+		{name: "cancellation with zero output keeps carried", err: context.Canceled, want: carried},
+		{name: "error with nonzero output replaces", out: returned, err: errors.New("provider failed"), want: returned},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newDriverHarness(t, nil, nil)
+			h.start()
+
+			h.d.Submit("one", nil, SubmitMeta{})
+			first := h.nextRun()
+			finishRunWith(first, DriverRunOutput{LastMainRequest: carried})
+			h.waitQuiescent()
+
+			h.d.Submit("two", nil, SubmitMeta{})
+			second := h.nextRun()
+			second.release <- driverTestResult{out: DriverRunOutput{LastMainRequest: tt.out}, err: tt.err}
+			h.waitQuiescent()
+
+			if got := h.d.LastMainRequest(); got != tt.want {
+				t.Errorf("accessor after finish = %+v, want %+v", got, tt.want)
+			}
+			h.closeDriver()
+		})
+	}
 }
 
 // TestConversationDriverLastMainRequestAccessorIsSynchronized reads the accessor

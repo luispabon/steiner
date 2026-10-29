@@ -39,8 +39,10 @@ type DriverRunOutput struct {
 	// ParentUsage is the run's last successful parent usage, carried into the
 	// driver's next run for the same generation.
 	ParentUsage *ParentUsage
-	// LastMainRequest replaces the driver's carried value. A run must return the
-	// request it was seeded with when it made no new successful main call.
+	// LastMainRequest replaces the driver's carried value when it is non-zero,
+	// even on error. A zero value replaces it only on success, so a failed run
+	// that returns none keeps the carried value. A successful run returns the
+	// request it was seeded with, or zero when the identity changed.
 	LastMainRequest LastMainRequest
 }
 
@@ -311,7 +313,11 @@ func (d *ConversationDriver) finish(ctx context.Context, out DriverRunOutput, er
 		d.lineage = out.Lineage.Clone()
 	}
 	d.carryParentUsageLocked(advanced, out.ParentUsage)
-	d.lastMainRequest = out.LastMainRequest
+	// A failed run keeps the carried value unless it returned a request: a
+	// successful main call may have happened before the error.
+	if err == nil || out.LastMainRequest != (LastMainRequest{}) {
+		d.lastMainRequest = out.LastMainRequest
+	}
 	if err != nil && !errors.Is(err, context.Canceled) {
 		d.warnLocked(output.ConversationWarningKindRun, fmt.Sprintf("run failed: %v", err))
 	}
