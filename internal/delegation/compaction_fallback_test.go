@@ -291,6 +291,69 @@ func TestCompactionFallbackNilProviderNotCached(t *testing.T) {
 	}
 }
 
+// TestCompactionFallbackKeyDoesNotCollide checks identity pairs whose "/"-joined
+// forms are equal but whose fields differ. Each pair must build separate
+// targets. Each pair joins to the same string under the old concatenated key.
+func TestCompactionFallbackKeyDoesNotCollide(t *testing.T) {
+	tests := []struct {
+		name          string
+		first, second provider.ResolvedModel
+	}{
+		{
+			name:   "joins to a/model b/c",
+			first:  compactionFallbackTestModel("a/model b", "c"),
+			second: compactionFallbackTestModel("a", "model b/c"),
+		},
+		{
+			name:   "joins to a/b/model c",
+			first:  compactionFallbackTestModel("a/b", "model c"),
+			second: compactionFallbackTestModel("a", "b/model c"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			targets := NewCompactionFallbackTargets()
+			var builds atomic.Int32
+			factory := compactionFallbackTestFactory(&builds)
+			var providers []provider.Provider
+			for i, model := range []provider.ResolvedModel{tt.first, tt.second} {
+				var resolves atomic.Int32
+				p := compactionFallbackTestParams(compactionFallbackTestRef, compactionFallbackTestResolver(compactionFallbackTestRef, model, &resolves), factory)
+				p.Targets = targets
+				target, err := NewCompactionFallback(p).Resolve(context.Background())
+				if err != nil {
+					t.Fatalf("identity %d Resolve: %v", i, err)
+				}
+				providers = append(providers, target.Provider)
+			}
+			if providers[0] == providers[1] {
+				t.Error("distinct identities share a provider, want separate targets")
+			}
+			if got := builds.Load(); got != 2 {
+				t.Errorf("builds = %d, want 2", got)
+			}
+		})
+	}
+}
+
+// TestCompactionFallbackColdCanceledResolve checks that a canceled Resolve on a
+// cold memo returns before ResolveModel or the factory runs.
+func TestCompactionFallbackColdCanceledResolve(t *testing.T) {
+	var resolves, builds atomic.Int32
+	model := compactionFallbackTestModel("fb", "fb-model")
+	p := compactionFallbackTestParams(compactionFallbackTestRef, compactionFallbackTestResolver(compactionFallbackTestRef, model, &resolves), compactionFallbackTestFactory(&builds))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := NewCompactionFallback(p).Resolve(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Resolve error = %v, want context.Canceled", err)
+	}
+	if resolves.Load() != 0 || builds.Load() != 0 {
+		t.Errorf("cold canceled Resolve: resolves = %d, builds = %d, want 0, 0", resolves.Load(), builds.Load())
+	}
+}
+
 func TestCompactionFallbackRetriesErrors(t *testing.T) {
 	boom := errors.New("boom")
 	tests := []struct {

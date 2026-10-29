@@ -20,12 +20,21 @@ import (
 // NewCompactionFallbackTargets.
 type CompactionFallbackTargets struct {
 	mu      sync.Mutex
-	targets map[string]agent.CompactionTarget
+	targets map[compactionTargetKey]agent.CompactionTarget
+}
+
+// compactionTargetKey identifies a memoized target. Each identity field is kept
+// separate and compared as a whole, so a "/" inside an alias or model ID cannot
+// make two different identities collide.
+type compactionTargetKey struct {
+	providerAlias  string
+	backendModelID string
+	cacheScope     string
 }
 
 // NewCompactionFallbackTargets returns an empty CompactionFallbackTargets.
 func NewCompactionFallbackTargets() *CompactionFallbackTargets {
-	return &CompactionFallbackTargets{targets: make(map[string]agent.CompactionTarget)}
+	return &CompactionFallbackTargets{targets: make(map[compactionTargetKey]agent.CompactionTarget)}
 }
 
 // CompactionFallbackParams configures NewCompactionFallback.
@@ -88,7 +97,7 @@ func NewCompactionFallback(p CompactionFallbackParams) agent.CompactionFallback 
 // factory that returns a nil provider without error, is returned and not
 // memoized.
 func (t *CompactionFallbackTargets) target(model provider.ResolvedModel, sessionID, cacheScope string, factory func(provider.ResolvedModel, string) (provider.Provider, error)) (agent.CompactionTarget, error) {
-	key := model.ProviderAlias + "/" + model.BackendModelID + "\x00" + cacheScope
+	key := compactionTargetKey{providerAlias: model.ProviderAlias, backendModelID: model.BackendModelID, cacheScope: cacheScope}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if target, ok := t.targets[key]; ok {
@@ -107,7 +116,7 @@ func (t *CompactionFallbackTargets) target(model provider.ResolvedModel, session
 		ModelBudget:   prompt.ModelBudgetFromEffectiveLimits(model.EffectiveLimits),
 	}
 	if t.targets == nil {
-		t.targets = make(map[string]agent.CompactionTarget)
+		t.targets = make(map[compactionTargetKey]agent.CompactionTarget)
 	}
 	t.targets[key] = target
 	return target, nil
