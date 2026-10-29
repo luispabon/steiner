@@ -29,12 +29,12 @@ Follow this sequence:
 2. Check out the expected feature branch.
 3. Load verification strategy from `overview.md`.
 4. Create or resume compact `execution.md`.
-5. Execute ready steps through delegation, splitting into bounded sub-tasks where useful. Dispatch one sub-agent per task; end the turn and act when results arrive. Implement directly only for `no_delegate` steps, stating why.
+5. Execute ready steps through delegation, decomposing each into tasks first (see Splitting Steps into Sub-Agent Tasks); end the turn and act when results arrive. Implement directly only for `no_delegate` steps, stating why. Report progress as described in Progress Reporting.
 6. Run planned verification and fix failures.
 7. Ask for manual verification only when the plan or risk requires it.
 8. If planning artifacts are version-controlled, commit final executor state. Hand off to review.
 
-Stop and report blockers instead of widening scope.
+Stop and report blockers instead of widening scope (see Blocker Report).
 
 ## Execution Artifact
 
@@ -46,6 +46,9 @@ Stop and report blockers instead of widening scope.
 - sub-agents used, their parent step ids, and any sub-task ids
 - verification commands and results
 - deviations, blockers, and manual verification notes
+- task list per step (or a one-line reason for a single task), and per-task state, agent, correction follow-ups, rejected results, and failed checks
+- a one-line struggle note per implemented step
+- blockers and what is needed to unblock them
 - final reviewer handoff status
 
 Do not maintain a verbose event log. Keep it sufficient for reviewer handoff.
@@ -106,11 +109,53 @@ Use `implemented` to unlock dependencies. Use `complete` only after required ver
 
 ## Splitting Steps into Sub-Agent Tasks
 
-Plan-step scheduling is unchanged. Smaller models benefit from narrow tasks: each sub-task needs a concrete deliverable, declared write scope, and settled contracts. Preserve parent scope, constraints, acceptance criteria, `no_delegate`, and `delegate_profile`.
+Plan-step scheduling is unchanged. Decompose every delegated step into tasks before its first dispatch; one task per step is the exception. Smaller models benefit from narrow tasks: each sub-task needs a concrete deliverable, declared write scope, and settled contracts. Preserve parent scope, constraints, acceptance criteria, `no_delegate`, and `delegate_profile`.
+
+A task is small enough when a small model can complete it from its brief alone, with every file it edits in view and no design calls left to make. Otherwise split it.
+
+A step usually needs several tasks when any of these hold (judgment signals, not thresholds):
+
+- it spans more than one package or domain concern
+- it has a producer/consumer contract: the producer merges first, and the consumer is briefed with the merged interface
+- docs, config, or skill text is separable from code (usually parallel, since files are disjoint)
+- it touches many files, or a few dense files that need careful reasoning
+
+Keep tests with the code they cover so each code agent can verify its own work.
 
 Within a ready step, prefer parallel tasks only with disjoint writes, no unmet dependencies or unresolved contracts, low coordination/merge risk, and meaningful time savings. Otherwise run serially. Children cannot see each other's unmerged work.
 
-Track each sub-task's parent-linked id, state, and agent in `execution.md`. Apply delegation, review, merge, verification, and worktree rules per task. Mark the parent `implemented` only after all required tasks are implemented and merged; unlock dependents then, not earlier. Mark it `complete` only after required parent verification passes.
+Serial tasks are normal. Dispatch the next task after the previous one merges so its worktree includes that work. Lack of parallelism is not a reason to keep a step as one task.
+
+Before the first dispatch, record the step's task list in `execution.md`, or a one-line reason if it stays one task (for example, "single function in one file").
+
+Track each task's parent-linked id, state, agent, and tallies of correction follow-ups, rejected results, and failed checks in `execution.md`. Apply delegation, review, merge, verification, and worktree rules per task. Mark the parent `implemented` only after all required tasks are implemented and merged; unlock dependents then, not earlier. Mark it `complete` only after required parent verification passes.
+
+### Struggle Escalation
+
+When a task needs correction on the same problem a second time, suspect the brief before the agent. Before another follow-up, choose one option and record it in `execution.md`: narrow the task by splitting the remaining work, re-brief a fresh agent with the failure evidence, or consult `advisor` if available. There is no numeric loop cap.
+
+## Progress Reporting
+
+Print a report at the start of execution (after loading the plan, or after `execution.md` on resume) and each time a step becomes `implemented`:
+
+- header: `Progress: N/M steps done`, where N counts `done` steps
+- one line per plan step, in plan order: status label, step id, title
+
+Labels: `pending` for pending and ready; `in progress` for running; `done` for implemented and complete; `blocked`; `skipped`.
+
+After a step becomes `implemented`, add one short paragraph: task count, correction follow-ups, rejected results, failed checks, and their causes, or state plainly that there was no struggle. Save the same text as that step's struggle note in `execution.md`. Print nothing else around the report. Example:
+
+```
+Progress: 1/3 steps done
+- done         step-1  Config field and validation
+- in progress  step-2  Parser support
+- pending      step-3  Wire into loader
+step-1: 3 tasks, 1 correction follow-up (config task missed a nil check), no rejected results or failed checks.
+```
+
+### Blocker Report
+
+On a blocker, print the progress report, then the step and task id, what failed, evidence such as the exact error, and what is needed to unblock (a decision, input, or fix). Record the same in `execution.md`.
 
 ## Executor-Owned Work
 

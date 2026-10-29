@@ -17,7 +17,7 @@ The source order is fixed in `internal/prompt/source_plan.go`. Static sources co
 | 1 | `preamble` | none | Memoized per session |
 | 2 | `global_agents_md`, `project_agents_md` | none | Never truncated |
 | 3 | `project_context` | 8000 bytes (`fallbackProjectContextBudgetBytes`) | Truncated when over |
-| 4 | `skill` | 98304 bytes (`defaultSkillBudgetBytes`) | Exec and oneshot only |
+| 4 | `skill` | 106496 bytes (`defaultSkillBudgetBytes`) | Exec and oneshot only |
 | 5 | `phase_prompt` | none | Oneshot phases |
 | 6 | `session_date` | none | See [Session date assembly](#session-date-assembly) |
 | 7 | `conversation` | none | Pass-through |
