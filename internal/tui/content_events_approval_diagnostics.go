@@ -170,6 +170,11 @@ func (b *contentBuffer) appendProviderDiagnosticEvent(event output.Event) {
 
 func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 	b.finishStreaming()
+	// A scoped event that reaches this point has no delegation binding. It must
+	// not update the orchestrator banner.
+	if event.Scope.AgentID != "" {
+		return
+	}
 	payload, ok := output.AsContextCompactionEvent(event.Payload)
 	if ok {
 		b.handleCompactionDiagnostics(payload)

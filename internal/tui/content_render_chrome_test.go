@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/luispabon/steiner/internal/output"
 )
 
@@ -271,6 +273,70 @@ func TestCompactionBoxRendersFallbackNoteRow(t *testing.T) {
 	}
 	if noteIndex <= headerIndex {
 		t.Errorf("fallback note index = %d, want below header at %d: %q", noteIndex, headerIndex, noteOut)
+	}
+}
+
+// TestCompactionFallbackNoteIsSingleBoundedRow checks that a note with long or
+// multiline reasons stays one row no wider than the box's inner width.
+func TestCompactionFallbackNoteIsSingleBoundedRow(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	tests := []struct {
+		name  string
+		note  string
+		width int
+		want  string // substring the note row must contain
+	}{
+		{
+			name:  "long reason at narrow width",
+			note:  "via claude-haiku-5-5 (" + strings.Repeat("very long reason ", 8) + ")",
+			width: 20,
+			want:  "…",
+		},
+		{
+			name:  "multiline reason flattens to one row",
+			note:  "fallback skipped: first line\nsecond\tline\n\nthird",
+			width: 80,
+			want:  "fallback skipped: first line second line third",
+		},
+		{
+			name:  "multiline at minimum width",
+			note:  "fallback skipped: first line\nsecond line",
+			width: 12,
+			want:  "…",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cd := &compactionBannerData{
+				finished:        true,
+				elapsed:         "3s",
+				compactionCount: 2,
+				fallbackNote:    tt.note,
+			}
+			rows := b.compactionBoxRows(cd, tt.width)
+			if len(rows) != 2 {
+				t.Fatalf("rows = %d, want header plus one note row: %q", len(rows), rows)
+			}
+			note := stripANSI(rows[1])
+			if innerWidth := max(1, tt.width-6); lipgloss.Width(note) > innerWidth {
+				t.Errorf("note width = %d, want <= %d: %q", lipgloss.Width(note), innerWidth, note)
+			}
+			if strings.ContainsAny(note, "\n\r\t") {
+				t.Errorf("note row contains line break or tab: %q", note)
+			}
+			if !strings.Contains(note, tt.want) {
+				t.Errorf("note = %q, want it to contain %q", note, tt.want)
+			}
+
+			noNote := *cd
+			noNote.fallbackNote = ""
+			withLines := strings.Count(b.renderCompactionBanner(cd, tt.width), "\n")
+			withoutLines := strings.Count(b.renderCompactionBanner(&noNote, tt.width), "\n")
+			if withLines != withoutLines+1 {
+				t.Errorf("note adds %d rendered lines, want exactly 1", withLines-withoutLines)
+			}
+		})
 	}
 }
 

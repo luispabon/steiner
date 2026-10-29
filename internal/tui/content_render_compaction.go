@@ -34,8 +34,9 @@ func (b *contentBuffer) compactionBoxRows(cd *compactionBannerData, width int) [
 		innerWidth = 1
 	}
 	rows := []string{b.renderCompactionHeader(cd, innerWidth)}
-	if cd.fallbackNote != "" {
-		rows = append(rows, b.styles.FgMute.Render(cd.fallbackNote))
+	// The note is flattened and cut to innerWidth so it stays one row.
+	if note := truncateOverlayText(cd.fallbackNote, innerWidth); note != "" {
+		rows = append(rows, b.styles.FgMute.Render(note))
 	}
 	return rows
 }

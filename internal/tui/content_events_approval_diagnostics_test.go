@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -432,6 +433,87 @@ func TestScopedSubAgentCompactionDoesNotAlterOrchestratorFallbackNote(t *testing
 	}
 	if want := "via claude-haiku-5-5 (primary over budget)"; note != want {
 		t.Errorf("orchestrator fallbackNote = %q, want %q", note, want)
+	}
+}
+
+// TestUnboundScopedCompactionDoesNotAlterOrchestratorBanner covers compaction
+// events scoped to an agent with no delegation binding. They must leave the
+// orchestrator banner exactly as it was, and must not create one.
+func TestUnboundScopedCompactionDoesNotAlterOrchestratorBanner(t *testing.T) {
+	t.Parallel()
+	events := []output.Event{
+		output.WithAgentScope(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:            "compaction",
+			Severity:        "compacting",
+			CompactionCount: 2,
+		}), "ghost-child"),
+		output.WithAgentScope(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:            "compaction",
+			Severity:        "info",
+			CompactionCount: 2,
+			SummaryTitle:    "child summary",
+			CompactionModel: "child-model",
+			FallbackStatus:  output.CompactionFallbackSkipped,
+			FallbackReason:  "child reason",
+		}), "ghost-child"),
+	}
+	tests := []struct {
+		name  string
+		prior *compactionBannerData
+	}{
+		{name: "no orchestrator banner"},
+		{
+			name: "finished banner with fallback note",
+			prior: &compactionBannerData{
+				label:           "Context compacted",
+				subtitle:        "ctx",
+				finished:        true,
+				compactionCount: 1,
+				fallbackNote:    "via claude-haiku-5-5 (primary over budget)",
+			},
+		},
+		{
+			name: "in-progress banner",
+			prior: &compactionBannerData{
+				label:           "Compacting",
+				subtitle:        "summarizing context",
+				compactionCount: 1,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &contentBuffer{
+				segments:      make([]contentSegment, 0),
+				collapseState: make(map[int]bool),
+				styles:        testStyles(theme.AccentAmber),
+			}
+			var want compactionBannerData
+			if tt.prior != nil {
+				// Copy before routing so an in-place mutation of the banner is also caught.
+				want = *tt.prior
+				b.segments = append(b.segments, contentSegment{kind: segmentCompactionBanner, compactionData: tt.prior, renderDirty: true})
+			}
+			for _, ev := range events {
+				b.AppendEvent(ev)
+			}
+			if tt.prior == nil {
+				if len(b.segments) != 0 {
+					t.Fatalf("segments = %d, want 0 (no banner created)", len(b.segments))
+				}
+				return
+			}
+			if len(b.segments) != 1 {
+				t.Fatalf("segments = %d, want 1", len(b.segments))
+			}
+			seg := b.segments[0]
+			if seg.kind != segmentCompactionBanner || seg.compactionData == nil {
+				t.Fatalf("segment = %#v, want compaction banner with data", seg)
+			}
+			if !reflect.DeepEqual(*seg.compactionData, want) {
+				t.Errorf("orchestrator banner changed: got %+v, want %+v", *seg.compactionData, want)
+			}
+		})
 	}
 }
 
