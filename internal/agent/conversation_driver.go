@@ -41,8 +41,10 @@ type DriverRunOutput struct {
 	ParentUsage *ParentUsage
 	// LastMainRequest replaces the driver's carried value when it is non-zero,
 	// even on error. A zero value replaces it only on success, so a failed run
-	// that returns none keeps the carried value. A successful run returns the
-	// request it was seeded with, or zero when the identity changed.
+	// that returns none keeps the carried value. A successful run with no new
+	// main call returns the request it was seeded with, or zero when the identity
+	// changed. A successful main call returns its new request, whose At is the
+	// call's start time.
 	LastMainRequest LastMainRequest
 }
 
