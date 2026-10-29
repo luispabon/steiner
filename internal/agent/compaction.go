@@ -55,6 +55,14 @@ type CompactionOutcome struct {
 	Usage *provider.UsageStats
 	// StageCount is the number of compaction stages (1 or 2) executed in this outcome.
 	StageCount int
+	// CompactionModel is the canonical ProviderAlias/BackendModelID of the model
+	// selected or skipped for a fallback. Empty when no fallback was selected.
+	CompactionModel string
+	// FallbackStatus is output.CompactionFallbackUsed or
+	// output.CompactionFallbackSkipped. Empty when no fallback was selected.
+	FallbackStatus string
+	// FallbackReason explains FallbackStatus.
+	FallbackReason string
 	// pendingArchive holds the sources to append to the history archive once
 	// this outcome's state is adopted.
 	pendingArchive [][]Message
@@ -91,13 +99,16 @@ func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state Run
 }
 
 func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steering string) (CompactionOutcome, error) {
-	return summarizeCompactionStages{
-		stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
-			params.steering = steering
-			return summarizeCompactionStage(ctx, req, state, turn, candidate, params)
-		},
-		fitRunner: fitConversationState,
-	}.run(ctx, req, state, turn, candidate)
+	return compactWithFallback(ctx, req, state, func(summaryReq *RunRequest) (CompactionOutcome, error) {
+		return summarizeCompactionStages{
+			stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+				params.steering = steering
+				return summarizeCompactionStage(ctx, req, state, turn, candidate, params)
+			},
+			fitRunner:  fitConversationState,
+			summaryReq: summaryReq,
+		}.run(ctx, req, state, turn, candidate)
+	})
 }
 
 type compactionStageRunner func(context.Context, RunRequest, RunState, int, ConversationCandidate, summarizeCompactionStageParams) (CompactionOutcome, error)
@@ -348,8 +359,9 @@ func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage
 		steering = steerings[0]
 	}
 	state := RunState{
-		Conversation: currentConv,
-		Lineage:      newConversationLineage(currentConv),
+		Conversation:    currentConv,
+		Lineage:         newConversationLineage(currentConv),
+		LastMainRequest: seedLastMainRequest(req.SeedLastMainRequest, req),
 	}
 	state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), lineage.latestBackendState(), false)
 	startID := state.Lineage.latestGenerationID()
@@ -427,6 +439,9 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 			summaryText:        outcome.SummaryText,
 			promptText:         outcome.PromptText,
 			usage:              outcome.Usage,
+			compactionModel:    outcome.CompactionModel,
+			fallbackStatus:     outcome.FallbackStatus,
+			fallbackReason:     outcome.FallbackReason,
 		})
 	}
 	skipped[compactionCandidateKey(candidate)] = true

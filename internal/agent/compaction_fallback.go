@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -139,4 +140,82 @@ func compactionFallbackRequest(req RunRequest, target CompactionTarget) (RunRequ
 	fallback.CompactionFallback = CompactionFallback{}
 	fallback.compactionFallbackTarget = true
 	return fallback, nil
+}
+
+// compactionRun runs one two-stage compaction operation. A nil summaryReq runs
+// the summary calls on main; otherwise they run on summaryReq.
+type compactionRun func(summaryReq *RunRequest) (CompactionOutcome, error)
+
+// compactWithFallback runs one compaction operation on the fallback target when
+// selectCompactionFallback selects it for state's last main request, and on main
+// otherwise. A failed target attempt is discarded and the operation reruns once
+// on main from the original state. Cancellation and run limit timeouts return
+// the error without a rerun.
+func compactWithFallback(ctx context.Context, req RunRequest, state RunState, run compactionRun) (CompactionOutcome, error) {
+	target, selected, err := selectCompactionFallback(ctx, req, state.LastMainRequest)
+	if err != nil {
+		return compactionOnMainAfterFallback(ctx, req, run, err)
+	}
+	if !selected {
+		return run(nil)
+	}
+	outcome, err := runCompactionOnTarget(req, target, run)
+	if err != nil {
+		return compactionOnMainAfterFallback(ctx, req, run, err)
+	}
+	outcome.CompactionModel = compactionModelName(target.ResolvedModel)
+	outcome.FallbackStatus = output.CompactionFallbackUsed
+	outcome.FallbackReason = compactionUsedReason(req, state.LastMainRequest)
+	return outcome, nil
+}
+
+// runCompactionOnTarget runs the operation with its summary calls on target.
+func runCompactionOnTarget(req RunRequest, target CompactionTarget, run compactionRun) (CompactionOutcome, error) {
+	fallback, err := compactionFallbackRequest(req, target)
+	if err != nil {
+		return CompactionOutcome{}, err
+	}
+	return run(&fallback)
+}
+
+// compactionOnMainAfterFallback discards a failed fallback attempt and reruns the
+// operation on main. It returns fallbackErr without a rerun when the attempt was
+// canceled or hit a run limit timeout.
+func compactionOnMainAfterFallback(ctx context.Context, req RunRequest, run compactionRun, fallbackErr error) (CompactionOutcome, error) {
+	if ctx.Err() != nil || errors.Is(fallbackErr, context.Canceled) || isLimitTimeout(ctx) {
+		return CompactionOutcome{}, fallbackErr
+	}
+	outcome, err := run(nil)
+	if err != nil {
+		return CompactionOutcome{}, err
+	}
+	outcome.CompactionModel = compactionModelName(req.ResolvedModel)
+	outcome.FallbackStatus = output.CompactionFallbackSkipped
+	outcome.FallbackReason = compactionSkipReason(req, fallbackErr)
+	return outcome, nil
+}
+
+// compactionModelName returns the canonical ProviderAlias/BackendModelID of model.
+func compactionModelName(model provider.ResolvedModel) string {
+	return model.ProviderAlias + "/" + model.BackendModelID
+}
+
+// compactionUsedReason explains a selected fallback. It is "no recent request"
+// when no main request is recorded, otherwise the idle and threshold minutes
+// rounded to whole minutes.
+func compactionUsedReason(req RunRequest, last LastMainRequest) string {
+	if last.At.IsZero() {
+		return "no recent request"
+	}
+	idle := compactionFallbackNow(req).Sub(last.At).Round(time.Minute)
+	threshold := req.CompactionFallback.After.Round(time.Minute)
+	return fmt.Sprintf("idle %d > %d", int(idle/time.Minute), int(threshold/time.Minute))
+}
+
+// compactionSkipReason explains a selected fallback that was discarded.
+func compactionSkipReason(req RunRequest, err error) string {
+	if errors.Is(err, errCompactionFallbackNotFit) {
+		return "context too large for " + req.CompactionFallback.Ref
+	}
+	return fmt.Sprintf("fallback failed: %v", err)
 }

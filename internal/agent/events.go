@@ -108,6 +108,9 @@ type compactionDiagnosticsParams struct {
 	summaryText        string
 	promptText         string
 	usage              *provider.UsageStats
+	compactionModel    string
+	fallbackStatus     string
+	fallbackReason     string
 }
 
 func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosticsParams) {
@@ -172,6 +175,9 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		EstimatorPadTokens:        params.afterFit.SafetyMarginTokens,
 		Status:                    requestTokenBudgetStatus(params.afterFit),
 		Truncated:                 params.afterFit.ContextSize > 0 && params.afterFit.TotalTokens > params.afterFit.ContextSize,
+		CompactionModel:           params.compactionModel,
+		FallbackStatus:            params.fallbackStatus,
+		FallbackReason:            params.fallbackReason,
 		Notes:                     notes,
 	}))
 	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", params.turn, params.compactionCount, escalation.Severity, escalation.SessionState, escalation.RestartGuidance, notes...))
