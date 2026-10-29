@@ -71,6 +71,7 @@ Focus on:
 - plan and scope adherence — including whether each step's implementation honors its `approach` and the Key Decisions cited in its `decisions` list
 - obvious bugs or regressions
 - missing or weak verification
+- steps whose `execution.md` struggle notes show repeated correction loops, rejected results, or failed checks get closer scrutiny
 - correctness against accepted intent
 - maintainability issues that materially affect correctness or future work
 
