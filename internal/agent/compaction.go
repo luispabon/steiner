@@ -34,6 +34,11 @@ const (
 // not supported yet.
 var errStatefulCompaction = errors.New("compaction is not supported yet with the claude_subscription provider (tracked in #895); start a new session to continue")
 
+// errCompactionFallbackNotFit is returned when a summary request on a fallback
+// compaction target does not fit that target's budget. It is an error rather
+// than a skipped stage, so a caller can retry without the fallback target.
+var errCompactionFallbackNotFit = errors.New("compaction fallback summary request does not fit the fallback target budget")
+
 // CompactionOutcome captures the state mutation and diagnostics emitted by a
 // compaction strategy.
 type CompactionOutcome struct {
@@ -73,6 +78,8 @@ type summarizeCompactionStageParams struct {
 	mode             prompt.CompactionMode
 	maxTokens        int
 	steering         string
+	// summaryReq is the request the summary call runs on. Nil means main.
+	summaryReq *RunRequest
 }
 
 func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steerings ...string) (CompactionOutcome, error) {
@@ -100,6 +107,9 @@ type compactionFitRunner func(context.Context, RunRequest, RunState) (prompt.Req
 type summarizeCompactionStages struct {
 	stageRunner compactionStageRunner
 	fitRunner   compactionFitRunner
+	// summaryReq is the request the summary calls run on. Nil means main. run
+	// always checks retention and fit against its req argument.
+	summaryReq *RunRequest
 }
 
 func (s summarizeCompactionStages) run(
@@ -118,11 +128,13 @@ func (s summarizeCompactionStages) run(
 		return CompactionOutcome{}, err
 	}
 
+	summaryBudget := compactionSummaryRequest(req, s.summaryReq).ModelBudget
 	normalOutcome, err := s.stageRunner(ctx, req, state, turn, candidate, summarizeCompactionStageParams{
 		sourceMessages:   normalSource,
 		retainedMessages: normalRetained,
 		mode:             prompt.CompactionModeNormal,
-		maxTokens:        compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal),
+		maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeNormal),
+		summaryReq:       s.summaryReq,
 	})
 	if err != nil {
 		return CompactionOutcome{}, err
@@ -133,7 +145,8 @@ func (s summarizeCompactionStages) run(
 			sourceMessages:   emergencySource,
 			retainedMessages: emergencyRetained,
 			mode:             prompt.CompactionModeEmergency,
-			maxTokens:        compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency),
+			maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeEmergency),
+			summaryReq:       s.summaryReq,
 		})
 		if err == nil {
 			outcome.StageCount = 1
@@ -162,7 +175,8 @@ func (s summarizeCompactionStages) run(
 		sourceMessages:   emergencySource,
 		retainedMessages: emergencyRetained,
 		mode:             prompt.CompactionModeEmergency,
-		maxTokens:        compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency),
+		maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeEmergency),
+		summaryReq:       s.summaryReq,
 	})
 	if err == nil {
 		outcome.StageCount = 2
@@ -209,6 +223,15 @@ func (s summarizeCompactionStages) runStageAndFit(
 	return outcome, nil
 }
 
+// compactionSummaryRequest returns the request a summary call runs on: summaryReq
+// when set (a fallback target), otherwise mainReq.
+func compactionSummaryRequest(mainReq RunRequest, summaryReq *RunRequest) RunRequest {
+	if summaryReq != nil {
+		return *summaryReq
+	}
+	return mainReq
+}
+
 func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
 	retainedFit, err := fitConversationState(ctx, req, state.WithConversation(params.retainedMessages))
 	if err != nil {
@@ -226,14 +249,20 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		return CompactionOutcome{}, err
 	}
 	if !ok {
+		if params.summaryReq != nil {
+			return CompactionOutcome{}, errCompactionFallbackNotFit
+		}
 		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens), nil
 	}
 
-	response, err := completeCompactionCall(ctx, req, turn, plan.request, req.ModelBudget, plan.blocks)
+	summary := compactionSummaryRequest(req, params.summaryReq)
+	response, err := completeCompactionCall(ctx, summary, turn, plan.request, summary.ModelBudget, plan.blocks)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
-	if response.ClearBackendState {
+	// A fallback summary runs on another provider's transcript, so it must not
+	// clear the main generation's backend state.
+	if response.ClearBackendState && params.summaryReq == nil {
 		// An in-place summary retired the generation's live process, so the
 		// generation's stored backend state no longer names a live transcript.
 		state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), nil, true)
@@ -425,11 +454,12 @@ func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, s
 func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, params summarizeCompactionStageParams) (compactionExecutionPlan, error) {
 	workingCandidate := candidate
 	workingCandidate.Messages = stripImages(cloneMessages(params.sourceMessages))
-	request, blocks, promptText, err := buildCompactionRequestWithMode(ctx, req, state, workingCandidate, params.mode, params.maxTokens, params.steering)
+	summary := compactionSummaryRequest(req, params.summaryReq)
+	request, blocks, promptText, err := buildCompactionRequestWithMode(ctx, summary, state, workingCandidate, params.mode, params.maxTokens, params.steering)
 	if err != nil {
 		return compactionExecutionPlan{}, err
 	}
-	fit, err := req.ModelBudget.FitCompactionRequest(ctx, request)
+	fit, err := summary.ModelBudget.FitCompactionRequest(ctx, request)
 	if err != nil {
 		return compactionExecutionPlan{}, err
 	}

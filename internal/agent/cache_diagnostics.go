@@ -69,7 +69,12 @@ func emitCacheDiagnostic(req RunRequest, response provider.ChatResponse, callKin
 	if usage == nil || !req.Diagnostics.Enabled(diagnostics.KindCache) {
 		return
 	}
-	coldStart := !coldStartRecorded.Swap(true)
+	// A fallback target's call is not the run's cold start, so it reports
+	// cold_start false and leaves the process-wide latch untouched.
+	coldStart := false
+	if !req.compactionFallbackTarget {
+		coldStart = !coldStartRecorded.Swap(true)
+	}
 	req.Diagnostics.Write(diagnostics.Record{
 		Kind:      diagnostics.KindCache,
 		Source:    req.UsageSource.DiagnosticsSource(),
