@@ -6,7 +6,7 @@
     "Messages": [
       {
         "Role": "system",
-        "SHA256": "a3ef4ea7f036126a1c29999b85510f408bf9dbf5998cf2a8e7060a77f17f950a"
+        "SHA256": "b83322b7492c08e93db083a57649f0afe7d2dd2ce0c8e74d2572a010369eebea"
       },
       {
         "Role": "user",
@@ -23,10 +23,24 @@
     ],
     "MaxTokens": 64,
     "Stream": false,
-    "Tools": null,
+    "Tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read",
+          "parameters": {
+            "type": "object"
+          }
+        }
+      }
+    ],
     "PromptCacheKey": "",
-    "Params": null,
-    "ExtraParams": null,
+    "Params": {
+      "temperature": 0.7
+    },
+    "ExtraParams": {
+      "top_k": "main"
+    },
     "IncludeEmptyReasoning": false,
     "Reasoning": null,
     "AdvisorCacheProfile": false,
@@ -41,11 +55,11 @@
     "Messages": [
       {
         "Role": "system",
-        "SHA256": "a3ef4ea7f036126a1c29999b85510f408bf9dbf5998cf2a8e7060a77f17f950a"
+        "SHA256": "b83322b7492c08e93db083a57649f0afe7d2dd2ce0c8e74d2572a010369eebea"
       },
       {
         "Role": "system",
-        "SHA256": "a3ef4ea7f036126a1c29999b85510f408bf9dbf5998cf2a8e7060a77f17f950a"
+        "SHA256": "c940d3cab97ecca73cc0a2fb16d695d8c6bfac2609bbc8ebf865bfc076747810"
       },
       {
         "Role": "user",
@@ -70,10 +84,24 @@
     ],
     "MaxTokens": 16,
     "Stream": false,
-    "Tools": null,
+    "Tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read",
+          "parameters": {
+            "type": "object"
+          }
+        }
+      }
+    ],
     "PromptCacheKey": "",
-    "Params": null,
-    "ExtraParams": null,
+    "Params": {
+      "temperature": 0.7
+    },
+    "ExtraParams": {
+      "top_k": "main"
+    },
     "IncludeEmptyReasoning": false,
     "Reasoning": null,
     "AdvisorCacheProfile": false,

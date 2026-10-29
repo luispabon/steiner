@@ -106,8 +106,8 @@ Summary target and main (`summarizeCompactionStages.run`, `summarizeCompactionSt
 
 Rerun (`compactionOnMainAfterFallback`):
 
-- A failed attempt (fit failure, provider error, resolve or build error) is discarded. The whole operation reruns on main from the original `RunState`. The outcome then records `FallbackStatus` `skipped`. `FallbackReason` is `context too large for <ref>` only when the error is `errCompactionFallbackNotFit`. Any other error gives `fallback failed: <error>`.
-- No rerun happens when `ctx.Err()` is set, the error is `context.Canceled`, or `isLimitTimeout` reports a run limit timeout. The error is returned as is.
+- A failed attempt (fit failure, provider error, resolve or build error, or empty fallback summary) is discarded. The whole operation reruns on main from the original `RunState`. The outcome then records `FallbackStatus` `skipped`. `FallbackReason` is `context too large for <ref>` only when the error is `errCompactionFallbackNotFit`. Any other error gives `fallback failed: <error>`.
+- No rerun happens when `ctx.Err()` is set (parent cancellation or the turn timeout) or the error is `context.Canceled`. The error is returned as is.
 - An error from the main rerun is returned.
 
 Backend isolation (`compactionFallbackRequest`):

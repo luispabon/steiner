@@ -364,6 +364,16 @@ func TestCompactionBannerFallbackNote(t *testing.T) {
 			want: "fallback skipped: no fallback configured",
 		},
 		{
+			name: "skipped severity",
+			payload: output.ContextCompactionEvent{
+				Severity:        "skipped",
+				CompactionCount: 1,
+				FallbackStatus:  output.CompactionFallbackSkipped,
+				FallbackReason:  "fallback failed: boom",
+			},
+			want: "fallback skipped: fallback failed: boom",
+		},
+		{
 			name: "absent",
 			payload: output.ContextCompactionEvent{
 				Severity:        "ok",

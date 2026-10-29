@@ -199,6 +199,7 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompac
 			finished:        true,
 			skipped:         true,
 			compactionCount: payload.CompactionCount,
+			fallbackNote:    compactionFallbackNote(payload),
 		})
 		return
 	}

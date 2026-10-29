@@ -105,6 +105,9 @@ func newFallbackOperationRun(now time.Time) *fallbackOperationRun {
 		},
 	}
 	r.req.Prompt.PromptOverrides.System = "fallback operation system prompt"
+	r.req.Tools = []provider.ToolSpec{compactionFallbackTestTool()}
+	r.req.ResolvedModel.Params = map[string]any{"temperature": 0.7}
+	r.req.ResolvedModel.ExtraParams = map[string]any{"top_k": "main"}
 	return r
 }
 

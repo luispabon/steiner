@@ -85,17 +85,22 @@ func emitCompactionStartedEvent(sink output.EventSink, turn int) {
 }
 
 // emitCompactionSkippedEvent closes a started compaction when no stage applied,
-// so consumers clear the compacting state without reporting a compaction. reason
-// explains a discarded fallback and is empty otherwise.
-func emitCompactionSkippedEvent(sink output.EventSink, turn int, reason string) {
-	emitEvent(sink, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+// so consumers clear the compacting state without reporting a compaction.
+// fallbackReason explains a discarded fallback and is empty otherwise. A
+// non-empty fallbackReason reports the fallback as skipped.
+func emitCompactionSkippedEvent(sink output.EventSink, turn int, fallbackReason string) {
+	payload := output.ContextDiagnosticsEvent{
 		Kind:     "compaction",
 		Scope:    "conversation",
 		Turn:     turn,
 		Severity: "skipped",
-		Reason:   reason,
 		Notes:    []string{"compaction skipped: no stage applied"},
-	}))
+	}
+	if fallbackReason != "" {
+		payload.FallbackStatus = output.CompactionFallbackSkipped
+		payload.FallbackReason = fallbackReason
+	}
+	emitEvent(sink, output.NewContextDiagnosticsEvent(payload))
 }
 
 type compactionDiagnosticsParams struct {

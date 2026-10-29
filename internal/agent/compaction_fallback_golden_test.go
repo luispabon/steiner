@@ -5,13 +5,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"testing"
 
 	"github.com/luispabon/steiner/internal/provider"
 )
 
 // fallbackGoldenPath is the fallback-disabled main request fixture. It was
-// generated from origin/main with the same conversation and budgets as
-// fallbackOperationRun.
+// generated from origin/main 37ed6c42 by TestDumpFallbackGoldenFromMain in a
+// scratch copy of that tree (.steiner/tmp/golden-main/internal/agent, not
+// committed). That generator uses the same conversation, budgets, system prompt,
+// tools, params and extra params as newFallbackOperationRun.
 const fallbackGoldenPath = "testdata/fallback_main_golden.json"
 
 // fallbackGoldenRequest is the part of a provider.ChatRequest that the fixture
@@ -36,8 +40,8 @@ type fallbackGoldenRequest struct {
 }
 
 // fallbackGoldenMessage is one message reduced to its role and the SHA-256 of
-// its JSON encoding. System message content is hashed as a fixed placeholder so
-// the host-specific system preamble does not change the fixture.
+// its JSON encoding. System messages are hashed like the others, so the fixture
+// pins the rendered system preamble.
 type fallbackGoldenMessage struct {
 	Role   string
 	SHA256 string
@@ -82,9 +86,6 @@ func fallbackGoldenBytes(reqs []provider.ChatRequest) ([]byte, error) {
 func fallbackGoldenMessages(msgs []provider.Message) ([]fallbackGoldenMessage, error) {
 	out := make([]fallbackGoldenMessage, 0, len(msgs))
 	for _, m := range msgs {
-		if m.Role == provider.MessageRoleSystem {
-			m.Content = "<system>"
-		}
 		data, err := json.Marshal(m)
 		if err != nil {
 			return nil, fmt.Errorf("marshal fallback golden message: %w", err)
@@ -93,4 +94,18 @@ func fallbackGoldenMessages(msgs []provider.Message) ([]fallbackGoldenMessage, e
 		out = append(out, fallbackGoldenMessage{Role: string(m.Role), SHA256: hex.EncodeToString(sum[:])})
 	}
 	return out, nil
+}
+
+// TestFallbackGoldenRequestCoversChatRequest fails when provider.ChatRequest gains
+// a field that fallbackGoldenRequest does not record. Several ChatRequest fields
+// are excluded from JSON, so the check compares field names, not encoded output.
+func TestFallbackGoldenRequestCoversChatRequest(t *testing.T) {
+	recorded := reflect.TypeOf(fallbackGoldenRequest{})
+	chat := reflect.TypeOf(provider.ChatRequest{})
+	for i := range chat.NumField() {
+		name := chat.Field(i).Name
+		if _, ok := recorded.FieldByName(name); !ok {
+			t.Errorf("provider.ChatRequest.%s is not recorded by fallbackGoldenRequest; add it to the fixture", name)
+		}
+	}
 }
