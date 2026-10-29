@@ -61,7 +61,7 @@ Compact canonical reference for safe configuration edits.
 | `models.definitions.<alias>.vision`|bool or null|null|Null assumes vision; false removes images. |
 | `models.profiles.<profile>.default_model`|string|none|Model and role fallback; required in every declared profile. |
 | `models.profiles.<profile>.advisor`|string|—|Advisor model. |
-| `models.profiles.<profile>.compaction_fallback`|string|none|Cold-cache compaction model; not inherited. |
+| `models.profiles.<profile>.compaction_fallback`|string|none|Cold-cache compaction model; needs positive delay; not inherited. |
 | `models.profiles.<profile>.sub_agents.<key>`|string|—|Model by `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision`. |
 | `models.profiles.<profile>.oneshot.<key>`|string|—|Model by `plan`, `implement`, or `review`; missing uses profile default. |
 | `models.profiles.<profile>.workflow_handoff.<key>`|string|—|Model by `implement`, `review`, or `build`; missing uses profile default. |
