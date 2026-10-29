@@ -22,6 +22,9 @@ type DriverRunInput struct {
 	// ParentUsage seeds the run's stateful compaction trigger. Nil when the
 	// driver carries none for the current generation.
 	ParentUsage *ParentUsage
+	// LastMainRequest seeds the run's last main request (see
+	// RunRequest.SeedLastMainRequest). Zero when none is recorded.
+	LastMainRequest LastMainRequest
 }
 
 // DriverRunOutput is what a run function returns to the driver.
@@ -36,6 +39,9 @@ type DriverRunOutput struct {
 	// ParentUsage is the run's last successful parent usage, carried into the
 	// driver's next run for the same generation.
 	ParentUsage *ParentUsage
+	// LastMainRequest replaces the driver's carried value. A run must return the
+	// request it was seeded with when it made no new successful main call.
+	LastMainRequest LastMainRequest
 }
 
 // DriverRunFunc runs one turn sequence. The host builds the RunRequest. It
@@ -133,6 +139,10 @@ type ConversationDriver struct {
 	// parentUsage is the in-memory parent usage carried between runs. It is
 	// never snapshotted or persisted.
 	parentUsage carriedParentUsage
+	// lastMainRequest is the last successful main request carried between runs.
+	// It is never snapshotted or persisted. Compaction and lineage advancement
+	// leave it unchanged.
+	lastMainRequest LastMainRequest
 
 	lastEmitted   driverStateKey
 	emitted       bool
@@ -269,6 +279,7 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 		PendingSubAgents: d.pendingFn(),
 		MaxTokens:        d.runMaxTokensLocked(),
 		ParentUsage:      d.carriedParentUsageLocked(),
+		LastMainRequest:  d.lastMainRequest,
 	}
 	snap := d.snapshotLocked()
 	d.unlockEmit()
@@ -300,6 +311,7 @@ func (d *ConversationDriver) finish(ctx context.Context, out DriverRunOutput, er
 		d.lineage = out.Lineage.Clone()
 	}
 	d.carryParentUsageLocked(advanced, out.ParentUsage)
+	d.lastMainRequest = out.LastMainRequest
 	if err != nil && !errors.Is(err, context.Canceled) {
 		d.warnLocked(output.ConversationWarningKindRun, fmt.Sprintf("run failed: %v", err))
 	}
@@ -339,6 +351,14 @@ func (d *ConversationDriver) carryParentUsageLocked(advanced bool, usage *Parent
 		return
 	}
 	d.parentUsage = carriedParentUsage{generationID: d.lineage.latestGenerationID(), usage: usage.Clone()}
+}
+
+// LastMainRequest returns the last successful main request carried between
+// runs. Compaction and lineage advancement do not clear it.
+func (d *ConversationDriver) LastMainRequest() LastMainRequest {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.lastMainRequest
 }
 
 // appendLocked adds msg to the conversation and to the latest lineage
