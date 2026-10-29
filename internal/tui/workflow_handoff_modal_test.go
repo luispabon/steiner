@@ -215,10 +215,20 @@ func TestWorkflowHandoffModalModelLineRendering(t *testing.T) {
 				ModelAlias:  tt.modelAlias,
 				SourceLabel: tt.sourceLabel,
 			}
-			s := openWorkflowHandoffModal(80, 24, payload, selection)
+			m := newModel(Config{}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+			m.workflowHandoff = openWorkflowHandoffModal(m.width, m.height, payload, selection)
 
-			if got := stripANSI(s.modelLine()); got != tt.wantLine {
+			if got := stripANSI(m.workflowHandoff.modelLine()); got != tt.wantLine {
 				t.Errorf("model line = %q, want %q", got, tt.wantLine)
+			}
+
+			rendered := stripANSI(m.renderWorkflowHandoffModal())
+			if !strings.Contains(rendered, tt.wantLine) {
+				t.Errorf("rendered dialog = %q, want model line %q", rendered, tt.wantLine)
+			}
+			if tt.sourceLabel != "" && strings.Contains(rendered, tt.sourceLabel) {
+				t.Errorf("rendered dialog = %q, want source label %q omitted", rendered, tt.sourceLabel)
 			}
 		})
 	}

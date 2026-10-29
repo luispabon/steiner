@@ -81,7 +81,7 @@ type SubmitWorkflowHandoff struct {
 func (SubmitWorkflowHandoff) isInteractiveAction() {}
 
 // WorkflowHandoffModelSelection describes the model alias preselected for a
-// pending workflow handoff along with the concise source label shown in the UI.
+// pending workflow handoff along with a short label naming its source.
 type WorkflowHandoffModelSelection struct {
 	ModelAlias  string
 	SourceLabel string
