@@ -117,8 +117,10 @@ func TestNewCompactionFallbackDisabled(t *testing.T) {
 		{name: "nil factory", modify: func(p *CompactionFallbackParams) { p.ProviderFactory = nil }},
 		{name: "empty ref", modify: func(p *CompactionFallbackParams) { p.Config.Models.Effective.CompactionFallback = "" }},
 		{name: "blank ref", modify: func(p *CompactionFallbackParams) { p.Config.Models.Effective.CompactionFallback = "  " }},
-		{name: "zero main threshold", modify: func(p *CompactionFallbackParams) { p.Main.EffectiveLimits.CompactionThresholdTokens = 0 }},
-		{name: "negative main threshold", modify: func(p *CompactionFallbackParams) { p.Main.EffectiveLimits.CompactionThresholdTokens = -1 }},
+		{name: "explicit zero delay", modify: func(p *CompactionFallbackParams) {
+			p.Config.Providers["main"] = config.ProviderConfig{Type: config.ProviderTypeAnthropic, CompactionFallbackAfter: config.MustDuration("0s")}
+		}},
+		{name: "unknown main provider alias", modify: func(p *CompactionFallbackParams) { p.Main.ProviderAlias = "missing" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -135,6 +137,21 @@ func TestNewCompactionFallbackDisabled(t *testing.T) {
 				t.Errorf("disabled fallback resolved %d models and built %d providers, want none", resolves.Load(), builds.Load())
 			}
 		})
+	}
+}
+
+func TestNewCompactionFallbackEnabledWithZeroTokenThreshold(t *testing.T) {
+	var resolves, builds atomic.Int32
+	model := compactionFallbackTestModel("fb", "fb-model")
+	p := compactionFallbackTestParams(compactionFallbackTestRef, compactionFallbackTestResolver(compactionFallbackTestRef, model, &resolves), compactionFallbackTestFactory(&builds))
+	p.Main.EffectiveLimits.CompactionThresholdTokens = 0
+
+	got := NewCompactionFallback(p)
+	if got.Resolve == nil || got.Ref != compactionFallbackTestRef || got.After != 5*time.Minute {
+		t.Fatalf("NewCompactionFallback() = {After: %v, Ref: %q, Resolve nil: %v}, want enabled with 5m delay", got.After, got.Ref, got.Resolve == nil)
+	}
+	if _, err := got.Resolve(context.Background()); err != nil {
+		t.Errorf("Resolve: %v", err)
 	}
 }
 
@@ -241,6 +258,36 @@ func TestCompactionFallbackResolveContextCanceled(t *testing.T) {
 	}
 	if resolves.Load() != 1 || builds.Load() != 1 {
 		t.Errorf("canceled Resolve: resolves = %d, builds = %d, want 1, 1", resolves.Load(), builds.Load())
+	}
+}
+
+func TestCompactionFallbackNilProviderNotCached(t *testing.T) {
+	var resolves, builds atomic.Int32
+	model := compactionFallbackTestModel("fb", "fb-model")
+	p := compactionFallbackTestParams(compactionFallbackTestRef, compactionFallbackTestResolver(compactionFallbackTestRef, model, &resolves), func(provider.ResolvedModel, string) (provider.Provider, error) {
+		n := builds.Add(1)
+		if n == 1 {
+			return nil, nil
+		}
+		return &compactionFallbackTestProvider{build: int(n)}, nil
+	})
+	fb := NewCompactionFallback(p)
+
+	if _, err := fb.Resolve(context.Background()); err == nil {
+		t.Fatal("first Resolve with nil provider: error = nil, want error")
+	}
+	target, err := fb.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("second Resolve: %v", err)
+	}
+	if target.Provider == nil {
+		t.Fatal("second Resolve provider = nil, want built provider")
+	}
+	if _, err := fb.Resolve(context.Background()); err != nil {
+		t.Fatalf("third Resolve: %v", err)
+	}
+	if got := builds.Load(); got != 2 {
+		t.Errorf("builds = %d, want 2 (nil provider not cached, success cached)", got)
 	}
 }
 

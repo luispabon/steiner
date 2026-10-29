@@ -2,6 +2,7 @@ package delegation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -31,8 +32,7 @@ func NewCompactionFallbackTargets() *CompactionFallbackTargets {
 type CompactionFallbackParams struct {
 	// Config supplies the effective fallback ref and the cold-cache delay.
 	Config *config.Config
-	// Main is the main model. Its provider alias selects the cold-cache delay,
-	// and its CompactionThresholdTokens must be positive for the fallback to apply.
+	// Main is the main model. Its provider alias selects the cold-cache delay.
 	Main provider.ResolvedModel
 	// ResolveModel resolves the fallback ref. It is called on every resolve.
 	ResolveModel func(string) (provider.ResolvedModel, error)
@@ -51,20 +51,23 @@ type CompactionFallbackParams struct {
 // NewCompactionFallback returns the lazy compaction fallback for p. It returns
 // the zero agent.CompactionFallback, which disables the fallback, when Config,
 // Targets, ResolveModel or ProviderFactory is nil, when the trimmed fallback ref
-// is empty, or when p.Main.EffectiveLimits.CompactionThresholdTokens is not
-// positive. Otherwise the returned Resolve resolves the ref on every call and
-// reuses or builds the target for the resolved model. Nothing is resolved or
-// built before Resolve runs.
+// is empty, or when Config.CompactionFallbackAfter for p.Main's provider alias is
+// not positive. That covers an explicit zero delay and an unknown alias. The
+// main model's token threshold does not affect enablement. Otherwise the
+// returned Resolve resolves the ref on every call and reuses or builds the
+// target for the resolved model. Nothing is resolved or built before Resolve
+// runs.
 func NewCompactionFallback(p CompactionFallbackParams) agent.CompactionFallback {
 	if p.Config == nil || p.Targets == nil || p.ResolveModel == nil || p.ProviderFactory == nil {
 		return agent.CompactionFallback{}
 	}
 	ref := strings.TrimSpace(p.Config.Models.Effective.CompactionFallback)
-	if ref == "" || p.Main.EffectiveLimits.CompactionThresholdTokens <= 0 {
+	after := p.Config.CompactionFallbackAfter(p.Main.ProviderAlias)
+	if ref == "" || after <= 0 {
 		return agent.CompactionFallback{}
 	}
 	return agent.CompactionFallback{
-		After: p.Config.CompactionFallbackAfter(p.Main.ProviderAlias),
+		After: after,
 		Ref:   ref,
 		Resolve: func(ctx context.Context) (agent.CompactionTarget, error) {
 			if err := ctx.Err(); err != nil {
@@ -81,8 +84,9 @@ func NewCompactionFallback(p CompactionFallbackParams) agent.CompactionFallback 
 
 // target returns the memoized target for model's identity and cache scope. On a
 // miss it builds the provider with factory while holding the mutex, so
-// concurrent callers build each identity once. A failed build is returned and
-// not memoized.
+// concurrent callers build each identity once. A failed build, including a
+// factory that returns a nil provider without error, is returned and not
+// memoized.
 func (t *CompactionFallbackTargets) target(model provider.ResolvedModel, sessionID, cacheScope string, factory func(provider.ResolvedModel, string) (provider.Provider, error)) (agent.CompactionTarget, error) {
 	key := model.ProviderAlias + "/" + model.BackendModelID + "\x00" + cacheScope
 	t.mu.Lock()
@@ -93,6 +97,9 @@ func (t *CompactionFallbackTargets) target(model provider.ResolvedModel, session
 	prov, err := factory(model, sessionID)
 	if err != nil {
 		return agent.CompactionTarget{}, fmt.Errorf("build compaction fallback provider for %q: %w", model.Alias, err)
+	}
+	if prov == nil {
+		return agent.CompactionTarget{}, errors.New("build compaction fallback provider: factory returned nil provider")
 	}
 	target := agent.CompactionTarget{
 		Provider:      prov,
