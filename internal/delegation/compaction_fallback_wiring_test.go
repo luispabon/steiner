@@ -284,16 +284,16 @@ func buildCompactionWiringRegistry(t *testing.T, deps DelegateDeps) (*tool.Regis
 	return reg, deps.SessionStore
 }
 
-// spawnCompactionWiringChild calls the handler for toolName with agentID
+// spawnCompactionWiringChild calls the sub_agent handler with agentID
 // reserved on the context and returns the request saved for that child.
-func spawnCompactionWiringChild(t *testing.T, reg *tool.Registry, store *SessionStore, toolName string, input map[string]any, agentID string) agent.RunRequest {
+func spawnCompactionWiringChild(t *testing.T, reg *tool.Registry, store *SessionStore, input map[string]any, agentID string) agent.RunRequest {
 	t.Helper()
-	def, ok := reg.Get(toolName)
+	def, ok := reg.Get(SubAgentToolName)
 	if !ok {
-		t.Fatalf("%s tool not registered", toolName)
+		t.Fatalf("%s tool not registered", SubAgentToolName)
 	}
 	if _, err := def.Handler(agent.WithDelegationAgentID(context.Background(), agentID), input); err != nil {
-		t.Fatalf("%s handler() error = %v", toolName, err)
+		t.Fatalf("%s handler() error = %v", SubAgentToolName, err)
 	}
 	session, ok := store.Get(agentID)
 	if !ok {
@@ -309,8 +309,8 @@ func TestBuildDelegateRegistryCompactionFallbackOwnership(t *testing.T) {
 	ctx := context.Background()
 
 	regA, storeA := buildCompactionWiringRegistry(t, base)
-	first := spawnCompactionWiringChild(t, regA, storeA, SubAgentToolName, subAgentTask(AgentTypeExplore, "inspect the codebase"), "explore-a1")
-	second := spawnCompactionWiringChild(t, regA, storeA, SubAgentToolName, subAgentTask(AgentTypeExplore, "inspect the codebase"), "explore-a2")
+	first := spawnCompactionWiringChild(t, regA, storeA, subAgentTask(AgentTypeExplore, "inspect the codebase"), "explore-a1")
+	second := spawnCompactionWiringChild(t, regA, storeA, subAgentTask(AgentTypeExplore, "inspect the codebase"), "explore-a2")
 	for _, req := range []agent.RunRequest{first, second} {
 		if req.CompactionFallback.Ref != "fallback" || req.CompactionFallback.Resolve == nil {
 			t.Fatalf("child CompactionFallback Ref = %q, Resolve nil = %t; want wired fallback", req.CompactionFallback.Ref, req.CompactionFallback.Resolve == nil)
@@ -338,7 +338,7 @@ func TestBuildDelegateRegistryCompactionFallbackOwnership(t *testing.T) {
 	}
 
 	regB, storeB := buildCompactionWiringRegistry(t, base)
-	third := spawnCompactionWiringChild(t, regB, storeB, SubAgentToolName, subAgentTask(AgentTypeExplore, "inspect the codebase"), "explore-b1")
+	third := spawnCompactionWiringChild(t, regB, storeB, subAgentTask(AgentTypeExplore, "inspect the codebase"), "explore-b1")
 	if third.PromptCacheKey != first.PromptCacheKey {
 		t.Fatalf("cross-registry PromptCacheKey = %q, want shared key %q so only registry ownership differs", third.PromptCacheKey, first.PromptCacheKey)
 	}
@@ -379,7 +379,7 @@ func TestBuildDelegateRegistryCompactionFallbackFollowsProfileSwitch(t *testing.
 			// Switch profiles after the registry is built; the next spawn must read
 			// the live fallback ref rather than the build-time snapshot.
 			currentRef = tc.liveRef
-			req := spawnCompactionWiringChild(t, reg, store, SubAgentToolName, subAgentTask(AgentTypeExplore, "inspect the codebase"), "explore-switch")
+			req := spawnCompactionWiringChild(t, reg, store, subAgentTask(AgentTypeExplore, "inspect the codebase"), "explore-switch")
 			if req.CompactionFallback.Ref != tc.liveRef {
 				t.Fatalf("child CompactionFallback Ref = %q, want live ref %q", req.CompactionFallback.Ref, tc.liveRef)
 			}
@@ -426,7 +426,7 @@ func TestBuildDelegateRegistryCompactionFallbackVisionRoute(t *testing.T) {
 	deps.ImageStore = images
 
 	reg, store := buildCompactionWiringRegistry(t, deps)
-	req := spawnCompactionWiringChild(t, reg, store, SubAgentToolName, subAgentTaskWithImageID("describe the image", ref.ID), "vision-1")
+	req := spawnCompactionWiringChild(t, reg, store, subAgentTaskWithImageID("describe the image", ref.ID), "vision-1")
 	if req.ResolvedModel.BackendModelID != "vision-model" {
 		t.Fatalf("vision child model = %q, want vision-model", req.ResolvedModel.BackendModelID)
 	}
