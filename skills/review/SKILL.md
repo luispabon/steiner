@@ -80,6 +80,8 @@ Map changed files and plan outcomes to bounded areas, including direct callers, 
 
 Synthesize cross-area contracts, verify material claims, and deduplicate. Fill incomplete coverage; material gaps block a pass. Do not re-review unrelated code. Use native tools for inspection and `mutate` for `review.md`.
 
+Give extra scrutiny to steps whose `execution.md` struggle notes show repeated correction loops, rejected results, or failed checks: re-check their changed files and verification evidence, and confirm the recorded cause was fixed.
+
 ## Findings
 
 Classify findings as:

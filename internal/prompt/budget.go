@@ -3,7 +3,7 @@ package prompt
 import "fmt"
 
 const (
-	defaultSkillBudgetBytes = 98304
+	defaultSkillBudgetBytes = 106496
 )
 
 // DefaultAssemblyPolicy returns the default prompt assembly policy.

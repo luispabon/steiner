@@ -34,6 +34,8 @@ Compare these inputs:
 
 Focus on plan and scope adherence, obvious bugs or regressions, missing or weak verification, correctness against intent, and maintainability issues that materially affect correctness or future work.
 
+Scrutinize steps whose `execution.md` struggle notes record repeated correction loops, rejected results, or failed checks more closely than the rest. Re-check their changed files and verification evidence, and confirm that the cause recorded in the note was actually addressed.
+
 Review touched files and directly adjacent regression-risk areas — call sites, interfaces, tests, config, data paths, and package boundaries touched by or directly depending on the change. Do not broadly re-review unrelated code. Prefer evidence over speculation: findings should reference concrete code, artifacts, missing checks, or reproducible reasoning.
 
 ## Review Pass
