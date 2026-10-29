@@ -2,6 +2,7 @@ package output
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +65,59 @@ func TestContextDiagnosticEventJSONPreservesLegacyKindAndFields(t *testing.T) {
 				t.Fatalf("event JSON = %s, missing %s", text, tt.fieldText)
 			}
 		})
+	}
+}
+
+func TestContextCompactionFallbackFieldsJSON(t *testing.T) {
+	typed := ContextCompactionEvent{
+		CompactionModel: "claude-haiku-5-5",
+		FallbackStatus:  CompactionFallbackSkipped,
+		FallbackReason:  "no fallback configured",
+	}
+	data, err := json.Marshal(Event{
+		Type:      EventTypeContextDiagnostics,
+		Timestamp: time.Unix(0, 0).UTC(),
+		Payload:   typed,
+	})
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{`"compaction_model":"claude-haiku-5-5"`, `"fallback_status":"skipped"`, `"fallback_reason":"no fallback configured"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("event JSON = %s, missing %s", text, want)
+		}
+	}
+
+	var decoded struct {
+		Payload ContextDiagnosticsEvent `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	got, ok := AsContextCompactionEvent(decoded.Payload)
+	if !ok {
+		t.Fatal("AsContextCompactionEvent() ok = false, want true")
+	}
+	if !reflect.DeepEqual(got, typed) {
+		t.Fatalf("decoded compaction = %+v, want %+v", got, typed)
+	}
+}
+
+func TestContextCompactionFallbackFieldsOmittedJSON(t *testing.T) {
+	data, err := json.Marshal(Event{
+		Type:      EventTypeContextDiagnostics,
+		Timestamp: time.Unix(0, 0).UTC(),
+		Payload:   ContextCompactionEvent{Turn: 2, CompactedTurns: 1},
+	})
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	text := string(data)
+	for _, key := range []string{"compaction_model", "fallback_status", "fallback_reason"} {
+		if strings.Contains(text, key) {
+			t.Fatalf("event JSON = %s, must not contain %s when unset", text, key)
+		}
 	}
 }
 

@@ -225,6 +225,7 @@ func formatContextCompactionSummary(payload ContextDiagnosticsEvent) string {
 	parts = append(parts, formatCompactionUsage(payload)...)
 	parts = append(parts, formatCompactionBudget(payload)...)
 	parts = append(parts, formatCompactionSummaryDetails(payload)...)
+	parts = append(parts, formatCompactionFallback(payload)...)
 	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
 		parts = append(parts, "notes "+notes)
 	}
@@ -281,6 +282,20 @@ func formatCompactionSummaryDetails(payload ContextDiagnosticsEvent) []string {
 	}
 	if payload.Truncated {
 		parts = append(parts, "summary truncated")
+	}
+	return parts
+}
+
+func formatCompactionFallback(payload ContextDiagnosticsEvent) []string {
+	parts := make([]string, 0, 3)
+	if model := strings.TrimSpace(payload.CompactionModel); model != "" {
+		parts = append(parts, fmt.Sprintf("compaction_model=%s", model))
+	}
+	if status := strings.TrimSpace(payload.FallbackStatus); status != "" {
+		parts = append(parts, fmt.Sprintf("fallback_status=%s", status))
+	}
+	if reason := strings.TrimSpace(payload.FallbackReason); reason != "" {
+		parts = append(parts, fmt.Sprintf("fallback_reason=%s", reason))
 	}
 	return parts
 }
