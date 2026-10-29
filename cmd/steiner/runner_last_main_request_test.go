@@ -69,7 +69,7 @@ func TestRunWithHooksLastMainRequestRoundTrip(t *testing.T) {
 		wantCall bool
 	}{
 		{name: "success returns the main call", responses: []provider.ChatResponse{reply}, wantCall: true},
-		{name: "error before a main call keeps the seed", wantErr: true},
+		{name: "failed first call keeps the seed", wantErr: true},
 		{name: "error after a main call keeps that call", responses: []provider.ChatResponse{toolCall}, wantErr: true, wantCall: true},
 	}
 	for _, tt := range tests {
