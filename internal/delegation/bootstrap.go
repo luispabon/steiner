@@ -130,6 +130,10 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		MaxParallelTools:   deps.MaxParallelTools,
 		ExecutorConfig:     deps.ExecutorConfig,
 		ContextManagement:  deps.ContextManagement,
+		Config:             &deps.Config,
+		ResolveModel:       deps.ResolveModel,
+		ProviderFactory:    deps.ProviderFactory,
+		CompactionTargets:  deps.CompactionTargets,
 	})
 	// Children own a fresh vision capability tracker rather than inheriting the
 	// parent's session tracker. SubAgentConfigured is false so a child that
@@ -273,6 +277,12 @@ type childRunRequestParams struct {
 	// the child request, so it always ran with library defaults regardless of
 	// configured context_management settings.
 	ContextManagement config.ContextManagementConfig
+	// Config, ResolveModel, ProviderFactory and CompactionTargets feed the
+	// child's lazy compaction fallback; see NewCompactionFallback.
+	Config            *config.Config
+	ResolveModel      func(string) (provider.ResolvedModel, error)
+	ProviderFactory   func(provider.ResolvedModel, string) (provider.Provider, error)
+	CompactionTargets *CompactionFallbackTargets
 }
 
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
@@ -331,6 +341,15 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		TransportSession:       transportSession,
 		ParentTransportSession: p.SessionID,
 	}
+	req.CompactionFallback = NewCompactionFallback(CompactionFallbackParams{
+		Config:          p.Config,
+		Main:            p.ResolvedModel,
+		ResolveModel:    p.ResolveModel,
+		ProviderFactory: p.ProviderFactory,
+		SessionID:       p.SessionID,
+		Targets:         p.CompactionTargets,
+		CacheScope:      childCacheKey,
+	})
 	if p.UsageRecorder != nil {
 		req.UsageRecorder = p.UsageRecorder
 	}

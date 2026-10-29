@@ -349,6 +349,10 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		AdvisorForChild:       advisorForChild,
 		AdvisorSubAgentBudget: deps.AdvisorCfg.MaxUsesPerSubAgent,
 		LSPEnabled:            deps.Config.LSP.Enabled && len(deps.Config.LSP.Servers) > 0,
+		Config:                deps.Config,
+		ResolveModel:          deps.ResolveModel,
+		ProviderFactory:       deps.ProviderFactory,
+		CompactionTargets:     NewCompactionFallbackTargets(),
 	}
 	ensureSupervisor(&subAgentDeps)
 

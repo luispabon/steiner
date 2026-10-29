@@ -112,6 +112,16 @@ type SubAgentHandlerDeps struct {
 	// AdvisorSubAgentBudget is the configured per-child advisor budget, from
 	// config.AdvisorConfig.MaxUsesPerSubAgent. Used to populate Result.AdvisorBudget.
 	AdvisorSubAgentBudget int
+	// Config supplies the compaction fallback ref and cold-cache delay for child runs.
+	Config config.Config
+	// ResolveModel and ProviderFactory build the lazy compaction fallback target
+	// for child runs; see NewCompactionFallback. A nil ResolveModel,
+	// ProviderFactory, or CompactionTargets disables the fallback for child runs.
+	ResolveModel    func(string) (provider.ResolvedModel, error)
+	ProviderFactory func(provider.ResolvedModel, string) (provider.Provider, error)
+	// CompactionTargets memoizes compaction fallback targets for the registry that
+	// owns these deps.
+	CompactionTargets *CompactionFallbackTargets
 }
 
 // ChildSession tracks persisted state for a delegated child session.
