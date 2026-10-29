@@ -4118,7 +4118,7 @@ func TestModelWorkflowHandoffOpensModalImmediately(t *testing.T) {
 	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
 	for _, want := range []string{
 		"Continue to implementation?",
-		"Model: implement-default (from handoff default)",
+		"Model: implement-default",
 		"Planning folder: .steiner/plans/step-3",
 		"Accept: Clear + Implement",
 		"Dismiss",
@@ -4170,7 +4170,7 @@ func TestModelWorkflowHandoffRendersReviewCopy(t *testing.T) {
 	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
 	for _, want := range []string{
 		"Continue to review?",
-		"Model: session-model (current session)",
+		"Model: session-model",
 		"Planning folder: .steiner/plans/step-3",
 		"Accept: Clear + Review",
 		"Dismiss",
@@ -4253,9 +4253,6 @@ func TestModelWorkflowHandoffChangeModelOpensAttachedPickerAndUpdatesSelection(t
 	if got, want := m.workflowHandoff.modelAlias, longAlias; got != want {
 		t.Fatalf("workflowHandoff.modelAlias = %q, want %q", got, want)
 	}
-	if got, want := m.workflowHandoff.modelSource, "selected for handoff"; got != want {
-		t.Fatalf("workflowHandoff.modelSource = %q, want %q", got, want)
-	}
 	if got, want := m.primaryModel, "current-model"; got != want {
 		t.Fatalf("primaryModel = %q, want %q", got, want)
 	}
@@ -4266,7 +4263,6 @@ func TestModelWorkflowHandoffChangeModelOpensAttachedPickerAndUpdatesSelection(t
 	rendered = ansi.Strip(m.renderWorkflowHandoffModal())
 	for _, want := range []string{
 		"Model: " + longAlias,
-		"(selected for handoff)",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered modal = %q, want updated handoff model line fragment %q", rendered, want)
@@ -4306,9 +4302,6 @@ func TestModelWorkflowHandoffChangeModelCancelPreservesSelection(t *testing.T) {
 	}
 	if got, want := m.workflowHandoff.modelAlias, "review-default"; got != want {
 		t.Fatalf("workflowHandoff.modelAlias = %q, want %q after cancel", got, want)
-	}
-	if got, want := m.workflowHandoff.modelSource, "from handoff default"; got != want {
-		t.Fatalf("workflowHandoff.modelSource = %q, want %q after cancel", got, want)
 	}
 	if got := ctrl.submitWorkflowHandoffs(); len(got) != 0 {
 		t.Fatalf("handoff decisions = %#v, want none while cancelling picker", got)
@@ -4432,7 +4425,7 @@ func TestModelWorkflowHandoffAcceptClearsAndLaunchesNextWorkflow(t *testing.T) {
 	rendered := ansi.Strip(m.renderWorkflowHandoffModal())
 	for _, want := range []string{
 		"Continue to review?",
-		"Model: review-default (from handoff default)",
+		"Model: review-default",
 		"Planning folder: .steiner/plans/step-3",
 		"Accept: Clear + Review",
 		"Dismiss",

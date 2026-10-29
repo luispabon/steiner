@@ -26,7 +26,6 @@ type workflowHandoffModalState struct {
 	message        string
 	submission     string
 	modelAlias     string
-	modelSource    string
 	selectedAction int
 }
 
@@ -40,7 +39,6 @@ func openWorkflowHandoffModal(width, height int, payload output.WorkflowHandoffE
 		message:        strings.TrimSpace(payload.Message),
 		submission:     strings.TrimSpace(payload.Submission),
 		modelAlias:     strings.TrimSpace(selection.ModelAlias),
-		modelSource:    strings.TrimSpace(selection.SourceLabel),
 		selectedAction: workflowHandoffActionAccept,
 	}
 }
@@ -159,15 +157,11 @@ func (s workflowHandoffModalState) warningText() string {
 
 func (s workflowHandoffModalState) modelLine() string {
 	modelAlias := strings.TrimSpace(s.modelAlias)
-	modelSource := strings.TrimSpace(s.modelSource)
 	label := lipgloss.NewStyle().Bold(true).Render("Model:")
 	if modelAlias == "" {
 		return label
 	}
-	if modelSource == "" {
-		return label + " " + modelAlias
-	}
-	return label + " " + modelAlias + " (" + modelSource + ")"
+	return label + " " + modelAlias
 }
 
 func (s workflowHandoffModalState) planningFolderLine() string {

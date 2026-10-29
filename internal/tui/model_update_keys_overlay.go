@@ -253,7 +253,6 @@ func (m *Model) handleModelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.modelPicker = m.modelPicker.Close()
 			if isWorkflowHandoff {
 				m.workflowHandoff.modelAlias = entry.Ref
-				m.workflowHandoff.modelSource = "selected for handoff"
 				return m, nil
 			}
 			name := entry.Ref
