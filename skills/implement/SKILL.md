@@ -43,11 +43,10 @@ Stop and report blockers instead of widening scope (see Blocker Report).
 - active branch
 - loaded verification strategy or explicit overrides
 - current, completed, blocked, and skipped steps
-- sub-agents used, their parent step ids, and any sub-task ids
 - verification commands and results
-- deviations, blockers, and manual verification notes
-- task list per step (or a one-line reason for a single task), and per-task state, agent, correction follow-ups, rejected results, and failed checks
-- a one-line struggle note per implemented step
+- deviations and manual verification notes
+- task list per step (or a one-line reason for a single task), and each task's parent-linked id, state, agent, correction follow-ups, rejected results, and failed checks
+- a short struggle note (one or two sentences) per implemented step, updated with its tallies when later verification fails or rework is needed for that step
 - blockers and what is needed to unblock them
 - final reviewer handoff status
 
@@ -109,7 +108,7 @@ Use `implemented` to unlock dependencies. Use `complete` only after required ver
 
 ## Splitting Steps into Sub-Agent Tasks
 
-Plan-step scheduling is unchanged. Decompose every delegated step into tasks before its first dispatch; one task per step is the exception. Smaller models benefit from narrow tasks: each sub-task needs a concrete deliverable, declared write scope, and settled contracts. Preserve parent scope, constraints, acceptance criteria, `no_delegate`, and `delegate_profile`.
+Plan-step scheduling is unchanged. Decompose every delegated step into tasks before its first dispatch; one task per step is the exception. Plan steps are logical deliverables sized for scheduling and review, and are expected to decompose into several tasks at execution time. Smaller models benefit from narrow tasks: each sub-task needs a concrete deliverable, declared write scope, and settled contracts. Preserve parent scope, constraints, acceptance criteria, `no_delegate`, and `delegate_profile`.
 
 A task is small enough when a small model can complete it from its brief alone, with every file it edits in view and no design calls left to make. Otherwise split it.
 
@@ -141,9 +140,9 @@ Print a report at the start of execution (after loading the plan, or after `exec
 - header: `Progress: N/M steps done`, where N counts `done` steps
 - one line per plan step, in plan order: status label, step id, title
 
-Labels: `pending` for pending and ready; `in progress` for running; `done` for implemented and complete; `blocked`; `skipped`.
+Labels: `pending` for pending and ready; `in progress` for running; `done` for implemented and complete; `blocked`.
 
-After a step becomes `implemented`, add one short paragraph: task count, correction follow-ups, rejected results, failed checks, and their causes, or state plainly that there was no struggle. Save the same text as that step's struggle note in `execution.md`. Print nothing else around the report. Example:
+After a step becomes `implemented`, print its short struggle note (one or two sentences) below the report as the per-step summary: task count, correction follow-ups, rejected results, failed checks, and their causes, or state plainly that there was no struggle. Save the same text as that step's struggle note in `execution.md`. Print no commentary between report lines, and keep the report short. The progress report is not handoff prose: the final step's report prints when that step is implemented, before verification and handoff. Example:
 
 ```
 Progress: 1/3 steps done

@@ -95,6 +95,9 @@ func TestLoadPrompt(t *testing.T) {
 				"small testable chunks",
 				"cheap-feeling mutate calls",
 				"only exemptions are the executor-owned artifacts",
+				"per-task tallies of correction follow-ups, rejected results, and failed checks",
+				"short struggle note (one or two sentences)",
+				"the exact error as evidence",
 			},
 			wantOut: []string{
 				"ask the user",
@@ -103,6 +106,7 @@ func TestLoadPrompt(t *testing.T) {
 				"one delegated sub-agent per step",
 				"authoritative for *how*",
 				"cap it to one or two uses",
+				"Progress:",
 			},
 		},
 		{
