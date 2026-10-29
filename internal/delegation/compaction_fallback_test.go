@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -535,5 +536,63 @@ func TestCompactionFallbackConcurrentSharedMemo(t *testing.T) {
 	}
 	if got := resolves.Load(); got != workers {
 		t.Errorf("resolves = %d, want %d (ResolveModel runs on every call)", got, workers)
+	}
+}
+
+// TestCompactionFallbackConcurrentDistinctKeysDoNotShare proves simultaneous
+// resolves for distinct backend models and cache scopes each build their own
+// target, and that each caller gets the target for its own model.
+func TestCompactionFallbackConcurrentDistinctKeysDoNotShare(t *testing.T) {
+	type request struct {
+		model provider.ResolvedModel
+		scope string
+	}
+	var reqs []request
+	for i := range 4 {
+		for j := range 4 {
+			reqs = append(reqs, request{
+				model: compactionFallbackTestModel("fb", fmt.Sprintf("model-%d", i)),
+				scope: fmt.Sprintf("scope-%d", j),
+			})
+		}
+	}
+
+	targets := NewCompactionFallbackTargets()
+	var builds atomic.Int32
+	factory := compactionFallbackTestFactory(&builds)
+	results := make([]agent.CompactionTarget, len(reqs))
+	errs := make([]error, len(reqs))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i, req := range reqs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var resolves atomic.Int32
+			p := compactionFallbackTestParams(compactionFallbackTestRef, compactionFallbackTestResolver(compactionFallbackTestRef, req.model, &resolves), factory)
+			p.Targets = targets
+			p.CacheScope = req.scope
+			<-start
+			results[i], errs[i] = NewCompactionFallback(p).Resolve(context.Background())
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	owner := make(map[provider.Provider]int, len(reqs))
+	for i, req := range reqs {
+		if errs[i] != nil {
+			t.Fatalf("request %d Resolve: %v", i, errs[i])
+		}
+		if !reflect.DeepEqual(results[i].ResolvedModel, req.model) {
+			t.Errorf("request %d ResolvedModel = %#v, want %#v", i, results[i].ResolvedModel, req.model)
+		}
+		if prev, shared := owner[results[i].Provider]; shared {
+			t.Errorf("request %d shares a provider with request %d, want distinct targets", i, prev)
+		}
+		owner[results[i].Provider] = i
+	}
+	if got, want := builds.Load(), int32(len(reqs)); got != want {
+		t.Errorf("builds = %d, want %d (one per distinct identity and cache scope)", got, want)
 	}
 }
