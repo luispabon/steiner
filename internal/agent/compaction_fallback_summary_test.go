@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/diagnostics"
@@ -222,6 +223,142 @@ func TestSummarizeCompactionStagesBudgetSplit(t *testing.T) {
 	}
 }
 
+func TestSummarizeCompactionStagesEmergencyUsesSummaryRequest(t *testing.T) {
+	t.Parallel()
+	mainReq := compactionFallbackSummaryFixture(&fakeProvider{}, &testRecorder{})
+	mainReq.ModelBudget.EmergencySummaryMaxTokens = 256
+	target := compactionFallbackSummaryTarget(&fakeProvider{}, prompt.ModelTokenBudget{ContextSize: 4000, NormalSummaryMaxTokens: 128, EmergencySummaryMaxTokens: 32})
+	fallback, err := compactionFallbackRequest(mainReq, target)
+	if err != nil {
+		t.Fatalf("compactionFallbackRequest() error = %v", err)
+	}
+	msgs := compactionFallbackSummaryMessages()
+	state := RunState{Conversation: msgs, Lineage: newConversationLineage(msgs)}
+	candidate := ConversationCandidate{Messages: msgs}
+	mainBudget := mainReq.ModelBudget
+
+	tests := []struct {
+		name          string
+		normalApplied bool
+		summaryReq    *RunRequest
+		wantStages    int
+		wantMaxTokens int
+	}{
+		{name: "normal not applied, emergency on main", normalApplied: false, summaryReq: nil, wantStages: 1, wantMaxTokens: 256},
+		{name: "normal not applied, emergency on fallback", normalApplied: false, summaryReq: &fallback, wantStages: 1, wantMaxTokens: 32},
+		{name: "normal applied, second stage on main", normalApplied: true, summaryReq: nil, wantStages: 2, wantMaxTokens: 256},
+		{name: "normal applied, second stage on fallback", normalApplied: true, summaryReq: &fallback, wantStages: 2, wantMaxTokens: 32},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var stageParams []summarizeCompactionStageParams
+			var fitBudgets []prompt.ModelTokenBudget
+			stages := summarizeCompactionStages{
+				stageRunner: func(_ context.Context, _ RunRequest, st RunState, _ int, cand ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+					stageParams = append(stageParams, params)
+					applied := tt.normalApplied || params.mode == prompt.CompactionModeEmergency
+					return CompactionOutcome{Applied: applied, State: st, Candidate: cand, Fit: prompt.RequestTokenBudget{Fits: true}}, nil
+				},
+				fitRunner: func(_ context.Context, req RunRequest, _ RunState) (prompt.RequestTokenBudget, error) {
+					fitBudgets = append(fitBudgets, req.ModelBudget)
+					if tt.normalApplied && len(fitBudgets) == 1 {
+						// The fit after the normal stage still needs emergency compaction.
+						return prompt.RequestTokenBudget{ContextSize: 100, PromptUsage: 0.9}, nil
+					}
+					return prompt.RequestTokenBudget{ContextSize: 100, PromptUsage: 0.1, Fits: true}, nil
+				},
+				summaryReq: tt.summaryReq,
+			}
+
+			outcome, err := stages.run(context.Background(), mainReq, state, 1, candidate)
+			if err != nil {
+				t.Fatalf("run() error = %v", err)
+			}
+			if outcome.StageCount != tt.wantStages {
+				t.Errorf("StageCount = %d, want %d", outcome.StageCount, tt.wantStages)
+			}
+			if got := len(stageParams); got != 2 {
+				t.Fatalf("stage calls = %d, want 2 (normal, then emergency)", got)
+			}
+			for i, params := range stageParams {
+				if params.summaryReq != tt.summaryReq {
+					t.Errorf("stage %d summaryReq = %p, want %p", i, params.summaryReq, tt.summaryReq)
+				}
+			}
+			emergency := stageParams[1]
+			if emergency.mode != prompt.CompactionModeEmergency {
+				t.Errorf("second stage mode = %v, want emergency", emergency.mode)
+			}
+			if emergency.maxTokens != tt.wantMaxTokens {
+				t.Errorf("emergency maxTokens = %d, want %d", emergency.maxTokens, tt.wantMaxTokens)
+			}
+			if len(fitBudgets) == 0 {
+				t.Fatal("fit runner not called")
+			}
+			for _, got := range fitBudgets {
+				if got != mainBudget {
+					t.Errorf("fit request budget = %+v, want main budget %+v", got, mainBudget)
+				}
+			}
+		})
+	}
+}
+
+func TestSummarizeCompactionStagesFallbackSentinelThroughRun(t *testing.T) {
+	t.Parallel()
+	mainReq := compactionFallbackSummaryFixture(&fakeProvider{}, &testRecorder{})
+	target := compactionFallbackSummaryTarget(&fakeProvider{}, compactionFallbackSummaryBudget())
+	fallback, err := compactionFallbackRequest(mainReq, target)
+	if err != nil {
+		t.Fatalf("compactionFallbackRequest() error = %v", err)
+	}
+	msgs := compactionFallbackSummaryMessages()
+	state := RunState{Conversation: msgs, Lineage: newConversationLineage(msgs)}
+	candidate := ConversationCandidate{Messages: msgs}
+	archive := [][]Message{msgs[:2]}
+	needsEmergency := prompt.RequestTokenBudget{ContextSize: 100, PromptUsage: 0.9}
+
+	tests := []struct {
+		name       string
+		sentinelAt int
+		wantCalls  int
+	}{
+		{name: "first stage sentinel skips emergency", sentinelAt: 1, wantCalls: 1},
+		{name: "second stage sentinel discards first stage", sentinelAt: 2, wantCalls: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			calls := 0
+			stages := summarizeCompactionStages{
+				stageRunner: func(_ context.Context, _ RunRequest, st RunState, _ int, cand ConversationCandidate, _ summarizeCompactionStageParams) (CompactionOutcome, error) {
+					calls++
+					if calls == tt.sentinelAt {
+						return CompactionOutcome{}, errCompactionFallbackNotFit
+					}
+					return CompactionOutcome{Applied: true, State: st, Candidate: cand, Fit: needsEmergency, pendingArchive: archive}, nil
+				},
+				fitRunner: func(_ context.Context, _ RunRequest, _ RunState) (prompt.RequestTokenBudget, error) {
+					return needsEmergency, nil
+				},
+				summaryReq: &fallback,
+			}
+
+			outcome, err := stages.run(context.Background(), mainReq, state, 1, candidate)
+			if !errors.Is(err, errCompactionFallbackNotFit) {
+				t.Fatalf("run() error = %v, want errCompactionFallbackNotFit", err)
+			}
+			if calls != tt.wantCalls {
+				t.Errorf("stage calls = %d, want %d", calls, tt.wantCalls)
+			}
+			if !reflect.ValueOf(outcome).IsZero() {
+				t.Errorf("outcome = %+v, want zero value on sentinel error (no state or archive)", outcome)
+			}
+		})
+	}
+}
+
 func TestBuildCompactionRequestFallbackOmitsBackendState(t *testing.T) {
 	t.Parallel()
 	mainReq := compactionFallbackSummaryFixture(&fakeProvider{}, &testRecorder{})
@@ -362,5 +499,36 @@ func TestCompactionFallbackCacheDiagnosticLeavesColdStart(t *testing.T) {
 		if payload.ColdStart != wantColdStart[i] {
 			t.Errorf("record %d ColdStart = %v, want %v", i, payload.ColdStart, wantColdStart[i])
 		}
+	}
+}
+
+// This test sets the process-wide cold-start latch, so it must not run in
+// parallel with other tests.
+func TestCompactionFallbackCacheDiagnosticKeepsSetLatch(t *testing.T) {
+	resetColdStart(t)
+	coldStartRecorded.Store(true)
+	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
+	fallbackReq := RunRequest{
+		Diagnostics:   w,
+		ResolvedModel: provider.ResolvedModel{ProviderAlias: "anthropic", BackendModelID: "claude-small"},
+	}
+	fallbackReq.compactionFallbackTarget = true
+	response := provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}}
+
+	emitCacheDiagnostic(fallbackReq, response, "compaction", 1, requestCacheStats{})
+	if !coldStartRecorded.Load() {
+		t.Fatal("fallback emit cleared the cold-start latch, want it still set")
+	}
+
+	records := readCacheRecords(t, dir)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	var payload cachePayload
+	if err := json.Unmarshal(mustMarshal(t, records[0].Payload), &payload); err != nil {
+		t.Fatalf("unmarshal record payload: %v", err)
+	}
+	if payload.ColdStart {
+		t.Error("ColdStart = true, want false for a fallback record")
 	}
 }
