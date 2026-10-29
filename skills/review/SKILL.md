@@ -71,7 +71,6 @@ Focus on:
 - plan and scope adherence — including whether each step's implementation honors its `approach` and the Key Decisions cited in its `decisions` list
 - obvious bugs or regressions
 - missing or weak verification
-- steps whose `execution.md` struggle notes show repeated correction loops, rejected results, or failed checks get closer scrutiny
 - correctness against accepted intent
 - maintainability issues that materially affect correctness or future work
 
@@ -80,6 +79,8 @@ Focus on:
 Map changed files and plan outcomes to bounded areas, including direct callers, interfaces, and tests. Review small changes alone; review larger areas with parallel `review` agents. Risk lenses cannot replace area coverage. Brief agents with the same committed head, relevant files, decisions, and checks. Require inspected scope, gaps, and concrete evidence in their built-in finding format, not fixes or a verdict. Reassess if the head changes.
 
 Synthesize cross-area contracts, verify material claims, and deduplicate. Fill incomplete coverage; material gaps block a pass. Do not re-review unrelated code. Use native tools for inspection and `mutate` for `review.md`.
+
+Scrutinize steps whose `execution.md` struggle notes record repeated correction loops, rejected results, or failed checks more closely than the rest. Re-check their changed files and verification evidence, and confirm that the cause recorded in the note was actually addressed.
 
 ## Findings
 

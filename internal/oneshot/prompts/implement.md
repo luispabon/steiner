@@ -17,17 +17,17 @@ The sections below are the working sequence: load the plan and verification stra
 
 ## Sequence
 
-1. Read `overview.md` and `plan.yaml` from the planning folder named in the seed conversation. Load the verification strategy recorded in `overview.md`. If you are resuming this phase after a prior failure and `execution.md` does not yet exist, first review the git commit log and worktree state to identify what implementation work has already been validated and committed. Record that prior progress in your initial plan for this resume, and continue from the first incomplete step.
+1. Read `overview.md` and `plan.yaml` from the planning folder named in the seed conversation. Load the verification strategy recorded in `overview.md`. If you are resuming this phase after a prior failure and `execution.md` does not yet exist, first review the git commit log and worktree state to identify what implementation work has already been validated and committed. Record that prior progress in your initial plan for this resume, and continue from the first incomplete step. Create `execution.md` in the planning folder if it does not exist yet, and keep it updated while executing.
 2. Execute the implementation steps in `plan.yaml` order (see Step Execution). Plan-step scheduling is unchanged: serial execution is the default, `depends_on` remains authoritative for prerequisites, and `parallel_group` is used only when the plan marks it safe.
 3. Run the planned verification and drive failures to green through delegation.
-4. Write `execution.md` to the planning folder.
+4. Finalise `execution.md` in the planning folder with the final state.
 5. Commit the implementation work and `execution.md` on the feature branch so the phase boundary sees a clean tree.
 
 ## Step Execution
 
 Execute steps as a flat list from `plan.yaml`. Each step carries `id`, `title`, `scope`, `decisions`, `approach`, `files`, `constraints`, `acceptance`, and `verification`, and may carry `depends_on`, `parallel_group`, `delegate_profile`, and `no_delegate`. `approach` is the starting point for how the step is built; the executor may adapt implementation details when inspection or checks provide evidence, while preserving the step's behaviour, constraints, and acceptance criteria. `decisions` cites Key Decision IDs in `overview.md` that bind it.
 
-Decompose every delegated step into tasks before dispatch. A single task per step is the exception, not the default. A task is small enough when a small model can complete it from the brief alone, with every file it edits in view and no design calls left to make. If a task fails that test, split it. A step needs more than one task when any of these hold, judged rather than counted:
+Decompose every delegated step into tasks before dispatch. A single task per step is the exception, not the default. Plan steps are logical deliverables sized for scheduling and review, and are expected to decompose into several tasks at execution time. A task is small enough when a small model can complete it from the brief alone, with every file it edits in view and no design calls left to make. If a task fails that test, split it. A step usually needs several tasks when any of these hold, judged rather than counted:
 
 - It spans more than one package or domain concern.
 - It contains a producer/consumer contract. The producer task merges first, and the consumer task is briefed with the merged interface.
@@ -42,7 +42,7 @@ For each task, dispatch a delegated `code` sub-agent (or the profile named in `d
 
 A task may adapt implementation details from its approach starting point only to preserve the planned behaviour and constraints based on inspection or check evidence. Record meaningful deviations and their reasons. Changes to scope, acceptance, shared contracts, or binding decisions are blockers in this unattended run: do not ask for approval or replan. A child must report evidence that requires such a design change rather than silently redesigning the task. Each result arrives later as a separate message: end the turn after dispatching and review the result against its task and parent contracts before moving on.
 
-Struggle escalation: when a task comes back for correction on the same problem a second time, treat the brief as the likely cause, not the agent. Before another follow-up, choose one of the following and record the choice in `execution.md`: narrow the task by splitting its remaining work; re-brief a fresh agent with the failure evidence; or consult `advisor`.
+Struggle escalation: when a task comes back for correction on the same problem a second time, treat the brief as the likely cause, not the agent. Before another follow-up, choose one of the following and record the choice in `execution.md`: narrow the task by splitting its remaining work; re-brief a fresh agent with the failure evidence; or consult `advisor` if available.
 
 ### Implementation code restriction
 
@@ -64,7 +64,7 @@ When a safe fix mode (scoped, non-destructive, repo-compatible) is recorded for 
 
 ## Execution Artifact
 
-Write `execution.md` to the planning folder. Keep it compact — sufficient for reviewer handoff, not a verbose event log:
+Create and maintain `execution.md` in the planning folder. Keep it compact: sufficient for reviewer handoff, not a verbose event log:
 
 - active branch
 - loaded verification strategy or explicit overrides
@@ -72,7 +72,7 @@ Write `execution.md` to the planning folder. Keep it compact — sufficient for 
 - per-step task list, recorded before the first dispatch, or the one-line reason for a single-task step
 - delegated sub-agents used, their parent step ids, task ids, states, and assigned agents
 - per-task tallies of correction follow-ups, rejected results, and failed checks
-- one-line struggle note per implemented step: task count, tallies, likely cause, or plainly "no struggle"
+- a short struggle note (one or two sentences) per implemented step: task count, tallies, likely cause, or plainly "no struggle"; update it with its tallies when later verification fails or rework is needed for that step
 - verification commands and results
 - deviations and recorded assumptions
 - blockers, each with its step or task id, the exact error as evidence, and what is needed to unblock it
