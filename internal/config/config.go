@@ -309,6 +309,7 @@ type EffectiveModelAssignments struct {
 	ProfileName             string
 	DefaultModel            string
 	Advisor                 string
+	CompactionFallback      string
 	SubAgents               map[string]string
 	OneShot                 map[string]string
 	WorkflowHandoff         map[string]string

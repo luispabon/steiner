@@ -57,6 +57,9 @@ func validateResolvedProfile(cfg *Config, name string, profile ModelProfile) err
 	if profile.Advisor != "" && !IsValidModelReference(cfg, profile.Advisor) {
 		problems = append(problems, fmt.Sprintf("%s.advisor %q is not defined in models.definitions or providers", prefix, profile.Advisor))
 	}
+	if profile.CompactionFallback != "" && !IsValidModelReference(cfg, profile.CompactionFallback) {
+		problems = append(problems, fmt.Sprintf("%s.compaction_fallback %q is not defined in models.definitions or providers", prefix, profile.CompactionFallback))
+	}
 	validateModelReferenceMap(&problems, prefix+".sub_agents", "agent type", profile.SubAgents, validAgentTypes, *cfg)
 	validateModelReferenceMap(&problems, prefix+".oneshot", "phase", profile.OneShot, validOneShotPhases, *cfg)
 	validateModelReferenceMap(&problems, prefix+".workflow_handoff", "destination", profile.WorkflowHandoff, validWorkflowHandoffDestinations, *cfg)
@@ -88,6 +91,7 @@ func ResolveEffectiveAssignments(cfg *Config, name string) (EffectiveModelAssign
 		ProfileName:             selected,
 		DefaultModel:            profile.DefaultModel,
 		Advisor:                 profile.Advisor,
+		CompactionFallback:      profile.CompactionFallback,
 		SubAgents:               copyStringMap(profile.SubAgents),
 		OneShot:                 copyStringMap(profile.OneShot),
 		WorkflowHandoff:         copyStringMap(profile.WorkflowHandoff),
