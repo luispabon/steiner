@@ -353,6 +353,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		ResolveModel:          deps.ResolveModel,
 		ProviderFactory:       deps.ProviderFactory,
 		CompactionTargets:     NewCompactionFallbackTargets(),
+		CurrentEffective:      deps.CurrentEffectiveModelAssignments,
 	}
 	ensureSupervisor(&subAgentDeps)
 

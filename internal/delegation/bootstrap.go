@@ -130,7 +130,7 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		MaxParallelTools:   deps.MaxParallelTools,
 		ExecutorConfig:     deps.ExecutorConfig,
 		ContextManagement:  deps.ContextManagement,
-		Config:             &deps.Config,
+		Config:             childFallbackConfig(deps),
 		ResolveModel:       deps.ResolveModel,
 		ProviderFactory:    deps.ProviderFactory,
 		CompactionTargets:  deps.CompactionTargets,
@@ -231,6 +231,19 @@ func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.R
 	visible := parent.Subset(allowedTools, excluded)
 	exec := parent.Subset(allowedTools, excluded)
 	return visible, exec
+}
+
+// childFallbackConfig returns the config a child run uses for its compaction
+// fallback. When deps.CurrentEffective is set, its live assignments replace the
+// build-time Models.Effective snapshot, so a profile switch reaches children
+// built afterwards. Provider config and the rest of Config stay static. The
+// result is a copy, and deps.Config is not modified.
+func childFallbackConfig(deps SubAgentHandlerDeps) *config.Config {
+	cfg := deps.Config
+	if deps.CurrentEffective != nil {
+		cfg.Models.Effective = deps.CurrentEffective()
+	}
+	return &cfg
 }
 
 // childRunRequestParams holds the arguments needed to assemble a child

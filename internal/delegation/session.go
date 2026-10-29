@@ -112,8 +112,13 @@ type SubAgentHandlerDeps struct {
 	// AdvisorSubAgentBudget is the configured per-child advisor budget, from
 	// config.AdvisorConfig.MaxUsesPerSubAgent. Used to populate Result.AdvisorBudget.
 	AdvisorSubAgentBudget int
-	// Config supplies the compaction fallback ref and cold-cache delay for child runs.
+	// Config supplies the cold-cache delay and, when CurrentEffective is nil, the
+	// compaction fallback ref for child runs.
 	Config config.Config
+	// CurrentEffective, when non-nil, supplies the live effective assignments read
+	// when each child run is built, so a profile switch changes the child's
+	// compaction fallback ref. Nil uses Config.Models.Effective.
+	CurrentEffective func() config.EffectiveModelAssignments
 	// ResolveModel and ProviderFactory build the lazy compaction fallback target
 	// for child runs; see NewCompactionFallback. A nil ResolveModel,
 	// ProviderFactory, or CompactionTargets disables the fallback for child runs.
