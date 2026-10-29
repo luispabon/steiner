@@ -106,7 +106,7 @@ func TestSelectCompactionFallback(t *testing.T) {
 				}
 			}
 
-			got, ok, err := selectCompactionFallback(context.Background(), req, tt.last)
+			got, ok, err := selectCompactionFallback(context.Background(), req, tt.last, compactionFallbackNow(req))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("error = %v, want error %v", err, tt.wantErr)
 			}

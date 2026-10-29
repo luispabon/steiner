@@ -47,18 +47,24 @@ type CompactionFallback struct {
 	Resolve func(context.Context) (CompactionTarget, error)
 }
 
+// compactionFallbackEnabled reports whether fallback has a resolver and a
+// positive After. Only then does a compaction read the clock or resolve a target.
+func compactionFallbackEnabled(fallback CompactionFallback) bool {
+	return fallback.Resolve != nil && fallback.After > 0
+}
+
 // selectCompactionFallback returns the fallback target for a compaction of req
-// given the last main request. It returns false without resolving when the
+// given the last main request, judged at now. It returns false without resolving when the
 // fallback is disabled (zero After or nil Resolve) or the main cache is warm.
 // A resolution error is returned, and a resolved target without a provider is
 // an error. A target with the same provider alias and backend model ID as req
 // is skipped and returns false.
-func selectCompactionFallback(ctx context.Context, req RunRequest, last LastMainRequest) (CompactionTarget, bool, error) {
+func selectCompactionFallback(ctx context.Context, req RunRequest, last LastMainRequest, now time.Time) (CompactionTarget, bool, error) {
 	fallback := req.CompactionFallback
-	if fallback.Resolve == nil || fallback.After <= 0 {
+	if !compactionFallbackEnabled(fallback) {
 		return CompactionTarget{}, false, nil
 	}
-	if !compactionCacheCold(compactionFallbackNow(req), last, fallback.After) {
+	if !compactionCacheCold(now, last, fallback.After) {
 		return CompactionTarget{}, false, nil
 	}
 	target, err := fallback.Resolve(ctx)
@@ -152,7 +158,11 @@ type compactionRun func(summaryReq *RunRequest) (CompactionOutcome, error)
 // on main from the original state. Cancellation and run limit timeouts return
 // the error without a rerun.
 func compactWithFallback(ctx context.Context, req RunRequest, state RunState, run compactionRun) (CompactionOutcome, error) {
-	target, selected, err := selectCompactionFallback(ctx, req, state.LastMainRequest)
+	if !compactionFallbackEnabled(req.CompactionFallback) {
+		return run(nil)
+	}
+	now := compactionFallbackNow(req)
+	target, selected, err := selectCompactionFallback(ctx, req, state.LastMainRequest, now)
 	if err != nil {
 		return compactionOnMainAfterFallback(ctx, req, run, err)
 	}
@@ -165,7 +175,7 @@ func compactWithFallback(ctx context.Context, req RunRequest, state RunState, ru
 	}
 	outcome.CompactionModel = compactionModelName(target.ResolvedModel)
 	outcome.FallbackStatus = output.CompactionFallbackUsed
-	outcome.FallbackReason = compactionUsedReason(req, state.LastMainRequest)
+	outcome.FallbackReason = compactionUsedReason(now, state.LastMainRequest, req.CompactionFallback.After)
 	return outcome, nil
 }
 
@@ -200,16 +210,21 @@ func compactionModelName(model provider.ResolvedModel) string {
 	return model.ProviderAlias + "/" + model.BackendModelID
 }
 
-// compactionUsedReason explains a selected fallback. It is "no recent request"
-// when no main request is recorded, otherwise the idle and threshold minutes
-// rounded to whole minutes.
-func compactionUsedReason(req RunRequest, last LastMainRequest) string {
+// compactionUsedReason explains a selected fallback decided at now. It is "no
+// recent request" when no main request is recorded. Otherwise it gives the idle
+// time and the threshold in whole minutes. When rounding makes them equal, it
+// gives exact durations instead, so the reason still shows idle > threshold.
+func compactionUsedReason(now time.Time, last LastMainRequest, after time.Duration) string {
 	if last.At.IsZero() {
 		return "no recent request"
 	}
-	idle := compactionFallbackNow(req).Sub(last.At).Round(time.Minute)
-	threshold := req.CompactionFallback.After.Round(time.Minute)
-	return fmt.Sprintf("idle %d > %d", int(idle/time.Minute), int(threshold/time.Minute))
+	idle := now.Sub(last.At)
+	idleMinutes := idle.Round(time.Minute)
+	afterMinutes := after.Round(time.Minute)
+	if idleMinutes == afterMinutes {
+		return fmt.Sprintf("idle %s > %s", idle, after)
+	}
+	return fmt.Sprintf("idle %dm > %dm", int(idleMinutes/time.Minute), int(afterMinutes/time.Minute))
 }
 
 // compactionSkipReason explains a selected fallback that was discarded.

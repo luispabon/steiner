@@ -56,7 +56,8 @@ type CompactionOutcome struct {
 	// StageCount is the number of compaction stages (1 or 2) executed in this outcome.
 	StageCount int
 	// CompactionModel is the canonical ProviderAlias/BackendModelID of the model
-	// selected or skipped for a fallback. Empty when no fallback was selected.
+	// that produced the summary: the fallback target when FallbackStatus is used,
+	// main when it is skipped. Empty when no fallback was selected.
 	CompactionModel string
 	// FallbackStatus is output.CompactionFallbackUsed or
 	// output.CompactionFallbackSkipped. Empty when no fallback was selected.
