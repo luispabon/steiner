@@ -39,7 +39,10 @@ func FollowUpToolDef(handler func(ctx context.Context, input map[string]any) (an
 // a vision follow-up re-sends the original image payload; the child session
 // stores images only on its first message, and the provider has no server-side
 // image cache to fall back on.
-func buildContinuationRequest(base agent.RunRequest, conversation []agent.Message, message string, images []provider.ImageBlock, priorTurns int, freshLimits Limits) agent.RunRequest {
+//
+// last is the session's last main request, seeded as SeedLastMainRequest so the
+// continuation's compaction fallback sees the prior cache warmth.
+func buildContinuationRequest(base agent.RunRequest, conversation []agent.Message, last agent.LastMainRequest, message string, images []provider.ImageBlock, priorTurns int, freshLimits Limits) agent.RunRequest {
 	final := agent.Message{
 		Role:    agent.MessageRoleUser,
 		Content: message,
@@ -47,6 +50,7 @@ func buildContinuationRequest(base agent.RunRequest, conversation []agent.Messag
 	}
 	base.SourceConversation = append(agent.ReplaySafeConversation(conversation), final)
 	base.Prompt.Conversation = nil
+	base.SeedLastMainRequest = last
 	base.Limits.MaxTurns = priorTurns + freshLimits.MaxTurns
 	base.Limits.MaxTokens = freshLimits.OutputLimitTokens
 	base.Limits.TurnTimeout = freshLimits.Timeout
@@ -87,7 +91,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			agentID, deps.SubAgentCfg.MaxFollowUps))
 	}
 	freshLimits := DefaultLimits(deps.SubAgentCfg)
-	req := buildContinuationRequest(session.Request, session.Conversation, message, followUpImages(session), session.TurnCount, freshLimits)
+	req := buildContinuationRequest(session.Request, session.Conversation, session.LastMainRequest, message, followUpImages(session), session.TurnCount, freshLimits)
 
 	spec := session.Spec
 	spec.Limits = freshLimits
@@ -142,11 +146,12 @@ func executeFollowUp(childCtx context.Context, deps SubAgentHandlerDeps, spec Sp
 	result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
 	if err == nil {
 		updatedOK := deps.SessionStore.Update(agentID, SessionUpdateParams{
-			Conversation:  state.Conversation,
-			TurnCount:     state.TurnCount - session.TurnCount, // Update adds a delta; state.TurnCount is cumulative
-			TokenCount:    runUsage.OutputTokens,
-			ToolCallCount: countToolCalls(state.Conversation),
-			TokenUsage:    runUsage,
+			Conversation:    state.Conversation,
+			TurnCount:       state.TurnCount - session.TurnCount, // Update adds a delta; state.TurnCount is cumulative
+			TokenCount:      runUsage.OutputTokens,
+			ToolCallCount:   countToolCalls(state.Conversation),
+			TokenUsage:      runUsage,
+			LastMainRequest: state.LastMainRequest,
 		})
 		updated, ok := deps.SessionStore.Get(agentID)
 		if !updatedOK || !ok {

@@ -108,7 +108,7 @@ Worktree root: %s
 Branch: %s
 Pre-remediation HEAD: %s
 Uncommitted paths: %s`, cfg.WorktreePath, cfg.ExpectedBranch, preHEAD, strings.Join(dirty, ", "))
-	remedReq := buildContinuationRequest(req, state.Conversation, remediationMsg, nil, state.TurnCount, spec.Limits)
+	remedReq := buildContinuationRequest(req, state.Conversation, state.LastMainRequest, remediationMsg, nil, state.TurnCount, spec.Limits)
 	remedReq.Events = nil
 	// req's TurnBudgetNotice is not meaningful for this separate remediation
 	// run; drop it rather than surface stale budget information.

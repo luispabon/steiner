@@ -141,6 +141,10 @@ type ChildSession struct {
 	// Remediation is set only for code sessions with a successfully provisioned worktree.
 	Remediation   *RemediationConfig
 	FollowUpCount int
+	// LastMainRequest is the child's last successful main request. Follow-ups and
+	// remediation seed their runs with it so compaction fallback sees the prior
+	// cache warmth.
+	LastMainRequest agent.LastMainRequest
 }
 
 // SessionStore provides concurrent-safe access to child sessions by agent ID.
@@ -184,11 +188,12 @@ func (s *SessionStore) Get(id string) (*ChildSession, bool) {
 
 // SessionUpdateParams carries the deltas applied by SessionStore.Update.
 type SessionUpdateParams struct {
-	Conversation  []agent.Message
-	TurnCount     int
-	TokenCount    int
-	ToolCallCount int
-	TokenUsage    TokenUsage
+	Conversation    []agent.Message
+	TurnCount       int
+	TokenCount      int
+	ToolCallCount   int
+	TokenUsage      TokenUsage
+	LastMainRequest agent.LastMainRequest
 }
 
 // Invalidate permanently prevents saving or updating a session for id until Reset.
@@ -200,7 +205,7 @@ func (s *SessionStore) Invalidate(id string) {
 	s.tombstones[id] = struct{}{}
 }
 
-// Update replaces the conversation and accumulates session usage counters.
+// Update replaces the conversation and last main request and accumulates session usage counters.
 func (s *SessionStore) Update(id string, params SessionUpdateParams) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -214,6 +219,7 @@ func (s *SessionStore) Update(id string, params SessionUpdateParams) bool {
 	}
 
 	session.Conversation = params.Conversation
+	session.LastMainRequest = params.LastMainRequest
 	session.TurnCount += params.TurnCount
 	session.TokenCount += params.TokenCount
 	session.ToolCallCount += params.ToolCallCount
@@ -242,13 +248,14 @@ func (s *SessionStore) Count() int {
 
 func saveChildSession(store *SessionStore, spec Spec, req agent.RunRequest, state agent.RunState, cache TokenUsage, remediation *RemediationConfig) bool {
 	return store.Save(&ChildSession{
-		Spec:          spec,
-		Request:       req,
-		Conversation:  state.Conversation,
-		TurnCount:     state.TurnCount,
-		TokenCount:    state.TokenCount,
-		ToolCallCount: countToolCalls(state.Conversation),
-		TokenUsage:    cache,
-		Remediation:   remediation,
+		Spec:            spec,
+		Request:         req,
+		Conversation:    state.Conversation,
+		TurnCount:       state.TurnCount,
+		TokenCount:      state.TokenCount,
+		ToolCallCount:   countToolCalls(state.Conversation),
+		TokenUsage:      cache,
+		Remediation:     remediation,
+		LastMainRequest: state.LastMainRequest,
 	})
 }
