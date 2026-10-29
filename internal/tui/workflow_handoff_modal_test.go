@@ -166,37 +166,46 @@ func TestWorkflowHandoffModalBoldLabels(t *testing.T) {
 func TestWorkflowHandoffModalModelLineRendering(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name         string
-		modelAlias   string
-		sourceLabel  string
-		wantContains string
+		name        string
+		modelAlias  string
+		sourceLabel string
+		wantLine    string
 	}{
 		{
-			name:         "with model alias and source",
-			modelAlias:   "gpt-4",
-			sourceLabel:  "openai",
-			wantContains: "gpt-4",
+			name:        "source label is omitted",
+			modelAlias:  "gpt-4",
+			sourceLabel: "openai",
+			wantLine:    "Model: gpt-4",
 		},
 		{
-			name:         "with model alias only",
-			modelAlias:   "claude-3",
-			sourceLabel:  "",
-			wantContains: "claude-3",
+			name:        "handoff default source is omitted",
+			modelAlias:  "opus",
+			sourceLabel: "from handoff default",
+			wantLine:    "Model: opus",
 		},
 		{
-			name:         "empty model alias",
-			modelAlias:   "",
-			sourceLabel:  "",
-			wantContains: "Model:",
+			name:        "current session source is omitted",
+			modelAlias:  "session-model",
+			sourceLabel: "current session",
+			wantLine:    "Model: session-model",
+		},
+		{
+			name:        "model alias only",
+			modelAlias:  "claude-3",
+			sourceLabel: "",
+			wantLine:    "Model: claude-3",
+		},
+		{
+			name:        "empty model alias",
+			modelAlias:  "",
+			sourceLabel: "",
+			wantLine:    "Model:",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			m := newModel(Config{}, nil)
-			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
-
 			payload := output.WorkflowHandoffEvent{
 				Next:    "implement",
 				Target:  "test-target",
@@ -206,12 +215,20 @@ func TestWorkflowHandoffModalModelLineRendering(t *testing.T) {
 				ModelAlias:  tt.modelAlias,
 				SourceLabel: tt.sourceLabel,
 			}
+			m := newModel(Config{}, nil)
+			m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 			m.workflowHandoff = openWorkflowHandoffModal(m.width, m.height, payload, selection)
 
-			rendered := stripANSI(m.renderWorkflowHandoffModal())
+			if got := stripANSI(m.workflowHandoff.modelLine()); got != tt.wantLine {
+				t.Errorf("model line = %q, want %q", got, tt.wantLine)
+			}
 
-			if !strings.Contains(rendered, tt.wantContains) {
-				t.Errorf("model line = %q, want to contain %q", rendered, tt.wantContains)
+			rendered := stripANSI(m.renderWorkflowHandoffModal())
+			if !strings.Contains(rendered, tt.wantLine) {
+				t.Errorf("rendered dialog = %q, want model line %q", rendered, tt.wantLine)
+			}
+			if tt.sourceLabel != "" && strings.Contains(rendered, tt.sourceLabel) {
+				t.Errorf("rendered dialog = %q, want source label %q omitted", rendered, tt.sourceLabel)
 			}
 		})
 	}

@@ -371,7 +371,7 @@ Each profile supports these fields:
 | `advisor`          | string            | Model reference used for advisor calls when `advisor.enabled` is `true`.                                                                                                 |
 | `sub_agents`       | map[string]string | Per-agent-type model references, keyed by agent type.                                                                                                                    |
 | `oneshot`          | map[string]string | Per-phase model references, keyed by `plan`, `implement`, and `review`. Missing phases fall back to the selected profile's `default_model`.                              |
-| `workflow_handoff` | map[string]string | Persistent handoff model references, keyed by `implement`, `review`, and `build`. Missing destinations use the selected profile's `default_model` (`profile default`).   |
+| `workflow_handoff` | map[string]string | Persistent handoff model references, keyed by `implement`, `review`, and `build`. Missing destinations use the selected profile's `default_model`.                       |
 
 ```yaml
 providers:
@@ -406,7 +406,7 @@ models:
 ```
 
 `workflow_handoff` supports destination keys `implement`, `review`, and `build`. If a
-destination has no entry, handoff uses the selected profile's `default_model` (`profile default`). The
+destination has no entry, handoff uses the selected profile's `default_model`. The
 interactive handoff picker can still override the pending model for one
 handoff without changing configuration.
 
