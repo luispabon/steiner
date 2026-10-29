@@ -140,10 +140,12 @@ func TestCompactionFallbackIdentity(t *testing.T) {
 		want   string
 	}{
 		{name: "empty main value is empty", main: "", target: openai, want: ""},
-		{name: "openai target", main: "main", target: openai, want: "02d4ec6fe06e63903e3ad7236e6348cb"},
-		{name: "provider alias changes identity", main: "main", target: provider.ResolvedModel{ProviderAlias: "anthropic", BackendModelID: "gpt-x"}, want: "c731f26f5384275775c3d1722d08b9be"},
-		{name: "backend model changes identity", main: "main", target: provider.ResolvedModel{ProviderAlias: "openai", BackendModelID: "gpt-y"}, want: "b8f6e469d64aa0aa8561f317b2109f2a"},
-		{name: "main value changes identity", main: "other", target: openai, want: "a4cc2182cb8164a845fd7443d9e64f9d"},
+		{name: "openai target", main: "main", target: openai, want: "6c3f14e138320b7dd16cc6831158720f"},
+		{name: "provider alias changes identity", main: "main", target: provider.ResolvedModel{ProviderAlias: "anthropic", BackendModelID: "gpt-x"}, want: "23c9bf9895ecd5efad04735467c80a82"},
+		{name: "backend model changes identity", main: "main", target: provider.ResolvedModel{ProviderAlias: "openai", BackendModelID: "gpt-y"}, want: "e3a3d8517081fcda6cfda4f4f22d7302"},
+		{name: "main value changes identity", main: "other", target: openai, want: "17dcb52e29c97958c3e9759cb77b7a26"},
+		{name: "slash in alias does not collide with slash in model", main: "main", target: provider.ResolvedModel{ProviderAlias: "a/b", BackendModelID: "c"}, want: "92125d876e4f42dd610bb624a0c91996"},
+		{name: "slash in model does not collide with slash in alias", main: "main", target: provider.ResolvedModel{ProviderAlias: "a", BackendModelID: "b/c"}, want: "2884540f3f6de046f2ebd877c5eb5612"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

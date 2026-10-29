@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -39,6 +40,12 @@ var errStatefulCompaction = errors.New("compaction is not supported yet with the
 // than a skipped stage, so a caller can retry without the fallback target.
 var errCompactionFallbackNotFit = errors.New("compaction fallback summary request does not fit the fallback target budget")
 
+// errCompactionFallbackEmptySummary is returned when a summary call on a
+// fallback compaction target returns no summary text. It is an error rather
+// than a not-applied stage, so the operation reruns on main instead of
+// treating the empty summary as a no-op.
+var errCompactionFallbackEmptySummary = errors.New("fallback summary is empty")
+
 // CompactionOutcome captures the state mutation and diagnostics emitted by a
 // compaction strategy.
 type CompactionOutcome struct {
@@ -57,10 +64,12 @@ type CompactionOutcome struct {
 	StageCount int
 	// CompactionModel is the canonical ProviderAlias/BackendModelID of the model
 	// that produced the summary: the fallback target when FallbackStatus is used,
-	// main when it is skipped. Empty when no fallback was selected.
+	// main when it is skipped. Empty when no fallback was selected or the
+	// selected fallback applied nothing.
 	CompactionModel string
 	// FallbackStatus is output.CompactionFallbackUsed or
-	// output.CompactionFallbackSkipped. Empty when no fallback was selected.
+	// output.CompactionFallbackSkipped. Empty when no fallback was selected or
+	// the selected fallback applied nothing.
 	FallbackStatus string
 	// FallbackReason explains FallbackStatus.
 	FallbackReason string
@@ -280,6 +289,9 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), nil, true)
 	}
 
+	if params.summaryReq != nil && strings.TrimSpace(response.Message.Content) == "" {
+		return CompactionOutcome{}, errCompactionFallbackEmptySummary
+	}
 	summaryText := compactionSummaryText(response.Message.Content, plan.candidate)
 	if summaryText == "" {
 		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens), nil
@@ -371,7 +383,7 @@ func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage
 	skipped := map[string]bool{}
 	compactionCount := 0
 
-	compacted, applied, err := r.compactConversationForBudgetWithSteering(ctx, req, &state, 0, nil, skipped, &compactionCount, steering)
+	compacted, applied, _, err := r.compactConversationForBudgetWithSteering(ctx, req, &state, 0, nil, skipped, &compactionCount, steering)
 	if err != nil {
 		return nil, false, false, err
 	}
@@ -396,31 +408,32 @@ func backendStateCleared(l ConversationLineage, id int, hadState bool) bool {
 	return false
 }
 
-func (r *Runner) compactConversationForBudget(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (bool, bool, error) {
+func (r *Runner) compactConversationForBudget(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (bool, bool, string, error) {
 	return r.compactConversationForBudgetWithSteering(ctx, req, state, turn, beforeFit, skipped, compactionCount, "")
 }
 
 // compactConversationForBudgetWithSteering processes the next candidate. It
-// reports whether a candidate was attempted and whether its compaction applied.
-func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int, steering string) (bool, bool, error) {
+// reports whether a candidate was attempted, whether its compaction applied, and
+// the skip reason of an attempt that applied nothing, empty otherwise.
+func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int, steering string) (bool, bool, string, error) {
 	candidate, ok := selectCompactionCandidate(state.Lineage, skipped)
 	if !ok {
-		return false, false, nil
+		return false, false, "", nil
 	}
 
 	currentFit, err := compactionCurrentFit(ctx, req, *state, beforeFit)
 	if err != nil {
-		return false, false, err
+		return false, false, "", err
 	}
 
 	outcome, err := summarizeCompactor{}.Compact(ctx, req, *state, turn, candidate, steering)
 	if err != nil {
-		return false, false, err
+		return false, false, "", err
 	}
 
 	if !outcome.Applied {
 		skipped[compactionCandidateKey(candidate)] = true
-		return true, false, nil
+		return true, false, outcome.FallbackReason, nil
 	}
 
 	*state = outcome.State
@@ -446,7 +459,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 		})
 	}
 	skipped[compactionCandidateKey(candidate)] = true
-	return true, true, nil
+	return true, true, "", nil
 }
 
 func compactionCurrentFit(ctx context.Context, req RunRequest, state RunState, beforeFit *prompt.RequestTokenBudget) (prompt.RequestTokenBudget, error) {

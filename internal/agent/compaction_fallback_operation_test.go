@@ -303,6 +303,102 @@ func TestCompactionFallbackOperation(t *testing.T) {
 	}
 }
 
+// TestCompactionFallbackOperationRerunsOnMainAfterEmptyTargetSummary checks that a
+// target summary with no text is discarded and the operation reruns on main.
+func TestCompactionFallbackOperationRerunsOnMainAfterEmptyTargetSummary(t *testing.T) {
+	t.Parallel()
+	r := newFallbackOperationRun(fallbackOperationNow)
+	r.target.responses = []provider.ChatResponse{{Message: provider.Message{Role: provider.MessageRoleAssistant}, FinishReason: "stop"}}
+	outcome, err := r.compact(context.Background())
+	if err != nil {
+		t.Fatalf("compact() error = %v, want the main rerun to succeed", err)
+	}
+	if got := len(r.target.requests); got != 1 {
+		t.Errorf("target requests = %d, want 1 (the empty normal summary)", got)
+	}
+	if len(r.main.requests) == 0 {
+		t.Error("main requests = 0, want the operation rerun on main")
+	}
+	if !outcome.Applied {
+		t.Error("outcome.Applied = false, want the main rerun to apply")
+	}
+	if outcome.FallbackStatus != output.CompactionFallbackSkipped {
+		t.Errorf("FallbackStatus = %q, want %q", outcome.FallbackStatus, output.CompactionFallbackSkipped)
+	}
+}
+
+// TestCompactionEmptyMainSummaryKeepsFallbackText checks that an empty summary on
+// main still applies the deterministic summary text and is not rerun.
+func TestCompactionEmptyMainSummaryKeepsFallbackText(t *testing.T) {
+	t.Parallel()
+	r := newFallbackOperationRun(fallbackOperationNow)
+	r.req.CompactionFallback = CompactionFallback{}
+	empty := provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant}, FinishReason: "stop"}
+	r.main.responses = []provider.ChatResponse{empty, empty}
+	outcome, err := r.compact(context.Background())
+	if err != nil {
+		t.Fatalf("compact() error = %v, want nil for an empty main summary", err)
+	}
+	if !outcome.Applied {
+		t.Error("outcome.Applied = false, want the deterministic summary to apply on main")
+	}
+	if outcome.FallbackStatus != "" {
+		t.Errorf("FallbackStatus = %q, want empty when no fallback was selected", outcome.FallbackStatus)
+	}
+}
+
+// TestCompactionFallbackNotAppliedIsNotLabeledUsed checks that a fallback attempt
+// that applies nothing reports no fallback status and no compaction model.
+func TestCompactionFallbackNotAppliedIsNotLabeledUsed(t *testing.T) {
+	t.Parallel()
+	r := newFallbackOperationRun(fallbackOperationNow)
+	state := RunState{LastMainRequest: LastMainRequest{At: fallbackOperationNow.Add(-time.Hour)}}
+	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+		if summaryReq == nil {
+			return CompactionOutcome{}, errors.New("run used main, want the fallback target")
+		}
+		return CompactionOutcome{}, nil
+	}
+	outcome, err := compactWithFallback(context.Background(), r.req, state, run)
+	if err != nil {
+		t.Fatalf("compactWithFallback() error = %v, want nil", err)
+	}
+	if outcome.FallbackStatus != "" {
+		t.Errorf("FallbackStatus = %q, want empty for a fallback that applied nothing", outcome.FallbackStatus)
+	}
+	if outcome.CompactionModel != "" {
+		t.Errorf("CompactionModel = %q, want empty for a fallback that applied nothing", outcome.CompactionModel)
+	}
+}
+
+// TestCompactionFallbackFailureReasonKeptWhenMainAppliesNothing checks that a
+// failed fallback whose main rerun applies nothing keeps the fallback failure as
+// the skip reason and does not report the fallback as used.
+func TestCompactionFallbackFailureReasonKeptWhenMainAppliesNothing(t *testing.T) {
+	t.Parallel()
+	r := newFallbackOperationRun(fallbackOperationNow)
+	state := RunState{LastMainRequest: LastMainRequest{At: fallbackOperationNow.Add(-time.Hour)}}
+	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+		if summaryReq != nil {
+			return CompactionOutcome{}, errors.New("target unavailable")
+		}
+		return CompactionOutcome{}, nil
+	}
+	outcome, err := compactWithFallback(context.Background(), r.req, state, run)
+	if err != nil {
+		t.Fatalf("compactWithFallback() error = %v, want nil", err)
+	}
+	if outcome.Applied {
+		t.Error("outcome.Applied = true, want false when main applies nothing")
+	}
+	if outcome.FallbackStatus != output.CompactionFallbackSkipped {
+		t.Errorf("FallbackStatus = %q, want %q", outcome.FallbackStatus, output.CompactionFallbackSkipped)
+	}
+	if want := "fallback failed: target unavailable"; outcome.FallbackReason != want {
+		t.Errorf("FallbackReason = %q, want %q", outcome.FallbackReason, want)
+	}
+}
+
 // TestCompactionFallbackOperationDoesNotRerunOnCancellation checks that a parent
 // cancellation or turn timeout during the target attempt returns the error
 // without running the operation on main.
@@ -314,6 +410,7 @@ func TestCompactionFallbackOperationDoesNotRerunOnCancellation(t *testing.T) {
 	}{
 		{name: "parent cancellation", cause: context.Canceled},
 		{name: "turn timeout", cause: errTurnTimeout},
+		{name: "model call timeout", cause: errModelCallTimeout},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

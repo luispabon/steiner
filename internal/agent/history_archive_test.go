@@ -91,7 +91,7 @@ func historyArchiveState(conv []Message) RunState {
 func compactIntoState(t *testing.T, req RunRequest, state *RunState) bool {
 	t.Helper()
 	var compactionCount int
-	_, applied, err := (&Runner{}).compactConversationForBudget(context.Background(), req, state, 0, nil, map[string]bool{}, &compactionCount)
+	_, applied, _, err := (&Runner{}).compactConversationForBudget(context.Background(), req, state, 0, nil, map[string]bool{}, &compactionCount)
 	if err != nil {
 		t.Fatalf("compactConversationForBudget() error = %v", err)
 	}
@@ -278,7 +278,7 @@ func TestHistoryArchiveDiscardedOutcomeAppendsNothing(t *testing.T) {
 	})
 	state := historyArchiveState(denseHistoryConversation())
 	var compactionCount int
-	if _, _, err := (&Runner{}).compactConversationForBudget(context.Background(), req, &state, 0, nil, map[string]bool{}, &compactionCount); err == nil {
+	if _, _, _, err := (&Runner{}).compactConversationForBudget(context.Background(), req, &state, 0, nil, map[string]bool{}, &compactionCount); err == nil {
 		t.Fatal("compactConversationForBudget() error = nil, want emergency failure")
 	}
 	if len(archive.notes) != 1 {

@@ -16,9 +16,10 @@ import (
 // compactConversationFn is the compaction operation decoupled from *Runner.
 // It matches the signature of Runner.compactConversationForBudget. attempted
 // reports whether a candidate was processed; applied reports whether its
-// compaction changed the conversation. A candidate that was attempted but not
-// applied is marked in skipped, so the caller's retry moves to the next one.
-type compactConversationFn func(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (attempted, applied bool, err error)
+// compaction changed the conversation; skipReason explains an attempt that
+// applied nothing. A candidate that was attempted but not applied is marked in
+// skipped, so the caller's retry moves to the next one.
+type compactConversationFn func(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (attempted, applied bool, skipReason string, err error)
 
 // executeModelCall runs the model-call phase of the turn lifecycle and applies
 // the assistant response to the conversation state. It owns:
@@ -393,7 +394,7 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 	}
 	turn := state.TurnCount + 1
 	emitCompactionStartedEvent(p.request.Events, turn)
-	attempted, applied, err := p.compactFn(ctx, p.request, &state, turn, &fit, p.compactionHistory, &p.compactionCount)
+	attempted, applied, skipReason, err := p.compactFn(ctx, p.request, &state, turn, &fit, p.compactionHistory, &p.compactionCount)
 	if err != nil {
 		return turnOutcome{State: state, Error: err, Stop: true}
 	}
@@ -405,7 +406,7 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 			p.awaitingPostCompaction = true
 		}
 	} else {
-		emitCompactionSkippedEvent(p.request.Events, turn)
+		emitCompactionSkippedEvent(p.request.Events, turn, skipReason)
 	}
 	if attempted {
 		// Usage is kept on a not-applied attempt, so the retry re-checks the

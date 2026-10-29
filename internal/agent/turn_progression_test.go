@@ -778,8 +778,8 @@ func TestHandleCompaction_CompactsAndRetries(t *testing.T) {
 		Events: output.NoopSink{},
 	}
 
-	p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, bool, error) {
-		return false, false, fmt.Errorf("compaction cannot solve this request: no valid candidates")
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, bool, string, error) {
+		return false, false, "", fmt.Errorf("compaction cannot solve this request: no valid candidates")
 	})
 
 	fit := prompt.RequestTokenBudget{
@@ -833,8 +833,8 @@ func TestHandleCompaction_ProviderError(t *testing.T) {
 		Events: output.NoopSink{},
 	}
 
-	p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, bool, error) {
-		return false, false, fmt.Errorf("compaction provider unavailable")
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, bool, string, error) {
+		return false, false, "", fmt.Errorf("compaction provider unavailable")
 	})
 
 	fit := prompt.RequestTokenBudget{
@@ -880,8 +880,8 @@ func TestHandleCompaction_NoCandidate(t *testing.T) {
 		GenerationID: 1,
 		View:         ConversationViewFull,
 	})
-	p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, bool, error) {
-		return false, false, nil
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, bool, string, error) {
+		return false, false, "", nil
 	})
 	p.compactionHistory[key] = true
 
@@ -921,11 +921,11 @@ func TestHandleCompaction_SuccessfulCompactionRetries(t *testing.T) {
 		Events: output.NoopSink{},
 	}
 
-	compactFn := func(_ context.Context, _ RunRequest, state *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, compactionCount *int) (bool, bool, error) {
+	compactFn := func(_ context.Context, _ RunRequest, state *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, compactionCount *int) (bool, bool, string, error) {
 		state.Conversation = []Message{{Role: MessageRoleAssistant, Content: "compacted summary"}}
 		state.Lineage = newConversationLineage(state.Conversation)
 		*compactionCount++
-		return true, true, nil
+		return true, true, "", nil
 	}
 	p := newTurnProgressor(req, prompt.AssemblyOptions{}, compactFn)
 
@@ -1711,8 +1711,8 @@ func TestAdvance_FitFailureThenCompaction(t *testing.T) {
 		Limits: Limits{MaxTurns: 2},
 	}
 
-	compactFn := func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, bool, error) {
-		return false, false, fmt.Errorf("compaction cannot solve this request: no valid candidates")
+	compactFn := func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, bool, string, error) {
+		return false, false, "", fmt.Errorf("compaction cannot solve this request: no valid candidates")
 	}
 	p := newTurnProgressor(req, prompt.AssemblyOptions{}, compactFn)
 	outcome := p.advance(context.Background(), state)
@@ -1765,8 +1765,8 @@ func TestAdvance_FitFailureNoCompactionCandidate(t *testing.T) {
 		GenerationID: 1,
 		View:         ConversationViewFull,
 	})
-	compactFn := func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, bool, error) {
-		return false, false, nil
+	compactFn := func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, bool, string, error) {
+		return false, false, "", nil
 	}
 	p := newTurnProgressor(req, prompt.AssemblyOptions{}, compactFn)
 	p.compactionHistory[key] = true
@@ -2750,9 +2750,9 @@ func TestHandleCompaction_StatefulTranscript(t *testing.T) {
 				Events:      output.NoopSink{},
 				ModelBudget: prompt.ModelTokenBudget{ContextSize: 10, MaxCompletionTokens: 5, SummaryMaxTokens: 5},
 			}
-			p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, bool, error) {
+			p := newTurnProgressor(req, prompt.AssemblyOptions{}, func(_ context.Context, _ RunRequest, _ *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, _ *int) (bool, bool, string, error) {
 				compactCalls++
-				return true, true, nil
+				return true, true, "", nil
 			})
 
 			outcome := p.handleCompaction(context.Background(), RunState{TurnCount: 1}, tt.fit)

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -90,14 +92,21 @@ func compactionFallbackNow(req RunRequest) time.Time {
 }
 
 // compactionFallbackIdentity derives the fallback identity of mainValue for the
-// target model: the first 32 lowercase hex characters of the SHA-256 of
-// mainValue, a fixed separator, and the target's provider alias and backend
-// model ID. An empty mainValue has no identity and returns empty.
+// target model: the first 32 lowercase hex characters of the SHA-256 of the
+// length-prefixed fields mainValue, a fixed marker, the target's provider alias
+// and its backend model ID. Length prefixes keep the field boundaries
+// unambiguous whatever the field contents. An empty mainValue has no identity
+// and returns empty.
 func compactionFallbackIdentity(mainValue string, target provider.ResolvedModel) string {
 	if mainValue == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(mainValue + "\x00compaction-fallback\x00" + target.ProviderAlias + "/" + target.BackendModelID))
+	fields := []string{mainValue, "compaction-fallback", target.ProviderAlias, target.BackendModelID}
+	var encoded strings.Builder
+	for _, field := range fields {
+		encoded.WriteString(strconv.Itoa(len(field)) + ":" + field)
+	}
+	sum := sha256.Sum256([]byte(encoded.String()))
 	return hex.EncodeToString(sum[:16])
 }
 
@@ -173,6 +182,10 @@ func compactWithFallback(ctx context.Context, req RunRequest, state RunState, ru
 	if err != nil {
 		return compactionOnMainAfterFallback(ctx, req, run, err)
 	}
+	if !outcome.Applied {
+		// The target applied nothing, so no fallback summary was used.
+		return outcome, nil
+	}
 	outcome.CompactionModel = compactionModelName(target.ResolvedModel)
 	outcome.FallbackStatus = output.CompactionFallbackUsed
 	outcome.FallbackReason = compactionUsedReason(now, state.LastMainRequest, req.CompactionFallback.After)
@@ -192,7 +205,7 @@ func runCompactionOnTarget(req RunRequest, target CompactionTarget, run compacti
 // operation on main. It returns fallbackErr without a rerun when the attempt was
 // canceled or hit a run limit timeout.
 func compactionOnMainAfterFallback(ctx context.Context, req RunRequest, run compactionRun, fallbackErr error) (CompactionOutcome, error) {
-	if ctx.Err() != nil || errors.Is(fallbackErr, context.Canceled) || isLimitTimeout(ctx) {
+	if ctx.Err() != nil || errors.Is(fallbackErr, context.Canceled) {
 		return CompactionOutcome{}, fallbackErr
 	}
 	outcome, err := run(nil)

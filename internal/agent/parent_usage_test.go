@@ -256,8 +256,8 @@ func TestHandleCompactionClearsParentUsageOnlyWhenCompacted(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := newTurnProgressor(RunRequest{Provider: newClaudeLikeCompactionProvider(false)}, prompt.AssemblyOptions{}, func(context.Context, RunRequest, *RunState, int, *prompt.RequestTokenBudget, map[string]bool, *int) (bool, bool, error) {
-				return tt.compacted, tt.compacted, nil
+			p := newTurnProgressor(RunRequest{Provider: newClaudeLikeCompactionProvider(false)}, prompt.AssemblyOptions{}, func(context.Context, RunRequest, *RunState, int, *prompt.RequestTokenBudget, map[string]bool, *int) (bool, bool, string, error) {
+				return tt.compacted, tt.compacted, "", nil
 			})
 			p.lastUsage = parentUsageFixture(8000).Usage
 			state := RunState{ParentUsage: parentUsageFixture(8000)}
