@@ -69,7 +69,7 @@ func TestSessionRunnerCompactWithLineageFallbackColdDecision(t *testing.T) {
 			wantFallback: true,
 		},
 		{
-			name:   "no fallback ref stays on main when cold",
+			name:   "empty compaction_fallback never selects fallback",
 			ref:    "",
 			change: func(s *agent.LastMainRequest) { s.At = time.Time{} },
 		},

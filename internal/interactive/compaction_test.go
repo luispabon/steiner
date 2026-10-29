@@ -471,8 +471,9 @@ func TestManualCompactionClearsGenerationStateWhenProviderClears(t *testing.T) {
 }
 
 // TestManualCompactionPassesDriverLastMainRequest proves a manual compaction
-// hands the driver's last main request to the executor, and that compacting
-// leaves the driver's request, timestamp included, unchanged.
+// queued on the live driver hands the driver's last main request to the
+// executor as its seed, and that compacting leaves the driver's request,
+// timestamp included, unchanged.
 func TestManualCompactionPassesDriverLastMainRequest(t *testing.T) {
 	conv := twoTurnConversation()
 	req := agent.LastMainRequest{At: time.Unix(100, 0), ProviderAlias: "local", BackendModelID: "main-model", PromptCacheKey: "cache-key"}
@@ -489,13 +490,16 @@ func TestManualCompactionPassesDriverLastMainRequest(t *testing.T) {
 	if err := drv.WaitQuiescent(ctx); err != nil {
 		t.Fatalf("WaitQuiescent() error = %v", err)
 	}
-	drv.Close(ctx)
 	if got := drv.LastMainRequest(); got != req {
 		t.Fatalf("driver LastMainRequest = %+v, want %+v", got, req)
 	}
 
-	if _, _, err := s.manualCompaction(drv, "")(ctx, conv); err != nil {
-		t.Fatalf("manualCompaction() error = %v", err)
+	// The compaction runs on the driver goroutine once it is not generating.
+	// WaitQuiescent returns only after the queued compaction has run, so a
+	// zero seed here means the compaction never reached the executor.
+	drv.RequestCompaction(s.manualCompaction(drv, ""))
+	if err := drv.WaitQuiescent(ctx); err != nil {
+		t.Fatalf("WaitQuiescent() after compaction error = %v", err)
 	}
 	if runner.lastMainRequest != req {
 		t.Errorf("compaction LastMainRequest = %+v, want the driver's %+v", runner.lastMainRequest, req)
@@ -503,6 +507,7 @@ func TestManualCompactionPassesDriverLastMainRequest(t *testing.T) {
 	if got := drv.LastMainRequest(); got != req {
 		t.Errorf("driver LastMainRequest after compaction = %+v, want %+v", got, req)
 	}
+	drv.Close(ctx)
 }
 
 func mustCompactionSession(t *testing.T, deps Dependencies) *Session {
