@@ -117,6 +117,66 @@ func TestRunKeepsSeedWhenMainCallFails(t *testing.T) {
 	}
 }
 
+func TestRunMainCallAfterCompactionReplacesSeed(t *testing.T) {
+	t.Parallel()
+	seed := LastMainRequest{
+		At:             time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC),
+		ProviderAlias:  "openai",
+		BackendModelID: "gpt-test",
+		PromptCacheKey: "cache-key",
+	}
+	start := time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)
+	clock := &steppingClock{base: start}
+	// The first call is the compaction summary and the next call is the main
+	// model call, which succeeds. Only the main call reads the clock, so the
+	// single read must be the main call's start.
+	calls := 0
+	prov := &fakeProvider{chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+		calls++
+		if calls == 1 {
+			return provider.ChatResponse{
+				Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "handoff"},
+				FinishReason: "stop",
+			}, nil
+		}
+		return provider.ChatResponse{
+			Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "done"},
+			FinishReason: "stop",
+		}, nil
+	}}
+	req := mainRequestRun(prov, clock)
+	req.SeedLastMainRequest = seed
+	req.ModelBudget = prompt.ModelTokenBudget{
+		ContextSize:               3235,
+		MaxCompletionTokens:       32,
+		SummaryMaxTokens:          32,
+		NormalSummaryMaxTokens:    32,
+		EmergencySummaryMaxTokens: 16,
+	}
+	req.Prompt.Conversation = []provider.Message{
+		{Role: provider.MessageRoleUser, Content: strings.Repeat("initial request ", 120)},
+		{Role: provider.MessageRoleAssistant, Content: strings.Repeat("initial answer ", 96)},
+		{Role: provider.MessageRoleUser, Content: strings.Repeat("second request ", 112)},
+		{Role: provider.MessageRoleAssistant, Content: strings.Repeat("second answer ", 88)},
+	}
+	req.Limits = Limits{MaxTurns: 3}
+
+	state, err := NewRunner().Run(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got := len(state.Lineage.Generations); got < 2 {
+		t.Fatalf("lineage generations = %d, want a compaction generation", got)
+	}
+	if clock.reads != 1 {
+		t.Errorf("clock reads = %d, want 1: compaction must not read the clock", clock.reads)
+	}
+	want := LastMainRequest{At: start, ProviderAlias: "openai", BackendModelID: "gpt-test", PromptCacheKey: "cache-key"}
+	if !reflect.DeepEqual(state.LastMainRequest, want) {
+		t.Errorf("LastMainRequest = %+v, want %+v: successful main call must replace the seed", state.LastMainRequest, want)
+	}
+}
+
 func TestRunCompactionKeepsSeedWhenMainCallFails(t *testing.T) {
 	t.Parallel()
 	seed := LastMainRequest{

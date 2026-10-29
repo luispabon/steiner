@@ -42,7 +42,10 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	issuedGenerationID := state.Lineage.latestGenerationID()
 	chatRequest.BackendState = state.Lineage.latestBackendState()
 
-	startTime := p.now()
+	// Performance timing stays on the real clock. requestAt is the
+	// injected-clock start recorded in LastMainRequest.
+	startTime := time.Now()
+	requestAt := p.now()
 	response, firstChunkTime, err := completeModelCall(ctx, p.request, turn, chatRequest, assembly.Blocks, p.request.ModelBudget, &p.skipNonStream)
 	if err != nil {
 		// Check for vision capability discovery error; translate to turn-level retry.
@@ -52,11 +55,11 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		return p.handleModelCallError(ctx, state, turn, err), nil
 	}
 
-	endTime := p.now()
+	endTime := time.Now()
 	durationMs := endTime.Sub(startTime).Milliseconds()
 
 	state.LastMainRequest = LastMainRequest{
-		At:             startTime,
+		At:             requestAt,
 		ProviderAlias:  p.request.ResolvedModel.ProviderAlias,
 		BackendModelID: p.request.ResolvedModel.BackendModelID,
 		PromptCacheKey: p.request.PromptCacheKey,
