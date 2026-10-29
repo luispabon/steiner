@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/config"
@@ -411,12 +412,15 @@ func TestManualCompactionPersistsCompactSessionWithoutFollowupPrompt(t *testing.
 type lineageRecordingRunner struct {
 	runExecutorFunc
 	lineage agent.ConversationLineage
+	// lastMainRequest is the last main request the compaction was given.
+	lastMainRequest agent.LastMainRequest
 	// clearState is reported back as the summary clearing the backend state.
 	clearState bool
 }
 
-func (r *lineageRecordingRunner) CompactWithLineage(_ context.Context, conversation []agent.Message, lineage agent.ConversationLineage, _ []provider.ToolSpec, _ string) ([]agent.Message, bool, bool, error) {
+func (r *lineageRecordingRunner) CompactWithLineage(_ context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, _ []provider.ToolSpec, _ string) ([]agent.Message, bool, bool, error) {
 	r.lineage = lineage
+	r.lastMainRequest = lastMainRequest
 	return conversation, r.clearState, true, nil
 }
 
@@ -463,6 +467,41 @@ func TestManualCompactionClearsGenerationStateWhenProviderClears(t *testing.T) {
 		if gen.BackendState != nil {
 			t.Errorf("generation %d kept backend state %s, want none after the clear", gen.ID, gen.BackendState)
 		}
+	}
+}
+
+// TestManualCompactionPassesDriverLastMainRequest proves a manual compaction
+// hands the driver's last main request to the executor, and that compacting
+// leaves the driver's request, timestamp included, unchanged.
+func TestManualCompactionPassesDriverLastMainRequest(t *testing.T) {
+	conv := twoTurnConversation()
+	req := agent.LastMainRequest{At: time.Unix(100, 0), ProviderAlias: "local", BackendModelID: "main-model", PromptCacheKey: "cache-key"}
+	runner := &lineageRecordingRunner{}
+	s := mustCompactionSession(t, Dependencies{Runner: runner})
+	drv := agent.NewConversationDriver(agent.DriverOptions{
+		Run: func(context.Context, agent.DriverRunInput) (agent.DriverRunOutput, error) {
+			return agent.DriverRunOutput{Conversation: conv, LastMainRequest: req}, nil
+		},
+	}, conv, agent.ConversationLineage{})
+	ctx := context.Background()
+	drv.Start(ctx)
+	drv.Submit("third", nil, agent.SubmitMeta{})
+	if err := drv.WaitQuiescent(ctx); err != nil {
+		t.Fatalf("WaitQuiescent() error = %v", err)
+	}
+	drv.Close(ctx)
+	if got := drv.LastMainRequest(); got != req {
+		t.Fatalf("driver LastMainRequest = %+v, want %+v", got, req)
+	}
+
+	if _, _, err := s.manualCompaction(drv, "")(ctx, conv); err != nil {
+		t.Fatalf("manualCompaction() error = %v", err)
+	}
+	if runner.lastMainRequest != req {
+		t.Errorf("compaction LastMainRequest = %+v, want the driver's %+v", runner.lastMainRequest, req)
+	}
+	if got := drv.LastMainRequest(); got != req {
+		t.Errorf("driver LastMainRequest after compaction = %+v, want %+v", got, req)
 	}
 }
 

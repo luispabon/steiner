@@ -172,14 +172,16 @@ func (r cliRunner) cachedCodexWSProvider(cache *provider.CodexWSCache, rm provid
 
 func (r cliRunner) Compact(ctx context.Context, conversation []agent.Message, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
 	// Without a lineage there is no backend state to clear.
-	compacted, _, _, err := r.CompactWithLineage(ctx, conversation, agent.ConversationLineage{}, skillNames, tools, steering)
+	compacted, _, _, err := r.CompactWithLineage(ctx, conversation, agent.ConversationLineage{}, agent.LastMainRequest{}, skillNames, tools, steering)
 	return compacted, err
 }
 
 // CompactWithLineage compacts conversation for the run whose lineage is given.
 // The lineage supplies the backend state the summary request is issued against.
 // It reports whether the summary cleared that state and whether a stage applied.
-func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error) {
+// lastMainRequest is the run's last main request. It seeds the compaction
+// fallback's cold-cache check, as it does for a normal run.
+func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error) {
 	setup, err := r.prepareRun(nil, skillNames)
 	if err != nil {
 		return nil, false, false, err
@@ -201,7 +203,10 @@ func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.
 		// never promotes the baseline (see completeCompactionCall), so a normal
 		// turn is still the predecessor for the next comparison.
 		CacheBaseline: r.cacheBaseline,
+		// The seed is identity-checked against the request, as in buildRunRequest.
+		SeedLastMainRequest: lastMainRequest,
 	}
+	req.CompactionFallback = r.compactionFallback(setup, req.TransportSession, req.PromptCacheKey)
 	if r.runtime.usageRecorder != nil {
 		req.UsageRecorder = r.runtime.usageRecorder
 	}
@@ -301,6 +306,25 @@ type runHooks struct {
 	lastMainRequest agent.LastMainRequest
 }
 
+// compactionFallback returns the lazy compaction fallback for a request on
+// setup's main model. sessionID and cacheScope are the transport session and
+// prompt cache key the request was built with, so the fallback shares their
+// scope. Nothing resolves or builds until a compaction needs the fallback.
+// ProviderFactory is the runtime factory, so the oneshot claude_subscription
+// wrapper applies to fallback builds too.
+func (r cliRunner) compactionFallback(setup runnerSetup, sessionID, cacheScope string) agent.CompactionFallback {
+	cfg := r.liveConfig()
+	return delegation.NewCompactionFallback(delegation.CompactionFallbackParams{
+		Config:          &cfg,
+		Main:            setup.resolvedModel,
+		ResolveModel:    r.resolveModelFor(cfg),
+		ProviderFactory: r.runtime.providerFactory,
+		SessionID:       sessionID,
+		Targets:         r.compactionTargets,
+		CacheScope:      cacheScope,
+	})
+}
+
 func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Registry, events output.EventSink, hooks runHooks) agent.RunRequest {
 	maxTokens := setup.resolvedModel.EffectiveLimits.MaxOutputTokens
 	sandboxTmpDir := ""
@@ -377,21 +401,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	}
 	req.MaxParallelTools = r.runtime.cfg.Limits.MaxParallelTools
 	req.MaxParallelDelegations = r.runtime.cfg.SubAgent.MaxParallel
-	// The fallback is lazy: nothing resolves or builds until a compaction needs
-	// it. ProviderFactory is the runtime factory, so the oneshot claude_subscription
-	// wrapper applies to fallback builds too. SessionID and CacheScope reuse the
-	// values captured in req above, so later accessor changes cannot split the
-	// fallback from the main request.
-	cfg := r.liveConfig()
-	req.CompactionFallback = delegation.NewCompactionFallback(delegation.CompactionFallbackParams{
-		Config:          &cfg,
-		Main:            setup.resolvedModel,
-		ResolveModel:    r.resolveModelFor(cfg),
-		ProviderFactory: r.runtime.providerFactory,
-		SessionID:       req.TransportSession,
-		Targets:         r.compactionTargets,
-		CacheScope:      req.PromptCacheKey,
-	})
+	req.CompactionFallback = r.compactionFallback(setup, req.TransportSession, req.PromptCacheKey)
 	if r.runtime.usageRecorder != nil {
 		req.UsageRecorder = r.runtime.usageRecorder
 	}

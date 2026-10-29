@@ -67,7 +67,9 @@ type runExecutor interface {
 type lineageCompactor interface {
 	// CompactWithLineage reports whether the summary cleared the backend state of
 	// the lineage's latest generation, and whether a compaction stage applied.
-	CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error)
+	// lastMainRequest is the run's last main request, which decides whether a
+	// compaction fallback applies.
+	CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error)
 }
 
 // skillLoader loads a skill document by name for submit-time injection.

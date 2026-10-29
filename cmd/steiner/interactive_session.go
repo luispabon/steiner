@@ -433,9 +433,9 @@ func (r sessionRunner) Compact(ctx context.Context, conversation []agent.Message
 	return r.runner.Compact(ctx, conversation, nil, tools, steering)
 }
 
-// CompactWithLineage compacts against the run's lineage (see lineageCompactor).
-func (r sessionRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error) {
-	return r.runner.CompactWithLineage(ctx, conversation, lineage, nil, tools, steering)
+// CompactWithLineage compacts against the run's lineage and last main request (see lineageCompactor).
+func (r sessionRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error) {
+	return r.runner.CompactWithLineage(ctx, conversation, lineage, lastMainRequest, nil, tools, steering)
 }
 
 func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (interactive.RunResult, error) {
