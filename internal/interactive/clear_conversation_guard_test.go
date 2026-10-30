@@ -61,7 +61,7 @@ func newClearGuardSessionWithEvents(t *testing.T, bg *stubBackground, hook func(
 func waitForClearSession(t *testing.T, s *Session) {
 	t.Helper()
 	submitAndWait(t, s, "hi", nil)
-	waitForState(t, s, agent.DriverWaiting)
+	waitForWaiting(t, s)
 }
 
 // holdClearSession waits for a waiting driver and then holds its completions,
