@@ -104,13 +104,15 @@ func groupDiffReplay(steps []groupDiffStep, width int) string {
 }
 
 // TestGroupRenderCacheMatchesFreshReplay compares the incrementally cached
-// transcript with a fresh replay after every step, at two widths. A stale cache
-// entry shows up as a difference at the step that should have invalidated it.
+// transcript with a fresh replay after every step, at each listed width. A stale
+// cache entry shows up as a difference at the step that should have invalidated
+// it. The narrow width is listed first because it wraps each entry over the most
+// rows, which exercises the row split hardest.
 func TestGroupRenderCacheMatchesFreshReplay(t *testing.T) {
 	freezeDelegationClockAt(t)
 
 	steps := groupDiffScript()
-	for _, width := range []int{60, 100} {
+	for _, width := range raceSample([]int{60, 100}) {
 		// One model per width. The settled rows cache is keyed by width, so
 		// alternating widths would evict it before each comparison.
 		m := newContentBenchModel()
@@ -143,7 +145,7 @@ func mixedGroupSegment(t *testing.T, m *Model) *delegationGroupSegment {
 func TestSpinnerTickReusesSettledRows(t *testing.T) {
 	freezeDelegationClockAt(t)
 
-	m := mixedGroupModel(2, true)
+	m := mixedGroupModelWithMessages(2, true, mixedGroupTestMessages)
 	m.content.String(80)
 	g := mixedGroupSegment(t, m)
 	cached := reflect.ValueOf(g.settled.lines).Pointer()

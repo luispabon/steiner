@@ -47,7 +47,19 @@ func appendMixedChildWork(m *Model, id, callID string) *Model {
 // settled+1 sub-agents: the first `settled` children complete and the last one
 // stays active. Every entry is set expanded or collapsed.
 func mixedGroupModel(settled int, expanded bool) *Model {
-	m := populateLongTranscript(newContentBenchModel(), 60)
+	return mixedGroupModelWithMessages(settled, expanded, 60)
+}
+
+// mixedGroupTestMessages is the transcript length the correctness tests build.
+// The group render paths they cover do not depend on the surrounding transcript
+// length, and a short transcript keeps their race-instrumented cost low. It stays
+// long enough to hold one standalone completed delegation.
+const mixedGroupTestMessages = 10
+
+// mixedGroupModelWithMessages builds the mixed group on top of a msgs-message
+// transcript, with the same shape as mixedGroupModel.
+func mixedGroupModelWithMessages(settled int, expanded bool, msgs int) *Model {
+	m := populateLongTranscript(newContentBenchModel(), msgs)
 	for j := 0; j <= settled; j++ {
 		m = appendMixedChild(m, j, j < settled)
 	}
