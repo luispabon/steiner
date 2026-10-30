@@ -156,9 +156,11 @@ type Dependencies struct {
 	// unacknowledged sub-agents when every pending job belongs to scope and is
 	// finished. Clear consults it only while the live driver has held
 	// completions and is not busy, so an in-flight completion cannot wake the
-	// driver between the check and the swap. It returns zero on success and
-	// nonzero to refuse the clear, leaving the jobs in place. cmd/steiner wires
-	// the delegation supervisor; nil keeps the shared pending refusal for every
+	// driver between the check and the swap. It runs under the driver lock and
+	// must only touch supervisor state: it must not call driver methods, deliver
+	// completions, or emit events. It returns zero on success and nonzero to
+	// refuse the clear, leaving the jobs in place. cmd/steiner wires the
+	// delegation supervisor; nil keeps the shared pending refusal for every
 	// replacement.
 	ClearFinishedSubAgents func(scope string) int
 	// Group-scope callbacks use the runtime supervisor for interactive runs.

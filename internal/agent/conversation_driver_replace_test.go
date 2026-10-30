@@ -108,6 +108,9 @@ func TestConversationDriverReplaceWhileHeldOutcomes(t *testing.T) {
 		if _, held := h.d.State(); !held {
 			t.Fatal("replacement released the hold")
 		}
+		if !h.d.isClosing() {
+			t.Fatal("replaced driver inbox still open")
+		}
 	})
 }
 

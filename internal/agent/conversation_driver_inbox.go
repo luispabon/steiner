@@ -53,6 +53,11 @@ func (d *ConversationDriver) NotifySteer() {
 func (d *ConversationDriver) DetachSteers() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.detachSteersLocked()
+}
+
+// detachSteersLocked is DetachSteers for a caller that already holds d.mu.
+func (d *ConversationDriver) detachSteersLocked() {
 	d.opts.Steers = nil
 }
 

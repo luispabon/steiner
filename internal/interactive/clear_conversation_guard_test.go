@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
 )
 
 // setPendingStates replaces the stub's pending jobs with one job per state.
@@ -32,9 +33,15 @@ func (b *stubBackground) setPendingStates(states ...agent.SubAgentState) {
 // group scopes and, when hook is non-nil, a wired supervisor clear hook.
 func newClearGuardSession(t *testing.T, bg *stubBackground, hook func(string) int) *Session {
 	t.Helper()
+	return newClearGuardSessionWithEvents(t, bg, hook, nil)
+}
+
+func newClearGuardSessionWithEvents(t *testing.T, bg *stubBackground, hook func(string) int, baseEvents output.EventSink) *Session {
+	t.Helper()
 	var scopeMu sync.Mutex
 	nextScope := 0
 	return testNewSession(t, Dependencies{
+		BaseEvents:   baseEvents,
 		SessionStore: newMockSessionStore(),
 		Config:       guardTestConfig(),
 		Runner: newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
@@ -283,5 +290,159 @@ func TestClearConversationInFlightCompletionCannotWake(t *testing.T) {
 	}
 	if got := s.Conversation(); len(got) != 0 {
 		t.Fatalf("conversation = %#v, want empty", got)
+	}
+	if state, held := s.currentDriver().State(); state != agent.DriverIdle || held {
+		t.Fatalf("final driver state = %q held=%v, want idle", state, held)
+	}
+	if got := len(bg.Pending()); got != 0 {
+		t.Fatalf("pending = %d, want 0", got)
+	}
+}
+
+func TestRetiredDriverEventSinkDropsStateEvents(t *testing.T) {
+	h := &driverHandle{}
+	var got []output.Event
+	sink := driverEventSink{sink: output.SinkFunc(func(event output.Event) { got = append(got, event) }), h: h}
+	state := output.NewConversationStateEvent(string(agent.DriverWaiting), true, 1, false)
+	sink.Emit(state)
+	if len(got) != 1 {
+		t.Fatalf("live driver state events = %d, want 1", len(got))
+	}
+	h.stale.Store(true)
+	sink.Emit(state)
+	if len(got) != 1 {
+		t.Fatal("retired driver state event was forwarded")
+	}
+	warning := output.NewConversationWarningEvent("test", "kept")
+	sink.Emit(warning)
+	if len(got) != 2 || got[1].Type != warning.Type {
+		t.Fatalf("retired driver non-state events = %+v, want the warning forwarded", got[1:])
+	}
+}
+
+type conversationStateRecorder struct {
+	mu     sync.Mutex
+	events []output.ConversationStateEvent
+}
+
+func (r *conversationStateRecorder) Emit(event output.Event) {
+	payload, ok := event.Payload.(output.ConversationStateEvent)
+	if !ok {
+		return
+	}
+	r.mu.Lock()
+	r.events = append(r.events, payload)
+	r.mu.Unlock()
+}
+
+func (r *conversationStateRecorder) reset() {
+	r.mu.Lock()
+	r.events = nil
+	r.mu.Unlock()
+}
+
+func (r *conversationStateRecorder) snapshot() []output.ConversationStateEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]output.ConversationStateEvent(nil), r.events...)
+}
+
+func TestClearConversationDropsRetiredDriverStateEvents(t *testing.T) {
+	bg := &stubBackground{}
+	recorder := &conversationStateRecorder{}
+	hook := func(string) int {
+		bg.setPending()
+		return 0
+	}
+	s := newClearGuardSessionWithEvents(t, bg, hook, recorder)
+	bg.setPendingStates(agent.SubAgentFinished)
+	holdClearSession(t, s)
+
+	recorder.reset()
+	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
+		t.Fatalf("ClearConversation: %v", err)
+	}
+	if got := recorder.snapshot(); len(got) != 0 {
+		t.Fatalf("retired driver state events after clear = %+v, want none", got)
+	}
+}
+
+func waitForDriverState(t *testing.T, s *Session, want agent.DriverState, wantHeld bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if state, held := s.currentDriver().State(); state == want && held == wantHeld {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	state, held := s.currentDriver().State()
+	t.Fatalf("driver state = %q held=%v, want %q held=%v", state, held, want, wantHeld)
+}
+
+func waitClearDriverIdle(t *testing.T, s *Session) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.currentDriver().WaitIdle(ctx); err != nil {
+		t.Fatalf("WaitIdle: %v", err)
+	}
+}
+
+func TestClearConversationAfterInterruptAndCompletionEndsIdle(t *testing.T) {
+	bg := &stubBackground{}
+	var runs atomic.Int64
+	hook := func(string) int {
+		bg.setPending()
+		return 0
+	}
+	s := newClearGuardSession(t, bg, hook)
+	started := make(chan struct{}, 4)
+	s.SetRunner(newRunExecutorFunc(func(ctx context.Context, conv []agent.Message) (RunResult, error) {
+		runs.Add(1)
+		started <- struct{}{}
+		<-ctx.Done()
+		return RunResult{Conversation: conv}, ctx.Err()
+	}))
+	bg.setPendingStates(agent.SubAgentRunning)
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "hi"}); err != nil {
+		t.Fatalf("SubmitPrompt: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("run did not start")
+	}
+
+	if err := s.Handle(context.Background(), InterruptActiveRun{}); err != nil {
+		t.Fatalf("InterruptActiveRun: %v", err)
+	}
+	waitForDriverState(t, s, agent.DriverWaiting, true)
+
+	bg.setPendingStates(agent.SubAgentFinished)
+	s.currentDriver().DeliverCompletions([]agent.SubAgentCompletion{{
+		Seq: 1, ParentCallID: "call-agent-1", AgentID: "agent-1", AgentType: "code",
+		Status: "complete", Body: `{"output":"done"}`,
+	}})
+	waitClearDriverIdle(t, s)
+
+	old := s.currentDriver()
+	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
+		t.Fatalf("ClearConversation: %v", err)
+	}
+	if s.currentDriver() == old {
+		t.Fatal("clear did not replace the driver")
+	}
+	if state, held := s.currentDriver().State(); state != agent.DriverIdle || held {
+		t.Fatalf("final driver state = %q held=%v, want idle", state, held)
+	}
+	if got := len(bg.Pending()); got != 0 {
+		t.Fatalf("pending = %d, want 0", got)
+	}
+	if got := s.Conversation(); len(got) != 0 {
+		t.Fatalf("conversation = %#v, want empty", got)
+	}
+	if got := runs.Load(); got != 1 {
+		t.Fatalf("runs = %d, want 1: clear started a run", got)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"sync/atomic"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -20,9 +21,34 @@ type driverHandle struct {
 	// conversation. From then on the driver saves under that identity and
 	// leaves the live session state alone.
 	retired *runSessionMeta
+	// stale marks a handle a session swap has replaced. State events from a
+	// stale driver are dropped so a settling retired driver cannot overwrite
+	// the live driver's UI state.
+	stale atomic.Bool
 	// lastSaved is the last snapshot the driver saved, initially its seed. Only
 	// the driver's loop goroutine touches it after construction.
 	lastSaved *agent.DriverSnapshot
+}
+
+// driverEvents forwards a driver's events to the session, dropping conversation
+// state events from a handle that has already been replaced.
+func (s *Session) driverEvents(h *driverHandle) output.EventSink {
+	return driverEventSink{sink: s.events, h: h}
+}
+
+type driverEventSink struct {
+	sink output.EventSink
+	h    *driverHandle
+}
+
+// Emit implements output.EventSink.
+func (s driverEventSink) Emit(event output.Event) {
+	if s.h != nil && s.h.stale.Load() {
+		if _, ok := event.Payload.(output.ConversationStateEvent); ok {
+			return
+		}
+	}
+	s.sink.Emit(event)
 }
 
 // newDriverLocked builds and starts a driver over conv and lineage. The caller
@@ -45,7 +71,7 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 		Background:          s.deps.Background,
 		Steers:              s.steersForNewDriverLocked(),
 		Save:                s.driverSave(h),
-		Events:              s.events,
+		Events:              s.driverEvents(h),
 		PrepareTurn:         s.prepareTurn,
 		Clock:               s.deps.Clock,
 		MaxTokensPerEpisode: s.deps.MaxTokensPerEpisode,
@@ -68,6 +94,7 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 // pass replacementGuardLocked before swapping. The caller must call retireDriver after releasing it.
 func (s *Session) swapDriverLocked(apply func()) *driverHandle {
 	old := s.driver
+	old.stale.Store(true)
 	// The steer queue belongs to the live session: without this the old driver
 	// would drain steers meant for its successor, or for a oneshot run.
 	old.drv.DetachSteers()
@@ -78,6 +105,7 @@ func (s *Session) swapDriverLocked(apply func()) *driverHandle {
 // detached the old driver's steers, possibly while holding its lock. It must
 // not call methods on the old driver. The caller must hold s.mu.
 func (s *Session) swapDetachedDriverLocked(old *driverHandle, apply func()) *driverHandle {
+	old.stale.Store(true)
 	meta := s.sessionMetaLocked()
 	if s.deps.SnapshotGroupLedger != nil && old.groupScope != "" {
 		ledger := s.deps.SnapshotGroupLedger(old.groupScope)
