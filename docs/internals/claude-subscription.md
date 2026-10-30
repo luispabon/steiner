@@ -59,7 +59,7 @@ A new parent process restores stored state only when the stored CLI session ID, 
 
 A reseed sends the whole non-system history as one user transcript message. Images still in memory are included, and stripped image data does not return. Tool calls in the history are rendered as text.
 
-A generation whose backend state was cleared has nothing to restore, so its next request starts fresh and reseeds from the preserved conversation. Backend state is saved with the session, so a crash between retiring a process and saving the session leaves the previously persisted state on disk; the next request validates that state like any stored state.
+A generation whose backend state was cleared has nothing to restore, so its next request starts fresh and reseeds from the preserved conversation. Backend state is saved with the session, so a crash between retiring a process and saving the session can leave the previously persisted state on disk. That saved checkpoint may be older than the retired transcript, and resuming from it after such a crash is unverified.
 
 ## Compaction
 
@@ -72,7 +72,7 @@ Summary routing is owned by `claudeSubSummaryTurn` (`claudesub_turn_summary.go`)
 - Parent, when forking is not possible or fails before output (`claudeSubParentInPlace`): the summary is appended in place to the live transcript, and the process is retired.
 - Parent with no live process, or whose record cannot take the summary: the request is reseeded on an ephemeral helper with no persistence.
 
-When a live parent exists, an in-place parent summary retires it whatever the summary's outcome. `claudeSubDeliverTainted` taints the record before the first write, and `claudeSubParentInPlace` retires and releases the process afterwards, so it is never reused. The terminal chunk of a successful in-place summary carries `ClearBackendState` (`claudeSubClearOnDone`), including a summary finished by a cold reseed. A failed or cancelled in-place summary delivers no terminal chunk, so `claudeSubParentInPlace` marks its error with `markBackendStateRetired` and sets the request signal created by `provider.WithBackendStateRetirement`; `provider.BackendStateRetired` and `provider.BackendStateRetirementSignaled` report the retirement. An acquire failure, and a cold reseed with no live parent, touch no parent state and stay unmarked. A fork helper runs under `key + claudeSubSummarySuffix` and leaves the parent process and its state untouched, so it clears nothing.
+When a live parent exists, an in-place parent summary retires it whatever the summary's outcome. `claudeSubDeliverTainted` taints the record before the first write, and `claudeSubParentInPlace` retires and releases the process afterwards, so it is never reused. The terminal chunk of a successful in-place summary carries `ClearBackendState` (`claudeSubClearOnDone`). A failed or cancelled in-place summary may or may not deliver a terminal chunk, so `claudeSubParentInPlace` also marks its error with `markBackendStateRetired` and sets the request signal created by `provider.WithBackendStateRetirement`; `provider.BackendStateRetired` and `provider.BackendStateRetirementSignaled` report the retirement. An acquire failure, and a failed cold reseed with no live parent, retire nothing, so their errors stay unmarked; a successful cold reseed still carries `ClearBackendState` on its terminal chunk. A fork helper runs under `key + claudeSubSummarySuffix` and leaves the parent process and its state untouched, so it clears nothing.
 
 ## Usage gate
 
