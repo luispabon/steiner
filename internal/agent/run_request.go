@@ -146,8 +146,10 @@ type RunRequest struct {
 	// all match this run's request (see seedLastMainRequest).
 	SeedLastMainRequest LastMainRequest
 
-	// Clock supplies the request start time recorded in LastMainRequest. Nil
-	// uses the real clock.
+	// Clock supplies the request clock. It stamps the start time recorded in
+	// LastMainRequest, and it is read when judging whether the main prompt cache
+	// is presumed cold for a compaction fallback (see
+	// selectCompactionFallback). Nil uses the real clock.
 	Clock Clock
 
 	// CompactionFallback names an alternate compaction target that applies once
@@ -179,6 +181,16 @@ type RunRequest struct {
 	// conversation at each crossed turn-budget threshold. Nil disables notices.
 	// The parent interactive run never sets this; only delegated children do.
 	TurnBudgetNotice func(turnsUsed, maxTurns int) string
+}
+
+// requestNow returns the request clock's time, or the real time when req has no
+// clock. Both the request start stamped in LastMainRequest and the cold-cache
+// check that gates a compaction fallback read the clock through it.
+func requestNow(req RunRequest) time.Time {
+	if req.Clock != nil {
+		return req.Clock.Now()
+	}
+	return time.Now()
 }
 
 // LastMainRequest identifies the most recent successful main model request of

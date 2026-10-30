@@ -414,7 +414,7 @@ func (r *Runner) compactConversationForBudget(ctx context.Context, req RunReques
 
 // compactConversationForBudgetWithSteering processes the next candidate. It
 // reports whether a candidate was attempted, whether its compaction applied, and
-// the skip reason of an attempt that applied nothing, empty otherwise.
+// the fallback reason of an attempt that applied nothing, empty otherwise.
 func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int, steering string) (bool, bool, string, error) {
 	candidate, ok := selectCompactionCandidate(state.Lineage, skipped)
 	if !ok {

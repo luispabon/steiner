@@ -82,15 +82,6 @@ func selectCompactionFallback(ctx context.Context, req RunRequest, last LastMain
 	return target, true, nil
 }
 
-// compactionFallbackNow returns the request clock's time, or the real time when
-// req has no clock.
-func compactionFallbackNow(req RunRequest) time.Time {
-	if req.Clock != nil {
-		return req.Clock.Now()
-	}
-	return time.Now()
-}
-
 // compactionFallbackIdentity derives the fallback identity of mainValue for the
 // target model: the first 32 lowercase hex characters of the SHA-256 of the
 // length-prefixed fields mainValue, a fixed marker, the target's provider alias
@@ -170,7 +161,7 @@ func compactWithFallback(ctx context.Context, req RunRequest, state RunState, ru
 	if !compactionFallbackEnabled(req.CompactionFallback) {
 		return run(nil)
 	}
-	now := compactionFallbackNow(req)
+	now := requestNow(req)
 	target, selected, err := selectCompactionFallback(ctx, req, state.LastMainRequest, now)
 	if err != nil {
 		return compactionOnMainAfterFallback(ctx, req, run, err)

@@ -392,7 +392,7 @@ func TestCompactionFallbackNotAppliedIsNotLabeledUsed(t *testing.T) {
 
 // TestCompactionFallbackFailureReasonKeptWhenMainAppliesNothing checks that a
 // failed fallback whose main rerun applies nothing keeps the fallback failure as
-// the skip reason and does not report the fallback as used.
+// the fallback reason and does not report the fallback as used.
 func TestCompactionFallbackFailureReasonKeptWhenMainAppliesNothing(t *testing.T) {
 	t.Parallel()
 	r := newFallbackOperationRun(fallbackOperationNow)
@@ -536,7 +536,7 @@ func TestCompactWithLineageFallbackSeed(t *testing.T) {
 }
 
 // TestCompactWithLineageFallbackSkippedEvent checks the diagnostic of a discarded
-// fallback: main produces the summary, and the event names main with the skip reason.
+// fallback: main produces the summary, and the event names main with the fallback reason.
 func TestCompactWithLineageFallbackSkippedEvent(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
