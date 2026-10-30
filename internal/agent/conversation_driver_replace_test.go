@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -17,6 +18,11 @@ func newHeldDriverHarness(t *testing.T) *driverHarness {
 	h.d.StopTurn()
 	<-call.ctx.Done()
 	h.waitSettled(DriverWaiting, true)
+	ctx, cancel := context.WithTimeout(context.Background(), driverTestTimeout)
+	defer cancel()
+	if err := h.d.WaitIdle(ctx); err != nil {
+		t.Fatalf("WaitIdle: %v", err)
+	}
 	return h
 }
 

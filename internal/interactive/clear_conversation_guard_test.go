@@ -63,6 +63,11 @@ func holdClearSession(t *testing.T, s *Session) {
 	t.Helper()
 	waitForClearSession(t, s)
 	s.currentDriver().StopTurn()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.currentDriver().WaitIdle(ctx); err != nil {
+		t.Fatalf("WaitIdle: %v", err)
+	}
 	state, held := s.currentDriver().State()
 	if state != agent.DriverWaiting || !held {
 		t.Fatalf("driver state = %q held=%v, want waiting held", state, held)
