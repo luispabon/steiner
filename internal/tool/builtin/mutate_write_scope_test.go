@@ -91,6 +91,48 @@ func TestMutateExecutorWriteScopeAllowsDocumentationFiles(t *testing.T) {
 	assertContent(t, filepath.Join(root, "CHANGELOG"), "changes\n")
 }
 
+// TestMutateExecutorWriteScopeSymlinkedRoot proves a scope root that is itself
+// a symlink still permits a write through a link inside it: the planner
+// re-checks the link's canonical target through the same policy.
+func TestMutateExecutorWriteScopeSymlinkedRoot(t *testing.T) {
+	base := t.TempDir()
+	realRoot := filepath.Join(base, "real")
+	linkedRoot := filepath.Join(base, "rootlink")
+	if err := os.Mkdir(realRoot, 0o755); err != nil {
+		t.Fatalf("mkdir real root: %v", err)
+	}
+	mustWrite(t, filepath.Join(realRoot, "real.md"), "doc\n")
+	if err := os.Symlink("real.md", filepath.Join(realRoot, "alias.md")); err != nil {
+		t.Fatalf("symlink alias: %v", err)
+	}
+	if err := os.Symlink(realRoot, linkedRoot); err != nil {
+		t.Fatalf("symlink root: %v", err)
+	}
+
+	// projectRootOnly stays off so the scope, not the lexical root, decides:
+	// the canonical target of alias.md lives outside the linked root's spelling.
+	policy := tool.NewPathPolicy(linkedRoot, config.PathsConfig{})
+	registry := tool.NewRegistry(NewMutateTool(Env{
+		WorkDir:      linkedRoot,
+		PathPolicy:   &policy,
+		FileObserved: func(string) bool { return true },
+	}))
+	executor := tool.NewExecutor(registry, config.Config{}, nil, linkedRoot, "", tool.Unsandboxed{}).WithWriteScope(documentationWriteScope())
+
+	result, err := executeMutate(t, executor, map[string]any{
+		"operations": []any{
+			map[string]any{"type": "write", "path": "alias.md", "content": "new doc\n"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute(mutate) error = %v", err)
+	}
+	if result.OperationsApplied != 1 || result.OperationsFailed != 0 {
+		t.Fatalf("result = %#v, want 1 applied, 0 failed", result)
+	}
+	assertContent(t, filepath.Join(realRoot, "real.md"), "new doc\n")
+}
+
 func TestMutateExecutorWriteScopeDeniesOutOfScopeOperations(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -308,6 +350,8 @@ func TestMutateExecutorWriteScopeDeniesDirectoryEndpoints(t *testing.T) {
 		{name: "delete extensionless README directory", opType: "delete_file", source: "README"},
 		{name: "move directory source", opType: "move", source: "README", target: "CHANGELOG"},
 		{name: "move destination directory", opType: "move", source: "guide.md", target: "docs.md"},
+		{name: "create targeting markdown-named directory", opType: "create", source: "docs.md"},
+		{name: "write targeting markdown-named directory", opType: "write", source: "docs.md"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -322,8 +366,11 @@ func TestMutateExecutorWriteScopeDeniesDirectoryEndpoints(t *testing.T) {
 			executor := newScopedMutateExecutor(t, root)
 
 			op := map[string]any{"type": tc.opType, "path": tc.source}
-			if tc.opType == "move" {
+			switch tc.opType {
+			case "move":
 				op = map[string]any{"type": tc.opType, "from": tc.source, "to": tc.target}
+			case "create", "write":
+				op["content"] = "blocked\n"
 			}
 			_, err := executeMutate(t, executor, map[string]any{"operations": []any{op}})
 			assertPolicyDenied(t, err)

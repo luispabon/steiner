@@ -38,6 +38,10 @@ func TestWriteScopeAllows(t *testing.T) {
 		{name: "nested CHANGELOG", path: "docs/CHANGELOG", want: true},
 		{name: "nested CONTRIBUTING", path: "CONTRIBUTING", want: true},
 		{name: "multi-dot name keeps final extension", path: "docs/page.draft.md", want: true},
+		{name: "hidden file with stem", path: ".hidden.md", want: true},
+		{name: "dot only plus extension", path: ".md", want: false},
+		{name: "double dot plus extension", path: "..md", want: false},
+		{name: "nested dot only plus extension", path: "docs/.md", want: false},
 		{name: "lowercase readme", path: "readme", want: false},
 		{name: "uppercase extension", path: "README.MD", want: false},
 		{name: "txt extension", path: "README.txt", want: false},
@@ -96,6 +100,7 @@ func TestPathPolicyWriteScope(t *testing.T) {
 		{name: "go file under markdown-named directory", path: filepath.Join(root, "docs.md", "x.go"), wantAllow: false},
 		{name: "absolute path outside root", path: filepath.Join(outside, "a.md"), wantAllow: false},
 		{name: "tmp path outside root", path: "/tmp/notes.md", wantAllow: false},
+		{name: "parent traversal out of root", path: root + "/docs/../../x.md", wantAllow: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -109,7 +114,7 @@ func TestPathPolicyWriteScope(t *testing.T) {
 			if err == nil {
 				t.Fatalf("ResolvePath(%q) = %q, want denial", tc.path, got)
 			}
-			assertScopeDenial(t, err, tc.path)
+			assertScopeDenial(t, err, tc.path, testDocScope().Reason)
 		})
 	}
 }
@@ -121,7 +126,7 @@ func TestPathPolicyWriteScopeSandboxTmpRewriteDenied(t *testing.T) {
 	if _, err := policy.ResolvePath("/tmp/notes.md", true); err == nil {
 		t.Fatal("ResolvePath(/tmp/notes.md) = nil, want scope denial")
 	} else {
-		assertScopeDenial(t, err, "/tmp/notes.md")
+		assertScopeDenial(t, err, "/tmp/notes.md", testDocScope().Reason)
 	}
 }
 
@@ -180,8 +185,94 @@ func TestPathPolicyWriteScopeSymlinks(t *testing.T) {
 			if err == nil {
 				t.Fatalf("ResolvePath(%q) = nil, want scope denial", tc.path)
 			}
-			assertScopeDenial(t, err, tc.path)
+			assertScopeDenial(t, err, tc.path, testDocScope().Reason)
 		})
+	}
+}
+
+// TestPathPolicyWriteScopeSymlinkedRoot proves a scope root that is itself a
+// symlink accepts the canonical paths the mutate planner re-checks through the
+// same policy.
+func TestPathPolicyWriteScopeSymlinkedRoot(t *testing.T) {
+	base := t.TempDir()
+	realRoot := filepath.Join(base, "real")
+	linkedRoot := filepath.Join(base, "rootlink")
+	if err := os.Mkdir(realRoot, 0o755); err != nil {
+		t.Fatalf("mkdir real root: %v", err)
+	}
+	if err := os.Symlink(realRoot, linkedRoot); err != nil {
+		t.Fatalf("symlink root: %v", err)
+	}
+	realDoc := filepath.Join(realRoot, "real.md")
+	if err := os.WriteFile(realDoc, []byte("doc\n"), 0o600); err != nil {
+		t.Fatalf("write doc: %v", err)
+	}
+	policy := NewPathPolicy(linkedRoot, config.PathsConfig{}).WithWriteScope(testDocScope())
+
+	if _, err := policy.ResolvePath(filepath.Join(linkedRoot, "real.md"), true); err != nil {
+		t.Fatalf("ResolvePath(linked real.md) error = %v, want nil", err)
+	}
+	if _, err := policy.ResolvePath(realDoc, true); err != nil {
+		t.Fatalf("ResolvePath(%q) error = %v, want nil", realDoc, err)
+	}
+	goTarget := filepath.Join(realRoot, "core.go")
+	_, err := policy.ResolvePath(goTarget, true)
+	if err == nil {
+		t.Fatalf("ResolvePath(%q) = nil, want scope denial", goTarget)
+	}
+	assertScopeDenial(t, err, goTarget, testDocScope().Reason)
+	outsideDoc := filepath.Join(t.TempDir(), "notes.md")
+	if _, err := policy.ResolvePath(outsideDoc, true); err == nil {
+		t.Fatalf("ResolvePath(%q) = nil, want scope denial", outsideDoc)
+	} else {
+		assertScopeDenial(t, err, outsideDoc, testDocScope().Reason)
+	}
+}
+
+// TestPathPolicyWriteScopeDeniesDirectorySymlinkEscape proves a missing leaf
+// under a directory symlink that leaves the scope root is denied.
+func TestPathPolicyWriteScopeDeniesDirectorySymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "linkout")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	policy := NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: true}).WithWriteScope(testDocScope())
+
+	missing := filepath.Join(root, "linkout", "new.md")
+	_, err := policy.ResolvePath(missing, true)
+	if err == nil {
+		t.Fatalf("ResolvePath(%q) = nil, want scope denial", missing)
+	}
+	assertScopeDenial(t, err, missing, testDocScope().Reason)
+	if _, statErr := os.Stat(filepath.Join(outside, "new.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("escaped leaf exists after denial, stat err = %v", statErr)
+	}
+}
+
+// TestPathPolicyWriteScopeDeniesDanglingSymlink proves a dangling link is a
+// non-promptable denial rather than a write through an unnamed path.
+func TestPathPolicyWriteScopeDeniesDanglingSymlink(t *testing.T) {
+	root := t.TempDir()
+	link := filepath.Join(root, "dangling.md")
+	if err := os.Symlink(filepath.Join(root, "nowhere.go"), link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	policy := NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: true}).WithWriteScope(testDocScope())
+
+	_, err := policy.ResolvePath(link, true)
+	if err == nil {
+		t.Fatalf("ResolvePath(%q) = nil, want denial", link)
+	}
+	var policyErr *PathPolicyError
+	if !errors.As(err, &policyErr) {
+		t.Fatalf("error = %v (%T), want *PathPolicyError", err, err)
+	}
+	if policyErr.Promptable {
+		t.Fatal("PathPolicyError.Promptable = true for a dangling link, want false")
+	}
+	if !strings.Contains(policyErr.Reason, "resolve write scope path") {
+		t.Fatalf("PathPolicyError.Reason = %q, want resolution denial", policyErr.Reason)
 	}
 }
 
@@ -208,7 +299,7 @@ func TestPathPolicyWriteScopeDeniesDirectories(t *testing.T) {
 			if _, err := policy.ResolvePath(path, true); err == nil {
 				t.Fatalf("ResolvePath(%q) = nil, want directory scope denial", path)
 			} else {
-				assertScopeDenial(t, err, path)
+				assertScopeDenial(t, err, path, testDocScope().Reason)
 			}
 			if _, err := policy.ResolvePath(path, false); err != nil {
 				t.Fatalf("ResolvePath(%q, read) error = %v, want nil", path, err)
@@ -230,7 +321,7 @@ func TestPathPolicyWriteScopeSurvivesWithoutRoot(t *testing.T) {
 	if _, err := relaxed.ResolvePath(outsideDoc, true); err == nil {
 		t.Fatalf("WithoutRoot ResolvePath(%q) = nil, want scope denial", outsideDoc)
 	} else {
-		assertScopeDenial(t, err, outsideDoc)
+		assertScopeDenial(t, err, outsideDoc, testDocScope().Reason)
 	}
 	if _, err := relaxed.ResolvePath(filepath.Join(root, "x.go"), true); err == nil {
 		t.Fatal("WithoutRoot ResolvePath(root x.go) = nil, want scope denial")
@@ -251,7 +342,7 @@ func TestPathPolicyWriteScopeSurvivesRestrictWritesTo(t *testing.T) {
 	if _, err := restricted.ResolvePath(filepath.Join(root, "docs", "a.go"), true); err == nil {
 		t.Fatal("ResolvePath(docs/a.go) = nil, want scope denial")
 	} else {
-		assertScopeDenial(t, err, filepath.Join(root, "docs", "a.go"))
+		assertScopeDenial(t, err, filepath.Join(root, "docs", "a.go"), testDocScope().Reason)
 	}
 	// Outside the allowlist and inside the scope still fails the allowlist.
 	if _, err := restricted.ResolvePath(filepath.Join(root, "README.md"), true); err == nil {
@@ -266,7 +357,7 @@ func TestPathPolicyWriteScopeFailsClosedWithoutRoot(t *testing.T) {
 	if err == nil {
 		t.Fatal("ResolvePath on scope installed without root = nil, want denial")
 	}
-	assertScopeDenial(t, err, filepath.Join(dir, "notes.md"))
+	assertScopeDenial(t, err, filepath.Join(dir, "notes.md"), testDocScope().Reason)
 }
 
 func TestPathPolicyWriteScopeClonesCollections(t *testing.T) {
@@ -320,13 +411,17 @@ func TestPathPolicyWriteScopeReadInputValidationUnaffected(t *testing.T) {
 
 func TestPathPolicyWriteScopeDenialText(t *testing.T) {
 	root := t.TempDir()
+	denied := filepath.Join(root, "x.go")
 	policy := NewPathPolicy(root, config.PathsConfig{}).WithWriteScope(WriteScope{Extensions: []string{".md"}})
-	_, err := policy.ResolvePath(filepath.Join(root, "x.go"), true)
+	_, err := policy.ResolvePath(denied, true)
 	if err == nil {
 		t.Fatal("ResolvePath(x.go) = nil, want denial")
 	}
 	if !strings.Contains(err.Error(), "writes are restricted by tool policy") {
 		t.Fatalf("error = %v, want fallback denial reason", err)
+	}
+	if !strings.Contains(err.Error(), denied) {
+		t.Fatalf("error = %v, want the denied path %q in the message", err, denied)
 	}
 	var policyErr *PathPolicyError
 	if !errors.As(err, &policyErr) {
@@ -335,11 +430,24 @@ func TestPathPolicyWriteScopeDenialText(t *testing.T) {
 	if policyErr.Reason == "" {
 		t.Fatal("PathPolicyError.Reason = empty, want scope reason")
 	}
+
+	// A configured reason stays the prefix of the denial text.
+	custom := NewPathPolicy(root, config.PathsConfig{}).WithWriteScope(testDocScope())
+	_, err = custom.ResolvePath(denied, true)
+	if err == nil {
+		t.Fatal("ResolvePath(x.go) with a configured reason = nil, want denial")
+	}
+	if !strings.Contains(err.Error(), testDocScope().Reason) {
+		t.Fatalf("error = %v, want configured reason %q", err, testDocScope().Reason)
+	}
+	if !strings.Contains(err.Error(), denied) {
+		t.Fatalf("error = %v, want the denied path %q in the message", err, denied)
+	}
 }
 
-// assertScopeDenial asserts err is a non-promptable PathPolicyError carrying
-// the scope's denial reason.
-func assertScopeDenial(t *testing.T, err error, path string) {
+// assertScopeDenial asserts err is a non-promptable PathPolicyError whose
+// reason starts with wantReason.
+func assertScopeDenial(t *testing.T, err error, path, wantReason string) {
 	t.Helper()
 	var policyErr *PathPolicyError
 	if !errors.As(err, &policyErr) {
@@ -348,8 +456,8 @@ func assertScopeDenial(t *testing.T, err error, path string) {
 	if policyErr.Promptable {
 		t.Fatalf("PathPolicyError.Promptable = true for %q, want false", path)
 	}
-	if policyErr.Reason != testDocScope().Reason && policyErr.Reason != "writes are restricted by tool policy to an allowlist of file names" {
-		t.Fatalf("PathPolicyError.Reason = %q, want scope denial reason", policyErr.Reason)
+	if !strings.HasPrefix(policyErr.Reason, wantReason) {
+		t.Fatalf("PathPolicyError.Reason = %q, want prefix %q", policyErr.Reason, wantReason)
 	}
 }
 
@@ -447,7 +555,9 @@ func TestExecutorWriteScopeEmptyLeavesWritesUnrestricted(t *testing.T) {
 	if _, err := executor.Execute(context.Background(), "mutate", "c1", writeScopeMutateInput(filepath.Join(root, "x.go"))); err != nil {
 		t.Fatalf("Execute(mutate) error = %v, want nil", err)
 	}
-	if policy := gotPolicy(); policy != nil && policy.writeScope.active() {
+	if policy := gotPolicy(); policy == nil {
+		t.Fatal("handler received no effective policy")
+	} else if policy.writeScope.active() {
 		t.Fatal("empty scope was applied to the effective policy")
 	}
 }
@@ -458,7 +568,9 @@ func TestExecutorWithoutWriteScopeBehaviorUnchanged(t *testing.T) {
 	if _, err := executor.Execute(context.Background(), "mutate", "c1", writeScopeMutateInput(filepath.Join(root, "x.go"))); err != nil {
 		t.Fatalf("Execute(mutate) error = %v, want nil", err)
 	}
-	if policy := gotPolicy(); policy != nil && policy.writeScope.active() {
+	if policy := gotPolicy(); policy == nil {
+		t.Fatal("handler received no effective policy")
+	} else if policy.writeScope.active() {
 		t.Fatal("effective policy has a write scope without WithWriteScope")
 	}
 }
