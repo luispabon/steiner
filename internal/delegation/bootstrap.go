@@ -130,6 +130,10 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		MaxParallelTools:   deps.MaxParallelTools,
 		ExecutorConfig:     deps.ExecutorConfig,
 		ContextManagement:  deps.ContextManagement,
+		Config:             childFallbackConfig(deps),
+		ResolveModel:       deps.ResolveModel,
+		ProviderFactory:    deps.ProviderFactory,
+		CompactionTargets:  deps.CompactionTargets,
 	})
 	// Children own a fresh vision capability tracker rather than inheriting the
 	// parent's session tracker. SubAgentConfigured is false so a child that
@@ -229,6 +233,19 @@ func buildChildRegistries(parent *tool.Registry, allowedTools []string) (*tool.R
 	return visible, exec
 }
 
+// childFallbackConfig returns the config a child run uses for its compaction
+// fallback. When deps.CurrentEffective is set, its live assignments replace the
+// build-time Models.Effective snapshot, so a profile switch reaches children
+// built afterwards. Provider config and the rest of Config stay static. The
+// result is a copy, and deps.Config is not modified.
+func childFallbackConfig(deps SubAgentHandlerDeps) *config.Config {
+	cfg := deps.Config
+	if deps.CurrentEffective != nil {
+		cfg.Models.Effective = deps.CurrentEffective()
+	}
+	return &cfg
+}
+
 // childRunRequestParams holds the arguments needed to assemble a child
 // agent.RunRequest. It exists to avoid a long positional parameter list where
 // adjacent same-typed values (e.g. two bools, two *tool.Registry) could be
@@ -273,6 +290,12 @@ type childRunRequestParams struct {
 	// the child request, so it always ran with library defaults regardless of
 	// configured context_management settings.
 	ContextManagement config.ContextManagementConfig
+	// Config, ResolveModel, ProviderFactory and CompactionTargets feed the
+	// child's lazy compaction fallback; see NewCompactionFallback.
+	Config            *config.Config
+	ResolveModel      func(string) (provider.ResolvedModel, error)
+	ProviderFactory   func(provider.ResolvedModel, string) (provider.Provider, error)
+	CompactionTargets *CompactionFallbackTargets
 }
 
 // buildChildRunRequest assembles the agent.RunRequest for a child delegation.
@@ -331,6 +354,15 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		TransportSession:       transportSession,
 		ParentTransportSession: p.SessionID,
 	}
+	req.CompactionFallback = NewCompactionFallback(CompactionFallbackParams{
+		Config:          p.Config,
+		Main:            p.ResolvedModel,
+		ResolveModel:    p.ResolveModel,
+		ProviderFactory: p.ProviderFactory,
+		SessionID:       p.SessionID,
+		Targets:         p.CompactionTargets,
+		CacheScope:      childCacheKey,
+	})
 	if p.UsageRecorder != nil {
 		req.UsageRecorder = p.UsageRecorder
 	}

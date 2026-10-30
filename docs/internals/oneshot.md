@@ -69,6 +69,15 @@ Phases run in order: plan, implement, review. `runPhase` builds a fresh runner f
 
 `phaseDriverEvents` forwards conversation-state events to the session sink when `RegisterControl` is set (interactive runs). Headless runs drop them.
 
+Each phase creates its own driver. The driver's input is the phase's fresh seed message (`phaseConversation`, `internal/oneshot/orchestrator.go`), which is the only message in `PhaseRunInput.Conversation`. The driver starts with no history and an empty `ConversationLineage`. `PhaseRunInput` has no `LastMainRequest` field, so `ConversationDriver.LastMainRequest()` starts at zero. Within the phase, the driver carries the last successful main request across episodes (`ConversationDriver.LastMainRequest()`). A compaction that runs before the phase's first successful main call sees a zero value and treats the cache as cold. `RunResult.LastMainRequest` is returned for every phase, but no code in `internal/oneshot` reads it, so the value does not reach the next phase.
+
+`runPhaseOnDriver` returns the phase result as follows:
+
+- Success: the driver snapshot's conversation and lineage, the last assistant reply, the token total and stop reason from the phase's run record, and `LastMainRequest`.
+- Failure: a `RunResult` with only `LastMainRequest` set. Conversation, reply, lineage, token count, and stop reason are empty. The returned error is chosen in this order: `ErrEpisodeBudgetExhausted` (wrapped as `run phase`), the run record's error, `ctx.Err()`, then the wait error.
+
+Phase runners build compaction fallback providers through the wrapped `providerFactory` set in `newPhaseRunner` (`cmd/steiner/cmd_oneshot.go`). A `claude_subscription` fallback model therefore fails to build with `oneshot.ErrClaudeSubscription`. That attempt reruns on main with status `skipped` ([context management internals](context-management.md#compaction-fallback)). `RequireProviders` does not check the compaction fallback reference, so this wrapper is the only check on that path.
+
 ## Sessions
 
 `newPhaseSession` creates a session titled `<phase> phase: <task>` before the phase runs, records its ID in `phase_session_ids`, and writes the manifest. `PhaseRunInput.Session` carries the ID and a `Save` callback for that session.

@@ -172,7 +172,7 @@ func TestCLIRunnerManualCompactionSummaryNotesArchive(t *testing.T) {
 	compacted, _, _, err := r.CompactWithLineage(context.Background(), []agent.Message{
 		{Role: agent.MessageRoleUser, Content: "first request"}, {Role: agent.MessageRoleAssistant, Content: "first answer"},
 		{Role: agent.MessageRoleUser, Content: "second request"}, {Role: agent.MessageRoleAssistant, Content: "second answer"},
-	}, agent.ConversationLineage{}, nil, nil, "")
+	}, agent.ConversationLineage{}, agent.LastMainRequest{}, nil, nil, "")
 	if err != nil {
 		t.Fatalf("CompactWithLineage() error = %v", err)
 	}

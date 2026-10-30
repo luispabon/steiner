@@ -20,7 +20,7 @@ func TestFollowUpPreservesHistoryBytesAndSummaryRole(t *testing.T) {
 		{Role: agent.MessageRoleAssistant, Content: "answer", Source: "assistant-source", Retention: &agent.MessageRetention{Kind: "keep", AgentID: "child"}},
 	}
 	images := []provider.ImageBlock{{ID: "image", FilePath: "/tmp/image.png", MediaType: "image/png", Data: "payload", Width: 5, Height: 7}}
-	request := buildContinuationRequest(agent.RunRequest{}, conversation, "follow up", images, 2, Limits{MaxTurns: 3})
+	request := buildContinuationRequest(agent.RunRequest{}, conversation, agent.LastMainRequest{}, "follow up", images, 2, Limits{MaxTurns: 3})
 	want := append(agent.ReplaySafeConversation(conversation), agent.Message{
 		Role: agent.MessageRoleUser, Content: "follow up",
 		Images: []agent.ImageBlock{{ID: "image", FilePath: "/tmp/image.png", MediaType: "image/png", Data: "payload", Width: 5, Height: 7}},

@@ -367,6 +367,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		orchestrationLevelFn:     sess.OrchestrationLevel,
 		staticContext:            &prompt.StaticContextCache{},
 		cacheBaseline:            agent.NewCacheBaselineStore(),
+		compactionTargets:        delegation.NewCompactionFallbackTargets(),
 		historyArchive:           newHistoryArchive(rt.sessionStore, sess.SessionID),
 	}
 	runner.approver = sess.Approver(rt.events)
@@ -432,9 +433,9 @@ func (r sessionRunner) Compact(ctx context.Context, conversation []agent.Message
 	return r.runner.Compact(ctx, conversation, nil, tools, steering)
 }
 
-// CompactWithLineage compacts against the run's lineage (see lineageCompactor).
-func (r sessionRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error) {
-	return r.runner.CompactWithLineage(ctx, conversation, lineage, nil, tools, steering)
+// CompactWithLineage compacts against the run's lineage and last main request (see lineageCompactor).
+func (r sessionRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error) {
+	return r.runner.CompactWithLineage(ctx, conversation, lineage, lastMainRequest, nil, tools, steering)
 }
 
 func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (interactive.RunResult, error) {
@@ -451,6 +452,7 @@ func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (intera
 		lineage:              in.Lineage,
 		maxTokens:            in.MaxTokens,
 		parentUsage:          in.ParentUsage,
+		lastMainRequest:      in.LastMainRequest,
 	})
 	return interactive.RunResult{
 		Conversation:    result.Conversation,
@@ -459,5 +461,6 @@ func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (intera
 		TokenCount:      result.TokenCount,
 		StopReason:      result.StopReason,
 		ParentUsage:     result.ParentUsage,
+		LastMainRequest: result.LastMainRequest,
 	}, err
 }

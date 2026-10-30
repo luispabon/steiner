@@ -15,7 +15,8 @@ import (
 func (s *Session) manualCompaction(drv *agent.ConversationDriver, steering string) func(context.Context, []agent.Message) ([]agent.Message, agent.ConversationLineage, error) {
 	return func(ctx context.Context, conversation []agent.Message) ([]agent.Message, agent.ConversationLineage, error) {
 		lineage := drv.Snapshot().Lineage
-		compacted, cleared, ok := s.compactConversation(ctx, conversation, lineage, steering)
+		lastMainRequest := drv.LastMainRequest()
+		compacted, cleared, ok := s.compactConversation(ctx, conversation, lineage, lastMainRequest, steering)
 		if !ok {
 			return conversation, lineage, nil
 		}
@@ -33,7 +34,7 @@ func (s *Session) manualCompaction(drv *agent.ConversationDriver, steering strin
 // compactConversation runs one manual compaction. It reports the new
 // conversation, whether the provider cleared the lineage's latest backend state,
 // and whether a new conversation was produced.
-func (s *Session) compactConversation(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, steering string) ([]agent.Message, bool, bool) {
+func (s *Session) compactConversation(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, steering string) ([]agent.Message, bool, bool) {
 	if len(conversation) == 0 {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", "No conversation to compact."))
 		return nil, false, false
@@ -43,7 +44,7 @@ func (s *Session) compactConversation(ctx context.Context, conversation []agent.
 		return nil, false, false
 	}
 
-	compacted, cleared, _, err := s.runManualCompaction(ctx, s.CurrentModelAlias(), s.compactRunner(conversation, lineage, steering))
+	compacted, cleared, _, err := s.runManualCompaction(ctx, s.CurrentModelAlias(), s.compactRunner(conversation, lineage, lastMainRequest, steering))
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			s.emitCompactError(err)

@@ -23,6 +23,9 @@ type RunResult struct {
 	StopReason agent.StopReason
 	// ParentUsage is the run's last successful parent usage, in memory only.
 	ParentUsage *agent.ParentUsage
+	// LastMainRequest is the run's last main request. A failed run that returns
+	// zero keeps the driver's seeded request (see driverRun).
+	LastMainRequest agent.LastMainRequest
 }
 
 // RunInput is what the session hands a runExecutor for one turn sequence.
@@ -42,6 +45,8 @@ type RunInput struct {
 	DelegationGroupScope string
 	// ParentUsage seeds the run's stateful compaction trigger; nil starts without one.
 	ParentUsage *agent.ParentUsage
+	// LastMainRequest seeds the run's last main request; zero starts without one.
+	LastMainRequest agent.LastMainRequest
 }
 
 // runExecutor starts and manages model-in-the-loop runs. Consumer-defined to
@@ -62,7 +67,9 @@ type runExecutor interface {
 type lineageCompactor interface {
 	// CompactWithLineage reports whether the summary cleared the backend state of
 	// the lineage's latest generation, and whether a compaction stage applied.
-	CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error)
+	// lastMainRequest is the run's last main request, which decides whether a
+	// compaction fallback applies.
+	CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error)
 }
 
 // skillLoader loads a skill document by name for submit-time injection.

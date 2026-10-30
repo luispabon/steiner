@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"time"
 
 	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
@@ -140,6 +141,26 @@ type RunRequest struct {
 	// (see seedParentUsage). Nil starts without one.
 	SeedParentUsage *ParentUsage
 
+	// SeedLastMainRequest is the last main request the run resumes from. It is
+	// used only when its provider alias, backend model ID and prompt cache key
+	// all match this run's request (see seedLastMainRequest).
+	SeedLastMainRequest LastMainRequest
+
+	// Clock supplies the request clock. It stamps the start time recorded in
+	// LastMainRequest, and it is read when judging whether the main prompt cache
+	// is presumed cold for a compaction fallback (see
+	// selectCompactionFallback). Nil uses the real clock.
+	Clock Clock
+
+	// CompactionFallback names an alternate compaction target that applies once
+	// the main prompt cache is presumed cold (see selectCompactionFallback). Its
+	// zero value disables the fallback.
+	CompactionFallback CompactionFallback
+
+	// compactionFallbackTarget marks a request cloned for a fallback compaction
+	// target by compactionFallbackRequest.
+	compactionFallbackTarget bool
+
 	// Diagnostics receives cache-stream records for this run; emission is added
 	// by stage 2 of the unified-diagnostics plan (issue #707). A nil writer is
 	// a no-op, so unwired paths and tests need no special handling.
@@ -160,6 +181,26 @@ type RunRequest struct {
 	// conversation at each crossed turn-budget threshold. Nil disables notices.
 	// The parent interactive run never sets this; only delegated children do.
 	TurnBudgetNotice func(turnsUsed, maxTurns int) string
+}
+
+// requestNow returns the request clock's time, or the real time when req has no
+// clock. Both the request start stamped in LastMainRequest and the cold-cache
+// check that gates a compaction fallback read the clock through it.
+func requestNow(req RunRequest) time.Time {
+	if req.Clock != nil {
+		return req.Clock.Now()
+	}
+	return time.Now()
+}
+
+// LastMainRequest identifies the most recent successful main model request of
+// a run: when it started and the provider alias, backend model ID and prompt
+// cache key it was sent with. Compaction calls and failed calls never set it.
+type LastMainRequest struct {
+	At             time.Time
+	ProviderAlias  string
+	BackendModelID string
+	PromptCacheKey string
 }
 
 // InboxDrain is one boundary delivery to the run.

@@ -144,9 +144,10 @@ func initializeRunState(req RunRequest) RunState {
 		conversation = fromProviderMessages(req.Prompt.Conversation)
 	}
 	state := RunState{
-		Conversation: conversation,
-		Lineage:      seedRunLineage(req.SeedLineage, conversation),
-		ParentUsage:  seedParentUsage(req.SeedParentUsage, req),
+		Conversation:    conversation,
+		Lineage:         seedRunLineage(req.SeedLineage, conversation),
+		ParentUsage:     seedParentUsage(req.SeedParentUsage, req),
+		LastMainRequest: seedLastMainRequest(req.SeedLastMainRequest, req),
 	}
 	state.TurnCount = initialConversationTurnCount(conversation)
 	state.BudgetStartTurn = state.TurnCount
@@ -164,6 +165,18 @@ func seedRunLineage(seed ConversationLineage, conversation []Message) Conversati
 		return lineage
 	}
 	return lineage.withBackendState(lineage.latestGenerationID(), latest.BackendState, false)
+}
+
+// seedLastMainRequest returns seed only when its provider alias, backend model
+// ID and prompt cache key all match req. Otherwise the run starts with no
+// recorded main request.
+func seedLastMainRequest(seed LastMainRequest, req RunRequest) LastMainRequest {
+	if seed.ProviderAlias != req.ResolvedModel.ProviderAlias ||
+		seed.BackendModelID != req.ResolvedModel.BackendModelID ||
+		seed.PromptCacheKey != req.PromptCacheKey {
+		return LastMainRequest{}
+	}
+	return seed
 }
 
 func validateRunRequest(ctx context.Context, req RunRequest, state RunState) (RunState, bool, error) {

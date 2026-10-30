@@ -33,6 +33,7 @@ Compact canonical reference for safe configuration edits.
 | `providers.<name>.api_key_env`|string|—|Environment variable containing credential. |
 | `providers.<name>.headers.<key>`|string|—|One extra header value. |
 | `providers.<name>.timeout`|duration|none|Request timeout. |
+| `providers.<name>.compaction_fallback_after`|duration|`5m` anthropic, `60m` claude_subscription, `30m` openai/codex, else `0`|Cold-cache delay for runs whose main model uses this provider; `0` disables. |
 | `providers.<name>.codex.min_request_interval`|duration|`0s`|Positive values pace Codex requests. |
 | `providers.<name>.codex.transport`|string|`http`|`http` or experimental `websocket`; no HTTP fallback. |
 | `models.discovery_enabled`|bool|`true`|Discover provider models; false uses configured entries only. |
@@ -60,6 +61,7 @@ Compact canonical reference for safe configuration edits.
 | `models.definitions.<alias>.vision`|bool or null|null|Null assumes vision; false removes images. |
 | `models.profiles.<profile>.default_model`|string|none|Model and role fallback; required in every declared profile. |
 | `models.profiles.<profile>.advisor`|string|—|Advisor model. |
+| `models.profiles.<profile>.compaction_fallback`|string|none|Cold-cache compaction model; needs a positive `compaction_fallback_after` on the main model's provider; not inherited. |
 | `models.profiles.<profile>.sub_agents.<key>`|string|—|Model by `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision`. |
 | `models.profiles.<profile>.oneshot.<key>`|string|—|Model by `plan`, `implement`, or `review`; missing uses profile default. |
 | `models.profiles.<profile>.workflow_handoff.<key>`|string|—|Model by `implement`, `review`, or `build`; missing uses profile default. |

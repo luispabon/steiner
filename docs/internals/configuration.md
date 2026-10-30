@@ -59,4 +59,16 @@ Warnings are derived once from final facts (`model_warnings.go`). Only two cases
 
 `provider.Resolver` is created per interactive session or CLI run. It memoizes successful resolutions by reference plus a fingerprint of the resolved model and provider config, so an edited alias resolves again. Concurrent identical calls share one resolution. Failures are not memoized. `Invalidate` drops memoized entries and keeps the loaded models.dev index, which is parsed once (`ParseIndex`) and loaded at most once via `sync.Once`.
 
+## Compaction fallback
+
+Runtime behaviour is in [context management internals](context-management.md#compaction-fallback).
+
+- `ModelProfile.CompactionFallback` (`compaction_fallback`) is a model reference. `validateResolvedProfile` (`internal/config/profile.go`) requires it to pass `IsValidModelReference` (`internal/config/model_reference.go`). `ResolveEffectiveAssignments` copies it into `EffectiveModelAssignments.CompactionFallback`. Profile patches set it in `applyProfilePatch` (`internal/config/patch_apply.go`). There is no default, and an empty reference disables the fallback.
+- `ProviderConfig.CompactionFallbackAfter` (`compaction_fallback_after`) is a duration on the provider entry. Provider patches set it in `applyProviderPatch` (`internal/config/patch_model.go`). `appendProviderProblems` (`internal/config/validate_model.go`) rejects a negative value.
+- `Config.CompactionFallbackAfter(alias)` (`internal/config/compaction_fallback.go`) returns the delay for a provider alias. A nil config or unknown alias returns 0. An explicit value, including 0, is returned as set. An unset value uses the per-type default from `defaultCompactionFallbackAfter`.
+
+- `delegation.NewCompactionFallback` (`internal/delegation/compaction_fallback.go`) returns the disabled zero value unless `Config`, `Targets`, `ResolveModel`, and `ProviderFactory` are all non-nil, the trimmed `Config.Models.Effective.CompactionFallback` reference is non-empty, and the delay for the main model's provider alias is positive. Otherwise it returns a `CompactionFallback` whose `Resolve` runs on demand.
+- Delegated children read their config through `childFallbackConfig` (`internal/delegation/bootstrap.go`). When `CurrentEffective` is set, its result replaces `Models.Effective` in a copy of the config, so a profile switch reaches children built afterwards. Provider config is not changed.
+- `delegation.CompactionFallbackTargets` memoizes built compaction providers. It is separate from `provider.Resolver`, which memoizes model resolutions.
+
 Related: [prompt caching](prompt-caching.md), [diagnostics](diagnostics.md), [advisor](advisor.md), [MCP](mcp.md), [Claude subscription](claude-subscription.md).

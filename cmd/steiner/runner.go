@@ -56,6 +56,10 @@ type cliRunner struct {
 	// phase runner archives under that phase's session ID, set per RunPhase call.
 	// The exec runner leaves it nil, which disables archiving.
 	historyArchive agent.HistoryArchive
+	// compactionTargets is the memo owner for the lazy compaction fallback
+	// provider. Each constructor sets it once; value copies of the runner share
+	// it. A nil memo disables the fallback.
+	compactionTargets *delegation.CompactionFallbackTargets
 }
 
 type runResult = oneshot.RunResult
@@ -157,7 +161,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		err,
 	))
 	if err != nil {
-		return runResult{Conversation: state.Conversation, Lineage: state.Lineage, TokenCount: state.TokenCount, StopReason: state.StopReason, ParentUsage: state.ParentUsage}, err
+		return runResult{Conversation: state.Conversation, Lineage: state.Lineage, TokenCount: state.TokenCount, StopReason: state.StopReason, ParentUsage: state.ParentUsage, LastMainRequest: state.LastMainRequest}, err
 	}
 
 	return runResult{
@@ -169,6 +173,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 		TokenCount:      state.TokenCount,
 		StopReason:      state.StopReason,
 		ParentUsage:     state.ParentUsage,
+		LastMainRequest: state.LastMainRequest,
 	}, nil
 }
 
@@ -205,32 +210,45 @@ func cloneEvents(events []output.Event) []output.Event {
 	return out
 }
 
-func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, searcher web.Searcher, extraAllowedTools map[delegation.AgentType][]string, sandboxTmpDir string) delegation.DelegateDeps {
+// liveConfig returns the runtime config with the current effective model
+// assignments overlaid, so a session's live profile changes reach the next
+// delegation or fallback resolution.
+func (r cliRunner) liveConfig() config.Config {
 	cfg := r.runtime.cfg
 	if r.currentEffective != nil {
 		cfg.Models.Effective = r.currentEffective()
 	}
+	return cfg
+}
+
+// resolveModelFor returns a resolver for model aliases against cfg.
+func (r cliRunner) resolveModelFor(cfg config.Config) func(string) (provider.ResolvedModel, error) {
+	return func(alias string) (provider.ResolvedModel, error) {
+		resolverRuntime := r.runtime
+		resolverRuntime.cfg = cfg
+		return resolverRuntime.resolveModel(alias)
+	}
+}
+
+func (r cliRunner) newDelegateDeps(setup runnerSetup, events output.EventSink, searcher web.Searcher, extraAllowedTools map[delegation.AgentType][]string, sandboxTmpDir string) delegation.DelegateDeps {
+	cfg := r.liveConfig()
 	return delegation.DelegateDeps{
-		BaseRegistry:       r.runtime.registry,
-		SubAgentCfg:        r.runtime.cfg.SubAgent,
-		AdvisorCfg:         r.runtime.cfg.Advisor,
-		Provider:           setup.provider,
-		Events:             events,
-		WorkDir:            r.runtime.workDir,
-		HomeDir:            r.runtime.homeDir,
-		SessionID:          r.sessionID(),
-		SessionDate:        r.sessionDate(),
-		ResolvedModel:      setup.baseResolvedModel,
-		MaxTokens:          setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
-		StreamingPreferred: r.streamingPreferred,
-		TraceLogger:        r.runtime.delegationLogger,
-		Diagnostics:        r.runtime.diagnostics,
-		Config:             cfg,
-		ResolveModel: func(alias string) (provider.ResolvedModel, error) {
-			resolverRuntime := r.runtime
-			resolverRuntime.cfg = cfg
-			return resolverRuntime.resolveModel(alias)
-		},
+		BaseRegistry:                     r.runtime.registry,
+		SubAgentCfg:                      r.runtime.cfg.SubAgent,
+		AdvisorCfg:                       r.runtime.cfg.Advisor,
+		Provider:                         setup.provider,
+		Events:                           events,
+		WorkDir:                          r.runtime.workDir,
+		HomeDir:                          r.runtime.homeDir,
+		SessionID:                        r.sessionID(),
+		SessionDate:                      r.sessionDate(),
+		ResolvedModel:                    setup.baseResolvedModel,
+		MaxTokens:                        setup.resolvedModel.EffectiveLimits.MaxOutputTokens,
+		StreamingPreferred:               r.streamingPreferred,
+		TraceLogger:                      r.runtime.delegationLogger,
+		Diagnostics:                      r.runtime.diagnostics,
+		Config:                           cfg,
+		ResolveModel:                     r.resolveModelFor(cfg),
 		CurrentEffectiveModelAssignments: r.currentEffective,
 		ProviderFactory:                  r.runtime.providerFactory,
 		Searcher:                         searcher,

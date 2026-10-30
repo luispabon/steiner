@@ -59,15 +59,17 @@ func (r cliRunner) driverRun(skillNames []string, groupScope string, rec *driver
 			pendingSubAgents:     in.PendingSubAgents,
 			maxTokens:            in.MaxTokens,
 			delegationGroupScope: groupScope,
+			lastMainRequest:      in.LastMainRequest,
 		})
 		if rec != nil {
 			rec.record(res, err)
 		}
 		return agent.DriverRunOutput{
-			Conversation: res.Conversation,
-			Lineage:      res.Lineage,
-			TokenCount:   res.TokenCount,
-			StopReason:   res.StopReason,
+			Conversation:    res.Conversation,
+			Lineage:         res.Lineage,
+			TokenCount:      res.TokenCount,
+			StopReason:      res.StopReason,
+			LastMainRequest: res.LastMainRequest,
 		}, err
 	}
 }

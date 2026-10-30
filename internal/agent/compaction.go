@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -34,6 +35,17 @@ const (
 // not supported yet.
 var errStatefulCompaction = errors.New("compaction is not supported yet with the claude_subscription provider (tracked in #895); start a new session to continue")
 
+// errCompactionFallbackNotFit is returned when a summary request on a fallback
+// compaction target does not fit that target's budget. It is an error rather
+// than a skipped stage, so a caller can retry without the fallback target.
+var errCompactionFallbackNotFit = errors.New("compaction fallback summary request does not fit the fallback target budget")
+
+// errCompactionFallbackEmptySummary is returned when a summary call on a
+// fallback compaction target returns no summary text. It is an error rather
+// than a not-applied stage, so the operation reruns on main instead of
+// treating the empty summary as a no-op.
+var errCompactionFallbackEmptySummary = errors.New("fallback summary is empty")
+
 // CompactionOutcome captures the state mutation and diagnostics emitted by a
 // compaction strategy.
 type CompactionOutcome struct {
@@ -50,6 +62,17 @@ type CompactionOutcome struct {
 	Usage *provider.UsageStats
 	// StageCount is the number of compaction stages (1 or 2) executed in this outcome.
 	StageCount int
+	// CompactionModel is the canonical ProviderAlias/BackendModelID of the model
+	// that produced the summary: the fallback target when FallbackStatus is used,
+	// main when it is skipped. Empty when no fallback was selected or the
+	// selected fallback applied nothing.
+	CompactionModel string
+	// FallbackStatus is output.CompactionFallbackUsed or
+	// output.CompactionFallbackSkipped. Empty when no fallback was selected or
+	// the selected fallback applied nothing.
+	FallbackStatus string
+	// FallbackReason explains FallbackStatus.
+	FallbackReason string
 	// pendingArchive holds the sources to append to the history archive once
 	// this outcome's state is adopted.
 	pendingArchive [][]Message
@@ -73,6 +96,8 @@ type summarizeCompactionStageParams struct {
 	mode             prompt.CompactionMode
 	maxTokens        int
 	steering         string
+	// summaryReq is the request the summary call runs on. Nil means main.
+	summaryReq *RunRequest
 }
 
 func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steerings ...string) (CompactionOutcome, error) {
@@ -84,13 +109,16 @@ func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state Run
 }
 
 func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steering string) (CompactionOutcome, error) {
-	return summarizeCompactionStages{
-		stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
-			params.steering = steering
-			return summarizeCompactionStage(ctx, req, state, turn, candidate, params)
-		},
-		fitRunner: fitConversationState,
-	}.run(ctx, req, state, turn, candidate)
+	return compactWithFallback(ctx, req, state, func(summaryReq *RunRequest) (CompactionOutcome, error) {
+		return summarizeCompactionStages{
+			stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+				params.steering = steering
+				return summarizeCompactionStage(ctx, req, state, turn, candidate, params)
+			},
+			fitRunner:  fitConversationState,
+			summaryReq: summaryReq,
+		}.run(ctx, req, state, turn, candidate)
+	})
 }
 
 type compactionStageRunner func(context.Context, RunRequest, RunState, int, ConversationCandidate, summarizeCompactionStageParams) (CompactionOutcome, error)
@@ -100,6 +128,9 @@ type compactionFitRunner func(context.Context, RunRequest, RunState) (prompt.Req
 type summarizeCompactionStages struct {
 	stageRunner compactionStageRunner
 	fitRunner   compactionFitRunner
+	// summaryReq is the request the summary calls run on. Nil means main. run
+	// always checks retention and fit against its req argument.
+	summaryReq *RunRequest
 }
 
 func (s summarizeCompactionStages) run(
@@ -118,11 +149,13 @@ func (s summarizeCompactionStages) run(
 		return CompactionOutcome{}, err
 	}
 
+	summaryBudget := compactionSummaryRequest(req, s.summaryReq).ModelBudget
 	normalOutcome, err := s.stageRunner(ctx, req, state, turn, candidate, summarizeCompactionStageParams{
 		sourceMessages:   normalSource,
 		retainedMessages: normalRetained,
 		mode:             prompt.CompactionModeNormal,
-		maxTokens:        compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeNormal),
+		maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeNormal),
+		summaryReq:       s.summaryReq,
 	})
 	if err != nil {
 		return CompactionOutcome{}, err
@@ -133,7 +166,8 @@ func (s summarizeCompactionStages) run(
 			sourceMessages:   emergencySource,
 			retainedMessages: emergencyRetained,
 			mode:             prompt.CompactionModeEmergency,
-			maxTokens:        compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency),
+			maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeEmergency),
+			summaryReq:       s.summaryReq,
 		})
 		if err == nil {
 			outcome.StageCount = 1
@@ -162,7 +196,8 @@ func (s summarizeCompactionStages) run(
 		sourceMessages:   emergencySource,
 		retainedMessages: emergencyRetained,
 		mode:             prompt.CompactionModeEmergency,
-		maxTokens:        compactionSummaryMaxTokensForMode(req.ModelBudget, prompt.CompactionModeEmergency),
+		maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeEmergency),
+		summaryReq:       s.summaryReq,
 	})
 	if err == nil {
 		outcome.StageCount = 2
@@ -209,7 +244,17 @@ func (s summarizeCompactionStages) runStageAndFit(
 	return outcome, nil
 }
 
+// compactionSummaryRequest returns the request a summary call runs on: summaryReq
+// when set (a fallback target), otherwise mainReq.
+func compactionSummaryRequest(mainReq RunRequest, summaryReq *RunRequest) RunRequest {
+	if summaryReq != nil {
+		return *summaryReq
+	}
+	return mainReq
+}
+
 func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+	onFallback := params.summaryReq != nil
 	retainedFit, err := fitConversationState(ctx, req, state.WithConversation(params.retainedMessages))
 	if err != nil {
 		return CompactionOutcome{}, err
@@ -226,19 +271,28 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		return CompactionOutcome{}, err
 	}
 	if !ok {
+		if onFallback {
+			return CompactionOutcome{}, errCompactionFallbackNotFit
+		}
 		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens), nil
 	}
 
-	response, err := completeCompactionCall(ctx, req, turn, plan.request, req.ModelBudget, plan.blocks)
+	summary := compactionSummaryRequest(req, params.summaryReq)
+	response, err := completeCompactionCall(ctx, summary, turn, plan.request, summary.ModelBudget, plan.blocks)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
-	if response.ClearBackendState {
+	// A fallback summary runs on another provider's transcript, so it must not
+	// clear the main generation's backend state.
+	if response.ClearBackendState && !onFallback {
 		// An in-place summary retired the generation's live process, so the
 		// generation's stored backend state no longer names a live transcript.
 		state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), nil, true)
 	}
 
+	if onFallback && strings.TrimSpace(response.Message.Content) == "" {
+		return CompactionOutcome{}, errCompactionFallbackEmptySummary
+	}
 	summaryText := compactionSummaryText(response.Message.Content, plan.candidate)
 	if summaryText == "" {
 		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens), nil
@@ -319,8 +373,9 @@ func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage
 		steering = steerings[0]
 	}
 	state := RunState{
-		Conversation: currentConv,
-		Lineage:      newConversationLineage(currentConv),
+		Conversation:    currentConv,
+		Lineage:         newConversationLineage(currentConv),
+		LastMainRequest: seedLastMainRequest(req.SeedLastMainRequest, req),
 	}
 	state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), lineage.latestBackendState(), false)
 	startID := state.Lineage.latestGenerationID()
@@ -329,7 +384,7 @@ func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage
 	skipped := map[string]bool{}
 	compactionCount := 0
 
-	compacted, applied, err := r.compactConversationForBudgetWithSteering(ctx, req, &state, 0, nil, skipped, &compactionCount, steering)
+	compacted, applied, _, err := r.compactConversationForBudgetWithSteering(ctx, req, &state, 0, nil, skipped, &compactionCount, steering)
 	if err != nil {
 		return nil, false, false, err
 	}
@@ -354,31 +409,32 @@ func backendStateCleared(l ConversationLineage, id int, hadState bool) bool {
 	return false
 }
 
-func (r *Runner) compactConversationForBudget(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (bool, bool, error) {
+func (r *Runner) compactConversationForBudget(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int) (bool, bool, string, error) {
 	return r.compactConversationForBudgetWithSteering(ctx, req, state, turn, beforeFit, skipped, compactionCount, "")
 }
 
 // compactConversationForBudgetWithSteering processes the next candidate. It
-// reports whether a candidate was attempted and whether its compaction applied.
-func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int, steering string) (bool, bool, error) {
+// reports whether a candidate was attempted, whether its compaction applied, and
+// the fallback reason of an attempt that applied nothing, empty otherwise.
+func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, req RunRequest, state *RunState, turn int, beforeFit *prompt.RequestTokenBudget, skipped map[string]bool, compactionCount *int, steering string) (bool, bool, string, error) {
 	candidate, ok := selectCompactionCandidate(state.Lineage, skipped)
 	if !ok {
-		return false, false, nil
+		return false, false, "", nil
 	}
 
 	currentFit, err := compactionCurrentFit(ctx, req, *state, beforeFit)
 	if err != nil {
-		return false, false, err
+		return false, false, "", err
 	}
 
 	outcome, err := summarizeCompactor{}.Compact(ctx, req, *state, turn, candidate, steering)
 	if err != nil {
-		return false, false, err
+		return false, false, "", err
 	}
 
 	if !outcome.Applied {
 		skipped[compactionCandidateKey(candidate)] = true
-		return true, false, nil
+		return true, false, outcome.FallbackReason, nil
 	}
 
 	*state = outcome.State
@@ -398,10 +454,13 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 			summaryText:        outcome.SummaryText,
 			promptText:         outcome.PromptText,
 			usage:              outcome.Usage,
+			compactionModel:    outcome.CompactionModel,
+			fallbackStatus:     outcome.FallbackStatus,
+			fallbackReason:     outcome.FallbackReason,
 		})
 	}
 	skipped[compactionCandidateKey(candidate)] = true
-	return true, true, nil
+	return true, true, "", nil
 }
 
 func compactionCurrentFit(ctx context.Context, req RunRequest, state RunState, beforeFit *prompt.RequestTokenBudget) (prompt.RequestTokenBudget, error) {
@@ -425,11 +484,12 @@ func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, s
 func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, params summarizeCompactionStageParams) (compactionExecutionPlan, error) {
 	workingCandidate := candidate
 	workingCandidate.Messages = stripImages(cloneMessages(params.sourceMessages))
-	request, blocks, promptText, err := buildCompactionRequestWithMode(ctx, req, state, workingCandidate, params.mode, params.maxTokens, params.steering)
+	summary := compactionSummaryRequest(req, params.summaryReq)
+	request, blocks, promptText, err := buildCompactionRequestWithMode(ctx, summary, state, workingCandidate, params.mode, params.maxTokens, params.steering)
 	if err != nil {
 		return compactionExecutionPlan{}, err
 	}
-	fit, err := req.ModelBudget.FitCompactionRequest(ctx, request)
+	fit, err := summary.ModelBudget.FitCompactionRequest(ctx, request)
 	if err != nil {
 		return compactionExecutionPlan{}, err
 	}

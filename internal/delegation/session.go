@@ -112,6 +112,21 @@ type SubAgentHandlerDeps struct {
 	// AdvisorSubAgentBudget is the configured per-child advisor budget, from
 	// config.AdvisorConfig.MaxUsesPerSubAgent. Used to populate Result.AdvisorBudget.
 	AdvisorSubAgentBudget int
+	// Config supplies the cold-cache delay and, when CurrentEffective is nil, the
+	// compaction fallback ref for child runs.
+	Config config.Config
+	// CurrentEffective, when non-nil, supplies the live effective assignments read
+	// when each child run is built, so a profile switch changes the child's
+	// compaction fallback ref. Nil uses Config.Models.Effective.
+	CurrentEffective func() config.EffectiveModelAssignments
+	// ResolveModel and ProviderFactory build the lazy compaction fallback target
+	// for child runs; see NewCompactionFallback. A nil ResolveModel,
+	// ProviderFactory, or CompactionTargets disables the fallback for child runs.
+	ResolveModel    func(string) (provider.ResolvedModel, error)
+	ProviderFactory func(provider.ResolvedModel, string) (provider.Provider, error)
+	// CompactionTargets memoizes compaction fallback targets for the registry that
+	// owns these deps.
+	CompactionTargets *CompactionFallbackTargets
 }
 
 // ChildSession tracks persisted state for a delegated child session.
@@ -126,6 +141,10 @@ type ChildSession struct {
 	// Remediation is set only for code sessions with a successfully provisioned worktree.
 	Remediation   *RemediationConfig
 	FollowUpCount int
+	// LastMainRequest is the child's last successful main request. Follow-ups and
+	// remediation seed their runs with it so compaction fallback sees the prior
+	// cache warmth.
+	LastMainRequest agent.LastMainRequest
 }
 
 // SessionStore provides concurrent-safe access to child sessions by agent ID.
@@ -169,11 +188,12 @@ func (s *SessionStore) Get(id string) (*ChildSession, bool) {
 
 // SessionUpdateParams carries the deltas applied by SessionStore.Update.
 type SessionUpdateParams struct {
-	Conversation  []agent.Message
-	TurnCount     int
-	TokenCount    int
-	ToolCallCount int
-	TokenUsage    TokenUsage
+	Conversation    []agent.Message
+	TurnCount       int
+	TokenCount      int
+	ToolCallCount   int
+	TokenUsage      TokenUsage
+	LastMainRequest agent.LastMainRequest
 }
 
 // Invalidate permanently prevents saving or updating a session for id until Reset.
@@ -185,7 +205,7 @@ func (s *SessionStore) Invalidate(id string) {
 	s.tombstones[id] = struct{}{}
 }
 
-// Update replaces the conversation and accumulates session usage counters.
+// Update replaces the conversation and last main request and accumulates session usage counters.
 func (s *SessionStore) Update(id string, params SessionUpdateParams) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -199,6 +219,7 @@ func (s *SessionStore) Update(id string, params SessionUpdateParams) bool {
 	}
 
 	session.Conversation = params.Conversation
+	session.LastMainRequest = params.LastMainRequest
 	session.TurnCount += params.TurnCount
 	session.TokenCount += params.TokenCount
 	session.ToolCallCount += params.ToolCallCount
@@ -227,13 +248,14 @@ func (s *SessionStore) Count() int {
 
 func saveChildSession(store *SessionStore, spec Spec, req agent.RunRequest, state agent.RunState, cache TokenUsage, remediation *RemediationConfig) bool {
 	return store.Save(&ChildSession{
-		Spec:          spec,
-		Request:       req,
-		Conversation:  state.Conversation,
-		TurnCount:     state.TurnCount,
-		TokenCount:    state.TokenCount,
-		ToolCallCount: countToolCalls(state.Conversation),
-		TokenUsage:    cache,
-		Remediation:   remediation,
+		Spec:            spec,
+		Request:         req,
+		Conversation:    state.Conversation,
+		TurnCount:       state.TurnCount,
+		TokenCount:      state.TokenCount,
+		ToolCallCount:   countToolCalls(state.Conversation),
+		TokenUsage:      cache,
+		Remediation:     remediation,
+		LastMainRequest: state.LastMainRequest,
 	})
 }

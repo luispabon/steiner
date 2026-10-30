@@ -29,6 +29,7 @@ func applyProviderPatch(dst *ProviderConfig, patch *providerPatch) {
 	setIfPresent(&dst.APIKeyEnv, patch.APIKeyEnv)
 	setIfPresent(&dst.Headers, patch.Headers)
 	setIfPresent(&dst.Timeout, patch.Timeout)
+	setIfPresent(&dst.CompactionFallbackAfter, patch.CompactionFallbackAfter)
 	if patch.Codex != nil {
 		applyCodexPatch(&dst.Codex, patch.Codex)
 	}

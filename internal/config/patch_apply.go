@@ -69,6 +69,9 @@ func applyProfilePatch(dst *ModelProfile, patch *profilePatch) {
 	if patch.Advisor != nil {
 		dst.Advisor = *patch.Advisor
 	}
+	if patch.CompactionFallback != nil {
+		dst.CompactionFallback = *patch.CompactionFallback
+	}
 	if patch.SubAgents != nil {
 		mergeStringMapPatch(&dst.SubAgents, *patch.SubAgents)
 	}

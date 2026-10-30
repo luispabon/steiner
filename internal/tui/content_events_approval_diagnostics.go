@@ -170,6 +170,11 @@ func (b *contentBuffer) appendProviderDiagnosticEvent(event output.Event) {
 
 func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 	b.finishStreaming()
+	// A scoped event that reaches this point has no delegation binding. It must
+	// not update the orchestrator banner.
+	if event.Scope.AgentID != "" {
+		return
+	}
 	payload, ok := output.AsContextCompactionEvent(event.Payload)
 	if ok {
 		b.handleCompactionDiagnostics(payload)
@@ -194,6 +199,7 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompac
 			finished:        true,
 			skipped:         true,
 			compactionCount: payload.CompactionCount,
+			fallbackNote:    compactionFallbackNote(payload),
 		})
 		return
 	}
@@ -230,7 +236,21 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompac
 		cacheReadTokens:   payload.CacheReadTokens,
 		inputTokens:       payload.InputTokens,
 		cacheCreateTokens: payload.CacheCreateTokens,
+		fallbackNote:      compactionFallbackNote(payload),
 	})
+}
+
+// compactionFallbackNote returns the banner note for a reported fallback status,
+// or "" when the event carries no fallback status.
+func compactionFallbackNote(payload output.ContextCompactionEvent) string {
+	switch payload.FallbackStatus {
+	case output.CompactionFallbackUsed:
+		return fmt.Sprintf("via %s (%s)", payload.CompactionModel, payload.FallbackReason)
+	case output.CompactionFallbackSkipped:
+		return fmt.Sprintf("fallback skipped: %s", payload.FallbackReason)
+	default:
+		return ""
+	}
 }
 
 // finishElapsed returns a formatted elapsed string using the startTime from the

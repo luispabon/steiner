@@ -19,7 +19,7 @@ const configureReferenceHeading = "## Configure Skill Reference"
 // skill loads into context. It is a budget, not a hard limit of the format:
 // raise it deliberately when a new config section lands (the drift check below
 // requires every canonical path to appear), never to paper over prose creep.
-const maxConfigureReferenceBytes = 13_824
+const maxConfigureReferenceBytes = 13_952
 
 func TestConfigureSkillIsEmbeddedAndCoversCanonicalConfig(t *testing.T) {
 	loader := skill.Loader{BundledFS: skills.FS}

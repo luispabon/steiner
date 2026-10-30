@@ -32,21 +32,23 @@ type modelsPatch struct {
 }
 
 type profilePatch struct {
-	DefaultModel    *string            `yaml:"default_model"`
-	Advisor         *string            `yaml:"advisor"`
-	SubAgents       *map[string]string `yaml:"sub_agents"`
-	OneShot         *map[string]string `yaml:"oneshot"`
-	WorkflowHandoff *map[string]string `yaml:"workflow_handoff"`
+	DefaultModel       *string            `yaml:"default_model"`
+	Advisor            *string            `yaml:"advisor"`
+	CompactionFallback *string            `yaml:"compaction_fallback"`
+	SubAgents          *map[string]string `yaml:"sub_agents"`
+	OneShot            *map[string]string `yaml:"oneshot"`
+	WorkflowHandoff    *map[string]string `yaml:"workflow_handoff"`
 }
 
 type providerPatch struct {
-	Type      *ProviderType      `yaml:"type"`
-	BaseURL   *string            `yaml:"base_url"`
-	APIKey    *string            `yaml:"api_key"`
-	APIKeyEnv *string            `yaml:"api_key_env"`
-	Headers   *map[string]string `yaml:"headers"`
-	Timeout   *Duration          `yaml:"timeout"`
-	Codex     *codexPatch        `yaml:"codex"`
+	Type                    *ProviderType      `yaml:"type"`
+	BaseURL                 *string            `yaml:"base_url"`
+	APIKey                  *string            `yaml:"api_key"`
+	APIKeyEnv               *string            `yaml:"api_key_env"`
+	Headers                 *map[string]string `yaml:"headers"`
+	Timeout                 *Duration          `yaml:"timeout"`
+	CompactionFallbackAfter *Duration          `yaml:"compaction_fallback_after"`
+	Codex                   *codexPatch        `yaml:"codex"`
 }
 
 type codexPatch struct {

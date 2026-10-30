@@ -205,6 +205,11 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 		CompactionSummary:        true,
 		CompactionSourceMessages: sourceMessages,
 	}
+	if req.compactionFallbackTarget {
+		// A fallback target has no backend state of its own; the main
+		// generation's state belongs to the main provider's transcript.
+		request.BackendState = nil
+	}
 	request = applyPromptSuffix(req.ResolvedModel.PromptSuffix, request)
 	request.IncludeEmptyReasoning = req.ResolvedModel.ReasoningEchoBack
 	if !req.ResolvedModel.ReasoningEchoBack {

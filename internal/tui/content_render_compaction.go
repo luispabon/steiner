@@ -33,7 +33,12 @@ func (b *contentBuffer) compactionBoxRows(cd *compactionBannerData, width int) [
 	if innerWidth < 1 {
 		innerWidth = 1
 	}
-	return []string{b.renderCompactionHeader(cd, innerWidth)}
+	rows := []string{b.renderCompactionHeader(cd, innerWidth)}
+	// The note is flattened and cut to innerWidth so it stays one row.
+	if note := truncateOverlayText(cd.fallbackNote, innerWidth); note != "" {
+		rows = append(rows, b.styles.FgMute.Render(note))
+	}
+	return rows
 }
 
 // renderCompactionHeader renders the single header line of the compaction box.

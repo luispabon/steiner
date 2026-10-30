@@ -138,6 +138,9 @@ func appendProviderProblems(problems *[]string, name string, p ProviderConfig) {
 	}
 	appendClaudeSubscriptionProblems(problems, name, p)
 	appendCodexTransportProblems(problems, name, p)
+	if p.CompactionFallbackAfter.Duration() < 0 {
+		*problems = append(*problems, fmt.Sprintf("providers[%q].compaction_fallback_after must not be negative", name))
+	}
 }
 
 // claudeSubscriptionRejectedFields lists the provider fields claude_subscription

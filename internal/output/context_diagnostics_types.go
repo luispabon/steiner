@@ -6,6 +6,12 @@ import "time"
 // reports a failed session save.
 const SessionHealthScopeSave = "session_save"
 
+// CompactionFallbackUsed is the FallbackStatus of a compaction that ran on the fallback model.
+const CompactionFallbackUsed = "used"
+
+// CompactionFallbackSkipped is the FallbackStatus of a compaction that did not use the fallback model.
+const CompactionFallbackSkipped = "skipped"
+
 // ContextDiagnosticsEvent is the legacy kitchen-sink diagnostic payload kept
 // as a compatibility constructor/input shape while typed sub-events replace it
 // as the emitted payloads.
@@ -54,6 +60,9 @@ type ContextDiagnosticsEvent struct {
 	RetainedRawTurns          int      `json:"retained_raw_turns,omitempty"`
 	SummaryTokenBudget        int      `json:"summary_token_budget,omitempty"`
 	ThresholdAchieved         bool     `json:"threshold_achieved,omitempty"`
+	CompactionModel           string   `json:"compaction_model,omitempty"`
+	FallbackStatus            string   `json:"fallback_status,omitempty"`
+	FallbackReason            string   `json:"fallback_reason,omitempty"`
 	Notes                     []string `json:"notes,omitempty"`
 }
 
@@ -97,6 +106,9 @@ type ContextCompactionEvent struct {
 	RetainedRawTurns          int      `json:"retained_raw_turns,omitempty"`
 	SummaryTokenBudget        int      `json:"summary_token_budget,omitempty"`
 	ThresholdAchieved         bool     `json:"threshold_achieved,omitempty"`
+	CompactionModel           string   `json:"compaction_model,omitempty"`
+	FallbackStatus            string   `json:"fallback_status,omitempty"`
+	FallbackReason            string   `json:"fallback_reason,omitempty"`
 	Notes                     []string `json:"notes,omitempty"`
 }
 
@@ -225,6 +237,9 @@ func (payload ContextCompactionEvent) toLegacyContextDiagnostics() ContextDiagno
 		RetainedRawTurns:          payload.RetainedRawTurns,
 		SummaryTokenBudget:        payload.SummaryTokenBudget,
 		ThresholdAchieved:         payload.ThresholdAchieved,
+		CompactionModel:           payload.CompactionModel,
+		FallbackStatus:            payload.FallbackStatus,
+		FallbackReason:            payload.FallbackReason,
 		Notes:                     append([]string(nil), payload.Notes...),
 	}
 }
@@ -340,6 +355,9 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			RetainedRawTurns:          payload.RetainedRawTurns,
 			SummaryTokenBudget:        payload.SummaryTokenBudget,
 			ThresholdAchieved:         payload.ThresholdAchieved,
+			CompactionModel:           payload.CompactionModel,
+			FallbackStatus:            payload.FallbackStatus,
+			FallbackReason:            payload.FallbackReason,
 			Notes:                     append([]string(nil), payload.Notes...),
 		}
 	case "session_health":

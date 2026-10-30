@@ -229,6 +229,78 @@ func TestProfilePatchPresenceAndMapMerge(t *testing.T) {
 	}
 }
 
+func TestResolveEffectiveAssignmentsCompactionFallback(t *testing.T) {
+	tests := []struct {
+		name     string
+		fallback string
+		want     string
+	}{
+		{name: "alias reference", fallback: "fast", want: "fast"},
+		{name: "provider reference", fallback: "local/raw-model", want: "local/raw-model"},
+		{name: "unset stays empty", fallback: "", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := testProfileConfig()
+			profile := cfg.Models.Profiles["default"]
+			profile.CompactionFallback = tt.fallback
+			cfg.Models.Profiles["default"] = profile
+
+			got, err := ResolveEffectiveAssignments(&cfg, "default")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.CompactionFallback != tt.want {
+				t.Fatalf("CompactionFallback = %q, want %q", got.CompactionFallback, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveEffectiveAssignmentsCompactionFallbackFollowsActiveProfile(t *testing.T) {
+	cfg := testProfileConfig()
+	defaultProfile := cfg.Models.Profiles["default"]
+	defaultProfile.CompactionFallback = "fast"
+	cfg.Models.Profiles["default"] = defaultProfile
+	cfg.Models.Profiles["solo"] = ModelProfile{DefaultModel: "base"}
+
+	got, err := ResolveEffectiveAssignments(&cfg, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CompactionFallback != "fast" {
+		t.Fatalf("default profile CompactionFallback = %q, want fast", got.CompactionFallback)
+	}
+
+	got, err = ResolveEffectiveAssignments(&cfg, "solo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CompactionFallback != "" {
+		t.Fatalf("solo profile CompactionFallback = %q, want empty (no default_model or default profile fallback)", got.CompactionFallback)
+	}
+}
+
+func TestCompactionFallbackReferenceValidation(t *testing.T) {
+	cfg := testProfileConfig()
+	profile := cfg.Models.Profiles["fast"]
+	profile.CompactionFallback = "missing"
+	cfg.Models.Profiles["fast"] = profile
+	wantPath := `models.profiles["fast"].compaction_fallback`
+
+	if _, err := ResolveProfile(&cfg, "fast"); err == nil || !strings.Contains(err.Error(), wantPath) {
+		t.Fatalf("ResolveProfile() error = %v, want path %s", err, wantPath)
+	}
+	if _, err := ResolveEffectiveAssignments(&cfg, "fast"); err == nil || !strings.Contains(err.Error(), wantPath) {
+		t.Fatalf("ResolveEffectiveAssignments() error = %v, want path %s", err, wantPath)
+	}
+	var problems []string
+	validateProfilesConfig(&problems, cfg)
+	if got := strings.Join(problems, "; "); !strings.Contains(got, wantPath) {
+		t.Fatalf("validation problems = %q, want path %s", got, wantPath)
+	}
+}
+
 func TestResolveEffectiveAssignmentsCopiesMaps(t *testing.T) {
 	cfg := testProfileConfig()
 	got, err := ResolveEffectiveAssignments(&cfg, "default")

@@ -86,14 +86,21 @@ func emitCompactionStartedEvent(sink output.EventSink, turn int) {
 
 // emitCompactionSkippedEvent closes a started compaction when no stage applied,
 // so consumers clear the compacting state without reporting a compaction.
-func emitCompactionSkippedEvent(sink output.EventSink, turn int) {
-	emitEvent(sink, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+// fallbackReason explains a discarded fallback and is empty otherwise. A
+// non-empty fallbackReason reports the fallback as skipped.
+func emitCompactionSkippedEvent(sink output.EventSink, turn int, fallbackReason string) {
+	payload := output.ContextDiagnosticsEvent{
 		Kind:     "compaction",
 		Scope:    "conversation",
 		Turn:     turn,
 		Severity: "skipped",
 		Notes:    []string{"compaction skipped: no stage applied"},
-	}))
+	}
+	if fallbackReason != "" {
+		payload.FallbackStatus = output.CompactionFallbackSkipped
+		payload.FallbackReason = fallbackReason
+	}
+	emitEvent(sink, output.NewContextDiagnosticsEvent(payload))
 }
 
 type compactionDiagnosticsParams struct {
@@ -108,6 +115,9 @@ type compactionDiagnosticsParams struct {
 	summaryText        string
 	promptText         string
 	usage              *provider.UsageStats
+	compactionModel    string
+	fallbackStatus     string
+	fallbackReason     string
 }
 
 func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosticsParams) {
@@ -172,6 +182,9 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		EstimatorPadTokens:        params.afterFit.SafetyMarginTokens,
 		Status:                    requestTokenBudgetStatus(params.afterFit),
 		Truncated:                 params.afterFit.ContextSize > 0 && params.afterFit.TotalTokens > params.afterFit.ContextSize,
+		CompactionModel:           params.compactionModel,
+		FallbackStatus:            params.fallbackStatus,
+		FallbackReason:            params.fallbackReason,
 		Notes:                     notes,
 	}))
 	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", params.turn, params.compactionCount, escalation.Severity, escalation.SessionState, escalation.RestartGuidance, notes...))

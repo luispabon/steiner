@@ -22,6 +22,7 @@ func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope 
 		MaxTokens:            in.MaxTokens,
 		DelegationGroupScope: scope,
 		ParentUsage:          in.ParentUsage,
+		LastMainRequest:      in.LastMainRequest,
 	})
 	if err != nil {
 		var reported *agent.ReportedError
@@ -37,12 +38,16 @@ func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope 
 		}
 	}
 
+	// The driver adopts the output even on error (it receives a nil error), so
+	// its last-main-request carry rule is applied here.
+	lastMainRequest := agent.CarryLastMainRequest(in.LastMainRequest, result.LastMainRequest, err)
 	out := agent.DriverRunOutput{
-		Conversation: result.Conversation,
-		TokenCount:   result.TokenCount,
-		StopReason:   result.StopReason,
-		SkipAdoption: result.WorkflowHandoff != nil,
-		ParentUsage:  result.ParentUsage,
+		Conversation:    result.Conversation,
+		TokenCount:      result.TokenCount,
+		StopReason:      result.StopReason,
+		SkipAdoption:    result.WorkflowHandoff != nil,
+		ParentUsage:     result.ParentUsage,
+		LastMainRequest: lastMainRequest,
 	}
 	runLineage := result.Lineage
 	// A run that returns no lineage falls back to its conversation. That fallback

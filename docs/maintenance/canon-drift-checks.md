@@ -40,7 +40,7 @@ Only `delegationInstructions` in `internal/prompt/system.go`, and the template i
 
 `delegation.md.tmpl` contains two level-guarded sections, `## Your role` and `## Delegation vs direct work`, that are omitted when `sub_agent.orchestration_level: low`; the remaining sections (roster, continuing sub-agents, briefing) render at every level.
 
-The compact configuration reference lives only in `skills/configure/SKILL.md`, which owns the bundled skill's self-contained copy. `skills/configure_test.go` verifies real embedded discovery, exactly one reference heading, the 12,288-byte limit, and coverage of reflected `config.Config` schema paths. The bundled skill budget check above ensures every bundled skill fits the shared assembly budget without truncation.
+The compact configuration reference lives only in `skills/configure/SKILL.md`, which owns the bundled skill's self-contained copy. `skills/configure_test.go` verifies real embedded discovery, exactly one reference heading, the 13,952-byte limit, and coverage of reflected `config.Config` schema paths. The bundled skill budget check above ensures every bundled skill fits the shared assembly budget without truncation.
 
 ## Consumer files
 

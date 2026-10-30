@@ -119,18 +119,22 @@ func runPhaseOnDriver(ctx context.Context, in oneshot.PhaseRunInput, host phaseD
 		host.shutdown(settleCtx, delegation.CancelCauseSystem)
 	}
 	driver.Close(settleCtx)
+	// Close settles the driver, so the carried request is final here. A failed
+	// phase returns it too, as RunResult documents.
+	lastMainRequest := driver.LastMainRequest()
 	if failure != nil {
-		return oneshot.RunResult{}, failure
+		return oneshot.RunResult{LastMainRequest: lastMainRequest}, failure
 	}
 
 	snap := driver.Snapshot()
 	tokens, stop := host.record.totals()
 	return oneshot.RunResult{
-		Conversation: snap.Conversation,
-		Reply:        lastAssistantReply(snap.Conversation),
-		Lineage:      snap.Lineage,
-		TokenCount:   tokens,
-		StopReason:   stop,
+		Conversation:    snap.Conversation,
+		Reply:           lastAssistantReply(snap.Conversation),
+		Lineage:         snap.Lineage,
+		TokenCount:      tokens,
+		StopReason:      stop,
+		LastMainRequest: lastMainRequest,
 	}, nil
 }
 
