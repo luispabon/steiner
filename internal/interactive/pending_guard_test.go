@@ -51,17 +51,17 @@ func (b *stubBackground) setPending(ids ...string) {
 	}
 }
 
-func waitForState(t *testing.T, s *Session, want agent.DriverState) {
+func waitForWaiting(t *testing.T, s *Session) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if got, _ := s.currentDriver().State(); got == want {
+		if got, _ := s.currentDriver().State(); got == agent.DriverWaiting {
 			return
 		}
 		time.Sleep(time.Millisecond)
 	}
 	got, _ := s.currentDriver().State()
-	t.Fatalf("driver state = %q, want %q", got, want)
+	t.Fatalf("driver state = %q, want %q", got, agent.DriverWaiting)
 }
 
 func newWaitingSession(t *testing.T, runner runExecutor, bg *stubBackground) *Session {
@@ -71,7 +71,7 @@ func newWaitingSession(t *testing.T, runner runExecutor, bg *stubBackground) *Se
 	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig(), Runner: runner, Background: bg})
 	bg.setPending("a")
 	submitAndWait(t, s, "hi", nil)
-	waitForState(t, s, agent.DriverWaiting)
+	waitForWaiting(t, s)
 	return s
 }
 
@@ -403,7 +403,7 @@ func TestCompactionWhileWaitingRunsAndCompletionFollows(t *testing.T) {
 	s.SetConversation(twoTurnConversation())
 	bg.setPending("a")
 	submitAndWait(t, s, "hi", nil)
-	waitForState(t, s, agent.DriverWaiting)
+	waitForWaiting(t, s)
 
 	if err := s.Handle(context.Background(), TriggerManualCompaction{}); err != nil {
 		t.Fatalf("compaction while waiting: %v", err)
