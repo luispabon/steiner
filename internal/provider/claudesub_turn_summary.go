@@ -70,10 +70,12 @@ func claudeSubParentInPlace(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	// The in-place summary is part of the live transcript now, so the process is
 	// retired. A no-place result retires it too, before the reseed.
 	pool.retireAndRelease(key, live)
+	// Every failure from here on leaves the generation without backend state,
+	// so the caller is told to drop it rather than reuse it.
 	if errors.Is(err, errClaudeSubSummaryNoPlace) {
-		return claudeSubReseedSummary(ctx, pool, req, key, spec, emit)
+		return markBackendStateRetired(claudeSubReseedSummary(ctx, pool, req, key, spec, emit))
 	}
-	return err
+	return markBackendStateRetired(err)
 }
 
 // claudeSubForkSource is what a summary fork starts from: the stored CLI
