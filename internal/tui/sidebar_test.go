@@ -73,7 +73,7 @@ func TestSyncSidebarUsesParentOnlySessionReport(t *testing.T) {
 	// combined with t.Parallel().
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(1000, 0)
-	rec := usagestats.New(func() time.Time { return now })
+	rec := newUsageRecorder(t, func() time.Time { return now })
 
 	// Parent observation: 0% cache hit rate (no cache reads).
 	rec.Record(usagestats.Observation{
@@ -114,7 +114,7 @@ func TestSyncSidebarUsesParentOnlySessionReport(t *testing.T) {
 func TestClearConversationStateResetsCacheStats(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(1000, 0)
-	rec := usagestats.New(func() time.Time { return now })
+	rec := newUsageRecorder(t, func() time.Time { return now })
 	rec.Record(usagestats.Observation{
 		PromptTokens:    100,
 		CacheReadTokens: 100,
@@ -148,7 +148,7 @@ func TestClearConversationStateResetsCacheStats(t *testing.T) {
 func TestPerformClearConversationStatePreservesCacheStats(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(1000, 0)
-	rec := usagestats.New(func() time.Time { return now })
+	rec := newUsageRecorder(t, func() time.Time { return now })
 	rec.Record(usagestats.Observation{
 		PromptTokens:    100,
 		CacheReadTokens: 100,

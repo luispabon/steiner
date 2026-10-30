@@ -169,6 +169,10 @@ var buildRuntime = defaultBuildRuntime
 // snapshots to reach the store.
 var quotaDrainTimeout = 5 * time.Second
 
+// usageStatsDrainTimeout bounds how long runtime teardown waits for queued usage
+// deltas to reach the cache-stats store.
+var usageStatsDrainTimeout = 5 * time.Second
+
 func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -191,6 +195,14 @@ func closeRuntime(rt *cliRuntime) {
 		emitCloseWarning(rt.events, "flush quota history", rt.quotaService.Drain(drainCtx))
 		cancel()
 		rt.quotaService.Close()
+	}
+	// Usage statistics are written on the recorder's own goroutine as well, so
+	// flush queued deltas on the same teardown path, then stop the writer.
+	if rt.usageRecorder != nil {
+		drainCtx, cancel := context.WithTimeout(context.Background(), usageStatsDrainTimeout)
+		emitCloseWarning(rt.events, "flush usage stats", rt.usageRecorder.Drain(drainCtx))
+		cancel()
+		rt.usageRecorder.Close()
 	}
 	if rt.imageStore != nil {
 		emitCloseWarning(rt.events, "close image store", rt.imageStore.Cleanup())

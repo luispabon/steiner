@@ -36,7 +36,7 @@ func TestClearConversationRefusalPreservesUIAndRecorder(t *testing.T) {
 	m.content.AppendLine("old transcript")
 	m.input.SetValue("draft")
 	m.imageMarkers = []imageMarker{{label: "[img-1]", image: agent.ImageBlock{ID: "img-1"}}}
-	m.recorder = usagestats.New(nil)
+	m.recorder = newUsageRecorder(t, nil)
 	m.recorder.Record(usagestats.Observation{Source: usagestats.SourceParent, PromptTokens: 10})
 
 	_, cleared, err := m.clearConversationStateWithError()
@@ -75,7 +75,7 @@ func TestClearConversationSuccessCallsControllerBeforeUICleanup(t *testing.T) {
 	m.content.AppendLine("old transcript")
 	m.input.SetValue("draft")
 	m.imageMarkers = []imageMarker{{label: "[img-1]", image: agent.ImageBlock{ID: "img-1"}}}
-	m.recorder = usagestats.New(nil)
+	m.recorder = newUsageRecorder(t, nil)
 	m.recorder.Record(usagestats.Observation{Source: usagestats.SourceParent, PromptTokens: 10})
 
 	_, cleared, err := m.clearConversationStateWithError()

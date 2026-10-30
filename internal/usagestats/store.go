@@ -194,8 +194,16 @@ func (s *store) atomicWrite(buckets map[bucketKey]*bucket) error {
 	return nil
 }
 
-// write persists the delta to disk with additive-delta merge under lock.
+// write persists one delta to disk with additive-delta merge under lock.
 func (s *store) write(delta *bucket, deltaKey bucketKey) error {
+	return s.writeBatch(map[bucketKey]*bucket{deltaKey: delta})
+}
+
+// writeBatch persists every delta in a single locked read, merge and atomic
+// write, so a batch of coalesced observations costs one cross-process lock
+// acquisition. The merge stays additive: each key's counts and token sums are
+// added to the entry already on disk.
+func (s *store) writeBatch(deltas map[bucketKey]*bucket) error {
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create store dir: %w", err)
@@ -237,14 +245,18 @@ func (s *store) write(delta *bucket, deltaKey bucketKey) error {
 
 	diskBuckets := s.decodeBuckets(currentData)
 
-	if _, ok := diskBuckets[deltaKey]; !ok {
-		diskBuckets[deltaKey] = &bucket{}
+	for key, delta := range deltas {
+		b, ok := diskBuckets[key]
+		if !ok {
+			b = &bucket{}
+			diskBuckets[key] = b
+		}
+		b.Requests += delta.Requests
+		b.InputTokens += delta.InputTokens
+		b.CacheReadTokens += delta.CacheReadTokens
+		b.CacheCreateTokens += delta.CacheCreateTokens
+		b.CompletionTokens += delta.CompletionTokens
 	}
-	diskBuckets[deltaKey].Requests += delta.Requests
-	diskBuckets[deltaKey].InputTokens += delta.InputTokens
-	diskBuckets[deltaKey].CacheReadTokens += delta.CacheReadTokens
-	diskBuckets[deltaKey].CacheCreateTokens += delta.CacheCreateTokens
-	diskBuckets[deltaKey].CompletionTokens += delta.CompletionTokens
 
 	cutoff := s.clock().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
 	for key := range diskBuckets {

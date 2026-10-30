@@ -1,6 +1,7 @@
 package usagestats
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -20,9 +21,26 @@ func fixedClock(t time.Time) func() time.Time {
 	return func() time.Time { return t }
 }
 
+// newTestRecorder returns a Recorder whose writer is drained and stopped before
+// the test's cleanup removes its temp dirs, so a background store write cannot
+// outlive the filesystem it writes to.
+func newTestRecorder(t *testing.T, now func() time.Time) *Recorder {
+	t.Helper()
+	rec := New(now)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := rec.Drain(ctx); err != nil {
+			t.Errorf("drain usage stats recorder: %v", err)
+		}
+		rec.Close()
+	})
+	return rec
+}
+
 func TestNew_nilClockDefaultsToTimeNow(t *testing.T) {
 	isolateTest(t)
-	r := New(nil)
+	r := newTestRecorder(t, nil)
 	if r == nil {
 		t.Fatal("expected non-nil recorder")
 	}
@@ -34,7 +52,7 @@ func TestNew_nilClockDefaultsToTimeNow(t *testing.T) {
 
 func TestRecorderResetSession(t *testing.T) {
 	isolateTest(t)
-	r := New(fixedClock(baseTime))
+	r := newTestRecorder(t, fixedClock(baseTime))
 	r.Record(Observation{
 		ProviderAlias:   "p",
 		ProviderType:    "openai",
@@ -115,7 +133,7 @@ func TestRecord_bucketing(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateTest(t)
-			r := New(fixedClock(baseTime))
+			r := newTestRecorder(t, fixedClock(baseTime))
 			for _, obs := range tc.observations {
 				r.Record(obs)
 			}
@@ -172,7 +190,7 @@ func TestRecord_tokenMath(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateTest(t)
-			r := New(fixedClock(baseTime))
+			r := newTestRecorder(t, fixedClock(baseTime))
 			r.Record(tc.obs)
 
 			key := bucketKey{
@@ -203,7 +221,7 @@ func TestRecord_tokenMath(t *testing.T) {
 
 func TestRecord_zeroAtUsesClockHour(t *testing.T) {
 	isolateTest(t)
-	r := New(fixedClock(baseTime))
+	r := newTestRecorder(t, fixedClock(baseTime))
 	r.Record(Observation{PromptTokens: 10})
 
 	key := bucketKey{hourUnix: hourStart.Unix()}
@@ -214,7 +232,7 @@ func TestRecord_zeroAtUsesClockHour(t *testing.T) {
 
 func TestRecord_mergeAccumulates(t *testing.T) {
 	isolateTest(t)
-	r := New(fixedClock(baseTime))
+	r := newTestRecorder(t, fixedClock(baseTime))
 	r.Record(Observation{
 		ProviderAlias: "x", ProviderType: "openai", BackendModelID: "m",
 		PromptTokens: 100, CacheReadTokens: 10, CompletionTokens: 5, At: baseTime,
@@ -300,7 +318,7 @@ func TestWindow(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateTest(t)
-			r := New(fixedClock(tc.clockTime))
+			r := newTestRecorder(t, fixedClock(tc.clockTime))
 			for _, obs := range tc.observations {
 				r.Record(obs)
 			}
@@ -431,7 +449,7 @@ func TestSessionReport(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateTest(t)
-			r := New(fixedClock(baseTime))
+			r := newTestRecorder(t, fixedClock(baseTime))
 			for _, obs := range tc.observations {
 				r.Record(obs)
 			}
@@ -460,7 +478,7 @@ func TestSessionReport(t *testing.T) {
 // the recorded hit rate must be 50/100 = 50%, not 50/150.
 func TestSessionReportFor_lastRequestAndWindowAdvisorRows(t *testing.T) {
 	isolateTest(t)
-	r := New(fixedClock(baseTime))
+	r := newTestRecorder(t, fixedClock(baseTime))
 	r.Record(Observation{ProviderAlias: "p", BackendModelID: "m", PromptTokens: 100, CacheReadTokens: 50, Source: SourceParent, At: baseTime})
 	r.Record(Observation{ProviderAlias: "p", BackendModelID: "m", PromptTokens: 200, CacheReadTokens: 100, Source: SourceParent, At: baseTime})
 	r.Record(Observation{ProviderAlias: "p", BackendModelID: "m", PromptTokens: 20, Source: SourceAdvisor, At: baseTime})
@@ -492,7 +510,7 @@ func TestSessionReportFor_lastRequestAndWindowAdvisorRows(t *testing.T) {
 
 func TestRecord_fix0RegressionRecorderAlreadyCorrect(t *testing.T) {
 	isolateTest(t)
-	r := New(fixedClock(baseTime))
+	r := newTestRecorder(t, fixedClock(baseTime))
 	r.Record(Observation{PromptTokens: 100, CacheReadTokens: 50, At: baseTime})
 
 	sr := r.SessionReport()
@@ -509,7 +527,7 @@ func TestSessionReport_independentOfBuckets(t *testing.T) {
 	isolateTest(t)
 	// Record observations that span two hours (two buckets) and one observation in the future.
 	// SessionReport must reflect ALL observations, while Window(1h) will exclude old ones.
-	r := New(fixedClock(baseTime))
+	r := newTestRecorder(t, fixedClock(baseTime))
 	r.Record(Observation{PromptTokens: 100, CacheReadTokens: 50, At: prevHour})
 	r.Record(Observation{PromptTokens: 200, CacheReadTokens: 100, At: baseTime})
 
@@ -535,7 +553,7 @@ func TestSessionReport_independentOfBuckets(t *testing.T) {
 
 func TestSessionReportFor_perSourceIsolation(t *testing.T) {
 	isolateTest(t)
-	r := New(fixedClock(baseTime))
+	r := newTestRecorder(t, fixedClock(baseTime))
 	r.Record(Observation{PromptTokens: 100, CacheReadTokens: 50, Source: SourceParent, At: baseTime})
 	r.Record(Observation{PromptTokens: 200, CacheReadTokens: 20, Source: SourceSubAgent, At: baseTime})
 
@@ -571,7 +589,7 @@ func TestSessionReportFor_perSourceIsolation(t *testing.T) {
 
 func TestRecord_sourceSplitsBucketsButNotWindowedRows(t *testing.T) {
 	isolateTest(t)
-	r := New(fixedClock(baseTime))
+	r := newTestRecorder(t, fixedClock(baseTime))
 	r.Record(Observation{
 		ProviderAlias: "x", ProviderType: "openai", BackendModelID: "m",
 		PromptTokens: 100, Source: SourceParent, At: baseTime,

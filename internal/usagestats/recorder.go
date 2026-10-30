@@ -1,7 +1,7 @@
 package usagestats
 
 import (
-	"log/slog"
+	"context"
 	"sync"
 	"time"
 )
@@ -84,6 +84,9 @@ type Recorder struct {
 
 	now   func() time.Time
 	store *store
+	// writer persists coalesced deltas off the recording goroutine, so Record
+	// never waits on the cross-process store lock.
+	writer *persistWriter
 
 	// telemetry is nil unless TelemetryEnvVar is set; a nil value records nothing.
 	telemetry *telemetry
@@ -95,7 +98,7 @@ func New(now func() time.Time) *Recorder {
 		now = time.Now
 	}
 	st := newStore(now)
-	return &Recorder{
+	r := &Recorder{
 		buckets:           st.load(),
 		sessionCacheRead:  make(map[Source]int64),
 		sessionTotalInput: make(map[Source]int64),
@@ -106,6 +109,8 @@ func New(now func() time.Time) *Recorder {
 		store:             st,
 		telemetry:         newTelemetryFromEnv(),
 	}
+	r.writer = newPersistWriter(st, nil)
+	return r
 }
 
 // Record incorporates one observation into the in-memory buckets and session counters.
@@ -148,19 +153,48 @@ func (r *Recorder) Record(obs Observation) {
 	r.lastTotalInput[obs.Source] = int64(nonCached + obs.CacheReadTokens + obs.CacheCreateTokens)
 	r.mu.Unlock()
 
-	// Persist this observation's delta. Wrap in a bucket for write path.
-	delta := &bucket{
+	// Hand the delta to the background writer: the delta fields are additive, so
+	// queued observations coalesce into one locked read/merge/write instead of
+	// blocking this goroutine on the cross-process store lock.
+	delta := bucket{
 		Requests:          1,
 		InputTokens:       nonCached,
 		CacheReadTokens:   obs.CacheReadTokens,
 		CacheCreateTokens: obs.CacheCreateTokens,
 		CompletionTokens:  obs.CompletionTokens,
 	}
-	if err := r.store.write(delta, key); err != nil {
-		slog.Warn("persist usage stats delta", "error", err)
-	}
+	r.writer.add(key, delta)
 
 	r.telemetry.record(obs, at)
+}
+
+// Drain waits until every usage delta this process queued for the store has
+// been written, or until ctx ends. Shutdown paths call it before the process
+// exits, because persistence is asynchronous. A nil Recorder is a no-op.
+//
+// A write blocked on the store lock cannot be cancelled: when the deadline
+// expires the writer may stay blocked until the lock is released or the process
+// exits, and the deltas still pending are lost (the caller reports a warning).
+// Observations arriving after a drain starts are still accepted and queued.
+// Drain is safe to call repeatedly and concurrently, and a concurrent Close
+// wakes a waiting Drain instead of letting it wait for the deadline.
+func (r *Recorder) Drain(ctx context.Context) error {
+	if r == nil || r.writer == nil {
+		return nil
+	}
+	return r.writer.drain(ctx)
+}
+
+// Close stops the store writer goroutine. Call it after Drain on the paths that
+// own the Recorder. A write already in flight still finishes, or stays blocked
+// on the store lock until the lock is released or the process exits; deltas
+// still pending are dropped and logged. Idempotent, and a nil Recorder is a
+// no-op.
+func (r *Recorder) Close() {
+	if r == nil || r.writer == nil {
+		return
+	}
+	r.writer.close()
 }
 
 // ResetSession clears in-memory session counters while preserving persisted

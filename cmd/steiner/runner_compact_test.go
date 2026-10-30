@@ -130,6 +130,22 @@ func TestCLIRunnerCompactWithLineageUsesResolvedLimitsAndAssembly(t *testing.T) 
 	}
 }
 
+// newUsageRecorder returns a recorder whose async store writer is drained and
+// stopped before the test's temp state home is removed.
+func newUsageRecorder(t *testing.T) *usagestats.Recorder {
+	t.Helper()
+	rec := usagestats.New(nil)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := rec.Drain(ctx); err != nil {
+			t.Errorf("drain usage stats recorder: %v", err)
+		}
+		rec.Close()
+	})
+	return rec
+}
+
 // TestCLIRunnerCompactWithLineageCarriesCacheBaselineAndUsageRecorder proves
 // manual compaction reuses the session's cache identity and usage accounting:
 // its cache diagnostics report a live prefix comparison, it never promotes the
@@ -151,7 +167,7 @@ func TestCLIRunnerCompactWithLineageCarriesCacheBaselineAndUsageRecorder(t *test
 	}
 	t.Cleanup(func() { _ = writer.Close() })
 
-	recorder := usagestats.New(nil)
+	recorder := newUsageRecorder(t)
 	r.runtime.diagnostics = writer
 	r.runtime.usageRecorder = recorder
 	r.cacheBaseline = agent.NewCacheBaselineStore()
@@ -224,7 +240,7 @@ func TestCLIRunnerCompactWithLineageDoesNotBecomeCacheBaseline(t *testing.T) {
 			homeDir:       t.TempDir(),
 			events:        output.NoopSink{},
 			diagnostics:   writer,
-			usageRecorder: usagestats.New(nil),
+			usageRecorder: newUsageRecorder(t),
 		},
 		runMode:          "interactive",
 		promptCacheKeyFn: func() string { return "session-cache-key" },

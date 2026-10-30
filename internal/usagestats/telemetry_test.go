@@ -16,7 +16,7 @@ func TestTelemetryRecordsOneLinePerObservation(t *testing.T) {
 	t.Setenv(TelemetryEnvVar, path)
 	t.Setenv(TelemetryRunEnvVar, "run-42")
 
-	recorder := New(nil)
+	recorder := newTestRecorder(t, nil)
 	recorder.Record(Observation{
 		ProviderAlias:     "codex",
 		ProviderType:      "codex",
@@ -82,7 +82,7 @@ func TestTelemetryDisabledWhenEnvUnset(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv(TelemetryEnvVar, "")
 
-	recorder := New(nil)
+	recorder := newTestRecorder(t, nil)
 	if recorder.telemetry != nil {
 		t.Fatal("telemetry writer built with the env var unset, want nil")
 	}
@@ -104,7 +104,7 @@ func TestTelemetryUnwritablePathDoesNotFailRecording(t *testing.T) {
 	// unopenable target: recording must degrade to a no-op, not panic.
 	t.Setenv(TelemetryEnvVar, t.TempDir())
 
-	recorder := New(nil)
+	recorder := newTestRecorder(t, nil)
 	if recorder.telemetry != nil {
 		t.Fatal("telemetry writer built for an unwritable path, want nil")
 	}

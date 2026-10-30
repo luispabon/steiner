@@ -1,12 +1,29 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/luispabon/steiner/internal/usagestats"
 )
+
+// newUsageRecorder returns a recorder whose async store writer is drained and
+// stopped before the test's temp state home is removed.
+func newUsageRecorder(t *testing.T, now func() time.Time) *usagestats.Recorder {
+	t.Helper()
+	rec := usagestats.New(now)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := rec.Drain(ctx); err != nil {
+			t.Errorf("drain usage stats recorder: %v", err)
+		}
+		rec.Close()
+	})
+	return rec
+}
 
 func TestFormatCacheStatsReportNilRecorder(t *testing.T) {
 	t.Parallel()
@@ -21,7 +38,7 @@ func TestFormatCacheStatsReportEmptyRecorder(t *testing.T) {
 	// XDG_STATE_HOME, which t.Setenv isolates per test. t.Setenv panics if
 	// combined with t.Parallel().
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	rec := usagestats.New(func() time.Time { return time.Unix(1000, 0) })
+	rec := newUsageRecorder(t, func() time.Time { return time.Unix(1000, 0) })
 	got := formatCacheStatsReport(rec)
 	if !strings.Contains(got, "No cache statistics recorded yet") {
 		t.Fatalf("empty recorder report = %q, want to contain 'No cache statistics recorded yet'", got)
@@ -34,7 +51,7 @@ func TestFormatCacheStatsReportWithObservations(t *testing.T) {
 	// combined with t.Parallel().
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(1000, 0)
-	rec := usagestats.New(func() time.Time { return now })
+	rec := newUsageRecorder(t, func() time.Time { return now })
 
 	// Record one observation with a cache hit
 	rec.Record(usagestats.Observation{
@@ -101,7 +118,7 @@ func TestFormatCacheStatsReportZeroHitRate(t *testing.T) {
 	// combined with t.Parallel().
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(2000, 0)
-	rec := usagestats.New(func() time.Time { return now })
+	rec := newUsageRecorder(t, func() time.Time { return now })
 
 	// Record observation with only input tokens (PromptTokens - CacheCreateTokens - CacheReadTokens)
 	// With 100 prompt tokens, 0 cache read, 0 cache create -> 100 input, 0 cached
@@ -134,7 +151,7 @@ func TestFormatCacheStatsReportUndefinedHitRate(t *testing.T) {
 	// combined with t.Parallel().
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(3000, 0)
-	rec := usagestats.New(func() time.Time { return now })
+	rec := newUsageRecorder(t, func() time.Time { return now })
 
 	// Record observation with create tokens but no other input tokens.
 	// The Recorder calculates InputTokens as PromptTokens - CacheReadTokens - CacheCreateTokens,
@@ -171,7 +188,7 @@ func TestFormatCacheStatsReportDeterministicOrdering(t *testing.T) {
 	// combined with t.Parallel().
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(1000, 0)
-	rec := usagestats.New(func() time.Time { return now })
+	rec := newUsageRecorder(t, func() time.Time { return now })
 
 	// Record observations in non-alphabetical order
 	rec.Record(usagestats.Observation{
@@ -211,7 +228,7 @@ func TestFormatCacheStatsReportDeterministicOrdering(t *testing.T) {
 func TestFormatCacheStatsReportAdvisorLabelAndOrdering(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(1000, 0)
-	rec := usagestats.New(func() time.Time { return now })
+	rec := newUsageRecorder(t, func() time.Time { return now })
 	for _, observation := range []usagestats.Observation{
 		{ProviderAlias: "local", ProviderType: "local", BackendModelID: "model-a", PromptTokens: 10, At: now, Source: usagestats.SourceAdvisor},
 		{ProviderAlias: "local", ProviderType: "local", BackendModelID: "model-a", PromptTokens: 10, At: now},
@@ -235,7 +252,7 @@ func TestFormatCacheStatsReportMultipleWindows(t *testing.T) {
 	// combined with t.Parallel().
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(4000, 0)
-	rec := usagestats.New(func() time.Time { return now })
+	rec := newUsageRecorder(t, func() time.Time { return now })
 
 	// Record observation in current hour
 	rec.Record(usagestats.Observation{
@@ -275,7 +292,7 @@ func TestFormatCacheStatsReportSessionWithData(t *testing.T) {
 	// combined with t.Parallel().
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(5000, 0)
-	rec := usagestats.New(func() time.Time { return now })
+	rec := newUsageRecorder(t, func() time.Time { return now })
 
 	// Record one observation in session
 	rec.Record(usagestats.Observation{
@@ -313,7 +330,7 @@ func TestFormatCacheStatsReportSessionHeaders(t *testing.T) {
 	// combined with t.Parallel().
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(7000, 0)
-	rec := usagestats.New(func() time.Time { return now })
+	rec := newUsageRecorder(t, func() time.Time { return now })
 
 	// Record an observation with a high cache hit rate
 	rec.Record(usagestats.Observation{
