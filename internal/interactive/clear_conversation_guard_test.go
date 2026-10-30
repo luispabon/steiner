@@ -156,7 +156,7 @@ func TestClearConversationScopeHookRefusalKeepsSession(t *testing.T) {
 
 	oldID, oldDriver, oldConv := s.SessionID(), s.currentDriver(), s.Conversation()
 	err := s.Handle(context.Background(), ClearConversation{})
-	if err == nil || !strings.Contains(err.Error(), "from another scope") {
+	if err == nil || !strings.Contains(err.Error(), "another scope") {
 		t.Fatalf("ClearConversation = %v, want a scope refusal", err)
 	}
 	if !hookCalled {

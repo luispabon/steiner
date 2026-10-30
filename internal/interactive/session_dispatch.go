@@ -196,7 +196,7 @@ func (s *Session) rotateGuarded(group string, updateGroup bool) error {
 
 // errClearPending is the refusal a wired supervisor clear hook returns when it
 // cannot atomically discard every pending sub-agent.
-var errClearPending = errors.New("sub-agents from another scope or still running or queued; wait for them or stop them first")
+var errClearPending = errors.New("sub-agents are still running, queued, or owned by another scope; wait for them or stop them first")
 
 // clearGuardLocked checks whether clear may replace the conversation. It keeps
 // the controller admission and driver Busy checks shared by every replacement,
