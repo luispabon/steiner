@@ -3,6 +3,7 @@ package interactive
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -577,6 +578,87 @@ func TestManualCompactionErrorWithClearLeavesStateUnchanged(t *testing.T) {
 	}
 	if finished.Reason != "error" || finished.Error != "boom" {
 		t.Fatalf("run finished = %+v, want the run's error", finished)
+	}
+}
+
+// retiredBackendStateError marks its error as a request that retired the
+// backend state it was issued against. provider.BackendStateRetired detects the
+// marker structurally, so this local type pins the same contract as the
+// provider's own marker without depending on its unexported constructor.
+type retiredBackendStateError struct{ err error }
+
+func (e *retiredBackendStateError) Error() string { return e.err.Error() }
+
+func (e *retiredBackendStateError) Unwrap() error { return e.err }
+
+func (e *retiredBackendStateError) BackendStateRetired() bool { return true }
+
+// TestManualCompactionRetiredBackendStateClearsStateOnError proves an error that
+// confirms the provider retired the backend state drops that state, keeping the
+// conversation and generation IDs as they were. A cancellation must still clear
+// the state without emitting a compaction error.
+func TestManualCompactionRetiredBackendStateClearsStateOnError(t *testing.T) {
+	tests := []struct {
+		name       string
+		retired    error
+		wantReason string
+		wantError  string
+		wantStops  int
+	}{
+		{
+			name:       "error",
+			retired:    &retiredBackendStateError{err: errors.New("boom")},
+			wantReason: "error",
+			wantError:  "boom",
+			wantStops:  1,
+		},
+		{
+			name:       "cancelled",
+			retired:    &retiredBackendStateError{err: fmt.Errorf("summary: %w", context.Canceled)},
+			wantReason: "cancelled",
+			wantError:  "summary: context canceled",
+			wantStops:  0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conv := twoTurnConversation()
+			lineage := agent.ConversationLineage{
+				Generations:      []agent.ConversationGeneration{{ID: 1, Messages: conv, BackendState: []byte(`{"version":1}`)}},
+				NextGenerationID: 2,
+			}
+			var events []output.Event
+			runner := &lineageRecordingRunner{err: tt.retired}
+			s := mustCompactionSession(t, Dependencies{Runner: runner, BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
+			drv := agent.NewConversationDriver(agent.DriverOptions{}, conv, lineage)
+			gotConv, gotLineage, err := s.manualCompaction(drv, "")(context.Background(), conv)
+			if err != nil {
+				t.Fatalf("manualCompaction() error = %v, want nil because the run reports it as an event", err)
+			}
+			if !reflect.DeepEqual(gotConv, conv) {
+				t.Fatalf("conversation = %+v, want the unchanged %+v", gotConv, conv)
+			}
+			if len(gotLineage.Generations) != 1 || gotLineage.NextGenerationID != 2 {
+				t.Fatalf("lineage = %+v, want the same single generation and next ID", gotLineage)
+			}
+			gen := gotLineage.Generations[0]
+			if gen.ID != 1 || !reflect.DeepEqual(gen.Messages, conv) {
+				t.Fatalf("generation = %+v, want generation 1 with the unchanged messages", gen)
+			}
+			if gen.BackendState != nil {
+				t.Fatalf("backend state = %s, want it dropped after the retirement", gen.BackendState)
+			}
+			finished, ok := lastRunFinishedEvent(events)
+			if !ok {
+				t.Fatal("no run finished event")
+			}
+			if finished.Reason != tt.wantReason || finished.Error != tt.wantError {
+				t.Fatalf("run finished = %+v, want reason %q and error %q", finished, tt.wantReason, tt.wantError)
+			}
+			if stops := eventsOfType(events, output.EventTypeStopReason); len(stops) != tt.wantStops {
+				t.Fatalf("stop reason events = %d, want %d: %+v", len(stops), tt.wantStops, stops)
+			}
+		})
 	}
 }
 

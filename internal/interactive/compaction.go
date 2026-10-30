@@ -6,6 +6,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 // manualCompaction returns the compaction the driver runs when it is next not
@@ -13,7 +14,8 @@ import (
 // driver's own lineage, so earlier generations survive. A failed or empty
 // compaction leaves the conversation as it was. A compaction that applied no
 // stage keeps the conversation and generation IDs, but still drops backend
-// state the runner reported as cleared.
+// state the runner reported as cleared, or that a confirmed backend retirement
+// invalidated.
 func (s *Session) manualCompaction(drv *agent.ConversationDriver, steering string) func(context.Context, []agent.Message) ([]agent.Message, agent.ConversationLineage, error) {
 	return func(ctx context.Context, conversation []agent.Message) ([]agent.Message, agent.ConversationLineage, error) {
 		lineage := drv.Snapshot().Lineage
@@ -38,7 +40,9 @@ func (s *Session) manualCompaction(drv *agent.ConversationDriver, steering strin
 // and whether a compaction stage applied. A compaction that applied nothing
 // reports false, so the caller keeps its conversation and generation IDs. An
 // error leaves the lineage unchanged and reports cleared false: a clear the
-// runner reported before the error is not surfaced.
+// runner reported before the error is not surfaced. The one exception is an
+// error reporting a confirmed backend retirement: that state is already gone,
+// so the clear is reported and the caller drops it.
 func (s *Session) compactConversation(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, steering string) ([]agent.Message, bool, bool) {
 	if len(conversation) == 0 {
 		s.events.Emit(output.NewOverlayReportEvent("Context Report", "No conversation to compact."))
@@ -54,7 +58,10 @@ func (s *Session) compactConversation(ctx context.Context, conversation []agent.
 		if !errors.Is(err, context.Canceled) {
 			s.emitCompactError(err)
 		}
-		return nil, false, false
+		// A confirmed retirement means the provider already discarded the state
+		// this generation was issued against, so it must go even though the
+		// compaction failed. Any other error's clear report stays untrusted.
+		return nil, provider.BackendStateRetired(err), false
 	}
 	return compacted, cleared, applied
 }
