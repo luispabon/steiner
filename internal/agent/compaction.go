@@ -73,9 +73,60 @@ type CompactionOutcome struct {
 	FallbackStatus string
 	// FallbackReason explains FallbackStatus.
 	FallbackReason string
+	// BackendStateCleared reports that a main summary retired the backend state
+	// stored for the generation being compacted. It is reported independently of
+	// Applied, so a caller can drop that state even when a later stage fails or
+	// the summary applies nothing.
+	BackendStateCleared bool
 	// pendingArchive holds the sources to append to the history archive once
 	// this outcome's state is adopted.
 	pendingArchive [][]Message
+}
+
+// compactionBackendStateRetiredError marks an error that followed a summary
+// which retired the generation's backend state. It keeps the original error
+// text and chain, so errors.Is and errors.As still match the underlying
+// failure, and implements BackendStateRetired so provider.BackendStateRetired
+// reports the retired state.
+type compactionBackendStateRetiredError struct{ err error }
+
+func (e *compactionBackendStateRetiredError) Error() string { return e.err.Error() }
+
+func (e *compactionBackendStateRetiredError) Unwrap() error { return e.err }
+
+// BackendStateRetired reports that the failed request retired the backend state
+// it was issued against.
+func (e *compactionBackendStateRetiredError) BackendStateRetired() bool { return true }
+
+// markCompactionBackendStateRetired wraps err so a caller can drop the retired
+// backend state. It returns err unchanged when err is nil or already marked.
+func markCompactionBackendStateRetired(err error) error {
+	if err == nil || provider.BackendStateRetired(err) {
+		return err
+	}
+	return &compactionBackendStateRetiredError{err: err}
+}
+
+// compactionFailedOutcome reports a failed compaction stage. A stage that
+// already retired the main backend state contributes only that flag, never a
+// partial State or pending archive, and its error is marked retired so the
+// caller can drop the state it keeps.
+func compactionFailedOutcome(outcome CompactionOutcome, err error) (CompactionOutcome, error) {
+	if !outcome.BackendStateCleared {
+		return CompactionOutcome{}, err
+	}
+	return CompactionOutcome{BackendStateCleared: true}, markCompactionBackendStateRetired(err)
+}
+
+// compactionCarryCleared keeps a backend state clear reported by an earlier
+// stage when a later stage reports its own outcome, and marks a later error as
+// retired.
+func compactionCarryCleared(outcome CompactionOutcome, cleared bool, err error) (CompactionOutcome, error) {
+	if !cleared {
+		return outcome, err
+	}
+	outcome.BackendStateCleared = true
+	return outcome, markCompactionBackendStateRetired(err)
 }
 
 type summarizeCompactor struct{}
@@ -158,7 +209,7 @@ func (s summarizeCompactionStages) run(
 		summaryReq:       s.summaryReq,
 	})
 	if err != nil {
-		return CompactionOutcome{}, err
+		return compactionFailedOutcome(normalOutcome, err)
 	}
 	if !normalOutcome.Applied {
 		emergencyCandidate := makeCompactionCandidate(candidate, emergencySource, emergencyRetained)
@@ -169,6 +220,7 @@ func (s summarizeCompactionStages) run(
 			maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeEmergency),
 			summaryReq:       s.summaryReq,
 		})
+		outcome, err = compactionCarryCleared(outcome, normalOutcome.BackendStateCleared, err)
 		if err == nil {
 			outcome.StageCount = 1
 		}
@@ -177,7 +229,7 @@ func (s summarizeCompactionStages) run(
 
 	normalFit, err := s.fitRunner(ctx, req, normalOutcome.State)
 	if err != nil {
-		return CompactionOutcome{}, err
+		return compactionFailedOutcome(normalOutcome, err)
 	}
 	normalOutcome.Fit = normalFit
 	normalOutcome.StageCount = 1
@@ -199,6 +251,7 @@ func (s summarizeCompactionStages) run(
 		maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeEmergency),
 		summaryReq:       s.summaryReq,
 	})
+	outcome, err = compactionCarryCleared(outcome, normalOutcome.BackendStateCleared, err)
 	if err == nil {
 		outcome.StageCount = 2
 		outcome.pendingArchive = append(normalOutcome.pendingArchive, outcome.pendingArchive...)
@@ -219,7 +272,7 @@ func (s summarizeCompactionStages) runStageAndFit(
 ) (CompactionOutcome, error) {
 	outcome, err := s.stageRunner(ctx, req, state, turn, candidate, params)
 	if err != nil {
-		return CompactionOutcome{}, err
+		return compactionFailedOutcome(outcome, err)
 	}
 	if !outcome.Applied {
 		if outcome.Fit.Fits {
@@ -229,16 +282,16 @@ func (s summarizeCompactionStages) runStageAndFit(
 			outcome.State = state
 			return outcome, nil
 		}
-		return outcome, emergencyCompactionError(outcome.Fit)
+		return compactionFailedOutcome(outcome, emergencyCompactionError(outcome.Fit))
 	}
 
 	fit, err := s.fitRunner(ctx, req, outcome.State)
 	if err != nil {
-		return CompactionOutcome{}, err
+		return compactionFailedOutcome(outcome, err)
 	}
 	outcome.Fit = fit
 	if needsEmergencyCompaction(fit) {
-		return outcome, emergencyCompactionError(fit)
+		return compactionFailedOutcome(outcome, emergencyCompactionError(fit))
 	}
 
 	return outcome, nil
@@ -284,10 +337,12 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	}
 	// A fallback summary runs on another provider's transcript, so it must not
 	// clear the main generation's backend state.
+	cleared := false
 	if response.ClearBackendState && !onFallback {
 		// An in-place summary retired the generation's live process, so the
 		// generation's stored backend state no longer names a live transcript.
 		state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), nil, true)
+		cleared = true
 	}
 
 	if onFallback && strings.TrimSpace(response.Message.Content) == "" {
@@ -295,7 +350,9 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	}
 	summaryText := compactionSummaryText(response.Message.Content, plan.candidate)
 	if summaryText == "" {
-		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens), nil
+		outcome := compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens)
+		outcome.BackendStateCleared = cleared
+		return outcome, nil
 	}
 
 	var pendingArchive [][]Message
@@ -313,21 +370,22 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	nextState := buildSummarizedCompactionState(state, summaryText, retained)
 	latestFit, err := fitConversationState(ctx, req, nextState)
 	if err != nil {
-		return CompactionOutcome{}, err
+		return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
 	}
 
 	return CompactionOutcome{
-		State:              nextState,
-		Applied:            true,
-		Candidate:          candidate,
-		Fit:                latestFit,
-		Mode:               params.mode,
-		SummaryTokenBudget: params.maxTokens,
-		RetainedMessages:   retained,
-		SummaryText:        summaryText,
-		PromptText:         plan.promptText,
-		Usage:              response.Usage,
-		pendingArchive:     pendingArchive,
+		State:               nextState,
+		Applied:             true,
+		Candidate:           candidate,
+		Fit:                 latestFit,
+		Mode:                params.mode,
+		SummaryTokenBudget:  params.maxTokens,
+		RetainedMessages:    retained,
+		SummaryText:         summaryText,
+		PromptText:          plan.promptText,
+		Usage:               response.Usage,
+		BackendStateCleared: cleared,
+		pendingArchive:      pendingArchive,
 	}, nil
 }
 
@@ -424,10 +482,16 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 
 	outcome, err := summarizeCompactor{}.Compact(ctx, req, *state, turn, candidate, steering)
 	if err != nil {
+		// A summary that retired the latest generation's backend state leaves
+		// that state unusable even though the compaction failed. Drop only that
+		// state: the failed outcome's conversation and pending archive are not
+		// adopted.
+		clearRetiredBackendState(state, outcome)
 		return false, false, "", err
 	}
 
 	if !outcome.Applied {
+		clearRetiredBackendState(state, outcome)
 		skipped[compactionCandidateKey(candidate)] = true
 		return true, false, outcome.FallbackReason, nil
 	}
@@ -456,6 +520,16 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 	}
 	skipped[compactionCandidateKey(candidate)] = true
 	return true, true, "", nil
+}
+
+// clearRetiredBackendState drops the latest generation's backend state when the
+// outcome reports that a main summary retired it, without adopting any other
+// part of the outcome.
+func clearRetiredBackendState(state *RunState, outcome CompactionOutcome) {
+	if !outcome.BackendStateCleared {
+		return
+	}
+	state.Lineage = state.Lineage.WithoutLatestBackendState()
 }
 
 func compactionCurrentFit(ctx context.Context, req RunRequest, state RunState, beforeFit *prompt.RequestTokenBudget) (prompt.RequestTokenBudget, error) {

@@ -201,7 +201,13 @@ func compactionOnMainAfterFallback(ctx context.Context, req RunRequest, run comp
 	}
 	outcome, err := run(nil)
 	if err != nil {
-		return CompactionOutcome{}, err
+		// The main rerun reports its own backend state clear, carried on the
+		// outcome and marked on the error. The discarded fallback attempt never
+		// carries one, so it cannot clear main state.
+		if outcome.BackendStateCleared {
+			err = markCompactionBackendStateRetired(err)
+		}
+		return outcome, err
 	}
 	outcome.CompactionModel = compactionModelName(req.ResolvedModel)
 	outcome.FallbackStatus = output.CompactionFallbackSkipped

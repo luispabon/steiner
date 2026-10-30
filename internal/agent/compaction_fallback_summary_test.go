@@ -459,6 +459,9 @@ func TestSummarizeCompactionStageClearBackendStateScope(t *testing.T) {
 			if cleared != tt.wantCleared {
 				t.Errorf("latest generation backend state cleared = %v, want %v", cleared, tt.wantCleared)
 			}
+			if outcome.BackendStateCleared != tt.wantCleared {
+				t.Errorf("outcome.BackendStateCleared = %v, want %v", outcome.BackendStateCleared, tt.wantCleared)
+			}
 		})
 	}
 }
