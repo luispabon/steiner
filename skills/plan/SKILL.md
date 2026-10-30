@@ -221,7 +221,7 @@ During planning you may use only the read-only Steiner tools — anything that w
 - `research` — current, external, or codebase research
 - `evaluate` — bounded sub-problem analysis
 
-Do **not** use `code` (implementation edits), `documentor` (documentation edits), or `sanity_check` (runs checks on changes) while planning; those belong to the executor and reviewer after handoff. You name `code`, `documentor`, and other `delegate_profile` values inside `plan.yaml` steps as instructions for the executor — that is planning, not invoking them.
+Do **not** use `code` (implementation edits), `documentor` (documentation edits), or `sanity_check` (runs checks on changes) while planning; those belong to the executor and reviewer after handoff. You name `code`, `documentor`, and other `delegate_profile` values inside `plan.yaml` steps as instructions for the executor. That is planning, not invoking them.
 
 ### Research output contract
 
