@@ -83,6 +83,24 @@ func (m *Model) asyncConversationBusy() bool {
 	return m.convStateSeen && (m.convState.State != conversationStateIdle || m.convState.Pending > 0)
 }
 
+// clearBusy is sessionBusy for /clear. A paused wait with no active
+// delegations only holds finished results, which a clear may discard; a
+// generating turn, active tool call or delegation, activity, compaction,
+// oneshot or pending handoff still blocks it.
+func (m *Model) clearBusy() bool {
+	if m.heldWaitingWithoutDelegations() {
+		return m.pendingWorkflowHandoffLaunch != nil || m.hostWorkBusy()
+	}
+	return m.sessionBusy()
+}
+
+// heldWaitingWithoutDelegations reports whether the driver is paused on
+// finished sub-agent results with no delegation still running.
+func (m *Model) heldWaitingWithoutDelegations() bool {
+	return m.convStateSeen && m.convState.State == conversationStateWaiting && m.convState.Held &&
+		!m.content.HasActiveDelegations()
+}
+
 // compactBusy is sessionBusy for manual compaction: while the driver is only
 // waiting, compaction is allowed; a generating turn still blocks it.
 func (m *Model) compactBusy() bool {
