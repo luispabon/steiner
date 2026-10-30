@@ -250,6 +250,58 @@ func TestPathPolicyWriteScopeDeniesDirectorySymlinkEscape(t *testing.T) {
 	}
 }
 
+// TestPathPolicyWriteScopeDeniesLinkFromOutside proves a path spelled outside
+// the scope root is denied even when it resolves to an in-scope file or
+// directory.
+func TestPathPolicyWriteScopeDeniesLinkFromOutside(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+	target := filepath.Join(root, "docs", "a.md")
+	if err := os.WriteFile(target, []byte("doc\n"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	link := filepath.Join(outside, "link.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink link.md: %v", err)
+	}
+	dirLink := filepath.Join(outside, "dirlink")
+	if err := os.Symlink(filepath.Join(root, "docs"), dirLink); err != nil {
+		t.Fatalf("symlink dirlink: %v", err)
+	}
+	policy := NewPathPolicy(root, config.PathsConfig{}).WithWriteScope(testDocScope())
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "write through outside file link", path: link},
+		{name: "delete through outside file link", path: link},
+		{name: "move source outside file link", path: link},
+		{name: "missing leaf under outside directory link", path: filepath.Join(dirLink, "new.md")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := policy.ResolvePath(tc.path, true)
+			if err == nil {
+				t.Fatalf("ResolvePath(%q) = nil, want scope denial", tc.path)
+			}
+			assertScopeDenial(t, err, tc.path, testDocScope().Reason)
+		})
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("in-scope target missing after denials: %v", err)
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("outside link missing after denials: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dirLink, "new.md")); !os.IsNotExist(err) {
+		t.Fatalf("leaf visible through outside directory link, stat err = %v", err)
+	}
+}
+
 // TestPathPolicyWriteScopeDeniesDanglingSymlink proves a dangling link is a
 // non-promptable denial rather than a write through an unnamed path.
 func TestPathPolicyWriteScopeDeniesDanglingSymlink(t *testing.T) {

@@ -92,8 +92,9 @@ func (s WriteScope) denial(path string) *PathPolicyError {
 }
 
 // ensureWriteScopeAllowed rejects writable paths outside the active write
-// scope. The path must resolve inside the scope root, both the lexical path and
-// its symlink-resolved form must match the scope's name rules, and an existing
+// scope. The path must be spelled inside the scope root or its resolved form,
+// it must resolve inside the scope root, both the lexical path and its
+// symlink-resolved form must match the scope's name rules, and an existing
 // directory is never eligible even when its name matches. The check fails
 // closed: a scope installed without a root denies every write, a stat failure
 // denies, and the denial is never promptable.
@@ -109,14 +110,18 @@ func (p PathPolicy) ensureWriteScopeAllowed(path string, writable bool) error {
 	if err != nil {
 		return p.policyResolutionError(path, fmt.Errorf("resolve write scope root: %w", err))
 	}
+	// The lexical root and its resolved form differ when the scope root itself
+	// sits behind a symlink, and the mutate planner re-checks canonical link
+	// targets through this same policy. Both forms satisfy the spelling gate, but
+	// a path spelled outside them is denied even when it links into the scope.
+	if !pathWithinRoot(p.writeScopeRoot, path) && !pathWithinRoot(resolvedRoot, path) {
+		return denial
+	}
 	resolvedPath, err := resolvePathWithMissing(path)
 	if err != nil {
 		return p.policyResolutionError(path, fmt.Errorf("resolve write scope path: %w", err))
 	}
-	// Containment is checked against the resolved root rather than the lexical
-	// one: the scope root may itself sit behind a symlink, and the mutate planner
-	// re-checks canonical link targets through this same policy. A symlinked
-	// directory component that escapes the resolved root is still denied.
+	// A symlinked directory component must not escape the resolved root.
 	if !pathWithinRoot(resolvedRoot, resolvedPath) {
 		return denial
 	}

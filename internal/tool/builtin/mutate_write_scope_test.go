@@ -25,14 +25,21 @@ func documentationWriteScope() tool.WriteScope {
 // newScopedMutateExecutor wires the real mutate tool through a scoped executor.
 func newScopedMutateExecutor(t *testing.T, root string) *tool.Executor {
 	t.Helper()
-	policy := tool.NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: true})
+	return newScopedMutateExecutorWithPaths(t, root, config.PathsConfig{ProjectRootOnly: true})
+}
+
+// newScopedMutateExecutorWithPaths is newScopedMutateExecutor with an explicit
+// paths configuration.
+func newScopedMutateExecutorWithPaths(t *testing.T, root string, paths config.PathsConfig) *tool.Executor {
+	t.Helper()
+	policy := tool.NewPathPolicy(root, paths)
 	registry := tool.NewRegistry(NewMutateTool(Env{
 		WorkDir:      root,
 		PathPolicy:   &policy,
 		FileObserved: func(string) bool { return true },
 	}))
 	return tool.NewExecutor(registry, config.Config{
-		Paths: config.PathsConfig{ProjectRootOnly: true},
+		Paths: paths,
 	}, nil, root, "", tool.Unsandboxed{}).WithWriteScope(documentationWriteScope())
 }
 
@@ -111,13 +118,7 @@ func TestMutateExecutorWriteScopeSymlinkedRoot(t *testing.T) {
 
 	// projectRootOnly stays off so the scope, not the lexical root, decides:
 	// the canonical target of alias.md lives outside the linked root's spelling.
-	policy := tool.NewPathPolicy(linkedRoot, config.PathsConfig{})
-	registry := tool.NewRegistry(NewMutateTool(Env{
-		WorkDir:      linkedRoot,
-		PathPolicy:   &policy,
-		FileObserved: func(string) bool { return true },
-	}))
-	executor := tool.NewExecutor(registry, config.Config{}, nil, linkedRoot, "", tool.Unsandboxed{}).WithWriteScope(documentationWriteScope())
+	executor := newScopedMutateExecutorWithPaths(t, linkedRoot, config.PathsConfig{})
 
 	result, err := executeMutate(t, executor, map[string]any{
 		"operations": []any{
@@ -131,6 +132,66 @@ func TestMutateExecutorWriteScopeSymlinkedRoot(t *testing.T) {
 		t.Fatalf("result = %#v, want 1 applied, 0 failed", result)
 	}
 	assertContent(t, filepath.Join(realRoot, "real.md"), "new doc\n")
+}
+
+// TestMutateExecutorWriteScopeDeniesLinkFromOutside proves operations spelled
+// outside the scope root are denied even when the path resolves into scope,
+// which would otherwise let a delete or move remove the outside link itself.
+func TestMutateExecutorWriteScopeDeniesLinkFromOutside(t *testing.T) {
+	tests := []struct {
+		name   string
+		opType string
+		source string
+	}{
+		{name: "delete through outside link", opType: "delete_file", source: "link.md"},
+		{name: "move source outside link", opType: "move", source: "link.md"},
+		{name: "write through outside link", opType: "write", source: "link.md"},
+		{name: "create under outside directory link", opType: "create", source: "dirlink/new.md"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			outside := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+				t.Fatalf("mkdir docs: %v", err)
+			}
+			target := filepath.Join(root, "docs", "a.md")
+			mustWrite(t, target, "doc\n")
+			link := filepath.Join(outside, "link.md")
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatalf("symlink link.md: %v", err)
+			}
+			if err := os.Symlink(filepath.Join(root, "docs"), filepath.Join(outside, "dirlink")); err != nil {
+				t.Fatalf("symlink dirlink: %v", err)
+			}
+			executor := newScopedMutateExecutorWithPaths(t, root, config.PathsConfig{})
+
+			path := filepath.Join(outside, filepath.FromSlash(tc.source))
+			op := map[string]any{"type": tc.opType, "path": path}
+			switch tc.opType {
+			case "move":
+				op = map[string]any{"type": tc.opType, "from": path, "to": filepath.Join(outside, "moved.md")}
+			case "write", "create":
+				op["content"] = "blocked\n"
+			}
+			_, err := executeMutate(t, executor, map[string]any{"operations": []any{op}})
+			assertPolicyDenied(t, err)
+
+			assertContent(t, target, "doc\n")
+			if _, statErr := os.Lstat(link); statErr != nil {
+				t.Fatalf("outside link removed by denied %s: %v", tc.opType, statErr)
+			}
+			if _, statErr := os.Stat(filepath.Join(outside, "moved.md")); !os.IsNotExist(statErr) {
+				t.Fatalf("move destination exists after denial, stat err = %v", statErr)
+			}
+			if _, statErr := os.Stat(filepath.Join(outside, "dirlink", "new.md")); !os.IsNotExist(statErr) {
+				t.Fatalf("file created through outside directory link, stat err = %v", statErr)
+			}
+			if _, statErr := os.Stat(filepath.Join(root, "docs", "new.md")); !os.IsNotExist(statErr) {
+				t.Fatalf("in-scope file created through outside link, stat err = %v", statErr)
+			}
+		})
+	}
 }
 
 func TestMutateExecutorWriteScopeDeniesOutOfScopeOperations(t *testing.T) {
