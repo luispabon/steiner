@@ -352,18 +352,13 @@ func fitConversationState(ctx context.Context, req RunRequest, state RunState) (
 	return req.ModelBudget.FitRequest(ctx, chatRequest)
 }
 
-// Compact reduces the current conversation to fit the model budget.
-func (r *Runner) Compact(ctx context.Context, req RunRequest, currentConv []Message, steerings ...string) ([]Message, error) {
-	// Without a lineage there is no backend state to clear.
-	compacted, _, _, err := r.CompactWithLineage(ctx, req, ConversationLineage{}, currentConv, steerings...)
-	return compacted, err
-}
-
-// CompactWithLineage is Compact for a caller that holds the run's lineage. The
-// lineage contributes only its latest backend state, which the summary request
-// is issued against. The messages compacted are still currentConv. It also
-// reports whether the summary cleared that backend state, so the caller can drop
-// it from the lineage it keeps. It also reports whether a compaction stage applied.
+// CompactWithLineage reduces the current conversation to fit the model budget
+// for a caller that holds the run's lineage. The lineage contributes only its
+// latest backend state, which the summary request is issued against. The
+// messages compacted are still currentConv. It also reports whether the summary
+// cleared that backend state, so the caller can drop it from the lineage it
+// keeps. It also reports whether a compaction stage applied. Cleared is
+// reported only on success; an error reports false for both flags.
 func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage ConversationLineage, currentConv []Message, steerings ...string) ([]Message, bool, bool, error) {
 	if provider.IsStatefulTranscript(req.Provider) && !provider.SupportsStatefulCompaction(req.Provider) {
 		return nil, false, false, fmt.Errorf("compact conversation: %w", errStatefulCompaction)

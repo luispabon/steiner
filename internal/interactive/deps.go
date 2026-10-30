@@ -56,19 +56,12 @@ type runExecutor interface {
 	// conversation.
 	Run(ctx context.Context, in RunInput) (RunResult, error)
 
-	// Compact reduces the conversation through the same runner seam used by
-	// normal runs.
-	Compact(ctx context.Context, conversation []agent.Message, tools []provider.ToolSpec, steering string) ([]agent.Message, error)
-}
-
-// lineageCompactor is implemented by runExecutors that compact against the
-// run's lineage, so the summary request carries its backend state. Executors
-// without it compact from the conversation alone.
-type lineageCompactor interface {
-	// CompactWithLineage reports whether the summary cleared the backend state of
-	// the lineage's latest generation, and whether a compaction stage applied.
-	// lastMainRequest is the run's last main request, which decides whether a
-	// compaction fallback applies.
+	// CompactWithLineage reduces the conversation through the same runner seam
+	// used by normal runs, against the run's lineage and last main request, so
+	// the summary request carries the lineage's latest backend state.
+	// lastMainRequest decides whether a compaction fallback applies. It reports
+	// whether the summary cleared the backend state of the lineage's latest
+	// generation, and whether a compaction stage applied.
 	CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error)
 }
 

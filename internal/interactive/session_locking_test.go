@@ -224,7 +224,7 @@ func (e *concurrentRunExecutor) Run(context.Context, RunInput) (RunResult, error
 	return RunResult{}, nil
 }
 
-func (e *concurrentRunExecutor) Compact(_ context.Context, conversation []agent.Message, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
+func (e *concurrentRunExecutor) CompactWithLineage(_ context.Context, conversation []agent.Message, _ agent.ConversationLineage, _ agent.LastMainRequest, _ []provider.ToolSpec, _ string) ([]agent.Message, bool, bool, error) {
 	e.calls.Add(1)
-	return conversation, nil
+	return conversation, false, true, nil
 }

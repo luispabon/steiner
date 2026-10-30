@@ -28,10 +28,10 @@ const (
 )
 
 // newCompactTestRunner builds a cliRunner wired to a fake provider and a
-// discovered model catalog, so Compact resolves the discovered context window
-// and max output tokens. The returned provider starts with no queued responses;
-// callers append one per expected model call. The captured model pointer is set
-// on the first providerFactory call.
+// discovered model catalog, so CompactWithLineage resolves the discovered
+// context window and max output tokens. The returned provider starts with no
+// queued responses; callers append one per expected model call. The captured
+// model pointer is set on the first providerFactory call.
 func newCompactTestRunner(t *testing.T) (cliRunner, *fakeProvider, *provider.ResolvedModel) {
 	t.Helper()
 
@@ -90,21 +90,27 @@ func newCompactTestRunner(t *testing.T) (cliRunner, *fakeProvider, *provider.Res
 	return r, prov, captured
 }
 
-func TestCLIRunnerCompactUsesResolvedLimitsAndAssembly(t *testing.T) {
+func TestCLIRunnerCompactWithLineageUsesResolvedLimitsAndAssembly(t *testing.T) {
 	r, prov, captured := newCompactTestRunner(t)
 	prov.responses = []provider.ChatResponse{{
 		Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "summary"}, FinishReason: "stop",
 	}}
 
-	conversation, err := r.Compact(context.Background(), []agent.Message{
+	conversation, cleared, applied, err := r.CompactWithLineage(context.Background(), []agent.Message{
 		{Role: agent.MessageRoleUser, Content: "first request"}, {Role: agent.MessageRoleAssistant, Content: "first answer"},
 		{Role: agent.MessageRoleUser, Content: "second request"}, {Role: agent.MessageRoleAssistant, Content: "second answer"},
-	}, nil, nil, "")
+	}, agent.ConversationLineage{}, agent.LastMainRequest{}, nil, nil, "")
 	if err != nil {
-		t.Fatalf("Compact() error = %v", err)
+		t.Fatalf("CompactWithLineage() error = %v", err)
+	}
+	if !applied {
+		t.Fatal("CompactWithLineage() applied = false, want true")
+	}
+	if cleared {
+		t.Fatal("CompactWithLineage() cleared = true, want false without lineage backend state")
 	}
 	if len(conversation) == 0 {
-		t.Fatal("Compact() returned empty conversation")
+		t.Fatal("CompactWithLineage() returned empty conversation")
 	}
 	if got := captured.EffectiveLimits.ContextWindow; got != compactTestContextWindow {
 		t.Fatalf("context window = %d, want %d", got, compactTestContextWindow)
@@ -113,7 +119,7 @@ func TestCLIRunnerCompactUsesResolvedLimitsAndAssembly(t *testing.T) {
 		t.Fatalf("max output tokens = %d, want %d", got, compactTestMaxTokens)
 	}
 	if len(prov.requests) == 0 {
-		t.Fatal("Compact() made no provider request")
+		t.Fatal("CompactWithLineage() made no provider request")
 	}
 	preamble := prov.requests[0].Messages[0].Content
 	if !strings.Contains(preamble, "## Your role") {
@@ -124,11 +130,11 @@ func TestCLIRunnerCompactUsesResolvedLimitsAndAssembly(t *testing.T) {
 	}
 }
 
-// TestCLIRunnerCompactCarriesCacheBaselineAndUsageRecorder proves manual
-// compaction reuses the session's cache identity and usage accounting: its
-// cache diagnostics report a live prefix comparison, it never promotes the
+// TestCLIRunnerCompactWithLineageCarriesCacheBaselineAndUsageRecorder proves
+// manual compaction reuses the session's cache identity and usage accounting:
+// its cache diagnostics report a live prefix comparison, it never promotes the
 // baseline, and the summariser response is recorded exactly once.
-func TestCLIRunnerCompactCarriesCacheBaselineAndUsageRecorder(t *testing.T) {
+func TestCLIRunnerCompactWithLineageCarriesCacheBaselineAndUsageRecorder(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	r, prov, _ := newCompactTestRunner(t)
@@ -151,15 +157,18 @@ func TestCLIRunnerCompactCarriesCacheBaselineAndUsageRecorder(t *testing.T) {
 	r.cacheBaseline = agent.NewCacheBaselineStore()
 	r.promptCacheKeyFn = func() string { return "session-cache-key" }
 
-	conversation, err := r.Compact(context.Background(), []agent.Message{
+	conversation, _, applied, err := r.CompactWithLineage(context.Background(), []agent.Message{
 		{Role: agent.MessageRoleUser, Content: "first request"}, {Role: agent.MessageRoleAssistant, Content: "first answer"},
 		{Role: agent.MessageRoleUser, Content: "second request"}, {Role: agent.MessageRoleAssistant, Content: "second answer"},
-	}, nil, nil, "")
+	}, agent.ConversationLineage{}, agent.LastMainRequest{}, nil, nil, "")
 	if err != nil {
-		t.Fatalf("Compact() error = %v", err)
+		t.Fatalf("CompactWithLineage() error = %v", err)
+	}
+	if !applied {
+		t.Fatal("CompactWithLineage() applied = false, want true")
 	}
 	if len(conversation) == 0 {
-		t.Fatal("Compact() returned empty conversation")
+		t.Fatal("CompactWithLineage() returned empty conversation")
 	}
 
 	if got := recorder.SessionReportFor(usagestats.SourceParent).Requests; got != 1 {
@@ -184,13 +193,13 @@ func TestCLIRunnerCompactCarriesCacheBaselineAndUsageRecorder(t *testing.T) {
 	}
 }
 
-// TestCLIRunnerCompactDoesNotBecomeCacheBaseline establishes a normal-turn
-// baseline, runs manual compaction, then proves the next normal request still
-// compares against the pre-compaction baseline rather than the compaction
-// request. The compaction conversation deliberately starts with a different
-// first message, so a compaction-promoted baseline would yield a shorter
-// shared prefix than the normal one.
-func TestCLIRunnerCompactDoesNotBecomeCacheBaseline(t *testing.T) {
+// TestCLIRunnerCompactWithLineageDoesNotBecomeCacheBaseline establishes a
+// normal-turn baseline, runs manual compaction, then proves the next normal
+// request still compares against the pre-compaction baseline rather than the
+// compaction request. The compaction conversation deliberately starts with a
+// different first message, so a compaction-promoted baseline would yield a
+// shorter shared prefix than the normal one.
+func TestCLIRunnerCompactWithLineageDoesNotBecomeCacheBaseline(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	prov := &fakeProvider{responses: []provider.ChatResponse{
@@ -229,13 +238,13 @@ func TestCLIRunnerCompactDoesNotBecomeCacheBaseline(t *testing.T) {
 
 	// Manual compaction runs with a conversation whose first message differs
 	// from the normal turn, so its outbound prefix diverges early.
-	if _, err := r.Compact(context.Background(), []agent.Message{
+	if _, _, _, err := r.CompactWithLineage(context.Background(), []agent.Message{
 		{Role: agent.MessageRoleUser, Content: "different first"},
 		{Role: agent.MessageRoleAssistant, Content: "different answer"},
 		{Role: agent.MessageRoleUser, Content: "compact me"},
 		{Role: agent.MessageRoleAssistant, Content: "ok"},
-	}, nil, nil, ""); err != nil {
-		t.Fatalf("Compact() error = %v", err)
+	}, agent.ConversationLineage{}, agent.LastMainRequest{}, nil, nil, ""); err != nil {
+		t.Fatalf("CompactWithLineage() error = %v", err)
 	}
 
 	// Normal turn 2 continues from turn 1; its comparison must be against the
