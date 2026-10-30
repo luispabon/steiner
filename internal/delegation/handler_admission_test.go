@@ -102,7 +102,7 @@ func TestHandlerValidationErrorsThroughExecutor(t *testing.T) {
 			return input
 		}(), want: "not registered in this conversation"},
 		{name: "model resolution", input: subAgentTask(AgentTypeExplore, "inspect"), want: "model unavailable"},
-		{name: "code feasibility", input: subAgentTask(AgentTypeCode, "inspect"), want: "provision code worktree"},
+		{name: "code feasibility", input: subAgentTask(AgentTypeCode, "inspect"), want: "provision worktree"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := executor.Execute(context.Background(), SubAgentToolName, "call", test.input)
@@ -212,7 +212,7 @@ func TestBlockingHandlerAcceptedPreparationFailureKeepsMetadata(t *testing.T) {
 	input := subAgentTask(AgentTypeCode, "prepare")
 	input["group"] = " prepare-group "
 	got, err := SubAgentToolDef(deps, nil).Handler(ctx, input)
-	if err == nil || !strings.Contains(err.Error(), "provision code worktree") {
+	if err == nil || !strings.Contains(err.Error(), "provision worktree") {
 		t.Fatalf("handler error = %v, want worktree preparation failure", err)
 	}
 	var carrier tool.DelegationAdmissionCarrier

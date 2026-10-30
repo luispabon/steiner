@@ -14,7 +14,7 @@ const cancellationCleanupTimeout = 30 * time.Second
 
 const (
 	cancelledSessionRetentionPhrase = "the child session is preserved and can be resumed with follow_up"
-	cancelledSessionDiscardNotice   = "session discarded and code worktree removed by request"
+	cancelledSessionDiscardNotice   = "session discarded and worktree removed by request"
 )
 
 func pruneCodeWorktree(projectRoot string, worktree CodeWorktree) (bool, error) {
@@ -69,7 +69,7 @@ func finalizeDelegateCancellation(events output.EventSink, store *SessionStore, 
 
 	worktree, ok := controller.WorktreeFor(agentID)
 	if !ok || worktree.Path == "" {
-		emitDisposal(false, "no owned code worktree to discard")
+		emitDisposal(false, "no owned worktree to discard")
 		return
 	}
 

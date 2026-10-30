@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// PruneCodeWorktree removes the code worktree identified by relID (relative path
+// PruneCodeWorktree removes the worktree identified by relID (relative path
 // under .steiner/worktrees/) if and only if it is owned by delegation
 // (branch starts with "delegate/"). Returns (removed, error) where removed is true
 // once git deregistered the worktree (including when it was already gone), and false
@@ -34,7 +34,7 @@ func pruneCodeWorktreeLocked(ctx context.Context, projectRoot, relID string) (bo
 	// Verify the resolved path is contained within the delegation base directory.
 	// Reject path traversal attempts (e.g., relID containing ".." segments).
 	if worktreePath != delegationBase && !strings.HasPrefix(worktreePath, delegationBase+string(filepath.Separator)) {
-		return false, fmt.Errorf("prune code worktree: %w", ErrWorktreePathEscape)
+		return false, fmt.Errorf("prune worktree: %w", ErrWorktreePathEscape)
 	}
 
 	// Check if the worktree is known to git and what branch it has.
@@ -62,7 +62,7 @@ func pruneCodeWorktreeLocked(ctx context.Context, projectRoot, relID string) (bo
 
 	// Verify it's delegation-owned (branch starts with "delegate/").
 	if !strings.HasPrefix(foundEntry.Branch, "delegate/") {
-		return false, fmt.Errorf("prune code worktree: %w: branch %q does not start with \"delegate/\"",
+		return false, fmt.Errorf("prune worktree: %w: branch %q does not start with \"delegate/\"",
 			ErrWorktreeNotDelegation, foundEntry.Branch)
 	}
 
@@ -93,7 +93,7 @@ func pruneCodeWorktreeLocked(ctx context.Context, projectRoot, relID string) (bo
 	return true, errors.Join(cleanupErrs...)
 }
 
-// PruneAllCodeWorktrees prunes all delegation-owned code worktrees under projectRoot/.steiner/worktrees,
+// PruneAllCodeWorktrees prunes all delegation-owned worktrees under projectRoot/.steiner/worktrees,
 // collecting errors with errors.Join rather than stopping at the first failure.
 // Returns (removedCount, error) where removedCount is the number of worktrees git deregistered,
 // counted even when a worktree's post-removal cleanup failed and err != nil
@@ -133,7 +133,7 @@ func PruneAllCodeWorktrees(ctx context.Context, projectRoot string) (int, error)
 	return removedCount, nil
 }
 
-// PruneProcessCodeWorktrees prunes delegation-owned code worktrees created by this process.
+// PruneProcessCodeWorktrees prunes delegation-owned worktrees created by this process.
 // It continues after per-worktree errors and returns the number of worktrees git
 // deregistered, counting a worktree even when its post-removal cleanup failed and an
 // aggregated error is returned. Worktrees at the protected paths are left in place.

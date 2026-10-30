@@ -15,7 +15,7 @@ Sub-agent delegation is **enabled by default**. When it is, the model sees two a
 
 | Tool        | What it does                                                                     | Parameters                                                                           | Can mutate?            |
 |-------------|-------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------|------------------------|
-| `sub_agent` | Dispatch a specialized sub-agent by type: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision` | `type` enum + `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks`, and optionally `image_id` (required for type `vision`) and optionally `group` for calls in the same tool batch | Depends on type; only `code` can mutate |
+| `sub_agent` | Dispatch a specialized sub-agent by type: `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, or `vision` | `type` enum + `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks`, and optionally `image_id` (required for type `vision`) and optionally `group` for calls in the same tool batch | Depends on type; only `code` and `documentor` can mutate |
 | `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`, and optionally `group` for calls in the same tool batch                        | No (resumes existing)  |
 
 The `sub_agent` tool routes to type-specific handlers with purpose-built system prompts and tool allowlists. Delegation results sent to the provider use a compact envelope with exact `output`, optional `status` and `reason` (the real error on failure, or the cancellation explanation), and optional persisted-session continuation. On usage-limit failures, the reason also includes fixed guidance: the parent is told to delegate a fresh sub-agent to continue or stop delegating and inform the user. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
@@ -32,6 +32,7 @@ The `advisor` tool is a pure reasoning pass for the parent agent. It reads the l
 | Fix a bug but location is unknown                      | `sub_agent` type `explore` — search likely areas and report exact files/code                                                                      |
 | Need to understand an external API or library          | `sub_agent` type `research` — gather docs, usage examples, and constraints                                                                        |
 | Implement a small known change in one package          | `sub_agent` type `code` — implement if ownership and tests are clear                                                                              |
+| Write or update documentation only                     | `sub_agent` type `documentor`: update docs, READMEs, or user and internals pages in an isolated worktree                                          |
 | Understand how a feature works across multiple files   | `sub_agent` type `explore` — trace the call chain, then reassess before editing                                                                   |
 | Evaluate two approaches to a design problem            | `sub_agent` type `evaluate` — analyse tradeoffs, then type `code` the chosen approach                                                                  |
 | Close out a free-form implementation phase             | type `review` the cumulative change, use eligible `follow_up` for same-scope amendments or narrow re-review, otherwise cold-dispatch type `code` or a fresh independent type `review`, then type `sanity_check` |
@@ -44,13 +45,14 @@ The `advisor` tool is a pure reasoning pass for the parent agent. It reads the l
 
 ### Context delivery per agent type
 
-Every sub-agent receives AGENTS.md (global + project) except `vision`, which cannot read the repo. Project context `extra_files` are delivered only to `code`, `review`, and `evaluate`; the remaining types skip them to keep the child prompt focused.
+Every sub-agent receives AGENTS.md (global + project) except `vision`, which cannot read the repo. Project context `extra_files` are delivered only to `code`, `documentor`, `review`, and `evaluate`; the remaining types skip them to keep the child prompt focused.
 
 | Agent          | AGENTS.md | Project context `extra_files` |
 |----------------|-----------|-------------------------------|
 | `explore`      | Yes       | No                            |
 | `research`     | Yes       | No                            |
 | `code`         | Yes       | Yes                           |
+| `documentor`   | Yes       | Yes                           |
 | `evaluate`     | Yes       | Yes                           |
 | `sanity_check` | Yes       | No                            |
 | `review`       | Yes       | Yes                           |
@@ -89,8 +91,8 @@ Key behaviours:
 - **Tracks follow-ups** — the returned result includes a `follow_up_count` field so the parent can see how many follow-ups have occurred.
 - **Auto-approved** — the `follow_up` tool is approval mode `auto` (no user gate).
 - **No nesting** — `follow_up` is stripped from child agent registries, so sub-agents cannot follow-up on other sub-agents.
-- **Enforces live worktree for code agents** — `follow_up` against a `code` session checks up front that its worktree still exists on disk and is on the expected branch. If the worktree was deleted, pruned, or repointed since the session was created, `follow_up` fails immediately with an error instead of running the child; delegate a fresh `code` agent instead of resuming.
-- **Includes worktree_path for code results** — For code sessions, the result envelope includes `worktree_path` — a project-relative path (e.g., `.steiner/worktrees/processHash/branchName/agentID`) to the agent's isolated worktree. This path is relative to the parent project root and contains process, branch-derived, and agent-identifying components (not a fully opaque handle). The path allows parent agents to inspect the worktree content via `read`, `bash`, `grep`, `glob`, or `ls` without needing a `follow_up` call. The field is omitted when no valid worktree exists or for non-code sessions. It appears on all code results where the worktree was provisioned, regardless of outcome (complete, partial, cancelled, or failed) — the worktree remains on disk for inspection even after a failed run.
+- **Enforces live worktree for code and documentor agents** — `follow_up` against such a session checks up front that its worktree still exists on disk and is on the expected branch. If the worktree was deleted, pruned, or repointed since the session was created, `follow_up` fails immediately with an error instead of running the child; delegate a fresh sub-agent instead of resuming.
+- **Includes worktree_path for worktree-isolated results** — For code and documentor sessions, the result envelope includes `worktree_path` — a project-relative path (e.g., `.steiner/worktrees/processHash/branchName/agentID`) to the agent's isolated worktree. This path is relative to the parent project root and contains process, branch-derived, and agent-identifying components (not a fully opaque handle). The path allows parent agents to inspect the worktree content via `read`, `bash`, `grep`, `glob`, or `ls` without needing a `follow_up` call. The field is omitted when no valid worktree exists or for sessions that do not use one. It appears on worktree-isolated results where the worktree was provisioned, regardless of outcome (complete, partial, cancelled, or failed) — the worktree remains on disk for inspection even after a failed run.
 
 ### Parallel fan-out
 
@@ -102,17 +104,17 @@ When at least one delegate is active, pressing **Esc**, **Ctrl-C**, or **Ctrl-D*
 
 The selector lists each active delegate as **bold, tool-box-coloured type · agent ID · truncated task preview**. It offers these choices:
 
-- **Stop one** — confirm stopping the selected delegate. For a code delegate, the default is **stop and keep worktree**; the confirmation also offers **stop and discard worktree** or **keep working**. For other delegate types, choose **stop** or **keep working**.
-- **Stop all delegates** — confirm stopping every active delegate. All code worktrees are retained.
+- **Stop one** — confirm stopping the selected delegate. For a code or documentor delegate, the default is **stop and keep worktree**; the confirmation also offers **stop and discard worktree** or **keep working**. For other delegate types, choose **stop** or **keep working**.
+- **Stop all delegates** — confirm stopping every active delegate. All delegate worktrees are retained.
 - **Stop current turn** — shown first, and only while the parent is generating. Stops the parent's current turn but leaves delegates running; the conversation then pauses (see below).
 - **Stop entire run** — confirm stopping every delegate (running and queued) and the current turn.
 - **Dismiss** — close the dialog without stopping anything. **Keep working** on a confirmation screen returns to the selector.
 
 While delegates run in the background, the activity row shows `waiting on N sub-agents` with the ordinary model-waiting spinner. After **Stop current turn** it shows `paused — N results waiting; send a message to continue` with a static indicator: results are held until you send a message. If the token budget is reached with sub-agents still running, the row shows `token budget reached — N sub-agents still running` with a static indicator. Queued delegates appear as queued rows and count as active for the stop dialog. A delegate with no activity for 5 minutes is shown as `stalled Nm` in its row and in the dialog; this is display-only and the model is not told. While results are pending, `/new`, `/clear`, session switching and forking are refused; model, profile and mode switches and manual `/compact` are still allowed while waiting.
 
-Stopping a delegate does not automatically remove its worktree. A targeted code stop keeps its worktree by default, and stop-all keeps every code worktree. Discard is available only through the explicit targeted discard choice. Discarding a code session makes it non-resumable with `follow_up` and removes its delegation worktree and branch; it is not an automatic cleanup path. A code delegate stopped while waiting for cache warm-up never started, so it has no follow-up session; its empty worktree is retained by default and can be discarded from the stop dialog or removed later.
+Stopping a delegate does not automatically remove its worktree. A targeted code or documentor stop keeps its worktree by default, and stop-all keeps every delegate worktree. Discard is available only through the explicit targeted discard choice. Discarding a worktree-isolated session makes it non-resumable with `follow_up` and removes its delegation worktree and branch; it is not an automatic cleanup path. A code or documentor delegate stopped while waiting for cache warm-up never started, so it has no follow-up session; its empty worktree is retained by default and can be discarded from the stop dialog or removed later.
 
-Every `code` sub-agent automatically runs in its own isolated, runtime-provisioned and verified git worktree under `.steiner/worktrees/`. You do not need to arrange isolation manually anymore. Concurrent child agents are now safe from file-edit collisions.
+Every `code` or `documentor` sub-agent automatically runs in its own isolated, runtime-provisioned and verified git worktree under `.steiner/worktrees/`. You do not need to arrange isolation manually anymore. Concurrent child agents are now safe from file-edit collisions.
 
 ### Exit-time worktree cleanup
 
@@ -122,15 +124,15 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 
 - A sub-agent **cannot delegate further** — `follow_up` and `workflow_handoff` tools are always stripped from child registries.
 - The parent-only `workflow_handoff` tool is not included in child allowlists yet.
-- Only the `code` sub-agent has access to file-mutation tools (`mutate`).
+- Only the `code` and `documentor` sub-agents have access to file-mutation tools (`mutate`). `documentor` writes are limited to documentation files; see [`documentor` type](#documentor-type).
 - `explore`, `research`, `evaluate`, and `vision` are read-only.
 - `explore` and `evaluate` can run commands via `bash` (for `git diff`, `git log`, `git show`, `grep`, `find`, etc.); when sandboxing is enabled, `bash` runs with the project mounted read-only, so writes to the workspace fail.
 - `sanity_check` and `review` can run commands via `bash` (for tests, `git diff`, `git log`, etc.) but must not modify files.
 - MCP tools are registered from third-party servers and are only exposed to sub-agents when the server's `sub_agents` list explicitly includes the agent type. Approval is per-server and controlled by the parent's configuration.
 - All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
 - The child's full conversation transcript is not copied into the parent session; only the structured result and its retention metadata persist.
-- The result the parent model sees excludes absolute worktree paths, `worktree_branch`, traces, tool-call counts, session metadata, and diagnostic counters. Host-side trace fields and locations are documented in [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md#host-side-diagnostics-vs-the-model-facing-result), never sent to the provider. The project-relative `worktree_path` (`.steiner/worktrees/...`) is included for code agents with valid provisioned worktrees, allowing parent agents to inspect worktrees via `read`/`bash`/`grep`/`glob`/`ls` without needing a `follow_up` call.
-- While the parent interactive session is in `plan` execution mode, the `code` sub-agent tool is denied outright, and `follow_up` is denied when it targets a session spawned by `code` — both can mutate files, which plan mode disallows. See [Execution modes](execution-modes.md) for the full enforcement matrix.
+- The result the parent model sees excludes absolute worktree paths, `worktree_branch`, traces, tool-call counts, session metadata, and diagnostic counters. Host-side trace fields and locations are documented in [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md#host-side-diagnostics-vs-the-model-facing-result), never sent to the provider. The project-relative `worktree_path` (`.steiner/worktrees/...`) is included for worktree-isolated agents with valid provisioned worktrees, allowing parent agents to inspect worktrees via `read`/`bash`/`grep`/`glob`/`ls` without needing a `follow_up` call.
+- While the parent interactive session is in `plan` execution mode, the `code` and `documentor` sub-agent tools are denied outright, and `follow_up` is denied when it targets a session spawned by `code` or `documentor` — both can mutate files, which plan mode disallows. See [Execution modes](execution-modes.md) for the full enforcement matrix.
 - The system-prompt canon and deliberate skill/oneshot workflow differences are documented in [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md#canon-and-workflow).
 
 ### Default tool allowlists
@@ -140,6 +142,7 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 | `explore`  | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox), `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
 | `research` | `read`, `glob`, `grep`, `ls`, `web_search`\*, `fetch_url`\* |
 | `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `advisor`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
+| `documentor` | Same tools as `code`; `mutate` is limited to documentation files |
 | `evaluate`    | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox), `advisor`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
 | `sanity_check`| `read`, `glob`, `grep`, `ls`, `bash`                        |
 | `vision`   | `read`                                                      |
@@ -175,6 +178,7 @@ models:
       default_model: openai/<orchestrator-model-id>
       sub_agents:
         code: openai/<code-model-id>
+        documentor: openai/<documentation-model-id>
         evaluate: anthropic/<evaluate-model-id>
         sanity_check: openai/<sanity-check-model-id>
 ```
@@ -222,8 +226,27 @@ profile's `sub_agents.<type>` assignments freely.
 | Tier          | Agent types                             | Rationale                                                                 |
 |---------------|-----------------------------------------|---------------------------------------------------------------------------|
 | **Flash**     | `explore`, `code`, `sanity_check`       | Mechanical tasks — search, implement scoped changes, run checks. Speed matters more than depth. A flash-tier model also works well for the initial `explore` that pre-digests the design during implementation. |
-| **Balanced**  | `research`, `review`, `vision`          | Requires synthesis or judgment — gathering information, reviewing code changes, analyzing images. Needs a model that can weigh context and produce nuanced output. |
+| **Balanced**  | `research`, `documentor`, `review`, `vision` | Requires synthesis or judgment — gathering information, reviewing code changes, analyzing images. Needs a model that can weigh context and produce nuanced output. |
 | **Top-thinker** | `evaluate`                           | Deep reasoning on scoped sub-problems — analysing tradeoffs, evaluating approaches. Benefits most from a stronger model's deliberation capacity. |
+
+The table is a starting point, not an exhaustive assignment; any agent type can be routed to any model.
+
+### `documentor` type
+
+`sub_agent` with type `documentor` writes or updates documentation. It follows the same lifecycle as `code`: the runtime provisions an isolated git worktree under `.steiner/worktrees/`, requires the child to commit its changes there, and returns `worktree_path` in the result. The targeted stop dialog, discard option, and exit-time cleanup treat it like a `code` delegate.
+
+It receives the same tool allowlist as `code`, but `mutate` is restricted to documentation files:
+
+- Extensions `.md`, `.mdx`, `.markdown`, `.rst`, and `.adoc`.
+- Extensionless files named `README`, `CHANGELOG`, or `CONTRIBUTING`.
+
+Matching is case-sensitive and uses the final path component, so `docs/Guide.MD` is denied. Files may sit anywhere under the child worktree. The check applies to both the lexical path and its symlink-resolved target, an existing directory is never eligible even when its name matches, and a `move` must have both its source and destination in scope.
+
+The scope governs `mutate` only and is not a security boundary. `bash` and MCP tools are not filtered by it, the worktree shares git metadata with the parent repository, and hardlinks or races can bypass name checks. The child prompt forbids writing through any tool other than `mutate`, except git commands and `mkdir -p` for directories that will hold documentation.
+
+A `documentor` is denied in `plan` mode, like `code`, and `follow_up` is denied when it targets a documentor child. Model fallback is unchanged: configure `sub_agents.documentor`; if that entry is unset, it uses the profile's `default_model`, then the parent model. There is no vision-style capability requirement.
+
+Documentation that must ship in the same commit as a code change stays with the `code` deliverable, not a separate `documentor`.
 
 ### `vision` type
 

@@ -29,11 +29,12 @@ type ChildBootstrapOverrides struct {
 
 	// ProjectRoot is the parent's actual project directory, used only for
 	// placing host-side artifacts (e.g. tool-call trace files) that must
-	// never land inside a code agent's isolated git worktree. It is distinct
-	// from deps.WorkDir, which specializedBootstrapDeps overrides to the
-	// worktree path for AgentTypeCode before calling BuildChildRun. Callers
-	// that never override WorkDir (vision, non-code specialized agents) may
-	// leave this unset; BuildChildRun falls back to deps.WorkDir.
+	// never land inside a worktree-isolated child's git worktree. It is
+	// distinct from deps.WorkDir, which specializedBootstrapDeps overrides to
+	// the worktree path for worktree-isolated types (see UsesWorktree) before
+	// calling BuildChildRun. Callers that never override WorkDir (vision,
+	// other specialized agents) may leave this unset; BuildChildRun falls back
+	// to deps.WorkDir.
 	ProjectRoot string
 }
 
@@ -42,7 +43,7 @@ type ChildBootstrapOverrides struct {
 // are lean and don't need project-level conventions; vision children can't
 // read the repo at all, so they skip both.
 func childContextSkips(agentType AgentType) (skipProjectContext, skipAgents bool) {
-	skipProjectContext = agentType != AgentTypeCode && agentType != AgentTypeReview && agentType != AgentTypeEvaluate
+	skipProjectContext = agentType != AgentTypeCode && agentType != AgentTypeDocumentor && agentType != AgentTypeReview && agentType != AgentTypeEvaluate
 	skipAgents = agentType == AgentTypeVision
 	return
 }
@@ -53,6 +54,8 @@ func childWorkflowMode(agentType AgentType) prompt.WorkflowMode {
 		return prompt.DelegatedNonCodeChildWorkflowMode()
 	case AgentTypeCode:
 		return prompt.DelegatedCodeSubAgentWorkflowMode()
+	case AgentTypeDocumentor:
+		return prompt.DelegatedDocumentorWorkflowMode()
 	default:
 		return prompt.DelegatedChildWorkflowMode()
 	}
@@ -253,10 +256,10 @@ func childFallbackConfig(deps SubAgentHandlerDeps) *config.Config {
 type childRunRequestParams struct {
 	WorkDir string
 	// TraceRoot is where host-side tool-call trace files are written. It
-	// equals WorkDir except for AgentTypeCode, where WorkDir is the isolated
-	// worktree path and TraceRoot stays anchored to the parent's actual
-	// project directory so trace files never appear as untracked changes
-	// inside the child's git checkout.
+	// equals WorkDir except for a worktree-isolated agent type, where WorkDir
+	// is the isolated worktree path and TraceRoot stays anchored to the
+	// parent's actual project directory so trace files never appear as
+	// untracked changes inside the child's git checkout.
 	TraceRoot          string
 	AgentID            string
 	SessionID          string
@@ -318,6 +321,13 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 	exec = exec.WithDiagnosticsScope(diagnostics.SourceSubAgent, p.AgentID, string(p.AgentType))
 	if p.ModeGetter != nil {
 		exec = exec.WithModeGetter(p.ModeGetter)
+	}
+	// A write-scoped child type carries its scope on the executor stored in
+	// the run request, so follow-ups (which reuse that request) and commit
+	// remediation (which reuses it too) stay restricted exactly like the
+	// initial run.
+	if scope, ok := agentWriteScope(p.AgentType); ok {
+		exec = exec.WithWriteScope(scope)
 	}
 
 	// Same-type sub-agent delegations reuse one cache key per AgentType within

@@ -14,8 +14,8 @@ import (
 // ErrWorktreeProvisioning is a sentinel error for worktree provisioning failures.
 var ErrWorktreeProvisioning = errors.New("git worktree provisioning failed")
 
-// ErrCodeWorktreeRequiresCommit indicates that a code worktree cannot be created because the parent repository has no commit.
-var ErrCodeWorktreeRequiresCommit = errors.New("code worktree requires a commit")
+// ErrCodeWorktreeRequiresCommit indicates that a worktree cannot be created because the parent repository has no commit.
+var ErrCodeWorktreeRequiresCommit = errors.New("worktree requires a commit")
 
 // ErrWorktreeNotDelegation indicates an attempt to prune a worktree that is not owned by delegation.
 var ErrWorktreeNotDelegation = errors.New("worktree is not delegation-owned")
@@ -135,16 +135,16 @@ func checkCodeWorktreeFeasible(ctx context.Context, projectRoot string) error {
 func worktreeIdentity(ctx context.Context, projectRoot string) (sanitizedBranch, processHash string, err error) {
 	parentBranch, err := getParentBranchName(ctx, projectRoot)
 	if err != nil {
-		return "", "", fmt.Errorf("provision code worktree: %w", errors.Join(ErrWorktreeProvisioning, err))
+		return "", "", fmt.Errorf("provision worktree: %w", errors.Join(ErrWorktreeProvisioning, err))
 	}
 	processHash, err = getProcessHash()
 	if err != nil {
-		return "", "", fmt.Errorf("provision code worktree: %w", errors.Join(ErrWorktreeProvisioning, fmt.Errorf("get process hash: %w", err)))
+		return "", "", fmt.Errorf("provision worktree: %w", errors.Join(ErrWorktreeProvisioning, fmt.Errorf("get process hash: %w", err)))
 	}
 	return sanitizeBranchName(parentBranch), processHash, nil
 }
 
-// ProvisionCodeWorktree provisions a new code worktree for the given agentID,
+// ProvisionCodeWorktree provisions a new worktree for the given agentID,
 // branching from the current HEAD. It holds worktreeMu for the entire
 // provisioning and verification critical section to serialize concurrent
 // git worktree add calls. The worktree path and branch are derived from the
@@ -166,7 +166,7 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 
 	// Prune stale metadata and remove any existing path at this location.
 	if err := runGit(ctx, projectRoot, "worktree", "prune"); err != nil {
-		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
+		return CodeWorktree{}, fmt.Errorf("provision worktree: %w", ErrWorktreeProvisioning)
 	}
 
 	// Refuse to clobber a path that is still a registered worktree: kept
@@ -174,19 +174,19 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 	if registered, err := listWorktreeEntries(ctx, projectRoot); err == nil {
 		for _, e := range registered {
 			if filepath.Clean(e.Path) == filepath.Clean(worktreePath) {
-				return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", errors.Join(ErrWorktreeProvisioning, fmt.Errorf("worktree %s already exists (branch %s); refusing to overwrite", worktreePath, e.Branch)))
+				return CodeWorktree{}, fmt.Errorf("provision worktree: %w", errors.Join(ErrWorktreeProvisioning, fmt.Errorf("worktree %s already exists (branch %s); refusing to overwrite", worktreePath, e.Branch)))
 			}
 		}
 	}
 
 	// Remove any stale checkout path.
 	if err := os.RemoveAll(worktreePath); err != nil {
-		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
+		return CodeWorktree{}, fmt.Errorf("provision worktree: %w", ErrWorktreeProvisioning)
 	}
 
 	// Ensure parent directory exists.
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
-		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
+		return CodeWorktree{}, fmt.Errorf("provision worktree: %w", ErrWorktreeProvisioning)
 	}
 
 	// Create the worktree, branching from current HEAD.
@@ -194,7 +194,7 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 		// Best-effort cleanup on failure.
 		_ = runGit(ctx, projectRoot, "worktree", "prune")
 		_ = os.RemoveAll(worktreePath)
-		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
+		return CodeWorktree{}, fmt.Errorf("provision worktree: %w", ErrWorktreeProvisioning)
 	}
 
 	// Verify the worktree was created correctly.
@@ -202,7 +202,7 @@ func ProvisionCodeWorktree(ctx context.Context, projectRoot, agentID string) (Co
 		// Best-effort cleanup on failure.
 		_ = runGit(ctx, projectRoot, "worktree", "prune")
 		_ = os.RemoveAll(worktreePath)
-		return CodeWorktree{}, fmt.Errorf("provision code worktree: %w", ErrWorktreeProvisioning)
+		return CodeWorktree{}, fmt.Errorf("provision worktree: %w", ErrWorktreeProvisioning)
 	}
 
 	return CodeWorktree{

@@ -17,7 +17,7 @@ The planner never implements and never edits implementation files. Its work ends
 
 These rules are absolute. They override your judgment, the task's apparent size, and any user phrasing that invites a shortcut ("just do it," "this is trivial," "go ahead and build it"). Breaking one is a skill failure.
 
-1. **You plan. You never implement.** Never write, edit, create, or refactor an implementation file. Never call `mutate`, `edit`, `write`, `apply_patch`, or `bash` to add or change source code, and never delegate code changes through `code`. The *only* files you may write are the planning artifacts under `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`. The only delegation you may use during planning is read-only discovery and research (`explore`, `research`, `evaluate`). If you are about to produce code, STOP; that is the executor's job, after handoff.
+1. **You plan. You never implement.** Never write, edit, create, or refactor an implementation file. Never call `mutate`, `edit`, `write`, `apply_patch`, or `bash` to add or change source code, and never delegate code or documentation changes through `code` or `documentor`. The *only* files you may write are the planning artifacts under `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`. The only delegation you may use during planning is read-only discovery and research (`explore`, `research`, `evaluate`). If you are about to produce code, STOP; that is the executor's job, after handoff.
 2. **You must complete the full procedure before handoff.** Do not jump to a later stage, and do not collapse stages. Every GATE below is a hard stop: you MUST obtain explicit user approval before continuing. Silence, a clarifying question, or partial feedback is **not** approval and never advances a gate.
 3. **Write nothing to disk before the research decision (Stage 2) is resolved.** No `overview.md`, no `plan.yaml`, no branch artifacts.
 4. **Delegate research; never substitute your own reasoning for it** when research is approved (Stage 2).
@@ -190,7 +190,7 @@ Optional fields:
 
 - `depends_on` — only when a real dependency exists
 - `parallel_group` — only when parallel execution is safe and worth the coordination cost
-- `delegate_profile` — `explore`, `research`, `code`, `evaluate`, `sanity_check`, or `review`
+- `delegate_profile` — `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, or `review`
 - `no_delegate` — skip delegation for steps too small to justify the overhead
 
 **Sizing.** Group steps by logical deliverable, not by mechanical operation. Adding struct fields, updating the parser, and adding tests for the parser is one step when they serve the same feature unit. Split at package boundaries, domain concepts, or risk profiles.
@@ -221,7 +221,7 @@ During planning you may use only the read-only Steiner tools — anything that w
 - `research` — current, external, or codebase research
 - `evaluate` — bounded sub-problem analysis
 
-Do **not** use `code` (implementation edits) or `sanity_check` (runs checks on changes) while planning; those belong to the executor and reviewer after handoff. You name `code`/`delegate_profile` values inside `plan.yaml` steps as instructions for the executor — that is planning, not invoking them.
+Do **not** use `code` (implementation edits), `documentor` (documentation edits), or `sanity_check` (runs checks on changes) while planning; those belong to the executor and reviewer after handoff. You name `code`, `documentor`, and other `delegate_profile` values inside `plan.yaml` steps as instructions for the executor — that is planning, not invoking them.
 
 ### Research output contract
 

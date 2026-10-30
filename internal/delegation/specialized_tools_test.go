@@ -831,7 +831,7 @@ func TestSubAgentToolDef_Schema(t *testing.T) {
 		}
 	}
 
-	// Verify the type enum has all 7 agent types.
+	// Verify the type enum has every agent type.
 	typeField, ok := props["type"].(map[string]any)
 	if !ok {
 		t.Fatal("type field is not a map")
@@ -981,9 +981,10 @@ func TestSpecializedHandler_EmptyTask(t *testing.T) {
 	for _, agentType := range AllAgentTypes() {
 		agentType := agentType
 		t.Run(string(agentType), func(t *testing.T) {
-			// Skip Vision (requires image_id) and Code (requires worktree) as they have special requirements.
-			if agentType == AgentTypeVision || agentType == AgentTypeCode {
-				t.Skip("vision and code agents require special setup; tested separately")
+			// Skip Vision (requires image_id) and worktree-isolated types (require a
+			// git repository) as they have special requirements.
+			if agentType == AgentTypeVision || UsesWorktree(agentType) {
+				t.Skip("vision and worktree-isolated agents require special setup; tested separately")
 			}
 			def := SubAgentToolDef(minimalDeps(runner), nil)
 
@@ -1144,7 +1145,7 @@ func TestSpecializedHandler_UsesTypeAllowedTools(t *testing.T) {
 				},
 				ModelResolver: nil,
 			}
-			if agentType == AgentTypeCode {
+			if UsesWorktree(agentType) {
 				repo := setupTestRepo(t)
 				deps.WorkDir = repo
 			}
@@ -1994,7 +1995,7 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 	skipTypes := []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeSanityCheck}
 	// Vision is excluded because it uses newVisionHandler which requires image_id.
 	// Agents that should receive full project context.
-	keepTypes := []AgentType{AgentTypeCode, AgentTypeReview, AgentTypeEvaluate}
+	keepTypes := []AgentType{AgentTypeCode, AgentTypeDocumentor, AgentTypeReview, AgentTypeEvaluate}
 
 	t.Run("lean agents skip project context", func(t *testing.T) {
 		for _, agentType := range skipTypes {
@@ -2031,7 +2032,7 @@ func TestSpecializedHandlerSkipProjectContext(t *testing.T) {
 					return successRunState(), nil
 				}}
 				deps := minimalDeps(runner)
-				if agentType == AgentTypeCode {
+				if UsesWorktree(agentType) {
 					repo := setupTestRepo(t)
 					deps.WorkDir = repo
 				}
@@ -2157,7 +2158,7 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 	runHandler := func(t *testing.T, agentType AgentType, extras map[AgentType][]string) (agent.RunRequest, *SessionStore) {
 		t.Helper()
 		workDir := "/tmp/work"
-		if agentType == AgentTypeCode {
+		if UsesWorktree(agentType) {
 			repo := setupTestRepo(t)
 			workDir = repo
 		}
@@ -2599,7 +2600,7 @@ func TestSpecializedHandler_CodeFatalOnProvisioningFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected fatal worktree provisioning error")
 	}
-	if !strings.Contains(err.Error(), "provision code worktree") && !strings.Contains(err.Error(), "worktree provisioning") {
+	if !strings.Contains(err.Error(), "provision worktree") && !strings.Contains(err.Error(), "worktree provisioning") {
 		t.Errorf("error %q does not mention worktree provisioning", err)
 	}
 	if raw != nil {

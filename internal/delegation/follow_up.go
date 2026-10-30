@@ -218,7 +218,7 @@ func denyFollowUpOnDeadCodeWorktree(ctx context.Context, agentID string, isCode 
 	}
 	if err := verifyCodeWorktree(ctx, remediation.WorktreePath, remediation.ExpectedBranch); err != nil {
 		return fmt.Errorf(
-			"follow_up: agent %q's code worktree is no longer usable (%w); delegate a fresh code agent instead of resuming this one",
+			"follow_up: agent %q's worktree is no longer usable (%w); delegate a fresh sub-agent instead of resuming this one",
 			agentID, err)
 	}
 	return nil
@@ -242,12 +242,13 @@ func denyFollowUpInPlanMode(ctx context.Context, childHasMutate bool) error {
 	if !ok || mode != config.ExecutionModePlan || !childHasMutate {
 		return nil
 	}
-	return fmt.Errorf("follow_up: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
+	return fmt.Errorf("follow_up: plan mode is active; sub-agents that can mutate files are unavailable. " +
 		"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready")
 }
 
 // childHasMutateTool reports whether the child session's request includes the "mutate" tool.
-// Only the code agent has mutate in its allowlist, so this discriminates code children.
+// Only worktree-isolated write agents (code and documentor) have mutate in
+// their allowlist, so this discriminates write children that run in a worktree.
 func childHasMutateTool(req agent.RunRequest) bool {
 	for _, toolSpec := range req.Tools {
 		if toolSpec.Function.Name == "mutate" {

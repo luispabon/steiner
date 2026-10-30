@@ -4,7 +4,10 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 //go:embed templates/*.txt
@@ -20,6 +23,8 @@ const (
 	AgentTypeResearch AgentType = "research"
 	// AgentTypeCode is the agent type for coding tasks.
 	AgentTypeCode AgentType = "code"
+	// AgentTypeDocumentor is the agent type for documentation tasks.
+	AgentTypeDocumentor AgentType = "documentor"
 	// AgentTypeEvaluate is the agent type for evaluation/analysis tasks.
 	AgentTypeEvaluate AgentType = "evaluate"
 	// AgentTypeSanityCheck is the agent type for verification tasks.
@@ -40,7 +45,15 @@ const cacheKeyAgentTypeAdvisor AgentType = "advisor"
 
 // AllAgentTypes returns all valid agent type values.
 func AllAgentTypes() []AgentType {
-	return []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeCode, AgentTypeEvaluate, AgentTypeSanityCheck, AgentTypeReview, AgentTypeVision}
+	return []AgentType{AgentTypeExplore, AgentTypeResearch, AgentTypeCode, AgentTypeDocumentor, AgentTypeEvaluate, AgentTypeSanityCheck, AgentTypeReview, AgentTypeVision}
+}
+
+// UsesWorktree reports whether an agent type runs in its own isolated git
+// worktree. It is the single source of truth for the worktree-isolated write
+// types: worktree provisioning, result locators, cleanup, and the plan-mode
+// write denial all key on it.
+func UsesWorktree(t AgentType) bool {
+	return t == AgentTypeCode || t == AgentTypeDocumentor
 }
 
 // IsDelegationTool reports whether name is a delegation tool registered by
@@ -73,14 +86,38 @@ var (
 	lspAgentSuffix     string
 )
 
+// codeAgentAllowlist is code's tool allowlist. documentor clones it: it uses
+// the same tools, and its narrower write surface is enforced by
+// documentorWriteScope at execution time rather than by a shorter tool list.
+var codeAgentAllowlist = []string{"read", "glob", "grep", "ls", "mutate", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"}
+
 var agentAllowlists = map[AgentType][]string{
 	AgentTypeExplore:     {"read", "glob", "grep", "ls", "bash", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
 	AgentTypeResearch:    {"read", "glob", "grep", "ls", "web_search", "fetch_url"},
-	AgentTypeCode:        {"read", "glob", "grep", "ls", "mutate", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
+	AgentTypeCode:        codeAgentAllowlist,
+	AgentTypeDocumentor:  slices.Clone(codeAgentAllowlist),
 	AgentTypeEvaluate:    {"read", "glob", "grep", "ls", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
 	AgentTypeSanityCheck: {"read", "glob", "grep", "ls", "bash"},
 	AgentTypeReview:      {"read", "glob", "grep", "ls", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
 	AgentTypeVision:      {"read"},
+}
+
+// documentorWriteScope is the fixed, non-configurable set of files a documentor
+// sub-agent may write through mutate. Eligibility is by final file name
+// anywhere under the child's worktree; directory names never grant it.
+var documentorWriteScope = tool.WriteScope{
+	Reason:     "documentor: writes are restricted to documentation files (.md, .mdx, .markdown, .rst, .adoc, README, CHANGELOG, CONTRIBUTING). If the task needs other files, stop and report which files and why.",
+	Extensions: []string{".md", ".mdx", ".markdown", ".rst", ".adoc"},
+	Basenames:  []string{"README", "CHANGELOG", "CONTRIBUTING"},
+}
+
+// agentWriteScope returns the write scope for an agent type and whether that
+// type is restricted at all. Unrestricted types return the zero scope.
+func agentWriteScope(t AgentType) (tool.WriteScope, bool) {
+	if t == AgentTypeDocumentor {
+		return documentorWriteScope, true
+	}
+	return tool.WriteScope{}, false
 }
 
 var validAgentTypeSet map[string]struct{}
@@ -125,7 +162,7 @@ func AgentSystemPrompt(t AgentType) string {
 		return reviewPrompt
 	case AgentTypeVision:
 		return visionPrompt
-	case AgentTypeCode:
+	case AgentTypeCode, AgentTypeDocumentor:
 		return ""
 	default:
 		return ""
@@ -144,10 +181,10 @@ func AgentAllowedTools(t AgentType) []string {
 // Code-agent duties are rendered by the prompt package.
 func AgentSystemSuffix(t AgentType, advisorEnabled, lspEnabled bool) string {
 	var suffixes []string
-	if advisorEnabled && (t == AgentTypeCode || t == AgentTypeReview || t == AgentTypeEvaluate) {
+	if advisorEnabled && (UsesWorktree(t) || t == AgentTypeReview || t == AgentTypeEvaluate) {
 		suffixes = append(suffixes, advisorAgentSuffix)
 	}
-	if lspEnabled && (t == AgentTypeExplore || t == AgentTypeCode || t == AgentTypeReview || t == AgentTypeEvaluate) {
+	if lspEnabled && (t == AgentTypeExplore || UsesWorktree(t) || t == AgentTypeReview || t == AgentTypeEvaluate) {
 		suffixes = append(suffixes, lspAgentSuffix)
 	}
 	return strings.Join(suffixes, "\n\n")

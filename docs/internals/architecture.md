@@ -57,7 +57,7 @@ A non-streaming 400 whose body mentions `stream` and `must` or `required` is mat
 - Sources: built-ins (`tool/builtin`, for example `NewBashTool`), MCP tools ([mcp.md](mcp.md)), LSP tools ([lsp.md](lsp.md)), the advisor ([advisor.md](advisor.md)), and sub-agent tools from `delegation`.
 - `Executor.Execute` → `runPipeline` (`execution_pipeline.go`):
   1. Reject unparseable input (`KindInvalidToolInput`) and resolve the definition.
-  2. Apply the execution mode. Plan mode narrows writes to the plan directories (`RestrictWritesTo`).
+  2. Apply the execution mode. Plan mode narrows writes to the plan directories (`RestrictWritesTo`), and a scoped executor then applies `WithWriteScope`, so a `documentor` child's `mutate` only accepts documentation file names.
   3. `normalizeExecutionInput` runs `PathPolicy.ValidateToolInput`. A promptable out-of-project path raises an `ApprovalRequest` (`ApprovalKindPath`) through `ApprovalResponder`.
   4. Store the sandbox decision in context (`SandboxWrapperKey`).
   5. `executeTool` runs the handler directly, or the subprocess under the tool timeout. Sandbox denials can re-enter approval (`execution_denial.go`).

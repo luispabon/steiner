@@ -21,19 +21,34 @@ func TestApplyEventScopedWorktreeDisposal(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  "discarded",
+			name:  "unscoped discarded",
 			event: output.WithAgentScope(output.NewDelegationWorktreeDisposalEvent("child-1", true, ""), "child-1"),
-			want:  "code worktree discarded for child-1",
+			want:  "worktree discarded for child-1",
 		},
 		{
-			name:  "discard failed",
+			name:  "unscoped discard failed",
 			event: output.WithAgentScope(output.NewDelegationWorktreeDisposalEvent("child-1", false, "prune failed"), "child-1"),
-			want:  "code worktree discard failed for child-1: prune failed",
+			want:  "worktree discard failed for child-1: prune failed",
 		},
 		{
-			name:  "nothing to discard",
+			name:  "unscoped nothing to discard",
 			event: output.WithAgentScope(output.NewDelegationWorktreeDisposalEvent("child-1", false, ""), "child-1"),
-			want:  "no code worktree to discard for child-1",
+			want:  "no worktree to discard for child-1",
+		},
+		{
+			name:  "code discarded",
+			event: output.WithAgentTypeScope(output.WithAgentScope(output.NewDelegationWorktreeDisposalEvent("child-2", true, ""), "child-2"), "code"),
+			want:  "code worktree discarded for child-2",
+		},
+		{
+			name:  "documentor discarded",
+			event: output.WithAgentTypeScope(output.WithAgentScope(output.NewDelegationWorktreeDisposalEvent("doc-1", true, ""), "doc-1"), "documentor"),
+			want:  "documentor worktree discarded for doc-1",
+		},
+		{
+			name:  "documentor nothing to discard",
+			event: output.WithAgentTypeScope(output.WithAgentScope(output.NewDelegationWorktreeDisposalEvent("doc-1", false, ""), "doc-1"), "documentor"),
+			want:  "no documentor worktree to discard for doc-1",
 		},
 	}
 
@@ -70,7 +85,7 @@ func TestApplyEventScopedWorktreeDisposalAfterDelegateFinished(t *testing.T) {
 
 	matches := 0
 	for _, seg := range m.content.segments {
-		if seg.kind == segmentStatus && seg.text == "code worktree discarded for child-1" {
+		if seg.kind == segmentStatus && seg.text == "worktree discarded for child-1" {
 			matches++
 		}
 	}

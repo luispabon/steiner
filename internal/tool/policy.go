@@ -2,6 +2,7 @@ package tool
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -41,6 +42,11 @@ type PathPolicy struct {
 	blockedPaths    []string
 	writablePaths   []string
 	writeAllowlist  []string
+	// writeScope, when active, further restricts writable paths by final file
+	// name. writeScopeRoot is the root the scope was installed with; it is
+	// retained so clearing root via WithoutRoot cannot relax the scope.
+	writeScope     WriteScope
+	writeScopeRoot string
 }
 
 // NewPathPolicy creates a path policy from the working directory and paths configuration.
@@ -77,15 +83,13 @@ func (p PathPolicy) Root() string {
 
 // WithoutRoot returns a copy of p with the root and projectRootOnly constraints
 // cleared. Used when the user has approved access to a path outside the project root.
+// The write scope is retained together with the root it was installed with, so
+// approval cannot relax it.
 func (p PathPolicy) WithoutRoot() PathPolicy {
-	return PathPolicy{
-		root:            "",
-		sandboxTmpDir:   p.sandboxTmpDir,
-		projectRootOnly: false,
-		blockedPaths:    p.blockedPaths,
-		writablePaths:   p.writablePaths,
-		writeAllowlist:  p.writeAllowlist,
-	}
+	relaxed := p
+	relaxed.root = ""
+	relaxed.projectRootOnly = false
+	return relaxed
 }
 
 // RestrictWritesTo returns a copy of p with the write allowlist set to the given
@@ -98,14 +102,20 @@ func (p PathPolicy) RestrictWritesTo(prefixes ...string) PathPolicy {
 			normalized = append(normalized, n)
 		}
 	}
-	return PathPolicy{
-		root:            p.root,
-		sandboxTmpDir:   p.sandboxTmpDir,
-		projectRootOnly: p.projectRootOnly,
-		blockedPaths:    p.blockedPaths,
-		writablePaths:   p.writablePaths,
-		writeAllowlist:  normalized,
-	}
+	restricted := p
+	restricted.writeAllowlist = normalized
+	return restricted
+}
+
+// WithWriteScope returns a copy of p restricted so writable paths must match
+// scope. The policy's current root is recorded as the scope root and retained
+// through later copies, so the scope keeps checking containment against the
+// root it was installed with.
+func (p PathPolicy) WithWriteScope(scope WriteScope) PathPolicy {
+	scoped := p
+	scoped.writeScope = cloneWriteScope(scope)
+	scoped.writeScopeRoot = p.root
+	return scoped
 }
 
 // ResolveCWD resolves a working directory against the policy root.
@@ -184,6 +194,11 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 	if path == "" {
 		return fmt.Errorf("path is required")
 	}
+	// The write scope is checked before any promptable denial so a scope
+	// violation can never turn into an approval prompt or an approved retry.
+	if err := p.ensureWriteScopeAllowed(path, writable); err != nil {
+		return err
+	}
 	planWriteAllowed, err := p.ensurePlanWriteAllowed(path, writable)
 	if err != nil {
 		return err
@@ -205,6 +220,42 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 		return p.blockedPathError(path)
 	}
 	return p.ensureWritablePathAllowed(path, writable, planWriteAllowed)
+}
+
+// ensureWriteScopeAllowed rejects writable paths outside the active write
+// scope. Both the lexical path and its symlink-resolved form must stay inside
+// the scope root and match the scope's name rules, and an existing directory is
+// never eligible even when its name matches. The check fails closed: a scope
+// installed without a root denies every write, and the denial is never
+// promptable.
+func (p PathPolicy) ensureWriteScopeAllowed(path string, writable bool) error {
+	if !writable || !p.writeScope.active() {
+		return nil
+	}
+	denial := &PathPolicyError{Path: path, Reason: p.writeScope.denialReason(), Promptable: false}
+	if p.writeScopeRoot == "" || !pathWithinRoot(p.writeScopeRoot, path) {
+		return denial
+	}
+	resolvedRoot, err := resolvePathWithMissing(p.writeScopeRoot)
+	if err != nil {
+		return p.policyResolutionError(path, fmt.Errorf("resolve write scope root: %w", err))
+	}
+	resolvedPath, err := resolvePathWithMissing(path)
+	if err != nil {
+		return p.policyResolutionError(path, fmt.Errorf("resolve write scope path: %w", err))
+	}
+	if !pathWithinRoot(resolvedRoot, resolvedPath) {
+		return denial
+	}
+	// Directories are never eligible, even when their name matches a rule:
+	// deleting or moving a directory would escape the file-level scope.
+	if info, statErr := os.Stat(resolvedPath); statErr == nil && info.IsDir() {
+		return denial
+	}
+	if !p.writeScope.allows(path) || !p.writeScope.allows(resolvedPath) {
+		return denial
+	}
+	return nil
 }
 
 func (p PathPolicy) ensurePlanWriteAllowed(path string, writable bool) (bool, error) {

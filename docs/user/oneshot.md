@@ -75,7 +75,7 @@ Each phase attempt also has a session archive for compaction history. Its `histo
 
 Each phase has the same completion-token budget as a normal run (`limits.max_tokens`), counted across every turn the phase takes, including turns woken by sub-agent results. If the budget runs out while sub-agents are still running, the phase fails: the remaining sub-agents are cancelled and the failure is recorded in the manifest. The model is not told. Resume with `--resume <id>` to re-run the phase.
 
-If a phase is interrupted while sub-agents are running, resume restarts the phase and does not deliver their lost results. It reports the worktree of each `code` sub-agent that was still running, so you can inspect or salvage its uncommitted work. Sub-agents without a worktree are not listed.
+If a phase is interrupted while sub-agents are running, resume restarts the phase and does not deliver their lost results. It reports the worktree of each `code` or `documentor` sub-agent that was still running, so you can inspect or salvage its uncommitted work. Sub-agents without a worktree are not listed.
 
 ## Error handling
 

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
@@ -257,16 +258,22 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 	b.pendingDelegationStarts = append(b.pendingDelegationStarts, loc)
 }
 
+// delegateUsesWorktree reports whether a delegate of this lifecycle agent type
+// owns a disposable git worktree, so cancellation offers keep/discard.
+func delegateUsesWorktree(agentType string) bool {
+	return delegation.UsesWorktree(delegation.AgentType(agentType))
+}
+
 // delegateActiveRow is a TUI-local snapshot of one active delegate for the
 // cancellation selector. Ordering is defined by the transcript, not by map
 // iteration.
 type delegateActiveRow struct {
-	agentID     string
-	agentType   string // lifecycle agent type; tool-label fallback for legacy events
-	taskPreview string
-	isCode      bool
-	queued      bool
-	stalledMin  int
+	agentID      string
+	agentType    string // lifecycle agent type; tool-label fallback for legacy events
+	taskPreview  string
+	usesWorktree bool
+	queued       bool
+	stalledMin   int
 }
 
 // ActiveDelegateRows returns active, identified delegates in transcript order.
@@ -282,12 +289,12 @@ func (b *contentBuffer) ActiveDelegateRows() []delegateActiveRow {
 			agentType = dd.toolLabel
 		}
 		rows = append(rows, delegateActiveRow{
-			agentID:     dd.agentID,
-			agentType:   agentType,
-			taskPreview: dd.taskPreview,
-			isCode:      agentType == "code",
-			queued:      dd.queuedForSlot,
-			stalledMin:  b.stalledMinutes(dd, now),
+			agentID:      dd.agentID,
+			agentType:    agentType,
+			taskPreview:  dd.taskPreview,
+			usesWorktree: delegateUsesWorktree(agentType),
+			queued:       dd.queuedForSlot,
+			stalledMin:   b.stalledMinutes(dd, now),
 		})
 	}
 	for _, seg := range b.segments {

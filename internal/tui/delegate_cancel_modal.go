@@ -18,7 +18,7 @@ type delegateCancelScreen int
 const (
 	delegateCancelScreenSelector delegateCancelScreen = iota
 	delegateCancelScreenConfirmTarget
-	delegateCancelScreenConfirmTargetCode
+	delegateCancelScreenConfirmTargetWorktree
 	delegateCancelScreenConfirmAll
 	delegateCancelScreenConfirmRun
 )
@@ -81,7 +81,7 @@ func (s delegateCancelModalState) delegateCancelSelectionCount() int {
 	switch s.screen {
 	case delegateCancelScreenConfirmTarget, delegateCancelScreenConfirmAll, delegateCancelScreenConfirmRun:
 		return 2
-	case delegateCancelScreenConfirmTargetCode:
+	case delegateCancelScreenConfirmTargetWorktree:
 		return 3
 	default:
 		return 0
@@ -100,7 +100,7 @@ func (m *Model) openDelegateCancelModal() *Model {
 func (m *Model) renderDelegateCancelModal() string {
 	s := m.delegateCancelModal
 	s.OverlayShell = s.WithDimensions(m.width, m.height)
-	if s.screen == delegateCancelScreenConfirmTargetCode {
+	if s.screen == delegateCancelScreenConfirmTargetWorktree {
 		s.OverlayShell = s.WithPreferredWidth(m.delegateCancelButtonsPreferredWidth())
 	}
 	contentWidth := s.InnerWidth()
@@ -113,7 +113,7 @@ func (m *Model) renderDelegateCancelModal() string {
 			"",
 			m.renderDelegateCancelSelector(contentWidth),
 		)
-	case delegateCancelScreenConfirmTarget, delegateCancelScreenConfirmTargetCode:
+	case delegateCancelScreenConfirmTarget, delegateCancelScreenConfirmTargetWorktree:
 		sections = append(sections, m.delegateCancelHeading("Stop delegate?", contentWidth), "", m.delegateCancelTargetBody(contentWidth))
 	case delegateCancelScreenConfirmAll:
 		sections = append(sections, m.delegateCancelHeading("Stop all delegates?", contentWidth), "", lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Width(contentWidth).Render("Stop all active delegates?"))
@@ -192,7 +192,7 @@ func (m *Model) delegateCancelTargetBody(contentWidth int) string {
 	}
 	row := m.delegateCancelModal.rows[m.delegateCancelModal.target]
 	text := "Stop delegate " + output.SanitizeDisplayText(row.agentID) + "?"
-	if m.delegateCancelModal.screen == delegateCancelScreenConfirmTargetCode {
+	if m.delegateCancelModal.screen == delegateCancelScreenConfirmTargetWorktree {
 		text += " Choose whether to keep or discard its worktree."
 	}
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgMute)).Width(contentWidth).Render(text)
@@ -236,7 +236,7 @@ func (m *Model) delegateCancelButtonLabels() []string {
 		return nil
 	case delegateCancelScreenConfirmTarget:
 		return []string{"Stop", "Keep working"}
-	case delegateCancelScreenConfirmTargetCode:
+	case delegateCancelScreenConfirmTargetWorktree:
 		return []string{"Stop and keep worktree", "Stop and discard worktree", "Keep working"}
 	case delegateCancelScreenConfirmAll:
 		return []string{"Stop all", "Keep working"}
@@ -317,8 +317,8 @@ func (m *Model) confirmDelegateCancelSelector() {
 	case s.selected < len(s.rows):
 		s.target = s.selected
 		s.selected = 0
-		if s.rows[s.target].isCode {
-			s.screen = delegateCancelScreenConfirmTargetCode
+		if s.rows[s.target].usesWorktree {
+			s.screen = delegateCancelScreenConfirmTargetWorktree
 		} else {
 			s.screen = delegateCancelScreenConfirmTarget
 		}
@@ -362,7 +362,7 @@ func (m *Model) confirmDelegateCancelAction() {
 			return
 		}
 		m.refreshDelegateCancelSelector()
-	case delegateCancelScreenConfirmTargetCode:
+	case delegateCancelScreenConfirmTargetWorktree:
 		if s.selected < 2 {
 			if targetStillActive() {
 				m.delegateCancelModal = s

@@ -173,6 +173,8 @@ Everything else is delegated.
 
 The executor MUST NOT mutate **implementation-scoped files** (step `files`) via `mutate` or shell writes. All implementation edits and automated/manual verification fixes MUST go through `code` sub-agents, even tiny in-context edits. Direct edits violate this skill; the system prompt's local-edit permission is not a fallback.
 
+Documentation-only deliverables MUST go through a `documentor` sub-agent. Documentation that must ship in the same commit as a code change stays with that `code` deliverable.
+
 This restriction does not apply to executor-owned artifacts (`execution.md`, branch operations). Steps marked `no_delegate` in the plan are also exempt.
 
 Before any implementation action, ask: have I dispatched a sub-agent for this step? If no — stop, delegate.
@@ -181,11 +183,11 @@ Before any implementation action, ask: have I dispatched a sub-agent for this st
 
 Follow the system prompt's briefing template. Include the parent step id and goal, plus any sub-task id, in every delegated brief.
 
-The feature branch is owned by the executor. Implementation-scoped code must be changed only by delegated sub-agents (see Implementation code restriction above). Every `code` sub-agent is automatically placed in a runtime-provisioned, runtime-verified worktree on a `delegate/` branch — the executor arranges nothing.
+The feature branch is owned by the executor. Implementation-scoped code must be changed only by delegated sub-agents (see Implementation code restriction above). Every `code` or `documentor` sub-agent is automatically placed in a runtime-provisioned, runtime-verified worktree on a `delegate/` branch — the executor arranges nothing.
 
 There is no inline fallback if delegation is unavailable: report a blocker. Only planned `no_delegate` steps may be applied inline.
 
-If provisioning fails, the `code` call fails outright — that is a blocker to report, not a cue to work on the feature branch directly.
+If provisioning fails, the `code` or `documentor` call fails outright — that is a blocker to report, not a cue to work on the feature branch directly.
 
 ### Warm Follow-Up Policy
 
@@ -193,15 +195,15 @@ Prefer warm follow-up only for the same bounded task, scope, and live workspace 
 
 ### Worktree Handling
 
-Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.
+Every `code` or `documentor` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.
 
 1. Read `worktree_path` from the arrived result — a project-relative path (e.g. `.steiner/worktrees/<process>/<branch>/<agent>`) and the sole worktree locator returned to you. The branch name and any dirty-tree warnings are host-only and not returned; if you need the branch name, read it from the worktree itself: `git -C <worktree-path> branch --show-current`.
-2. `follow_up` results also carry `worktree_path` for the same code agent, resolving to the same worktree as the initial `code` result.
+2. `follow_up` results also carry `worktree_path` for the same agent, resolving to the same worktree as its initial result.
 3. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <branch-name>` (from step 1).
 
 ### Delegation Steps
 
-1. dispatch the scoped task to a `code` sub-agent
+1. dispatch the scoped task to a `code` or `documentor` sub-agent
 2. read the arrived result: `worktree_path`
 3. review the result against the step contract
 4. merge the returned branch into the feature branch

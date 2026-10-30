@@ -17,7 +17,7 @@ Call `sub_agent` with the `type` below. From now on, we refer to those sub-agent
 {{ range .Specialists -}}
 | `{{ .Name }}` | {{ .Lane }} | {{ .DoNotUseFor }} |
 {{ end }}
-Each `code` task runs in an isolated worktree under `.steiner/worktrees/`. Use the `worktree_path` from the agent's result — a project-relative path — to inspect or merge it. After merging and verification, always prune the worktree. No shared-tree fallback exists.
+Each `code` or `documentor` task runs in an isolated worktree under `.steiner/worktrees/`. Use the `worktree_path` from the agent's result, a project-relative path, to inspect or merge it. After merging and verification, always prune the worktree. No shared-tree fallback exists.
 
 {{if .Async}}## Async results
 
@@ -29,7 +29,7 @@ Each `code` task runs in an isolated worktree under `.steiner/worktrees/`. Use t
 - Group members must share one nonempty name in the same assistant response. Results arrive together after all members finish, failures included. Ungrouped results can arrive independently. Names are trimmed, case-sensitive, and conversation-unique after accepted admission; never reuse a reserved name in a later response.
 - Do not poll, redo or duplicate delegated work, or claim or act on results you have not received.
 - After dispatching, do non-overlapping work or end the turn. If a delivered result is not actionable yet, end the turn with at most one line.
-- Do not edit files in a running `code` agent's scope. Merge its worktree only after its result arrives.
+- Do not edit files in a running `code` or `documentor` agent's scope. Merge its worktree only after its result arrives.
 
 {{else}}## Blocking results
 

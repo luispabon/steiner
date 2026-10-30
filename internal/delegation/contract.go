@@ -147,19 +147,20 @@ type Result struct {
 	// SpawnDelegate must not rely on SessionResumable being accurate.
 	SessionResumable bool `json:"session_resumable,omitempty"`
 
-	// WorktreePath is the absolute path to the code agent's isolated git
+	// WorktreePath is the absolute path to the worktree-isolated child's git
 	// worktree. It is empty only when no worktree was provisioned, in which
-	// case a code-agent delegation fails. Only set for AgentTypeCode.
+	// case a worktree-isolated delegation fails. Only set for types where
+	// UsesWorktree is true.
 	WorktreePath string `json:"worktree_path,omitempty"`
 
-	// WorktreeBranch is the branch name of the code agent's isolated
-	// worktree. Only set for AgentTypeCode when provisioning succeeded.
+	// WorktreeBranch is the branch name of the worktree-isolated child's
+	// worktree. Only set for UsesWorktree types when provisioning succeeded.
 	WorktreeBranch string `json:"worktree_branch,omitempty"`
 
-	// Warnings holds human-readable code-agent warnings surfaced to the
-	// orchestrator, such as uncommitted parent-tree changes not visible to
-	// the isolated worktree or a dirty-worktree warning after failed commit
-	// remediation. Only populated for AgentTypeCode.
+	// Warnings holds human-readable worktree-isolated child warnings surfaced
+	// to the orchestrator, such as uncommitted parent-tree changes not visible
+	// to the isolated worktree or a dirty-worktree warning after failed commit
+	// remediation. Only populated for UsesWorktree types.
 	Warnings []string `json:"warnings,omitempty"`
 
 	persisted bool

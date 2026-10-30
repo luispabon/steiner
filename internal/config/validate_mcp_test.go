@@ -90,7 +90,7 @@ func TestValidateMCPSubAgents(t *testing.T) {
 			name: "all valid agent types accepted",
 			cfg: MCPConfig{
 				Servers: map[string]MCPServerConfig{
-					"example": {Transport: "stdio", Command: "npx", SubAgents: []string{"explore", "research", "code", "evaluate", "sanity_check", "review", "vision"}},
+					"example": {Transport: "stdio", Command: "npx", SubAgents: []string{"explore", "research", "code", "documentor", "evaluate", "sanity_check", "review", "vision"}},
 				},
 			},
 		},

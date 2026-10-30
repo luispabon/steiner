@@ -1200,6 +1200,11 @@ func TestSessionRunnerForwardsExactDelegationGroupScope(t *testing.T) {
 	cfg := testRuntimeConfig("test-model")
 	cfg.SubAgent.Enabled = true
 	cfg.SubAgent.MaxParallel = 1
+	// This test asserts group-scope forwarding, not context budgeting, so give it
+	// room for the parent prompt instead of tuning the shared fixture.
+	model := cfg.Models.Definitions["test-model"]
+	model.Advanced.Limits.ContextWindow = 200_000
+	cfg.Models.Definitions["test-model"] = model
 	script := newAsyncScript("scope forwarding")
 	script.parent = []func(provider.ChatRequest) provider.ChatResponse{
 		step(toolCallsResponse(subAgentCall("call-group", "scope forwarding", "interactive-group"))),

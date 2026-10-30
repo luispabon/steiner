@@ -15,7 +15,7 @@ Delegated child workflow modes omit the execution-modes section. `sectionExecuti
 - Plan-mode path checks use a lexical allowlist and a symlink-resolved check (`internal/tool/policy_paths.go`).
 - Plan-mode writable directories come from `config.PlanModeWritableDirs()`: `.steiner/plans` and `.steiner/security`.
 - Mode changes call `mcpManager.UpdatePlanMode` (`cmd/steiner/interactive_session.go`). Delegated child executors take the parent's mode getter through `WithModeGetter` (`internal/delegation/bootstrap.go`).
-- Plan-mode limits on delegation (`code` children, and `follow_up` when the child has `mutate`) are in [Sub-agent delegation internals](sub-agent-delegation.md).
+- Plan-mode limits on delegation use `UsesWorktree` (`internal/delegation/agent_type.go`): `checkPlanModeWriteDenial` (`internal/delegation/specialized_tools.go`) denies `code` and `documentor` children, and `denyFollowUpInPlanMode` (`internal/delegation/follow_up.go`) denies `follow_up` when the child has `mutate`. Details are in [Sub-agent delegation internals](sub-agent-delegation.md).
 
 ## Persistence and restoration
 

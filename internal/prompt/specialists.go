@@ -34,6 +34,11 @@ var specialists = []specialist{
 		doNotUseFor: "design decisions or work whose files have not been identified",
 	},
 	{
+		name:        "documentor",
+		lane:        "Write or update documentation files (Markdown, READMEs, user and internals docs) in an isolated worktree",
+		doNotUseFor: "code or doc comment changes, and docs that must ship in the same commit as a code change, which stay with `code`",
+	},
+	{
 		name:        "evaluate",
 		lane:        "Analyse a scoped sub-problem, weigh options, and recommend an approach",
 		doNotUseFor: "task planning or questions with one obvious answer",

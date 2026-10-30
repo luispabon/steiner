@@ -14,7 +14,7 @@ import (
 func delegateCancelTestRows() []delegateActiveRow {
 	return []delegateActiveRow{
 		{agentID: "explore-1", agentType: "explore", taskPreview: "inspect the repository"},
-		{agentID: "code-1", agentType: "code", taskPreview: "make the requested change", isCode: true},
+		{agentID: "code-1", agentType: "code", taskPreview: "make the requested change", usesWorktree: true},
 	}
 }
 
@@ -40,8 +40,8 @@ func TestDelegateCancelModalSelectorRouting(t *testing.T) {
 	m.delegateCancelModal = openDelegateCancelModal(80, 24, delegateCancelTestRows())
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
-	if got := m.delegateCancelModal.screen; got != delegateCancelScreenConfirmTargetCode {
-		t.Fatalf("code screen = %d, want %d", got, delegateCancelScreenConfirmTargetCode)
+	if got := m.delegateCancelModal.screen; got != delegateCancelScreenConfirmTargetWorktree {
+		t.Fatalf("code screen = %d, want %d", got, delegateCancelScreenConfirmTargetWorktree)
 	}
 
 	ctrl := &testController{}
@@ -71,13 +71,13 @@ func TestDelegateCancelModalDispatchesActions(t *testing.T) {
 		},
 		{
 			name:       "code keep worktree",
-			screen:     delegateCancelScreenConfirmTargetCode,
+			screen:     delegateCancelScreenConfirmTargetWorktree,
 			target:     1,
 			wantAction: interactive.CancelDelegate{AgentID: "code-1", Discard: false},
 		},
 		{
 			name:       "code discard worktree",
-			screen:     delegateCancelScreenConfirmTargetCode,
+			screen:     delegateCancelScreenConfirmTargetWorktree,
 			selected:   1,
 			target:     1,
 			wantAction: interactive.CancelDelegate{AgentID: "code-1", Discard: true},
@@ -128,6 +128,39 @@ func TestDelegateCancelModalDispatchesActions(t *testing.T) {
 	}
 }
 
+func TestDelegateCancelModalDocumentorWorktreeChoice(t *testing.T) {
+	t.Parallel()
+	ctrl := &testController{}
+	m := newModel(Config{}, nil)
+	m.controller = ctrl
+	m.status.mode = "running"
+	m.content.AppendEvent(output.NewDelegationStartedEvent(agentOcc("doc-1"), "document the package", "", "documentor"))
+	m.delegateCancelModal = openDelegateCancelModal(80, 24, m.content.ActiveDelegateRows())
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got := m.delegateCancelModal.screen; got != delegateCancelScreenConfirmTargetWorktree {
+		t.Fatalf("documentor confirmation screen = %d, want %d", got, delegateCancelScreenConfirmTargetWorktree)
+	}
+	if got := m.delegateCancelModal.delegateCancelSelectionCount(); got != 3 {
+		t.Fatalf("documentor worktree options = %d, want 3", got)
+	}
+	if body := stripANSI(m.delegateCancelTargetBody(200)); !strings.Contains(body, "keep or discard its worktree") {
+		t.Fatalf("documentor confirmation body = %q, want worktree choice", body)
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyRight})
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.delegateCancelModal.IsOpen() {
+		t.Fatal("documentor discard left modal open")
+	}
+	ctrl.mu.Lock()
+	defer ctrl.mu.Unlock()
+	want := interactive.CancelDelegate{AgentID: "doc-1", Discard: true}
+	if len(ctrl.actions) != 1 || ctrl.actions[0] != want {
+		t.Fatalf("documentor discard actions = %#v, want %#v", ctrl.actions, want)
+	}
+}
+
 func TestDelegateCancelModalStopRunDispatchesInterrupt(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}
@@ -166,6 +199,46 @@ func TestDelegateCancelModalKeepWorkingRefreshesRows(t *testing.T) {
 	}
 	if len(m.delegateCancelModal.rows) != 1 || m.delegateCancelModal.rows[0].agentID != "code-1" {
 		t.Fatalf("refreshed rows = %#v, want only code-1", m.delegateCancelModal.rows)
+	}
+}
+
+func TestDelegateCancelModalKeepWorkingOnWorktreeConfirmation(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		agentID   string
+		agentType string
+	}{
+		{agentID: "code-1", agentType: "code"},
+		{agentID: "doc-1", agentType: "documentor"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.agentType, func(t *testing.T) {
+			t.Parallel()
+			ctrl := &testController{}
+			m := newModel(Config{}, nil)
+			m.controller = ctrl
+			m.status.mode = "running"
+			m.content.AppendEvent(output.NewDelegationStartedEvent(agentOcc(tc.agentID), "keep working", "", tc.agentType))
+			m.delegateCancelModal = openDelegateCancelModal(80, 24, m.content.ActiveDelegateRows())
+			m.delegateCancelModal.screen = delegateCancelScreenConfirmTargetWorktree
+			m.delegateCancelModal.selected = 2
+
+			m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+			if !m.delegateCancelModal.IsOpen() {
+				t.Fatal("keep working closed the worktree confirmation")
+			}
+			if got := m.delegateCancelModal.screen; got != delegateCancelScreenSelector {
+				t.Fatalf("screen after keep working = %d, want %d", got, delegateCancelScreenSelector)
+			}
+			if len(m.delegateCancelModal.rows) != 1 || m.delegateCancelModal.rows[0].agentID != tc.agentID {
+				t.Fatalf("refreshed rows = %#v, want only %s", m.delegateCancelModal.rows, tc.agentID)
+			}
+			ctrl.mu.Lock()
+			defer ctrl.mu.Unlock()
+			if len(ctrl.actions) != 0 {
+				t.Fatalf("keep working dispatched %d actions, want none", len(ctrl.actions))
+			}
+		})
 	}
 }
 

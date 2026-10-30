@@ -105,7 +105,7 @@ type SubAgentHandlerDeps struct {
 	ContextManagement config.ContextManagementConfig
 	// AdvisorForChild, when non-nil, provides a per-child advisor tool definition
 	// with a budget state keyed by agent ID. Called during child bootstrap to
-	// register advisor for code, review, and evaluate agent types.
+	// register advisor for code, documentor, review, and evaluate agent types.
 	AdvisorForChild func(agentID string) (tool.ToolDef, bool)
 	// LSPEnabled is forwarded so child suffixes include LSP guidance when the parent LSP is enabled.
 	LSPEnabled bool
@@ -138,7 +138,8 @@ type ChildSession struct {
 	TokenCount    int
 	ToolCallCount int
 	TokenUsage    TokenUsage
-	// Remediation is set only for code sessions with a successfully provisioned worktree.
+	// Remediation is set only for worktree-isolated sessions (see UsesWorktree)
+	// with a successfully provisioned worktree.
 	Remediation   *RemediationConfig
 	FollowUpCount int
 	// LastMainRequest is the child's last successful main request. Follow-ups and

@@ -16,7 +16,7 @@ func TestPreambleSpecialistRosterMatchesAgentTypes(t *testing.T) {
 	t.Parallel()
 	roster := prompt.SpecialistNames()
 
-	want := []string{"explore", "research", "code", "evaluate", "sanity_check", "review"}
+	want := []string{"explore", "research", "code", "documentor", "evaluate", "sanity_check", "review"}
 	if !slices.Equal(roster, want) {
 		t.Errorf("prompt.SpecialistNames() = %v, want %v", roster, want)
 	}

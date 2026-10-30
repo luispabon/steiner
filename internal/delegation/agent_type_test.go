@@ -16,6 +16,7 @@ func TestValidAgentType(t *testing.T) {
 		{name: "explore is valid", input: "explore", want: true},
 		{name: "research is valid", input: "research", want: true},
 		{name: "code is valid", input: "code", want: true},
+		{name: "documentor is valid", input: "documentor", want: true},
 		{name: "evaluate is valid", input: "evaluate", want: true},
 		{name: "sanity_check is valid", input: "sanity_check", want: true},
 		{name: "review is valid", input: "review", want: true},
@@ -38,8 +39,8 @@ func TestValidAgentType(t *testing.T) {
 func TestAllAgentTypes(t *testing.T) {
 	t.Parallel()
 	types := AllAgentTypes()
-	if len(types) != 7 {
-		t.Fatalf("AllAgentTypes() returned %d types, want 7", len(types))
+	if len(types) != 8 {
+		t.Fatalf("AllAgentTypes() returned %d types, want 8", len(types))
 	}
 	for i, at := range types {
 		if at == "" {
@@ -104,7 +105,7 @@ func TestAgentSystemPrompt(t *testing.T) {
 		t.Run(string(at), func(t *testing.T) {
 			p := AgentSystemPrompt(at)
 			switch at {
-			case AgentTypeCode:
+			case AgentTypeCode, AgentTypeDocumentor:
 				if p != "" {
 					t.Fatalf("AgentSystemPrompt(%q) = %q, want empty shared-base prompt", at, p)
 				}
@@ -426,8 +427,8 @@ func TestTemplateLoading(t *testing.T) {
 	for _, at := range AllAgentTypes() {
 		t.Run(string(at), func(t *testing.T) {
 			switch at {
-			case AgentTypeCode:
-				// Code agent has no prompt, only a suffix
+			case AgentTypeCode, AgentTypeDocumentor:
+				// Code and documentor duties are rendered by the prompt package.
 				if p := AgentSystemPrompt(at); p != "" {
 					t.Errorf("AgentSystemPrompt(%q) should be empty, got %q", at, p)
 				}

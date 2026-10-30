@@ -91,12 +91,12 @@ func TestApplyRemediation(t *testing.T) {
 			name: "initial dirty check errors", state: initialState,
 			cfg:         remediationConfigWithInitialError(errors.New("cannot inspect worktree")),
 			wantOutcome: remediationAttempted, wantStatus: StatusFailed, wantOutput: originalOutput,
-			wantWarning: true, warningContains: "could not verify", wantError: true,
+			wantWarning: true, warningContains: "child worktree /tmp/remediation-worktree: could not verify", wantError: true,
 		},
 		{
 			name: "non-complete dirty check errors", state: agent.RunState{Conversation: initialState.Conversation, TurnCount: 1, StopReason: agent.StopReasonError},
 			cfg: remediationConfigWithInitialError(errors.New("cannot inspect worktree")), wantOutcome: remediationNotAttempted,
-			wantStatus: StatusFailed, wantWarning: true, warningContains: "could not verify", wantError: false,
+			wantStatus: StatusFailed, wantWarning: true, warningContains: "child worktree /tmp/remediation-worktree: could not verify", wantError: false,
 		},
 		{
 			name: "pre-head check errors", state: initialState,
@@ -135,6 +135,11 @@ func TestApplyRemediation(t *testing.T) {
 			} else if tt.wantWarning && !containsWarning(result.Warnings) {
 				t.Errorf("warnings = %v, want dirty-worktree warning", result.Warnings)
 			}
+			for _, warning := range result.Warnings {
+				if strings.Contains(warning, "code agent") {
+					t.Errorf("warning = %q, want type-neutral wording", warning)
+				}
+			}
 			if calls != tt.wantRunnerCalls {
 				t.Errorf("runner calls = %d, want %d", calls, tt.wantRunnerCalls)
 			}
@@ -153,7 +158,7 @@ func TestApplyRemediation(t *testing.T) {
 
 func containsWarning(warnings []string) bool {
 	for _, warning := range warnings {
-		if strings.Contains(warning, "is not clean") {
+		if strings.HasPrefix(warning, "child worktree /tmp/remediation-worktree is not clean") {
 			return true
 		}
 	}
@@ -212,10 +217,12 @@ func TestSpawnDelegate_RemediationKeepsOutput(t *testing.T) {
 	t.Parallel()
 	calls := 0
 	remediationCalls := 0
+	var remediationMessage string
 	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
 		calls++
 		if len(req.SourceConversation) > 0 && strings.Contains(req.SourceConversation[len(req.SourceConversation)-1].Content, "Pre-remediation HEAD") {
 			remediationCalls++
+			remediationMessage = req.SourceConversation[len(req.SourceConversation)-1].Content
 			return agent.RunState{Conversation: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "committed changes"}}, StopReason: agent.StopReasonComplete, TurnCount: 2, TokenCount: 200}, nil
 		}
 		return successRunState(), nil
@@ -262,6 +269,12 @@ func TestSpawnDelegate_RemediationKeepsOutput(t *testing.T) {
 	}
 	if delegationResult.Reason != "" {
 		t.Errorf("reason = %q, want empty for a complete delegate", delegationResult.Reason)
+	}
+	if !strings.Contains(remediationMessage, "This delegation requires you to commit your changes") {
+		t.Errorf("remediation message = %q, want the neutral commit instruction", remediationMessage)
+	}
+	if strings.Contains(remediationMessage, "implement step") {
+		t.Errorf("remediation message = %q, must not name the implement step", remediationMessage)
 	}
 }
 

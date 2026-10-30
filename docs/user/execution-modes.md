@@ -6,7 +6,7 @@ For prompt-prefix, executor, child propagation, and session restoration mechanic
 
 ## Mode semantics
 
-- **`build`**: the default mode. Normal workspace editing: `mutate`, `bash`, and the `code` sub-agent tool are available without restriction.
+- **`build`**: the default mode. Normal workspace editing: `mutate`, `bash`, and the `code` and `documentor` sub-agent tools are available without restriction.
 - **`plan`**: project edits are restricted. Writes outside `.steiner/plans/` and `.steiner/security/` are denied; plan artifacts go under `.steiner/plans/` and security-audit reports under `.steiner/security/`. Plan-mode tool writes cannot traverse symlinks outside approved directories, and a symlink used as an approved directory is denied. Plan mode also serves as chat and Q&A mode.
 
 There is no third `chat` mode and no auto-detection. There is no `--mode` CLI flag; execution modes apply to interactive sessions only. Oneshot and non-interactive `exec` runs are unaffected. Use `--profile <name>` to select model assignments; it is separate from execution-mode selection.
@@ -28,9 +28,11 @@ Switching emits a status line and updates the footer badge and sidebar mode row.
 | `bash` | Project read-only under bubblewrap, except `.steiner/plans/`, `.steiner/security/`, and `.git` | Unenforced | Allowed, sandboxed as normal |
 | Config-defined subprocess tools | Project read-only under bubblewrap | Unenforced | Allowed, sandboxed as normal |
 | MCP tools | Available; `allow` becomes `ask` | Available; `allow` becomes `ask` | Available |
-| `code` sub-agent tool | Denied | Denied | Allowed |
+| `code` and `documentor` sub-agent tools | Denied | Denied | Allowed |
 | `review` sub-agent tool | Allowed | Allowed | Allowed |
-| `follow_up` targeting a `code` child | Denied | Denied | Allowed |
+| `follow_up` targeting a `code` or `documentor` child | Denied | Denied | Allowed |
+
+The `documentor` sub-agent is denied in plan mode for the same reason as `code`: it has `mutate`, even though its write scope limits that tool to documentation files.
 
 The `mutate` and sub-agent restrictions do not depend on bubblewrap. Without a working sandbox, plan-mode `bash` and subprocess tools can write through direct filesystem access, so plan mode is not a filesystem guarantee in that state.
 

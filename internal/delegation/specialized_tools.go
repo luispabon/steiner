@@ -41,6 +41,8 @@ func specializedDescription(t AgentType) string {
 		return "Spawn a research sub-agent to gather and synthesize information from the codebase or web."
 	case AgentTypeCode:
 		return "Spawn a coding sub-agent to implement a scoped change, run tests, and report results."
+	case AgentTypeDocumentor:
+		return "Spawn a documentation sub-agent to write or update documentation files (Markdown, READMEs, user and internals docs) in an isolated worktree."
 	case AgentTypeEvaluate:
 		return "Spawn an analysis sub-agent to evaluate a scoped sub-problem and produce a structured recommendation."
 	case AgentTypeSanityCheck:
@@ -241,12 +243,13 @@ func mergedAllowedTools(base, extras []string) []string {
 	return merged
 }
 
-// checkPlanModeCodeDenial returns an error if code agent is attempted in plan mode.
-func checkPlanModeCodeDenial(ctx context.Context, agentType AgentType) error {
-	if agentType == AgentTypeCode {
+// checkPlanModeWriteDenial returns an error if a write-capable, worktree-isolated
+// agent type is attempted in plan mode.
+func checkPlanModeWriteDenial(ctx context.Context, agentType AgentType) error {
+	if UsesWorktree(agentType) {
 		if mode, ok := ctx.Value(tool.ExecutionModeKey{}).(config.ExecutionMode); ok && mode == config.ExecutionModePlan {
-			return fmt.Errorf("code: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
-				"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready")
+			return fmt.Errorf("%s: plan mode is active; the %s sub-agent (which can mutate files) is unavailable. "+
+				"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready", agentType, agentType)
 		}
 	}
 	return nil
@@ -296,7 +299,7 @@ func markResultPersisted(result *tool.ExecutionResult) {
 func specializedBootstrapDeps(agentType AgentType, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string, worktree CodeWorktree) (SubAgentHandlerDeps, ChildBootstrapOverrides) {
 	handlerDeps := deps.SubAgentHandlerDeps
 	projectRoot := handlerDeps.WorkDir
-	if agentType == AgentTypeCode && worktree.Path != "" {
+	if UsesWorktree(agentType) && worktree.Path != "" {
 		handlerDeps.WorkDir = worktree.Path
 	}
 	return handlerDeps, ChildBootstrapOverrides{
@@ -319,7 +322,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		if err := requireGroupScope(deps.SubAgentHandlerDeps, input); err != nil {
 			return nil, err
 		}
-		if err := checkPlanModeCodeDenial(ctx, agentType); err != nil {
+		if err := checkPlanModeWriteDenial(ctx, agentType); err != nil {
 			return nil, err
 		}
 
@@ -356,7 +359,7 @@ func newSpecializedHandler(agentType AgentType, deps SpecializedToolDeps) func(c
 		spec.AdvisorBudget = effectiveAdvisorBudget(advisorAvailable, deps.AdvisorSubAgentBudget)
 
 		plan := &delegatePlan{}
-		if agentType == AgentTypeCode {
+		if UsesWorktree(agentType) {
 			if err := checkCodeWorktreeFeasible(ctx, deps.WorkDir); err != nil {
 				err = fmt.Errorf("%s: %w", agentType, err)
 				emitDelegateFailed(deps.Events, spec, agentType, err.Error())

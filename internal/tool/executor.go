@@ -48,6 +48,7 @@ type Executor struct {
 	modeGetter  func() config.ExecutionMode
 	workDir     string
 	pathPolicy  PathPolicy
+	writeScope  *WriteScope
 	outputLimit int
 	// diagnostics receives one tool-stream record per Execute call, on every
 	// outcome (issue #707 stage 4). A nil writer is a no-op, so unwired paths
@@ -112,6 +113,21 @@ func (e *Executor) WithDiagnosticsScope(source diagnostics.Source, agentID, agen
 // context for handlers to check.
 func (e *Executor) WithModeGetter(getter func() config.ExecutionMode) *Executor {
 	e.modeGetter = getter
+	return e
+}
+
+// WithWriteScope restricts every writable path this executor resolves to files
+// matching scope, and returns the executor for chaining, mirroring
+// WithModeGetter. The scope is applied to the effective policy after plan-mode
+// restrictions, so both hold. A scope with no rules clears any previous scope
+// and leaves writes unrestricted.
+func (e *Executor) WithWriteScope(scope WriteScope) *Executor {
+	scope = cloneWriteScope(scope)
+	if !scope.active() {
+		e.writeScope = nil
+		return e
+	}
+	e.writeScope = &scope
 	return e
 }
 

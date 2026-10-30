@@ -22,7 +22,7 @@ func (e *SetupError) ProjectToolError() agent.DelegationResultEnvelope {
 	case errors.Is(e.err, ErrAgentAlreadyActive):
 		reason = "agent_id already has a call in flight — a previous dispatch or follow_up to this agent hasn't returned yet; wait for that result before sending another follow_up to the same agent_id, or continue other independent work in the meantime"
 	case errors.Is(e.err, ErrCodeWorktreeRequiresCommit):
-		reason = "code sub-agent requires a Git repository with at least one commit; commit the project files and retry"
+		reason = "worktree-isolated sub-agent requires a Git repository with at least one commit; commit the project files and retry"
 	}
 	return agent.DelegationResultEnvelope{Output: "", Status: "failed", Reason: reason}
 }

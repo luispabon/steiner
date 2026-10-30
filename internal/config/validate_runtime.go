@@ -12,6 +12,7 @@ var validAgentTypes = map[string]bool{
 	"explore":      true,
 	"research":     true,
 	"code":         true,
+	"documentor":   true,
 	"evaluate":     true,
 	"sanity_check": true,
 	"review":       true,
