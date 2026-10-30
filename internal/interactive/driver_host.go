@@ -68,15 +68,22 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 // pass replacementGuardLocked before swapping. The caller must call retireDriver after releasing it.
 func (s *Session) swapDriverLocked(apply func()) *driverHandle {
 	old := s.driver
+	// The steer queue belongs to the live session: without this the old driver
+	// would drain steers meant for its successor, or for a oneshot run.
+	old.drv.DetachSteers()
+	return s.swapDetachedDriverLocked(old, apply)
+}
+
+// swapDetachedDriverLocked is swapDriverLocked for a caller that already
+// detached the old driver's steers, possibly while holding its lock. It must
+// not call methods on the old driver. The caller must hold s.mu.
+func (s *Session) swapDetachedDriverLocked(old *driverHandle, apply func()) *driverHandle {
 	meta := s.sessionMetaLocked()
 	if s.deps.SnapshotGroupLedger != nil && old.groupScope != "" {
 		ledger := s.deps.SnapshotGroupLedger(old.groupScope)
 		s.delegationGroups = &ledger
 	}
 	old.retired = &meta
-	// The steer queue belongs to the live session: without this the old driver
-	// would drain steers meant for its successor, or for a oneshot run.
-	old.drv.DetachSteers()
 	s.ledger = nil
 	apply()
 	s.driver = s.newDriverLocked(s.conversation, s.lineage)

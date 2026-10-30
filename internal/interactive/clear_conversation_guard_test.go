@@ -7,7 +7,9 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 )
@@ -55,6 +57,18 @@ func waitForClearSession(t *testing.T, s *Session) {
 	waitForState(t, s, agent.DriverWaiting)
 }
 
+// holdClearSession waits for a waiting driver and then holds its completions,
+// the state in which clear may discard finished sub-agents.
+func holdClearSession(t *testing.T, s *Session) {
+	t.Helper()
+	waitForClearSession(t, s)
+	s.currentDriver().StopTurn()
+	state, held := s.currentDriver().State()
+	if state != agent.DriverWaiting || !held {
+		t.Fatalf("driver state = %q held=%v, want waiting held", state, held)
+	}
+}
+
 func TestClearConversationDiscardsFinishedViaScopeHook(t *testing.T) {
 	bg := &stubBackground{}
 	var gotScope string
@@ -65,7 +79,7 @@ func TestClearConversationDiscardsFinishedViaScopeHook(t *testing.T) {
 	}
 	s := newClearGuardSession(t, bg, hook)
 	bg.setPendingStates(agent.SubAgentFinished)
-	waitForClearSession(t, s)
+	holdClearSession(t, s)
 
 	oldID, oldScope := s.SessionID(), s.driver.groupScope
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
@@ -105,15 +119,13 @@ func TestClearConversationNilHookKeepsFinishedRefusal(t *testing.T) {
 	}
 }
 
-func TestClearConversationRefusesRunningOrQueuedBeforeHook(t *testing.T) {
-	for _, tc := range []struct {
-		state agent.SubAgentState
-		want  string
-	}{
-		{state: agent.SubAgentRunning, want: "1 running"},
-		{state: agent.SubAgentQueued, want: "1 queued"},
+func TestClearConversationUnheldPendingKeepsSharedRefusal(t *testing.T) {
+	for _, state := range []agent.SubAgentState{
+		agent.SubAgentRunning,
+		agent.SubAgentQueued,
+		agent.SubAgentFinished,
 	} {
-		t.Run(string(tc.state), func(t *testing.T) {
+		t.Run(string(state), func(t *testing.T) {
 			bg := &stubBackground{}
 			hookCalled := false
 			hook := func(string) int {
@@ -121,17 +133,17 @@ func TestClearConversationRefusesRunningOrQueuedBeforeHook(t *testing.T) {
 				return 0
 			}
 			s := newClearGuardSession(t, bg, hook)
-			bg.setPendingStates(tc.state)
+			bg.setPendingStates(state)
 			waitForClearSession(t, s)
 
 			oldID, oldDriver, oldConv := s.SessionID(), s.currentDriver(), s.Conversation()
 			oldState, oldHeld := oldDriver.State()
 			err := s.Handle(context.Background(), ClearConversation{})
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("ClearConversation = %v, want refusal mentioning %q", err, tc.want)
+			if err == nil || !strings.Contains(err.Error(), "wait for them or stop them first") {
+				t.Fatalf("ClearConversation = %v, want the shared pending refusal", err)
 			}
 			if hookCalled {
-				t.Fatal("clear hook ran with non-discardable work")
+				t.Fatal("clear hook ran for an unheld driver")
 			}
 			if s.SessionID() != oldID || s.currentDriver() != oldDriver || !reflect.DeepEqual(s.Conversation(), oldConv) {
 				t.Fatal("refused clear changed the session")
@@ -143,16 +155,21 @@ func TestClearConversationRefusesRunningOrQueuedBeforeHook(t *testing.T) {
 	}
 }
 
-func TestClearConversationScopeHookRefusalKeepsSession(t *testing.T) {
+func TestClearConversationHeldHookRefusalKeepsHold(t *testing.T) {
 	bg := &stubBackground{}
+	var runs atomic.Int64
 	hookCalled := false
 	hook := func(string) int {
 		hookCalled = true
 		return 1
 	}
 	s := newClearGuardSession(t, bg, hook)
+	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
+		runs.Add(1)
+		return RunResult{Conversation: append(conv, agent.Message{Role: agent.MessageRoleAssistant, Content: "ok"})}, nil
+	}))
 	bg.setPendingStates(agent.SubAgentFinished)
-	waitForClearSession(t, s)
+	holdClearSession(t, s)
 
 	oldID, oldDriver, oldConv := s.SessionID(), s.currentDriver(), s.Conversation()
 	err := s.Handle(context.Background(), ClearConversation{})
@@ -165,9 +182,15 @@ func TestClearConversationScopeHookRefusalKeepsSession(t *testing.T) {
 	if s.SessionID() != oldID || s.currentDriver() != oldDriver || !reflect.DeepEqual(s.Conversation(), oldConv) {
 		t.Fatal("refused clear changed the session")
 	}
+	if state, held := oldDriver.State(); state != agent.DriverWaiting || !held {
+		t.Fatalf("driver state = %q held=%v, want waiting held", state, held)
+	}
+	if got := runs.Load(); got != 1 {
+		t.Fatalf("runs = %d, want 1 (refusal must not start work)", got)
+	}
 }
 
-func TestClearConversationBusyRefusedBeforeHook(t *testing.T) {
+func TestClearConversationRefusalDoesNotCancelRun(t *testing.T) {
 	bg := &stubBackground{}
 	hookCalled := false
 	hook := func(string) int {
@@ -175,13 +198,85 @@ func TestClearConversationBusyRefusedBeforeHook(t *testing.T) {
 		return 0
 	}
 	s := newClearGuardSession(t, bg, hook)
-	release := startBlockedRun(t, s)
-	defer close(release)
+	started := make(chan struct{})
+	runCtx := make(chan context.Context, 1)
+	release := make(chan struct{})
+	s.SetRunner(newRunExecutorFunc(func(ctx context.Context, conv []agent.Message) (RunResult, error) {
+		runCtx <- ctx
+		close(started)
+		<-release
+		return RunResult{Conversation: conv}, nil
+	}))
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "hi"}); err != nil {
+		t.Fatalf("SubmitPrompt: %v", err)
+	}
+	<-started
+	ctx := <-runCtx
 
 	if err := s.Handle(context.Background(), ClearConversation{}); !errors.Is(err, errRunInProgress) {
 		t.Fatalf("ClearConversation during run = %v, want errRunInProgress", err)
 	}
 	if hookCalled {
 		t.Fatal("clear hook ran while the driver was busy")
+	}
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("refused clear cancelled the run: %v", err)
+	}
+	if state, _ := s.currentDriver().State(); state != agent.DriverGenerating {
+		t.Fatalf("driver state = %q, want generating", state)
+	}
+	close(release)
+	waitSettled(t, s)
+}
+
+func TestClearConversationInFlightCompletionCannotWake(t *testing.T) {
+	bg := &stubBackground{}
+	var runs atomic.Int64
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	hook := func(string) int {
+		close(entered)
+		<-release
+		bg.setPending()
+		return 0
+	}
+	s := newClearGuardSession(t, bg, hook)
+	s.SetRunner(newRunExecutorFunc(func(_ context.Context, conv []agent.Message) (RunResult, error) {
+		runs.Add(1)
+		return RunResult{Conversation: append(conv, agent.Message{Role: agent.MessageRoleAssistant, Content: "ok"})}, nil
+	}))
+	bg.setPendingStates(agent.SubAgentFinished)
+	holdClearSession(t, s)
+	old := s.currentDriver()
+
+	done := make(chan error, 1)
+	go func() { done <- s.Handle(context.Background(), ClearConversation{}) }()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("clear hook did not run")
+	}
+	delivered := make(chan struct{})
+	go func() {
+		old.DeliverCompletions([]agent.SubAgentCompletion{{
+			Seq: 1, ParentCallID: "call-agent-1", AgentID: "agent-1", AgentType: "code",
+			Status: "complete", Body: `{"output":"late"}`,
+		}})
+		close(delivered)
+	}()
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("ClearConversation: %v", err)
+	}
+	select {
+	case <-delivered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("in-flight completion delivery did not finish")
+	}
+	if got := runs.Load(); got != 1 {
+		t.Fatalf("runs = %d, want 1: in-flight completion woke the driver", got)
+	}
+	if got := s.Conversation(); len(got) != 0 {
+		t.Fatalf("conversation = %#v, want empty", got)
 	}
 }

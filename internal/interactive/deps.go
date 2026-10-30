@@ -154,9 +154,12 @@ type Dependencies struct {
 	Background agent.BackgroundAgents
 	// ClearFinishedSubAgents atomically discards the supervisor's finished,
 	// unacknowledged sub-agents when every pending job belongs to scope and is
-	// finished. It returns zero on success and nonzero to refuse the clear,
-	// leaving the jobs in place. cmd/steiner wires the delegation supervisor;
-	// nil keeps the shared pending refusal for every replacement.
+	// finished. Clear consults it only while the live driver has held
+	// completions and is not busy, so an in-flight completion cannot wake the
+	// driver between the check and the swap. It returns zero on success and
+	// nonzero to refuse the clear, leaving the jobs in place. cmd/steiner wires
+	// the delegation supervisor; nil keeps the shared pending refusal for every
+	// replacement.
 	ClearFinishedSubAgents func(scope string) int
 	// Group-scope callbacks use the runtime supervisor for interactive runs.
 	// OpenGroupScope opens a driver's scope; the run stream's requests carry
