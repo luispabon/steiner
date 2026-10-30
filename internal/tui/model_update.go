@@ -301,6 +301,7 @@ func (m *Model) resetConversationDisplay() {
 	m.convState = output.ConversationStateEvent{}
 	m.convStateSeen = false
 	m.convLabelShown = false
+	m.clearStrandedResults()
 	m.selection = m.selection.clear()
 	m.clearDragState()
 	m.activity = m.activity.clear()

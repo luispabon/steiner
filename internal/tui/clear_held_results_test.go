@@ -12,8 +12,8 @@ import (
 )
 
 // TestClearAllowedWhenPausedOnFinishedResults drives the real sequence: a run
-// with a child, Esc to interrupt, the child completing, the driver pausing on
-// the unacknowledged result, then /clear.
+// with a child, Esc to open the delegate-cancel modal and stop the turn, the
+// child completing while the driver is paused, then /clear.
 func TestClearAllowedWhenPausedOnFinishedResults(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}
@@ -23,16 +23,29 @@ func TestClearAllowedWhenPausedOnFinishedResults(t *testing.T) {
 	m.content.AppendLine("old transcript")
 
 	m.applyEvent(output.NewRunStartedEvent("interactive", "test-model", "prompt", 10, 4096))
+	applyConversationStateEvent(t, m, conversationStateGenerating, false, 1, false)
 	m.applyEvent(output.NewDelegationStartedEvent(callOcc("call-1", "child-1"), "inspect the repository", "", "explore"))
+
+	// Esc with a running delegate opens the cancel modal instead of
+	// interrupting directly; "Stop current turn" interrupts the run.
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
+	if !m.delegateCancelModal.IsOpen() || !m.delegateCancelModal.stopTurn {
+		t.Fatal("Esc did not open the cancel modal with Stop current turn")
+	}
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.delegateCancelModal.IsOpen() {
+		t.Fatal("Stop current turn left the cancel modal open")
+	}
+	if got := ctrl.countInterruptActiveRun(); got != 1 {
+		t.Fatalf("interrupt actions = %d, want 1", got)
+	}
+
+	// The child finishes after the interrupt; the driver pauses on its
+	// unacknowledged result.
 	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 		DelegationOccurrence: callOcc("call-1", "child-1"),
 		Status:               "completed",
 	}))
-
-	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
-	if got := ctrl.countInterruptActiveRun(); got != 1 {
-		t.Fatalf("interrupt actions = %d, want 1", got)
-	}
 	applyConversationStateEvent(t, m, conversationStateWaiting, true, 1, false)
 	if !m.sessionBusy() {
 		t.Fatal("sessionBusy = false while paused on finished results")
@@ -152,6 +165,32 @@ func TestClearRefusedUnlessPausedWithoutDelegations(t *testing.T) {
 			}
 			assertClearConversationRefused(t, m)
 		})
+	}
+}
+
+func TestClearDropsStrandedResultsWarning(t *testing.T) {
+	t.Parallel()
+	ctrl := &testController{}
+	m := newModel(Config{}, nil)
+	m.controller = ctrl
+	m.applyEvent(output.NewSubAgentResultsUnansweredEvent([]string{"child-1"}, "interrupted"))
+	if m.strandedResults != 1 {
+		t.Fatalf("strandedResults = %d, want 1", m.strandedResults)
+	}
+	if got := stripANSI(m.renderActivityRow(80)); !strings.Contains(got, "not acted on") {
+		t.Fatalf("activity row before clear = %q, want stranded warning", got)
+	}
+
+	m.executeClearAction()
+
+	if got := ctrl.countByType(interactive.ClearConversation{}); got != 1 {
+		t.Fatalf("clear actions = %d, want 1", got)
+	}
+	if m.strandedResults != 0 {
+		t.Fatalf("strandedResults after clear = %d, want 0", m.strandedResults)
+	}
+	if got := stripANSI(m.renderActivityRow(80)); strings.Contains(got, "not acted on") {
+		t.Fatalf("activity row after clear = %q, want stranded warning cleared", got)
 	}
 }
 

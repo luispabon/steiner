@@ -112,7 +112,6 @@ func (m *Model) applyConversationReset() {
 	m.imageMarkers = nil
 	m.resetConversationDisplay()
 	m.roster = subAgentRoster{}
-	m.clearStrandedResults()
 	if m.recorder != nil {
 		m.recorder.ResetSession()
 	}
