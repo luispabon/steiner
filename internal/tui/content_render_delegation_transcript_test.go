@@ -85,7 +85,17 @@ func randomDelegationTranscript(rng *rand.Rand) []delegationTranscriptEntry {
 func TestRenderDelegationTranscriptMatchesLegacyRandomized(t *testing.T) {
 	t.Parallel()
 	rng := rand.New(rand.NewPCG(1, 2))
-	for iter := range 60 {
+	// Sixty randomized transcripts in a normal build, six under -race: raceSeeds
+	// reports ten batches normally and one under -race, and each batch holds six.
+	// Six transcripts still draw a spread of body caps and transcript lengths
+	// (a few entries up to roughly ninety), and each renders at all three widths,
+	// so the race build keeps the tail-only and truncation paths covered without
+	// paying for the full sweep.
+	const (
+		transcripts       = 60
+		transcriptsInRace = 6
+	)
+	for iter := range transcriptsInRace * int(raceSeeds(transcripts/transcriptsInRace)) {
 		entries := randomDelegationTranscript(rng)
 		maxBodyLines := transcriptTestCaps[rng.IntN(len(transcriptTestCaps))]
 		b := newTranscriptTestBuffer(maxBodyLines)
