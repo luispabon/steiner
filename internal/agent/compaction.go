@@ -212,6 +212,12 @@ func (s summarizeCompactionStages) run(
 		return compactionFailedOutcome(normalOutcome, err)
 	}
 	if !normalOutcome.Applied {
+		if normalOutcome.BackendStateCleared {
+			// The normal summary retired the latest generation's backend state
+			// before applying nothing, so the emergency stage must not issue its
+			// summary against that retired state.
+			state.Lineage = state.Lineage.WithoutLatestBackendState()
+		}
 		emergencyCandidate := makeCompactionCandidate(candidate, emergencySource, emergencyRetained)
 		outcome, err := s.runStageAndFit(ctx, req, state, turn, emergencyCandidate, summarizeCompactionStageParams{
 			sourceMessages:   emergencySource,
@@ -439,7 +445,10 @@ func fitConversationState(ctx context.Context, req RunRequest, state RunState) (
 // messages compacted are still currentConv. It also reports whether the summary
 // cleared that backend state, so the caller can drop it from the lineage it
 // keeps. It also reports whether a compaction stage applied. Cleared is
-// reported only on success; an error reports false for both flags.
+// reported only on success; an error reports false for both flags. A returned
+// error that satisfies provider.BackendStateRetired still retires the lineage's
+// latest backend state, so a caller must drop that state even though the clear
+// is not reported.
 func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage ConversationLineage, currentConv []Message, steerings ...string) ([]Message, bool, bool, error) {
 	if provider.IsStatefulTranscript(req.Provider) && !provider.SupportsStatefulCompaction(req.Provider) {
 		return nil, false, false, fmt.Errorf("compact conversation: %w", errStatefulCompaction)

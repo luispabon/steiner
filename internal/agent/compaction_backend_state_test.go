@@ -133,6 +133,61 @@ func TestSummarizeCompactionStagesKeepsClearThroughNoOpStage(t *testing.T) {
 	}
 }
 
+// TestSummarizeCompactionStagesClearsStateBeforeEmergencyAfterNotApplied proves
+// a clear reported by a normal stage that applied nothing is dropped from the
+// state the emergency stage runs on, so the emergency summary is not issued
+// against the retired backend state. The clear is still reported on the outcome.
+func TestSummarizeCompactionStagesClearsStateBeforeEmergencyAfterNotApplied(t *testing.T) {
+	t.Parallel()
+	msgs := compactionFallbackSummaryMessages()
+	state := RunState{Conversation: msgs, Lineage: newConversationLineage(msgs)}
+	latestID := state.Lineage.latestGenerationID()
+	state.Lineage = state.Lineage.withBackendState(latestID, []byte(`{"previous_response_id":"resp_1"}`), false)
+	candidate := ConversationCandidate{Messages: msgs}
+	fits := prompt.RequestTokenBudget{Fits: true, ContextSize: 1000, PromptUsage: 0.1}
+
+	var normalBackend, emergencyBackend []byte
+	stages := summarizeCompactionStages{
+		stageRunner: func(_ context.Context, _ RunRequest, state RunState, _ int, _ ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+			switch params.mode {
+			case prompt.CompactionModeNormal:
+				normalBackend = state.Lineage.latestBackendState()
+				return CompactionOutcome{Applied: false, BackendStateCleared: true, Fit: fits}, nil
+			case prompt.CompactionModeEmergency:
+				emergencyBackend = state.Lineage.latestBackendState()
+				return CompactionOutcome{Applied: false, Fit: fits}, nil
+			default:
+				t.Fatalf("unexpected mode %q", params.mode)
+				return CompactionOutcome{}, nil
+			}
+		},
+		fitRunner: func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error) {
+			t.Error("fitRunner must not be called for a not-applied stage")
+			return prompt.RequestTokenBudget{}, nil
+		},
+	}
+
+	outcome, err := stages.run(context.Background(), RunRequest{}, state, 1, candidate)
+	if err != nil {
+		t.Fatalf("run() error = %v, want nil", err)
+	}
+	if normalBackend == nil {
+		t.Fatal("normal stage ran without the generation backend state, want the original state")
+	}
+	if emergencyBackend != nil {
+		t.Errorf("emergency stage got backend state %s, want the cleared state", emergencyBackend)
+	}
+	if !outcome.BackendStateCleared {
+		t.Error("outcome.BackendStateCleared = false, want the normal stage clear preserved")
+	}
+	if outcome.Applied {
+		t.Error("outcome.Applied = true, want false")
+	}
+	if outcome.StageCount != 1 {
+		t.Errorf("outcome.StageCount = %d, want 1", outcome.StageCount)
+	}
+}
+
 // TestSummarizeCompactionStagesKeepsClearThroughEmergencyError proves a clear
 // reported by the normal stage survives an emergency stage failure, and leaves
 // no partial state behind.
