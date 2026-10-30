@@ -297,6 +297,23 @@ func (s summarizeCompactionStages) runStageAndFit(
 	return outcome, nil
 }
 
+// backendStateRetirementSignaled reads the request-scoped retirement signal of
+// a summary request. It is a variable so tests can simulate a provider that
+// retired the backend state; production reads
+// provider.BackendStateRetirementSignaled.
+var backendStateRetirementSignaled = provider.BackendStateRetirementSignaled
+
+// compactionSummaryRetired reports whether a summary request retired the
+// generation's backend state. A fallback summary never does. A main summary
+// reports it through the response, the request-scoped signal (which survives a
+// lost terminal chunk), or an error the provider already marked.
+func compactionSummaryRetired(ctx context.Context, onFallback bool, response provider.ChatResponse, err error) bool {
+	if onFallback {
+		return false
+	}
+	return response.ClearBackendState || backendStateRetirementSignaled(ctx) || provider.BackendStateRetired(err)
+}
+
 // compactionSummaryRequest returns the request a summary call runs on: summaryReq
 // when set (a fallback target), otherwise mainReq.
 func compactionSummaryRequest(mainReq RunRequest, summaryReq *RunRequest) RunRequest {
@@ -331,18 +348,24 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	}
 
 	summary := compactionSummaryRequest(req, params.summaryReq)
-	response, err := completeCompactionCall(ctx, summary, turn, plan.request, summary.ModelBudget, plan.blocks)
-	if err != nil {
-		return CompactionOutcome{}, err
+	// Only a main summary retires the main generation's backend state, so only
+	// it carries the request-scoped retirement signal. A fallback summary runs
+	// on another provider's transcript.
+	summaryCtx := ctx
+	if !onFallback {
+		summaryCtx = provider.WithBackendStateRetirement(ctx)
 	}
-	// A fallback summary runs on another provider's transcript, so it must not
-	// clear the main generation's backend state.
-	cleared := false
-	if response.ClearBackendState && !onFallback {
+	response, err := completeCompactionCall(summaryCtx, summary, turn, plan.request, summary.ModelBudget, plan.blocks)
+	// A canceled or failed summary can lose its terminal chunk, so the response
+	// alone does not report every retirement: read the request signal too.
+	cleared := compactionSummaryRetired(summaryCtx, onFallback, response, err)
+	if cleared {
 		// An in-place summary retired the generation's live process, so the
 		// generation's stored backend state no longer names a live transcript.
 		state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), nil, true)
-		cleared = true
+	}
+	if err != nil {
+		return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
 	}
 
 	if onFallback && strings.TrimSpace(response.Message.Content) == "" {

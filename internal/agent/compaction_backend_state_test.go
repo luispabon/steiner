@@ -13,6 +13,16 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+// stubBackendStateRetirement replaces the summary retirement reader for the
+// rest of the test. The reader is process-wide, so the test must not run in
+// parallel with other tests.
+func stubBackendStateRetirement(t *testing.T, read func(context.Context) bool) {
+	t.Helper()
+	previous := backendStateRetirementSignaled
+	backendStateRetirementSignaled = read
+	t.Cleanup(func() { backendStateRetirementSignaled = previous })
+}
+
 // lineageGenerationIDs returns the generation IDs of l in order.
 func lineageGenerationIDs(l ConversationLineage) []int {
 	ids := make([]int, 0, len(l.Generations))
