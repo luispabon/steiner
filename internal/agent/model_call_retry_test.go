@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,9 +34,13 @@ func TestConsumeModelStreamResetsStateOnRetryReset(t *testing.T) {
 	close(chunks)
 
 	var events []output.Event
+	var streamedChunks []string
 	var firstChunkTime time.Time
 	resp, err := consumeModelStream(context.Background(), output.SinkFunc(func(event output.Event) {
 		events = append(events, event)
+		if chunk, ok := event.Payload.(output.AssistantChunkEvent); ok {
+			streamedChunks = append(streamedChunks, chunk.Content)
+		}
 	}), 1, chunks, output.ChunkSourceAssistant, &firstChunkTime)
 	if err != nil {
 		t.Fatalf("consumeModelStream() error = %v", err)
@@ -49,6 +54,11 @@ func TestConsumeModelStreamResetsStateOnRetryReset(t *testing.T) {
 	// firstChunkTime must be set by the post-retry "second" content chunk.
 	if firstChunkTime.IsZero() {
 		t.Fatal("firstChunkTime is zero after stream; want non-zero from post-retry content chunk")
+	}
+	// The discarded attempt's text streamed before the reset, and the retained
+	// attempt's text streamed once more: the final chunk must not re-emit it.
+	if got, want := strings.Join(streamedChunks, "|"), "first|second"; got != want {
+		t.Fatalf("streamed assistant chunks = %q, want %q", got, want)
 	}
 
 	var sawDiagnostic bool
@@ -78,13 +88,14 @@ func TestConsumeModelChunkResetsFirstChunkTimeOnRetryReset(t *testing.T) {
 	response := provider.ChatResponse{}
 	message := provider.Message{Role: provider.MessageRoleAssistant}
 	sawFinal := false
+	var streamed strings.Builder
 
 	// Simulate a content chunk from the first (discarded) attempt.
 	contentChunk := provider.ChatChunk{
 		Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "first"},
 	}
 	var firstChunkTime time.Time
-	if err := consumeModelChunk(sink, 1, output.ChunkSourceAssistant, contentChunk, &response, &message, &sawFinal, &firstChunkTime); err != nil {
+	if err := consumeModelChunk(sink, 1, output.ChunkSourceAssistant, contentChunk, &response, &message, &streamed, &sawFinal, &firstChunkTime); err != nil {
 		t.Fatalf("consumeModelChunk(content) error = %v", err)
 	}
 	if firstChunkTime.IsZero() {
@@ -93,7 +104,7 @@ func TestConsumeModelChunkResetsFirstChunkTimeOnRetryReset(t *testing.T) {
 
 	// Now send the retry reset chunk — firstChunkTime must be cleared.
 	retryChunk := provider.ChatChunk{RetryReset: true}
-	if err := consumeModelChunk(sink, 1, output.ChunkSourceAssistant, retryChunk, &response, &message, &sawFinal, &firstChunkTime); err != nil {
+	if err := consumeModelChunk(sink, 1, output.ChunkSourceAssistant, retryChunk, &response, &message, &streamed, &sawFinal, &firstChunkTime); err != nil {
 		t.Fatalf("consumeModelChunk(retry reset) error = %v", err)
 	}
 	if !firstChunkTime.IsZero() {
@@ -104,7 +115,7 @@ func TestConsumeModelChunkResetsFirstChunkTimeOnRetryReset(t *testing.T) {
 	secondChunk := provider.ChatChunk{
 		Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "second"},
 	}
-	if err := consumeModelChunk(sink, 1, output.ChunkSourceAssistant, secondChunk, &response, &message, &sawFinal, &firstChunkTime); err != nil {
+	if err := consumeModelChunk(sink, 1, output.ChunkSourceAssistant, secondChunk, &response, &message, &streamed, &sawFinal, &firstChunkTime); err != nil {
 		t.Fatalf("consumeModelChunk(second content) error = %v", err)
 	}
 	if firstChunkTime.IsZero() {

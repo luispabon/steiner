@@ -278,8 +278,9 @@ func TestStreamedDeltasThenSnapshotEmitTextOnce(t *testing.T) {
 		}
 	})
 	message := provider.Message{Role: provider.MessageRoleAssistant}
+	var streamed strings.Builder
 	for _, delta := range []string{"I will ", "read it.", "\n\nDone."} {
-		handleStreamingChunk(sink, 1, output.ChunkSourceAssistant, provider.ChatChunk{Delta: provider.Message{Content: delta}}, &message)
+		handleStreamingChunk(sink, 1, output.ChunkSourceAssistant, provider.ChatChunk{Delta: provider.Message{Content: delta}}, &message, &streamed)
 	}
 	handleFinalChunk(sink, 1, output.ChunkSourceAssistant, provider.ChatChunk{
 		Done:            true,

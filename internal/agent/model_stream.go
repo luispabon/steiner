@@ -15,6 +15,10 @@ import (
 func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource, firstChunkOut *time.Time) (provider.ChatResponse, error) {
 	response := provider.ChatResponse{}
 	message := provider.Message{Role: provider.MessageRoleAssistant}
+	// streamedContent accumulates assistant deltas. It owns the content until
+	// the final chunk is reconciled, so appending a delta stays amortized O(1)
+	// instead of recopying the whole message per chunk.
+	var streamedContent strings.Builder
 	sawFinal := false
 	var consumeErr error
 
@@ -27,7 +31,7 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 			// first error are discarded rather than processed.
 			continue
 		}
-		if err := consumeModelChunk(sink, turn, source, chunk, &response, &message, &sawFinal, firstChunkOut); err != nil {
+		if err := consumeModelChunk(sink, turn, source, chunk, &response, &message, &streamedContent, &sawFinal, firstChunkOut); err != nil {
 			consumeErr = err
 			if !provider.HasBackendStateRetirement(ctx) {
 				return provider.ChatResponse{}, consumeErr
@@ -49,8 +53,8 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 	return response, nil
 }
 
-func consumeModelChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message, sawFinal *bool, firstChunkOut *time.Time) error {
-	if handleRetryResetChunk(sink, turn, chunk, response, message, sawFinal) {
+func consumeModelChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message, streamed *strings.Builder, sawFinal *bool, firstChunkOut *time.Time) error {
+	if handleRetryResetChunk(sink, turn, chunk, response, message, streamed, sawFinal) {
 		if firstChunkOut != nil {
 			*firstChunkOut = time.Time{}
 		}
@@ -72,21 +76,28 @@ func consumeModelChunk(sink output.EventSink, turn int, source output.ChunkSourc
 				*firstChunkOut = time.Now()
 			}
 		}
-		handleStreamingChunk(sink, turn, source, chunk, message)
+		handleStreamingChunk(sink, turn, source, chunk, message, streamed)
 		return nil
 	}
 
 	*sawFinal = true
+	// Reconciliation and content snapshots read the streamed text from the
+	// message. Adopt whatever content the final chunk settles on as the
+	// accumulator's baseline, so a delta arriving after a final chunk appends to
+	// the same text instead of replacing it.
 	handleFinalChunk(sink, turn, source, chunk, response, message)
+	streamed.Reset()
+	streamed.WriteString(message.Content)
 	return nil
 }
 
-func handleRetryResetChunk(sink output.EventSink, turn int, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message, sawFinal *bool) bool {
+func handleRetryResetChunk(sink output.EventSink, turn int, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message, streamed *strings.Builder, sawFinal *bool) bool {
 	if !chunk.RetryReset {
 		return false
 	}
 	*response = provider.ChatResponse{}
 	*message = provider.Message{Role: provider.MessageRoleAssistant}
+	streamed.Reset()
 	*sawFinal = false
 	if chunk.Diagnostic != "" {
 		emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
@@ -124,12 +135,16 @@ func handleErrorChunk(chunk provider.ChatChunk) (bool, error) {
 	return false, nil
 }
 
-func handleStreamingChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, message *provider.Message) {
+func handleStreamingChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, message *provider.Message, streamed *strings.Builder) {
 	if thinking := chunk.Thinking; thinking != "" {
 		emitEvent(sink, output.NewThinkingChunkEventWithSource(turn, thinking, source))
 	}
 	if content := chunk.Delta.Content; content != "" {
-		message.Content += content
+		// WriteString appends in amortized O(1) and String() is a view over the
+		// builder's buffer, so keeping message.Content in sync per chunk costs no
+		// copy while final-chunk reconciliation still sees the streamed text.
+		streamed.WriteString(content)
+		message.Content = streamed.String()
 		emitEvent(sink, output.NewAssistantChunkEventWithSource(turn, content, source))
 	}
 	if len(chunk.Delta.ToolCalls) > 0 {
