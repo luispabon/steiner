@@ -53,9 +53,34 @@ type FetchURLResult struct {
 	TotalLines    int         `json:"total_lines,omitempty"`
 }
 
+// newFetchURLClient resolves the HTTP client a fetch_url tool instance shares
+// across its calls. The default client is SSRF-safe: it validates the address
+// of every connection it dials and every redirect target. env.httpClient is a
+// test seam; it is invoked once, at construction.
+func newFetchURLClient(env Env) *http.Client {
+	if env.httpClient != nil {
+		return env.httpClient()
+	}
+	return toolkit.SafeHTTPClient(15 * time.Second)
+}
+
+// fetchURLPerCallClient returns the client a single fetch_url call should use.
+// Sharing one client across calls reuses its transport and connection pool. A
+// client with a Jar would also carry cookies from one call into the next, so
+// the jar is dropped per call while the transport stays shared.
+func fetchURLPerCallClient(client *http.Client) *http.Client {
+	if client.Jar == nil {
+		return client
+	}
+	callClient := *client
+	callClient.Jar = nil
+	return &callClient
+}
+
 // NewFetchURLTool creates a ToolDef for the fetch_url tool.
 // nolint:gocyclo // handler closure complexity is unavoidable with multi-branch content-type routing and image extension fallback
 func NewFetchURLTool(env Env) tool.ToolDef {
+	client := newFetchURLClient(env)
 	return tool.ToolDef{
 		Name:            "fetch_url",
 		ParallelSafe:    true,
@@ -82,10 +107,7 @@ func NewFetchURLTool(env Env) tool.ToolDef {
 
 			normalizeFetchURL(&in)
 
-			httpClient := toolkit.SafeHTTPClient(15 * time.Second)
-			if env.httpClient != nil {
-				httpClient = env.httpClient()
-			}
+			httpClient := fetchURLPerCallClient(client)
 
 			// Peek at Content-Type via HEAD to decide how to handle the response.
 			contentType := ""
