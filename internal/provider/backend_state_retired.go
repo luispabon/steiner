@@ -52,6 +52,14 @@ func WithBackendStateRetirement(ctx context.Context) context.Context {
 	return context.WithValue(ctx, backendStateRetirementKey{}, &backendStateRetirement{})
 }
 
+// HasBackendStateRetirement reports whether ctx carries a request-scoped
+// retirement signal, whether or not it has been signalled yet. A caller that
+// sees a processing error can use it to decide whether waiting for the request
+// to finish can reveal a retirement the error itself did not report.
+func HasBackendStateRetirement(ctx context.Context) bool {
+	return backendStateRetirementFrom(ctx) != nil
+}
+
 // BackendStateRetirementSignaled reports whether the request run under ctx
 // retired its backend state. It is false for a context that carries no signal.
 func BackendStateRetirementSignaled(ctx context.Context) bool {

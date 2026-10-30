@@ -11,6 +11,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+//nolint:unparam // source is the assistant stream's tag; keeping it explicit lets another caller stream a different source without editing the consumer.
 func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource, firstChunkOut *time.Time) (provider.ChatResponse, error) {
 	response := provider.ChatResponse{}
 	message := provider.Message{Role: provider.MessageRoleAssistant}
@@ -19,14 +20,18 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 
 	for chunk := range chunks {
 		if consumeErr != nil {
-			// The turn already failed. Keep draining until the producer closes
-			// the channel so its terminal work, such as retiring backend state,
-			// finishes before the caller reads request-scoped signals. Chunks
-			// after the first error are discarded rather than processed.
+			// The turn already failed and the request carries a backend state
+			// retirement signal, so keep draining until the producer closes the
+			// channel: its terminal work, such as retiring backend state, must
+			// complete before the caller reads the signal. Chunks after the
+			// first error are discarded rather than processed.
 			continue
 		}
 		if err := consumeModelChunk(sink, turn, source, chunk, &response, &message, &sawFinal, firstChunkOut); err != nil {
 			consumeErr = err
+			if !provider.HasBackendStateRetirement(ctx) {
+				return provider.ChatResponse{}, consumeErr
+			}
 		}
 	}
 
