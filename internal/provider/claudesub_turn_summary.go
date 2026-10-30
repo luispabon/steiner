@@ -57,7 +57,8 @@ func claudeSubTryParentFork(ctx context.Context, pool *ClaudeSubscriptionPool, r
 
 // claudeSubParentInPlace answers a parent summary on the live process, which is
 // retired once it has taken the summary. Without a live process, or when the
-// record cannot take the request, the request is cold-reseeded on a helper.
+// record cannot take the request, the request is cold-reseeded on a helper. The
+// retirement is signalled on the request context.
 func claudeSubParentInPlace(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
 	live, err := pool.acquireLive(ctx, key)
 	if err != nil {
@@ -70,6 +71,9 @@ func claudeSubParentInPlace(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	// The in-place summary is part of the live transcript now, so the process is
 	// retired. A no-place result retires it too, before the reseed.
 	pool.retireAndRelease(key, live)
+	// The request retired its backend state even if its terminal chunk is lost,
+	// so signal that before any reseed can fail.
+	signalBackendStateRetirement(ctx)
 	// Every failure from here on leaves the generation without backend state,
 	// so the caller is told to drop it rather than reuse it.
 	if errors.Is(err, errClaudeSubSummaryNoPlace) {
