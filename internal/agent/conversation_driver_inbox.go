@@ -85,6 +85,15 @@ func (d *ConversationDriver) DeliverCompletions(cs []SubAgentCompletion) {
 	d.signalWake()
 }
 
+// discardCompletionsLocked drops undelivered completions and the coalescing
+// window. A replacement that discards the old conversation uses it so finalize
+// cannot append discarded results to the old transcript or announce delivery.
+// The caller must hold d.mu.
+func (d *ConversationDriver) discardCompletionsLocked() {
+	d.completions = nil
+	d.disarmWindowLocked()
+}
+
 // RequestCompaction queues fn to run once the driver is not generating.
 // Completions arriving meanwhile wait until it finishes.
 func (d *ConversationDriver) RequestCompaction(fn func(ctx context.Context, conv []Message) ([]Message, ConversationLineage, error)) {

@@ -136,12 +136,13 @@ const (
 )
 
 // ReplaceWhileHeld atomically verifies the driver is held and not busy, then
-// runs check under the driver lock. When check accepts, it detaches the steer
-// queue, runs swap, and closes the old inbox, all under the same lock, so no
-// completion, wake, steer or settle can change held or start a run between the
-// check and the swap. The caller must still retire the closed driver. check
-// and swap must not call back into d. The caller must hold any outer session
-// lock across the call and keep it held through swap.
+// runs check under the driver lock. When check accepts, it discards buffered
+// completions and the coalescing window, detaches the steer queue, runs swap,
+// and closes the old inbox, all under the same lock, so no completion, wake,
+// steer or settle can change held, start a run, or reach the old transcript
+// between the check and the swap. The caller must still retire the closed
+// driver. check and swap must not call back into d. The caller must hold any
+// outer session lock across the call and keep it held through swap.
 func (d *ConversationDriver) ReplaceWhileHeld(check func() bool, swap func()) ReplaceOutcome {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -154,6 +155,7 @@ func (d *ConversationDriver) ReplaceWhileHeld(check func() bool, swap func()) Re
 	if !check() {
 		return ReplaceRefused
 	}
+	d.discardCompletionsLocked()
 	d.detachSteersLocked()
 	swap()
 	// Close the old inbox before releasing the lock so a delivery or steer

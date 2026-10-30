@@ -88,6 +88,7 @@ func TestConversationDriverReplaceWhileHeldOutcomes(t *testing.T) {
 
 	t.Run("done detaches and swaps", func(t *testing.T) {
 		h := newHeldDriverHarness(t)
+		h.d.DeliverCompletions([]SubAgentCompletion{completionFor(1, "a")})
 		swapped := false
 		outcome := h.d.ReplaceWhileHeld(
 			func() bool { return true },
@@ -101,9 +102,17 @@ func TestConversationDriverReplaceWhileHeldOutcomes(t *testing.T) {
 		}
 		h.d.mu.Lock()
 		steers := h.d.opts.Steers
+		completions := len(h.d.completions)
+		window := h.d.window
 		h.d.mu.Unlock()
 		if steers != nil {
 			t.Fatal("steer queue still attached")
+		}
+		if completions != 0 {
+			t.Fatalf("buffered completions = %d, want discarded", completions)
+		}
+		if window != nil {
+			t.Fatal("completion window still armed")
 		}
 		if _, held := h.d.State(); !held {
 			t.Fatal("replacement released the hold")

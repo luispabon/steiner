@@ -367,17 +367,17 @@ func TestClearConversationDropsRetiredDriverStateEvents(t *testing.T) {
 	}
 }
 
-func waitForDriverState(t *testing.T, s *Session, want agent.DriverState, wantHeld bool) {
+func waitForHeldWaitingDriver(t *testing.T, s *Session) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if state, held := s.currentDriver().State(); state == want && held == wantHeld {
+		if state, held := s.currentDriver().State(); state == agent.DriverWaiting && held {
 			return
 		}
 		time.Sleep(time.Millisecond)
 	}
 	state, held := s.currentDriver().State()
-	t.Fatalf("driver state = %q held=%v, want %q held=%v", state, held, want, wantHeld)
+	t.Fatalf("driver state = %q held=%v, want waiting held", state, held)
 }
 
 func waitClearDriverIdle(t *testing.T, s *Session) {
@@ -417,7 +417,7 @@ func TestClearConversationAfterInterruptAndCompletionEndsIdle(t *testing.T) {
 	if err := s.Handle(context.Background(), InterruptActiveRun{}); err != nil {
 		t.Fatalf("InterruptActiveRun: %v", err)
 	}
-	waitForDriverState(t, s, agent.DriverWaiting, true)
+	waitForHeldWaitingDriver(t, s)
 
 	bg.setPendingStates(agent.SubAgentFinished)
 	s.currentDriver().DeliverCompletions([]agent.SubAgentCompletion{{
@@ -444,5 +444,110 @@ func TestClearConversationAfterInterruptAndCompletionEndsIdle(t *testing.T) {
 	}
 	if got := runs.Load(); got != 1 {
 		t.Fatalf("runs = %d, want 1: clear started a run", got)
+	}
+}
+
+type eventRecorder struct {
+	mu     sync.Mutex
+	events []output.Event
+}
+
+func (r *eventRecorder) Emit(event output.Event) {
+	r.mu.Lock()
+	r.events = append(r.events, event)
+	r.mu.Unlock()
+}
+
+func (r *eventRecorder) reset() {
+	r.mu.Lock()
+	r.events = nil
+	r.mu.Unlock()
+}
+
+func (r *eventRecorder) countType(kind string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	count := 0
+	for _, event := range r.events {
+		if event.Type == kind {
+			count++
+		}
+	}
+	return count
+}
+
+func discardCompletion(marker string) agent.SubAgentCompletion {
+	return agent.SubAgentCompletion{
+		Seq: 1, ParentCallID: "call-agent-1", AgentID: "agent-1", AgentType: "code",
+		Status: "complete", Body: fmt.Sprintf(`{"output":"%s"}`, marker),
+	}
+}
+
+func lineageContains(lin agent.ConversationLineage, marker string) bool {
+	for _, generation := range lin.Generations {
+		for _, message := range generation.Messages {
+			if strings.Contains(message.Content, marker) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestClearConversationDiscardsBufferedAndLateCompletions(t *testing.T) {
+	bg := &stubBackground{}
+	recorder := &eventRecorder{}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	hook := func(string) int {
+		close(entered)
+		<-release
+		bg.setPending()
+		return 0
+	}
+	s := newClearGuardSessionWithEvents(t, bg, hook, recorder)
+	store := s.deps.SessionStore.(*mockSessionStore)
+	bg.setPendingStates(agent.SubAgentFinished)
+	holdClearSession(t, s)
+	old := s.currentDriver()
+	oldID := s.SessionID()
+
+	old.DeliverCompletions([]agent.SubAgentCompletion{discardCompletion("buffered-marker")})
+	recorder.reset()
+
+	done := make(chan error, 1)
+	go func() { done <- s.Handle(context.Background(), ClearConversation{}) }()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("clear hook did not run")
+	}
+	lateDelivered := make(chan struct{})
+	go func() {
+		old.DeliverCompletions([]agent.SubAgentCompletion{discardCompletion("late-marker")})
+		close(lateDelivered)
+	}()
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("ClearConversation: %v", err)
+	}
+	select {
+	case <-lateDelivered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("late completion delivery did not finish")
+	}
+	// A delivery after the clear has closed the old inbox is dropped too.
+	old.DeliverCompletions([]agent.SubAgentCompletion{discardCompletion("after-marker")})
+
+	if got := recorder.countType(output.EventTypeSubAgentsDelivered); got != 0 {
+		t.Fatalf("sub_agents_delivered events = %d, want 0", got)
+	}
+	store.mu.Lock()
+	saved := store.savedSessions[oldID]
+	store.mu.Unlock()
+	for _, marker := range []string{"buffered-marker", "late-marker", "after-marker"} {
+		if lineageContains(saved.Lineage, marker) {
+			t.Fatalf("old saved transcript contains discarded completion %q", marker)
+		}
 	}
 }
