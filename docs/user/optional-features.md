@@ -81,4 +81,4 @@ Analyze branch changes for structural and code quality improvements before revie
 
 ## Codex OAuth
 
-Use an OpenAI Codex subscription with Steiner without a separate API key. For the login, status, provider, and raw model reference setup, see [Codex OAuth in Provider and model setup](provider-and-model-setup.md#codex-oauth).
+Use an OpenAI Codex subscription with Steiner without a separate API key. The stored token is cached in-process and refreshed when it is expired or within five minutes of expiry; concurrent requests share one refresh. For the login, status, token file locking, and raw model reference setup, see [Codex OAuth in Provider and model setup](provider-and-model-setup.md#codex-oauth).

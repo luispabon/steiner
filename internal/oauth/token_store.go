@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+
+	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
 // ErrNoToken reports that no OAuth token file exists in the token store.
@@ -97,15 +99,10 @@ func (s *TokenStore) Save(token *oauth2.Token) error {
 		return fmt.Errorf("marshal token: %w", err)
 	}
 
-	// Write to temp file, then atomically rename
-	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
-		return fmt.Errorf("write temp token file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, s.path); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("rename token file: %w", err)
+	// A unique temp file per write keeps concurrent savers apart; the rename that
+	// fsatomic performs is atomic, so readers never see a partial token.
+	if err := fsatomic.WriteFile(s.path, data, 0o600); err != nil {
+		return fmt.Errorf("write token file: %w", err)
 	}
 
 	return nil
