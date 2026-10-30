@@ -12,24 +12,33 @@ import (
 )
 
 // TestSummarizeCompactionStageAttachesRetirementSignalOnlyOnMain proves a main
-// summary runs on a request context carrying the backend state retirement
-// signal, while a fallback summary runs on the caller's context unchanged.
+// summary request carries the provider's request-scoped backend state
+// retirement signal, which is what a real Claude parent retirement marks, while
+// a fallback summary runs on the caller's context and carries none. A real
+// summary streams, so the fake provider answers from its stream.
 func TestSummarizeCompactionStageAttachesRetirementSignalOnlyOnMain(t *testing.T) {
 	tests := []struct {
-		name        string
-		fallback    bool
-		wantSameCtx bool
+		name     string
+		fallback bool
 	}{
 		{name: "main summary carries the signal"},
-		{name: "fallback summary carries none", fallback: true, wantSameCtx: true},
+		{name: "fallback summary carries none", fallback: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			msgs := compactionFallbackSummaryMessages()
 			var gotCtx context.Context
-			prov := &fakeProvider{chatFn: func(ctx context.Context, _ provider.ChatRequest) (provider.ChatResponse, error) {
+			prov := &fakeProvider{streamFn: func(ctx context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
 				gotCtx = ctx
-				return compactionFallbackSummaryResponse(false), nil
+				ch := make(chan provider.ChatChunk, 1)
+				ch <- provider.ChatChunk{
+					Delta:           provider.Message{Role: provider.MessageRoleAssistant, Content: "summary text"},
+					ContentSnapshot: true,
+					Done:            true,
+					FinishReason:    "stop",
+				}
+				close(ch)
+				return ch, nil
 			}}
 			req := compactionFallbackSummaryFixture(prov, &testRecorder{})
 			var summaryReq *RunRequest
@@ -53,8 +62,14 @@ func TestSummarizeCompactionStageAttachesRetirementSignalOnlyOnMain(t *testing.T
 			if gotCtx == nil {
 				t.Fatal("summary call did not run")
 			}
-			if same := gotCtx == parentCtx; same != tt.wantSameCtx {
-				t.Errorf("summary context unchanged = %v, want %v", same, tt.wantSameCtx)
+			if got, want := provider.HasBackendStateRetirement(gotCtx), !tt.fallback; got != want {
+				t.Errorf("summary context carries the provider retirement signal = %v, want %v", got, want)
+			}
+			if provider.BackendStateRetirementSignaled(gotCtx) {
+				t.Error("summary context reported a retirement before the provider ran")
+			}
+			if provider.HasBackendStateRetirement(parentCtx) {
+				t.Error("summarizeCompactionStage() attached the signal to the caller's context")
 			}
 		})
 	}
@@ -238,5 +253,75 @@ func TestCompactWithFallbackDropsTargetClearFlag(t *testing.T) {
 	}
 	if outcome.FallbackStatus != output.CompactionFallbackUsed {
 		t.Errorf("FallbackStatus = %q, want %q", outcome.FallbackStatus, output.CompactionFallbackUsed)
+	}
+}
+
+// providerRetiredSummaryError reports a retired backend state through the
+// exported provider.BackendStateRetired contract, as a real claude_subscription
+// summary failure does once it has retired the parent process.
+type providerRetiredSummaryError struct{ err error }
+
+func (e *providerRetiredSummaryError) Error() string { return e.err.Error() }
+
+func (e *providerRetiredSummaryError) Unwrap() error { return e.err }
+
+func (e *providerRetiredSummaryError) BackendStateRetired() bool { return true }
+
+// TestCompactConversationForBudgetProviderMarkedRetirementOnCanceledSummary
+// proves a canceled main summary that the provider itself marked retired drops
+// the latest lineage backend state through the provider's own marker, with no
+// stub of the retirement reader: the summary streams on a request context
+// carrying the real signal, and the returned error keeps the marker and the
+// cancellation while the conversation and its generation are kept.
+func TestCompactConversationForBudgetProviderMarkedRetirementOnCanceledSummary(t *testing.T) {
+	conv := compactionTestTurns()
+	state := RunState{Conversation: conv, Lineage: newConversationLineage(conv)}
+	latestID := state.Lineage.latestGenerationID()
+	state.Lineage = state.Lineage.withBackendState(latestID, []byte(`{"version":1}`), false)
+
+	canceled := &providerRetiredSummaryError{err: fmt.Errorf("summary: %w", context.Canceled)}
+	var gotCtx context.Context
+	prov := &fakeProvider{streamFn: func(ctx context.Context, _ provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+		gotCtx = ctx
+		ch := make(chan provider.ChatChunk, 1)
+		ch <- provider.ChatChunk{Done: true, Error: canceled.Error(), OriginalError: canceled}
+		close(ch)
+		return ch, nil
+	}}
+	req := compactionTestBudget()
+	req.Provider = prov
+
+	_, applied, _, err := (&Runner{}).compactConversationForBudgetWithSteering(context.Background(), req, &state, 0, nil, map[string]bool{}, nil, "")
+	if err == nil {
+		t.Fatal("compactConversationForBudgetWithSteering() error = nil, want the canceled summary")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want it to wrap context.Canceled", err)
+	}
+	if !provider.BackendStateRetired(err) {
+		t.Error("provider.BackendStateRetired(err) = false, want the provider-marked retirement kept")
+	}
+	if applied {
+		t.Error("applied = true, want false")
+	}
+	if gotCtx == nil {
+		t.Fatal("summary call did not run")
+	}
+	if !provider.HasBackendStateRetirement(gotCtx) {
+		t.Error("canceled main summary ran without the request-scoped retirement signal")
+	}
+	if len(state.Conversation) != len(conv) {
+		t.Fatalf("conversation length = %d, want the original %d", len(state.Conversation), len(conv))
+	}
+	for i := range conv {
+		if state.Conversation[i].Content != conv[i].Content {
+			t.Errorf("conversation[%d] = %q, want the original %q", i, state.Conversation[i].Content, conv[i].Content)
+		}
+	}
+	if got := state.Lineage.latestGenerationID(); got != latestID {
+		t.Errorf("latest generation ID = %d, want the original %d", got, latestID)
+	}
+	if got := state.Lineage.latestBackendState(); got != nil {
+		t.Errorf("latest generation kept backend state %s, want it cleared", got)
 	}
 }
