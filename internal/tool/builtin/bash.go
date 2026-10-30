@@ -44,7 +44,7 @@ func NewBashTool(env Env) tool.ToolDef {
 	maxTimeoutSeconds := resolveBashTimeoutCapSeconds(env.BashTimeoutCap)
 	return tool.ToolDef{
 		Name:            "bash",
-		Description:     "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated.",
+		Description:     "Run a shell command in the workspace. Prefer targeted commands. Set cwd instead of running cd commands when needed. Output may be truncated. Background jobs are unsupported.",
 		ParameterSchema: BashSchema(maxTimeoutSeconds),
 		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[BashInput](input)
