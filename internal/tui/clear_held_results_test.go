@@ -50,6 +50,12 @@ func TestClearAllowedWhenPausedOnFinishedResults(t *testing.T) {
 	if !m.sessionBusy() {
 		t.Fatal("sessionBusy = false while paused on finished results")
 	}
+	if _, ok := m.roster.entries["child-1"]; !ok {
+		t.Fatal("roster entry missing before clear")
+	}
+	if len(m.sidebar.subAgents) == 0 {
+		t.Fatal("sidebar roster missing before clear")
+	}
 
 	m.input.SetValue("/clear")
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -68,6 +74,19 @@ func TestClearAllowedWhenPausedOnFinishedResults(t *testing.T) {
 	}
 	if got := m.content.String(80); strings.Contains(got, "old transcript") {
 		t.Fatalf("content after clear = %q, want transcript cleared", got)
+	}
+	if len(m.roster.entries) != 0 || len(m.roster.admissions) != 0 {
+		t.Fatalf("roster after clear = %d entries, %d admissions; want empty", len(m.roster.entries), len(m.roster.admissions))
+	}
+	if len(m.sidebar.subAgents) != 0 || len(m.sidebar.subAgentsSection(40)) != 0 {
+		t.Fatalf("sidebar sub-agents after clear = %+v, want none", m.sidebar.subAgents)
+	}
+	if m.status.subAgentsTotal != 0 || m.status.subAgentsFinished != 0 || m.status.subAgentsQueued != 0 || m.status.subAgentsFailed != 0 {
+		t.Fatalf("status sub-agent counts after clear = total %d finished %d queued %d failed %d, want zero",
+			m.status.subAgentsTotal, m.status.subAgentsFinished, m.status.subAgentsQueued, m.status.subAgentsFailed)
+	}
+	if got := m.status.subAgentsChip(); got != "" {
+		t.Fatalf("status sub-agent chip after clear = %q, want empty", got)
 	}
 }
 

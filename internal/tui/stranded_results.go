@@ -111,7 +111,6 @@ func (m *Model) applyConversationReset() {
 	// the pending ones while the old binding was live. Only forget the markers.
 	m.imageMarkers = nil
 	m.resetConversationDisplay()
-	m.roster = subAgentRoster{}
 	if m.recorder != nil {
 		m.recorder.ResetSession()
 	}
