@@ -495,6 +495,7 @@ var claudeCaptureRawLines = []string{
 // TestClaudeTokenCaptureSanitizeKeepsStream checks that the minimal turn keeps eight
 // lines, drops the rest, passes the allowlist, and replays to its usage.
 func TestClaudeTokenCaptureSanitizeKeepsStream(t *testing.T) {
+	t.Parallel()
 	clean, err := sanitizeClaudeCapture([]byte(strings.Join(claudeCaptureRawLines, "\n") + "\n"))
 	if err != nil {
 		t.Fatalf("sanitize valid capture: %v", err)
@@ -526,6 +527,7 @@ func TestClaudeTokenCaptureSanitizeKeepsStream(t *testing.T) {
 // key allowlist, the forbidden-key and path rules, and the synthetic ID form. It also
 // checks that each breach kind is reported.
 func TestClaudeTokenCaptureSanitizeAllowlist(t *testing.T) {
+	t.Parallel()
 	paths, err := filepath.Glob(filepath.Join(claudeFixtureDir, "captures", "*.jsonl"))
 	if err != nil || len(paths) == 0 {
 		t.Fatalf("list sanitized captures: %v (%d found)", err, len(paths))
@@ -557,6 +559,7 @@ func TestClaudeTokenCaptureSanitizeAllowlist(t *testing.T) {
 // text position. Each allowed fragment passes. Secret-like text fails, and no problem
 // message echoes it.
 func TestClaudeTokenCaptureTextAllowlist(t *testing.T) {
+	t.Parallel()
 	const secret = "sk-ant-api03-Zx9Qw2Lm7Rt4Vb8Nc1Hd6Jk"
 	line := func(block bool, text string) []byte {
 		ev := map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "text_delta", "text": text}}
@@ -590,6 +593,7 @@ func TestClaudeTokenCaptureTextAllowlist(t *testing.T) {
 // TestClaudeTokenCaptureSanitizeRejects checks that each unknown kind, thinking
 // content, error result, or malformed value fails the whole capture.
 func TestClaudeTokenCaptureSanitizeRejects(t *testing.T) {
+	t.Parallel()
 	replace := func(i int, line string) []byte {
 		lines := slices.Clone(claudeCaptureRawLines)
 		lines[i] = line

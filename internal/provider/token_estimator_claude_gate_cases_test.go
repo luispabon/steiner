@@ -94,6 +94,7 @@ func claudeGateRunJudgeCases(t *testing.T, base func() claudeGateReport, cases [
 // TestClaudeTokenGateJudgeOneFailurePerGate changes one thing so that exactly one
 // gate fails, and checks the failure code it produces.
 func TestClaudeTokenGateJudgeOneFailurePerGate(t *testing.T) {
+	t.Parallel()
 	claudeGateRunJudgeCases(t, claudeGateBaseReport, []claudeGateJudgeCase{
 		{"text 10 percent over", setText(0, claudeLedgerSlotCodeJSON, 1000, 1500, 1101), []string{claudeGateFailText}},
 		{"text 5 percent under", setText(0, claudeLedgerSlotCodeJSON, 1000, 1500, 949), []string{claudeGateFailText}},
@@ -116,6 +117,7 @@ func TestClaudeTokenGateJudgeOneFailurePerGate(t *testing.T) {
 // TestClaudeTokenGateJudgeBoundaries checks each exact threshold at its boundary and
 // one step past it.
 func TestClaudeTokenGateJudgeBoundaries(t *testing.T) {
+	t.Parallel()
 	claudeGateRunJudgeCases(t, claudeGateBaseReport, []claudeGateJudgeCase{
 		{"text 10 percent over, exact", setText(0, claudeLedgerSlotCodeJSON, 1000, 1500, 1100), nil},
 		{"text 10 percent over, one past", setText(0, claudeLedgerSlotCodeJSON, 1000, 1500, 1101), []string{claudeGateFailText}},
@@ -137,6 +139,7 @@ func TestClaudeTokenGateJudgeBoundaries(t *testing.T) {
 // TestClaudeTokenGateJudgeMaxInt checks the judge at math.MaxInt, where a naive
 // int64 product or sum would overflow.
 func TestClaudeTokenGateJudgeMaxInt(t *testing.T) {
+	t.Parallel()
 	const maxInt = int64(math.MaxInt)
 	exact := func() claudeGateReport {
 		return claudeGateReport{
@@ -161,6 +164,7 @@ func TestClaudeTokenGateJudgeMaxInt(t *testing.T) {
 // TestClaudeTokenGateTextRatioBoundaries checks the text ratio at its exact
 // boundaries, at 1e18, and at int64 extremes.
 func TestClaudeTokenGateTextRatioBoundaries(t *testing.T) {
+	t.Parallel()
 	const maxInt = int64(math.MaxInt)
 	tests := []struct {
 		name      string
@@ -190,6 +194,7 @@ func TestClaudeTokenGateTextRatioBoundaries(t *testing.T) {
 // TestClaudeTokenGateCompareSignedErrors checks that signed and absolute errors are
 // exact, including differences that exceed int64.
 func TestClaudeTokenGateCompareSignedErrors(t *testing.T) {
+	t.Parallel()
 	const maxInt = int64(math.MaxInt)
 	tests := []struct {
 		name                       string
@@ -316,6 +321,7 @@ func claudeGateRecordIndex(t *testing.T, ev *claudeGateEvidence, model string, s
 // TestClaudeTokenGateSyntheticPassingMatrix checks that synthetic passing evidence
 // activates every candidate through the measure and judge path.
 func TestClaudeTokenGateSyntheticPassingMatrix(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	ev := claudeGateSyntheticEvidence(t, set)
 	reports, err := claudeGateEvaluate(context.Background(), set, ev)
@@ -345,6 +351,7 @@ func TestClaudeTokenGateSyntheticPassingMatrix(t *testing.T) {
 // synthetic records are marked failed, and every other model stays active. This is a
 // separate audit from the all-pass matrix above.
 func TestClaudeTokenGatePartialPass(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	ev := claudeGateSyntheticEvidence(t, set)
 	failed := claudeLedgerModels[0]
@@ -384,6 +391,7 @@ func TestClaudeTokenGatePartialPass(t *testing.T) {
 // TestClaudeTokenGateOldCounterOffline checks that the pre-ctok counter loads
 // offline for every candidate and never reports the ctok strategy.
 func TestClaudeTokenGateOldCounterOffline(t *testing.T) {
+	t.Parallel()
 	for _, model := range claudeLedgerModels {
 		counter, meta, err := claudeGateOldCounter(model)
 		if err != nil {
@@ -402,6 +410,7 @@ func TestClaudeTokenGateOldCounterOffline(t *testing.T) {
 // and checks the failure code. Record-level and evidence-wide faults mark every
 // model inactive. Model-level faults leave the other models active.
 func TestClaudeTokenGateEvidenceCorruptionMatrix(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	ctx := context.Background()
 	opus, sonnet, haiku := claudeLedgerModels[0], claudeLedgerModels[1], claudeLedgerModels[2]
@@ -500,6 +509,7 @@ func TestClaudeTokenGateEvidenceCorruptionMatrix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ev := claudeGateSyntheticEvidence(t, set)
 			tt.mutate(t, &ev)
 			reports, err := claudeGateEvaluate(ctx, set, ev)
@@ -530,6 +540,7 @@ func TestClaudeTokenGateEvidenceCorruptionMatrix(t *testing.T) {
 // with a duplicate key, an unknown field, trailing data, the wrong schema, or no
 // attempts array.
 func TestClaudeTokenGateEvidenceLoadRejects(t *testing.T) {
+	t.Parallel()
 	const head = `"cli_version":"c","library_commit":"x","payload_sha256":{},"tools_sha256":"t","launch":{}`
 	tests := []struct {
 		name    string
@@ -575,6 +586,7 @@ func (c *semanticRecordingCounter) Count(text string) (int, error) {
 // TestEstimateMessageTokensRespectsCancelledCtx and
 // TestCtokSelectedEstimatesHonourCancelledContext in token_estimator_test.go.
 func TestClaudeTokenGateSemanticTraversal(t *testing.T) {
+	t.Parallel()
 	req := ChatRequest{
 		Model: "claude-test-model",
 		Messages: []Message{
@@ -604,6 +616,7 @@ func TestClaudeTokenGateSemanticTraversal(t *testing.T) {
 // TestClaudeTokenGateSemanticMapOrderIsStable checks that a map with several keys
 // gives the same total on every run, although Go randomizes map iteration order.
 func TestClaudeTokenGateSemanticMapOrderIsStable(t *testing.T) {
+	t.Parallel()
 	req := ChatRequest{Messages: []Message{{
 		Role:    MessageRoleUser,
 		Content: "hi",
@@ -629,6 +642,7 @@ func TestClaudeTokenGateSemanticMapOrderIsStable(t *testing.T) {
 // keys, raw CLI output keys, and absolute paths are violations. Relative authored
 // paths and token-count keys are not.
 func TestClaudeTokenGateSanitizerViolations(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		doc  string
@@ -660,6 +674,7 @@ func TestClaudeTokenGateSanitizerViolations(t *testing.T) {
 // normalization. Case and the separators '-', '_', and '.' are ignored, and only an
 // exact match is a violation. A key that only contains a sensitive word passes.
 func TestClaudeTokenGateSanitizerNormalizedKeys(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		key  string
 		want int
@@ -684,6 +699,7 @@ func TestClaudeTokenGateSanitizerNormalizedKeys(t *testing.T) {
 // A value is a violation only when it begins with a Unix root, a Windows drive, a
 // UNC share, or a home prefix.
 func TestClaudeTokenGateSanitizerPathVariants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name, value string
 		want        int
@@ -715,6 +731,7 @@ func TestClaudeTokenGateSanitizerPathVariants(t *testing.T) {
 // TestClaudeTokenGateEvaluateCancelled checks that a cancelled context stops the
 // evaluator before any report is built.
 func TestClaudeTokenGateEvaluateCancelled(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

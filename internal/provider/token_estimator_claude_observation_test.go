@@ -227,6 +227,7 @@ func claudeLedgerDropLastLine(data []byte) []byte {
 }
 
 func TestClaudeTokenObservationSplitsPresence(t *testing.T) {
+	t.Parallel()
 	const haiku = "claude-haiku-5-5"
 	tests := []struct {
 		name string
@@ -271,6 +272,7 @@ func TestClaudeTokenObservationSplitsPresence(t *testing.T) {
 // The result usage in each capture is cumulative and carries cache_read 500. The
 // prompt must come from the terminal message only.
 func TestClaudeTokenObservationIgnoresResultUsage(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		file  string
 		model string
@@ -295,6 +297,7 @@ func TestClaudeTokenObservationIgnoresResultUsage(t *testing.T) {
 // Only stream_event envelopes feed the model and usage reads. A foreign envelope
 // that carries a message_start must not change the observed model or usage.
 func TestClaudeTokenObservationIgnoresForeignEvents(t *testing.T) {
+	t.Parallel()
 	fixture := claudeLedgerReadStream(t, claudeLedgerStreamPath("usage_split_model.jsonl"))
 	foreign := []byte(`{"type":"system","subtype":"init","event":{"type":"message_start","message":{"model":"claude-opus-5-5","usage":{"input_tokens":1}}}}` + "\n")
 	obs, err := claudeLedgerObserveStream(append(foreign, fixture...), "claude-haiku-5-5")
@@ -307,6 +310,7 @@ func TestClaudeTokenObservationIgnoresForeignEvents(t *testing.T) {
 }
 
 func TestClaudeTokenObservationFailsClosedOnModel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		path  string
@@ -331,6 +335,7 @@ func TestClaudeTokenObservationFailsClosedOnModel(t *testing.T) {
 // A second response after message_stop is ambiguous. The production decoder
 // rejects it before the ledger sees the model, so the error must still fail closed.
 func TestClaudeTokenObservationRejectsAmbiguousTurns(t *testing.T) {
+	t.Parallel()
 	stream := []byte(`{"type":"stream_event","event":{"type":"message_start","message":{"model":"claude-haiku-5-5","usage":{"input_tokens":1}}}}
 {"type":"stream_event","event":{"type":"message_stop"}}
 {"type":"stream_event","event":{"type":"message_start","message":{"model":"claude-opus-5-5","usage":{"input_tokens":1}}}}
@@ -344,6 +349,7 @@ func TestClaudeTokenObservationRejectsAmbiguousTurns(t *testing.T) {
 // Usage that the stream cannot prove fails closed. Each case edits the fixture's
 // message_start and message_delta usage, so the decoder's view stays in step.
 func TestClaudeTokenObservationFailsClosedOnComponents(t *testing.T) {
+	t.Parallel()
 	fixture := claudeLedgerReadStream(t, claudeLedgerStreamPath("usage_split_model.jsonl"))
 	const (
 		startFrom = `"usage":{"input_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":7}`
@@ -373,6 +379,7 @@ func TestClaudeTokenObservationFailsClosedOnComponents(t *testing.T) {
 // The capture must end in a successful terminal result. A complete valid message
 // followed by an error result, or by no result, fails closed.
 func TestClaudeTokenObservationRequiresSuccessResult(t *testing.T) {
+	t.Parallel()
 	fixture := claudeLedgerReadStream(t, claudeLedgerStreamPath("usage_split_model.jsonl"))
 	tests := []struct {
 		name string
@@ -394,6 +401,7 @@ func TestClaudeTokenObservationRequiresSuccessResult(t *testing.T) {
 }
 
 func TestClaudeTokenObservationFailsClosedOnUsage(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		file string

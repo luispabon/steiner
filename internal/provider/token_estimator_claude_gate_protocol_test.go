@@ -345,6 +345,7 @@ func claudeGateSameRequest(recorded json.RawMessage, want []byte) bool {
 // JSONOmitted names are exactly the ChatRequest fields tagged json:"-". A field
 // that is added or retagged fails until the pinned launch protocol names it.
 func TestClaudeTokenGateJSONOmittedMatchesChatRequest(t *testing.T) {
+	t.Parallel()
 	var omitted []string
 	typ := reflect.TypeFor[ChatRequest]()
 	for i := range typ.NumField() {

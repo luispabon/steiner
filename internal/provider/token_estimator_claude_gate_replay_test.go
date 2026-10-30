@@ -72,6 +72,7 @@ func claudeGateStoredReportMatches(ev claudeGateEvidence, reports []claudeGateRe
 // TestClaudeTokenGatePinnedPredictions checks the old and new full-request counts
 // of the baseline, tools, and mixed slots against literal values.
 func TestClaudeTokenGatePinnedPredictions(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	ctx := context.Background()
 	for _, model := range claudeLedgerModels {
@@ -107,6 +108,7 @@ func TestClaudeTokenGatePinnedPredictions(t *testing.T) {
 // when it equals the recomputed report, and the gates give the same verdicts whatever
 // the stored report holds.
 func TestClaudeTokenGateStoredReportReplay(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	ctx := context.Background()
 	ev := claudeGateSyntheticEvidence(t, set)
@@ -155,6 +157,7 @@ func TestClaudeTokenGateStoredReportReplay(t *testing.T) {
 	}
 	for _, tt := range tampers {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			altered, err := claudeGateEvaluate(ctx, set, loaded)
 			if err != nil {
 				t.Fatalf("evaluate: %v", err)
@@ -188,6 +191,7 @@ func TestClaudeTokenGateStoredReportReplay(t *testing.T) {
 		{"empty array", json.RawMessage("[]")},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tampered := loaded
 			tampered.Report = tt.report
 			if err := claudeGateStoredReportMatches(tampered, want); err == nil {
@@ -200,6 +204,7 @@ func TestClaudeTokenGateStoredReportReplay(t *testing.T) {
 // TestClaudeTokenGateCommittedEvidenceIsCanonical checks that the committed file is
 // the canonical encoding of its evidence and recomputed reports, byte for byte.
 func TestClaudeTokenGateCommittedEvidenceIsCanonical(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	path := filepath.Join(claudeFixtureDir, claudeGateEvidenceName)
 	raw, err := os.ReadFile(path)
@@ -227,6 +232,7 @@ func TestClaudeTokenGateCommittedEvidenceIsCanonical(t *testing.T) {
 // commit is allowed only with no attempts. A non-empty commit must be 40 lowercase
 // hex characters, with or without attempts. A bad commit fails every model.
 func TestClaudeTokenGateEvaluatorCommit(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	ctx := context.Background()
 	const good = claudeGateTestEvaluatorCommit
@@ -248,6 +254,7 @@ func TestClaudeTokenGateEvaluatorCommit(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ev := claudeGateSyntheticEvidence(t, set)
 			ev.EvaluatorCommit = tt.commit
 			if !tt.attempts {

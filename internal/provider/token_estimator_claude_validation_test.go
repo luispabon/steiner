@@ -297,6 +297,7 @@ func claudeGateActiveModels(reports []claudeGateReport) []string {
 // Populated evidence is replayed by the synthetic tests in
 // token_estimator_claude_gate_replay_test.go.
 func TestClaudeTokenReplay(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	ev, err := claudeGateLoadEvidence(filepath.Join(claudeFixtureDir, claudeGateEvidenceName))
 	if err != nil {
@@ -335,6 +336,7 @@ func TestClaudeTokenReplay(t *testing.T) {
 // uses. The system text is the fixture system text plus the raw payload with no
 // separator. The CLI adds only the constant tool note.
 func TestClaudeTokenGateBuilderRequests(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	ctx := context.Background()
 	for _, model := range claudeLedgerModels {
@@ -454,6 +456,7 @@ func claudeGateCheckClean(t *testing.T, what string, data []byte) {
 // It also checks that the evidence holds exactly the documented top-level keys, so
 // no CLI result usage can be stored, and that every failure code is a fixed gate code.
 func TestClaudeTokenGateEvidenceSanitized(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	path := filepath.Join(claudeFixtureDir, claudeGateEvidenceName)
 	raw, err := os.ReadFile(path)

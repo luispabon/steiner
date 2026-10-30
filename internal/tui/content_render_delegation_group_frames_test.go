@@ -46,8 +46,10 @@ func TestRenderGroupBoxMultiFrameMatchesStyledBox(t *testing.T) {
 		"x\r\r\ny",
 	}
 	rng := rand.New(rand.NewPCG(7, 11))
-	for _, width := range []int{6, 7, 10, 25, 40, 81, 120} {
-		for run := range 40 {
+	// raceSample keeps the narrowest width and raceSeeds keeps one run under
+	// -race; every width and all forty runs still execute in a normal build.
+	for _, width := range raceSample([]int{6, 7, 10, 25, 40, 81, 120}) {
+		for run := range int(raceSeeds(40)) {
 			var cache groupBoxCache
 			var cur []string
 			for frame := range 8 {

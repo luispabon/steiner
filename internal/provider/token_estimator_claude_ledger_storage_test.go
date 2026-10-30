@@ -124,6 +124,7 @@ func claudeLedgerModeOf(t *testing.T, path string) fs.FileMode {
 }
 
 func TestClaudeTokenLedgerReservesBeforeLaunch(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	dir, l := claudeLedgerCreateForTest(t)
 	in := claudeLedgerTestInput(set, "claude-haiku-5-5", claudeLedgerSlotBaseline)
@@ -170,6 +171,7 @@ func TestClaudeTokenLedgerReservesBeforeLaunch(t *testing.T) {
 }
 
 func TestClaudeTokenLedgerProtocolEnumsArePinned(t *testing.T) {
+	t.Parallel()
 	wantModels := []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"}
 	if !slices.Equal(claudeLedgerModels, wantModels) {
 		t.Errorf("models = %v, want %v", claudeLedgerModels, wantModels)
@@ -187,6 +189,7 @@ func TestClaudeTokenLedgerProtocolEnumsArePinned(t *testing.T) {
 }
 
 func TestClaudeTokenLedgerRefusesUnlistedInputs(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	tests := []struct {
 		name string
@@ -228,6 +231,7 @@ func TestClaudeTokenLedgerRefusesUnlistedInputs(t *testing.T) {
 }
 
 func TestClaudeTokenLedgerCapCountsEveryPair(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	_, l := claudeLedgerCreateForTest(t)
 	launches, n := 0, 0
@@ -263,6 +267,7 @@ func TestClaudeTokenLedgerCapCountsEveryPair(t *testing.T) {
 }
 
 func TestClaudeTokenLedgerFailuresConsumeAttempts(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	_, l := claudeLedgerCreateForTest(t)
 	const haiku = "claude-haiku-5-5"
@@ -298,6 +303,7 @@ func TestClaudeTokenLedgerFailuresConsumeAttempts(t *testing.T) {
 // Launch error text can carry private paths or credentials. Only the fixed failure
 // code may reach the file.
 func TestClaudeTokenLedgerPersistsOnlyFailureCodes(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	dir, l := claudeLedgerCreateForTest(t)
 	rec, err := l.RunAttempt(claudeLedgerTestInput(set, "claude-haiku-5-5", claudeLedgerSlotBaseline), func(claudeLedgerRecord) (*claudeLedgerObservation, error) {
@@ -323,6 +329,7 @@ func TestClaudeTokenLedgerPersistsOnlyFailureCodes(t *testing.T) {
 // An observation that does not prove the requested model and usage fails the
 // attempt and persists a failed record, never a success.
 func TestClaudeTokenLedgerInvalidObservationPersistsFailed(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	const haiku, opus = "claude-haiku-5-5", "claude-opus-5-5"
 	tests := []struct {
@@ -358,6 +365,7 @@ func TestClaudeTokenLedgerInvalidObservationPersistsFailed(t *testing.T) {
 }
 
 func TestClaudeTokenLedgerUsageValidation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		u    claudeLedgerUsage
@@ -386,6 +394,7 @@ func TestClaudeTokenLedgerUsageValidation(t *testing.T) {
 }
 
 func TestClaudeTokenLedgerResumeKeepsCount(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	const haiku = "claude-haiku-5-5"
 	dir, l := claudeLedgerCreateForTest(t)
@@ -434,6 +443,7 @@ func TestClaudeTokenLedgerResumeKeepsCount(t *testing.T) {
 // A resumed ledger keeps failed records, an orphaned reservation, and the cap. It
 // refuses every further attempt, including a duplicate.
 func TestClaudeTokenLedgerResumeAtCapKeepsEveryAttempt(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	dir, l := claudeLedgerCreateForTest(t)
 	n := 0
@@ -488,6 +498,7 @@ func TestClaudeTokenLedgerResumeAtCapKeepsEveryAttempt(t *testing.T) {
 // A duplicate of a failed or orphaned pair is refused on resume below the cap, and
 // the count is kept.
 func TestClaudeTokenLedgerResumeRefusesDuplicatesBelowCap(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	const haiku = "claude-haiku-5-5"
 	dir, l := claudeLedgerCreateForTest(t)
@@ -527,6 +538,7 @@ func TestClaudeTokenLedgerResumeRefusesDuplicatesBelowCap(t *testing.T) {
 // Each record is checked on resume. A malformed request, a bad outcome, or a
 // failure text outside the code list makes the whole ledger corrupt.
 func TestClaudeTokenLedgerResumeRejectsBadRecords(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	valid := claudeLedgerValidFile(t, set)
 	const haiku, opus = "claude-haiku-5-5", "claude-opus-5-5"
@@ -586,6 +598,7 @@ func TestClaudeTokenLedgerResumeRejectsBadRecords(t *testing.T) {
 // written indented can exceed the limit on disk, so resume must measure it compactly
 // and agree with reserve.
 func TestClaudeTokenLedgerRequestLimitUsesCompactForm(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	const haiku = "claude-haiku-5-5"
 	valid := claudeLedgerValidFile(t, set)
@@ -601,6 +614,7 @@ func TestClaudeTokenLedgerRequestLimitUsesCompactForm(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			req := ChatRequest{Model: haiku, Messages: make([]Message, tt.messages)}
 			for i := range req.Messages {
 				req.Messages[i] = Message{Role: MessageRoleUser, Content: "x"}
@@ -638,6 +652,7 @@ func TestClaudeTokenLedgerRequestLimitUsesCompactForm(t *testing.T) {
 }
 
 func TestClaudeTokenLedgerOpenFailsClosed(t *testing.T) {
+	t.Parallel()
 	t.Run("missing on resume", func(t *testing.T) {
 		dir := t.TempDir()
 		l, err := claudeLedgerOpen(dir)
@@ -700,6 +715,7 @@ func TestClaudeTokenLedgerOpenFailsClosed(t *testing.T) {
 }
 
 func TestClaudeTokenLedgerLockIsExclusive(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	dir, l := claudeLedgerCreateForTest(t)
 	if _, err := claudeLedgerOpen(dir); !errors.Is(err, errClaudeLedgerLocked) {
@@ -724,6 +740,7 @@ func TestClaudeTokenLedgerLockIsExclusive(t *testing.T) {
 }
 
 func TestClaudeTokenLedgerCreateRefusesExisting(t *testing.T) {
+	t.Parallel()
 	dir, l := claudeLedgerCreateForTest(t)
 	if err := l.Close(); err != nil {
 		t.Fatalf("close: %v", err)
@@ -737,6 +754,7 @@ func TestClaudeTokenLedgerCreateRefusesExisting(t *testing.T) {
 }
 
 func TestClaudeTokenLedgerWriteFailurePreventsLaunch(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	dir, l := claudeLedgerCreateForTest(t)
 	// A directory where the ledger file belongs makes the reservation write fail.
@@ -766,6 +784,7 @@ func TestClaudeTokenLedgerWriteFailurePreventsLaunch(t *testing.T) {
 // A failed directory fsync after a write poisons the session. The slot stays
 // counted, no launch runs after the failure, and Close still works.
 func TestClaudeTokenLedgerDirSyncFailurePoisons(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	const haiku = "claude-haiku-5-5"
 	errSync := errors.New("fake directory fsync failure")
@@ -828,6 +847,7 @@ func TestClaudeTokenLedgerDirSyncFailurePoisons(t *testing.T) {
 // attempt, and distinct pairs each count once. The goroutine counts are fixed by
 // the protocol, so the test starts no unbounded work.
 func TestClaudeTokenLedgerConcurrentAttemptsSerialize(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	t.Run("same pair admits one attempt", func(t *testing.T) {
 		_, l := claudeLedgerCreateForTest(t)

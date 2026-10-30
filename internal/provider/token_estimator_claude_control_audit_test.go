@@ -53,6 +53,7 @@ func claudeAuditIntString(p *int) string {
 // TestClaudeTokenAuditOutputIsAuthoritative checks that the output count comes from
 // the message usage and never from the CLI result.
 func TestClaudeTokenAuditOutputIsAuthoritative(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		start, delta string
@@ -78,6 +79,7 @@ func TestClaudeTokenAuditOutputIsAuthoritative(t *testing.T) {
 // TestClaudeTokenAuditOutputZeroMissingNegative checks that an explicit zero is kept
 // apart from a missing count, and that a negative count fails closed.
 func TestClaudeTokenAuditOutputZeroMissingNegative(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		delta   string
@@ -110,6 +112,7 @@ func TestClaudeTokenAuditOutputZeroMissingNegative(t *testing.T) {
 // TestClaudeTokenAuditThinkingObserved checks that a streamed thinking or redacted
 // thinking block sets the audit flag, and that a text-only stream does not.
 func TestClaudeTokenAuditThinkingObserved(t *testing.T) {
+	t.Parallel()
 	thinkingStart := `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}},"session_id":"sess-1","uuid":"a4"}`
 	thinkingDelta := `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hm"}},"session_id":"sess-1","uuid":"a5"}`
 	redactedStart := `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"x"}},"session_id":"sess-1","uuid":"a4"}`
@@ -139,6 +142,7 @@ func TestClaudeTokenAuditThinkingObserved(t *testing.T) {
 // Foreign envelopes that carry a message_delta usage or a thinking block must not
 // change the output count or the thinking flag.
 func TestClaudeTokenAuditForeignEnvelopesIgnored(t *testing.T) {
+	t.Parallel()
 	foreign := []byte(
 		`{"type":"system","subtype":"init","event":{"type":"message_delta","usage":{"output_tokens":999}}}` + "\n" +
 			`{"type":"system","subtype":"init","event":{"type":"content_block_start","content_block":{"type":"thinking"}}}` + "\n")
@@ -158,6 +162,7 @@ func TestClaudeTokenAuditForeignEnvelopesIgnored(t *testing.T) {
 // Output and thinking persist with their attempt. A zero count stays distinct from
 // a missing count after the ledger is read back.
 func TestClaudeTokenAuditExtrasPersistInLedger(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	dir, l := claudeLedgerCreateForTest(t)
 	const model = "claude-haiku-5-5"
@@ -189,6 +194,7 @@ func TestClaudeTokenAuditExtrasPersistInLedger(t *testing.T) {
 
 // Extras the stream cannot support fail closed when the ledger is read.
 func TestClaudeTokenAuditLedgerRejectsInvalidExtras(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	tests := []struct {
 		name string
@@ -214,6 +220,7 @@ func TestClaudeTokenAuditLedgerRejectsInvalidExtras(t *testing.T) {
 
 // The gates give identical reports whatever output and thinking the attempts carry.
 func TestClaudeTokenAuditGatesIgnoreExtras(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	ctx := context.Background()
 	base, err := claudeGateEvaluate(ctx, set, claudeGateSyntheticEvidence(t, set))
@@ -253,6 +260,7 @@ func TestClaudeTokenAuditGatesIgnoreExtras(t *testing.T) {
 // The launch pins name the output cap as requested and the thinking state as
 // unverified. The cap itself stays at 64 tokens.
 func TestClaudeTokenAuditLaunchPinsAreUnverified(t *testing.T) {
+	t.Parallel()
 	got := claudeGateLaunchPinned()
 	if got.Reasoning != "disabled_requested_effective_unverified" {
 		t.Errorf("reasoning pin = %q", got.Reasoning)
@@ -271,6 +279,7 @@ func TestClaudeTokenAuditLaunchPinsAreUnverified(t *testing.T) {
 // The gate loader reads only schema 3. Schema 2 evidence lacks the output limit pins
 // and fails instead of being read with them missing.
 func TestClaudeTokenAuditGateSchemaV2Rejected(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), claudeGateEvidenceName)
 	doc := `{"schema_version":2,"cli_version":"c","library_commit":"x","payload_sha256":{},"tools_sha256":"t","launch":{},"attempts":[]}`
 	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {

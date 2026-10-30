@@ -250,6 +250,7 @@ func checkClaudeProvPinned(t *testing.T, sub string, pins []claudeProvFile) {
 // TestClaudeTokenProvenancePins checks the committed fixtures against provenance.json
 // and the frozen digests. It needs no retained originals.
 func TestClaudeTokenProvenancePins(t *testing.T) {
+	t.Parallel()
 	prov := loadClaudeProvenance(t)
 	obsRaw := readClaudeFixtureFile(t, claudeGateEvidenceName)
 	ev, err := claudeGateLoadEvidence(filepath.Join(claudeFixtureDir, claudeGateEvidenceName))
@@ -322,6 +323,7 @@ func claudeProvAttemptMismatch(c claudeProvCapture, attempts []claudeLedgerRecor
 // time. The pinned capture must pass, and each corrupted copy must fail against the
 // immutable attempts.
 func TestClaudeTokenProvenanceAttemptCorruption(t *testing.T) {
+	t.Parallel()
 	ev, err := claudeGateLoadEvidence(filepath.Join(claudeFixtureDir, claudeGateEvidenceName))
 	if err != nil {
 		t.Fatalf("load observations: %v", err)
@@ -354,6 +356,7 @@ func TestClaudeTokenProvenanceAttemptCorruption(t *testing.T) {
 // ledger digest, the excluded control file, and each capture's source digest and size.
 // It skips when the originals are not configured.
 func TestClaudeTokenProvenanceOriginals(t *testing.T) {
+	t.Parallel()
 	dir := claudeCaptureOriginalsDir(t)
 	prov := loadClaudeProvenance(t)
 	ledger, err := os.ReadFile(filepath.Join(dir, "..", "attempts.json"))
@@ -444,6 +447,7 @@ func TestClaudeTokenCaptureGenerate(t *testing.T) {
 // TestClaudeTokenCaptureOriginalsMatch regenerates every fixture from the originals and
 // fails unless each committed capture and provenance.json is byte-equal to the result.
 func TestClaudeTokenCaptureOriginalsMatch(t *testing.T) {
+	t.Parallel()
 	files, err := claudeProvenanceBuild(claudeCaptureOriginalsDir(t))
 	if err != nil {
 		t.Fatalf("regenerate fixtures: %v", err)
