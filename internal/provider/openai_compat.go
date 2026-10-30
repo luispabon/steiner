@@ -6,12 +6,40 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/luispabon/steiner/internal/quota"
 )
 
 var defaultHTTPClient = &http.Client{}
+
+var (
+	derivedTransportMu sync.Mutex
+	// derivedTransports caches the transport derived from each base transport.
+	// Entries are never evicted, so every distinct base transport passed here is
+	// retained for the process lifetime along with its shared clone's connection
+	// pool.
+	derivedTransports = map[*http.Transport]*http.Transport{}
+)
+
+// derivedTimeoutTransport returns the transport derived from base with
+// ResponseHeaderTimeout cleared, cloning base at most once so every client built
+// from the same base shares a single connection pool.
+func derivedTimeoutTransport(base *http.Transport) *http.Transport {
+	derivedTransportMu.Lock()
+	defer derivedTransportMu.Unlock()
+	if derived, ok := derivedTransports[base]; ok {
+		return derived
+	}
+	derived := base.Clone()
+	// Client.Timeout already bounds the entire request, including headers, so
+	// the base transport's ResponseHeaderTimeout would fire first on slow
+	// upstreams and surface as `net/http: timeout awaiting response headers`.
+	derived.ResponseHeaderTimeout = 0
+	derivedTransports[base] = derived
+	return derived
+}
 
 // ClientConfig configures a Provider Request Execution client.
 type ClientConfig struct {
@@ -107,18 +135,15 @@ func newClient(cfg ClientConfig) (*Client, error) {
 		httpClient = defaultHTTPClient
 	}
 	if cfg.Timeout > 0 {
-		// Clone the client AND its transport. A shallow client copy shares the
-		// Transport pointer, so the upstream ResponseHeaderTimeout would still
-		// fire first on slow servers and surface as
-		// `net/http: timeout awaiting response headers` regardless of
-		// Client.Timeout. Clear ResponseHeaderTimeout on the cloned transport;
+		// Clone the client so the timeout stays per client. A shallow client
+		// copy shares the Transport pointer, so a *http.Transport is replaced by
+		// the shared derived transport, which clears ResponseHeaderTimeout:
 		// Client.Timeout already bounds the entire request, including headers.
+		// Custom RoundTrippers are kept as-is.
 		cloned := *httpClient
 		cloned.Timeout = cfg.Timeout
 		if base, ok := cloned.Transport.(*http.Transport); ok && base != nil {
-			t := base.Clone()
-			t.ResponseHeaderTimeout = 0
-			cloned.Transport = t
+			cloned.Transport = derivedTimeoutTransport(base)
 		}
 		httpClient = &cloned
 	}

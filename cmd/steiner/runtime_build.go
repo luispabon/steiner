@@ -287,9 +287,11 @@ func buildRuntimeQuotaService() *quota.Service {
 // There is no client-level timeout: without a provider timeout, streams can run
 // indefinitely. ResponseHeaderTimeout is a 30s safety net for the header phase
 // so a stuck server cannot hang the initial read. Providers that set
-// config.timeout get Client.Timeout applied in NewOpenAICompat, which clones the
-// transport and clears ResponseHeaderTimeout so the user-supplied timeout bounds
-// the whole request (headers + body + streaming response).
+// config.timeout get Client.Timeout applied in NewOpenAICompat, which reuses one
+// transport derived from this base per process: cloned once with
+// ResponseHeaderTimeout cleared, so every provider shares this connection pool
+// while the user-supplied timeout bounds the whole request (headers + body +
+// streaming response).
 //
 // Connections are pooled per host with no cap on concurrent connections per
 // host, so HTTP/1.1-only upstreams serve parallel sub-agent and quota requests
