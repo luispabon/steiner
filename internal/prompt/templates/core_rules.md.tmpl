@@ -10,4 +10,4 @@
 - Keep each `mutate` call to a small, coherent unit of edits — single digits.
 - Larger tasks: issue several `mutate` calls in the same message; they run in order within one turn.
 - Each `mutate` call is its own transaction with no joint rollback across calls, so a failure part-way through a turn leaves earlier calls applied — keep edits that must land together in one call.
-- Use at most one `bash` call per turn; shell calls share persistent session state.
+- Use at most one `bash` call per turn; each call gets a fresh shell, so cwd and exports do not carry over and background jobs are unsupported.
