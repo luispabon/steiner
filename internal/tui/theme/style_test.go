@@ -322,7 +322,7 @@ func TestBuildStylesToolStyleSnapshots(t *testing.T) {
 		{name: "delegate sanity_check", got: styleFromMap(styles.DelegateTagStyles, "sanity_check", styles.ToolTagDefault), want: "fg=" + strings.ToLower(ToolMag) + " bg= bold=true italic=false padding=0,0,0,0"},
 		{name: "delegate review", got: styleFromMap(styles.DelegateTagStyles, "review", styles.ToolTagDefault), want: "fg=" + strings.ToLower(DelegateReview) + " bg= bold=true italic=false padding=0,0,0,0"},
 		{name: "delegate vision", got: styleFromMap(styles.DelegateTagStyles, "vision", styles.ToolTagDefault), want: "fg=" + strings.ToLower(ToolBlue) + " bg= bold=true italic=false padding=0,0,0,0"},
-		{name: "delegate documentor", got: styleFromMap(styles.DelegateTagStyles, "documentor", styles.ToolTagDefault), want: "fg=" + strings.ToLower(ToolGrn) + " bg= bold=true italic=false padding=0,0,0,0"},
+		{name: "delegate documentor", got: styleFromMap(styles.DelegateTagStyles, "documentor", styles.ToolTagDefault), want: "fg=" + strings.ToLower(SyntaxBlue) + " bg= bold=true italic=false padding=0,0,0,0"},
 		{name: "delegate advisor", got: styleFromMap(styles.DelegateTagStyles, "advisor", styles.ToolTagDefault), want: "fg=" + strings.ToLower(AdvisorGreen) + " bg= bold=true italic=false padding=0,0,0,0"},
 		{name: "delegate fallback", got: styleFromMap(styles.DelegateTagStyles, "delegate", styles.ToolTagDefault), want: "fg=" + strings.ToLower(Black) + " bg=" + strings.ToLower(ToolBlue) + " bold=true italic=false padding=0,1,0,1"},
 		{name: "delegate border explore", got: styleFromMap(styles.DelegateBorderStyles, "explore", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolCyanLine) + " bg= bold=false italic=false padding=0,0,0,0"},
@@ -332,7 +332,7 @@ func TestBuildStylesToolStyleSnapshots(t *testing.T) {
 		{name: "delegate border sanity_check", got: styleFromMap(styles.DelegateBorderStyles, "sanity_check", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolMagLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border review", got: styleFromMap(styles.DelegateBorderStyles, "review", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(DelegateReviewLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border vision", got: styleFromMap(styles.DelegateBorderStyles, "vision", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolBlueLine) + " bg= bold=false italic=false padding=0,0,0,0"},
-		{name: "delegate border documentor", got: styleFromMap(styles.DelegateBorderStyles, "documentor", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolGrnLine) + " bg= bold=false italic=false padding=0,0,0,0"},
+		{name: "delegate border documentor", got: styleFromMap(styles.DelegateBorderStyles, "documentor", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(SyntaxBlue) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border advisor", got: styleFromMap(styles.DelegateBorderStyles, "advisor", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(AdvisorGreenLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border fallback", got: styleFromMap(styles.DelegateBorderStyles, "delegate", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(AccentLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 	}

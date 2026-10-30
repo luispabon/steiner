@@ -91,8 +91,8 @@ Key behaviours:
 - **Tracks follow-ups** — the returned result includes a `follow_up_count` field so the parent can see how many follow-ups have occurred.
 - **Auto-approved** — the `follow_up` tool is approval mode `auto` (no user gate).
 - **No nesting** — `follow_up` is stripped from child agent registries, so sub-agents cannot follow-up on other sub-agents.
-- **Enforces live worktree for code and documentor agents** — `follow_up` against such a session checks up front that its worktree still exists on disk and is on the expected branch. If the worktree was deleted, pruned, or repointed since the session was created, `follow_up` fails immediately with an error instead of running the child; delegate a fresh sub-agent instead of resuming.
-- **Includes worktree_path for worktree-isolated results** — For code and documentor sessions, the result envelope includes `worktree_path` — a project-relative path (e.g., `.steiner/worktrees/processHash/branchName/agentID`) to the agent's isolated worktree. This path is relative to the parent project root and contains process, branch-derived, and agent-identifying components (not a fully opaque handle). The path allows parent agents to inspect the worktree content via `read`, `bash`, `grep`, `glob`, or `ls` without needing a `follow_up` call. The field is omitted when no valid worktree exists or for sessions that do not use one. It appears on worktree-isolated results where the worktree was provisioned, regardless of outcome (complete, partial, cancelled, or failed) — the worktree remains on disk for inspection even after a failed run.
+- **Enforces live worktree for code and documentor agents**: `follow_up` against such a session checks up front that its worktree still exists on disk and is on the expected branch. If the worktree was deleted, pruned, or repointed since the session was created, `follow_up` fails immediately with an error instead of running the child; delegate a fresh sub-agent instead of resuming.
+- **Includes worktree_path for worktree-isolated results**: For code and documentor sessions, the result envelope includes `worktree_path`, a project-relative path (e.g., `.steiner/worktrees/processHash/branchName/agentID`) to the agent's isolated worktree. This path is relative to the parent project root and contains process, branch-derived, and agent-identifying components (not a fully opaque handle). The path allows parent agents to inspect the worktree content via `read`, `bash`, `grep`, `glob`, or `ls` without needing a `follow_up` call. The field is omitted when no valid worktree exists or for sessions that do not use one. It appears on worktree-isolated results where the worktree was provisioned, regardless of outcome (complete, partial, cancelled, or failed); the worktree remains on disk for inspection even after a failed run.
 
 ### Parallel fan-out
 
@@ -104,8 +104,8 @@ When at least one delegate is active, pressing **Esc**, **Ctrl-C**, or **Ctrl-D*
 
 The selector lists each active delegate as **bold, tool-box-coloured type · agent ID · truncated task preview**. It offers these choices:
 
-- **Stop one** — confirm stopping the selected delegate. For a code or documentor delegate, the default is **stop and keep worktree**; the confirmation also offers **stop and discard worktree** or **keep working**. For other delegate types, choose **stop** or **keep working**.
-- **Stop all delegates** — confirm stopping every active delegate. All delegate worktrees are retained.
+- **Stop one**: confirm stopping the selected delegate. For a code or documentor delegate, the default is **stop and keep worktree**; the confirmation also offers **stop and discard worktree** or **keep working**. For other delegate types, choose **stop** or **keep working**.
+- **Stop all delegates**: confirm stopping every active delegate. All delegate worktrees are retained.
 - **Stop current turn** — shown first, and only while the parent is generating. Stops the parent's current turn but leaves delegates running; the conversation then pauses (see below).
 - **Stop entire run** — confirm stopping every delegate (running and queued) and the current turn.
 - **Dismiss** — close the dialog without stopping anything. **Keep working** on a confirmation screen returns to the selector.
@@ -132,7 +132,7 @@ When an interactive TUI session is idle and this process has delegate worktrees,
 - All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
 - The child's full conversation transcript is not copied into the parent session; only the structured result and its retention metadata persist.
 - The result the parent model sees excludes absolute worktree paths, `worktree_branch`, traces, tool-call counts, session metadata, and diagnostic counters. Host-side trace fields and locations are documented in [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md#host-side-diagnostics-vs-the-model-facing-result), never sent to the provider. The project-relative `worktree_path` (`.steiner/worktrees/...`) is included for worktree-isolated agents with valid provisioned worktrees, allowing parent agents to inspect worktrees via `read`/`bash`/`grep`/`glob`/`ls` without needing a `follow_up` call.
-- While the parent interactive session is in `plan` execution mode, the `code` and `documentor` sub-agent tools are denied outright, and `follow_up` is denied when it targets a session spawned by `code` or `documentor` — both can mutate files, which plan mode disallows. See [Execution modes](execution-modes.md) for the full enforcement matrix.
+- While the parent interactive session is in `plan` execution mode, the `code` and `documentor` sub-agent tools are denied outright, and `follow_up` is denied when it targets a session spawned by `code` or `documentor`; both can mutate files, which plan mode disallows. See [Execution modes](execution-modes.md) for the full enforcement matrix.
 - The system-prompt canon and deliberate skill/oneshot workflow differences are documented in [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md#canon-and-workflow).
 
 ### Default tool allowlists
@@ -226,7 +226,7 @@ profile's `sub_agents.<type>` assignments freely.
 | Tier          | Agent types                             | Rationale                                                                 |
 |---------------|-----------------------------------------|---------------------------------------------------------------------------|
 | **Flash**     | `explore`, `code`, `sanity_check`       | Mechanical tasks — search, implement scoped changes, run checks. Speed matters more than depth. A flash-tier model also works well for the initial `explore` that pre-digests the design during implementation. |
-| **Balanced**  | `research`, `documentor`, `review`, `vision` | Requires synthesis or judgment — gathering information, reviewing code changes, analyzing images. Needs a model that can weigh context and produce nuanced output. |
+| **Balanced**  | `research`, `documentor`, `review`, `vision` | Requires synthesis or judgment: gathering information, reviewing code changes, analyzing images. Needs a model that can weigh context and produce nuanced output. |
 | **Top-thinker** | `evaluate`                           | Deep reasoning on scoped sub-problems — analysing tradeoffs, evaluating approaches. Benefits most from a stronger model's deliberation capacity. |
 
 The table is a starting point, not an exhaustive assignment; any agent type can be routed to any model.
@@ -242,7 +242,9 @@ It receives the same tool allowlist as `code`, but `mutate` is restricted to doc
 
 Matching is case-sensitive and uses the final path component, so `docs/Guide.MD` is denied. Files may sit anywhere under the child worktree. The check applies to both the lexical path and its symlink-resolved target, an existing directory is never eligible even when its name matches, and a `move` must have both its source and destination in scope.
 
-The scope governs `mutate` only and is not a security boundary. `bash` and MCP tools are not filtered by it, the worktree shares git metadata with the parent repository, and hardlinks or races can bypass name checks. The child prompt forbids writing through any tool other than `mutate`, except git commands and `mkdir -p` for directories that will hold documentation.
+`mutate` does not create missing parent directories for workspace paths, so create them with `bash mkdir -p` before writing a documentation file into a new directory.
+
+The scope governs `mutate` only and is not a security boundary. `bash` and MCP tools, including servers that list `documentor` in `mcp.servers.<name>.sub_agents`, are not filtered by it; the worktree shares git metadata with the parent repository, and hardlinks or races can bypass name checks. The child prompt allows files to be created or changed only through `mutate`: `bash` is for read-only inspection and `mkdir -p` for directories that will hold documentation, while git is limited to `status`, `diff`, `log`, `show`, `add`, `commit`, and `rev-parse`. Git commands that change working-tree files are forbidden.
 
 A `documentor` is denied in `plan` mode, like `code`, and `follow_up` is denied when it targets a documentor child. Model fallback is unchanged: configure `sub_agents.documentor`; if that entry is unset, it uses the profile's `default_model`, then the parent model. There is no vision-style capability requirement.
 
