@@ -54,12 +54,8 @@ func validateResolvedProfile(cfg *Config, name string, profile ModelProfile) err
 	if !IsValidModelReference(cfg, profile.DefaultModel) {
 		problems = append(problems, fmt.Sprintf("%s.default_model %q is not defined in models.definitions or providers", prefix, profile.DefaultModel))
 	}
-	if profile.Advisor != "" && !IsValidModelReference(cfg, profile.Advisor) {
-		problems = append(problems, fmt.Sprintf("%s.advisor %q is not defined in models.definitions or providers", prefix, profile.Advisor))
-	}
-	if profile.CompactionFallback != "" && !IsValidModelReference(cfg, profile.CompactionFallback) {
-		problems = append(problems, fmt.Sprintf("%s.compaction_fallback %q is not defined in models.definitions or providers", prefix, profile.CompactionFallback))
-	}
+	validateOptionalModelReference(&problems, prefix, "advisor", profile.Advisor, cfg)
+	validateOptionalModelReference(&problems, prefix, "compaction_fallback", profile.CompactionFallback, cfg)
 	validateModelReferenceMap(&problems, prefix+".sub_agents", "agent type", profile.SubAgents, validAgentTypes, *cfg)
 	validateModelReferenceMap(&problems, prefix+".oneshot", "phase", profile.OneShot, validOneShotPhases, *cfg)
 	validateModelReferenceMap(&problems, prefix+".workflow_handoff", "destination", profile.WorkflowHandoff, validWorkflowHandoffDestinations, *cfg)
@@ -97,6 +93,15 @@ func ResolveEffectiveAssignments(cfg *Config, name string) (EffectiveModelAssign
 		WorkflowHandoff:         copyStringMap(profile.WorkflowHandoff),
 		ActiveOrchestratorModel: profile.DefaultModel,
 	}, nil
+}
+
+// validateOptionalModelReference appends a problem when value is set but does
+// not name a defined model. An empty value means the role is unassigned.
+func validateOptionalModelReference(problems *[]string, prefix, field, value string, cfg *Config) {
+	if value == "" || IsValidModelReference(cfg, value) {
+		return
+	}
+	*problems = append(*problems, fmt.Sprintf("%s.%s %q is not defined in models.definitions or providers", prefix, field, value))
 }
 
 func cloneProfile(src ModelProfile) ModelProfile {

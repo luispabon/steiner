@@ -254,6 +254,7 @@ func compactionSummaryRequest(mainReq RunRequest, summaryReq *RunRequest) RunReq
 }
 
 func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+	onFallback := params.summaryReq != nil
 	retainedFit, err := fitConversationState(ctx, req, state.WithConversation(params.retainedMessages))
 	if err != nil {
 		return CompactionOutcome{}, err
@@ -270,7 +271,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		return CompactionOutcome{}, err
 	}
 	if !ok {
-		if params.summaryReq != nil {
+		if onFallback {
 			return CompactionOutcome{}, errCompactionFallbackNotFit
 		}
 		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens), nil
@@ -283,13 +284,13 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	}
 	// A fallback summary runs on another provider's transcript, so it must not
 	// clear the main generation's backend state.
-	if response.ClearBackendState && params.summaryReq == nil {
+	if response.ClearBackendState && !onFallback {
 		// An in-place summary retired the generation's live process, so the
 		// generation's stored backend state no longer names a live transcript.
 		state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), nil, true)
 	}
 
-	if params.summaryReq != nil && strings.TrimSpace(response.Message.Content) == "" {
+	if onFallback && strings.TrimSpace(response.Message.Content) == "" {
 		return CompactionOutcome{}, errCompactionFallbackEmptySummary
 	}
 	summaryText := compactionSummaryText(response.Message.Content, plan.candidate)
