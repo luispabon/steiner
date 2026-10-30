@@ -51,6 +51,45 @@ func (s *Supervisor) MarkDelivered(parentCallIDs []string) {
 	}
 }
 
+// ClearFinishedSubAgents discards every unacknowledged finished sub-agent in
+// scope, dropping its completion instead of posting it. It is all-or-nothing:
+// when any unacknowledged sub-agent lies outside scope, has no completion yet,
+// or has not finished, nothing is discarded and the number of unacknowledged
+// sub-agents is returned. A zero return means every unacknowledged sub-agent in
+// scope was discarded. A later MarkDelivered is harmless because the discarded
+// jobs are already acknowledged and pruned.
+//
+// scope is compared literally, so the empty scope matches sub-agents enqueued
+// without a group scope rather than acting as a wildcard.
+func (s *Supervisor) ClearFinishedSubAgents(scope string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	remaining := 0
+	clearable := true
+	for _, state := range s.jobs {
+		if state.acked {
+			continue
+		}
+		remaining++
+		if state.job.GroupScope != scope || state.completion == nil || state.phase != phaseDone {
+			clearable = false
+		}
+	}
+	if !clearable {
+		return remaining
+	}
+	for _, state := range s.jobs {
+		if state.acked {
+			continue
+		}
+		state.acked = true
+		s.discardGroupMemberLocked(state)
+		s.pruneLocked(state)
+	}
+	return 0
+}
+
 // Pending returns every unacknowledged sub-agent in enqueue order.
 func (s *Supervisor) Pending() []agent.PendingSubAgent {
 	pending := s.pendingStates()
