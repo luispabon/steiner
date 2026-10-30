@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -278,32 +280,54 @@ func buildRuntimeQuotaService() *quota.Service {
 	return quota.NewService(opts)
 }
 
+// runtimeHTTPClient returns the process-wide HTTP client shared by providers,
+// sub-agents, the advisor, model catalog and metadata lookups, resolver probes
+// and quota fetchers.
+//
+// There is no client-level timeout: without a provider timeout, streams can run
+// indefinitely. ResponseHeaderTimeout is a 30s safety net for the header phase
+// so a stuck server cannot hang the initial read. Providers that set
+// config.timeout get Client.Timeout applied in NewOpenAICompat, which clones the
+// transport and clears ResponseHeaderTimeout so the user-supplied timeout bounds
+// the whole request (headers + body + streaming response).
+//
+// Connections are pooled per host with no cap on concurrent connections per
+// host, so HTTP/1.1-only upstreams (opencode.ai, plain-http local servers such
+// as Ollama) serve parallel sub-agent and quota requests instead of queueing
+// them behind one streaming response. MaxIdleConns is a global budget so
+// switching hosts keeps idle connections warm, and the TLS session cache makes
+// reconnects cheap. ProxyFromEnvironment honours HTTP_PROXY/HTTPS_PROXY/
+// NO_PROXY, and the handshake and ping timeouts bound stalled TLS connections.
+//
+// ForceAttemptHTTP2 must stay true. A non-zero DialContext or TLSClientConfig
+// would otherwise disable HTTP/2, and Clone() copies TLSClientConfig but not
+// the TLSNextProto map the original transport builds lazily, so the clone would
+// see ForceAttemptHTTP2=false and conservatively disable HTTP/2 while TLS still
+// advertises "h2". The result is "net/http: HTTP/1.x transport connection
+// broken: malformed HTTP response" when the upstream negotiates h2.
 func runtimeHTTPClient() *http.Client {
-	// No client-level timeout — without a provider timeout, streams can run
-	// indefinitely. Transport.ResponseHeaderTimeout acts as a 30s safety net
-	// for the header phase so a stuck server doesn't hang forever on the
-	// initial read. Providers that set config.timeout get Client.Timeout
-	// applied in NewOpenAICompat, which clones the transport and clears
-	// ResponseHeaderTimeout so the user-supplied timeout bounds the whole
-	// request (headers + body + streaming response).
-	//
-	// ForceAttemptHTTP2 must be true to prevent the cloned transport from
-	// losing HTTP/2 support. When Clone() calls onceSetNextProtoDefaults on
-	// the original, a TLSClientConfig is created (with "h2" in NextProtos).
-	// Clone() copies TLSClientConfig but not TLSNextProto (because it was
-	// nil before the defaults ran). The clone then sees a non-nil
-	// TLSClientConfig with ForceAttemptHTTP2=false and conservatively
-	// disables HTTP/2, while TLS still advertises "h2". The result is
-	// "net/http: HTTP/1.x transport connection broken: malformed HTTP
-	// response" when the upstream negotiates h2.
 	return &http.Client{
 		Timeout: 0,
 		Transport: &http.Transport{
-			MaxIdleConns:          1,
-			IdleConnTimeout:       90 * time.Second,
-			MaxConnsPerHost:       1,
-			ResponseHeaderTimeout: 30 * time.Second,
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
 			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   16,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			TLSClientConfig: &tls.Config{
+				ClientSessionCache: tls.NewLRUClientSessionCache(64),
+			},
+			HTTP2: &http.HTTP2Config{
+				SendPingTimeout: 30 * time.Second,
+				PingTimeout:     15 * time.Second,
+			},
 		},
 	}
 }
