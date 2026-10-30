@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -272,8 +274,7 @@ func TestClaudeSubSummarySubAgentNoPlaceReseedsOnFreshProcess(t *testing.T) {
 	}
 }
 
-// claudeSubFailedResumeBatch is the CLI answer to a fork whose resume fails
-// before any output.
+// claudeSubFailedResumeBatch is a CLI turn that fails before any output.
 func claudeSubFailedResumeBatch() []claudeSubEvent {
 	return []claudeSubEvent{{Type: "result", Raw: json.RawMessage(`{"subtype":"error_during_execution","is_error":true,"result":"resume failed"}`)}}
 }
@@ -315,6 +316,55 @@ func TestClaudeSubSummaryForkFailureFallsBackInPlace(t *testing.T) {
 	}
 }
 
+// TestClaudeSubSummaryForkAndInPlaceFailureRetiresParent proves a fork failure
+// before output falls back to the live parent, and a failed in-place summary
+// there is still marked retired: the fallback retired the parent process.
+func TestClaudeSubSummaryForkAndInPlaceFailureRetiresParent(t *testing.T) {
+	parent := &claudeSubScript{batches: [][]claudeSubEvent{
+		claudeSubTextTurnWithUUID(t, "uuid-first"),
+		claudeSubTextTurnWithUUID(t, "uuid-second"),
+		claudeSubFailedResumeBatch(),
+	}}
+	helper := &claudeSubScript{batches: [][]claudeSubEvent{claudeSubFailedResumeBatch()}}
+	pool, spawner := claudeSubPoolWithScripts(t, parent, helper)
+	u1, a1, _, _, second := claudeSubTwoTurnParent(t, pool)
+	err := claudeSubTurn(context.Background(), pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 []Message{u1, a1, claudeSubUserText("summarize the older part")},
+		BackendState:             second.BackendState,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	}, func(ChatChunk) error { return nil })
+	if err == nil {
+		t.Fatal("fork and in-place failure returned no error")
+	}
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawned %d processes, want 2 (parent and the failed fork helper)", got)
+	}
+	if _, ok := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); !ok {
+		t.Fatal("fork helper did not resume: the fork fallback was not exercised")
+	}
+	if lines := strings.Join(spawner.call(t, 0).Conn.sentLines(), "\n"); !strings.Contains(lines, "steiner compaction summary request") {
+		t.Error("fallback did not append the marked summary to the live parent")
+	}
+	if !BackendStateRetired(err) {
+		t.Errorf("in-place failure after the fork fallback %v is not marked retired, want retired", err)
+	}
+	if !strings.Contains(err.Error(), "resume failed") {
+		t.Errorf("marked error = %q, want the CLI failure text", err)
+	}
+	if !spawner.call(t, 0).Conn.isClosed() {
+		t.Error("in-place failure after the fork fallback left the parent process running")
+	}
+	pool.mu.Lock()
+	_, live := pool.sessions["parent"]
+	pool.mu.Unlock()
+	if live {
+		t.Error("in-place failure after the fork fallback left the parent pooled")
+	}
+}
+
 // TestClaudeSubSummaryNoPlaceReseedClearsParentState proves a live parent whose
 // record cannot take the summary is retired, the summary is cold-reseeded on a
 // helper, and the final chunk clears the old generation's backend state.
@@ -351,6 +401,321 @@ func TestClaudeSubSummaryNoPlaceReseedClearsParentState(t *testing.T) {
 	pool.mu.Unlock()
 	if live {
 		t.Error("no-place retirement left the parent pooled")
+	}
+}
+
+// TestClaudeSubSummaryInPlaceFailureRetiresParent proves a failed in-place
+// summary still retires the live parent, and reports the failure as retired so
+// the caller drops the generation's backend state. The original failure text
+// and chain are preserved.
+func TestClaudeSubSummaryInPlaceFailureRetiresParent(t *testing.T) {
+	// An empty uuid models an assistant entry the CLI did not stamp, so the
+	// summary cannot fork. The third batch fails the in-place summary.
+	parent := &claudeSubScript{batches: [][]claudeSubEvent{
+		claudeSubTextTurnWithUUID(t, ""),
+		claudeSubTextTurnWithUUID(t, ""),
+		claudeSubFailedResumeBatch(),
+	}}
+	pool, spawner := claudeSubPoolWithScripts(t, parent)
+	u1, a1, _, _, second := claudeSubTwoTurnParent(t, pool)
+	err := claudeSubTurn(context.Background(), pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 []Message{u1, a1, claudeSubUserText("summarize the older part")},
+		BackendState:             second.BackendState,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	}, func(ChatChunk) error { return nil })
+	if err == nil {
+		t.Fatal("in-place summary failure returned no error")
+	}
+	if !BackendStateRetired(err) {
+		t.Errorf("in-place failure error %v is not marked retired, want retired", err)
+	}
+	if inner := errors.Unwrap(err); inner == nil || inner.Error() != err.Error() {
+		t.Errorf("marked error %q unwraps to %v, want the original failure text", err, inner)
+	}
+	var detail *claudeSubDetailError
+	if !errors.As(err, &detail) {
+		t.Errorf("marked error %v lost the original *claudeSubDetailError chain", err)
+	}
+	if !strings.Contains(err.Error(), "resume failed") {
+		t.Errorf("marked error = %q, want the CLI failure text", err)
+	}
+	if got := spawner.callCount(); got != 1 {
+		t.Errorf("spawned %d processes, want 1 (no helper for an in-place failure)", got)
+	}
+	if !spawner.call(t, 0).Conn.isClosed() {
+		t.Error("in-place failure left the parent process running")
+	}
+	pool.mu.Lock()
+	_, live := pool.sessions["parent"]
+	pool.mu.Unlock()
+	if live {
+		t.Error("in-place failure left the parent pooled")
+	}
+}
+
+// TestClaudeSubParentInPlaceAcquireFailureNotRetired proves an acquire failure
+// retires nothing, so neither the error nor the request context reports a
+// retired backend state.
+func TestClaudeSubParentInPlaceAcquireFailureNotRetired(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	if err := pool.Close(); err != nil {
+		t.Fatalf("close pool: %v", err)
+	}
+	ctx := WithBackendStateRetirement(context.Background())
+	err := claudeSubParentInPlace(ctx, pool, ChatRequest{
+		Messages: []Message{claudeSubUserText("summarize")},
+	}, "parent", claudeSubTestSpec(), func(ChatChunk) error { return nil })
+	if !errors.Is(err, errClaudeSubPoolClosed) {
+		t.Fatalf("in-place summary on a closed pool = %v, want errClaudeSubPoolClosed", err)
+	}
+	if BackendStateRetired(err) {
+		t.Errorf("acquire failure %v is marked retired, want unmarked", err)
+	}
+	if BackendStateRetirementSignaled(ctx) {
+		t.Error("acquire failure signalled backend state retirement, want no signal")
+	}
+	if got := spawner.callCount(); got != 0 {
+		t.Errorf("acquire failure spawned %d processes, want none", got)
+	}
+}
+
+// TestClaudeSubSummaryInPlaceSignalsRetirement proves an in-place summary that
+// retires the live parent signals the request context, so the caller still
+// learns the state is gone when it reads the signal instead of the chunk.
+func TestClaudeSubSummaryInPlaceSignalsRetirement(t *testing.T) {
+	// An empty uuid models an assistant entry the CLI did not stamp, so the
+	// summary cannot fork.
+	parent := &claudeSubScript{batches: [][]claudeSubEvent{
+		claudeSubTextTurnWithUUID(t, ""),
+		claudeSubTextTurnWithUUID(t, ""),
+		claudeSubTextTurnWithUUID(t, ""),
+	}}
+	pool, _ := claudeSubPoolWithScripts(t, parent)
+	u1, a1, _, _, second := claudeSubTwoTurnParent(t, pool)
+	ctx := WithBackendStateRetirement(context.Background())
+	var final ChatChunk
+	err := claudeSubTurn(ctx, pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 []Message{u1, a1, claudeSubUserText("summarize the older part")},
+		BackendState:             second.BackendState,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	}, func(chunk ChatChunk) error {
+		if chunk.Done {
+			final = chunk
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("in-place summary: %v", err)
+	}
+	if !BackendStateRetirementSignaled(ctx) {
+		t.Error("retired parent was not signalled on the request context")
+	}
+	if !final.Done || final.Delta.Content == "" || !final.ClearBackendState {
+		t.Errorf("in-place summary chunk = %+v, want text, done and clear", final)
+	}
+}
+
+// claudeSubPartialTextBatch is a CLI turn that streams one text delta and never
+// ends, so a caller can cancel it without a terminal chunk.
+func claudeSubPartialTextBatch() []claudeSubEvent {
+	return []claudeSubEvent{
+		{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}`)},
+		{Type: "stream_event", Raw: json.RawMessage(`{"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}}`)},
+	}
+}
+
+// TestClaudeSubSummaryInPlaceCancellationSignalsRetirement proves a canceled
+// in-place summary still retires and signals the parent, even though no
+// terminal chunk is delivered, and keeps the error marker.
+func TestClaudeSubSummaryInPlaceCancellationSignalsRetirement(t *testing.T) {
+	// Empty uuids keep the summary in place on the live parent, which streams
+	// one text delta and then waits until the caller cancels.
+	parent := &claudeSubScript{batches: [][]claudeSubEvent{
+		claudeSubTextTurnWithUUID(t, ""),
+		claudeSubTextTurnWithUUID(t, ""),
+		claudeSubPartialTextBatch(),
+	}}
+	pool, spawner := claudeSubPoolWithScripts(t, parent)
+	u1, a1, _, _, second := claudeSubTwoTurnParent(t, pool)
+	signalCtx := WithBackendStateRetirement(context.Background())
+	ctx, cancel := context.WithCancel(signalCtx)
+	defer cancel()
+	done := 0
+	err := claudeSubTurn(ctx, pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 []Message{u1, a1, claudeSubUserText("summarize the older part")},
+		BackendState:             second.BackendState,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	}, func(chunk ChatChunk) error {
+		if chunk.Done {
+			done++
+			return nil
+		}
+		if chunk.Delta.Content != "" {
+			cancel()
+		}
+		return nil
+	})
+	if err == nil {
+		t.Fatal("canceled in-place summary returned no error")
+	}
+	if done != 0 {
+		t.Errorf("canceled turn emitted %d terminal chunks, want none", done)
+	}
+	if !BackendStateRetirementSignaled(signalCtx) {
+		t.Error("retired parent was not signalled after a canceled, chunkless turn")
+	}
+	if !BackendStateRetired(err) {
+		t.Errorf("canceled in-place failure %v is not marked retired, want retired", err)
+	}
+	if !spawner.call(t, 0).Conn.isClosed() {
+		t.Error("canceled in-place summary left the parent process running")
+	}
+	pool.mu.Lock()
+	_, live := pool.sessions["parent"]
+	pool.mu.Unlock()
+	if live {
+		t.Error("canceled in-place summary left the parent pooled")
+	}
+}
+
+// TestClaudeSubSummaryNoPlaceReseedFailureRetiresParent proves a parent retired
+// by a no-place summary reports a failed reseed as retired, because its backend
+// state is gone either way.
+func TestClaudeSubSummaryNoPlaceReseedFailureRetiresParent(t *testing.T) {
+	helper := &claudeSubScript{batches: [][]claudeSubEvent{claudeSubFailedResumeBatch()}}
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 2), helper)
+	_, a1, _, _, second := claudeSubTwoTurnParent(t, pool)
+	// The source opens with a message the record does not hold, so neither the
+	// fork nor the in-place append can take it.
+	err := claudeSubTurn(context.Background(), pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 []Message{claudeSubUserText("not the first question"), a1, claudeSubUserText("summarize")},
+		BackendState:             second.BackendState,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	}, func(ChatChunk) error { return nil })
+	if err == nil {
+		t.Fatal("no-place reseed failure returned no error")
+	}
+	if !BackendStateRetired(err) {
+		t.Errorf("no-place reseed failure %v is not marked retired, want retired", err)
+	}
+	if !strings.Contains(err.Error(), "resume failed") {
+		t.Errorf("marked error = %q, want the CLI failure text", err)
+	}
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawned %d processes, want 2 (parent and failed reseed helper)", got)
+	}
+	if !spawner.call(t, 0).Conn.isClosed() {
+		t.Error("no-place retirement left the parent process running")
+	}
+	if !spawner.call(t, 1).Conn.isClosed() {
+		t.Error("failed reseed helper was not retired")
+	}
+	pool.mu.Lock()
+	_, live := pool.sessions["parent"]
+	_, helperLive := pool.sessions["parent"+claudeSubSummarySuffix]
+	pool.mu.Unlock()
+	if live || helperLive {
+		t.Errorf("no-place failure left processes pooled: parent %v, helper %v", live, helperLive)
+	}
+}
+
+// TestClaudeSubSummaryColdReseedFailureNotRetired proves a summary answered by
+// a cold helper with no live parent does not mark its failure retired: no
+// parent backend state was touched.
+func TestClaudeSubSummaryColdReseedFailureNotRetired(t *testing.T) {
+	helper := &claudeSubScript{batches: [][]claudeSubEvent{claudeSubFailedResumeBatch()}}
+	pool, spawner := claudeSubPoolWithScripts(t, helper)
+	msgs := []Message{claudeSubUserText("first question"), {Role: MessageRoleAssistant, Content: "first answer"}, claudeSubUserText("summarize")}
+	ctx := WithBackendStateRetirement(context.Background())
+	err := claudeSubTurn(ctx, pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 msgs,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	}, func(ChatChunk) error { return nil })
+	if err == nil {
+		t.Fatal("cold reseed failure returned no error")
+	}
+	if BackendStateRetired(err) {
+		t.Errorf("cold reseed failure %v is marked retired, want unmarked", err)
+	}
+	if BackendStateRetirementSignaled(ctx) {
+		t.Error("cold reseed failure signalled backend state retirement, want no signal")
+	}
+	if !strings.Contains(err.Error(), "resume failed") {
+		t.Errorf("cold reseed failure = %q, want the CLI failure text", err)
+	}
+	if got := spawner.callCount(); got != 1 {
+		t.Errorf("spawned %d processes, want 1 cold helper", got)
+	}
+}
+
+// TestBackendStateRetirementSignal proves the request-scoped signal starts
+// clear, is safe to read while it is marked, and reports retirement only after
+// the mark.
+func TestBackendStateRetirementSignal(t *testing.T) {
+	if BackendStateRetirementSignaled(context.Background()) {
+		t.Error("context without a signal reported retired")
+	}
+	ctx := WithBackendStateRetirement(context.Background())
+	if BackendStateRetirementSignaled(ctx) {
+		t.Error("fresh signal reported retired")
+	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		signalBackendStateRetirement(ctx)
+	}()
+	for range 100 {
+		if BackendStateRetirementSignaled(ctx) {
+			break
+		}
+	}
+	wg.Wait()
+	if !BackendStateRetirementSignaled(ctx) {
+		t.Error("marked signal reported not retired")
+	}
+}
+
+// TestBackendStateRetiredMarker proves the marker reports retired backend state
+// through wrapping and preserves the original error for errors.Is.
+func TestBackendStateRetiredMarker(t *testing.T) {
+	sentinel := errors.New("claude_subscription turn failed: error_during_execution: resume failed")
+	if BackendStateRetired(nil) {
+		t.Error("nil error reported as retired")
+	}
+	if BackendStateRetired(sentinel) {
+		t.Error("plain error reported as retired")
+	}
+	marked := markBackendStateRetired(fmt.Errorf("summary: %w", sentinel))
+	if !BackendStateRetired(marked) {
+		t.Error("marked error not reported as retired")
+	}
+	if got, want := marked.Error(), "summary: "+sentinel.Error(); got != want {
+		t.Errorf("marked error text = %q, want %q", got, want)
+	}
+	if !errors.Is(marked, sentinel) {
+		t.Error("marked error lost the original error identity")
+	}
+	if !BackendStateRetired(fmt.Errorf("outer: %w", marked)) {
+		t.Error("marker not found through an outer wrap")
+	}
+	if got := markBackendStateRetired(nil); got != nil {
+		t.Errorf("markBackendStateRetired(nil) = %v, want nil", got)
 	}
 }
 

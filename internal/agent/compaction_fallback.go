@@ -173,6 +173,9 @@ func compactWithFallback(ctx context.Context, req RunRequest, state RunState, ru
 	if err != nil {
 		return compactionOnMainAfterFallback(ctx, req, run, err)
 	}
+	// A fallback summary runs on another provider's transcript, so its outcome
+	// never clears the main generation's backend state.
+	outcome.BackendStateCleared = false
 	if !outcome.Applied {
 		// The target applied nothing, so no fallback summary was used.
 		return outcome, nil
@@ -197,16 +200,44 @@ func runCompactionOnTarget(req RunRequest, target CompactionTarget, run compacti
 // canceled or hit a run limit timeout.
 func compactionOnMainAfterFallback(ctx context.Context, req RunRequest, run compactionRun, fallbackErr error) (CompactionOutcome, error) {
 	if ctx.Err() != nil || errors.Is(fallbackErr, context.Canceled) {
-		return CompactionOutcome{}, fallbackErr
+		return CompactionOutcome{}, hideFallbackRetirement(fallbackErr)
 	}
 	outcome, err := run(nil)
 	if err != nil {
-		return CompactionOutcome{}, err
+		// The main rerun reports its own backend state clear, carried on the
+		// outcome and marked on the error. The discarded fallback attempt never
+		// carries one, so it cannot clear main state.
+		if outcome.BackendStateCleared {
+			err = markCompactionBackendStateRetired(err)
+		}
+		return outcome, err
 	}
 	outcome.CompactionModel = compactionModelName(req.ResolvedModel)
 	outcome.FallbackStatus = output.CompactionFallbackSkipped
 	outcome.FallbackReason = compactionSkipReason(req, fallbackErr)
 	return outcome, nil
+}
+
+// fallbackRetirementHiddenError hides a retired backend state marker raised by a
+// fallback target. It keeps the error text and chain, so errors.Is and errors.As
+// still match the underlying failure, while BackendStateRetired reports false.
+type fallbackRetirementHiddenError struct{ err error }
+
+func (e *fallbackRetirementHiddenError) Error() string { return e.err.Error() }
+
+func (e *fallbackRetirementHiddenError) Unwrap() error { return e.err }
+
+// BackendStateRetired reports false: a fallback target retires its own
+// transcript, never the main generation's backend state.
+func (e *fallbackRetirementHiddenError) BackendStateRetired() bool { return false }
+
+// hideFallbackRetirement returns err unchanged unless it carries a retired
+// backend state marker, which a fallback target sets for its own transcript.
+func hideFallbackRetirement(err error) error {
+	if !provider.BackendStateRetired(err) {
+		return err
+	}
+	return &fallbackRetirementHiddenError{err: err}
 }
 
 // compactionModelName returns the canonical ProviderAlias/BackendModelID of model.

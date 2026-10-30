@@ -61,7 +61,9 @@ type runExecutor interface {
 	// the summary request carries the lineage's latest backend state.
 	// lastMainRequest decides whether a compaction fallback applies. It reports
 	// whether the summary cleared the backend state of the lineage's latest
-	// generation, and whether a compaction stage applied.
+	// generation, and whether a compaction stage applied. A returned error that
+	// satisfies provider.BackendStateRetired overrides that clear report: the
+	// provider retired the state, so it must be dropped even on failure.
 	CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error)
 }
 

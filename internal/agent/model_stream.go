@@ -11,18 +11,37 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func consumeModelStream(_ context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource, firstChunkOut *time.Time) (provider.ChatResponse, error) {
+//nolint:unparam // source is the assistant stream's tag; keeping it explicit lets another caller stream a different source without editing the consumer.
+func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource, firstChunkOut *time.Time) (provider.ChatResponse, error) {
 	response := provider.ChatResponse{}
 	message := provider.Message{Role: provider.MessageRoleAssistant}
 	sawFinal := false
+	var consumeErr error
 
 	for chunk := range chunks {
+		if consumeErr != nil {
+			// The turn already failed and the request carries a backend state
+			// retirement signal, so keep draining until the producer closes the
+			// channel: its terminal work, such as retiring backend state, must
+			// complete before the caller reads the signal. Chunks after the
+			// first error are discarded rather than processed.
+			continue
+		}
 		if err := consumeModelChunk(sink, turn, source, chunk, &response, &message, &sawFinal, firstChunkOut); err != nil {
-			return provider.ChatResponse{}, err
+			consumeErr = err
+			if !provider.HasBackendStateRetirement(ctx) {
+				return provider.ChatResponse{}, consumeErr
+			}
 		}
 	}
 
+	if consumeErr != nil {
+		return provider.ChatResponse{}, consumeErr
+	}
 	if !sawFinal {
+		if err := ctx.Err(); err != nil {
+			return provider.ChatResponse{}, err
+		}
 		return provider.ChatResponse{}, fmt.Errorf("stream completed without a final chunk")
 	}
 
