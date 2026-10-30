@@ -199,19 +199,8 @@ func WithAPICallIdentity(event Event, turn int, requestID string) Event {
 
 // NewAPIRequestEvent creates a new API request event.
 func NewAPIRequestEvent(model string, messages []provider.Message, tools []provider.ToolSpec, maxTokens *int, blocks []prompt.ContextBlock, budget prompt.ModelTokenBudget, estimatedPromptTokens, rawPromptTokens int) Event {
-	messageHashes := make([]string, len(messages))
-	promptBytes := 0
-	for i, msg := range messages {
-		content := string(msg.Role) + msg.Content
-		promptBytes += len(content)
-		messageHashes[i] = shortContentHash(provider.MessageHashInput(msg))
-	}
-	toolsBytes := 0
-	if len(tools) > 0 {
-		if toolsData, err := json.Marshal(tools); err == nil {
-			toolsBytes = len(toolsData)
-		}
-	}
+	messageHashes, promptBytes := requestMessageHashes(messages)
+	toolsBytes := requestToolsBytes(tools)
 	blocksBytes := 0
 	for _, block := range blocks {
 		blocksBytes += block.ByteSize
@@ -240,12 +229,35 @@ func NewAPIRequestEvent(model string, messages []provider.Message, tools []provi
 	})
 }
 
-// shortContentHash returns an 8 hex char digest of content, stable across
-// calls for identical text so a parser can detect prefix divergence without
-// the log ever carrying message content.
-func shortContentHash(content string) string {
-	sum := sha256.Sum256([]byte(content))
-	return hex.EncodeToString(sum[:4])
+// requestMessageHashes returns the per-message fingerprints and the prompt
+// byte count for an API request event. Fingerprints are built in one reused
+// buffer and hashed in place, so a request never materializes a fingerprint
+// string per message.
+func requestMessageHashes(messages []provider.Message) ([]string, int) {
+	hashes := make([]string, len(messages))
+	var buf []byte
+	promptBytes := 0
+	for i, msg := range messages {
+		promptBytes += len(msg.Role) + len(msg.Content)
+		buf = provider.AppendMessageHashInput(buf[:0], msg)
+		sum := sha256.Sum256(buf)
+		hashes[i] = hex.EncodeToString(sum[:4])
+	}
+	return hashes, promptBytes
+}
+
+// requestToolsBytes returns the encoded size of the tool definitions, or zero
+// when they cannot be marshaled. It is the ToolsBytes diagnostic only; the
+// provider wire renders the tools separately.
+func requestToolsBytes(tools []provider.ToolSpec) int {
+	if len(tools) == 0 {
+		return 0
+	}
+	toolsData, err := json.Marshal(tools)
+	if err != nil {
+		return 0
+	}
+	return len(toolsData)
 }
 
 // NewAPIResponseEvent creates a new API response event.

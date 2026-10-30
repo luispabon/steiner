@@ -1,9 +1,6 @@
 package provider
 
-import (
-	"encoding/json"
-	"strings"
-)
+import "encoding/json"
 
 // MessageHashInput returns the exact message data used by cache and output
 // message fingerprints. It preserves role, content, reasoning content,
@@ -11,20 +8,26 @@ import (
 // arguments, and image order with each image's media type and data. Callers
 // hash the result, so it never carries content into diagnostics output.
 func MessageHashInput(msg Message) string {
-	var b strings.Builder
-	b.WriteString(string(msg.Role))
-	b.WriteString(msg.Content)
-	b.WriteString(msg.ReasoningContent)
+	return string(AppendMessageHashInput(nil, msg))
+}
+
+// AppendMessageHashInput appends to dst the exact bytes MessageHashInput
+// returns, so a caller that hashes messages can append into a reused buffer and
+// never materializes a fingerprint string per message.
+func AppendMessageHashInput(dst []byte, msg Message) []byte {
+	dst = append(dst, msg.Role...)
+	dst = append(dst, msg.Content...)
+	dst = append(dst, msg.ReasoningContent...)
 	for _, call := range msg.ToolCalls {
-		b.WriteString(call.Name)
+		dst = append(dst, call.Name...)
 		if arguments, err := json.Marshal(call.Arguments); err == nil {
-			b.Write(arguments)
+			dst = append(dst, arguments...)
 		}
-		b.WriteString(call.RawArguments)
+		dst = append(dst, call.RawArguments...)
 	}
 	for _, image := range msg.Images {
-		b.WriteString(image.MediaType)
-		b.WriteString(image.Data)
+		dst = append(dst, image.MediaType...)
+		dst = append(dst, image.Data...)
 	}
-	return b.String()
+	return dst
 }

@@ -3,12 +3,14 @@ package interactive
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -76,6 +78,83 @@ func TestSessionSnapshotSinkIgnoresNonAPIRequestEvents(t *testing.T) {
 	_, ok := snaps.Snapshot()
 	if ok {
 		t.Fatal("expected no snapshot after non-API-request event")
+	}
+}
+
+func TestSnapshotSinkSnapshotSurvivesCallerMutationAfterEmit(t *testing.T) {
+	store := &SnapshotStore{}
+	sink := &snapshotSink{store: store}
+	messages := []provider.Message{{
+		Role:      provider.MessageRoleAssistant,
+		Content:   "original",
+		ToolCalls: []provider.ToolCall{{Name: "read", Arguments: map[string]any{"path": "a.go"}}},
+	}}
+	tools := []provider.ToolSpec{{
+		Type:     "function",
+		Function: provider.ToolFunctionSpec{Name: "read", Parameters: map[string]any{"type": "object"}},
+	}}
+
+	sink.Emit(output.NewAPIRequestEvent("model", messages, tools, nil, nil, prompt.ModelTokenBudget{}, 0, 0))
+
+	messages[0].Content = "mutated"
+	messages[0].ToolCalls[0].Arguments["path"] = "b.go"
+	tools[0].Function.Name = "mutated"
+	tools[0].Function.Parameters["type"] = "mutated"
+
+	snapshot, ok := store.Snapshot()
+	if !ok {
+		t.Fatal("expected a stored snapshot")
+	}
+	if snapshot.Messages[0].Content != "original" {
+		t.Errorf("stored content = %q, want original", snapshot.Messages[0].Content)
+	}
+	if got := snapshot.Messages[0].ToolCalls[0].Arguments["path"]; got != "a.go" {
+		t.Errorf("stored tool call path = %v, want a.go", got)
+	}
+	if snapshot.Tools[0].Function.Name != "read" {
+		t.Errorf("stored tool name = %q, want read", snapshot.Tools[0].Function.Name)
+	}
+	if got := snapshot.Tools[0].Function.Parameters["type"]; got != "object" {
+		t.Errorf("stored tool parameter = %v, want object", got)
+	}
+}
+
+func TestSnapshotSinkConcurrentEmitAndSnapshot(t *testing.T) {
+	store := &SnapshotStore{}
+	sink := &snapshotSink{store: store}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				sink.Emit(output.NewAPIRequestEvent(
+					"model",
+					[]provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+					nil, nil, nil, prompt.ModelTokenBudget{}, i, j,
+				))
+			}
+		}(i)
+	}
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				_, _ = store.Snapshot()
+				_, _ = store.ParentSnapshot()
+			}
+		}()
+	}
+	wg.Wait()
+
+	snapshot, ok := store.Snapshot()
+	if !ok {
+		t.Fatal("expected a stored snapshot after concurrent emits")
+	}
+	if snapshot.Messages[0].Content != "hello" {
+		t.Errorf("stored content = %q, want hello", snapshot.Messages[0].Content)
 	}
 }
 

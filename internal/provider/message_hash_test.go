@@ -1,6 +1,9 @@
 package provider
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestMessageHashInput_PreservesContract(t *testing.T) {
 	msg := Message{
@@ -68,5 +71,55 @@ func TestMessageHashInput_ImageOrderAndDeterminism(t *testing.T) {
 	}
 	if first := MessageHashInput(ab); first != MessageHashInput(ab) {
 		t.Fatal("hash input must be deterministic for identical messages")
+	}
+}
+
+func TestAppendMessageHashInput_MatchesMessageHashInput(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  Message
+	}{
+		{name: "empty"},
+		{
+			name: "role_content_reasoning",
+			msg:  Message{Role: MessageRoleAssistant, Content: "answer", ReasoningContent: "thinking"},
+		},
+		{
+			name: "tool_calls_and_raw_arguments",
+			msg: Message{Role: MessageRoleAssistant, ToolCalls: []ToolCall{
+				{Name: "read", Arguments: map[string]any{"path": "one", "nested": map[string]any{"limit": 1}}, RawArguments: `{"raw":true}`},
+				{Name: "write", Arguments: map[string]any{"path": "two"}},
+			}},
+		},
+		{
+			name: "unmarshalable_arguments",
+			msg:  Message{Role: MessageRoleAssistant, ToolCalls: []ToolCall{{Name: "read", Arguments: map[string]any{"invalid": func() {}}, RawArguments: "raw"}}},
+		},
+		{
+			name: "images",
+			msg: Message{Role: MessageRoleUser, Images: []ImageBlock{
+				{MediaType: "image/png", Data: "aaa"},
+				{MediaType: "image/jpeg", Data: "bbb"},
+			}},
+		},
+		{
+			name: "unicode_large",
+			msg:  Message{Role: MessageRoleUser, Content: strings.Repeat("héllo wörld ✓\n", 512)},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			want := MessageHashInput(tc.msg)
+			if got := string(AppendMessageHashInput(nil, tc.msg)); got != want {
+				t.Fatalf("AppendMessageHashInput() = %q, want %q", got, want)
+			}
+			// A caller reusing a buffer must get the same bytes as one
+			// appending to an empty buffer.
+			buf := []byte("stale-content-")
+			if got := string(AppendMessageHashInput(buf[:0], tc.msg)); got != want {
+				t.Fatalf("AppendMessageHashInput() over a reused buffer = %q, want %q", got, want)
+			}
+		})
 	}
 }
