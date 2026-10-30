@@ -161,6 +161,11 @@ func (s *Session) clearConversation() error {
 	apply := func() {
 		s.resetConversationLocked()
 		s.skills.Reset()
+		if s.phase == nil {
+			// The interactive driver owns the shared steer queue. Oneshot
+			// phases own it while active, so leave their steers alone.
+			s.runController.SteerQueue().Clear()
+		}
 		if id != "" {
 			s.applyRotationLocked(id, "", false)
 		}
@@ -205,6 +210,11 @@ func (s *Session) clearConversation() error {
 	}
 	s.mu.Unlock()
 	s.retireDriver(old)
+	// retireDriver flushes the old driver's queued events before it returns.
+	// Re-emit the live driver's state so a FIFO sink ends on the active state
+	// rather than a stale state event that passed the old handle's filter
+	// before the swap marked it stale.
+	s.currentDriver().EmitStateNow()
 	return nil
 }
 

@@ -781,3 +781,26 @@ func TestUpdateSkillStateKnownSkillAllowsToggle(t *testing.T) {
 		t.Fatalf("controller.actions = %d, want 1", len(ctrl.actions))
 	}
 }
+
+func TestClearConversationClearsSharedSteerQueueAndResetsState(t *testing.T) {
+	sess, err := interactive.NewSession(interactive.Dependencies{BaseEvents: output.NoopSink{}})
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	queue := sess.ActiveRunController().SteerQueue()
+	queue.Add(agent.SteerMessage{Text: "parked steer"})
+
+	m := newModel(Config{Controller: sess, SteerQueue: queue}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
+	m.applyConversationState(output.ConversationStateEvent{State: conversationStateWaiting, Held: true, Pending: 1})
+
+	if err := m.performClearConversationState(); err != nil {
+		t.Fatalf("performClearConversationState() = %v", err)
+	}
+	if got := m.steers.Len(); got != 0 {
+		t.Fatalf("steer queue len = %d, want 0 after clear", got)
+	}
+	if m.convStateSeen {
+		t.Fatal("conversation state was not reset after clear")
+	}
+}

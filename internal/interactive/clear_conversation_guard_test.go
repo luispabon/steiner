@@ -347,7 +347,7 @@ func (r *conversationStateRecorder) snapshot() []output.ConversationStateEvent {
 	return append([]output.ConversationStateEvent(nil), r.events...)
 }
 
-func TestClearConversationDropsRetiredDriverStateEvents(t *testing.T) {
+func TestClearConversationDropsRetiredStateEventAndEndsIdle(t *testing.T) {
 	bg := &stubBackground{}
 	recorder := &conversationStateRecorder{}
 	hook := func(string) int {
@@ -362,8 +362,14 @@ func TestClearConversationDropsRetiredDriverStateEvents(t *testing.T) {
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
 		t.Fatalf("ClearConversation: %v", err)
 	}
-	if got := recorder.snapshot(); len(got) != 0 {
-		t.Fatalf("retired driver state events after clear = %+v, want none", got)
+	events := recorder.snapshot()
+	for _, event := range events {
+		if event.State == string(agent.DriverWaiting) && event.Held && event.Pending > 0 {
+			t.Fatalf("retired waiting state event leaked after clear: %+v", event)
+		}
+	}
+	if len(events) != 1 || events[0].State != string(agent.DriverIdle) || events[0].Held || events[0].Pending != 0 {
+		t.Fatalf("post-clear state events = %+v, want one idle event", events)
 	}
 }
 
@@ -549,5 +555,196 @@ func TestClearConversationDiscardsBufferedAndLateCompletions(t *testing.T) {
 		if lineageContains(saved.Lineage, marker) {
 			t.Fatalf("old saved transcript contains discarded completion %q", marker)
 		}
+	}
+}
+
+type blockingStateSink struct {
+	mu      sync.Mutex
+	events  []output.ConversationStateEvent
+	blockMu sync.Mutex
+	block   bool
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *blockingStateSink) Emit(event output.Event) {
+	payload, ok := event.Payload.(output.ConversationStateEvent)
+	if !ok {
+		return
+	}
+	s.mu.Lock()
+	s.events = append(s.events, payload)
+	s.mu.Unlock()
+	s.blockMu.Lock()
+	block := s.block
+	s.blockMu.Unlock()
+	if block && payload.State == string(agent.DriverWaiting) && payload.Held {
+		s.once.Do(func() { close(s.entered) })
+		<-s.release
+	}
+}
+
+func (s *blockingStateSink) arm() {
+	s.blockMu.Lock()
+	s.block = true
+	s.blockMu.Unlock()
+}
+
+func (s *blockingStateSink) snapshot() []output.ConversationStateEvent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]output.ConversationStateEvent(nil), s.events...)
+}
+
+func TestClearConversationReemitsLiveStateAfterStaleEmission(t *testing.T) {
+	bg := &stubBackground{}
+	sink := &blockingStateSink{entered: make(chan struct{}), release: make(chan struct{})}
+	hookRan := make(chan struct{})
+	hook := func(string) int {
+		bg.setPending()
+		close(hookRan)
+		return 0
+	}
+	s := newClearGuardSessionWithEvents(t, bg, hook, sink)
+	bg.setPendingStates(agent.SubAgentFinished)
+	holdClearSession(t, s)
+	old := s.currentDriver()
+
+	sink.arm()
+	bg.setPendingStates(agent.SubAgentFinished, agent.SubAgentFinished)
+	stopped := make(chan struct{})
+	go func() {
+		old.StopTurn()
+		close(stopped)
+	}()
+	select {
+	case <-sink.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("old driver state emission did not block")
+	}
+
+	cleared := make(chan error, 1)
+	go func() { cleared <- s.Handle(context.Background(), ClearConversation{}) }()
+	select {
+	case <-hookRan:
+	case <-time.After(10 * time.Second):
+		t.Fatal("clear hook did not run")
+	}
+	// The old emission already passed the stale check and is parked in the
+	// sink. Release it so retire can flush emitMu and the clear can re-emit
+	// the live state.
+	close(sink.release)
+	if err := <-cleared; err != nil {
+		t.Fatalf("ClearConversation: %v", err)
+	}
+	<-stopped
+
+	events := sink.snapshot()
+	if len(events) == 0 {
+		t.Fatal("no state events recorded")
+	}
+	last := events[len(events)-1]
+	if last.State != string(agent.DriverIdle) || last.Held || last.Pending != 0 {
+		t.Fatalf("last state event = %+v, want idle held=false pending=0", last)
+	}
+	foundStale := false
+	for _, event := range events {
+		if event.State == string(agent.DriverWaiting) && event.Held && event.Pending == 2 {
+			foundStale = true
+			break
+		}
+	}
+	if !foundStale {
+		t.Fatal("stale waiting-held-pending event was not observed")
+	}
+}
+
+func TestClearConversationDropsParkedSteers(t *testing.T) {
+	firstStarted := make(chan struct{})
+	secondRun := make(chan []agent.Message, 1)
+	var runs atomic.Int32
+	runner := newRunExecutorFunc(func(ctx context.Context, conv []agent.Message) (RunResult, error) {
+		if runs.Add(1) == 1 {
+			close(firstStarted)
+			<-ctx.Done()
+			return RunResult{Conversation: conv}, ctx.Err()
+		}
+		secondRun <- append([]agent.Message(nil), conv...)
+		return RunResult{Conversation: append(conv, agent.Message{Role: agent.MessageRoleAssistant, Content: "second-ok"})}, nil
+	})
+	s := testNewSession(t, Dependencies{SessionStore: newMockSessionStore(), Config: guardTestConfig(), Runner: runner})
+	queue := s.runController.SteerQueue()
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "first"}); err != nil {
+		t.Fatalf("SubmitPrompt first: %v", err)
+	}
+	select {
+	case <-firstStarted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("first run did not start")
+	}
+	queue.Add(agent.SteerMessage{Text: "stale-steer"})
+	if err := s.Handle(context.Background(), NotifySteer{}); err != nil {
+		t.Fatalf("NotifySteer: %v", err)
+	}
+	// Stop before the run finishes, as ESC does. Direct StopTurn makes the
+	// ordering deterministic: the steer is parked before the run settles.
+	s.currentDriver().StopTurn()
+	waitClearDriverIdle(t, s)
+	if got := queue.Len(); got != 1 {
+		t.Fatalf("steer queue len before clear = %d, want 1", got)
+	}
+
+	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
+		t.Fatalf("ClearConversation: %v", err)
+	}
+	if got := queue.Len(); got != 0 {
+		t.Fatalf("steer queue len after clear = %d, want 0", got)
+	}
+
+	if err := s.Handle(context.Background(), SubmitPrompt{Text: "second"}); err != nil {
+		t.Fatalf("SubmitPrompt second: %v", err)
+	}
+	select {
+	case conv := <-secondRun:
+		for _, msg := range conv {
+			if strings.Contains(msg.Content, "stale-steer") {
+				t.Fatalf("new conversation contains parked steer: %+v", conv)
+			}
+		}
+		found := false
+		for _, msg := range conv {
+			if msg.Content == "second" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("second prompt missing from conversation: %+v", conv)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("second run did not start")
+	}
+}
+
+type clearPhaseStub struct{}
+
+func (clearPhaseStub) Submit(string, []agent.ImageBlock) {}
+func (clearPhaseStub) NotifySteer()                      {}
+func (clearPhaseStub) StopTurn()                         {}
+func (clearPhaseStub) CancelAgent(string, bool) error    { return nil }
+func (clearPhaseStub) CancelAll() error                  { return nil }
+
+func TestClearConversationPreservesOneshotSteers(t *testing.T) {
+	s := testNewSession(t, Dependencies{SessionStore: newMockSessionStore(), Config: guardTestConfig()})
+	queue := s.runController.SteerQueue()
+	queue.Add(agent.SteerMessage{Text: "oneshot-steer"})
+	release := s.SetActivePhaseControl(clearPhaseStub{})
+	defer release()
+
+	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
+		t.Fatalf("ClearConversation: %v", err)
+	}
+	if got := queue.Len(); got != 1 {
+		t.Fatalf("steer queue len = %d, want 1 (oneshot owns it)", got)
 	}
 }

@@ -43,10 +43,11 @@ type driverEventSink struct {
 
 // Emit implements output.EventSink. The stale check is intentionally lock-free:
 // holding a lock across the sink call would invert against a sink that
-// re-enters the session and swaps a driver. An event that passes the check was
-// emitted before the handle was marked stale; later events see stale and are
-// dropped. The driver is closed under its lock before ReplaceWhileHeld returns,
-// so it produces no state events after that point.
+// re-enters the session and swaps a driver. An event can therefore pass the
+// check before the handle is marked stale and still reach the sink afterwards.
+// Clear re-emits the live driver's state after retiring the old driver, so a
+// FIFO sink ends on the active state. Non-state events from retired drivers
+// still pass, preserving their save warnings.
 func (s driverEventSink) Emit(event output.Event) {
 	if s.h != nil && s.h.stale.Load() {
 		if _, ok := event.Payload.(output.ConversationStateEvent); ok {
