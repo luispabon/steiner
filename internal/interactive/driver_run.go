@@ -38,14 +38,9 @@ func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope 
 		}
 	}
 
-	// A failed run that returns no request keeps the seed. A request returned on
-	// error replaces it, and a success is taken as the run's value, zero included,
-	// so the identity can reset. The driver adopts the output even on error (it
-	// receives a nil error), so this rule is applied here.
-	lastMainRequest := result.LastMainRequest
-	if err != nil && lastMainRequest == (agent.LastMainRequest{}) {
-		lastMainRequest = in.LastMainRequest
-	}
+	// The driver adopts the output even on error (it receives a nil error), so
+	// its last-main-request carry rule is applied here.
+	lastMainRequest := agent.CarryLastMainRequest(in.LastMainRequest, result.LastMainRequest, err)
 	out := agent.DriverRunOutput{
 		Conversation:    result.Conversation,
 		TokenCount:      result.TokenCount,
