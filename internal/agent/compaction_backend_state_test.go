@@ -48,7 +48,11 @@ func TestMarkCompactionBackendStateRetired(t *testing.T) {
 	if !errors.Is(marked, sentinel) {
 		t.Error("marked error does not keep the original chain")
 	}
-	if again := markCompactionBackendStateRetired(marked); again != marked {
+	// Marking an already marked error must return it unchanged. Compare as
+	// interfaces so the assertion checks identity without an errorlint-reported
+	// error comparison.
+	again := markCompactionBackendStateRetired(marked)
+	if got, want := any(again), any(marked); got != want {
 		t.Error("markCompactionBackendStateRetired() wrapped an already marked error")
 	}
 	if markCompactionBackendStateRetired(nil) != nil {
@@ -71,9 +75,7 @@ func TestSummarizeCompactionStagesKeepsClearThroughFitError(t *testing.T) {
 	candidate := ConversationCandidate{Messages: msgs}
 
 	outcome, err := summarizeCompactionStages{
-		stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
-			return summarizeCompactionStage(ctx, req, state, turn, candidate, params)
-		},
+		stageRunner: summarizeCompactionStage,
 		fitRunner: func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error) {
 			return prompt.RequestTokenBudget{}, sentinel
 		},
