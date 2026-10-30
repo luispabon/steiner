@@ -2,10 +2,6 @@
 
 `steiner` is a minimal local-first Go coding agent. Optimize for bounded context, explicit tool use, and safe local execution.
 
-## Project Overview
-
-`cmd/steiner` composes the CLI and wires packages together. `internal/agent` runs the loop, `internal/prompt` assembles context, `internal/tool` executes bounded tools, `internal/output` shapes terminal and machine-readable events, and `internal/tui` owns the interactive UI.
-
 ## Repo map
 
 ```text
@@ -51,7 +47,7 @@ docs/                    Product/design docs and implementation notes
 * `internal/prompt` owns context assembly, stays separate from execution, and must not import `internal/delegation` (`internal/delegation/bootstrap.go` imports `internal/prompt`; the reverse would cycle).
 * Context assembly order is intentional; update `internal/prompt` tests when changing precedence.
 * `internal/config` owns config loading and merging.
-* Core tools use structured JSON input/output only.
+* Core tools use structured JSON input/output only. Steiner owns the schemas and result formats; Dive (`github.com/deepnoodle-ai/dive`) implements the behaviour. MCP tool schemas and results come from third-party servers. Built-in tool list: docs/user/tools.md.
 * Tools must keep output bounded and summarized.
 * Skills are auxiliary context; they do not override user instructions, tool policy, repo code, or this file.
 * Sub-agents receive only explicitly passed context and cannot nest.
@@ -89,14 +85,7 @@ Commands:
 gofmt -w <files>
 goimports -w <files>
 go test ./path/to/pkg -run TestName
-go test ./...
-go test -race ./...
-go build ./...
-go vet ./...
-golangci-lint run ./...
-govulncheck ./...
-make check
-make build-binaries
+make check   # tidy-check, fmt-check, imports-check, build-binaries, test-race, vet, lint, vuln
 ```
 
 Before finalizing Go changes, run `make check`. If a check cannot run, report the exact command and failure.
@@ -132,33 +121,33 @@ Go version: `1.26`.
 
 ## Documentation maintenance
 
-A code change must update its matching docs in the same commit:
+A code change updates its matching docs in the same commit. Doc paths (`user/`, `internals/`, `index.md`) are relative to `docs/`; "both `X.md`" means `user/X.md` and `internals/X.md`. User pages cover user-facing behaviour, internals pages internal behaviour; update each listed page the change affects. Update the README when its feature summary, safety note, or entry-point links change.
 
-| # | Change | Update |
-|---|---|---|
-| 1 | `internal/tool`: add/remove/rename a built-in tool | README "Built-in tools"; this file's "Built-in tools" list; sub-agent allowlist tables in docs/user/sub-agent-delegation.md if the tool appears there |
-| 2 | `internal/config`: add/change/remove a field | docs/user/configuration.md detailed field entry; compact reference in `skills/configure/SKILL.md`; defaults section if defaults changed; README config examples if a commonly-used field; if a prompt-injection toggle — also docs/user/optional-features.md and the README "Other features" one-liner |
-| 3 | `internal/delegation`: add/remove a sub-agent type or change a tool allowlist | docs/user/sub-agent-delegation.md types table; docs/internals/sub-agent-delegation.md if architecture/bootstrapping/tool construction changed; README sub-agent delegation tool table |
-| 4 | `internal/prompt` or `internal/agent`: change prompt assembly, compaction, budgets, token estimation, or context-management behaviour | docs/user/context-management.md if user-facing; docs/internals/context-management.md for internal behaviour; README "Context management" section if the high-level description changed |
-| 5 | New top-level feature, or a new package under `internal/` | README feature section; a docs/ page if it warrants detail; a new package gets an entry in the Repo map above; a new row in this table |
-| 6 | `internal/oneshot`: engine, phases, manifest fields, lock/resume, closeout, or reports | docs/user/oneshot.md if user-facing; docs/internals/oneshot.md for internal behaviour; if a config field changed — also docs/user/configuration.md and the `oneshot` example in README |
-| 7 | `internal/usagestats`: recorder, bucketing, persistence, retention, windows, or surfacing | docs/user/cache-stats.md; docs/internals/prompt-caching.md; README "Cache hit rate tracking" if the high-level behaviour changed |
-| 8 | `internal/notify`: platform driver or Service behaviour | docs/user/desktop-notifications.md if user-facing; docs/internals/desktop-notifications.md if the driver interface, extension points, lifecycle, or error handling changed; README "Desktop notifications" section if the high-level description changed |
-| 9 | `internal/oauth`: flow, token store, refresh, or PKCE | docs/user/optional-features.md "Codex OAuth" section if setup steps/token storage changed; docs/user/configuration.md provider types table if auth behaviour changed |
-| 10 | Optional feature change (accent colour, web search, image paste, conversation forking, code simplification, Codex OAuth) | docs/user/optional-features.md's section; README "Other features" one-liner if the summary changed |
-| 11 | Execution mode change (plan/build enforcement, mode-switching UX, `modes.default`) | docs/user/execution-modes.md; docs/internals/execution-modes.md; README "Execution modes" section if the high-level description changed; docs/user/sub-agent-delegation.md Safety section if the `code`/`follow_up` denial scope changed |
-| 12 | `internal/mcp`: manager, transport, naming, approval, or tooldef behaviour | docs/user/mcp.md if user-facing; docs/internals/mcp.md; docs/user/configuration.md for config field changes; README MCP section if the high-level description changed |
-| 13 | `internal/lsp`: new server type, new config field, new tool, or server-lifecycle behaviour | docs/user/lsp.md for user-facing behaviour and server setup examples; docs/internals/lsp.md; docs/user/configuration.md for config field changes; README LSP feature section if the high-level description changed; sub-agent allowlist tables in docs/user/sub-agent-delegation.md if tool availability changed |
-| 14 | `internal/diagnostics`: envelope fields, streams, writer/rotation/retention behaviour | docs/user/configuration.md `diagnostics` block; docs/internals/diagnostics.md; compact reference in `skills/configure/SKILL.md`; README if the high-level description changed |
-| 15 | Project config trust: trust store, project diff/security classification (`internal/config/{trust_store,project_diff*,security_fields}.go`), trust resolution (`cmd/steiner/project_trust.go`), or the trust dialog (`internal/tui/trust_dialog*.go`) | docs/user/configuration.md "Project trust" section (incl. the security-relevant field list when `securityFieldPatterns` changes); docs/internals/configuration.md trust-gate notes; README "Safety" if the high-level description changed |
-| 17 | `skills/security-audit/SKILL.md`: workflow, lenses, verdicts, report format, or invocation | docs/user/security-audit.md; README "Features" bullet if the one-line summary changed |
-| 18 | Claude subscription provider or `claude_subscription` type behavior | docs/user/claude-subscription.md; docs/internals/claude-subscription.md; provider/configuration and model-enumeration references; README and navigation links |
-| 19 | `internal/quota` or provider `quota_*` fetchers | docs/user/usage-dashboard.md; docs/internals/usage-dashboard.md; README feature section if high-level behaviour changed |
-| 20 | Package boundaries, entry points, turn lifecycle, provider/tool/session/TUI architecture | docs/internals/architecture.md |
-| 21 | `internal/provider`: cache hints, `PromptCacheKey` assignment, or cache identity (Codex `session-id`/`thread-id` headers, Anthropic `cache_control` breakpoints) | docs/internals/prompt-caching.md; docs/user/cache-stats.md if user-visible cache behaviour changed |
-| 22 | `internal/sandbox`: mounts, env, or wrapper resolution | docs/user/sandboxing.md; docs/internals/sandboxing.md |
-| 23 | `internal/advisor`: request flow, budgets, or cache profile | docs/user/advisor.md; docs/internals/advisor.md |
-| 24 | `internal/config` load, merge, or validation pipeline; model metadata resolution (`internal/metadata`, `internal/modelcatalog`, provider fact sources) | docs/internals/configuration.md; docs/user/configuration.md if user-visible precedence or behaviour changed |
+| Change | Update |
+|---|---|
+| `internal/tool`: add/remove/rename a built-in tool | `user/tools.md`; allowlist tables in `user/sub-agent-delegation.md` if the tool appears there |
+| `internal/config`: add/change/remove a field | `user/configuration.md` field entry (defaults are listed inline); compact reference in `skills/configure/SKILL.md`; prompt-injection toggles also `user/optional-features.md` |
+| `internal/config` load/merge/validation pipeline; model metadata resolution (`internal/metadata`, `internal/modelcatalog`, provider fact sources) | `internals/configuration.md`; `user/configuration.md` if user-visible precedence or behaviour changed |
+| Project trust: `internal/config/{trust_store,project_diff*,security_fields}.go`, `cmd/steiner/project_trust.go`, `internal/tui/trust_dialog*.go` | both `configuration.md` "Project trust" (user page incl. the security-relevant field list when `securityFieldPatterns` changes) |
+| `internal/delegation`: sub-agent type or tool allowlist | `user/sub-agent-delegation.md` types and allowlist tables; `internals/sub-agent-delegation.md` if architecture, bootstrapping, or tool construction changed |
+| `internal/prompt`, `internal/agent`: assembly, compaction, budgets, token estimation, context management | both `context-management.md` |
+| `internal/provider`: cache hints, `PromptCacheKey` assignment, cache identity | `internals/prompt-caching.md`; `user/cache-stats.md` if user-visible |
+| `internal/usagestats`: recorder, bucketing, persistence, retention, windows, surfacing | `user/cache-stats.md`; `internals/prompt-caching.md` |
+| `internal/oneshot`: engine, phases, manifest, lock/resume, closeout, reports | both `oneshot.md`; config fields also `user/configuration.md` |
+| Execution modes: plan/build enforcement, mode switching, `modes.default` | both `execution-modes.md`; `user/sub-agent-delegation.md` "Safety" if the `code`/`follow_up` denial scope changed |
+| `internal/mcp`: manager, transport, naming, approval, tooldefs | both `mcp.md`; config fields also `user/configuration.md` |
+| `internal/lsp`: server types, config, tools, server lifecycle | both `lsp.md` (user page holds server setup examples); config fields also `user/configuration.md`; tool availability also `user/sub-agent-delegation.md` allowlists |
+| `internal/diagnostics`: envelope, streams, writer/rotation/retention | `user/configuration.md` "`diagnostics` block"; `internals/diagnostics.md`; `skills/configure/SKILL.md` |
+| `internal/notify`: platform driver or Service behaviour | both `desktop-notifications.md` (internals if driver interface, extension points, lifecycle, or error handling changed) |
+| `internal/oauth`: flow, token store, refresh, PKCE | `user/optional-features.md` "Codex OAuth" if setup or token storage changed; `user/configuration.md` "Provider types" if auth behaviour changed |
+| Optional features: accent colour, web search, image paste, conversation forking, code simplification | that section of `user/optional-features.md` |
+| `claude_subscription` provider | both `claude-subscription.md`; `user/provider-and-model-setup.md`, `user/configuration.md`, `user/model-enumeration.md` references; `index.md` links |
+| `internal/quota`, provider `quota_*` fetchers | both `usage-dashboard.md` |
+| `internal/sandbox`: mounts, env, wrapper resolution | both `sandboxing.md` |
+| `internal/advisor`: request flow, budgets, cache profile | both `advisor.md` |
+| `skills/security-audit/SKILL.md`: workflow, lenses, verdicts, report format, invocation | `user/security-audit.md` |
+| Package boundaries, entry points, turn lifecycle, provider/tool/session/TUI architecture | `internals/architecture.md` |
+| New feature or new `internal/` package | a docs page if it warrants detail, linked from `index.md`; a new package also gets a Repo map entry and a row here |
 
 Rules for `docs/internals/` pages:
 
@@ -169,38 +158,13 @@ Rules for `docs/internals/` pages:
 * Keep pages compact: responsibilities, data flow, invariants, and non-obvious behaviour. No tutorials or essays.
 * When renaming or removing a page or heading, update inbound links and anchors in docs, README, AGENTS.md, and Go comments.
 
-**16.** `delegationInstructions`/consumer-file changes (`internal/prompt/system.go`'s `delegationInstructions`, `internal/prompt/specialists.go`'s `specialists` slice, or any of `skills/{implement,review,simplify,plan,pull-request}/SKILL.md`, `internal/oneshot/prompts/*.md`):
+Canon and consumer-file changes (`internal/prompt/system.go`'s `delegationInstructions`, `internal/prompt/specialists.go`'s `specialists` slice, or any of `skills/{implement,review,simplify,plan,pull-request}/SKILL.md`, `internal/oneshot/prompts/*.md`):
 
 * Update docs/maintenance/canon-drift-checks.md if the change affects what counts as canon or the consumer file list.
 * The `## Your sub-agents` table renders from the `specialists` slice in `internal/prompt/specialists.go` — edit the slice, never the markdown.
 * Canon must not name a tool gated behind config independently of `delegation.enabled` (e.g. `advisor`); put such mentions in that tool's own preamble section.
 * `internal/oneshot/prompts/{plan,review}.md` share four blocks verbatim with `skills/{plan,review}/SKILL.md`, pinned by `internal/oneshot/prompts_shared_test.go` — edit both copies and the test literal together.
 * The `### Worktree Handling` block, the `### Pre-Commit Checklist` block, and the fix-delegation bullet list are each deliberately duplicated verbatim: the first two across `skills/{implement,review,simplify}/SKILL.md`, the fix-delegation list across `skills/{review,simplify}/SKILL.md`. All three are pinned by `skills/shared_blocks_test.go` — edit every copy and the test literal together, never one alone.
-
-## Built-in tools
-
-Steiner exposes these model-facing built-in tools:
-
-- `read` — read files with offset/limit pagination; line numbers are opt-in with `line_numbers: true`
-- `mutate` — apply one or more structured file mutations atomically (create, write, replace, delete_file, move)
-- `glob` — find files by pattern
-- `grep` — search file contents with context
-- `ls` — list directories
-- `bash` — run shell commands
-- `fetch_url` — fetch a URL and return its content as markdown (main content extracted, falling back to the full document if extraction finds nothing) or image data
-- `display_file` — show a file in the TUI overlay without adding contents to conversation
-- `advisor` — ask a stronger-model steering advisor for guidance, optionally passing `question` and `files` for it to review (requires `advisor.enabled`)
-- `lsp_definitions` — jump to symbol definitions; requires `lsp.enabled` and a configured language server for the file's extension
-- `lsp_implementations` — find the concrete implementations of an interface or interface method (`textDocument/implementation`); requires `lsp.enabled` and a configured language server for the file's extension that supports the request
-- `lsp_type_definitions` — jump to the type declaration of a variable, field, or parameter (`textDocument/typeDefinition`); requires `lsp.enabled` and a configured language server for the file's extension that supports the request
-- `lsp_references` — find all references to a symbol; requires `lsp.enabled` and a configured language server for the file's extension
-- `lsp_diagnostics` — get diagnostics for a file; requires `lsp.enabled` and a configured language server for the file's extension
-- `lsp_hover` — get hover information (type signature + doc comment) for a symbol at a position; requires `lsp.enabled` and a configured language server for the file's extension
-- `lsp_symbols` — search for symbols by name across the workspace, or outline a file's symbols; requires `lsp.enabled` and at least one configured, enabled language server
-- `workflow_handoff` — transition to a different workflow with approved artifacts
-- `mcp__<server>__<tool>` — MCP tools registered from connected MCP servers appear alongside built-ins with the `mcp__` prefix (tool names may include an optional 8-hex SHA-256 hash suffix when sanitisation or truncation is required). Their schemas and results come from third-party servers, not steiner.
-
-Steiner owns the schemas and result formats. Dive implements the behavior.
 
 ## Docs
 
