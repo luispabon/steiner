@@ -73,6 +73,8 @@ For each parent turn, Steiner either:
 
 A reseed sends the non-system history as one transcript message. Prompt cache reuse is not expected for a reseeded turn. Images still held in memory are included. Image data stripped after it was consumed cannot return. Earlier tool calls appear as text.
 
+A compaction summary that Steiner appends in place rewrites that CLI session, so Steiner retires it and drops the stored state for the generation the summary replaced. The clear also applies when the summary fails or is cancelled. In that case the conversation and its generation stay as they were, and the next request reseeds from the preserved Steiner transcript. A summary that ran on a fork, a fresh helper, or a compaction fallback leaves the live session and its stored state alone. Stored state is saved with the session, so a crash during a compaction can leave the state from the previous save; the next request checks it like any stored state.
+
 ## Privacy and telemetry
 
 Prompts, system instructions, images that are accepted by the provider, tool calls, and tool results are sent to the local `claude` process. The process then handles the network request under the signed-in Claude account. Claude's own data handling, telemetry, retention, and account controls apply; see Anthropic's legal and compliance documentation linked above. The email address of the signed-in account is also sent to the model on every request, and Steiner cannot prevent it. See [Context the CLI adds](#context-the-cli-adds).
