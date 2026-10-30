@@ -72,6 +72,7 @@ func TestLoadReadsStoreOnceAndDoesNotNotify(t *testing.T) {
 	}
 	var logs int
 	svc := NewService(ServiceOptions{Store: store, Logf: func(string, ...any) { logs++ }})
+	t.Cleanup(svc.Close)
 	svc.Load()
 	if _, ok := svc.latest["k1"]; !ok {
 		t.Error("Load did not populate the stored snapshot")
@@ -98,6 +99,7 @@ func TestLoadRetriesAfterReadError(t *testing.T) {
 		t.Fatalf("write corrupt fixture: %v", err)
 	}
 	svc := NewService(ServiceOptions{Store: store})
+	t.Cleanup(svc.Close)
 	svc.Load()
 	if svc.loaded {
 		t.Fatal("Load marked a failed read as loaded")

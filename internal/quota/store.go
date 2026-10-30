@@ -59,34 +59,33 @@ func DefaultStorePath() (string, error) {
 // comparing reset times within resetsAtTolerance) and was fetched less than an
 // hour before now. Snapshots fetched more than 35 days before now are pruned.
 func (s *Store) Append(snap Snapshot, now time.Time) error {
-	_, err := s.append(snap, now)
+	_, _, err := s.append(snap, now)
 	return err
 }
 
-// append is Append reporting whether it wrote the file: it returns false when
-// the newest stored state already matches snap. Callers that track the persisted
-// baseline need that distinction, because a skipped dedupe leaves the file's
-// newest snapshot in place.
-func (s *Store) append(snap Snapshot, now time.Time) (bool, error) {
+// append is Append reporting whether it wrote the file. When it skips, it also
+// returns the stored snapshot that matched, so the caller can keep that snapshot
+// as its dedupe baseline; a write returns a zero snapshot.
+func (s *Store) append(snap Snapshot, now time.Time) (written bool, matched Snapshot, err error) {
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return false, fmt.Errorf("create quota store dir: %w", err)
+		return false, Snapshot{}, fmt.Errorf("create quota store dir: %w", err)
 	}
 	// The lock is taken on a sibling file, never the data file: write replaces
 	// the data file's inode on every write, so a lock on it would not exclude
 	// a writer that opened the previous inode.
 	lock, err := os.OpenFile(s.path+".lock", os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
-		return false, fmt.Errorf("open quota store lock: %w", err)
+		return false, Snapshot{}, fmt.Errorf("open quota store lock: %w", err)
 	}
 	defer lock.Close() //nolint:errcheck // Close only releases the lock file handle; nothing is written through it.
 	// Tighten a lock file left by an older writer. Failing here stops the append
 	// rather than writing history under a loose lock file.
 	if err := lock.Chmod(0o600); err != nil {
-		return false, fmt.Errorf("chmod quota store lock: %w", err)
+		return false, Snapshot{}, fmt.Errorf("chmod quota store lock: %w", err)
 	}
 	if err := lockFile(lock.Fd()); err != nil {
-		return false, fmt.Errorf("lock quota store: %w", err)
+		return false, Snapshot{}, fmt.Errorf("lock quota store: %w", err)
 	}
 	defer func() {
 		_ = unlockFile(lock.Fd()) // Closing the handle also drops the lock.
@@ -94,10 +93,10 @@ func (s *Store) append(snap Snapshot, now time.Time) (bool, error) {
 
 	snaps, err := s.readAll()
 	if err != nil {
-		return false, err
+		return false, Snapshot{}, err
 	}
 	if prev, ok := latestOf(snaps, snap.AccountKey); ok && sameState(prev, snap) && now.Sub(prev.FetchedAt) < dedupeWindow {
-		return false, nil
+		return false, prev, nil
 	}
 
 	cutoff := now.Add(-retentionDays * 24 * time.Hour)
@@ -107,7 +106,7 @@ func (s *Store) append(snap Snapshot, now time.Time) (bool, error) {
 			kept = append(kept, old)
 		}
 	}
-	return true, s.write(append(kept, snap))
+	return true, Snapshot{}, s.write(append(kept, snap))
 }
 
 // Latest returns the newest stored snapshot for each account key.

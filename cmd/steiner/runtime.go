@@ -185,11 +185,12 @@ func closeRuntime(rt *cliRuntime) {
 		emitCloseWarning(rt.events, "close claude_subscription pool", rt.claudeSubPool.Close())
 	}
 	// Quota history is written on the service's own goroutine, so drain it after
-	// the pool that observes usage has stopped.
+	// the pool that observes usage has stopped, then stop the writer.
 	if rt.quotaService != nil {
 		drainCtx, cancel := context.WithTimeout(context.Background(), quotaDrainTimeout)
 		emitCloseWarning(rt.events, "flush quota history", rt.quotaService.Drain(drainCtx))
 		cancel()
+		rt.quotaService.Close()
 	}
 	if rt.imageStore != nil {
 		emitCloseWarning(rt.events, "close image store", rt.imageStore.Cleanup())

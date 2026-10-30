@@ -135,6 +135,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		QuotaObserver:      quotaService.Observe,
 	})
 	rt.claudeSubPool = claudeSubPool
+	rt.quotaService = quotaService
 	providerFactory := buildRuntimeProviderFactory(httpClient, streamErrorLog, claudeSubPool, quotaService)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
 	if err != nil {

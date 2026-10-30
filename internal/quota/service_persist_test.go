@@ -3,10 +3,8 @@ package quota
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,24 +13,25 @@ import (
 func TestObserveSkipsAppendForUnchangedStateWithinHour(t *testing.T) {
 	requireFileLocking(t)
 	path := filepath.Join(t.TempDir(), "quota-history.json")
-	var logs []string
+	logs := &logBuffer{}
 	clock := testBase
 	svc := NewService(ServiceOptions{
 		Store: NewStore(path),
 		Now:   func() time.Time { return clock },
-		Logf: func(format string, args ...any) {
-			logs = append(logs, fmt.Sprintf(format, args...))
-		},
+		Logf:  logs.logf,
 	})
-	t.Cleanup(func() { mustDrain(t, svc) })
+	t.Cleanup(func() {
+		mustDrain(t, svc)
+		svc.Close()
+	})
 
 	svc.Register(Account{Key: "k", Aliases: []string{"a"}})
 
 	// The first observation is appended normally and records the append time.
 	svc.Observe(sampleSnapshot("k", testBase, 10))
 	mustDrain(t, svc)
-	if len(logs) != 0 {
-		t.Fatalf("first observation logged %v", logs)
+	if got := logs.messages(); len(got) != 0 {
+		t.Fatalf("first observation logged %v", got)
 	}
 
 	// A directory at the lock path makes every Store.Append fail, so any call
@@ -61,12 +60,12 @@ func TestObserveSkipsAppendForUnchangedStateWithinHour(t *testing.T) {
 			default:
 			}
 			clock = step.at
-			before := len(logs)
+			before := len(logs.messages())
 			svc.Observe(sampleSnapshot("k", step.at, step.used))
 			mustDrain(t, svc)
 
-			if attempted := len(logs) > before; attempted != step.wantAppend {
-				t.Errorf("store append attempted = %v, want %v (logs %v)", attempted, step.wantAppend, logs[before:])
+			if attempted := len(logs.messages()) > before; attempted != step.wantAppend {
+				t.Errorf("store append attempted = %v, want %v (logs %v)", attempted, step.wantAppend, logs.messages()[before:])
 			}
 			select {
 			case <-svc.Updates():
@@ -124,7 +123,10 @@ func TestRegisterUnavailableReplacesWhenNonEmptyAndNotifies(t *testing.T) {
 }
 
 // holdStoreLock takes the store lock the way another process would, so the
-// writer goroutine blocks in Store.Append until the returned release runs.
+// writer goroutine blocks in Store.Append until the returned release runs. The
+// release is also registered as a cleanup, so register any later cleanup that
+// waits on the writer before calling this, keeping the lock release first in
+// LIFO order.
 func holdStoreLock(t *testing.T, path string) (release func()) {
 	t.Helper()
 	lock, err := os.OpenFile(path+".lock", os.O_RDWR|os.O_CREATE, 0o600)
@@ -151,16 +153,47 @@ func holdStoreLock(t *testing.T, path string) (release func()) {
 	return release
 }
 
+// pendingJobs returns how many snapshots are queued or in flight in the writer.
+func pendingJobs(svc *Service) int {
+	svc.writer.mu.Lock()
+	defer svc.writer.mu.Unlock()
+	n := len(svc.writer.queue)
+	if svc.writer.writing {
+		n++
+	}
+	return n
+}
+
+// waitForWriterBusy waits until the writer has popped a job and is appending it.
+func waitForWriterBusy(t *testing.T, svc *Service) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		svc.writer.mu.Lock()
+		busy := svc.writer.writing
+		svc.writer.mu.Unlock()
+		if busy {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("writer did not start an append")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestObserveDoesNotWaitForStoreLock(t *testing.T) {
 	requireFileLocking(t)
 	path := filepath.Join(t.TempDir(), "quota-history.json")
-	release := holdStoreLock(t, path)
-
 	svc := NewService(ServiceOptions{
 		Store: NewStore(path),
 		Now:   func() time.Time { return testBase },
 	})
-	t.Cleanup(func() { mustDrain(t, svc) })
+	t.Cleanup(func() {
+		mustDrain(t, svc)
+		svc.Close()
+	})
+	release := holdStoreLock(t, path)
 	svc.Register(Account{Key: "k", Aliases: []string{"a"}})
 
 	observed := make(chan struct{})
@@ -208,13 +241,15 @@ func TestObserveDoesNotWaitForStoreLock(t *testing.T) {
 func TestDrainFlushesPendingWritesInOrder(t *testing.T) {
 	requireFileLocking(t)
 	path := filepath.Join(t.TempDir(), "quota-history.json")
-	release := holdStoreLock(t, path)
-
 	svc := NewService(ServiceOptions{
 		Store: NewStore(path),
 		Now:   func() time.Time { return testBase },
 	})
-	t.Cleanup(func() { mustDrain(t, svc) })
+	t.Cleanup(func() {
+		mustDrain(t, svc)
+		svc.Close()
+	})
+	release := holdStoreLock(t, path)
 	svc.Register(Account{Key: "k", Aliases: []string{"a"}})
 
 	const observations = 5
@@ -250,7 +285,10 @@ func TestDedupeComparesAgainstPersistedBaseline(t *testing.T) {
 		Store: NewStore(path),
 		Now:   func() time.Time { return testBase },
 	})
-	t.Cleanup(func() { mustDrain(t, svc) })
+	t.Cleanup(func() {
+		mustDrain(t, svc)
+		svc.Close()
+	})
 	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
 
 	const observations = 20
@@ -275,6 +313,79 @@ func TestDedupeComparesAgainstPersistedBaseline(t *testing.T) {
 	}
 }
 
+// TestRestartSeedsDedupeBaselineFromStore pins that a new service loads the
+// stored snapshot as its dedupe baseline, so an unchanged observation after a
+// restart queues no append at all.
+func TestRestartSeedsDedupeBaselineFromStore(t *testing.T) {
+	requireFileLocking(t)
+	path := filepath.Join(t.TempDir(), "quota-history.json")
+	stored := sampleSnapshot("k", testBase, 10)
+	if err := NewStore(path).Append(stored, testBase); err != nil {
+		t.Fatalf("seed Append: %v", err)
+	}
+
+	svc := NewService(ServiceOptions{
+		Store: NewStore(path),
+		Now:   func() time.Time { return testBase.Add(10 * time.Minute) },
+	})
+	t.Cleanup(func() {
+		mustDrain(t, svc)
+		svc.Close()
+	})
+	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
+
+	release := holdStoreLock(t, path)
+	defer release()
+
+	svc.Observe(stored)
+	svc.Observe(stored)
+	if pending := pendingJobs(svc); pending != 0 {
+		t.Fatalf("%d append(s) queued for an unchanged snapshot after restart, want none", pending)
+	}
+}
+
+// TestSkippedAppendSeedsDedupeBaseline pins that a file-level dedupe skip moves
+// the in-process baseline to the stored snapshot, so a state another process
+// already wrote is not re-queued on every observation.
+func TestSkippedAppendSeedsDedupeBaseline(t *testing.T) {
+	requireFileLocking(t)
+	path := filepath.Join(t.TempDir(), "quota-history.json")
+	if err := NewStore(path).Append(sampleSnapshot("k", testBase, 10), testBase); err != nil {
+		t.Fatalf("seed Append: %v", err)
+	}
+
+	svc := NewService(ServiceOptions{
+		Store: NewStore(path),
+		Now:   func() time.Time { return testBase.Add(30 * time.Minute) },
+	})
+	t.Cleanup(func() {
+		mustDrain(t, svc)
+		svc.Close()
+	})
+	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
+
+	// Another process writes a newer state after this service loaded, so the
+	// in-process baseline is stale relative to the file.
+	svc.Load()
+	other := sampleSnapshot("k", testBase.Add(20*time.Minute), 40)
+	if err := NewStore(path).Append(other, testBase.Add(20*time.Minute)); err != nil {
+		t.Fatalf("second process Append: %v", err)
+	}
+
+	// The append is skipped by the file-level dedupe; the skip must move the
+	// in-process baseline to the stored snapshot.
+	svc.Observe(other)
+	mustDrain(t, svc)
+
+	release := holdStoreLock(t, path)
+	defer release()
+
+	svc.Observe(other)
+	if pending := pendingJobs(svc); pending != 0 {
+		t.Fatalf("%d append(s) queued for a state the store already holds, want none", pending)
+	}
+}
+
 func TestPersistFailureIsLoggedAndDoesNotBlock(t *testing.T) {
 	// A regular file where the store directory belongs makes every append fail
 	// before it takes the lock.
@@ -282,43 +393,81 @@ func TestPersistFailureIsLoggedAndDoesNotBlock(t *testing.T) {
 	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
 		t.Fatalf("write blocker: %v", err)
 	}
-	logs := make(chan string, 8)
+	logs := &logBuffer{}
 	svc := NewService(ServiceOptions{
 		Store: NewStore(filepath.Join(blocked, "quota-history.json")),
 		Now:   func() time.Time { return testBase },
-		Logf: func(format string, args ...any) {
-			logs <- fmt.Sprintf(format, args...)
-		},
+		Logf:  logs.logf,
 	})
-	t.Cleanup(func() { mustDrain(t, svc) })
+	t.Cleanup(func() {
+		mustDrain(t, svc)
+		svc.Close()
+	})
 	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
 
 	svc.Observe(sampleSnapshot("k", testBase, 10))
 	mustDrain(t, svc)
 
-	var logged []string
-collect:
-	for {
-		select {
-		case msg := <-logs:
-			logged = append(logged, msg)
-		default:
-			break collect
-		}
-	}
-	persistFailed := false
-	for _, msg := range logged {
-		if strings.Contains(msg, "quota: persist") {
-			persistFailed = true
-		}
-	}
-	if !persistFailed {
-		t.Errorf("logged %v, want a persist failure", logged)
+	if logs.count("quota: persist") == 0 {
+		t.Errorf("logged %v, want a persist failure", logs.messages())
 	}
 
 	// The service keeps accepting observations after a failed append.
 	svc.Observe(sampleSnapshot("k", testBase.Add(time.Minute), 20))
 	mustDrain(t, svc)
+}
+
+// TestPersistQueueOverflowDropsOldest pins the overflow policy: once the queue
+// is full the oldest pending job is dropped, so the newest observation is still
+// written and the dropped ones never reach the store.
+func TestPersistQueueOverflowDropsOldest(t *testing.T) {
+	requireFileLocking(t)
+	path := filepath.Join(t.TempDir(), "quota-history.json")
+	logs := &logBuffer{}
+	svc := NewService(ServiceOptions{
+		Store: NewStore(path),
+		Now:   func() time.Time { return testBase },
+		Logf:  logs.logf,
+	})
+	t.Cleanup(func() {
+		mustDrain(t, svc)
+		svc.Close()
+	})
+	release := holdStoreLock(t, path)
+	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
+
+	const observations = 40
+	svc.Observe(sampleSnapshot("k", testBase, 0))
+	waitForWriterBusy(t, svc)
+	for i := 1; i < observations; i++ {
+		svc.Observe(sampleSnapshot("k", testBase.Add(time.Duration(i)*time.Second), float64(i)))
+	}
+
+	release()
+	mustDrain(t, svc)
+
+	// One append is in flight and persistQueueDepth jobs stay queued; every
+	// further observation drops the oldest queued job.
+	wantDropped := observations - 1 - persistQueueDepth
+	if got := logs.count("persist queue full"); got != wantDropped {
+		t.Errorf("logged %d queue-full drops, want %d (logs %v)", got, wantDropped, logs.messages())
+	}
+
+	stored, err := NewStore(path).readAll()
+	if err != nil {
+		t.Fatalf("readAll: %v", err)
+	}
+	if len(stored) == 0 {
+		t.Fatal("no snapshot was persisted")
+	}
+	if newest := stored[len(stored)-1].Windows[0].UsedPercent; newest != observations-1 {
+		t.Errorf("newest stored used = %v, want %d", newest, observations-1)
+	}
+	for _, snap := range stored {
+		if used := snap.Windows[0].UsedPercent; used >= 1 && used <= float64(wantDropped) {
+			t.Errorf("dropped observation with used %v was stored", used)
+		}
+	}
 }
 
 func TestConcurrentObserveAndDrain(t *testing.T) {
@@ -327,7 +476,10 @@ func TestConcurrentObserveAndDrain(t *testing.T) {
 		Store: NewStore(path),
 		Now:   func() time.Time { return testBase },
 	})
-	t.Cleanup(func() { mustDrain(t, svc) })
+	t.Cleanup(func() {
+		mustDrain(t, svc)
+		svc.Close()
+	})
 	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
 
 	var wg sync.WaitGroup
@@ -354,5 +506,46 @@ func TestConcurrentObserveAndDrain(t *testing.T) {
 	}
 	if len(stored) == 0 {
 		t.Fatal("no snapshot was persisted alongside concurrent drains")
+	}
+}
+
+// TestCloseStopsWriterAndDropsQueuedJobs pins Close's shutdown contract: queued
+// jobs are dropped with a log, later observations are dropped too, and Drain
+// after Close does not wait.
+func TestCloseStopsWriterAndDropsQueuedJobs(t *testing.T) {
+	requireFileLocking(t)
+	path := filepath.Join(t.TempDir(), "quota-history.json")
+	logs := &logBuffer{}
+	svc := NewService(ServiceOptions{
+		Store: NewStore(path),
+		Now:   func() time.Time { return testBase },
+		Logf:  logs.logf,
+	})
+	release := holdStoreLock(t, path)
+	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
+
+	svc.Observe(sampleSnapshot("k", testBase, 10))
+	svc.Observe(sampleSnapshot("k", testBase.Add(time.Minute), 20))
+	svc.Close()
+	svc.Close() // idempotent
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if err := svc.Drain(ctx); err != nil {
+		t.Fatalf("Drain after Close = %v, want nil", err)
+	}
+
+	svc.Observe(sampleSnapshot("k", testBase.Add(2*time.Minute), 30))
+	if logs.count("persistence writer closed") == 0 {
+		t.Errorf("logged %v, want a closed-writer drop", logs.messages())
+	}
+
+	release()
+	deadline := time.Now().Add(5 * time.Second)
+	for pendingJobs(svc) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d jobs still tracked after Close, want 0", pendingJobs(svc))
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

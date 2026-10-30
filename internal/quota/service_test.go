@@ -10,22 +10,20 @@ import (
 )
 
 // newTestService returns a Service whose clock is a variable the test controls
-// through the returned pointer. The service is drained when the test ends, so
-// the asynchronous writer never runs past it.
+// through the returned pointer. Logging goes to a buffer rather than t.Logf, so
+// the writer goroutine can never log after the test ends. The service is drained
+// and closed when the test ends.
 func newTestService(t *testing.T, store *Store) (*Service, *time.Time) {
 	t.Helper()
 	clock := testBase
 	svc := NewService(ServiceOptions{
 		Store: store,
 		Now:   func() time.Time { return clock },
-		Logf:  t.Logf,
+		Logf:  (&logBuffer{}).logf,
 	})
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := svc.Drain(ctx); err != nil {
-			t.Errorf("drain quota service: %v", err)
-		}
+		mustDrain(t, svc)
+		svc.Close()
 	})
 	return svc, &clock
 }

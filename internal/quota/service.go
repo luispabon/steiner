@@ -23,7 +23,8 @@ type ServiceOptions struct {
 // Service keeps the latest snapshot per account, merges passive observations,
 // refreshes accounts through their Fetchers, and persists every change. Its
 // methods are safe for concurrent use. Store appends run on a dedicated writer
-// goroutine; call Drain to wait for them. Store I/O never runs while mu is held.
+// goroutine; call Drain to wait for them and Close to stop the writer. Store I/O
+// never runs while mu is held.
 type Service struct {
 	store        *Store
 	writer       *persistWriter
@@ -184,17 +185,20 @@ func (s *Service) commit(snap Snapshot, replace bool) {
 	persisted, hadPersisted := s.lastPersisted[snap.AccountKey]
 	unchanged := hadPersisted && sameState(persisted.snap, snap) && now.Sub(persisted.at) < dedupeWindow
 	s.latest[snap.AccountKey] = snap
-	s.mu.Unlock()
 	if !unchanged {
+		// Queued under s.mu so per-account write order matches commit order.
+		// The lock order is s.mu then w.mu, and the writer never takes s.mu
+		// while holding w.mu.
 		s.persist(snap, now)
 	}
+	s.mu.Unlock()
 	s.notify()
 }
 
 // persist queues snap for the store writer and returns without waiting for it.
-// The writer appends snapshots in observation order and logs failures; the
-// in-memory state is already updated when persist runs. Code that reads the store
-// in this process right after an observation must call Drain first.
+// The writer appends snapshots in commit order and logs failures; the in-memory
+// state is already updated when persist runs. Code that reads the store in this
+// process right after an observation must call Drain first.
 func (s *Service) persist(snap Snapshot, now time.Time) {
 	if s.writer == nil {
 		return
@@ -202,13 +206,19 @@ func (s *Service) persist(snap Snapshot, now time.Time) {
 	s.writer.enqueue(persistJob{snap: snap, at: now})
 }
 
-// recordAppend moves the persisted baseline to a snapshot the writer just wrote.
-// It is not called when Store.Append skipped the write, because the file still
-// holds the older snapshot.
-func (s *Service) recordAppend(job persistJob) {
+// recordAppend moves the persisted baseline to what the store now holds: job's
+// snapshot after a write, or the stored snapshot a skipped file-level dedupe
+// matched. It notifies Updates so projections are rebuilt from the new history.
+// The writer calls it without holding its own mutex, so taking s.mu is safe.
+func (s *Service) recordAppend(job persistJob, written bool, matched Snapshot) {
 	s.mu.Lock()
-	s.lastPersisted[job.snap.AccountKey] = persistedState(job)
+	if written {
+		s.lastPersisted[job.snap.AccountKey] = persistedState(job)
+	} else if matched.AccountKey != "" {
+		s.lastPersisted[matched.AccountKey] = persistedState{snap: matched, at: matched.FetchedAt}
+	}
 	s.mu.Unlock()
+	s.notify()
 }
 
 // Drain waits until every snapshot this process queued for the store has been
@@ -220,12 +230,25 @@ func (s *Service) recordAppend(job persistJob) {
 // stay blocked on the store lock until the process exits, and the snapshots still
 // queued or in flight are lost (the caller reports a warning). Observations
 // arriving after a drain starts are still accepted and queued. Drain is safe to
-// call repeatedly and concurrently.
+// call repeatedly and concurrently. After Close it stops waiting, because nothing
+// more will be written.
 func (s *Service) Drain(ctx context.Context) error {
 	if s == nil || s.writer == nil {
 		return nil
 	}
 	return s.writer.drain(ctx)
+}
+
+// Close stops the store writer goroutine. Call it after Drain on the paths that
+// own the service. An append already in flight still finishes, or stays blocked
+// on the store lock until the lock is released or the process exits; jobs still
+// queued are dropped and logged. Idempotent, and a nil Service or one without a
+// store is a no-op.
+func (s *Service) Close() {
+	if s == nil || s.writer == nil {
+		return
+	}
+	s.writer.close()
 }
 
 // notify sends a coalesced update notification without blocking.
@@ -236,11 +259,14 @@ func (s *Service) notify() {
 	}
 }
 
-// ensureLoaded fills the in-memory latest map from the store until one load
-// succeeds. A failed load is retried by the next call. loadMu serializes loads,
-// so concurrent callers wait for the load in flight instead of reading the store
-// again. A stored snapshot replaces the in-memory one only when it is newer, so
-// observed state is kept. Store I/O runs with mu released.
+// ensureLoaded fills the in-memory latest map and the persisted baseline from
+// the store until one load succeeds. A failed load is retried by the next call.
+// loadMu serializes loads, so concurrent callers wait for the load in flight
+// instead of reading the store again. A stored snapshot replaces the in-memory
+// one only when it is newer, so observed state is kept. Seeding the baseline is
+// what makes dedupe survive a restart: without it every identical observation
+// would queue an append that the store then skips. Store I/O runs with mu
+// released.
 func (s *Service) ensureLoaded() {
 	s.loadMu.Lock()
 	defer s.loadMu.Unlock()
@@ -257,6 +283,9 @@ func (s *Service) ensureLoaded() {
 	for key, snap := range latest {
 		if cur, ok := s.latest[key]; !ok || snap.FetchedAt.After(cur.FetchedAt) {
 			s.latest[key] = snap
+		}
+		if cur, ok := s.lastPersisted[key]; !ok || snap.FetchedAt.After(cur.at) {
+			s.lastPersisted[key] = persistedState{snap: snap, at: snap.FetchedAt}
 		}
 	}
 	s.loaded = true
