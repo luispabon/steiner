@@ -38,6 +38,7 @@ type persistWriter struct {
 
 	closeOnce sync.Once
 	stop      chan struct{}
+	done      chan struct{} // closed when run returns
 
 	mu      sync.Mutex
 	queue   []persistJob
@@ -56,6 +57,7 @@ func newPersistWriter(store *Store, logf func(string, ...any), onAppend func(per
 		logf:     logf,
 		onAppend: onAppend,
 		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
 		idle:     make(chan struct{}),
 		wake:     make(chan struct{}, 1),
 	}
@@ -64,22 +66,30 @@ func newPersistWriter(store *Store, logf func(string, ...any), onAppend func(per
 	return w
 }
 
+// enqueueResult reports what enqueue did with a job.
+type enqueueResult struct {
+	// dropped is the oldest pending job displaced to make room, if any.
+	dropped *persistJob
+	// closed is true when the writer had stopped and the job was not queued.
+	closed bool
+}
+
 // enqueue queues job without blocking. When the queue is full the oldest pending
-// job is dropped and logged: the newest observation carries the state a reader
-// needs next, and the store's own dedupe skips most of the dropped writes
-// anyway. Jobs arriving after Close are dropped and logged.
-func (w *persistWriter) enqueue(job persistJob) {
+// job is dropped: the newest observation carries the state a reader needs next,
+// and the store's own dedupe skips most of the dropped writes anyway. Jobs
+// arriving after Close are not queued. The caller reports both cases, because
+// enqueue runs under the service lock and must not log there.
+func (w *persistWriter) enqueue(job persistJob) enqueueResult {
 	w.mu.Lock()
 	if w.stopped {
 		w.mu.Unlock()
-		w.logf("quota: dropped snapshot for %s fetched %s: persistence writer closed", job.snap.AccountKey, job.snap.FetchedAt)
-		return
+		return enqueueResult{closed: true}
 	}
-	var dropped persistJob
-	overflowed := len(w.queue) >= persistQueueDepth
-	if overflowed {
-		dropped = w.queue[0]
+	var result enqueueResult
+	if len(w.queue) >= persistQueueDepth {
+		dropped := w.queue[0]
 		w.queue = w.queue[1:]
+		result.dropped = &dropped
 	}
 	if len(w.queue) == 0 && !w.writing {
 		w.idle = make(chan struct{})
@@ -87,20 +97,19 @@ func (w *persistWriter) enqueue(job persistJob) {
 	w.queue = append(w.queue, job)
 	w.mu.Unlock()
 
-	if overflowed {
-		w.logf("quota: dropped queued snapshot for %s fetched %s: persist queue full", dropped.snap.AccountKey, dropped.snap.FetchedAt)
-	}
 	select {
 	case w.wake <- struct{}{}:
 	default:
 	}
+	return result
 }
 
-// drain waits until every queued and in-flight append has finished, or until ctx
-// ends. Appends cannot be cancelled, so an expired ctx abandons the wait while the
-// writer may stay blocked on the store lock; queued snapshots are then lost. The
-// caller reports that as a warning. After Close, drain stops waiting because
-// nothing more will be written. Safe for concurrent and repeated use.
+// drain waits until every queued and in-flight append has finished, until ctx
+// ends, or until Close runs. Appends cannot be cancelled, so an expired ctx
+// abandons the wait while the writer may stay blocked on the store lock; queued
+// snapshots are then lost. The caller reports that as a warning. Close wakes a
+// waiting drain because nothing more will be written. Safe for concurrent and
+// repeated use.
 func (w *persistWriter) drain(ctx context.Context) error {
 	for {
 		w.mu.Lock()
@@ -112,15 +121,18 @@ func (w *persistWriter) drain(ctx context.Context) error {
 		w.mu.Unlock()
 		select {
 		case <-idle:
+		case <-w.stop:
+			return nil
 		case <-ctx.Done():
 			return fmt.Errorf("drain quota persistence: %w", ctx.Err())
 		}
 	}
 }
 
-// close stops the writer goroutine. Jobs queued at that moment are dropped and
-// logged, and an append already in flight still finishes (or stays blocked on
-// the store lock until the lock is released or the process exits). Idempotent.
+// close stops the writer goroutine and wakes drainers waiting on it. Jobs queued
+// at that moment are dropped when the writer stops, and an append already in
+// flight still finishes (or stays blocked on the store lock until the lock is
+// released or the process exits). Idempotent.
 func (w *persistWriter) close() {
 	w.closeOnce.Do(func() {
 		w.mu.Lock()
@@ -130,8 +142,9 @@ func (w *persistWriter) close() {
 	})
 }
 
-// run appends queued jobs until Close runs.
+// run appends queued jobs until Close runs, then closes done.
 func (w *persistWriter) run() {
+	defer close(w.done)
 	for {
 		select {
 		case <-w.stop:
@@ -140,18 +153,19 @@ func (w *persistWriter) run() {
 		case <-w.wake:
 		}
 		for {
-			job, ok := w.next()
-			if !ok {
-				break
-			}
-			w.appendJob(job)
-			w.finish()
+			// Checked before popping so Close never lets one more append start.
 			select {
 			case <-w.stop:
 				w.abandon()
 				return
 			default:
 			}
+			job, ok := w.next()
+			if !ok {
+				break
+			}
+			w.appendJob(job)
+			w.finish()
 		}
 	}
 }

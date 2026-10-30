@@ -541,11 +541,51 @@ func TestCloseStopsWriterAndDropsQueuedJobs(t *testing.T) {
 	}
 
 	release()
-	deadline := time.Now().Add(5 * time.Second)
-	for pendingJobs(svc) != 0 {
-		if time.Now().After(deadline) {
-			t.Fatalf("%d jobs still tracked after Close, want 0", pendingJobs(svc))
+	select {
+	case <-svc.writer.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("writer did not stop after Close")
+	}
+	if pending := pendingJobs(svc); pending != 0 {
+		t.Errorf("%d jobs still tracked after Close, want 0", pending)
+	}
+}
+
+// TestCloseWakesWaitingDrain pins that Close releases a Drain already blocked on
+// the writer, instead of leaving it to run out its context deadline.
+func TestCloseWakesWaitingDrain(t *testing.T) {
+	requireFileLocking(t)
+	path := filepath.Join(t.TempDir(), "quota-history.json")
+	svc := NewService(ServiceOptions{
+		Store: NewStore(path),
+		Now:   func() time.Time { return testBase },
+	})
+	release := holdStoreLock(t, path)
+	defer release()
+	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
+
+	svc.Observe(sampleSnapshot("k", testBase, 10))
+	waitForWriterBusy(t, svc)
+
+	waiting := make(chan struct{})
+	drained := make(chan error, 1)
+	go func() {
+		close(waiting)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		drained <- svc.Drain(ctx)
+	}()
+	<-waiting
+	// Let the goroutine reach the select inside Drain before Close runs.
+	time.Sleep(10 * time.Millisecond)
+
+	svc.Close()
+	select {
+	case err := <-drained:
+		if err != nil {
+			t.Fatalf("Drain woken by Close = %v, want nil", err)
 		}
-		time.Sleep(time.Millisecond)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not wake the waiting Drain")
 	}
 }

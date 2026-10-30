@@ -185,25 +185,40 @@ func (s *Service) commit(snap Snapshot, replace bool) {
 	persisted, hadPersisted := s.lastPersisted[snap.AccountKey]
 	unchanged := hadPersisted && sameState(persisted.snap, snap) && now.Sub(persisted.at) < dedupeWindow
 	s.latest[snap.AccountKey] = snap
+	var result enqueueResult
 	if !unchanged {
 		// Queued under s.mu so per-account write order matches commit order.
 		// The lock order is s.mu then w.mu, and the writer never takes s.mu
 		// while holding w.mu.
-		s.persist(snap, now)
+		result = s.persist(snap, now)
 	}
 	s.mu.Unlock()
+	s.reportEnqueue(snap, result)
 	s.notify()
+}
+
+// reportEnqueue logs a job the writer refused or displaced. It runs after s.mu is
+// released, so logging never happens under the service lock.
+func (s *Service) reportEnqueue(snap Snapshot, result enqueueResult) {
+	if result.closed {
+		s.logf("quota: dropped snapshot for %s fetched %s: persistence writer closed", snap.AccountKey, snap.FetchedAt)
+		return
+	}
+	if result.dropped != nil {
+		s.logf("quota: dropped queued snapshot for %s fetched %s: persist queue full", result.dropped.snap.AccountKey, result.dropped.snap.FetchedAt)
+	}
 }
 
 // persist queues snap for the store writer and returns without waiting for it.
 // The writer appends snapshots in commit order and logs failures; the in-memory
-// state is already updated when persist runs. Code that reads the store in this
-// process right after an observation must call Drain first.
-func (s *Service) persist(snap Snapshot, now time.Time) {
+// state is already updated when persist runs. It reports what the writer did with
+// the job so commit can log a drop after releasing mu. Code that reads the store
+// in this process right after an observation must call Drain first.
+func (s *Service) persist(snap Snapshot, now time.Time) enqueueResult {
 	if s.writer == nil {
-		return
+		return enqueueResult{}
 	}
-	s.writer.enqueue(persistJob{snap: snap, at: now})
+	return s.writer.enqueue(persistJob{snap: snap, at: now})
 }
 
 // recordAppend moves the persisted baseline to what the store now holds: job's
@@ -230,8 +245,8 @@ func (s *Service) recordAppend(job persistJob, written bool, matched Snapshot) {
 // stay blocked on the store lock until the process exits, and the snapshots still
 // queued or in flight are lost (the caller reports a warning). Observations
 // arriving after a drain starts are still accepted and queued. Drain is safe to
-// call repeatedly and concurrently. After Close it stops waiting, because nothing
-// more will be written.
+// call repeatedly and concurrently, and a concurrent Close wakes a waiting Drain
+// immediately instead of waiting for the deadline.
 func (s *Service) Drain(ctx context.Context) error {
 	if s == nil || s.writer == nil {
 		return nil
