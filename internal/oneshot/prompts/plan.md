@@ -71,6 +71,8 @@ steps:
 
 Each step requires `id`, `title`, `scope`, `decisions`, `approach`, `files`, `constraints`, `acceptance`, and `verification`. `decisions` lists the Key Decision IDs that bind the step (empty only when none apply); `approach` is the concrete *how* — names, signatures, file locations, data shapes, and edge/error handling — written so the executor makes no design judgment calls, and it states any interface a later step consumes. Optional: `depends_on` only for a real dependency, `parallel_group` only when parallel execution is safe and worthwhile, `delegate_profile` (`explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`), and `no_delegate` for steps too small to delegate.
 
+Do **not** use `code` (implementation edits), `documentor` (documentation edits), or `sanity_check` (runs checks on changes) while planning; those belong to the executor and reviewer after handoff. You name `code`, `documentor`, and other `delegate_profile` values inside `plan.yaml` steps as instructions for the executor, which is planning rather than invoking them.
+
 ### Step Sizing
 
 Group steps by logical deliverable, not by mechanical operation. Serial execution is the default.

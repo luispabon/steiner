@@ -163,6 +163,7 @@ Every `code` or `documentor` sub-agent runs in its own runtime-provisioned and r
 The fix delegated agent must:
 
 - receive only the approved findings, fix plan, relevant files, constraints, and verification strategy
+- use `documentor` for documentation-only fixes and `code` for code or mixed fixes
 - run the pre-commit checklist before committing (see below)
 - commit its changes on the runtime-provided `delegate/` branch
 - avoid unrelated cleanup or scope expansion

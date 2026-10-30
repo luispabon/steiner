@@ -63,6 +63,7 @@ func TestDocumentorChildSectionOrder(t *testing.T) {
 				t.Fatalf("delegated-task authorization count = %d, want 1", got)
 			}
 			for _, forbidden := range []string{
+				"use `bash` only for read-only inspection, git, and",
 				"## Code agent duties",
 				codeRoleSentence,
 				"## Work methodology",
@@ -86,6 +87,25 @@ func TestDocumentorChildSectionOrder(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestDocumentorChildBashAndVerificationRules pins the documentor-specific
+// git restrictions and the documentation verification instruction, which the
+// shared working rules do not cover.
+func TestDocumentorChildBashAndVerificationRules(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: DelegatedDocumentorWorkflowMode()}).Content
+
+	for _, want := range []string{
+		"the git subcommands `status`, `diff`, `log`, `show`, `add`, `commit`, and `rev-parse`",
+		"Never run git commands that change working-tree files, for example `checkout`, `restore`, `apply`, `mv`, `rm`, `reset`, or `stash`.",
+		"Before reporting completion, verify every claim you changed against the code, confirm relative links and anchors resolve, and report the checks you ran.",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("documentor child missing %q", want)
+		}
 	}
 }
 

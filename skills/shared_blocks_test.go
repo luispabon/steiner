@@ -32,6 +32,7 @@ const preCommitChecklistBlock = "### Pre-Commit Checklist\n" +
 // agent must:" vs "The fix delegated agent must:"), so the pinned span is the
 // bullet list itself rather than the whole section.
 const fixDelegationBulletsBlock = "- receive only the approved findings, fix plan, relevant files, constraints, and verification strategy\n" +
+	"- use `documentor` for documentation-only fixes and `code` for code or mixed fixes\n" +
 	"- run the pre-commit checklist before committing (see below)\n" +
 	"- commit its changes on the runtime-provided `delegate/` branch\n" +
 	"- avoid unrelated cleanup or scope expansion\n" +
