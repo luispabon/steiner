@@ -143,10 +143,11 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 }
 
 func (s *Session) clearConversation() error {
+	const action = "clear conversation"
 	s.mu.Lock()
-	if err := s.clearGuardLocked("clear conversation"); err != nil {
+	if err := s.clearGuardLocked(action); err != nil {
 		s.mu.Unlock()
-		return s.reportReplacementGuardError("clear conversation", err)
+		return s.reportReplacementGuardError(action, err)
 	}
 	var id string
 	if s.deps.SessionStore != nil {
@@ -155,6 +156,26 @@ func (s *Session) clearConversation() error {
 		if err != nil {
 			s.mu.Unlock()
 			return fmt.Errorf("clear conversation: generate session id: %w", err)
+		}
+	}
+	drv, scope := s.driver.drv, s.driver.groupScope
+	if hook := s.deps.ClearFinishedSubAgents; hook != nil {
+		// StopTurn emits state events, and a sink may re-enter the session, so
+		// it runs outside s.mu. Revalidate the driver and Busy state below.
+		s.mu.Unlock()
+		drv.StopTurn()
+		s.mu.Lock()
+		if s.driver.drv != drv || s.driver.groupScope != scope {
+			s.mu.Unlock()
+			return s.reportReplacementGuardError(action, fmt.Errorf("%s: %w", action, errRunInProgress))
+		}
+		if err := s.clearBusyRefusalLocked(action); err != nil {
+			s.mu.Unlock()
+			return s.reportReplacementGuardError(action, err)
+		}
+		if hook(scope) != 0 {
+			s.mu.Unlock()
+			return s.reportReplacementGuardError(action, fmt.Errorf("%s: %w", action, errClearPending))
 		}
 	}
 	old := s.swapDriverLocked(func() {
@@ -179,30 +200,24 @@ var errClearPending = errors.New("sub-agents from another scope or still running
 
 // clearGuardLocked checks whether clear may replace the conversation. It keeps
 // the controller admission and driver Busy checks shared by every replacement,
-// then either applies the existing pending refusal or, when the supervisor
-// clear hook is wired, holds completions and lets the supervisor atomically
-// discard finished jobs from the current scope. The caller must hold s.mu and
-// keep it held through the swap.
+// then either applies the existing pending refusal or refuses running and
+// queued work before StopTurn can change the driver's observable hold state.
+// The caller must hold s.mu.
 func (s *Session) clearGuardLocked(action string) error {
-	if s.driverAdmissions > 0 || s.driver.drv.Busy() {
-		return fmt.Errorf("%s: %w", action, errRunInProgress)
+	if err := s.clearBusyRefusalLocked(action); err != nil {
+		return err
 	}
 	if s.deps.ClearFinishedSubAgents == nil {
 		return s.pendingRefusalLocked(action)
 	}
-	if err := s.clearPendingRefusalLocked(action); err != nil {
-		return err
-	}
-	// Hold completions before the atomic discard, so a completion already in
-	// flight cannot wake the waiting driver while the clear swaps drivers.
-	s.driver.drv.StopTurn()
-	// StopTurn cancels a run that started after the Busy check above; its state
-	// remains generating until the run returns, so this refuses that race.
-	if s.driver.drv.Busy() {
+	return s.clearPendingRefusalLocked(action)
+}
+
+// clearBusyRefusalLocked applies the admission and driver Busy checks shared by
+// every replacement. The caller must hold s.mu.
+func (s *Session) clearBusyRefusalLocked(action string) error {
+	if s.driverAdmissions > 0 || s.driver.drv.Busy() {
 		return fmt.Errorf("%s: %w", action, errRunInProgress)
-	}
-	if s.deps.ClearFinishedSubAgents(s.driver.groupScope) != 0 {
-		return fmt.Errorf("%s: %w", action, errClearPending)
 	}
 	return nil
 }
