@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -507,14 +508,13 @@ func TestIntegrationStreamChatCompletionHTTPError(t *testing.T) {
 	}
 }
 
-// TestIntegrationH2TimeoutDoesNotBreakTransport is a regression test for the
-// bug where setting a provider timeout cloned the shared http.Transport, which
-// dropped the unexported http2 wiring and produced
-// "net/http: HTTP/1.x transport connection broken: malformed HTTP response"
-// errors when the upstream negotiated h2. It runs the same chat request
-// against an h2-capable server with and without Timeout set, and expects both
-// to succeed without transport errors. The transport mirrors the shape of
-// runtimeHTTPClient (plain *http.Transport, no http2.ConfigureTransport).
+// TestIntegrationH2TimeoutDoesNotBreakTransport checks that a provider timeout
+// does not disable HTTP/2. NewOpenAICompat clones the client and its transport
+// when ClientConfig.Timeout is set, and the clone keeps its h2 wiring because
+// the transport sets ForceAttemptHTTP2. It runs the same chat request against an
+// h2-capable server with and without Timeout set and expects both to succeed.
+// The transport mirrors runtimeHTTPClient: a plain *http.Transport with a custom
+// DialContext, ForceAttemptHTTP2 and a ResponseHeaderTimeout.
 func TestIntegrationH2TimeoutDoesNotBreakTransport(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, _ *http.Request) {
@@ -526,11 +526,15 @@ func TestIntegrationH2TimeoutDoesNotBreakTransport(t *testing.T) {
 	srv.StartTLS()
 	defer srv.Close()
 
-	// Mirror runtimeHTTPClient shape: plain *http.Transport, ResponseHeaderTimeout
-	// set, no explicit http2.ConfigureTransport. The previous bug cloned this
-	// transport and dropped the h2 wiring; the test now ensures we do not
-	// touch the Transport at all when applying a provider timeout.
+	// Mirror runtimeHTTPClient: a plain *http.Transport with a custom
+	// DialContext and ForceAttemptHTTP2, no explicit http2.ConfigureTransport.
+	// NewOpenAICompat clones this transport when a provider timeout is set; the
+	// clone must keep negotiating h2.
 	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
 		ResponseHeaderTimeout: 30 * time.Second,
 		ForceAttemptHTTP2:     true,

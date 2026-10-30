@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -56,7 +57,7 @@ func TestRuntimeHTTPClientAllowsParallelRequestsToOneHost(t *testing.T) {
 				return
 			}
 			defer resp.Body.Close()
-			//nolint:errcheck // draining the body only enables connection reuse.
+			// Draining the body only enables connection reuse.
 			_, _ = io.Copy(io.Discard, resp.Body)
 			statuses[i] = resp.StatusCode
 		}(i)
@@ -75,10 +76,9 @@ func TestRuntimeHTTPClientAllowsParallelRequestsToOneHost(t *testing.T) {
 	}
 }
 
-// TestRuntimeHTTPClientNegotiatesHTTP2 covers the runtime transport and a
-// transport produced by Clone(), the shape providers use when config.timeout
-// is set. RootCAs are attached to clones so the client built by
-// runtimeHTTPClient is never mutated.
+// TestRuntimeHTTPClientNegotiatesHTTP2 covers the runtime transport itself and a
+// transport produced by Clone(), the shape providers use when config.timeout is
+// set.
 func TestRuntimeHTTPClientNegotiatesHTTP2(t *testing.T) {
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -89,27 +89,29 @@ func TestRuntimeHTTPClientNegotiatesHTTP2(t *testing.T) {
 
 	roots := x509.NewCertPool()
 	roots.AddCert(srv.Certificate())
-	trusted := func(base *http.Transport) *http.Transport {
-		tr := base.Clone()
-		tr.TLSClientConfig = &tls.Config{RootCAs: roots}
-		return tr
-	}
 
 	cases := []struct {
 		name      string
-		transport func(base *http.Transport) *http.Transport
+		transport func() *http.Transport
 	}{
 		{
-			name:      "runtime transport",
-			transport: trusted,
+			name: "runtime transport",
+			transport: func() *http.Transport {
+				base := runtimeHTTPClient().Transport.(*http.Transport)
+				// Trust the test cert before the transport is first used.
+				base.TLSClientConfig = &tls.Config{RootCAs: roots}
+				return base
+			},
 		},
 		{
 			name: "cloned transport",
-			transport: func(base *http.Transport) *http.Transport {
-				tr := trusted(base)
-				// Mirrors provider newClient, which clears the header timeout
-				// when a client-level timeout is configured.
-				tr.ResponseHeaderTimeout = 0
+			transport: func() *http.Transport {
+				base := runtimeHTTPClient().Transport.(*http.Transport)
+				tr := base.Clone()
+				if tr.TLSClientConfig == nil {
+					tr.TLSClientConfig = &tls.Config{}
+				}
+				tr.TLSClientConfig.RootCAs = roots
 				return tr
 			},
 		},
@@ -117,8 +119,7 @@ func TestRuntimeHTTPClientNegotiatesHTTP2(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			base := runtimeHTTPClient().Transport.(*http.Transport)
-			tr := tc.transport(base)
+			tr := tc.transport()
 			defer tr.CloseIdleConnections()
 			client := &http.Client{Transport: tr, Timeout: 10 * time.Second}
 
@@ -127,7 +128,7 @@ func TestRuntimeHTTPClientNegotiatesHTTP2(t *testing.T) {
 				t.Fatalf("GET %s: %v", srv.URL, err)
 			}
 			defer resp.Body.Close()
-			//nolint:errcheck // draining the body only enables connection reuse.
+			// Draining the body only enables connection reuse.
 			_, _ = io.Copy(io.Discard, resp.Body)
 			if resp.ProtoMajor != 2 {
 				t.Errorf("proto = %s, want HTTP/2", resp.Proto)
@@ -151,8 +152,8 @@ func TestRuntimeHTTPClientTransportSettings(t *testing.T) {
 		got  any
 		want any
 	}{
-		{"Proxy", tr.Proxy != nil, true},
-		{"DialContext", tr.DialContext != nil, true},
+		{"Proxy non-nil", tr.Proxy != nil, true},
+		{"DialContext non-nil", tr.DialContext != nil, true},
 		{"ForceAttemptHTTP2", tr.ForceAttemptHTTP2, true},
 		{"MaxConnsPerHost", tr.MaxConnsPerHost, 0},
 		{"MaxIdleConns", tr.MaxIdleConns, 100},
@@ -169,4 +170,10 @@ func TestRuntimeHTTPClientTransportSettings(t *testing.T) {
 			t.Errorf("%s = %v, want %v", check.name, check.got, check.want)
 		}
 	}
+
+	if reflect.ValueOf(tr.Proxy).Pointer() != reflect.ValueOf(http.ProxyFromEnvironment).Pointer() {
+		t.Error("Proxy is not http.ProxyFromEnvironment")
+	}
+	// The dialer timeouts are captured in the DialContext func value and cannot
+	// be inspected from it.
 }

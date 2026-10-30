@@ -291,16 +291,15 @@ func buildRuntimeQuotaService() *quota.Service {
 // the whole request (headers + body + streaming response).
 //
 // Connections are pooled per host with no cap on concurrent connections per
-// host, so HTTP/1.1-only upstreams (opencode.ai, plain-http local servers such
-// as Ollama) serve parallel sub-agent and quota requests instead of queueing
-// them behind one streaming response. MaxIdleConns is a global budget so
-// switching hosts keeps idle connections warm. ProxyFromEnvironment honours
-// HTTP_PROXY/HTTPS_PROXY/NO_PROXY, and the dial and handshake timeouts bound
-// stalled connections.
+// host, so HTTP/1.1-only upstreams serve parallel sub-agent and quota requests
+// instead of queueing them behind one streaming response. MaxIdleConns is a
+// global budget so switching hosts keeps idle connections warm.
+// ProxyFromEnvironment honours HTTP_PROXY/HTTPS_PROXY/NO_PROXY, and the dial and
+// handshake timeouts bound stalled connections.
 //
 // ForceAttemptHTTP2 must stay true: a non-zero DialContext disables HTTP/2
-// otherwise. Clone() also copies the transport without the TLSNextProto map the
-// original builds lazily, so a clone with ForceAttemptHTTP2=false would
+// otherwise. Clone() does not copy the TLSNextProto map that the original's
+// lazy setup creates, so a clone with ForceAttemptHTTP2=false would
 // conservatively disable HTTP/2 while TLS still advertises "h2". The result is
 // "net/http: HTTP/1.x transport connection broken: malformed HTTP response"
 // when the upstream negotiates h2.
