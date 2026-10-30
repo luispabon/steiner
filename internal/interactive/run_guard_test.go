@@ -185,6 +185,7 @@ func TestClearConversationResetsLineage(t *testing.T) {
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
 		t.Fatalf("ClearConversation: %v", err)
 	}
+	waitSettled(t, s)
 	if s.SessionID() == oldID {
 		t.Fatal("session ID did not rotate")
 	}
@@ -228,6 +229,7 @@ func TestClearConversationDropsBackendState(t *testing.T) {
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
 		t.Fatalf("ClearConversation: %v", err)
 	}
+	waitSettled(t, s)
 	if s.SessionID() == oldID {
 		t.Fatal("session ID did not rotate")
 	}
@@ -408,6 +410,7 @@ func TestHandoffClearRotateStillSavesFinalTurnUnderOriginalSession(t *testing.T)
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
 		t.Fatalf("ClearConversation after settlement: %v", err)
 	}
+	waitSettled(t, s)
 	if err := s.Handle(context.Background(), RotateSession{}); err != nil {
 		t.Fatalf("RotateSession after settlement: %v", err)
 	}

@@ -42,30 +42,6 @@ func (d *ConversationDriver) Busy() bool {
 	return !d.idleLocked()
 }
 
-// EmitStateNow re-emits the driver's current state even when it matches the
-// last emitted state. A replacement uses it after retiring an old driver so a
-// FIFO event sink ends on the live driver's state rather than a stale one that
-// passed the retired handle's filter before the swap.
-func (d *ConversationDriver) EmitStateNow() {
-	if d == nil {
-		return
-	}
-	d.mu.Lock()
-	key := driverStateKey{state: d.state, held: d.held, budget: d.exhausted}
-	if d.opts.Background != nil {
-		key.pending = len(d.opts.Background.Pending())
-	}
-	event := output.NewConversationStateEvent(string(key.state), key.held, key.pending, key.budget)
-	d.emitted = true
-	d.lastEmitted = key
-	d.emitMu.Lock()
-	d.mu.Unlock()
-	defer d.emitMu.Unlock()
-	if d.opts.Events != nil {
-		d.opts.Events.Emit(event)
-	}
-}
-
 // Snapshot returns a copy of the driver's durable state.
 func (d *ConversationDriver) Snapshot() DriverSnapshot {
 	d.mu.Lock()

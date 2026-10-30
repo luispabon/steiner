@@ -38,6 +38,13 @@ func newClearGuardSession(t *testing.T, bg *stubBackground, hook func(string) in
 
 func newClearGuardSessionWithEvents(t *testing.T, bg *stubBackground, hook func(string) int, baseEvents output.EventSink) *Session {
 	t.Helper()
+	return newClearGuardSessionWithScopes(t, bg, hook, baseEvents, nil)
+}
+
+// newClearGuardSessionWithScopes is newClearGuardSessionWithEvents with a
+// callback that observes group scope releases.
+func newClearGuardSessionWithScopes(t *testing.T, bg *stubBackground, hook func(string) int, baseEvents output.EventSink, onRelease func(string)) *Session {
+	t.Helper()
 	var scopeMu sync.Mutex
 	nextScope := 0
 	return testNewSession(t, Dependencies{
@@ -52,7 +59,12 @@ func newClearGuardSessionWithEvents(t *testing.T, bg *stubBackground, hook func(
 			scopeMu.Lock()
 			defer scopeMu.Unlock()
 			nextScope++
-			return fmt.Sprintf("scope-%d", nextScope), func() {}
+			scope := fmt.Sprintf("scope-%d", nextScope)
+			return scope, func() {
+				if onRelease != nil {
+					onRelease(scope)
+				}
+			}
 		},
 		ClearFinishedSubAgents: hook,
 	})
@@ -300,13 +312,16 @@ func TestClearConversationInFlightCompletionCannotWake(t *testing.T) {
 }
 
 func TestRetiredDriverEventSinkDropsStateEvents(t *testing.T) {
-	h := &driverHandle{}
+	h := &driverHandle{epoch: 7}
 	var got []output.Event
 	sink := driverEventSink{sink: output.SinkFunc(func(event output.Event) { got = append(got, event) }), h: h}
 	state := output.NewConversationStateEvent(string(agent.DriverWaiting), true, 1, false)
 	sink.Emit(state)
 	if len(got) != 1 {
 		t.Fatalf("live driver state events = %d, want 1", len(got))
+	}
+	if payload, ok := got[0].Payload.(output.ConversationStateEvent); !ok || payload.Epoch != 7 {
+		t.Fatalf("forwarded state payload = %#v, want epoch 7", got[0].Payload)
 	}
 	h.stale.Store(true)
 	sink.Emit(state)
@@ -347,7 +362,7 @@ func (r *conversationStateRecorder) snapshot() []output.ConversationStateEvent {
 	return append([]output.ConversationStateEvent(nil), r.events...)
 }
 
-func TestClearConversationDropsRetiredStateEventAndEndsIdle(t *testing.T) {
+func TestClearConversationDropsRetiredStateEvents(t *testing.T) {
 	bg := &stubBackground{}
 	recorder := &conversationStateRecorder{}
 	hook := func(string) int {
@@ -362,14 +377,57 @@ func TestClearConversationDropsRetiredStateEventAndEndsIdle(t *testing.T) {
 	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
 		t.Fatalf("ClearConversation: %v", err)
 	}
-	events := recorder.snapshot()
-	for _, event := range events {
-		if event.State == string(agent.DriverWaiting) && event.Held && event.Pending > 0 {
-			t.Fatalf("retired waiting state event leaked after clear: %+v", event)
-		}
+	// The retired driver closes on a tracked goroutine; wait for its final
+	// state events so a late emission cannot slip past the assertions.
+	waitSettled(t, s)
+	if events := recorder.snapshot(); len(events) != 0 {
+		t.Fatalf("post-clear state events = %+v, want none from the retired driver", events)
 	}
-	if len(events) != 1 || events[0].State != string(agent.DriverIdle) || events[0].Held || events[0].Pending != 0 {
-		t.Fatalf("post-clear state events = %+v, want one idle event", events)
+}
+
+func TestConversationEpochTracksLiveDriver(t *testing.T) {
+	s := testNewSession(t, Dependencies{SessionStore: newMockSessionStore(), Config: guardTestConfig()})
+	first := s.ConversationEpoch()
+	if first == 0 {
+		t.Fatal("initial conversation epoch = 0, want a nonzero epoch")
+	}
+	old := s.driver
+	if old.epoch != first {
+		t.Fatalf("handle epoch = %d, want the live epoch %d", old.epoch, first)
+	}
+
+	if err := s.Handle(context.Background(), ClearConversation{}); err != nil {
+		t.Fatalf("ClearConversation: %v", err)
+	}
+	second := s.ConversationEpoch()
+	if second <= first {
+		t.Fatalf("epoch after clear = %d, want above %d", second, first)
+	}
+	if got := s.driver.epoch; got != second {
+		t.Fatalf("live handle epoch = %d, want %d", got, second)
+	}
+	if s.driver == old {
+		t.Fatal("clear did not replace the driver")
+	}
+	waitSettled(t, s)
+}
+
+func TestLiveDriverStateEventsCarryLiveEpoch(t *testing.T) {
+	bg := &stubBackground{}
+	recorder := &conversationStateRecorder{}
+	s := newClearGuardSessionWithEvents(t, bg, nil, recorder)
+	bg.setPendingStates(agent.SubAgentFinished)
+	holdClearSession(t, s)
+
+	events := recorder.snapshot()
+	if len(events) == 0 {
+		t.Fatal("no conversation state events recorded")
+	}
+	want := s.ConversationEpoch()
+	for _, event := range events {
+		if event.Epoch != want {
+			t.Fatalf("state event = %+v, want the live epoch %d", event, want)
+		}
 	}
 }
 
@@ -542,6 +600,9 @@ func TestClearConversationDiscardsBufferedAndLateCompletions(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("late completion delivery did not finish")
 	}
+	// The retired driver closes on a tracked goroutine; wait for its final
+	// save before reading the store.
+	waitSettled(t, s)
 	// A delivery after the clear has closed the old inbox is dropped too.
 	old.DeliverCompletions([]agent.SubAgentCompletion{discardCompletion("after-marker")})
 
@@ -591,33 +652,25 @@ func (s *blockingStateSink) arm() {
 	s.blockMu.Unlock()
 }
 
-func (s *blockingStateSink) snapshot() []output.ConversationStateEvent {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]output.ConversationStateEvent(nil), s.events...)
-}
-
-func TestClearConversationReemitsLiveStateAfterStaleEmission(t *testing.T) {
+func TestClearConversationReturnsWhileRetiredSinkBlocked(t *testing.T) {
 	bg := &stubBackground{}
 	sink := &blockingStateSink{entered: make(chan struct{}), release: make(chan struct{})}
-	hookRan := make(chan struct{})
+	released := make(chan string, 1)
 	hook := func(string) int {
 		bg.setPending()
-		close(hookRan)
 		return 0
 	}
-	s := newClearGuardSessionWithEvents(t, bg, hook, sink)
+	s := newClearGuardSessionWithScopes(t, bg, hook, sink, func(scope string) { released <- scope })
 	bg.setPendingStates(agent.SubAgentFinished)
 	holdClearSession(t, s)
 	old := s.currentDriver()
+	oldScope := s.driver.groupScope
 
+	// Park the retired driver inside the sink, past the stale check, the way a
+	// full event bridge holds an event that is already in flight.
 	sink.arm()
 	bg.setPendingStates(agent.SubAgentFinished, agent.SubAgentFinished)
-	stopped := make(chan struct{})
-	go func() {
-		old.StopTurn()
-		close(stopped)
-	}()
+	go old.StopTurn()
 	select {
 	case <-sink.entered:
 	case <-time.After(10 * time.Second):
@@ -627,36 +680,45 @@ func TestClearConversationReemitsLiveStateAfterStaleEmission(t *testing.T) {
 	cleared := make(chan error, 1)
 	go func() { cleared <- s.Handle(context.Background(), ClearConversation{}) }()
 	select {
-	case <-hookRan:
-	case <-time.After(10 * time.Second):
-		t.Fatal("clear hook did not run")
-	}
-	// The old emission already passed the stale check and is parked in the
-	// sink. Release it so retire can flush emitMu and the clear can re-emit
-	// the live state.
-	close(sink.release)
-	if err := <-cleared; err != nil {
-		t.Fatalf("ClearConversation: %v", err)
-	}
-	<-stopped
-
-	events := sink.snapshot()
-	if len(events) == 0 {
-		t.Fatal("no state events recorded")
-	}
-	last := events[len(events)-1]
-	if last.State != string(agent.DriverIdle) || last.Held || last.Pending != 0 {
-		t.Fatalf("last state event = %+v, want idle held=false pending=0", last)
-	}
-	foundStale := false
-	for _, event := range events {
-		if event.State == string(agent.DriverWaiting) && event.Held && event.Pending == 2 {
-			foundStale = true
-			break
+	case err := <-cleared:
+		if err != nil {
+			t.Fatalf("ClearConversation: %v", err)
 		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("clear waited on the retired driver's blocked sink")
 	}
-	if !foundStale {
-		t.Fatal("stale waiting-held-pending event was not observed")
+
+	settled := make(chan bool, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		settled <- s.WaitRuns(ctx)
+	}()
+	select {
+	case <-settled:
+		t.Fatal("retirement finished while the old sink was still blocked")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(sink.release)
+	select {
+	case ok := <-settled:
+		if !ok {
+			t.Fatal("session did not settle after the sink released")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("retirement did not finish after the sink released")
+	}
+	select {
+	case got := <-released:
+		if got != oldScope {
+			t.Fatalf("released scope = %q, want the retired driver's %q", got, oldScope)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("retired driver's group scope was never released")
+	}
+	if state, held := s.currentDriver().State(); state != agent.DriverIdle || held {
+		t.Fatalf("live driver state = %q held=%v, want idle", state, held)
 	}
 }
 

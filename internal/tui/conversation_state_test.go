@@ -16,6 +16,97 @@ func applyConversationStateEvent(t *testing.T, m *Model, state string, held bool
 	m.applyEvent(output.NewConversationStateEvent(state, held, pending, budget))
 }
 
+func applyConversationStateEpochEvent(t *testing.T, m *Model, state string, held bool, pending int, budget bool, epoch uint64) {
+	t.Helper()
+	event := output.NewConversationStateEvent(state, held, pending, budget)
+	payload := event.Payload.(output.ConversationStateEvent)
+	payload.Epoch = epoch
+	event.Payload = payload
+	m.applyEvent(event)
+}
+
+// epochController is a testController that reports the live conversation
+// driver's epoch.
+type epochController struct {
+	*testController
+	epoch uint64
+}
+
+func (c *epochController) ConversationEpoch() uint64 { return c.epoch }
+
+// The production controller reports the live epoch, so the stale filter applies
+// to real sessions.
+var _ conversationEpochController = (*interactive.Session)(nil)
+
+func TestConversationStateEpochFiltering(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		controller  interactive.Controller
+		eventEpoch  uint64
+		wantApplied bool
+	}{
+		{name: "stale epoch dropped", controller: &epochController{testController: &testController{}, epoch: 2}, eventEpoch: 1},
+		{name: "live epoch applied", controller: &epochController{testController: &testController{}, epoch: 2}, eventEpoch: 2, wantApplied: true},
+		{name: "unstamped event applied", controller: &epochController{testController: &testController{}, epoch: 2}, wantApplied: true},
+		{name: "controller without epochs applied", controller: &testController{}, eventEpoch: 1, wantApplied: true},
+		{name: "no controller applied", eventEpoch: 1, wantApplied: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := newModel(Config{}, nil)
+			m.controller = tt.controller
+			applyConversationStateEpochEvent(t, m, conversationStateWaiting, true, 2, false, tt.eventEpoch)
+			if m.convStateSeen != tt.wantApplied {
+				t.Fatalf("convStateSeen = %v, want %v", m.convStateSeen, tt.wantApplied)
+			}
+			if !tt.wantApplied {
+				if m.convState != (output.ConversationStateEvent{}) || m.activity.label != "" {
+					t.Fatalf("stale state reached the UI: state=%+v label=%q", m.convState, m.activity.label)
+				}
+				return
+			}
+			if m.convState.State != conversationStateWaiting || !m.convState.Held || m.convState.Pending != 2 {
+				t.Fatalf("convState = %+v, want waiting held with 2 pending", m.convState)
+			}
+			if !strings.Contains(m.activity.label, "2 results waiting") {
+				t.Fatalf("activity label = %q, want the held waiting label", m.activity.label)
+			}
+		})
+	}
+}
+
+func TestStaleEpochStateCannotRestoreClearedUI(t *testing.T) {
+	t.Parallel()
+	ctrl := &epochController{testController: &testController{}, epoch: 4}
+	m := newModel(Config{}, nil)
+	m.controller = ctrl
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	applyConversationStateEpochEvent(t, m, conversationStateWaiting, true, 1, false, 4)
+	if !m.heldWaitingWithoutDelegations() {
+		t.Fatal("setup: live held waiting state was not applied")
+	}
+
+	m.input.SetValue("/clear")
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got := ctrl.countByType(interactive.ClearConversation{}); got != 1 {
+		t.Fatalf("clear actions = %d, want 1", got)
+	}
+	if m.convStateSeen || m.convState != (output.ConversationStateEvent{}) {
+		t.Fatalf("conversation state after clear = %+v seen=%v, want reset", m.convState, m.convStateSeen)
+	}
+
+	// The retired driver's state event reaches the UI after the clear.
+	applyConversationStateEpochEvent(t, m, conversationStateWaiting, true, 1, false, 3)
+	if m.convStateSeen || m.convState != (output.ConversationStateEvent{}) {
+		t.Fatalf("stale state after clear = %+v seen=%v, want ignored", m.convState, m.convStateSeen)
+	}
+	if m.activity.label != "" {
+		t.Fatalf("activity label after stale state = %q, want empty", m.activity.label)
+	}
+}
+
 func TestConversationStateWaitingLabels(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -209,12 +209,7 @@ func (s *Session) clearConversation() error {
 		old = s.swapDriverLocked(apply)
 	}
 	s.mu.Unlock()
-	s.retireDriver(old)
-	// retireDriver flushes the old driver's queued events before it returns.
-	// Re-emit the live driver's state so a FIFO sink ends on the active state
-	// rather than a stale state event that passed the old handle's filter
-	// before the swap marked it stale.
-	s.currentDriver().EmitStateNow()
+	s.retireDriverAsync(old)
 	return nil
 }
 

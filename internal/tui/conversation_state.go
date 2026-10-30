@@ -13,6 +13,27 @@ const (
 	conversationStateWaiting    = "waiting"
 )
 
+// conversationEpochController reports the epoch of the live conversation
+// driver. A state event stamped with another epoch came from a driver the
+// session has already replaced.
+type conversationEpochController interface {
+	ConversationEpoch() uint64
+}
+
+// staleConversationState reports whether payload came from a driver the
+// session has replaced. An event with no epoch, or a controller that cannot
+// report one, is always applied.
+func (m *Model) staleConversationState(payload output.ConversationStateEvent) bool {
+	if payload.Epoch == 0 || m.controller == nil {
+		return false
+	}
+	epochs, ok := m.controller.(conversationEpochController)
+	if !ok {
+		return false
+	}
+	return payload.Epoch != epochs.ConversationEpoch()
+}
+
 // applyConversationState records the driver's state, the only source for it,
 // and derives the parent activity label while the conversation is waiting.
 func (m *Model) applyConversationState(payload output.ConversationStateEvent) {
