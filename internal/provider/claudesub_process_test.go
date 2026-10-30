@@ -534,6 +534,7 @@ func TestClaudeSubRecordingDisabledCreatesNoOutput(t *testing.T) {
 	if os.Getenv(claudeSubHelperModeEnv) != "" {
 		t.Skip("helper process")
 	}
+	claudeSubShortGrace(t, 50*time.Millisecond)
 	root := filepath.Join(t.TempDir(), "recordings")
 	t.Setenv("STEINER_CLAUDESUB_RECORD", "")
 	child := newClaudeSubFakeChild()
@@ -639,6 +640,7 @@ func TestClaudeSubStdoutRecorder(t *testing.T) {
 }
 
 func TestClaudeSubProcessRecordsRawStdoutLines(t *testing.T) {
+	claudeSubShortGrace(t, 50*time.Millisecond)
 	root := filepath.Join(t.TempDir(), "recordings")
 	recorder, err := newClaudeSubStdoutRecorder(root, "session")
 	if err != nil {
@@ -673,6 +675,7 @@ func TestClaudeSubProcessRecordsRawStdoutLines(t *testing.T) {
 // TestClaudeSubReadStdoutMapsEnvelopeIDs proves readStdout copies the envelope
 // uuid and session_id of a CLI stdout line into the event it emits.
 func TestClaudeSubReadStdoutMapsEnvelopeIDs(t *testing.T) {
+	claudeSubShortGrace(t, 50*time.Millisecond)
 	child := newClaudeSubFakeChild()
 	p, feed := newClaudeSubTestProcess(t, child)
 	line := `{"type":"assistant","uuid":"uuid-1","session_id":"sess-1"}` + "\n"
@@ -693,6 +696,7 @@ func TestClaudeSubReadStdoutMapsEnvelopeIDs(t *testing.T) {
 }
 
 func TestClaudeSubStdoutRecorderFailureStopsProcess(t *testing.T) {
+	claudeSubShortGrace(t, 50*time.Millisecond)
 	root := filepath.Join(t.TempDir(), "recordings")
 	recorder, err := newClaudeSubStdoutRecorder(root, "session")
 	if err != nil {
