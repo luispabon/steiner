@@ -9,17 +9,18 @@ import (
 const identity = "You are steiner, a lean coding agent."
 
 const (
-	templateDelegation     = "delegation.md.tmpl"
-	templateAdvisor        = "advisor.md.tmpl"
-	templateLSP            = "lsp.md.tmpl"
-	templateCodeChild      = "code_child.md.tmpl"
-	templateCoreRules      = "core_rules.md.tmpl"
-	templateToolBatching   = "tool_batching.md.tmpl"
-	templateWorkflow       = "workflow_approval.md.tmpl"
-	templateDelegatedTask  = "delegated_task.md.tmpl"
-	templateSandbox        = "sandbox.md.tmpl"
-	templateExecutionModes = "execution_modes.md.tmpl"
-	templateOutputVoice    = "output_voice.md.tmpl"
+	templateDelegation      = "delegation.md.tmpl"
+	templateAdvisor         = "advisor.md.tmpl"
+	templateLSP             = "lsp.md.tmpl"
+	templateCodeChild       = "code_child.md.tmpl"
+	templateDocumentorChild = "documentor_child.md.tmpl"
+	templateCoreRules       = "core_rules.md.tmpl"
+	templateToolBatching    = "tool_batching.md.tmpl"
+	templateWorkflow        = "workflow_approval.md.tmpl"
+	templateDelegatedTask   = "delegated_task.md.tmpl"
+	templateSandbox         = "sandbox.md.tmpl"
+	templateExecutionModes  = "execution_modes.md.tmpl"
+	templateOutputVoice     = "output_voice.md.tmpl"
 )
 
 type workflowMode string
@@ -31,23 +32,25 @@ const (
 	workflowModeParent                workflowMode = "parent"
 	workflowModeDelegatedChild        workflowMode = "delegated_child"
 	workflowModeDelegatedCodeSubAgent workflowMode = "delegated_code_sub_agent"
+	workflowModeDelegatedDocumentor   workflowMode = "delegated_documentor"
 	workflowModeDelegatedNonCodeChild workflowMode = "delegated_non_code_child"
 )
 
 type sectionID string
 
 const (
-	sectionIdentity       sectionID = "identity"
-	sectionSandbox        sectionID = "sandbox"
-	sectionDelegation     sectionID = "delegation"
-	sectionAdvisor        sectionID = "advisor"
-	sectionLSP            sectionID = "lsp"
-	sectionCodeChild      sectionID = "code_child"
-	sectionCoreRules      sectionID = "core_rules"
-	sectionToolBatching   sectionID = "tool_batching"
-	sectionWorkflow       sectionID = "workflow"
-	sectionExecutionModes sectionID = "execution_modes"
-	sectionOutputVoice    sectionID = "output_voice"
+	sectionIdentity        sectionID = "identity"
+	sectionSandbox         sectionID = "sandbox"
+	sectionDelegation      sectionID = "delegation"
+	sectionAdvisor         sectionID = "advisor"
+	sectionLSP             sectionID = "lsp"
+	sectionCodeChild       sectionID = "code_child"
+	sectionDocumentorChild sectionID = "documentor_child"
+	sectionCoreRules       sectionID = "core_rules"
+	sectionToolBatching    sectionID = "tool_batching"
+	sectionWorkflow        sectionID = "workflow"
+	sectionExecutionModes  sectionID = "execution_modes"
+	sectionOutputVoice     sectionID = "output_voice"
 )
 
 type sectionContext struct {
@@ -69,6 +72,7 @@ var defaultSectionOrder = []sectionID{
 	sectionAdvisor,
 	sectionLSP,
 	sectionCodeChild,
+	sectionDocumentorChild,
 	sectionCoreRules,
 	sectionToolBatching,
 	sectionWorkflow,
@@ -111,6 +115,12 @@ var systemSections = map[sectionID]sectionRenderer{
 		}
 		return strings.TrimSpace(renderTemplate(templateCodeChild, nil)) + "\n\n" + strings.TrimSpace(renderTemplate(templateDelegatedTask, nil))
 	},
+	sectionDocumentorChild: func(ctx sectionContext) string {
+		if normalizeWorkflowMode(ctx.workflowMode) != workflowModeDelegatedDocumentor {
+			return ""
+		}
+		return strings.TrimSpace(renderTemplate(templateDocumentorChild, nil)) + "\n\n" + strings.TrimSpace(renderTemplate(templateDelegatedTask, nil))
+	},
 	sectionCoreRules: func(sectionContext) string {
 		return renderTemplate(templateCoreRules, nil)
 	},
@@ -142,6 +152,7 @@ var overrideSectionOrder = []sectionID{
 	sectionAdvisor,
 	sectionLSP,
 	sectionCodeChild,
+	sectionDocumentorChild,
 	sectionWorkflow,
 }
 
@@ -252,15 +263,17 @@ func renderSections(order []sectionID, ctx sectionContext) []string {
 func renderWorkflowInstructions(mode workflowMode, delegationEnabled bool) string {
 	mode = normalizeWorkflowMode(mode)
 	content := renderTemplate(templateWorkflow, struct {
-		DelegatedCode     bool
-		DelegatedNonCode  bool
-		DelegationEnabled bool
+		DelegatedCode       bool
+		DelegatedDocumentor bool
+		DelegatedNonCode    bool
+		DelegationEnabled   bool
 	}{
-		DelegatedCode:     isCodeChildMode(mode),
-		DelegatedNonCode:  mode == workflowModeDelegatedNonCodeChild,
-		DelegationEnabled: delegationEnabled,
+		DelegatedCode:       isCodeChildMode(mode),
+		DelegatedDocumentor: isDocumentorChildMode(mode),
+		DelegatedNonCode:    mode == workflowModeDelegatedNonCodeChild,
+		DelegationEnabled:   delegationEnabled,
 	})
-	if mode == workflowModeDelegatedCodeSubAgent || !isDelegatedChildMode(mode) {
+	if mode == workflowModeDelegatedCodeSubAgent || mode == workflowModeDelegatedDocumentor || !isDelegatedChildMode(mode) {
 		return content
 	}
 	return strings.TrimSpace(content) + "\n\n" + strings.TrimSpace(renderTemplate(templateDelegatedTask, nil))
@@ -268,7 +281,7 @@ func renderWorkflowInstructions(mode workflowMode, delegationEnabled bool) strin
 
 func normalizeWorkflowMode(mode workflowMode) workflowMode {
 	switch mode {
-	case workflowModeDelegatedChild, workflowModeDelegatedCodeSubAgent, workflowModeDelegatedNonCodeChild:
+	case workflowModeDelegatedChild, workflowModeDelegatedCodeSubAgent, workflowModeDelegatedDocumentor, workflowModeDelegatedNonCodeChild:
 		return mode
 	default:
 		return workflowModeParent
@@ -284,6 +297,10 @@ func isCodeChildMode(mode workflowMode) bool {
 	return mode == workflowModeDelegatedChild || mode == workflowModeDelegatedCodeSubAgent
 }
 
+func isDocumentorChildMode(mode workflowMode) bool {
+	return normalizeWorkflowMode(mode) == workflowModeDelegatedDocumentor
+}
+
 // ParentWorkflowMode returns the default workflow wording for parent runs.
 func ParentWorkflowMode() workflowMode {
 	return workflowModeParent
@@ -297,6 +314,11 @@ func DelegatedChildWorkflowMode() workflowMode {
 // DelegatedCodeSubAgentWorkflowMode identifies delegated code sub-agent prompts.
 func DelegatedCodeSubAgentWorkflowMode() workflowMode {
 	return workflowModeDelegatedCodeSubAgent
+}
+
+// DelegatedDocumentorWorkflowMode identifies delegated documentor sub-agent prompts.
+func DelegatedDocumentorWorkflowMode() workflowMode {
+	return workflowModeDelegatedDocumentor
 }
 
 // DelegatedNonCodeChildWorkflowMode returns workflow wording for delegated non-code child runs.

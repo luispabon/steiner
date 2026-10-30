@@ -47,8 +47,8 @@ func ensureSupervisor(deps *SubAgentHandlerDeps) {
 	}
 }
 
-// delegatePlan is the per-child run state. A code agent's worktree, request,
-// warnings and remediation only exist after provision has run at dequeue time.
+// delegatePlan is the per-child run state. A worktree-isolated child's worktree,
+// request, warnings and remediation only exist after provision has run at dequeue time.
 type delegatePlan struct {
 	req         agent.RunRequest
 	worktree    CodeWorktree

@@ -68,7 +68,7 @@ func TestSetupErrorProjectToolErrorSealedGroupReservation(t *testing.T) {
 func TestSetupErrorProjectToolErrorRequiresCommit(t *testing.T) {
 	t.Parallel()
 	envelope := (&SetupError{err: ErrCodeWorktreeRequiresCommit}).ProjectToolError()
-	want := "code sub-agent requires a Git repository with at least one commit; commit the project files and retry"
+	want := "worktree-isolated sub-agent requires a Git repository with at least one commit; commit the project files and retry"
 	if envelope.Reason != want {
 		t.Fatalf("Reason = %q, want %q", envelope.Reason, want)
 	}

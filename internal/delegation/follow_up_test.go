@@ -557,7 +557,7 @@ func TestFollowUpHandler_DeniesMutateChildInPlanMode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error denying follow-up in plan mode")
 	}
-	want := "follow_up: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
+	want := "follow_up: plan mode is active; sub-agents that can mutate files are unavailable. " +
 		"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready"
 	if got := err.Error(); got != want {
 		t.Fatalf("error = %q, want %q", got, want)
@@ -736,10 +736,10 @@ func TestFollowUpHandler_RejectsDeadCodeWorktree(t *testing.T) {
 			if result != nil {
 				t.Fatalf("got non-nil result %v for dead worktree (should return nil, err)", result)
 			}
-			if !strings.Contains(err.Error(), `follow_up: agent "child-dead"'s code worktree is no longer usable`) {
+			if !strings.Contains(err.Error(), `follow_up: agent "child-dead"'s worktree is no longer usable`) {
 				t.Fatalf("error = %q, want it to name the failure and remedy", err.Error())
 			}
-			if !strings.Contains(err.Error(), "delegate a fresh code agent instead") {
+			if !strings.Contains(err.Error(), "delegate a fresh sub-agent instead") {
 				t.Fatalf("error = %q, want remedy text", err.Error())
 			}
 			if !strings.Contains(err.Error(), tt.wantCause) {

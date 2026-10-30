@@ -46,7 +46,7 @@ Struggle escalation: when a task comes back for correction on the same problem a
 
 ### Implementation code restriction
 
-You MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on implementation-scoped files — the files listed in a step's `files`. All implementation edits and verification-failure fixes MUST be performed by delegated `code` sub-agents. Doing it directly is a violation, not a fallback. Deliberate tightening of the routing threshold in your system prompt: the executor owns the feature branch, so even a small in-context edit must go through a `code` sub-agent — delegation is this workflow's entire purpose, not just its default.
+You MUST NOT call file-mutation tools (`mutate`, or `bash` for file writes) on implementation-scoped files — the files listed in a step's `files`. All implementation edits and verification-failure fixes MUST be performed by delegated `code` sub-agents. Documentation-only deliverables MUST be performed by a delegated `documentor` sub-agent; documentation that must ship in the same commit as a code change stays with that `code` deliverable. Doing it directly is a violation, not a fallback. Deliberate tightening of the routing threshold in your system prompt: the executor owns the feature branch, so even a small in-context edit must go through a `code` sub-agent — delegation is this workflow's entire purpose, not just its default.
 
 There is no inline execution tier. If delegation itself is unavailable, stop and report a blocker.
 

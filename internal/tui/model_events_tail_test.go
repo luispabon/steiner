@@ -62,7 +62,7 @@ func TestApplyEventSubAgentPath(t *testing.T) {
 			wantSeqDelta: 1,
 			wantCmd:      true,
 			wantDirty:    true,
-			wantStatus:   "code worktree discarded for child-1",
+			wantStatus:   "worktree discarded for child-1",
 		},
 		{
 			name:         "sub-agent sandbox status shares debounce tail",

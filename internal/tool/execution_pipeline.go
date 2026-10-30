@@ -150,6 +150,11 @@ func (e *Executor) runPipeline(ctx context.Context, in executionInput) (any, err
 		}
 		effectivePolicy = e.pathPolicy.RestrictWritesTo(prefixes...)
 	}
+	// Apply the executor's write scope after plan restrictions so a scoped
+	// executor is bound by both.
+	if e.writeScope != nil {
+		effectivePolicy = effectivePolicy.WithWriteScope(*e.writeScope)
+	}
 
 	normalizedInput, approvalPolicy, err := e.normalizeExecutionInput(ctx, def, in.CallID, in.Input, effectivePolicy)
 	if err != nil {

@@ -1,4 +1,4 @@
-{{- if .DelegatedCode }}
+{{- if or .DelegatedCode .DelegatedDocumentor }}
 {{- else if .DelegatedNonCode }}
 {{- else }}
 ## Work methodology

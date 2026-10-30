@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-// ListCodeWorktrees lists all provisioned code worktrees owned by delegation under
+// ListCodeWorktrees lists all provisioned worktrees owned by delegation (both
+// worktree-isolated types, code and documentor) under
 // projectRoot/.steiner/worktrees, parsing git worktree list --porcelain.
 // Only includes worktrees whose branch name starts with "delegate/" (the delegation ownership marker).
 func ListCodeWorktrees(ctx context.Context, projectRoot string) ([]CodeWorktree, error) {
@@ -37,7 +38,8 @@ func ListCodeWorktrees(ctx context.Context, projectRoot string) ([]CodeWorktree,
 	return worktrees, nil
 }
 
-// ListProcessCodeWorktrees lists delegation-owned code worktrees created by this process.
+// ListProcessCodeWorktrees lists delegation-owned worktrees (code and
+// documentor) created by this process.
 func ListProcessCodeWorktrees(ctx context.Context, projectRoot string) ([]CodeWorktree, error) {
 	worktrees, err := ListCodeWorktrees(ctx, projectRoot)
 	if err != nil {

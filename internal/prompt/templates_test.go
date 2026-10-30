@@ -25,11 +25,14 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 		},
 		{name: templateAdvisor},
 		{name: templateCodeChild},
+		{name: templateDocumentorChild},
+		{name: "child_worktree.md.tmpl"},
 		{name: templateCoreRules},
 		{name: templateWorkflow, data: struct {
-			DelegatedCode     bool
-			DelegatedNonCode  bool
-			DelegationEnabled bool
+			DelegatedCode       bool
+			DelegatedDocumentor bool
+			DelegatedNonCode    bool
+			DelegationEnabled   bool
 		}{DelegatedCode: true, DelegationEnabled: true}},
 		{name: templateDelegatedTask},
 		{name: templateSandbox, data: struct{ Mounts []string }{Mounts: []string{"/a", "/b"}}},

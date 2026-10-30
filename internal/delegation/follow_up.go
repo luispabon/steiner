@@ -77,8 +77,8 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 		return nil, tool.WithModelGuidance(err)
 	}
 	childHasMutate := childHasMutateTool(session.Request)
-	isCode := childHasMutate && session.Remediation != nil
-	if err := denyFollowUpOnDeadCodeWorktree(ctx, agentID, isCode, session.Remediation); err != nil {
+	usesWorktree := childHasMutate && session.Remediation != nil
+	if err := denyFollowUpOnDeadWorktree(ctx, agentID, usesWorktree, session.Remediation); err != nil {
 		return nil, tool.WithModelGuidance(err)
 	}
 	if err := denyFollowUpInPlanMode(ctx, childHasMutate); err != nil {
@@ -108,7 +108,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	spec.AdvisorBudget = effectiveAdvisorBudget(advisorAvailable, deps.AdvisorSubAgentBudget)
 
 	worktree := CodeWorktree{}
-	if isCode {
+	if usesWorktree {
 		worktree = CodeWorktree{
 			Path:   session.Remediation.WorktreePath,
 			Branch: session.Remediation.ExpectedBranch,
@@ -116,7 +116,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 	}
 	result, err := superviseDelegate(ctx, deps, spec, groupInput(input), worktree, nil,
 		func(childCtx context.Context) (tool.ExecutionResult, error) {
-			return executeFollowUp(childCtx, deps, spec, req, session, isCode)
+			return executeFollowUp(childCtx, deps, spec, req, session, usesWorktree)
 		},
 		func() tool.ExecutionResult {
 			emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, spec.AgentType)
@@ -134,13 +134,13 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 }
 
 // executeFollowUp resumes the child on the supervisor-owned goroutine.
-func executeFollowUp(childCtx context.Context, deps SubAgentHandlerDeps, spec Spec, req agent.RunRequest, session *ChildSession, isCode bool) (tool.ExecutionResult, error) {
+func executeFollowUp(childCtx context.Context, deps SubAgentHandlerDeps, spec Spec, req agent.RunRequest, session *ChildSession, usesWorktree bool) (tool.ExecutionResult, error) {
 	agentID := spec.AgentID
 	reopenFollowUpTrace(agentID)
 	emitDelegateStarted(deps.Events, spec, req.ResolvedModel.Alias, spec.AgentType)
 
 	var opts []spawnOption
-	if isCode {
+	if usesWorktree {
 		opts = append(opts, WithRemediation(session.Remediation))
 	}
 	result, state, runUsage, err := SpawnDelegate(childCtx, spec, req, deps.Runner, deps.Events, deps.TraceLogger, opts...)
@@ -160,7 +160,7 @@ func executeFollowUp(childCtx context.Context, deps SubAgentHandlerDeps, spec Sp
 		if delegationResult, ok := result.Value.(Result); ok {
 			delegationResult.FollowUpCount = updated.FollowUpCount
 			delegationResult.persisted = true
-			delegationResult = applyFollowUpWorktreeResult(delegationResult, isCode, session.Remediation, deps.WorkDir)
+			delegationResult = applyFollowUpWorktreeResult(delegationResult, usesWorktree, session.Remediation, deps.WorkDir)
 			result.Value = delegationResult
 		}
 	}
@@ -212,13 +212,15 @@ func validateFollowUp(input map[string]any, deps SubAgentHandlerDeps) (string, s
 	return agentID, message, session, nil
 }
 
-func denyFollowUpOnDeadCodeWorktree(ctx context.Context, agentID string, isCode bool, remediation *RemediationConfig) error {
-	if !isCode {
+// denyFollowUpOnDeadWorktree denies resuming a worktree-isolated child (code
+// or documentor) whose worktree is gone or no longer on its expected branch.
+func denyFollowUpOnDeadWorktree(ctx context.Context, agentID string, usesWorktree bool, remediation *RemediationConfig) error {
+	if !usesWorktree {
 		return nil
 	}
 	if err := verifyCodeWorktree(ctx, remediation.WorktreePath, remediation.ExpectedBranch); err != nil {
 		return fmt.Errorf(
-			"follow_up: agent %q's code worktree is no longer usable (%w); delegate a fresh code agent instead of resuming this one",
+			"follow_up: agent %q's worktree is no longer usable (%w); delegate a fresh sub-agent instead of resuming this one",
 			agentID, err)
 	}
 	return nil
@@ -226,9 +228,9 @@ func denyFollowUpOnDeadCodeWorktree(ctx context.Context, agentID string, isCode 
 
 // applyFollowUpWorktreeResult sets the absolute and provider-relative worktree
 // locators on a follow-up result from the stored remediation config, once the
-// worktree has already passed validation (denyFollowUpOnDeadCodeWorktree).
-func applyFollowUpWorktreeResult(result Result, isCode bool, remediation *RemediationConfig, workDir string) Result {
-	if !isCode || remediation == nil {
+// worktree has already passed validation (denyFollowUpOnDeadWorktree).
+func applyFollowUpWorktreeResult(result Result, usesWorktree bool, remediation *RemediationConfig, workDir string) Result {
+	if !usesWorktree || remediation == nil {
 		return result
 	}
 	result.WorktreePath = remediation.WorktreePath
@@ -242,12 +244,13 @@ func denyFollowUpInPlanMode(ctx context.Context, childHasMutate bool) error {
 	if !ok || mode != config.ExecutionModePlan || !childHasMutate {
 		return nil
 	}
-	return fmt.Errorf("follow_up: plan mode is active; the code sub-agent (which can mutate files) is unavailable. " +
+	return fmt.Errorf("follow_up: plan mode is active; sub-agents that can mutate files are unavailable. " +
 		"Ask the user to switch to build mode, or call workflow_handoff when your plan is ready")
 }
 
 // childHasMutateTool reports whether the child session's request includes the "mutate" tool.
-// Only the code agent has mutate in its allowlist, so this discriminates code children.
+// Only worktree-isolated write agents (code and documentor) have mutate in
+// their allowlist, so this discriminates write children that run in a worktree.
 func childHasMutateTool(req agent.RunRequest) bool {
 	for _, toolSpec := range req.Tools {
 		if toolSpec.Function.Name == "mutate" {

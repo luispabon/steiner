@@ -84,7 +84,7 @@ const (
 	EventTypeDelegationComplete = "delegation_complete"
 	// EventTypeDelegationFailed marks failed sub-agent completion.
 	EventTypeDelegationFailed = "delegation_failed"
-	// EventTypeDelegationWorktreeDisposal records disposal of a cancelled code agent worktree.
+	// EventTypeDelegationWorktreeDisposal records disposal of a cancelled child's worktree.
 	EventTypeDelegationWorktreeDisposal = "delegation_worktree_disposal"
 	// EventTypeDelegationCacheWaiting marks a sub-agent delegation gated behind a shared prompt-cache dispatch slot.
 	EventTypeDelegationCacheWaiting = "delegation_cache_waiting"

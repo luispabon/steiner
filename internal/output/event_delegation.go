@@ -97,7 +97,7 @@ type DelegationFailedEvent struct {
 	AdvisorDenied int    `json:"advisor_denied,omitempty"`
 }
 
-// DelegationWorktreeDisposalEvent records disposal of a cancelled code agent worktree.
+// DelegationWorktreeDisposalEvent records disposal of a cancelled child's worktree.
 type DelegationWorktreeDisposalEvent struct {
 	AgentID string `json:"agent_id"`
 	Removed bool   `json:"removed"`

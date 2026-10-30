@@ -11,7 +11,7 @@ import (
 )
 
 // provisionCodeWorktreeAndWarnings checks for dirty changes and provisions an isolated
-// worktree for code agents, collecting warnings for any issues encountered.
+// worktree for worktree-isolated agents, collecting warnings for any issues encountered.
 func provisionCodeWorktreeAndWarnings(ctx context.Context, workDir string, agentID string) (CodeWorktree, []string, error) {
 	var warnings []string
 	var provisionedWorktree CodeWorktree
@@ -53,7 +53,7 @@ func applyCodeWorktreeResult(result tool.ExecutionResult, worktree CodeWorktree,
 	return result
 }
 
-// provisionCodePlan provisions a code agent's isolated worktree and builds its
+// provisionCodePlan provisions a worktree-isolated agent's worktree and builds its
 // request. It runs at dequeue time on the supervisor goroutine.
 func provisionCodePlan(ctx context.Context, plan *delegatePlan, spec Spec, deps SpecializedToolDeps, resolvedProvider provider.Provider, resolvedModel provider.ResolvedModel, allowedTools []string) error {
 	worktree, warnings, err := provisionCodeWorktreeAndWarnings(ctx, deps.WorkDir, spec.AgentID)
@@ -112,14 +112,14 @@ func codeRemediationConfig(worktree CodeWorktree) *RemediationConfig {
 }
 
 func applySpecializedWorktreeResult(agentType AgentType, result tool.ExecutionResult, worktree CodeWorktree, warnings []string, workDir string) tool.ExecutionResult {
-	if agentType == AgentTypeCode {
+	if UsesWorktree(agentType) {
 		return applyCodeWorktreeResult(result, worktree, warnings, workDir)
 	}
 	return result
 }
 
 func cleanupRegistrationWorktree(agentType AgentType, workDir string, worktree CodeWorktree) {
-	if agentType != AgentTypeCode || workDir == "" || worktree.Path == "" {
+	if !UsesWorktree(agentType) || workDir == "" || worktree.Path == "" {
 		return
 	}
 	// best-effort: worktree left for manual cleanup if prune fails

@@ -13,7 +13,7 @@ Use the advisor when a stronger model can improve the main loop's judgment:
 - after verification failures when the next fix path is unclear
 - before declaring a plan, implementation, or review complete
 
-The advisor is for strategic steering. It is not a code executor, verifier, reviewer of hidden child-agent work, or replacement for local tests.
+The advisor is for strategic steering. It is not a code or documentation executor, verifier, reviewer of hidden child-agent work, or replacement for local tests.
 
 ## Configuration
 
@@ -70,7 +70,7 @@ Advisor and delegation solve different problems.
 | Execution shape | One model call | Child agent loop |
 | Context | Live parent conversation | Explicitly passed task and context |
 | Tools | None | Per-agent allowlist |
-| Mutation | Never | Only for mutation-capable agents such as `code` |
+| Mutation | Never | Only for mutation-capable agents such as `code` and `documentor`; `documentor` is limited to documentation files |
 | Parent transcript impact | Advisor result is appended | Only bounded child result summary is appended |
 | Best use | Steering, tradeoffs, residual risk | Exploration, implementation, verification, research |
 

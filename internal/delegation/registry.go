@@ -150,7 +150,7 @@ type DelegateDeps struct {
 	// so the cap is enforced per BuildDelegateRegistry call only.
 	AdvisorState *advisor.SharedState
 	// AdvisorBudgetStore provides per-child advisor budgets, keyed by agent ID.
-	// When non-nil and advisor is enabled, each code/review/evaluate child gets
+	// When non-nil and advisor is enabled, each code/documentor/review/evaluate child gets
 	// its own SharedState from the store, surviving follow_up resumptions under
 	// the same agent ID. Nil means no child advisor access.
 	AdvisorBudgetStore *AdvisorBudgetStore

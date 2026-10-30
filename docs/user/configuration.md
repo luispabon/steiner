@@ -144,7 +144,7 @@ or mutating the tool mid-conversation.
 | ------------------------ | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `enabled`                | bool      | `false` | Master switch. Set to `true` to enable the advisor tool and prompt steering.                                                                                                                                                                                                                                                                                 |
 | `max_uses_per_run`       | int       | `3`     | Per-session use cap enforced in shared handler state. When the cap is exhausted, the handler returns a budget-exhausted result instead of calling the advisor model.                                                                                                                                                                                         |
-| `max_uses_per_sub_agent` | int       | `1`     | Per-child use cap for the advisor tool, separate from `max_uses_per_run`. Applies only to `code`, `review`, and `evaluate` children; caps advisor calls for that child's whole lifetime, surviving `follow_up` resumption of the same agent ID.                                                                                                              |
+| `max_uses_per_sub_agent` | int       | `1`     | Per-child use cap for the advisor tool, separate from `max_uses_per_run`. Applies only to `code`, `documentor`, `review`, and `evaluate` children; caps advisor calls for that child's whole lifetime, surviving `follow_up` resumption of the same agent ID.                                                                                                              |
 | `max_tokens`             | *int      | `nil`   | Optional output-token ceiling for advisor calls. When set, the value is forwarded to the provider request.                                                                                                                                                                                                                                                   |
 | `timeout`                | *Duration | `180s`  | Optional HTTP timeout override applied only to advisor calls. When set, it overrides `providers.<name>.timeout` for the advisor model only; the main chat model and other models using the same provider are unaffected. Useful because advisor calls send a large parent-conversation prompt and frequently hit the provider's default header-read timeout. The timeout applies to each attempt; retries can repeat it up to the advisor model's `retry.max_attempts`, plus the backoff waits between attempts. A deadline-shaped timeout after visible stream output is not retried. |
 
@@ -393,6 +393,7 @@ models:
       advisor: cloud/<advisor-model-id>
       sub_agents:
         code: cloud/<code-model-id>
+        documentor: cloud/<documentation-model-id>
         evaluate: cloud/<evaluate-model-id>
         sanity_check: local/<sanity-check-model-id>
       oneshot:
@@ -719,13 +720,13 @@ do and tool allowlists for each specialised agent type, see
 | `max_parallel`        | int    | `3`        | Session-wide cap on concurrently running sub-agents (specialized sub-agent spawns, `follow_up`), shared across parent turns. Spawns beyond the cap wait in a first-in-first-out queue; at most twice this many may be outstanding (running plus queued), and further spawns fail with a tool error. Must be at least `1`; `1` runs sub-agents one at a time. Independent of `limits.max_parallel_tools`, which bounds ordinary tool-call concurrency — a mixed batch never lets the two compete for the same semaphore slots. |
 | `max_follow_ups`      | int    | `5`        | Maximum number of follow-up resumes allowed per delegated child agent. When a child reaches this ceiling, new follow-ups are refused and must be redelegated fresh. With `max_turns: 120` and `max_follow_ups: 5`, worst-case accumulated turn budget is `120 + 5×120 = 720` turns for a single child across its full resume lifetime.                                                             |
 
-Each specialised agent type (`explore`, `research`, `code`, `evaluate`,
-`sanity_check`, `review`, `vision`) has its own hardcoded tool allowlist; there is no
+Each specialised agent type (`explore`, `research`, `code`, `documentor`,
+`evaluate`, `sanity_check`, `review`, `vision`) has its own hardcoded tool allowlist; there is no
 user-configurable tool allowlist field.
 
 Per-agent-type model overrides live in the selected profile's `sub_agents` map
 (see the [`models` block](#models-block)), keyed by agent type (e.g. `code`,
-`evaluate`, `sanity_check`, `explore`, `vision`). If an agent type has no entry, the
+`documentor`, `evaluate`, `sanity_check`, `explore`, `vision`). If an agent type has no entry, the
 sub-agent uses the profile's default assignment.
 
 ```yaml
@@ -749,6 +750,7 @@ models:
       default_model: openai/<orchestrator-model-id>
       sub_agents:
         code: openai/<code-model-id>
+        documentor: openai/<documentation-model-id>
         research: anthropic/<research-model-id>
         vision: anthropic/<vision-model-id>   # required to enable the vision tool
 ```
@@ -867,7 +869,7 @@ Each server entry (`MCPServerConfig`) supports:
 | `connect_timeout`   | duration          | `"15s"`   | Maximum time to wait for the MCP connection to be established. Absent or `0` falls back to `15s` (mirrors crush's default, range 5-30s); negative values are rejected.                                                                                                                                                                                                                                                                                                                              |
 | `allowed_tools`     | []string          | —         | Optional allowlist of MCP-native tool names for this server. Only listed names are registered; registered names like `mcp__<server>__<tool>` are not accepted as entries. Missing means no allowlist restriction; an explicit empty list (`allowed_tools: []`) registers no tools (denies all).                                                                                                                                                                                                     |
 | `blocked_tools`     | []string          | —         | Optional denylist of MCP-native tool names. Applied after `allowed_tools`: a tool that survives the allowlist is removed if its name appears here.                                                                                                                                                                                                                                                                                                                                                  |
-| `sub_agents`        | []string          | —         | Agent types allowed to use this server's tools. Defaults to closed: missing or `[]` grants no MCP tools to any child. Valid values: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`.                                                                                                                                                                                                                                                                                  |
+| `sub_agents`        | []string          | —         | Agent types allowed to use this server's tools. Defaults to closed: missing or `[]` grants no MCP tools to any child. Valid values: `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, `vision`.                                                                                                                                                                                                                                                                                  |
 
 ```yaml
 mcp:

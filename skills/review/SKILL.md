@@ -106,7 +106,7 @@ Each review pass may produce one consolidated fix plan. The plan must map fixes 
 
 The reviewer prefers delegated fixes over inline work:
 
-1. **Delegated fix pass** (preferred): a `code` sub-agent runs the fix in its own runtime-provisioned, runtime-verified worktree on a `delegate/` branch. Provisioning failure fails the `code` call outright — that is a blocker to report, not a cue to fix inline.
+1. **Delegated fix pass** (preferred): a `documentor` sub-agent runs documentation-only fixes, and a `code` sub-agent runs code or mixed fixes; each runs in its own runtime-provisioned, runtime-verified worktree on a `delegate/` branch. Provisioning failure fails the sub-agent call outright, which is a blocker to report, not a cue to fix inline.
 2. **Inline fixes** (last resort): reviewer applies fixes directly. Used only when delegation tools themselves are unavailable. Deliberate exception to the routing threshold in your system prompt: review-fix work must have a guaranteed way to close out even when delegation tooling itself is down.
 
 A judgment that the fixes are simple does not justify skipping delegation — only delegation tooling itself being unavailable does.
@@ -119,10 +119,10 @@ Resume a suitable warm agent before cold dispatch only when it remains available
 
 ### Worktree Handling
 
-Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.
+Every `code` or `documentor` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.
 
 1. Read `worktree_path` from the arrived result — a project-relative path (e.g. `.steiner/worktrees/<process>/<branch>/<agent>`) and the sole worktree locator returned to you. The branch name and any dirty-tree warnings are host-only and not returned; if you need the branch name, read it from the worktree itself: `git -C <worktree-path> branch --show-current`.
-2. `follow_up` results also carry `worktree_path` for the same code agent, resolving to the same worktree as the initial `code` result.
+2. `follow_up` results also carry `worktree_path` for the same agent, resolving to the same worktree as its initial result.
 3. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <branch-name>` (from step 1).
 
 ### Review-Fix Delegation
@@ -130,6 +130,7 @@ Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified 
 The review-fix delegated agent must:
 
 - receive only the approved findings, fix plan, relevant files, constraints, and verification strategy
+- use `documentor` for documentation-only fixes and `code` for code or mixed fixes
 - run the pre-commit checklist before committing (see below)
 - commit its changes on the runtime-provided `delegate/` branch
 - avoid unrelated cleanup or scope expansion

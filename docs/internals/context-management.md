@@ -8,6 +8,8 @@ Parent context is bounded by delegation (child transcripts stay out of the conve
 
 Child turns stay out of the parent transcript, and the parent receives a bounded result. See [Sub-agent delegation](sub-agent-delegation.md).
 
+A `documentor` child selects `DelegatedDocumentorWorkflowMode`, so `sectionDocumentorChild` renders its duties and write-scope text into that child's memoized preamble. Prompt composition is in [Sub-agent delegation internals](sub-agent-delegation.md#canon-and-workflow); the write rules are in the [user guide](../user/sub-agent-delegation.md#documentor-type).
+
 ## Prompt assembly
 
 The source order is fixed in `internal/prompt/source_plan.go`. Static sources come first so the prefix stays stable for cache reuse.

@@ -62,7 +62,7 @@ Compact canonical reference for safe configuration edits.
 | `models.profiles.<profile>.default_model`|string|none|Model and role fallback; required in every declared profile. |
 | `models.profiles.<profile>.advisor`|string|—|Advisor model. |
 | `models.profiles.<profile>.compaction_fallback`|string|none|Cold-cache compaction model; needs a positive `compaction_fallback_after` on the main model's provider; not inherited. |
-| `models.profiles.<profile>.sub_agents.<key>`|string|—|Model by `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, or `vision`. |
+| `models.profiles.<profile>.sub_agents.<key>`|string|—|Model by `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, or `vision`. |
 | `models.profiles.<profile>.oneshot.<key>`|string|—|Model by `plan`, `implement`, or `review`; missing uses profile default. |
 | `models.profiles.<profile>.workflow_handoff.<key>`|string|—|Model by `implement`, `review`, or `build`; missing uses profile default. |
 | `limits.max_turns`|int|`50`|Maximum turns; non-negative. |
@@ -148,7 +148,7 @@ Compact canonical reference for safe configuration edits.
 | `mcp.servers.<server>.connect_timeout`|duration|`15s`|Zero uses 15s; negatives invalid. |
 | `mcp.servers.<server>.allowed_tools`|[]string|—|Native-name allowlist; `[]` denies all. |
 | `mcp.servers.<server>.blocked_tools`|[]string|—|Native-name denylist, applied after allowlist. |
-| `mcp.servers.<server>.sub_agents`|[]string|closed|Allowed types: `explore`, `research`, `code`, `evaluate`, `sanity_check`, `review`, `vision`. |
+| `mcp.servers.<server>.sub_agents`|[]string|closed|Allowed types: `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, `vision`. |
 | `lsp.enabled`|bool|`false`|—|
 | `lsp.idle_timeout`|duration|`5m`|—|
 | `lsp.request_timeout`|duration|`10s`|—|

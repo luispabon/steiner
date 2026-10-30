@@ -14,12 +14,18 @@ import (
 func (m *Model) applySubAgentEvent(event output.Event) tea.Cmd {
 	if event.Type == output.EventTypeDelegationWorktreeDisposal {
 		if payload, ok := event.Payload.(output.DelegationWorktreeDisposalEvent); ok {
-			line := fmt.Sprintf("code worktree discarded for %s", payload.AgentID)
+			// Unscoped legacy events name no agent type, so the wording stays
+			// generic.
+			worktreeLabel := "worktree"
+			if event.Scope.AgentType != "" {
+				worktreeLabel = event.Scope.AgentType + " worktree"
+			}
+			line := fmt.Sprintf("%s discarded for %s", worktreeLabel, payload.AgentID)
 			switch {
 			case payload.Error != "":
-				line = fmt.Sprintf("code worktree discard failed for %s: %s", payload.AgentID, payload.Error)
+				line = fmt.Sprintf("%s discard failed for %s: %s", worktreeLabel, payload.AgentID, payload.Error)
 			case !payload.Removed:
-				line = fmt.Sprintf("no code worktree to discard for %s", payload.AgentID)
+				line = fmt.Sprintf("no %s to discard for %s", worktreeLabel, payload.AgentID)
 			}
 			m.content.AppendLine("status: " + line)
 			m.contentDirty = true

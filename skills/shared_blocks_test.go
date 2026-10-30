@@ -14,10 +14,10 @@ import (
 // declares which skills carry it — not every block is in all three.
 const worktreeHandlingBlock = "### Worktree Handling\n" +
 	"\n" +
-	"Every `code` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.\n" +
+	"Every `code` or `documentor` sub-agent runs in its own runtime-provisioned and runtime-verified git worktree on a `delegate/` branch under `.steiner/worktrees/`; you arrange nothing yourself.\n" +
 	"\n" +
 	"1. Read `worktree_path` from the arrived result — a project-relative path (e.g. `.steiner/worktrees/<process>/<branch>/<agent>`) and the sole worktree locator returned to you. The branch name and any dirty-tree warnings are host-only and not returned; if you need the branch name, read it from the worktree itself: `git -C <worktree-path> branch --show-current`.\n" +
-	"2. `follow_up` results also carry `worktree_path` for the same code agent, resolving to the same worktree as the initial `code` result.\n" +
+	"2. `follow_up` results also carry `worktree_path` for the same agent, resolving to the same worktree as its initial result.\n" +
 	"3. After reviewing a step's result, merge the returned branch into the feature branch first, then remove the worktree and delete the branch, in that order: `git worktree remove <worktree-path>`, then `git branch -D <branch-name>` (from step 1).\n"
 
 const preCommitChecklistBlock = "### Pre-Commit Checklist\n" +
@@ -32,6 +32,7 @@ const preCommitChecklistBlock = "### Pre-Commit Checklist\n" +
 // agent must:" vs "The fix delegated agent must:"), so the pinned span is the
 // bullet list itself rather than the whole section.
 const fixDelegationBulletsBlock = "- receive only the approved findings, fix plan, relevant files, constraints, and verification strategy\n" +
+	"- use `documentor` for documentation-only fixes and `code` for code or mixed fixes\n" +
 	"- run the pre-commit checklist before committing (see below)\n" +
 	"- commit its changes on the runtime-provided `delegate/` branch\n" +
 	"- avoid unrelated cleanup or scope expansion\n" +

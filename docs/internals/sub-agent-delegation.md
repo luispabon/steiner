@@ -6,7 +6,7 @@ User guide: [Sub-agent delegation](../user/sub-agent-delegation.md).
 
 1. `cliRunner.run` (`cmd/steiner/runner.go`) calls `delegation.BuildDelegateRegistry` (`internal/delegation/registry.go`), which registers `sub_agent`, `follow_up`, and the advisor tool.
 2. A `sub_agent` call with `type: vision` goes to `newVisionHandler` (`vision_tool.go`). Other types go to `newSpecializedHandler` (`specialized_tools.go`). `follow_up` goes to `runFollowUp` (`follow_up.go`).
-3. `newSpecializedHandler` (`specialized_tools.go`) and `newVisionHandler` (`vision_tool.go`) install a `Prepare` hook. For `code`, the hook provisions the worktree (`provisionCodePlan`, `specialized_worktree.go`). Every hook then builds the child `agent.RunRequest` through `BuildChildRun` (`bootstrap.go`). `follow_up` has no `Prepare` hook.
+3. `newSpecializedHandler` (`specialized_tools.go`) and `newVisionHandler` (`vision_tool.go`) install a `Prepare` hook. For a worktree-isolated type (`UsesWorktree` in `agent_type.go`: `code` and `documentor`), the hook provisions the worktree (`provisionCodePlan`, `specialized_worktree.go`). Every hook then builds the child `agent.RunRequest` through `BuildChildRun` (`bootstrap.go`). `follow_up` has no `Prepare` hook.
 4. `superviseDelegate` (`specialized_execute.go`) hands the job to the `Supervisor`, which calls `Spawn` in async mode or `SpawnAndWait` otherwise. Specialized, vision, and `follow_up` calls all reach it. In `Supervisor.execute` (`supervisor.go`), the supervisor runs `Prepare` and then registers the child with `ActiveController`. Jobs without `Prepare` (`follow_up`) register in `startQueuedLocked` (`supervisor_queue.go`) when they start.
 5. The supervised job runs `SpawnDelegate` (`task.go`), which returns a `tool.ExecutionResult` with retention metadata.
 6. Session persistence, unregistration, and cleanup follow.
@@ -17,7 +17,15 @@ User guide: [Sub-agent delegation](../user/sub-agent-delegation.md).
 
 - The `sub_agent` schema in `specialized_tools.go` requires `type` and six brief fields: `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, and `checks`.
 - `research` is omitted when `deps.Searcher` is nil (`registry.go`). `vision` is omitted when `Models.Effective.SubAgents["vision"]` is empty or `ImageStore` is nil, and it requires `image_id`.
-- Per-type allowlists are in `agent_type.go` (`agentAllowlists`). `mergedAllowedTools` (`specialized_tools.go`) sorts and dedupes the allowed tool names.
+- Per-type allowlists are in `agent_type.go` (`agentAllowlists`). `documentor` clones `codeAgentAllowlist`, so its narrower write surface is enforced by `documentorWriteScope`, not by a shorter tool list. `mergedAllowedTools` (`specialized_tools.go`) sorts and dedupes the allowed tool names.
+
+## Write scope
+
+- `tool.WriteScope` (`internal/tool/write_scope.go`) matches writable files by final component: exact extension (leading dot included) or exact basename. Matching is case-sensitive and directory components never grant eligibility.
+- `Executor.WithWriteScope` (`internal/tool/executor.go`) attaches a scope to a child executor. `runPipeline` (`internal/tool/execution_pipeline.go`) applies it to the effective policy after plan-mode restrictions, so both limits hold. `PathPolicy.ensureWriteScopeAllowed` (`internal/tool/policy.go`) checks root containment and the name rules against both the lexical path and its symlink-resolved form, denies an existing directory whose name matches, and fails closed when the policy has no root.
+- `mutate` resolves both `move` endpoints through the policy (`planMove`, `internal/tool/builtin/mutate_ops.go`), so a move inside the scope cannot escape it.
+- `agentWriteScope` (`internal/delegation/agent_type.go`) returns `documentorWriteScope` for `AgentTypeDocumentor`. `buildChildRunRequest` (`bootstrap.go`) installs it on the child executor, so the initial run, follow-ups, and commit remediation reuse the same restriction.
+- The restriction covers `mutate` paths only. `bash`, MCP tools, and other tools that write through their own mechanisms are outside it; worktrees share git metadata with the parent repository, and hardlinks or races can bypass name checks. The user-facing rules and limits are in [Sub-agent delegation](../user/sub-agent-delegation.md#documentor-type).
 
 ## Supervisor and active controller
 
@@ -42,16 +50,16 @@ The conversation driver (`internal/agent/conversation_driver.go`) calls `Supervi
 - **Groups.** `jobGroup` (`supervisor_groups.go`) holds one label's members within a tool batch. `sealBatch` seals the batch's groups. `releaseGroupLocked` holds completions until a group is sealed and every member has a final result, then posts them together, ordered by `Seq`.
 - **follow_up admission.** `follow_up` is rejected at `FollowUpCount >= SubAgent.MaxFollowUps`. In async sessions it is also rejected while the agent is still pending (`Supervisor.IsPending`) (`follow_up.go`).
 
-## Code worktree provisioning
+## Worktree provisioning
 
-For `code`, the `Prepare` hook (`provisionCodePlan`, `specialized_worktree.go`) runs these steps at dequeue, before `BuildChildRun`:
+For a worktree-isolated type (`UsesWorktree` in `agent_type.go`: `code` and `documentor`), the `Prepare` hook (`provisionCodePlan`, `specialized_worktree.go`) runs these steps at dequeue, before `BuildChildRun`:
 
 1. `DirtyPaths` (`worktree.go`) reports uncommitted and untracked parent changes, best effort. Found paths add a warning, because the worktree starts from parent HEAD and omits them.
 2. `ProvisionCodeWorktree` (`worktree.go`) creates a git worktree on a `delegate/` branch from parent HEAD, at `.steiner/worktrees/<processHash>/<sanitizedBranch>/<agentID>`. A failure fails the call.
 3. `codeRemediationConfig` (`specialized_worktree.go`) sets post-run remediation for the worktree.
-4. `WorktreePath`, `WorktreeBranch`, and `Warnings` are host-only result fields. The model receives only the project-relative `worktree_path`, for `code` results and `code` follow-ups (see Result and retention).
+4. `WorktreePath`, `WorktreeBranch`, and `Warnings` are host-only result fields. The model receives only the project-relative `worktree_path`, for worktree-isolated results and follow-ups (see Result and retention).
 
-Other types skip provisioning. `denyFollowUpOnDeadCodeWorktree` (`follow_up.go`) runs before the child is registered and rejects a `code` follow-up whose worktree is missing or invalid.
+Other types skip provisioning. `denyFollowUpOnDeadCodeWorktree` (`follow_up.go`) runs before the child is registered and rejects a worktree-isolated follow-up whose worktree is missing or invalid.
 
 `steiner worktrees` (`cmd/steiner/cmd_worktrees.go`) supports `--list`, `--prune <id>`, and `--prune-all`. Pruning (`worktree_prune.go`) removes only git-reported worktrees on `delegate/` branches. A directory that git does not track, such as one left by a crash during provisioning, must be removed by hand.
 
@@ -62,11 +70,11 @@ Other types skip provisioning. `denyFollowUpOnDeadCodeWorktree` (`follow_up.go`)
 1. **Limits.** `SubAgent` defaults in `internal/config/defaults.go` are `MaxTurns` 120 and `MaxTokens` set from `DefaultSubAgentMaxTokens`. Timeout defaults to none. `DefaultLimits` (`limits.go`) raises `MaxTurns` to at least `config.MinSubAgentMaxTurns`.
 2. **Prompt.** The child receives one user message carrying the six-field brief. Sandbox state (`SandboxEnabled` and `sandbox.WritableHostMounts`) is passed to the child as plain values (`cmd/steiner/runner.go`).
 3. **Registries.** `buildChildRegistries` takes `Registry.Subset` of the parent base registry and always excludes `follow_up` and `workflow_handoff`. Child tool events classify only as `ParallelClassTool` or `ParallelClassNone` (`bootstrap.go`).
-4. **Executor.** `scopedToolExecutor` (`bootstrap.go`) sets the child agent ID with `tool.WithApprovalAgentScope`. Approval code in `internal/agent/approval.go` and `internal/interactive/wiring.go` reads that scope. For `explore` and `evaluate` children with the sandbox enabled, `readOnlyBash` applies `tool.WithReadOnlyProjectBash`. The parent's mode getter is wired in with `WithModeGetter`.
-5. **Advisor.** The advisor tool is added only when the child's allowlist contains it and `AdvisorForChild` is set. `code`, `review`, and `evaluate` allowlist the advisor (`agent_type.go`). Uses are capped by `AdvisorConfig.MaxUsesPerSubAgent` (default 1) and counted in `AdvisorBudgetStore` (`advisor_budget.go`).
-6. **Context flags.** `SkipAgents` is true only for `vision`. `SkipProjectContext` is true for every type except `code`, `review`, and `evaluate` (`childContextSkips`, `bootstrap.go`).
-7. **Mode.** `checkPlanModeCodeDenial` (`specialized_tools.go`) denies `code` in plan mode. `denyFollowUpInPlanMode` (`follow_up.go`) denies `follow_up` when the child has `mutate`.
-8. **Workflow mode.** `childWorkflowMode` (`bootstrap.go`) maps `code` to `DelegatedCodeSubAgentWorkflowMode`. `explore`, `research`, `evaluate`, `sanity_check`, `review`, and `vision` map to `DelegatedNonCodeChildWorkflowMode`. Other types use `DelegatedChildWorkflowMode`.
+4. **Executor.** `scopedToolExecutor` (`bootstrap.go`) sets the child agent ID with `tool.WithApprovalAgentScope`. Approval code in `internal/agent/approval.go` and `internal/interactive/wiring.go` reads that scope. For `explore` and `evaluate` children with the sandbox enabled, `readOnlyBash` applies `tool.WithReadOnlyProjectBash`. The parent's mode getter is wired in with `WithModeGetter`, and `agentWriteScope` adds `WithWriteScope` for restricted types.
+5. **Advisor.** The advisor tool is added only when the child's allowlist contains it and `AdvisorForChild` is set. `code`, `documentor`, `review`, and `evaluate` allowlist the advisor (`agent_type.go`). Uses are capped by `AdvisorConfig.MaxUsesPerSubAgent` (default 1) and counted in `AdvisorBudgetStore` (`advisor_budget.go`).
+6. **Context flags.** `SkipAgents` is true only for `vision`. `SkipProjectContext` is true for every type except `code`, `documentor`, `review`, and `evaluate` (`childContextSkips`, `bootstrap.go`).
+7. **Mode.** `checkPlanModeWriteDenial` (`specialized_tools.go`) denies worktree-isolated types (`UsesWorktree`, so `code` and `documentor`) in plan mode. `denyFollowUpInPlanMode` (`follow_up.go`) denies `follow_up` when the child has `mutate`.
+8. **Workflow mode.** `childWorkflowMode` (`bootstrap.go`) maps `code` to `DelegatedCodeSubAgentWorkflowMode` and `documentor` to `DelegatedDocumentorWorkflowMode`. `explore`, `research`, `evaluate`, `sanity_check`, `review`, and `vision` map to `DelegatedNonCodeChildWorkflowMode`. Other types use `DelegatedChildWorkflowMode`.
 9. **Cache key.** `CacheKeyStore.KeyFor` (`cache_keys.go`) assigns `PromptCacheKey`. Cache rules are in [Prompt caching](prompt-caching.md).
 
 Child model resolution is in `resolveModel` (`specialized_tools.go`). It uses the per-type alias from `Models.Effective.SubAgents`, else the profile's `DefaultModel`, else the parent model. Assignments are read through `CurrentEffectiveModelAssignments` on each spawn, so a profile switch reaches later spawns. A `vision` child with no alias reuses the parent model.
@@ -109,7 +117,7 @@ Token counters accumulate across follow-ups, seeded from `Spec.PriorTokenUsage`.
 | `status` | Omitted on success. Otherwise `partial`, `cancelled`, or `failed` |
 | `reason` | The error for failures (`unknown failure` when empty), or a fallback such as `limit reached` |
 | `continuation` | `agent_id` of a persisted child session that can be resumed. Set only when the child is persisted. |
-| `worktree_path` | Project-relative path of the `code` worktree. |
+| `worktree_path` | Project-relative path of a worktree-isolated child's worktree. |
 
 Delegation results also set `ToolRetention` with kind `delegate_summary` (`RetentionKindDelegateSummary`, `task.go`).
 
@@ -127,7 +135,7 @@ Host-only diagnostics stay out of the provider payload described above.
 - `CancelDelegate{AgentID, Discard}` and `CancelAllDelegates` reach `Supervisor.CancelAgent` or `Supervisor.CancelAll` through the consumer-defined `DelegateCanceller`.
 - Finalization runs for a targeted cancel with `Discard` set. After the child run ends, it:
   1. Calls `SessionStore.Invalidate`, which deletes the session and records an agent-ID tombstone. `Get` and `Save` refuse tombstoned IDs, so a late save cannot restore the session.
-  2. Removes the code worktree with `PruneCodeWorktree` (`worktree_prune.go`) under `cancellationCleanupTimeout` (30 seconds, `cancellation_finalize.go`).
+  2. Removes the delegate worktree with `PruneCodeWorktree` (`worktree_prune.go`) under `cancellationCleanupTimeout` (30 seconds, `cancellation_finalize.go`).
 - Each disposal attempt emits `delegation_worktree_disposal` (`NewDelegationWorktreeDisposalEvent`, `internal/output/event_delegation.go`).
 
 ## Vision handler
@@ -149,6 +157,7 @@ Grouped card boxes are cached in `settledGroupRows` and `groupBoxCache` (`intern
 ## Canon and workflow
 
 - `delegationInstructions` in `internal/prompt/system.go` is gated on `DelegationEnabled`. The `## Your sub-agents` roster renders from the `specialists` slice in `internal/prompt/specialists.go`. Edit the slice, not the rendered markdown.
+- `sectionDocumentorChild` (`internal/prompt/system.go`) renders `documentor_child.md.tmpl` only in `DelegatedDocumentorWorkflowMode`, so its duties and write-scope text stay isolated from the parent and other child modes.
 - Cache inputs in `internal/agent/context_manager_base.go` include `DelegationEnabled`.
 - Consumer files (`skills/*/SKILL.md` and `internal/oneshot/prompts/*.md`) reuse canon blocks. Drift rules are in [canon drift checks](../maintenance/canon-drift-checks.md). The shared blocks are pinned by `skills/shared_blocks_test.go` and `internal/oneshot/prompts_shared_test.go`.
 
@@ -157,3 +166,4 @@ Grouped card boxes are cached in `settledGroupRows` and `groupBoxCache` (`intern
 - Sub-agents cannot nest.
 - Concurrent children are bounded by `MaxParallel`.
 - Diagnostics and traces are host-only. The model receives only the projection.
+- A write scope is a file-name guard on `mutate`, not a security boundary. Tools that bypass the path policy, shared git metadata, and filesystem races are outside it.

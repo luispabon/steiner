@@ -11,7 +11,7 @@ import (
 func TestSystemPreambleOutputVoiceAlwaysPresent(t *testing.T) {
 	t.Parallel()
 
-	for _, mode := range []WorkflowMode{ParentWorkflowMode(), DelegatedChildWorkflowMode(), DelegatedCodeSubAgentWorkflowMode(), DelegatedNonCodeChildWorkflowMode()} {
+	for _, mode := range []WorkflowMode{ParentWorkflowMode(), DelegatedChildWorkflowMode(), DelegatedCodeSubAgentWorkflowMode(), DelegatedDocumentorWorkflowMode(), DelegatedNonCodeChildWorkflowMode()} {
 		for _, override := range []string{"", "custom system prompt"} {
 			for _, delegation := range []bool{false, true} {
 				content := SystemPreambleWithAdvisor(SystemPreambleParams{

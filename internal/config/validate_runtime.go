@@ -12,10 +12,22 @@ var validAgentTypes = map[string]bool{
 	"explore":      true,
 	"research":     true,
 	"code":         true,
+	"documentor":   true,
 	"evaluate":     true,
 	"sanity_check": true,
 	"review":       true,
 	"vision":       true,
+}
+
+// agentTypeNames returns the valid agent type names in sorted order, so
+// validation messages list them deterministically without restating the set.
+func agentTypeNames() string {
+	names := make([]string, 0, len(validAgentTypes))
+	for name := range validAgentTypes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 var validOneShotPhases = map[string]bool{

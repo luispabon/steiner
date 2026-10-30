@@ -280,6 +280,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string, palette Palet
 			"sanity_check": lipgloss.NewStyle().Foreground(lipgloss.Color(ToolMag)).Bold(true),
 			"review":       lipgloss.NewStyle().Foreground(lipgloss.Color(DelegateReview)).Bold(true),
 			"vision":       lipgloss.NewStyle().Foreground(lipgloss.Color(ToolBlue)).Bold(true),
+			"documentor":   lipgloss.NewStyle().Foreground(lipgloss.Color(SyntaxBlue)).Bold(true),
 			"advisor":      lipgloss.NewStyle().Foreground(lipgloss.Color(AdvisorGreen)).Bold(true),
 		},
 
@@ -291,6 +292,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string, palette Palet
 			"sanity_check": ToolMagLine,
 			"review":       DelegateReviewLine,
 			"vision":       ToolBlueLine,
+			"documentor":   blendHex(SyntaxBlue, Bg, 0.30),
 			"advisor":      AdvisorGreenLine,
 		}),
 		DelegateBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),

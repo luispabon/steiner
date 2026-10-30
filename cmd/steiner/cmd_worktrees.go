@@ -19,8 +19,8 @@ func newWorktreesCommand(_ *cliFlags) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "worktrees",
-		Short: "List or prune code delegation worktrees",
-		Long:  "Manage code worktrees provisioned by the code sub-agent delegation.\n\nUse --list to show all provisioned worktrees, --prune <id> to remove a specific worktree by its ID (shown in --list output), or --prune-all to remove all worktrees.",
+		Short: "List or prune code and documentor delegation worktrees",
+		Long:  "Manage worktrees provisioned by the code and documentor sub-agent delegation.\n\nUse --list to show all provisioned worktrees, --prune <id> to remove a specific worktree by its ID (shown in --list output), or --prune-all to remove all worktrees.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			flagsSet := 0
@@ -66,7 +66,7 @@ func newWorktreesCommand(_ *cliFlags) *cobra.Command {
 func runWorktreesList(cmd *cobra.Command, projectRoot string) error {
 	worktrees, err := delegation.ListCodeWorktrees(cmd.Context(), projectRoot)
 	if err != nil {
-		return fmt.Errorf("list code worktrees: %w", err)
+		return fmt.Errorf("list delegation worktrees: %w", err)
 	}
 
 	stream := output.NewStream(cmd.OutOrStdout())
@@ -96,7 +96,7 @@ func runWorktreesPrune(cmd *cobra.Command, projectRoot, relID string) error {
 
 	removed, err := delegation.PruneCodeWorktree(cmd.Context(), projectRoot, relID)
 	if err != nil {
-		return fmt.Errorf("prune code worktree: %w", err)
+		return fmt.Errorf("prune delegation worktree: %w", err)
 	}
 
 	if removed {
@@ -111,7 +111,7 @@ func runWorktreesPruneAll(cmd *cobra.Command, projectRoot string) error {
 	// Prune all.
 	removedCount, err := delegation.PruneAllCodeWorktrees(cmd.Context(), projectRoot)
 	if err != nil {
-		return fmt.Errorf("prune all code worktrees: %w", err)
+		return fmt.Errorf("prune all delegation worktrees: %w", err)
 	}
 
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "removed %d worktree(s)\n", removedCount)

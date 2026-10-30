@@ -90,7 +90,7 @@ func TestValidateMCPSubAgents(t *testing.T) {
 			name: "all valid agent types accepted",
 			cfg: MCPConfig{
 				Servers: map[string]MCPServerConfig{
-					"example": {Transport: "stdio", Command: "npx", SubAgents: []string{"explore", "research", "code", "evaluate", "sanity_check", "review", "vision"}},
+					"example": {Transport: "stdio", Command: "npx", SubAgents: []string{"explore", "research", "code", "documentor", "evaluate", "sanity_check", "review", "vision"}},
 				},
 			},
 		},
@@ -101,7 +101,7 @@ func TestValidateMCPSubAgents(t *testing.T) {
 					"example": {Transport: "stdio", Command: "npx", SubAgents: []string{"explore", "bogus"}},
 				},
 			},
-			wantErr: `mcp.servers.example.sub_agents: unknown agent type "bogus"`,
+			wantErr: `mcp.servers.example.sub_agents: unknown agent type "bogus" (must be one of code, documentor, evaluate, explore, research, review, sanity_check, vision)`,
 		},
 		{
 			name: "unknown allowed_tools and blocked_tools names do not error",

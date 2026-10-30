@@ -1621,18 +1621,42 @@ func TestActiveDelegateRowsUseTranscriptOrderAndLifecycleType(t *testing.T) {
 	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEvent(agentOcc("child-2"), "second task", "", "review"), "child-2"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEvent(agentOcc("child-1"), "first task", "", "explore"), "child-1"))
 	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEvent(agentOcc("child-3"), "third task", "", "code"), "child-3"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEvent(agentOcc("child-4"), "fourth task", "", "documentor"), "child-4"))
 
 	rows := buffer.ActiveDelegateRows()
-	if len(rows) != 3 {
-		t.Fatalf("active rows = %d, want 3", len(rows))
+	if len(rows) != 4 {
+		t.Fatalf("active rows = %d, want 4", len(rows))
 	}
 	want := []delegateActiveRow{
 		{agentID: "child-2", agentType: "review", taskPreview: "second task"},
 		{agentID: "child-1", agentType: "explore", taskPreview: "first task"},
-		{agentID: "child-3", agentType: "code", taskPreview: "third task", isCode: true},
+		{agentID: "child-3", agentType: "code", taskPreview: "third task", usesWorktree: true},
+		{agentID: "child-4", agentType: "documentor", taskPreview: "fourth task", usesWorktree: true},
 	}
 	if !reflect.DeepEqual(rows, want) {
 		t.Fatalf("active rows = %#v, want %#v", rows, want)
+	}
+}
+
+func TestDelegateUsesWorktree(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		agentType string
+		want      bool
+	}{
+		{agentType: "code", want: true},
+		{agentType: "documentor", want: true},
+		{agentType: "explore", want: false},
+		{agentType: "review", want: false},
+		{agentType: "", want: false},
+	}
+	for _, tc := range cases {
+		t.Run("type="+tc.agentType, func(t *testing.T) {
+			t.Parallel()
+			if got := delegateUsesWorktree(tc.agentType); got != tc.want {
+				t.Fatalf("delegateUsesWorktree(%q) = %t, want %t", tc.agentType, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -1662,7 +1686,7 @@ func TestActiveDelegateRowsIncludeCacheWaitingAndExcludeCancellation(t *testing.
 	buffer.AppendEvent(output.NewDelegationStartedEvent(callOcc("call-cache", "cache-child"), "cache task", "", "code"))
 
 	rows := buffer.ActiveDelegateRows()
-	if len(rows) != 1 || rows[0].agentID != "cache-child" || rows[0].agentType != "code" || !rows[0].isCode {
+	if len(rows) != 1 || rows[0].agentID != "cache-child" || rows[0].agentType != "code" || !rows[0].usesWorktree {
 		t.Fatalf("cache-waiting rows = %#v, want active code row", rows)
 	}
 
@@ -1684,11 +1708,11 @@ func TestActiveDelegateRowsLegacyTypeFallsBackToToolLabel(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("legacy active rows = %d, want 2", len(rows))
 	}
-	if rows[0].agentType != "code" || !rows[0].isCode {
-		t.Fatalf("legacy code row = %#v, want toolLabel code and isCode true", rows[0])
+	if rows[0].agentType != "code" || !rows[0].usesWorktree {
+		t.Fatalf("legacy code row = %#v, want toolLabel code and usesWorktree true", rows[0])
 	}
-	if rows[1].agentType != "explore" || rows[1].isCode {
-		t.Fatalf("legacy explore row = %#v, want toolLabel explore and isCode false", rows[1])
+	if rows[1].agentType != "explore" || rows[1].usesWorktree {
+		t.Fatalf("legacy explore row = %#v, want toolLabel explore and usesWorktree false", rows[1])
 	}
 }
 

@@ -63,7 +63,7 @@ func applyRemediation(
 	if state.StopReason != agent.StopReasonComplete || result.Status != StatusComplete {
 		dirty, err := cfg.IsDirty(ctx)
 		if err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("code agent worktree %s: could not verify the working tree is clean: %v", cfg.WorktreePath, err))
+			result.Warnings = append(result.Warnings, fmt.Sprintf("child worktree %s: could not verify the working tree is clean: %v", cfg.WorktreePath, err))
 		} else if len(dirty) > 0 {
 			result.Warnings = append(result.Warnings, dirtyWorktreeWarning(cfg.WorktreePath, dirty))
 		}
@@ -77,7 +77,7 @@ func applyRemediation(
 		result = buildResultWithTrace(spec.AgentID, state, tc, spec.PriorTokenUsage.Add(runUsage))
 		result.Status = StatusFailed
 		result.Output = originalOutput
-		result.Warnings = append(result.Warnings, fmt.Sprintf("code agent worktree %s: could not verify the working tree is clean: %v", cfg.WorktreePath, err))
+		result.Warnings = append(result.Warnings, fmt.Sprintf("child worktree %s: could not verify the working tree is clean: %v", cfg.WorktreePath, err))
 		result.SessionResumable = false
 		tc.add("remediation", "remediation failed", map[string]any{
 			"verification_error": checkErr.Error(),
@@ -98,7 +98,7 @@ func applyRemediation(
 	}
 
 	originalOutput := result.Output
-	remediationMsg := fmt.Sprintf(`The implement step requires you to commit your changes and leave the worktree clean before reporting completion. Your worktree is still dirty. Please:
+	remediationMsg := fmt.Sprintf(`This delegation requires you to commit your changes and leave the worktree clean before reporting completion. Your worktree is still dirty. Please:
 - Stage only your intended, in-scope changes (no blanket git add).
 - Commit with a clear message describing what changed and why.
 - Verify the working tree is clean: git status --porcelain must be empty.
@@ -200,7 +200,7 @@ func remediationVerificationError(runErr, dirtyErr, committedErr error, stillDir
 }
 
 func dirtyWorktreeWarning(worktreePath string, dirty []string) string {
-	return fmt.Sprintf("code agent worktree %s is not clean; uncommitted changes: %s", worktreePath, formatDirtyPaths(dirty))
+	return fmt.Sprintf("child worktree %s is not clean; uncommitted changes: %s", worktreePath, formatDirtyPaths(dirty))
 }
 
 func formatDirtyPaths(paths []string) string {

@@ -117,6 +117,7 @@ func TestChildContextSkips(t *testing.T) {
 		{AgentTypeExplore, true, false},
 		{AgentTypeResearch, true, false},
 		{AgentTypeCode, false, false},
+		{AgentTypeDocumentor, false, false},
 		{AgentTypeEvaluate, false, false},
 		{AgentTypeSanityCheck, true, false},
 		{AgentTypeReview, false, false},
@@ -139,6 +140,7 @@ func TestChildWorkflowMode(t *testing.T) {
 		wantMode  prompt.WorkflowMode
 	}{
 		{AgentTypeCode, prompt.DelegatedCodeSubAgentWorkflowMode()},
+		{AgentTypeDocumentor, prompt.DelegatedDocumentorWorkflowMode()},
 		{AgentTypeExplore, prompt.DelegatedNonCodeChildWorkflowMode()},
 		{AgentTypeResearch, prompt.DelegatedNonCodeChildWorkflowMode()},
 		{AgentTypeEvaluate, prompt.DelegatedNonCodeChildWorkflowMode()},

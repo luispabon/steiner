@@ -13,6 +13,17 @@ import (
 	"github.com/luispabon/steiner/internal/delegation"
 )
 
+func TestWorktreesCommandHelpCoversDocumentorWorktrees(t *testing.T) {
+	cmd := newWorktreesCommand(&cliFlags{})
+
+	if want := "List or prune code and documentor delegation worktrees"; cmd.Short != want {
+		t.Errorf("Short = %q, want %q", cmd.Short, want)
+	}
+	if !strings.Contains(cmd.Long, "code and documentor sub-agent delegation") {
+		t.Errorf("Long = %q, want it to name the code and documentor sub-agent delegation", cmd.Long)
+	}
+}
+
 func TestWorktreesListEmpty(t *testing.T) {
 	repo, cleanup := setupTestRepo(t)
 	defer cleanup()
