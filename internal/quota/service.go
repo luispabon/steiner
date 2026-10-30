@@ -34,31 +34,40 @@ type Service struct {
 	loaded       bool       // a store load has succeeded; guarded by loadMu
 	updates      chan struct{}
 
-	mu          sync.Mutex
-	accounts    map[string]Account   // keyed by Account.Key
-	aliases     map[string]string    // alias to Account.Key
-	latest      map[string]Snapshot  // keyed by Snapshot.AccountKey
-	inFlight    map[string]bool      // keyed by account key
-	errs        map[string]string    // last fetch error per account key
-	usedAliases map[string]bool      // aliases marked by MarkUsed, not yet resolved
-	lastAppend  map[string]time.Time // time of the last successful Store.Append per account key
+	mu            sync.Mutex
+	accounts      map[string]Account        // keyed by Account.Key
+	aliases       map[string]string         // alias to Account.Key
+	latest        map[string]Snapshot       // keyed by Snapshot.AccountKey
+	inFlight      map[string]bool           // keyed by account key
+	errs          map[string]string         // last fetch error per account key
+	usedAliases   map[string]bool           // aliases marked by MarkUsed, not yet resolved
+	lastPersisted map[string]persistedState // newest state this process wrote per account key
+}
+
+// persistedState is the newest snapshot this process wrote to the store, with
+// the service clock reading it was appended at. Dedupe compares new state
+// against it, never against the previous observation, so a chain of small drifts
+// cannot hide a real change.
+type persistedState struct {
+	snap Snapshot
+	at   time.Time
 }
 
 // NewService returns a Service configured by opts.
 func NewService(opts ServiceOptions) *Service {
 	s := &Service{
-		store:        opts.Store,
-		now:          opts.Now,
-		logf:         opts.Logf,
-		fetchTimeout: opts.FetchTimeout,
-		updates:      make(chan struct{}, 1),
-		accounts:     make(map[string]Account),
-		aliases:      make(map[string]string),
-		latest:       make(map[string]Snapshot),
-		inFlight:     make(map[string]bool),
-		errs:         make(map[string]string),
-		usedAliases:  make(map[string]bool),
-		lastAppend:   make(map[string]time.Time),
+		store:         opts.Store,
+		now:           opts.Now,
+		logf:          opts.Logf,
+		fetchTimeout:  opts.FetchTimeout,
+		updates:       make(chan struct{}, 1),
+		accounts:      make(map[string]Account),
+		aliases:       make(map[string]string),
+		latest:        make(map[string]Snapshot),
+		inFlight:      make(map[string]bool),
+		errs:          make(map[string]string),
+		usedAliases:   make(map[string]bool),
+		lastPersisted: make(map[string]persistedState),
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -161,10 +170,9 @@ func (s *Service) Updates() <-chan struct{} {
 }
 
 // commit records snap as the latest state for its account, queues it for
-// persistence unless it repeats the previous state within an hour of the
-// account's last successful append, and notifies. When replace is false, snap is
-// merged into the current state. The in-memory state and the notification always
-// update.
+// persistence unless it repeats the last persisted state within an hour of that
+// append, and notifies. When replace is false, snap is merged into the current
+// state. The in-memory state and the notification always update.
 func (s *Service) commit(snap Snapshot, replace bool) {
 	s.ensureLoaded()
 	now := s.now()
@@ -173,7 +181,8 @@ func (s *Service) commit(snap Snapshot, replace bool) {
 	if hadPrev && !replace {
 		snap = mergePassive(prev, snap)
 	}
-	unchanged := hadPrev && sameState(prev, snap) && now.Sub(s.lastAppend[snap.AccountKey]) < dedupeWindow
+	persisted, hadPersisted := s.lastPersisted[snap.AccountKey]
+	unchanged := hadPersisted && sameState(persisted.snap, snap) && now.Sub(persisted.at) < dedupeWindow
 	s.latest[snap.AccountKey] = snap
 	s.mu.Unlock()
 	if !unchanged {
@@ -193,11 +202,12 @@ func (s *Service) persist(snap Snapshot, now time.Time) {
 	s.writer.enqueue(persistJob{snap: snap, at: now})
 }
 
-// recordAppend notes the service clock reading of a successful append, which
-// commit uses to bound its dedupe window.
+// recordAppend moves the persisted baseline to a snapshot the writer just wrote.
+// It is not called when Store.Append skipped the write, because the file still
+// holds the older snapshot.
 func (s *Service) recordAppend(job persistJob) {
 	s.mu.Lock()
-	s.lastAppend[job.snap.AccountKey] = job.at
+	s.lastPersisted[job.snap.AccountKey] = persistedState(job)
 	s.mu.Unlock()
 }
 
@@ -205,6 +215,12 @@ func (s *Service) recordAppend(job persistJob) {
 // appended, or until ctx ends. Shutdown paths call it before the process exits,
 // because persistence is asynchronous. A nil Service, and one without a store, is
 // a no-op.
+//
+// A blocked append cannot be cancelled: when the deadline expires the writer may
+// stay blocked on the store lock until the process exits, and the snapshots still
+// queued or in flight are lost (the caller reports a warning). Observations
+// arriving after a drain starts are still accepted and queued. Drain is safe to
+// call repeatedly and concurrently.
 func (s *Service) Drain(ctx context.Context) error {
 	if s == nil || s.writer == nil {
 		return nil

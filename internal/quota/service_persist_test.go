@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -164,7 +166,11 @@ func TestObserveDoesNotWaitForStoreLock(t *testing.T) {
 	observed := make(chan struct{})
 	go func() {
 		defer close(observed)
-		svc.Observe(sampleSnapshot("k", testBase, 10))
+		// Identical observations queue up while the lock is held: the service
+		// dedupe baseline only moves on a write, so all three are enqueued.
+		for range 3 {
+			svc.Observe(sampleSnapshot("k", testBase, 10))
+		}
 		// A caller reading in-memory state does not wait for the writer either.
 		svc.Views("")
 	}()
@@ -184,14 +190,16 @@ func TestObserveDoesNotWaitForStoreLock(t *testing.T) {
 	release()
 	mustDrain(t, svc)
 
-	latest, err := NewStore(path).Latest()
+	// The store's file-level dedupe collapses the queued duplicates into one
+	// entry.
+	stored, err := NewStore(path).readAll()
 	if err != nil {
-		t.Fatalf("Latest: %v", err)
+		t.Fatalf("readAll: %v", err)
 	}
-	snap, ok := latest["k"]
-	if !ok {
-		t.Fatal("snapshot was not persisted after the drain")
+	if len(stored) != 1 {
+		t.Fatalf("stored %d snapshots for identical queued observations, want 1", len(stored))
 	}
+	snap := stored[0]
 	if len(snap.Windows) != 1 || snap.Windows[0].UsedPercent != 10 {
 		t.Errorf("persisted snapshot = %+v, want the observed 10%% window", snap)
 	}
@@ -228,5 +236,123 @@ func TestDrainFlushesPendingWritesInOrder(t *testing.T) {
 		if snap.Windows[0].UsedPercent != float64(i) || !snap.FetchedAt.Equal(testBase.Add(time.Duration(i)*time.Minute)) {
 			t.Errorf("stored[%d] = %v%% at %s, want %d%% at %s", i, snap.Windows[0].UsedPercent, snap.FetchedAt, i, testBase.Add(time.Duration(i)*time.Minute))
 		}
+	}
+}
+
+// TestDedupeComparesAgainstPersistedBaseline pins that the service dedupe
+// baseline is the last snapshot written to the store, not the previous
+// observation. Every step here drifts the window reset by one second, so a
+// previous-observation baseline would call all twenty unchanged and store only
+// the first; the persisted baseline lets cumulative drift surface.
+func TestDedupeComparesAgainstPersistedBaseline(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "quota-history.json")
+	svc := NewService(ServiceOptions{
+		Store: NewStore(path),
+		Now:   func() time.Time { return testBase },
+	})
+	t.Cleanup(func() { mustDrain(t, svc) })
+	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
+
+	const observations = 20
+	for i := range observations {
+		snap := sampleSnapshot("k", testBase.Add(time.Duration(i)*time.Minute), 10)
+		snap.Windows[0].ResetsAt = snap.Windows[0].ResetsAt.Add(time.Duration(i) * time.Second)
+		svc.Observe(snap)
+	}
+	mustDrain(t, svc)
+
+	stored, err := NewStore(path).readAll()
+	if err != nil {
+		t.Fatalf("readAll: %v", err)
+	}
+	if len(stored) < 2 {
+		t.Fatalf("stored %d snapshots, want the initial one plus at least one drift past the tolerance", len(stored))
+	}
+	first := stored[0].Windows[0].ResetsAt
+	last := stored[len(stored)-1].Windows[0].ResetsAt
+	if drift := last.Sub(first); drift < resetsAtTolerance {
+		t.Errorf("stored reset drift = %v, want at least %v", drift, resetsAtTolerance)
+	}
+}
+
+func TestPersistFailureIsLoggedAndDoesNotBlock(t *testing.T) {
+	// A regular file where the store directory belongs makes every append fail
+	// before it takes the lock.
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	logs := make(chan string, 8)
+	svc := NewService(ServiceOptions{
+		Store: NewStore(filepath.Join(blocked, "quota-history.json")),
+		Now:   func() time.Time { return testBase },
+		Logf: func(format string, args ...any) {
+			logs <- fmt.Sprintf(format, args...)
+		},
+	})
+	t.Cleanup(func() { mustDrain(t, svc) })
+	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
+
+	svc.Observe(sampleSnapshot("k", testBase, 10))
+	mustDrain(t, svc)
+
+	var logged []string
+collect:
+	for {
+		select {
+		case msg := <-logs:
+			logged = append(logged, msg)
+		default:
+			break collect
+		}
+	}
+	persistFailed := false
+	for _, msg := range logged {
+		if strings.Contains(msg, "quota: persist") {
+			persistFailed = true
+		}
+	}
+	if !persistFailed {
+		t.Errorf("logged %v, want a persist failure", logged)
+	}
+
+	// The service keeps accepting observations after a failed append.
+	svc.Observe(sampleSnapshot("k", testBase.Add(time.Minute), 20))
+	mustDrain(t, svc)
+}
+
+func TestConcurrentObserveAndDrain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "quota-history.json")
+	svc := NewService(ServiceOptions{
+		Store: NewStore(path),
+		Now:   func() time.Time { return testBase },
+	})
+	t.Cleanup(func() { mustDrain(t, svc) })
+	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
+
+	var wg sync.WaitGroup
+	for i := range 32 {
+		wg.Go(func() {
+			svc.Observe(sampleSnapshot("k", testBase.Add(time.Duration(i)*time.Second), float64(i%4)))
+		})
+	}
+	for range 8 {
+		wg.Go(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := svc.Drain(ctx); err != nil {
+				t.Errorf("concurrent Drain: %v", err)
+			}
+		})
+	}
+	wg.Wait()
+	mustDrain(t, svc)
+
+	stored, err := NewStore(path).readAll()
+	if err != nil {
+		t.Fatalf("readAll: %v", err)
+	}
+	if len(stored) == 0 {
+		t.Fatal("no snapshot was persisted alongside concurrent drains")
 	}
 }

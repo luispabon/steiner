@@ -74,9 +74,11 @@ type TimeoutFetcher interface {
 }
 
 // resetsAtTolerance is how far apart two ResetsAt values may be and still name
-// the same reset. Providers repeat the same reset time with sub-second drift on
-// every reply, while a genuine window or budget reset moves it by hours.
-const resetsAtTolerance = time.Minute
+// the same reset. The Claude CLI repeats the same reset time with sub-second
+// drift on every reply, and Codex derives resets_at from resets_in_seconds plus
+// now, so request latency and whole-second rounding add a second or two. A
+// genuine window or budget reset moves it by hours.
+const resetsAtTolerance = 5 * time.Second
 
 // sameState reports whether a and b carry the same semantic quota state.
 // FetchedAt and Source are ignored. Reset times compare within resetsAtTolerance,

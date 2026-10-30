@@ -23,6 +23,13 @@ type persistJob struct {
 // persistWriter appends snapshots to a Store on its own goroutine, so the
 // caller that observed a snapshot never waits on the store lock. Appends run one
 // at a time in the order the snapshots were queued.
+//
+// The writer has no shutdown step: a Store.Append blocked on the file lock stays
+// blocked until the lock is released or the process exits. A drain that expires
+// therefore leaves the goroutine blocked (it is reaped at exit) and the snapshots
+// still queued or in flight are lost, which the drain caller reports as a
+// warning. Observations keep being accepted after a drain starts: each one is
+// queued normally, and only an expired deadline stops the wait.
 type persistWriter struct {
 	store     *Store
 	logf      func(string, ...any)
@@ -36,7 +43,7 @@ type persistWriter struct {
 }
 
 // newPersistWriter starts the writer goroutine for store. onWritten runs after
-// every successful append.
+// every append that wrote the file.
 func newPersistWriter(store *Store, logf func(string, ...any), onWritten func(persistJob)) *persistWriter {
 	w := &persistWriter{
 		store:     store,
@@ -78,7 +85,9 @@ func (w *persistWriter) enqueue(job persistJob) {
 }
 
 // drain waits until every queued and in-flight append has finished, or until ctx
-// ends.
+// ends. Appends cannot be cancelled, so an expired ctx abandons the wait while the
+// writer may stay blocked on the store lock; queued snapshots are then lost. The
+// caller reports that as a warning. Safe for concurrent and repeated use.
 func (w *persistWriter) drain(ctx context.Context) error {
 	for {
 		w.mu.Lock()
@@ -104,9 +113,12 @@ func (w *persistWriter) run() {
 			if !ok {
 				break
 			}
-			if err := w.store.Append(job.snap, job.at); err != nil {
+			written, err := w.store.append(job.snap, job.at)
+			if err != nil {
 				w.logf("quota: persist %s: %v", job.snap.AccountKey, err)
-			} else if w.onWritten != nil {
+			} else if written && w.onWritten != nil {
+				// Only a write moves the persisted baseline. A skipped dedupe leaves
+				// the file's newest snapshot in place, so the baseline must not move.
 				w.onWritten(job)
 			}
 			w.finish()
