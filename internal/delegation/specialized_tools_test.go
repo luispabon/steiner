@@ -2335,7 +2335,7 @@ func TestVisionHandler_ExtraAllowedTools(t *testing.T) {
 	}
 }
 
-func TestSpecializedHandler_CodeProvisionesWorktree(t *testing.T) {
+func TestSpecializedHandler_CodeProvisionsWorktree(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := setupTestRepo(t)
