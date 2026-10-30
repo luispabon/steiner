@@ -1270,12 +1270,13 @@ func submitAndWait(t *testing.T, s *Session, text string, images []agent.ImageBl
 	waitSettled(t, s)
 }
 
-func (f *runExecutorFunc) Compact(ctx context.Context, conversation []agent.Message, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
+func (f *runExecutorFunc) CompactWithLineage(ctx context.Context, conversation []agent.Message, _ agent.ConversationLineage, _ agent.LastMainRequest, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error) {
 	f.compactSteering = steering
 	if f.compact == nil {
-		return conversation, nil
+		return conversation, false, true, nil
 	}
-	return f.compact(ctx, conversation, tools)
+	compacted, err := f.compact(ctx, conversation, tools)
+	return compacted, false, err == nil, err
 }
 
 // recordingHistoryWriter implements historyWriter for testing.

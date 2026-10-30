@@ -416,12 +416,16 @@ type lineageRecordingRunner struct {
 	lastMainRequest agent.LastMainRequest
 	// clearState is reported back as the summary clearing the backend state.
 	clearState bool
+	// notApplied reports back that no compaction stage applied.
+	notApplied bool
+	// err is returned from the compaction when set.
+	err error
 }
 
 func (r *lineageRecordingRunner) CompactWithLineage(_ context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, _ []provider.ToolSpec, _ string) ([]agent.Message, bool, bool, error) {
 	r.lineage = lineage
 	r.lastMainRequest = lastMainRequest
-	return conversation, r.clearState, true, nil
+	return conversation, r.clearState, !r.notApplied, r.err
 }
 
 // TestManualCompactionPassesDriverLineageToLineageRunner proves a manual
@@ -468,6 +472,138 @@ func TestManualCompactionClearsGenerationStateWhenProviderClears(t *testing.T) {
 			t.Errorf("generation %d kept backend state %s, want none after the clear", gen.ID, gen.BackendState)
 		}
 	}
+}
+
+// TestManualCompactionNotAppliedWithoutClearPreservesLineage proves a
+// compaction that applies no stage and reports no clear leaves the conversation
+// and lineage untouched and emits the skipped diagnostic, so a no-op never
+// advances the lineage.
+func TestManualCompactionNotAppliedWithoutClearPreservesLineage(t *testing.T) {
+	conv := twoTurnConversation()
+	lineage := agent.ConversationLineage{
+		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: conv, BackendState: []byte(`{"version":1}`)}},
+		NextGenerationID: 2,
+	}
+	var events []output.Event
+	runner := &lineageRecordingRunner{notApplied: true}
+	s := mustCompactionSession(t, Dependencies{Runner: runner, BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
+	drv := agent.NewConversationDriver(agent.DriverOptions{}, conv, lineage)
+	gotConv, gotLineage, err := s.manualCompaction(drv, "")(context.Background(), conv)
+	if err != nil {
+		t.Fatalf("manualCompaction() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotLineage, lineage) {
+		t.Fatalf("lineage = %+v, want the unchanged %+v", gotLineage, lineage)
+	}
+	if !reflect.DeepEqual(gotConv, conv) {
+		t.Fatalf("conversation = %+v, want the unchanged %+v", gotConv, conv)
+	}
+	if got := skippedCompactionDiagnostics(events); got != 1 {
+		t.Fatalf("skipped compaction diagnostics = %d, want 1", got)
+	}
+	finished := events[len(events)-1].Payload.(output.RunFinishedEvent)
+	if finished.Reason != "complete" || finished.Error != "" {
+		t.Fatalf("run finished = %+v, want a complete run", finished)
+	}
+}
+
+// TestManualCompactionNotAppliedWithClearDropsBackendState proves a compaction
+// that applied no stage but reported the provider cleared backend state drops
+// that state without changing the conversation or generation IDs.
+func TestManualCompactionNotAppliedWithClearDropsBackendState(t *testing.T) {
+	conv := twoTurnConversation()
+	lineage := agent.ConversationLineage{
+		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: conv, BackendState: []byte(`{"version":1}`)}},
+		NextGenerationID: 2,
+	}
+	var events []output.Event
+	runner := &lineageRecordingRunner{clearState: true, notApplied: true}
+	s := mustCompactionSession(t, Dependencies{Runner: runner, BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
+	drv := agent.NewConversationDriver(agent.DriverOptions{}, conv, lineage)
+	gotConv, gotLineage, err := s.manualCompaction(drv, "")(context.Background(), conv)
+	if err != nil {
+		t.Fatalf("manualCompaction() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotConv, conv) {
+		t.Fatalf("conversation = %+v, want the unchanged %+v", gotConv, conv)
+	}
+	if len(gotLineage.Generations) != 1 || gotLineage.NextGenerationID != 2 {
+		t.Fatalf("lineage = %+v, want the same single generation and next ID", gotLineage)
+	}
+	gen := gotLineage.Generations[0]
+	if gen.ID != 1 || !reflect.DeepEqual(gen.Messages, conv) {
+		t.Fatalf("generation = %+v, want generation 1 with the unchanged messages", gen)
+	}
+	if gen.BackendState != nil {
+		t.Fatalf("backend state = %s, want it dropped after the clear", gen.BackendState)
+	}
+	if got := skippedCompactionDiagnostics(events); got != 1 {
+		t.Fatalf("skipped compaction diagnostics = %d, want 1", got)
+	}
+	finished := events[len(events)-1].Payload.(output.RunFinishedEvent)
+	if finished.Reason != "complete" || finished.Error != "" {
+		t.Fatalf("run finished = %+v, want a complete run", finished)
+	}
+}
+
+// TestManualCompactionErrorWithClearLeavesStateUnchanged proves an error forces
+// cleared false: the runner's clear report is ignored, the lineage and
+// conversation stay as they were, and the run finishes with the error. This
+// test pins current behavior, not a desired guarantee: an error discards the
+// runner's clear report.
+func TestManualCompactionErrorWithClearLeavesStateUnchanged(t *testing.T) {
+	conv := twoTurnConversation()
+	lineage := agent.ConversationLineage{
+		Generations:      []agent.ConversationGeneration{{ID: 1, Messages: conv, BackendState: []byte(`{"version":1}`)}},
+		NextGenerationID: 2,
+	}
+	var events []output.Event
+	runner := &lineageRecordingRunner{clearState: true, err: errors.New("boom")}
+	s := mustCompactionSession(t, Dependencies{Runner: runner, BaseEvents: output.SinkFunc(func(event output.Event) { events = append(events, event) })})
+	drv := agent.NewConversationDriver(agent.DriverOptions{}, conv, lineage)
+	gotConv, gotLineage, err := s.manualCompaction(drv, "")(context.Background(), conv)
+	if err != nil {
+		t.Fatalf("manualCompaction() error = %v, want nil because the run reports it as an event", err)
+	}
+	if !reflect.DeepEqual(gotLineage, lineage) {
+		t.Fatalf("lineage = %+v, want the unchanged %+v", gotLineage, lineage)
+	}
+	if !reflect.DeepEqual(gotConv, conv) {
+		t.Fatalf("conversation = %+v, want the unchanged %+v", gotConv, conv)
+	}
+	finished, ok := lastRunFinishedEvent(events)
+	if !ok {
+		t.Fatal("no run finished event")
+	}
+	if finished.Reason != "error" || finished.Error != "boom" {
+		t.Fatalf("run finished = %+v, want the run's error", finished)
+	}
+}
+
+// skippedCompactionDiagnostics counts the skipped compaction diagnostics in
+// events.
+func skippedCompactionDiagnostics(events []output.Event) int {
+	skipped := 0
+	for _, event := range events {
+		if event.Type == output.EventTypeContextDiagnostics && output.ContextDiagnosticSeverity(event.Payload) == "skipped" {
+			skipped++
+		}
+	}
+	return skipped
+}
+
+// lastRunFinishedEvent returns the last RunFinished event in events. A failed
+// compaction emits its stop-reason event after RunFinished, so the finished
+// event is not always the last one.
+func lastRunFinishedEvent(events []output.Event) (output.RunFinishedEvent, bool) {
+	var finished output.RunFinishedEvent
+	found := false
+	for _, event := range events {
+		if event.Type == output.EventTypeRunFinished {
+			finished, found = event.Payload.(output.RunFinishedEvent), true
+		}
+	}
+	return finished, found
 }
 
 // TestManualCompactionPassesDriverLastMainRequest proves a manual compaction

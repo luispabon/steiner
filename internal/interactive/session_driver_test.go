@@ -25,8 +25,8 @@ func (r *inputRunner) Run(ctx context.Context, in RunInput) (RunResult, error) {
 	return r.run(ctx, in)
 }
 
-func (r *inputRunner) Compact(_ context.Context, conversation []agent.Message, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
-	return conversation, nil
+func (r *inputRunner) CompactWithLineage(_ context.Context, conversation []agent.Message, _ agent.ConversationLineage, _ agent.LastMainRequest, _ []provider.ToolSpec, _ string) ([]agent.Message, bool, bool, error) {
+	return conversation, false, true, nil
 }
 
 func withAnswer(in RunInput, answer string) RunResult {

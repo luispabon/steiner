@@ -12,14 +12,7 @@ import (
 
 func (s *Session) compactRunner(conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, steering string) func(context.Context) ([]agent.Message, bool, bool, error) {
 	return func(ctx context.Context) ([]agent.Message, bool, bool, error) {
-		runner := s.currentRunner()
-		if lc, ok := runner.(lineageCompactor); ok {
-			return lc.CompactWithLineage(ctx, conversation, lineage, lastMainRequest, snapshotTools(s.snapshots), steering)
-		}
-		// Compact does not expose whether a stage applied. A nil error means the
-		// fallback completed, so it counts as applied.
-		compacted, err := runner.Compact(ctx, conversation, snapshotTools(s.snapshots), steering)
-		return compacted, false, err == nil, err
+		return s.currentRunner().CompactWithLineage(ctx, conversation, lineage, lastMainRequest, snapshotTools(s.snapshots), steering)
 	}
 }
 
@@ -75,9 +68,10 @@ func manualCompactionHasSource(messages []agent.Message) bool {
 // compaction is built from the same prefix a normal turn would replay. Child
 // sub-agent requests carry restricted tool sets and must not change the
 // compaction prefix, so this reads the parent-only snapshot rather than the
-// latest-overall one. The runExecutor seam (cliRunner.Compact) clones them
-// before handing them to the agent runner; here we pass the reference without
-// duplicating it. Returns nil when no parent request has been recorded.
+// latest-overall one. The runExecutor seam (cliRunner.CompactWithLineage)
+// clones them before handing them to the agent runner; here we pass the
+// reference without duplicating it. Returns nil when no parent request has been
+// recorded.
 func snapshotTools(store *SnapshotStore) []provider.ToolSpec {
 	snapshot, ok := store.ParentSnapshot()
 	if !ok {

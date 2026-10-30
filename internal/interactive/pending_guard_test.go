@@ -447,8 +447,8 @@ type compactingRunner struct {
 	compact func() []agent.Message
 }
 
-func (c *compactingRunner) Compact(context.Context, []agent.Message, []provider.ToolSpec, string) ([]agent.Message, error) {
-	return c.compact(), nil
+func (c *compactingRunner) CompactWithLineage(context.Context, []agent.Message, agent.ConversationLineage, agent.LastMainRequest, []provider.ToolSpec, string) ([]agent.Message, bool, bool, error) {
+	return c.compact(), false, true, nil
 }
 
 func TestReplacementRefusedWithQueuedPrompt(t *testing.T) {

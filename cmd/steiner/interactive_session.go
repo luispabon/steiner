@@ -430,11 +430,7 @@ type sessionRunner struct {
 	mcpInit *mcpInitOnce
 }
 
-func (r sessionRunner) Compact(ctx context.Context, conversation []agent.Message, tools []provider.ToolSpec, steering string) ([]agent.Message, error) {
-	return r.runner.Compact(ctx, conversation, nil, tools, steering)
-}
-
-// CompactWithLineage compacts against the run's lineage and last main request (see lineageCompactor).
+// CompactWithLineage compacts against the run's lineage and last main request.
 func (r sessionRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error) {
 	return r.runner.CompactWithLineage(ctx, conversation, lineage, lastMainRequest, nil, tools, steering)
 }

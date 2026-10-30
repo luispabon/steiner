@@ -2258,21 +2258,24 @@ func TestAnchorRealUserRetention(t *testing.T) {
 	}
 }
 
-func TestRunnerCompact_StatefulTranscriptRefusesWithoutCallingProvider(t *testing.T) {
+func TestRunnerCompactWithLineage_StatefulTranscriptRefusesWithoutCallingProvider(t *testing.T) {
 	stub := &statefulTestProvider{fakeProvider: &fakeProvider{}}
 	req := RunRequest{Provider: stub}
 	conv := []Message{{Role: MessageRoleUser, Content: "hello"}}
 
-	got, err := (&Runner{}).Compact(context.Background(), req, conv)
+	got, cleared, applied, err := (&Runner{}).CompactWithLineage(context.Background(), req, ConversationLineage{}, conv)
 
 	if err == nil {
-		t.Fatal("Compact() error = nil, want non-nil")
+		t.Fatal("CompactWithLineage() error = nil, want non-nil")
 	}
 	if !errors.Is(err, errStatefulCompaction) {
-		t.Fatalf("Compact() error = %v, want wrapping errStatefulCompaction", err)
+		t.Fatalf("CompactWithLineage() error = %v, want wrapping errStatefulCompaction", err)
 	}
 	if got != nil {
-		t.Fatalf("Compact() = %v, want nil", got)
+		t.Fatalf("CompactWithLineage() = %v, want nil", got)
+	}
+	if cleared || applied {
+		t.Fatalf("CompactWithLineage() cleared = %t, applied = %t, want both false", cleared, applied)
 	}
 	if len(stub.requests) != 0 {
 		t.Fatalf("provider requests = %d, want 0", len(stub.requests))

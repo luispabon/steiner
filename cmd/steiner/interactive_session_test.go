@@ -1105,8 +1105,8 @@ func (r *blockedCleanupTestRunner) Run(context.Context, interactive.RunInput) (i
 	return interactive.RunResult{}, nil
 }
 
-func (r *blockedCleanupTestRunner) Compact(_ context.Context, conversation []agent.Message, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
-	return conversation, nil
+func (r *blockedCleanupTestRunner) CompactWithLineage(_ context.Context, conversation []agent.Message, _ agent.ConversationLineage, _ agent.LastMainRequest, _ []provider.ToolSpec, _ string) ([]agent.Message, bool, bool, error) {
+	return conversation, false, true, nil
 }
 
 // lastRequestContents joins the message contents of the most recent provider
@@ -1125,8 +1125,8 @@ func lastRequestContents(t *testing.T, p *fakeProvider) string {
 
 // TestSessionRunnerForwardsNilStaticSkillNames proves the interactive adapter
 // never populates the static skill set: driving the same cliRunner through
-// sessionRunner (whose Run and Compact pass nil skill names) omits a skill that
-// the same runner includes when the name is passed explicitly.
+// sessionRunner (whose Run and CompactWithLineage pass nil skill names) omits a
+// skill that the same runner includes when the name is passed explicitly.
 func TestSessionRunnerForwardsNilStaticSkillNames(t *testing.T) {
 	skillsRoot := filepath.Join(t.TempDir(), ".config", "steiner", "skills")
 	mustMkdirAll(t, filepath.Join(skillsRoot, "review"))

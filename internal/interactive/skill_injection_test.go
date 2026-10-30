@@ -46,8 +46,8 @@ func (r *recordingRunner) Run(_ context.Context, in RunInput) (RunResult, error)
 	return RunResult{Conversation: result}, nil
 }
 
-func (r *recordingRunner) Compact(_ context.Context, conversation []agent.Message, _ []provider.ToolSpec, _ string) ([]agent.Message, error) {
-	return conversation, nil
+func (r *recordingRunner) CompactWithLineage(_ context.Context, conversation []agent.Message, _ agent.ConversationLineage, _ agent.LastMainRequest, _ []provider.ToolSpec, _ string) ([]agent.Message, bool, bool, error) {
+	return conversation, false, true, nil
 }
 
 func (r *recordingRunner) lastUserContent(t *testing.T) string {
