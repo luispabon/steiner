@@ -1,6 +1,7 @@
 package quota
 
 import (
+	"context"
 	"slices"
 	"sync"
 	"time"
@@ -21,9 +22,11 @@ type ServiceOptions struct {
 
 // Service keeps the latest snapshot per account, merges passive observations,
 // refreshes accounts through their Fetchers, and persists every change. Its
-// methods are safe for concurrent use. Store I/O never runs while mu is held.
+// methods are safe for concurrent use. Store appends run on a dedicated writer
+// goroutine; call Drain to wait for them. Store I/O never runs while mu is held.
 type Service struct {
 	store        *Store
+	writer       *persistWriter
 	now          func() time.Time
 	logf         func(string, ...any)
 	fetchTimeout time.Duration
@@ -65,6 +68,9 @@ func NewService(opts ServiceOptions) *Service {
 	}
 	if s.fetchTimeout <= 0 {
 		s.fetchTimeout = defaultFetchTimeout
+	}
+	if s.store != nil {
+		s.writer = newPersistWriter(s.store, s.logf, s.recordAppend)
 	}
 	return s
 }
@@ -154,10 +160,11 @@ func (s *Service) Updates() <-chan struct{} {
 	return s.updates
 }
 
-// commit records snap as the latest state for its account, persists it unless
-// it repeats the previous state within an hour of the account's last successful
-// append, and notifies. When replace is false, snap is merged into the current
-// state. The in-memory state and the notification always update.
+// commit records snap as the latest state for its account, queues it for
+// persistence unless it repeats the previous state within an hour of the
+// account's last successful append, and notifies. When replace is false, snap is
+// merged into the current state. The in-memory state and the notification always
+// update.
 func (s *Service) commit(snap Snapshot, replace bool) {
 	s.ensureLoaded()
 	now := s.now()
@@ -175,20 +182,34 @@ func (s *Service) commit(snap Snapshot, replace bool) {
 	s.notify()
 }
 
-// persist appends snap to the store and records now as the account's last
-// successful append. Failures are logged; the in-memory state is already
-// updated when persist runs.
+// persist queues snap for the store writer and returns without waiting for it.
+// The writer appends snapshots in observation order and logs failures; the
+// in-memory state is already updated when persist runs. Code that reads the store
+// in this process right after an observation must call Drain first.
 func (s *Service) persist(snap Snapshot, now time.Time) {
-	if s.store == nil {
+	if s.writer == nil {
 		return
 	}
-	if err := s.store.Append(snap, now); err != nil {
-		s.logf("quota: persist %s: %v", snap.AccountKey, err)
-		return
-	}
+	s.writer.enqueue(persistJob{snap: snap, at: now})
+}
+
+// recordAppend notes the service clock reading of a successful append, which
+// commit uses to bound its dedupe window.
+func (s *Service) recordAppend(job persistJob) {
 	s.mu.Lock()
-	s.lastAppend[snap.AccountKey] = now
+	s.lastAppend[job.snap.AccountKey] = job.at
 	s.mu.Unlock()
+}
+
+// Drain waits until every snapshot this process queued for the store has been
+// appended, or until ctx ends. Shutdown paths call it before the process exits,
+// because persistence is asynchronous. A nil Service, and one without a store, is
+// a no-op.
+func (s *Service) Drain(ctx context.Context) error {
+	if s == nil || s.writer == nil {
+		return nil
+	}
+	return s.writer.drain(ctx)
 }
 
 // notify sends a coalesced update notification without blocking.

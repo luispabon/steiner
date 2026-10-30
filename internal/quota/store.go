@@ -55,9 +55,9 @@ func DefaultStorePath() (string, error) {
 }
 
 // Append persists snap. It skips the write when the newest stored snapshot for
-// the same account has identical state (ignoring FetchedAt and Source) and was
-// fetched less than an hour before now. Snapshots fetched more than 35 days
-// before now are pruned.
+// the same account has identical state (ignoring FetchedAt and Source, and
+// comparing reset times within resetsAtTolerance) and was fetched less than an
+// hour before now. Snapshots fetched more than 35 days before now are pruned.
 func (s *Store) Append(snap Snapshot, now time.Time) error {
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {

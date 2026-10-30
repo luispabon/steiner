@@ -73,9 +73,14 @@ type TimeoutFetcher interface {
 	FetchTimeout() time.Duration
 }
 
+// resetsAtTolerance is how far apart two ResetsAt values may be and still name
+// the same reset. Providers repeat the same reset time with sub-second drift on
+// every reply, while a genuine window or budget reset moves it by hours.
+const resetsAtTolerance = time.Minute
+
 // sameState reports whether a and b carry the same semantic quota state.
-// FetchedAt and Source are ignored. Times compare with time.Equal, and pointer
-// fields compare by the values they point to.
+// FetchedAt and Source are ignored. Reset times compare within resetsAtTolerance,
+// and pointer fields compare by the values they point to.
 func sameState(a, b Snapshot) bool {
 	if a.AccountKey != b.AccountKey || a.ProviderType != b.ProviderType ||
 		a.Plan != b.Plan || a.Credits != b.Credits ||
@@ -86,7 +91,7 @@ func sameState(a, b Snapshot) bool {
 		wa, wb := a.Windows[i], b.Windows[i]
 		if wa.Label != wb.Label || wa.Duration != wb.Duration ||
 			wa.UsedPercent != wb.UsedPercent || wa.Status != wb.Status ||
-			!wa.ResetsAt.Equal(wb.ResetsAt) {
+			!sameResetTime(wa.ResetsAt, wb.ResetsAt) {
 			return false
 		}
 	}
@@ -115,5 +120,15 @@ func sameTimePtr(a, b *time.Time) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	return a.Equal(*b)
+	return sameResetTime(*a, *b)
+}
+
+// sameResetTime reports whether a and b name the same reset instant. Two zero
+// values match, a zero value never matches a real time, and real times match
+// within resetsAtTolerance.
+func sameResetTime(a, b time.Time) bool {
+	if a.IsZero() || b.IsZero() {
+		return a.IsZero() && b.IsZero()
+	}
+	return a.Sub(b).Abs() <= resetsAtTolerance
 }

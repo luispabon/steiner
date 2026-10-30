@@ -11,8 +11,10 @@ In `cmd/steiner`, `runtime_build.go` builds the service and store, and `primeQuo
 ## Service
 
 - `Fetcher.Fetch` returns a `Snapshot`. A `TimeoutFetcher` overrides the 10-second default timeout. `FetchOptions.AllowSpawn` is true for `RefreshAll` and false for `RefreshUsed`; only the Claude fetcher reads it.
-- `Views` returns one row per registered account, sorted by display alias, which is the alphabetically first alias. Stored snapshots without a registration are never shown, but stay in the store.
-- `commit` releases the service lock before persisting. Persist failures are logged, and the in-memory state still updates.
+- `Views` returns one row per registered account, sorted by display alias, which is the alphabetically first alias. Stored snapshots without a registration are never shown, but stay in the store. `Latest` is in-memory state; projections read the store, so they can lag the newest observation until the writer drains.
+- `commit` runs with no store I/O. It queues a `persistJob` for the writer goroutine, which appends snapshots one at a time in the order they were queued (`internal/quota/service_persist.go`). The queue holds 32 jobs; when it is full the oldest pending job is dropped and logged, so the writer always ends on the newest state. Persist failures are logged, and the in-memory state still updates.
+- `Drain(ctx)` waits for the queue and any in-flight append to finish, or returns the `ctx` error. `closeRuntime` in `cmd/steiner` calls it with `quotaDrainTimeout` after the claude_subscription pool stops, so interactive, exec, and oneshot runs all flush before exit. Code that reads the store in the same process right after an observation must drain first.
+- `commit` skips persistence when the new state repeats the previous one within an hour of the account's last successful append. `sameState` compares reset times within `resetsAtTolerance` (one minute), because providers repeat the same reset with sub-second drift on every reply while a real reset moves it by hours.
 
 ## Passive observations
 
@@ -23,7 +25,7 @@ In `cmd/steiner`, `runtime_build.go` builds the service and store, and `primeQuo
 ## Store
 
 - `Append` creates the directory with mode `0o700`, opens `<path>.lock` (mode `0o600`, tightened on each append), and takes a blocking exclusive `flock`.
-- Under the lock it reads the file, merges, prunes old snapshots, and writes through `fsatomic.WriteFile`: a synced temp file renamed over the data file.
+- Under the lock it reads the file, merges, prunes old snapshots, and writes through `fsatomic.WriteFile`: a synced temp file renamed over the data file. It skips the write when the newest stored snapshot for the account has the same state and was fetched less than an hour earlier, using the same `sameState` and `resetsAtTolerance` comparison as `commit`.
 - `Latest` and the history read in `Views` take no lock. Each sees the old or the new file, never a partial one.
 - Locking is unix-only. Elsewhere `lockFile` returns an error, so `Append` writes nothing.
 - A file that fails to decode makes `Append` fail, so history is never overwritten. `Views` treats an unreadable history as empty and logs the error.

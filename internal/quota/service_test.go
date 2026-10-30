@@ -10,7 +10,8 @@ import (
 )
 
 // newTestService returns a Service whose clock is a variable the test controls
-// through the returned pointer.
+// through the returned pointer. The service is drained when the test ends, so
+// the asynchronous writer never runs past it.
 func newTestService(t *testing.T, store *Store) (*Service, *time.Time) {
 	t.Helper()
 	clock := testBase
@@ -18,6 +19,13 @@ func newTestService(t *testing.T, store *Store) (*Service, *time.Time) {
 		Store: store,
 		Now:   func() time.Time { return clock },
 		Logf:  t.Logf,
+	})
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := svc.Drain(ctx); err != nil {
+			t.Errorf("drain quota service: %v", err)
+		}
 	})
 	return svc, &clock
 }
@@ -142,6 +150,7 @@ func TestObserveDedupesIdenticalStateAndNotifies(t *testing.T) {
 	default:
 		t.Error("identical observation did not notify")
 	}
+	mustDrain(t, svc)
 	if history, _ := historyOf(store, "k1"); len(history) != 1 {
 		t.Errorf("stored %d snapshots after identical observation, want 1", len(history))
 	}
@@ -151,6 +160,7 @@ func TestObserveDedupesIdenticalStateAndNotifies(t *testing.T) {
 
 	*clock = testBase.Add(45 * time.Minute)
 	svc.Observe(sampleSnapshot("k1", testBase.Add(45*time.Minute), 20))
+	mustDrain(t, svc)
 	if history, _ := historyOf(store, "k1"); len(history) != 2 {
 		t.Errorf("stored %d snapshots after changed observation, want 2", len(history))
 	}
@@ -371,6 +381,7 @@ func TestViewsIncludeProjections(t *testing.T) {
 
 	*clock = testBase.Add(30 * time.Minute)
 	svc.Observe(sampleSnapshot("k", testBase.Add(30*time.Minute), 20))
+	mustDrain(t, svc)
 
 	v := svc.Views("")[0]
 	if len(v.WindowProjections) != 1 || !v.WindowProjections[0].OK || !v.WindowProjections[0].BeforeReset {

@@ -80,8 +80,11 @@ func TestStoreAppendDedupe(t *testing.T) {
 		{"identical at exactly one hour is stored", func(*Snapshot) {}, time.Hour, 2},
 		{"identical after an hour is stored", func(*Snapshot) {}, 2 * time.Hour, 2},
 		{"changed usage is stored", func(s *Snapshot) { s.Windows[0].UsedPercent++ }, 5 * time.Minute, 2},
-		{"changed reset instant is stored", func(s *Snapshot) {
-			s.Windows[0].ResetsAt = s.Windows[0].ResetsAt.Add(time.Second)
+		{"reset instant jitter within a minute is skipped", func(s *Snapshot) {
+			s.Windows[0].ResetsAt = s.Windows[0].ResetsAt.Add(500 * time.Millisecond)
+		}, 5 * time.Minute, 1},
+		{"reset instant more than a minute later is stored", func(s *Snapshot) {
+			s.Windows[0].ResetsAt = s.Windows[0].ResetsAt.Add(2 * time.Minute)
 		}, 5 * time.Minute, 2},
 		{"same reset instant in another zone is skipped", func(s *Snapshot) {
 			s.Windows[0].ResetsAt = s.Windows[0].ResetsAt.In(loc)

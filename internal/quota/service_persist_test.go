@@ -1,6 +1,8 @@
 package quota
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,11 +22,13 @@ func TestObserveSkipsAppendForUnchangedStateWithinHour(t *testing.T) {
 			logs = append(logs, fmt.Sprintf(format, args...))
 		},
 	})
+	t.Cleanup(func() { mustDrain(t, svc) })
 
 	svc.Register(Account{Key: "k", Aliases: []string{"a"}})
 
 	// The first observation is appended normally and records the append time.
 	svc.Observe(sampleSnapshot("k", testBase, 10))
+	mustDrain(t, svc)
 	if len(logs) != 0 {
 		t.Fatalf("first observation logged %v", logs)
 	}
@@ -57,6 +61,7 @@ func TestObserveSkipsAppendForUnchangedStateWithinHour(t *testing.T) {
 			clock = step.at
 			before := len(logs)
 			svc.Observe(sampleSnapshot("k", step.at, step.used))
+			mustDrain(t, svc)
 
 			if attempted := len(logs) > before; attempted != step.wantAppend {
 				t.Errorf("store append attempted = %v, want %v (logs %v)", attempted, step.wantAppend, logs[before:])
@@ -113,5 +118,115 @@ func TestRegisterUnavailableReplacesWhenNonEmptyAndNotifies(t *testing.T) {
 				t.Error("Register did not notify Updates")
 			}
 		})
+	}
+}
+
+// holdStoreLock takes the store lock the way another process would, so the
+// writer goroutine blocks in Store.Append until the returned release runs.
+func holdStoreLock(t *testing.T, path string) (release func()) {
+	t.Helper()
+	lock, err := os.OpenFile(path+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatalf("open store lock: %v", err)
+	}
+	if err := lockFile(lock.Fd()); err != nil {
+		t.Fatalf("lock store: %v", err)
+	}
+	released := false
+	release = func() {
+		if released {
+			return
+		}
+		released = true
+		if err := unlockFile(lock.Fd()); err != nil {
+			t.Errorf("unlock store: %v", err)
+		}
+		if err := lock.Close(); err != nil {
+			t.Errorf("close store lock: %v", err)
+		}
+	}
+	t.Cleanup(release)
+	return release
+}
+
+func TestObserveDoesNotWaitForStoreLock(t *testing.T) {
+	requireFileLocking(t)
+	path := filepath.Join(t.TempDir(), "quota-history.json")
+	release := holdStoreLock(t, path)
+
+	svc := NewService(ServiceOptions{
+		Store: NewStore(path),
+		Now:   func() time.Time { return testBase },
+	})
+	t.Cleanup(func() { mustDrain(t, svc) })
+	svc.Register(Account{Key: "k", Aliases: []string{"a"}})
+
+	observed := make(chan struct{})
+	go func() {
+		defer close(observed)
+		svc.Observe(sampleSnapshot("k", testBase, 10))
+		// A caller reading in-memory state does not wait for the writer either.
+		svc.Views("")
+	}()
+	select {
+	case <-observed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Observe waited for the store lock")
+	}
+
+	drainCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err := svc.Drain(drainCtx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Drain with the store lock held = %v, want context.DeadlineExceeded", err)
+	}
+
+	release()
+	mustDrain(t, svc)
+
+	latest, err := NewStore(path).Latest()
+	if err != nil {
+		t.Fatalf("Latest: %v", err)
+	}
+	snap, ok := latest["k"]
+	if !ok {
+		t.Fatal("snapshot was not persisted after the drain")
+	}
+	if len(snap.Windows) != 1 || snap.Windows[0].UsedPercent != 10 {
+		t.Errorf("persisted snapshot = %+v, want the observed 10%% window", snap)
+	}
+}
+
+func TestDrainFlushesPendingWritesInOrder(t *testing.T) {
+	requireFileLocking(t)
+	path := filepath.Join(t.TempDir(), "quota-history.json")
+	release := holdStoreLock(t, path)
+
+	svc := NewService(ServiceOptions{
+		Store: NewStore(path),
+		Now:   func() time.Time { return testBase },
+	})
+	t.Cleanup(func() { mustDrain(t, svc) })
+	svc.Register(Account{Key: "k", Aliases: []string{"a"}})
+
+	const observations = 5
+	for i := range observations {
+		svc.Observe(sampleSnapshot("k", testBase.Add(time.Duration(i)*time.Minute), float64(i)))
+	}
+
+	release()
+	mustDrain(t, svc)
+
+	stored, err := NewStore(path).readAll()
+	if err != nil {
+		t.Fatalf("readAll: %v", err)
+	}
+	if len(stored) != observations {
+		t.Fatalf("stored %d snapshots, want %d", len(stored), observations)
+	}
+	for i, snap := range stored {
+		if snap.Windows[0].UsedPercent != float64(i) || !snap.FetchedAt.Equal(testBase.Add(time.Duration(i)*time.Minute)) {
+			t.Errorf("stored[%d] = %v%% at %s, want %d%% at %s", i, snap.Windows[0].UsedPercent, snap.FetchedAt, i, testBase.Add(time.Duration(i)*time.Minute))
+		}
 	}
 }

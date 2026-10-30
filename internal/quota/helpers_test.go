@@ -3,6 +3,7 @@ package quota
 import (
 	"context"
 	"sync"
+	"testing"
 	"time"
 )
 
@@ -87,4 +88,14 @@ type timedFetcher struct {
 
 func (f timedFetcher) FetchTimeout() time.Duration {
 	return f.timeout
+}
+
+// mustDrain fails unless the service writes every snapshot it has queued.
+func mustDrain(t *testing.T, svc *Service) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := svc.Drain(ctx); err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
 }
