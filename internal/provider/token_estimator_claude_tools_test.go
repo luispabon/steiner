@@ -63,6 +63,7 @@ func claudeFixtureCanonicalTools(specs []provider.ToolSpec) ([]byte, error) {
 // Live production schemas evolve independently, so this test checks only
 // current core names and deterministic serialization, not fixture equality.
 func TestClaudeTokenProductionCoreBuiltinsAreDeterministic(t *testing.T) {
+	t.Parallel()
 	bashCap := claudeFixtureDefaultBashCap(t)
 	specs := claudeFixtureCoreToolSpecs(bashCap)
 	names := make([]string, 0, len(specs))
@@ -87,6 +88,7 @@ func TestClaudeTokenProductionCoreBuiltinsAreDeterministic(t *testing.T) {
 }
 
 func TestClaudeTokenToolsManifestPinsFixtureHashAndScope(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile(claudeFixtureManifestPath)
 	if err != nil {
 		t.Fatalf("read claude fixture manifest: %v", err)

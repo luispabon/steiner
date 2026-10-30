@@ -112,6 +112,7 @@ func claudeGenerateCheckDests(out, fixture string, files []claudeCaptureFile) er
 // that resolve inside it must be reported as inside. A sibling sharing a name prefix,
 // the parent, and a separate directory must not. A dangling link is an error.
 func TestClaudeTokenCaptureGenerateDirWithin(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	fixture := filepath.Join(base, "fixture")
 	if err := os.MkdirAll(filepath.Join(fixture, "captures"), 0o755); err != nil {
@@ -204,6 +205,7 @@ func claudeTreeSnapshot(t *testing.T, root string) map[string]string {
 // directories. Each refusal must fail. No case may change the output or fixture trees,
 // because the guard only inspects the filesystem.
 func TestClaudeTokenGenerateDestinations(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	fixture := filepath.Join(base, "fixture")
 	if err := os.MkdirAll(filepath.Join(fixture, "captures"), 0o755); err != nil {

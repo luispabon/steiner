@@ -154,6 +154,7 @@ func loadClaudeCaptures(t *testing.T) []claudeCaptureMatched {
 // the model it names and then through the recorded model. Both replays must match the
 // recorded identity, full usage, and thinking flag.
 func TestClaudeTokenCaptureReplaysRecorded(t *testing.T) {
+	t.Parallel()
 	for _, c := range loadClaudeCaptures(t) {
 		if err := claudeCaptureCheckRecord(c.Obs, c.Rec); err != nil {
 			t.Errorf("%s replay: %v", c.Name, err)
@@ -173,6 +174,7 @@ func TestClaudeTokenCaptureReplaysRecorded(t *testing.T) {
 // recorded and the sanitized output count must be present and at most the output cap,
 // and no capture may carry thinking. It reads the captures only and changes no verdict.
 func TestClaudeTokenCaptureAuditBounds(t *testing.T) {
+	t.Parallel()
 	for _, c := range loadClaudeCaptures(t) {
 		if !claudeCaptureOutputOK(c.Rec.Usage.OutputTokens) {
 			t.Errorf("%s recorded output count is absent or above %d", c.Name, claudeGateMaxOutputTokens)
@@ -189,6 +191,7 @@ func TestClaudeTokenCaptureAuditBounds(t *testing.T) {
 // TestClaudeTokenCaptureMapping checks the one-to-one mapping on synthetic keys. Each
 // unknown, duplicate, ambiguous, or unmatched case must fail with the mapping error.
 func TestClaudeTokenCaptureMapping(t *testing.T) {
+	t.Parallel()
 	rec := func(id int, model string, prompt int, status claudeLedgerStatus) claudeLedgerRecord {
 		return claudeLedgerRecord{AttemptID: id, RequestedModel: model, ObservedModel: model, Status: status, Usage: &claudeLedgerUsage{PromptTotal: prompt}}
 	}
@@ -235,6 +238,7 @@ func TestClaudeTokenCaptureMapping(t *testing.T) {
 // between an observation and its recorded attempt. The matching pair must pass. Each
 // mismatch must fail with the mapping error.
 func TestClaudeTokenCaptureCheckRecord(t *testing.T) {
+	t.Parallel()
 	intp := func(n int) *int { return &n }
 	base := func() (claudeLedgerObservation, claudeLedgerRecord) {
 		u := claudeLedgerUsage{Input: intp(2), CacheCreation: intp(5), CacheRead: intp(0), OutputTokens: intp(4), PromptTotal: 7}
@@ -278,6 +282,7 @@ func TestClaudeTokenCaptureCheckRecord(t *testing.T) {
 // TestClaudeTokenCaptureOutputOK checks the output count bound. An absent or negative
 // count fails, zero passes, the cap passes, and a count above the cap fails.
 func TestClaudeTokenCaptureOutputOK(t *testing.T) {
+	t.Parallel()
 	intp := func(n int) *int { return &n }
 	tests := []struct {
 		name string
