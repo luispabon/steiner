@@ -11,18 +11,32 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func consumeModelStream(_ context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource, firstChunkOut *time.Time) (provider.ChatResponse, error) {
+func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, chunks <-chan provider.ChatChunk, source output.ChunkSource, firstChunkOut *time.Time) (provider.ChatResponse, error) {
 	response := provider.ChatResponse{}
 	message := provider.Message{Role: provider.MessageRoleAssistant}
 	sawFinal := false
+	var consumeErr error
 
 	for chunk := range chunks {
+		if consumeErr != nil {
+			// The turn already failed. Keep draining until the producer closes
+			// the channel so its terminal work, such as retiring backend state,
+			// finishes before the caller reads request-scoped signals. Chunks
+			// after the first error are discarded rather than processed.
+			continue
+		}
 		if err := consumeModelChunk(sink, turn, source, chunk, &response, &message, &sawFinal, firstChunkOut); err != nil {
-			return provider.ChatResponse{}, err
+			consumeErr = err
 		}
 	}
 
+	if consumeErr != nil {
+		return provider.ChatResponse{}, consumeErr
+	}
 	if !sawFinal {
+		if err := ctx.Err(); err != nil {
+			return provider.ChatResponse{}, err
+		}
 		return provider.ChatResponse{}, fmt.Errorf("stream completed without a final chunk")
 	}
 
