@@ -96,7 +96,7 @@ Selection (`compactWithFallback`, `internal/agent/compaction_fallback.go`):
 - Nothing is read or resolved when `CompactionFallback.After` is not positive or `Resolve` is nil.
 - The clock is `RunRequest.Clock` when set, otherwise `time.Now`. `compactionCacheCold` treats the cache as cold when no main request is recorded (zero `LastMainRequest.At`), or when the idle time is greater than `After`. A warm cache runs on main.
 - For a cold cache, `selectCompactionFallback` resolves the target. A resolve error, or a target with no provider, fails the attempt (see rerun below). A target with the same provider alias and backend model ID as main is not selected, and the operation runs on main.
-- On success the outcome records `CompactionModel` (`ProviderAlias/BackendModelID`), `FallbackStatus` `used`, and `FallbackReason`. The reason is `no recent request` when no main request is recorded. Otherwise it is `idle <m>m > <n>m` in whole minutes. When rounding makes the two minute values equal, it uses exact durations (`idle <duration> > <duration>`) so the reason still shows idle greater than the threshold.
+- When the fallback applies a summary, the outcome records `CompactionModel` (`ProviderAlias/BackendModelID`), `FallbackStatus` `used`, and `FallbackReason`. A selected fallback that applies nothing returns without those fields or a main rerun. The reason is `no recent request` when no main request is recorded. Otherwise it is `idle <m>m > <n>m` in whole minutes. When rounding makes the two minute values equal, it uses exact durations (`idle <duration> > <duration>`) so the reason still shows idle greater than the threshold.
 
 Summary target and main (`summarizeCompactionStages.run`, `summarizeCompactionStage`):
 
