@@ -192,6 +192,9 @@ func (s *Session) clearConversation() error {
 				return s.reportReplacementGuardError(action, err)
 			}
 			old = s.swapDriverLocked(apply)
+		default:
+			s.mu.Unlock()
+			return s.reportReplacementGuardError(action, fmt.Errorf("%s: unknown replacement outcome %d", action, outcome))
 		}
 	} else {
 		if err := s.pendingRefusalLocked(action); err != nil {
