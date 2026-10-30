@@ -37,6 +37,10 @@ type fallbackGoldenRequest struct {
 	BackendState             string
 	CompactionSummary        bool
 	CompactionSourceMessages int
+	// RawPromptTokenEstimate is estimator metadata, never wire payload. It is
+	// recorded only so TestFallbackGoldenRequestCoversChatRequest accepts it, and
+	// json:"-" keeps it out of the golden encoding.
+	RawPromptTokenEstimate int `json:"-"`
 }
 
 // fallbackGoldenMessage is one message reduced to its role and the SHA-256 of

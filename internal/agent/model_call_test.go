@@ -1014,6 +1014,24 @@ func (c *countingTokenCounter) EstimateChatRequestTokens(_ context.Context, requ
 func (c *countingTokenCounter) ObserveUsage(context.Context, provider.ChatRequest, *provider.UsageStats) {
 }
 
+// trackingTokenCounter delegates to a real counter and records the estimate
+// calls and observed requests, so tests can prove one estimate per model call.
+type trackingTokenCounter struct {
+	provider.TokenCounter
+	estimateCalls int
+	observed      []provider.ChatRequest
+}
+
+func (c *trackingTokenCounter) EstimateChatRequestTokens(ctx context.Context, request provider.ChatRequest) (provider.TokenEstimate, error) {
+	c.estimateCalls++
+	return c.TokenCounter.EstimateChatRequestTokens(ctx, request)
+}
+
+func (c *trackingTokenCounter) ObserveUsage(ctx context.Context, request provider.ChatRequest, usage *provider.UsageStats) {
+	c.observed = append(c.observed, request)
+	c.TokenCounter.ObserveUsage(ctx, request, usage)
+}
+
 func TestExecuteChatRequestUsesFitPromptEstimate(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -1057,8 +1075,10 @@ func TestExecuteChatRequestUsesFitPromptEstimate(t *testing.T) {
 				MaxTokens: &maxTokens,
 			}
 			var events []output.Event
+			var sent provider.ChatRequest
 			prov := &fakeProvider{
-				chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+				chatFn: func(_ context.Context, request provider.ChatRequest) (provider.ChatResponse, error) {
+					sent = request
 					return provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"}}, nil
 				},
 			}
@@ -1074,6 +1094,9 @@ func TestExecuteChatRequestUsesFitPromptEstimate(t *testing.T) {
 			}
 			if len(counter.requests) != 1 || !reflect.DeepEqual(counter.requests[0], request) {
 				t.Fatalf("fit request = %+v, want unchanged request %+v", counter.requests, request)
+			}
+			if sent.RawPromptTokenEstimate != tc.estimate.RawTokens {
+				t.Errorf("sent raw prompt token estimate = %d, want fit raw estimate %d", sent.RawPromptTokenEstimate, tc.estimate.RawTokens)
 			}
 
 			var event output.APIRequestEvent
@@ -1134,7 +1157,8 @@ func TestExecuteChatRequestMarksCompactionRequest(t *testing.T) {
 }
 
 func TestExecuteChatRequestCapturesPromptEstimate(t *testing.T) {
-	restore := provider.SwapDefaultTokenCounter(provider.NewTokenCounter())
+	tracker := &trackingTokenCounter{TokenCounter: provider.NewTokenCounter()}
+	restore := provider.SwapDefaultTokenCounter(tracker)
 	defer restore()
 
 	request := provider.ChatRequest{
@@ -1149,6 +1173,7 @@ func TestExecuteChatRequestCapturesPromptEstimate(t *testing.T) {
 	if beforeCall <= 0 || beforeEstimate.RawTokens <= 0 {
 		t.Fatalf("pre-call estimate = %d, want positive estimate", beforeCall)
 	}
+	tracker.estimateCalls = 0
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":%d}}`, beforeCall*2)
@@ -1167,6 +1192,15 @@ func TestExecuteChatRequestCapturesPromptEstimate(t *testing.T) {
 	}), nil, false, false, nil, nil)
 	if err != nil {
 		t.Fatalf("executeChatRequest() error = %v", err)
+	}
+	if tracker.estimateCalls != 1 {
+		t.Fatalf("token estimate calls = %d, want 1 per model call", tracker.estimateCalls)
+	}
+	if len(tracker.observed) != 1 {
+		t.Fatalf("observed usage requests = %d, want 1", len(tracker.observed))
+	}
+	if got := tracker.observed[0].RawPromptTokenEstimate; got != beforeEstimate.RawTokens {
+		t.Fatalf("observed request raw estimate = %d, want pre-send raw estimate %d", got, beforeEstimate.RawTokens)
 	}
 
 	afterResponse, err := provider.EstimateChatRequestTokens(context.Background(), request)

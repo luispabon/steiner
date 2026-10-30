@@ -117,13 +117,18 @@ type ChatRequest struct {
 	// TransportSession routes this request within transports that support per-request sessions.
 	TransportSession string `json:"-"`
 	// ParentTransportSession identifies the parent session for supported transport routing.
-	ParentTransportSession string            `json:"-"`
-	Model                  string            `json:"model"`
-	Messages               []Message         `json:"messages"`
-	MaxTokens              *int              `json:"max_tokens,omitempty"`
-	Stream                 bool              `json:"stream,omitempty"`
-	Tools                  []ToolSpec        `json:"tools,omitempty"`
-	PromptCacheKey         string            `json:"-"`
+	ParentTransportSession string     `json:"-"`
+	Model                  string     `json:"model"`
+	Messages               []Message  `json:"messages"`
+	MaxTokens              *int       `json:"max_tokens,omitempty"`
+	Stream                 bool       `json:"stream,omitempty"`
+	Tools                  []ToolSpec `json:"tools,omitempty"`
+	PromptCacheKey         string     `json:"-"`
+	// RawPromptTokenEstimate is the uncalibrated token estimate for exactly the
+	// request it is set on, carried from the pre-send fit so the post-response
+	// calibration reuses it instead of estimating again. Zero means unknown and
+	// the calibration estimates the request itself.
+	RawPromptTokenEstimate int               `json:"-"`
 	Params                 map[string]any    `json:"-"` // Normalized generation params (temperature, top_p, etc.)
 	ExtraParams            map[string]any    `json:"-"` // Raw provider-specific passthrough
 	IncludeEmptyReasoning  bool              `json:"-"` // Fill empty reasoning_content on assistant messages before sending

@@ -141,6 +141,10 @@ func executeChatRequest(
 	} else {
 		estimatedPromptTokens, rawPromptTokens = estimatePromptTokensForEvent(ctx, req)
 	}
+	// Nothing after this point changes the request payload, so the raw estimate
+	// describes exactly what is sent. The provider reuses it for usage
+	// calibration instead of estimating the whole conversation again.
+	req.RawPromptTokenEstimate = rawPromptTokens
 	// The budget has accepted this request and any request-scoped vision strip
 	// has already run, so this is the point where the request is actually
 	// issued. onIssue (when set) hashes and promotes the outbound messages for

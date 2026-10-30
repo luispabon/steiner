@@ -1,9 +1,12 @@
 package provider
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -301,5 +304,238 @@ func TestTokenCounterCalibrationGPT5O200kEstimateStaysUnchanged(t *testing.T) {
 	}
 	if got != expected {
 		t.Fatalf("calibrated estimate = %d, want unchanged O200k estimate %d", got, expected)
+	}
+}
+
+// countingCodecLoader counts codec loads and delegates to tokenizerForModel.
+type countingCodecLoader struct {
+	loads int
+}
+
+func (l *countingCodecLoader) load(model string) (tokenizer.Codec, error) {
+	l.loads++
+	return tokenizerForModel(model)
+}
+
+func TestTokenCounterObserveUsageReusesCarriedRawEstimate(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	request := ChatRequest{
+		Model: "gpt-4o",
+		Messages: []Message{
+			{Role: MessageRoleUser, Content: strings.Repeat("Carry the raw estimate. ", 16)},
+		},
+	}
+
+	reference := newTokenCounter(counterSelectOptions{codecLoader: tokenizerForModel}).(*tokenCounter)
+	base, err := reference.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	if base.RawTokens <= 0 {
+		t.Fatalf("raw estimate = %d, want > 0", base.RawTokens)
+	}
+
+	carriedRequest := request
+	carriedRequest.RawPromptTokenEstimate = base.RawTokens
+	loader := &countingCodecLoader{}
+	carried := newTokenCounter(counterSelectOptions{codecLoader: loader.load}).(*tokenCounter)
+	usage := &UsageStats{PromptTokens: base.RawTokens * 2}
+
+	carried.ObserveUsage(ctx, carriedRequest, usage)
+	reference.ObserveUsage(ctx, request, usage)
+
+	if loader.loads != 0 {
+		t.Fatalf("codec loads = %d, want 0: carried raw estimate must not be recomputed", loader.loads)
+	}
+	carriedCalibration, ok := carried.calibrationForModel(request.Model)
+	if !ok {
+		t.Fatal("expected calibration entry for carried request")
+	}
+	referenceCalibration, ok := reference.calibrationForModel(request.Model)
+	if !ok {
+		t.Fatal("expected calibration entry for reference request")
+	}
+	if carriedCalibration != referenceCalibration {
+		t.Fatalf("carried calibration = %+v, want recomputed calibration %+v", carriedCalibration, referenceCalibration)
+	}
+	if diff := math.Abs(carriedCalibration.factor - 1.25); diff > 0.001 {
+		t.Fatalf("factor = %.3f, want about 1.25", carriedCalibration.factor)
+	}
+}
+
+func TestTokenCounterObserveUsageEstimatesWhenRawEstimateUnknown(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	request := ChatRequest{
+		Model: "gpt-4o",
+		Messages: []Message{
+			{Role: MessageRoleUser, Content: strings.Repeat("Estimate the request. ", 16)},
+		},
+	}
+
+	reference := newTokenCounter(counterSelectOptions{codecLoader: tokenizerForModel}).(*tokenCounter)
+	base, err := reference.EstimateChatRequestTokens(ctx, request)
+	if err != nil {
+		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
+	}
+	usage := &UsageStats{PromptTokens: base.RawTokens * 2}
+	reference.ObserveUsage(ctx, request, usage)
+	referenceCalibration, ok := reference.calibrationForModel(request.Model)
+	if !ok {
+		t.Fatal("expected calibration entry for reference request")
+	}
+
+	tests := []struct {
+		name  string
+		carry int
+	}{
+		{name: "zero estimate", carry: 0},
+		{name: "negative estimate", carry: -7},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			candidate := request
+			candidate.RawPromptTokenEstimate = tc.carry
+			loader := &countingCodecLoader{}
+			counter := newTokenCounter(counterSelectOptions{codecLoader: loader.load}).(*tokenCounter)
+
+			counter.ObserveUsage(ctx, candidate, usage)
+
+			if loader.loads == 0 {
+				t.Fatal("codec loads = 0, want a fresh estimate when the raw estimate is unknown")
+			}
+			calibration, ok := counter.calibrationForModel(request.Model)
+			if !ok {
+				t.Fatal("expected calibration entry")
+			}
+			if calibration != referenceCalibration {
+				t.Fatalf("calibration = %+v, want %+v", calibration, referenceCalibration)
+			}
+		})
+	}
+}
+
+func TestTokenCounterObserveUsageSkipsCanceledContextWithCarriedEstimate(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	request := ChatRequest{
+		Model:                  "gpt-4o",
+		Messages:               []Message{{Role: MessageRoleUser, Content: "hello"}},
+		RawPromptTokenEstimate: 100,
+	}
+	plain := request
+	plain.RawPromptTokenEstimate = 0
+	usage := &UsageStats{PromptTokens: 200}
+
+	carried := newTokenCounter(counterSelectOptions{codecLoader: tokenizerForModel}).(*tokenCounter)
+	carried.ObserveUsage(ctx, request, usage)
+	if _, ok := carried.calibrationForModel(request.Model); ok {
+		t.Fatal("expected no calibration entry for a carried estimate after context cancellation")
+	}
+
+	fallback := newTokenCounter(counterSelectOptions{codecLoader: tokenizerForModel}).(*tokenCounter)
+	fallback.ObserveUsage(ctx, plain, usage)
+	if _, ok := fallback.calibrationForModel(request.Model); ok {
+		t.Fatal("expected no calibration entry for a fresh estimate after context cancellation")
+	}
+}
+
+func TestTokenCounterObserveUsageCanceledHeuristicFallbackMatchesEstimate(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	failingLoader := func(string) (tokenizer.Codec, error) {
+		return nil, errors.New("tokenizer load failed")
+	}
+	request := ChatRequest{
+		Model:                  "custom-model",
+		Messages:               []Message{{Role: MessageRoleUser, Content: "hello"}},
+		RawPromptTokenEstimate: 100,
+	}
+	plain := request
+	plain.RawPromptTokenEstimate = 0
+	usage := &UsageStats{PromptTokens: 400}
+
+	carried := newTokenCounter(counterSelectOptions{codecLoader: failingLoader}).(*tokenCounter)
+	carried.ObserveUsage(ctx, request, usage)
+	baseline := newTokenCounter(counterSelectOptions{codecLoader: failingLoader}).(*tokenCounter)
+	baseline.ObserveUsage(ctx, plain, usage)
+
+	carriedCalibration, ok := carried.calibrationForModel(request.Model)
+	if !ok {
+		t.Fatal("expected a heuristic calibration entry for a carried estimate")
+	}
+	baselineCalibration, ok := baseline.calibrationForModel(request.Model)
+	if !ok {
+		t.Fatal("expected a heuristic calibration entry for a fresh estimate")
+	}
+	if carriedCalibration != baselineCalibration {
+		t.Fatalf("carried calibration = %+v, want heuristic calibration %+v", carriedCalibration, baselineCalibration)
+	}
+	heuristic := estimateHeuristicChatRequestTokens(plain)
+	wantFactor := 1 + tokenCalibrationAlpha*(float64(usage.PromptTokens)/float64(heuristic)-1)
+	if diff := math.Abs(baselineCalibration.factor - wantFactor); diff > 1e-9 {
+		t.Fatalf("factor = %f, want heuristic factor %f", baselineCalibration.factor, wantFactor)
+	}
+}
+
+func TestChatRequestRawPromptTokenEstimateIsNotSerialized(t *testing.T) {
+	t.Parallel()
+
+	field, ok := reflect.TypeFor[ChatRequest]().FieldByName("RawPromptTokenEstimate")
+	if !ok {
+		t.Fatal("ChatRequest.RawPromptTokenEstimate is missing")
+	}
+	if got := field.Tag.Get("json"); got != "-" {
+		t.Fatalf("ChatRequest.RawPromptTokenEstimate json tag = %q, want %q", got, "-")
+	}
+
+	base := ChatRequest{
+		Model:    "gpt-4o",
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+		Tools:    []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}},
+	}
+	withEstimate := base
+	withEstimate.RawPromptTokenEstimate = 12345
+
+	baseJSON, err := json.Marshal(base)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	withJSON, err := json.Marshal(withEstimate)
+	if err != nil {
+		t.Fatalf("json.Marshal() with estimate error = %v", err)
+	}
+	if !bytes.Equal(baseJSON, withJSON) {
+		t.Fatalf("ChatRequest JSON changed with the estimate: %s vs %s", baseJSON, withJSON)
+	}
+
+	wires := []struct {
+		name string
+		wire interface {
+			Payload(ChatRequest, bool) ([]byte, error)
+		}
+	}{
+		{name: "openai", wire: &openaiWire{providerType: "openai"}},
+		{name: "anthropic", wire: &anthropicWire{}},
+	}
+	for _, tc := range wires {
+		want, err := tc.wire.Payload(base, false)
+		if err != nil {
+			t.Fatalf("%s Payload() error = %v", tc.name, err)
+		}
+		got, err := tc.wire.Payload(withEstimate, false)
+		if err != nil {
+			t.Fatalf("%s Payload() with estimate error = %v", tc.name, err)
+		}
+		if !bytes.Equal(want, got) {
+			t.Fatalf("%s wire payload changed with the estimate: %s vs %s", tc.name, want, got)
+		}
 	}
 }

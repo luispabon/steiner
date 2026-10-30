@@ -361,6 +361,58 @@ func BenchmarkClaudeRequestEstimate(b *testing.B) {
 	}
 }
 
+// BenchmarkObserveUsageCalibration times the post-response usage calibration
+// for one fixed request. "recompute" estimates the whole request again, the
+// pre-F1 behaviour; "carried" reuses ChatRequest.RawPromptTokenEstimate, which
+// the agent sets from the pre-send fit. SetBytes reports the request's semantic
+// bytes.
+func BenchmarkObserveUsageCalibration(b *testing.B) {
+	set, err := loadClaudeFixture(claudeFixtureDir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	counter := newTokenCounter(counterSelectOptions{
+		ids:         map[string]struct{}{set.Manifest.Model: {}},
+		codecLoader: tokenizerForModel,
+		candidate:   &claudeTextCounter{},
+	}).(*tokenCounter)
+	ctx := context.Background()
+	for _, size := range claudeBenchSizes {
+		request, semanticBytes, err := claudeBenchSizedRequest(set, size.bytes)
+		if err != nil {
+			b.Fatal(err)
+		}
+		raw, err := countRequestWithCounter(ctx, request, &claudeTextCounter{})
+		if err != nil {
+			b.Fatal(err)
+		}
+		if raw <= 0 {
+			b.Fatalf("raw estimate = %d, want > 0", raw)
+		}
+		carried := request
+		carried.RawPromptTokenEstimate = raw
+		usage := &UsageStats{PromptTokens: raw * 2}
+
+		b.Run("size="+size.name, func(b *testing.B) {
+			b.Run("recompute", func(b *testing.B) {
+				b.SetBytes(semanticBytes)
+				b.ReportAllocs()
+				b.ResetTimer()
+				for range b.N {
+					counter.ObserveUsage(ctx, request, usage)
+				}
+			})
+			b.Run("carried", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for range b.N {
+					counter.ObserveUsage(ctx, carried, usage)
+				}
+			})
+		})
+	}
+}
+
 // claudeBenchWith returns base with f applied to a copy.
 func claudeBenchWith(base claudeBenchMeasurement, f func(*claudeBenchMeasurement)) claudeBenchMeasurement {
 	f(&base)
