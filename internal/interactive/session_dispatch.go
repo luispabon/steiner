@@ -144,7 +144,7 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 
 func (s *Session) clearConversation() error {
 	s.mu.Lock()
-	if err := s.replacementGuardLocked("clear conversation"); err != nil {
+	if err := s.clearGuardLocked("clear conversation"); err != nil {
 		s.mu.Unlock()
 		return s.reportReplacementGuardError("clear conversation", err)
 	}
@@ -171,6 +171,70 @@ func (s *Session) clearConversation() error {
 
 func (s *Session) rotateGuarded(group string, updateGroup bool) error {
 	return s.rotateSession(group, updateGroup)
+}
+
+// errClearPending is the refusal a wired supervisor clear hook returns when it
+// cannot atomically discard every pending sub-agent.
+var errClearPending = errors.New("sub-agents from another scope or still running or queued; wait for them or stop them first")
+
+// clearGuardLocked checks whether clear may replace the conversation. It keeps
+// the controller admission and driver Busy checks shared by every replacement,
+// then either applies the existing pending refusal or, when the supervisor
+// clear hook is wired, holds completions and lets the supervisor atomically
+// discard finished jobs from the current scope. The caller must hold s.mu and
+// keep it held through the swap.
+func (s *Session) clearGuardLocked(action string) error {
+	if s.driverAdmissions > 0 || s.driver.drv.Busy() {
+		return fmt.Errorf("%s: %w", action, errRunInProgress)
+	}
+	if s.deps.ClearFinishedSubAgents == nil {
+		return s.pendingRefusalLocked(action)
+	}
+	if err := s.clearPendingRefusalLocked(action); err != nil {
+		return err
+	}
+	// Hold completions before the atomic discard, so a completion already in
+	// flight cannot wake the waiting driver while the clear swaps drivers.
+	s.driver.drv.StopTurn()
+	// StopTurn cancels a run that started after the Busy check above; its state
+	// remains generating until the run returns, so this refuses that race.
+	if s.driver.drv.Busy() {
+		return fmt.Errorf("%s: %w", action, errRunInProgress)
+	}
+	if s.deps.ClearFinishedSubAgents(s.driver.groupScope) != 0 {
+		return fmt.Errorf("%s: %w", action, errClearPending)
+	}
+	return nil
+}
+
+// clearPendingRefusalLocked refuses a clear while a sub-agent is still running
+// or queued, before StopTurn can change the driver's observable hold state.
+// Finished jobs are left to ClearFinishedSubAgents, which decides atomically
+// whether every pending job is discardable. The caller must hold s.mu.
+func (s *Session) clearPendingRefusalLocked(action string) error {
+	if s.deps.Background == nil {
+		return nil
+	}
+	running, queued := 0, 0
+	for _, pending := range s.deps.Background.Pending() {
+		switch pending.State {
+		case agent.SubAgentRunning:
+			running++
+		case agent.SubAgentQueued:
+			queued++
+		}
+	}
+	if running == 0 && queued == 0 {
+		return nil
+	}
+	parts := make([]string, 0, 2)
+	if running > 0 {
+		parts = append(parts, fmt.Sprintf("%d running", running))
+	}
+	if queued > 0 {
+		parts = append(parts, fmt.Sprintf("%d queued", queued))
+	}
+	return fmt.Errorf("%s: sub-agents still pending (%s); wait for them or stop them first", action, strings.Join(parts, ", "))
 }
 
 func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOverride) error {

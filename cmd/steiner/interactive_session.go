@@ -86,6 +86,7 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 	}
 	if rt.delegationSupervisor != nil {
 		sessDeps.Background = rt.delegationSupervisor
+		sessDeps.ClearFinishedSubAgents = rt.delegationSupervisor.ClearFinishedSubAgents
 		sessDeps.SetCompletionSink = rt.delegationSupervisor.SetCompletionSink
 		sessDeps.OpenGroupScope = rt.delegationSupervisor.OpenGroupScope
 		sessDeps.SnapshotGroupLedger = rt.delegationSupervisor.SnapshotGroupLedger
