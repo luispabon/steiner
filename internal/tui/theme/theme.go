@@ -292,7 +292,7 @@ func buildStylesInternal(accentHex, accentSoft, accentLine string, palette Palet
 			"sanity_check": ToolMagLine,
 			"review":       DelegateReviewLine,
 			"vision":       ToolBlueLine,
-			"documentor":   SyntaxBlue,
+			"documentor":   blendHex(SyntaxBlue, Bg, 0.30),
 			"advisor":      AdvisorGreenLine,
 		}),
 		DelegateBorderDefault: lipgloss.NewStyle().Foreground(lipgloss.Color(accentLine)),

@@ -332,7 +332,7 @@ func TestBuildStylesToolStyleSnapshots(t *testing.T) {
 		{name: "delegate border sanity_check", got: styleFromMap(styles.DelegateBorderStyles, "sanity_check", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolMagLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border review", got: styleFromMap(styles.DelegateBorderStyles, "review", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(DelegateReviewLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border vision", got: styleFromMap(styles.DelegateBorderStyles, "vision", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(ToolBlueLine) + " bg= bold=false italic=false padding=0,0,0,0"},
-		{name: "delegate border documentor", got: styleFromMap(styles.DelegateBorderStyles, "documentor", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(SyntaxBlue) + " bg= bold=false italic=false padding=0,0,0,0"},
+		{name: "delegate border documentor", got: styleFromMap(styles.DelegateBorderStyles, "documentor", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(blendHex(SyntaxBlue, Bg, 0.30)) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border advisor", got: styleFromMap(styles.DelegateBorderStyles, "advisor", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(AdvisorGreenLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "delegate border fallback", got: styleFromMap(styles.DelegateBorderStyles, "delegate", styles.DelegateBorderDefault), want: "fg=" + strings.ToLower(AccentLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 	}
