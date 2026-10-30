@@ -395,7 +395,7 @@ func TestEpisodeBudgetReachesTheRunner(t *testing.T) {
 			if got := recv(t, inputs, "wake run").MaxTokens; got != tt.want[1] {
 				t.Fatalf("wake run MaxTokens = %d, want %d", got, tt.want[1])
 			}
-			waitForState(t, s, agent.DriverWaiting)
+			waitForWaiting(t, s)
 			submitAndWait(t, s, "second", nil)
 			if got := recv(t, inputs, "second run").MaxTokens; got != tt.want[2] {
 				t.Fatalf("run after Submit MaxTokens = %d, want %d", got, tt.want[2])

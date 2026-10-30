@@ -12,11 +12,15 @@ type HistoryLoadedEvent struct {
 
 // ConversationStateEvent is the conversation driver's state for the UI: State
 // is "idle", "generating" or "waiting", Pending counts undelivered sub-agents.
+// Epoch identifies the driver that produced the event, so a consumer can drop
+// one that arrives after a later driver replaced it. Zero means the producer
+// does not stamp an epoch.
 type ConversationStateEvent struct {
 	State           string `json:"state"`
 	Held            bool   `json:"held"`
 	Pending         int    `json:"pending"`
 	BudgetExhausted bool   `json:"budget_exhausted"`
+	Epoch           uint64 `json:"epoch,omitempty"`
 }
 
 // Kind values for ConversationWarningEvent identify the driver operation that

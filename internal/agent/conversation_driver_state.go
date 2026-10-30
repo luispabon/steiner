@@ -119,6 +119,51 @@ func (d *ConversationDriver) stopLocked() {
 	}
 }
 
+// ReplaceOutcome is the result of ConversationDriver.ReplaceWhileHeld.
+type ReplaceOutcome int
+
+const (
+	// ReplaceNotHeld means the driver had no held completions, so the caller
+	// must apply its own non-held guard.
+	ReplaceNotHeld ReplaceOutcome = iota
+	// ReplaceBusy means a run, compaction, queued prompt, save or close was in
+	// flight.
+	ReplaceBusy
+	// ReplaceRefused means check declined the replacement; nothing changed.
+	ReplaceRefused
+	// ReplaceDone means check accepted and swap ran.
+	ReplaceDone
+)
+
+// ReplaceWhileHeld atomically verifies the driver is held and not busy, then
+// runs check under the driver lock. When check accepts, it discards buffered
+// completions and the coalescing window, detaches the steer queue, runs swap,
+// and closes the old inbox, all under the same lock, so no completion, wake,
+// steer or settle can change held, start a run, or reach the old transcript
+// between the check and the swap. The caller must still retire the closed
+// driver. check and swap must not call back into d. The caller must hold any
+// outer session lock across the call and keep it held through swap.
+func (d *ConversationDriver) ReplaceWhileHeld(check func() bool, swap func()) ReplaceOutcome {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closing || !d.idleLocked() {
+		return ReplaceBusy
+	}
+	if !d.held {
+		return ReplaceNotHeld
+	}
+	if !check() {
+		return ReplaceRefused
+	}
+	d.discardCompletionsLocked()
+	d.detachSteersLocked()
+	swap()
+	// Close the old inbox before releasing the lock so a delivery or steer
+	// cannot start a run after the caller swaps the live driver.
+	d.closing = true
+	return ReplaceDone
+}
+
 // WaitIdle blocks until the driver is not generating, compacting or saving and
 // has no prompt to start, or ctx ends. Unlike WaitQuiescent it ignores pending
 // sub-agents and the steer queue, which a stop parks and a oneshot run or take-back

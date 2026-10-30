@@ -13,6 +13,27 @@ const (
 	conversationStateWaiting    = "waiting"
 )
 
+// conversationEpochController reports the epoch of the live conversation
+// driver. A state event stamped with another epoch came from a driver the
+// session has already replaced.
+type conversationEpochController interface {
+	ConversationEpoch() uint64
+}
+
+// staleConversationState reports whether payload came from a driver the
+// session has replaced. An event with no epoch, or a controller that cannot
+// report one, is always applied.
+func (m *Model) staleConversationState(payload output.ConversationStateEvent) bool {
+	if payload.Epoch == 0 || m.controller == nil {
+		return false
+	}
+	epochs, ok := m.controller.(conversationEpochController)
+	if !ok {
+		return false
+	}
+	return payload.Epoch != epochs.ConversationEpoch()
+}
+
 // applyConversationState records the driver's state, the only source for it,
 // and derives the parent activity label while the conversation is waiting.
 func (m *Model) applyConversationState(payload output.ConversationStateEvent) {
@@ -81,6 +102,24 @@ func (m *Model) driverGenerating() bool {
 // results outstanding.
 func (m *Model) asyncConversationBusy() bool {
 	return m.convStateSeen && (m.convState.State != conversationStateIdle || m.convState.Pending > 0)
+}
+
+// clearBusy is sessionBusy for /clear. A paused wait with no active
+// delegations only holds finished results, which a clear may discard; a
+// generating turn, active tool call or delegation, activity, compaction,
+// oneshot or pending handoff still blocks it.
+func (m *Model) clearBusy() bool {
+	if m.heldWaitingWithoutDelegations() {
+		return m.pendingWorkflowHandoffLaunch != nil || m.hostWorkBusy()
+	}
+	return m.sessionBusy()
+}
+
+// heldWaitingWithoutDelegations reports whether the driver is paused on
+// finished sub-agent results with no delegation still running.
+func (m *Model) heldWaitingWithoutDelegations() bool {
+	return m.convStateSeen && m.convState.State == conversationStateWaiting && m.convState.Held &&
+		!m.content.HasActiveDelegations()
 }
 
 // compactBusy is sessionBusy for manual compaction: while the driver is only

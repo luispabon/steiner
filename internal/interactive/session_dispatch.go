@@ -143,10 +143,11 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 }
 
 func (s *Session) clearConversation() error {
+	const action = "clear conversation"
 	s.mu.Lock()
-	if err := s.replacementGuardLocked("clear conversation"); err != nil {
+	if s.driverAdmissions > 0 || s.driver.drv.Busy() {
 		s.mu.Unlock()
-		return s.reportReplacementGuardError("clear conversation", err)
+		return s.reportReplacementGuardError(action, fmt.Errorf("%s: %w", action, errRunInProgress))
 	}
 	var id string
 	if s.deps.SessionStore != nil {
@@ -157,21 +158,68 @@ func (s *Session) clearConversation() error {
 			return fmt.Errorf("clear conversation: generate session id: %w", err)
 		}
 	}
-	old := s.swapDriverLocked(func() {
+	apply := func() {
 		s.resetConversationLocked()
 		s.skills.Reset()
+		if s.phase == nil {
+			// The interactive driver owns the shared steer queue. Oneshot
+			// phases own it while active, so leave their steers alone.
+			s.runController.SteerQueue().Clear()
+		}
 		if id != "" {
 			s.applyRotationLocked(id, "", false)
 		}
-	})
+	}
+	old := s.driver
+	if hook := s.deps.ClearFinishedSubAgents; hook != nil {
+		scope := s.driver.groupScope
+		// ReplaceWhileHeld keeps the driver held and not busy from the hook
+		// check through the swap, so an in-flight completion delivered to the
+		// old driver cannot wake it before the replacement.
+		outcome := s.driver.drv.ReplaceWhileHeld(
+			func() bool { return hook(scope) == 0 },
+			func() { old = s.swapDetachedDriverLocked(old, apply) },
+		)
+		switch outcome {
+		case agent.ReplaceDone:
+			// The atomic replacement already swapped the driver.
+		case agent.ReplaceRefused:
+			s.mu.Unlock()
+			return s.reportReplacementGuardError(action, fmt.Errorf("%s: %w", action, errClearPending))
+		case agent.ReplaceBusy:
+			s.mu.Unlock()
+			return s.reportReplacementGuardError(action, fmt.Errorf("%s: %w", action, errRunInProgress))
+		case agent.ReplaceNotHeld:
+			// Only held drivers relax the pending refusal. Fall back to the
+			// shared guard for an unheld or idle driver.
+			if err := s.pendingRefusalLocked(action); err != nil {
+				s.mu.Unlock()
+				return s.reportReplacementGuardError(action, err)
+			}
+			old = s.swapDriverLocked(apply)
+		default:
+			s.mu.Unlock()
+			return s.reportReplacementGuardError(action, fmt.Errorf("%s: unknown replacement outcome %d", action, outcome))
+		}
+	} else {
+		if err := s.pendingRefusalLocked(action); err != nil {
+			s.mu.Unlock()
+			return s.reportReplacementGuardError(action, err)
+		}
+		old = s.swapDriverLocked(apply)
+	}
 	s.mu.Unlock()
-	s.retireDriver(old)
+	s.retireDriverAsync(old)
 	return nil
 }
 
 func (s *Session) rotateGuarded(group string, updateGroup bool) error {
 	return s.rotateSession(group, updateGroup)
 }
+
+// errClearPending is the refusal a wired supervisor clear hook returns when it
+// cannot atomically discard every pending sub-agent.
+var errClearPending = errors.New("sub-agents are still running, queued, or owned by another scope; wait for them or stop them first")
 
 func (s *Session) handleSwitchModel(name string, reasoning *provider.ReasoningOverride) error {
 	s.mu.Lock()

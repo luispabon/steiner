@@ -38,6 +38,30 @@ func (s *Supervisor) enrollLocked(state *jobState, batchID string) {
 	state.group = group
 }
 
+// discardGroupMemberLocked removes a member from its group without posting its
+// completion, dropping the group once it is empty so a later seal cannot
+// release the discarded member.
+func (s *Supervisor) discardGroupMemberLocked(state *jobState) {
+	group := state.group
+	if group == nil {
+		return
+	}
+	state.group = nil
+	members := group.members[:0]
+	for _, member := range group.members {
+		if member != state {
+			members = append(members, member)
+		}
+	}
+	group.members = members
+	if len(group.members) > 0 {
+		return
+	}
+	if existing, ok := s.groups[group.key]; ok && existing == group {
+		delete(s.groups, group.key)
+	}
+}
+
 func (s *Supervisor) sealBatch(scope, batchID string) {
 	s.mu.Lock()
 	var sealed []*jobGroup

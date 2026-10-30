@@ -50,6 +50,12 @@ The conversation driver (`internal/agent/conversation_driver.go`) calls `Supervi
 - **Groups.** `jobGroup` (`supervisor_groups.go`) holds one label's members within a tool batch. `sealBatch` seals the batch's groups. `releaseGroupLocked` holds completions until a group is sealed and every member has a final result, then posts them together, ordered by `Seq`.
 - **follow_up admission.** `follow_up` is rejected at `FollowUpCount >= SubAgent.MaxFollowUps`. In async sessions it is also rejected while the agent is still pending (`Supervisor.IsPending`) (`follow_up.go`).
 
+### Clearing held results
+
+`Supervisor.ClearFinishedSubAgents(scope)` (`supervisor_async.go`) atomically discards unacknowledged finished results for one scope. It runs under `Supervisor.mu` and is all-or-nothing: every unacknowledged job must match `scope` exactly, already hold a completion, and have reached `phaseDone`. Otherwise it changes nothing and returns the outstanding count, leaving the completions and groups available for delivery. An empty scope matches jobs enqueued without a group scope; it is not a wildcard.
+
+On success it acknowledges and prunes each job, removes it from its `jobGroup` (`discardGroupMemberLocked`, `supervisor_groups.go`), and deletes any group left empty, so a later `SealGroupBatch` cannot post the discarded members. It does not post to the completion sink itself, and a later `MarkDelivered` finds the jobs already acknowledged. The discarded jobs also leave `Supervisor.Ledger()`, so the old driver's retire save (`writeLineageAs`, `internal/interactive/driver_host.go`) omits them from the replaced session's `SubAgentLedger`. `/clear` calls this only when the live driver is waiting with completions held and every outstanding result is finished in that driver's group scope; `/new`, session switching, and forking still refuse every pending result through `pendingRefusalLocked` (`internal/interactive/persistence.go`).
+
 ## Worktree provisioning
 
 For a worktree-isolated type (`UsesWorktree` in `agent_type.go`: `code` and `documentor`), the `Prepare` hook (`provisionCodePlan`, `specialized_worktree.go`) runs these steps at dequeue, before `BuildChildRun`:

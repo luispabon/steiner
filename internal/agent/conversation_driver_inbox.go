@@ -53,6 +53,11 @@ func (d *ConversationDriver) NotifySteer() {
 func (d *ConversationDriver) DetachSteers() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.detachSteersLocked()
+}
+
+// detachSteersLocked is DetachSteers for a caller that already holds d.mu.
+func (d *ConversationDriver) detachSteersLocked() {
 	d.opts.Steers = nil
 }
 
@@ -78,6 +83,15 @@ func (d *ConversationDriver) DeliverCompletions(cs []SubAgentCompletion) {
 	d.updateCompletionWindowLocked()
 	d.unlockEmit()
 	d.signalWake()
+}
+
+// discardCompletionsLocked drops undelivered completions and the coalescing
+// window. A replacement that discards the old conversation uses it so finalize
+// cannot append discarded results to the old transcript or announce delivery.
+// The caller must hold d.mu.
+func (d *ConversationDriver) discardCompletionsLocked() {
+	d.completions = nil
+	d.disarmWindowLocked()
 }
 
 // RequestCompaction queues fn to run once the driver is not generating.

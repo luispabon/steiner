@@ -222,7 +222,13 @@ func (m *Model) handleUpdateCheckResultMsg(msg updateCheckResultMsg) (tea.Model,
 // sessionBusy reports whether a run, tool call, delegation, compaction or
 // oneshot is in flight, so session-mutating actions must be refused.
 func (m *Model) sessionBusy() bool {
-	return m.pendingWorkflowHandoffLaunch != nil || m.asyncConversationBusy() || m.content.HasActiveDelegations() || m.content.HasActiveToolCalls() || m.activity.busy() || m.compaction.Active() || m.oneshotRunning
+	return m.pendingWorkflowHandoffLaunch != nil || m.asyncConversationBusy() || m.content.HasActiveDelegations() || m.hostWorkBusy()
+}
+
+// hostWorkBusy reports the busy signals owned outside the conversation
+// driver's state.
+func (m *Model) hostWorkBusy() bool {
+	return m.content.HasActiveToolCalls() || m.activity.busy() || m.compaction.Active() || m.oneshotRunning
 }
 
 // refuseWhileBusy appends the busy notice for the named action and resets the
@@ -235,9 +241,11 @@ func (m *Model) refuseWhileBusy(action string) {
 }
 
 // clearConversationStateWithError refuses to clear while a run is in
-// progress and reports whether the controller accepted the clear.
+// progress and reports whether the controller accepted the clear. The
+// controller remains authoritative: a rejected clear leaves the transcript
+// intact.
 func (m *Model) clearConversationStateWithError() (tea.Model, bool, error) {
-	if m.sessionBusy() {
+	if m.clearBusy() {
 		m.refuseWhileBusy("clear")
 		m.syncInputChrome()
 		return m, false, nil
@@ -293,6 +301,8 @@ func (m *Model) resetConversationDisplay() {
 	m.convState = output.ConversationStateEvent{}
 	m.convStateSeen = false
 	m.convLabelShown = false
+	m.clearStrandedResults()
+	m.roster = subAgentRoster{}
 	m.selection = m.selection.clear()
 	m.clearDragState()
 	m.activity = m.activity.clear()

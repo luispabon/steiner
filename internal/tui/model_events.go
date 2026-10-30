@@ -17,6 +17,9 @@ import (
 func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	m.applyReplayBoundaryEvent(event)
 	if payload, ok := event.Payload.(output.ConversationStateEvent); ok {
+		if m.staleConversationState(payload) {
+			return nil
+		}
 		m.applyConversationState(payload)
 		return nil
 	}

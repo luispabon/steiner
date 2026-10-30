@@ -48,9 +48,15 @@ type Session struct {
 	lineage      agent.ConversationLineage
 	// ledger mirrors the supervisor's outstanding sub-agents as of the driver's
 	// last save; it is persisted with the session so a restart can report them lost.
-	ledger             []agent.SubAgentLedgerEntry
-	delegationGroups   *agent.DelegationGroupLedger
-	driver             *driverHandle
+	ledger           []agent.SubAgentLedgerEntry
+	delegationGroups *agent.DelegationGroupLedger
+	driver           *driverHandle
+	// driverEpoch is the last epoch handed to a driver handle and liveEpoch is
+	// the epoch of the handle in driver. State events carry the epoch of the
+	// driver that produced them, so a consumer can drop one from a driver the
+	// session has replaced.
+	driverEpoch        uint64
+	liveEpoch          atomic.Uint64
 	sessionID          string
 	promptCacheKey     string
 	sessionTitle       string

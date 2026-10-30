@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"sync/atomic"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -16,18 +17,61 @@ type driverHandle struct {
 	drv          *agent.ConversationDriver
 	groupScope   string
 	releaseScope func()
+	// epoch is the session epoch this handle was created with. Every state
+	// event the handle's sink forwards carries it.
+	epoch uint64
 	// retired is set under Session.mu when the session moves to another
 	// conversation. From then on the driver saves under that identity and
 	// leaves the live session state alone.
 	retired *runSessionMeta
+	// stale marks a handle a session swap has replaced. State events from a
+	// stale driver are dropped so a settling retired driver cannot overwrite
+	// the live driver's UI state.
+	stale atomic.Bool
 	// lastSaved is the last snapshot the driver saved, initially its seed. Only
 	// the driver's loop goroutine touches it after construction.
 	lastSaved *agent.DriverSnapshot
 }
 
-// newDriverLocked builds and starts a driver over conv and lineage. The caller
-// stores the handle in s.driver.
+// driverEvents forwards a driver's events to the session, dropping conversation
+// state events from a handle that has already been replaced.
+func (s *Session) driverEvents(h *driverHandle) output.EventSink {
+	return driverEventSink{sink: s.events, h: h}
+}
+
+type driverEventSink struct {
+	sink output.EventSink
+	h    *driverHandle
+}
+
+// Emit implements output.EventSink. State events are stamped with the handle's
+// session epoch so a consumer can drop one that reaches it after a later driver
+// replaced this one. The stale check is intentionally lock-free: holding a lock
+// across the sink call would invert against a sink that re-enters the session
+// and swaps a driver. An event can therefore pass the check before the handle
+// is marked stale and still reach the sink afterwards; its epoch is what marks
+// it stale there. Non-state events from retired drivers still pass, preserving
+// their save warnings.
+func (s driverEventSink) Emit(event output.Event) {
+	if s.h != nil {
+		if payload, ok := event.Payload.(output.ConversationStateEvent); ok {
+			if s.h.stale.Load() {
+				return
+			}
+			payload.Epoch = s.h.epoch
+			event.Payload = payload
+		}
+	}
+	s.sink.Emit(event)
+}
+
+// newDriverLocked builds and starts a driver over conv and lineage. It assigns
+// the handle its session epoch under s.mu and publishes it as the live epoch
+// before the driver starts, so a state event can never overtake the epoch a
+// consumer reads for it. The caller stores the handle in s.driver.
 func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.ConversationLineage) *driverHandle {
+	s.driverEpoch++
+	epoch := s.driverEpoch
 	groupLedger := agent.DelegationGroupLedger{Version: agent.DelegationGroupLedgerVersion}
 	if s.delegationGroups != nil {
 		groupLedger = s.delegationGroups.Clone()
@@ -36,7 +80,7 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 	if s.deps.OpenGroupScope != nil {
 		scope, release = s.deps.OpenGroupScope(groupLedger.Clone())
 	}
-	h := &driverHandle{groupScope: scope, releaseScope: release, lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: slices.Clone(s.ledger), GroupLedger: groupLedger.Clone()}}
+	h := &driverHandle{epoch: epoch, groupScope: scope, releaseScope: release, lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: slices.Clone(s.ledger), GroupLedger: groupLedger.Clone()}}
 	options := agent.DriverOptions{
 		GroupLedger: groupLedger,
 		Run: func(ctx context.Context, in agent.DriverRunInput) (agent.DriverRunOutput, error) {
@@ -45,7 +89,7 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 		Background:          s.deps.Background,
 		Steers:              s.steersForNewDriverLocked(),
 		Save:                s.driverSave(h),
-		Events:              s.events,
+		Events:              s.driverEvents(h),
 		PrepareTurn:         s.prepareTurn,
 		Clock:               s.deps.Clock,
 		MaxTokensPerEpisode: s.deps.MaxTokensPerEpisode,
@@ -57,6 +101,7 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 	if s.deps.SetCompletionSink != nil {
 		s.deps.SetCompletionSink(h.drv)
 	}
+	s.liveEpoch.Store(epoch)
 	h.drv.Start(context.Background())
 	return h
 }
@@ -68,15 +113,24 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 // pass replacementGuardLocked before swapping. The caller must call retireDriver after releasing it.
 func (s *Session) swapDriverLocked(apply func()) *driverHandle {
 	old := s.driver
+	old.stale.Store(true)
+	// The steer queue belongs to the live session: without this the old driver
+	// would drain steers meant for its successor, or for a oneshot run.
+	old.drv.DetachSteers()
+	return s.swapDetachedDriverLocked(old, apply)
+}
+
+// swapDetachedDriverLocked is swapDriverLocked for a caller that already
+// detached the old driver's steers, possibly while holding its lock. It must
+// not call methods on the old driver. The caller must hold s.mu.
+func (s *Session) swapDetachedDriverLocked(old *driverHandle, apply func()) *driverHandle {
+	old.stale.Store(true)
 	meta := s.sessionMetaLocked()
 	if s.deps.SnapshotGroupLedger != nil && old.groupScope != "" {
 		ledger := s.deps.SnapshotGroupLedger(old.groupScope)
 		s.delegationGroups = &ledger
 	}
 	old.retired = &meta
-	// The steer queue belongs to the live session: without this the old driver
-	// would drain steers meant for its successor, or for a oneshot run.
-	old.drv.DetachSteers()
 	s.ledger = nil
 	apply()
 	s.driver = s.newDriverLocked(s.conversation, s.lineage)
@@ -111,6 +165,31 @@ func (s *Session) releaseDriverGroupScope(h *driverHandle) {
 	if h.releaseScope != nil {
 		h.releaseScope()
 	}
+}
+
+// retireDriverAsync stops a replaced driver on a tracked goroutine instead of
+// waiting for it here. Clear uses it so its caller, which may be the TUI's
+// event loop, never waits while the retired driver's final events sit in a full
+// event bridge. The handle is already stale, so the stale check drops its state
+// events and the live driver's epoch marks the state a consumer keeps. The
+// goroutine releases the driver's group scope after Close.
+func (s *Session) retireDriverAsync(old *driverHandle) {
+	if old == nil {
+		return
+	}
+	s.runs.Add(1)
+	go func() {
+		defer s.runs.Done()
+		old.drv.Close(context.Background())
+		s.releaseDriverGroupScope(old)
+	}()
+}
+
+// ConversationEpoch returns the epoch of the live conversation driver. A
+// conversation state event stamped with another epoch came from a driver the
+// session has already replaced.
+func (s *Session) ConversationEpoch() uint64 {
+	return s.liveEpoch.Load()
 }
 
 // currentDriver returns the live driver. Callers invoke its methods without
