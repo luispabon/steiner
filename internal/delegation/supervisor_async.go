@@ -52,12 +52,18 @@ func (s *Supervisor) MarkDelivered(parentCallIDs []string) {
 }
 
 // ClearFinishedSubAgents discards every unacknowledged finished sub-agent in
-// scope, dropping its completion instead of posting it. It is all-or-nothing:
-// when any unacknowledged sub-agent lies outside scope, has no completion yet,
-// or has not finished, nothing is discarded and the number of unacknowledged
-// sub-agents is returned. A zero return means every unacknowledged sub-agent in
-// scope was discarded. A later MarkDelivered is harmless because the discarded
-// jobs are already acknowledged and pruned.
+// scope, dropping completions that are still held instead of posting them. It
+// cannot recall a completion already routed to the sink: a post committed under
+// the lock before the call may still be delivered afterwards, to the sink
+// captured at that time. A caller that must stop delivery retires that sink
+// rather than relying on a clear.
+//
+// The operation is all-or-nothing: when any unacknowledged sub-agent lies
+// outside scope, has no completion yet, or has not finished, nothing is
+// discarded and the number of unacknowledged sub-agents is returned. A zero
+// return means every unacknowledged sub-agent in scope was discarded. A later
+// MarkDelivered is harmless because the discarded jobs are already acknowledged
+// and pruned.
 //
 // scope is compared literally, so the empty scope matches sub-agents enqueued
 // without a group scope rather than acting as a wildcard.

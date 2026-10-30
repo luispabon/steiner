@@ -232,3 +232,66 @@ func TestSupervisorClearFinishedSubAgentsConcurrentSealAndAck(t *testing.T) {
 		t.Fatalf("ClearFinishedSubAgents after concurrency = %d, want 0", got)
 	}
 }
+
+// blockingDeliverySink records a batch before blocking, so a test can hold one
+// delivery in flight while the supervisor keeps running.
+type blockingDeliverySink struct {
+	entered chan struct{}
+	release chan struct{}
+
+	mu      sync.Mutex
+	batches [][]agent.SubAgentCompletion
+}
+
+func (s *blockingDeliverySink) DeliverCompletions(batch []agent.SubAgentCompletion) {
+	s.mu.Lock()
+	s.batches = append(s.batches, batch)
+	s.mu.Unlock()
+	close(s.entered)
+	<-s.release
+}
+
+func (s *blockingDeliverySink) delivered() []agent.SubAgentCompletion {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []agent.SubAgentCompletion
+	for _, batch := range s.batches {
+		out = append(out, batch...)
+	}
+	return out
+}
+
+func TestSupervisorClearCannotRecallInFlightDelivery(t *testing.T) {
+	captured := &blockingDeliverySink{entered: make(chan struct{}), release: make(chan struct{})}
+	s := seedUnscopedGroups(NewSupervisor(SupervisorOptions{MaxParallel: 1}))
+	s.SetCompletionSink(captured)
+
+	child := newAsyncChild("a", "")
+	spawnAsync(context.Background(), t, s, child)
+	waitClosed(t, child.started, "a started")
+	close(child.release)
+	waitClosed(t, captured.entered, "in-flight delivery")
+	state := jobFor(s, "a")
+	if state == nil {
+		t.Fatal("job missing while its delivery is in flight")
+	}
+
+	if got := s.ClearFinishedSubAgents(""); got != 0 {
+		t.Fatalf("ClearFinishedSubAgents = %d, want 0", got)
+	}
+	if hasJob(s, "a") {
+		t.Fatal("cleared agent still tracked")
+	}
+
+	// The delivery captured its sink before the clear, so retiring the sink is
+	// what stops delivery; the clear cannot recall the routed post.
+	replacement := newChannelSink()
+	s.SetCompletionSink(replacement)
+	close(captured.release)
+	waitClosed(t, state.exited, "run exit")
+
+	if got := captured.delivered(); len(got) != 1 || got[0].AgentID != "a" {
+		t.Fatalf("captured sink batches after clear = %+v, want a", got)
+	}
+	replacement.none(t)
+}
