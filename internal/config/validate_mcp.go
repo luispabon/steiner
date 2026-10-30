@@ -51,7 +51,7 @@ func validateMCPConfig(problems *[]string, cfg MCPConfig) {
 		// run yet, so unknown names are non-fatal warnings later.
 		for _, agentType := range srv.SubAgents {
 			if !validAgentTypes[agentType] {
-				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.sub_agents: unknown agent type %q (must be one of explore, research, code, documentor, evaluate, sanity_check, review, or vision)", name, agentType))
+				*problems = append(*problems, fmt.Sprintf("mcp.servers.%s.sub_agents: unknown agent type %q (must be one of %s)", name, agentType, agentTypeNames()))
 			}
 		}
 	}

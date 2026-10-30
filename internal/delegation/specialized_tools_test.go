@@ -1421,54 +1421,62 @@ func TestResolveModel_VisionEmptyAliasDoesNotUseProfileDefault(t *testing.T) {
 
 func TestResolveModel_ReadsCurrentEffectiveAssignmentsPerCall(t *testing.T) {
 	t.Parallel()
-	var resolved []string
-	deps := minimalDeps(nil)
-	deps.ModelResolver = func(alias string) (provider.Provider, provider.ResolvedModel, error) {
-		resolved = append(resolved, alias)
-		return stubProvider{}, provider.ResolvedModel{Alias: alias}, nil
-	}
-	deps.AgentModels = map[string]string{string(AgentTypeCode): "static-code"}
-	deps.DefaultModel = "static-default"
-	effective := config.EffectiveModelAssignments{
-		SubAgents:    map[string]string{string(AgentTypeCode): "first-code"},
-		DefaultModel: "first-default",
-	}
-	deps.CurrentEffectiveAssignments = func() config.EffectiveModelAssignments { return effective }
+	for _, agentType := range []AgentType{AgentTypeCode, AgentTypeDocumentor} {
+		t.Run(string(agentType), func(t *testing.T) {
+			var resolved []string
+			deps := minimalDeps(nil)
+			deps.ModelResolver = func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+				resolved = append(resolved, alias)
+				return stubProvider{}, provider.ResolvedModel{Alias: alias}, nil
+			}
+			deps.AgentModels = map[string]string{string(agentType): "static-" + string(agentType)}
+			deps.DefaultModel = "static-default"
+			effective := config.EffectiveModelAssignments{
+				SubAgents:    map[string]string{string(agentType): "first-" + string(agentType)},
+				DefaultModel: "first-default",
+			}
+			deps.CurrentEffectiveAssignments = func() config.EffectiveModelAssignments { return effective }
 
-	if _, _, err := resolveModel(AgentTypeCode, deps); err != nil {
-		t.Fatalf("first resolveModel() error = %v", err)
-	}
-	// A later profile switch changes both the per-type alias and the fallback.
-	effective = config.EffectiveModelAssignments{DefaultModel: "second-default"}
-	if _, _, err := resolveModel(AgentTypeCode, deps); err != nil {
-		t.Fatalf("second resolveModel() error = %v", err)
-	}
+			if _, _, err := resolveModel(agentType, deps); err != nil {
+				t.Fatalf("first resolveModel(%s) error = %v", agentType, err)
+			}
+			// A later profile switch changes both the per-type alias and the fallback.
+			effective = config.EffectiveModelAssignments{DefaultModel: "second-default"}
+			if _, _, err := resolveModel(agentType, deps); err != nil {
+				t.Fatalf("second resolveModel(%s) error = %v", agentType, err)
+			}
 
-	if want := []string{"first-code", "second-default"}; !slices.Equal(resolved, want) {
-		t.Fatalf("resolved aliases = %v, want %v", resolved, want)
+			if want := []string{"first-" + string(agentType), "second-default"}; !slices.Equal(resolved, want) {
+				t.Fatalf("resolved aliases = %v, want %v", resolved, want)
+			}
+		})
 	}
 }
 
 func TestResolveModel_NilCurrentEffectiveAssignmentsUsesStaticAssignments(t *testing.T) {
 	t.Parallel()
-	var resolved []string
-	deps := minimalDeps(nil)
-	deps.ModelResolver = func(alias string) (provider.Provider, provider.ResolvedModel, error) {
-		resolved = append(resolved, alias)
-		return stubProvider{}, provider.ResolvedModel{Alias: alias}, nil
-	}
-	deps.AgentModels = map[string]string{string(AgentTypeCode): "static-code"}
-	deps.DefaultModel = "static-default"
+	for _, agentType := range []AgentType{AgentTypeCode, AgentTypeDocumentor} {
+		t.Run(string(agentType), func(t *testing.T) {
+			var resolved []string
+			deps := minimalDeps(nil)
+			deps.ModelResolver = func(alias string) (provider.Provider, provider.ResolvedModel, error) {
+				resolved = append(resolved, alias)
+				return stubProvider{}, provider.ResolvedModel{Alias: alias}, nil
+			}
+			deps.AgentModels = map[string]string{string(agentType): "static-" + string(agentType)}
+			deps.DefaultModel = "static-default"
 
-	if _, _, err := resolveModel(AgentTypeCode, deps); err != nil {
-		t.Fatalf("resolveModel(code) error = %v", err)
-	}
-	if _, _, err := resolveModel(AgentTypeReview, deps); err != nil {
-		t.Fatalf("resolveModel(review) error = %v", err)
-	}
+			if _, _, err := resolveModel(agentType, deps); err != nil {
+				t.Fatalf("resolveModel(%s) error = %v", agentType, err)
+			}
+			if _, _, err := resolveModel(AgentTypeReview, deps); err != nil {
+				t.Fatalf("resolveModel(review) error = %v", err)
+			}
 
-	if want := []string{"static-code", "static-default"}; !slices.Equal(resolved, want) {
-		t.Fatalf("resolved aliases = %v, want %v", resolved, want)
+			if want := []string{"static-" + string(agentType), "static-default"}; !slices.Equal(resolved, want) {
+				t.Fatalf("resolved aliases = %v, want %v", resolved, want)
+			}
+		})
 	}
 }
 
@@ -2574,40 +2582,44 @@ func TestSpecializedHandler_CodeWithDirtyTree(t *testing.T) {
 	}
 }
 
-func TestSpecializedHandler_CodeFatalOnProvisioningFailure(t *testing.T) {
+func TestSpecializedHandler_FatalOnProvisioningFailure(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := setupTestRepo(t)
 	badRepo := filepath.Join(repo, "nonexistent")
 
-	runCount := 0
-	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
-		runCount++
-		return successRunState(), nil
-	}}
-	deps := SpecializedToolDeps{
-		SubAgentHandlerDeps: SubAgentHandlerDeps{
-			Provider:  stubProvider{},
-			ParentReg: tool.NewRegistry(),
-			Runner:    runner,
-			Events:    noopEventSink{},
-			WorkDir:   badRepo,
-		},
-	}
+	for _, agentType := range []AgentType{AgentTypeCode, AgentTypeDocumentor} {
+		t.Run(string(agentType), func(t *testing.T) {
+			runCount := 0
+			runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+				runCount++
+				return successRunState(), nil
+			}}
+			deps := SpecializedToolDeps{
+				SubAgentHandlerDeps: SubAgentHandlerDeps{
+					Provider:  stubProvider{},
+					ParentReg: tool.NewRegistry(),
+					Runner:    runner,
+					Events:    noopEventSink{},
+					WorkDir:   badRepo,
+				},
+			}
 
-	def := SubAgentToolDef(deps, nil)
-	raw, err := def.Handler(ctx, subAgentTask(AgentTypeCode, "implement a feature"))
-	if err == nil {
-		t.Fatal("expected fatal worktree provisioning error")
-	}
-	if !strings.Contains(err.Error(), "provision worktree") && !strings.Contains(err.Error(), "worktree provisioning") {
-		t.Errorf("error %q does not mention worktree provisioning", err)
-	}
-	if raw != nil {
-		t.Errorf("result = %#v, want nil on fatal provisioning failure", raw)
-	}
-	if runCount != 0 {
-		t.Errorf("runner calls = %d, want 0", runCount)
+			def := SubAgentToolDef(deps, nil)
+			raw, err := def.Handler(ctx, subAgentTask(agentType, "implement a feature"))
+			if err == nil {
+				t.Fatal("expected fatal worktree provisioning error")
+			}
+			if !strings.Contains(err.Error(), "provision worktree") && !strings.Contains(err.Error(), "worktree provisioning") {
+				t.Errorf("error %q does not mention worktree provisioning", err)
+			}
+			if raw != nil {
+				t.Errorf("result = %#v, want nil on fatal provisioning failure", raw)
+			}
+			if runCount != 0 {
+				t.Errorf("runner calls = %d, want 0", runCount)
+			}
+		})
 	}
 }
 
@@ -2823,25 +2835,29 @@ func TestDefaultSpecializedSupervisorPublishesAcceptedBeforeLifecycle(t *testing
 	}
 }
 
-func TestSpecializedHandler_CodeFeasibilityFailureIsSynchronous(t *testing.T) {
-	deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
-		t.Fatal("runner called after a worktree feasibility failure")
-		return agent.RunState{}, nil
-	}})
-	deps.WorkDir = t.TempDir()
-	events := &recordingEventSink{}
-	deps.Events = events
-	sup := NewSupervisor(SupervisorOptions{MaxParallel: 1})
-	deps.Supervisor = sup
+func TestSpecializedHandler_FeasibilityFailureIsSynchronous(t *testing.T) {
+	for _, agentType := range []AgentType{AgentTypeCode, AgentTypeDocumentor} {
+		t.Run(string(agentType), func(t *testing.T) {
+			deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+				t.Fatal("runner called after a worktree feasibility failure")
+				return agent.RunState{}, nil
+			}})
+			deps.WorkDir = t.TempDir()
+			events := &recordingEventSink{}
+			deps.Events = events
+			sup := NewSupervisor(SupervisorOptions{MaxParallel: 1})
+			deps.Supervisor = sup
 
-	_, err := newSpecializedHandler(AgentTypeCode, deps)(context.Background(), validStructuredTask("feasibility"))
-	if !errors.Is(err, ErrWorktreeProvisioning) {
-		t.Fatalf("handler error = %v, want ErrWorktreeProvisioning", err)
-	}
-	if sup.HasPending() {
-		t.Fatal("feasibility failure must not enqueue a child")
-	}
-	if got := len(events.Events()); got != 1 {
-		t.Fatalf("events = %d, want the single delegation_failed", got)
+			_, err := newSpecializedHandler(agentType, deps)(context.Background(), validStructuredTask("feasibility"))
+			if !errors.Is(err, ErrWorktreeProvisioning) {
+				t.Fatalf("handler error = %v, want ErrWorktreeProvisioning", err)
+			}
+			if sup.HasPending() {
+				t.Fatal("feasibility failure must not enqueue a child")
+			}
+			if got := len(events.Events()); got != 1 {
+				t.Fatalf("events = %d, want the single delegation_failed", got)
+			}
+		})
 	}
 }

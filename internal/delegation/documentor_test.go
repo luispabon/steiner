@@ -152,6 +152,20 @@ func executeChildMutate(exec agent.ToolExecutor, path string) error {
 	return err
 }
 
+// documentorTaskInput builds a structured documentor task input from its three
+// required text fields.
+func documentorTaskInput(objective, taskContext, deliverable string) map[string]any {
+	return map[string]any{
+		"type":             string(AgentTypeDocumentor),
+		"objective":        objective,
+		"context":          taskContext,
+		"deliverable":      deliverable,
+		"constraints":      []any{},
+		"success_criteria": []any{},
+		"checks":           []any{},
+	}
+}
+
 func assertDocumentorScopeDenied(t *testing.T, err error, path string) {
 	t.Helper()
 	if err == nil {
@@ -166,7 +180,7 @@ func assertDocumentorScopeDenied(t *testing.T, err error, path string) {
 	}
 }
 
-func TestDocumentorInitialRunProvisionesWorktreeAndScopesWrites(t *testing.T) {
+func TestDocumentorInitialRunProvisionsWorktreeAndScopesWrites(t *testing.T) {
 	t.Parallel()
 	repo := setupTestRepo(t)
 	store := NewSessionStore()
@@ -207,6 +221,13 @@ func TestDocumentorInitialRunProvisionesWorktreeAndScopesWrites(t *testing.T) {
 	for _, path := range []string{"docs/guide.md", "README", "CHANGELOG.md", "notes.rst", "guide.adoc", "page.mdx", "page.markdown"} {
 		if err := executeChildMutate(capturedReq.Executor, path); err != nil {
 			t.Errorf("mutate(%q) error = %v, want allowed", path, err)
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(delegationResult.WorktreePath, path)); err != nil {
+			t.Errorf("allowed write %q is missing from the worktree: %v", path, err)
+		}
+		if _, err := os.Stat(filepath.Join(repo, path)); !os.IsNotExist(err) {
+			t.Errorf("allowed write %q reached the parent repository: stat err = %v", path, err)
 		}
 	}
 	for _, path := range []string{"main.go", "notes.txt", "docs.mdx/secret.go"} {
@@ -234,6 +255,114 @@ func TestDocumentorInitialRunProvisionesWorktreeAndScopesWrites(t *testing.T) {
 		t.Fatalf("child session for %q not saved", delegationResult.AgentID)
 	}
 	assertDocumentorScopeDenied(t, executeChildMutate(session.Request.Executor, "tool.go"), "tool.go")
+}
+
+// TestSpecializedHandler_DocumentorEmptyTask covers the structured-task
+// validation that TestSpecializedHandler_EmptyTask skips for worktree-isolated
+// types, which need a git repository.
+func TestSpecializedHandler_DocumentorEmptyTask(t *testing.T) {
+	t.Parallel()
+	repo := setupTestRepo(t)
+	runner := &mockRunner{runFunc: func(_ context.Context, _ agent.RunRequest) (agent.RunState, error) {
+		return successRunState(), nil
+	}}
+	def := SubAgentToolDef(documentorTestDeps(runner, repo, nil), nil)
+
+	tests := []struct {
+		name    string
+		input   map[string]any
+		wantErr string
+	}{
+		{
+			name:    "missing fields",
+			input:   map[string]any{"type": string(AgentTypeDocumentor)},
+			wantErr: "objective",
+		},
+		{
+			name:    "empty objective",
+			input:   documentorTaskInput("", "context", "deliverable"),
+			wantErr: "objective",
+		},
+		{
+			name:    "blank objective",
+			input:   documentorTaskInput("   ", "context", "deliverable"),
+			wantErr: "objective",
+		},
+		{
+			name:    "empty context",
+			input:   documentorTaskInput("objective", "", "deliverable"),
+			wantErr: "context",
+		},
+		{
+			name:    "empty deliverable",
+			input:   documentorTaskInput("objective", "context", ""),
+			wantErr: "deliverable",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := def.Handler(context.Background(), tt.input)
+			if err == nil {
+				t.Fatalf("handler error = nil, want a validation error mentioning %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+			if raw != nil {
+				t.Fatalf("result = %#v, want nil on a validation failure", raw)
+			}
+		})
+	}
+
+	t.Run("valid task provisions a worktree", func(t *testing.T) {
+		raw, err := def.Handler(context.Background(), subAgentTask(AgentTypeDocumentor, "write the docs"))
+		if err != nil {
+			t.Fatalf("handler error: %v", err)
+		}
+		result, ok := raw.(tool.ExecutionResult)
+		if !ok {
+			t.Fatalf("result type = %T, want tool.ExecutionResult", raw)
+		}
+		delegationResult, ok := result.Value.(Result)
+		if !ok {
+			t.Fatalf("result.Value type = %T, want Result", result.Value)
+		}
+		if delegationResult.WorktreePath == "" {
+			t.Fatal("WorktreePath is empty, want a provisioned worktree")
+		}
+	})
+}
+
+// TestDocumentorWriteScopeSurvivesRelaxedPathConfig proves the documentor write
+// scope is enforced inside the child executor regardless of a permissive
+// project path policy: neither a non-documentation file in the worktree nor a
+// documentation file outside it may be written.
+func TestDocumentorWriteScopeSurvivesRelaxedPathConfig(t *testing.T) {
+	t.Parallel()
+	repo := setupTestRepo(t)
+	outside := t.TempDir()
+
+	var capturedReq agent.RunRequest
+	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		capturedReq = req
+		return successRunState(), nil
+	}}
+	deps := documentorTestDeps(runner, repo, nil)
+	deps.ExecutorConfig = tool.ExecutorConfigFromConfig(config.Config{Paths: config.PathsConfig{
+		ProjectRootOnly: false,
+		WritablePaths:   []string{outside},
+	}})
+
+	if _, err := SubAgentToolDef(deps, nil).Handler(context.Background(), subAgentTask(AgentTypeDocumentor, "write the docs")); err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+
+	assertDocumentorScopeDenied(t, executeChildMutate(capturedReq.Executor, "main.go"), "main.go")
+	outsideDoc := filepath.Join(outside, "guide.md")
+	assertDocumentorScopeDenied(t, executeChildMutate(capturedReq.Executor, outsideDoc), outsideDoc)
+	if _, err := os.Stat(outsideDoc); !os.IsNotExist(err) {
+		t.Fatalf("denied out-of-worktree write created %q: stat err = %v", outsideDoc, err)
+	}
 }
 
 func TestCodeChildHasNoWriteScope(t *testing.T) {

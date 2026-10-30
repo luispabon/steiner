@@ -4,7 +4,6 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
-	"slices"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/tool"
@@ -86,7 +85,7 @@ var (
 	lspAgentSuffix     string
 )
 
-// codeAgentAllowlist is code's tool allowlist. documentor clones it: it uses
+// codeAgentAllowlist is code's tool allowlist. documentor shares it: it uses
 // the same tools, and its narrower write surface is enforced by
 // documentorWriteScope at execution time rather than by a shorter tool list.
 var codeAgentAllowlist = []string{"read", "glob", "grep", "ls", "mutate", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"}
@@ -95,7 +94,7 @@ var agentAllowlists = map[AgentType][]string{
 	AgentTypeExplore:     {"read", "glob", "grep", "ls", "bash", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
 	AgentTypeResearch:    {"read", "glob", "grep", "ls", "web_search", "fetch_url"},
 	AgentTypeCode:        codeAgentAllowlist,
-	AgentTypeDocumentor:  slices.Clone(codeAgentAllowlist),
+	AgentTypeDocumentor:  codeAgentAllowlist,
 	AgentTypeEvaluate:    {"read", "glob", "grep", "ls", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
 	AgentTypeSanityCheck: {"read", "glob", "grep", "ls", "bash"},
 	AgentTypeReview:      {"read", "glob", "grep", "ls", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
@@ -178,7 +177,8 @@ func AgentAllowedTools(t AgentType) []string {
 }
 
 // AgentSystemSuffix returns optional guidance suffixes for the given agent type.
-// Code-agent duties are rendered by the prompt package.
+// The duties of the worktree-isolated types (code and documentor) are rendered
+// by the prompt package.
 func AgentSystemSuffix(t AgentType, advisorEnabled, lspEnabled bool) string {
 	var suffixes []string
 	if advisorEnabled && (UsesWorktree(t) || t == AgentTypeReview || t == AgentTypeEvaluate) {

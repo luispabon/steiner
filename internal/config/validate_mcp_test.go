@@ -101,7 +101,7 @@ func TestValidateMCPSubAgents(t *testing.T) {
 					"example": {Transport: "stdio", Command: "npx", SubAgents: []string{"explore", "bogus"}},
 				},
 			},
-			wantErr: `mcp.servers.example.sub_agents: unknown agent type "bogus"`,
+			wantErr: `mcp.servers.example.sub_agents: unknown agent type "bogus" (must be one of code, documentor, evaluate, explore, research, review, sanity_check, vision)`,
 		},
 		{
 			name: "unknown allowed_tools and blocked_tools names do not error",
