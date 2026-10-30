@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"io/fs"
@@ -295,16 +294,16 @@ func buildRuntimeQuotaService() *quota.Service {
 // host, so HTTP/1.1-only upstreams (opencode.ai, plain-http local servers such
 // as Ollama) serve parallel sub-agent and quota requests instead of queueing
 // them behind one streaming response. MaxIdleConns is a global budget so
-// switching hosts keeps idle connections warm, and the TLS session cache makes
-// reconnects cheap. ProxyFromEnvironment honours HTTP_PROXY/HTTPS_PROXY/
-// NO_PROXY, and the handshake and ping timeouts bound stalled TLS connections.
+// switching hosts keeps idle connections warm. ProxyFromEnvironment honours
+// HTTP_PROXY/HTTPS_PROXY/NO_PROXY, and the dial and handshake timeouts bound
+// stalled connections.
 //
-// ForceAttemptHTTP2 must stay true. A non-zero DialContext or TLSClientConfig
-// would otherwise disable HTTP/2, and Clone() copies TLSClientConfig but not
-// the TLSNextProto map the original transport builds lazily, so the clone would
-// see ForceAttemptHTTP2=false and conservatively disable HTTP/2 while TLS still
-// advertises "h2". The result is "net/http: HTTP/1.x transport connection
-// broken: malformed HTTP response" when the upstream negotiates h2.
+// ForceAttemptHTTP2 must stay true: a non-zero DialContext disables HTTP/2
+// otherwise. Clone() also copies the transport without the TLSNextProto map the
+// original builds lazily, so a clone with ForceAttemptHTTP2=false would
+// conservatively disable HTTP/2 while TLS still advertises "h2". The result is
+// "net/http: HTTP/1.x transport connection broken: malformed HTTP response"
+// when the upstream negotiates h2.
 func runtimeHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout: 0,
@@ -321,13 +320,6 @@ func runtimeHTTPClient() *http.Client {
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
-			TLSClientConfig: &tls.Config{
-				ClientSessionCache: tls.NewLRUClientSessionCache(64),
-			},
-			HTTP2: &http.HTTP2Config{
-				SendPingTimeout: 30 * time.Second,
-				PingTimeout:     15 * time.Second,
-			},
 		},
 	}
 }

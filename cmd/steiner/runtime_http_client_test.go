@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"io"
 	"net/http"
@@ -76,7 +77,8 @@ func TestRuntimeHTTPClientAllowsParallelRequestsToOneHost(t *testing.T) {
 
 // TestRuntimeHTTPClientNegotiatesHTTP2 covers the runtime transport and a
 // transport produced by Clone(), the shape providers use when config.timeout
-// is set.
+// is set. RootCAs are attached to clones so the client built by
+// runtimeHTTPClient is never mutated.
 func TestRuntimeHTTPClientNegotiatesHTTP2(t *testing.T) {
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -87,25 +89,27 @@ func TestRuntimeHTTPClientNegotiatesHTTP2(t *testing.T) {
 
 	roots := x509.NewCertPool()
 	roots.AddCert(srv.Certificate())
+	trusted := func(base *http.Transport) *http.Transport {
+		tr := base.Clone()
+		tr.TLSClientConfig = &tls.Config{RootCAs: roots}
+		return tr
+	}
 
 	cases := []struct {
 		name      string
-		transport func() *http.Transport
+		transport func(base *http.Transport) *http.Transport
 	}{
 		{
-			name: "runtime transport",
-			transport: func() *http.Transport {
-				tr := runtimeHTTPClient().Transport.(*http.Transport)
-				tr.TLSClientConfig.RootCAs = roots
-				return tr
-			},
+			name:      "runtime transport",
+			transport: trusted,
 		},
 		{
 			name: "cloned transport",
-			transport: func() *http.Transport {
-				base := runtimeHTTPClient().Transport.(*http.Transport)
-				tr := base.Clone()
-				tr.TLSClientConfig.RootCAs = roots
+			transport: func(base *http.Transport) *http.Transport {
+				tr := trusted(base)
+				// Mirrors provider newClient, which clears the header timeout
+				// when a client-level timeout is configured.
+				tr.ResponseHeaderTimeout = 0
 				return tr
 			},
 		},
@@ -113,7 +117,8 @@ func TestRuntimeHTTPClientNegotiatesHTTP2(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tr := tc.transport()
+			base := runtimeHTTPClient().Transport.(*http.Transport)
+			tr := tc.transport(base)
 			defer tr.CloseIdleConnections()
 			client := &http.Client{Transport: tr, Timeout: 10 * time.Second}
 
@@ -156,26 +161,12 @@ func TestRuntimeHTTPClientTransportSettings(t *testing.T) {
 		{"TLSHandshakeTimeout", tr.TLSHandshakeTimeout, 10 * time.Second},
 		{"ExpectContinueTimeout", tr.ExpectContinueTimeout, 1 * time.Second},
 		{"ResponseHeaderTimeout", tr.ResponseHeaderTimeout, 30 * time.Second},
+		{"TLSClientConfig nil", tr.TLSClientConfig == nil, true},
+		{"HTTP2 config nil", tr.HTTP2 == nil, true},
 	}
 	for _, check := range checks {
 		if check.got != check.want {
 			t.Errorf("%s = %v, want %v", check.name, check.got, check.want)
 		}
-	}
-
-	if tr.TLSClientConfig == nil {
-		t.Fatal("TLSClientConfig is nil, want a client session cache")
-	}
-	if tr.TLSClientConfig.ClientSessionCache == nil {
-		t.Error("TLSClientConfig.ClientSessionCache is nil, want a session cache")
-	}
-	if tr.HTTP2 == nil {
-		t.Fatal("HTTP2 config is nil, want health check pings")
-	}
-	if tr.HTTP2.SendPingTimeout != 30*time.Second {
-		t.Errorf("HTTP2.SendPingTimeout = %v, want %v", tr.HTTP2.SendPingTimeout, 30*time.Second)
-	}
-	if tr.HTTP2.PingTimeout != 15*time.Second {
-		t.Errorf("HTTP2.PingTimeout = %v, want %v", tr.HTTP2.PingTimeout, 15*time.Second)
 	}
 }

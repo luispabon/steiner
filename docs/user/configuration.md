@@ -303,6 +303,8 @@ providers:
 | `compaction_fallback_after` | duration string | `5m` for `anthropic`, `60m` for `claude_subscription`, `30m` for `openai` and `codex`, `0` for other types | Idle time since the start of the last successful main request of the same logical conversation, read from the main model's provider, after which compaction may use `models.profiles.<name>.compaction_fallback`. The fallback applies only when this delay is positive and that ref is set. Explicit `0` disables it. Negative values are invalid. The defaults are typical observed values, not guarantees. See [Compaction fallback](context-management.md#compaction-fallback). |
 | `codex`       | block                 | see below                                                         | Codex-specific configuration (provider type `codex` only).                 |
 
+Provider and model-catalog HTTP requests honour `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`.
+
 ### Provider types
 
 | Type            | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
