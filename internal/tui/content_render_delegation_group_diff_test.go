@@ -145,7 +145,7 @@ func mixedGroupSegment(t *testing.T, m *Model) *delegationGroupSegment {
 func TestSpinnerTickReusesSettledRows(t *testing.T) {
 	freezeDelegationClockAt(t)
 
-	m := mixedGroupModelWithMessages(2, true, mixedGroupTestMessages)
+	m := mixedGroupModelWithMessages(2, true, mixedGroupTestMessages())
 	m.content.String(80)
 	g := mixedGroupSegment(t, m)
 	cached := reflect.ValueOf(g.settled.lines).Pointer()

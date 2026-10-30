@@ -203,6 +203,7 @@ func claudeFixtureGoModVersion(t *testing.T, module string) string {
 }
 
 func TestClaudeTokenFixtureManifestPinsLibraryAndBaseline(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	m := set.Manifest
 	const commit = "7969144b7665d73ae1e20daee102cf1c5e0947a1"
@@ -245,6 +246,7 @@ func TestClaudeTokenFixtureManifestPinsLibraryAndBaseline(t *testing.T) {
 }
 
 func TestClaudeTokenFixturePayloadsAreOrderedAndPinned(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	want := []string{"code_json", "markdown_prose", "unicode", "mixed"}
 	if len(set.Payloads) != len(want) {
@@ -267,6 +269,7 @@ func TestClaudeTokenFixturePayloadsAreOrderedAndPinned(t *testing.T) {
 }
 
 func TestClaudeTokenFixturePayloadDeltasAreInRangeAndPinned(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	for i, p := range set.Payloads {
 		if p.DeltaTokens < 1000 || p.DeltaTokens > 2000 {
@@ -279,6 +282,7 @@ func TestClaudeTokenFixturePayloadDeltasAreInRangeAndPinned(t *testing.T) {
 }
 
 func TestClaudeTokenFixturePayloadsSurviveTrimSpace(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	for _, p := range set.Payloads {
 		raw := claudeFixtureSystem + string(p.Bytes)
@@ -299,6 +303,7 @@ func (c *claudeFixtureRecordingCounter) Count(text string) (int, error) {
 }
 
 func TestClaudeTokenFixtureDeltaCountsRawPayload(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		payload string
@@ -328,6 +333,7 @@ func TestClaudeTokenFixtureDeltaCountsRawPayload(t *testing.T) {
 }
 
 func TestClaudeTokenFixturePayloadContentKinds(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	texts := make(map[string]string, len(set.Payloads))
 	for _, p := range set.Payloads {
@@ -366,6 +372,7 @@ func TestClaudeTokenFixturePayloadContentKinds(t *testing.T) {
 }
 
 func TestClaudeTokenFixtureToolsAreCoreBuiltinSet(t *testing.T) {
+	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	names := make([]string, 0, len(set.Tools))
 	for _, spec := range set.Tools {
@@ -388,6 +395,7 @@ func TestClaudeTokenFixtureToolsAreCoreBuiltinSet(t *testing.T) {
 }
 
 func TestClaudeTokenFixtureReadVerifiedRejectsWrongPins(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "sample.txt"), []byte("abc"), 0o600); err != nil {
 		t.Fatalf("write sample: %v", err)
