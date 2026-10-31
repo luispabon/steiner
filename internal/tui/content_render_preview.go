@@ -135,6 +135,15 @@ func (b *contentBuffer) buildGrepLines(tc *toolCallSegment) []string {
 	}
 }
 
+// emptyGrepMessage describes an empty grep page. A page past the last result
+// still reports the search's match total, so it is not "no matches found".
+func emptyGrepMessage(preview output.ToolPreview) string {
+	if preview.TotalMatches > 0 {
+		return "no results at this offset"
+	}
+	return "no matches found"
+}
+
 // buildGrepResultLines renders a grep-mode summary header followed by
 // per-file lines produced by renderFile, with a shared "no matches
 // found"/"more available" wrapping for all grep output modes.
@@ -144,7 +153,7 @@ func (b *contentBuffer) buildGrepResultLines(tc *toolCallSegment, summary string
 	}
 	lines := []string{b.styles.FgDim.Render(summary)}
 	if len(tc.preview.GrepFiles) == 0 {
-		lines = append(lines, b.styles.FgMute.Render("no matches found"))
+		lines = append(lines, b.styles.FgMute.Render(emptyGrepMessage(tc.preview)))
 		return lines
 	}
 	for _, file := range tc.preview.GrepFiles {

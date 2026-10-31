@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
@@ -404,6 +405,155 @@ func TestGrepTool_MultilineContinuationLinesPaginateAsSelected(t *testing.T) {
 		if result.Shown != 1 || result.Matches != 3 || result.NextOffset != want.next {
 			t.Fatalf("offset %d Shown, Matches, NextOffset = %d, %d, %d; want 1, 3, %d", want.offset, result.Shown, result.Matches, result.NextOffset, want.next)
 		}
+	}
+}
+
+func TestGrepLineExcerptBounds(t *testing.T) {
+	line := strings.Repeat("a", 450) + "NEEDLE" + strings.Repeat("b", 544)
+	tests := []struct {
+		name              string
+		text              string
+		column            int
+		maxRunes          int
+		wantContains      string
+		wantHeadTruncated bool
+		wantTailTruncated bool
+	}{
+		{
+			name:         "short line is unchanged",
+			text:         "NEEDLE here",
+			column:       1,
+			maxRunes:     400,
+			wantContains: "NEEDLE here",
+		},
+		{
+			name:              "match near the start clips the tail",
+			text:              "NEEDLE" + strings.Repeat("b", 200),
+			column:            1,
+			maxRunes:          100,
+			wantContains:      "NEEDLE",
+			wantTailTruncated: true,
+		},
+		{
+			name:              "match past the cap clips both ends",
+			text:              line,
+			column:            451,
+			maxRunes:          100,
+			wantContains:      "NEEDLE",
+			wantHeadTruncated: true,
+			wantTailTruncated: true,
+		},
+		{
+			name:              "match on the last rune clips the head",
+			text:              line,
+			column:            1000,
+			maxRunes:          100,
+			wantHeadTruncated: true,
+		},
+		{
+			name:              "no column clips the tail only",
+			text:              line,
+			column:            0,
+			maxRunes:          100,
+			wantTailTruncated: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := grepLineExcerpt(tt.text, tt.column, tt.maxRunes)
+			if n := len([]rune(got)); n > tt.maxRunes {
+				t.Fatalf("excerpt is %d runes, want <= %d", n, tt.maxRunes)
+			}
+			if tt.wantContains != "" && !strings.Contains(got, tt.wantContains) {
+				t.Fatalf("excerpt %q does not contain %q", got, tt.wantContains)
+			}
+			if got := strings.HasPrefix(got, LineTruncationMarker); got != tt.wantHeadTruncated {
+				t.Fatalf("head truncation marker present = %t, want %t", got, tt.wantHeadTruncated)
+			}
+			if got := strings.HasSuffix(got, LineTruncationMarker); got != tt.wantTailTruncated {
+				t.Fatalf("tail truncation marker present = %t, want %t", got, tt.wantTailTruncated)
+			}
+		})
+	}
+}
+
+func TestGrepTool_ContentExcerptKeepsLateMatch(t *testing.T) {
+	line := strings.Repeat("filler ", 200) + "needle" + strings.Repeat(" tail", 100)
+	toolDef := newGrepBudgetTool(t, map[string]string{"long.txt": line + "\n"})
+
+	result := runGrepForTest(t, toolDef, map[string]any{
+		"pattern":     "needle",
+		"output_mode": "content",
+	})
+	rows := strings.Split(strings.TrimRight(result.Output, "\n"), "\n")
+	if len(rows) != 2 {
+		t.Fatalf("Output = %d rows, want a file header and one match row", len(rows))
+	}
+	if rows[0] != "## long.txt" {
+		t.Fatalf("header row = %q, want %q", rows[0], "## long.txt")
+	}
+	row := rows[1]
+	if !strings.HasPrefix(row, "1:1401: "+LineTruncationMarker) {
+		t.Fatalf("match row = %q, want the line:column prefix followed by a clipped head", row)
+	}
+	if !strings.Contains(row, "needle") {
+		t.Fatalf("match row lost the late match: %q", row)
+	}
+	if n := len([]rune(row)); n > defaultMaxLineRunes {
+		t.Fatalf("match row is %d runes, want <= %d", n, defaultMaxLineRunes)
+	}
+	if result.Shown != 1 || result.NextOffset != 0 {
+		t.Fatalf("Shown, NextOffset = %d, %d; want 1, 0", result.Shown, result.NextOffset)
+	}
+}
+
+func TestGrepTool_UnicodeExcerptKeepsLateMatch(t *testing.T) {
+	line := strings.Repeat("é", 600) + "needle" + strings.Repeat("界", 600)
+	toolDef := newGrepBudgetTool(t, map[string]string{"wide.txt": line + "\n"})
+
+	result := runGrepForTest(t, toolDef, map[string]any{
+		"pattern":     "needle",
+		"output_mode": "content",
+	})
+	if !utf8.ValidString(result.Output) {
+		t.Fatalf("Output is not valid UTF-8: %q", result.Output)
+	}
+	row, ok := strings.CutPrefix(strings.TrimRight(result.Output, "\n"), "## wide.txt\n")
+	if !ok {
+		t.Fatalf("Output = %q, want a wide.txt file header first", result.Output)
+	}
+	if !strings.HasPrefix(row, "1:601: "+LineTruncationMarker) {
+		t.Fatalf("match row = %q, want rune column 601 and a clipped head", row)
+	}
+	if !strings.Contains(row, "needle") {
+		t.Fatalf("match row lost the late match: %q", row)
+	}
+	if n := len([]rune(row)); n > defaultMaxLineRunes {
+		t.Fatalf("match row is %d runes, want <= %d", n, defaultMaxLineRunes)
+	}
+}
+
+func TestGrepTool_ExcerptKeepsLateMatchWithoutLineNumbers(t *testing.T) {
+	line := strings.Repeat("x", 1000) + "needle" + strings.Repeat("y", 500)
+	toolDef := newGrepBudgetTool(t, map[string]string{"long.txt": line + "\n"})
+
+	result := runGrepForTest(t, toolDef, map[string]any{
+		"pattern":      "needle",
+		"output_mode":  "content",
+		"line_numbers": false,
+	})
+	output := strings.TrimRight(result.Output, "\n")
+	if !strings.Contains(output, "needle") {
+		t.Fatalf("Output lost the late match: %q", output)
+	}
+	if strings.Contains(output, "## long.txt\n1:") {
+		t.Fatalf("Output = %q, want no line-number prefix", output)
+	}
+	if n := renderedLineCount(output); n != 2 {
+		t.Fatalf("Output = %d rows, want a header and one match row", n)
 	}
 }
 

@@ -76,7 +76,10 @@ type ToolPreview struct {
 	Returned  int
 	// Matches counts grep matching lines. Content uses the tool's shown count
 	// because context lines are not matches; zero when not reported.
-	Matches          int
+	Matches int
+	// TotalMatches is the tool-reported match total for the whole search when
+	// the result is a page (grep's matches field); zero when not reported.
+	TotalMatches     int
 	NextOffset       int
 	OutputMode       string
 	StartLine        int

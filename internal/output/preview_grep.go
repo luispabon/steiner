@@ -9,6 +9,7 @@ import (
 func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 	var payload struct {
 		Shown      *int   `json:"shown"`
+		Matches    *int   `json:"matches"`
 		NextOffset int    `json:"next_offset,omitempty"`
 		Output     string `json:"output"`
 	}
@@ -26,6 +27,10 @@ func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 	}
 
 	var grepFiles []ToolPreviewGrepFile
+	totalMatches := 0
+	if payload.Matches != nil {
+		totalMatches = *payload.Matches
+	}
 	matches := 0
 	switch mode {
 	case "files_with_matches":
@@ -48,14 +53,15 @@ func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 	}
 
 	preview := ToolPreview{
-		Kind:       ToolPreviewKindGrep,
-		Path:       path,
-		Returned:   len(grepFiles),
-		Matches:    matches,
-		NextOffset: payload.NextOffset,
-		OutputMode: mode,
-		Output:     payload.Output,
-		GrepFiles:  grepFiles,
+		Kind:         ToolPreviewKindGrep,
+		Path:         path,
+		Returned:     len(grepFiles),
+		Matches:      matches,
+		TotalMatches: totalMatches,
+		NextOffset:   payload.NextOffset,
+		OutputMode:   mode,
+		Output:       payload.Output,
+		GrepFiles:    grepFiles,
 	}
 
 	return preview
