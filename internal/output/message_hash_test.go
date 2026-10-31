@@ -3,6 +3,7 @@ package output
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/prompt"
@@ -17,9 +18,10 @@ func TestNewAPIRequestEvent_EmptyMessagePreservesHash(t *testing.T) {
 	}
 }
 
-// TestRequestMessageHashes_MatchMessageHashInput pins the incremental hashing
-// path to the MessageHashInput bytes every other fingerprint consumer uses.
-func TestRequestMessageHashes_MatchMessageHashInput(t *testing.T) {
+// TestRequestMessageHashes_MatchAppendMessageHashInput pins the incremental
+// hashing path to the AppendMessageHashInput bytes every other fingerprint
+// consumer uses.
+func TestRequestMessageHashes_MatchAppendMessageHashInput(t *testing.T) {
 	messages := []provider.Message{
 		{},
 		{Role: provider.MessageRoleSystem, Content: "preamble"},
@@ -44,12 +46,36 @@ func TestRequestMessageHashes_MatchMessageHashInput(t *testing.T) {
 	}
 	for i, msg := range messages {
 		wantBytes += len(msg.Role) + len(msg.Content)
-		sum := sha256.Sum256([]byte(provider.MessageHashInput(msg)))
+		sum := sha256.Sum256([]byte(string(provider.AppendMessageHashInput(nil, msg))))
 		if want := hex.EncodeToString(sum[:4]); hashes[i] != want {
 			t.Errorf("hashes[%d] = %q, want %q", i, hashes[i], want)
 		}
 	}
 	if promptBytes != wantBytes {
 		t.Errorf("promptBytes = %d, want %d", promptBytes, wantBytes)
+	}
+}
+
+// TestNewAPIRequestEvent_MessageHashesLiteralDigests pins the event hashes for
+// an assistant message carrying reasoning content and tool-call arguments and
+// for a plain user message. Swapping the content and reasoning-content append
+// order in AppendMessageHashInput changes the first digest's input and fails
+// this test.
+func TestNewAPIRequestEvent_MessageHashesLiteralDigests(t *testing.T) {
+	messages := []provider.Message{
+		{
+			Role:             provider.MessageRoleAssistant,
+			Content:          "answer",
+			ReasoningContent: "thinking",
+			ToolCalls:        []provider.ToolCall{{Name: "read", Arguments: map[string]any{"path": "one"}}},
+		},
+		{Role: provider.MessageRoleUser, Content: "hello"},
+	}
+	event := NewAPIRequestEvent("model", messages, nil, nil, nil, prompt.ModelTokenBudget{}, 0, 0)
+	payload := event.Payload.(APIRequestEvent)
+	// Digests of `assistantanswerthinkingread{"path":"one"}` and "userhello".
+	want := []string{"961708b1", "59cb3723"}
+	if !slices.Equal(payload.MessageHashes, want) {
+		t.Fatalf("MessageHashes = %v, want %v", payload.MessageHashes, want)
 	}
 }

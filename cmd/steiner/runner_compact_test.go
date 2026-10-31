@@ -313,7 +313,7 @@ func TestCLIRunnerCompactWithLineageDoesNotBecomeCacheBaseline(t *testing.T) {
 func lcpMessageCount(a, b []provider.Message) int {
 	n := min(len(a), len(b))
 	count := 0
-	for count < n && provider.MessageHashInput(a[count]) == provider.MessageHashInput(b[count]) {
+	for count < n && string(provider.AppendMessageHashInput(nil, a[count])) == string(provider.AppendMessageHashInput(nil, b[count])) {
 		count++
 	}
 	return count

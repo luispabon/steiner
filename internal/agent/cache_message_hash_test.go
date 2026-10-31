@@ -31,8 +31,8 @@ func TestPerMessageHashes_EmptyAfterNonEmptyPreservesEmptyHash(t *testing.T) {
 }
 
 // TestPerMessageHashes_PinsLiteralDigests pins the reused-buffer hashing path
-// to digests computed independently of provider.MessageHashInput, so a change
-// to either the appended bytes or the hashing step is caught.
+// to digests independent of provider.AppendMessageHashInput, so a change to
+// either the appended bytes or the hashing step is caught.
 func TestPerMessageHashes_PinsLiteralDigests(t *testing.T) {
 	messages := []provider.Message{
 		{},
