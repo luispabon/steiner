@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -152,6 +153,40 @@ func TestLSTool(t *testing.T) {
 		}
 	})
 
+}
+
+func TestLSNonRecursive_FiltersEntriesPastCap(t *testing.T) {
+	root := t.TempDir()
+	// maxLSLimit excluded entries all sort before the visible file, so a listing
+	// capped before filtering would hide zz.txt entirely.
+	for i := range maxLSLimit {
+		name := fmt.Sprintf("a%04d.txt", i)
+		if err := os.WriteFile(filepath.Join(root, name), []byte("excluded"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "zz.txt"), []byte("visible"), 0o644); err != nil {
+		t.Fatalf("write zz.txt: %v", err)
+	}
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{})
+	excluder := tool.NewWorkspaceExcluder(root, nil, []string{"a*"})
+	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder})
+
+	resultI, err := toolDef.Handler(context.Background(), map[string]any{"path": "."})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	result, ok := resultI.(*Result)
+	if !ok {
+		t.Fatalf("result type = %T, want *Result", resultI)
+	}
+	if result.Output != "zz.txt" {
+		t.Fatalf("Output = %q, want %q", result.Output, "zz.txt")
+	}
+	if result.NextOffset != 0 {
+		t.Fatalf("NextOffset = %d, want 0", result.NextOffset)
+	}
 }
 
 func TestLSRecursive_ReturnsRootErrors(t *testing.T) {

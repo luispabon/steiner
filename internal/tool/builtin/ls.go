@@ -2,24 +2,18 @@ package builtin
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
-	"strings"
-
-	"github.com/deepnoodle-ai/dive"
-	"github.com/deepnoodle-ai/dive/toolkit"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// NewLSTool creates a ToolDef for the ls tool backed by Dive's ListDirectoryTool.
+// NewLSTool creates a ToolDef for the ls tool.
 func NewLSTool(env Env) tool.ToolDef {
-	lsTool := toolkit.NewListDirectoryTool(toolkit.ListDirectoryToolOptions{
-		MaxEntries: maxLSLimit,
-	})
 	return tool.ToolDef{
 		Name:            "ls",
 		ParallelSafe:    true,
@@ -55,71 +49,55 @@ func NewLSTool(env Env) tool.ToolDef {
 			if in.Recursive {
 				return lsRecursive(ctx, walkRoot, absPath, in.Limit, in.Offset, excluder, env.PathPolicy)
 			}
-			return lsNonRecursive(ctx, lsTool, walkRoot, absPath, in.Limit, in.Offset, excluder, env.PathPolicy)
+			return lsNonRecursive(ctx, walkRoot, absPath, in.Limit, in.Offset, excluder, env.PathPolicy)
 		},
 	}
 }
 
-// lsNonRecursive lists a single directory using Dive's ListDirectoryTool.
+// lsEntry is a directory entry reduced to the fields ls prints.
+type lsEntry struct {
+	name  string
+	isDir bool
+}
+
+// lsNonRecursive lists a single directory level. Entries denied by path policy
+// or hidden by workspace exclusions are dropped before pagination, so limit and
+// offset count only visible entries. The directory is read directly rather than
+// through Dive's ListDirectoryTool because Dive truncates to maxLSLimit before
+// any filtering, which hides visible entries that sort past the cap in a large
+// directory.
 func lsNonRecursive(
 	ctx context.Context,
-	lsTool *dive.TypedToolAdapter[*toolkit.ListDirectoryInput],
 	absPath string,
 	lexicalRoot string,
 	limit, offset int,
 	excluder tool.WorkspaceExcluder,
 	policy *tool.PathPolicy,
 ) (*Result, error) {
-	diveResult, err := lsTool.Call(ctx, &toolkit.ListDirectoryInput{
-		Path: absPath,
-	})
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("ls: %w", err)
 	}
 
-	if diveResult.IsError {
-		var b strings.Builder
-		if diveResult.Display != "" {
-			b.WriteString(diveResult.Display)
-		}
-		for _, c := range diveResult.Content {
-			if c.Text == "" {
-				continue
-			}
-			if b.Len() > 0 {
-				b.WriteString("\n")
-			}
-			b.WriteString(c.Text)
-		}
-		return &Result{
-			Output: b.String(),
-		}, nil
-	}
-
-	contentText := ""
-	if len(diveResult.Content) > 0 {
-		contentText = diveResult.Content[0].Text
-	}
-
-	entries, err := parseDirectoryEntries(contentText)
-	if err != nil {
-		// Fail closed: the raw listing is not filtered by policy.
-		return nil, fmt.Errorf("ls: %w", err)
+	entries, failure := readDirectoryEntries(absPath)
+	if failure != "" {
+		// An unreadable or missing directory is tool output, not an error, as it
+		// was when this listing came from Dive's ListDirectoryTool.
+		return &Result{Output: failure}, nil
 	}
 
 	entries = visibleEntries(entries, absPath, lexicalRoot, policy, excluder)
 
 	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].IsDir != entries[j].IsDir {
-			return entries[i].IsDir
+		if entries[i].isDir != entries[j].isDir {
+			return entries[i].isDir
 		}
-		return entries[i].Name < entries[j].Name
+		return entries[i].name < entries[j].name
 	})
 
-	var allLines []string
+	allLines := make([]string, 0, len(entries))
 	for _, e := range entries {
-		name := e.Name
-		if e.IsDir {
+		name := e.name
+		if e.isDir {
 			name += "/"
 		}
 		allLines = append(allLines, name)
@@ -127,6 +105,37 @@ func lsNonRecursive(
 
 	result := pageResults(allLines, limit, offset)
 	return &result, nil
+}
+
+// readDirectoryEntries reads one directory level in name order. A non-empty
+// failure is the user-facing message for a path ls cannot list, worded as Dive's
+// ListDirectoryTool worded it.
+func readDirectoryEntries(dir string) ([]lsEntry, string) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil, fmt.Sprintf("Directory not found at path: %s", dir)
+		case errors.Is(err, fs.ErrPermission):
+			return nil, fmt.Sprintf("Permission denied when trying to access directory: %s", dir)
+		default:
+			return nil, fmt.Sprintf("Failed to access directory %s. %s", dir, err)
+		}
+	}
+	if !info.IsDir() {
+		return nil, fmt.Sprintf("Path %s is not a directory", dir)
+	}
+
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Sprintf("Failed to read directory %s. %s", dir, err)
+	}
+
+	entries := make([]lsEntry, 0, len(dirEntries))
+	for _, entry := range dirEntries {
+		entries = append(entries, lsEntry{name: entry.Name(), isDir: entry.IsDir()})
+	}
+	return entries, ""
 }
 
 // listedPathDenied reports whether policy blocks listing path. A listing only
@@ -146,14 +155,14 @@ func listedPathDenied(policy *tool.PathPolicy, path string) bool {
 // offset count only visible entries. lexicalRoot is the path the caller named
 // before a symlink root was resolved, so configured exclusions written against
 // that path keep applying.
-func visibleEntries(entries []toolkit.DirectoryEntry, dir, lexicalRoot string, policy *tool.PathPolicy, excluder tool.WorkspaceExcluder) []toolkit.DirectoryEntry {
+func visibleEntries(entries []lsEntry, dir, lexicalRoot string, policy *tool.PathPolicy, excluder tool.WorkspaceExcluder) []lsEntry {
 	kept := entries[:0]
 	for _, entry := range entries {
-		path := filepath.Join(dir, entry.Name)
+		path := filepath.Join(dir, entry.name)
 		if listedPathDenied(policy, path) {
 			continue
 		}
-		if excludeSearchEntry(&excluder, policy, dir, lexicalRoot, path, entry.IsDir) {
+		if excludeSearchEntry(&excluder, policy, dir, lexicalRoot, path, entry.isDir) {
 			continue
 		}
 		kept = append(kept, entry)
@@ -214,17 +223,4 @@ func lsRecursive(ctx context.Context, absPath, lexicalRoot string, limit, offset
 
 	result := pageResults(allEntries, limit, offset)
 	return &result, nil
-}
-
-// parseDirectoryEntries extracts the JSON array from Dive's ListDirectoryTool text output.
-func parseDirectoryEntries(text string) ([]toolkit.DirectoryEntry, error) {
-	parts := strings.SplitN(text, "\n\n", 2)
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("unexpected output format")
-	}
-	var entries []toolkit.DirectoryEntry
-	if err := json.Unmarshal([]byte(parts[1]), &entries); err != nil {
-		return nil, fmt.Errorf("parse directory entries: %w", err)
-	}
-	return entries, nil
 }

@@ -287,7 +287,10 @@ func TestLSTool_DeniesSymlinkRootIntoBlockedPath(t *testing.T) {
 	}
 }
 
-func TestLSTool_UnparseableListingFailsClosed(t *testing.T) {
+// TestLSTool_ListsDirectoryNameWithBlankLines covers a directory name that a
+// delimiter-parsed listing could not represent: ls enumerates entries directly,
+// so the odd name lists normally while excluded entries stay hidden.
+func TestLSTool_ListsDirectoryNameWithBlankLines(t *testing.T) {
 	root := t.TempDir()
 	oddDir := filepath.Join(root, "odd\n\nname")
 	if err := os.MkdirAll(oddDir, 0o755); err != nil {
@@ -296,15 +299,20 @@ func TestLSTool_UnparseableListingFailsClosed(t *testing.T) {
 	mustWriteTree(t, oddDir, "visible.txt", "visible")
 	mustWriteTree(t, oddDir, "secrets/secret.txt", "secret")
 
-	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy})
+	policy := tool.NewPathPolicy(root, config.PathsConfig{})
+	excluder := tool.NewWorkspaceExcluder(root, nil, []string{"secrets"})
+	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder})
 
-	_, err := toolDef.Handler(context.Background(), map[string]any{"path": "odd\n\nname"})
-	if err == nil {
-		t.Fatal("ls returned an unfiltered listing instead of failing closed")
+	resultI, err := toolDef.Handler(context.Background(), map[string]any{"path": "odd\n\nname"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if strings.Contains(err.Error(), "secret") {
-		t.Fatalf("error leaks entry names: %v", err)
+	result, ok := resultI.(*Result)
+	if !ok {
+		t.Fatalf("result type = %T, want *Result", resultI)
+	}
+	if result.Output != "visible.txt" {
+		t.Fatalf("Output = %q, want %q", result.Output, "visible.txt")
 	}
 }
 
