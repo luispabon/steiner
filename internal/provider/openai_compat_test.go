@@ -151,8 +151,9 @@ func TestOpenAICompatNewOpenAICompat_TimeoutDisablesResponseHeaderTimeout(t *tes
 }
 
 // TestOpenAICompatTimeoutTransportSharedPerBase ensures clients built from the
-// same base transport with different timeouts share one derived transport (and
-// therefore one connection pool) while keeping their own Client.Timeout.
+// same base transport share one derived transport (and therefore one connection
+// pool), whether their timeouts differ or match, while keeping their own
+// Client.Timeout.
 func TestOpenAICompatTimeoutTransportSharedPerBase(t *testing.T) {
 	base := &http.Transport{ResponseHeaderTimeout: 30 * time.Second}
 	httpClient := &http.Client{Transport: base}
@@ -172,6 +173,7 @@ func TestOpenAICompatTimeoutTransportSharedPerBase(t *testing.T) {
 
 	first := build(10 * time.Second)
 	second := build(2 * time.Minute)
+	sameTimeout := build(10 * time.Second)
 
 	if first.httpClient == second.httpClient {
 		t.Fatal("expected a distinct http.Client per timeout")
@@ -184,6 +186,15 @@ func TestOpenAICompatTimeoutTransportSharedPerBase(t *testing.T) {
 	}
 	if first.httpClient.Transport != second.httpClient.Transport {
 		t.Fatal("clients sharing a base transport got distinct derived transports")
+	}
+	if sameTimeout.httpClient == first.httpClient {
+		t.Fatal("expected a distinct http.Client per provider with the same timeout")
+	}
+	if got, want := sameTimeout.httpClient.Timeout, 10*time.Second; got != want {
+		t.Fatalf("same-timeout Timeout = %v, want %v", got, want)
+	}
+	if sameTimeout.httpClient.Transport != first.httpClient.Transport {
+		t.Fatal("clients with the same timeout and base transport got distinct derived transports")
 	}
 	derived, ok := first.httpClient.Transport.(*http.Transport)
 	if !ok || derived == nil {

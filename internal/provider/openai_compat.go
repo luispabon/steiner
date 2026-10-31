@@ -25,7 +25,9 @@ var (
 
 // derivedTimeoutTransport returns the transport derived from base with
 // ResponseHeaderTimeout cleared, cloning base at most once so every client built
-// from the same base shares a single connection pool.
+// from the same base shares a single connection pool. The clone is a snapshot
+// taken on first use, so base must not be modified after the first provider is
+// built from it.
 func derivedTimeoutTransport(base *http.Transport) *http.Transport {
 	derivedTransportMu.Lock()
 	defer derivedTransportMu.Unlock()
@@ -137,9 +139,9 @@ func newClient(cfg ClientConfig) (*Client, error) {
 	if cfg.Timeout > 0 {
 		// Clone the client so the timeout stays per client. A shallow client
 		// copy shares the Transport pointer, so a *http.Transport is replaced by
-		// the shared derived transport, which clears ResponseHeaderTimeout:
-		// Client.Timeout already bounds the entire request, including headers.
-		// Custom RoundTrippers are kept as-is.
+		// the shared derived transport. That transport clears
+		// ResponseHeaderTimeout because Client.Timeout already bounds the entire
+		// request, including headers. Custom RoundTrippers are kept as-is.
 		cloned := *httpClient
 		cloned.Timeout = cfg.Timeout
 		if base, ok := cloned.Transport.(*http.Transport); ok && base != nil {

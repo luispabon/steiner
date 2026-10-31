@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -677,12 +678,17 @@ loop:
 // transport for the shared derived transport when ClientConfig.Timeout is set,
 // and the derived transport keeps its h2 wiring because the base transport sets
 // ForceAttemptHTTP2. It runs the same chat request against an h2-capable server
-// with and without Timeout set and expects both to succeed.
+// with and without Timeout set, expects both to succeed, and expects the server
+// to see HTTP/2 on both.
 // The transport mirrors runtimeHTTPClient: a plain *http.Transport with a custom
 // DialContext, ForceAttemptHTTP2 and a ResponseHeaderTimeout.
 func TestIntegrationH2TimeoutDoesNotBreakTransport(t *testing.T) {
+	// protoMajor is written by the server handler goroutine and read after the
+	// request completes, so it must be atomic.
+	var protoMajor atomic.Int32
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		protoMajor.Store(int32(r.ProtoMajor))
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 	})
@@ -731,6 +737,9 @@ func TestIntegrationH2TimeoutDoesNotBreakTransport(t *testing.T) {
 			})
 			if err != nil {
 				t.Fatalf("ChatCompletion with %s failed: %v", tc.name, err)
+			}
+			if got := int(protoMajor.Load()); got != 2 {
+				t.Fatalf("server saw HTTP/%d, want HTTP/2: the transport must keep ForceAttemptHTTP2", got)
 			}
 		})
 	}
