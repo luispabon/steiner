@@ -115,7 +115,7 @@ func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, erro
 		return nil, err
 	}
 
-	filterGlob, err := compileGrepGlob(p.fileGlob)
+	filterGlob, err := compileGrepFileGlob(p.fileGlob)
 	if err != nil {
 		return nil, err
 	}
@@ -291,17 +291,6 @@ func compileGrepPattern(pattern string, caseInsens, multiline bool) (*regexp.Reg
 		return nil, fmt.Errorf("invalid regex: %w", err)
 	}
 	return re, nil
-}
-
-func compileGrepGlob(fileGlob string) (glob.Glob, error) {
-	if fileGlob == "" {
-		return nil, nil
-	}
-	filterGlob, err := glob.Compile(fileGlob, '/')
-	if err != nil {
-		return nil, fmt.Errorf("invalid glob: %w", err)
-	}
-	return filterGlob, nil
 }
 
 func grepExtensions(fileType string) []string {
