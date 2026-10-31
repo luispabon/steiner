@@ -126,6 +126,17 @@ func lsNonRecursive(
 	return &result, nil
 }
 
+// listedPathDenied reports whether policy blocks listing path. A listing only
+// reveals a name, so special files are not rejected the way a read is; blocked
+// paths and policy resolution errors still hide the entry.
+func listedPathDenied(policy *tool.PathPolicy, path string) bool {
+	if policy == nil {
+		return false
+	}
+	_, err := policy.ResolveReadEntryPath(path)
+	return err != nil
+}
+
 // visibleEntries drops entries whose resolved path policy denies so a
 // non-recursive listing never leaks a blocked entry.
 func visibleEntries(entries []toolkit.DirectoryEntry, dir string, policy *tool.PathPolicy) []toolkit.DirectoryEntry {
@@ -134,7 +145,7 @@ func visibleEntries(entries []toolkit.DirectoryEntry, dir string, policy *tool.P
 	}
 	kept := entries[:0]
 	for _, entry := range entries {
-		if searchPathDenied(policy, filepath.Join(dir, entry.Name)) {
+		if listedPathDenied(policy, filepath.Join(dir, entry.Name)) {
 			continue
 		}
 		kept = append(kept, entry)
@@ -164,7 +175,7 @@ func lsRecursive(ctx context.Context, absPath string, limit, offset int, exclude
 			return nil
 		}
 
-		if searchPathDenied(policy, path) {
+		if listedPathDenied(policy, path) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
