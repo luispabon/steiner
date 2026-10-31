@@ -387,6 +387,59 @@ func TestResolveSearchRoot_AppliesSandboxTmpRewrite(t *testing.T) {
 	})
 }
 
+func TestGrepSearch_FileRootAppliesSandboxTmpRewrite(t *testing.T) {
+	hostDir, err := os.MkdirTemp("/tmp", "steiner-975-file-root-")
+	if err != nil {
+		t.Skipf("cannot create directory under /tmp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(hostDir) })
+	mustWriteTree(t, hostDir, "host.txt", "host-needle\n")
+
+	target, err := filepath.EvalSymlinks(filepath.Join(hostDir, "host.txt"))
+	if err != nil {
+		t.Fatalf("resolve target: %v", err)
+	}
+
+	root := t.TempDir()
+	sandboxTmp := filepath.Join(t.TempDir(), "sandbox-tmp")
+	mustMkdir(t, sandboxTmp)
+	policy := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{}, sandboxTmp)
+
+	want, err := policy.ResolveReadPath(target)
+	if err != nil {
+		t.Fatalf("resolve target through policy: %v", err)
+	}
+	if want == target {
+		t.Skip("sandbox /tmp rewrite does not apply to symlink targets on this platform")
+	}
+
+	// Distinct content behind the rewritten sandbox path: reading the resolved
+	// path finds sandbox.txt, reading through the link finds the host file.
+	mustWriteTree(t, filepath.Dir(want), filepath.Base(want), "sandbox-needle\n")
+
+	link := filepath.Join(root, "hostlink.txt")
+	mustSymlink(t, target, link)
+
+	results, err := grepSearch(context.Background(), grepSearchParams{
+		root:        link,
+		displayPath: "hostlink.txt",
+		pattern:     "needle",
+		policy:      &policy,
+	})
+	if err != nil {
+		t.Fatalf("grepSearch: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("grep files = %v, want one file", grepResultFiles(results))
+	}
+	if results[0].file != "hostlink.txt" {
+		t.Fatalf("grep file = %q, want %q", results[0].file, "hostlink.txt")
+	}
+	if len(results[0].matches) != 1 || results[0].matches[0].line != "sandbox-needle" {
+		t.Fatalf("grep matches = %v, want the sandbox copy content", results[0].matches)
+	}
+}
+
 func TestLSTool_ShowsSpecialFilesThatPolicyCannotRead(t *testing.T) {
 	root := t.TempDir()
 	mustWriteTree(t, root, "visible.txt", "visible")

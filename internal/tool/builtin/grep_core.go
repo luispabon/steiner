@@ -144,7 +144,10 @@ func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, erro
 		if p.policy != nil && p.policy.IsSandboxTmpPath(p.root) {
 			dp = p.policy.DisplayPath(p.root)
 		}
-		return grepSearchPath(ctx, p.root, normalizedDisplayPath(p.root, dp), re, p.multiline, filterGlob, exts, p.excluder)
+		// Read the policy-resolved path so a sandbox /tmp rewrite is honoured
+		// instead of reading the host target behind the link; the lexical name
+		// keeps driving file filters and the displayed path.
+		return grepSearchPath(ctx, p.root, resolvedRoot, normalizedDisplayPath(p.root, dp), re, p.multiline, filterGlob, exts, p.excluder)
 	}
 
 	walkRoot, err := resolveSearchRoot(p.root, p.policy)
@@ -351,11 +354,15 @@ func normalizedDisplayPath(root, displayPath string) string {
 	return relPath
 }
 
-func grepSearchPath(ctx context.Context, path, relPath string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder) ([]grepFileResult, error) {
+// grepSearchPath searches a single explicit file. path is the path the caller
+// named, used for exclusion checks, file filters, and the displayed path;
+// readPath is the path opened on disk, which differs when policy rewrites a
+// symlink root.
+func grepSearchPath(ctx context.Context, path, readPath, relPath string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder) ([]grepFileResult, error) {
 	if grepPathExcluded(path, path, path, relPath, filterGlob, exts, excluder) {
 		return nil, nil
 	}
-	file, hasMatches, err := grepSearchFile(ctx, path, relPath, re, multiline)
+	file, hasMatches, err := grepSearchFile(ctx, readPath, relPath, re, multiline)
 	if err != nil {
 		return nil, err
 	}
