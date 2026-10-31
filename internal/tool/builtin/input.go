@@ -1,6 +1,10 @@
 package builtin
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // ReadInput is the typed input for the read tool.
 type ReadInput struct {
@@ -151,6 +155,25 @@ func normalizeGrep(in *GrepInput) {
 	if in.Offset < 0 {
 		in.Offset = 0
 	}
+}
+
+// validateGrep rejects values normalizeGrep cannot make safe and canonicalizes
+// the type filter.
+func validateGrep(in *GrepInput) error {
+	switch {
+	case in.Context < 0:
+		return fmt.Errorf("context must be non-negative: %d", in.Context)
+	case in.BeforeContext < 0:
+		return fmt.Errorf("before_context must be non-negative: %d", in.BeforeContext)
+	case in.AfterContext < 0:
+		return fmt.Errorf("after_context must be non-negative: %d", in.AfterContext)
+	}
+	canonical, ok := canonicalGrepType(in.Type)
+	if !ok {
+		return fmt.Errorf("unknown type %q (valid types: %s)", in.Type, strings.Join(grepTypeNames(), ", "))
+	}
+	in.Type = canonical
+	return nil
 }
 
 // normalizeLS applies defaults and caps to ls input.

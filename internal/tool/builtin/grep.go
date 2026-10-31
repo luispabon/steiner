@@ -21,6 +21,9 @@ func NewGrepTool(env Env) tool.ToolDef {
 			}
 
 			normalizeGrep(&in)
+			if err := validateGrep(&in); err != nil {
+				return nil, fmt.Errorf("grep: %w", err)
+			}
 
 			if in.OutputMode == "" {
 				in.OutputMode = "content"
