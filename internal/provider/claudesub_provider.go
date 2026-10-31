@@ -107,6 +107,9 @@ func foldClaudeSubChunks(chunks []ChatChunk) (ChatResponse, error) {
 		if chunk.ClearBackendState {
 			response.ClearBackendState = true
 		}
+		if chunk.Diagnostics != nil {
+			response.Diagnostics = chunk.Diagnostics
+		}
 	}
 	if !terminal {
 		return ChatResponse{}, errors.New("claude_subscription stream closed without a terminal chunk")

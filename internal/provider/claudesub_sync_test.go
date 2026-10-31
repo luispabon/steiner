@@ -1217,7 +1217,7 @@ func TestClaudeSubRestoreFor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resume, ok, err := claudeSubRestoreFor(tt.msgs, tt.stored, tt.hasState, "parent", tt.fp)
+			resume, ok, _, err := claudeSubRestoreFor(tt.msgs, tt.stored, tt.hasState, "parent", tt.fp)
 			if err != nil {
 				t.Fatalf("restore: %v", err)
 			}

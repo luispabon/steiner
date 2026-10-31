@@ -185,6 +185,7 @@ func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource
 	response.UpstreamEndpoint = chunk.UpstreamEndpoint
 	response.BackendState = chunk.BackendState
 	response.ClearBackendState = chunk.ClearBackendState
+	response.Diagnostics = chunk.Diagnostics
 	content := chunk.Delta.Content
 	if chunk.ContentSnapshot {
 		streamed := message.Content

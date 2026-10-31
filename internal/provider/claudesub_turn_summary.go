@@ -165,6 +165,8 @@ func claudeSubForkSummary(ctx context.Context, pool *ClaudeSubscriptionPool, req
 	if err != nil {
 		return err
 	}
+	// The helper is a new process resumed from the stored CLI session.
+	claudeSubMetricsFrom(ctx).setProcess(claudeSubProcessResume)
 	return claudeSubDeliver(ctx, h, req, delta, emit)
 }
 
@@ -177,6 +179,8 @@ func claudeSubReseedSummary(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		return err
 	}
 	defer pool.retireAndRelease(helperKey, h)
+	// The helper always starts from the rendered transcript.
+	claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedHelper)
 	return claudeSubDeliverNormal(ctx, h, req, true, emit)
 }
 
@@ -200,6 +204,8 @@ func claudeSubSubAgentSummary(ctx context.Context, pool *ClaudeSubscriptionPool,
 		return err
 	}
 	defer pool.retireAndRelease(key, s)
+	// The replaced process could not take the marked request, so it reseeds.
+	claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedPlan)
 	return claudeSubDeliverTainted(ctx, s, req, claudeSubMarkedReseedDelta(req), emit)
 }
 

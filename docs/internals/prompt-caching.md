@@ -67,8 +67,17 @@ Each usage-bearing model response writes one `cache` record (`internal/agent/cac
 - `cold_start`: true on the first usage-bearing record a process writes. A process has one run ID, so this is once per run. Fallback compaction calls write `false` and leave the latch unchanged.
 - `prefix_comparison_enabled` and `prefix_predecessor_known`: whether prefix comparison ran and whether a predecessor existed. The predecessor is the last accepted request under the same `CacheBaselineKey` (`internal/agent/cache_baseline.go`), which holds the cache key, agent ID, configured and effective provider type, effective transport, provider alias, and backend model ID. An empty cache key disables baselines.
 - `shared_prefix_messages`: leading messages shared with the last accepted request. It separates a pure append from a prefix rewrite.
+- `prefix_predecessor_messages`: the predecessor request's message count. `prefix_divergence_role` is the role of the first request message that differs from the predecessor, present only when the request is neither an append of the predecessor nor a strict prefix of it.
 - `prefix_hash`: a cumulative 8-hex digest folded over one 8-hex hash per message. Each per-message digest is over the `provider.AppendMessageHashInput` bytes, appended into one reused buffer per request: role, content, reasoning content, tool-call names and arguments, and image media types and data. It hashes logical messages, not wire JSON.
 - `cache_key_hash`: an 8-hex hash of the cache key.
+
+Measurement fields are written when the call measured them and omitted otherwise:
+
+- `attempts`: transport attempts the successful call spent (`Client.ChatCompletion`, `Client.streamWithRetry`). `cache_affinity_dropped` marks a successful attempt sent without `PromptCacheKey` after the cache-retention rejection.
+- `context_generation`: compaction stages applied in the run when the call was issued (`turnProgressor.compactionCount`).
+- `claudesub_process`, `claudesub_reseed_reason`, `claudesub_usage_gate_ms`, `claudesub_usage_gate_polls`, `claudesub_usage_probe_spawned`: claude_subscription only. The process disposition is `reuse`, `resume`, or `spawn`. The reseed reason is one of `no_state`, `fingerprint`, `final_uuid`, `prefix`, `plan`, `checkpoint`, `owner_fork`, `exited`, `retry`, or `helper`. The gate fields report the extra-usage gate's elapsed milliseconds and `get_usage` poll count, and the probe flag reports a fresh confirmation process started for the call.
+
+Provider measurements reach the agent as `provider.CallDiagnostics`: on `ChatResponse` for a non-streaming call, and on the terminal `ChatChunk` for a streaming call, which `consumeModelStream` copies onto the folded response.
 
 No record contains message bodies, tool arguments, images, or the key itself. The baseline advances only in `promoteRequestCacheStats`, after the provider accepts an attempt. Compaction requests carry `call_kind` on their records.
 

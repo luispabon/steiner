@@ -166,6 +166,44 @@ type ChatResponse struct {
 	// ClearBackendState removes the stored backend state from the issuing
 	// generation. It takes precedence over BackendState.
 	ClearBackendState bool `json:"-"`
+	// Diagnostics carries per-call measurement metadata. Nil when the provider
+	// measured nothing.
+	Diagnostics *CallDiagnostics `json:"-"`
+}
+
+// CallDiagnostics carries per-call measurement metadata about how a model call
+// was served. It describes the successful call only and never affects request
+// content. Providers that measure nothing leave ChatResponse.Diagnostics nil.
+type CallDiagnostics struct {
+	// Attempts is the number of transport attempts the successful call spent,
+	// counting the attempt that succeeded.
+	Attempts int
+	// CacheAffinityDropped reports that the successful attempt was sent with
+	// PromptCacheKey blanked, after a previous attempt hit the known
+	// cache-retention rejection.
+	CacheAffinityDropped bool
+	// ClaudeSub is set only by the claude_subscription provider.
+	ClaudeSub *ClaudeSubCallDiagnostics
+}
+
+// ClaudeSubCallDiagnostics carries claude_subscription measurement for one
+// call: how its CLI process was obtained, why it reseeded, and what the usage
+// gate cost.
+type ClaudeSubCallDiagnostics struct {
+	// Process is "reuse" when a live process accepted the request, "resume"
+	// when the request resumed a stored CLI session on a new process, and
+	// "spawn" when a new process started without a resume target.
+	Process string
+	// ReseedReason names the branch that reseeded the transcript. Empty unless
+	// the call reseeded.
+	ReseedReason string
+	// UsageGateMillis is the wall time the extra-usage gate spent on the call.
+	UsageGateMillis int64
+	// UsageGatePolls is the number of get_usage calls the gate made.
+	UsageGatePolls int
+	// UsageProbeSpawned reports that a fresh probe process was started to
+	// confirm the account's usage state for this call.
+	UsageProbeSpawned bool
 }
 
 // StatefulCompactor is implemented by StatefulTranscript providers that accept
@@ -209,4 +247,7 @@ type ChatChunk struct {
 	// ClearBackendState removes the stored backend state from the issuing
 	// generation. It takes precedence over BackendState.
 	ClearBackendState bool `json:"-"`
+	// Diagnostics carries per-call measurement metadata on the terminal chunk.
+	// The agent copies it onto the folded response.
+	Diagnostics *CallDiagnostics `json:"-"`
 }

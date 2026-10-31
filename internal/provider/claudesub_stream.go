@@ -28,7 +28,11 @@ func claudeSubStream(ctx context.Context, pool *ClaudeSubscriptionPool, req Chat
 			chunks       int
 			firstChunkAt time.Time
 		)
-		err := claudeSubTurn(ctx, pool, req, func(chunk ChatChunk) error {
+		metrics := &claudeSubCallMetrics{}
+		err := claudeSubTurn(withClaudeSubMetrics(ctx, metrics), pool, req, func(chunk ChatChunk) error {
+			if chunk.Done {
+				chunk.Diagnostics = metrics.diagnostics()
+			}
 			select {
 			case out <- chunk:
 				if chunks == 0 {

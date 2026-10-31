@@ -302,6 +302,9 @@ func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcom
 	// The bool is unused: handleImagesForVision rewrites state in place through the
 	// pointer, and the rest of the turn reads that state.
 	_ = p.handleImagesForVision(ctx, &state)
+	// Stamp the run's applied compaction count so this turn's cache diagnostics
+	// records report which context generation they were issued against.
+	p.request.contextGeneration = p.compactionCount
 
 	assembly, chatRequest, fit, err := p.prepareTurn(ctx, state)
 	if err != nil {
