@@ -247,6 +247,28 @@ func TestClaudeSubCallDiagnosticsUsageGate(t *testing.T) {
 	}
 }
 
+// TestClaudeSubCallMetricsResetDelivery proves a second delivery attempt reports
+// its own process and gate cost while a probe the failed attempt spawned stays
+// recorded for the call.
+func TestClaudeSubCallMetricsResetDelivery(t *testing.T) {
+	metrics := &claudeSubCallMetrics{
+		process:           claudeSubProcessResume,
+		usageGate:         42 * time.Millisecond,
+		usageGatePolls:    3,
+		usageProbeSpawned: true,
+	}
+	metrics.resetDelivery()
+	if metrics.process != "" {
+		t.Errorf("process = %q, want cleared", metrics.process)
+	}
+	if metrics.usageGate != 0 || metrics.usageGatePolls != 0 {
+		t.Errorf("usage gate = %v/%d polls, want cleared", metrics.usageGate, metrics.usageGatePolls)
+	}
+	if !metrics.usageProbeSpawned {
+		t.Error("usageProbeSpawned = false, want sticky for the call after a failed attempt spawned one")
+	}
+}
+
 // TestClaudeSubCallDiagnosticsSummaryForkFallback proves a summary whose fork
 // helper fails before output reports the live parent that actually answered, not
 // the failed helper.

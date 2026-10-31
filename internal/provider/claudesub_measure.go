@@ -144,7 +144,8 @@ func (m *claudeSubCallMetrics) clearReseed() {
 
 // resetDelivery drops what an earlier delivery attempt of this call recorded
 // about its process and usage gate, so a later attempt that actually serves the
-// call is what gets reported.
+// call is what gets reported. usageProbeSpawned stays set: a failed attempt may
+// really have spawned a probe process for this call.
 func (m *claudeSubCallMetrics) resetDelivery() {
 	if m == nil {
 		return
@@ -152,7 +153,6 @@ func (m *claudeSubCallMetrics) resetDelivery() {
 	m.process = ""
 	m.usageGate = 0
 	m.usageGatePolls = 0
-	m.usageProbeSpawned = false
 }
 
 // noteUsageGate records the time and poll count of the extra-usage gate.
