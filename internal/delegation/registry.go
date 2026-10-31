@@ -264,6 +264,13 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 		scopedEvents := withAgentScope(agentID, "", childEvents)
 		scopedRuntime := advRuntime
 		scopedRuntime.events = scopedEvents
+		// Sub-agent advisors share one transport session, separate from the
+		// parent advisor's. A child call therefore never retires the parent
+		// advisor's pooled transport process, and the number of advisor
+		// processes stays bounded no matter how many children run.
+		if deps.SessionID != "" {
+			scopedRuntime.transportSession = deps.SessionID + "-subagent-advisor"
+		}
 		return scopedRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state), true
 	}
 	return advisorForChild, nil

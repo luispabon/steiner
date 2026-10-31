@@ -279,7 +279,7 @@ func TestBuildDelegateRegistryParentAdvisorUsesScopedTransportSession(t *testing
 	}
 }
 
-func TestBuildAdvisorToolsChildRuntimeCopiesTransportAndScopesEvents(t *testing.T) {
+func TestBuildAdvisorToolsChildRuntimeScopesTransportAndEvents(t *testing.T) {
 	t.Parallel()
 	const parentSessionID = "parent-session-id"
 	prov := &fakeProvider{responses: []provider.ChatResponse{
@@ -325,8 +325,8 @@ func TestBuildAdvisorToolsChildRuntimeCopiesTransportAndScopesEvents(t *testing.
 	if len(prov.requests) != 1 {
 		t.Fatalf("captured %d child requests, want 1", len(prov.requests))
 	}
-	if got := prov.requests[0].TransportSession; got != parentSessionID+"-advisor" {
-		t.Errorf("child advisor TransportSession = %q, want %q", got, parentSessionID+"-advisor")
+	if want := parentSessionID + "-subagent-advisor"; prov.requests[0].TransportSession != want {
+		t.Errorf("child advisor TransportSession = %q, want %q", prov.requests[0].TransportSession, want)
 	}
 	if got := prov.requests[0].ParentTransportSession; got != parentSessionID {
 		t.Errorf("child advisor ParentTransportSession = %q, want %q", got, parentSessionID)
@@ -340,6 +340,98 @@ func TestBuildAdvisorToolsChildRuntimeCopiesTransportAndScopesEvents(t *testing.
 	}
 	if started.Scope.AgentID != "child-agent" {
 		t.Errorf("child advisor event scope = %q, want child-agent", started.Scope.AgentID)
+	}
+}
+
+func TestBuildAdvisorToolsChildAdvisorTransportSessionSharedByChildren(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		sessionID  string
+		wantParent string
+		wantChild  string
+	}{
+		{
+			name:       "session scoped",
+			sessionID:  "parent-session-id",
+			wantParent: "parent-session-id-advisor",
+			wantChild:  "parent-session-id-subagent-advisor",
+		},
+		{
+			name:      "no parent session",
+			sessionID: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			prov := &fakeProvider{responses: []provider.ChatResponse{
+				{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
+			}}
+			cfg := advisorTestConfig()
+			deps := DelegateDeps{
+				BaseRegistry: tool.NewRegistry(),
+				AdvisorCfg: config.AdvisorConfig{
+					Enabled:            true,
+					MaxUsesPerRun:      1,
+					MaxUsesPerSubAgent: 1,
+				},
+				Provider:           prov,
+				ProviderFactory:    func(provider.ResolvedModel, string) (provider.Provider, error) { return prov, nil },
+				Events:             output.NoopSink{},
+				WorkDir:            "/tmp/work",
+				SessionID:          tc.sessionID,
+				Config:             cfg,
+				ResolveModel:       resolveModelFunc(cfg),
+				AdvisorBudgetStore: NewAdvisorBudgetStore(),
+			}
+
+			reg := tool.NewRegistry()
+			factory, err := buildAdvisorTools(reg, deps)
+			if err != nil {
+				t.Fatalf("buildAdvisorTools() error = %v", err)
+			}
+			if factory == nil {
+				t.Fatal("buildAdvisorTools() returned nil child factory")
+			}
+			parentDef, ok := reg.Get(advisor.ToolName)
+			if !ok {
+				t.Fatal("parent advisor tool not registered")
+			}
+
+			names := []string{"parent"}
+			defs := []tool.ToolDef{parentDef}
+			for _, agentID := range []string{"child-a", "child-b"} {
+				childDef, ok := factory(agentID)
+				if !ok {
+					t.Fatalf("child advisor tool for %q was not created", agentID)
+				}
+				names = append(names, "child advisor "+agentID)
+				defs = append(defs, childDef)
+			}
+
+			ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+				{Role: provider.MessageRoleUser, Content: "hi"},
+			})
+			for i, def := range defs {
+				if _, err := def.Handler(ctx, map[string]any{"question": "how?"}); err != nil {
+					t.Fatalf("%s handler() error = %v", names[i], err)
+				}
+			}
+			if len(prov.requests) != len(defs) {
+				t.Fatalf("captured %d requests, want %d", len(prov.requests), len(defs))
+			}
+
+			wantSessions := []string{tc.wantParent, tc.wantChild, tc.wantChild}
+			for i, want := range wantSessions {
+				if got := prov.requests[i].TransportSession; got != want {
+					t.Errorf("%s TransportSession = %q, want %q", names[i], got, want)
+				}
+				if got := prov.requests[i].ParentTransportSession; got != tc.sessionID {
+					t.Errorf("%s ParentTransportSession = %q, want %q", names[i], got, tc.sessionID)
+				}
+			}
+		})
 	}
 }
 
