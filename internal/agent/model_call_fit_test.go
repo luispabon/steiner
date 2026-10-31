@@ -168,17 +168,29 @@ func TestCompleteModelCallInlineVisionRetryReestimates(t *testing.T) {
 			return nil, errors.New("stream unavailable")
 		},
 	}
-	_, _, err := completeModelCall(context.Background(), RunRequest{
+	chatRequest := provider.ChatRequest{
+		Model:    "test-model",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "describe", Images: []provider.ImageBlock{{MediaType: "image/png", Data: "image-data"}}}},
+	}
+	prefitEstimate, err := tracker.EstimateChatRequestTokens(context.Background(), chatRequest)
+	if err != nil {
+		t.Fatalf("estimate prefit request: %v", err)
+	}
+	prefit := prompt.RequestTokenBudget{
+		EstimatedPromptTokens:    prefitEstimate.Tokens,
+		RawEstimatedPromptTokens: prefitEstimate.RawTokens,
+		Fits:                     true,
+	}
+	_, _, err = completeModelCallWithOptions(context.Background(), RunRequest{
 		Provider:           prov,
 		ResolvedModel:      provider.ResolvedModel{Alias: "test-model", BackendModelID: "test-model", Vision: &vision},
 		StreamingPreferred: false,
-	}, 1, provider.ChatRequest{
-		Model:    "test-model",
-		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "describe", Images: []provider.ImageBlock{{MediaType: "image/png", Data: "image-data"}}}},
-	}, nil, prompt.ModelTokenBudget{}, nil)
+	}, 1, chatRequest, nil, prompt.ModelTokenBudget{ContextSize: 4096}, nil, chatExecOptions{prefit: &prefit})
 	if err != nil {
-		t.Fatalf("completeModelCall() error = %v", err)
+		t.Fatalf("completeModelCallWithOptions() error = %v", err)
 	}
+	// One estimate builds the prefit and one re-estimates the stripped retry.
+	// Forwarding the incoming prefit into the retry leaves this at 1.
 	if tracker.estimateCalls != 2 {
 		t.Fatalf("estimate calls = %d, want 2", tracker.estimateCalls)
 	}
