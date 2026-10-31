@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -452,14 +451,10 @@ func TestLSTool_ShowsSpecialFilesThatPolicyCannotRead(t *testing.T) {
 	root := t.TempDir()
 	mustWriteTree(t, root, "visible.txt", "visible")
 	fifo := filepath.Join(root, "pipe")
-	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
-		t.Skipf("mkfifo unsupported: %v", err)
-	}
+	mustMkfifo(t, fifo)
 	secretsDir := filepath.Join(root, "secrets")
 	mustMkdir(t, secretsDir)
-	if err := syscall.Mkfifo(filepath.Join(secretsDir, "pipe"), 0o600); err != nil {
-		t.Skipf("mkfifo unsupported: %v", err)
-	}
+	mustMkfifo(t, filepath.Join(secretsDir, "pipe"))
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
 	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy})

@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -24,9 +23,7 @@ func symlinkSearchFixture(t *testing.T, excludePaths, excludePatterns, blockedPa
 	for _, rel := range []string{"src/inside.go", "outside/outside.go", "excluded/excluded.go", "blocked/blocked.go"} {
 		mustWriteTree(t, root, rel, "needle\n")
 	}
-	if err := syscall.Mkfifo(filepath.Join(root, "special.pipe"), 0o600); err != nil {
-		t.Skipf("Mkfifo unsupported: %v", err)
-	}
+	mustMkfifo(t, filepath.Join(root, "special.pipe"))
 	escapeDir := t.TempDir()
 	mustWriteTree(t, escapeDir, "escape.go", "needle\n")
 	mustSymlink(t, escapeDir, filepath.Join(root, "inner"))

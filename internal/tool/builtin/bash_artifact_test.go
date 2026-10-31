@@ -158,20 +158,6 @@ func TestBashArtifactMissingWorkDir(t *testing.T) {
 	}
 }
 
-func mustSymlink(t *testing.T, target, link string) {
-	t.Helper()
-	if err := os.Symlink(target, link); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func mustMkdir(t *testing.T, p string) {
-	t.Helper()
-	if err := os.MkdirAll(p, 0o700); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestBashArtifactTightensInsecureLeaf(t *testing.T) {
 	dir := t.TempDir()
 	tmpDir := filepath.Join(dir, ".steiner", "tmp")
