@@ -180,13 +180,12 @@ For `claude_subscription`, the CLI owns the transcript.
 
 ## Durable context state
 
-`ContextState` (`internal/agent/context_state.go`) has three fields:
+`ContextState` (`internal/agent/context_state.go`) has two fields:
 
 | Field | Contents |
 |-------|----------|
 | `RecentToolCalls` | Up to three `summarizeRecentToolCalls` entries from the latest lineage generation, oldest first. Each is a tool name plus summarized arguments. Rebuilt every turn by `enrichContextState`. |
 | `TurnCount` | Turn count of the run. |
-| `CompactionCount` | Copied through state but never incremented in non-test code. The live per-run count is `turnProgressor.compactionCount`. |
 
 - `Clone` deep-copies `RecentToolCalls`.
 - Argument summaries cut values at 40 characters, and bash commands at 80. `cwd`, `path`, and bash commands are redacted against the absolute cwd root.

@@ -227,9 +227,6 @@ type turnProgressor struct {
 	compactFn         compactConversationFn
 	compactionHistory map[string]bool
 	// compactionCount tracks the number of successful compactions in this run.
-	// It is distinct from state.Context.CompactionCount, which carries the
-	// initial value from the prompt's durable context state (reserved for
-	// future cross-run persistence; currently always 0).
 	compactionCount int
 	// skipNonStream signals that non-streaming requests should be skipped.
 	// Set to true after detecting a "stream required" error, so subsequent

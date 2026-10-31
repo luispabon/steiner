@@ -6,7 +6,6 @@ func TestContextStateCloneDoesNotShareSlices(t *testing.T) {
 	state := ContextState{
 		RecentToolCalls: []string{"read"},
 		TurnCount:       4,
-		CompactionCount: 1,
 	}
 
 	cloned := state.Clone()

@@ -10,7 +10,6 @@ import (
 type ContextState struct {
 	RecentToolCalls []string
 	TurnCount       int
-	CompactionCount int
 }
 
 // Clone returns a deep copy of the context state.
@@ -18,7 +17,6 @@ func (s ContextState) Clone() ContextState {
 	next := ContextState{
 		RecentToolCalls: cloneStrings(s.RecentToolCalls),
 		TurnCount:       s.TurnCount,
-		CompactionCount: s.CompactionCount,
 	}
 	return next
 }
