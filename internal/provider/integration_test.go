@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -507,17 +509,186 @@ func TestIntegrationStreamChatCompletionHTTPError(t *testing.T) {
 	}
 }
 
-// TestIntegrationH2TimeoutDoesNotBreakTransport is a regression test for the
-// bug where setting a provider timeout cloned the shared http.Transport, which
-// dropped the unexported http2 wiring and produced
-// "net/http: HTTP/1.x transport connection broken: malformed HTTP response"
-// errors when the upstream negotiated h2. It runs the same chat request
-// against an h2-capable server with and without Timeout set, and expects both
-// to succeed without transport errors. The transport mirrors the shape of
-// runtimeHTTPClient (plain *http.Transport, no http2.ConfigureTransport).
+// TestIntegrationTimeoutSharedTransportSlowStream checks that a provider
+// timeout, which replaces the base transport with a shared derived transport,
+// still lets a slow upstream stream: the base's ResponseHeaderTimeout must not
+// fire on the header delay or the slow body, while Client.Timeout stays a
+// per-client bound.
+func TestIntegrationTimeoutSharedTransportSlowStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Hold the header phase past the base ResponseHeaderTimeout, then stream
+		// the body in chunks spread over the same order of magnitude.
+		time.Sleep(150 * time.Millisecond)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		for _, content := range []string{"slow ", "stream"} {
+			_, _ = fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", content)
+			if flusher != nil {
+				flusher.Flush()
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	base := &http.Transport{ResponseHeaderTimeout: 20 * time.Millisecond}
+	provider, err := NewOpenAICompat(ClientConfig{
+		BaseURL:    server.URL + "/v1",
+		Model:      "gpt-4",
+		Timeout:    10 * time.Second,
+		HTTPClient: &http.Client{Transport: base},
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompat() error = %v", err)
+	}
+
+	ch, err := provider.StreamChatCompletion(context.Background(), ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("StreamChatCompletion() error = %v", err)
+	}
+
+	var content string
+	var done bool
+	for chunk := range ch {
+		if chunk.Done {
+			done = true
+			if chunk.Error != "" {
+				t.Fatalf("stream finished with error: %s", chunk.Error)
+			}
+			continue
+		}
+		content += chunk.Delta.Content
+	}
+	if !done {
+		t.Fatal("stream did not emit done chunk")
+	}
+	if want := "slow stream"; content != want {
+		t.Fatalf("content = %q, want %q", content, want)
+	}
+	if base.ResponseHeaderTimeout != 20*time.Millisecond {
+		t.Fatalf("base ResponseHeaderTimeout = %v, want 20ms (must not be mutated)", base.ResponseHeaderTimeout)
+	}
+}
+
+// TestIntegrationTimeoutStreamBodyExceedsClientTimeout checks that the shared
+// derived transport does not defeat Client.Timeout: a server that streams a
+// body indefinitely must surface a stream error close to the provider timeout
+// instead of blocked reading.
+func TestIntegrationTimeoutStreamBodyExceedsClientTimeout(t *testing.T) {
+	streaming := make(chan struct{})
+	stop := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"tick\"}}]}\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		close(streaming)
+		// Keep streaming until the client gives up so the body read can only end
+		// on the client timeout, not on server completion.
+		for {
+			select {
+			case <-stop:
+				return
+			case <-r.Context().Done():
+				return
+			case <-time.After(25 * time.Millisecond):
+			}
+			if _, err := fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"tick\"}}]}\n\n"); err != nil {
+				return
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+	}))
+	defer server.Close()
+	// Runs before server.Close, which otherwise waits for the streaming handler
+	// forever when the client is not bounded by a timeout.
+	defer close(stop)
+
+	const clientTimeout = time.Second
+	base := &http.Transport{ResponseHeaderTimeout: time.Minute}
+	provider, err := NewOpenAICompat(ClientConfig{
+		BaseURL:    server.URL + "/v1",
+		Model:      "gpt-4",
+		Timeout:    clientTimeout,
+		HTTPClient: &http.Client{Transport: base},
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompat() error = %v", err)
+	}
+
+	start := time.Now()
+	ch, err := provider.StreamChatCompletion(context.Background(), ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("StreamChatCompletion() error = %v", err)
+	}
+	select {
+	case <-streaming:
+	case <-time.After(5 * time.Second):
+		t.Fatal("server never started streaming")
+	}
+
+	deadline := time.After(clientTimeout + 5*time.Second)
+	var chunks int
+	var streamErr string
+loop:
+	for {
+		select {
+		case chunk, ok := <-ch:
+			if !ok {
+				break loop
+			}
+			if chunk.Done {
+				streamErr = chunk.Error
+				continue
+			}
+			chunks++
+		case <-deadline:
+			t.Fatalf("stream still running after %v, want the %v client timeout to end it", clientTimeout+5*time.Second, clientTimeout)
+		}
+	}
+	elapsed := time.Since(start)
+
+	if streamErr == "" {
+		t.Fatalf("stream finished without error after %d chunks, want a client timeout error", chunks)
+	}
+	if chunks == 0 {
+		t.Fatal("expected at least one streamed chunk before the timeout")
+	}
+	if elapsed < clientTimeout {
+		t.Fatalf("stream error after %v, want no earlier than the %v client timeout", elapsed, clientTimeout)
+	}
+	if limit := clientTimeout + 3*time.Second; elapsed > limit {
+		t.Fatalf("stream error after %v, want within %v", elapsed, limit)
+	}
+}
+
+// TestIntegrationH2TimeoutDoesNotBreakTransport checks that a provider timeout
+// does not disable HTTP/2. NewOpenAICompat clones the client and swaps its
+// transport for the shared derived transport when ClientConfig.Timeout is set,
+// and the derived transport keeps its h2 wiring because the base transport sets
+// ForceAttemptHTTP2. It runs the same chat request against an h2-capable server
+// with and without Timeout set, expects both to succeed, and expects the server
+// to see HTTP/2 on both.
+// The transport mirrors runtimeHTTPClient: a plain *http.Transport with a custom
+// DialContext, ForceAttemptHTTP2 and a ResponseHeaderTimeout.
 func TestIntegrationH2TimeoutDoesNotBreakTransport(t *testing.T) {
+	// protoMajor is written by the server handler goroutine and read after the
+	// request completes, so it must be atomic.
+	var protoMajor atomic.Int32
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		protoMajor.Store(int32(r.ProtoMajor))
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 	})
@@ -526,11 +697,15 @@ func TestIntegrationH2TimeoutDoesNotBreakTransport(t *testing.T) {
 	srv.StartTLS()
 	defer srv.Close()
 
-	// Mirror runtimeHTTPClient shape: plain *http.Transport, ResponseHeaderTimeout
-	// set, no explicit http2.ConfigureTransport. The previous bug cloned this
-	// transport and dropped the h2 wiring; the test now ensures we do not
-	// touch the Transport at all when applying a provider timeout.
+	// Mirror runtimeHTTPClient: a plain *http.Transport with a custom
+	// DialContext and ForceAttemptHTTP2, no explicit http2.ConfigureTransport.
+	// NewOpenAICompat clones this transport when a provider timeout is set; the
+	// clone must keep negotiating h2.
 	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
 		ResponseHeaderTimeout: 30 * time.Second,
 		ForceAttemptHTTP2:     true,
@@ -562,6 +737,9 @@ func TestIntegrationH2TimeoutDoesNotBreakTransport(t *testing.T) {
 			})
 			if err != nil {
 				t.Fatalf("ChatCompletion with %s failed: %v", tc.name, err)
+			}
+			if got := int(protoMajor.Load()); got != 2 {
+				t.Fatalf("server saw HTTP/%d, want HTTP/2: the transport must keep ForceAttemptHTTP2", got)
 			}
 		})
 	}

@@ -19,7 +19,9 @@ type Env struct {
 	// non-positive caps or caps that are not an exact multiple of one second
 	// fall back to 120s.
 	BashTimeoutCap time.Duration
-	// httpClient is a test seam. Production callers use the SSRF-safe default.
+	// httpClient is a test seam, invoked once per fetch_url tool instance.
+	// Production callers use the SSRF-safe default. A client returned with a
+	// Jar has the jar dropped per call so cookies never leak between calls.
 	httpClient func() *http.Client
 	// EventSink is the sink used to emit side-channel events (e.g. display_file).
 	// When nil or a NoopSink, tools that require event emission will fail cleanly.

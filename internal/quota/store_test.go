@@ -2,6 +2,7 @@ package quota
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -80,8 +81,11 @@ func TestStoreAppendDedupe(t *testing.T) {
 		{"identical at exactly one hour is stored", func(*Snapshot) {}, time.Hour, 2},
 		{"identical after an hour is stored", func(*Snapshot) {}, 2 * time.Hour, 2},
 		{"changed usage is stored", func(s *Snapshot) { s.Windows[0].UsedPercent++ }, 5 * time.Minute, 2},
-		{"changed reset instant is stored", func(s *Snapshot) {
-			s.Windows[0].ResetsAt = s.Windows[0].ResetsAt.Add(time.Second)
+		{"reset instant jitter within a minute is skipped", func(s *Snapshot) {
+			s.Windows[0].ResetsAt = s.Windows[0].ResetsAt.Add(500 * time.Millisecond)
+		}, 5 * time.Minute, 1},
+		{"reset instant more than a minute later is stored", func(s *Snapshot) {
+			s.Windows[0].ResetsAt = s.Windows[0].ResetsAt.Add(2 * time.Minute)
 		}, 5 * time.Minute, 2},
 		{"same reset instant in another zone is skipped", func(s *Snapshot) {
 			s.Windows[0].ResetsAt = s.Windows[0].ResetsAt.In(loc)
@@ -229,6 +233,47 @@ func TestStoreRejectsUnsupportedVersion(t *testing.T) {
 	}
 	if _, err := historyOf(NewStore(path), "a"); err == nil {
 		t.Error("History with version 2: want error")
+	}
+}
+
+// TestTwoStoresAppendConcurrently pins the cross-process guarantee: two Store
+// values on one path serialize through the flock, so neither writer's snapshots
+// are lost and the file stays decodable.
+func TestTwoStoresAppendConcurrently(t *testing.T) {
+	requireFileLocking(t)
+	path := filepath.Join(t.TempDir(), "quota-history.json")
+	stores := []*Store{NewStore(path), NewStore(path)}
+
+	const perStore = 10
+	var wg sync.WaitGroup
+	for i, store := range stores {
+		wg.Go(func() {
+			for j := range perStore {
+				at := testBase.Add(time.Duration(j) * time.Minute)
+				snap := sampleSnapshot(fmt.Sprintf("k%d", i), at, float64(j))
+				if err := store.Append(snap, at); err != nil {
+					t.Errorf("store %d append %d: %v", i, j, err)
+				}
+			}
+		})
+	}
+	wg.Wait()
+
+	stored, err := stores[0].readAll()
+	if err != nil {
+		t.Fatalf("readAll: %v", err)
+	}
+	if len(stored) != 2*perStore {
+		t.Fatalf("stored %d snapshots, want %d", len(stored), 2*perStore)
+	}
+	counts := make(map[string]int)
+	for _, snap := range stored {
+		counts[snap.AccountKey]++
+	}
+	for i := range stores {
+		if got := counts[fmt.Sprintf("k%d", i)]; got != perStore {
+			t.Errorf("account k%d kept %d snapshots, want %d", i, got, perStore)
+		}
 	}
 }
 

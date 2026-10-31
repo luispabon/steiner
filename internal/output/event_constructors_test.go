@@ -112,8 +112,8 @@ func TestDelegationAdmissionEventsAndFinishedMetadata(t *testing.T) {
 func TestNewAPIRequestEventToolArgumentHashChanges(t *testing.T) {
 	first := provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{{Name: "read", Arguments: map[string]any{"path": "one"}}}}
 	second := provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{{Name: "read", Arguments: map[string]any{"path": "two"}}}}
-	firstHash := provider.MessageHashInput(first)
-	secondHash := provider.MessageHashInput(second)
+	firstHash := string(provider.AppendMessageHashInput(nil, first))
+	secondHash := string(provider.AppendMessageHashInput(nil, second))
 	if firstHash == secondHash {
 		t.Fatalf("hash inputs = %q, want different inputs for different tool arguments", firstHash)
 	}

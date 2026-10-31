@@ -1333,6 +1333,14 @@ func TestBuildChildRunRecorderPropagation(t *testing.T) {
 	t.Run("recorder set when non-nil", func(t *testing.T) {
 		t.Setenv("XDG_STATE_HOME", t.TempDir())
 		rec := usagestats.New(nil)
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := rec.Drain(ctx); err != nil {
+				t.Errorf("drain usage stats recorder: %v", err)
+			}
+			rec.Close()
+		})
 		deps := SubAgentHandlerDeps{
 			ParentReg:     parent,
 			SubAgentCfg:   config.SubAgentConfig{MaxFollowUps: 100},

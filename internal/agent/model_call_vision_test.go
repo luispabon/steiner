@@ -22,7 +22,7 @@ func TestStripImagesIfVisionDisabled_VisionNil(t *testing.T) {
 	}
 
 	var events []output.Event
-	result := stripImagesIfVisionDisabled(nil, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
+	result, _ := stripImagesIfVisionDisabled(nil, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
 		events = append(events, e)
 	}), nil)
 
@@ -50,7 +50,7 @@ func TestStripImagesIfVisionDisabled_VisionTrue(t *testing.T) {
 	}
 
 	var events []output.Event
-	result := stripImagesIfVisionDisabled(&visionTrue, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
+	result, _ := stripImagesIfVisionDisabled(&visionTrue, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
 		events = append(events, e)
 	}), nil)
 
@@ -76,7 +76,7 @@ func TestStripImagesIfVisionDisabled_VisionFalseNoImages(t *testing.T) {
 	}
 
 	var events []output.Event
-	result := stripImagesIfVisionDisabled(&visionFalse, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
+	result, _ := stripImagesIfVisionDisabled(&visionFalse, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
 		events = append(events, e)
 	}), nil)
 
@@ -106,7 +106,7 @@ func TestStripImagesIfVisionDisabled_VisionFalseWithImages(t *testing.T) {
 	}
 
 	var events []output.Event
-	result := stripImagesIfVisionDisabled(&visionFalse, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
+	result, _ := stripImagesIfVisionDisabled(&visionFalse, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
 		events = append(events, e)
 	}), nil)
 
@@ -158,7 +158,7 @@ func TestStripImagesIfVisionDisabled_CapabilitiesSupported(t *testing.T) {
 	capabilities.SetDerived("test-model", VisionCapable)
 
 	var events []output.Event
-	result := stripImagesIfVisionDisabled(nil, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
+	result, _ := stripImagesIfVisionDisabled(nil, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
 		events = append(events, e)
 	}), capabilities)
 
@@ -188,7 +188,7 @@ func TestStripImagesIfVisionDisabled_CapabilitiesUnsupported(t *testing.T) {
 	capabilities.SetDerived("test-model", VisionIncapable)
 
 	var events []output.Event
-	result := stripImagesIfVisionDisabled(nil, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
+	result, _ := stripImagesIfVisionDisabled(nil, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
 		events = append(events, e)
 	}), capabilities)
 
@@ -223,7 +223,7 @@ func TestStripImagesIfVisionDisabled_CapabilitiesOverridesDeprecatedBool(t *test
 		capabilities.SetDerived("test-model", VisionCapable)
 
 		var events []output.Event
-		result := stripImagesIfVisionDisabled(&visionFalse, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
+		result, _ := stripImagesIfVisionDisabled(&visionFalse, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
 			events = append(events, e)
 		}), capabilities)
 
@@ -251,7 +251,7 @@ func TestStripImagesIfVisionDisabled_CapabilitiesOverridesDeprecatedBool(t *test
 		capabilities.SetDerived("test-model", VisionIncapable)
 
 		var events []output.Event
-		result := stripImagesIfVisionDisabled(&visionTrue, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
+		result, _ := stripImagesIfVisionDisabled(&visionTrue, messages, "test-model", 1, output.SinkFunc(func(e output.Event) {
 			events = append(events, e)
 		}), capabilities)
 

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -164,6 +165,14 @@ func (rt cliRuntime) resolveModel(alias string) (provider.ResolvedModel, error) 
 
 var buildRuntime = defaultBuildRuntime
 
+// quotaDrainTimeout bounds how long runtime teardown waits for queued quota
+// snapshots to reach the store.
+var quotaDrainTimeout = 5 * time.Second
+
+// usageStatsDrainTimeout bounds how long runtime teardown waits for queued usage
+// deltas to reach the cache-stats store.
+var usageStatsDrainTimeout = 5 * time.Second
+
 func defaultBuildRuntime(ctx context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -178,6 +187,22 @@ func closeRuntime(rt *cliRuntime) {
 	shutdownDelegation(context.Background(), rt, delegation.CancelCauseSystem)
 	if rt.claudeSubPool != nil {
 		emitCloseWarning(rt.events, "close claude_subscription pool", rt.claudeSubPool.Close())
+	}
+	// Quota history is written on the service's own goroutine, so drain it after
+	// the pool that observes usage has stopped, then stop the writer.
+	if rt.quotaService != nil {
+		drainCtx, cancel := context.WithTimeout(context.Background(), quotaDrainTimeout)
+		emitCloseWarning(rt.events, "flush quota history", rt.quotaService.Drain(drainCtx))
+		cancel()
+		rt.quotaService.Close()
+	}
+	// Usage statistics are written on the recorder's own goroutine as well, so
+	// flush queued deltas on the same teardown path, then stop the writer.
+	if rt.usageRecorder != nil {
+		drainCtx, cancel := context.WithTimeout(context.Background(), usageStatsDrainTimeout)
+		emitCloseWarning(rt.events, "flush usage stats", rt.usageRecorder.Drain(drainCtx))
+		cancel()
+		rt.usageRecorder.Close()
 	}
 	if rt.imageStore != nil {
 		emitCloseWarning(rt.events, "close image store", rt.imageStore.Cleanup())

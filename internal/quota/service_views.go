@@ -23,7 +23,9 @@ type AccountView struct {
 // and then Key. Registered accounts come from the startup provider config.
 // Stored snapshots without a registration are not returned. DisplayAlias is the
 // alphabetically first alias, or the Key when the account has no aliases.
-// Active marks the account whose aliases include activeProviderAlias.
+// Active marks the account whose aliases include activeProviderAlias. Latest is
+// the in-memory state, so it includes the newest observation; projections read
+// the store, which can lag it until the writer drains.
 func (s *Service) Views(activeProviderAlias string) []AccountView {
 	s.ensureLoaded()
 

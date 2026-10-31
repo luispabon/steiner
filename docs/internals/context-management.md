@@ -52,6 +52,16 @@ Interactive sessions keep skills out of the static prefix, so toggling a skill n
 - A body over `prompt.SkillContentCapBytes` is cut on a UTF-8 rune boundary and ends with `[truncated: skill exceeded the 106496-byte cap]`. Loading such a skill emits `skill_truncated` with the original size and the cap.
 - On resume, replayed envelopes emit `skill_state` events (`internal/interactive/replay.go`).
 
+## Request event snapshots
+
+`output.NewAPIRequestEvent` (`internal/output/event_model_call.go`) builds the per-request event behind the context report, and `interactive.snapshotSink` (`internal/interactive/wiring.go`) stores it for later reporting.
+
+- `MessageHashes` are the first four bytes of `sha256` over `provider.AppendMessageHashInput`. One buffer is reused across a request, so the hash input is never materialized as a string, and cache diagnostics hashes messages through the same append path.
+- `PromptBytes` is the sum of each message's role and content length. `BlocksBytes` is the sum of `ContextBlock.ByteSize`.
+- `ToolsBytes` is the encoded length of the tool definitions, computed by `json.Marshal` on every request. Tools are re-cloned into each request, so the encoding is not memoized by slice identity: an in-place edit of a reused slice would otherwise report a stale size.
+- Messages, tools, blocks, and the `MaxTokens` value are deep-copied into the event, so later mutation of the conversation cannot reach it. `snapshotSink` then stores its own deep copy through `SnapshotStore.Store`, because every later sink receives the same payload and nothing guarantees it stays unmodified.
+- `Snapshot` and `ParentSnapshot` clone before returning, so a reader cannot mutate stored state.
+
 ## Session date assembly
 
 - `prompt.NewSessionDate` (`internal/prompt/session_date.go`) builds the date. Sub-agents receive the parent's value through the `SessionDate` field of the delegation dependencies (`internal/delegation/registry.go`).
@@ -63,7 +73,7 @@ Interactive sessions keep skills out of the static prefix, so toggling a skill n
 
 - Model IDs in `ctokActiveModelIDs` (`internal/provider/token_estimator_claude.go`, exact match after whitespace trimming) use `claudeTextCounter`. It calls ctok `CountContent`, which omits the single-message framing that ctok `Count` adds. Steiner does not add that framing back. Strategy `ctok`, confidence `low`.
 - The ctok counter loads once. A failed load is returned on every call. The counter never falls back to another tokenizer.
-- Calibration: `ObserveUsage` records a per-model ratio from provider usage, and the strategy becomes `provider_usage`. Once samples exist, `calibrationForModel` scales whichever base estimate is selected, including ctok estimates. `Tokens` is calibrated and `RawTokens` is not.
+- Calibration: `prepareTurn` fits the normal request once per model call and `executeChatRequest` reuses its raw count through `ChatRequest.RawPromptTokenEstimate`. The request is re-estimated only when `stripImagesIfVisionDisabled` changes the request, on the inline vision retry, or for compaction requests. A direct call without a prefit estimates the request itself. `ObserveUsage` records a per-model ratio from provider usage, and the strategy becomes `provider_usage`. Once samples exist, `calibrationForModel` scales whichever base estimate is selected, including ctok estimates. `Tokens` is calibrated and `RawTokens` is not.
 - Fit checks use `Tokens`. `RawEstimatedPromptTokens` keeps the raw value for events and diagnostics.
 
 ## Compaction

@@ -33,7 +33,7 @@ type compactConversationFn func(ctx context.Context, req RunRequest, state *RunS
 //
 // When the response contains tool calls, it returns the response as a local
 // value so turnProgressor.advance can pass it to executeToolCalls.
-func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, assembly prompt.Assembly, chatRequest provider.ChatRequest) (turnOutcome, *provider.ChatResponse) {
+func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, assembly prompt.Assembly, chatRequest provider.ChatRequest, fit prompt.RequestTokenBudget) (turnOutcome, *provider.ChatResponse) {
 	turn := state.TurnCount + 1
 
 	emitEvent(p.request.Events, output.NewModelCallStartedEvent(turn, p.request.ResolvedModel.BackendModelID, len(assembly.Messages)))
@@ -47,7 +47,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	// request-clock start recorded in LastMainRequest.
 	startTime := time.Now()
 	requestAt := requestNow(p.request)
-	response, firstChunkTime, err := completeModelCall(ctx, p.request, turn, chatRequest, assembly.Blocks, p.request.ModelBudget, &p.skipNonStream)
+	response, firstChunkTime, err := completeModelCallWithOptions(ctx, p.request, turn, chatRequest, assembly.Blocks, p.request.ModelBudget, &p.skipNonStream, chatExecOptions{prefit: &fit})
 	if err != nil {
 		// Check for vision capability discovery error; translate to turn-level retry.
 		if errors.Is(err, errRetryTurnForVision) {
@@ -330,7 +330,7 @@ func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcom
 		modelCtx, cancelModel = context.WithTimeoutCause(ctx, timeout, errModelCallTimeout)
 		defer cancelModel()
 	}
-	modelOutcome, response := p.executeModelCall(modelCtx, state, assembly, chatRequest)
+	modelOutcome, response := p.executeModelCall(modelCtx, state, assembly, chatRequest, fit)
 
 	// Auto-detect interleaved reasoning: if the model returned reasoning_content
 	// but ReasoningEchoBack was not configured, enable it on the progressor's

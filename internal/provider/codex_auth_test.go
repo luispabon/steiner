@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/oauth"
@@ -64,7 +65,7 @@ func TestResolveCodexAuth(t *testing.T) {
 	}
 }
 
-func TestResolveCodexAuthReadsTokenStoreEachCall(t *testing.T) {
+func TestResolveCodexAuthPicksUpExternalChange(t *testing.T) {
 	path := codexQuotaTestTokenPath(t)
 	codexQuotaTestWriteToken(t, path, `{"access_token":"access-1","token_type":"Bearer","expiry":"2099-01-01T00:00:00Z","account_id":"acct-1"}`)
 	first, err := ResolveCodexAuth(context.Background(), nil)
@@ -72,13 +73,55 @@ func TestResolveCodexAuthReadsTokenStoreEachCall(t *testing.T) {
 		t.Fatalf("ResolveCodexAuth() first call error = %v", err)
 	}
 
-	codexQuotaTestWriteToken(t, path, `{"access_token":"access-2","token_type":"Bearer","expiry":"2099-01-01T00:00:00Z","account_id":"acct-1"}`)
+	// The replacement is longer, so the size changes: a same-size rewrite that
+	// keeps the inode can land in the same modification-time tick and be served
+	// from the cache (see oauth.AuthResolver).
+	codexQuotaTestWriteToken(t, path, `{"access_token":"access-2-longer","token_type":"Bearer","expiry":"2099-01-01T00:00:00Z","account_id":"acct-1"}`)
 	second, err := ResolveCodexAuth(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("ResolveCodexAuth() second call error = %v", err)
 	}
-	if first.AccessToken != "access-1" || second.AccessToken != "access-2" {
-		t.Errorf("AccessToken = %q then %q, want access-1 then access-2", first.AccessToken, second.AccessToken)
+	if first.AccessToken != "access-1" || second.AccessToken != "access-2-longer" {
+		t.Errorf("AccessToken = %q then %q, want access-1 then access-2-longer", first.AccessToken, second.AccessToken)
+	}
+}
+
+func TestResolveCodexAuthCachedTokenSkipsReload(t *testing.T) {
+	path := codexQuotaTestTokenPath(t)
+	codexQuotaTestWriteToken(t, path, `{"access_token":"cached-token","token_type":"Bearer","expiry":"2099-01-01T00:00:00Z","account_id":"acct-1"}`)
+	first, err := ResolveCodexAuth(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ResolveCodexAuth() first call error = %v", err)
+	}
+
+	// Rewrite the file with a same-length token and restore its modification
+	// time, so the cached stamp still matches and the token must come from the
+	// in-process cache.
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	replaced := strings.Replace(string(original), "cached-token", "stale!-token", 1)
+	if len(replaced) != len(original) {
+		t.Fatalf("replacement length = %d, want %d", len(replaced), len(original))
+	}
+	if err := os.WriteFile(path, []byte(replaced), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatalf("Chtimes() error = %v", err)
+	}
+
+	second, err := ResolveCodexAuth(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ResolveCodexAuth() second call error = %v", err)
+	}
+	if first.AccessToken != "cached-token" || second.AccessToken != "cached-token" {
+		t.Errorf("AccessToken = %q then %q, want cached-token twice", first.AccessToken, second.AccessToken)
 	}
 }
 

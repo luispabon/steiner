@@ -261,6 +261,7 @@ func TestPrimeQuotaLoadsStoreWithoutViews(t *testing.T) {
 		t.Fatalf("seed Append: %v", err)
 	}
 	svc := quota.NewService(quota.ServiceOptions{Store: store})
+	t.Cleanup(svc.Close)
 	rt := cliRuntime{
 		cfg: config.Config{Providers: map[string]config.ProviderConfig{
 			"claude": {Type: config.ProviderTypeClaudeSubscription},

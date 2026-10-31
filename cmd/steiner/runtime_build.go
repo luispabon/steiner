@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -134,6 +135,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		QuotaObserver:      quotaService.Observe,
 	})
 	rt.claudeSubPool = claudeSubPool
+	rt.quotaService = quotaService
 	providerFactory := buildRuntimeProviderFactory(httpClient, streamErrorLog, claudeSubPool, quotaService)
 	homeDir, skillBundledFS, skillNames, skillSources, skillDescriptions, err := discoverRuntimeSkills(ctx, projectRoot)
 	if err != nil {
@@ -278,32 +280,48 @@ func buildRuntimeQuotaService() *quota.Service {
 	return quota.NewService(opts)
 }
 
+// runtimeHTTPClient returns the process-wide HTTP client shared by providers,
+// sub-agents, the advisor, model catalog and metadata lookups, resolver probes
+// and quota fetchers.
+//
+// There is no client-level timeout: without a provider timeout, streams can run
+// indefinitely. ResponseHeaderTimeout is a 30s safety net for the header phase
+// so a stuck server cannot hang the initial read. Providers that set
+// config.timeout get Client.Timeout applied in NewOpenAICompat, which reuses one
+// transport derived from this base per process: cloned once with
+// ResponseHeaderTimeout cleared, so every provider shares this connection pool
+// while the user-supplied timeout bounds the whole request (headers + body +
+// streaming response).
+//
+// Connections are pooled per host with no cap on concurrent connections per
+// host, so HTTP/1.1-only upstreams serve parallel sub-agent and quota requests
+// instead of queueing them behind one streaming response. MaxIdleConns is a
+// global budget so switching hosts keeps idle connections warm.
+// ProxyFromEnvironment honours HTTP_PROXY/HTTPS_PROXY/NO_PROXY, and the dial and
+// handshake timeouts bound stalled connections.
+//
+// ForceAttemptHTTP2 must stay true: a non-zero DialContext disables HTTP/2
+// otherwise. Clone() does not copy the TLSNextProto map that the original's
+// lazy setup creates, so a clone with ForceAttemptHTTP2=false would
+// conservatively disable HTTP/2 while TLS still advertises "h2". The result is
+// "net/http: HTTP/1.x transport connection broken: malformed HTTP response"
+// when the upstream negotiates h2.
 func runtimeHTTPClient() *http.Client {
-	// No client-level timeout — without a provider timeout, streams can run
-	// indefinitely. Transport.ResponseHeaderTimeout acts as a 30s safety net
-	// for the header phase so a stuck server doesn't hang forever on the
-	// initial read. Providers that set config.timeout get Client.Timeout
-	// applied in NewOpenAICompat, which clones the transport and clears
-	// ResponseHeaderTimeout so the user-supplied timeout bounds the whole
-	// request (headers + body + streaming response).
-	//
-	// ForceAttemptHTTP2 must be true to prevent the cloned transport from
-	// losing HTTP/2 support. When Clone() calls onceSetNextProtoDefaults on
-	// the original, a TLSClientConfig is created (with "h2" in NextProtos).
-	// Clone() copies TLSClientConfig but not TLSNextProto (because it was
-	// nil before the defaults ran). The clone then sees a non-nil
-	// TLSClientConfig with ForceAttemptHTTP2=false and conservatively
-	// disables HTTP/2, while TLS still advertises "h2". The result is
-	// "net/http: HTTP/1.x transport connection broken: malformed HTTP
-	// response" when the upstream negotiates h2.
 	return &http.Client{
 		Timeout: 0,
 		Transport: &http.Transport{
-			MaxIdleConns:          1,
-			IdleConnTimeout:       90 * time.Second,
-			MaxConnsPerHost:       1,
-			ResponseHeaderTimeout: 30 * time.Second,
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
 			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   16,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
 		},
 	}
 }

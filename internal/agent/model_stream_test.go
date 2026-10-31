@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,14 +69,19 @@ func TestConsumeModelStreamDrainsAfterProcessingError(t *testing.T) {
 	if got.response.Message.Content != "" {
 		t.Fatalf("response content = %q, want empty on error", got.response.Message.Content)
 	}
+	var streamed strings.Builder
 	for _, event := range events {
 		payload, ok := event.Payload.(output.AssistantChunkEvent)
 		if !ok {
 			continue
 		}
+		streamed.WriteString(payload.Content)
 		if payload.Content == "ignored" {
 			t.Fatal("chunk after the processing error was processed")
 		}
+	}
+	if got, want := streamed.String(), "first"; got != want {
+		t.Fatalf("emitted content = %q, want %q preserved through the retirement drain", got, want)
 	}
 }
 
@@ -185,6 +192,154 @@ func TestConsumeModelStreamMissingFinalChunkError(t *testing.T) {
 			}
 			if err == nil || err.Error() != tt.wantText {
 				t.Fatalf("consumeModelStream() error = %v, want %q", err, tt.wantText)
+			}
+		})
+	}
+}
+
+// TestConsumeModelStreamFinalChunkReconcilesStreamedContent proves the text
+// accumulated across deltas is what final-chunk reconciliation compares against:
+// a final chunk extending the streamed text emits only its unseen suffix and
+// leaves the response carrying the full text.
+func TestConsumeModelStreamFinalChunkReconcilesStreamedContent(t *testing.T) {
+	chunks := make(chan provider.ChatChunk, 2)
+	chunks <- provider.ChatChunk{Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "AB"}}
+	chunks <- provider.ChatChunk{Done: true, Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "ABC"}}
+	close(chunks)
+
+	var emitted strings.Builder
+	response, err := consumeModelStream(context.Background(), output.SinkFunc(func(event output.Event) {
+		if chunk, ok := event.Payload.(output.AssistantChunkEvent); ok {
+			emitted.WriteString(chunk.Content)
+		}
+	}), 1, chunks, output.ChunkSourceAssistant, nil)
+	if err != nil {
+		t.Fatalf("consumeModelStream() error = %v", err)
+	}
+	if got, want := response.Message.Content, "ABC"; got != want {
+		t.Fatalf("response content = %q, want %q", got, want)
+	}
+	if got, want := emitted.String(), "ABC"; got != want {
+		t.Fatalf("emitted content = %q, want %q (streamed prefix plus unseen suffix, each once)", got, want)
+	}
+}
+
+// TestConsumeModelStreamDeltaAfterFinalChunkContinuesReconciledContent guards
+// the accumulator hand-off at the final chunk: a delta arriving after it must
+// continue the reconciled text rather than the pre-final streamed prefix. Both a
+// final chunk that extends the streamed text and a final chunk carrying a
+// content snapshot settle on "ABC"; without the builder re-seed a later delta
+// appends to the stale "AB" prefix, so every case fails on the response text.
+func TestConsumeModelStreamDeltaAfterFinalChunkContinuesReconciledContent(t *testing.T) {
+	tests := []struct {
+		name        string
+		finalChunk  provider.ChatChunk
+		tail        string
+		wantContent string
+		wantEmitted string
+	}{
+		{
+			name:        "extending final chunk",
+			finalChunk:  provider.ChatChunk{Done: true, Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "ABC"}},
+			tail:        "DEF",
+			wantContent: "ABCDEF",
+			wantEmitted: "AB|C|DEF",
+		},
+		{
+			name: "content snapshot final chunk",
+			finalChunk: provider.ChatChunk{
+				Done:            true,
+				ContentSnapshot: true,
+				Delta:           provider.Message{Role: provider.MessageRoleAssistant, Content: "ABC"},
+			},
+			tail:        "D",
+			wantContent: "ABCD",
+			wantEmitted: "AB|C|D",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunks := make(chan provider.ChatChunk, 3)
+			chunks <- provider.ChatChunk{Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "AB"}}
+			chunks <- tt.finalChunk
+			chunks <- provider.ChatChunk{Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: tt.tail}}
+			close(chunks)
+
+			var emitted []string
+			response, err := consumeModelStream(context.Background(), output.SinkFunc(func(event output.Event) {
+				if chunk, ok := event.Payload.(output.AssistantChunkEvent); ok {
+					emitted = append(emitted, chunk.Content)
+				}
+			}), 1, chunks, output.ChunkSourceAssistant, nil)
+			if err != nil {
+				t.Fatalf("consumeModelStream() error = %v", err)
+			}
+			if got, want := response.Message.Content, tt.wantContent; got != want {
+				t.Fatalf("response content = %q, want %q (delta after the final chunk continues the reconciled text)", got, want)
+			}
+			if got, want := strings.Join(emitted, "|"), tt.wantEmitted; got != want {
+				t.Fatalf("emitted assistant chunks = %q, want %q (each span emitted once, in order)", got, want)
+			}
+		})
+	}
+}
+
+// TestConsumeModelStreamEmitsPartialContentOnError proves the zero-response
+// contract survives a stream that fails after content streamed: the partial
+// text still reaches the sink, and the caller gets the failure with an empty
+// response.
+func TestConsumeModelStreamEmitsPartialContentOnError(t *testing.T) {
+	upstreamErr := errors.New("upstream failed")
+	partialChunks := func(withErrorChunk bool) <-chan provider.ChatChunk {
+		chunks := make(chan provider.ChatChunk, 3)
+		chunks <- provider.ChatChunk{Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "partial "}}
+		chunks <- provider.ChatChunk{Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "text"}}
+		if withErrorChunk {
+			chunks <- provider.ChatChunk{Done: true, Error: upstreamErr.Error(), OriginalError: upstreamErr}
+		}
+		close(chunks)
+		return chunks
+	}
+
+	tests := []struct {
+		name           string
+		ctx            func() context.Context
+		withErrorChunk bool
+		want           error
+	}{
+		{
+			name:           "error chunk after content",
+			ctx:            context.Background,
+			withErrorChunk: true,
+			want:           upstreamErr,
+		},
+		{
+			name: "closed stream without final chunk under canceled context",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			want: context.Canceled,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var emitted strings.Builder
+			response, err := consumeModelStream(tt.ctx(), output.SinkFunc(func(event output.Event) {
+				if chunk, ok := event.Payload.(output.AssistantChunkEvent); ok {
+					emitted.WriteString(chunk.Content)
+				}
+			}), 1, partialChunks(tt.withErrorChunk), output.ChunkSourceAssistant, nil)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("consumeModelStream() error = %v, want %v", err, tt.want)
+			}
+			if got, want := emitted.String(), "partial text"; got != want {
+				t.Errorf("emitted content = %q, want partial content %q preserved", got, want)
+			}
+			if !reflect.DeepEqual(response, provider.ChatResponse{}) {
+				t.Errorf("response = %+v, want zero response", response)
 			}
 		})
 	}

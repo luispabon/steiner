@@ -13,7 +13,8 @@ import (
 )
 
 // snapshotSink is an EventSink that captures APIRequestEvent payloads into
-// a SnapshotStore for later context reporting.
+// a SnapshotStore for later context reporting. It stores a deep copy: event
+// sinks after this one receive the same payload and could mutate it.
 type snapshotSink struct {
 	store *SnapshotStore
 }

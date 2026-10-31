@@ -629,3 +629,52 @@ func TestSupportsExtendedCacheRetention(t *testing.T) {
 		})
 	}
 }
+
+func TestWirePayloadIgnoresRawPromptTokenEstimate(t *testing.T) {
+	request := ChatRequest{
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+		Tools:    []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "test"}}},
+	}
+
+	tests := []struct {
+		name    string
+		payload func(ChatRequest) ([]byte, error)
+	}{
+		{
+			name: "openai",
+			payload: func(req ChatRequest) ([]byte, error) {
+				return testOpenAIWire(t, "http://localhost:11434/v1", "gpt-4").Payload(req, false)
+			},
+		},
+		{
+			name: "anthropic",
+			payload: func(req ChatRequest) ([]byte, error) {
+				return testAnthropicWire(t, "test-key", nil).Payload(req, false)
+			},
+		},
+		{
+			name: "responses",
+			payload: func(req ChatRequest) ([]byte, error) {
+				return testResponsesWire(t, "https://chatgpt.com/backend-api/codex").Payload(req, true)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			zero, err := tt.payload(request)
+			if err != nil {
+				t.Fatalf("zero estimate payload: %v", err)
+			}
+			withEstimate := request
+			withEstimate.RawPromptTokenEstimate = 123
+			nonZero, err := tt.payload(withEstimate)
+			if err != nil {
+				t.Fatalf("non-zero estimate payload: %v", err)
+			}
+			if string(nonZero) != string(zero) {
+				t.Fatalf("payload changed with raw estimate:\nzero: %s\nnon-zero: %s", zero, nonZero)
+			}
+		})
+	}
+}

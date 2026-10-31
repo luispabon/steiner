@@ -480,6 +480,22 @@ func TestAdviseSucceedsWithEmptyCacheKey(t *testing.T) {
 
 func intPtr(v int) *int { return &v }
 
+// newUsageRecorder returns a recorder whose async store writer is drained and
+// stopped before the test's temp state home is removed.
+func newUsageRecorder(t *testing.T) *usagestats.Recorder {
+	t.Helper()
+	rec := usagestats.New(nil)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := rec.Drain(ctx); err != nil {
+			t.Errorf("drain usage stats recorder: %v", err)
+		}
+		rec.Close()
+	})
+	return rec
+}
+
 func TestHandlerRecordsUsageStatsOnNonStreamingCall(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
@@ -494,7 +510,7 @@ func TestHandlerRecordsUsageStatsOnNonStreamingCall(t *testing.T) {
 			},
 		},
 	}
-	rec := usagestats.New(nil)
+	rec := newUsageRecorder(t)
 	const backendModelID = "advisor-nonstream-usage-test-model"
 	handler := NewHandler(HandlerDeps{
 		Provider:      prov,
@@ -536,7 +552,7 @@ func TestHandlerRecordsUsageStatsOnStreamingCall(t *testing.T) {
 			},
 		},
 	}
-	rec := usagestats.New(nil)
+	rec := newUsageRecorder(t)
 	const backendModelID = "advisor-stream-usage-test-model"
 	handler := NewHandler(HandlerDeps{
 		Provider: prov,
@@ -648,7 +664,7 @@ func TestHandlerDoesNotRecordFabricatedUsageWhenProviderReportsNone(t *testing.T
 			Usage:   nil,
 		},
 	}
-	rec := usagestats.New(nil)
+	rec := newUsageRecorder(t)
 	const backendModelID = "advisor-no-usage-test-model"
 	handler := NewHandler(HandlerDeps{
 		Provider:      prov,

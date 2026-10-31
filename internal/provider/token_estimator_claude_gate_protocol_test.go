@@ -342,14 +342,23 @@ func claudeGateSameRequest(recorded json.RawMessage, want []byte) bool {
 }
 
 // TestClaudeTokenGateJSONOmittedMatchesChatRequest checks that the recorded
-// JSONOmitted names are exactly the ChatRequest fields tagged json:"-". A field
-// that is added or retagged fails until the pinned launch protocol names it.
+// JSONOmitted names are exactly the ChatRequest fields tagged json:"-", apart
+// from estimator metadata that is not a launch control. A field that is added or
+// retagged fails until the pinned launch protocol names it, or until it is added
+// to nonLaunch below.
 func TestClaudeTokenGateJSONOmittedMatchesChatRequest(t *testing.T) {
 	t.Parallel()
+	// RawPromptTokenEstimate carries the pre-send estimate to post-response
+	// calibration. It is not a launch control, so the frozen evidence does not
+	// name it.
+	nonLaunch := map[string]struct{}{"RawPromptTokenEstimate": {}}
 	var omitted []string
 	typ := reflect.TypeFor[ChatRequest]()
 	for i := range typ.NumField() {
 		if f := typ.Field(i); f.Tag.Get("json") == "-" {
+			if _, ok := nonLaunch[f.Name]; ok {
+				continue
+			}
 			omitted = append(omitted, f.Name)
 		}
 	}

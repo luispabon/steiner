@@ -2,7 +2,10 @@ package quota
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
+	"testing"
 	"time"
 )
 
@@ -87,4 +90,45 @@ type timedFetcher struct {
 
 func (f timedFetcher) FetchTimeout() time.Duration {
 	return f.timeout
+}
+
+// mustDrain fails unless the service writes every snapshot it has queued.
+func mustDrain(t *testing.T, svc *Service) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := svc.Drain(ctx); err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+}
+
+// logBuffer collects service log output. The store writer logs from its own
+// goroutine, possibly after a test returns, so tests never hand it t.Logf.
+type logBuffer struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (b *logBuffer) logf(format string, args ...any) {
+	b.mu.Lock()
+	b.lines = append(b.lines, fmt.Sprintf(format, args...))
+	b.mu.Unlock()
+}
+
+// messages returns a copy of the collected lines.
+func (b *logBuffer) messages() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.lines...)
+}
+
+// count returns how many lines contain substr.
+func (b *logBuffer) count(substr string) int {
+	n := 0
+	for _, line := range b.messages() {
+		if strings.Contains(line, substr) {
+			n++
+		}
+	}
+	return n
 }

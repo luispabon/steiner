@@ -11,8 +11,12 @@ In `cmd/steiner`, `runtime_build.go` builds the service and store, and `primeQuo
 ## Service
 
 - `Fetcher.Fetch` returns a `Snapshot`. A `TimeoutFetcher` overrides the 10-second default timeout. `FetchOptions.AllowSpawn` is true for `RefreshAll` and false for `RefreshUsed`; only the Claude fetcher reads it.
-- `Views` returns one row per registered account, sorted by display alias, which is the alphabetically first alias. Stored snapshots without a registration are never shown, but stay in the store.
-- `commit` releases the service lock before persisting. Persist failures are logged, and the in-memory state still updates.
+- `Views` returns one row per registered account, sorted by display alias, which is the alphabetically first alias. Stored snapshots without a registration are never shown, but stay in the store. `Latest` is in-memory state; projections read the store, so they can lag the newest observation until the writer drains.
+- `commit` does not take the store lock or write. It queues a `persistJob` for the writer goroutine, which appends snapshots one at a time in commit order (`internal/quota/service_persist.go`); the only store read on this path is the history load, which each commit retries until one succeeds. The queue holds 32 jobs; when it is full the oldest pending job is dropped and logged, so the writer always ends on the newest state. Persist failures and drops are logged after the service lock is released, and the in-memory state still updates. A successful append notifies `Updates` so projections rebuild from the new history.
+- `Drain(ctx)` waits for the queue and any in-flight append to finish, or returns the `ctx` error. `closeRuntime` in `cmd/steiner` calls it with `quotaDrainTimeout` after the claude_subscription pool stops, then `Close`, so interactive, exec, and oneshot runs all flush before exit. Code that reads the store in the same process right after an observation must drain first. A blocked `Store.Append` cannot be cancelled: when the deadline expires the writer may stay blocked on the lock until the process exits, the queued snapshots are lost, and teardown reports a `session_health` warning. Observations arriving after a drain starts are still queued. `Drain` is safe to call repeatedly and concurrently.
+- `Close` stops the writer goroutine. It is idempotent; jobs still queued are dropped and logged, an append in flight still finishes, and a later `Drain` returns without waiting. A nil service is a no-op, so teardown needs no guard.
+- `commit` skips persistence only when the new state repeats the **last persisted** snapshot within an hour of that append. The baseline starts as the stored snapshot loaded on first use, restarts included, and moves on every write or file-level dedupe skip to the snapshot the store now holds, so a chain of small drifts cannot hide a real change. `sameState` compares reset times within `resetsAtTolerance` (five seconds): the Claude CLI repeats a reset with sub-second drift, and Codex derives `resets_at` from `resets_in_seconds` plus now, so latency and whole-second rounding add a second or two. A real reset moves reset times by hours.
+- The in-process baseline is authoritative inside the dedupe window: if another process reverts an account to an older state, this process keeps skipping that observation until the hour since its last baseline write expires, so the reversion reaches the store late.
 
 ## Passive observations
 
@@ -23,7 +27,7 @@ In `cmd/steiner`, `runtime_build.go` builds the service and store, and `primeQuo
 ## Store
 
 - `Append` creates the directory with mode `0o700`, opens `<path>.lock` (mode `0o600`, tightened on each append), and takes a blocking exclusive `flock`.
-- Under the lock it reads the file, merges, prunes old snapshots, and writes through `fsatomic.WriteFile`: a synced temp file renamed over the data file.
+- Under the lock it reads the file, merges, prunes old snapshots, and writes through `fsatomic.WriteFile`: a synced temp file renamed over the data file. It skips the write when the newest stored snapshot for the account has the same state and was fetched less than an hour earlier, using the same `sameState` and `resetsAtTolerance` comparison as `commit`. Because every append re-reads the file, identical snapshots queued before the writer ran collapse into one stored entry.
 - `Latest` and the history read in `Views` take no lock. Each sees the old or the new file, never a partial one.
 - Locking is unix-only. Elsewhere `lockFile` returns an error, so `Append` writes nothing.
 - A file that fails to decode makes `Append` fail, so history is never overwritten. `Views` treats an unreadable history as empty and logs the error.

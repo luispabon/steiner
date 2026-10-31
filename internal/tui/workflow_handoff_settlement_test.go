@@ -62,7 +62,7 @@ func settleMessage(t *testing.T, m *Model) *Model {
 func TestWorkflowHandoffWaitsBeforeClearAndLaunch(t *testing.T) {
 	ctrl := &blockedWorkflowHandoffController{testController: testController{config: workflowHandoffConfig()}, entered: make(chan struct{}, 1), release: make(chan struct{})}
 	m := handoffAcceptedModel(t, ctrl, "")
-	m.recorder = usagestats.New(nil)
+	m.recorder = newUsageRecorder(t, nil)
 	m.recorder.Record(usagestats.Observation{Source: usagestats.SourceParent, PromptTokens: 7})
 	m.convState = output.ConversationStateEvent{State: "generating"}
 	m.convStateSeen = true
@@ -191,7 +191,7 @@ func TestWorkflowHandoffClearRefusalPreservesState(t *testing.T) {
 	m := handoffAcceptedModel(t, ctrl, "")
 	m.fileHistory = []string{"recent"}
 	m.imageMarkers = []imageMarker{{label: "[img]"}}
-	m.recorder = usagestats.New(nil)
+	m.recorder = newUsageRecorder(t, nil)
 	m.recorder.Record(usagestats.Observation{Source: usagestats.SourceParent, PromptTokens: 10})
 	m = settleMessage(t, m)
 	if !strings.Contains(m.content.String(m.viewport.Width()), "old transcript") || m.fileHistory[0] != "recent" || len(m.imageMarkers) != 1 || m.recorder.SessionReport().Requests != 1 {

@@ -3,13 +3,22 @@ package provider
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// staticRoundTripper is a transport stub that fails if it is ever used.
+type staticRoundTripper struct{}
+
+func (staticRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("staticRoundTripper: unexpected request")
+}
 
 func TestOpenAICompatNewOpenAICompat_EmptyBaseURL(t *testing.T) {
 	_, err := NewOpenAICompat(ClientConfig{
@@ -138,6 +147,138 @@ func TestOpenAICompatNewOpenAICompat_TimeoutDisablesResponseHeaderTimeout(t *tes
 	}
 	if originalTransport.ResponseHeaderTimeout != 30*time.Second {
 		t.Fatalf("original transport ResponseHeaderTimeout = %v, want 30s (must not be mutated)", originalTransport.ResponseHeaderTimeout)
+	}
+}
+
+// TestOpenAICompatTimeoutTransportSharedPerBase ensures clients built from the
+// same base transport share one derived transport (and therefore one connection
+// pool), whether their timeouts differ or match, while keeping their own
+// Client.Timeout.
+func TestOpenAICompatTimeoutTransportSharedPerBase(t *testing.T) {
+	base := &http.Transport{ResponseHeaderTimeout: 30 * time.Second}
+	httpClient := &http.Client{Transport: base}
+	build := func(timeout time.Duration) *Client {
+		t.Helper()
+		p, err := NewOpenAICompat(ClientConfig{
+			BaseURL:    "http://localhost:11434/v1",
+			Model:      "gpt-4",
+			Timeout:    timeout,
+			HTTPClient: httpClient,
+		})
+		if err != nil {
+			t.Fatalf("NewOpenAICompat() error = %v", err)
+		}
+		return p
+	}
+
+	first := build(10 * time.Second)
+	second := build(2 * time.Minute)
+	sameTimeout := build(10 * time.Second)
+
+	if first.httpClient == second.httpClient {
+		t.Fatal("expected a distinct http.Client per timeout")
+	}
+	if got, want := first.httpClient.Timeout, 10*time.Second; got != want {
+		t.Fatalf("first Timeout = %v, want %v", got, want)
+	}
+	if got, want := second.httpClient.Timeout, 2*time.Minute; got != want {
+		t.Fatalf("second Timeout = %v, want %v", got, want)
+	}
+	if first.httpClient.Transport != second.httpClient.Transport {
+		t.Fatal("clients sharing a base transport got distinct derived transports")
+	}
+	if sameTimeout.httpClient == first.httpClient {
+		t.Fatal("expected a distinct http.Client per provider with the same timeout")
+	}
+	if got, want := sameTimeout.httpClient.Timeout, 10*time.Second; got != want {
+		t.Fatalf("same-timeout Timeout = %v, want %v", got, want)
+	}
+	if sameTimeout.httpClient.Transport != first.httpClient.Transport {
+		t.Fatal("clients with the same timeout and base transport got distinct derived transports")
+	}
+	derived, ok := first.httpClient.Transport.(*http.Transport)
+	if !ok || derived == nil {
+		t.Fatalf("Transport = %T, want *http.Transport", first.httpClient.Transport)
+	}
+	if derived == base {
+		t.Fatal("expected a derived transport, got the base transport")
+	}
+	if derived.ResponseHeaderTimeout != 0 {
+		t.Fatalf("derived ResponseHeaderTimeout = %v, want 0", derived.ResponseHeaderTimeout)
+	}
+	if base.ResponseHeaderTimeout != 30*time.Second {
+		t.Fatalf("base ResponseHeaderTimeout = %v, want 30s (must not be mutated)", base.ResponseHeaderTimeout)
+	}
+}
+
+// TestOpenAICompatTimeoutTransportConcurrentConstruction checks that concurrent
+// client construction for one base transport produces a single shared clone.
+func TestOpenAICompatTimeoutTransportConcurrentConstruction(t *testing.T) {
+	const builders = 16
+	base := &http.Transport{ResponseHeaderTimeout: 30 * time.Second}
+	httpClient := &http.Client{Transport: base}
+	transports := make([]http.RoundTripper, builders)
+
+	var wg sync.WaitGroup
+	for i := 0; i < builders; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			p, err := NewOpenAICompat(ClientConfig{
+				BaseURL:    "http://localhost:11434/v1",
+				Model:      "gpt-4",
+				Timeout:    time.Duration(i+1) * time.Second,
+				HTTPClient: httpClient,
+			})
+			if err != nil {
+				t.Errorf("NewOpenAICompat() error = %v", err)
+				return
+			}
+			transports[i] = p.httpClient.Transport
+		}(i)
+	}
+	wg.Wait()
+
+	if t.Failed() {
+		t.FailNow()
+	}
+	for i, transport := range transports {
+		if transport != transports[0] {
+			t.Fatalf("build %d got a distinct derived transport; want one shared clone per base", i)
+		}
+	}
+	derived, ok := transports[0].(*http.Transport)
+	if !ok || derived == nil {
+		t.Fatalf("Transport = %T, want *http.Transport", transports[0])
+	}
+	if derived.ResponseHeaderTimeout != 0 {
+		t.Fatalf("derived ResponseHeaderTimeout = %v, want 0", derived.ResponseHeaderTimeout)
+	}
+	if base.ResponseHeaderTimeout != 30*time.Second {
+		t.Fatalf("base ResponseHeaderTimeout = %v, want 30s (must not be mutated)", base.ResponseHeaderTimeout)
+	}
+}
+
+func TestOpenAICompatTimeoutKeepsCustomRoundTripper(t *testing.T) {
+	roundTripper := http.RoundTripper(staticRoundTripper{})
+	httpClient := &http.Client{Transport: roundTripper}
+	p, err := NewOpenAICompat(ClientConfig{
+		BaseURL:    "http://localhost:11434/v1",
+		Model:      "gpt-4",
+		Timeout:    5 * time.Second,
+		HTTPClient: httpClient,
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompat() error = %v", err)
+	}
+	if p.httpClient == httpClient {
+		t.Fatal("expected timeout configuration to clone HTTP client")
+	}
+	if p.httpClient.Transport != roundTripper {
+		t.Fatalf("Transport = %T, want the custom RoundTripper preserved", p.httpClient.Transport)
+	}
+	if got, want := p.httpClient.Timeout, 5*time.Second; got != want {
+		t.Fatalf("Timeout = %v, want %v", got, want)
 	}
 }
 

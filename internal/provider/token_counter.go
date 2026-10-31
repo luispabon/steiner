@@ -105,9 +105,19 @@ func (c *tokenCounter) ObserveUsage(ctx context.Context, request ChatRequest, us
 	if usage == nil || usage.PromptTokens <= 0 {
 		return
 	}
-
-	estimated, _, _, err := c.estimateBase(ctx, request)
-	if err != nil || estimated <= 0 {
+	estimated := request.RawPromptTokenEstimate
+	if estimated <= 0 || ctx.Err() != nil {
+		// Estimate when there is no carried value, and when the context is
+		// cancelled. Re-estimating on cancellation keeps the old outcome exactly:
+		// the counter observes cancellation and records nothing, while a
+		// tokenizer-load fallback still records its heuristic.
+		base, _, _, err := c.estimateBase(ctx, request)
+		if err != nil {
+			return
+		}
+		estimated = base
+	}
+	if estimated <= 0 {
 		return
 	}
 

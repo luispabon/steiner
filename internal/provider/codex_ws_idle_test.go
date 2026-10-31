@@ -242,14 +242,10 @@ func codexTestClientConfig(t *testing.T) ClientConfig {
 		t.Fatalf("resolve token path: %v", err)
 	}
 	store := oauth.NewTokenStore(tokenPath)
-	token, err := store.Load()
-	if err != nil {
-		t.Fatalf("load OAuth token: %v", err)
-	}
-	token, err = oauth.NewRefreshableTokenSource(store, &oauth2.Config{
+	token, err := oauth.NewAuthResolver().Resolve(context.Background(), store, &oauth2.Config{
 		ClientID: oauth.CodexClientID,
 		Endpoint: oauth2.Endpoint{TokenURL: oauth.CodexTokenURL},
-	}, token).Token()
+	}, nil)
 	if err != nil {
 		t.Fatalf("refresh codex token: %v", err)
 	}

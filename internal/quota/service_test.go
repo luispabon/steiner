@@ -10,14 +10,20 @@ import (
 )
 
 // newTestService returns a Service whose clock is a variable the test controls
-// through the returned pointer.
+// through the returned pointer. Logging goes to a buffer rather than t.Logf, so
+// the writer goroutine can never log after the test ends. The service is drained
+// and closed when the test ends.
 func newTestService(t *testing.T, store *Store) (*Service, *time.Time) {
 	t.Helper()
 	clock := testBase
 	svc := NewService(ServiceOptions{
 		Store: store,
 		Now:   func() time.Time { return clock },
-		Logf:  t.Logf,
+		Logf:  (&logBuffer{}).logf,
+	})
+	t.Cleanup(func() {
+		mustDrain(t, svc)
+		svc.Close()
 	})
 	return svc, &clock
 }
@@ -142,6 +148,7 @@ func TestObserveDedupesIdenticalStateAndNotifies(t *testing.T) {
 	default:
 		t.Error("identical observation did not notify")
 	}
+	mustDrain(t, svc)
 	if history, _ := historyOf(store, "k1"); len(history) != 1 {
 		t.Errorf("stored %d snapshots after identical observation, want 1", len(history))
 	}
@@ -151,6 +158,7 @@ func TestObserveDedupesIdenticalStateAndNotifies(t *testing.T) {
 
 	*clock = testBase.Add(45 * time.Minute)
 	svc.Observe(sampleSnapshot("k1", testBase.Add(45*time.Minute), 20))
+	mustDrain(t, svc)
 	if history, _ := historyOf(store, "k1"); len(history) != 2 {
 		t.Errorf("stored %d snapshots after changed observation, want 2", len(history))
 	}
@@ -371,6 +379,7 @@ func TestViewsIncludeProjections(t *testing.T) {
 
 	*clock = testBase.Add(30 * time.Minute)
 	svc.Observe(sampleSnapshot("k", testBase.Add(30*time.Minute), 20))
+	mustDrain(t, svc)
 
 	v := svc.Views("")[0]
 	if len(v.WindowProjections) != 1 || !v.WindowProjections[0].OK || !v.WindowProjections[0].BeforeReset {

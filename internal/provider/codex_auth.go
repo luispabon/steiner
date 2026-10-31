@@ -31,29 +31,34 @@ type CodexIdentity struct {
 	SignedIn  bool
 }
 
-// ResolveCodexAuth loads the stored Codex token, refreshes it when needed, and
-// returns its credentials. Every call reads the token store again; nothing is
-// cached.
+// codexAuthResolver caches the stored Codex token per token path for the life
+// of the process, so repeated resolution neither reloads an unchanged token file
+// nor refreshes it twice.
+var codexAuthResolver = oauth.NewAuthResolver()
+
+// ResolveCodexAuth loads the stored Codex token, refreshes it when it is expired
+// or within the proactive refresh window, and returns its credentials. A stored
+// token without expiry is used as is. The token is cached in-process: a later
+// call reloads the file only when the token file changed or disappeared, and
+// still refreshes a cached token that is expired or inside the five-minute
+// proactive window.
 //
-// ctx and httpClient are accepted but not used yet: the refresh goes through
-// oauth.NewRefreshableTokenSource, which takes neither. Follow-up: thread both
-// into internal/oauth so the refresh honours them.
-func ResolveCodexAuth(_ context.Context, _ *http.Client) (CodexAuth, error) {
+// ctx cancels only this caller's wait for a refresh: the refresh itself runs
+// detached under a fixed 30-second deadline, so one caller giving up does not
+// fail the others. httpClient, when non-nil, serves a refresh this call starts;
+// a call that joins a refresh already in flight uses the client of the caller
+// that started it.
+func ResolveCodexAuth(ctx context.Context, httpClient *http.Client) (CodexAuth, error) {
 	path, err := oauth.DefaultTokenPath()
 	if err != nil {
 		return CodexAuth{}, fmt.Errorf("resolve token path: %w", err)
 	}
-	store := oauth.NewTokenStore(path)
-	token, err := store.Load()
-	if err != nil {
-		return CodexAuth{}, fmt.Errorf("load codex token: %w", err)
-	}
-	token, err = oauth.NewRefreshableTokenSource(store, &oauth2.Config{
+	token, err := codexAuthResolver.Resolve(ctx, oauth.NewTokenStore(path), &oauth2.Config{
 		ClientID: oauth.CodexClientID,
 		Endpoint: oauth2.Endpoint{TokenURL: oauth.CodexTokenURL},
-	}, token).Token()
+	}, httpClient)
 	if err != nil {
-		return CodexAuth{}, fmt.Errorf("refresh codex token: %w", err)
+		return CodexAuth{}, fmt.Errorf("resolve codex auth: %w", err)
 	}
 	return CodexAuth{
 		AccessToken: token.AccessToken,

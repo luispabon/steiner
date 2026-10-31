@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -188,6 +189,14 @@ func benchScenarios() []overlayScenario {
 				b.Setenv("XDG_STATE_HOME", b.TempDir())
 				now := time.Unix(1000, 0)
 				rec := usagestats.New(func() time.Time { return now })
+				b.Cleanup(func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := rec.Drain(ctx); err != nil {
+						b.Errorf("drain usage stats recorder: %v", err)
+					}
+					rec.Close()
+				})
 				for p := 0; p < 4; p++ {
 					for mo := 0; mo < 6; mo++ {
 						rec.Record(usagestats.Observation{
