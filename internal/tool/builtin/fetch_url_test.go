@@ -358,7 +358,7 @@ func TestBuildHTMLResult(t *testing.T) {
 }
 
 func TestFetchURLHandlerContentTypeRouting(t *testing.T) {
-	// The handler uses toolkit.SafeHTTPClient internally which blocks 127.0.0.1.
+	// The handler's default client refuses to dial 127.0.0.1.
 	// Handler-level integration testing with httptest.Server is not possible
 	// without refactoring the handler to accept an injectable *http.Client.
 	// The individual helpers (fetchImageBytes, isImageContentType, etc.) are

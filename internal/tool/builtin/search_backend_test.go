@@ -1,11 +1,14 @@
 package builtin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/deepnoodle-ai/wonton/web"
@@ -242,6 +245,50 @@ func TestSearxngSearcher(t *testing.T) {
 		}
 		if gotCount != "30" {
 			t.Errorf("count = %q, want %q (capped limit)", gotCount, "30")
+		}
+	})
+
+	// A streaming non-200 body must be read only up to searchErrorBodyLimit:
+	// the error snippet holds the first 100 bytes, and the server never gets to
+	// write the whole body.
+	t.Run("non-200 body read is bounded", func(t *testing.T) {
+		const (
+			chunkCount = 512 // 16 MiB, far beyond any socket buffering
+			chunkSize  = 32 << 10
+		)
+		var served atomic.Int64
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			chunk := bytes.Repeat([]byte("x"), chunkSize)
+			for range chunkCount {
+				n, err := w.Write(chunk)
+				served.Add(int64(n))
+				if err != nil {
+					return
+				}
+				w.(http.Flusher).Flush()
+			}
+		}))
+		defer server.Close()
+
+		searcher, err := NewSearxngSearcher(server.URL)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		_, err = searcher.Search(context.Background(), &web.SearchInput{Query: "test"})
+		if err == nil {
+			t.Fatal("expected error for a 500 response, got nil")
+		}
+		const statusPrefix = "search: http status 500: "
+		if !strings.HasPrefix(err.Error(), statusPrefix) {
+			t.Fatalf("error = %q, want prefix %q", err.Error(), statusPrefix)
+		}
+		if got := len(strings.TrimPrefix(err.Error(), statusPrefix)); got != 100 {
+			t.Errorf("error body snippet = %d bytes, want 100", got)
+		}
+		if got := served.Load(); got >= chunkCount*chunkSize {
+			t.Errorf("server wrote %d bytes of the error body, want fewer than %d: the client did not stop at the %d-byte cap", got, chunkCount*chunkSize, searchErrorBodyLimit)
 		}
 	})
 }

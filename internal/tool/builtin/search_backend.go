@@ -16,6 +16,12 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+// searchErrorBodyLimit bounds how much of a non-200 search backend response is
+// read. Only the leading 100 bytes of that body reach the error message, so a
+// large error page (or one that streams indefinitely) must not be buffered
+// whole.
+const searchErrorBodyLimit = 8 << 10
+
 // NewSearchBackend returns a web.Searcher for the given config, or nil, nil when backend is "".
 func NewSearchBackend(cfg config.SearchConfig) (web.Searcher, error) {
 	switch cfg.Backend {
@@ -97,7 +103,7 @@ func (s *searxngSearcher) Search(ctx context.Context, input *web.SearchInput) (*
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, searchErrorBodyLimit))
 		snippet := string(body)
 		if len(snippet) > 100 {
 			snippet = snippet[:100]

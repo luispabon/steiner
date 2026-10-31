@@ -10,6 +10,7 @@ import (
 
 	"github.com/deepnoodle-ai/dive/toolkit"
 	"github.com/deepnoodle-ai/wonton/fetch"
+	"github.com/deepnoodle-ai/wonton/httpguard"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -53,15 +54,39 @@ type FetchURLResult struct {
 	TotalLines    int         `json:"total_lines,omitempty"`
 }
 
+// fetchRedirectLimit is the number of redirects fetch_url's default client
+// follows before refusing the chain.
+const fetchRedirectLimit = 10
+
 // newSafeFetchClient builds fetch_url's default HTTP client. It is a variable
 // so tests can count constructions and prove one client is built per tool
-// instance; production always resolves to toolkit.SafeHTTPClient.
-var newSafeFetchClient = toolkit.SafeHTTPClient
+// instance; production always resolves to newHTTPGuardClient.
+var newSafeFetchClient = newHTTPGuardClient
+
+// newHTTPGuardClient returns the SSRF-guarded client fetch_url shares across
+// calls. httpguard validates every address it dials, so a redirect hop cannot
+// be steered onto a loopback, private, or otherwise non-public address. It
+// deliberately ignores ambient HTTP(S)_PROXY settings, which would relay the
+// request past that address check; see docs/internals/architecture.md.
+//
+// httpguard sets no total timeout, so timeout is applied to the client here to
+// keep one bound over the whole request, redirects and body read included.
+func newHTTPGuardClient(timeout time.Duration) *http.Client {
+	client := httpguard.NewClient(
+		httpguard.WithMaxRedirects(fetchRedirectLimit),
+		// fetch_url accepts plain http URLs, so a redirect chain may stay
+		// on http or downgrade to it. Every hop is still address-checked
+		// at dial time.
+		httpguard.WithHTTPRedirects(),
+	)
+	client.Timeout = timeout
+	return client
+}
 
 // newFetchURLClient resolves the HTTP client a fetch_url tool instance shares
-// across its calls. The default client is SSRF-safe: it validates the address
-// of every connection it dials and every redirect target. env.httpClient is a
-// test seam; it is invoked once, at construction.
+// across its calls. The default client is SSRF-safe: every address it dials,
+// redirect targets included, must be public. env.httpClient is a test seam; it
+// is invoked once, at construction.
 func newFetchURLClient(env Env) *http.Client {
 	if env.httpClient != nil {
 		return env.httpClient()

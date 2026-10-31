@@ -62,6 +62,7 @@ A non-streaming 400 whose body mentions `stream` and `must` or `required` is mat
   4. Store the sandbox decision in context (`SandboxWrapperKey`).
   5. `executeTool` runs the handler directly, or the subprocess under the tool timeout. Sandbox denials can re-enter approval (`execution_denial.go`).
 - Output bounding: captures use `boundedCapture` (`output.go`). Bash keeps a head and tail (`captureUntilMarker`) and saves full output as an artifact (`bashArtifactStore`).
+- `fetch_url` networking: `newHTTPGuardClient` (`tool/builtin/fetch_url.go`) wraps `wonton/httpguard`, so every dialed address, redirect hops included, must be public. Redirects are capped by `fetchRedirectLimit` with plain HTTP hops allowed, and the client carries a 15s total timeout because httpguard sets none itself. The httpguard transport sets `Proxy: nil`, so ambient `HTTP(S)_PROXY` settings cannot relay a request around the dial check; the user-facing tradeoff and workaround are in [tools.md](../user/tools.md#fetch-and-search-networking). Search backends (`tool/builtin/brave_search.go`, `tool/builtin/search_backend.go`) keep plain `http.Client`s and proxy support, and read non-200 response bodies through `searchErrorBodyLimit` because only the leading 100 bytes reach the error message.
 - Modes and sandboxing: [execution-modes.md](execution-modes.md), [sandboxing.md](sandboxing.md).
 
 ## Sessions and persistence

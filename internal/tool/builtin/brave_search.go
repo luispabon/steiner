@@ -78,7 +78,7 @@ func (bs *braveSearcher) Search(ctx context.Context, input *web.SearchInput) (*w
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, searchErrorBodyLimit))
 		if err != nil {
 			return nil, fmt.Errorf("search: read http error response: %w", err)
 		}
