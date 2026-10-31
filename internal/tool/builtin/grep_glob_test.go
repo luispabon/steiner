@@ -67,6 +67,18 @@ func TestCompileGrepFileGlobMatches(t *testing.T) {
 			misses:  []string{"root.md"},
 		},
 		{
+			name:    "leading dot slash inside a brace alternative anchors only that alternative",
+			pattern: "{./src/*.go,*.md}",
+			matches: []string{"src/main.go", "deep/notes.md"},
+			misses:  []string{"deep/src/main.go", "src/deep/main.go", "notes.txt"},
+		},
+		{
+			name:    "leading dot slash inside a slashless brace alternative anchors it",
+			pattern: "{./*.go,*.md}",
+			matches: []string{"root.go", "deep/notes.md"},
+			misses:  []string{"deep/other.go"},
+		},
+		{
 			name:    "leading doublestar matches zero directories",
 			pattern: "**/*.go",
 			matches: []string{"root.go", "pkg/root.go", "pkg/deep/root.go"},
@@ -175,6 +187,36 @@ func TestCompileGrepFileGlobInvalidPattern(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "invalid glob") {
 				t.Errorf("compileGrepFileGlob(%q) error = %q, want it to contain %q", tt.pattern, err, "invalid glob")
+			}
+		})
+	}
+}
+
+func TestCompileGrepFileGlobExpansionLimit(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+	}{
+		{name: "brace expansion", pattern: strings.Repeat("{a,b}", 9)},
+		{name: "zero-directory doublestar expansion", pattern: strings.Repeat("**/", 300) + "x.go"},
+	}
+
+	atLimit := strings.Repeat("{a,b}", 8)
+	if _, err := compileGrepFileGlob(atLimit); err != nil {
+		t.Fatalf("compileGrepFileGlob(%q) error = %v, want no error at the expansion limit", atLimit, err)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matcher, err := compileGrepFileGlob(tt.pattern)
+			if err == nil {
+				t.Fatalf("compileGrepFileGlob(%q) error = nil, want expansion limit error", tt.pattern)
+			}
+			if matcher != nil {
+				t.Errorf("compileGrepFileGlob(%q) matcher = %v, want nil", tt.pattern, matcher)
+			}
+			if !strings.Contains(err.Error(), "invalid glob") || !strings.Contains(err.Error(), "expands beyond") {
+				t.Errorf("compileGrepFileGlob(%q) error = %q, want invalid glob expansion limit error", tt.pattern, err)
 			}
 		})
 	}

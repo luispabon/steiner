@@ -12,28 +12,37 @@ import (
 // multiply into an unbounded matcher set.
 const maxGrepGlobPatterns = 256
 
+// errGrepGlobTooComplex reports a file_glob whose brace and zero-directory
+// expansion exceeds maxGrepGlobPatterns.
+var errGrepGlobTooComplex = fmt.Errorf("pattern expands beyond %d forms", maxGrepGlobPatterns)
+
 // compileGrepFileGlob compiles a grep file_glob pattern into a matcher over
 // paths relative to the search root, using forward slashes.
 //
 // A slashless alternative names a file at any depth, so it matches the path
 // basename. An alternative containing a slash matches the root-relative path
-// only. A leading "./" marks the whole pattern as root-relative. Every "**/"
-// also matches zero directories. Braces, escapes, and character classes keep
-// gobwas/glob syntax; an empty pattern yields a nil matcher.
+// only. A leading "./" on the pattern or on any brace alternative anchors that
+// alternative to the search root. Every "**/" also matches zero directories.
+// Braces, escapes, and character classes keep gobwas/glob syntax; an empty
+// pattern yields a nil matcher.
 func compileGrepFileGlob(fileGlob string) (glob.Glob, error) {
 	if fileGlob == "" {
 		return nil, nil
 	}
 
-	rootAnchored := false
-	for strings.HasPrefix(fileGlob, "./") {
-		fileGlob = fileGlob[len("./"):]
-		rootAnchored = true
+	patterns, err := expandGrepGlobPatterns(fileGlob)
+	if err != nil {
+		return nil, fmt.Errorf("invalid glob: %w", err)
 	}
 
 	var matcher grepGlobSet
 	compiled := make(map[string]struct{})
-	for _, pattern := range expandGrepGlobPatterns(fileGlob) {
+	for _, pattern := range patterns {
+		rootAnchored := false
+		for strings.HasPrefix(pattern, "./") {
+			pattern = pattern[len("./"):]
+			rootAnchored = true
+		}
 		candidates := []string{pattern}
 		if !rootAnchored && !strings.Contains(pattern, "/") {
 			candidates = append(candidates, "**/"+pattern)
@@ -66,37 +75,48 @@ func (s grepGlobSet) Match(path string) bool {
 }
 
 // expandGrepGlobPatterns flattens brace alternations and then drops each
-// zero-directory form of "**/" from every alternative. When expansion exceeds
-// maxGrepGlobPatterns the pattern is returned unchanged and compiles with its
-// original gobwas semantics.
-func expandGrepGlobPatterns(pattern string) []string {
+// zero-directory form of "**/" from every alternative. It fails with
+// errGrepGlobTooComplex instead of silently changing semantics when expansion
+// exceeds maxGrepGlobPatterns.
+func expandGrepGlobPatterns(pattern string) ([]string, error) {
+	alternatives, err := expandGrepGlobBraces(pattern)
+	if err != nil {
+		return nil, err
+	}
 	var expanded []string
-	for _, alternative := range expandGrepGlobBraces(pattern) {
-		expanded = append(expanded, expandGrepGlobZeroDir(alternative)...)
+	for _, alternative := range alternatives {
+		forms, err := expandGrepGlobZeroDir(alternative)
+		if err != nil {
+			return nil, err
+		}
+		expanded = append(expanded, forms...)
 		if len(expanded) > maxGrepGlobPatterns {
-			return []string{pattern}
+			return nil, errGrepGlobTooComplex
 		}
 	}
-	return expanded
+	return expanded, nil
 }
 
 // expandGrepGlobBraces rewrites the first brace alternation, splitting on
 // top-level commas while leaving escaped braces and braces inside character
 // classes alone, then recurses into each alternative.
-func expandGrepGlobBraces(pattern string) []string {
+func expandGrepGlobBraces(pattern string) ([]string, error) {
 	open, closing, alternatives, ok := splitGrepGlobBraces(pattern)
 	if !ok {
-		return []string{pattern}
+		return []string{pattern}, nil
 	}
 	var expanded []string
 	for _, alternative := range alternatives {
-		sub := expandGrepGlobBraces(pattern[:open] + alternative + pattern[closing+1:])
+		sub, err := expandGrepGlobBraces(pattern[:open] + alternative + pattern[closing+1:])
+		if err != nil {
+			return nil, err
+		}
 		if len(expanded)+len(sub) > maxGrepGlobPatterns {
-			return []string{pattern}
+			return nil, errGrepGlobTooComplex
 		}
 		expanded = append(expanded, sub...)
 	}
-	return expanded
+	return expanded, nil
 }
 
 // splitGrepGlobBraces locates the first brace alternation and splits its
@@ -146,16 +166,19 @@ func splitGrepGlobBraces(pattern string) (int, int, []string, bool) {
 
 // expandGrepGlobZeroDir returns the pattern plus every variant with one "**/"
 // removed, so a directory doublestar also matches zero directories.
-func expandGrepGlobZeroDir(pattern string) []string {
+func expandGrepGlobZeroDir(pattern string) ([]string, error) {
 	idx, ok := findGrepGlobZeroDir(pattern)
 	if !ok {
-		return []string{pattern}
+		return []string{pattern}, nil
 	}
-	rest := expandGrepGlobZeroDir(pattern[:idx] + pattern[idx+len("**/"):])
+	rest, err := expandGrepGlobZeroDir(pattern[:idx] + pattern[idx+len("**/"):])
+	if err != nil {
+		return nil, err
+	}
 	if len(rest)+1 > maxGrepGlobPatterns {
-		return []string{pattern}
+		return nil, errGrepGlobTooComplex
 	}
-	return append([]string{pattern}, rest...)
+	return append([]string{pattern}, rest...), nil
 }
 
 // findGrepGlobZeroDir reports the first "**/" outside a character class and
