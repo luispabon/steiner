@@ -359,19 +359,18 @@ func mergeGrepWindows(lineNumbers []int, totalLines, beforeContext, afterContext
 	if len(lineNumbers) == 0 || totalLines == 0 {
 		return nil
 	}
+	beforeContext = max(beforeContext, 0)
+	afterContext = max(afterContext, 0)
 
 	sortedNumbers := append([]int(nil), lineNumbers...)
 	sort.Ints(sortedNumbers)
 
 	windows := make([]grepWindow, 0, len(sortedNumbers))
 	for _, lineNumber := range sortedNumbers {
-		start := lineNumber - beforeContext
-		if start < 1 {
-			start = 1
-		}
-		end := lineNumber + afterContext
-		if end > totalLines {
-			end = totalLines
+		start := max(1, lineNumber-beforeContext)
+		end := totalLines
+		if afterContext < totalLines-lineNumber {
+			end = lineNumber + afterContext
 		}
 
 		if len(windows) == 0 {

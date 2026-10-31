@@ -125,6 +125,12 @@ func TestGrepSearch_MultilineAnchorsAndInlineOverrides(t *testing.T) {
 			wantLines: []int{2},
 		},
 		{
+			name:      "dollar anchor without trailing newline matches final line",
+			content:   "alpha\nbeta",
+			pattern:   `$`,
+			wantLines: []int{1, 2},
+		},
+		{
 			name:    "zero width match at eof ignores synthetic trailing line",
 			content: "alpha\nbeta\n",
 			pattern: `\z`,
@@ -134,6 +140,16 @@ func TestGrepSearch_MultilineAnchorsAndInlineOverrides(t *testing.T) {
 			content:   "foo\r\nbar\r\n",
 			pattern:   "foo$\nbar",
 			wantLines: []int{1, 2},
+		},
+		{
+			name:    "zero width match past final newline is ignored",
+			content: "alpha\n",
+			pattern: `\z`,
+		},
+		{
+			name:    "empty file has no real lines",
+			content: "",
+			pattern: `^$`,
 		},
 	}
 
@@ -175,40 +191,124 @@ func TestGrepSearch_MultilineAnchorsAndInlineOverrides(t *testing.T) {
 
 func TestGrepMarkMatchedLines_ZeroWidthEOF(t *testing.T) {
 	tests := []struct {
-		name   string
-		lines  []string
-		starts []int
-		want   []bool
+		name       string
+		lines      []string
+		starts     []int
+		eof        int
+		wantMarked bool
+		want       []bool
 	}{
 		{
-			name:   "final non-empty line",
-			lines:  []string{"alpha", "beta"},
-			starts: []int{0, 6},
-			want:   []bool{false, true},
+			name:       "final non-empty line",
+			lines:      []string{"alpha", "beta"},
+			starts:     []int{0, 6},
+			eof:        10,
+			wantMarked: true,
+			want:       []bool{false, true},
 		},
 		{
-			name:   "trailing newline synthetic line",
-			lines:  []string{"alpha", ""},
-			starts: []int{0, 6},
-			want:   []bool{false, false},
+			name:       "final empty real line",
+			lines:      []string{"alpha", ""},
+			starts:     []int{0, 6},
+			eof:        6,
+			wantMarked: true,
+			want:       []bool{false, true},
 		},
 		{
-			name:   "empty content",
-			lines:  []string{""},
+			name: "no real lines",
+			want: []bool{},
+		},
+		{
+			name:   "match past final line",
+			lines:  []string{"alpha"},
 			starts: []int{0},
+			eof:    6,
 			want:   []bool{false},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			last := len(tt.lines) - 1
-			eof := tt.starts[last] + len(tt.lines[last])
 			got := make([]bool, len(tt.lines))
-			grepMarkMatchedLines(got, tt.lines, tt.starts, eof, eof)
+			marked := grepMarkMatchedLines(got, tt.lines, tt.starts, tt.eof, tt.eof)
+			if marked != tt.wantMarked {
+				t.Errorf("marked = %t, want %t", marked, tt.wantMarked)
+			}
 			for i := range got {
 				if got[i] != tt.want[i] {
 					t.Errorf("line %d marked = %t, want %t", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGrepSearch_SingleLineUsesRealLines(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		pattern   string
+		wantLines []int
+	}{
+		{
+			name:      "dollar does not match the synthetic trailing line",
+			content:   "hello\n",
+			pattern:   `$`,
+			wantLines: []int{1},
+		},
+		{
+			name:    "blank anchors do not match the synthetic trailing line",
+			content: "hello\n",
+			pattern: `^$`,
+		},
+		{
+			name:    "empty file has no lines",
+			content: "",
+			pattern: `^$`,
+		},
+		{
+			name:      "real blank line still matches",
+			content:   "\n",
+			pattern:   `^$`,
+			wantLines: []int{1},
+		},
+		{
+			name:      "final real blank line still matches",
+			content:   "hello\n\n",
+			pattern:   `^$`,
+			wantLines: []int{2},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "input.txt")
+			if err := os.WriteFile(path, []byte(tt.content), 0o644); err != nil {
+				t.Fatalf("write input: %v", err)
+			}
+
+			results, err := grepSearch(context.Background(), grepSearchParams{
+				root:        path,
+				displayPath: "input.txt",
+				pattern:     tt.pattern,
+			})
+			if err != nil {
+				t.Fatalf("grepSearch: %v", err)
+			}
+
+			var got []int
+			if len(results) == 1 {
+				for _, match := range results[0].matches {
+					got = append(got, match.lineNumber)
+				}
+			}
+			if len(got) != len(tt.wantLines) {
+				t.Fatalf("matched lines = %v, want %v", got, tt.wantLines)
+			}
+			for i := range got {
+				if got[i] != tt.wantLines[i] {
+					t.Fatalf("matched lines = %v, want %v", got, tt.wantLines)
 				}
 			}
 		})

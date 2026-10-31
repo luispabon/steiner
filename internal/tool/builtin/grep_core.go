@@ -412,7 +412,7 @@ func grepSearchFile(ctx context.Context, path, relPath string, re *regexp.Regexp
 	}
 
 	contentText := normalizeGrepContent(content)
-	lines := strings.Split(contentText, "\n")
+	lines := grepContentLines(contentText)
 	matches := grepLineMatches(lines, contentText, relPath, re, multiline)
 	if len(matches) == 0 {
 		return grepFileResult{}, false, nil
@@ -432,6 +432,19 @@ const grepUTF8BOM = "\xef\xbb\xbf"
 func normalizeGrepContent(content []byte) string {
 	text := strings.TrimPrefix(string(content), grepUTF8BOM)
 	return strings.ReplaceAll(text, "\r\n", "\n")
+}
+
+// grepContentLines splits normalized content into real lines. A trailing
+// newline terminates the last line but does not create an extra empty line.
+func grepContentLines(contentText string) []string {
+	if contentText == "" {
+		return nil
+	}
+	lines := strings.Split(contentText, "\n")
+	if strings.HasSuffix(contentText, "\n") {
+		return lines[:len(lines)-1]
+	}
+	return lines
 }
 
 func grepLineMatches(lines []string, contentText, relPath string, re *regexp.Regexp, multiline bool) []grepMatch {
@@ -464,7 +477,9 @@ func grepMultilineMatches(lines []string, contentText, relPath string, re *regex
 	lineStarts := grepLineStarts(lines)
 	matchIndexes := re.FindAllStringIndex(contentText, -1)
 	for _, matchIndex := range matchIndexes {
-		grepMarkMatchedLines(lineMatched, lines, lineStarts, matchIndex[0], matchIndex[1])
+		if !grepMarkMatchedLines(lineMatched, lines, lineStarts, matchIndex[0], matchIndex[1]) {
+			continue
+		}
 		startLine := grepLineForOffset(lineStarts, matchIndex[0])
 		if lineColumn[startLine] == 0 {
 			lineColumn[startLine] = runeColumn(lines[startLine], matchIndex[0]-lineStarts[startLine])
@@ -514,22 +529,18 @@ func grepLineStarts(lines []string) []int {
 	return lineStarts
 }
 
-func grepMarkMatchedLines(lineMatched []bool, lines []string, lineStarts []int, matchStart, matchEnd int) {
+func grepMarkMatchedLines(lineMatched []bool, lines []string, lineStarts []int, matchStart, matchEnd int) bool {
 	if len(lines) == 0 || len(lineStarts) == 0 {
-		return
+		return false
 	}
 	finalLine := len(lines) - 1
 	contentEnd := lineStarts[finalLine] + len(lines[finalLine])
 	if matchStart > contentEnd {
-		return
+		return false
 	}
 	if matchStart == contentEnd {
-		// A zero-width EOF match belongs to the final line only when that line
-		// is real text. A trailing newline produces a synthetic empty line.
-		if lines[finalLine] != "" {
-			lineMatched[finalLine] = true
-		}
-		return
+		lineMatched[finalLine] = true
+		return true
 	}
 	if matchEnd == matchStart {
 		matchEnd++
@@ -544,4 +555,5 @@ func grepMarkMatchedLines(lineMatched []bool, lines []string, lineStarts []int, 
 	for i := firstLine; i <= lastLine; i++ {
 		lineMatched[i] = true
 	}
+	return true
 }
