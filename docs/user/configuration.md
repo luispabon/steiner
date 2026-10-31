@@ -967,7 +967,7 @@ into the system prompt.
 project_context:
   max_bytes: 8000
   extra_files:
-    - docs/ARCHITECTURE.md
+    - docs/internals/architecture.md
     - .steiner/skills/project.md
   ignore_files:
     - vendor/
@@ -1388,7 +1388,7 @@ tools:
 project_context:
   max_bytes: 8000
   extra_files:
-    - docs/ARCHITECTURE.md
+    - docs/internals/architecture.md
     - .steiner/skills/project.md
   ignore_files:
     - vendor/
