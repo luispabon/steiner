@@ -66,7 +66,8 @@ type lsEntry struct {
 // offset count only visible entries. The directory is read directly rather than
 // through Dive's ListDirectoryTool because Dive truncates to maxLSLimit before
 // any filtering, which hides visible entries that sort past the cap in a large
-// directory.
+// directory. Filtering stops once the page and its next-offset signal are
+// settled, so a large directory does not pay a policy lookup per entry.
 func lsNonRecursive(
 	ctx context.Context,
 	absPath string,
@@ -79,21 +80,17 @@ func lsNonRecursive(
 		return nil, fmt.Errorf("ls: %w", err)
 	}
 
-	entries, failure := readDirectoryEntries(absPath)
+	dirEntries, failure := readDirectoryEntries(absPath)
 	if failure != "" {
 		// An unreadable or missing directory is tool output, not an error, as it
 		// was when this listing came from Dive's ListDirectoryTool.
 		return &Result{Output: failure}, nil
 	}
 
-	entries = visibleEntries(entries, absPath, lexicalRoot, policy, excluder)
-
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].isDir != entries[j].isDir {
-			return entries[i].isDir
-		}
-		return entries[i].name < entries[j].name
-	})
+	entries, err := visiblePageEntries(ctx, dirEntries, absPath, lexicalRoot, policy, excluder, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("ls: %w", err)
+	}
 
 	allLines := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -111,7 +108,7 @@ func lsNonRecursive(
 // readDirectoryEntries reads one directory level in name order. A non-empty
 // failure is the user-facing message for a path ls cannot list, worded as Dive's
 // ListDirectoryTool worded it.
-func readDirectoryEntries(dir string) ([]lsEntry, string) {
+func readDirectoryEntries(dir string) ([]fs.DirEntry, string) {
 	info, err := os.Stat(dir)
 	if err != nil {
 		switch {
@@ -131,12 +128,7 @@ func readDirectoryEntries(dir string) ([]lsEntry, string) {
 	if err != nil {
 		return nil, fmt.Sprintf("Failed to read directory %s. %s", dir, err)
 	}
-
-	entries := make([]lsEntry, 0, len(dirEntries))
-	for _, entry := range dirEntries {
-		entries = append(entries, lsEntry{name: entry.Name(), isDir: entry.IsDir()})
-	}
-	return entries, ""
+	return dirEntries, ""
 }
 
 // listedPathDenied reports whether policy blocks listing path. A listing only
@@ -150,25 +142,63 @@ func listedPathDenied(policy *tool.PathPolicy, path string) bool {
 	return err != nil
 }
 
-// visibleEntries drops entries whose resolved path policy denies and entries
-// hidden by workspace exclusions, so a non-recursive listing never leaks a
-// blocked or excluded entry. Filtering happens before pagination so limit and
-// offset count only visible entries. lexicalRoot is the path the caller named
-// before a symlink root was resolved, so configured exclusions written against
-// that path keep applying.
-func visibleEntries(entries []lsEntry, dir, lexicalRoot string, policy *tool.PathPolicy, excluder tool.WorkspaceExcluder) []lsEntry {
-	kept := entries[:0]
-	for _, entry := range entries {
-		path := filepath.Join(dir, entry.name)
+// visiblePageEntries returns the visible entries that can affect the requested
+// page, in listing order: directories before files, each group in the name
+// order os.ReadDir produced. Entries denied by path policy or hidden by
+// workspace exclusions are dropped. Scanning stops as soon as offset+limit+1
+// visible entries are known, because pageResults needs no more to build the
+// page and report NextOffset; later files are skipped without a policy lookup
+// once the file group already covers any page. lexicalRoot is the path the
+// caller named before a symlink root was resolved, so configured exclusions
+// written against that path keep applying.
+func visiblePageEntries(ctx context.Context, dirEntries []fs.DirEntry, dir, lexicalRoot string, policy *tool.PathPolicy, excluder tool.WorkspaceExcluder, limit, offset int) ([]lsEntry, error) {
+	target := pageVisibleTarget(len(dirEntries), limit, offset)
+	var dirs, files []lsEntry
+	for _, entry := range dirEntries {
+		if len(dirs) >= target {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		isDir := entry.IsDir()
+		if !isDir && len(files) >= target {
+			// Enough files to fill any page: the rest sort later, so they cannot
+			// displace these, and they do not join the directory group.
+			continue
+		}
+		name := entry.Name()
+		path := filepath.Join(dir, name)
 		if listedPathDenied(policy, path) {
 			continue
 		}
-		if excludeSearchEntry(&excluder, policy, dir, lexicalRoot, path, entry.isDir) {
+		if excludeSearchEntry(&excluder, policy, dir, lexicalRoot, path, isDir) {
 			continue
 		}
-		kept = append(kept, entry)
+		if isDir {
+			dirs = append(dirs, lsEntry{name: name, isDir: true})
+			continue
+		}
+		files = append(files, lsEntry{name: name})
 	}
-	return kept
+	return append(dirs, files...), nil
+}
+
+// pageVisibleTarget is how many visible entries pageResults needs to serve the
+// requested page and decide whether a following page exists: offset+limit+1,
+// clamped to what the directory can supply. Zero means the page stays empty
+// whatever the visible count is, so no entry needs filtering at all.
+func pageVisibleTarget(available, limit, offset int) int {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= available {
+		return 0
+	}
+	if limit >= available-offset {
+		return available + 1
+	}
+	return offset + limit + 1
 }
 
 // lsRecursive walks a directory tree and returns relative paths, skipping

@@ -10,10 +10,141 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
+
+func TestLSNonRecursive_StopsFilteringPastPage(t *testing.T) {
+	root := t.TempDir()
+	for i := range 300 {
+		mustWriteTree(t, root, fmt.Sprintf("file%03d.txt", i), "content")
+	}
+	mustWriteTree(t, root, "zzz/file.txt", "content")
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{})
+	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy})
+
+	t.Run("full page keeps directories first", func(t *testing.T) {
+		resultI, err := toolDef.Handler(context.Background(), map[string]any{"path": "."})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*Result)
+		if !ok {
+			t.Fatalf("result type = %T, want *Result", resultI)
+		}
+		lines := strings.Split(result.Output, "\n")
+		if len(lines) != defaultLSLimit {
+			t.Fatalf("line count = %d, want %d", len(lines), defaultLSLimit)
+		}
+		if lines[0] != "zzz/" {
+			t.Fatalf("first line = %q, want %q", lines[0], "zzz/")
+		}
+		if last := lines[len(lines)-1]; last != "file198.txt" {
+			t.Fatalf("last line = %q, want %q", last, "file198.txt")
+		}
+		if result.NextOffset != defaultLSLimit {
+			t.Fatalf("NextOffset = %d, want %d", result.NextOffset, defaultLSLimit)
+		}
+	})
+
+	t.Run("blocked leading entries still consume policy checks", func(t *testing.T) {
+		blocked := tool.NewPathPolicy(root, config.PathsConfig{
+			BlockedPaths: []string{"file000.txt", "file001.txt"},
+		})
+		blockedDef := NewLSTool(Env{WorkDir: root, PathPolicy: &blocked})
+		resultI, err := blockedDef.Handler(context.Background(), map[string]any{"path": "."})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*Result)
+		if !ok {
+			t.Fatalf("result type = %T, want *Result", resultI)
+		}
+		lines := strings.Split(result.Output, "\n")
+		if len(lines) != defaultLSLimit {
+			t.Fatalf("line count = %d, want %d", len(lines), defaultLSLimit)
+		}
+		if strings.Contains(result.Output, "file000.txt") || strings.Contains(result.Output, "file001.txt") {
+			t.Fatalf("Output leaks blocked entry: %q", result.Output)
+		}
+		if lines[1] != "file002.txt" {
+			t.Fatalf("second line = %q, want %q", lines[1], "file002.txt")
+		}
+	})
+}
+
+// countdownContext reports a live context for its first liveCalls Err calls and
+// context.Canceled afterwards, so tests can cancel deterministically inside a
+// listing loop instead of racing a goroutine.
+type countdownContext struct {
+	liveCalls int
+	errCalls  int
+}
+
+func (c *countdownContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (c *countdownContext) Done() <-chan struct{}       { return nil }
+func (c *countdownContext) Value(any) any               { return nil }
+
+func (c *countdownContext) Err() error {
+	c.errCalls++
+	if c.errCalls > c.liveCalls {
+		return context.Canceled
+	}
+	return nil
+}
+
+func TestLSCancellation(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "a.txt", "a")
+	mustWriteTree(t, root, "b.txt", "b")
+	mustWriteTree(t, root, "sub/c.txt", "c")
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{})
+	excluder := tool.NewWorkspaceExcluder(root, nil, nil)
+
+	t.Run("non-recursive before start", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := lsNonRecursive(ctx, root, root, defaultLSLimit, 0, excluder, &policy)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("lsNonRecursive error = %v, want context.Canceled", err)
+		}
+	})
+
+	t.Run("non-recursive during filtering", func(t *testing.T) {
+		ctx := &countdownContext{liveCalls: 1}
+		_, err := lsNonRecursive(ctx, root, root, defaultLSLimit, 0, excluder, &policy)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("lsNonRecursive error = %v, want context.Canceled", err)
+		}
+		if ctx.errCalls < 2 {
+			t.Fatalf("ctx.Err calls = %d, want at least 2", ctx.errCalls)
+		}
+	})
+
+	t.Run("recursive during walk", func(t *testing.T) {
+		ctx := &countdownContext{liveCalls: 1}
+		_, err := lsRecursive(ctx, root, root, defaultLSLimit, 0, excluder, &policy)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("lsRecursive error = %v, want context.Canceled", err)
+		}
+		if ctx.errCalls < 2 {
+			t.Fatalf("ctx.Err calls = %d, want at least 2", ctx.errCalls)
+		}
+	})
+
+	t.Run("handler reports cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder})
+		if _, err := toolDef.Handler(ctx, map[string]any{"path": "."}); !errors.Is(err, context.Canceled) {
+			t.Fatalf("Handler error = %v, want context.Canceled", err)
+		}
+	})
+}
 
 func TestLSTool(t *testing.T) {
 	tmpDir := t.TempDir()
