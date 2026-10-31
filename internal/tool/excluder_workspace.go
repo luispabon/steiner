@@ -373,48 +373,33 @@ type workspacePattern struct {
 // globstar segment matches zero or more path segments. Any other segment matches
 // one path segment, or several when it contains a separator or a "**" super
 // wildcard that can span separators (a brace alternative or character class
-// containing a separator also qualifies).
+// containing a separator also qualifies). prefix is the literal text every
+// match must start with, used to skip candidate spans cheaply.
 type workspacePatternSegment struct {
 	globstar bool
 	multi    bool
+	prefix   string
 	matcher  glob.Glob
 }
 
 // matchesPrefix reports whether the pattern matches relSlash or any ancestor
-// directory prefix of it.
+// directory prefix of it. Spans are matched in place with substring offsets, so
+// multi-segment tokens never join or allocate path fragments.
 func (p workspacePattern) matchesPrefix(relSlash string) bool {
 	if len(p.segments) == 0 || relSlash == "" {
 		return false
 	}
-	parts := strings.Split(relSlash, "/")
-	current := make([]bool, len(parts)+1)
-	next := make([]bool, len(parts)+1)
+	offsets := componentOffsets(relSlash)
+	count := len(offsets) - 1
+	current := make([]bool, count+1)
+	next := make([]bool, count+1)
 	current[0] = true
 	for _, segment := range p.segments {
 		clear(next)
 		if segment.globstar {
-			reachable := false
-			for i := range next {
-				reachable = reachable || current[i]
-				next[i] = reachable
-			}
+			propagateGlobstar(current, next)
 		} else {
-			for start := 0; start < len(parts); start++ {
-				if !current[start] {
-					continue
-				}
-				if segment.multi {
-					for end := start + 1; end <= len(parts); end++ {
-						if segment.matcher.Match(strings.Join(parts[start:end], "/")) {
-							next[end] = true
-						}
-					}
-					continue
-				}
-				if segment.matcher.Match(parts[start]) {
-					next[start+1] = true
-				}
-			}
+			advanceSegment(current, next, segment, relSlash, offsets)
 		}
 		current, next = next, current
 	}
@@ -428,6 +413,53 @@ func (p workspacePattern) matchesPrefix(relSlash string) bool {
 	return false
 }
 
+// propagateGlobstar marks every boundary reachable from a reachable one.
+func propagateGlobstar(current, next []bool) {
+	reachable := false
+	for i := range next {
+		reachable = reachable || current[i]
+		next[i] = reachable
+	}
+}
+
+// advanceSegment moves reachable boundaries across one non-globstar segment.
+func advanceSegment(current, next []bool, segment workspacePatternSegment, relSlash string, offsets []int) {
+	count := len(offsets) - 1
+	for start := 0; start < count; start++ {
+		if !current[start] {
+			continue
+		}
+		from := offsets[start]
+		if !strings.HasPrefix(relSlash[from:], segment.prefix) {
+			continue
+		}
+		if segment.multi {
+			for end := start + 1; end <= count; end++ {
+				if segment.matcher.Match(relSlash[from : offsets[end]-1]) {
+					next[end] = true
+				}
+			}
+			continue
+		}
+		if segment.matcher.Match(relSlash[from : offsets[start+1]-1]) {
+			next[start+1] = true
+		}
+	}
+}
+
+// componentOffsets returns the byte offsets of component starts in relSlash plus
+// a sentinel one past the end. Component i spans
+// relSlash[offsets[i]:offsets[i+1]-1], which excludes its separator.
+func componentOffsets(relSlash string) []int {
+	offsets := make([]int, 1, strings.Count(relSlash, "/")+2)
+	for i := 0; i < len(relSlash); i++ {
+		if relSlash[i] == '/' {
+			offsets = append(offsets, i+1)
+		}
+	}
+	return append(offsets, len(relSlash)+1)
+}
+
 // compileWorkspaceSlashPattern compiles one slash pattern, reporting false when
 // the pattern is invalid. Only a segment that is exactly "**" is a globstar; a
 // segment such as "a**" keeps its gobwas meaning and matches within one path
@@ -439,6 +471,12 @@ func compileWorkspaceSlashPattern(pattern string) (workspacePattern, bool) {
 	}
 	compiled := make([]workspacePatternSegment, 0, len(segments))
 	for _, segment := range segments {
+		// A literal "." component names the current directory, so it can never
+		// match a walked path component. Dropping it keeps patterns such as
+		// "a/./b" usable; bracket, brace, and escaped forms are left alone.
+		if segment == "." {
+			continue
+		}
 		if segment == "**" {
 			compiled = append(compiled, workspacePatternSegment{globstar: true})
 			continue
@@ -451,10 +489,35 @@ func compileWorkspaceSlashPattern(pattern string) (workspacePattern, bool) {
 		}
 		compiled = append(compiled, workspacePatternSegment{
 			multi:   strings.Contains(segment, "/") || hasUnescapedDoubleStar(segment),
+			prefix:  literalPatternPrefix(segment),
 			matcher: matcher,
 		})
 	}
+	if len(compiled) == 0 {
+		return workspacePattern{}, false
+	}
 	return workspacePattern{segments: compiled}, true
+}
+
+// literalPatternPrefix returns the literal text a glob pattern starts with,
+// stopping at the first wildcard or bracket/brace expression. Escapes are
+// resolved because they match their literal character.
+func literalPatternPrefix(pattern string) string {
+	var prefix strings.Builder
+	for i := 0; i < len(pattern); i++ {
+		switch c := pattern[i]; c {
+		case '\\':
+			if i+1 < len(pattern) {
+				i++
+				prefix.WriteByte(pattern[i])
+			}
+		case '*', '?', '[', '{':
+			return prefix.String()
+		default:
+			prefix.WriteByte(c)
+		}
+	}
+	return prefix.String()
 }
 
 // hasUnescapedDoubleStar reports whether pattern contains a "**" super wildcard

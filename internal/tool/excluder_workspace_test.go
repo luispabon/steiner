@@ -174,13 +174,15 @@ func TestWorkspaceExcluder_InvalidPatternIgnored(t *testing.T) {
 }
 
 func TestWorkspaceExcluder_NormalizesPatterns(t *testing.T) {
-	ex := newWorkspaceExcluder("/ws", nil, []string{"./generated/**", "build/", "docs/private/", "/docs/**", "/./legacy/**"}, nil, false)
+	ex := newWorkspaceExcluder("/ws", nil, []string{"./generated/**", "build/", "docs/private/", "/docs/**", "/./legacy/**", "docs/./deep/**"}, nil, false)
 	runWorkspaceExcludeCases(t, ex, []workspaceExcludeCase{
 		{path: "/ws/generated/out.o", want: true},
 		{path: "/ws/docs/private/x.md", want: true},
 		{path: "/ws/docs/api/x.md", want: true},
+		{path: "/ws/docs/deep/x.md", want: true},
 		{path: "/ws/legacy/code.go", want: true},
 		{path: "/ws/other/legacy/code.go", want: false},
+		{path: "/ws/other/docs/deep/x.md", want: false},
 		{path: "/ws/other/docs/api/x.md", want: false},
 		{path: "/ws/other/docs/private/x.md", want: false},
 		{path: "/ws/build", isDir: true, want: true},
@@ -285,6 +287,9 @@ func TestWorkspacePattern_MatchesPrefix(t *testing.T) {
 		{pattern: "a**/b", path: "ab", want: false},
 		{pattern: "a**/b", path: "a/b", want: true},
 		{pattern: "a**/b", path: "axx/y/b", want: true},
+		{pattern: "a/./b", path: "a/b", want: true},
+		{pattern: `a/\./b`, path: "a/b", want: false},
+		{pattern: "{.,a}/b", path: "a/b", want: true},
 		{pattern: `\*\*/x`, path: "**/x", want: true},
 		{pattern: "[**/]x", path: "**/x", want: false},
 		{pattern: "{a/b,c}/**", path: "a/b/x", want: true},
@@ -341,5 +346,29 @@ func TestWorkspacePattern_DeepPathWorkBounded(t *testing.T) {
 	}
 	if allocs > 10 {
 		t.Fatalf("deep path matching allocated %.1f objects per run, want at most 10", allocs)
+	}
+}
+
+func TestWorkspacePattern_DeepPathWithEmbeddedSuperStarBounded(t *testing.T) {
+	compiled, ok := compileWorkspaceSlashPattern("**/d**/file")
+	if !ok {
+		t.Fatal("compileWorkspaceSlashPattern failed")
+	}
+	deep := strings.Repeat("segment/", 300) + "data/" + strings.Repeat("segment/", 40) + "file"
+	if !compiled.matchesPrefix(deep) {
+		t.Fatalf("deep path %q should match", deep)
+	}
+	if compiled.matchesPrefix(strings.Repeat("segment/", 300) + "file") {
+		t.Fatal("path without a d-prefixed component should not match")
+	}
+	var matched bool
+	allocs := testing.AllocsPerRun(10, func() {
+		matched = compiled.matchesPrefix(deep)
+	})
+	if !matched {
+		t.Fatalf("deep path %q should match", deep)
+	}
+	if allocs > 10 {
+		t.Fatalf("deep path with embedded ** allocated %.1f objects per run, want at most 10", allocs)
 	}
 }
