@@ -107,7 +107,7 @@ Token counters accumulate across follow-ups, seeded from `Spec.PriorTokenUsage`.
 
 `internal/agent` appends turn-budget notices at 50, 75, and 90 percent of the budget (`turnBudgetNoticeFractions`, `internal/agent/turn_budget_notice.go`). A follow-up counts from its own start turn (`RunState.BudgetStartTurn`). The notices do not change the limit.
 
-`CacheKeyStore.beginDispatch` (`cache_keys.go`) lets the first child for a cache key dispatch at once. Later children with the same key wait until the leader releases the gate or `dispatchGateTimeout` (10 seconds) elapses. Waiting emits `delegation_cache_waiting`; the end of the wait emits `delegation_cache_released` with `waited_ms` and a `reason` of `leader_first_response` (the leader emitted its first provider response), `leader_exited` (the leader finished, failed, or was cancelled before one), `timeout`, or `cancelled`.
+`CacheKeyStore.beginDispatch` (`cache_keys.go`) lets the first child for a cache key dispatch at once. Later children with the same key wait until the leader releases the gate or `dispatchGateTimeout` (10 seconds) elapses. Waiting emits `delegation_cache_waiting`; the end of the wait emits `delegation_cache_released` with `waited_ms` and a `reason` of `leader_first_response` (the leader emitted its first provider response, successful or not), `leader_exited` (the leader finished, failed, or was cancelled before one), `timeout`, or `cancelled` (the follower's context ended while waiting).
 
 ## Parallel tool classification
 

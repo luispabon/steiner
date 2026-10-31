@@ -133,15 +133,8 @@ func TestCacheKeyStoreDispatchGateWaitCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	done := make(chan struct{})
-	go func() {
-		wait(ctx)
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("follower wait did not return after context cancellation")
+	if reason := wait(ctx); reason != output.DelegationCacheReleaseCancelled {
+		t.Fatalf("wait reason = %q, want %q", reason, output.DelegationCacheReleaseCancelled)
 	}
 }
 
@@ -213,15 +206,39 @@ func TestCacheKeyStoreDispatchGateTimeout(t *testing.T) {
 
 	gate := &dispatchGate{ready: make(chan struct{})}
 	defer gate.release(output.DelegationCacheReleaseLeaderExited)
-	waitDone := make(chan struct{})
-	go func() {
-		waitForTimeout(gate, 20*time.Millisecond)(context.Background())
-		close(waitDone)
-	}()
+	if reason := waitForTimeout(gate, 20*time.Millisecond)(context.Background()); reason != output.DelegationCacheReleaseTimeout {
+		t.Fatalf("waitForTimeout reason = %q, want %q", reason, output.DelegationCacheReleaseTimeout)
+	}
+}
 
-	select {
-	case <-waitDone:
-	case <-time.After(time.Second):
-		t.Fatal("waitForTimeout did not return after its timeout")
+// TestAwaitReportsReleaseCause pins that a gate released at the same instant the
+// timer or the follower's context ends reports the release cause. The select
+// randomises between the two ready cases, so the loop hits both orderings.
+func TestAwaitReportsReleaseCause(t *testing.T) {
+	t.Parallel()
+	expired := make(chan time.Time)
+	close(expired)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	tests := []struct {
+		name    string
+		expired <-chan time.Time
+		ctx     context.Context
+	}{
+		{name: "timer fired", expired: expired, ctx: context.Background()},
+		{name: "context cancelled", expired: make(chan time.Time), ctx: cancelled},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gate := &dispatchGate{ready: make(chan struct{})}
+			gate.release(output.DelegationCacheReleaseLeaderFirstResponse)
+
+			for i := 0; i < 100; i++ {
+				if reason := gate.await(tt.ctx, tt.expired); reason != output.DelegationCacheReleaseLeaderFirstResponse {
+					t.Fatalf("iteration %d: wait reason = %q, want %q", i, reason, output.DelegationCacheReleaseLeaderFirstResponse)
+				}
+			}
+		})
 	}
 }

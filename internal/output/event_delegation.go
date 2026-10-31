@@ -72,7 +72,7 @@ type DelegationCacheWaitingEvent struct {
 type DelegationCacheReleaseReason string
 
 const (
-	// DelegationCacheReleaseLeaderFirstResponse means the leader emitted its first provider response.
+	// DelegationCacheReleaseLeaderFirstResponse means the leader emitted its first provider response, successful or not.
 	DelegationCacheReleaseLeaderFirstResponse DelegationCacheReleaseReason = "leader_first_response"
 	// DelegationCacheReleaseLeaderExited means the leader finished, failed, or was cancelled before any provider response.
 	DelegationCacheReleaseLeaderExited DelegationCacheReleaseReason = "leader_exited"

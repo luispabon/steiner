@@ -189,3 +189,60 @@ func TestApplyDispatchGateLeaderEmitsNoRelease(t *testing.T) {
 		t.Fatalf("child events = %v, want the forwarded api response", got)
 	}
 }
+
+// TestApplyDispatchGateSparseSinks covers the degenerate sink inputs: a nil store
+// dispatches ungated, and a follower whose parent has no event sink waits and
+// releases without emitting anything. Both must pass the child sink through
+// unwrapped and must not panic.
+func TestApplyDispatchGateSparseSinks(t *testing.T) {
+	const cacheKey = "sparse-key"
+	followerOcc := output.DelegationOccurrence{CallID: "call-2", BatchID: "batch-1", AgentID: "child-follower"}
+	leaderOcc := output.DelegationOccurrence{CallID: "call-1", BatchID: "batch-1", AgentID: "child-leader"}
+	tests := []struct {
+		name      string
+		store     func(t *testing.T) *CacheKeyStore
+		nilParent bool
+	}{
+		{
+			name:  "nil store",
+			store: func(*testing.T) *CacheKeyStore { return nil },
+		},
+		{
+			name: "follower with nil parent events",
+			store: func(t *testing.T) *CacheKeyStore {
+				store := NewCacheKeyStore()
+				store.testWaitTimeout = gateTestTimeout
+				_, leaderRelease := applyDispatchGate(context.Background(), store, cacheKey, leaderOcc, output.NoopSink{}, output.NoopSink{})
+				t.Cleanup(leaderRelease)
+				return store
+			},
+			nilParent: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			childEvents := &recordingEventSink{}
+			var parentEvents output.EventSink
+			if !tt.nilParent {
+				parentEvents = &recordingEventSink{}
+			}
+
+			sink, release := applyDispatchGate(context.Background(), tt.store(t), cacheKey, followerOcc, parentEvents, childEvents)
+			t.Cleanup(release)
+
+			if sink != output.EventSink(childEvents) {
+				t.Fatal("applyDispatchGate returned a wrapped sink, want the child sink passed through")
+			}
+			sink.Emit(output.Event{Type: output.EventTypeAPIResponse})
+			if got := childEvents.Events(); len(got) != 1 || got[0].Type != output.EventTypeAPIResponse {
+				t.Fatalf("child events = %v, want the forwarded api response", got)
+			}
+			if recorder, ok := parentEvents.(*recordingEventSink); ok {
+				if got := recorder.Events(); len(got) != 0 {
+					t.Fatalf("parent events = %v, want none", got)
+				}
+			}
+		})
+	}
+}

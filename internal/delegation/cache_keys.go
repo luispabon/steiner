@@ -80,9 +80,9 @@ func cacheKeyOrMint(store *CacheKeyStore, agentType AgentType) string {
 // beginDispatch coordinates same-cache-key sibling delegations. The first caller for
 // cacheKey is the leader: it returns release and wait functions that proceed immediately
 // so it can dispatch at once; followers are told isLeader=false and must call the
-// returned wait before spawning. release is idempotent, records its cause as the release
-// cause of the gate, and clears a follower wait for this cacheKey. An empty cacheKey is
-// ungated: it always returns isLeader=true with a no-op release and wait.
+// returned wait before spawning. The first release call sets the gate's release cause
+// and clears a follower wait for this cacheKey; later calls are no-ops. An empty cacheKey
+// is ungated: it always returns isLeader=true with a no-op release and wait.
 //
 // A follower's wait returns why it ended. Leaders never call wait, so their wait
 // returns the zero reason.
@@ -129,13 +129,32 @@ func waitForTimeout(g *dispatchGate, timeout time.Duration) func(ctx context.Con
 	return func(ctx context.Context) output.DelegationCacheReleaseReason {
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
-		select {
-		case <-g.ready:
-			return g.cause
-		case <-timer.C:
-			return output.DelegationCacheReleaseTimeout
-		case <-ctx.Done():
-			return output.DelegationCacheReleaseCancelled
-		}
+		return g.await(ctx, timer.C)
+	}
+}
+
+// await blocks until the gate is released, expired fires, or ctx ends, and
+// reports why the wait ended. expired is the gate timer's channel.
+func (g *dispatchGate) await(ctx context.Context, expired <-chan time.Time) output.DelegationCacheReleaseReason {
+	select {
+	case <-g.ready:
+		return g.cause
+	case <-expired:
+		return g.releasedCauseOr(output.DelegationCacheReleaseTimeout)
+	case <-ctx.Done():
+		return g.releasedCauseOr(output.DelegationCacheReleaseCancelled)
+	}
+}
+
+// releasedCauseOr returns the gate's release cause when ready is already closed.
+// A select that observes ready and the timer or cancellation at the same instant
+// picks between them at random, so without this check a released gate could be
+// labelled as timed out or cancelled.
+func (g *dispatchGate) releasedCauseOr(fallback output.DelegationCacheReleaseReason) output.DelegationCacheReleaseReason {
+	select {
+	case <-g.ready:
+		return g.cause
+	default:
+		return fallback
 	}
 }

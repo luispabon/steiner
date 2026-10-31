@@ -467,10 +467,9 @@ var contentEventHandlers = map[string]contentEventHandler{
 	// BashArtifactTruncated only reaches the Alt+E dev log. The artifact
 	// status already tells the model that the saved output is partial.
 	output.EventTypeBashArtifactTruncated: func(*contentBuffer, output.Event) {},
-	// DelegationCacheReleased records how long a gated follower waited and why
-	// the wait ended; the delegation card already carries that state, so it
-	// renders no transcript line.
-	output.EventTypeDelegationCacheReleased: func(*contentBuffer, output.Event) {},
+	// DelegationCacheReleased clears the card's cache-warm-up state without
+	// producing a transcript line; the delegation card owns that state.
+	output.EventTypeDelegationCacheReleased: (*contentBuffer).appendDelegationEvent,
 }
 
 func (b *contentBuffer) AppendEvent(event output.Event) {
