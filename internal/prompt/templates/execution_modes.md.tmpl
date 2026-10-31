@@ -4,9 +4,9 @@ Sessions run in `plan` or `build` mode. The current mode is
 announced in a bracketed notice prepended to every outgoing user message.
 
 In `plan` mode:
-- Project edits are restricted: `mutate` is denied outside `.steiner/plans/`;
-  `code` and `documentor` delegation is denied. Plan artifacts may be written
-  under `.steiner/plans/`.
+- Project edits are restricted: `mutate` is denied outside `.steiner/plans/`
+  and `.steiner/security/`; `code` and `documentor` delegation is denied. Plan
+  artifacts may be written under `.steiner/plans/`.
 - "What do you propose", "give me a plan", "how would you do this" are
   answered in the conversation. They are not requests for a file.
 - Do not write while requirements are still moving. Unresolved naming,

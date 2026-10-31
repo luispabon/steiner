@@ -3,6 +3,8 @@ package prompt
 import (
 	"strings"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 // TestPromptTemplatesParseAndExecute proves every preamble template is
@@ -59,5 +61,41 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 				t.Fatalf("template %q rendered empty", tc.name)
 			}
 		})
+	}
+}
+
+// TestExecutionModesTemplateListsPlanModeWritableDirs proves the plan-mode
+// section names every directory that stays writable in plan mode. The list
+// comes from config.PlanModeWritableDirs so a new writable directory cannot
+// drift out of the prompt.
+func TestExecutionModesTemplateListsPlanModeWritableDirs(t *testing.T) {
+	t.Parallel()
+
+	var b strings.Builder
+	if err := promptTemplates.ExecuteTemplate(&b, templateExecutionModes, nil); err != nil {
+		t.Fatalf("execute template %q: %v", templateExecutionModes, err)
+	}
+
+	dirs := config.PlanModeWritableDirs()
+	if len(dirs) == 0 {
+		t.Fatal("config.PlanModeWritableDirs() returned no directories")
+	}
+
+	// Collapse the template's line wrapping so the denial clause is contiguous.
+	rendered := strings.Join(strings.Fields(b.String()), " ")
+	const clauseStart = "`mutate` is denied outside"
+	i := strings.Index(rendered, clauseStart)
+	if i < 0 {
+		t.Fatalf("execution modes template missing %q in %q", clauseStart, rendered)
+	}
+	clause := rendered[i+len(clauseStart):]
+	if j := strings.Index(clause, ";"); j >= 0 {
+		clause = clause[:j]
+	}
+
+	for _, dir := range dirs {
+		if want := dir + "/"; !strings.Contains(clause, want) {
+			t.Errorf("plan-mode mutate denial missing writable dir %q in %q", want, clause)
+		}
 	}
 }
