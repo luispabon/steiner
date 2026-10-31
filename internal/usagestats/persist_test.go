@@ -93,11 +93,20 @@ func newLockedTestRecorder(t *testing.T, locker fileLocker) *Recorder {
 	return rec
 }
 
-func mustDrain(t *testing.T, rec *Recorder) {
-	t.Helper()
+// drainRecorder drains rec and returns the Drain error. It touches no test
+// state, so it is safe to call from a goroutine; the test goroutine asserts on
+// the returned error.
+func drainRecorder(rec *Recorder) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := rec.Drain(ctx); err != nil {
+	return rec.Drain(ctx)
+}
+
+// mustDrain drains rec and fails the test when Drain reports an error. Call it
+// only from the test goroutine.
+func mustDrain(t *testing.T, rec *Recorder) {
+	t.Helper()
+	if err := drainRecorder(rec); err != nil {
 		t.Fatalf("Drain: %v", err)
 	}
 }
@@ -224,15 +233,21 @@ func TestConcurrentRecordersOnOneStoreLoseNothing(t *testing.T) {
 	}
 	wg.Wait()
 
+	drainErrs := make([]error, len(recs))
 	var drainWG sync.WaitGroup
-	for _, rec := range recs {
+	for i, rec := range recs {
 		drainWG.Add(1)
-		go func(rec *Recorder) {
+		go func() {
 			defer drainWG.Done()
-			mustDrain(t, rec)
-		}(rec)
+			drainErrs[i] = drainRecorder(rec)
+		}()
 	}
 	drainWG.Wait()
+	for i, err := range drainErrs {
+		if err != nil {
+			t.Fatalf("drain recorder %d: %v", i, err)
+		}
+	}
 
 	b := newStore(fixedClock(baseTime)).load()[usageKey("a")]
 	if b == nil {
@@ -271,6 +286,65 @@ func TestPersistWriteFailureIsLoggedAndDoesNotBlock(t *testing.T) {
 	}
 	if _, err := os.Stat(rec.store.path); !os.IsNotExist(err) {
 		t.Fatalf("store file written despite lock failure: %v", err)
+	}
+}
+
+// lockOnceLocker fails the first lock acquisition and succeeds afterwards, so a
+// test can drive one failed batch followed by a recoverable one.
+type lockOnceLocker struct {
+	mu     sync.Mutex
+	failed bool
+}
+
+func (l *lockOnceLocker) lock(uintptr) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.failed {
+		return nil
+	}
+	l.failed = true
+	return errors.New("locking unavailable")
+}
+
+func (l *lockOnceLocker) unlock(uintptr) error { return nil }
+
+// TestWriterPersistsAfterFailedBatch proves a failed batch does not wedge the
+// writer: once the store accepts writes again, the next recorded delta reaches
+// the store while the failed batch stays out of it.
+func TestWriterPersistsAfterFailedBatch(t *testing.T) {
+	rec := newLockedTestRecorder(t, &lockOnceLocker{})
+	logs := make(chan string, 4)
+	rec.writer.logf = func(format string, args ...any) {
+		select {
+		case logs <- fmt.Sprintf(format, args...):
+		default:
+		}
+	}
+
+	rec.Record(usageObservation("a"))
+	mustDrain(t, rec)
+
+	select {
+	case msg := <-logs:
+		if !strings.Contains(msg, "lock store file") {
+			t.Fatalf("failure log = %q, want the store lock error", msg)
+		}
+	default:
+		t.Fatal("failed batch was not logged")
+	}
+	if _, err := os.Stat(rec.store.path); !os.IsNotExist(err) {
+		t.Fatalf("failed batch reached the store: %v", err)
+	}
+
+	rec.Record(usageObservation("b"))
+	mustDrain(t, rec)
+
+	stored := rec.store.load()
+	if b := stored[usageKey("b")]; b == nil || b.Requests != 1 {
+		t.Fatalf("bucket b = %+v, want the batch after the failure persisted", b)
+	}
+	if b := stored[usageKey("a")]; b != nil {
+		t.Errorf("bucket a = %+v, want the failed batch dropped from persistence", b)
 	}
 }
 
@@ -375,6 +449,8 @@ func TestCloseDropsPendingDeltas(t *testing.T) {
 		t.Fatal("writer goroutine did not exit after Close")
 	}
 
+	// Both observations must hold, so assert on each independently: a missing
+	// log line must not hide a store that still holds the abandoned delta.
 	dropped := false
 	for {
 		select {
@@ -387,9 +463,6 @@ func TestCloseDropsPendingDeltas(t *testing.T) {
 		}
 		break
 	}
-	if !dropped {
-		t.Fatal("Close did not log the pending delta drop")
-	}
 
 	stored := rec.store.load()
 	if b := stored[usageKey("a")]; b == nil || b.Requests != 1 {
@@ -397,5 +470,8 @@ func TestCloseDropsPendingDeltas(t *testing.T) {
 	}
 	if b := stored[usageKey("b")]; b != nil {
 		t.Errorf("pending bucket b = %+v, want it dropped by Close", b)
+	}
+	if !dropped {
+		t.Error("Close did not log the pending delta drop")
 	}
 }

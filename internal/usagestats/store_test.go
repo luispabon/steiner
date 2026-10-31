@@ -170,7 +170,7 @@ func TestStoreWriteRoundTrip(t *testing.T) {
 		CompletionTokens:  75,
 	}
 
-	if err := s1.write(delta, key); err != nil {
+	if err := s1.writeBatch(map[bucketKey]*bucket{key: delta}); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -216,13 +216,13 @@ func TestStoreAdditiveMerge(t *testing.T) {
 		hourUnix:       hour.Unix(),
 	}
 	delta1 := &bucket{Requests: 1, InputTokens: 100}
-	if err := s.write(delta1, key); err != nil {
+	if err := s.writeBatch(map[bucketKey]*bucket{key: delta1}); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
 
 	// Second write: add more to the same hour.
 	delta2 := &bucket{Requests: 2, InputTokens: 200}
-	if err := s.write(delta2, key); err != nil {
+	if err := s.writeBatch(map[bucketKey]*bucket{key: delta2}); err != nil {
 		t.Fatalf("second write: %v", err)
 	}
 
@@ -271,7 +271,7 @@ func TestStoreConcurrentRecords(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			delta := &bucket{Requests: 1, InputTokens: 10}
-			errs[i] = s.write(delta, key)
+			errs[i] = s.writeBatch(map[bucketKey]*bucket{key: delta})
 		}(i)
 	}
 
@@ -284,7 +284,7 @@ func TestStoreConcurrentRecords(t *testing.T) {
 	}
 
 	// Load and verify totals.
-	// The file lock in write must serialize the read-modify-write cycle so
+	// The file lock in writeBatch must serialize the read-modify-write cycle so
 	// that all n concurrent deltas are reflected exactly, with none lost.
 	s2 := newStore(clock.Now)
 	loaded := s2.load()
@@ -313,7 +313,7 @@ func TestStoreWriteCreatesDirs(t *testing.T) {
 	key := bucketKey{providerAlias: "p", providerType: "t", backendModelID: "m", hourUnix: now.Unix()}
 	delta := &bucket{Requests: 1}
 
-	if err := s.write(delta, key); err != nil {
+	if err := s.writeBatch(map[bucketKey]*bucket{key: delta}); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -337,7 +337,7 @@ func TestStoreWritePermissions(t *testing.T) {
 	key := bucketKey{providerAlias: "p", providerType: "t", backendModelID: "m", hourUnix: now.Unix()}
 	delta := &bucket{Requests: 1}
 
-	if err := s.write(delta, key); err != nil {
+	if err := s.writeBatch(map[bucketKey]*bucket{key: delta}); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -373,7 +373,7 @@ func TestStorePruningOnWrite(t *testing.T) {
 		hourUnix:       oldHour.Unix(),
 	}
 	oldDelta := &bucket{Requests: 1}
-	if err := s.write(oldDelta, oldKey); err != nil {
+	if err := s.writeBatch(map[bucketKey]*bucket{oldKey: oldDelta}); err != nil {
 		t.Fatalf("write old: %v", err)
 	}
 
@@ -386,7 +386,7 @@ func TestStorePruningOnWrite(t *testing.T) {
 		hourUnix:       newHour.Unix(),
 	}
 	newDelta := &bucket{Requests: 1}
-	if err := s.write(newDelta, newKey); err != nil {
+	if err := s.writeBatch(map[bucketKey]*bucket{newKey: newDelta}); err != nil {
 		t.Fatalf("write new: %v", err)
 	}
 
@@ -440,7 +440,7 @@ func TestStorePruningBoundary(t *testing.T) {
 			}
 			delta := &bucket{Requests: 1}
 
-			if err := s.write(delta, key); err != nil {
+			if err := s.writeBatch(map[bucketKey]*bucket{key: delta}); err != nil {
 				t.Fatalf("write: %v", err)
 			}
 
@@ -506,7 +506,7 @@ func TestStoreWriteRoundTripPreservesSource(t *testing.T) {
 
 	s1 := newStore(clock.Now)
 	key := bucketKey{providerAlias: "test", providerType: "openai", backendModelID: "gpt-4", hourUnix: hour.Unix(), source: SourceSubAgent}
-	if err := s1.write(&bucket{Requests: 1, InputTokens: 10}, key); err != nil {
+	if err := s1.writeBatch(map[bucketKey]*bucket{key: {Requests: 1, InputTokens: 10}}); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 

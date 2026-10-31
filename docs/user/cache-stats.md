@@ -80,7 +80,7 @@ These are provider limitations, not accounting errors.
 
 A missing file starts empty. A corrupt or unknown-version file starts empty with a warning. Usage deltas are written in the background, so a model turn never waits on the stats file lock. A lock-acquisition or write failure drops the affected batch from persistence only; it never blocks a model turn, and the in-session counts already include those observations.
 
-`/cache-stats` and the sidebar read in-memory counters, so they include every observation of the current session immediately. Another Steiner process sees an observation only after it has been flushed. Deltas still queued at a normal shutdown are flushed before exit under their own 5 second deadline, separate from the subscription-quota drain and its budget. A crash, a kill, or a flush that cannot acquire the file lock before that deadline loses the deltas still queued; a failed write is logged and leaves the in-session totals intact.
+`/cache-stats` and the sidebar read in-memory counters, so they include every observation of the current session immediately. Another Steiner process sees an observation only after it has been flushed. Deltas still queued at a normal shutdown are flushed before exit under their own 5 second deadline, separate from the subscription-quota drain and its budget. A delta recorded after the statistics writer has closed is dropped from persistence and logged as `persistence writer closed`; it stays in the in-session totals only. A crash, a kill, or a flush that cannot acquire the file lock before that deadline loses the deltas still queued; a failed write is logged and leaves the in-session totals intact.
 
 ## Privacy and data security
 

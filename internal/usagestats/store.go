@@ -194,11 +194,6 @@ func (s *store) atomicWrite(buckets map[bucketKey]*bucket) error {
 	return nil
 }
 
-// write persists one delta to disk with additive-delta merge under lock.
-func (s *store) write(delta *bucket, deltaKey bucketKey) error {
-	return s.writeBatch(map[bucketKey]*bucket{deltaKey: delta})
-}
-
 // writeBatch persists every delta in a single locked read, merge and atomic
 // write, so a batch of coalesced observations costs one cross-process lock
 // acquisition. The merge stays additive: each key's counts and token sums are

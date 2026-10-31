@@ -29,7 +29,9 @@ func TestStoreWriteFailsClosedWhenLockFails(t *testing.T) {
 	s := newStore(newMockClock(time.Date(2024, 6, 21, 12, 0, 0, 0, time.UTC)).Now)
 	s.locker = failingFileLocker{}
 
-	err := s.write(&bucket{Requests: 1}, bucketKey{providerAlias: "p", providerType: "openai", backendModelID: "m"})
+	err := s.writeBatch(map[bucketKey]*bucket{
+		{providerAlias: "p", providerType: "openai", backendModelID: "m"}: {Requests: 1},
+	})
 	if err == nil {
 		t.Fatal("write succeeded, want lock error")
 	}
