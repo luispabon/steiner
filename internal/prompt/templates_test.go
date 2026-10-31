@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -64,10 +65,11 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 	}
 }
 
-// TestExecutionModesTemplateListsPlanModeWritableDirs proves the plan-mode
-// section names every directory that stays writable in plan mode. The list
-// comes from config.PlanModeWritableDirs so a new writable directory cannot
-// drift out of the prompt.
+// TestExecutionModesTemplateListsPlanModeWritableDirs pins the plan-mode
+// writable directory list in the execution modes template to
+// config.PlanModeWritableDirs: the template must name exactly those
+// directories, so a directory added to or removed from config fails here
+// instead of leaving the prompt stale.
 func TestExecutionModesTemplateListsPlanModeWritableDirs(t *testing.T) {
 	t.Parallel()
 
@@ -76,8 +78,8 @@ func TestExecutionModesTemplateListsPlanModeWritableDirs(t *testing.T) {
 		t.Fatalf("execute template %q: %v", templateExecutionModes, err)
 	}
 
-	dirs := config.PlanModeWritableDirs()
-	if len(dirs) == 0 {
+	want := config.PlanModeWritableDirs()
+	if len(want) == 0 {
 		t.Fatal("config.PlanModeWritableDirs() returned no directories")
 	}
 
@@ -93,9 +95,21 @@ func TestExecutionModesTemplateListsPlanModeWritableDirs(t *testing.T) {
 		clause = clause[:j]
 	}
 
-	for _, dir := range dirs {
-		if want := dir + "/"; !strings.Contains(clause, want) {
-			t.Errorf("plan-mode mutate denial missing writable dir %q in %q", want, clause)
-		}
+	// The clause lists directories as code spans, so odd split indexes are the
+	// quoted paths. Each must match a configured directory, and every
+	// configured directory must appear.
+	parts := strings.Split(clause, "`")
+	if len(parts)%2 == 0 {
+		t.Fatalf("unbalanced backticks in plan-mode denial clause %q", clause)
+	}
+	var got []string
+	for j := 1; j < len(parts); j += 2 {
+		got = append(got, strings.TrimSuffix(parts[j], "/"))
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+
+	if !slices.Equal(got, want) {
+		t.Errorf("plan-mode writable dirs in execution modes template = %#v, want %#v (clause %q)", got, want, clause)
 	}
 }
