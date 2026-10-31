@@ -18,10 +18,13 @@ func applyDispatchGate(ctx context.Context, store *CacheKeyStore, cacheKey strin
 	if isLeader {
 		return newDispatchReleaseSink(childEvents, release), release
 	}
-	deadline := time.Now().Add(dispatchGateTimeout)
+	start := time.Now()
 	if parentEvents != nil {
-		parentEvents.Emit(output.NewDelegationCacheWaitingEvent(occ, deadline))
+		parentEvents.Emit(output.NewDelegationCacheWaitingEvent(occ, start.Add(dispatchGateTimeout)))
 	}
-	wait(ctx)
+	reason := wait(ctx)
+	if parentEvents != nil {
+		parentEvents.Emit(output.NewDelegationCacheReleasedEvent(occ, reason, time.Since(start).Milliseconds()))
+	}
 	return childEvents, func() {}
 }

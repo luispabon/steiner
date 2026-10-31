@@ -67,6 +67,27 @@ type DelegationCacheWaitingEvent struct {
 	DeadlineUnixNano int64 `json:"deadline_unix_nano"`
 }
 
+// DelegationCacheReleaseReason records why a gated delegation follower stopped
+// waiting for the leader of its prompt-cache dispatch slot.
+type DelegationCacheReleaseReason string
+
+const (
+	// DelegationCacheReleaseLeaderFirstResponse means the leader emitted its first provider response.
+	DelegationCacheReleaseLeaderFirstResponse DelegationCacheReleaseReason = "leader_first_response"
+	// DelegationCacheReleaseTimeout means the dispatch gate timeout elapsed before the leader responded.
+	DelegationCacheReleaseTimeout DelegationCacheReleaseReason = "timeout"
+	// DelegationCacheReleaseCancelled means the follower's context was cancelled while waiting.
+	DelegationCacheReleaseCancelled DelegationCacheReleaseReason = "cancelled"
+)
+
+// DelegationCacheReleasedEvent records a gated delegation follower released from
+// its wait, with the measured wait and the reason the wait ended.
+type DelegationCacheReleasedEvent struct {
+	DelegationOccurrence
+	WaitedMs int64                        `json:"waited_ms"`
+	Reason   DelegationCacheReleaseReason `json:"reason"`
+}
+
 // DelegationCompleteEvent records a successful delegated child task.
 type DelegationCompleteEvent struct {
 	DelegationOccurrence
@@ -150,6 +171,16 @@ func NewDelegationCacheWaitingEvent(occ DelegationOccurrence, deadline time.Time
 	return newEvent(EventTypeDelegationCacheWaiting, DelegationCacheWaitingEvent{
 		DelegationOccurrence: occ,
 		DeadlineUnixNano:     deadline.UnixNano(),
+	})
+}
+
+// NewDelegationCacheReleasedEvent creates the event marking a gated delegation
+// follower released from its wait.
+func NewDelegationCacheReleasedEvent(occ DelegationOccurrence, reason DelegationCacheReleaseReason, waitedMs int64) Event {
+	return newEvent(EventTypeDelegationCacheReleased, DelegationCacheReleasedEvent{
+		DelegationOccurrence: occ,
+		WaitedMs:             waitedMs,
+		Reason:               reason,
 	})
 }
 

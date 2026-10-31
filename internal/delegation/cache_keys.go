@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -76,9 +77,12 @@ func cacheKeyOrMint(store *CacheKeyStore, agentType AgentType) string {
 // returned wait before spawning. release is idempotent and clears a follower wait for
 // this cacheKey. An empty cacheKey is ungated: it always returns isLeader=true with a
 // no-op release and wait.
-func (s *CacheKeyStore) BeginDispatch(cacheKey string) (isLeader bool, release func(), wait func(ctx context.Context)) {
+//
+// A follower's wait returns why it ended. Leaders never call wait, so their wait
+// returns the zero reason.
+func (s *CacheKeyStore) BeginDispatch(cacheKey string) (isLeader bool, release func(), wait func(ctx context.Context) output.DelegationCacheReleaseReason) {
 	if cacheKey == "" {
-		return true, func() {}, func(context.Context) {}
+		return true, func() {}, noWait
 	}
 
 	s.mu.Lock()
@@ -89,7 +93,11 @@ func (s *CacheKeyStore) BeginDispatch(cacheKey string) (isLeader bool, release f
 	g := &dispatchGate{ready: make(chan struct{})}
 	s.gates[cacheKey] = g
 	s.mu.Unlock()
-	return true, s.releaseFor(cacheKey, g), func(context.Context) {}
+	return true, s.releaseFor(cacheKey, g), noWait
+}
+
+func noWait(context.Context) output.DelegationCacheReleaseReason {
+	return ""
 }
 
 func (s *CacheKeyStore) releaseFor(cacheKey string, g *dispatchGate) func() {
@@ -103,7 +111,7 @@ func (s *CacheKeyStore) releaseFor(cacheKey string, g *dispatchGate) func() {
 	}
 }
 
-func (s *CacheKeyStore) waitFor(g *dispatchGate) func(ctx context.Context) {
+func (s *CacheKeyStore) waitFor(g *dispatchGate) func(ctx context.Context) output.DelegationCacheReleaseReason {
 	timeout := dispatchGateTimeout
 	if s.testWaitTimeout > 0 {
 		timeout = s.testWaitTimeout
@@ -111,14 +119,17 @@ func (s *CacheKeyStore) waitFor(g *dispatchGate) func(ctx context.Context) {
 	return waitForTimeout(g, timeout)
 }
 
-func waitForTimeout(g *dispatchGate, timeout time.Duration) func(ctx context.Context) {
-	return func(ctx context.Context) {
+func waitForTimeout(g *dispatchGate, timeout time.Duration) func(ctx context.Context) output.DelegationCacheReleaseReason {
+	return func(ctx context.Context) output.DelegationCacheReleaseReason {
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
 		select {
 		case <-g.ready:
+			return output.DelegationCacheReleaseLeaderFirstResponse
 		case <-timer.C:
+			return output.DelegationCacheReleaseTimeout
 		case <-ctx.Done():
+			return output.DelegationCacheReleaseCancelled
 		}
 	}
 }

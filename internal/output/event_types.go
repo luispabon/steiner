@@ -88,6 +88,8 @@ const (
 	EventTypeDelegationWorktreeDisposal = "delegation_worktree_disposal"
 	// EventTypeDelegationCacheWaiting marks a sub-agent delegation gated behind a shared prompt-cache dispatch slot.
 	EventTypeDelegationCacheWaiting = "delegation_cache_waiting"
+	// EventTypeDelegationCacheReleased marks a gated delegation follower released from that wait.
+	EventTypeDelegationCacheReleased = "delegation_cache_released"
 	// EventTypeAdvisorStarted marks the start of an advisor call.
 	EventTypeAdvisorStarted = "advisor_started"
 	// EventTypeAdvisorComplete marks the end of an advisor call.

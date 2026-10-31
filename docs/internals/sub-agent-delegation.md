@@ -107,7 +107,7 @@ Token counters accumulate across follow-ups, seeded from `Spec.PriorTokenUsage`.
 
 `internal/agent` appends turn-budget notices at 50, 75, and 90 percent of the budget (`turnBudgetNoticeFractions`, `internal/agent/turn_budget_notice.go`). A follow-up counts from its own start turn (`RunState.BudgetStartTurn`). The notices do not change the limit.
 
-`CacheKeyStore.BeginDispatch` (`cache_keys.go`) lets the first child for a cache key dispatch at once. Later children with the same key wait until the leader releases the gate or `dispatchGateTimeout` (10 seconds) elapses. Waiting emits `delegation_cache_waiting`.
+`CacheKeyStore.BeginDispatch` (`cache_keys.go`) lets the first child for a cache key dispatch at once. Later children with the same key wait until the leader releases the gate or `dispatchGateTimeout` (10 seconds) elapses. Waiting emits `delegation_cache_waiting`; the end of the wait emits `delegation_cache_released` with `waited_ms` and a `reason` of `leader_first_response`, `timeout`, or `cancelled`.
 
 ## Parallel tool classification
 
@@ -152,7 +152,7 @@ Host-only diagnostics stay out of the provider payload described above.
 
 ## Event lifecycle
 
-Delegation events (`internal/output/event_types.go`): `delegation_accepted`, `delegation_queued`, `delegation_started`, `delegation_cache_waiting`, `delegation_complete`, `delegation_failed`, and `delegation_worktree_disposal`.
+Delegation events (`internal/output/event_types.go`): `delegation_accepted`, `delegation_queued`, `delegation_started`, `delegation_cache_waiting`, `delegation_cache_released`, `delegation_complete`, `delegation_failed`, and `delegation_worktree_disposal`.
 
 `Supervisor.enqueue` (`supervisor_queue.go`) emits `delegation_accepted` for each accepted job and `delegation_queued` only when the job waits for a running slot.
 
