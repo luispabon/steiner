@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -333,6 +334,10 @@ func TestResolveSearchRoot_AppliesSandboxTmpRewrite(t *testing.T) {
 		t.Skip("sandbox /tmp rewrite does not apply to symlink targets on this platform")
 	}
 
+	// Distinct content behind the rewritten sandbox path: a walk that lands
+	// here finds sandbox.txt, a walk that escapes to the host finds leak.txt.
+	mustWriteTree(t, want, "sandbox.txt", "needle\n")
+
 	link := filepath.Join(root, "link")
 	mustSymlink(t, realTmp, link)
 
@@ -344,18 +349,90 @@ func TestResolveSearchRoot_AppliesSandboxTmpRewrite(t *testing.T) {
 		t.Fatalf("resolveSearchRoot = %q, want policy-resolved %q", got, want)
 	}
 
-	results, err := grepSearch(context.Background(), grepSearchParams{
-		root:        link,
-		displayPath: "link",
-		pattern:     "needle",
-		policy:      &policy,
-	})
-	if err != nil {
-		return // The rewritten sandbox path may not exist; failing is closed.
-	}
-	for _, file := range grepResultFiles(results) {
-		if strings.Contains(file, "leak") {
-			t.Fatalf("grep read through the symlink into the unsandboxed /tmp target: %s", file)
+	ctx := context.Background()
+
+	// The policy root and the sandbox tmp both live under /tmp here, so a
+	// handler path like "link" would be rewritten before the symlink is
+	// resolved. Exercise each tool on the resolved walk root instead; the
+	// handler wiring from resolveSearchRoot into glob and ls is covered by the
+	// non-sandbox symlink-root tests above.
+
+	t.Run("grep reads the sandbox copy", func(t *testing.T) {
+		results, err := grepSearch(ctx, grepSearchParams{
+			root:        link,
+			displayPath: "link",
+			pattern:     "needle",
+			policy:      &policy,
+		})
+		if err != nil {
+			t.Fatalf("grepSearch: %v", err)
 		}
+		assertSameStringSet(t, "grep files", grepResultFiles(results), []string{"sandbox.txt"})
+	})
+
+	t.Run("glob reads the sandbox copy", func(t *testing.T) {
+		matches, err := globWalk(want, "**/*.txt", tool.NewPathExcluder(nil, nil), &policy)
+		if err != nil {
+			t.Fatalf("globWalk: %v", err)
+		}
+		assertSameStringSet(t, "glob matches", matches, []string{"sandbox.txt"})
+	})
+
+	t.Run("ls reads the sandbox copy", func(t *testing.T) {
+		result, err := lsRecursive(ctx, want, defaultLSLimit, 0, tool.PathExcluder{}, &policy)
+		if err != nil {
+			t.Fatalf("lsRecursive: %v", err)
+		}
+		assertSameStringSet(t, "ls output lines", strings.Split(result.Output, "\n"), []string{"sandbox.txt"})
+	})
+}
+
+func TestLSTool_ShowsSpecialFilesThatPolicyCannotRead(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "visible.txt", "visible")
+	fifo := filepath.Join(root, "pipe")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Skipf("mkfifo unsupported: %v", err)
 	}
+	secretsDir := filepath.Join(root, "secrets")
+	mustMkdir(t, secretsDir)
+	if err := syscall.Mkfifo(filepath.Join(secretsDir, "pipe"), 0o600); err != nil {
+		t.Skipf("mkfifo unsupported: %v", err)
+	}
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
+	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy})
+	ctx := context.Background()
+
+	t.Run("non-recursive listing shows special files", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{"path": "."})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*Result)
+		if !ok {
+			t.Fatalf("result type = %T, want *Result", resultI)
+		}
+		assertSameStringSet(t, "ls output lines", strings.Split(result.Output, "\n"), []string{"pipe", "visible.txt"})
+	})
+
+	t.Run("recursive listing shows special files", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{"path": ".", "recursive": true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*Result)
+		if !ok {
+			t.Fatalf("result type = %T, want *Result", resultI)
+		}
+		assertSameStringSet(t, "ls output lines", strings.Split(result.Output, "\n"), []string{"pipe", "visible.txt"})
+	})
+
+	t.Run("glob keeps read semantics for matched special files", func(t *testing.T) {
+		matches, err := globWalk(root, "*", tool.NewPathExcluder(nil, nil), &policy)
+		if err != nil {
+			t.Fatalf("globWalk: %v", err)
+		}
+		assertSameStringSet(t, "glob matches", matches, []string{"visible.txt"})
+	})
 }
