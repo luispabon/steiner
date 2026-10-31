@@ -240,7 +240,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 	if req.Diagnostics.Enabled(diagnostics.KindCache) {
 		stats = computeRequestCacheStats(req, chatRequest.Messages)
 	}
-	response, _, err := executeChatRequest(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, nil)
+	response, _, err := executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, chatExecOptions{}, nil)
 	if logger != nil {
 		if logErr := logger.LogResponse(response); logErr != nil {
 			slog.Warn("compaction response log failed", "path", req.CompactionLogPath, "error", logErr)

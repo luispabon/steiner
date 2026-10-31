@@ -792,7 +792,7 @@ func TestStripImagesIfVisionDisabledWithCapabilitiesHolder(t *testing.T) {
 				visionPtr = &visionTrue
 			}
 
-			result := stripImagesIfVisionDisabled(visionPtr, tc.messages, tc.alias, 1, output.SinkFunc(func(event output.Event) { events = append(events, event) }), tc.capabilities)
+			result, _ := stripImagesIfVisionDisabled(visionPtr, tc.messages, tc.alias, 1, output.SinkFunc(func(event output.Event) { events = append(events, event) }), tc.capabilities)
 
 			// Check if images were stripped
 			hasImages := false

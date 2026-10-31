@@ -124,6 +124,7 @@ type ChatRequest struct {
 	Stream                 bool       `json:"stream,omitempty"`
 	Tools                  []ToolSpec `json:"tools,omitempty"`
 	PromptCacheKey         string     `json:"-"`
+
 	// RawPromptTokenEstimate is the uncalibrated token estimate for exactly the
 	// request it is set on, carried from the pre-send fit so the post-response
 	// calibration reuses it instead of estimating again. Zero means unknown and
