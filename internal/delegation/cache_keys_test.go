@@ -124,6 +124,22 @@ func TestCacheKeyStoreDispatchGateLeaderAndFollower(t *testing.T) {
 	}
 }
 
+// waitReason runs a gate wait under a one-second bound, so a regression in the
+// gate's timer or cancellation handling fails the test instead of hanging it.
+// The channel is buffered so a late wait return does not leak the goroutine.
+func waitReason(t *testing.T, wait func() output.DelegationCacheReleaseReason) output.DelegationCacheReleaseReason {
+	t.Helper()
+	reasons := make(chan output.DelegationCacheReleaseReason, 1)
+	go func() { reasons <- wait() }()
+	select {
+	case reason := <-reasons:
+		return reason
+	case <-time.After(time.Second):
+		t.Fatal("gate wait did not return within a second")
+		return ""
+	}
+}
+
 func TestCacheKeyStoreDispatchGateWaitCancellation(t *testing.T) {
 	t.Parallel()
 	store := NewCacheKeyStore()
@@ -133,7 +149,7 @@ func TestCacheKeyStoreDispatchGateWaitCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if reason := wait(ctx); reason != output.DelegationCacheReleaseCancelled {
+	if reason := waitReason(t, func() output.DelegationCacheReleaseReason { return wait(ctx) }); reason != output.DelegationCacheReleaseCancelled {
 		t.Fatalf("wait reason = %q, want %q", reason, output.DelegationCacheReleaseCancelled)
 	}
 }
@@ -206,7 +222,10 @@ func TestCacheKeyStoreDispatchGateTimeout(t *testing.T) {
 
 	gate := &dispatchGate{ready: make(chan struct{})}
 	defer gate.release(output.DelegationCacheReleaseLeaderExited)
-	if reason := waitForTimeout(gate, 20*time.Millisecond)(context.Background()); reason != output.DelegationCacheReleaseTimeout {
+	wait := func() output.DelegationCacheReleaseReason {
+		return waitForTimeout(gate, 20*time.Millisecond)(context.Background())
+	}
+	if reason := waitReason(t, wait); reason != output.DelegationCacheReleaseTimeout {
 		t.Fatalf("waitForTimeout reason = %q, want %q", reason, output.DelegationCacheReleaseTimeout)
 	}
 }
