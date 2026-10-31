@@ -19,14 +19,23 @@ var builtinExcludeComponents = func() map[string]struct{} {
 }()
 
 // WorkspaceExcluder excludes walk entries using rules anchored to a workspace
-// root. It accepts absolute native paths plus the root the walk started from,
-// so built-in exclusions and component patterns never blind a walk that
-// explicitly targets a path below an excluded ancestor.
+// root. It accepts absolute native paths plus the root the walk started from.
+// Built-in directory exclusions match only walk-relative components, so a walk
+// that explicitly targets a path below an excluded ancestor (for example
+// .steiner/worktrees/x) stays searchable. Configured slashless patterns stay
+// workspace-relative inside the workspace, so an explicit root below a
+// configured component pattern is still excluded.
+//
+// Paths are compared lexically: symlinks are neither followed nor resolved.
+// Callers must pass absPath and walkRoot in the same form (lexically cleaned or
+// symlink-resolved) as workspaceRoot and the configured exclude paths.
 //
 // Rule precedence, highest first:
 //
 //   - exact configured paths (relative entries are anchored to the workspace
-//     root, absolute entries are used as given) always exclude;
+//     root, "." excludes the workspace, a filesystem or volume root excludes
+//     everything beneath it, and absolute entries are used as given) always
+//     exclude;
 //   - force-include components never override exact paths but override every
 //     pattern and built-in below;
 //   - slash patterns match the workspace-relative slash path and any of its
@@ -35,11 +44,16 @@ var builtinExcludeComponents = func() map[string]struct{} {
 //     inside the workspace, walk-relative outside);
 //   - built-in directory names match walk-relative directory components only.
 //
+// Patterns may be prefixed with "./" and may end with separators; both forms
+// are normalised. A path segment that is exactly "**" matches zero or more
+// path segments, so "**/fixtures" matches both "fixtures" and "a/fixtures".
+// Invalid patterns are ignored.
+//
 // The zero value excludes nothing.
 type WorkspaceExcluder struct {
 	workspaceRoot     string
 	excludePaths      []string
-	slashPatterns     []glob.Glob
+	slashPatterns     []workspacePattern
 	componentPatterns []glob.Glob
 	forceInclude      map[string]struct{}
 	builtins          bool
@@ -92,14 +106,17 @@ func newWorkspaceExcluder(workspaceRoot string, excludePaths, excludePatterns, i
 // ExcludeEntry reports whether the walk entry at absPath should be skipped.
 // walkRoot is the absolute directory the walk started from, absPath is the
 // entry's absolute native path, and isDir reports whether the entry is a
-// directory. Paths are matched with the platform's separator and case rules.
+// directory. Paths are matched lexically with the platform's separator and
+// case rules: symlinks are not resolved, so callers must pass both arguments in
+// the same form (lexically cleaned or resolved) as the workspace root and
+// configured exclusions.
 func (e WorkspaceExcluder) ExcludeEntry(walkRoot, absPath string, isDir bool) bool {
 	if !e.active() {
 		return false
 	}
 	path := normalizeWorkspacePath(absPath, e.caseInsensitive)
 	for _, prefix := range e.excludePaths {
-		if path == prefix || strings.HasPrefix(path, prefix+string(filepath.Separator)) {
+		if exactPathMatch(path, prefix) {
 			return true
 		}
 	}
@@ -194,13 +211,13 @@ func (e WorkspaceExcluder) forceIncluded(components []string) bool {
 // matchSlashPatterns reports whether any pattern matches relSlash or one of its
 // ancestor directory prefixes, so a pattern for a directory also excludes the
 // entries beneath it.
-func matchSlashPatterns(patterns []glob.Glob, relSlash string) bool {
+func matchSlashPatterns(patterns []workspacePattern, relSlash string) bool {
 	if len(patterns) == 0 || relSlash == "" {
 		return false
 	}
 	for _, prefix := range relPrefixes(relSlash) {
 		for _, pattern := range patterns {
-			if pattern.Match(prefix) {
+			if pattern.matches(prefix) {
 				return true
 			}
 		}
@@ -262,6 +279,11 @@ func normalizeWorkspacePath(path string, windows bool) string {
 		path = strings.ReplaceAll(path, "\\", "/")
 	}
 	path = filepath.Clean(path)
+	if windows && len(path) == 2 && path[1] == ':' {
+		// Keep a drive designator in volume-root form on every host; Windows
+		// itself cleans a bare "C:" as "C:." instead.
+		path += "/"
+	}
 	return foldWorkspacePath(path, windows)
 }
 
@@ -312,80 +334,138 @@ func workspacePathIsAbs(path string, windows bool) bool {
 // compileWorkspaceExcludePatterns compiles configured patterns into
 // workspace-relative slash patterns and component patterns. Patterns that fail
 // to compile are skipped, matching PathExcluder's silent handling.
-func compileWorkspaceExcludePatterns(patterns []string, windows bool) ([]glob.Glob, []glob.Glob) {
-	var slashPatterns, componentPatterns []glob.Glob
+func compileWorkspaceExcludePatterns(patterns []string, windows bool) ([]workspacePattern, []glob.Glob) {
+	var slashPatterns []workspacePattern
+	var componentPatterns []glob.Glob
 	for _, pattern := range patterns {
 		if pattern == "" {
 			continue
 		}
-		if windows {
-			pattern = strings.ToLower(strings.ReplaceAll(pattern, "\\", "/"))
+		pattern = normalizeWorkspacePattern(pattern, windows)
+		if pattern == "" {
+			continue
 		}
-		if hasUnescapedSeparator(pattern) {
-			for _, expanded := range expandZeroDirectorySegments(pattern) {
-				matcher, err := glob.Compile(expanded, '/')
-				if err != nil {
-					continue
-				}
-				slashPatterns = append(slashPatterns, matcher)
+		if !strings.Contains(pattern, "/") {
+			matcher, err := glob.Compile(pattern)
+			if err != nil {
+				continue
 			}
+			componentPatterns = append(componentPatterns, matcher)
 			continue
 		}
-		matcher, err := glob.Compile(pattern)
-		if err != nil {
-			continue
+		if compiled, ok := compileWorkspaceSlashPattern(pattern); ok {
+			slashPatterns = append(slashPatterns, compiled)
 		}
-		componentPatterns = append(componentPatterns, matcher)
 	}
 	return slashPatterns, componentPatterns
 }
 
-// hasUnescapedSeparator reports whether the glob pattern contains a slash
-// outside a bracket expression and not escaped by a backslash.
-func hasUnescapedSeparator(pattern string) bool {
-	escaped, inClass := false, false
-	for i := 0; i < len(pattern); i++ {
-		switch c := pattern[i]; {
-		case escaped:
-			escaped = false
-		case c == '\\':
-			escaped = true
-		case inClass:
-			if c == ']' {
-				inClass = false
-			}
-		case c == '[':
-			inClass = true
-		case c == '/':
-			return true
-		}
+// exactPathMatch reports whether path equals prefix or sits beneath it. A
+// prefix that already ends in a separator (a filesystem or volume root) is used
+// as is, so "/" and "C:\" match their descendants instead of forming a doubled
+// separator that matches nothing.
+func exactPathMatch(path, prefix string) bool {
+	if path == prefix {
+		return true
 	}
-	return false
+	separator := string(filepath.Separator)
+	if strings.HasSuffix(prefix, separator) {
+		return strings.HasPrefix(path, prefix)
+	}
+	return strings.HasPrefix(path, prefix+separator)
 }
 
-// expandZeroDirectorySegments returns pattern plus every variant with one or
-// more removable "**/" segments dropped, so `**/name` also matches a top-level
-// `name`. Escaped asterisks and bracket expressions are left intact.
-func expandZeroDirectorySegments(pattern string) []string {
-	expanded := []string{pattern}
-	seen := map[string]struct{}{pattern: {}}
-	for i := 0; i < len(expanded); i++ {
-		for _, next := range removeZeroDirectorySegments(expanded[i]) {
-			if _, ok := seen[next]; ok {
+// workspacePattern is a compiled slash pattern. Patterns without a full-segment
+// "**" match through a single gobwas matcher. Patterns with full-segment "**"
+// compile once into segments and match with a bounded segment walk, so
+// zero-directory "**/" handling never expands every combination.
+type workspacePattern struct {
+	matcher  glob.Glob
+	segments []workspacePatternSegment
+}
+
+// workspacePatternSegment is one path segment of a compiled slash pattern. A
+// globstar segment matches zero or more path segments; any other segment
+// matches one or more (a brace alternative can span separators).
+type workspacePatternSegment struct {
+	globstar bool
+	matcher  glob.Glob
+}
+
+// matches reports whether relSlash matches the pattern.
+func (p workspacePattern) matches(relSlash string) bool {
+	if p.matcher != nil {
+		return p.matcher.Match(relSlash)
+	}
+	parts := strings.Split(relSlash, "/")
+	reachable := make([]bool, len(parts)+1)
+	reachable[0] = true
+	for _, segment := range p.segments {
+		next := make([]bool, len(parts)+1)
+		for start, ok := range reachable {
+			if !ok {
 				continue
 			}
-			seen[next] = struct{}{}
-			expanded = append(expanded, next)
+			if segment.globstar {
+				for end := start; end <= len(parts); end++ {
+					next[end] = true
+				}
+				continue
+			}
+			for end := start + 1; end <= len(parts); end++ {
+				if segment.matcher.Match(strings.Join(parts[start:end], "/")) {
+					next[end] = true
+				}
+			}
 		}
+		reachable = next
 	}
-	return expanded
+	return reachable[len(parts)]
 }
 
-// removeZeroDirectorySegments returns pattern with each removable "**/"
-// occurrence removed one at a time.
-func removeZeroDirectorySegments(pattern string) []string {
-	var variants []string
+// compileWorkspaceSlashPattern compiles one slash pattern, reporting false when
+// the pattern is invalid. Only a segment that is exactly "**" is a globstar; a
+// segment such as "a**" keeps its gobwas meaning and is not expanded.
+func compileWorkspaceSlashPattern(pattern string) (workspacePattern, bool) {
+	segments, ok := splitWorkspacePatternSegments(pattern)
+	hasGlobstar := false
+	for _, segment := range segments {
+		if segment == "**" {
+			hasGlobstar = true
+			break
+		}
+	}
+	if !ok || !hasGlobstar {
+		matcher, err := glob.Compile(pattern, '/')
+		if err != nil {
+			return workspacePattern{}, false
+		}
+		return workspacePattern{matcher: matcher}, true
+	}
+	compiled := make([]workspacePatternSegment, 0, len(segments))
+	for _, segment := range segments {
+		if segment == "**" {
+			compiled = append(compiled, workspacePatternSegment{globstar: true})
+			continue
+		}
+		matcher, err := glob.Compile(segment, '/')
+		if err != nil {
+			return workspacePattern{}, false
+		}
+		compiled = append(compiled, workspacePatternSegment{matcher: matcher})
+	}
+	return workspacePattern{segments: compiled}, true
+}
+
+// splitWorkspacePatternSegments splits a slash pattern on separators outside
+// bracket expressions and brace groups and not escaped by a backslash. It
+// reports false when the split leaves an empty segment, which keeps malformed
+// patterns on the single-matcher path.
+func splitWorkspacePatternSegments(pattern string) ([]string, bool) {
+	var segments []string
+	start := 0
 	escaped, inClass := false, false
+	braceDepth := 0
 	for i := 0; i < len(pattern); i++ {
 		switch c := pattern[i]; {
 		case escaped:
@@ -398,10 +478,52 @@ func removeZeroDirectorySegments(pattern string) []string {
 			}
 		case c == '[':
 			inClass = true
-		case c == '*' && strings.HasPrefix(pattern[i:], "**/"):
-			variants = append(variants, pattern[:i]+pattern[i+3:])
-			i += 2
+		case c == '{':
+			braceDepth++
+		case c == '}':
+			if braceDepth > 0 {
+				braceDepth--
+			}
+		case c == '/' && braceDepth == 0:
+			segments = append(segments, pattern[start:i])
+			start = i + 1
 		}
 	}
-	return variants
+	segments = append(segments, pattern[start:])
+	for _, segment := range segments {
+		if segment == "" {
+			return segments, false
+		}
+	}
+	return segments, true
+}
+
+// normalizeWorkspacePattern normalises a configured pattern for workspace-
+// relative matching: Windows separators and case are folded and a leading
+// "./" is dropped.
+func normalizeWorkspacePattern(pattern string, windows bool) string {
+	if windows {
+		pattern = strings.ToLower(strings.ReplaceAll(pattern, "\\", "/"))
+	}
+	for strings.HasPrefix(pattern, "./") {
+		pattern = pattern[2:]
+	}
+	return trimTrailingPatternSeparators(pattern)
+}
+
+// trimTrailingPatternSeparators removes trailing separators that are not
+// escaped, so "build/" and "docs/private/" match the same entries as their
+// unadorned forms.
+func trimTrailingPatternSeparators(pattern string) string {
+	for len(pattern) > 0 && pattern[len(pattern)-1] == '/' {
+		escaped := false
+		for i := len(pattern) - 2; i >= 0 && pattern[i] == '\\'; i-- {
+			escaped = !escaped
+		}
+		if escaped {
+			break
+		}
+		pattern = pattern[:len(pattern)-1]
+	}
+	return pattern
 }
