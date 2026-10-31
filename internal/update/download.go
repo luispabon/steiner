@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -100,14 +101,34 @@ func (w *idleWatchdog) stop() {
 	})
 }
 
-// requestCause returns the cause that cancelled ctx, or err when ctx is still
-// live. Returning the cause keeps errors.Is working for context.Canceled,
-// context.DeadlineExceeded, and errNetworkStalled.
+// requestCause preserves err while also exposing, through errors.Is, the cause
+// that cancelled ctx. When ctx is still live it returns err unchanged.
 func requestCause(ctx context.Context, err error) error {
-	if cause := context.Cause(ctx); cause != nil {
-		return cause
+	cause := context.Cause(ctx)
+	if cause == nil {
+		return err
 	}
-	return err
+	return &canceledRequestError{err: err, cause: cause}
+}
+
+// canceledRequestError pairs a transport error with the context cause that
+// cancelled the request. Both are reachable by errors.Is, and the message only
+// appends the cause when the transport error does not already state it.
+type canceledRequestError struct {
+	err   error
+	cause error
+}
+
+func (e *canceledRequestError) Error() string {
+	msg := e.err.Error()
+	if strings.Contains(msg, e.cause.Error()) {
+		return msg
+	}
+	return msg + ": " + e.cause.Error()
+}
+
+func (e *canceledRequestError) Unwrap() []error {
+	return []error{e.err, e.cause}
 }
 
 // progressReader resets the idle watchdog whenever a read makes progress.
